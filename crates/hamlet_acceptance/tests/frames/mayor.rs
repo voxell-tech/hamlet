@@ -390,10 +390,7 @@ async fn give() {
     c.idle().await;
     assert_eq!(c.ask(json!({"type":"give","to":{"hamlet":"home","agent":"mayor"},"skill":{"starter":"web-search"}})).await["kind"], "notice");
     c.until(|c| {
-        c.state().agents[0]
-            .skills
-            .as_ref()
-            .is_some_and(|s| s.iter().any(|s| s == "web-search"))
+        c.state().agents[0].skills.iter().any(|s| s == "web-search")
     })
     .await;
     assert_eq!(c.ask(json!({"type":"give","to":{"hamlet":"home","agent":"mayor"},"skill":{"starter":"nothing"}})).await["kind"], "error");

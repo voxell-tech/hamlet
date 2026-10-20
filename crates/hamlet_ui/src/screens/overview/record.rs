@@ -251,7 +251,7 @@ mod tests {
         state
             .agents
             .push(hamlet_testing::realm::agent("home", 1, "scout"));
-        state.hamlets[0].votes = Some(vec![
+        state.hamlets[0].votes = vec![
             v0::VoteView {
                 id: 7,
                 motion: "scout for mayor".into(),
@@ -270,7 +270,7 @@ mod tests {
                 report: "The founding vote failed.".into(),
                 voters: vec![],
             },
-        ]);
+        ];
         hamlet_client::receive(
             app.world_mut(),
             v0::ServerMessage::State(state.clone()),

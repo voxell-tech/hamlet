@@ -464,12 +464,12 @@ mod tests {
      {
         let mut state = realm::state();
         state.deeds = hamlet_testing::realm::deeds(&["give"]);
-        state.starters = Some(vec![v0::Skill {
+        state.starters = vec![v0::Skill {
             name: "research".into(),
             description: "Find sources".into(),
-        }]);
+        }];
         let mut scout = realm::agent(HOME, 1, "scout");
-        scout.skills = Some(vec!["maps".into()]);
+        scout.skills = vec!["maps".into()];
         state.agents.push(scout);
         let mut app = app(state);
         for (label, expected) in [

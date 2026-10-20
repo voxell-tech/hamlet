@@ -141,7 +141,6 @@ async fn hello_precedes_the_outbox_and_received_state_fills_the_world()
         v0::ClientMessage::Hello(v0::Hello {
             v: v0::V,
             token: "window-token".into(),
-            seen: None
         })
     );
     for (message, id, text) in [
@@ -174,7 +173,7 @@ async fn hello_precedes_the_outbox_and_received_state_fills_the_world()
 struct Reconnections(u32);
 
 #[tokio::test]
-async fn a_reconnection_keeps_the_realm_and_sends_offline_requests_after_hello_with_seen()
+async fn a_reconnection_keeps_the_realm_and_sends_offline_requests_after_hello()
  {
     use hamlet_client::messages::Reconnected;
     use hamlet_client::realm::Seen;
@@ -259,10 +258,6 @@ async fn a_reconnection_keeps_the_realm_and_sends_offline_requests_after_hello_w
         v0::ClientMessage::Hello(v0::Hello {
             v: v0::V,
             token: "window-token".into(),
-            seen: Some(v0::Seen {
-                epoch: 19,
-                revision: 6
-            })
         })
     );
     let v0::ClientMessage::Say(message) = &received[1] else {
@@ -487,18 +482,11 @@ async fn no_selected_server_leaves_the_outbox_alone() {
 }
 
 #[tokio::test]
-async fn the_runtime_may_arrive_later_and_the_first_hello_uses_existing_seen()
- {
-    use hamlet_client::realm::Seen;
-
+async fn the_runtime_may_arrive_later() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("ws://{}", listener.local_addr().unwrap());
     let mut app = window(&url);
     app.world_mut().remove_resource::<Tokio>();
-    app.insert_resource(Seen {
-        epoch: 4,
-        revision: 9,
-    });
     say(&mut app, "Once the runtime arrives");
     app.update();
     assert!(
@@ -527,16 +515,7 @@ async fn the_runtime_may_arrive_later_and_the_first_hello_uses_existing_seen()
         received.len() == 2
     })
     .await;
-    let v0::ClientMessage::Hello(hello) = &received[0] else {
-        panic!("Expected hello.");
-    };
-    assert_eq!(
-        hello.seen,
-        Some(v0::Seen {
-            epoch: 4,
-            revision: 9
-        })
-    );
+    assert!(matches!(received[0], v0::ClientMessage::Hello(_)));
     assert!(matches!(received[1], v0::ClientMessage::Say(_)));
     drop(app);
     server.await.unwrap();
@@ -764,11 +743,10 @@ async fn a_request_fault_after_skipped_state_and_close_retries() {
         let (stream, _) = listener.accept().await.unwrap();
         let mut socket =
             tokio_tungstenite::accept_async(stream).await.unwrap();
-        let v0::ClientMessage::Hello(hello) = next(&mut socket).await
-        else {
-            panic!("hello");
-        };
-        assert!(hello.seen.is_some());
+        assert!(matches!(
+            next(&mut socket).await,
+            v0::ClientMessage::Hello(_)
+        ));
         let v0::ClientMessage::Say(say) = next(&mut socket).await
         else {
             panic!("offline say");

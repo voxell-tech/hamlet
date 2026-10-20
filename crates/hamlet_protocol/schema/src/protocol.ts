@@ -125,8 +125,8 @@ export const HamletLimits = object({
 
 /** A hamlet's limits as stored, where null leaves a meter uncapped (H22). */
 export const Limits = object({
-    votes: Type.Optional(VoteLimits),
-    hamlets: Type.Optional(HamletLimits),
+    votes: VoteLimits,
+    hamlets: HamletLimits,
     budget: object({
         period: Period,
         tokens: nullable(Type.Integer()),
@@ -216,16 +216,11 @@ export type Endpoint = Static<typeof Endpoint>;
 export const LoginMethod = Type.Enum(["key", "subscription"]);
 export type LoginMethod = Static<typeof LoginMethod>;
 
-/** The state a client saw last. */
-export const Seen = object({ epoch: Type.Integer(), revision: Type.Integer() });
-export type Seen = Static<typeof Seen>;
-
 /** The first message of every connection, with the home's token (S4). */
 export const Hello = object({
     type: Type.Literal("hello"),
     v: Type.Literal(0),
     token: Type.String(),
-    seen: Type.Optional(Seen),
 });
 export type Hello = Static<typeof Hello>;
 
@@ -550,9 +545,9 @@ export const ClosedHamlet = object({
 
 /** A hamlet's complete client view, including its limits and remaining budget. */
 export const Hamlet = object({
-    roads: Type.Optional(Type.Array(Road)),
-    votes: Type.Optional(Type.Array(VoteView)),
-    at: Type.Optional(nullable(TownAt)),
+    roads: Type.Array(Road),
+    votes: Type.Array(VoteView),
+    at: nullable(TownAt),
     id: Type.String(),
     name: Type.String(),
     folder: nullable(Type.String()),
@@ -585,8 +580,8 @@ export type Doing = Static<typeof Doing>;
 /** An agent's client view, with its stable reference and current work. */
 export const Agent = object({
     left: Type.Optional(Left),
-    consulting: Type.Optional(Type.Boolean()),
-    conversations: Type.Optional(Type.Array(ConversationView)),
+    consulting: Type.Boolean(),
+    conversations: Type.Array(ConversationView),
     ref: AgentRef,
     name: Type.String(),
     purpose: Type.String(),
@@ -609,7 +604,7 @@ export const Agent = object({
     saying: object({ text: Type.String(), thought: Type.Boolean() }),
     spent: object({ ...Amount.properties, cost: Type.String() }),
     /** Skill folders in its house (H25). */
-    skills: Type.Optional(Type.Array(Type.String())),
+    skills: Type.Array(Type.String()),
 });
 export type Agent = Static<typeof Agent>;
 
@@ -639,7 +634,7 @@ export const WaitDetail = Type.Union([
     object({ kind: Type.Literal("fault") }),
     object({
         kind: Type.Literal("question"),
-        questions: Type.Optional(Questions),
+        questions: Questions,
     }),
     object({ kind: Type.Literal("objection") }),
 ]);
@@ -677,26 +672,24 @@ export const SettingsView = object({
     unset: Type.Boolean(),
     link: Link,
     /** Where agents' tools run, without the workspace token. */
-    workspace: Type.Optional(
-        object({
-            /** The remote workspace chosen in Settings, or null for the local one. */
-            url: nullable(Type.String()),
-            /** The remote workspace the server works in until it restarts, or null for the local one. */
-            running: nullable(Type.String()),
-            /** The latest move of the houses to the chosen workspace since the server started. */
-            move: Type.Optional(
-                object({
-                    state: Type.Enum(["moving", "moved", "failed"]),
-                    /** Houses moved so far. */
-                    done: Type.Integer(),
-                    /** Houses to move. */
-                    of: Type.Integer(),
-                    /** The outcome in words, empty while moving. */
-                    text: Type.String(),
-                }),
-            ),
-        }),
-    ),
+    workspace: object({
+        /** The remote workspace chosen in Settings, or null for the local one. */
+        url: nullable(Type.String()),
+        /** The remote workspace the server works in until it restarts, or null for the local one. */
+        running: nullable(Type.String()),
+        /** The latest move of the houses to the chosen workspace since the server started. */
+        move: Type.Optional(
+            object({
+                state: Type.Enum(["moving", "moved", "failed"]),
+                /** Houses moved so far. */
+                done: Type.Integer(),
+                /** Houses to move. */
+                of: Type.Integer(),
+                /** The outcome in words, empty while moving. */
+                text: Type.String(),
+            }),
+        ),
+    }),
 });
 export type SettingsView = Static<typeof SettingsView>;
 
@@ -722,9 +715,9 @@ export type Deed = Static<typeof Deed>;
 /** The whole realm's state (S5). */
 export const State = object({
     /** The server machine's houses folder. Local chat links and pictures must not resolve under it. */
-    houses: Type.Optional(Type.String()),
-    library: Type.Optional(Type.Array(LibrarySkill)),
-    closed: Type.Optional(Type.Array(ClosedHamlet)),
+    houses: Type.String(),
+    library: Type.Array(LibrarySkill),
+    closed: Type.Array(ClosedHamlet),
     type: Type.Literal("state"),
     /** A new epoch is a new server start. */
     epoch: Type.Integer(),
@@ -738,9 +731,9 @@ export const State = object({
     settings: SettingsView,
     providers: Type.Array(ProviderView),
     /** The chief's commands this server carries out (H26). */
-    deeds: Type.Optional(Type.Array(Deed)),
+    deeds: Type.Array(Deed),
     /** Shipped skills a chief can give (H25). */
-    starters: Type.Optional(Type.Array(Skill)),
+    starters: Type.Array(Skill),
 });
 export type State = Static<typeof State>;
 
@@ -881,7 +874,7 @@ export const Transcript = object({
     items: Type.Array(Item),
     /** The item the page before this one ends before, or null at the start. */
     earlier: nullable(Type.String()),
-    last: Type.Optional(nullable(LastActivity)),
+    last: nullable(LastActivity),
     working: Type.Boolean(),
     pending: count(),
     usage: UsageView,

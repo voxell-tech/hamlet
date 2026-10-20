@@ -56,7 +56,7 @@ fn roads(realm: &State) -> Vec<String> {
     realm
         .hamlets
         .iter()
-        .flat_map(|h| h.roads.iter().flatten())
+        .flat_map(|h| h.roads.iter())
         .map(|r| {
             let mut ends = [
                 format!("{}#{}", r.a.hamlet, r.a.number),
@@ -152,7 +152,6 @@ async fn carries_a_letter_and_its_reply_then_asks_a_question() {
     assert_eq!(
         scout
             .conversations
-            .unwrap()
             .into_iter()
             .map(|c| (c.with, c.kind, c.count))
             .collect::<Vec<_>>(),
@@ -164,7 +163,6 @@ async fn carries_a_letter_and_its_reply_then_asks_a_question() {
     let to_smith = realm.hamlets[0]
         .roads
         .iter()
-        .flatten()
         .find(|r| ends.contains(&r.a) && ends.contains(&r.b))
         .unwrap();
     assert_eq!(to_smith.messages, 2);
@@ -592,11 +590,7 @@ async fn holds_decisions_during_a_vote_follows_the_new_office_and_overturns()
         voter.tell(mayor(), "/vote smith A new direction").await;
     s.chief
         .until("an open vote", |c| {
-            c.realm().hamlets[0]
-                .votes
-                .iter()
-                .flatten()
-                .any(|v| v.open)
+            c.realm().hamlets[0].votes.iter().any(|v| v.open)
         })
         .await;
     let mayor_chat = chat(mayor());
@@ -636,7 +630,7 @@ async fn holds_decisions_during_a_vote_follows_the_new_office_and_overturns()
         })
         .await;
     let realm = s.chief.realm();
-    let report = &realm.hamlets[0].votes.as_ref().unwrap()[0];
+    let report = &realm.hamlets[0].votes[0];
     assert!(!report.open);
     assert!(report.report.contains("Passed:"), "{report:?}");
     // The chat with the office now reaches smith.
@@ -792,15 +786,16 @@ async fn shelves_an_offered_skill_for_every_agent_and_unshelves_it() {
     s.chief.say(to("home", "scout"), "Share the map").await;
     s.chief
         .until("the shelved skill", |c| {
-            c.messages().iter().any(|m| matches!(m, ServerMessage::State(s)
-                if s.library.iter().flatten().any(|k| k.name == "map-iron")))
+            c.messages().iter().any(|m| {
+                matches!(m, ServerMessage::State(s)
+                if s.library.iter().any(|k| k.name == "map-iron"))
+            })
         })
         .await;
     let shelved = s
         .chief
         .realm()
         .library
-        .unwrap()
         .into_iter()
         .find(|k| k.name == "map-iron")
         .unwrap();
@@ -811,8 +806,11 @@ async fn shelves_an_offered_skill_for_every_agent_and_unshelves_it() {
     assert!(!skill.exists());
     assert!(s.home.file("library/map-iron/SKILL.md").is_file());
     assert!(
-        s.chief.changes().iter().any(|u| matches!(u, Update::Agent { agent }
-            if agent.name == "scout" && agent.consulting == Some(true))),
+        s.chief
+            .changes()
+            .iter()
+            .any(|u| matches!(u, Update::Agent { agent }
+            if agent.name == "scout" && agent.consulting)),
         "scout consults the librarian"
     );
     let prompt = s.chief.prompt(to("home", "smith")).await;
@@ -825,11 +823,7 @@ async fn shelves_an_offered_skill_for_every_agent_and_unshelves_it() {
     assert_eq!(reply.kind, ReplyKind::Notice);
     s.chief
         .until("the skill off the shelf", |c| {
-            !c.realm()
-                .library
-                .iter()
-                .flatten()
-                .any(|k| k.name == "map-iron")
+            !c.realm().library.iter().any(|k| k.name == "map-iron")
         })
         .await;
     let reply = s.chief.say(mayor(), "/unshelve absent").await;
@@ -1033,7 +1027,6 @@ async fn carries_a_question_across_a_crash_without_asking_twice() {
             .agent("home", "scout")
             .unwrap()
             .conversations
-            .unwrap()
             .iter()
             .find(|c| c.kind == ConversationViewKind::Questions)
             .unwrap()

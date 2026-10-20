@@ -468,6 +468,8 @@ mod tests {
                 "type": "transcript",
                 "chat": {"with": {"hamlet": "home", "agent": "mayor"}},
                 "items": items,
+                "earlier": null,
+                "last": null,
                 "working": false,
                 "pending": 0,
                 "number": 1,
@@ -968,10 +970,10 @@ mod tests {
         state
             .agents
             .push(hamlet_testing::realm::agent("home", 1, "scout"));
-        state.agents[0].conversations = Some(serde_json::from_value(json!([
+        state.agents[0].conversations = serde_json::from_value(json!([
             {"with":{"hamlet":"home","number":1},"kind":"letters","count":2,"last":1000},
             {"with":{"hamlet":"home","number":1},"kind":"questions","count":1,"last":2000}
-        ])).unwrap());
+        ])).unwrap();
         receive(
             &mut app,
             serde_json::to_value(v0::ServerMessage::State(state))
@@ -1002,7 +1004,7 @@ mod tests {
                 json!({"type":"transcript","chat":chat,"items":[
                     {"id":"1:0","at":1,"kind":"user","text":"Question","author":"scout@home"},
                     {"id":"2:0","at":2,"kind":"assistant","text":"Answer"}
-                ], "earlier":"1:0","working":true,"pending":0,"usage":{
+                ], "earlier":"1:0","last":null,"working":true,"pending":0,"usage":{
                     "input":0,"output":0,"cached":0,"calls":0,"lastInput":0,"reasoning":0,"unreported":0,"summary":"","micros":0,"ms":0
                 }}),
             );

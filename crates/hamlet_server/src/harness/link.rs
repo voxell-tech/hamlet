@@ -5,12 +5,15 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Admitted {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub detail: Option<serde_json::Value>,
     pub id: String,
     pub re: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub reason: Option<String>,
     pub status: AdmittedStatus,
     pub submission: String,
@@ -30,11 +33,13 @@ pub enum AdmittedStatus {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Allow {
     pub arguments: std::collections::BTreeMap<String, serde_json::Value>,
     pub conversation: String,
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub input: Option<String>,
     pub key: String,
     pub tool: String,
@@ -42,8 +47,10 @@ pub struct Allow {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Allowance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub credential: Option<Credential>,
     pub id: String,
     pub re: String,
@@ -52,6 +59,7 @@ pub struct Allowance {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Allowed {
     pub id: String,
     pub re: String,
@@ -59,6 +67,7 @@ pub struct Allowed {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Answered {
     pub id: String,
     pub key: String,
@@ -66,18 +75,20 @@ pub struct Answered {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Attempt {
     pub conversation: String,
     pub id: String,
     pub key: String,
     pub model: ModelRef,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub task: Option<String>,
     pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", deny_unknown_fields)]
 pub enum Block {
     #[serde(rename = "text")]
     Text {
@@ -96,6 +107,7 @@ pub enum Block {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Cancel {
     pub conversation: String,
     pub id: String,
@@ -103,6 +115,7 @@ pub struct Cancel {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Cancelled {
     pub id: String,
     pub re: String,
@@ -128,6 +141,7 @@ pub enum Capability {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Charged {
     pub id: String,
     pub re: String,
@@ -135,12 +149,14 @@ pub struct Charged {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Close {
     pub id: String,
     pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Configure {
     pub conversation: String,
     pub id: String,
@@ -149,7 +165,7 @@ pub struct Configure {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(untagged, deny_unknown_fields)]
 pub enum ConfigureTools {
     Only {
         only: Vec<String>,
@@ -160,6 +176,7 @@ pub enum ConfigureTools {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Configured {
     pub id: String,
     pub re: String,
@@ -167,6 +184,7 @@ pub struct Configured {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Create {
     pub agent: String,
     pub errand: bool,
@@ -177,6 +195,7 @@ pub struct Create {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Created {
     pub conversation: String,
     pub id: String,
@@ -185,13 +204,15 @@ pub struct Created {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", deny_unknown_fields)]
 pub enum Credential {
     #[serde(rename = "api_key")]
     ApiKey {
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "present")]
         env: Option<std::collections::BTreeMap<String, String>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "present")]
         key: Option<String>,
     },
     #[serde(rename = "oauth")]
@@ -204,12 +225,15 @@ pub enum Credential {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CredentialRequest {
     pub action: CredentialRequestAction,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub credential: Option<Credential>,
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub lease: Option<String>,
     pub scope: String,
     pub v: u64,
@@ -230,19 +254,24 @@ pub enum CredentialRequestAction {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CredentialResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub credential: Option<Credential>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub error: Option<String>,
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub lease: Option<String>,
     pub re: String,
     pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Diagnostic {
     pub code: String,
     pub message: String,
@@ -272,6 +301,7 @@ pub enum ErrorCode {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Fork {
     pub at: String,
     pub conversation: String,
@@ -281,11 +311,13 @@ pub struct Fork {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Hello {
     pub adapter: String,
     pub capabilities: Vec<Capability>,
     pub harness: String,
     pub id: String,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub runtime: Option<String>,
     pub store: HelloStore,
     pub v: u64,
@@ -303,8 +335,10 @@ pub enum HelloStore {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct History {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub before: Option<String>,
     pub conversation: String,
     pub id: String,
@@ -313,32 +347,44 @@ pub struct History {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Item {
     pub at: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub blocks: Option<Vec<Block>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub call: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub details: Option<std::collections::BTreeMap<String, serde_json::Value>>,
     pub entry: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub error: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub failure: Option<String>,
     pub kind: ItemKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub mark: Option<Mark>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub request: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub stop: Option<String>,
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub tool: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub usage: Option<Usage>,
 }
 
@@ -357,6 +403,7 @@ pub enum ItemKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Kept {
     pub conversation: String,
     pub id: String,
@@ -365,20 +412,24 @@ pub struct Kept {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LinkError {
     pub code: ErrorCode,
     pub id: String,
     pub message: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub re: Option<String>,
     pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Live {
     pub conversation: String,
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub partial: Option<Partial>,
     pub pending: u64,
     pub running: bool,
@@ -386,26 +437,31 @@ pub struct Live {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Mark {
     pub data: std::collections::BTreeMap<String, serde_json::Value>,
     pub kind: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ModelRef {
     #[serde(rename = "baseUrl")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub base_url: Option<String>,
     pub id: String,
     pub provider: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Operation {
     pub arguments: std::collections::BTreeMap<String, serde_json::Value>,
     pub conversation: String,
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub input: Option<String>,
     pub key: String,
     pub tool: String,
@@ -413,6 +469,7 @@ pub struct Operation {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Page {
     pub earlier: bool,
     pub id: String,
@@ -422,12 +479,14 @@ pub struct Page {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Partial {
     pub at: u64,
     pub blocks: Vec<Block>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Price {
     #[serde(rename = "cacheRead")]
     pub cache_read: f64,
@@ -438,30 +497,37 @@ pub struct Price {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Prompt {
     pub conversation: String,
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub input: Option<String>,
     pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProviderControl {
     pub cancel: bool,
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub prompt: Option<String>,
     pub scope: String,
     pub v: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub value: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProviderEvent {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub prompt: Option<String>,
     pub scope: String,
     pub step: std::collections::BTreeMap<String, serde_json::Value>,
@@ -469,20 +535,26 @@ pub struct ProviderEvent {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProviderRequest {
     pub action: ProviderRequestAction,
     #[serde(rename = "baseUrl")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub base_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub credential: Option<Credential>,
     pub id: String,
     #[serde(rename = "installationId")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub installation_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub method: Option<ProviderRequestMethod>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub model: Option<String>,
     pub models: Vec<std::collections::BTreeMap<String, serde_json::Value>>,
     pub provider: String,
@@ -510,23 +582,30 @@ pub enum ProviderRequestMethod {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProviderResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub credential: Option<Credential>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub error: Option<String>,
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub models: Option<Vec<std::collections::BTreeMap<String, serde_json::Value>>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub providers: Option<Vec<ProviderResultProviders>>,
     pub re: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub text: Option<String>,
     pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProviderResultProviders {
     pub id: String,
     pub key: bool,
@@ -535,6 +614,7 @@ pub struct ProviderResultProviders {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Refusal {
     pub id: String,
     pub re: String,
@@ -543,6 +623,7 @@ pub struct Refusal {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Refused {
     pub id: String,
     pub re: String,
@@ -551,10 +632,13 @@ pub struct Refused {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Result {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub details: Option<std::collections::BTreeMap<String, serde_json::Value>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub diagnostics: Option<Vec<Diagnostic>>,
     pub error: bool,
     pub id: String,
@@ -564,7 +648,7 @@ pub struct Result {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", deny_unknown_fields)]
 pub enum RuntimeMessage {
     #[serde(rename = "provider_result")]
     ProviderResult(ProviderResult),
@@ -611,6 +695,7 @@ pub enum RuntimeMessage {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Scrub {
     pub id: String,
     pub v: u64,
@@ -618,6 +703,7 @@ pub struct Scrub {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Scrubbed {
     pub id: String,
     pub re: String,
@@ -626,12 +712,14 @@ pub struct Scrubbed {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Section {
     pub name: String,
     pub text: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Sections {
     pub id: String,
     pub re: String,
@@ -640,19 +728,22 @@ pub struct Sections {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Selection {
     #[serde(rename = "contextWindow")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub context_window: Option<u64>,
     #[serde(rename = "maxTokens")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub max_tokens: Option<u64>,
     pub model: ModelRef,
     pub price: Price,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", deny_unknown_fields)]
 pub enum ServerMessage {
     #[serde(rename = "provider_request")]
     ProviderRequest(ProviderRequest),
@@ -711,12 +802,15 @@ pub enum ServerMessage {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Settled {
     pub conversation: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub detail: Option<serde_json::Value>,
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub reason: Option<String>,
     pub request: String,
     pub status: SettledStatus,
@@ -732,12 +826,14 @@ pub enum SettledStatus {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Status {
     pub id: String,
     pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Statuses {
     pub conversations: Vec<StatusesConversations>,
     pub id: String,
@@ -746,15 +842,18 @@ pub struct Statuses {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StatusesConversations {
     pub conversation: String,
     pub running: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Stopped {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub notice: Option<Mark>,
     pub re: String,
     pub v: u64,
@@ -762,20 +861,24 @@ pub struct Stopped {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Submit {
     pub content: String,
     pub conversation: String,
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub mark: Option<Mark>,
     pub request: String,
     pub steer: bool,
     pub v: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub window: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ToolSpec {
     pub description: String,
     pub name: String,
@@ -792,6 +895,7 @@ pub enum ToolSpecReplay {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Tools {
     pub id: String,
     pub tools: Vec<ToolSpec>,
@@ -799,8 +903,10 @@ pub struct Tools {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Usage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub billed: Option<f64>,
     #[serde(rename = "cacheRead")]
     pub cache_read: u64,
@@ -809,21 +915,27 @@ pub struct Usage {
     pub cost: f64,
     #[serde(rename = "estimatedTokens")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub estimated_tokens: Option<u64>,
     #[serde(rename = "firstTokenMs")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub first_token_ms: Option<u64>,
     pub input: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub ms: Option<u64>,
     pub output: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub reasoning: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub stop: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UsageReport {
     pub id: String,
     pub key: String,
@@ -832,19 +944,24 @@ pub struct UsageReport {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Verdict {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub compact: Option<bool>,
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub notice: Option<Mark>,
     pub re: String,
     pub v: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub words: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Waiting {
     pub id: String,
     pub key: String,
@@ -854,19 +971,20 @@ pub struct Waiting {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Welcome {
     pub id: String,
     pub re: String,
     pub tools: Vec<ToolSpec>,
     pub v: u64,
-    pub version: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub windows: Option<std::collections::BTreeMap<String, u64>>,
+    pub windows: std::collections::BTreeMap<String, u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Write {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub boundary: Option<bool>,
     pub conversation: String,
     pub id: String,
@@ -876,19 +994,31 @@ pub struct Write {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Yield {
     pub answer: Item,
     pub conversation: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub history: Option<bool>,
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub input: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub retried: Option<bool>,
     #[serde(rename = "summaryFailure")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub summary_failure: Option<String>,
     pub v: u64,
 }
 
+fn present<'de, D, T>(deserializer: D) -> std::result::Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}

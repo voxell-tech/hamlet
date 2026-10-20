@@ -108,12 +108,9 @@ fn roads_are_unordered_shared_and_only_growth_carries_letters() {
     let between = road(reference("home", 0), reference("mill", 0), 2);
     let scout_road =
         road(reference("home", 1), reference("mill", 0), 0);
-    state.hamlets[0].roads = Some(vec![
-        home_road.clone(),
-        between.clone(),
-        scout_road.clone(),
-    ]);
-    state.hamlets[1].roads = Some(vec![between.clone(), scout_road]);
+    state.hamlets[0].roads =
+        vec![home_road.clone(), between.clone(), scout_road.clone()];
+    state.hamlets[1].roads = vec![between.clone(), scout_road];
     receive(world, v0::ServerMessage::State(state.clone()));
     assert_eq!(world.query::<&Road>().iter(world).count(), 3);
     assert!(world.resource::<Letters>().0.is_empty());
@@ -126,7 +123,7 @@ fn roads_are_unordered_shared_and_only_growth_carries_letters() {
         .unwrap()
         .0;
     let mut changed = state.hamlets[0].clone();
-    let roads = changed.roads.as_mut().unwrap();
+    let roads = &mut changed.roads;
     let first = &mut roads[0];
     std::mem::swap(&mut first.a, &mut first.b);
     roads[0].messages += 1;
@@ -151,13 +148,13 @@ fn roads_are_unordered_shared_and_only_growth_carries_letters() {
         }],
     );
     assert_eq!(world.resource::<Letters>().0.len(), 1);
-    changed.roads = Some(vec![between]);
+    changed.roads = vec![between];
     change(world, 3, vec![v0::Update::Hamlet { hamlet: changed }]);
     assert_eq!(world.query::<&Road>().iter(world).count(), 1);
     assert!(world.get_entity(entity).is_err());
     state.revision = 4;
     state.hamlets.truncate(1);
-    state.hamlets[0].roads = None;
+    state.hamlets[0].roads = Vec::new();
     state.agents.retain(|a| a.ref_.hamlet == "home");
     let miller = named(world, "miller").unwrap();
     let mill = world.get::<LivesIn>(miller).unwrap().0;
@@ -192,7 +189,7 @@ fn society_views_reconcile_and_transition_effects_fire_once() {
     let world = app.world_mut();
     let mut state = state();
     state.agents.push(agent("home", 1, "scout"));
-    state.hamlets[0].votes = Some(vec![v0::VoteView {
+    state.hamlets[0].votes = vec![v0::VoteView {
         id: 7,
         motion: "scout for mayor".into(),
         by: "chief".into(),
@@ -203,21 +200,20 @@ fn society_views_reconcile_and_transition_effects_fire_once() {
             agent: reference("home", 1),
             cast: None,
         }],
-    }]);
-    state.hamlets[0].at =
-        Some(Some(v0::TownAt { x: -21.5, z: 48.0 }));
-    state.library = Some(vec![v0::LibrarySkill {
+    }];
+    state.hamlets[0].at = Some(v0::TownAt { x: -21.5, z: 48.0 });
+    state.library = vec![v0::LibrarySkill {
         name: "research".into(),
         description: "Read sources".into(),
         by: "scout".into(),
-    }]);
-    state.closed = Some(vec![v0::ClosedHamlet {
+    }];
+    state.closed = vec![v0::ClosedHamlet {
         id: "mill".into(),
         name: "The Mill".into(),
         at: 99,
         by: "chief".into(),
         reason: "quiet".into(),
-    }]);
+    }];
     receive(world, v0::ServerMessage::State(state.clone()));
     let scout = named(world, "scout").unwrap();
     let home = world.get::<LivesIn>(scout).unwrap().0;
@@ -229,9 +225,9 @@ fn society_views_reconcile_and_transition_effects_fire_once() {
     assert_eq!(world.resource::<Closed>().0[0].name, "The Mill");
     assert_eq!(world.get::<Votes>(home).unwrap().0[0].id, 7);
     assert!(world.resource::<Ballots>().0.is_empty());
-    state.hamlets[0].votes.as_mut().unwrap()[0].voters[0].cast =
+    state.hamlets[0].votes[0].voters[0].cast =
         Some(v0::VoterCast::Abstain);
-    state.agents[1].consulting = Some(true);
+    state.agents[1].consulting = true;
     for revision in [1, 2] {
         change(
             world,
@@ -249,11 +245,11 @@ fn society_views_reconcile_and_transition_effects_fire_once() {
     assert_eq!(world.resource::<Ballots>().0, [scout]);
     assert_eq!(world.resource::<Consultations>().0, [Some(scout)]);
     state.revision = 3;
-    state.library = None;
-    state.closed = None;
-    state.hamlets[0].votes = None;
+    state.library = Vec::new();
+    state.closed = Vec::new();
+    state.hamlets[0].votes = Vec::new();
     state.hamlets[0].at = None;
-    state.agents[1].consulting = None;
+    state.agents[1].consulting = false;
     receive(world, v0::ServerMessage::State(state));
     assert!(world.resource::<Closed>().0.is_empty());
     assert!(world.resource::<Skills>().0.is_empty());

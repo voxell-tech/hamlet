@@ -38,7 +38,7 @@ fn roads(realm: &State) -> Vec<String> {
     realm
         .hamlets
         .iter()
-        .flat_map(|h| h.roads.iter().flatten())
+        .flat_map(|h| h.roads.iter())
         .map(|r| {
             let mut ends = [
                 format!("{}#{}", r.a.hamlet, r.a.number),
@@ -134,16 +134,14 @@ async fn founds_a_hamlet_by_vote_has_the_asker_pay_and_overturns_it()
     assert!(peer.usage.micros > 0, "the answer must have a charge");
     s.chief
         .until("the asked conversation in the realm", |c| {
-            c.agent("mill", "miller").is_some_and(|a| {
-                a.conversations.is_some_and(|cs| !cs.is_empty())
-            })
+            c.agent("mill", "miller")
+                .is_some_and(|a| !a.conversations.is_empty())
         })
         .await;
     // The asked side lists the conversation.
     let asked = s.chief.agent("mill", "miller").unwrap();
     let questions = asked
         .conversations
-        .unwrap_or_default()
         .into_iter()
         .map(|c| (c.kind, c.with.hamlet, c.with.number, c.count))
         .collect::<Vec<_>>();
@@ -169,7 +167,6 @@ async fn founds_a_hamlet_by_vote_has_the_asker_pay_and_overturns_it()
         closed
             .closed
             .iter()
-            .flatten()
             .map(|h| h.id.as_str())
             .collect::<Vec<_>>(),
         ["mill"]
@@ -346,7 +343,7 @@ async fn gathers_removal_asks_and_lets_only_the_chief_close_restore_and_erase()
     let reply =
         s.chief.say(mayor(), "/remove-hamlet mill Finished").await;
     assert_eq!(reply.kind, ReplyKind::Notice);
-    let closed = s.join().await.realm().closed.unwrap();
+    let closed = s.join().await.realm().closed;
     assert_eq!(
         closed.iter().map(|h| h.id.as_str()).collect::<Vec<_>>(),
         ["mill"]
@@ -357,7 +354,7 @@ async fn gathers_removal_asks_and_lets_only_the_chief_close_restore_and_erase()
     );
     let reply = s.chief.say(mayor(), "/restore-hamlet mill").await;
     assert_eq!(reply.kind, ReplyKind::Notice);
-    assert_eq!(s.join().await.realm().closed, Some(vec![]));
+    assert!(s.join().await.realm().closed.is_empty());
     s.chief
         .say(mayor(), "/remove-hamlet mill Finished again")
         .await;
@@ -426,8 +423,7 @@ async fn founds_names_and_places_hamlets_by_command() {
             c.realm().hamlets.iter().any(|h| {
                 h.id == "mill"
                     && h.name == "The Mill"
-                    && h.at
-                        == Some(Some(TownAt { x: -12.5, z: 40.0 }))
+                    && h.at == Some(TownAt { x: -12.5, z: 40.0 })
             })
         })
         .await;
@@ -564,11 +560,7 @@ async fn sends_a_whole_state_when_a_hamlet_closes_or_goes() {
             c.messages().iter().any(|m| match m {
                 ServerMessage::State(state) => {
                     ids(state) == ["home"]
-                        && state.closed.as_ref().is_some_and(
-                            |closed| {
-                                closed.iter().any(|h| h.id == "mill")
-                            },
-                        )
+                        && state.closed.iter().any(|h| h.id == "mill")
                 }
                 _ => false,
             })
@@ -588,7 +580,6 @@ async fn sends_a_whole_state_when_a_hamlet_closes_or_goes() {
         state
             .closed
             .iter()
-            .flatten()
             .map(|h| h.id.as_str())
             .collect::<Vec<_>>(),
         ["mill"]
@@ -596,7 +587,7 @@ async fn sends_a_whole_state_when_a_hamlet_closes_or_goes() {
     s.chief.say(mayor(), "/erase-hamlet mill").await;
     s.chief
         .until("the closed list empty", |c| {
-            c.realm().closed == Some(vec![])
+            c.realm().closed.is_empty()
         })
         .await;
 }
@@ -716,11 +707,7 @@ async fn open_votes_prevent_recording_assent_in_either_hamlet() {
     s.chief.say(mayor(), "/vote poet Review office").await;
     s.chief
         .until("open vote", |c| {
-            c.realm().hamlets[0]
-                .votes
-                .iter()
-                .flatten()
-                .any(|v| v.open)
+            c.realm().hamlets[0].votes.iter().any(|v| v.open)
         })
         .await;
     s.chief.say(mayor(), "Try road during own vote").await;
@@ -730,8 +717,7 @@ async fn open_votes_prevent_recording_assent_in_either_hamlet() {
             .agent("mill", "miller")
             .unwrap()
             .conversations
-            .as_ref()
-            .is_none_or(Vec::is_empty),
+            .is_empty(),
         "A held road agreement must not ask the other mayor"
     );
     s.chief
@@ -743,8 +729,7 @@ async fn open_votes_prevent_recording_assent_in_either_hamlet() {
             .agent("home", "founder")
             .unwrap()
             .conversations
-            .as_ref()
-            .is_none_or(Vec::is_empty),
+            .is_empty(),
         "A held move agreement must not ask the other mayor"
     );
     assert!(

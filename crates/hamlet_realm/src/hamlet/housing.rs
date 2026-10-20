@@ -53,10 +53,7 @@ pub(super) fn house(
     mut commands: Commands,
     mut land: ResMut<Land>,
     mut society: ResMut<Society>,
-    hamlets: Query<
-        (Entity, Option<&Sited>, Option<&Spot>),
-        With<Settlement>,
-    >,
+    hamlets: Query<(Entity, Option<&Sited>, &Spot), With<Settlement>>,
     housed: Query<(Entity, &Housed)>,
     homeless: Query<
         (
@@ -84,7 +81,7 @@ pub(super) fn house(
             None => {
                 // At the spot its chief set it down, or on the first
                 // free site.
-                let town = match spot.and_then(|spot| spot.0) {
+                let town = match spot.0 {
                     Some((x, z)) => society
                         .found_town_at(&mut land, Vec2::new(x, z)),
                     None => society.found_town(&mut land),

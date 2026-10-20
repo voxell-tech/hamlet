@@ -58,25 +58,13 @@ fn chat() -> ChatRef {
 }
 
 #[test]
-fn hello_carries_the_version_token_and_optional_seen_state() {
+fn hello_carries_the_version_and_token() {
     client(
         ClientMessage::Hello(Hello {
             v: V,
             token: "test-token".into(),
-            seen: None,
         }),
         json!({"type": "hello", "v": 0, "token": "test-token"}),
-    );
-    client(
-        ClientMessage::Hello(Hello {
-            v: V,
-            token: "test-token".into(),
-            seen: Some(Seen {
-                epoch: 1,
-                revision: 3,
-            }),
-        }),
-        json!({"type": "hello", "v": 0, "token": "test-token", "seen": {"epoch": 1, "revision": 3}}),
     );
 }
 
@@ -409,6 +397,11 @@ fn server(wire: Value) -> ServerMessage {
 
 fn limits_wire() -> Value {
     json!({
+        "votes": {
+            "passYes": 2, "passOf": 3, "leastVoters": 3, "sealed": true, "groundedOnly": false,
+            "ballotMinutes": 5, "openMinutes": 60, "retryMinutes": 60
+        },
+        "hamlets": {"most": 6, "roadsBetween": true, "removalMayors": 3},
         "budget": {"period": "day", "tokens": null, "cost": 5.0, "minutes": null},
         "task": {"messages": 12, "tokens": null, "cost": 1.0, "minutes": 20},
         "road": {"tokens": 0, "cost": 0.01, "minutes": 0, "growsOverDays": 7},
@@ -430,7 +423,8 @@ fn hamlet_wire() -> Value {
             "spent": {"tokens": 100, "micros": 1250000, "ms": 200},
             "caps": {"micros": 5000000, "ms": null}, "summary": "$1.25 today", "lines": ["100 tokens"],
             "left": 0.75, "remains": "$3.75 left"
-        }
+        },
+        "roads": [], "votes": [], "at": null
     })
 }
 
@@ -440,7 +434,8 @@ fn agent_wire() -> Value {
         "since": 1700000000000_i64, "mayor": true, "model": "faux/test", "busy": true, "faulted": false,
         "activity": {"doing": "read-file", "doingWords": "Reading a file", "step": 2, "failures": 0},
         "saying": {"text": "Looking", "thought": true},
-        "spent": {"tokens": 100, "micros": 1250000, "ms": 200, "cost": "$1.25"}
+        "spent": {"tokens": 100, "micros": 1250000, "ms": 200, "cost": "$1.25"},
+        "consulting": false, "conversations": [], "skills": ["release"]
     })
 }
 
@@ -473,7 +468,8 @@ fn settings_wire() -> Value {
     json!({
         "model": "faux/test", "reflectEvery": 10, "allowNet": false,
         "endpoints": [{"name": "local", "baseUrl": "http://localhost:8080", "key": false}],
-        "unset": false, "link": {"state": "connected", "models": 1, "words": "Connected"}
+        "unset": false, "link": {"state": "connected", "models": 1, "words": "Connected"},
+        "workspace": {"url": null, "running": null}
     })
 }
 
@@ -485,7 +481,10 @@ fn state_wire() -> Value {
     json!({
         "type": "state", "epoch": 1, "revision": 2, "chief": "chief", "sandbox": "Seatbelt",
         "hamlets": [hamlet_wire()], "agents": [agent_wire()], "waits": [wait_wire()],
-        "grants": grants_wire(), "settings": settings_wire(), "providers": providers_wire()
+        "grants": grants_wire(), "settings": settings_wire(), "providers": providers_wire(),
+        "houses": "/home/chief/.hamlet/houses", "library": [], "closed": [],
+        "deeds": [{"name": "mode", "usage": "<manual|auto>", "description": "Whether agents ask before they change the folder"}],
+        "starters": [{"name": "web-search", "description": "Searches the web"}]
     })
 }
 
@@ -575,11 +574,12 @@ fn transcripts_keep_every_item_kind_and_page_status() {
     }
     server(json!({
         "type": "transcript", "to": ID, "chat": {"with": {"hamlet": "home", "agent": "mayor"}, "past": 2},
-        "number": 2, "items": items, "earlier": "entry:0", "working": true, "pending": 1, "usage": usage_wire()
+        "number": 2, "items": items, "earlier": "entry:0", "last": {"what": "Reading", "at": 10},
+        "working": true, "pending": 1, "usage": usage_wire()
     }));
     server(json!({
         "type": "transcript", "chat": {"with": {"hamlet": "home", "agent": "mayor"}},
-        "items": [], "earlier": null, "working": false, "pending": 0, "usage": usage_wire()
+        "items": [], "earlier": null, "last": null, "working": false, "pending": 0, "usage": usage_wire()
     }));
 }
 
@@ -610,19 +610,46 @@ fn faults_can_address_a_request_or_the_whole_connection() {
 }
 
 #[test]
-fn older_windows_accept_optional_additions_to_messages_and_nested_entities()
- {
-    let expected = server(state_wire());
-    let mut newer = state_wire();
-    newer["later"] = json!(["new"]);
-    newer["agents"][0]["later"] = json!({"value": true});
-    assert_eq!(
-        serde_json::from_value::<ServerMessage>(newer).unwrap(),
-        expected
-    );
-    assert!(matches!(serde_json::from_value::<ServerMessage>(json!({
-        "type": "read", "to": ID, "charter": {"text": "Be kind", "own": true, "later": 1}, "later": true
-    })).unwrap(), ServerMessage::Read(ReadResult::Charter { .. })));
+fn unknown_and_missing_nullable_fields_are_refused_at_every_level() {
+    let mut state = state_wire();
+    state["later"] = json!(true);
+    let mut agent = state_wire();
+    agent["agents"][0]["later"] = json!(true);
+    let mut detail = state_wire();
+    detail["waits"][0]["detail"]["later"] = json!(true);
+    let mut at = state_wire();
+    at["hamlets"][0].as_object_mut().unwrap().remove("at");
+    let mut words = state_wire();
+    words["settings"]["link"]
+        .as_object_mut()
+        .unwrap()
+        .remove("words");
+    for wire in [
+        state,
+        agent,
+        detail,
+        at,
+        words,
+        json!({"type": "read", "to": ID, "charter": {"text": "Be kind", "own": true}, "later": true}),
+        json!({"type": "read", "to": ID, "charter": {"text": "Be kind", "own": true, "later": 1}}),
+        json!({"type": "login", "login": "login-1", "step": {"done": "Connected", "later": 1}}),
+    ] {
+        assert!(
+            serde_json::from_value::<ServerMessage>(wire.clone())
+                .is_err(),
+            "{wire}"
+        );
+    }
+    for wire in [
+        json!({"type": "hello", "v": 0, "token": "t", "later": 1}),
+        json!({"type": "edit", "id": ID, "doc": "limits", "hamlet": "home", "whole": {}, "later": 1}),
+    ] {
+        assert!(
+            serde_json::from_value::<ClientMessage>(wire.clone())
+                .is_err(),
+            "{wire}"
+        );
+    }
 }
 
 #[test]

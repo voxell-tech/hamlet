@@ -23,14 +23,14 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         "erase-hamlet",
         "found",
     ]);
-    state.closed = Some(vec![v0::ClosedHamlet {
+    state.closed = vec![v0::ClosedHamlet {
         id: "press".into(),
         name: "The Old Press".into(),
         at: 1000,
         by: "chief".into(),
         reason: "The harvest is finished. Its houses are kept."
             .into(),
-    }]);
+    }];
     for (id, title, mayor, others) in [
         ("home", "Pear Tree Hollow", "founder", 3),
         ("mill", "mill", "miller", 2),
@@ -39,7 +39,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         let mut hamlet = hamlet_testing::realm::hamlet(id);
         hamlet.name = title.into();
         if id == "home" {
-            hamlet.votes = Some(vec![v0::VoteView {
+            hamlet.votes = vec![v0::VoteView {
                 id: 3,
                 motion: "scout for mayor".into(),
                 by: "chief".into(),
@@ -49,22 +49,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
                          passed."
                     .into(),
                 voters: vec![],
-            }]);
-            hamlet.limits.votes = Some(v0::VoteLimits {
-                pass_yes: 2,
-                pass_of: 3,
-                least_voters: 3,
-                sealed: true,
-                grounded_only: false,
-                ballot_minutes: 5,
-                open_minutes: 60,
-                retry_minutes: 60,
-            });
-            hamlet.limits.hamlets = Some(v0::HamletLimits {
-                most: 6,
-                roads_between: true,
-                removal_mayors: 3,
-            });
+            }];
             hamlet.folder = Some("/projects/orchard-almanac".into());
             hamlet.mode_words = "Agents ask before each edit and \
                                  command on the server."

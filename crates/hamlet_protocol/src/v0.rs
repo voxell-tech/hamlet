@@ -5,21 +5,22 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Address {
     pub agent: String,
     pub hamlet: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Agent {
     pub activity: AgentActivity,
     pub busy: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub consulting: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub conversations: Option<Vec<ConversationView>>,
+    pub consulting: bool,
+    pub conversations: Vec<ConversationView>,
     pub faulted: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub left: Option<Left>,
     pub mayor: bool,
     pub model: String,
@@ -29,12 +30,12 @@ pub struct Agent {
     pub ref_: AgentRef,
     pub saying: AgentSaying,
     pub since: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub skills: Option<Vec<String>>,
+    pub skills: Vec<String>,
     pub spent: AgentSpent,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AgentActivity {
     pub doing: Doing,
     #[serde(rename = "doingWords")]
@@ -44,12 +45,14 @@ pub struct AgentActivity {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AgentSaying {
     pub text: String,
     pub thought: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AgentSpent {
     pub cost: String,
     pub micros: i64,
@@ -58,12 +61,14 @@ pub struct AgentSpent {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AgentRef {
     pub hamlet: String,
     pub number: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Amount {
     pub micros: i64,
     pub ms: i64,
@@ -71,17 +76,21 @@ pub struct Amount {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Answer {
     pub choice: Choice,
     pub id: RequestId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub picks: Option<Vec<Pick>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub text: Option<String>,
     pub wait: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Change {
     pub added: u64,
     pub count: String,
@@ -93,6 +102,7 @@ pub struct Change {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ChangeLines {
     pub mark: ChangeLinesMark,
     pub text: String,
@@ -109,6 +119,7 @@ pub enum ChangeLinesMark {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Changes {
     pub changes: Vec<Update>,
     pub epoch: i64,
@@ -116,12 +127,16 @@ pub struct Changes {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ChatRef {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub from: Option<AgentRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub kind: Option<ChatRefKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub past: Option<i64>,
     pub with: Address,
 }
@@ -135,12 +150,13 @@ pub enum ChatRefKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "what")]
+#[serde(tag = "what", deny_unknown_fields)]
 pub enum Check {
     #[serde(rename = "model")]
     Model {
         id: RequestId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "present")]
         model: Option<String>,
     },
     #[serde(rename = "connection")]
@@ -168,7 +184,7 @@ pub enum Choice {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", deny_unknown_fields)]
 pub enum ClientMessage {
     #[serde(rename = "hello")]
     Hello(Hello),
@@ -207,11 +223,13 @@ pub enum ClientMessage {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Close {
     pub chat: ChatRef,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ClosedHamlet {
     pub at: i64,
     pub by: String,
@@ -221,9 +239,11 @@ pub struct ClosedHamlet {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ConversationView {
     pub count: i64,
     pub kind: ConversationViewKind,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub last: Option<i64>,
     pub with: AgentRef,
 }
@@ -237,6 +257,7 @@ pub enum ConversationViewKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Deed {
     pub description: String,
     pub name: String,
@@ -272,11 +293,12 @@ pub enum Doing {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "doc")]
+#[serde(tag = "doc", deny_unknown_fields)]
 pub enum Edit {
     #[serde(rename = "charter")]
     Charter {
         id: RequestId,
+        #[serde(deserialize_with = "Option::deserialize")]
         text: Option<String>,
     },
     #[serde(rename = "character")]
@@ -307,6 +329,7 @@ pub enum Edit {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EditLimitsSetSet {
     pub key: String,
     pub section: String,
@@ -314,12 +337,13 @@ pub struct EditLimitsSetSet {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(untagged, deny_unknown_fields)]
 pub enum EditLimits {
     Set {
         hamlet: String,
         id: RequestId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "present")]
         reason: Option<String>,
         set: EditLimitsSetSet,
     },
@@ -327,22 +351,28 @@ pub enum EditLimits {
         hamlet: String,
         id: RequestId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "present")]
         reason: Option<String>,
         whole: std::collections::BTreeMap<String, serde_json::Value>,
     },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EditSettingsSet {
     #[serde(rename = "allowNet")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub allow_net: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub endpoints: Option<Vec<Endpoint>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub model: Option<String>,
     #[serde(rename = "reflectEvery")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub reflect_every: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "present")]
@@ -350,16 +380,20 @@ pub struct EditSettingsSet {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EditSettingsSetWorkspace {
     pub token: String,
     pub url: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EditCatalogueSet {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub allowed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub note: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "present")]
@@ -367,6 +401,7 @@ pub struct EditCatalogueSet {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Endpoint {
     #[serde(rename = "baseUrl")]
     pub base_url: String,
@@ -374,14 +409,16 @@ pub struct Endpoint {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Fault {
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub to: Option<RequestId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(untagged, deny_unknown_fields)]
 pub enum Give {
     Files {
         files: Vec<GiveFilesFiles>,
@@ -396,13 +433,14 @@ pub enum Give {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GiveFilesFiles {
     pub path: String,
     pub size: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(untagged, deny_unknown_fields)]
 pub enum GiveSkillSkill {
     Starter {
         starter: String,
@@ -414,6 +452,7 @@ pub enum GiveSkillSkill {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GivePart {
     pub data: String,
     pub id: RequestId,
@@ -423,8 +462,11 @@ pub struct GivePart {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Grant {
+    #[serde(deserialize_with = "Option::deserialize")]
     pub agent: Option<AgentRef>,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub by: Option<String>,
     pub name: String,
     pub permission: Permission,
@@ -440,12 +482,13 @@ pub enum GrantSource {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Hamlet {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "present")]
-    pub at: Option<Option<TownAt>>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub at: Option<TownAt>,
     pub before: Vec<String>,
     pub budget: Report,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub folder: Option<String>,
     pub id: String,
     pub limits: Limits,
@@ -453,10 +496,8 @@ pub struct Hamlet {
     #[serde(rename = "modeWords")]
     pub mode_words: String,
     pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub roads: Option<Vec<Road>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub votes: Option<Vec<VoteView>>,
+    pub roads: Vec<Road>,
+    pub votes: Vec<VoteView>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -468,6 +509,7 @@ pub enum HamletMode {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct HamletLimits {
     pub most: i64,
     #[serde(rename = "removalMayors")]
@@ -477,26 +519,30 @@ pub struct HamletLimits {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Hello {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub seen: Option<Seen>,
     pub token: String,
     pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Item {
     pub at: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub author: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub chief: Option<String>,
     pub id: String,
     pub kind: ItemKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub rewindable: Option<bool>,
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub tool: Option<ItemTool>,
 }
 
@@ -519,16 +565,22 @@ pub enum ItemKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ItemTool {
+    #[serde(deserialize_with = "Option::deserialize")]
     pub change: Option<Change>,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub exit: Option<i64>,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub failure: Option<String>,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub ms: Option<u64>,
     pub name: String,
     pub summary: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LastActivity {
     pub at: u64,
     pub what: String,
@@ -543,10 +595,12 @@ pub enum Lasting {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Left {
     pub at: u64,
     pub by: String,
     pub how: LeftHow,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub into: Option<AgentRef>,
     pub reason: String,
     pub words: String,
@@ -561,6 +615,7 @@ pub enum LeftHow {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LibrarySkill {
     pub by: String,
     pub description: String,
@@ -568,13 +623,14 @@ pub struct LibrarySkill {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Limits {
     pub asking: LimitsAsking,
     pub budget: LimitsBudget,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hamlets: Option<HamletLimits>,
+    pub hamlets: HamletLimits,
     pub leaving: LimitsLeaving,
     pub mayor: LimitsMayor,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub model: Option<String>,
     pub models: Vec<String>,
     #[serde(rename = "mostAgents")]
@@ -585,11 +641,11 @@ pub struct Limits {
     pub pinned: std::collections::BTreeMap<String, String>,
     pub road: LimitsRoad,
     pub task: LimitsTask,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub votes: Option<VoteLimits>,
+    pub votes: VoteLimits,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LimitsAsking {
     #[serde(rename = "mayorReview")]
     pub mayor_review: LimitsAskingMayorReview,
@@ -608,14 +664,19 @@ pub enum LimitsAskingMayorReview {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LimitsBudget {
+    #[serde(deserialize_with = "Option::deserialize")]
     pub cost: Option<f64>,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub minutes: Option<i64>,
     pub period: Period,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub tokens: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LimitsLeaving {
     #[serde(rename = "mergedNotes")]
     pub merged_notes: i64,
@@ -624,6 +685,7 @@ pub struct LimitsLeaving {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LimitsMayor {
     #[serde(rename = "buildRoads")]
     pub build_roads: bool,
@@ -638,12 +700,14 @@ pub struct LimitsMayor {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LimitsPermissions {
     pub network: Vec<String>,
     pub unconfined: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LimitsRoad {
     pub cost: f64,
     #[serde(rename = "growsOverDays")]
@@ -653,17 +717,24 @@ pub struct LimitsRoad {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LimitsTask {
+    #[serde(deserialize_with = "Option::deserialize")]
     pub cost: Option<f64>,
     pub messages: i64,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub minutes: Option<i64>,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub tokens: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Link {
+    #[serde(deserialize_with = "Option::deserialize")]
     pub models: Option<i64>,
     pub state: LinkState,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub words: Option<String>,
 }
 
@@ -680,11 +751,14 @@ pub enum LinkState {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Listed {
     pub allowed: bool,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub context: Option<i64>,
     pub name: String,
     pub note: String,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub price: Option<Price>,
     pub priced: ListedPriced,
 }
@@ -702,7 +776,7 @@ pub enum ListedPriced {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(untagged, deny_unknown_fields)]
 pub enum Login {
     Start {
         id: RequestId,
@@ -719,12 +793,14 @@ pub enum Login {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LoginStartStart {
     pub method: LoginMethod,
     pub provider: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LoginReplyReply {
     pub login: String,
     pub value: String,
@@ -739,18 +815,21 @@ pub enum LoginMethod {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LoginProgress {
     pub login: String,
     pub step: LoginStep,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub to: Option<RequestId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(untagged, deny_unknown_fields)]
 pub enum LoginStep {
     Url {
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "present")]
         instructions: Option<String>,
         url: String,
     },
@@ -773,29 +852,33 @@ pub enum LoginStep {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MoveHouses {
     pub id: RequestId,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct New {
     pub id: RequestId,
     pub to: Address,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Offer {
     pub description: String,
     pub title: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "op")]
+#[serde(tag = "op", deny_unknown_fields)]
 pub enum Op {
     #[serde(rename = "add")]
     Add {
         item: Item,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "present")]
         replaces: Option<String>,
     },
     #[serde(rename = "append")]
@@ -809,12 +892,15 @@ pub enum Op {
         #[serde(deserialize_with = "present")]
         change: Option<Option<Change>>,
         exit: i64,
+        #[serde(deserialize_with = "Option::deserialize")]
         failure: Option<String>,
         item: String,
+        #[serde(deserialize_with = "Option::deserialize")]
         ms: Option<u64>,
     },
     #[serde(rename = "status")]
     Status {
+        #[serde(deserialize_with = "Option::deserialize")]
         last: Option<LastActivity>,
         pending: u64,
         working: bool,
@@ -829,14 +915,17 @@ pub enum Op {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Open {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub before: Option<String>,
     pub chat: ChatRef,
     pub id: RequestId,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Papers {
     pub character: String,
     pub notes: String,
@@ -844,6 +933,7 @@ pub struct Papers {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Past {
     pub began: i64,
     pub by: String,
@@ -872,7 +962,7 @@ pub enum Permission {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind")]
+#[serde(tag = "kind", deny_unknown_fields)]
 pub enum Pick {
     #[serde(rename = "offer")]
     Offer {
@@ -885,12 +975,14 @@ pub enum Pick {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Price {
     pub input: f64,
     pub output: f64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProviderView {
     pub configured: bool,
     pub id: String,
@@ -900,6 +992,7 @@ pub struct ProviderView {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Question {
     pub description: String,
     pub options: Vec<Offer>,
@@ -908,13 +1001,14 @@ pub struct Question {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Questions {
     pub message: String,
     pub questions: Vec<Question>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "what")]
+#[serde(tag = "what", deny_unknown_fields)]
 pub enum Read {
     #[serde(rename = "prompt")]
     Prompt {
@@ -930,12 +1024,14 @@ pub enum Read {
     Models {
         id: RequestId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "present")]
         refresh: Option<bool>,
     },
     #[serde(rename = "papers")]
     Papers {
         agent: Address,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "present")]
         full: Option<bool>,
         id: RequestId,
     },
@@ -946,7 +1042,7 @@ pub enum Read {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(untagged, deny_unknown_fields)]
 pub enum ReadResult {
     Prompt {
         prompt: String,
@@ -971,17 +1067,20 @@ pub enum ReadResult {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReadResultCharterCharter {
     pub own: bool,
     pub text: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Reply {
     pub kind: ReplyKind,
     pub text: String,
     pub to: RequestId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub upload: Option<String>,
 }
 
@@ -996,28 +1095,35 @@ pub enum ReplyKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Report {
     pub caps: ReportCaps,
     pub gone: f64,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub left: Option<f64>,
     pub lines: Vec<String>,
     pub period: Period,
     #[serde(rename = "periodWords")]
     pub period_words: String,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub remains: Option<String>,
     pub spent: Amount,
     pub summary: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReportCaps {
+    #[serde(deserialize_with = "Option::deserialize")]
     pub micros: Option<i64>,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub ms: Option<i64>,
 }
 
 pub type RequestId = String;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Resume {
     pub id: RequestId,
     pub number: i64,
@@ -1025,12 +1131,14 @@ pub struct Resume {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Retry {
     pub id: RequestId,
     pub to: Address,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Rewind {
     pub chat: ChatRef,
     pub id: RequestId,
@@ -1038,10 +1146,12 @@ pub struct Rewind {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Road {
     pub a: AgentRef,
     pub b: AgentRef,
     #[serde(rename = "lastFrom")]
+    #[serde(deserialize_with = "Option::deserialize")]
     pub last_from: Option<AgentRef>,
     pub level: RoadLevel,
     pub messages: u64,
@@ -1060,6 +1170,7 @@ pub enum RoadLevel {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Say {
     pub id: RequestId,
     pub text: String,
@@ -1067,13 +1178,7 @@ pub struct Say {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Seen {
-    pub epoch: i64,
-    pub revision: i64,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", deny_unknown_fields)]
 pub enum ServerMessage {
     #[serde(rename = "state")]
     State(State),
@@ -1094,6 +1199,7 @@ pub enum ServerMessage {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SettingsView {
     #[serde(rename = "allowNet")]
     pub allow_net: bool,
@@ -1103,11 +1209,11 @@ pub struct SettingsView {
     #[serde(rename = "reflectEvery")]
     pub reflect_every: i64,
     pub unset: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workspace: Option<SettingsViewWorkspace>,
+    pub workspace: SettingsViewWorkspace,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SettingsViewEndpoints {
     #[serde(rename = "baseUrl")]
     pub base_url: String,
@@ -1116,15 +1222,20 @@ pub struct SettingsViewEndpoints {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SettingsViewWorkspace {
     #[serde(rename = "move")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub move_: Option<SettingsViewWorkspaceMove>,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub running: Option<String>,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub url: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SettingsViewWorkspaceMove {
     pub done: i64,
     pub of: i64,
@@ -1143,75 +1254,80 @@ pub enum SettingsViewWorkspaceMoveState {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Skill {
     pub description: String,
     pub name: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct State {
     pub agents: Vec<Agent>,
     pub chief: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub closed: Option<Vec<ClosedHamlet>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub deeds: Option<Vec<Deed>>,
+    pub closed: Vec<ClosedHamlet>,
+    pub deeds: Vec<Deed>,
     pub epoch: i64,
     pub grants: Vec<Grant>,
     pub hamlets: Vec<Hamlet>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub houses: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub library: Option<Vec<LibrarySkill>>,
+    pub houses: String,
+    pub library: Vec<LibrarySkill>,
     pub providers: Vec<ProviderView>,
     pub revision: i64,
     pub sandbox: String,
     pub settings: SettingsView,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub starters: Option<Vec<Skill>>,
+    pub starters: Vec<Skill>,
     pub waits: Vec<Wait>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Stop {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub agent: Option<Address>,
     pub id: RequestId,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TownAt {
     pub x: f64,
     pub z: f64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Transcript {
     pub chat: ChatRef,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub earlier: Option<String>,
     pub items: Vec<Item>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub last: Option<LastActivity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "present")]
-    pub last: Option<Option<LastActivity>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub number: Option<i64>,
     pub pending: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub to: Option<RequestId>,
     pub usage: UsageView,
     pub working: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Turn {
     pub chat: ChatRef,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
     pub number: Option<i64>,
     pub ops: Vec<Op>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", deny_unknown_fields)]
 pub enum Update {
     #[serde(rename = "hamlet")]
     Hamlet {
@@ -1250,6 +1366,7 @@ pub enum Update {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UsageView {
     pub cached: u64,
     pub calls: u64,
@@ -1265,6 +1382,7 @@ pub struct UsageView {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VoteLimits {
     #[serde(rename = "ballotMinutes")]
     pub ballot_minutes: i64,
@@ -1284,6 +1402,7 @@ pub struct VoteLimits {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VoteView {
     pub by: String,
     pub id: i64,
@@ -1295,8 +1414,10 @@ pub struct VoteView {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Voter {
     pub agent: AgentRef,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub cast: Option<VoterCast>,
 }
 
@@ -1313,13 +1434,17 @@ pub enum VoterCast {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Wait {
     pub about: String,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub agent: Option<AgentRef>,
     pub answers: Vec<Choice>,
     pub asked: u64,
     pub by: String,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub change: Option<Change>,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub chat: Option<ChatRef>,
     pub detail: WaitDetail,
     pub id: String,
@@ -1344,10 +1469,11 @@ pub enum WaitDanger {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind")]
+#[serde(tag = "kind", deny_unknown_fields)]
 pub enum WaitDetail {
     #[serde(rename = "approval")]
     Approval {
+        #[serde(deserialize_with = "Option::deserialize")]
         always: Option<Lasting>,
         danger: WaitDanger,
         says: String,
@@ -1357,8 +1483,7 @@ pub enum WaitDetail {
     },
     #[serde(rename = "question")]
     Question {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        questions: Option<Questions>,
+        questions: Questions,
     },
     #[serde(rename = "objection")]
     Objection {
@@ -1368,7 +1493,7 @@ pub enum WaitDetail {
 /// The value of every `v` field.
 pub const V: u64 = 0;
 
-fn present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+fn present<'de, D, T>(deserializer: D) -> std::result::Result<Option<T>, D::Error>
 where
     D: serde::Deserializer<'de>,
     T: Deserialize<'de>,

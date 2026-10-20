@@ -327,7 +327,6 @@ fn fresh(
             agent: Some(place.agent.clone()),
             about,
             change: change.clone(),
-            questions: None,
             answers: danger.answers(),
             chat: chat_of(&place),
             call: Some(Holding {

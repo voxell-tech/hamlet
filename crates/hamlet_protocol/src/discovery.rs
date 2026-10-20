@@ -99,7 +99,7 @@ pub struct Running {
     pub url: String,
     pub pid: u32,
     /// When it started, in the server's words.
-    pub started: Option<String>,
+    pub started: String,
 }
 
 impl Running {

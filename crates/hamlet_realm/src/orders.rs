@@ -808,13 +808,13 @@ mod tests {
         let (mut app, founder) = app();
         let mut state = realm::state();
         state.deeds = hamlet_testing::realm::deeds(&["give"]);
-        state.starters = Some(vec![v0::Skill {
+        state.starters = vec![v0::Skill {
             name: "research".into(),
             description: "Find sources".into(),
-        }]);
-        state.agents[0].skills = Some(vec!["own".into()]);
+        }];
+        state.agents[0].skills = vec!["own".into()];
         let mut scout = realm::agent("home", 1, "scout");
-        scout.skills = Some(vec!["maps".into(), "own".into()]);
+        scout.skills = vec!["maps".into(), "own".into()];
         state.agents.push(scout.clone());
         let message = v0::ServerMessage::State(state);
         hamlet_client::receive(app.world_mut(), message);
@@ -859,7 +859,7 @@ mod tests {
             assert_eq!(skill, &expected);
             assert_eq!(to.agent, "founder");
         }
-        scout.skills = Some(vec!["compass".into()]);
+        scout.skills = vec!["compass".into()];
         let message = v0::ServerMessage::Change(v0::Changes {
             epoch: 1,
             revision: 1,

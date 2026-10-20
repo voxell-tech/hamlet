@@ -91,7 +91,7 @@ fn words(
                 "Use picks only for a reply, without text.".into()
             );
         }
-        let Some(questions) = &wait.questions else {
+        let WaitKind::Question(questions) = &wait.kind else {
             return Err("This wait does not take structured \
                         answers."
                 .into());
@@ -104,14 +104,12 @@ fn words(
     if text.trim().is_empty() {
         return Err("Say what to reply.".into());
     }
-    match &wait.questions {
-        Some(questions) => {
-            let words = Pick::Words { text: text.into() };
-            asking::answer(questions, &[words])?;
-            Ok(format!("{} {}", asking::ANSWERS, text.trim()))
-        }
-        None => Ok(text.into()),
-    }
+    let WaitKind::Question(questions) = &wait.kind else {
+        return Err("This wait does not take a reply.".into());
+    };
+    let words = Pick::Words { text: text.into() };
+    asking::answer(questions, &[words])?;
+    Ok(format!("{} {}", asking::ANSWERS, text.trim()))
 }
 
 /// A call `wait` holds that a chief's answer changes.

@@ -339,7 +339,6 @@ fn object(
                 }
             ),
             change: None,
-            questions: None,
             answers: if ended {
                 vec![Choice::Dismiss]
             } else {

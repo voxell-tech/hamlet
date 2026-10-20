@@ -1229,9 +1229,8 @@ impl Harnesses {
                 id,
                 re,
                 tools,
-                windows: Some(windows),
+                windows,
                 v,
-                version: LINK_VERSION,
             })
         })
         .await;

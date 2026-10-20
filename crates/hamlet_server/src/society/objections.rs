@@ -106,7 +106,6 @@ pub(crate) fn object(
                  {reason}"
             ),
             change: None,
-            questions: None,
             answers: vec![Choice::Go, Choice::Withdraw],
             chat: Some(ChatPlace {
                 hamlet: kept.place.agent.hamlet,

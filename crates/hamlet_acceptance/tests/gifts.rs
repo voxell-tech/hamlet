@@ -342,13 +342,13 @@ async fn installs_a_starter_skill_and_shows_it_to_every_connection() {
     let mut s = Session::start(Script::new()).await;
     let mut other = s.join().await;
     let realm = s.chief.realm();
-    let starters = realm.starters.unwrap_or_default();
+    let starters = realm.starters;
     let search = starters.iter().find(|s| s.name == "web-search");
     assert!(
         search.is_some_and(|s| !s.description.trim().is_empty()),
         "{starters:?}"
     );
-    assert_eq!(realm.agents[0].skills, Some(vec![]));
+    assert!(realm.agents[0].skills.is_empty());
     let reply = starter(&mut s.chief, mayor(), "web-search").await;
     assert_eq!(
         kind_text(&reply),
@@ -358,8 +358,7 @@ async fn installs_a_starter_skill_and_shows_it_to_every_connection() {
         s.home.file("houses/home/0/skills/web-search/SKILL.md");
     assert!(skill.is_file());
     let shows = |c: &Client| {
-        c.agent("home", "founder").unwrap().skills
-            == Some(vec!["web-search".into()])
+        c.agent("home", "founder").unwrap().skills == ["web-search"]
     };
     s.chief.until("the skill in the state", shows).await;
     other
@@ -448,8 +447,7 @@ async fn copies_another_agents_whole_skill() {
     assert!(maps.join("SKILL.md").is_file());
     s.chief
         .until("the skill in the state", |c| {
-            c.agent("home", "founder").unwrap().skills
-                == Some(vec!["maps".into()])
+            c.agent("home", "founder").unwrap().skills == ["maps"]
         })
         .await;
     let skill = from("missing");

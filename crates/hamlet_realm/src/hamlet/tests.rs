@@ -468,12 +468,17 @@ fn meadow(app: &mut App, hamlet: Entity) -> Vec2 {
 }
 
 #[test]
-fn hamlets_with_no_place_recorded_stand_where_they_always_did() {
+fn towns_never_set_down_stand_on_the_first_free_sites() {
     let (mut app, _) = app();
-    // One as an old home has it, one as a new one has it.
     settle(&mut app, "mill");
-    let forge = settle(&mut app, "forge");
-    app.world_mut().entity_mut(forge).insert(Spot(None));
+    settle(&mut app, "forge");
+    let world = app.world_mut();
+    assert!(
+        world
+            .query_filtered::<&Spot, With<Settlement>>()
+            .iter(world)
+            .all(|spot| spot.0.is_none())
+    );
     app.update();
     let land = app.world().resource::<Land>().clone();
     let fresh =

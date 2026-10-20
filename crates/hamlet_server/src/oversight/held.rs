@@ -368,8 +368,8 @@ pub(crate) fn put(
     at: i64,
 ) -> Result<String> {
     let questions = raising
-        .questions
-        .as_ref()
+        .kind
+        .questions()
         .map(serde_json::to_string)
         .transpose()?;
     let (kind, danger) = (raising.kind.name(), raising.kind.danger());
@@ -553,7 +553,13 @@ fn wait_row(
     Ok((|| {
         Ok(Wait {
             id,
-            kind: WaitKind::of(&kind, danger)?,
+            kind: WaitKind::of(
+                &kind,
+                danger,
+                questions
+                    .map(|q| serde_json::from_str(&q))
+                    .transpose()?,
+            )?,
             by,
             agent: match (hamlet, number) {
                 (Some(hamlet), Some(number)) => Some(AgentRef {
@@ -565,9 +571,6 @@ fn wait_row(
             about,
             change: change
                 .map(|c| serde_json::from_str(&c))
-                .transpose()?,
-            questions: questions
-                .map(|q| serde_json::from_str(&q))
                 .transpose()?,
             answers: serde_json::from_str(&answers)?,
             since,

@@ -63,7 +63,7 @@ test("a runtime speaks only the link's messages from hello to an answer, and exi
         const re = field(message, "id");
         switch (field(message, "type")) {
             case "hello":
-                send({ type: "welcome", re, version: 1, tools: [] });
+                send({ type: "welcome", re, tools: [], windows: {} });
                 send({
                     type: "create",
                     key: "b1",

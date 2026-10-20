@@ -48,8 +48,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     question.answers = vec![v0::Choice::Reply, v0::Choice::Dismiss];
     question.since = since;
     question.detail = v0::WaitDetail::Question {
-        questions: Some(
-            serde_json::from_value(json!({
+        questions: serde_json::from_value(json!({
                 "message": "Before I plan the orchard's winter.",
                 "questions": [
                     {"question": "Which trees come first?",
@@ -67,7 +66,6 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
                 ]
             }))
             .expect("gallery questions"),
-        ),
     };
     state.waits.push(question);
     hamlet_client::receive(world, v0::ServerMessage::State(state));

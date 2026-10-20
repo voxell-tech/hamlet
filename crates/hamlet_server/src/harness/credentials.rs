@@ -229,7 +229,15 @@ mod tests {
         lease: Option<&str>,
         credential: Option<Value>,
     ) -> CredentialRequest {
-        serde_json::from_value(json!({"v":1,"id":id,"scope":scope,"action":action,"lease":lease,"credential":credential})).unwrap()
+        let mut request =
+            json!({"v":1,"id":id,"scope":scope,"action":action});
+        if let Some(lease) = lease {
+            request["lease"] = lease.into();
+        }
+        if let Some(credential) = credential {
+            request["credential"] = credential;
+        }
+        serde_json::from_value(request).unwrap()
     }
 
     #[test]

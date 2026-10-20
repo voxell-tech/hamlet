@@ -193,10 +193,9 @@ pub fn receive(world: &mut World, message: v0::ServerMessage) {
                     chat,
                     page.working,
                     page.pending,
-                    page.last.as_ref().map(|last| {
-                        last.as_ref()
-                            .map(|last| (last.at, last.what.clone()))
-                    }),
+                    page.last
+                        .as_ref()
+                        .map(|last| (last.at, last.what.clone())),
                 );
                 world
                     .entity_mut(chat)
@@ -228,9 +227,9 @@ pub fn receive(world: &mut World, message: v0::ServerMessage) {
                                 chat,
                                 *working,
                                 *pending,
-                                Some(last.as_ref().map(|last| {
+                                last.as_ref().map(|last| {
                                     (last.at, last.what.clone())
-                                })),
+                                }),
                             );
                         }
                         v0::Op::Usage { usage } => {
@@ -259,16 +258,14 @@ fn status(
     chat: Entity,
     working: bool,
     pending: u64,
-    last: Option<Option<(u64, String)>>,
+    last: Option<(u64, String)>,
 ) {
     let mut said = world.get_mut::<Transcript>(chat).unwrap();
     let finished = said.answering && !working;
     said.answering = working;
     let mut status = world.get_mut::<Status>(chat).unwrap();
     status.pending = pending + u64::from(working);
-    if let Some(last) = last {
-        status.last = last;
-    }
+    status.last = last;
     if finished {
         world.trigger(JobFinished { chat });
     }

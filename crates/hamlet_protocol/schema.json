@@ -29,6 +29,8 @@
         "Agent": {
             "type": "object",
             "required": [
+                "consulting",
+                "conversations",
                 "ref",
                 "name",
                 "purpose",
@@ -39,7 +41,8 @@
                 "faulted",
                 "activity",
                 "saying",
-                "spent"
+                "spent",
+                "skills"
             ],
             "properties": {
                 "left": {
@@ -1059,6 +1062,9 @@
         "Hamlet": {
             "type": "object",
             "required": [
+                "roads",
+                "votes",
+                "at",
                 "id",
                 "name",
                 "folder",
@@ -1169,9 +1175,6 @@
                 },
                 "token": {
                     "type": "string"
-                },
-                "seen": {
-                    "$ref": "#/$defs/Seen"
                 }
             },
             "additionalProperties": false
@@ -1368,6 +1371,8 @@
         "Limits": {
             "type": "object",
             "required": [
+                "votes",
+                "hamlets",
                 "budget",
                 "task",
                 "road",
@@ -2891,22 +2896,6 @@
             },
             "additionalProperties": false
         },
-        "Seen": {
-            "type": "object",
-            "required": [
-                "epoch",
-                "revision"
-            ],
-            "properties": {
-                "epoch": {
-                    "type": "integer"
-                },
-                "revision": {
-                    "type": "integer"
-                }
-            },
-            "additionalProperties": false
-        },
         "ServerMessage": {
             "anyOf": [
                 {
@@ -2943,7 +2932,8 @@
                 "allowNet",
                 "endpoints",
                 "unset",
-                "link"
+                "link",
+                "workspace"
             ],
             "properties": {
                 "model": {
@@ -3064,6 +3054,9 @@
         "State": {
             "type": "object",
             "required": [
+                "houses",
+                "library",
+                "closed",
                 "type",
                 "epoch",
                 "revision",
@@ -3074,7 +3067,9 @@
                 "waits",
                 "grants",
                 "settings",
-                "providers"
+                "providers",
+                "deeds",
+                "starters"
             ],
             "properties": {
                 "houses": {
@@ -3199,6 +3194,7 @@
                 "chat",
                 "items",
                 "earlier",
+                "last",
                 "working",
                 "pending",
                 "usage"
@@ -3735,7 +3731,8 @@
                 {
                     "type": "object",
                     "required": [
-                        "kind"
+                        "kind",
+                        "questions"
                     ],
                     "properties": {
                         "kind": {

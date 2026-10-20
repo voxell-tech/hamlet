@@ -111,8 +111,7 @@ fn structured_questions_reconcile_and_send_picks_without_forging_chief_text()
             {"title": "Left", "description": ""}, {"title": "Right", "description": ""}
         ], "text_input": false
     }]}});
-    initial.waits =
-        vec![serde_json::from_value(question.clone()).unwrap()];
+    initial.waits = vec![serde_json::from_value(question).unwrap()];
     receive(world, v0::ServerMessage::State(initial.clone()));
     let entity =
         world.query::<(Entity, &Asks)>().single(world).unwrap().0;
@@ -169,16 +168,6 @@ fn structured_questions_reconcile_and_send_picks_without_forging_chief_text()
         }),
     );
     assert!(world.get::<Refused>(entity).is_none());
-    // An older server's full state must remove stale question
-    // controls.
-    question["detail"]
-        .as_object_mut()
-        .unwrap()
-        .remove("questions");
-    initial.waits = vec![serde_json::from_value(question).unwrap()];
-    receive(world, v0::ServerMessage::State(initial.clone()));
-    assert!(world.get::<Asks>(entity).is_none());
-    assert!(world.get::<Waiting>(entity).is_some());
     initial.waits.clear();
     receive(world, v0::ServerMessage::State(initial));
     assert!(world.get_entity(entity).is_err());
@@ -256,7 +245,7 @@ fn addressed_answers_reach_observers_and_a_rewind_returns_its_removed_words()
         serde_json::json!({"type":"read", "to":id, "prompt":"prompt"}),
         serde_json::json!({"type":"login", "to":id, "login":"flow", "step":{"done":"done"}}),
         serde_json::json!({"type":"fault", "to":id, "text":"addressed failure"}),
-        serde_json::json!({"type":"transcript", "to":id, "chat":{"with":{"hamlet":"home","agent":"mayor"}}, "items":[], "earlier":null, "pending":0,"working":false, "usage":{"calls":0,"unreported":0,"input":0,"cached":0,"output":0,"reasoning":0,"ms":0,"micros":0,"lastInput":0,"summary":"No model calls yet"}}),
+        serde_json::json!({"type":"transcript", "to":id, "chat":{"with":{"hamlet":"home","agent":"mayor"}}, "items":[], "earlier":null, "last":null, "pending":0,"working":false, "usage":{"calls":0,"unreported":0,"input":0,"cached":0,"output":0,"reasoning":0,"ms":0,"micros":0,"lastInput":0,"summary":"No model calls yet"}}),
     ] {
         receive(world, serde_json::from_value(value).unwrap());
     }

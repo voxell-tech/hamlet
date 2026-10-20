@@ -367,181 +367,102 @@ fn mayor() -> impl View {
     .gap(6.0)
 }
 
-fn votes() -> AnyView {
-    keyed(
-        resource::<Book, _>(|book| {
-            book.limits.as_ref().is_some_and(|l| l.votes.is_some())
-        }),
-        |received| {
-            if !*received {
-                return fine(
-                    "The server has not supplied vote limits.",
-                )
-                .boxed();
-            }
-            column((
-                heading(Glyph::Ballot, "THE VOTES"),
-                line(
-                    "Yes votes needed",
-                    whole(
-                        "votes",
-                        "passYes",
-                        |l| {
-                            l.votes.as_ref().map_or(0, |v| v.pass_yes)
-                        },
-                        1000,
-                    )
-                    .boxed(),
-                ),
-                line(
-                    "Of every",
-                    whole(
-                        "votes",
-                        "passOf",
-                        |l| l.votes.as_ref().map_or(0, |v| v.pass_of),
-                        1000,
-                    )
-                    .boxed(),
-                ),
-                line(
-                    "Least voters",
-                    whole(
-                        "votes",
-                        "leastVoters",
-                        |l| {
-                            l.votes
-                                .as_ref()
-                                .map_or(0, |v| v.least_voters)
-                        },
-                        1000,
-                    )
-                    .boxed(),
-                ),
-                line(
-                    "Hide earlier ballots",
-                    switch("votes", "sealed", |l| {
-                        l.votes.as_ref().is_some_and(|v| v.sealed)
-                    })
-                    .boxed(),
-                ),
-                line(
-                    "Count only grounded yes votes",
-                    switch("votes", "groundedOnly", |l| {
-                        l.votes
-                            .as_ref()
-                            .is_some_and(|v| v.grounded_only)
-                    })
-                    .boxed(),
-                ),
-                line(
-                    "Minutes for a ballot",
-                    whole(
-                        "votes",
-                        "ballotMinutes",
-                        |l| {
-                            l.votes
-                                .as_ref()
-                                .map_or(0, |v| v.ballot_minutes)
-                        },
-                        10000,
-                    )
-                    .boxed(),
-                ),
-                line(
-                    "Minutes a vote stays open",
-                    whole(
-                        "votes",
-                        "openMinutes",
-                        |l| {
-                            l.votes
-                                .as_ref()
-                                .map_or(0, |v| v.open_minutes)
-                        },
-                        10000,
-                    )
-                    .boxed(),
-                ),
-                line(
-                    "Minutes before trying again",
-                    whole(
-                        "votes",
-                        "retryMinutes",
-                        |l| {
-                            l.votes
-                                .as_ref()
-                                .map_or(0, |v| v.retry_minutes)
-                        },
-                        10000,
-                    )
-                    .boxed(),
-                ),
-            ))
-            .gap(6.0)
-            .boxed()
-        },
-    )
-    .within(bare())
-    .boxed()
+fn votes() -> impl View {
+    column((
+        heading(Glyph::Ballot, "THE VOTES"),
+        line(
+            "Yes votes needed",
+            whole("votes", "passYes", |l| l.votes.pass_yes, 1000)
+                .boxed(),
+        ),
+        line(
+            "Of every",
+            whole("votes", "passOf", |l| l.votes.pass_of, 1000)
+                .boxed(),
+        ),
+        line(
+            "Least voters",
+            whole(
+                "votes",
+                "leastVoters",
+                |l| l.votes.least_voters,
+                1000,
+            )
+            .boxed(),
+        ),
+        line(
+            "Hide earlier ballots",
+            switch("votes", "sealed", |l| l.votes.sealed).boxed(),
+        ),
+        line(
+            "Count only grounded yes votes",
+            switch("votes", "groundedOnly", |l| {
+                l.votes.grounded_only
+            })
+            .boxed(),
+        ),
+        line(
+            "Minutes for a ballot",
+            whole(
+                "votes",
+                "ballotMinutes",
+                |l| l.votes.ballot_minutes,
+                10000,
+            )
+            .boxed(),
+        ),
+        line(
+            "Minutes a vote stays open",
+            whole(
+                "votes",
+                "openMinutes",
+                |l| l.votes.open_minutes,
+                10000,
+            )
+            .boxed(),
+        ),
+        line(
+            "Minutes before trying again",
+            whole(
+                "votes",
+                "retryMinutes",
+                |l| l.votes.retry_minutes,
+                10000,
+            )
+            .boxed(),
+        ),
+    ))
+    .gap(6.0)
 }
 
-fn realm_rules() -> AnyView {
-    keyed(
-        resource::<Book, _>(|book| {
-            book.limits.as_ref().is_some_and(|l| l.hamlets.is_some())
-        }),
-        |received| {
-            if !*received {
-                return fine(
-                    "The server has not supplied realm limits.",
-                )
-                .boxed();
-            }
-            column((
-                heading(Glyph::Globe, "THE REALM"),
-                fine(
-                    "These apply to every hamlet, from home's \
-                     bylaws.",
-                ),
-                line(
-                    "Most hamlets",
-                    whole(
-                        "hamlets",
-                        "most",
-                        |l| l.hamlets.as_ref().map_or(0, |h| h.most),
-                        1000,
-                    )
-                    .boxed(),
-                ),
-                line(
-                    "Roads between hamlets",
-                    switch("hamlets", "roadsBetween", |l| {
-                        l.hamlets
-                            .as_ref()
-                            .is_some_and(|h| h.roads_between)
-                    })
-                    .boxed(),
-                ),
-                line(
-                    "Mayors asking for removal",
-                    whole(
-                        "hamlets",
-                        "removalMayors",
-                        |l| {
-                            l.hamlets
-                                .as_ref()
-                                .map_or(0, |h| h.removal_mayors)
-                        },
-                        1000,
-                    )
-                    .boxed(),
-                ),
-            ))
-            .gap(6.0)
-            .boxed()
-        },
-    )
-    .within(bare())
-    .boxed()
+fn realm_rules() -> impl View {
+    column((
+        heading(Glyph::Globe, "THE REALM"),
+        fine("These apply to every hamlet, from home's bylaws."),
+        line(
+            "Most hamlets",
+            whole("hamlets", "most", |l| l.hamlets.most, 1000)
+                .boxed(),
+        ),
+        line(
+            "Roads between hamlets",
+            switch("hamlets", "roadsBetween", |l| {
+                l.hamlets.roads_between
+            })
+            .boxed(),
+        ),
+        line(
+            "Mayors asking for removal",
+            whole(
+                "hamlets",
+                "removalMayors",
+                |l| l.hamlets.removal_mayors,
+                1000,
+            )
+            .boxed(),
+        ),
+    ))
+    .gap(6.0)
 }
 
 /// The way to home's realm bylaws.
@@ -608,8 +529,8 @@ pub fn panel(hamlet: Entity) -> AnyView {
             let body = match part {
                 Part::Budget => budget(hamlet).boxed(),
                 Part::Models => crate::models::of_hamlet(hamlet),
-                Part::Votes => votes(),
-                Part::Realm => realm_rules(),
+                Part::Votes => votes().boxed(),
+                Part::Realm => realm_rules().boxed(),
                 Part::Front | Part::Mayor => mayor().boxed(),
             };
             column((
@@ -858,22 +779,7 @@ mod tests {
     fn vote_and_realm_controls_send_the_received_sections_and_keys() {
         use crate::me::tests::press;
         let (mut app, _) = page(Part::Front);
-        let mut hamlet = hamlet_testing::realm::hamlet("home");
-        hamlet.limits.votes = Some(v0::VoteLimits {
-            pass_yes: 2,
-            pass_of: 3,
-            least_voters: 3,
-            sealed: true,
-            grounded_only: false,
-            ballot_minutes: 5,
-            open_minutes: 60,
-            retry_minutes: 60,
-        });
-        hamlet.limits.hamlets = Some(v0::HamletLimits {
-            most: 6,
-            roads_between: true,
-            removal_mayors: 3,
-        });
+        let hamlet = hamlet_testing::realm::hamlet("home");
         hamlet_client::receive(
             app.world_mut(),
             v0::ServerMessage::Change(v0::Changes {

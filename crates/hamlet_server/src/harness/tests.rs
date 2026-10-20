@@ -141,7 +141,7 @@ fn a_runtime_claiming_the_mayor_for_a_member_s_conversation_is_refused()
         "actor": {"mayor": {"hamlet": "home", "number": 0}},
     });
     let (words, re) = parse(&line.to_string()).err().unwrap();
-    assert!(words.contains("not name"), "{words}");
+    assert!(words.contains("unknown field `actor`"), "{words}");
     assert_eq!(re.as_deref(), Some("r1"));
     // The call itself runs as the member the conversation is bound
     // to.

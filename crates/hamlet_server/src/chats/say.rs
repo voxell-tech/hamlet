@@ -805,7 +805,7 @@ async fn plain(
     };
     let waits = oversight::open(service.home.store().connection())?;
     match own_wait(service, &waits, &agent)? {
-        Some(wait) if wait.kind == WaitKind::Question => {
+        Some(wait) if matches!(wait.kind, WaitKind::Question(_)) => {
             let outcome = super::calls::answer_words(
                 service,
                 harnesses,

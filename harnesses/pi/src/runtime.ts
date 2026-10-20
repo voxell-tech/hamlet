@@ -170,12 +170,7 @@ export async function run(
         return;
     }
     const runtime = new Runtime(harness, registry, models, channel, available);
-    await runtime.start(
-        reply.tools,
-        options.faux,
-        reply.windows ?? {},
-        context,
-    );
+    await runtime.start(reply.tools, options.faux, reply.windows, context);
 }
 
 async function hello(

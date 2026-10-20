@@ -134,40 +134,9 @@ pub(super) fn parse(
             re,
         ));
     }
-    let message =
-        serde_json::from_value::<RuntimeMessage>(value.clone())
-            .map_err(|error| {
-                (format!("Not a link message: {error}."), re.clone())
-            })?;
-    // Written back, a field the link does not name is missing.
-    if !serde_json::to_value(&message)
-        .is_ok_and(|back| same_fields(&back, &value))
-    {
-        return Err((
-            "The message has fields the link does not name.".into(),
-            re,
-        ));
-    }
-    Ok(message)
-}
-
-/// Whether `a` and `b` have the same fields at every depth; numbers
-/// may be written differently.
-fn same_fields(a: &Value, b: &Value) -> bool {
-    match (a, b) {
-        (Value::Object(a), Value::Object(b)) => {
-            a.len() == b.len()
-                && a.iter().all(|(key, a)| {
-                    b.get(key).is_some_and(|b| same_fields(a, b))
-                })
-        }
-        (Value::Array(a), Value::Array(b)) => {
-            a.len() == b.len()
-                && a.iter().zip(b).all(|(a, b)| same_fields(a, b))
-        }
-        (Value::Number(_), Value::Number(_)) => true,
-        (a, b) => a == b,
-    }
+    serde_json::from_value::<RuntimeMessage>(value).map_err(|error| {
+        (format!("Not a link message: {error}."), re)
+    })
 }
 
 pub(super) fn id_of(message: &RuntimeMessage) -> String {

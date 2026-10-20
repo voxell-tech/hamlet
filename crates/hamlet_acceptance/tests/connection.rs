@@ -162,7 +162,6 @@ async fn answers_malformed_messages_with_faults_and_stays_open() {
     let hello = ClientMessage::Hello(Hello {
         token: s.server.token.clone(),
         v: V,
-        seen: None,
     });
     chief.send(hello).await;
     let again = fault("This connection said hello already.", None);

@@ -280,7 +280,7 @@ async fn starts_with_the_default_limits() {
     assert!(limits.pinned.is_empty());
     assert_eq!(limits.model, None);
     assert_eq!(limits.road.cost, 0.01);
-    let votes = limits.votes.as_ref().unwrap();
+    let votes = &limits.votes;
     assert_eq!(
         (
             votes.pass_yes,
@@ -291,7 +291,7 @@ async fn starts_with_the_default_limits() {
         ),
         (2, 3, 3, true, false)
     );
-    let hamlets = limits.hamlets.as_ref().unwrap();
+    let hamlets = &limits.hamlets;
     assert_eq!(
         (hamlets.most, hamlets.roads_between, hamlets.removal_mayors),
         (6, true, 3)
@@ -372,7 +372,7 @@ fn set() -> EditSettingsSet {
 #[tokio::test]
 async fn chooses_a_remote_workspace_in_settings() {
     let mut s = Session::start(Script::new()).await;
-    let workspace = s.chief.realm().settings.workspace.unwrap();
+    let workspace = s.chief.realm().settings.workspace;
     assert_eq!((workspace.url, workspace.running), (None, None));
     let reply = s
         .chief
@@ -424,10 +424,10 @@ async fn chooses_a_remote_workspace_in_settings() {
     assert_eq!(reply.kind, ReplyKind::Notice, "{reply:?}");
     s.chief
         .until("the chosen workspace", |c| {
-            c.realm().settings.workspace.is_some_and(|w| {
-                w.url.as_deref() == Some("https://workspace.example")
-                    && w.running.is_none()
-            })
+            let workspace = c.realm().settings.workspace;
+            workspace.url.as_deref()
+                == Some("https://workspace.example")
+                && workspace.running.is_none()
         })
         .await;
     let text = serde_json::to_string(s.chief.messages()).unwrap();

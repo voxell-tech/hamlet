@@ -69,7 +69,6 @@ impl Client {
         wire.send_json(&ClientMessage::Hello(Hello {
             token: server.token.clone(),
             v: V,
-            seen: None,
         }))
         .await;
         let first = wire.message().await;

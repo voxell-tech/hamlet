@@ -62,7 +62,7 @@ async fn society() {
         c.state()
             .hamlets
             .iter()
-            .flat_map(|h| h.roads.iter().flatten())
+            .flat_map(|h| h.roads.iter())
             .any(|r| r.messages == 2)
     );
     c.finish("society").await;
@@ -120,7 +120,6 @@ async fn vote() {
         c.state().hamlets[0]
             .votes
             .iter()
-            .flatten()
             .any(|v| !v.open && v.report.contains("Passed:"))
     })
     .await;
@@ -151,24 +150,19 @@ async fn realm() {
     c.idle().await;
     assert_eq!(c.ask(json!({"type":"say","to":{"hamlet":"mill","agent":"mayor"},"text":"Agree the road"})).await["kind"], "notice");
     c.until(|c| {
-        c.state()
-            .hamlets
-            .iter()
-            .flat_map(|h| h.roads.iter().flatten())
-            .any(|r| {
+        c.state().hamlets.iter().flat_map(|h| h.roads.iter()).any(
+            |r| {
                 r.a.hamlet != r.b.hamlet
                     && (r.a.number == 1 || r.b.number == 1)
-            })
+            },
+        )
     })
     .await;
     c.say(MAYOR, "/remove-hamlet mill Finished").await;
-    c.until(|c| {
-        c.state().closed.iter().flatten().any(|h| h.id == "mill")
-    })
-    .await;
-    c.say(MAYOR, "/erase-hamlet mill").await;
-    c.until(|c| c.state().closed.as_ref().is_some_and(Vec::is_empty))
+    c.until(|c| c.state().closed.iter().any(|h| h.id == "mill"))
         .await;
+    c.say(MAYOR, "/erase-hamlet mill").await;
+    c.until(|c| c.state().closed.is_empty()).await;
     c.finish("realm").await;
 }
 
@@ -188,11 +182,7 @@ async fn library() {
     .unwrap();
     c.say("scout", "Share the map").await;
     c.until(|c| {
-        c.state()
-            .library
-            .iter()
-            .flatten()
-            .any(|s| s.name == "map-iron")
+        c.state().library.iter().any(|s| s.name == "map-iron")
     })
     .await;
     assert!(c.has(|m| m["changes"].as_array().is_some_and(
@@ -205,11 +195,7 @@ async fn library() {
     )));
     c.say(MAYOR, "/unshelve map-iron Retire").await;
     c.until(|c| {
-        !c.state()
-            .library
-            .iter()
-            .flatten()
-            .any(|s| s.name == "map-iron")
+        !c.state().library.iter().any(|s| s.name == "map-iron")
     })
     .await;
     c.finish("library").await;

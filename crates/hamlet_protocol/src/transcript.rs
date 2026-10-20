@@ -170,7 +170,8 @@ mod tests {
         assert!(
             fold(
                 &mut items,
-                json!({"op": "close", "item": "entry", "exit": 0})
+                json!({"op": "close", "item": "entry", "exit": 0,
+                "ms": null, "failure": null})
             )
             .is_err()
         );

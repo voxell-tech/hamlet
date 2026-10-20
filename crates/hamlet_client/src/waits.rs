@@ -124,13 +124,8 @@ pub(crate) fn upsert(world: &mut World, wait: v0::Wait) -> Entity {
         .as_ref()
         .and_then(|agent| crate::realm::agent(world, agent));
     let mut entity = world.entity_mut(entity);
-    if let v0::WaitDetail::Question {
-        questions: Some(questions),
-    } = &wait.detail
-    {
+    if let v0::WaitDetail::Question { questions } = &wait.detail {
         entity.insert(Asks(questions.clone()));
-    } else {
-        entity.remove::<Asks>();
     }
     entity.insert(Waiting {
         id: wait.id,

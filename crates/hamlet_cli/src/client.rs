@@ -27,7 +27,6 @@ pub async fn connect(
         .send(ClientMessage::Hello(Hello {
             token: address.token.clone(),
             v: V,
-            seen: None,
         }))
         .await?;
     match client.next().await? {

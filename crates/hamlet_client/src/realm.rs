@@ -8,8 +8,8 @@ pub use hamlet_protocol::{HOME, MAYOR};
 
 /// The server machine's houses folder, excluded from local chat
 /// links.
-#[derive(Resource, Default, Clone, Debug, PartialEq, Eq)]
-pub struct Houses(pub Option<String>);
+#[derive(Resource, Clone, Debug, PartialEq, Eq)]
+pub struct Houses(pub String);
 
 /// The received mode for edits and commands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -29,6 +29,7 @@ impl From<v0::HamletMode> for Mode {
 
 /// A hamlet identified by its protocol id.
 #[derive(Component, Clone, Debug, PartialEq)]
+#[require(Spot)]
 pub struct Settlement {
     /// The protocol id, distinct from the shown Name.
     pub name: String,
@@ -190,7 +191,11 @@ impl Default for Settings {
                 models: None,
                 words: None,
             },
-            workspace: None,
+            workspace: v0::SettingsViewWorkspace {
+                move_: None,
+                running: None,
+                url: None,
+            },
         })
     }
 }
@@ -409,7 +414,6 @@ pub(crate) fn state(world: &mut World, state: v0::State) {
     world.insert_resource(Skills(
         state
             .library
-            .unwrap_or_default()
             .into_iter()
             .map(|skill| v0::Skill {
                 name: skill.name,
@@ -417,23 +421,16 @@ pub(crate) fn state(world: &mut World, state: v0::State) {
             })
             .collect(),
     ));
-    world.insert_resource(Closed(state.closed.unwrap_or_default()));
+    world.insert_resource(Closed(state.closed));
     world.insert_resource(Chief(state.chief));
     world.insert_resource(Sandbox(state.sandbox));
     world.insert_resource(Settings(state.settings));
     world.insert_resource(Providers(state.providers));
     world.insert_resource(Grants(state.grants));
     world.insert_resource(Deeds(
-        state
-            .deeds
-            .unwrap_or_default()
-            .into_iter()
-            .map(|deed| deed.name)
-            .collect(),
+        state.deeds.into_iter().map(|deed| deed.name).collect(),
     ));
-    world.insert_resource(Starters(
-        state.starters.unwrap_or_default(),
-    ));
+    world.insert_resource(Starters(state.starters));
     world.insert_resource(Seen {
         epoch: state.epoch,
         revision: state.revision,
@@ -504,9 +501,7 @@ fn upsert_hamlet(world: &mut World, hamlet: v0::Hamlet) -> Entity {
     put(&mut entity_mut, Treasury(hamlet.budget));
     put(
         &mut entity_mut,
-        Spot(
-            hamlet.at.flatten().map(|at| (at.x as f32, at.z as f32)),
-        ),
+        Spot(hamlet.at.map(|at| (at.x as f32, at.z as f32))),
     );
     entity
 }
@@ -534,14 +529,14 @@ fn upsert_agent(
     let hamlet = settlement(world, &value.ref_.hamlet)?;
     let entity = agent(world, &value.ref_)
         .unwrap_or_else(|| world.spawn_empty().id());
-    let consulting = value.consulting.unwrap_or(false);
+    let consulting = value.consulting;
     let consulted =
         consulting && world.get::<Consulting>(entity).is_none();
     let mut agent = world.entity_mut(entity);
     put(&mut agent, Citizen(value.ref_.number));
     put(&mut agent, Name::new(value.name));
     put(&mut agent, Purpose(value.purpose));
-    put(&mut agent, HouseSkills(value.skills.unwrap_or_default()));
+    put(&mut agent, HouseSkills(value.skills));
     put(
         &mut agent,
         Lived {
@@ -583,10 +578,7 @@ fn upsert_agent(
     flag(&mut agent, value.faulted, Faulted);
 
     flag(&mut agent, consulting, Consulting);
-    put(
-        &mut agent,
-        PeerChats(value.conversations.unwrap_or_default()),
-    );
+    put(&mut agent, PeerChats(value.conversations));
     if let Some(left) = value.left {
         put(&mut agent, Departure(left));
     } else {
@@ -697,7 +689,7 @@ fn society(world: &mut World, value: v0::Hamlet, news: bool) {
     let Some(hamlet) = settlement(world, &value.id) else {
         return;
     };
-    let votes = value.votes.unwrap_or_default();
+    let votes = value.votes;
     let was = world.get::<Votes>(hamlet);
     let cast = votes
         .iter()
@@ -727,7 +719,7 @@ fn society(world: &mut World, value: v0::Hamlet, news: bool) {
         }
     }
     let mut wanted = Vec::new();
-    for value in value.roads.unwrap_or_default() {
+    for value in value.roads {
         let (Some(a), Some(b)) =
             (agent(world, &value.a), agent(world, &value.b))
         else {

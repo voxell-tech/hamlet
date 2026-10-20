@@ -185,7 +185,7 @@ pub(super) fn transcript(
         chat: chat.clone(),
         earlier: (start > 0).then(|| fold.items[start].id.clone()),
         items: fold.items[start..end].to_vec(),
-        last: Some(fold.last.clone()),
+        last: fold.last.clone(),
         number: chat.from.is_none().then_some(number).flatten(),
         pending: fold.pending,
         to: to.map(String::from),

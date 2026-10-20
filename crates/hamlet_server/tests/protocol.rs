@@ -243,7 +243,7 @@ fn state_follows_office_roads_and_departures_from_the_record() {
             .unwrap()
             .mayor
     );
-    let roads = state.hamlets[0].roads.as_ref().unwrap();
+    let roads = &state.hamlets[0].roads;
     assert_eq!(roads.len(), 2);
     assert!(roads.iter().all(|r| r.a.number == 2 || r.b.number == 2));
     assert!(change(
@@ -263,7 +263,7 @@ fn state_follows_office_roads_and_departures_from_the_record() {
             .words
             .contains("Its house is archived")
     );
-    assert_eq!(state.hamlets[0].roads.as_ref().unwrap().len(), 1);
+    assert_eq!(state.hamlets[0].roads.len(), 1);
     let papers = request(
         &mut service,
         json!({"type":"read","what":"papers","agent":{"hamlet":"home","agent":"scout"}}),

@@ -547,11 +547,10 @@ fn recorded_chats_keep_last_activity_from_live_status_and_transcripts()
         for message in frames(recording) {
             match &message {
                 v0::ServerMessage::Transcript(page) => {
-                    if let Some(last) = &page.last {
-                        expected = last
-                            .as_ref()
-                            .map(|last| (last.at, last.what.clone()));
-                    }
+                    expected = page
+                        .last
+                        .as_ref()
+                        .map(|last| (last.at, last.what.clone()));
                 }
                 v0::ServerMessage::Turn(turn) => {
                     for op in &turn.ops {
@@ -573,35 +572,6 @@ fn recorded_chats_keep_last_activity_from_live_status_and_transcripts()
         }
         assert!(saw_activity, "the recorded chat has worked");
     }
-}
-
-#[test]
-fn a_transcript_without_last_activity_keeps_the_received_live_status()
-{
-    use hamlet_client::chats::Status;
-
-    let mut recorded = frames(include_str!(
-        "../../hamlet_protocol/frames/turn.jsonl"
-    ));
-    let v0::ServerMessage::Transcript(mut page) =
-        recorded.pop().unwrap()
-    else {
-        panic!("the recording ends with a transcript");
-    };
-    let mut app = app();
-    let chat = app.world_mut().spawn(Chat(reference())).id();
-    for message in recorded {
-        receive(app.world_mut(), message);
-    }
-    let expected =
-        app.world().get::<Status>(chat).unwrap().last.clone();
-    assert!(expected.is_some());
-    page.last = None;
-    receive(app.world_mut(), v0::ServerMessage::Transcript(page));
-    assert_eq!(
-        app.world().get::<Status>(chat).unwrap().last,
-        expected
-    );
 }
 
 #[test]
@@ -945,7 +915,7 @@ fn peer_inputs_keep_their_author_and_never_become_chief_inputs() {
         "type": "transcript", "chat": reference(), "items": [
             {"id":"1:0", "at":1, "kind":"user", "text":"Check this", "author":"scout@mill"},
             {"id":"2:0", "at":2, "kind":"user", "text":"My instruction", "chief":"chief"}
-        ], "earlier": null, "working":false, "pending":0,
+        ], "earlier": null, "last": null, "working":false, "pending":0,
         "usage":{"input":0,"output":0,"cached":0,"calls":0,"lastInput":0,"reasoning":0,"unreported":0,"summary":"", "micros":0,"ms":0}
     });
     receive(app.world_mut(), serde_json::from_value(page).unwrap());

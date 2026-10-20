@@ -229,29 +229,13 @@ async fn edit(
                 .context("Invalid limits JSON; nothing was saved")?,
             reason: None,
         }),
-        "settings" => {
-            let value =
-                serde_json::from_str::<serde_json::Value>(&text)
-                    .context(
-                        "Invalid settings JSON; nothing was saved",
-                    )?;
-            let set = serde_json::from_value::<EditSettingsSet>(
-                value.clone(),
-            )
-            .context("Invalid settings JSON; nothing was saved")?;
-            // Generated wire types tolerate unknown fields in newer
-            // servers; an editor's misspelled or null
-            // setting must not disappear.
-            anyhow::ensure!(
-                serde_json::to_value(&set)? == value,
-                "Invalid settings JSON: unknown or null fields; \
-                 nothing was saved"
-            );
-            Edit::Settings {
-                id: id.clone(),
-                set,
-            }
-        }
+        "settings" => Edit::Settings {
+            id: id.clone(),
+            set: serde_json::from_str::<EditSettingsSet>(&text)
+                .context(
+                    "Invalid settings JSON; nothing was saved",
+                )?,
+        },
         _ => bail!("Unknown document"),
     };
     match checked(

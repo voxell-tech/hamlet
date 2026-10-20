@@ -442,7 +442,7 @@ async fn local_service(action: &str, home: &Path) -> Result<i32> {
             "hamlet: running at {}; pid {}; started {}; log {}",
             record.url,
             record.pid,
-            record.started.as_deref().unwrap_or("unknown"),
+            record.started,
             home.join("server.log").display()
         );
         if action == "start" {

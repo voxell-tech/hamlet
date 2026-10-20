@@ -84,7 +84,7 @@ pub async fn run(address: &ServerAddress, to: &str) -> Result<()> {
         "hamlet: Ctrl-D quits after your lines are answered; Ctrl-C \
          quits at once and stops no agent"
     );
-    for deed in state.deeds.iter().flatten() {
+    for deed in &state.deeds {
         eprintln!(
             "  /{}: {}",
             format!("{} {}", deed.name, deed.usage).trim_end(),

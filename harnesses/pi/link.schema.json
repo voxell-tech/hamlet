@@ -745,7 +745,7 @@
         },
         "Welcome": {
             "type": "object",
-            "required": ["type", "v", "id", "re", "version", "tools"],
+            "required": ["type", "v", "id", "re", "tools", "windows"],
             "properties": {
                 "type": {
                     "type": "string",
@@ -763,10 +763,6 @@
                 "re": {
                     "type": "string",
                     "minLength": 1
-                },
-                "version": {
-                    "type": "integer",
-                    "minimum": 1
                 },
                 "tools": {
                     "type": "array",

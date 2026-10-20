@@ -122,8 +122,7 @@ pub(crate) fn seek(
     turn(world);
     let houses = world
         .get_resource::<Houses>()
-        .and_then(|houses| houses.0.as_ref())
-        .map(PathBuf::from)
+        .map(|houses| PathBuf::from(&houses.0))
         .map(|path| path.canonicalize().unwrap_or(path));
     let mut found = world.get_resource_or_init::<Found>();
     if found.1 != houses {

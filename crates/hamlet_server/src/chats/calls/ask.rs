@@ -97,12 +97,11 @@ pub(super) fn ask(
     held::raise(
         service.home.store().connection(),
         Raising {
-            kind: WaitKind::Question,
+            about: asking::about(&questions),
+            kind: WaitKind::Question(questions),
             by: wait_by(&record, &place.agent),
             agent: Some(place.agent.clone()),
-            about: asking::about(&questions),
             change: None,
-            questions: Some(questions),
             answers: vec![Choice::Reply, Choice::Dismiss],
             chat: chat_of(&place),
             call: Some(Holding {

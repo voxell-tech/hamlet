@@ -12,7 +12,7 @@ use futures::{SinkExt, StreamExt};
 use hamlet_protocol::discovery::ServerAddress;
 use hamlet_protocol::v0;
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::protocol::frame::coding;
@@ -22,7 +22,6 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use crate::Tokio;
 use crate::messages::Reconnected;
 use crate::outbox::Outbox;
-use crate::realm::Seen;
 
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
@@ -83,7 +82,6 @@ impl Default for Heartbeat {
 struct Bridge {
     incoming: mpsc::Receiver<Incoming>,
     outgoing: mpsc::Sender<Vec<v0::ClientMessage>>,
-    seen: watch::Sender<Option<v0::Seen>>,
     task: JoinHandle<()>,
 }
 
@@ -164,21 +162,18 @@ fn update(world: &mut World) {
         };
         let (frames, incoming) = mpsc::channel(256);
         let (outgoing, requests) = mpsc::channel(1);
-        let (seen, latest) = watch::channel(last_seen(world));
         let retry = *world.resource::<Retry>();
         let heartbeat = *world.resource::<Heartbeat>();
         let task = runtime.0.spawn(connect(
             server.clone(),
             frames,
             requests,
-            latest,
             retry,
             heartbeat,
         ));
         world.insert_resource(Bridge {
             incoming,
             outgoing,
-            seen,
             task,
         });
     }
@@ -235,14 +230,6 @@ fn update(world: &mut World) {
                 }
             }
         }
-        bridge.seen.send_if_modified(|seen| {
-            let latest = last_seen(world);
-            if *seen == latest {
-                return false;
-            }
-            *seen = latest;
-            true
-        });
         if world.resource::<Connection>().state == State::Connected
             && let Ok(permit) = bridge.outgoing.try_reserve()
         {
@@ -257,18 +244,10 @@ fn update(world: &mut World) {
     });
 }
 
-fn last_seen(world: &World) -> Option<v0::Seen> {
-    world.get_resource::<Seen>().map(|seen| v0::Seen {
-        epoch: seen.epoch,
-        revision: seen.revision,
-    })
-}
-
 async fn connect(
     server: ServerAddress,
     frames: mpsc::Sender<Incoming>,
     mut requests: mpsc::Receiver<Vec<v0::ClientMessage>>,
-    seen: watch::Receiver<Option<v0::Seen>>,
     retry: Retry,
     heartbeat: Heartbeat,
 ) {
@@ -287,7 +266,6 @@ async fn connect(
             let hello = v0::ClientMessage::Hello(v0::Hello {
                 v: v0::V,
                 token: server.token.clone(),
-                seen: seen.borrow().clone(),
             });
             if socket.send(wire(&hello)).await.is_ok() {
                 if frames
@@ -551,7 +529,7 @@ mod tests {
         assert!(!app.world().contains_resource::<Server>());
         std::fs::write(
             home.join("server.json"),
-            format!(r#"{{"url":"{url}","pid":7}}"#),
+            format!(r#"{{"url":"{url}","pid":7,"started":"2026-01-01T00:00:00.000Z"}}"#),
         )
         .unwrap();
         std::fs::write(

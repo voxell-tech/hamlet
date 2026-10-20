@@ -29,10 +29,7 @@ async fn structured_questions_survive_restart_and_only_valid_answers_settle()
         .await;
     let Wait {
         about,
-        detail:
-            WaitDetail::Question {
-                questions: Some(questions),
-            },
+        detail: WaitDetail::Question { questions },
         ..
     } = &wait
     else {
@@ -195,10 +192,7 @@ async fn question_limit_counts_calls_not_questions_and_invalid_calls_do_not_spen
             matches!(w.detail, WaitDetail::Question { .. })
         })
         .await;
-    let WaitDetail::Question {
-        questions: Some(questions),
-    } = &wait.detail
-    else {
+    let WaitDetail::Question { questions } = &wait.detail else {
         panic!("questions")
     };
     assert_eq!(questions.questions[0].question, "First?");

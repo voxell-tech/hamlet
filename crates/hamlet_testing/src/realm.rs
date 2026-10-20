@@ -11,8 +11,12 @@ pub fn state() -> v0::State {
         "waits": [], "grants": [], "providers": [],
         "settings": {
             "model": "faux::faux-1", "reflectEvery": 0, "allowNet": false,
-            "endpoints": [], "unset": false, "link": {"state": "untested"}
-        }
+            "endpoints": [], "unset": false,
+            "link": {"state": "untested", "models": null, "words": null},
+            "workspace": {"url": null, "running": null}
+        },
+        "houses": "/tmp/hamlet-test/houses", "library": [], "closed": [],
+        "deeds": [], "starters": []
     })).unwrap()
 }
 
@@ -21,6 +25,7 @@ pub fn hamlet(id: &str) -> v0::Hamlet {
     serde_json::from_value(json!({
         "id": id, "name": id, "folder": null, "before": [], "mode": "manual",
         "modeWords": "Agents ask you before each edit and command.",
+        "roads": [], "votes": [], "at": null,
         "budget": {
             "period": "day", "periodWords": "today", "gone": 0,
             "spent": {"tokens": 0, "micros": 0, "ms": 0},
@@ -29,6 +34,11 @@ pub fn hamlet(id: &str) -> v0::Hamlet {
             "left": 1, "remains": "$5.00"
         },
         "limits": {
+            "votes": {
+                "passYes": 2, "passOf": 3, "leastVoters": 3, "sealed": true, "groundedOnly": false,
+                "ballotMinutes": 5, "openMinutes": 60, "retryMinutes": 60
+            },
+            "hamlets": {"most": 6, "roadsBetween": true, "removalMayors": 3},
             "budget": {"period": "day", "cost": 5, "minutes": null, "tokens": null},
             "task": {"messages": 12, "cost": 1, "minutes": null, "tokens": null},
             "road": {"tokens": 0, "cost": 0.01, "minutes": 0, "growsOverDays": 7},
@@ -49,7 +59,8 @@ pub fn agent(hamlet: &str, number: i64, name: &str) -> v0::Agent {
         "model": "faux::faux-1", "busy": false, "faulted": false,
         "activity": {"doing": "rest", "doingWords": "At rest", "step": 0, "failures": 0},
         "saying": {"text": "", "thought": false},
-        "spent": {"tokens": 0, "micros": 0, "ms": 0, "cost": "$0.00"}
+        "spent": {"tokens": 0, "micros": 0, "ms": 0, "cost": "$0.00"},
+        "consulting": false, "conversations": [], "skills": []
     })).unwrap()
 }
 
@@ -89,15 +100,13 @@ pub fn reference(hamlet: &str, number: u64) -> v0::AgentRef {
 }
 
 /// The advertised deeds named `names`.
-pub fn deeds(names: &[&str]) -> Option<Vec<v0::Deed>> {
-    Some(
-        names
-            .iter()
-            .map(|name| v0::Deed {
-                name: (*name).into(),
-                usage: String::new(),
-                description: String::new(),
-            })
-            .collect(),
-    )
+pub fn deeds(names: &[&str]) -> Vec<v0::Deed> {
+    names
+        .iter()
+        .map(|name| v0::Deed {
+            name: (*name).into(),
+            usage: String::new(),
+            description: String::new(),
+        })
+        .collect()
 }

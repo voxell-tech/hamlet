@@ -25,8 +25,19 @@ const mayor = { hamlet: "home", agent: "mayor" };
 const chat = { with: mayor };
 const ref = { hamlet: "home", number: 0 };
 
-/** Rust's default limits (limits.rs:316-372). */
+/** The server's default limits (assets/limits.schema.json). */
 const limits: Limits = {
+    votes: {
+        passYes: 2,
+        passOf: 3,
+        leastVoters: 3,
+        sealed: true,
+        groundedOnly: false,
+        ballotMinutes: 5,
+        openMinutes: 60,
+        retryMinutes: 60,
+    },
+    hamlets: { most: 6, roadsBetween: true, removalMayors: 3 },
     budget: { period: "day", tokens: null, cost: 5, minutes: null },
     task: { messages: 12, tokens: null, cost: 1, minutes: null },
     road: { tokens: 0, cost: 0.01, minutes: 0, growsOverDays: 7 },
@@ -48,6 +59,9 @@ const limits: Limits = {
 };
 
 const hamlet: Hamlet = {
+    roads: [],
+    votes: [],
+    at: null,
     id: "home",
     name: "home",
     folder: "/Users/chief/code/project",
@@ -69,6 +83,8 @@ const hamlet: Hamlet = {
 };
 
 const agent: Agent = {
+    consulting: false,
+    conversations: [],
     ref,
     name: "founder",
     purpose: "Keeps the hamlet",
@@ -85,6 +101,7 @@ const agent: Agent = {
     },
     saying: { text: "Looking at the tests.", thought: false },
     spent: { tokens: 18200, micros: 420000, ms: 42000, cost: "$0.42" },
+    skills: [],
 };
 
 const wait: Wait = {
@@ -154,15 +171,7 @@ const said: Say = {
 };
 
 const fromClient: Examples<ClientMessage> = {
-    hello: [
-        { type: "hello", v: 0, token: "t0ken" },
-        {
-            type: "hello",
-            v: 0,
-            token: "t0ken",
-            seen: { epoch: 1, revision: 7 },
-        },
-    ],
+    hello: [{ type: "hello", v: 0, token: "t0ken" }],
     say: [said],
     give: [
         {
@@ -286,6 +295,9 @@ const fromClient: Examples<ClientMessage> = {
 const fromServer: Examples<ServerMessage> = {
     state: [
         {
+            houses: "/Users/chief/.hamlet/houses",
+            library: [],
+            closed: [],
             type: "state",
             epoch: 1,
             revision: 7,
@@ -323,6 +335,7 @@ const fromServer: Examples<ServerMessage> = {
                 ],
                 unset: false,
                 link: { state: "connected", models: 3, words: "Connected" },
+                workspace: { url: null, running: null },
             },
             providers: [
                 {
@@ -333,6 +346,15 @@ const fromServer: Examples<ServerMessage> = {
                     label: "Continue with ChatGPT",
                 },
             ],
+            deeds: [
+                {
+                    name: "mode",
+                    usage: "<manual|auto>",
+                    description:
+                        "Whether agents ask before they change the folder",
+                },
+            ],
+            starters: [],
         },
     ],
     change: [
@@ -356,6 +378,16 @@ const fromServer: Examples<ServerMessage> = {
                         endpoints: [],
                         unset: true,
                         link: { state: "untested", models: null, words: null },
+                        workspace: {
+                            url: "https://workspace.example",
+                            running: null,
+                            move: {
+                                state: "moving",
+                                done: 1,
+                                of: 3,
+                                text: "",
+                            },
+                        },
                     },
                 },
                 { type: "providers", providers: [] },
@@ -405,6 +437,7 @@ const fromServer: Examples<ServerMessage> = {
                 item,
             ],
             earlier: null,
+            last: { what: "tool bash", at: 1760000000000 },
             working: true,
             pending: 0,
             usage,
@@ -414,6 +447,7 @@ const fromServer: Examples<ServerMessage> = {
             chat: { with: mayor, past: 1 },
             items: [],
             earlier: "3:0",
+            last: null,
             working: false,
             pending: 0,
             usage,
@@ -577,23 +611,33 @@ describe("protocol v0", () => {
 
 it("keeps a danger in an approval's detail and in no other kind's", () => {
     const wire = (detail: unknown) => ({
-        type: "state",
-        epoch: 1,
-        revision: 0,
-        chief: "chief",
-        sandbox: "test",
-        hamlets: [],
-        agents: [],
+        ...fromServer.state[0],
         waits: [{ ...wait, detail }],
-        grants: [],
-        providers: [],
-        settings: fromServer.state[0]?.settings,
     });
     const approval = { kind: "approval", says: "wants to run", always: null };
     expect(server.Check(wire(approval))).toBe(false);
     expect(server.Check(wire({ ...approval, danger: "command" }))).toBe(true);
-    for (const kind of ["fault", "question", "objection"])
-        expect(server.Check(wire({ kind, danger: "command" }))).toBe(false);
+    const questions = {
+        message: "Which grain?",
+        questions: [
+            {
+                question: "Which grain?",
+                description: "",
+                options: [{ title: "Wheat", description: "" }],
+                text_input: true,
+            },
+        ],
+    };
+    expect(server.Check(wire({ kind: "question", questions }))).toBe(true);
+    expect(server.Check(wire({ kind: "question" }))).toBe(false);
+    for (const detail of [
+        { kind: "fault" },
+        { kind: "question", questions },
+        { kind: "objection" },
+    ])
+        expect(server.Check(wire({ ...detail, danger: "command" }))).toBe(
+            false,
+        );
 });
 
 const societyAgent = {
@@ -720,7 +764,12 @@ it("accepts typed picks and rejects ambiguous or negative pick shapes", () => {
         wait: "question",
         choice: "reply",
     };
-    expect(client.Check({ ...answer, text: "legacy words" })).toBe(true);
+    expect(
+        client.Check({
+            ...answer,
+            text: "words for a question that takes words",
+        }),
+    ).toBe(true);
     expect(
         client.Check({
             ...answer,

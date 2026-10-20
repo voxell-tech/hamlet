@@ -288,11 +288,8 @@ export type Hello = Static<typeof Hello>;
 
 /** The server takes the runtime on, with the tools it runs for the runtime's conversations. */
 export const Welcome = reply("welcome", {
-    version: Type.Integer({ minimum: 1 }),
     tools: Type.Array(ToolSpec),
-    windows: Type.Optional(
-        Type.Record(Type.String(), Type.Integer({ minimum: 1 })),
-    ),
+    windows: Type.Record(Type.String(), Type.Integer({ minimum: 1 })),
 });
 export type Welcome = Static<typeof Welcome>;
 

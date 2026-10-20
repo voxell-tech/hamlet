@@ -394,13 +394,13 @@ mod tests {
             "restore-hamlet",
             "erase-hamlet",
         ]);
-        state.closed = Some(vec![v0::ClosedHamlet {
+        state.closed = vec![v0::ClosedHamlet {
             id: "mill".into(),
             name: "The Mill".into(),
             at: 100,
             by: "chief".into(),
             reason: "Finished grinding".into(),
-        }]);
+        }];
         hamlet_client::receive(
             app.world_mut(),
             v0::ServerMessage::State(state),
@@ -450,13 +450,13 @@ mod tests {
             "restore-hamlet",
             "erase-hamlet",
         ]);
-        state.closed = Some(vec![v0::ClosedHamlet {
+        state.closed = vec![v0::ClosedHamlet {
             id: "mill".into(),
             name: "Mill".into(),
             at: 100,
             by: "chief".into(),
             reason: "Done".into(),
-        }]);
+        }];
         hamlet_client::receive(
             app.world_mut(),
             v0::ServerMessage::State(state.clone()),
@@ -489,7 +489,7 @@ mod tests {
         );
         press(&mut app, "DELETE FOR GOOD");
         app.update();
-        state.closed.as_mut().unwrap()[0].at = 200;
+        state.closed[0].at = 200;
         hamlet_client::receive(
             app.world_mut(),
             v0::ServerMessage::State(state),

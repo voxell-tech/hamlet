@@ -58,11 +58,7 @@ fn begin(
     if *pane != Pane::Workspace {
         return;
     }
-    let url = settings
-        .0
-        .workspace
-        .as_ref()
-        .and_then(|workspace| workspace.url.clone());
+    let url = settings.0.workspace.url.clone();
     *draft = Draft {
         remote: url.is_some(),
         url: url.unwrap_or_default(),
@@ -145,10 +141,8 @@ fn answered(response: On<Response>, mut draft: ResMut<Draft>) {
 
 /// Whether the saved choice waits for a restart.
 fn waiting(settings: &Settings) -> bool {
-    matches!(
-        &settings.0.workspace,
-        Some(workspace) if workspace.url != workspace.running
-    )
+    let workspace = &settings.0.workspace;
+    workspace.url != workspace.running
 }
 
 fn pending(settings: &Settings) -> String {
@@ -163,7 +157,7 @@ fn pending(settings: &Settings) -> String {
 fn move_of(
     settings: &Settings,
 ) -> Option<&v0::SettingsViewWorkspaceMove> {
-    settings.0.workspace.as_ref()?.move_.as_ref()
+    settings.0.workspace.move_.as_ref()
 }
 
 /// What moving the houses does, how far it has come or how it ended.
@@ -181,11 +175,10 @@ fn progress(settings: &Settings) -> String {
             move_.text.clone()
         }
         _ => {
-            let to = match &settings.0.workspace {
-                Some(workspace) if workspace.url.is_some() => {
-                    "the remote server"
-                }
-                _ => "this computer",
+            let to = if settings.0.workspace.url.is_some() {
+                "the remote server"
+            } else {
+                "this computer"
             };
             format!(
                 "Copies every agent's house to {to}, replacing the \
@@ -335,11 +328,11 @@ mod tests {
         move_: Option<v0::SettingsViewWorkspaceMove>,
     ) {
         let mut settings = hamlet_testing::realm::state().settings;
-        settings.workspace = Some(v0::SettingsViewWorkspace {
+        settings.workspace = v0::SettingsViewWorkspace {
             url: url.map(Into::into),
             running: running.map(Into::into),
             move_,
-        });
+        };
         hamlet_client::receive(
             app.world_mut(),
             v0::ServerMessage::Change(v0::Changes {

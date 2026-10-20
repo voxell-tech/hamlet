@@ -750,13 +750,18 @@ mod tests {
                 let frame =
                     serde_json::from_str::<serde_json::Value>(line)
                         .unwrap();
-                (frame["from"] == "server"
-                    && frame["message"]["type"] == "transcript")
+                (frame["from"] == "server")
                     .then(|| {
-                        serde_json::from_value::<v0::Transcript>(
+                        serde_json::from_value::<v0::ServerMessage>(
                             frame["message"].clone(),
                         )
                         .unwrap()
+                    })
+                    .and_then(|message| match message {
+                        v0::ServerMessage::Transcript(page) => {
+                            Some(page)
+                        }
+                        _ => None,
                     })
             })
             .collect::<Vec<_>>()

@@ -30,7 +30,7 @@ fn the_local_home_supplies_only_the_url_and_connection_token() {
     let home = Scratch::new("connection-find-home");
     std::fs::write(
         home.join("server.json"),
-        r#"{"url":"ws://127.0.0.1:7314","pid":7}"#,
+        r#"{"url":"ws://127.0.0.1:7314","pid":7,"started":"2026-01-01T00:00:00.000Z"}"#,
     )
     .unwrap();
     std::fs::write(
@@ -70,7 +70,7 @@ fn the_default_home_is_under_the_chiefs_home_and_empty_names_are_unset()
     std::fs::create_dir(&home).unwrap();
     std::fs::write(
         home.join("server.json"),
-        r#"{"url":"ws://localhost:7313","pid":7}"#,
+        r#"{"url":"ws://localhost:7313","pid":7,"started":"2026-01-01T00:00:00.000Z"}"#,
     )
     .unwrap();
     std::fs::write(

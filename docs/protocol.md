@@ -26,8 +26,7 @@ Send `Hello` first, within 10 seconds:
 {"type":"hello","v":0,"token":"<home token>"}
 ```
 
-A successful hello receives a full `state` before live changes. `Hello.seen`
-accepts `{epoch, revision}`, but the server always sends the full state.
+A successful hello receives a full `state` before live changes.
 
 | Failure | Answer and connection |
 |---|---|
@@ -53,7 +52,6 @@ closes clients with **1001**. These rules are in
 | `AgentRef` | `{hamlet: string, number: integer}`. Stable identity, independent of name or office. |
 | `ChatRef` | `{with: Address, past?: integer, from?: AgentRef, kind?: "letters" \| "questions"}`. |
 | `RequestId` | A UUID string. |
-| `Seen` | `{epoch: integer, revision: integer}`. |
 | `Choice` | `allow`, `always`, `deny`, `go`, `withdraw`, `reply`, `dismiss`. Use the choices advertised by the wait. |
 | `Endpoint` | `{name: string, baseUrl: string}`. |
 | `Price` | `{input: number, output: number}`: dollars per million tokens. |
@@ -84,7 +82,7 @@ at its start. Revision starts at zero and increases when the realm state
 changes. `Changes` carries the epoch and new revision. A full `state`
 replaces the client's realm snapshot; `change` applies its listed updates.
 These counters describe realm state, not transcript operations. Reconnect
-with hello and reopen watches; `seen` does not request a delta replay.
+with hello, which brings a full `state`, and reopen watches.
 
 ## Client → server
 
@@ -95,7 +93,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 
 | Type (schema) | Fields | Action and answer |
 |---|---|---|
-| `hello` (`Hello`) | `v: 0`, `token: string`, `seen?: Seen`; no `id` | Authenticate; full `state`. |
+| `hello` (`Hello`) | `v: 0`, `token: string`; no `id` | Authenticate; full `state`. |
 | `say` (`Say`) | `to: Address`, `text: string` | Send a chief line or typed command. A command gets `reply`; an admitted agent line gets its receipt when that submission settles. Live work arrives through watches and realm changes. |
 | `give` (`Give`) | `to: Address`, `files: {path: string, size: integer}[]` | Begin a file gift; `reply.upload` identifies the upload for chunks. Paths are relative; sizes are byte counts. |
 | `give` (`Give`) | `to: Address`, `skill: {starter: string}` | Give an installed starter skill; `reply`. |
@@ -122,21 +120,19 @@ messages. Both forms are part of the protocol.
 
 ### Questions and answers
 
-A question wait's `detail` may include `questions: Questions`: a `message` and a list
-of one to ten questions. Each question has `question`, `description`, up to
-six `options` (`title` and `description`), and `text_input`. A question with
-no options always accepts custom words. The optional payload is kept across
-server restarts and appears in both full state and wait updates. Older
-captures without it remain readable.
+A question wait's `detail` carries `questions: Questions`: a `message` and a
+list of one to ten questions. Each question has `question`, `description`,
+up to six `options` (`title` and `description`), and `text_input`. A
+question with no options always accepts custom words. The questions are kept
+across server restarts and appear in both full state and wait updates.
 
 Send `choice: "reply"` and `picks` in question order. Each pick is either
 `{kind: "offer", index: 0}` (zero-based option index) or
 `{kind: "words", text: "custom answer"}`. Every question needs one valid
 answer. Blank words, unavailable options and custom words when
 `text_input` is false are refused without closing the wait. Picks cannot
-accompany `text` or any choice other than `reply`. Plain `text` replies
-remain supported for a single question that accepts words, and for legacy
-waits without the structured payload. `dismiss` needs neither.
+accompany `text` or any choice other than `reply`. A plain `text` reply
+answers a single question that accepts words. `dismiss` needs neither.
 
 The committed result of `ask_chief` produces a transcript item with kind
 `answered`, containing the chief's reply. Structured replies quote each
@@ -188,9 +184,9 @@ These are all members of `ServerMessage`. Each row has `type` as shown.
 
 | Type (schema) | Fields | Meaning | Who receives it |
 |---|---|---|---|
-| `state` (`State`) | `epoch`, `revision`, `chief: string`, `sandbox: string`, `hamlets: Hamlet[]`, `agents: Agent[]`, `waits: Wait[]`, `grants: Grant[]`, `settings: SettingsView`, `providers: ProviderView[]`; optional `houses: string`, `library: LibrarySkill[]`, `closed: ClosedHamlet[]`, `deeds: {name: string, usage: string, description: string}[]`, `starters: {name: string, description: string}[]` | Full realm snapshot. | Every client that said hello; a new client gets its own initial snapshot. |
+| `state` (`State`) | `epoch`, `revision`, `chief: string`, `sandbox: string`, `hamlets: Hamlet[]`, `agents: Agent[]`, `waits: Wait[]`, `grants: Grant[]`, `settings: SettingsView`, `providers: ProviderView[]`, `houses: string`, `library: LibrarySkill[]`, `closed: ClosedHamlet[]`, `deeds: {name: string, usage: string, description: string}[]`, `starters: {name: string, description: string}[]` | Full realm snapshot. | Every client that said hello; a new client gets its own initial snapshot. |
 | `change` (`Changes`) | `epoch`, `revision`, `changes: Update[]` | Realm updates since the previous revision. | Every client that said hello. |
-| `transcript` (`Transcript`) | `to?: RequestId`, `chat: ChatRef`, `number?: integer`, `items: Item[]`, `earlier: string \| null`, `last?: {what: string, at: integer} \| null`, `working: boolean`, `pending: integer`, `usage: UsageView` | A page, or replacement page after a reset. `number` is the chief conversation's stable number. | Only clients watching that chat; a requested page goes to its requester. |
+| `transcript` (`Transcript`) | `to?: RequestId`, `chat: ChatRef`, `number?: integer`, `items: Item[]`, `earlier: string \| null`, `last: {what: string, at: integer} \| null`, `working: boolean`, `pending: integer`, `usage: UsageView` | A page, or replacement page after a reset. `number` is the chief conversation's stable number. | Only clients watching that chat; a requested page goes to its requester. |
 | `turn` (`Turn`) | `chat: ChatRef`, `number?: integer`, `ops: Op[]` | Live transcript operations, in order. | Only clients watching that chat. |
 | `reply` (`Reply`) | `to: RequestId`, `kind: "notice" \| "error" \| "rewound"`, `text: string`, `upload?: string` | Request receipt, refusal or words recovered by rewind. | Only the connection that asked. |
 | `read` (`ReadResult`) | `to: RequestId` and one of `prompt`, `history`, `models`, `papers`, `charter` as above | Requested document or list. | Only the connection that asked. |
@@ -204,11 +200,11 @@ These are all members of `ServerMessage`. Each row has `type` as shown.
 removal, send a whole `state` instead.
 
 `Agent` is a summary: identity, name, purpose, model, mayor flag, busy and
-fault flags, activity, short saying and spend. Optional fields include
-skills, departure, consultation and peer conversation summaries. It contains
-no transcript. `Hamlet`, `Wait`, `Grant`, `SettingsView` and `ProviderView`
-are the complete views defined in `protocol.ts`. `SettingsView`'s optional
-`workspace` is `{url, running, move?}`: the remote workspace chosen and the
+fault flags, activity, short saying, spend, skills, consultation and peer
+conversation summaries, and `left?` once it has left. It contains no
+transcript. `Hamlet`, `Wait`, `Grant`, `SettingsView` and `ProviderView`
+are the complete views defined in `protocol.ts`. `SettingsView.workspace`
+is `{url, running, move?}`: the remote workspace chosen and the
 one the server works in until it restarts, each `null` for the local one. It
 never holds the token. `move` is the latest move of the houses to the chosen
 workspace since the server started: `state` (`moving`, `moved` or `failed`),
@@ -286,19 +282,21 @@ A `Wait` has the fields every wait has (`id`, `by`, `agent`, `about`,
 `subject`, `change`, `answers`, `since`, `asked`, `chat`) and a `detail`
 discriminated by `kind`: `approval` with its `danger`, the agent's wish as
 `says` and how long `always` lasts (`session`, `grant`, or `null` when it is
-not offered); `fault`; `question` with optional `questions`; or
+not offered); `fault`; `question` with its `questions`; or
 `objection`. `subject` is the line of `about` a one-line view quotes. A
 refused `edit` changes nothing and replies with an error. `check` replies in words and changes the connection status in
 settings; a model check waits at most 90 s.
 
 ## The society in state
 
-The society and realm add optional fields only:
+Every state and change carries the society and realm in full:
 
-- `Agent.left`, `consulting` and `conversations` describe departures,
-  library work and incoming peer conversations.
-- `Hamlet.roads`, `votes` and `at` carry resolved road ends and traffic,
-  ready-made vote reports and the town's position.
+- `Agent.consulting` and `conversations` describe library work and incoming
+  peer conversations. `Agent.left` describes a departure, and only an agent
+  that left has one.
+- `Hamlet.roads` and `votes` carry resolved road ends and traffic, and
+  ready-made vote reports. `Hamlet.at` is the town's position, or `null`
+  for a town never set down, which stands on the first free site.
 - `State.library` and `closed` carry the shared shelf and removed hamlets.
 - `Limits.votes` is per hamlet. `Limits.hamlets` is governed by `home`.
 - `State.houses` names the houses folder on the server's machine so local
@@ -310,7 +308,7 @@ spend even when no chief watches their conversation.
 
 `hamlet_client` reconciles state and changes into entities, keeping the
 entities of hamlets and agents still present. When reconnecting it sends
-`hello` with its last epoch and revision, retains unsent requests in its
+`hello` again, retains unsent requests in its
 Outbox and opens its watched chats again. A lost connection retries; a
 refused token stops retries and shows the server's words.
 

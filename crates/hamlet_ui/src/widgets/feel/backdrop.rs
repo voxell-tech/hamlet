@@ -195,9 +195,7 @@ mod tests {
                 asked: 1,
                 answers: Vec::new(),
                 chat: None,
-                detail: hamlet_protocol::v0::WaitDetail::Question {
-                    questions: None,
-                },
+                detail: hamlet_protocol::v0::WaitDetail::Fault {},
             })
             .id()
     }

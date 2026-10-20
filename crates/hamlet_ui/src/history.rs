@@ -688,7 +688,7 @@ mod tests {
             .map(|m| serde_json::to_value(m).unwrap())
             .find(|m| m["type"] == "open" && m["chat"]["past"] == 1)
             .unwrap();
-        hamlet_client::receive(app.world_mut(), serde_json::from_value(json!({"type": "transcript", "to": open["id"], "chat": chat, "items": [{"id": "old:0", "at": now, "kind": "assistant", "text": "Seven hives."}], "earlier": null, "working": false, "pending": 0, "usage": {"calls": 0, "unreported": 0, "input": 0, "cached": 0, "output": 0, "reasoning": 0, "ms": 0, "micros": 0, "lastInput": 0, "summary": ""}})).unwrap());
+        hamlet_client::receive(app.world_mut(), serde_json::from_value(json!({"type": "transcript", "to": open["id"], "chat": chat, "items": [{"id": "old:0", "at": now, "kind": "assistant", "text": "Seven hives."}], "earlier": null, "last": null, "working": false, "pending": 0, "usage": {"calls": 0, "unreported": 0, "input": 0, "cached": 0, "output": 0, "reasoning": 0, "ms": 0, "micros": 0, "lastInput": 0, "summary": ""}})).unwrap());
         app.update();
         app.update();
         assert!(

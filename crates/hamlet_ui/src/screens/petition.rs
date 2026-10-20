@@ -21,10 +21,8 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, each, resource};
 use hamlet_client::chats::{Chat, Entry, Transcript};
 use hamlet_client::messages::{Answer, Veto};
-use hamlet_client::waits::{Asks, Choice, ChoiceExt, Waiting};
-use hamlet_protocol::v0::{
-    Change, Lasting, Questions, WaitDanger, WaitDetail,
-};
+use hamlet_client::waits::{Choice, ChoiceExt, Waiting};
+use hamlet_protocol::v0::{Change, Lasting, WaitDanger, WaitDetail};
 use hamlet_realm::needs::{TagAnswered, TagOpened};
 
 use crate::dock::{PanelAppExt, lit_panel, show_tab};
@@ -94,15 +92,10 @@ struct Need {
     answers: Vec<Choice>,
     change: Option<Change>,
     chat: Option<hamlet_protocol::v0::ChatRef>,
-    questions: Option<Questions>,
 }
 
 impl Need {
-    fn of(
-        entity: Entity,
-        waiting: &Waiting,
-        asks: Option<&Asks>,
-    ) -> Self {
+    fn of(entity: Entity, waiting: &Waiting) -> Self {
         let seconds =
             waiting.waited(crate::status::now_ms()).as_secs();
         let waited = match seconds {
@@ -125,7 +118,6 @@ impl Need {
             answers: waiting.answers.clone(),
             change: waiting.change.clone(),
             chat: waiting.chat.clone(),
-            questions: asks.map(|asks| asks.0.clone()),
         }
     }
 }
@@ -134,7 +126,7 @@ impl Need {
 /// waited.
 pub(crate) fn keep_queue(
     time: Res<Time>,
-    waiting: Query<(Entity, &Waiting, Option<&Asks>)>,
+    waiting: Query<(Entity, &Waiting)>,
     moved: Query<(), Changed<Waiting>>,
     mut answered: RemovedComponents<Waiting>,
     mut queue: ResMut<Queue>,
@@ -148,12 +140,10 @@ pub(crate) fn keep_queue(
     }
     *due = now + TICK;
     let mut rows = waiting.iter().collect::<Vec<_>>();
-    rows.sort_by_key(|(_, w, _)| (w.since, w.id.as_str()));
+    rows.sort_by_key(|(_, w)| (w.since, w.id.as_str()));
     let needs = rows
         .into_iter()
-        .map(|(entity, waiting, asks)| {
-            Need::of(entity, waiting, asks)
-        })
+        .map(|(entity, waiting)| Need::of(entity, waiting))
         .collect::<Vec<_>>();
     if queue.0 != needs {
         queue.0 = needs;
@@ -299,7 +289,11 @@ fn held(
 fn strip(need: &Need) -> AnyView {
     let need = need.clone();
     AnyView::new(move |cx: &mut Cx| {
-        let about = match (&need.questions, held(cx.world, &need)) {
+        let questions = match &need.detail {
+            WaitDetail::Question { questions } => Some(questions),
+            _ => None,
+        };
+        let about = match (questions, held(cx.world, &need)) {
             (Some(asked), _) => {
                 asking::card(need.entity, asked.clone())
             }
@@ -312,7 +306,7 @@ fn strip(need: &Need) -> AnyView {
             }
         };
         // A form has its own answers.
-        let answers = match need.questions {
+        let answers = match questions {
             Some(_) => frame().boxed(),
             None => row((
                 button(&need, 0),
@@ -343,7 +337,7 @@ fn strip(need: &Need) -> AnyView {
             _ => Tone::Accent,
         };
         // A form says its questions itself.
-        let line = match need.questions {
+        let line = match questions {
             Some(_) => frame().boxed(),
             None => label(need.line.clone()).size(13.0).boxed(),
         };

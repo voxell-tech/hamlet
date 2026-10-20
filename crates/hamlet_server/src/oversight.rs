@@ -86,38 +86,57 @@ impl From<Danger> for WaitDanger {
 }
 
 /// What a wait waits for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum WaitKind {
     Approval(Danger),
     Fault,
-    Question,
+    Question(Questions),
     Objection,
 }
 
 impl WaitKind {
-    fn name(self) -> &'static str {
+    fn name(&self) -> &'static str {
         match self {
             Self::Approval(_) => "approval",
             Self::Fault => "fault",
-            Self::Question => "question",
+            Self::Question(_) => "question",
             Self::Objection => "objection",
         }
     }
 
-    fn danger(self) -> Option<Danger> {
+    fn danger(&self) -> Option<Danger> {
         match self {
-            Self::Approval(danger) => Some(danger),
+            Self::Approval(danger) => Some(*danger),
             _ => None,
         }
     }
 
-    fn of(name: &str, danger: Option<Danger>) -> Result<Self> {
-        Ok(match (name, danger) {
-            ("approval", Some(danger)) => Self::Approval(danger),
-            ("fault", _) => Self::Fault,
-            ("question", _) => Self::Question,
-            ("objection", _) => Self::Objection,
-            _ => bail!("a wait of kind {name} and danger {danger:?}"),
+    fn questions(&self) -> Option<&Questions> {
+        match self {
+            Self::Question(questions) => Some(questions),
+            _ => None,
+        }
+    }
+
+    fn of(
+        name: &str,
+        danger: Option<Danger>,
+        questions: Option<Questions>,
+    ) -> Result<Self> {
+        let asks = questions.is_some();
+        Ok(match (name, danger, questions) {
+            ("approval", Some(danger), None) => {
+                Self::Approval(danger)
+            }
+            ("fault", _, None) => Self::Fault,
+            ("question", _, Some(questions)) => {
+                Self::Question(questions)
+            }
+            ("objection", _, None) => Self::Objection,
+            _ => bail!(
+                "a wait of kind {name} and danger {danger:?}, with \
+                 questions: {asks}"
+            ),
         })
     }
 }
@@ -220,7 +239,6 @@ pub(crate) struct Wait {
     /// The exact text the chief reads.
     pub about: String,
     pub change: Option<Value>,
-    pub questions: Option<Questions>,
     pub answers: Vec<Choice>,
     pub since: i64,
     /// Times it was asked while it waited.
@@ -235,7 +253,6 @@ pub(crate) struct Raising {
     pub agent: Option<AgentRef>,
     pub about: String,
     pub change: Option<Value>,
-    pub questions: Option<Questions>,
     pub answers: Vec<Choice>,
     pub chat: Option<ChatPlace>,
     pub call: Option<Holding>,
@@ -270,7 +287,6 @@ pub(crate) fn raise_fault(
             agent: Some(agent),
             about,
             change: None,
-            questions: None,
             answers: vec![Choice::Dismiss],
             chat,
             call: None,
@@ -422,7 +438,7 @@ pub(crate) fn line(wait: &Wait, most: usize) -> String {
         WaitKind::Objection => {
             clip(subject, most + wait.by.len(), true, true)
         }
-        WaitKind::Question => format!(
+        WaitKind::Question(_) => format!(
             "{} asks: {}",
             wait.by,
             clip(subject, most, true, true)
@@ -484,7 +500,7 @@ pub(crate) fn view(
                 .filter(|_| wait.answers.contains(&Choice::Always)),
         )?;
     }
-    if let Some(questions) = &wait.questions {
+    if let WaitKind::Question(questions) = &wait.kind {
         detail["questions"] = serde_json::to_value(questions)
             .context("a wait's questions")?;
     }
