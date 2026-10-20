@@ -78,7 +78,8 @@ impl Rules<'_> {
             Request::ReleaseAsset(_) => Ok(Reply::Released),
             Request::Call { .. }
             | Request::Subscribe(_)
-            | Request::Emit { .. } => return None,
+            | Request::Emit { .. }
+            | Request::Fetch(_) => return None,
             Request::UpdateAsset { id, bytes } => self
                 .own(store, plugin, *id)
                 .and_then(|()| self.fits(bytes))

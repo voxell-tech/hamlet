@@ -48,6 +48,13 @@ pub struct Budgets {
     pub chain_depth: u32,
     /// Events it sends in one second; the rest are refused.
     pub events_sent_per_second: u32,
+    pub fetches_per_minute: u32,
+    /// Fetches under way at once.
+    pub fetches_waiting: usize,
+    /// Bytes of the answer to one fetch.
+    pub fetch_bytes: u64,
+    /// Seconds one fetch may take, its lookup with it.
+    pub fetch_time: f32,
     pub panels: usize,
     /// Everything it adds: panels, commands, menu entries,
     /// shortcuts, settings pages and suggested workspaces.

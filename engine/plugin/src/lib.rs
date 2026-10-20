@@ -46,9 +46,9 @@ pub mod bindings {
 
 pub use hamlet_engine_api as api;
 pub use hamlet_engine_api::{
-    Action, Asset, AssetId, AssetInfo, Axis, Failure, Layout,
-    Message, PanelId, Reply, Ticket, WidgetEvent, WidgetId, decode,
-    encode,
+    Action, Asset, AssetId, AssetInfo, Axis, Failure, FetchReply,
+    FetchRequest, Layout, Message, Method, PanelId, Reply, Ticket,
+    WidgetEvent, WidgetId, decode, encode,
 };
 
 use self::bindings::hamlet::engine::host::{self, Level};
@@ -122,6 +122,12 @@ pub fn subscribe(event: &str) -> Ticket {
 /// type the manifest names. A reply comes only when it is refused.
 pub fn emit(event: &str, payload: &[u8]) -> Ticket {
     host::emit(event, payload)
+}
+
+/// Fetches `request` from a host the manifest asks `net.fetch` for:
+/// [`Reply::Fetched`].
+pub fn fetch(request: &FetchRequest) -> Ticket {
+    encode(request).map_or(0, |bytes| host::fetch(&bytes))
 }
 
 /// Writes `text` to the engine's log.

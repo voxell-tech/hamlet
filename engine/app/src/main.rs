@@ -15,6 +15,7 @@ fn main() -> AppExit {
             hamlet_engine_grants::plugin,
             hamlet_engine_assets::plugin,
             hamlet_engine_bus::plugin,
+            hamlet_engine_net::plugin,
             hamlet_engine_wasm::plugin,
             demo::plugin,
         ))

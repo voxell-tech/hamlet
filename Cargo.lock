@@ -3611,6 +3611,7 @@ dependencies = [
  "hamlet_engine_bus",
  "hamlet_engine_core",
  "hamlet_engine_grants",
+ "hamlet_engine_net",
  "hamlet_engine_plugins",
  "hamlet_engine_shell",
  "hamlet_engine_wasm",
@@ -3670,6 +3671,19 @@ dependencies = [
  "hamlet_engine_shell",
  "serde",
  "toml",
+]
+
+[[package]]
+name = "hamlet_engine_net"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "hamlet_engine_api",
+ "hamlet_engine_core",
+ "hamlet_engine_grants",
+ "hamlet_engine_plugins",
+ "reqwest",
+ "tokio",
 ]
 
 [[package]]

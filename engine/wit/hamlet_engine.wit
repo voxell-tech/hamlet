@@ -53,6 +53,10 @@ interface host {
     /// Sends the plugin's event `event` with `payload` to its
     /// subscribers. A reply comes only when it is refused.
     emit: func(event: string, payload: list<u8>) -> u64;
+
+    /// Fetches a `FetchRequest` from a host the plugin asked for:
+    /// `Fetched`.
+    fetch: func(request: list<u8>) -> u64;
 }
 
 /// What a plugin gives the engine.

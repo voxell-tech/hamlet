@@ -9,6 +9,7 @@ pub mod id;
 pub mod layout;
 pub mod mail;
 pub mod manifest;
+pub mod net;
 pub mod service;
 pub mod widget;
 pub mod wire;
@@ -25,6 +26,7 @@ pub use id::{
 pub use layout::{Axis, Layout};
 pub use mail::{Failure, Message, Reply, Request, Ticket};
 pub use manifest::{Manifest, ManifestError};
+pub use net::{FetchReply, FetchRequest, Method};
 pub use service::{ServiceExport, ServiceImport, Services};
 pub use widget::{
     Action, TreeError, TreeLimits, Widget, WidgetEvent, WidgetId,

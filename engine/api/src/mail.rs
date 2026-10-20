@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::asset::{Asset, AssetId, AssetInfo};
 use crate::id::{EventId, PluginId};
+use crate::net::{FetchReply, FetchRequest};
 
 /// The number a request is given, which its reply comes back with.
 /// Never 0: a request given 0 was not taken.
@@ -51,6 +52,7 @@ pub enum Request {
         event: String,
         payload: Vec<u8>,
     },
+    Fetch(FetchRequest),
 }
 
 /// What the engine sends a plugin, given to it in a batch on the
@@ -89,6 +91,7 @@ pub enum Reply {
     /// A service's result, bytes of the type both name.
     Answered(Vec<u8>),
     Subscribed,
+    Fetched(FetchReply),
 }
 
 /// Why a request came to nothing.
