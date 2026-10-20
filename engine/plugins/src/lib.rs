@@ -16,7 +16,8 @@ use hamlet_engine_core::LogLine;
 
 pub use self::entry::{Entry, EntryPoint};
 pub use self::switch::{
-    ContributedBy, Contributions, Disable, Enable, Enabled,
+    ContributedBy, Contributions, Disable, Enable, Enabled, Stopped,
+    switch_on,
 };
 
 pub fn plugin(app: &mut App) {
@@ -89,7 +90,7 @@ mod tests {
     fn entry(entry: &mut Entry) {
         entry
             .panel("notes", "Notes", content)
-            .command("write", "Write", |_| {})
+            .command("write", "Write", |_, _| {})
             .menu_entry("Notes", "write")
             .shortcut("Primary+Shift+N", "write")
             .settings_page("looks", "Looks", content)

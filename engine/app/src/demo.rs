@@ -57,7 +57,7 @@ fn entry(entry: &mut Entry) {
         );
 }
 
-fn greet(world: &mut World) {
+fn greet(world: &mut World, _: Entity) {
     world.write_message(LogLine::info(
         ID,
         "Hello from the demo plugin.",

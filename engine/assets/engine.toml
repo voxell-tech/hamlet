@@ -2,7 +2,8 @@
 # its field says otherwise. What each value means is written beside its
 # field, in the module that reads its section: [tuning] in
 # engine/core/src/tuning.rs, [log] in log.rs, [budgets] in budget.rs,
-# [window] in engine/shell/src/window.rs, [workspaces] in workspace.rs.
+# [window] in engine/shell/src/window.rs, [workspaces] in workspace.rs,
+# [wasm] in engine/wasm/src/host.rs.
 
 [tuning]
 every = 0.5
@@ -15,6 +16,8 @@ memory = 67_108_864
 fuel_per_call = 50_000_000
 call_time = 20.0
 time_per_second = 100.0
+fuel_per_second = 500_000_000
+strikes = 3
 frame_share = 4.0
 bytes_per_call = 1_048_576
 calls_per_second = 600
@@ -24,6 +27,7 @@ panels = 8
 contributions = 64
 asset_bytes = 16_777_216
 log_lines_per_second = 20
+log_line_bytes = 1_024
 petitions_per_minute = 6
 widgets = 2_000
 widget_depth = 24
@@ -38,3 +42,13 @@ least_height = 480
 
 [workspaces]
 save_after = 0.5
+
+[wasm]
+tick = 5.0
+plugins = 16
+instances = 16
+memories = 2
+tables = 4
+table_elements = 20_000
+wasm_bytes = 33_554_432
+manifest_bytes = 16_384

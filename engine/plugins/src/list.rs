@@ -20,7 +20,9 @@ use hamlet_engine_shell::dock::PLUGIN_LIST;
 use hamlet_engine_shell::{AnyView, Panel, panel};
 
 use crate::PluginInfo;
-use crate::switch::{Contributions, Disable, Enable, Enabled};
+use crate::switch::{
+    Contributions, Disable, Enable, Enabled, Stopped,
+};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Rows>()
@@ -41,6 +43,8 @@ struct Row {
     on: bool,
     /// How many things it adds.
     adds: usize,
+    /// Why the engine stopped it.
+    stopped: Option<String>,
 }
 
 fn open(mut commands: Commands) {
@@ -65,10 +69,10 @@ fn view(_: Entity) -> AnyView {
 fn row_view(row_of: &Row) -> AnyView {
     let plugin = row_of.plugin;
     let on = row_of.on;
-    let state = if on {
-        format!("On, adds {}", row_of.adds)
-    } else {
-        "Off".into()
+    let state = match (&row_of.stopped, on) {
+        (Some(why), _) => format!("Stopped: {why}"),
+        (None, true) => format!("On, adds {}", row_of.adds),
+        (None, false) => "Off".into(),
     };
     row((
         column((
@@ -102,33 +106,38 @@ fn follow(
             Changed<PluginInfo>,
             Changed<Enabled>,
             Changed<Contributions>,
+            Changed<Stopped>,
         )>,
     >,
     mut gone: RemovedComponents<PluginInfo>,
     mut off: RemovedComponents<Enabled>,
     mut empty: RemovedComponents<Contributions>,
+    mut restarted: RemovedComponents<Stopped>,
     plugins: Query<(
         Entity,
         &PluginInfo,
         Has<Enabled>,
         Option<&Contributions>,
+        Option<&Stopped>,
     )>,
     mut rows: ResMut<Rows>,
 ) {
     let went = gone.read().count()
         + off.read().count()
-        + empty.read().count();
+        + empty.read().count()
+        + restarted.read().count();
     if changed.is_empty() && went == 0 {
         return;
     }
     let mut now = plugins
         .iter()
-        .map(|(plugin, info, on, adds)| Row {
+        .map(|(plugin, info, on, adds, stopped)| Row {
             plugin,
             name: info.name.clone(),
             about: format!("{}  {}", info.id, info.version),
             on,
             adds: adds.map_or(0, |adds| adds.len()),
+            stopped: stopped.map(|stopped| stopped.0.clone()),
         })
         .collect::<Vec<_>>();
     now.sort_by(|a, b| a.name.cmp(&b.name));

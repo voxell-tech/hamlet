@@ -2,8 +2,9 @@
 resolver = "3"
 members = ["crates/*", "engine/*"]
 # The vendored fynix workspace is its own workspace. The engine's
-# assets are files, not a crate.
-exclude = ["vendor", "engine/assets"]
+# assets and its WIT are files, not crates, and each sample plugin is
+# a workspace of its own, built for wasm32-wasip2.
+exclude = ["vendor", "engine/assets", "engine/wit", "engine/samples"]
 # `cargo build`, `cargo test` and `cargo clippy` at the root cover every
 # crate, so the checks in AGENTS.md need no flags.
 default-members = [".", "crates/*", "engine/*"]
@@ -33,6 +34,8 @@ hamlet_engine_api = { version = "0.1.0", path = "engine/api" }
 hamlet_engine_core = { version = "0.1.0", path = "engine/core" }
 hamlet_engine_shell = { version = "0.1.0", path = "engine/shell" }
 hamlet_engine_plugins = { version = "0.1.0", path = "engine/plugins" }
+hamlet_engine_wasm = { version = "0.1.0", path = "engine/wasm" }
+hamlet_plugin = { version = "0.1.0", path = "engine/plugin" }
 
 # fynix
 bevy_fynix = { path = "vendor/fynix/crates/bevy_fynix" }
@@ -74,6 +77,16 @@ objc2-app-kit = { version = "0.2", default-features = false, features = ["std", 
 objc2-foundation = { version = "0.2", default-features = false, features = ["std", "NSData"] }
 winit = { version = "0.30", default-features = false }
 toml = "1"
+# The guest side of the engine's WIT, for plugins.
+wit-bindgen = { version = "0.63", default-features = false, features = ["macros", "realloc", "std"] }
+# The WASM engine, pinned to a stable release. Only `hamlet_engine_wasm`
+# names it.
+wasmtime = { version = "=49.0.3", default-features = false, features = ["std", "runtime", "cranelift", "component-model", "pooling-allocator"] }
+# Test plugins: core modules in text, made into components against the
+# WIT file.
+wat = "1.262"
+wit-component = "0.262"
+wit-parser = "0.262"
 
 [workspace.lints.clippy]
 redundant_type_annotations = "warn"

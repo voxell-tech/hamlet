@@ -93,6 +93,25 @@ pub struct WidgetTree {
     pub nodes: Vec<WidgetNode>,
 }
 
+/// What the person did to a widget of one of a plugin's panels.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct WidgetEvent {
+    /// The panel's or settings page's name within the plugin.
+    pub panel: String,
+    pub widget: WidgetId,
+    pub action: Action,
+}
+
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub enum Action {
+    /// A button pressed.
+    Click,
+    /// A toggle switched, to this.
+    Toggle(bool),
+    /// A field's text, as the person left it.
+    Text(String),
+}
+
 /// The most a tree may hold.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct TreeLimits {

@@ -1,0 +1,44 @@
+/// The interface between the engine and a plugin. A `list<u8>` is
+/// postcard bytes of a type of `hamlet_engine_api`.
+package hamlet:engine@0.1.0;
+
+/// What the engine gives a plugin.
+interface host {
+    enum level {
+        info,
+        warn,
+        error,
+    }
+
+    /// Writes a line to the engine's log.
+    log: func(level: level, text: string);
+
+    /// Asks for the panel or settings page `name` to be drawn again.
+    redraw: func(name: string);
+}
+
+/// What a plugin gives the engine.
+interface guest {
+    /// What the plugin adds: a `Vec<Contribution>`.
+    declare: func() -> list<u8>;
+
+    /// The panel or settings page `name`: a `WidgetTree`.
+    draw: func(name: string) -> list<u8>;
+
+    /// A `WidgetEvent` on one of its panels or settings pages.
+    event: func(event: list<u8>);
+
+    /// Runs the plugin's command `name`.
+    run: func(name: string);
+
+    /// The plugin's state, handed to its next version on a reload.
+    save: func() -> list<u8>;
+
+    /// Takes the state an earlier version saved.
+    restore: func(state: list<u8>);
+}
+
+world plugin {
+    import host;
+    export guest;
+}

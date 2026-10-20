@@ -3,6 +3,7 @@
 
 pub mod asset;
 pub mod capability;
+pub mod contribution;
 pub mod id;
 pub mod layout;
 pub mod manifest;
@@ -11,11 +12,13 @@ pub mod wire;
 
 pub use asset::{AssetId, TypeName};
 pub use capability::{Ask, Capability};
+pub use contribution::Contribution;
 pub use id::{CommandId, IdError, PanelId, PluginId};
 pub use layout::{Axis, Layout};
 pub use manifest::{Manifest, ManifestError};
 pub use widget::{
-    TreeError, TreeLimits, Widget, WidgetId, WidgetNode, WidgetTree,
+    Action, TreeError, TreeLimits, Widget, WidgetEvent, WidgetId,
+    WidgetNode, WidgetTree,
 };
 pub use wire::{WireError, decode, encode};
 

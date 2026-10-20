@@ -19,6 +19,11 @@ pub struct Budgets {
     pub call_time: f32,
     /// Milliseconds of calls in one second.
     pub time_per_second: f32,
+    /// Fuel of calls in one second.
+    pub fuel_per_second: u64,
+    /// Seconds in a row a plugin may go over a budget of a second
+    /// before it is stopped.
+    pub strikes: u32,
     /// Milliseconds of each frame shared among the plugins.
     pub frame_share: f32,
     /// Bytes copied into or out of the plugin by one call, checked
@@ -34,6 +39,8 @@ pub struct Budgets {
     /// Bytes of one asset.
     pub asset_bytes: u64,
     pub log_lines_per_second: u32,
+    /// Bytes of one line of the log; a longer line is cut.
+    pub log_line_bytes: usize,
     pub petitions_per_minute: u32,
     /// Widgets in one panel's tree.
     pub widgets: usize,

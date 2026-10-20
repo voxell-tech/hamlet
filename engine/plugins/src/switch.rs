@@ -35,6 +35,11 @@ pub struct Contributions(Vec<Entity>);
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Enabled;
 
+/// On a plugin the engine stopped while it was on: why. What it added
+/// stays until it is switched off.
+#[derive(Component, Clone, PartialEq, Debug)]
+pub struct Stopped(pub String);
+
 /// Switches the plugin on: its entry point runs, and what it declares
 /// is added.
 #[derive(EntityEvent, Clone, Copy, Debug)]
@@ -73,11 +78,11 @@ fn one_of_each(
     }
 }
 
+/// Runs the entry point of a plugin built in.
 fn enable(
     event: On<Enable>,
     plugins: Query<(&PluginInfo, &EntryPoint, Has<Enabled>)>,
     budgets: Res<Budgets>,
-    mut log: MessageWriter<LogLine>,
     mut commands: Commands,
 ) {
     let plugin = event.entity;
@@ -89,12 +94,24 @@ fn enable(
     }
     let mut entry = Entry::default();
     (point.0)(&mut entry);
-    for why in entry.spawn(plugin, &info.id, &budgets, &mut commands)
-    {
-        log.write(LogLine::warn(info.id.as_str(), why));
+    switch_on(&mut commands, plugin, info, entry, &budgets);
+}
+
+/// Adds what `entry` declares, linked to `plugin`, within `budgets`,
+/// and marks the plugin [`Enabled`]. What is left out is told in the
+/// log.
+pub fn switch_on(
+    commands: &mut Commands,
+    plugin: Entity,
+    info: &PluginInfo,
+    entry: Entry,
+    budgets: &Budgets,
+) {
+    for why in entry.spawn(plugin, &info.id, budgets, commands) {
+        commands.write_message(LogLine::warn(info.id.as_str(), why));
     }
     commands.entity(plugin).insert(Enabled);
-    log.write(LogLine::info(
+    commands.write_message(LogLine::info(
         "plugins",
         format!("{} is on", info.name),
     ));
@@ -113,7 +130,7 @@ fn disable(
     commands
         .entity(plugin)
         .despawn_related::<Contributions>()
-        .remove::<Enabled>();
+        .remove::<(Enabled, Stopped)>();
     log.write(LogLine::info(
         "plugins",
         format!("{} is off", info.name),

@@ -1,0 +1,321 @@
+//! Plugins written as core modules in text, made into components
+//! against the WIT file, so no test needs a WASM toolchain.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::Duration;
+
+use bevy::app::{App, TaskPoolPlugin};
+use bevy::ecs::entity::Entity;
+use bevy::time::TimePlugin;
+use hamlet_engine_api::{
+    API_VERSION, Action, CommandId, Widget, WidgetId,
+};
+use hamlet_engine_core::tuning::Tuning;
+use hamlet_engine_core::{Budgets, Home};
+use hamlet_engine_plugins::Stopped;
+use hamlet_engine_shell::command;
+use wit_component::{ComponentEncoder, StringEncoding};
+use wit_parser::Resolve;
+
+use crate::folder::{FOLDER, MANIFEST, WASM};
+use crate::host::{Host, WasmTuning};
+use crate::instance::{Caps, Fault, Instance, link};
+use crate::panel::{Drawn, Input, Shows};
+
+/// The exports every test plugin has, with `declare` and `draw`
+/// doing what they are given. The return area at 0 points at an empty
+/// list, which is no `Contribution`s and a `WidgetTree` of nothing;
+/// the one at 32 at the `Contribution`s of one panel, "p", whose name
+/// is also at 64.
+fn module(declare: &str, draw: &str) -> String {
+    format!(
+        r#"(module
+  (import "hamlet:engine/host@0.1.0" "log" (func $log (param i32 i32 i32)))
+  (import "hamlet:engine/host@0.1.0" "redraw" (func $redraw (param i32 i32)))
+  (memory (export "memory") 1)
+  (memory $more 1)
+  (global $heap (mut i32) (i32.const 4096))
+  (func (export "cabi_realloc") (param i32 i32 i32 i32) (result i32)
+    (local $at i32)
+    (local.set $at
+      (i32.and
+        (i32.add (global.get $heap) (i32.sub (local.get 2) (i32.const 1)))
+        (i32.sub (i32.const 0) (local.get 2))))
+    (global.set $heap (i32.add (local.get $at) (local.get 3)))
+    (local.get $at))
+  (data (i32.const 0) "\08\00\00\00\01\00\00\00\00")
+  (data (i32.const 16) "\01\00\01p\01P")
+  (data (i32.const 32) "\10\00\00\00\06\00\00\00")
+  (data (i32.const 64) "p")
+  (func (export "hamlet:engine/guest@0.1.0#declare") (result i32)
+    {declare})
+  (func (export "hamlet:engine/guest@0.1.0#draw") (param i32 i32) (result i32)
+    {draw})
+  (func (export "hamlet:engine/guest@0.1.0#event") (param i32 i32))
+  (func (export "hamlet:engine/guest@0.1.0#run") (param i32 i32))
+  (func (export "hamlet:engine/guest@0.1.0#save") (result i32)
+    (i32.const 0))
+  (func (export "hamlet:engine/guest@0.1.0#restore") (param i32 i32)))"#
+    )
+}
+
+/// The component of the core module in `text`.
+fn component(text: &str) -> Vec<u8> {
+    let mut resolve = Resolve::default();
+    let package = resolve
+        .push_str(
+            "hamlet_engine.wit",
+            include_str!("../../wit/hamlet_engine.wit"),
+        )
+        .expect("the WIT parses");
+    let world = resolve
+        .select_world(&[package], Some("plugin"))
+        .expect("the world is there");
+    let mut core = wat::parse_str(text).expect("the module parses");
+    wit_component::embed_component_metadata(
+        &mut core,
+        &resolve,
+        world,
+        StringEncoding::UTF8,
+        false,
+    )
+    .expect("the WIT embeds");
+    ComponentEncoder::default()
+        .module(&core)
+        .expect("the module is one")
+        .validate(true)
+        .encode()
+        .expect("the component encodes")
+}
+
+/// The budgets of the tests: a plugin of four pages of memory that
+/// hands over a kilobyte a call.
+fn budgets() -> Budgets {
+    Budgets {
+        memory: 4 * 65_536,
+        bytes_per_call: 1_024,
+        ..Budgets::designed()
+    }
+}
+
+/// The plugin whose `declare` does `declare`, started within
+/// `budgets`, with its caps.
+fn start(declare: &str, budgets: &Budgets) -> (Instance, Caps) {
+    let tuning = WasmTuning {
+        plugins: 1,
+        ..WasmTuning::designed()
+    };
+    let host = Host::new(&tuning, budgets).expect("the host starts");
+    let linked =
+        link(&host.0, &component(&module(declare, "(i32.const 0)")))
+            .expect("the plugin links");
+    let caps = Caps::of(budgets, &tuning);
+    let instance = Instance::new(&host.0, &linked, &caps)
+        .expect("the plugin starts");
+    (instance, caps)
+}
+
+#[test]
+fn hostile_plugins_are_held_to_their_budgets() {
+    let (mut instance, caps) = start("(i32.const 0)", &budgets());
+    assert_eq!(instance.declare(&caps).0, Ok(Vec::new()));
+
+    let endless = "(loop $again (br $again)) (i32.const 0)";
+    let cases: [(&str, fn(&mut Budgets), Fault); 5] = [
+        // A list twice as long as a call may hand over.
+        (
+            "(i32.store (i32.const 4) (i32.const 2048)) (i32.const \
+             0)",
+            |_| {},
+            Fault::Bytes,
+        ),
+        // A line of the log as long.
+        (
+            "(call $log (i32.const 0) (i32.const 0) (i32.const \
+             2048))
+             (i32.const 0)",
+            |_| {},
+            Fault::Bytes,
+        ),
+        // Two memories, each within the budget and together past it.
+        (
+            "(drop (memory.grow $more (i32.const 3))) (i32.const 0)",
+            |_| {},
+            Fault::Memory,
+        ),
+        (
+            endless,
+            |budgets| budgets.fuel_per_call = 100_000,
+            Fault::Fuel,
+        ),
+        // With fuel to spare, it runs out of time.
+        (
+            endless,
+            |budgets| {
+                budgets.fuel_per_call = u64::MAX / 2;
+                budgets.call_time = 1.0;
+            },
+            Fault::Time,
+        ),
+    ];
+    for (declare, adjust, fault) in cases {
+        let mut budgets = budgets();
+        adjust(&mut budgets);
+        let (mut instance, caps) = start(declare, &budgets);
+        assert_eq!(
+            instance.declare(&caps).0,
+            Err(fault),
+            "{declare}"
+        );
+    }
+}
+
+#[test]
+fn a_plugin_over_its_budgets_waits_then_is_stopped() {
+    // Each drawing burns about half the fuel of a second, then asks
+    // to be drawn again.
+    let draw = "(local $left i32)
+        (local.set $left (i32.const 100000))
+        (loop $again
+          (local.set $left (i32.sub (local.get $left) (i32.const 1)))
+          (br_if $again (local.get $left)))
+        (call $redraw (i32.const 64) (i32.const 1))
+        (i32.const 0)";
+    let root = home("over");
+    install(
+        &root,
+        &format!(
+            "id = \"test.over\"\nname = \"Over\"\nversion = \
+             \"0.1.0\"\napi = \"{API_VERSION}\"\n"
+        ),
+        &component(&module("(i32.const 32)", draw)),
+    );
+    let mut app = engine(&root);
+    app.insert_resource(Budgets {
+        fuel_per_second: 1_000_000,
+        strikes: 1,
+        ..Budgets::designed()
+    });
+    let stopped = (0..500).find_map(|_| {
+        app.update();
+        std::thread::sleep(Duration::from_millis(10));
+        let world = app.world_mut();
+        world.query::<&Stopped>().iter(world).next().cloned()
+    });
+    let Some(Stopped(why)) = stopped else {
+        panic!("the plugin was never stopped");
+    };
+    assert_eq!(why, Fault::Over(1).to_string());
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// A home of its own for the test `name`, empty.
+fn home(name: &str) -> PathBuf {
+    let root = std::env::temp_dir().join(format!(
+        "hamlet_engine_test_{name}_{}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    root
+}
+
+/// Installs the plugin of `manifest` and `wasm` in the home `root`.
+fn install(root: &Path, manifest: &str, wasm: &[u8]) {
+    let folder = root.join(FOLDER).join("plugin");
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(folder.join(MANIFEST), manifest).unwrap();
+    fs::write(folder.join(WASM), wasm).unwrap();
+}
+
+/// The engine without a window, on the home `root`.
+fn engine(root: &Path) -> App {
+    let mut app = App::new();
+    app.insert_resource(Home::at(root)).add_plugins((
+        TaskPoolPlugin::default(),
+        TimePlugin,
+        hamlet_engine_core::plugin,
+        hamlet_engine_plugins::plugin,
+        crate::plugin,
+    ));
+    app
+}
+
+/// Builds `engine/samples/hello`, installs it in a home of its own,
+/// and runs the engine without a window: its panel is drawn, and a
+/// press of its button counts.
+#[test]
+#[ignore = "builds the sample, with the wasm32-wasip2 target"]
+fn the_hello_sample_runs() {
+    let sample = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../samples/hello");
+    let built = Command::new(env!("CARGO"))
+        .args(["build", "--release", "--target", "wasm32-wasip2"])
+        .current_dir(&sample)
+        .status()
+        .expect("cargo runs");
+    assert!(built.success());
+    let root = home("hello");
+    install(
+        &root,
+        &fs::read_to_string(sample.join(MANIFEST)).unwrap(),
+        &fs::read(
+            sample.join("target/wasm32-wasip2/release/plugin.wasm"),
+        )
+        .unwrap(),
+    );
+    let mut app = engine(&root);
+    let count = until(&mut app, |text| text.starts_with("Pressed"));
+    assert_eq!(count, "Pressed 0 times.");
+
+    let world = app.world_mut();
+    let (surface, _) = world
+        .query::<(Entity, &Drawn)>()
+        .single(world)
+        .expect("one panel");
+    world.write_message(Input {
+        surface,
+        widget: WidgetId("press".into()),
+        action: Action::Click,
+    });
+    let count = until(&mut app, |text| text != "Pressed 0 times.");
+    assert_eq!(count, "Pressed once.");
+
+    // Its command, as a menu or its keys run it.
+    let reset = CommandId::try_from("hamlet.hello/reset").unwrap();
+    command::run(app.world_mut(), &reset);
+    let count = until(&mut app, |text| text != "Pressed once.");
+    assert_eq!(count, "Pressed 0 times.");
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// Runs `app` until the text "count" of its one WASM panel is one
+/// that `wanted` takes, and gives it.
+fn until(app: &mut App, wanted: impl Fn(&str) -> bool) -> String {
+    for _ in 0..500 {
+        app.update();
+        let world = app.world_mut();
+        let shown =
+            world.query::<&Drawn>().iter(world).find_map(|drawn| {
+                match &drawn.shows {
+                    Shows::Tree(tree) => {
+                        tree.nodes.iter().find_map(|node| {
+                            match (&node.id.0[..], &node.widget) {
+                                ("count", Widget::Text(text)) => {
+                                    Some(text.clone())
+                                }
+                                _ => None,
+                            }
+                        })
+                    }
+                    _ => None,
+                }
+            });
+        if let Some(text) = shown.filter(|text| wanted(text)) {
+            return text;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("the panel never showed what was wanted");
+}

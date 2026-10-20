@@ -44,7 +44,7 @@ enum Declared {
     Command {
         name: String,
         label: String,
-        run: fn(&mut World),
+        run: fn(&mut World, Entity),
     },
     MenuEntry {
         menu: String,
@@ -82,12 +82,13 @@ impl Entry {
         self
     }
 
-    /// A command a menu calls `label`, which runs `run`.
+    /// A command a menu calls `label`, which runs `run` with the
+    /// command's entity.
     pub fn command(
         &mut self,
         name: &str,
         label: &str,
-        run: fn(&mut World),
+        run: fn(&mut World, Entity),
     ) -> &mut Self {
         self.declared.push(Declared::Command {
             name: name.into(),
@@ -196,8 +197,11 @@ impl Entry {
                 Declared::Command { name, label, run } => {
                     CommandId::new(owner, &name).map(|id| {
                         commands.spawn((Command { id, label }, link)).observe(
-                            move |_: On<RunCommand>, mut later: Commands| {
-                                later.queue(run);
+                            move |event: On<RunCommand>, mut later: Commands| {
+                                let command = event.entity;
+                                later.queue(move |world: &mut World| {
+                                    run(world, command);
+                                });
                             },
                         );
                     })

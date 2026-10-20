@@ -21,10 +21,15 @@ Each depends only on those above it, and each adds one Bevy plugin,
 | `engine/core` | `hamlet_engine_core` | The tuning files, the home, the log, the budgets |
 | `engine/shell` | `hamlet_engine_shell` | The window, its theme, the dock and its panels, workspaces, commands, shortcuts, the menu bar and the status line |
 | `engine/plugins` | `hamlet_engine_plugins` | Plugins as entities, what they add, switching them on and off, the plugin list |
+| `engine/wasm` | `hamlet_engine_wasm` | The host of WASM plugins: wasmtime, a store per plugin, its budgets. The only crate that knows wasmtime |
 | `engine/app` | `hamlet_engine` | The binary, and a demo plugin built into it |
+| `engine/plugin` | `hamlet_plugin` | What a plugin is written with, built for `wasm32-wasip2` |
 
 `engine/assets/` holds the engine's tuning files. The typefaces are read
 from the repository's `assets/fonts/`, where their licences are.
+`engine/wit/hamlet_engine.wit` is the interface between the engine and
+a plugin. `engine/samples/` holds sample plugins, each a workspace of
+its own.
 
 ## The vocabulary
 
@@ -53,8 +58,56 @@ same types.
   keeps from one tree to the next. `check` refuses counts that do not
   make one tree, a leaf with children, two nodes of one id, and a tree
   past its `TreeLimits`.
+- **What a plugin adds** is a `Contribution` each: a panel, a command,
+  a menu entry, a shortcut, a settings page or a suggested workspace.
+- **A widget event** is what the person did to a widget of a plugin's
+  panel: a click, a toggle switched, or a field's text.
 - **The wire format** is postcard, through `encode` and `decode`.
   `decode` refuses bytes left over after the value.
+
+## The interface
+
+`engine/wit/hamlet_engine.wit` is the package `hamlet:engine@0.1.0`.
+Values that are `list<u8>` are wire-format bytes of the vocabulary's
+types, so the WIT names nothing twice.
+
+- **The host** gives a plugin `log` (a level and a line) and `redraw`
+  (a panel or settings page by name).
+- **The guest** exports `declare` (its `Contribution`s), `draw` (the
+  `WidgetTree` of a panel or settings page), `event` (a `WidgetEvent`),
+  `run` (a command by name), and `save` and `restore` (its state, as
+  bytes of its own, handed from one version to the next on a reload).
+
+## Writing a plugin
+
+`hamlet_plugin` is the guest crate. A plugin is a type with `Default`
+that implements `Plugin`, exported with `hamlet_plugin::export!`:
+`declare` fills an `Entry` with what it adds, `draw` fills a `Ui` with a
+panel's widgets, and `event`, `run`, `save` and `restore` have defaults
+that do nothing. `info`, `warn`, `error` and `redraw` reach the host.
+
+- **The `Ui`** adds widgets in order, under a column the engine is given
+  with the empty id. Each widget has an id of the plugin's, unique in
+  its panel. `list`, `row`, `column` and `scroll` take a closure that
+  adds what they hold.
+- **The system.** The standard library's calls to the system, such as
+  the clock, randomness or printing, stop the plugin. A `HashMap` needs
+  randomness, so a plugin keeps a `BTreeMap`.
+- **A built plugin** is a folder with its `plugin.toml` and its
+  component, `plugin.wasm`.
+
+`engine/samples/hello` is a panel with a button and a count of its
+presses, and a command in its own menu and on Primary+Shift+R that
+sets the count back. It
+keeps its count through `save` and `restore`. Its crate's library is
+named `plugin`, so in its folder
+
+```sh
+cargo build --release --target wasm32-wasip2
+```
+
+builds `target/wasm32-wasip2/release/plugin.wasm`, to go beside its
+`plugin.toml`.
 
 ## The core
 
@@ -93,7 +146,8 @@ same types.
   `panel(view)` gives content the panel's padding and fill.
 - **The console** (`engine/console`) lists the log, newest first.
 - **Settings pages** are entities with a `SettingsPage`, as plugins add
-  them. No panel shows them yet.
+  them. The Settings panel (`engine/settings`, opened from the View
+  menu) lists them by title beside the page chosen.
 
 ## Workspaces
 
@@ -183,13 +237,109 @@ person has one or more, and one is shown at a time.
   and adds what it declares, and marks it `Enabled`. `Disable` despawns
   everything it added. Its panels leave the dock but stay in the
   workspaces, and come back when it is switched on again.
+- **Stopped.** A plugin the engine stopped while it was on carries
+  `Stopped` with why; what it added stays until it is switched off.
 - **Built in.** `add_builtin(commands, manifest, entry)` adds a plugin
   linked into the binary and switches it on. A manifest that `check`
   refuses is told in the log and not added.
 - **The plugin list** (`engine/plugins`) is the engine's own panel: each
-  plugin, its id and version, whether it is on and how much it adds, and
-  a button that switches it.
+  plugin, its id and version, whether it is on and how much it adds, or
+  why it was stopped, and a button that switches it.
 - **The demo** in `engine/app/src/demo.rs` is built into the binary. It
   adds a panel, Hello; a command, Say hello, in a Demo menu and on
   Primary+Shift+H, which writes to the log; and a workspace to take,
   Hello with the console.
+- **`switch_on`** adds what an `Entry` declares and marks the plugin on.
+  A built-in plugin's entry point runs through it, and so does a WASM
+  plugin once it has said what it adds.
+- **A command's function** is given the world and the command's
+  entity, whose `Command` and `ContributedBy` say which it is and
+  whose.
+
+## The WASM host
+
+`hamlet_engine_wasm` runs plugins built as WASM components, with
+wasmtime. `[wasm]` in `engine.toml` sets it up; the budgets it holds a
+plugin to are `[budgets]`.
+
+- **Installed plugins** are folders in `<home>/plugins/`, each with its
+  `plugin.toml` and `plugin.wasm`. At start each is read and added as a
+  plugin, with a `Package` naming its folder, and switched on. A folder
+  whose name starts with a dot, or that is a link, is passed over. A
+  file is read only when it is a plain file and not a link, and its size
+  is checked before a byte of it is read: `[wasm] manifest_bytes` and
+  `wasm_bytes`.
+- **Switched on**, a plugin's component is compiled off the frame, on
+  the async compute pool, and kept, so switching it on again needs no
+  compile. It is then instantiated in a store of its own and asked what
+  it adds. A plugin that imports anything but the host's interface and
+  the system's (`wasi:`) is not loaded, and one built against another
+  version of the interface is told so. The system's functions trap.
+- **What it adds** comes back from `declare` as `Contribution`s and is
+  made into the same `Entry` a built-in plugin fills, so it is added,
+  capped and taken away as theirs is: its panels and settings pages are
+  drawn from its trees, and its commands put their name in its inbox,
+  to run it on the next frame. Its menu entries, shortcuts and suggested
+  workspaces are plain data.
+- **Switched off**, its store goes, and with it its state.
+- **The engine** is one for all plugins, with fuel, an epoch and a pool.
+  A thread ticks the epoch every `[wasm] tick` milliseconds. The pool
+  has room for `[wasm] plugins` plugins and one more, for a version
+  built beside a running one; each plugin's share of it is capped: its
+  core instances, memories and tables, and each table's elements.
+- **Every call** into a plugin is given `[budgets] fuel_per_call` fuel,
+  an epoch deadline of `call_time` milliseconds, and `bytes_per_call`
+  bytes it may hand over. A string or a list from the plugin is checked
+  against its memory, and its length taken from those bytes, before
+  wasmtime copies any of it. What the host hands a plugin is checked
+  against the same bytes before the call.
+- **Memory** is counted over all of a plugin's memories together, held
+  to `[budgets] memory`.
+- **A fault** is a call over its fuel, its time, its memory or its
+  bytes, a trap, or what cannot be read; a plugin cannot be called
+  again after one.
+- **The log.** What a plugin logs goes to the engine's log under its
+  id, each line cut at `log_line_bytes`.
+
+### Budgets
+
+- **A second's budgets.** Every call into a running plugin, of any
+  kind, counts towards what it spends in a second: `time_per_second`
+  milliseconds, `fuel_per_second` fuel, `calls_per_second` calls, of
+  which `events_per_second` events. A plugin past one waits: what is in
+  its inbox and its panels to draw stay for the next second.
+- **Stopped when it keeps going over.** A plugin that went past a
+  second's budget `strikes` seconds in a row is stopped, and the log
+  says why. The first second it goes over, the log says it waits.
+- **The frame's share.** The calls of all the plugins in one frame
+  share `frame_share` milliseconds. The plugin served longest ago goes
+  first, and what is left when the share is spent waits for the next
+  frame, when those left go first. One panel is drawn each frame
+  whatever the share, so a slow plugin is drawn in time.
+- **Events** wait in a plugin's inbox, a second's worth at most; more
+  are left out, and the log says how many.
+- **The log.** A plugin's lines of each level, info, warn and error,
+  are `log_lines_per_second` a second at most; the rest are left out,
+  and the log says how many when the second ends.
+
+### Panels
+
+- **Drawn from a tree.** A WASM plugin's panels and settings pages are
+  the same `Panel` and `SettingsPage` as a built-in plugin's, and carry
+  a `Drawn`: their name within the plugin and what they show. The
+  plugin's `draw` gives a `WidgetTree`, checked against the budgets'
+  `TreeLimits`, and the shell's `tree_view` draws it with its own
+  widgets. The engine has no set of icons yet: an icon shows its name.
+  A field's placeholder is written above it.
+- **Events back.** A click, a toggle switched, or a field's text (on
+  Enter, or as the field is left) goes into the plugin's inbox as a
+  `WidgetEvent`, and the plugin's `event` is called with it on the next
+  frame.
+- **Drawn again** only when a panel comes, when the plugin asks with
+  `redraw`, or after the plugin was given an event or ran a command;
+  then each of its
+  panels is drawn again, and one whose tree did not change is left as
+  it is.
+- **Stopped.** A plugin at fault is stopped: its store goes, it is
+  marked `Stopped` with why, the log says so, and its panels show that
+  it was stopped and why. Switching it off and on starts it afresh.
