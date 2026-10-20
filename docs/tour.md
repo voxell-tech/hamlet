@@ -72,7 +72,7 @@ the public test boundary is protocol v0 or the process command line.
 | `service.rs` | `Service` owns the claimed home, credentials, houses, models, chats and uploads; `handle` routes chief requests |
 | `runtime.rs` | `serve` probes the sandbox, starts the harness, publishes `server.json`, authenticates connections and closes in order |
 | `protocol.rs` | `Protocol::parse` validates client input against v0; reply and fault rendering |
-| `record.rs`, `record/` | Agent identity, membership, names, roads, office, constraints and typed refusals. `RecordOperation` is a transactional change |
+| `record.rs`, `record/` | Agent identity, membership, names, roads, office, models, constraints and typed refusals. `RecordOperation` is a transactional change, and every change to a hamlet's record is one of its `Change`s |
 | `documents.rs`, `settings.rs`, `limits.rs` | Chief edits and reads, stored settings plus process overrides, JSON limit validation |
 | `chats.rs`, `chats/` | Chief and peer watches, durable inputs, follow-up work, reflection, stop, retry, resume and rewind |
 | `chats/calls.rs`, `gate.rs`, `oversight.rs` | Request digest/binding checks, approval rules, waits, standing grants and execution. Marked outcomes survive replay; changed requests are refused |
@@ -87,7 +87,7 @@ the public test boundary is protocol v0 or the process command line.
 | `starters.rs` | Shipped starter content from `crates/hamlet_server/assets/starters/` |
 | `models.rs`, `credentials.rs`, `scrub.rs` | Catalogue and provider requests, atomic credential files, sign-ins and secret removal before publication or harness persistence |
 | `spend.rs` | Budget reservations and usage charges deduplicated by model attempt, plus agent/task/hamlet accounting |
-| `society.rs`, `society/` | Role-specific tool schemas, letters/questions, instructions/objections, votes, library and recoverable merge/departure work |
+| `society.rs`, `society/` | `SocietyTool` names each society tool, its role and schema; letters/questions, instructions/objections, votes, library and recoverable merge/departure work. The 50 ms sweeps read only due votes and reviews; finished ones are kept under `votes-done` and `review-done` |
 | `realm.rs`, `realm/` | Living/closed places, cross-hamlet addresses, founding, agreements and pending house moves |
 | `state.rs` | Composes protocol state from the owning records and live activity |
 
