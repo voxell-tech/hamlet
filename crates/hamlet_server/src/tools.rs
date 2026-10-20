@@ -611,10 +611,10 @@ impl<'a> Arguments<'a> {
     }
 }
 
-/// A number as JavaScript writes it.
+/// A number as pi's tools write it.
 pub(crate) fn number_words(value: f64) -> String {
     if value.fract() == 0.0 && value.abs() < 1e21 {
-        // Plus zero, as JavaScript writes no minus zero.
+        // Plus zero, as pi's tools write no minus zero.
         format!("{:.0}", value + 0.0)
     } else {
         value.to_string()

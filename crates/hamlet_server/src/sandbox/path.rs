@@ -1,5 +1,5 @@
-//! POSIX path functions on text, as Node's `path` has them, since the
-//! policy and pi's tools compare paths as text.
+//! POSIX path functions on text, as pi's tools resolve paths, since
+//! the policy and pi's tools compare paths as text.
 
 use std::path::Path;
 
@@ -125,7 +125,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn are_node_s() {
+    fn resolve_as_pi_s_tools_do() {
         assert_eq!(normalize("/a/./b/../c/"), "/a/c/");
         assert_eq!(normalize("a/../../b"), "../b");
         assert_eq!(normalize("/../a"), "/a");

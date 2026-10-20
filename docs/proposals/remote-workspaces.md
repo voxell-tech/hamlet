@@ -59,8 +59,8 @@ explicitly unavailable rather than silently using stale local copies.
 Define a small versioned workspace protocol for the operations existing tools
 need: text and binary files, metadata, directories, mutations, command output,
 status and cancellation. Preserve the existing tool-visible results, bounds,
-scrubbing, output-spill behavior and error meanings. Shared wire fixtures and
-tests must keep Rust and TypeScript aligned.
+scrubbing, output-spill behavior and error meanings. Shared wire fixtures keep
+the server and the workspace aligned.
 
 Hamlet authenticates for an authorized workspace. File/process requests do
 not expose actor templates or lifecycle verbs. A first authorized operation

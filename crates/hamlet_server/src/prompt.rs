@@ -1,5 +1,5 @@
 //! The prompt an agent is told before each model call, in C11's
-//! order, as the TypeScript server composes it.
+//! order.
 
 mod brief;
 pub(crate) mod shelf;
@@ -40,8 +40,7 @@ const INSTRUCTIONS: [&str; 2] = ["AGENTS.md", "CLAUDE.md"];
 /// default.
 const OWN_MODEL: &str = "the hamlet's own model";
 
-/// A chief's instruction to an agent, as `chats/instructions.ts`
-/// keeps it.
+/// A chief's instruction to an agent.
 pub(crate) struct Instruction {
     /// The number of the agent instructed.
     pub agent: i64,
@@ -55,8 +54,8 @@ pub(crate) struct Instruction {
 pub(crate) struct Subject<'a> {
     pub hamlet: &'a str,
     pub number: i64,
-    /// The model the conversation runs, as `modelName` names it in
-    /// TS, if any.
+    /// The model the conversation runs, as the chief's limits name
+    /// it, if any.
     pub model: Option<&'a str>,
     /// The platform sandbox's name, e.g. "bubblewrap".
     pub sandbox: &'a str,

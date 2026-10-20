@@ -55,19 +55,19 @@ function provider(script: Script, delays: number[]) {
     };
 }
 
-test("keeps old scripts and refuses malformed agent keys", async () => {
+test("reads a script of shared responses and refuses malformed agent keys", async () => {
     const folder = mkdtempSync(join(tmpdir(), "hamlet-pi-faux-"));
     folders.push(folder);
     const file = join(folder, "faux.json");
-    const old = {
+    const shared = {
         responses: ["Hello", { thinking: "Consider", text: "Yes" }],
         tokensPerSecond: 40,
     };
-    writeFileSync(file, JSON.stringify(old));
-    expect(await readScript(file)).toEqual(old);
+    writeFileSync(file, JSON.stringify(shared));
+    expect(await readScript(file)).toEqual(shared);
     writeFileSync(
         file,
-        JSON.stringify({ ...old, models: ["faux-1", "faux-2"] }),
+        JSON.stringify({ ...shared, models: ["faux-1", "faux-2"] }),
     );
     const script = await readScript(file);
     const models = scriptedProvider(

@@ -152,7 +152,7 @@ impl Refusal {
         }
     }
 
-    /// The TypeScript record's audience-specific wording.
+    /// The wording for each audience.
     pub fn text(&self, audience: Audience) -> String {
         match &self.reason {
             Reason::AgentMissing { name, local } => format!(

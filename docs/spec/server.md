@@ -105,10 +105,7 @@ such as taking a conversation back, is refused in words for a chief, never
 done another way.
 
 **S25.** A part of a home that is missing, or belongs to another home, is
-an error, never replaced by an empty one. A home made by an earlier server
-is moved with no server running, keeping its conversations and their
-numbers and what waits, and leaving the original as it was; or it is not
-opened.
+an error, never replaced by an empty one.
 
 ## Working on Hamlet
 

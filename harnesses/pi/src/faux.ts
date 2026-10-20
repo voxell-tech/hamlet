@@ -186,6 +186,8 @@ export function scriptedProvider(
         context,
         options,
     ) => {
+        // A caller with no list of its own, such as an agent the script names no steps for or a model check, takes from
+        // `responses`.
         const queue = queues.get(caller(options)) ?? shared;
         const step = queue.shift();
         let made = false;

@@ -79,7 +79,7 @@ fn admit(service: &mut Service, name: &str, purpose: &str) {
 }
 
 #[tokio::test]
-async fn tells_a_fresh_mayor_what_typescript_tells_it() {
+async fn tells_a_fresh_mayor_its_prompt() {
     let dir = Scratch::new("prompt-fresh");
     let mut service =
         Service::new(Home::open(&dir).unwrap(), true).unwrap();

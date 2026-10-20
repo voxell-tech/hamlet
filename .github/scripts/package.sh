@@ -94,7 +94,6 @@ scratch directory and HAMLET_VIEW to a scratch window directory. hamlet stop
 stops the home's server; closing its window does not.
 
 Windows has no server. Remote workspaces need a separately configured manager.
-Use a fresh home; no importer of earlier experimental homes is provided.
 INFO
 
 case $target in

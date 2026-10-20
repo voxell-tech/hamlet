@@ -31,12 +31,18 @@ command, and wants agents free to run on different harnesses that change
 on their own schedule. A process boundary also keeps pi-durable's
 experimental API out of Hamlet's rules.
 
-A harness's own hooks are never the last word. A prototype with real
-processes and real pi-durable 1.2.0 found that pi-durable, recovering a
-tool call it had already begun, can carry it out without running
-`beforeTool` again. So the server allows every tool call and every change
-to the record when it is carried out, under the permissions and limits as
-they are then.
+A harness's own hooks are never the last word. A prototype tried the
+split before it was built: a Rust process keeping roads, approvals, a
+budget and markers, and a Node worker running real pi-durable 1.2.0 with
+its own SQLite file and a faux model. A script killed either process, or
+both, at fixed points and checked both stores and the kept transcript.
+It found that pi-durable, recovering a tool call it had already begun,
+can carry it out without running `beforeTool` again; that a change, its
+charge and the marker of its result must commit together, since killing
+the server between a change and its marker lost the result; and that
+pi's task IDs are unique only beside the runtime's ID. So the server
+allows every tool call and every change to the record when it is carried
+out, under the permissions and limits as they are then.
 
 ## Considered options
 
@@ -73,4 +79,5 @@ they are then.
 - The server is built to run on the chief's own machine first. Where it is
   deployed, and what that changes, is decided later.
 
-The plan is [`docs/proposals/rust-server.md`](../proposals/rust-server.md).
+How the server and a harness work together is in
+[`docs/harness.md`](../harness.md).

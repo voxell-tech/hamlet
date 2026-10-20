@@ -293,8 +293,7 @@ impl Service {
             None,
             at.timestamp_millis(),
         )?;
-        // The first of equally near caps, as TypeScript's stable
-        // sort keeps it.
+        // The first of equally near caps.
         let caps = meters(
             books.hamlet,
             limits.budget.cost,

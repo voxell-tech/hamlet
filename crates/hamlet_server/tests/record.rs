@@ -1,5 +1,4 @@
-//! The TypeScript record's contracts through marker-backed Rust
-//! operations.
+//! The record's contracts through marker-backed operations.
 
 use hamlet_server::record::{
     Action, Actor, Admit, AgentRef, Amount, Audience, Change,

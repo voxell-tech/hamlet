@@ -109,7 +109,8 @@ link. House files stay files. See [`home.md`](home.md).
 
 `harnesses/pi/src/main.ts` is the Node entry. The server starts it with
 `--runtime`, `--store` and `--link stdio`. The private link is versioned
-JSON lines on stdin/stdout; diagnostics go to stderr.
+JSON lines on stdin/stdout; diagnostics go to stderr. How runtimes,
+bindings and the link work is in [`harness.md`](harness.md).
 
 | File under `harnesses/pi/src/` | Owns |
 |---|---|
@@ -135,7 +136,7 @@ ordinary tools.
 | Typed commands, command replies | `hamlet_server/src/chats/say.rs`, `society.rs`, `realm/deeds.rs`; advertised deeds in `state.rs` |
 | Conversation stop/retry/resume/rewind | `hamlet_server/src/chats/deeds.rs` and `chats/follow.rs` |
 | Transcript rows, paging and peer watches | `hamlet_server/src/chats/fold.rs`, `chats/watch.rs`; `hamlet_client/src/chats.rs` |
-| Questions and their answer cards | `hamlet_protocol/src/asking.rs`, `hamlet_server/src/chats/asking.rs`, `chats/calls/ask.rs`, `chats/calls/answer.rs`, `hamlet_ui/src/asking.rs` |
+| Questions and their answer cards | `hamlet_server/src/chats/asking.rs`, `chats/calls/ask.rs`, `chats/calls/answer.rs`, `hamlet_ui/src/asking.rs` |
 | Approvals, grants and waits | `hamlet_server/src/gate.rs`, `chats/calls/decide.rs`, `oversight.rs`, `oversight/held.rs` |
 | Selecting, quoting and replying to chat text | `hamlet_ui/src/select.rs`, `screens/chat/quote.rs`, `screens/chat/reply.rs` |
 | Agent creation, model choice, departure and merge | `hamlet_server/src/society/agents.rs`, `leaving.rs`, `merging.rs`, whose `merging/lane.rs` runs every merge and split; rules in `record/` |

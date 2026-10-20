@@ -43,7 +43,6 @@ agents, roads, letters, votes, library, approvals and budgets. Node processes
 running the pi harness own conversations and model calls. The window is a
 protocol client; closing it stops no agent. Tests use faux and loopback
 providers, but do not establish exhaustive behavior or platform coverage.
-The picture above shows the earlier runtime's realm.
 
 ## Running
 
@@ -83,14 +82,10 @@ bubblewrap on Linux. Settings can select a remote workspace for tools and
 houses; it takes effect on restart and never falls back to local execution.
 There is no `--insecure` mode or Windows server. The window can connect to
 another machine's server, including from Windows.
-Earlier homes were experimental and disposable: use a fresh home, not an
-import or rollback workflow.
 
 Closing the window leaves `hamlet dev` serving; Ctrl-C stops it. Use
-`cargo run -p hamlet_cli -- <command>` without installing. If you previously
-linked the npm command, remove it with `npm unlink -g hamlet-server` so it
-cannot shadow the Rust command. To keep a server separate from the window
-after installing, use two terminals:
+`cargo run -p hamlet_cli -- <command>` without installing. To keep a server
+separate from the window after installing, use two terminals:
 
 ```sh
 HAMLET_HOME=/tmp/hamlet-try hamlet server

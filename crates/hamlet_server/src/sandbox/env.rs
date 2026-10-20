@@ -60,7 +60,8 @@ struct Root {
     id: Option<(u64, u64)>,
 }
 
-/// A failed file operation: Node's error code and the words for it.
+/// A failed file operation: its kind and the words pi's tools give
+/// for it.
 #[derive(Debug)]
 pub(crate) struct FileError {
     pub(crate) code: &'static str,
@@ -1083,7 +1084,8 @@ pub(super) fn status_word(status: &ExitStatus) -> String {
     "null".into()
 }
 
-/// Node's name of the system error behind `error`, and its words.
+/// The name of the system error behind `error`, and its words, as
+/// pi's tools give them.
 fn errno(error: &io::Error) -> Option<(&'static str, &'static str)> {
     #[cfg(unix)]
     {
@@ -1139,7 +1141,8 @@ pub(super) fn errno_name(error: &io::Error) -> &'static str {
     errno(error).map_or("UNKNOWN", |(name, _)| name)
 }
 
-/// `error` of `syscall` on `path` as Node words and classifies it.
+/// `error` of `syscall` on `path` in pi's tools' words, and its
+/// kind.
 fn node_error(
     error: &io::Error,
     syscall: &str,

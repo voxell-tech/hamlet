@@ -386,7 +386,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hashes_a_policy_as_the_typescript_server_does() {
+    fn a_policy_hash_is_stable() {
         let policy = Policy {
             ro: vec!["/shared/tools".into()],
             rw: vec!["/home/houses/home/0".into()],

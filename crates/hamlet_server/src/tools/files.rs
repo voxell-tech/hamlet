@@ -567,8 +567,8 @@ fn find(content: &str, old: &str) -> Option<(usize, usize, bool)> {
     fuzzy(content).find(&old).map(|at| (at, old.len(), true))
 }
 
-/// The number of times `old` is in `content`, as JavaScript's `split`
-/// counts them.
+/// The number of times `old` is in `content`, as pi's `edit` counts
+/// them.
 fn occurrences(content: &str, old: &str) -> usize {
     let (content, old) = (fuzzy(content), fuzzy(old));
     if old.is_empty() {

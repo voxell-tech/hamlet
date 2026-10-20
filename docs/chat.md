@@ -236,8 +236,8 @@ titles of its own. `description` is optional on a question and on an
 option. `text_input` lets the chief answer in words of their own and is
 true unless the agent says otherwise; a question with no options always
 takes words. A call of the older form, `{"question": "..."}`, is one
-question that takes words. `hamlet_protocol/src/asking.rs` reads and
-checks a call, and a call it refuses tells the agent why.
+question that takes words. `crates/hamlet_server/src/chats/asking.rs`
+reads and checks a call, and a call it refuses tells the agent why.
 
 **Where it is answered.** One card, `hamlet_ui/src/asking.rs`, is shown
 in Needs You and over the field of the chat with the agent that asked,
