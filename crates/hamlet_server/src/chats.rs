@@ -124,6 +124,27 @@ impl Chats {
         self.deferred.retain(|line| line.client != client);
     }
 
+    /// Whether the conversation of `binding` runs a turn or has
+    /// inputs waiting in its runtime.
+    fn busy(&self, binding: BindingId) -> bool {
+        self.conversations
+            .get(&binding)
+            .is_some_and(Conversation::busy)
+    }
+
+    /// Whether the conversation of `binding` has inputs waiting while
+    /// no turn runs.
+    fn queued(&self, binding: BindingId) -> bool {
+        self.conversations
+            .get(&binding)
+            .is_some_and(|c| !c.running && c.pending > 0)
+    }
+
+    /// The submission id of the turn `binding` runs.
+    fn turn(&self, binding: BindingId) -> Option<String> {
+        self.conversations.get(&binding)?.turn.clone()
+    }
+
     /// Stops every tool call that is running.
     pub fn stop_tools(&mut self) {
         self.calls.stop_all();

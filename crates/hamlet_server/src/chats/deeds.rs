@@ -223,12 +223,7 @@ async fn resume(
 /// Whether the conversation of `binding` runs a turn or has inputs
 /// waiting.
 fn busy(service: &mut Service, binding: BindingId) -> Result<bool> {
-    let live = service
-        .chats
-        .conversations
-        .get(&binding)
-        .is_some_and(super::Conversation::busy);
-    Ok(live
+    Ok(service.chats.busy(binding)
         || service
             .home
             .store()
@@ -539,11 +534,7 @@ async fn stop_turn(
     binding: BindingId,
 ) -> Result<()> {
     let chief = service.chief.clone();
-    let turn = service
-        .chats
-        .conversations
-        .get(&binding)
-        .and_then(|c| c.turn.clone());
+    let turn = service.chats.turn(binding);
     let dropped = service
         .home
         .store()

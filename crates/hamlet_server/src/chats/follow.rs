@@ -126,10 +126,9 @@ pub(crate) async fn follow(
         )
         .await?;
     }
-    let conversation = service.chats.conversations.get(&binding);
-    let queued =
-        conversation.is_some_and(|c| !c.running && c.pending > 0);
-    if queued && let Some(input) = submission {
+    if service.chats.queued(binding)
+        && let Some(input) = submission
+    {
         super::write(
             service,
             harnesses,
