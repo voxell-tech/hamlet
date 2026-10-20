@@ -16,8 +16,12 @@ use bevy_fynix::views::{FrameProps, column};
 use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_api::{CommandId, PanelId};
 
-use crate::command::{RunCommand, engine_command};
+use crate::command::{RunCommand, spawn_command};
 use crate::{AnyView, Cx, EngineTheme, View};
+
+/// The name of the engine's plugin list, which the plugins module
+/// adds.
+pub const PLUGIN_LIST: &str = "plugins";
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_plugins(DockPlugin::<EngineTheme>::default())
@@ -103,7 +107,7 @@ fn offer(
     ) else {
         return;
     };
-    engine_command(
+    spawn_command(
         &mut commands,
         command,
         &panel.title,

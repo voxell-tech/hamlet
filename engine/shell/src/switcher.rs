@@ -27,7 +27,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource, style};
 
-use crate::command::{CTRL, RunCommand, engine_command, engine_id};
+use crate::command::{CTRL, RunCommand, engine_id, spawn_command};
 use crate::workspace::Workspaces;
 use crate::{AnyView, EngineTheme};
 
@@ -254,7 +254,7 @@ fn focus_field(
 /// primary key with 1 to 9 to pick one.
 fn add_commands(mut commands: Commands) {
     let key = |key, mods| Chord { key, mods };
-    engine_command(
+    spawn_command(
         &mut commands,
         engine_id("workspace.new"),
         "New workspace",
@@ -266,7 +266,7 @@ fn add_commands(mut commands: Commands) {
             workspaces.add();
         },
     );
-    engine_command(
+    spawn_command(
         &mut commands,
         engine_id("workspace.rename"),
         "Rename workspace",
@@ -279,7 +279,7 @@ fn add_commands(mut commands: Commands) {
             rename(world, shown);
         });
     });
-    engine_command(
+    spawn_command(
         &mut commands,
         engine_id("workspace.delete"),
         "Delete workspace",
@@ -292,7 +292,7 @@ fn add_commands(mut commands: Commands) {
             workspaces.delete(shown);
         },
     );
-    engine_command(
+    spawn_command(
         &mut commands,
         engine_id("workspace.next"),
         "Next workspace",
@@ -304,7 +304,7 @@ fn add_commands(mut commands: Commands) {
             workspaces.cycle(false);
         },
     );
-    engine_command(
+    spawn_command(
         &mut commands,
         engine_id("workspace.previous"),
         "Previous workspace",
@@ -317,7 +317,7 @@ fn add_commands(mut commands: Commands) {
         },
     );
     for (at, digit) in DIGITS.into_iter().enumerate() {
-        engine_command(
+        spawn_command(
             &mut commands,
             engine_id(&format!("workspace.show_{}", at + 1)),
             &format!("Workspace {}", at + 1),

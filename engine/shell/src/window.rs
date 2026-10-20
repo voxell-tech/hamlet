@@ -21,7 +21,7 @@ use bevy_fynix::views::{FrameProps, column, frame, row};
 use hamlet_engine_core::tuning::{ENGINE, Tuning, TuningFile};
 use serde::Deserialize;
 
-use crate::command::{RunCommand, engine_command, engine_id};
+use crate::command::{RunCommand, engine_id, spawn_command};
 use crate::theme::{EngineTheme, ThemeChanged};
 use crate::{AnyView, Cx, View, menu, status, switcher};
 
@@ -100,7 +100,7 @@ fn rebuild(world: &mut World) {
 
 /// Quit, in the Hamlet menu and on the primary key with Q.
 fn add_quit(mut commands: Commands) {
-    engine_command(
+    spawn_command(
         &mut commands,
         engine_id("quit"),
         "Quit",

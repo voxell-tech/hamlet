@@ -7,20 +7,27 @@ mod file;
 
 use bevy::app::{App, AppExit, Last, Startup, Update};
 use bevy::ecs::change_detection::DetectChanges;
+use bevy::ecs::component::Component;
+use bevy::ecs::hierarchy::ChildOf;
+use bevy::ecs::lifecycle::Add;
+use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::common_conditions::{
     on_message, resource_changed,
 };
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
-use bevy::ecs::system::{Res, ResMut};
+use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy_fynix::dock::{DockRegistry, DockTree};
-use hamlet_engine_api::{Axis, Layout};
+use hamlet_engine_api::id::ENGINE as ENGINE_OWNER;
+use hamlet_engine_api::{Axis, CommandId, Layout, PanelId};
 use hamlet_engine_core::TuningPlugin;
 use hamlet_engine_core::tuning::{ENGINE, Tuning, TuningFile};
 use serde::{Deserialize, Serialize};
 
 use self::arrange::{lay_out, layout_of};
-use crate::{EngineTheme, console, plugin_list};
+use crate::command::{RunCommand, spawn_command};
+use crate::dock::PLUGIN_LIST;
+use crate::{EngineTheme, console};
 
 /// The name of the first workspace of a new home.
 const FIRST: &str = "Main";
@@ -33,6 +40,7 @@ pub(crate) fn plugin(app: &mut App) {
         .init_resource::<Workspaces>()
         .init_resource::<Shown>()
         .init_resource::<file::Unsaved>()
+        .add_observer(suggest)
         .add_systems(Startup, file::restore)
         .add_systems(
             Update,
@@ -74,6 +82,16 @@ pub struct Workspace {
     pub layout: Layout,
 }
 
+/// A workspace a plugin suggests. The person takes a copy of it with
+/// the command `take`, in the Workspace menu, and the copy is theirs.
+#[derive(Component, Clone, Debug)]
+#[component(immutable)]
+pub struct SuggestedWorkspace {
+    pub take: CommandId,
+    pub name: String,
+    pub layout: Layout,
+}
+
 /// The person's workspaces, and the one shown. There is always at
 /// least one.
 #[derive(
@@ -98,7 +116,10 @@ impl Default for Workspaces {
                 layout: Layout::Split {
                     axis: Axis::Horizontal,
                     share: 0.3,
-                    first: Box::new(tabs(plugin_list::id())),
+                    first: Box::new(tabs(
+                        PanelId::new(ENGINE_OWNER, PLUGIN_LIST)
+                            .expect("a valid id"),
+                    )),
                     second: Box::new(tabs(console::id())),
                 },
             }],
@@ -144,6 +165,28 @@ impl Workspaces {
         self.list.push(Workspace {
             name,
             layout: Layout::empty(),
+        });
+        self.shown = self.list.len() - 1;
+    }
+
+    /// Adds a copy of `layout` named after `name`, numbered when the
+    /// name is taken, and shows it.
+    pub fn take(&mut self, name: &str, layout: &Layout) {
+        let name = name
+            .trim()
+            .chars()
+            .take(LONGEST_NAME - 3)
+            .collect::<String>();
+        let name = (1..)
+            .map(|n| match n {
+                1 => name.clone(),
+                n => format!("{name} {n}"),
+            })
+            .find(|name| !name.is_empty() && !self.named(name, None))
+            .unwrap_or_default();
+        self.list.push(Workspace {
+            name,
+            layout: layout.clone(),
         });
         self.shown = self.list.len() - 1;
     }
@@ -212,6 +255,35 @@ struct Shown {
     /// The layout as the dock had it then, without the panels it
     /// does not know.
     drawn: Option<Layout>,
+}
+
+/// Puts a suggested workspace in the Workspace menu, for as long as
+/// it is there.
+fn suggest(
+    added: On<Add, SuggestedWorkspace>,
+    suggestions: Query<&SuggestedWorkspace>,
+    mut commands: Commands,
+) {
+    let entity = added.entity;
+    let Ok(suggestion) = suggestions.get(entity) else {
+        return;
+    };
+    let (name, layout) =
+        (suggestion.name.clone(), suggestion.layout.clone());
+    spawn_command(
+        &mut commands,
+        suggestion.take.clone(),
+        &format!("Take workspace {name}"),
+        Some("Workspace"),
+        &[],
+    )
+    .insert(ChildOf(entity))
+    .observe(
+        move |_: On<RunCommand>,
+              mut workspaces: ResMut<Workspaces>| {
+            workspaces.take(&name, &layout);
+        },
+    );
 }
 
 /// Lays the shown workspace out in the dock when another is shown,

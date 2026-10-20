@@ -62,6 +62,130 @@ pub const CTRL: Mods = if cfg!(target_os = "macos") {
     Mods::PRIMARY
 };
 
+/// The chord `keys` writes: modifiers and a key joined by `+`, as
+/// `Primary+Shift+H`. The modifiers are Primary (Command on macOS,
+/// Control elsewhere), Ctrl, Shift, Alt and Meta; the key is a
+/// letter, a digit, F1 to F12, or a name such as Tab, Enter, Space or
+/// Comma. `None` for anything else.
+pub fn parse_chord(keys: &str) -> Option<Chord> {
+    let mut parts =
+        keys.split('+').map(str::trim).collect::<Vec<_>>();
+    let key = parse_key(parts.pop()?)?;
+    let mut mods = Mods::NONE;
+    for part in parts {
+        let more = match part.to_ascii_lowercase().as_str() {
+            "primary" => Mods::PRIMARY,
+            "ctrl" => CTRL,
+            "shift" => Mods::SHIFT,
+            "alt" => Mods::ALT,
+            "meta" => Mods::META,
+            _ => return None,
+        };
+        mods = mods.with(more);
+    }
+    Some(Chord { key, mods })
+}
+
+fn parse_key(key: &str) -> Option<KeyCode> {
+    const LETTERS: [KeyCode; 26] = [
+        KeyCode::KeyA,
+        KeyCode::KeyB,
+        KeyCode::KeyC,
+        KeyCode::KeyD,
+        KeyCode::KeyE,
+        KeyCode::KeyF,
+        KeyCode::KeyG,
+        KeyCode::KeyH,
+        KeyCode::KeyI,
+        KeyCode::KeyJ,
+        KeyCode::KeyK,
+        KeyCode::KeyL,
+        KeyCode::KeyM,
+        KeyCode::KeyN,
+        KeyCode::KeyO,
+        KeyCode::KeyP,
+        KeyCode::KeyQ,
+        KeyCode::KeyR,
+        KeyCode::KeyS,
+        KeyCode::KeyT,
+        KeyCode::KeyU,
+        KeyCode::KeyV,
+        KeyCode::KeyW,
+        KeyCode::KeyX,
+        KeyCode::KeyY,
+        KeyCode::KeyZ,
+    ];
+    const DIGITS: [KeyCode; 10] = [
+        KeyCode::Digit0,
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit3,
+        KeyCode::Digit4,
+        KeyCode::Digit5,
+        KeyCode::Digit6,
+        KeyCode::Digit7,
+        KeyCode::Digit8,
+        KeyCode::Digit9,
+    ];
+    const FUNCTIONS: [KeyCode; 12] = [
+        KeyCode::F1,
+        KeyCode::F2,
+        KeyCode::F3,
+        KeyCode::F4,
+        KeyCode::F5,
+        KeyCode::F6,
+        KeyCode::F7,
+        KeyCode::F8,
+        KeyCode::F9,
+        KeyCode::F10,
+        KeyCode::F11,
+        KeyCode::F12,
+    ];
+    let lower = key.to_ascii_lowercase();
+    let mut chars = lower.chars();
+    if let (Some(one), None) = (chars.next(), chars.next()) {
+        return match one {
+            'a'..='z' => Some(LETTERS[(one as u8 - b'a') as usize]),
+            '0'..='9' => Some(DIGITS[(one as u8 - b'0') as usize]),
+            _ => None,
+        };
+    }
+    if let Some(n) = lower
+        .strip_prefix('f')
+        .and_then(|n| n.parse::<usize>().ok())
+    {
+        return FUNCTIONS.get(n.checked_sub(1)?).copied();
+    }
+    Some(match lower.as_str() {
+        "tab" => KeyCode::Tab,
+        "enter" => KeyCode::Enter,
+        "escape" => KeyCode::Escape,
+        "space" => KeyCode::Space,
+        "backspace" => KeyCode::Backspace,
+        "delete" => KeyCode::Delete,
+        "up" => KeyCode::ArrowUp,
+        "down" => KeyCode::ArrowDown,
+        "left" => KeyCode::ArrowLeft,
+        "right" => KeyCode::ArrowRight,
+        "home" => KeyCode::Home,
+        "end" => KeyCode::End,
+        "pageup" => KeyCode::PageUp,
+        "pagedown" => KeyCode::PageDown,
+        "comma" => KeyCode::Comma,
+        "period" => KeyCode::Period,
+        "slash" => KeyCode::Slash,
+        "backslash" => KeyCode::Backslash,
+        "semicolon" => KeyCode::Semicolon,
+        "quote" => KeyCode::Quote,
+        "backquote" => KeyCode::Backquote,
+        "minus" => KeyCode::Minus,
+        "equal" => KeyCode::Equal,
+        "bracketleft" => KeyCode::BracketLeft,
+        "bracketright" => KeyCode::BracketRight,
+        _ => return None,
+    })
+}
+
 /// The engine's own command `name`, which the engine names well.
 pub fn engine_id(name: &str) -> CommandId {
     CommandId::new(ENGINE, name).expect("a valid id")
@@ -70,7 +194,7 @@ pub fn engine_id(name: &str) -> CommandId {
 /// Spawns the command `id`, with its entry in `menu` and its keys,
 /// which go with it. Its owner observes [`RunCommand`] on what this
 /// returns.
-pub fn engine_command<'a>(
+pub fn spawn_command<'a>(
     commands: &'a mut Commands,
     id: CommandId,
     label: &str,

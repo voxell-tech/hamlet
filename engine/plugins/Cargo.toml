@@ -1,0 +1,16 @@
+[package]
+name = "hamlet_engine_plugins"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Plugins as entities: what each adds, linked to it, and switching them on and off"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_engine_api.workspace = true
+hamlet_engine_core.workspace = true
+hamlet_engine_shell.workspace = true
+bevy.workspace = true
+bevy_fynix.workspace = true

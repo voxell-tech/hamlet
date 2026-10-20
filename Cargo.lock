@@ -3400,7 +3400,10 @@ name = "hamlet_engine"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "bevy_fynix",
+ "hamlet_engine_api",
  "hamlet_engine_core",
+ "hamlet_engine_plugins",
  "hamlet_engine_shell",
 ]
 
@@ -3420,6 +3423,17 @@ dependencies = [
  "hamlet_engine_api",
  "serde",
  "toml",
+]
+
+[[package]]
+name = "hamlet_engine_plugins"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_fynix",
+ "hamlet_engine_api",
+ "hamlet_engine_core",
+ "hamlet_engine_shell",
 ]
 
 [[package]]

@@ -9,9 +9,12 @@ description = "The engine's binary: the engine's modules, composed"
 workspace = true
 
 [dependencies]
+hamlet_engine_api.workspace = true
 hamlet_engine_core.workspace = true
 hamlet_engine_shell.workspace = true
+hamlet_engine_plugins.workspace = true
 bevy.workspace = true
+bevy_fynix.workspace = true
 
 [features]
 # A saved change to a file under engine/assets/ reaches the running

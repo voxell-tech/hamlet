@@ -20,7 +20,8 @@ Each depends only on those above it, and each adds one Bevy plugin,
 | `engine/api` | `hamlet_engine_api` | The names the engine and plugins share. serde only, no Bevy |
 | `engine/core` | `hamlet_engine_core` | The tuning files, the home, the log, the budgets |
 | `engine/shell` | `hamlet_engine_shell` | The window, its theme, the dock and its panels, workspaces, commands, shortcuts, the menu bar and the status line |
-| `engine/app` | `hamlet_engine` | The binary |
+| `engine/plugins` | `hamlet_engine_plugins` | Plugins as entities, what they add, switching them on and off, the plugin list |
+| `engine/app` | `hamlet_engine` | The binary, and a demo plugin built into it |
 
 `engine/assets/` holds the engine's tuning files. The typefaces are read
 from the repository's `assets/fonts/`, where their licences are.
@@ -90,18 +91,18 @@ same types.
   title, and a function that builds its content given the entity. While
   the entity is there the dock can show it; when it goes, its tabs go.
   `panel(view)` gives content the panel's padding and fill.
-- **The engine's own panels.** The console (`engine/console`) lists the
-  log, newest first. The plugin list (`engine/plugins`) is empty while
-  the engine runs no plugins.
+- **The console** (`engine/console`) lists the log, newest first.
+- **Settings pages** are entities with a `SettingsPage`, as plugins add
+  them. No panel shows them yet.
 
 ## Workspaces
 
 A workspace is a named set of panels and their layout in the dock. A
 person has one or more, and one is shown at a time.
 
-- **The layout** is `Layout` in the vocabulary, so a plugin can one day
-  suggest one: an area of tabs with the one in front, or a split of two
-  layouts along an axis with the share of the first.
+- **The layout** is `Layout` in the vocabulary, so a plugin can suggest
+  one: an area of tabs with the one in front, or a split of two layouts
+  along an axis with the share of the first.
 - **Shown.** The shown workspace's layout is laid out in the dock
   (`workspace/arrange.rs`). Panels the dock does not have, such as those
   of a plugin that is off, are left out of the dock but kept in the
@@ -133,17 +134,23 @@ person has one or more, and one is shown at a time.
   previous, are in the Workspace menu. Ctrl+Tab shows the next workspace
   and Ctrl+Shift+Tab the one before, going round; Cmd+1 to Cmd+9 (Ctrl
   off macOS) show the first nine.
+- **Suggested.** A `SuggestedWorkspace`, as a plugin adds one, puts
+  "Take workspace" and its name in the Workspace menu while it is there.
+  Taking it adds a copy, numbered if the name is taken, and shows it. The
+  copy is the person's, to change or delete, and stays when the plugin
+  goes.
 
 ## Commands, menus and the status line
 
 - **A command** is an entity with a `Command`: its id (`engine/quit`,
   `hamlet.demo/hello`) and its label. Its owner observes `RunCommand` on
-  it. `command::run(world, id)` runs one by id; `engine_command` spawns
+  it. `command::run(world, id)` runs one by id; `spawn_command` spawns
   one with its menu entry and keys as its children.
 - **A shortcut** is an entity with a `Shortcut`: a chord and the id of
   the command it runs. A key press runs the command of the first
   shortcut with its chord, unless a bare key goes to a text field being
-  typed in.
+  typed in. `parse_chord` reads keys written as `Primary+Shift+H`:
+  Primary is Command on macOS and Control elsewhere.
 - **A menu entry** is an entity with a `MenuEntry`: the title of its
   menu and the id of its command. The bar gathers the entries into
   menus, the engine's own first (Hamlet, Workspace, View) and then the
@@ -154,3 +161,35 @@ person has one or more, and one is shown at a time.
   menu that brings it to the front, or opens it in the first area.
 - **The status line** at the foot of the window shows the workspace
   shown and the log's last line, an error in red.
+
+## Plugins
+
+`hamlet_engine_plugins` keeps each plugin as an entity.
+
+- **A plugin** is an entity with a `PluginInfo` (id, name, version, and
+  whether it is built in) and an `EntryPoint`. Two plugins of one id are
+  not kept: the second is turned away, and the log says so.
+- **The entry point** is one function, given an `Entry` to declare what
+  the plugin adds: panels, commands, menu entries, shortcuts, settings
+  pages and suggested workspaces. It never reaches the app or the world.
+  A name in it is the plugin's own; a command is named by its name, or
+  by its full id for another's.
+- **What it adds** is an entity each, linked to the plugin by
+  `ContributedBy`; the plugin's `Contributions` lists them, and goes with
+  it (`linked_spawn`). `[budgets] panels` and `contributions` cap how
+  much one plugin adds; what is past them, or not well named, is left
+  out and told in the log.
+- **On and off.** Triggering `Enable` on a plugin runs its entry point
+  and adds what it declares, and marks it `Enabled`. `Disable` despawns
+  everything it added. Its panels leave the dock but stay in the
+  workspaces, and come back when it is switched on again.
+- **Built in.** `add_builtin(commands, manifest, entry)` adds a plugin
+  linked into the binary and switches it on. A manifest that `check`
+  refuses is told in the log and not added.
+- **The plugin list** (`engine/plugins`) is the engine's own panel: each
+  plugin, its id and version, whether it is on and how much it adds, and
+  a button that switches it.
+- **The demo** in `engine/app/src/demo.rs` is built into the binary. It
+  adds a panel, Hello; a command, Say hello, in a Demo menu and on
+  Primary+Shift+H, which writes to the log; and a workspace to take,
+  Hello with the console.

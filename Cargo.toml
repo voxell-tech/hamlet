@@ -32,6 +32,7 @@ hamlet_testing = { version = "0.1.0", path = "crates/hamlet_testing" }
 hamlet_engine_api = { version = "0.1.0", path = "engine/api" }
 hamlet_engine_core = { version = "0.1.0", path = "engine/core" }
 hamlet_engine_shell = { version = "0.1.0", path = "engine/shell" }
+hamlet_engine_plugins = { version = "0.1.0", path = "engine/plugins" }
 
 # fynix
 bevy_fynix = { path = "vendor/fynix/crates/bevy_fynix" }
