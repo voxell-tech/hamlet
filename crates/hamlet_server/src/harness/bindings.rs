@@ -820,6 +820,22 @@ pub(crate) fn working_on(
         .collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
+/// The conversation `binding` was forked from, if any.
+pub(crate) fn fork_of(
+    db: &Connection,
+    binding: BindingId,
+) -> Result<Option<BindingId>> {
+    Ok(db
+        .query_row(
+            "SELECT fork_of FROM harness_binding WHERE id = ?1",
+            [binding.0],
+            |row| row.get::<_, Option<i64>>(0),
+        )
+        .optional()?
+        .flatten()
+        .map(BindingId))
+}
+
 /// The items `binding` kept, oldest first.
 pub(crate) fn items(
     db: &Connection,

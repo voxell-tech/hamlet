@@ -28,7 +28,9 @@ use anyhow::{Context, Result, bail};
 pub use bindings::{
     Binding, BindingId, DEFAULT_HARNESS, Input, InputStatus, Standing,
 };
-pub(crate) use bindings::{ended, input_runs, items, working_on};
+pub(crate) use bindings::{
+    ended, fork_of, input_runs, items, working_on,
+};
 use link::{
     Capability, Diagnostic, HelloStore, Item, Mark, ModelRef,
     Partial, RuntimeMessage, Section, ServerMessage, ToolSpec,

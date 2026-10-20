@@ -609,9 +609,7 @@ async fn prepare(
         .clone()
         .unwrap_or_else(|| format!("message:{runtime}:{key}"));
     let receiver = peer(service, harnesses, to, kind, &from).await?;
-    let mut words = serde_json::Value::String(text.into());
-    service.credentials.scrub(&mut words);
-    let text = words.as_str().unwrap_or_default().to_owned();
+    let text = service.credentials.scrub_text(text);
     let address = if from.hamlet == to.hamlet {
         name
     } else {

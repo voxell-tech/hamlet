@@ -309,12 +309,11 @@ impl Service {
                     .initialize(&record.id, agent.number)
                     .await
                 {
-                    let mut words = Value::String(error.to_string());
-                    self.credentials.scrub(&mut words);
                     eprintln!(
                         "hamlet: could not initialize remote house: \
                          {}",
-                        words.as_str().unwrap_or_default()
+                        self.credentials
+                            .scrub_text(&error.to_string())
                     );
                 }
             }

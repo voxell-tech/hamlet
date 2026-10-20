@@ -32,11 +32,9 @@ impl Service {
             Ok(agent) => agent,
             Err(error) => return Ok(Err(error)),
         };
-        let mut text = Value::String(text.into());
-        self.credentials.scrub(&mut text);
         Ok(Ok((
             self.houses.files(&agent.hamlet, member.number)?,
-            text.as_str().context("paper text")?.into(),
+            self.credentials.scrub_text(text),
         )))
     }
 
@@ -224,9 +222,7 @@ impl Service {
             Ok(agent) => agent,
             Err(error) => return Ok(Err(error)),
         };
-        let mut text = Value::String(text.into());
-        self.credentials.scrub(&mut text);
-        let text = text.as_str().context("paper text")?;
+        let text = &self.credentials.scrub_text(text);
         if character {
             let operation = self.operation(
                 &agent.hamlet,

@@ -304,15 +304,19 @@ pub(crate) fn lineage(
     let mut chain = vec![binding];
     let mut at = binding;
     loop {
-        let previous = db
+        let previous = match db
             .query_row(
-                "SELECT coalesce((SELECT previous FROM \
-                 chat_conversation WHERE binding = ?1), (SELECT \
-                 fork_of FROM harness_binding WHERE id = ?1))",
+                "SELECT previous FROM chat_conversation WHERE \
+                 binding = ?1",
                 [at.0],
                 |row| row.get::<_, Option<i64>>(0),
-            )?
-            .map(BindingId);
+            )
+            .optional()?
+            .flatten()
+        {
+            Some(previous) => Some(BindingId(previous)),
+            None => crate::harness::fork_of(db, at)?,
+        };
         match previous {
             Some(previous) if !chain.contains(&previous) => {
                 chain.push(previous);
