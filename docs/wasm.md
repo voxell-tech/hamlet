@@ -40,9 +40,10 @@ In `hamlet_wasm/src/`, a file for each part:
 |---|---|
 | The engine and what it runs | `engine.rs` (the engine and its ticker), `limits.rs`, `instance.rs`, `call.rs`, `fault.rs`, `interface.rs` (the generated host side of the WIT) |
 | What a plugin may call | `host.rs` (the linker and the store's state), `host/declare.rs` (declaring panels, commands, menu lines, context items, inspector tabs, settings pages and keys), `host/read.rs` (the reads), `host/request.rs` (`request` and what a call wants), `host/keeping.rs` (the storage calls), `storage.rs` (the store on disk and its caps), `host/folder.rs` and `files.rs` (the folder of files), `pick.rs` (a file or a folder the chief picks), `folder.rs` (the folder the chief chose), `model.rs` (a model call), `host/database.rs` and `db.rs` (the database), `acts.rs` (a message or a command as the chief), `net.rs` (fetches), `rate.rs` (a count a minute), `uninstall.rs` (removing a plugin). `Granted` and `AgentList` are in `hamlet_sdk::capability` and `agents` |
-| The install folder | `manifest.rs`, `install.rs` (which also turns down plugins whose needs go in a circle), `cache.rs` (the compiled components kept in the home), `compile.rs` (compiling off the frame) |
+| The install folder | `manifest.rs`, `install.rs` (which also turns down plugins whose needs go in a circle, and reads each file within its cap), `cache.rs` (the compiled components kept in the home), `compile.rs` (compiling off the frame) |
+| Adding a plugin from a folder | `add.rs` and `add/`: `check.rs` (what the folder chosen holds), `build.rs` (building a plugin's source), `place.rs` (the copy into the install folder) |
 | Plugins working together, and the agents | `interop.rs` and `interop/`: `calls.rs` (the commands waiting for an answer), `route.rs` (carrying out the intents), `command.rs`, `chief.rs` (a command the chief runs), `publish.rs`, `hosted.rs` (the events of the host), `settle.rs` (calls that end for another reason), `tools.rs` (a call of an agent), `invoke.rs` (a call of a typed interface), `mail.rs`. Also `command.rs` (a plugin's commands, menu lines, context items, inspector tabs, settings pages and keys as entities), `reach.rs` and `host/collections.rs` (the shared collections, and the implementers of the interfaces a plugin imports, which `host/interfaces.rs` answers from), and `steer.rs` (a point of an agent's turn put to the plugins that steer it) |
-| Reload | `reload.rs` and `reload/`: `watch.rs` (looking at the files), `swap.rs` with `swap/code.rs` and `swap/data.rs` (building the new version and putting it in place), `wait.rs` (a version held for an answer), `keep.rs` (the last good copy and the roll back), `polling.rs` |
+| Reload | `reload.rs` and `reload/`: `watch.rs` (looking at the files), `arrive.rs` (a plugin folder that appears), `swap.rs` with `swap/code.rs` and `swap/data.rs` (building the new version and putting it in place), `wait.rs` (a version held for an answer), `keep.rs` (the last good copy and the roll back), `polling.rs` |
 | Bringing up and the frame | `load.rs`, `admit.rs` (a plugin the chief just let in), `start.rs`, `enable.rs`, `inbox.rs`, `reply.rs` (an answer to a request), `run.rs`, `stop.rs` |
 | The panels | `panel.rs`, `wire.rs` (a returned tree made into nodes), `draw.rs`, `event.rs` |
 | Drawing in the world | `overlay.rs` (the marks), `scene.rs` (the `render` functions and the scene kept on the plugin), `shader.rs` (the check of a shader) |
@@ -1086,6 +1087,10 @@ each means. They apply to every plugin alike, whatever it is granted.
   set before every call). Strings that point at the same bytes count each
   time they are copied, so a list of many of them traps the call before the
   host holds more than that; the caps on intents and trees apply after.
+- **A plugin's files.** The host reads at most `manifest_bytes` of a
+  `manifest.toml`, `wasm_bytes` of a `plugin.wasm` and `panel_bytes` of a
+  `panel.ui` to scan, watch, keep and add a plugin, and keeps the last
+  `build_log_bytes` of what a build of a plugin's source wrote.
 - **Log lines.** A call keeps at most `log_lines` lines of `log_bytes` each.
 - **Panels and trees.** A plugin declares at most `panels` panels, and a
   tree holds at most `tree_nodes` nodes nested `tree_depth` deep.
@@ -1253,6 +1258,65 @@ A name and a reason are shown as one line without brackets.
 folder and not recorded as installed is never compiled, and a missing file
 installs nothing.
 
+A `manifest.toml` over `manifest_bytes` is not read, and the folder is turned
+down. A folder whose name starts with a dot is the host's own and is not read.
+
+### Adding a plugin from a folder
+
+ADD PLUGIN... on the Plugins page of Settings sends `AddPlugin`
+(`hamlet_sdk::capability`), and `add.rs` opens the dialog `pick-folder` uses
+(`hamlet_desktop::file::FileDialog`), titled "Choose the folder of a plugin to
+add". The chief is the one choosing, so no grant or count of dialogs applies; one
+dialog is open at a time, a plugin's among them. The tests put in `file::unseen`
+and choose in its place with `Adder::choose`. What the page shows is `Adding`,
+which the host keeps: the dialog, the folder being read, a question, the build,
+and what became of the folder.
+
+The folder chosen is read off the frame (`add/check.rs`) and is refused where it
+is in Hamlet's home or holds it. What it may be:
+
+- a built plugin: `manifest.toml` and `plugin.wasm`, or `panel.ui` for a data
+  plugin;
+- a native plugin's folder: its manifest and its library, read by the native
+  host's `NativeFolders` ([`native.md`](native.md));
+- a plugin's source: `manifest.toml` and `Cargo.toml` with a `[package]`, and no
+  `plugin.wasm`.
+
+The manifest is checked as the scan checks one (`install::examine`) but for the
+folder's name. A folder that is none of these, a manifest that cannot be read or
+has a reserved id, another interface or an ask that cannot be granted, an id of a
+plugin built in, and an id that is here as the other kind of plugin are refused,
+with the reason on the page. An id that is here, installed or not, is not refused:
+the chief is asked whether the folder takes its place.
+
+A source is built only after the chief answers its question, which says
+"Building runs code from this folder on your computer with your access. Build
+only plugins you trust." Its build scripts and procedural macros run outside the
+WASM sandbox, as the chief. The build is `cargo build --release --target
+wasm32-wasip2 --target-dir <folder>/target` in the folder, with the toolchain the
+folder names, on the app's runtime; the page shows the last line cargo wrote and
+has a STOP button. Cargo is the one on the path, or `bin/cargo` of `CARGO_HOME`
+(`~/.cargo` by default). Where there is no cargo, or the target is not installed,
+the page says to install it (`rustup target add wasm32-wasip2`); a build that
+fails shows the last `build_log_bytes` of what the compiler wrote. The component
+is `target/wasm32-wasip2/release/<library>.wasm`, the library being the one
+`Cargo.toml` names.
+
+The files are copied, never linked (`add/place.rs`): the manifest and
+`plugin.wasm` or `panel.ui`, or a native plugin's library, each refused where it
+is a link, not a plain file or over its cap (`wasm_bytes`, `panel_bytes`,
+`manifest_bytes`, or `library_bytes` of `assets/native.toml`). They are copied
+into `.adding/<id>/` of the install folder, read there as the scan reads a plugin,
+and must be the plugin and version the chief was asked about. Then the folder is
+renamed to `plugins/<id>/`, or, where that folder is there, each file is renamed
+over its namesake there, the manifest last.
+
+The host then triggers `Appeared` with `asked`, as for a folder that appears (see
+Reload): a new plugin is held and its install petition raised at once, even if it
+was declined before; one that was there and not installed is taken out with its
+question and read again; one that is installed reloads through the update path, so
+what it asks for that is new waits for the chief.
+
 ### Needs
 
 `needs` are plugins that must be installed and running, in a version in the
@@ -1293,7 +1357,9 @@ The host looks at the folder of each installed plugin every `poll_ms` (in
 `assets/wasm.toml`, `[reload]`) and compares the modification time and size
 of `manifest.toml`, `plugin.wasm` and `panel.ui`. Where those moved, a hash of
 the three files is compared with the one last looked at, and a file saved again
-with the same contents is not a change. A change reloads that plugin:
+with the same contents is not a change. Each file is read within its cap
+(`manifest_bytes`, `wasm_bytes`, `panel_bytes`); one over it is not read and
+counts by its size. A change reloads that plugin:
 
 1. The folder is read again as the scan reads it. A folder the scan turns
    down, or one that changed from code to a panel or back, is a failed reload.
@@ -1327,13 +1393,21 @@ A new instance starts from its `entry`, with the state the host held for the
 running one and the same storage, so what the plugin keeps in either carries
 across.
 
-A plugin folder added while Hamlet runs is found at the next start.
+The same look covers the install folder itself (`reload/arrive.rs`). A folder
+that no plugin has, and whose name does not start with a dot, is told of with
+`Appeared` (`hamlet_sdk::capability`) once it is the same at two looks in a row,
+so a folder being copied is read when it is whole; what is there at the first
+look was found at start. The WASM host and the native host each read it if it
+holds a plugin of their kind and take it in as the scan at start does: one
+`grants.toml` records as installed is brought up, a declined one is held, and any
+other is held and its install petition raised at once. A folder the scan turns
+down is told of again only when it changes.
 
 ### The last good version
 
 When a version starts, at launch, on Enable or on a reload, its `manifest.toml`
 and `plugin.wasm` or `panel.ui` are copied into `.last-good/` in the plugin's
-folder. A reload that fails leaves it as it was, so it holds the version that
+folder, each read within its cap; a file over it is not kept. A reload that fails leaves it as it was, so it holds the version that
 is still running. The ROLL BACK button of the plugin on the Plugins page (shown
 where `.last-good/` differs from the files in the folder) sends
 `hamlet_sdk::reload::Rollback`: the copy is put back over the files, and the
@@ -1408,6 +1482,9 @@ rustup target add wasm32-wasip2
 HAMLET_HOME=/tmp/hamlet-try guests/roster/build.sh
 HAMLET_HOME=/tmp/hamlet-try cargo run
 ```
+
+Or run the app and add `guests/roster` itself with ADD PLUGIN..., which builds
+it after the chief's answer (see Adding a plugin from a folder).
 
 The default `cargo build`, `clippy` and `test` need neither the target nor
 the network.

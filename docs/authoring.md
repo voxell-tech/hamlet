@@ -179,18 +179,41 @@ changes, and what the plugin logged. A step that fails ends the run with
 `FAILED step N: why` and exit code 1; the steps after it are not run. Open the
 pictures: a tree can read right and the panel still look wrong.
 
-**4. Install in a home.** The first install is the chief's. Put the plugin in a
-scratch home and run Hamlet against it, never your own home:
+**4. Install in a home.** The first install is the chief's. Run Hamlet against a
+scratch home, never your own:
 
 ```sh
-HAMLET_HOME=/tmp/hamlet-try /tmp/tide_table/build.sh
 HAMLET_HOME=/tmp/hamlet-try cargo run
 ```
 
-Hamlet finds the folder at start and asks, in Needs You, "Install Tide Table
-0.1.0?" with what it asks for and why. Allow brings it up, with every ask
-allowed. A plugin folder that is added while Hamlet runs is found at the next
-start.
+On the Plugins page of Settings, ADD PLUGIN... opens the system's folder dialog.
+The folder chosen may be:
+
+- a built plugin: `manifest.toml` with `plugin.wasm` (or a data plugin's
+  `panel.ui`), such as the folder `build.sh` built into;
+- the plugin's source: `manifest.toml` with `Cargo.toml`, such as
+  `/tmp/tide_table` itself. Hamlet asks first, with the warning that building runs
+  code from this folder on the computer with the chief's access, then runs `cargo
+  build --release --target wasm32-wasip2` in it, off the frame, showing the last
+  line cargo wrote. A build that fails shows the end of what the compiler said;
+  where cargo or the target is missing the page says what to install;
+- a native plugin's folder: its manifest and its library ([`native.md`](native.md)).
+
+The folder is checked as the scan checks one of the install folder, and its
+files are copied (never linked) into `<home>/plugins/<id>/`. Hamlet asks at once,
+in Needs You, "Install Tide Table 0.1.0?" with what it asks for and why. Allow
+brings it up, with every ask allowed. A folder whose plugin is already there takes
+its place once the chief says so, as an update: what it asks for that is new is
+asked again.
+
+`build.sh` with no folder still installs by copying into
+`$HAMLET_HOME/plugins/<name>`, and so does a folder copied there by hand. Hamlet
+finds such a folder at start, or within a second while it runs, and asks the
+same way:
+
+```sh
+HAMLET_HOME=/tmp/hamlet-try /tmp/tide_table/build.sh
+```
 
 **5. Edit and see it reload.** With Hamlet running, change `src/lib.rs`, say the
 button's label, and run `build.sh` again. Within half a second the host builds
@@ -224,8 +247,8 @@ cargo run --example plugin_check --features wasm -- \
   /tmp/greeter --script /tmp/greeter/steps.toml --out /tmp/greeter/pictures
 ```
 
-There is nothing to build. To install, copy the folder to
-`<home>/plugins/greeter/`. Saving `panel.ui` there reloads it, and the panel
+There is nothing to build. To install, add the folder with ADD PLUGIN..., or
+copy it to `<home>/plugins/greeter/`. Saving `panel.ui` there reloads it, and the panel
 keeps its state. The nodes of a panel written in the language get ids made up
 by the language (`n.1`), which is what `click` and `type` name; the transcript
 shows them.

@@ -72,6 +72,18 @@ home can replace a file, and with it can do anything the app can. Only the
 library the manifest names is hashed and copied: a library it opens itself,
 or links to by name, is not, and can change without the chief being asked.
 
+The chief puts a native plugin in the home with ADD PLUGIN... on the Plugins
+page, choosing its folder, or by copying the folder in (`build.sh` does). ADD
+PLUGIN... reads the folder with `install::contents` (the manifest's checks, and
+the library named there), copies the manifest and the library, refused where it
+is a link, not a plain file or over `library_bytes` (`[install]` of
+`assets/native.toml`), and reads the copy again before it takes its place (see
+[`wasm.md`](wasm.md), Adding a plugin from a folder). Either way the host
+notices the folder while it runs and puts the FULL ACCESS question at once; Allow
+loads it as below. A folder added over an installed native plugin is an update:
+its line says the new version loads when Hamlet starts again, which asks first
+where its library changed. A manifest over `manifest_bytes` is not read.
+
 The Plugins page lists it as **NATIVE** with a warning line under its name,
 and it has no PERMISSIONS button. It can be switched off and on (its panels,
 commands, menu lines, keys, context items, inspector tabs and settings pages
@@ -421,8 +433,8 @@ over them.
 | Comparing two builds | `hamlet_native/src/gate.rs` |
 | The compiler, and the kit a plugin outside the checkout builds with | `rust-toolchain.toml`, `scripts/make-native-sdk.sh`, `scripts/fetch-native-sdk.sh`, `templates/native-plugin/outside/`, `.github/workflows/release.yml` |
 | Opening a library, and the private copy it is opened from | `hamlet_native/src/library.rs`, `cache.rs` |
-| The folder and its manifest | `hamlet_native/src/install.rs`, `manifest.rs` |
-| Opening the granted libraries while the app is built, the scan at start, safe mode, loading the plugin just let in | `hamlet_native/src/load.rs`, `marker.rs`, `guard.rs`, `assets/native.toml` |
+| The folder and its manifest, and what is copied of it when the chief adds one | `hamlet_native/src/install.rs`, `manifest.rs` |
+| Opening the granted libraries while the app is built, the scan at start, a folder that appears while the app runs, safe mode, loading the plugin just let in | `hamlet_native/src/load.rs`, `marker.rs`, `guard.rs`, `assets/native.toml` |
 | Removing | `hamlet_native/src/remove.rs` |
 | What the SDK knows of a native plugin: `FullAccess`, `NotLoaded`, `Declared`, the hash in a record, the petition text | `hamlet_sdk/src/plugin/access.rs`, `capability/record.rs`, `petition.rs` |
 | The NATIVE line on the Plugins page | `plugins/settings/src/plugins/list.rs` |

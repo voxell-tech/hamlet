@@ -384,6 +384,22 @@ brought up. For any other, the host spawns an entity marked `Uninstalled`
 that holds the place of its files and nothing else: its component is not
 compiled and its panel is not read until the chief says yes.
 
+A plugin reaches the folder in one of two ways, and is asked about the same
+way after either, with no restart:
+
+- **ADD PLUGIN...** on the Plugins page: the chief chooses a folder in the
+  system's dialog, a built plugin or the source of one, and its files are checked
+  and copied in (see Adding a plugin from a folder in [`wasm.md`](wasm.md)). A
+  source is built only after the chief confirms the warning that building runs
+  code from the folder on the computer with the chief's access, outside the
+  sandbox. The install petition is raised at once, even for a plugin declined
+  before. A folder whose plugin is installed takes its place only after the chief
+  says so, and as an update: its new asks are put to the chief in the "asks for
+  more" petition below before any of it runs.
+- **A copy by hand**, or by a plugin's `build.sh`: the host notices a new folder
+  within a second while it runs, or finds it at start, and asks unless it was
+  declined as it is.
+
 - A plugin the chief was never asked about, or that changed since it was
   declined, raises one petition: "Install Roster 0.1.0?", with what it asks
   for, each capability with its reason and its scope, and the plugins it needs
@@ -441,7 +457,7 @@ is not asked about again. A plugin whose folder is a link is not removed, as cle
 delete the files it points at, and the chief is told to remove it by hand; the native host does
 the same. A folder that holds nothing but `data/`, `files/` and `db/` is not read as
 a plugin at the next start, and says nothing. Putting the plugin back in
-`plugins/<id>/` is an install like any other, with its petition and its asks to
+`plugins/<id>/`, by hand or with ADD PLUGIN..., is an install like any other, with its petition and its asks to
 answer again, and it finds the data it kept, since a plugin's storage, files and database are only
 those folders.
 

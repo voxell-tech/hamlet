@@ -68,9 +68,11 @@ sandbox".
    Each is in `docs/authoring.md`, under "The script". Where there is no
    GPU, as in your sandbox, add `--no-pictures`.
 5. **Propose** it: tell the chief the folder and what each ask is for. The
-   chief copies it to `<home>/plugins/<name>/` and starts Hamlet, which asks
-   before the plugin runs. After that, a running Hamlet reloads the plugin
-   when its files change.
+   chief adds it with ADD PLUGIN... on the Plugins page of Settings, choosing
+   the built folder, or the source folder, which Hamlet builds once the chief
+   agrees; or copies the built folder to `<home>/plugins/<name>/`. Either way
+   a running Hamlet asks before the plugin runs, and after that reloads the
+   plugin when its files change.
 
 ## Rules
 
