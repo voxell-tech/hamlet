@@ -8,8 +8,8 @@ use super::environment::Reach;
 use super::walk::{
     FOUND, Failure, reached, report, shown, under, wanted,
 };
-use super::{Arguments, Outcome};
-use crate::change::{clip, js_space, lines_of};
+use super::{Arguments, Outcome, pi_space};
+use crate::change::{clip, lines_of};
 use crate::sandbox::FileKind;
 
 pub(super) const DESCRIPTION: &str =
@@ -102,7 +102,7 @@ async fn search(
                 shown(env, at),
                 index + 1,
                 clip(
-                    line.trim_end_matches(js_space),
+                    line.trim_end_matches(pi_space),
                     WIDTH,
                     false,
                     true

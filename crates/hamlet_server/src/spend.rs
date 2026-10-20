@@ -33,20 +33,14 @@ pub(crate) struct Books {
     pub task: Amount,
 }
 
-pub(crate) fn money(micros: i64) -> String {
+/// `micros` in dollars to the cent, a half cent rounding up.
+pub(crate) fn money(micros: impl Into<i128>) -> String {
+    let micros = micros.into();
     if (1..10_000).contains(&micros) {
-        "<$0.01".into()
-    } else {
-        let dollars = micros as f64 / 1_000_000.0;
-        // JavaScript toFixed rounds exact halfway values up. At two
-        // places those binary-exact ties are eighths of a dollar.
-        let dollars = if micros % 125_000 == 0 {
-            (dollars * 100.0).round() / 100.0
-        } else {
-            dollars
-        };
-        format!("${dollars:.2}")
+        return "<$0.01".into();
     }
+    let cents = (micros + 5_000) / 10_000;
+    format!("${}.{:02}", cents / 100, cents % 100)
 }
 
 fn duration(ms: i64) -> String {
@@ -229,7 +223,7 @@ fn show(value: i64, time: bool) -> String {
 
 /// What `usage` costs: what the endpoint billed, else what pi priced
 /// it at, else `price` with cached tokens at its input rate.
-pub(crate) fn amount(usage: &Usage, price: Option<&Price>) -> Amount {
+pub(crate) fn amount(usage: &Usage, price: &Price) -> Amount {
     let reported = usage.input
         + usage.output
         + usage.cache_read
@@ -239,20 +233,18 @@ pub(crate) fn amount(usage: &Usage, price: Option<&Price>) -> Amount {
     } else {
         0
     };
-    let priced = price.map(|p| {
-        (usage.input
-            + usage.cache_read
-            + usage.cache_write
-            + estimate) as f64
-            * p.input
-            + usage.output as f64 * p.output
-    });
+    let priced = (usage.input
+        + usage.cache_read
+        + usage.cache_write
+        + estimate) as f64
+        * price.input
+        + usage.output as f64 * price.output;
     let micros = match usage.billed {
         Some(billed) => (billed * 1_000_000.0).round() as i64,
         None if usage.cost > 0.0 => {
             (usage.cost * 1_000_000.0).round() as i64
         }
-        None => priced.unwrap_or(0.0).round() as i64,
+        None => priced.round() as i64,
     };
     let count = |n: u64| i64::try_from(n).unwrap_or(i64::MAX);
     Amount {

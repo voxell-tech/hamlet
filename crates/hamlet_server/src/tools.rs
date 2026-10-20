@@ -50,15 +50,11 @@ pub struct Place {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Outcome {
     /// The output pi's own tool would give.
-    #[serde(default)]
     pub text: String,
-    #[serde(default)]
     pub error: bool,
     /// pi's details of the result.
-    #[serde(default)]
     pub details: Option<Map<String, Value>>,
     /// Remarks on the result, in the order pi gives them.
-    #[serde(default)]
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -609,6 +605,11 @@ impl<'a> Arguments<'a> {
             })
             .transpose()
     }
+}
+
+/// True for the characters pi's tools take as white space.
+pub(crate) fn pi_space(c: char) -> bool {
+    (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}'
 }
 
 /// A number as pi's tools write it.

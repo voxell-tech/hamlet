@@ -2,7 +2,7 @@
 //! from the call and checked, set out as words, and answered.
 
 use hamlet_protocol::v0::{Offer, Pick, Question, Questions};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 /// The most questions one call may ask.
 pub(super) const MOST_QUESTIONS: usize = 10;
@@ -25,10 +25,6 @@ pub(super) fn read(args: &str) -> Result<Questions, String> {
         .map_err(|_| "the arguments are not JSON".to_string())?;
     let asked = match &args["questions"] {
         Value::Array(asked) => asked.clone(),
-        // A lone `question` is a call of one plain question.
-        Value::Null if !text(&args, "question").is_empty() => {
-            vec![json!({"question": text(&args, "question")})]
-        }
         Value::Null => return Err("say what in `questions`".into()),
         _ => return Err("`questions` is a list".into()),
     };
@@ -200,6 +196,8 @@ pub(super) fn said(result: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
 
     fn grill() -> String {

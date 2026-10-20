@@ -234,9 +234,9 @@ struct Usage {
 fn read_command(
     text: &str,
 ) -> Option<std::result::Result<Command, Usage>> {
-    let trimmed = js_trim(text);
-    let (name, rest) = match trimmed.find(js_space) {
-        Some(at) => (&trimmed[..at], js_trim(&trimmed[at..])),
+    let trimmed = text.trim();
+    let (name, rest) = match trimmed.find(char::is_whitespace) {
+        Some(at) => (&trimmed[..at], trimmed[at..].trim()),
         None => (trimmed, ""),
     };
     let (deed, args, _) = TABLE
@@ -259,15 +259,13 @@ fn read_command(
             },
         })
     };
-    let words = rest.split(js_space).filter(|w| !w.is_empty());
+    let words = rest.split_whitespace();
     Some(match *deed {
-        "to" => match rest.find(js_space) {
-            Some(at) if !js_trim(&rest[at..]).is_empty() => {
+        "to" => match rest.find(char::is_whitespace) {
+            Some(at) if !rest[at..].trim().is_empty() => {
                 Ok(Command::To {
                     agent: rest[..at].into(),
-                    text: rest[at..]
-                        .trim_start_matches(js_space)
-                        .into(),
+                    text: rest[at..].trim_start().into(),
                 })
             }
             _ => usage(),
@@ -1115,15 +1113,6 @@ fn answer(id: &str, kind: ReplyKind, text: String) -> ServerMessage {
         to: id.into(),
         upload: None,
     })
-}
-
-/// The characters JavaScript's `\s` and `trim` take as white space.
-fn js_space(c: char) -> bool {
-    (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}'
-}
-
-fn js_trim(text: &str) -> &str {
-    text.trim_matches(js_space)
 }
 
 #[cfg(test)]

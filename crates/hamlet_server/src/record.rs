@@ -15,7 +15,6 @@ pub use document::{
     MergeFiles, MergeNotes, OpenVote, Protection, Road, RoadBudget,
     RoadCharge,
 };
-pub(crate) use names::trim;
 pub use names::{NameFallback, check_name, tidy_name};
 pub use refusals::{Action, Audience, Reason, Refusal};
 pub use roads::level;
@@ -468,7 +467,7 @@ impl RecordOperation {
             at: self.at,
             by: self.actor.by(),
             reason: if trim {
-                names::trim(&self.reason).into()
+                self.reason.trim().into()
             } else {
                 self.reason.clone()
             },
@@ -820,7 +819,7 @@ impl Operation for FoundRecord {
             agents: vec![Agent {
                 number: 0,
                 name: self.name.clone(),
-                purpose: names::trim(&self.purpose).into(),
+                purpose: self.purpose.trim().into(),
                 since: self.at,
                 model: None,
                 character: String::new(),

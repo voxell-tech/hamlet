@@ -4,10 +4,10 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 use rusqlite::OptionalExtension;
 
-use crate::claim::{Claim, resolved_path};
+use crate::claim::Claim;
 use crate::operation::RuntimeInstance;
 use crate::store::Store;
 
@@ -19,8 +19,6 @@ const IDENTITY: &str = "realm.id";
 const HARNESSES: &str = "harnesses";
 /// The credentials file, which only this server writes.
 const CREDENTIALS: &str = "credentials.json";
-/// The TypeScript server's storage.
-const NODE_STORE: &str = "home.sqlite";
 
 /// The paths of a home's parts.
 #[derive(Clone, Debug)]
@@ -33,7 +31,7 @@ impl Layout {
         Self { root }
     }
 
-    /// The absolute home folder.
+    /// The canonical home folder.
     pub fn root(&self) -> &Path {
         &self.root
     }
@@ -65,23 +63,15 @@ pub struct Home {
 
 impl Home {
     /// Claims the home in `dir`, creating the folder when missing,
-    /// then opens and migrates its store.
+    /// then opens its store.
     pub fn open(dir: &Path) -> Result<Self> {
-        let root = resolved_path(dir)?;
-        std::fs::create_dir_all(&root).with_context(|| {
-            format!("creating {}", root.display())
+        std::fs::create_dir_all(dir)
+            .with_context(|| format!("creating {}", dir.display()))?;
+        let root = dir.canonicalize().with_context(|| {
+            format!("resolving {}", dir.display())
         })?;
-        let claim = Claim::take(dir)?;
+        let claim = Claim::take(&root)?;
         let layout = Layout::new(root);
-        if layout.root.join(NODE_STORE).try_exists()? {
-            bail!(
-                "{} holds the TypeScript server's storage, which \
-                 this server cannot open. Choose a fresh \
-                 HAMLET_HOME for the Rust server; the old files \
-                 have not been erased.",
-                layout.root.display()
-            );
-        }
         ensure!(
             layout.store().try_exists()?
                 || !layout.root.join(IDENTITY).try_exists()?,
@@ -113,8 +103,7 @@ impl Home {
     }
 }
 
-/// Checks the identity pair, or creates it for a fresh or
-/// pre-identity home.
+/// Checks the identity pair, or creates it for a fresh home.
 fn identify(layout: &Layout, store: &mut Store) -> Result<()> {
     let path = layout.root.join(IDENTITY);
     let tx = store.transaction()?;

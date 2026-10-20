@@ -68,7 +68,7 @@ the public test boundary is protocol v0 or the process command line.
 | Module | Responsibility and interface |
 |---|---|
 | `home.rs`, `claim.rs` | `Home::open` claims a path, opens its `Store` and checks the `realm.id` pair. `Layout` names storage, credentials and harness directories |
-| `store.rs`, `schema.sql` | Ordered schema migrations and the `realm.sqlite` connection, with WAL, FULL sync and foreign keys |
+| `store.rs`, `schema.sql` | The schema and the `realm.sqlite` connection, with WAL, FULL sync and foreign keys; a store of another version is refused |
 | `operation.rs` | `OperationId` identifies runtime plus call key. Owns every marker: `Store::run` commits an operation's result marker with its record effects; `Store::once` and `once` mark any outcome with its request digest, alone or in the caller's transaction, and refuse a changed request under a used key |
 | `service.rs` | `Service` owns the claimed home, credentials, houses, models, chats and uploads; `handle` routes chief requests |
 | `runtime.rs` | `serve` probes the sandbox, starts the harness, publishes `server.json`, authenticates connections and closes in order |

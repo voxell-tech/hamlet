@@ -12,7 +12,7 @@ use crate::service::{document, save};
 
 /// The home's settings, as the chief saved them.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct Settings {
     /// The model the home runs, as `endpoint::model`.
     pub model: String,
@@ -243,7 +243,7 @@ pub(crate) fn check_workspace(
     if !valid {
         return Err("The workspace address must start with https://, or http:// for localhost, and have no password or query.");
     }
-    if workspace.token.encode_utf16().count() < 16 {
+    if workspace.token.chars().count() < 16 {
         return Err(
             "The workspace token needs at least 16 characters."
         );

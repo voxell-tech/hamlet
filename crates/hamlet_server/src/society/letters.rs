@@ -591,7 +591,7 @@ async fn prepare(
     if let Some(sent) = sent_by(db, runtime, key)? {
         return Ok(Ok(sent));
     }
-    if record::trim(text).is_empty() {
+    if text.trim().is_empty() {
         return Ok(Err(Unsent::Empty));
     }
     let from = caller.place.agent.clone();

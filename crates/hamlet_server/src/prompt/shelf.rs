@@ -5,8 +5,6 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
-use crate::record::trim;
-
 /// A skill as the front matter of its `SKILL.md` tells of it.
 pub(crate) struct Skill {
     pub name: String,
@@ -128,10 +126,7 @@ pub(crate) fn shelf(dir: &Path) -> Vec<Skill> {
                 })
         })
         .collect::<Vec<_>>();
-    // JavaScript's order of strings.
-    found.sort_by(|a, b| {
-        a.folder.encode_utf16().cmp(b.folder.encode_utf16())
-    });
+    found.sort_by(|a, b| a.folder.cmp(&b.folder));
     found
 }
 
@@ -145,8 +140,8 @@ pub(crate) fn skill(folder: String, text: &str) -> Skill {
     let field = |key: &str| {
         front?.split('\n').find_map(|line| {
             let (k, v) = line.split_once(':')?;
-            (trim(k) == key)
-                .then(|| trim(v).trim_matches('"').to_owned())
+            (k.trim() == key)
+                .then(|| v.trim().trim_matches('"').to_owned())
         })
     };
     match field("name") {

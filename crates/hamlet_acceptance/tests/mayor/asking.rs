@@ -182,7 +182,7 @@ async fn question_limit_counts_calls_not_questions_and_invalid_calls_do_not_spen
     let mut s = Session::start(Script::new().responses([
         call("ask_chief", json!({"questions": [{"question": "Bad", "options": ["same", " same "]}]})),
         call("ask_chief", json!({"questions": [{"question": "First?"}, {"question": "Second?"}]})),
-        call("ask_chief", json!({"question": "One too many?"})),
+        call("ask_chief", json!({"questions": [{"question": "One too many?"}]})),
         words("Done asking."),
     ])).await;
     s.chief.limit("home", "asking", "questions", json!(1)).await;

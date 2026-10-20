@@ -285,6 +285,7 @@ fn a_held_home_refuses_another_claim_by_any_spelling() {
         dir.clone(),
         scratch.join("link"),
         scratch.join("home/../home"),
+        PathBuf::from(format!("{}/", dir.display())),
     ] {
         assert!(
             is_held(&spelling),
@@ -298,19 +299,7 @@ fn a_held_home_refuses_another_claim_by_any_spelling() {
 
 #[cfg(unix)]
 #[test]
-fn a_trailing_slash_claim_also_holds_the_canonical_spelling() {
-    let scratch = Scratch::new("server-trailing-slash");
-    let dir = scratch.join("home");
-    let spelling = PathBuf::from(format!("{}/", dir.display()));
-    let home = open(&spelling);
-    assert!(is_held(&dir));
-    home.close().unwrap();
-    open(&dir);
-}
-
-#[cfg(unix)]
-#[test]
-fn a_parent_after_a_symlink_resolves_as_the_typescript_home_does() {
+fn a_home_given_through_a_symlink_and_a_parent_is_its_real_folder() {
     let scratch = Scratch::new("server-parent-spelling");
     let a = scratch.join("a");
     let b = scratch.join("b");
@@ -318,10 +307,22 @@ fn a_parent_after_a_symlink_resolves_as_the_typescript_home_does() {
     std::fs::create_dir_all(b.join("child")).unwrap();
     std::os::unix::fs::symlink(b.join("child"), a.join("link"))
         .unwrap();
-    let home = open(&a.join("link/.."));
-    assert_eq!(home.layout().root(), a);
-    assert!(is_held(&a));
-    open(&b).close().unwrap();
+    let spelling = a.join("link/..");
+    let home = open(&spelling);
+    assert_eq!(
+        home.layout().root(),
+        std::fs::canonicalize(&spelling).unwrap()
+    );
+    assert!(is_held(&b));
+    // The CLI reads the home's files through the spelling it was
+    // given.
+    std::fs::write(home.layout().root().join("server.json"), "kept")
+        .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(spelling.join("server.json"))
+            .unwrap(),
+        "kept"
+    );
     home.close().unwrap();
 }
 
@@ -373,85 +374,25 @@ fn an_existing_empty_or_foreign_database_is_not_initialized() {
 }
 
 #[test]
-fn migrations_keep_old_markers_and_roll_back_failed_steps() {
-    let dir = Scratch::new("server-migrations");
-    let db = Connection::open(dir.join("realm.sqlite")).unwrap();
-    db.execute_batch(
-        "CREATE TABLE marker (runtime TEXT NOT NULL, key TEXT NOT \
-         NULL, kind TEXT NOT NULL, digest BLOB NOT NULL, outcome \
-         TEXT NOT NULL, PRIMARY KEY (runtime, key)) STRICT, WITHOUT \
-         ROWID;
-         INSERT INTO marker VALUES ('pi-1', '7', 'give', X'00', \
-         '{\"done\":{\"left\":7}}');
-         CREATE TABLE record_name (collision TEXT);
-         PRAGMA user_version = 1;",
-    )
-    .unwrap();
-    drop(db);
-    assert!(Home::open(&dir).is_err());
-    let db = Connection::open(dir.join("realm.sqlite")).unwrap();
-    assert_eq!(
-        db.query_row("PRAGMA user_version", [], |row| row
-            .get::<_, i64>(0))
-            .unwrap(),
-        1
-    );
-    assert_eq!(
-        db.query_row(
-            "SELECT count(*) FROM sqlite_schema WHERE name = \
-             'record_hamlet'",
-            [],
-            |row| row.get::<_, i64>(0)
-        )
-        .unwrap(),
-        0
-    );
-    db.execute_batch("DROP TABLE record_name").unwrap();
-    drop(db);
-    let mut home = open(&dir);
-    assert_eq!(count(&mut home, "PRAGMA user_version"), 12);
-    assert_eq!(count(&mut home, "SELECT count(*) FROM marker"), 1);
-    assert_eq!(
-        home.store()
-            .connection()
-            .query_row(
-                "SELECT outcome FROM marker WHERE key = '7'",
-                [],
-                |row| row.get::<_, String>(0)
-            )
-            .unwrap(),
-        "{\"done\":{\"left\":7}}"
-    );
-    home.close().unwrap();
-    open(&dir).close().unwrap();
-}
-
-#[test]
-fn a_store_from_a_newer_server_is_refused() {
-    let dir = Scratch::new("server-newer");
-    let mut home = open(&dir);
-    set(&mut home, "PRAGMA user_version = 99");
-    home.close().unwrap();
-    assert!(Home::open(&dir).is_err());
-    let db = Connection::open(dir.join("realm.sqlite")).unwrap();
-    let version = db
-        .query_row("PRAGMA user_version", [], |row| {
-            row.get::<_, i64>(0)
-        })
-        .unwrap();
-    assert_eq!(version, 99);
-}
-
-#[test]
-fn a_home_of_the_typescript_server_is_refused() {
-    let dir = Scratch::new("server-node-home");
-    std::fs::write(dir.join("home.sqlite"), "").unwrap();
-    assert!(Home::open(&dir).is_err());
-    assert!(!dir.join("realm.sqlite").exists());
-    let mixed = Scratch::new("server-mixed-home");
-    open(&mixed).close().unwrap();
-    std::fs::write(mixed.join("home.sqlite"), "").unwrap();
-    assert!(Home::open(&mixed).is_err());
+fn a_store_of_another_version_is_refused() {
+    for version in [0, 2, 99] {
+        let dir = Scratch::new("server-version");
+        open(&dir).close().unwrap();
+        let db = Connection::open(dir.join("realm.sqlite")).unwrap();
+        db.pragma_update(None, "user_version", version).unwrap();
+        drop(db);
+        assert!(
+            Home::open(&dir).is_err(),
+            "accepted version {version}"
+        );
+        let db = Connection::open(dir.join("realm.sqlite")).unwrap();
+        let kept = db
+            .query_row("PRAGMA user_version", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap();
+        assert_eq!(kept, version);
+    }
 }
 
 #[test]

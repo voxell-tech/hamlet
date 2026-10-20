@@ -33,10 +33,9 @@ enum VoteKind {
     FoundHamlet,
 }
 
-/// Where a vote stands, kept as its word: the state, or else why it
-/// closed.
+/// Where a vote stands.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(from = "String", into = "String")]
+#[serde(rename_all = "snake_case")]
 enum Standing {
     Open,
     Passed,
@@ -44,30 +43,6 @@ enum Standing {
     Lapsed,
     /// Closed without passing, for the reason given.
     Closed(String),
-}
-
-impl From<String> for Standing {
-    fn from(word: String) -> Self {
-        match word.as_str() {
-            "open" => Self::Open,
-            "passed" => Self::Passed,
-            "overturned" => Self::Overturned,
-            "lapsed" => Self::Lapsed,
-            _ => Self::Closed(word),
-        }
-    }
-}
-
-impl From<Standing> for String {
-    fn from(standing: Standing) -> Self {
-        match standing {
-            Standing::Open => "open".into(),
-            Standing::Passed => "passed".into(),
-            Standing::Overturned => "overturned".into(),
-            Standing::Lapsed => "lapsed".into(),
-            Standing::Closed(reason) => reason,
-        }
-    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -1228,7 +1203,7 @@ mod tests {
         let db = store.connection();
         let due =
             || super::super::document::<Vec<Vote>>(db, DUE, "home");
-        // An earlier home kept every vote under the sweep's kind.
+        // Votes that finished since the sweep last saved them.
         super::super::keep(
             db,
             DUE,
@@ -1253,36 +1228,5 @@ mod tests {
         save(db, "home", &swept).unwrap();
         assert!(due().unwrap().is_empty());
         assert_eq!(ids(&read(db, "home").unwrap()), [1, 2, 3]);
-    }
-
-    #[test]
-    fn a_vote_keeps_the_words_earlier_homes_stored() {
-        for word in [
-            "open",
-            "passed",
-            "overturned",
-            "lapsed",
-            "too few said yes",
-        ] {
-            let standing =
-                serde_json::from_value::<Standing>(json!(word))
-                    .unwrap();
-            assert_eq!(
-                serde_json::to_value(&standing).unwrap(),
-                word
-            );
-        }
-        assert!(
-            serde_json::from_value::<Standing>(json!(
-                "the hamlet closed"
-            ))
-            .unwrap()
-                == Standing::Closed("the hamlet closed".into())
-        );
-        assert!(
-            serde_json::from_value::<VoteKind>(json!("found_hamlet"))
-                .unwrap()
-                == VoteKind::FoundHamlet
-        );
     }
 }

@@ -88,7 +88,7 @@ pub(super) fn command(
     let mut points = above_roots(policy, tmp);
     points.extend(fixed_roots(policy, tmp));
     points.retain(|path| seen.insert(path.clone()));
-    points.sort_by_key(|path| path.encode_utf16().count());
+    points.sort_by_key(|path| path.len());
     for path in &points {
         if Path::new(path).exists()
             && writes

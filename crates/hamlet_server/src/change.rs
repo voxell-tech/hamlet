@@ -218,10 +218,7 @@ pub fn clip(
     dots: bool,
 ) -> String {
     let shown = if flat {
-        text.split(js_space)
-            .filter(|word| !word.is_empty())
-            .collect::<Vec<_>>()
-            .join(" ")
+        text.split_whitespace().collect::<Vec<_>>().join(" ")
     } else {
         text.to_owned()
     };
@@ -235,12 +232,6 @@ pub fn clip(
         }
         None => shown,
     }
-}
-
-/// True for the characters JavaScript's `\s` and `trim` take as white
-/// space.
-pub(crate) fn js_space(c: char) -> bool {
-    (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}'
 }
 
 #[cfg(test)]

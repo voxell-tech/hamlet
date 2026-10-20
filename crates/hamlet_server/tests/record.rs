@@ -268,12 +268,12 @@ fn a_model_is_set_by_the_mayor_alone_within_the_chiefs_limits() {
 }
 
 #[test]
-fn admission_and_departure_use_javascript_whitespace_rules() {
+fn admission_and_departure_trim_unicode_white_space() {
     let (_scratch, mut store) = seeded("record-whitespace");
     done(
         &mut store,
-        "bom",
-        &request("home", admit("\u{feff}Scout\u{feff}")),
+        "next-line",
+        &request("home", admit("\u{85}Scout\u{85}")),
     );
     assert_eq!(
         record(&store, "home").named("scout").unwrap().number,
@@ -282,8 +282,8 @@ fn admission_and_departure_use_javascript_whitespace_rules() {
     assert_eq!(
         refused(
             &mut store,
-            "next-line",
-            &request("home", admit("\u{85}Smith\u{85}"))
+            "bom",
+            &request("home", admit("\u{feff}Smith\u{feff}"))
         )
         .reason,
         Reason::NameFormat
@@ -291,14 +291,14 @@ fn admission_and_departure_use_javascript_whitespace_rules() {
     let mut call = request("home", admit("smith"));
     call.actor = Actor::Mayor(place("home", 0));
     if let Change::Admit(given) = &mut call.change {
-        given.purpose = "\u{feff}".into();
+        given.purpose = "\u{85}".into();
     }
     assert_eq!(
         refused(&mut store, "empty-purpose", &call).reason,
         Reason::PurposeEmpty
     );
     call.change = remove("scout");
-    call.reason = "\u{feff}".into();
+    call.reason = "\u{85}".into();
     assert_eq!(
         refused(&mut store, "empty-reason", &call).reason,
         Reason::ReasonEmpty
@@ -685,7 +685,7 @@ fn restoring_keeps_identity_and_surviving_roads_not_namesakes_and_does_not_charg
 }
 
 #[test]
-fn road_budget_wording_rounds_like_the_typescript_server() {
+fn road_budget_wording_rounds_half_a_cent_up() {
     let (_scratch, mut store) = seeded("record-money");
     for name in ["scout", "smith"] {
         done(&mut store, name, &request("home", admit(name)));
@@ -694,7 +694,7 @@ fn road_budget_wording_rounds_like_the_typescript_server() {
         (124_999, "$0.12"),
         (125_000, "$0.13"),
         (125_001, "$0.13"),
-        (15_000, "$0.01"),
+        (15_000, "$0.02"),
     ] {
         limits(&mut store, &format!("limit-{price}"), "home", |l| {
             l.chief.road.cost = price as f64 / 1_000_000.0;
@@ -738,7 +738,7 @@ fn road_budget_is_checked_with_the_charge_and_exhaustion_never_leaves_a_road()
             end: 1000,
             month: false,
             other: Amount::default(),
-            cost: Some(15_000),
+            cost: Some(14_000),
             ms: None,
         })
     });

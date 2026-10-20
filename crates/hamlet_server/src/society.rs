@@ -15,10 +15,10 @@ pub(crate) mod work;
 
 use std::collections::BTreeMap;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 pub(crate) use self::agents::deed;
@@ -34,6 +34,7 @@ use crate::operation::Request;
 use crate::protocol::Refusal;
 use crate::record::{Actor, AgentRef};
 use crate::service::Service;
+use crate::tools::Outcome;
 use crate::{OperationId, Store};
 
 /// A tool of the society, which this server answers itself.
@@ -387,10 +388,11 @@ pub(crate) async fn reconfigure(
 /// The result of a call of a tool the conversation is not offered, as
 /// pi-durable gives it.
 pub(crate) fn unavailable(tool: &str) -> Value {
-    json!({
-        "text": "",
-        "error": true,
-        "diagnostics": [Diagnostic {
+    json!(Outcome {
+        text: String::new(),
+        error: true,
+        details: None,
+        diagnostics: vec![Diagnostic {
             code: "tool_unavailable".into(),
             message: format!("Tool {tool} is not available"),
             severity: DiagnosticSeverity::Error,
@@ -553,28 +555,23 @@ pub(crate) async fn operation(
     if service.house_work.pending(&caller.id) {
         return Ok(letters::waiting());
     }
-    Ok(result(&outcome))
+    result(&outcome)
 }
 
 /// A tool's outcome as markers keep it: its text and whether it
 /// failed.
 pub(crate) fn outcome(text: &str, error: bool) -> Value {
-    json!({"text": text, "error": error})
+    json!(Outcome {
+        text: text.into(),
+        error,
+        details: None,
+        diagnostics: Vec::new(),
+    })
 }
 
 /// The answer of a marked outcome.
-pub(crate) fn result(outcome: &Value) -> Answer {
-    Answer::Result {
-        text: outcome["text"].as_str().unwrap_or_default().into(),
-        error: outcome["error"] == true,
-        details: outcome["details"]
-            .as_object()
-            .map(|details| details.clone().into_iter().collect()),
-        diagnostics: serde_json::from_value(
-            outcome["diagnostics"].clone(),
-        )
-        .unwrap_or_default(),
-    }
+pub(crate) fn result(outcome: &Value) -> Result<Answer> {
+    Ok(Outcome::deserialize(outcome)?.into())
 }
 
 /// The outcome of the call `id`: the one its marker keeps, else the
@@ -587,7 +584,14 @@ pub(crate) fn once(
     request: &Request,
     make: impl FnOnce(&Connection) -> Result<Value>,
 ) -> Result<Value> {
-    Ok(store.once(id, request, make)?.unwrap_or_else(|| {
+    let made = store.once(id, request, |db| {
+        let value = make(db)?;
+        // Every call's marker is read back as a tool's outcome.
+        Outcome::deserialize(&value)
+            .context("a society tool's outcome")?;
+        Ok(value)
+    })?;
+    Ok(made.unwrap_or_else(|| {
         outcome(crate::harness::tools::CONFLICT, true)
     }))
 }

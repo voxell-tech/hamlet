@@ -35,7 +35,6 @@ pub struct Binding {
     pub name: String,
     /// Immutable actor UID, unset until an actor has been observed.
     pub uid: Option<String>,
-    #[serde(default)]
     pub lifecycle: Lifecycle,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deletion: Option<Deletion>,
@@ -43,11 +42,10 @@ pub struct Binding {
 
 /// Last lifecycle intent the manager persisted for a [`Binding`].
 #[derive(
-    Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq,
+    Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq,
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Lifecycle {
-    #[default]
     Active,
     Suspending,
     Suspended,

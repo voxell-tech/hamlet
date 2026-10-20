@@ -229,9 +229,6 @@ fn lock(state: &Path) -> Result<fs::File> {
 enum Record {
     /// Cancellation received before any actor was involved.
     Cancelled { cancelled: bool },
-    /// Route-only record written before forwarding by earlier
-    /// managers. Its outcome is unknown.
-    Staged(String),
     Operation {
         route: String,
         /// The settled reply; unset while the outcome is unknown.
@@ -503,8 +500,7 @@ impl<A: Actors, R: Router> Manager<A, R> {
                 .ok()
                 .filter(|_| valid_id(id));
                 let route = match record {
-                    Some(Record::Staged(route))
-                    | Some(Record::Operation {
+                    Some(Record::Operation {
                         route,
                         reply: None,
                     }) => route,

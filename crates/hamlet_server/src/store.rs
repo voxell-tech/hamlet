@@ -1,15 +1,19 @@
-//! The realm database: what Hamlet owns for a home, with its schema
-//! migrations.
+//! The realm database: what Hamlet owns for a home, with its schema.
 
 use std::path::Path;
 
 use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
-/// The schema, one step per version. A step is never edited once
-/// released; a change is a new step.
-const MIGRATIONS: &[&str] = &[
-    // 1. Markers of operations' outcomes.
+/// The schema's version. A store of any other version is refused.
+const VERSION: i64 = 1;
+
+/// The `application_id` that marks a realm store.
+const APPLICATION: i64 = 1_212_239_180;
+
+/// The schema, created in this order.
+const SCHEMA: &[&str] = &[
+    // Markers of operations' outcomes.
     "CREATE TABLE marker (
         runtime TEXT NOT NULL,
         key TEXT NOT NULL,
@@ -18,45 +22,28 @@ const MIGRATIONS: &[&str] = &[
         outcome TEXT NOT NULL,
         PRIMARY KEY (runtime, key)
     ) STRICT, WITHOUT ROWID;",
-    // 2. Hamlet records, realm-wide living names and road charges.
+    // Hamlet records, realm-wide living names and road charges.
     include_str!("record/schema.sql"),
-    // 3. The identity shared with the home's realm.id file.
+    // The identity shared with the home's realm.id file.
     "CREATE TABLE store_identity (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         home TEXT NOT NULL
-    ) STRICT;
-    PRAGMA application_id = 1212239180;",
-    // 4. Chief documents, keyed by home or hamlet.
+    ) STRICT;",
+    // Chief documents, keyed by home or hamlet.
     "CREATE TABLE chief_document (
         kind TEXT NOT NULL,
         key TEXT NOT NULL,
         value TEXT NOT NULL,
         PRIMARY KEY (kind, key)
     ) STRICT, WITHOUT ROWID;",
-    // 5. Harness runtimes, bindings, inputs, waits and model usage.
+    // Harness runtimes, bindings, inputs and model usage.
     include_str!("harness/schema.sql"),
-    // 6. Task attribution, model time and append-only budget resets.
+    // Append-only budget resets.
     include_str!("spend.sql"),
-    // 7. Chats, kept transcripts, the gate and what waits for a
-    // chief.
+    // Chats, kept transcripts, the gate and what waits for a chief.
     include_str!("chats/schema.sql"),
-    // 8. Society conversations, calls and documents.
+    // Society conversations, calls and documents.
     include_str!("society/schema.sql"),
-    // 9. The exact request each gate identity authorizes. Earlier
-    // calls have no recoverable request and cannot authorize a
-    // replay.
-    "ALTER TABLE gate_call ADD COLUMN digest BLOB;",
-    // 10. The normalized questions and allowed answers of a wait.
-    "ALTER TABLE wait ADD COLUMN questions TEXT;",
-    // 11. Tool calls wait in the chats' gate alone.
-    "DROP TABLE harness_wait;",
-    // 12. A hamlet's record keeps its chief's limits, and only it.
-    "UPDATE record_hamlet SET document = json_set(document, \
-     '$.limits', json_object('chief', json(coalesce((SELECT value \
-     FROM chief_document WHERE kind = 'limits' AND key = \
-     record_hamlet.id), '{}')), 'road_budget', \
-     json(json_extract(document, '$.limits.road_budget'))));
-     DELETE FROM chief_document WHERE kind = 'limits';",
 ];
 
 /// A home's realm database, open in this process alone.
@@ -65,15 +52,21 @@ pub struct Store {
 }
 
 impl Store {
-    /// Opens the database at `path`, creating it when missing, and
-    /// brings its schema up to this server's version.
+    /// Opens the database at `path`, creating it with the schema when
+    /// missing.
     pub fn open(path: &Path) -> Result<Self> {
         let fresh = !path.try_exists()?;
         let mut db = Connection::open(path)
             .with_context(|| format!("opening {}", path.display()))?;
-        migrate(&mut db, fresh).with_context(|| {
-            format!("migrating {}", path.display())
-        })?;
+        if fresh {
+            create(&mut db).with_context(|| {
+                format!("creating {}", path.display())
+            })?;
+        } else {
+            check(&db).with_context(|| {
+                format!("opening {}", path.display())
+            })?;
+        }
         // A reply goes out after its commit, so the commit must be on
         // disk by then.
         db.execute_batch(
@@ -107,54 +100,35 @@ impl Store {
     }
 }
 
-/// Applies the steps `db` lacks, all in one transaction.
-fn migrate(db: &mut Connection, fresh: bool) -> Result<()> {
+/// Creates the schema in `db`, all in one transaction.
+fn create(db: &mut Connection) -> Result<()> {
     let tx =
         db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let version = tx.query_row("PRAGMA user_version", [], |row| {
-        row.get::<_, i64>(0)
-    })?;
-    let known = i64::try_from(MIGRATIONS.len())?;
-    ensure!(
-        (0..=known).contains(&version),
-        "the schema is version {version}, newer than this server's \
-         {known}"
-    );
-    ensure!(
-        fresh || version > 0,
-        "the existing realm database has no schema; restore it from \
-         a complete home backup"
-    );
-    let application =
-        tx.query_row("PRAGMA application_id", [], |row| {
-            row.get::<_, i64>(0)
-        })?;
-    ensure!(
-        application == if version < 3 { 0 } else { 1_212_239_180 },
-        "the database is not this server's realm store"
-    );
-    // Earlier schemas predate application_id. Check their tables
-    // before upgrading them.
-    if version >= 1 {
-        tx.prepare(
-            "SELECT runtime, key, kind, digest, outcome FROM marker \
-             LIMIT 0",
-        )?;
+    for part in SCHEMA {
+        tx.execute_batch(part)?;
     }
-    if version >= 2 {
-        tx.prepare("SELECT id, document FROM record_hamlet LIMIT 0")?;
-        tx.prepare(
-            "SELECT name, hamlet, number FROM record_name LIMIT 0",
-        )?;
-        tx.prepare(
-            "SELECT id, hamlet, agent, task, at, tokens, micros, ms \
-             FROM record_road_charge LIMIT 0",
-        )?;
-    }
-    for step in &MIGRATIONS[usize::try_from(version)?..] {
-        tx.execute_batch(step)?;
-    }
-    tx.pragma_update(None, "user_version", known)?;
+    tx.pragma_update(None, "application_id", APPLICATION)?;
+    tx.pragma_update(None, "user_version", VERSION)?;
     tx.commit()?;
+    Ok(())
+}
+
+/// Refuses `db` unless it is a realm store of this schema's version.
+fn check(db: &Connection) -> Result<()> {
+    let pragma = |name: &str| {
+        db.query_row(&format!("PRAGMA {name}"), [], |row| {
+            row.get::<_, i64>(0)
+        })
+    };
+    ensure!(
+        pragma("application_id")? == APPLICATION,
+        "the database is not a realm store"
+    );
+    let version = pragma("user_version")?;
+    ensure!(
+        version == VERSION,
+        "the realm store's schema is version {version}; this server \
+         reads only version {VERSION}"
+    );
     Ok(())
 }

@@ -67,8 +67,7 @@ pub(super) async fn reached(
     env: &mut impl Reach,
     path: Option<&str>,
 ) -> Result<(String, FileInfo), Failure> {
-    let given =
-        path.unwrap_or("").trim_matches(crate::change::js_space);
+    let given = path.unwrap_or("").trim_matches(super::pi_space);
     let full = if path::is_absolute(given) {
         given.to_owned()
     } else {

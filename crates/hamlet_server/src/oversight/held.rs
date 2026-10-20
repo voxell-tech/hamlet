@@ -51,9 +51,8 @@ pub(crate) enum CallState {
     },
 }
 
-/// Reserves the call `id` for `binding` and the request `digest`,
-/// unless it is marked; gives whether the kept reservation is that
-/// one.
+/// Reserves the call `id` for `binding` and the request `digest`;
+/// gives whether the kept reservation is that one.
 pub(crate) fn reserve(
     db: &Connection,
     id: &OperationId,
@@ -61,30 +60,19 @@ pub(crate) fn reserve(
     digest: &[u8],
 ) -> Result<bool> {
     let (runtime, key) = (id.runtime.as_str(), id.key.as_str());
-    if !crate::operation::is_marked(db, runtime, key)? {
-        db.execute(
-            "INSERT INTO gate_call (runtime, key, binding, digest) \
-             VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING",
-            params![runtime, key, binding.0, digest],
-        )?;
-    }
-    Ok(db
-        .query_row(
-            "SELECT binding, digest FROM gate_call WHERE runtime = \
-             ?1 AND key = ?2",
-            params![runtime, key],
-            |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, Option<Vec<u8>>>(1)?,
-                ))
-            },
-        )
-        .optional()?
-        .is_some_and(|(kept, kept_digest)| {
-            kept == binding.0
-                && kept_digest.as_deref() == Some(digest)
-        }))
+    // A call's marker is written only after its reservation.
+    db.execute(
+        "INSERT INTO gate_call (runtime, key, binding, digest) \
+         VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING",
+        params![runtime, key, binding.0, digest],
+    )?;
+    let (kept, kept_digest) = db.query_row(
+        "SELECT binding, digest FROM gate_call WHERE runtime = ?1 \
+         AND key = ?2",
+        params![runtime, key],
+        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?)),
+    )?;
+    Ok(kept == binding.0 && kept_digest == digest)
 }
 
 /// Keeps that the gate let the call `id` run, with the network when

@@ -1,11 +1,11 @@
 //! The claim on a home that keeps every other server out of it (S2).
 
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use interprocess::local_socket::prelude::*;
 use interprocess::local_socket::{
     GenericFilePath, GenericNamespaced, ListenerNonblockingMode,
@@ -15,11 +15,6 @@ use sha2::{Digest, Sha256};
 
 /// The interval between accepting probes and checking for release.
 const POLL: Duration = Duration::from_millis(50);
-
-/// This process's claim on a home, held until dropped.
-pub(crate) struct Claim {
-    _holders: Vec<Holder>,
-}
 
 /// The error of claiming a home another process holds.
 #[derive(Debug)]
@@ -36,43 +31,9 @@ impl std::fmt::Display for Held {
 
 impl std::error::Error for Held {}
 
-impl Claim {
-    /// The claims on the given spelling and the resolved home's
-    /// canonical path.
-    pub fn take(dir: &Path) -> Result<Self> {
-        let root = std::path::absolute(dir)?;
-        let canonical =
-            resolved_path(&root)?.canonicalize().with_context(
-                || format!("resolving {}", root.display()),
-            )?;
-        let mut holders = vec![Holder::take(&root)?];
-        // Path equality ignores a trailing slash, but the socket hash
-        // does not.
-        if canonical.as_os_str() != root.as_os_str() {
-            holders.push(Holder::take(&canonical)?);
-        }
-        Ok(Self { _holders: holders })
-    }
-}
-
-/// Node's path.resolve spelling, with parent components removed
-/// before following symlinks.
-pub(crate) fn resolved_path(dir: &Path) -> Result<PathBuf> {
-    let mut resolved = PathBuf::new();
-    for component in std::path::absolute(dir)?.components() {
-        match component {
-            Component::ParentDir => {
-                resolved.pop();
-            }
-            Component::CurDir => {}
-            other => resolved.push(other),
-        }
-    }
-    Ok(resolved)
-}
-
 fn socket_name(home: &Path) -> Result<Name<'static>> {
     if GenericNamespaced::is_supported() {
+        // A hash keeps the name within the socket path limit.
         let digest =
             Sha256::digest(home.to_string_lossy().as_bytes());
         let tag = digest
@@ -91,15 +52,16 @@ fn socket_name(home: &Path) -> Result<Name<'static>> {
     }
 }
 
-/// The listener on one spelling's socket, served by a thread of its
-/// own.
-struct Holder {
+/// This process's claim on a home, held until dropped: a listener
+/// on the home's socket, served by a thread of its own.
+pub(crate) struct Claim {
     stop: Sender<()>,
     thread: Option<JoinHandle<()>>,
 }
 
-impl Holder {
-    fn take(root: &Path) -> Result<Self> {
+impl Claim {
+    /// Claims the home at the canonical path `root`.
+    pub fn take(root: &Path) -> Result<Self> {
         let name = socket_name(root)?;
         let held = || anyhow::Error::new(Held(root.to_owned()));
         if Stream::connect(name.clone()).is_ok() {
@@ -135,7 +97,7 @@ impl Holder {
     }
 }
 
-impl Drop for Holder {
+impl Drop for Claim {
     fn drop(&mut self) {
         let _ = self.stop.send(());
         if let Some(thread) = self.thread.take() {

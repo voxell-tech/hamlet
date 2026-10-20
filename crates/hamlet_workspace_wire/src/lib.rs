@@ -63,7 +63,6 @@ pub struct Request {
     pub agent: u32,
     pub project: bool,
     pub network: bool,
-    #[serde(default)]
     pub read_only: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub library: Option<Library>,
@@ -503,7 +502,7 @@ mod tests {
     }
 
     #[test]
-    fn omitted_read_only_is_writable() {
+    fn omitted_read_only_is_refused() {
         let fixture = serde_json::from_str::<Value>(FIXTURE).unwrap();
         let mut message = fixture["cases"]
             .as_array()
@@ -516,11 +515,6 @@ mod tests {
             .as_object_mut()
             .unwrap()
             .remove("read_only");
-        let Message::Execute { request } =
-            serde_json::from_value::<Message>(message).unwrap()
-        else {
-            panic!("not an execute message");
-        };
-        assert!(!request.read_only);
+        assert!(serde_json::from_value::<Message>(message).is_err());
     }
 }

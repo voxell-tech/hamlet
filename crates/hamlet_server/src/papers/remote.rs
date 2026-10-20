@@ -341,9 +341,7 @@ pub(super) async fn skills(session: &Session) -> Vec<Skill> {
             ));
         }
     }
-    found.sort_by(|a, b| {
-        a.folder.encode_utf16().cmp(b.folder.encode_utf16())
-    });
+    found.sort_by(|a, b| a.folder.cmp(&b.folder));
     found
 }
 

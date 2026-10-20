@@ -1,16 +1,3 @@
-ALTER TABLE harness_binding ADD COLUMN fork_of INTEGER REFERENCES harness_binding(id);
-ALTER TABLE harness_binding ADD COLUMN fork_at TEXT;
--- Hamlet's kind and data for the entry an input places, and whether it is a write only people see.
-ALTER TABLE harness_input ADD COLUMN mark TEXT CHECK (mark IS NULL OR json_valid(mark));
-ALTER TABLE harness_input ADD COLUMN write INTEGER NOT NULL DEFAULT 0 CHECK (write IN (0, 1));
-ALTER TABLE harness_input ADD COLUMN boundary INTEGER NOT NULL DEFAULT 0 CHECK (boundary IN (0, 1));
--- As the runtime last reported it.
-ALTER TABLE harness_input ADD COLUMN submission TEXT;
-ALTER TABLE harness_input ADD COLUMN status TEXT CHECK (status IS NULL OR status IN ('queued', 'placed', 'done', 'unanswered'));
-ALTER TABLE harness_input ADD COLUMN reason TEXT;
-ALTER TABLE harness_input ADD COLUMN detail TEXT CHECK (detail IS NULL OR json_valid(detail));
--- Whether the server acted on its end.
-ALTER TABLE harness_input ADD COLUMN followed INTEGER NOT NULL DEFAULT 0 CHECK (followed IN (0, 1));
 -- Each kept entry of a conversation, ordered by the runtime's entry id.
 CREATE TABLE harness_item (
     binding INTEGER NOT NULL REFERENCES harness_binding(id),
@@ -101,6 +88,8 @@ CREATE TABLE wait (
     about TEXT NOT NULL,
     change TEXT CHECK (change IS NULL OR json_valid(change)),
     answers TEXT NOT NULL CHECK (json_valid(answers)),
+    -- The normalized questions and allowed answers it asks.
+    questions TEXT,
     since INTEGER NOT NULL,
     asked INTEGER NOT NULL,
     -- The chief's chat it was raised in.
@@ -119,6 +108,8 @@ CREATE TABLE gate_call (
     runtime TEXT NOT NULL,
     key TEXT NOT NULL,
     binding INTEGER NOT NULL REFERENCES harness_binding(id),
+    -- The exact request the identity authorizes.
+    digest BLOB NOT NULL,
     -- The runtime's submission id of the input whose turn made it.
     input TEXT,
     -- The reach it runs with once allowed: whether it has the network.

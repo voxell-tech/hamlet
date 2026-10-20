@@ -226,7 +226,6 @@ pub struct RoadBudget {
 )]
 pub struct Limits {
     /// The chief's limits.
-    #[serde(default, deserialize_with = "crate::limits::filled")]
     pub chief: Box<crate::limits::Limits>,
     /// The road spend's window, which only tests set.
     pub road_budget: Option<RoadBudget>,

@@ -263,7 +263,7 @@ impl Env {
     ) -> Result<FileInfo, FileError> {
         let at = self.reach(path, Reach::Read, false)?;
         let stat = at.stat().map_err(|error| {
-            node_error(&error, "lstat", &at.resolved)
+            file_error(&error, "lstat", &at.resolved)
         })?;
         info_of(path::basename(&at.resolved), &stat)
     }
@@ -287,7 +287,7 @@ impl Env {
     ) -> Result<Vec<FileInfo>, FileError> {
         let at = self.reach(path, Reach::Read, true)?;
         let scandir = |error: &io::Error| {
-            node_error(error, "scandir", &at.resolved)
+            file_error(error, "scandir", &at.resolved)
         };
         let dir = at
             .open(OFlags::DIRECTORY | OFlags::RDONLY)
@@ -305,7 +305,7 @@ impl Env {
             }
             let stat = statat(&dir, &name, AtFlags::SYMLINK_NOFOLLOW)
                 .map_err(|error| {
-                    node_error(
+                    file_error(
                         &error.into(),
                         "lstat",
                         &path::join(&[at.resolved.as_str(), &name]),
@@ -326,7 +326,7 @@ impl Env {
     ) -> Result<String, FileError> {
         let at = self.reach(path, Reach::Read, true)?;
         at.stat().map(|_| at.real.clone()).map_err(|error| {
-            node_error(&error, "realpath", &at.resolved)
+            file_error(&error, "realpath", &at.resolved)
         })
     }
 
@@ -338,7 +338,7 @@ impl Env {
         let (mut file, resolved) = self.open_file(path)?;
         let mut bytes = Vec::new();
         io::Read::read_to_end(&mut file, &mut bytes)
-            .map_err(|error| node_error(&error, "read", &resolved))?;
+            .map_err(|error| file_error(&error, "read", &resolved))?;
         Ok(bytes)
     }
 
@@ -351,10 +351,10 @@ impl Env {
         // Nonblocking, so opening a FIFO does not wait for a writer.
         let file =
             at.open(OFlags::RDONLY | OFlags::NONBLOCK).map_err(
-                |error| node_error(&error, "open", &at.resolved),
+                |error| file_error(&error, "open", &at.resolved),
             )?;
         let meta = file.metadata().map_err(|error| {
-            node_error(&error, "fstat", &at.resolved)
+            file_error(&error, "fstat", &at.resolved)
         })?;
         if meta.is_dir() {
             return Err(FileError::new(
@@ -416,10 +416,10 @@ impl Env {
         at.make_folders()?;
         let mut file =
             at.open(OFlags::WRONLY | OFlags::CREATE | how).map_err(
-                |error| node_error(&error, "open", &at.resolved),
+                |error| file_error(&error, "open", &at.resolved),
             )?;
         file.write_all(content.as_bytes())
-            .map_err(|error| node_error(&error, "open", &at.resolved))
+            .map_err(|error| file_error(&error, "open", &at.resolved))
     }
 
     /// A new empty file for spilled output.
@@ -878,7 +878,7 @@ impl Reached {
                 Err(error) => Err(error),
             };
             self.dir = made.map_err(|error| {
-                node_error(&error.into(), "mkdir", &parent)
+                file_error(&error.into(), "mkdir", &parent)
             })?;
         }
         Ok(())
@@ -896,7 +896,7 @@ fn walk(resolved: &str, follow: bool) -> Result<Reached, FileError> {
         .collect::<VecDeque<_>>();
     let mut base = "/".to_owned();
     let mut dir = open_dir(&base).map_err(|error| {
-        node_error(&error.into(), "open", resolved)
+        file_error(&error.into(), "open", resolved)
     })?;
     let mut links = 0;
     // Only the case of the names may differ from the folder held:
@@ -924,7 +924,7 @@ fn walk(resolved: &str, follow: bool) -> Result<Reached, FileError> {
         if part == ".." {
             base = path::dirname(&base);
             dir = open_dir(&base).map_err(|error| {
-                node_error(&error.into(), "open", resolved)
+                file_error(&error.into(), "open", resolved)
             })?;
             continue;
         }
@@ -944,7 +944,7 @@ fn walk(resolved: &str, follow: bool) -> Result<Reached, FileError> {
             // leads nowhere.
             links += 1;
             if links > MAX_LINKS {
-                return Err(node_error(
+                return Err(file_error(
                     &io::Error::from(Errno::LOOP),
                     "open",
                     resolved,
@@ -954,7 +954,7 @@ fn walk(resolved: &str, follow: bool) -> Result<Reached, FileError> {
             if path::is_absolute(&link) {
                 base = "/".into();
                 dir = open_dir(&base).map_err(|error| {
-                    node_error(&error.into(), "open", resolved)
+                    file_error(&error.into(), "open", resolved)
                 })?;
             }
             for piece in link.split('/').rev() {
@@ -1143,7 +1143,7 @@ pub(super) fn errno_name(error: &io::Error) -> &'static str {
 
 /// `error` of `syscall` on `path` in pi's tools' words, and its
 /// kind.
-fn node_error(
+fn file_error(
     error: &io::Error,
     syscall: &str,
     path: &str,

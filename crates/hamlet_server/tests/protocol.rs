@@ -48,7 +48,7 @@ fn papers_keep_unicode_and_survive_restart_without_credentials() {
         .as_str()
         .unwrap()
         .to_owned();
-    let text = format!(" \u{feff} {}tail  ", "🦀".repeat(6001));
+    let text = format!(" \u{85} {}tail  ", "🦀".repeat(6001));
     for doc in ["character", "notes"] {
         assert_eq!(
             request(
@@ -98,7 +98,7 @@ fn papers_keep_unicode_and_survive_restart_without_credentials() {
     );
     request(
         &mut service,
-        json!({"type":"edit","doc":"charter","text":" \u{feff} "}),
+        json!({"type":"edit","doc":"charter","text":" \u{85} "}),
     );
     let default = request(
         &mut service,

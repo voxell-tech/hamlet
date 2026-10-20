@@ -102,16 +102,14 @@ pub(crate) fn charge(
             "SELECT price FROM harness_attempt WHERE runtime = ?1 \
              AND key = ?2",
             params![runtime.as_str(), key],
-            |r| r.get::<_, Option<String>>(0),
+            |r| r.get::<_, String>(0),
         )
         .optional()?;
     let Some(price) = allowed else {
         return Ok(None);
     };
-    let price = price
-        .map(|p| serde_json::from_str::<Price>(&p))
-        .transpose()?;
-    let amount = crate::spend::amount(usage, price.as_ref());
+    let price = serde_json::from_str::<Price>(&price)?;
+    let amount = crate::spend::amount(usage, &price);
     let [input, output, cache_read, cache_write] = [
         usage.input,
         usage.output,

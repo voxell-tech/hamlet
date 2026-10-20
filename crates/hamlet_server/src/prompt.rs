@@ -13,7 +13,6 @@ use serde_json::Value;
 
 use crate::harness::link::Section;
 use crate::papers::{Reader, cut};
-use crate::record::trim;
 use crate::service::Service;
 use crate::spend::{books, money};
 
@@ -174,7 +173,7 @@ pub(crate) fn prepare(
     let terms = terms(service, subject.hamlet)?;
     let company = company(service, subject, number)?;
     let parts = [
-        ("charter", Some(trim_end(&service.charter()?.0).to_owned())),
+        ("charter", Some(service.charter()?.0.trim_end().to_owned())),
         ("machine", Some(machine(service, subject, &house)?)),
         ("project", Some(String::new())),
         ("character", agent.and_then(|a| character(&a.character))),
@@ -504,13 +503,14 @@ async fn project(
         break;
     }
     Some(
-        trim_end(&format!("# The project\n{}", lines.join("\n")))
+        format!("# The project\n{}", lines.join("\n"))
+            .trim_end()
             .into(),
     )
 }
 
 fn character(text: &str) -> Option<String> {
-    let text = trim(text);
+    let text = text.trim();
     let note = format!(
         "\n[The character is longer than {CHARACTER_SHOWN} \
          characters and is cut here.]"
@@ -528,18 +528,9 @@ fn notes_text(text: &str) -> String {
         "\n[NOTES.md is longer than {NOTES_SHOWN} characters and is \
          cut here. Shorten it so that all of it is shown.]"
     );
-    trim_end(&format!(
-        "# NOTES.md\n{}",
-        cut(text, NOTES_SHOWN, &note)
-    ))
-    .into()
-}
-
-/// JavaScript's `trimEnd`.
-fn trim_end(text: &str) -> &str {
-    text.trim_end_matches(|c: char| {
-        (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}'
-    })
+    format!("# NOTES.md\n{}", cut(text, NOTES_SHOWN, &note))
+        .trim_end()
+        .into()
 }
 
 fn now() -> i64 {

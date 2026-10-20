@@ -24,9 +24,7 @@ impl Scrubber {
                 unique.push(secret.clone());
             }
         }
-        unique.sort_by_key(|secret| {
-            std::cmp::Reverse(secret.encode_utf16().count())
-        });
+        unique.sort_by_key(|secret| std::cmp::Reverse(secret.len()));
         Self {
             secrets: unique,
             held: String::new(),

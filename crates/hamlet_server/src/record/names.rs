@@ -5,18 +5,10 @@ use rusqlite::{Connection, OptionalExtension};
 
 use super::{Agent, Archived, DecisionKind, End, Hamlet, Reason};
 
-/// JavaScript's boundary whitespace, as used by the TypeScript
-/// record.
-pub(crate) fn trim(text: &str) -> &str {
-    text.trim_matches(|c: char| {
-        (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}'
-    })
-}
-
 /// A model's spelling normalized to the record's name spelling.
 pub fn tidy_name(name: &str) -> String {
     let mut tidy = String::new();
-    for c in trim(name).chars() {
+    for c in name.trim().chars() {
         if c.is_ascii_uppercase()
             && tidy.ends_with(|last: char| last.is_ascii_lowercase())
         {

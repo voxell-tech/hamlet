@@ -272,9 +272,9 @@ exact commit boundaries live in `crates/hamlet_server/tests/`.
     agreement, removal stopping work and lapsing its waits, erasing then
     restarting, and a refused clean-up through a symlink.
   - Gifts and library: simultaneous gifts, size, entry and link limits on
-    skills, idle expiry, rollback, a linked or deleted inbox, starter files
-    equal to the shipped assets, and chief edits of starters kept across a
-    restart.
+    skills, idle expiry, rollback, a linked or deleted inbox, starters
+    written once as shipped, and a deleted or edited starter left as the
+    chief left it across a restart.
   - Protocol: the rest of the malformed field forms, and grants kept
     across a restart with a repeated revoke recording nothing.
 - **The next model request.** Ordinary tool output is not in protocol v0.

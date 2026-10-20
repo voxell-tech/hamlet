@@ -14,7 +14,7 @@ use crate::Outcome;
 use crate::limits::Limits;
 use crate::papers::{CHARTER, cut};
 use crate::protocol::{Refusal, reply};
-use crate::record::{Actor, Audience, Change, RecordOperation, trim};
+use crate::record::{Actor, Audience, Change, RecordOperation};
 use crate::service::{Service, document, save};
 
 impl Service {
@@ -46,8 +46,8 @@ impl Service {
             Edit::Charter { text, .. } => {
                 let mut own = text
                     .filter(|t| {
-                        !trim(t).is_empty()
-                            && trim(t) != trim(CHARTER)
+                        !t.trim().is_empty()
+                            && t.trim() != CHARTER.trim()
                     })
                     .map(Value::String)
                     .unwrap_or(Value::Null);
@@ -401,7 +401,6 @@ impl Service {
 #[derive(
     Clone, Debug, Default, PartialEq, Serialize, Deserialize,
 )]
-#[serde(default)]
 pub(crate) struct Work {
     pub folder: Option<String>,
     pub mode: Mode,
@@ -476,7 +475,7 @@ impl Reading {
                 papers["notes"] = if full {
                     notes
                 } else {
-                    cut(trim(&notes), 6000, "")
+                    cut(notes.trim(), 6000, "")
                 }
                 .into();
                 Ok(serde_json::from_value(
@@ -545,7 +544,7 @@ pub(crate) fn prepare_read(
         let character = if full {
             agent.character
         } else {
-            cut(trim(&agent.character), 6000, "")
+            cut(agent.character.trim(), 6000, "")
         };
         return Ok(Reading::Papers {
             id,

@@ -66,13 +66,12 @@ pub(super) struct Admitted<'a> {
 pub(super) enum Unadmitted {
     /// Its conversation is gone.
     Unbound,
-    /// Its identity was reserved for another request, or for none.
+    /// Its identity was reserved for another request.
     Changed,
 }
 
 /// The call `key` of `binding`, once its identity is reserved for
-/// this request. A legacy call or orphaned marker has no verifiable
-/// request.
+/// this request.
 pub(super) fn admit<'a>(
     service: &mut Service,
     binding: BindingId,
@@ -505,7 +504,7 @@ mod tests {
     use crate::RuntimeInstance;
     use crate::harness::Answer;
     use crate::harness::link::ModelRef;
-    use crate::operation::{Marked, Request};
+    use crate::operation::Request;
 
     fn decide(
         service: &mut Service,
@@ -676,7 +675,7 @@ mod tests {
             .home
             .store()
             .once(&marker, &request, |_| {
-                Ok(json!({"text": "done", "error": false}))
+                Ok(crate::society::outcome("done", false))
             })
             .unwrap();
         service.home.store().begin_cancel(binding).unwrap();
@@ -809,89 +808,6 @@ mod tests {
     }
 
     #[test]
-    fn upgrading_old_gate_rows_never_invents_a_request_or_replays_an_effect()
-     {
-        let scratch = Scratch::new("calls-upgrade");
-        let (mut service, binding, runtime) = served(&scratch);
-        let args = BTreeMap::from([(
-            "command".to_owned(),
-            json!("echo harmless"),
-        )]);
-        for key in ["allowed", "finished"] {
-            assert!(matches!(
-                decide(
-                    &mut service,
-                    binding,
-                    key,
-                    None,
-                    "bash",
-                    &args
-                )
-                .unwrap(),
-                Decision::Run { .. }
-            ));
-        }
-        let finished = OperationId {
-            runtime: RuntimeInstance::new(&runtime).unwrap(),
-            key: "finished".into(),
-        };
-        let request = Request::tool("bash", &args).unwrap();
-        service
-            .home
-            .store()
-            .once(&finished, &request, |_| {
-                Ok("kept outcome".to_owned())
-            })
-            .unwrap();
-        let db = service.home.store().connection();
-        // Reconstruct the version-8 schema on disposable data.
-        db.execute_batch(
-            "ALTER TABLE wait DROP COLUMN questions; ALTER TABLE \
-             gate_call DROP COLUMN digest; CREATE TABLE \
-             harness_wait (runtime TEXT NOT NULL, key TEXT NOT \
-             NULL, PRIMARY KEY (runtime, key)) STRICT, WITHOUT \
-             ROWID; PRAGMA user_version = 8;",
-        )
-        .unwrap();
-        service.home.close().unwrap();
-        let mut service = Service::new(
-            crate::Home::open(&scratch.join("home")).unwrap(),
-            true,
-        )
-        .unwrap();
-        for key in ["allowed", "finished"] {
-            assert!(matches!(
-                decide(
-                    &mut service,
-                    binding,
-                    key,
-                    None,
-                    "bash",
-                    &args
-                )
-                .unwrap(),
-                Decision::Block(_)
-            ));
-        }
-        let db = service.home.store().connection();
-        assert_eq!(
-            db.query_row("PRAGMA user_version", [], |row| row
-                .get::<_, i64>(0))
-                .unwrap(),
-            12
-        );
-        assert_eq!(
-            operation::marked(db, &finished, &request).unwrap(),
-            Some(Marked::Outcome("kept outcome".to_owned()))
-        );
-        assert!(matches!(
-            decide(&mut service, binding, "new", None, "bash", &args)
-                .unwrap(),
-            Decision::Run { .. }
-        ));
-    }
-
-    #[test]
     fn a_call_allowed_before_a_stop_runs_nothing_after_it() {
         let scratch = Scratch::new("calls-stopped");
         let (mut service, binding, runtime) = served(&scratch);
@@ -910,8 +826,10 @@ mod tests {
         .unwrap();
         assert!(matches!(allowed, Decision::Run { .. }));
 
-        let question =
-            BTreeMap::from([("question".into(), json!("Continue?"))]);
+        let question = BTreeMap::from([(
+            "questions".into(),
+            json!([{"question": "Continue?"}]),
+        )]);
         assert!(matches!(
             decide(
                 &mut service,

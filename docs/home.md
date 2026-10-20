@@ -25,19 +25,17 @@ authoritative transcripts belong to the harness, not house files.
 
 ## Claim and storage
 
-`claim.rs` takes local socket claims for both the supplied and canonical
-home paths. A second server cannot open the same home under another
-spelling. The claim outlives the open store and its harness processes.
+`Home::open` resolves the home to its canonical path, and `claim.rs` takes
+a local socket claim on that path, so a second server cannot open the same
+home under another spelling. The claim outlives the open store and its
+harness processes.
 
-`Store::open` checks SQLite's application ID and schema version and applies
-its ordered internal migrations. `Home::open` checks the `realm.id` and
-database identity pair. A missing or mismatched part is an error, not a
-reason to make a fresh database. Restore a complete matching backup.
-
-An experimental TypeScript `home.sqlite` is refused even beside a Rust
-database. Those homes were never deployed; there is no import or rollback
-tool. Choose a new `HAMLET_HOME` for the Rust server. This does not remove
-the Rust store's own versioned schema upgrades.
+`Store::open` creates the schema in a new `realm.sqlite`, and refuses an
+existing one whose SQLite application ID or schema version is not its own.
+The schema has one version and no upgrades: a home made with another
+version is not opened. `Home::open` checks the `realm.id` and database
+identity pair. A missing or mismatched part is an error, not a reason to
+make a fresh database. Restore a complete matching backup.
 
 `Store::run` keeps record changes and their result marker in one
 transaction. Calls are identified by runtime and key; tool admission also

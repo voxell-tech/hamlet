@@ -93,7 +93,7 @@ async fn tells_a_fresh_mayor_its_prompt() {
          {}\n\n# NOTES.md\n# Notes\n\n# Skills\n(none yet)\n\n# \
          Library\nSkills every agent shares, kept in {}. Use one as \
          it stands:",
-        trim_end(crate::papers::CHARTER),
+        crate::papers::CHARTER.trim_end(),
         root.join("houses/home/0").display(),
         root.join("library").display(),
     );

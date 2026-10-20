@@ -65,7 +65,7 @@ impl RecordOperation {
             return Ok(Err(self.refuse(reason)));
         }
         if matches!(self.actor, Actor::Mayor(_))
-            && names::trim(&given.purpose).is_empty()
+            && given.purpose.trim().is_empty()
         {
             return Ok(Err(self.refuse(Reason::PurposeEmpty)));
         }
@@ -80,7 +80,7 @@ impl RecordOperation {
         let model = given.model.clone().filter(|m| {
             !m.is_empty() && r.limits.chief.models.contains(m)
         });
-        let purpose = names::trim(&given.purpose).to_string();
+        let purpose = given.purpose.trim().to_string();
         r.agents.push(Agent {
             number,
             name: name.clone(),
@@ -177,13 +177,10 @@ impl RecordOperation {
             let gone = r
                 .ordinary(name)
                 .map_err(|reason| self.refuse(reason))?;
-            if purpose
-                .as_ref()
-                .is_some_and(|p| names::trim(p).is_empty())
-            {
+            if purpose.as_ref().is_some_and(|p| p.trim().is_empty()) {
                 return Err(self.refuse(Reason::MergedPurposeEmpty));
             }
-            if names::trim(&self.reason).is_empty() {
+            if self.reason.trim().is_empty() {
                 return Err(self.refuse(Reason::ReasonEmpty));
             }
             self.unprotected(r, &kept)?;
@@ -194,7 +191,7 @@ impl RecordOperation {
         };
         let agent =
             r.ordinary(name).map_err(|reason| self.refuse(reason))?;
-        if names::trim(&self.reason).is_empty() {
+        if self.reason.trim().is_empty() {
             return Err(self.refuse(Reason::ReasonEmpty));
         }
         self.unprotected(r, &agent)?;
@@ -211,7 +208,7 @@ impl RecordOperation {
             agent: agent.clone(),
             at: self.at,
             by: self.actor.by(),
-            reason: names::trim(&self.reason).into(),
+            reason: self.reason.trim().into(),
             roads: r
                 .roads_of()
                 .into_iter()
@@ -280,7 +277,7 @@ impl RecordOperation {
             }
             let purpose = purpose.as_ref().map_or_else(
                 || kept.purpose.clone(),
-                |p| names::trim(p).into(),
+                |p| p.trim().into(),
             );
             for living in &mut r.agents {
                 if living.number == kept.number {

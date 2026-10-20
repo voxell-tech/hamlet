@@ -542,9 +542,9 @@ fn commit(
                         merge.files.clashes.join("\n")
                     ));
                 }
-                Ok(
-                    json!({"text":text,"error":false,"archive":archive}),
-                )
+                let mut value = super::outcome(&text, false);
+                value["archive"] = json!(archive);
+                Ok(value)
             }
             _ => anyhow::bail!("unexpected merge result"),
         }

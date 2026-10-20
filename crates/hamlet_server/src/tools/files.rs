@@ -539,7 +539,7 @@ fn fuzzy(text: &str) -> String {
     let normal = text.nfkc().collect::<String>();
     normal
         .split('\n')
-        .map(|line| line.trim_end_matches(crate::change::js_space))
+        .map(|line| line.trim_end_matches(super::pi_space))
         .collect::<Vec<_>>()
         .join("\n")
         .chars()

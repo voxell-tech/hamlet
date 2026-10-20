@@ -138,16 +138,6 @@ impl Limits {
     }
 }
 
-/// Limits from a document that may omit some, as an older home kept
-/// them.
-pub(crate) fn filled<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> std::result::Result<Box<Limits>, D::Error> {
-    Limits::of(Value::deserialize(deserializer)?)
-        .map(Box::new)
-        .map_err(serde::de::Error::custom)
-}
-
 /// The limits of `hamlet`, as its record keeps them.
 pub(crate) fn of(
     db: &rusqlite::Connection,

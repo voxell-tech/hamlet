@@ -1,7 +1,3 @@
--- The tools each conversation offers (H35), and those its runtime
--- was last told.
-ALTER TABLE harness_binding ADD COLUMN tools TEXT CHECK (tools IS NULL OR json_valid(tools));
-ALTER TABLE harness_binding ADD COLUMN tools_told TEXT;
 -- Each agent's conversations with the agents who write or ask it,
 -- by the sender.
 CREATE TABLE society_peer (

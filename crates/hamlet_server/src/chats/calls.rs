@@ -177,7 +177,6 @@ pub(crate) fn specs() -> Vec<ToolSpec> {
         "type": "object",
         "properties": {
             "message": {"type": "string"},
-            "question": {"type": "string"},
             "questions": {"type": "array", "minItems": 1, "maxItems": asking::MOST_QUESTIONS,
                 "items": {"type": "object", "properties": {
                     "question": {"type": "string"},
@@ -189,7 +188,7 @@ pub(crate) fn specs() -> Vec<ToolSpec> {
                     "text_input": {"type": "boolean", "description": "Allow custom words. Defaults to true."}},
                     "required": ["question"]}}
         },
-        "anyOf": [{"required": ["questions"]}, {"required": ["question"]}],
+        "required": ["questions"],
     });
     vec![ToolSpec {
         name: "ask_chief".into(),
@@ -499,10 +498,10 @@ fn operation(
             service.home.store().once(&call.id, &request, |_| {
                 Ok(crate::society::unavailable(tool))
             })?;
-        return Ok(Step::Answer(outcome.map_or_else(
-            || Answer::Refusal(CONFLICT.into()),
-            |outcome| crate::society::result(&outcome),
-        )));
+        return Ok(Step::Answer(match outcome {
+            Some(outcome) => crate::society::result(&outcome)?,
+            None => Answer::Refusal(CONFLICT.into()),
+        }));
     }
     if tool == "object" {
         return Ok(Step::Society(call.bound));

@@ -1058,7 +1058,10 @@ async fn stops_a_turn_when_the_budget_runs_out() {
 #[tokio::test]
 async fn answers_a_question_the_mayor_asks() {
     let mut s = Session::start(Script::new().responses([
-        call("ask_chief", json!({"question": "Which grain?"})),
+        call(
+            "ask_chief",
+            json!({"questions": [{"question": "Which grain?"}]}),
+        ),
         words("Wheat it is."),
     ]))
     .await;
