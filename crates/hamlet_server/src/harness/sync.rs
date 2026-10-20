@@ -304,12 +304,7 @@ impl Harnesses {
             binding,
             &request,
             Some(&admitted.submission),
-            match admitted.status {
-                link::AdmittedStatus::Queued => "queued",
-                link::AdmittedStatus::Placed => "placed",
-                link::AdmittedStatus::Done => "done",
-                link::AdmittedStatus::Unanswered => "unanswered",
-            },
+            admitted.status.into(),
             admitted.reason.as_deref(),
             admitted.detail.as_ref(),
         )?;
@@ -339,10 +334,7 @@ impl Harnesses {
             binding.id,
             &settled.request,
             None,
-            match settled.status {
-                link::SettledStatus::Done => "done",
-                link::SettledStatus::Unanswered => "unanswered",
-            },
+            settled.status.into(),
             settled.reason.as_deref(),
             settled.detail.as_ref(),
         )?;

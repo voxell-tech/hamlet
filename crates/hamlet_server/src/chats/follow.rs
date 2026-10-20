@@ -7,7 +7,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 
 use super::records;
-use crate::harness::{BindingId, Harnesses, Input};
+use crate::harness::{BindingId, Harnesses, Input, InputStatus};
 use crate::oversight::{self, ChatPlace};
 use crate::service::Service;
 
@@ -63,9 +63,9 @@ pub(crate) async fn follow(
         Some(input) => answer_failure(db, binding, input)?,
         None => None,
     };
-    let status = standing.status.as_deref().unwrap_or_default();
+    let status = standing.status;
     let reason = standing.reason.as_deref();
-    let last = if status == "done" {
+    let last = if status == Some(InputStatus::Done) {
         "done"
     } else if failure.is_some()
         || matches!(reason, Some("model_error" | "no_model"))
@@ -101,7 +101,7 @@ pub(crate) async fn follow(
         {
             records::enter(db, binding, input)?;
         }
-    } else if status == "done"
+    } else if status == Some(InputStatus::Done)
         && matches!(kind, Some("hamlet.chief" | "hamlet.retry"))
     {
         records::count_turns(db, binding, Some(1))?;
@@ -113,7 +113,7 @@ pub(crate) async fn follow(
     {
         let about = match &standing.detail {
             Some(Value::String(detail)) => detail.clone(),
-            _ if status == "unanswered" => {
+            _ if status == Some(InputStatus::Unanswered) => {
                 reason.unwrap_or("The model failed.").to_owned()
             }
             _ => "The model failed.".to_owned(),

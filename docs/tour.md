@@ -79,7 +79,7 @@ the public test boundary is protocol v0 or the process command line.
 | `harness.rs` | Start/watch runtime processes, bind conversations and dispatch each link message. Tool calls go to the chats' gate |
 | `harness/session.rs`, `harness/sync.rs` | The link's ids and requests in flight; what each conversation is owed (creates, cancels, tools, inputs) and what its runtime reports back |
 | `harness/answers.rs`, `harness/credentials.rs` | Admit and charge model attempts with the typed model selection; credential leases for provider work |
-| `harness/process.rs`, `harness/bindings.rs` | The pi launch profile and processes; runtimes, bindings and inputs in `realm.sqlite` |
+| `harness/process.rs`, `harness/bindings.rs` | The pi launch profile and processes; runtimes, bindings and inputs with their `InputStatus` in `realm.sqlite` |
 | `chats/driver.rs`, `bin/hamlet-harness-driver.rs` | With the `harness` feature: the test driver's reach into the chats' gate, waits and stop, for the real-process suite in `tests/harness` |
 | `tools.rs`, `tools/`, `hand.rs` | Built-in tools, their confined file/shell execution and hand-added manifests |
 | `sandbox.rs`, `sandbox/` | Bubblewrap/Seatbelt policies, subprocess limits and termination |

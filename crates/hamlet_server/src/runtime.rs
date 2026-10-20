@@ -19,7 +19,7 @@ use tokio_tungstenite::tungstenite::protocol::{
 use tokio_tungstenite::tungstenite::{Error, Message};
 
 use crate::credentials::write_whole;
-use crate::harness::{self, Harnesses, Notice};
+use crate::harness::{self, Harnesses, InputStatus, Notice};
 use crate::protocol::{Protocol, fault};
 use crate::service::Service;
 use crate::state::id_of;
@@ -561,10 +561,7 @@ async fn close(
             let standing =
                 service.home.store().standing(*binding, request)?;
             let open = standing.is_none_or(|standing| {
-                !matches!(
-                    standing.status.as_deref(),
-                    Some("done" | "unanswered")
-                )
+                !standing.status.is_some_and(InputStatus::is_ended)
             });
             if open {
                 return Ok(false);

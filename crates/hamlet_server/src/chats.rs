@@ -30,7 +30,9 @@ use self::fold::Fold;
 use self::records::Place;
 pub(crate) use self::say::{admit_line, deeds as deed_names};
 use crate::harness::link::Mark;
-use crate::harness::{BindingId, Harnesses, Input, Notice};
+use crate::harness::{
+    BindingId, Harnesses, Input, InputStatus, Notice,
+};
 use crate::protocol::{Refusal, reply};
 use crate::record::AgentRef;
 use crate::sandbox::Sandbox;
@@ -285,10 +287,7 @@ pub(crate) async fn heard(
             request,
             standing,
         } => {
-            if matches!(
-                standing.status.as_deref(),
-                Some("done" | "unanswered")
-            ) {
+            if standing.status.is_some_and(InputStatus::is_ended) {
                 follow::follow(service, harnesses, binding, &request)
                     .await?;
                 answer_deferred(service, binding, &request, false);

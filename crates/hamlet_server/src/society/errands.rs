@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use super::Caller;
 use crate::chats::records::{self, Place};
 use crate::harness::link::Mark;
-use crate::harness::{BindingId, Harnesses, Input};
+use crate::harness::{BindingId, Harnesses, Input, InputStatus};
 use crate::record::AgentRef;
 use crate::service::Service;
 
@@ -37,10 +37,7 @@ pub(super) async fn start(
         if let Some(standing) =
             service.home.store().standing(binding, "errand")?
         {
-            if standing
-                .status
-                .as_deref()
-                .is_none_or(|s| !["done", "unanswered"].contains(&s))
+            if !standing.status.is_some_and(InputStatus::is_ended)
                 && ["hearing", "ballot"].contains(&kind)
             {
                 let limits = service.limits_of(&agent.hamlet)?;
@@ -126,13 +123,13 @@ pub(super) fn answer(
     else {
         return Ok(None);
     };
-    match standing.status.as_deref() {
-        Some("done") => super::letters::answer_of(
+    match standing.status {
+        Some(InputStatus::Done) => super::letters::answer_of(
             service.home.store().connection(),
             binding,
             "errand",
         ),
-        Some("unanswered") => Ok(Some(format!(
+        Some(InputStatus::Unanswered) => Ok(Some(format!(
             "It could not finish: {}",
             standing.reason.as_deref().unwrap_or("the model failed")
         ))),

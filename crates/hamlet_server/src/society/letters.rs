@@ -10,7 +10,9 @@ use serde_json::{Value, json};
 use super::{Caller, outcome};
 use crate::chats::records::{self, Place};
 use crate::harness::link::{Item, ItemKind, Mark};
-use crate::harness::{Answer, BindingId, Harnesses, Input};
+use crate::harness::{
+    Answer, BindingId, Harnesses, Input, InputStatus,
+};
 use crate::record::{
     self, Actor, AgentRef, Change, Decision, DecisionKind,
     RecordOperation,
@@ -842,9 +844,8 @@ pub(crate) async fn sweep(
             continue;
         };
         let db = service.home.store().connection();
-        let status = standing.status.as_deref().unwrap_or_default();
-        let (answer, failure) = match status {
-            "done" => {
+        let (answer, failure) = match standing.status {
+            Some(InputStatus::Done) => {
                 match answer_of(db, sent.receiver, &sent.request)? {
                     Some(answer) => (Some(answer), None),
                     // Its answer is not kept yet; it is read once it
@@ -852,7 +853,7 @@ pub(crate) async fn sweep(
                     None => continue,
                 }
             }
-            "unanswered" => (
+            Some(InputStatus::Unanswered) => (
                 None,
                 Some(standing.reason.clone().unwrap_or_else(|| {
                     "It could not finish.".into()

@@ -2,9 +2,15 @@
 //! the inputs owed to them, as the realm database keeps them.
 
 use anyhow::{Context, Result};
-use rusqlite::{OptionalExtension, params};
+use rusqlite::types::{
+    FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef,
+};
+use rusqlite::{OptionalExtension, ToSql, params};
 
-use super::link::{ConfigureTools, Item, Mark, ModelRef};
+use super::link::{
+    AdmittedStatus, ConfigureTools, Item, Mark, ModelRef,
+    SettledStatus,
+};
 use crate::record::AgentRef;
 use crate::{RuntimeInstance, Store};
 
@@ -66,12 +72,71 @@ pub struct Input<'a> {
     pub boundary: bool,
 }
 
+/// Where an input is in its runtime, as it last told it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InputStatus {
+    Queued,
+    Placed,
+    Done,
+    Unanswered,
+}
+
+impl InputStatus {
+    /// Whether the input ended, answered or not; it never moves on.
+    pub fn is_ended(self) -> bool {
+        matches!(self, Self::Done | Self::Unanswered)
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Placed => "placed",
+            Self::Done => "done",
+            Self::Unanswered => "unanswered",
+        }
+    }
+}
+
+impl From<AdmittedStatus> for InputStatus {
+    fn from(status: AdmittedStatus) -> Self {
+        match status {
+            AdmittedStatus::Queued => Self::Queued,
+            AdmittedStatus::Placed => Self::Placed,
+            AdmittedStatus::Done => Self::Done,
+            AdmittedStatus::Unanswered => Self::Unanswered,
+        }
+    }
+}
+
+impl From<SettledStatus> for InputStatus {
+    fn from(status: SettledStatus) -> Self {
+        match status {
+            SettledStatus::Done => Self::Done,
+            SettledStatus::Unanswered => Self::Unanswered,
+        }
+    }
+}
+
+impl ToSql for InputStatus {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(self.as_str().into())
+    }
+}
+
+impl FromSql for InputStatus {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        [Self::Queued, Self::Placed, Self::Done, Self::Unanswered]
+            .into_iter()
+            .find(|status| value.as_str() == Ok(status.as_str()))
+            .ok_or(FromSqlError::InvalidType)
+    }
+}
+
 /// How an input stands, as its runtime last told it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Standing {
     pub submission: Option<String>,
-    /// `queued`, `placed`, `done` or `unanswered`.
-    pub status: Option<String>,
+    pub status: Option<InputStatus>,
     pub reason: Option<String>,
     pub detail: Option<serde_json::Value>,
     pub followed: bool,
@@ -388,13 +453,12 @@ impl Store {
         binding: BindingId,
         unsettled: bool,
     ) -> Result<Vec<Owed>> {
-        let mut query = self.connection().prepare(
+        let mut query = self.connection().prepare(&format!(
             "SELECT request, content, steer, mark, write, boundary \
              FROM harness_input WHERE binding = ?1 AND (state = \
              'kept' OR (?2 AND state = 'admitted' AND followed = 0 \
-             AND coalesce(status, '') NOT IN ('done', \
-             'unanswered'))) ORDER BY ordinal",
-        )?;
+             AND NOT coalesce({ENDED}, 0))) ORDER BY ordinal"
+        ))?;
         query
             .query_map(params![binding.0, unsettled], |row| {
                 Ok((
@@ -434,7 +498,7 @@ impl Store {
                 |row| {
                     Ok((
                         row.get::<_, Option<String>>(0)?,
-                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<InputStatus>>(1)?,
                         row.get::<_, Option<String>>(2)?,
                         row.get::<_, Option<String>>(3)?,
                         row.get::<_, bool>(4)?,
@@ -479,19 +543,21 @@ impl Store {
         binding: BindingId,
         request: &str,
         submission: Option<&str>,
-        status: &str,
+        status: InputStatus,
         reason: Option<&str>,
         detail: Option<&serde_json::Value>,
     ) -> Result<()> {
         let detail = detail.map(serde_json::to_string).transpose()?;
         // A status never goes back once the input ended.
         self.connection().execute(
-            "UPDATE harness_input SET submission = coalesce(?3, \
-             submission), status = ?4, reason = ?5, detail = ?6, \
-             state = CASE WHEN ?4 = 'unanswered' THEN 'dropped' \
-             WHEN state = 'kept' THEN 'admitted' ELSE state END \
-             WHERE binding = ?1 AND request = ?2 AND \
-             coalesce(status, '') NOT IN ('done', 'unanswered')",
+            &format!(
+                "UPDATE harness_input SET submission = coalesce(?3, \
+                 submission), status = ?4, reason = ?5, detail = \
+                 ?6, state = CASE WHEN ?4 = 'unanswered' THEN \
+                 'dropped' WHEN state = 'kept' THEN 'admitted' ELSE \
+                 state END WHERE binding = ?1 AND request = ?2 AND \
+                 NOT coalesce({ENDED}, 0)"
+            ),
             params![
                 binding.0, request, submission, status, reason,
                 detail
@@ -516,11 +582,10 @@ impl Store {
 
     /// The inputs whose end the server has heard and not acted on.
     pub fn unfollowed(&self) -> Result<Vec<(BindingId, String)>> {
-        let mut query = self.connection().prepare(
+        let mut query = self.connection().prepare(&format!(
             "SELECT binding, request FROM harness_input WHERE \
-             followed = 0 AND status IN ('done', 'unanswered') \
-             ORDER BY binding, ordinal",
-        )?;
+             followed = 0 AND {ENDED} ORDER BY binding, ordinal"
+        ))?;
         Ok(query
             .query_map([], |row| {
                 Ok((BindingId(row.get(0)?), row.get(1)?))
@@ -650,6 +715,9 @@ impl Store {
         Ok(())
     }
 }
+
+/// The SQL test that an input's `status` has ended.
+const ENDED: &str = "status IN ('done', 'unanswered')";
 
 const BINDING: &str = "SELECT id, hamlet, number, errand, model, \
                        runtime, conversation, fork_of, fork_at FROM \

@@ -8,7 +8,7 @@ use hamlet_testing::Scratch;
 use serde_json::{Value, json};
 
 use super::link::{ModelRef, Price, Usage};
-use super::{Answer, Binding, answers, parse, tools};
+use super::{Answer, Binding, InputStatus, answers, parse, tools};
 use crate::record::{
     Actor, Admit, AgentRef, Change, FoundRecord, RecordOperation,
 };
@@ -679,7 +679,7 @@ fn an_unanswered_input_is_dropped_and_never_resent() {
             binding.id,
             "chief:1",
             Some("1"),
-            "unanswered",
+            InputStatus::Unanswered,
             Some("withdrawn"),
             None,
         )
@@ -700,7 +700,7 @@ fn an_unanswered_input_is_dropped_and_never_resent() {
             binding.id,
             "chief:1",
             Some("1"),
-            "queued",
+            InputStatus::Queued,
             None,
             None,
         )
@@ -710,8 +710,7 @@ fn an_unanswered_input_is_dropped_and_never_resent() {
             .standing(binding.id, "chief:1")
             .unwrap()
             .unwrap()
-            .status
-            .as_deref(),
-        Some("unanswered")
+            .status,
+        Some(InputStatus::Unanswered)
     );
 }

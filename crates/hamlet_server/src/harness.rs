@@ -25,7 +25,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 pub use bindings::{
-    Binding, BindingId, DEFAULT_HARNESS, Input, Standing,
+    Binding, BindingId, DEFAULT_HARNESS, Input, InputStatus, Standing,
 };
 use link::{
     Capability, Diagnostic, HelloStore, Item, Mark, ModelRef,

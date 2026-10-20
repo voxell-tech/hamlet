@@ -6,7 +6,7 @@ use hamlet_protocol::v0::{Address, ReplyKind, Say, ServerMessage};
 use serde_json::{Value, json};
 
 use super::{Deferred, deeds, records};
-use crate::harness::{BindingId, Harnesses, Input};
+use crate::harness::{BindingId, Harnesses, Input, InputStatus};
 use crate::protocol::{Refusal, reply};
 use crate::record::AgentRef;
 use crate::service::{Service, records as hamlets};
@@ -667,10 +667,7 @@ fn owe(
         .store()
         .standing(binding, request)?
         .is_some_and(|standing| {
-            matches!(
-                standing.status.as_deref(),
-                Some("done" | "unanswered")
-            )
+            standing.status.is_some_and(InputStatus::is_ended)
         });
     if ended {
         service
