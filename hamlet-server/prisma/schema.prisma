@@ -7,6 +7,11 @@ generator client {
   runtime  = "cloudflare"
 }
 
+generator erd {
+  provider = "prisma-erd-generator"
+  output   = "./ERD.svg"
+}
+
 datasource db {
   provider = "sqlite"
 }
