@@ -137,7 +137,7 @@ pub(crate) fn read(db: &Connection) -> Result<Realm> {
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     // Home comes first, as it was founded first.
-    ids.sort_by_key(|id| id != "home");
+    ids.sort_by_key(|id| id != hamlet_protocol::HOME);
     for id in ids {
         if !realm.hamlets.iter().any(|h| h.id == id) {
             realm.hamlets.push(Place {
@@ -211,7 +211,9 @@ pub(crate) fn resolve(
     let mut records = Vec::new();
     for hamlet in realm.live() {
         let wanted = match place {
-            None => name != "mayor" || hamlet.id == from,
+            None => {
+                name != hamlet_protocol::MAYOR || hamlet.id == from
+            }
             Some(place) => hamlet.id == place,
         };
         if wanted && let Some(record) = record::read(db, &hamlet.id)?

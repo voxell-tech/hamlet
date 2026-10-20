@@ -4,16 +4,13 @@ use bevy_ecs::name::Name;
 use bevy_ecs::prelude::*;
 use bevy_ecs::system::{SystemParam, SystemState};
 use hamlet_protocol::v0;
+pub use hamlet_protocol::{HOME, MAYOR};
 
 /// The server machine's houses folder, excluded from local chat
 /// links.
 #[derive(Resource, Default, Clone, Debug, PartialEq, Eq)]
 pub struct Houses(pub Option<String>);
 
-/// The first hamlet's protocol id.
-pub const HOME: &str = "home";
-/// The address of a hamlet's current mayor.
-pub const MAYOR: &str = "mayor";
 /// The received mode for edits and commands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {

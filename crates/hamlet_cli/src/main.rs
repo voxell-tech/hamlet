@@ -77,7 +77,7 @@ fn parse(args: &[String]) -> Result<Command> {
             let mut port = if name == "dev" { 0 } else { 7313 };
             let mut faux = None;
             let mut home = None;
-            let mut to = "mayor".to_owned();
+            let mut to = hamlet_protocol::MAYOR.to_owned();
             for pair in rest.chunks(2) {
                 let flag = pair[0].as_str();
                 let needs = match flag {
@@ -146,7 +146,7 @@ fn parse(args: &[String]) -> Result<Command> {
                     )
                 })?;
             let hamlet = if rest.len() == 1 {
-                "home"
+                hamlet_protocol::HOME
             } else {
                 if doc != "limits" || rest[1] != "--hamlet" {
                     return Err(unknown(&rest[1]));

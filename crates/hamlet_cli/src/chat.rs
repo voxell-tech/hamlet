@@ -4,8 +4,8 @@ use std::collections::{HashMap, HashSet};
 use std::io::{IsTerminal, Write};
 
 use anyhow::{Context, Result, bail};
-use hamlet_protocol::transcript;
 use hamlet_protocol::v0::*;
+use hamlet_protocol::{HOME, MAYOR, transcript};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use uuid::Uuid;
 
@@ -43,7 +43,7 @@ fn resolve(
         .find(|a| {
             a.left.is_none()
                 && hamlet.is_none_or(|h| a.ref_.hamlet == h)
-                && if name == "mayor" {
+                && if name == MAYOR {
                     a.mayor
                 } else {
                     a.name == name
@@ -53,7 +53,7 @@ fn resolve(
     Ok(Address {
         hamlet: agent.ref_.hamlet.clone(),
         agent: if agent.mayor {
-            "mayor".into()
+            MAYOR.into()
         } else {
             agent.name.clone()
         },
@@ -72,8 +72,8 @@ pub async fn run(address: &ServerAddress, to: &str) -> Result<()> {
     let target = resolve(
         &state,
         parts[0],
-        parts.get(1).copied().or(if parts[0] == "mayor" {
-            Some("home")
+        parts.get(1).copied().or(if parts[0] == MAYOR {
+            Some(HOME)
         } else {
             None
         }),
@@ -342,7 +342,7 @@ fn switch(
         return resolve(
             state,
             name,
-            if name == "mayor" {
+            if name == MAYOR {
                 Some(&target.hamlet)
             } else {
                 None
@@ -354,7 +354,7 @@ fn switch(
         .iter()
         .find(|h| h.id == name || h.name == name)
         .with_context(|| format!("no hamlet named `{name}`"))?;
-    resolve(state, "mayor", Some(&hamlet.id))
+    resolve(state, MAYOR, Some(&hamlet.id))
 }
 
 fn prompt(screen: &mut Screen, interactive: bool) -> Result<()> {

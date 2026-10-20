@@ -3,6 +3,12 @@
 pub mod discovery;
 pub mod transcript;
 
+/// The first hamlet's id.
+pub const HOME: &str = "home";
+/// The agent of an address that names a hamlet's mayor, whoever holds
+/// the office.
+pub const MAYOR: &str = "mayor";
+
 #[rustfmt::skip]
 pub mod v0;
 

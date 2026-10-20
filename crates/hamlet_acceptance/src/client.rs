@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use base64::prelude::*;
 use futures::{SinkExt, StreamExt};
 use hamlet_protocol::v0::*;
+use hamlet_protocol::{HOME, MAYOR};
 use serde_json::Value;
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -27,7 +28,7 @@ type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 /// The mayor of the first hamlet.
 pub fn mayor() -> Address {
-    to("home", "mayor")
+    to(HOME, MAYOR)
 }
 
 /// The agent `agent` of `hamlet`.

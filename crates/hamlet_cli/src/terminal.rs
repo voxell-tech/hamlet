@@ -134,7 +134,7 @@ async fn edit(
 ) -> Result<()> {
     let agent = Address {
         hamlet: hamlet.into(),
-        agent: "mayor".into(),
+        agent: hamlet_protocol::MAYOR.into(),
     };
     let text = match doc {
         "limits" => {

@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use hamlet_protocol::v0::{Pick, Questions};
+use hamlet_protocol::{HOME, MAYOR};
 use rusqlite::{OptionalExtension, params};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
@@ -898,7 +899,7 @@ fn standing(
 /// The name a wait shows for `agent`.
 fn wait_by(record: &Hamlet, agent: &AgentRef) -> String {
     let name = record.address_of(agent.number);
-    if name == "mayor" && agent.hamlet != "home" {
+    if name == MAYOR && agent.hamlet != HOME {
         format!("mayor@{}", agent.hamlet)
     } else {
         name.into()
