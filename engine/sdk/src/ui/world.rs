@@ -1,6 +1,6 @@
 //! What a plugin's views are built in and read from: its nodes, the
-//! handlers of its buttons, and resources of its own, each with a
-//! version its signals check.
+//! handlers of what the person does to them, and resources of its
+//! own, each with a version its signals check.
 
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
@@ -9,9 +9,14 @@ use fynix::Signal;
 
 use super::Key;
 use super::nodes::Nodes;
+use crate::bindings::exports::hamlet::engine::ui_guest::Action;
 
-/// A handler of a click, run with the whole world.
-pub(crate) type Handler = Box<dyn Fn(&mut World) + Send + Sync>;
+/// What runs, with the whole world, when the person acts on a node.
+pub(crate) enum Handler {
+    Click(Box<dyn Fn(&mut World) + Send + Sync>),
+    Toggle(Box<dyn Fn(&mut World, bool) + Send + Sync>),
+    Commit(Box<dyn Fn(&mut World, String) + Send + Sync>),
+}
 
 struct Held {
     value: Box<dyn Any + Send + Sync>,
@@ -23,7 +28,7 @@ struct Held {
 #[derive(Default)]
 pub struct World {
     pub(crate) nodes: Nodes,
-    pub(crate) clicks: HashMap<Key, Handler>,
+    pub(crate) handlers: HashMap<Key, Handler>,
     resources: HashMap<TypeId, Held>,
 }
 
@@ -38,6 +43,22 @@ impl World {
                 version,
             },
         );
+    }
+
+    /// Puts in the default of `R` unless there is one.
+    pub fn init_resource<R: Any + Default + Send + Sync>(&mut self) {
+        if self.get::<R>().is_none() {
+            self.insert(R::default());
+        }
+    }
+
+    /// The resource of the type `R`, to change, put in at its default
+    /// first when there is none.
+    pub fn resource_or_init<R: Any + Default + Send + Sync>(
+        &mut self,
+    ) -> &mut R {
+        self.init_resource::<R>();
+        self.resource_mut::<R>()
     }
 
     /// The resource of the type `R`. Panics when there is none.
@@ -76,8 +97,26 @@ impl World {
     /// Takes `key` away, and what was under it.
     pub(crate) fn despawn(&mut self, key: Key) {
         for key in self.nodes.despawn(key) {
-            self.clicks.remove(&key);
+            self.handlers.remove(&key);
         }
+    }
+
+    /// Runs the handler of `key` for `action`, if it has one for it.
+    pub(crate) fn handle(&mut self, key: Key, action: Action) {
+        let Some(handler) = self.handlers.remove(&key) else {
+            return;
+        };
+        match (&handler, action) {
+            (Handler::Click(run), Action::Click) => run(self),
+            (Handler::Toggle(run), Action::Toggled(on)) => {
+                run(self, on)
+            }
+            (Handler::Commit(run), Action::Committed(text)) => {
+                run(self, text)
+            }
+            _ => {}
+        }
+        self.handlers.entry(key).or_insert(handler);
     }
 }
 

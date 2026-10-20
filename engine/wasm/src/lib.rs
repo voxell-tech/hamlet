@@ -37,11 +37,12 @@ pub use self::folder::{MANIFEST, Package, WASM};
 pub use self::host::{Host, WasmTuning};
 pub use self::instance::{Caps, Fault, Instance, NodeInput, Spent};
 use self::nodes::NodeChange;
-pub use self::panel::{Drawn, Input, Shows};
-use self::panel::{Inbox, Moving, Redraw};
+pub use self::nodes::NodeError;
+pub use self::panel::Surface;
+use self::panel::{Inbox, Moving};
 use self::reload::{Loaded, Reloading};
+use self::retained::{Holders, Kids, WasmWorldExt};
 pub use self::retained::{NodeAction, NodeOf, NodeStats, UiRoot};
-use self::retained::{WasmWorldExt, Widgets};
 
 pub fn plugin(app: &mut App) {
     app.add_plugins((
@@ -64,8 +65,8 @@ pub(crate) trait WasmCommandsExt {
         folder: PathBuf,
     ) -> Entity;
 
-    /// Has the WASM plugin draw `surface`, its panel or settings page
-    /// `id`.
+    /// Has the WASM plugin build `surface`, its panel or settings
+    /// page `id`.
     fn adopt_surface(&mut self, surface: Entity, id: &PanelId);
 
     /// Stops a plugin at fault and tells the person why.
@@ -77,9 +78,9 @@ pub(crate) trait WasmCommandsExt {
         fault: &Fault,
     );
 
-    /// Changes `plugin`'s widgets as its nodes were changed, once the
-    /// commands are applied. `root` is a node the host made, with the
-    /// widget it stands for.
+    /// Changes the holders of `plugin`'s nodes as its nodes were
+    /// changed, once the commands are applied. `root` is a node the
+    /// host made, with its holder.
     fn apply_node_changes(
         &mut self,
         plugin: Entity,
@@ -87,15 +88,17 @@ pub(crate) trait WasmCommandsExt {
         changes: Vec<NodeChange>,
     );
 
-    /// Takes away every widget of `plugin`'s nodes but its roots.
-    fn forget_widgets(&mut self, plugin: Entity, widgets: &Widgets);
+    /// Takes away every node of `plugin` but its roots, which are
+    /// left holding nothing.
+    fn forget_nodes(&mut self, plugin: Entity, holders: &Holders);
 
-    /// Has a reloaded plugin build its retained panels again: its
-    /// widgets are taken away, and each panel shown is offered anew.
+    /// Has a reloaded plugin build its panels and settings pages
+    /// again: its nodes are taken away, and each one shown is offered
+    /// anew.
     fn remount(
         &mut self,
         plugin: Entity,
-        widgets: Option<&Widgets>,
+        holders: Option<&Holders>,
         roots: &Query<(Entity, &UiRoot, &ContributedBy)>,
     );
 }
@@ -123,13 +126,10 @@ impl WasmCommandsExt for Commands<'_, '_> {
             .as_str()
             .split_once('/')
             .map_or_else(String::new, |(_, name)| name.to_owned());
-        self.entity(surface).insert((
-            Drawn {
-                name,
-                shows: Shows::Waiting,
-            },
-            Redraw,
-        ));
+        self.entity(surface).insert(Surface {
+            name,
+            stopped: None,
+        });
     }
 
     fn stop_plugin(
@@ -169,24 +169,26 @@ impl WasmCommandsExt for Commands<'_, '_> {
         });
     }
 
-    fn forget_widgets(&mut self, plugin: Entity, widgets: &Widgets) {
-        for built in widgets.0.values() {
-            if let Some(holder) = built.holder {
-                self.entity(built.entity).try_despawn();
-                self.entity(holder).try_despawn();
+    fn forget_nodes(&mut self, plugin: Entity, holders: &Holders) {
+        for holder in holders.0.values() {
+            if holder.root {
+                self.entity(holder.entity)
+                    .try_insert(Kids::default());
+            } else {
+                self.entity(holder.entity).try_despawn();
             }
         }
-        self.entity(plugin).try_remove::<Widgets>();
+        self.entity(plugin).try_remove::<Holders>();
     }
 
     fn remount(
         &mut self,
         plugin: Entity,
-        widgets: Option<&Widgets>,
+        holders: Option<&Holders>,
         roots: &Query<(Entity, &UiRoot, &ContributedBy)>,
     ) {
-        if let Some(widgets) = widgets {
-            self.forget_widgets(plugin, widgets);
+        if let Some(holders) = holders {
+            self.forget_nodes(plugin, holders);
         }
         for (surface, root, by) in roots {
             if by.0 == plugin {

@@ -10,8 +10,8 @@ use hamlet_engine_api::{Contribution, Layout};
 pub struct Entry(Vec<Contribution>);
 
 impl Entry {
-    /// A panel for the dock, titled `title`, drawn by
-    /// [`Plugin::draw`](crate::Plugin::draw) with its name.
+    /// A panel for the dock, titled `title`, its view built by
+    /// [`Plugin::mount`](crate::Plugin::mount) with its name.
     pub fn panel(&mut self, name: &str, title: &str) -> &mut Self {
         self.add(Contribution::Panel {
             name: name.into(),
@@ -54,7 +54,7 @@ impl Entry {
         })
     }
 
-    /// A page of settings titled `title`, drawn as a panel is.
+    /// A page of settings titled `title`, built as a panel is.
     pub fn settings_page(
         &mut self,
         name: &str,

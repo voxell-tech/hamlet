@@ -40,61 +40,11 @@ mod tests {
     use super::*;
     use crate::{
         API_VERSION, Ask, AssetTypes, Capability, Events, Manifest,
-        PluginId, Services, TreeError, TreeLimits, Widget, WidgetId,
-        WidgetNode, WidgetTree,
-    };
-
-    fn node(id: &str, children: u32, widget: Widget) -> WidgetNode {
-        WidgetNode {
-            id: WidgetId(id.into()),
-            children,
-            widget,
-        }
-    }
-
-    fn tree() -> WidgetTree {
-        WidgetTree {
-            nodes: vec![
-                node("root", 3, Widget::Column),
-                node("title", 0, Widget::Heading("Forecast".into())),
-                node("days", 2, Widget::List),
-                node("monday", 0, Widget::Text("Rain".into())),
-                node("tuesday", 0, Widget::Text("Sun".into())),
-                node("bar", 3, Widget::Row),
-                node(
-                    "city",
-                    0,
-                    Widget::Field {
-                        value: "Thornwick".into(),
-                        placeholder: "City".into(),
-                    },
-                ),
-                node(
-                    "live",
-                    0,
-                    Widget::Toggle {
-                        label: "Live".into(),
-                        on: true,
-                    },
-                ),
-                node("go", 0, Widget::Button("Fetch".into())),
-            ],
-        }
-    }
-
-    const LIMITS: TreeLimits = TreeLimits {
-        nodes: 64,
-        depth: 8,
-        text: 64,
+        PluginId, Services,
     };
 
     #[test]
-    fn a_tree_and_a_manifest_cross_the_wire_unchanged() {
-        let tree = tree();
-        assert_eq!(tree.check(&LIMITS), Ok(()));
-        let bytes = encode(&tree).unwrap();
-        assert_eq!(decode::<WidgetTree>(&bytes).unwrap(), tree);
-
+    fn a_manifest_crosses_the_wire_unchanged() {
         let mut manifest = Manifest::new(
             PluginId::try_from("hamlet.weather").unwrap(),
             "Weather",
@@ -123,26 +73,5 @@ mod tests {
         ))
         .unwrap();
         assert!(decode::<Manifest>(&bad).is_err());
-    }
-
-    #[test]
-    fn child_counts_that_do_not_make_one_tree_are_refused() {
-        let mut short = tree();
-        short.nodes.pop();
-        assert_eq!(short.check(&LIMITS), Err(TreeError::Missing));
-
-        let mut long = tree();
-        long.nodes.push(node("extra", 0, Widget::Divider));
-        assert_eq!(long.check(&LIMITS), Err(TreeError::Trailing));
-
-        let mut leaf = tree();
-        leaf.nodes[1].children = 1;
-        assert!(matches!(
-            leaf.check(&LIMITS),
-            Err(TreeError::Leaf(_))
-        ));
-
-        let shallow = TreeLimits { depth: 2, ..LIMITS };
-        assert_eq!(tree().check(&shallow), Err(TreeError::TooDeep));
     }
 }

@@ -12,7 +12,6 @@ mod status;
 pub mod style;
 mod switcher;
 pub mod theme;
-pub mod widgets;
 pub mod window;
 pub mod workspace;
 
@@ -31,7 +30,6 @@ use hamlet_engine_api::CommandId;
 pub use settings::SettingsPage;
 pub use style::{ButtonStyle, StyleExt};
 pub use theme::EngineTheme;
-pub use widgets::tree_view;
 pub use window::window_plugin;
 pub use workspace::{DockTreeExt, SuggestedWorkspace};
 

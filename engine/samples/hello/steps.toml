@@ -1,0 +1,22 @@
+# Hello on its own: a press counts, and its command sets the count
+# back.
+#
+#   cargo run -p hamlet_engine_harness --bin plugin_check -- engine/samples/hello
+
+[[step]]
+allow = "hamlet.hello"
+
+[[step]]
+expect = { panel = "hamlet.hello/hello", text = "Pressed 0 times." }
+
+[[step]]
+click = { panel = "hamlet.hello/hello", widget = "Press" }
+
+[[step]]
+expect = { panel = "hamlet.hello/hello", text = "Pressed once." }
+
+[[step]]
+run = "hamlet.hello/reset"
+
+[[step]]
+expect = { panel = "hamlet.hello/hello", text = "Pressed 0 times." }

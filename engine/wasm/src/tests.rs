@@ -7,18 +7,12 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use bevy::app::{App, TaskPoolPlugin};
-use bevy::ecs::entity::Entity;
 use bevy::time::TimePlugin;
-use hamlet_engine_api::{
-    API_VERSION, Action, CommandId, PluginId, Widget, WidgetId,
-};
+use hamlet_engine_api::{API_VERSION, PluginId};
 use hamlet_engine_core::tuning::Tuning;
-use hamlet_engine_core::{Budgets, Home, Log, LogLevel};
-use hamlet_engine_grants::{
-    Grants, GrantsWorldExt, Petition, Record,
-};
+use hamlet_engine_core::{Budgets, Home, LogLevel};
+use hamlet_engine_grants::{Grants, Record};
 use hamlet_engine_plugins::Stopped;
-use hamlet_engine_shell::ShellWorldExt;
 use wasmtime::component::Resource;
 use wit_component::{ComponentEncoder, StringEncoding};
 use wit_parser::Resolve;
@@ -31,18 +25,22 @@ use crate::instance::ui_bindings::hamlet::engine::ui::{
     HostNode, Kind, Property,
 };
 use crate::instance::{Caps, Fault, Instance, State, link};
-use crate::panel::{Drawn, Input, Shows};
+use crate::nodes::NodeError;
+use crate::panel::{Inbox, Work};
 
-/// The exports every test plugin has, with `declare` and `draw`
-/// doing what they are given. The return area at 0 points at an empty
-/// list, which is no `Contribution`s and a `WidgetTree` of nothing;
-/// the one at 32 at the `Contribution`s of one panel, "p", whose name
-/// is also at 64. `run` counts, and the count is its state.
-fn module(declare: &str, draw: &str) -> String {
+/// What `run` does in a test plugin that counts its runs.
+const COUNT: &str =
+    "(global.set $count (i32.add (global.get $count) (i32.const 1)))";
+
+/// The exports every test plugin has, with `declare` and `run` doing
+/// what they are given. The return area at 0 points at an empty list,
+/// which is no `Contribution`s; the one at 32 at the `Contribution`s
+/// of one panel, "p", whose name is also at 64. The count, which
+/// [`COUNT`] counts, is its state.
+fn module(declare: &str, run: &str) -> String {
     format!(
         r#"(module
   (import "hamlet:engine/host@0.1.0" "log" (func $log (param i32 i32 i32)))
-  (import "hamlet:engine/host@0.1.0" "redraw" (func $redraw (param i32 i32)))
   (memory (export "memory") 1)
   (memory $more 1)
   (global $heap (mut i32) (i32.const 4096))
@@ -60,16 +58,13 @@ fn module(declare: &str, draw: &str) -> String {
   (data (i32.const 64) "p")
   (func (export "hamlet:engine/guest@0.1.0#declare") (result i32)
     {declare})
-  (func (export "hamlet:engine/guest@0.1.0#draw") (param i32 i32) (result i32)
-    {draw})
-  (func (export "hamlet:engine/guest@0.1.0#event") (param i32 i32))
   (func (export "hamlet:engine/guest@0.1.0#receive") (param i32 i32))
   (func (export "hamlet:engine/guest@0.1.0#serve")
     (param i32 i32 i32 i32 i32 i32) (result i32)
     (i32.const 256))
   (global $count (mut i32) (i32.const 0))
   (func (export "hamlet:engine/guest@0.1.0#run") (param i32 i32)
-    (global.set $count (i32.add (global.get $count) (i32.const 1))))
+    {run})
   (func (export "hamlet:engine/guest@0.1.0#save") (result i32)
     (i32.store (i32.const 128) (global.get $count))
     (i32.store (i32.const 96) (i32.const 128))
@@ -180,35 +175,42 @@ fn start(component: &[u8], budgets: &Budgets) -> (Instance, Caps) {
 
 /// The plugin whose `declare` does `declare`, made into a component.
 fn declaring(declare: &str) -> Vec<u8> {
-    component(&module(declare, "(i32.const 0)"), false)
+    component(&module(declare, COUNT), false)
 }
 
 #[test]
-fn a_call_past_its_node_changes_fails() {
+fn nodes_are_held_to_their_budgets_and_kinds() {
     let caps = Caps {
-        node_changes: 2,
+        node_changes: 6,
+        node_depth: 1,
         ..Caps::of(&budgets(), &WasmTuning::designed())
     };
     let mut state = State::new(&caps);
-    let root = state.nodes.root();
-    let node = HostNode::new(
-        &mut state,
-        Kind::Label,
-        Resource::new_borrow(root.rep()),
-        1,
-    )
-    .expect("a node within the budget");
-    let mut set = || {
-        HostNode::set(
-            &mut state,
-            Resource::new_borrow(node.rep()),
-            Property::Bold(true),
-            None,
-        )
+    let root = state.nodes.root().rep();
+    let make = |state: &mut State, kind, parent: u32| {
+        HostNode::new(state, kind, Resource::new_borrow(parent), 0)
+            .map(|node| node.rep())
     };
-    assert!(set().is_ok());
-    let past = set().expect_err("a change past the budget");
-    assert_eq!(Fault::of(past), Fault::Changes);
+    let set = |state: &mut State, node: u32, value| {
+        HostNode::set(state, Resource::new_borrow(node), value, None)
+    };
+    let refused = |error: wasmtime::Error| match Fault::of(error) {
+        Fault::Node(why) => why,
+        fault => panic!("{fault}"),
+    };
+
+    let label = make(&mut state, Kind::Label, root).unwrap();
+    let under_label = make(&mut state, Kind::Label, label);
+    assert_eq!(refused(under_label.unwrap_err()), NodeError::Leaf);
+    let placeholder = Property::Placeholder("A name".into());
+    let wrong = set(&mut state, label, placeholder);
+    assert_eq!(refused(wrong.unwrap_err()), NodeError::Property);
+    let frame = make(&mut state, Kind::Frame, root).unwrap();
+    let deep = make(&mut state, Kind::Label, frame);
+    assert_eq!(refused(deep.unwrap_err()), NodeError::Depth);
+    assert!(set(&mut state, label, Property::Bold(true)).is_ok());
+    let past = set(&mut state, label, Property::Bold(false));
+    assert_eq!(refused(past.unwrap_err()), NodeError::Changes);
 }
 
 #[test]
@@ -293,11 +295,9 @@ fn a_plugin_has_the_system_and_its_prints_are_cut() {
           (local.set $left (i32.sub (local.get $left) (i32.const 1)))
           (br_if $again (local.get $left)))
         (i32.const 0)";
-    // Drawing, it sleeps for a thousand seconds.
-    let draw = "(call $block (call $sleep (i64.const \
-                1000000000000)))
-        (i32.const 0)";
-    let text = module(declare, draw).replacen("(module", imports, 1);
+    // Running, it sleeps for a thousand seconds.
+    let run = "(call $block (call $sleep (i64.const 1000000000000)))";
+    let text = module(declare, run).replacen("(module", imports, 1);
     let (mut instance, caps) =
         start(&component(&text, true), &Budgets::designed());
 
@@ -310,21 +310,19 @@ fn a_plugin_has_the_system_and_its_prints_are_cut() {
 
     // The sleep ends with the call's time.
     let started = Instant::now();
-    let _ = instance.draw(&caps, "p");
+    let _ = instance.run(&caps, "p");
     assert!(started.elapsed() < Duration::from_secs(1));
 }
 
 #[test]
 fn a_plugin_over_its_budgets_waits_then_is_stopped() {
-    // Each drawing burns about half the fuel of a second, then asks
-    // to be drawn again.
-    let draw = "(local $left i32)
+    // Each run burns about half the fuel of a second, and it is run
+    // each frame.
+    let run = "(local $left i32)
         (local.set $left (i32.const 100000))
         (loop $again
           (local.set $left (i32.sub (local.get $left) (i32.const 1)))
-          (br_if $again (local.get $left)))
-        (call $redraw (i32.const 64) (i32.const 1))
-        (i32.const 0)";
+          (br_if $again (local.get $left)))";
     let root = home("over");
     install(
         &root,
@@ -332,7 +330,7 @@ fn a_plugin_over_its_budgets_waits_then_is_stopped() {
             "id = \"test.over\"\nname = \"Over\"\nversion = \
              \"0.1.0\"\napi = \"{API_VERSION}\"\n"
         ),
-        &component(&module("(i32.const 32)", draw), false),
+        &component(&module("(i32.const 32)", run), false),
     );
     let mut app = engine(&root);
     app.insert_resource(Budgets {
@@ -354,6 +352,9 @@ fn a_plugin_over_its_budgets_waits_then_is_stopped() {
         app.update();
         std::thread::sleep(Duration::from_millis(10));
         let world = app.world_mut();
+        for mut inbox in world.query::<&mut Inbox>().iter_mut(world) {
+            inbox.0.push_back(Work::Run("p".into()));
+        }
         world.query::<&Stopped>().iter(world).next().cloned()
     });
     let Some(Stopped(why)) = stopped else {
@@ -533,112 +534,4 @@ fn engine(root: &Path) -> App {
         crate::plugin,
     ));
     app
-}
-
-/// Builds `engine/samples/hello`, installs it in a home of its own,
-/// and runs the engine without a window: the person is asked about
-/// it, and once they allow it its panel is drawn, a press of its
-/// button counts, and its command sets the count back.
-#[test]
-#[ignore = "builds the sample, with the wasm32-wasip2 target"]
-fn the_hello_sample_runs() {
-    let sample = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../samples/hello");
-    let built = Command::new(env!("CARGO"))
-        .args(["build", "--release", "--target", "wasm32-wasip2"])
-        .current_dir(&sample)
-        .status()
-        .expect("cargo runs");
-    assert!(built.success());
-    let root = home("hello");
-    install(
-        &root,
-        &fs::read_to_string(sample.join(MANIFEST)).unwrap(),
-        &fs::read(
-            sample.join("target/wasm32-wasip2/release/plugin.wasm"),
-        )
-        .unwrap(),
-    );
-    let mut app = engine(&root);
-    app.update();
-    app.update();
-    let world = app.world_mut();
-    let (petition, _) = world
-        .query::<(Entity, &Petition)>()
-        .single(world)
-        .expect("the person is asked");
-    world.answer_install(petition, true);
-    let count = app.until(|text| text.starts_with("Pressed"));
-    assert_eq!(count, "Pressed 0 times.");
-
-    let world = app.world_mut();
-    let (surface, _) = world
-        .query::<(Entity, &Drawn)>()
-        .single(world)
-        .expect("one panel");
-    world.write_message(Input {
-        surface,
-        widget: WidgetId("press".into()),
-        action: Action::Click,
-    });
-    let count = app.until(|text| text != "Pressed 0 times.");
-    assert_eq!(count, "Pressed once.");
-
-    // Built again, it is reloaded with its count.
-    let wasm = root.join(FOLDER).join("plugin").join(WASM);
-    let bytes = fs::read(&wasm).unwrap();
-    fs::write(&wasm, bytes).unwrap();
-    let reloaded = (0..500).any(|_| {
-        app.update();
-        std::thread::sleep(Duration::from_millis(10));
-        app.world()
-            .resource::<Log>()
-            .lines()
-            .any(|(_, line)| line.text.ends_with("is reloaded"))
-    });
-    assert!(reloaded, "it was never reloaded");
-    assert_eq!(app.until(|_| true), "Pressed once.");
-
-    // Its command, as a menu or its keys run it.
-    let reset = CommandId::try_from("hamlet.hello/reset").unwrap();
-    app.world_mut().run_command(&reset);
-    let count = app.until(|text| text != "Pressed once.");
-    assert_eq!(count, "Pressed 0 times.");
-    let _ = fs::remove_dir_all(&root);
-}
-
-/// The tests' methods on [`App`].
-trait TestAppExt {
-    /// Runs the app until the text "count" of its one WASM panel is
-    /// one that `wanted` takes, and gives it.
-    fn until(&mut self, wanted: impl Fn(&str) -> bool) -> String;
-}
-
-impl TestAppExt for App {
-    fn until(&mut self, wanted: impl Fn(&str) -> bool) -> String {
-        for _ in 0..500 {
-            self.update();
-            let world = self.world_mut();
-            let shown = world.query::<&Drawn>().iter(world).find_map(
-                |drawn| match &drawn.shows {
-                    Shows::Tree(tree) => {
-                        tree.nodes.iter().find_map(|node| {
-                            match (&node.id.0[..], &node.widget) {
-                                ("count", Widget::Text(text)) => {
-                                    Some(text.clone())
-                                }
-                                _ => None,
-                            }
-                        })
-                    }
-                    _ => None,
-                },
-            );
-            if let Some(text) = shown.filter(|text| wanted(text)) {
-                return text;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        panic!("the panel never showed what was wanted");
-    }
 }

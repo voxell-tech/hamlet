@@ -72,15 +72,6 @@ impl World {
             mounted.unmount(key);
         }
     }
-
-    /// Runs the click handler of `key`.
-    fn click(&mut self, key: Key) {
-        let Some(handler) = self.clicks.remove(&key) else {
-            return;
-        };
-        handler(self);
-        self.clicks.entry(key).or_insert(handler);
-    }
 }
 
 pub fn mount<P: Plugin>(
@@ -111,6 +102,16 @@ pub fn mount<P: Plugin>(
     })
 }
 
+/// Runs `call` with the world of the plugin's panels, and brings the
+/// panels up to date with what it changed.
+pub fn with_world<R>(call: impl FnOnce(&mut World) -> R) -> R {
+    UI.with_borrow_mut(|panels| {
+        let made = call(&mut panels.world);
+        panels.update(Duration::ZERO);
+        made
+    })
+}
+
 pub fn unmount(name: &str) {
     UI.with_borrow_mut(|panels| panels.unmount(name));
 }
@@ -119,12 +120,12 @@ pub fn input(events: Vec<UiEvent>) -> bool {
     UI.with_borrow_mut(|panels| {
         for event in events {
             let (states, on) = match event.action {
-                Action::Click => {
-                    panels.world.click(event.key);
-                    continue;
-                }
                 Action::Hover(on) => (States::HOVER, on),
                 Action::Press(on) => (States::PRESS, on),
+                action => {
+                    panels.world.handle(event.key, action);
+                    continue;
+                }
             };
             panels.world.nodes.enter(event.key, states, on);
             for shown in panels.mounted.values_mut() {

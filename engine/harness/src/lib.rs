@@ -16,7 +16,6 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use bevy::app::{App, TaskPoolPlugin};
-use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::ChildOf;
 use bevy::ecs::query::{With, Without};
@@ -25,11 +24,12 @@ use bevy::ecs::world::World;
 use bevy::picking::hover::Hovered as PickingHovered;
 use bevy::time::TimePlugin;
 use bevy::ui::widget::Text;
-use bevy::ui_widgets::{Activate, Button as ButtonBehavior};
+use bevy::ui_widgets::{
+    Activate, Button as ButtonBehavior, Checkbox as CheckboxBehavior,
+};
 use hamlet_engine_api::{
-    Action, Asset, AssetId, AssetInfo, CommandId, Failure,
-    FetchReply, FetchRequest, PanelId, PluginId, TypeName, WidgetId,
-    WidgetTree,
+    Asset, AssetId, AssetInfo, CommandId, Failure, FetchReply,
+    FetchRequest, PanelId, PluginId, TypeName,
 };
 use hamlet_engine_core::tuning::{ENGINE, Tuning, TuningFile};
 use hamlet_engine_core::{Home, Log, TuningPlugin};
@@ -44,11 +44,11 @@ use hamlet_engine_shell::{
     EngineTheme, Panel, SettingsPage, ShellWorldExt,
 };
 use hamlet_engine_wasm::{
-    Drawn, Input, Instance, MANIFEST, NodeOf, Shows, UiRoot, WASM,
+    Instance, MANIFEST, NodeAction, NodeInput, NodeOf, UiRoot, WASM,
 };
 use serde::Deserialize;
 
-pub use self::outline::{HarnessWorldExt, WidgetTreeExt};
+pub use self::outline::HarnessWorldExt;
 pub use self::steps::{Step, Steps};
 
 /// Where cargo puts a plugin crate's release build, in its folder.
@@ -250,87 +250,82 @@ impl Harness {
         found.ok_or_else(|| format!("{plugin} was never asked about"))
     }
 
-    /// The tree the panel or settings page `panel` (`plugin.id/name`)
-    /// shows now, and its entity.
-    pub fn tree(
-        &mut self,
-        panel: &str,
-    ) -> Option<(Entity, WidgetTree)> {
-        let id = PanelId::try_from(panel).ok()?;
-        let world = self.app.world_mut();
-        world
-            .query::<(Entity, &Drawn, Option<&Panel>, Option<&SettingsPage>)>()
-            .iter(world)
-            .filter(|(_, _, panel, page)| {
-                panel.is_some_and(|panel| panel.id == id)
-                    || page.is_some_and(|page| page.id == id)
-            })
-            .find_map(|(surface, drawn, ..)| match &drawn.shows {
-                Shows::Tree(tree) => Some((surface, tree.clone())),
-                _ => None,
-            })
-    }
-
-    /// The panel or settings page `panel` as a text outline, once it
-    /// is drawn; a retained panel once its plugin built it.
+    /// The panel or settings page `panel` as a text outline, once its
+    /// plugin has its root.
     pub fn outline(&mut self, panel: &str) -> Option<String> {
-        if let Some((_, tree)) = self.tree(panel) {
-            return Some(tree.outline());
-        }
-        let root = self.retained(panel)?;
-        Some(self.app.world().retained_outline(root))
+        let root = self.root(panel)?;
+        Some(self.app.world().outline(root))
     }
 
-    /// The root of the retained panel `panel` (`plugin.id/name`),
-    /// once its plugin has it. Its content is built as the dock
-    /// builds it when it shows it.
-    pub fn retained(&mut self, panel: &str) -> Option<Entity> {
+    /// The root of the panel or settings page `panel`
+    /// (`plugin.id/name`), once its plugin has it. Its content is
+    /// built as the dock or Settings builds it when it shows it.
+    pub fn root(&mut self, panel: &str) -> Option<Entity> {
         let id = PanelId::try_from(panel).ok()?;
         let world = self.app.world_mut();
         let (surface, content, root, by) = world
-            .query::<(Entity, &Panel, Option<&UiRoot>, &ContributedBy)>()
+            .query::<(
+                Entity,
+                Option<&Panel>,
+                Option<&SettingsPage>,
+                Option<&UiRoot>,
+                &ContributedBy,
+            )>()
             .iter(world)
-            .find(|(_, found, ..)| found.id == id)
-            .map(|(surface, found, root, by)| {
-                (surface, found.content, root.map(|root| root.0), by.0)
+            .find_map(|(surface, found, page, root, by)| {
+                let content = match (found, page) {
+                    (Some(found), _) if found.id == id => {
+                        found.content
+                    }
+                    (_, Some(page)) if page.id == id => page.content,
+                    _ => return None,
+                };
+                Some((
+                    surface,
+                    content,
+                    root.map(|root| root.widget),
+                    by.0,
+                ))
             })?;
         if root.is_some() {
             return root;
         }
-        let retained =
-            world.get::<Instance>(by).is_some_and(Instance::retained);
-        if retained && self.shown.insert(surface) {
+        let has_views = world
+            .get::<Instance>(by)
+            .is_some_and(Instance::has_views);
+        if has_views && self.shown.insert(surface) {
             bevy_fynix::mount::<EngineTheme>(world, content(surface));
         }
         None
     }
 
-    /// Presses the button `widget` of the panel `panel`: of a
-    /// retained panel, the button whose text is `widget`.
+    /// Presses the button of the panel `panel` whose text is
+    /// `widget`.
     pub fn click(
         &mut self,
         panel: &str,
         widget: &str,
     ) -> Result<(), String> {
-        if self.retained(panel).is_some() {
-            let button =
-                self.by_text::<ButtonBehavior>(panel, widget)?;
-            self.app.world_mut().trigger(Activate { entity: button });
-            return Ok(());
-        }
-        self.act(panel, widget, Action::Click)
+        let button = self.by_text(
+            panel,
+            widget,
+            World::holder::<ButtonBehavior>,
+        )?;
+        self.app.world_mut().trigger(Activate { entity: button });
+        Ok(())
     }
 
-    /// Puts the pointer over the node of the retained panel `panel`
-    /// whose text is `text`, or takes it away, as the pointer would
-    /// for a node whose plugin watches it.
+    /// Puts the pointer over the node of the panel `panel` whose text
+    /// is `text`, or takes it away, as the pointer would for a node
+    /// whose plugin watches it.
     pub fn hover(
         &mut self,
         panel: &str,
         text: &str,
         on: bool,
     ) -> Result<(), String> {
-        let node = self.by_text::<NodeOf>(panel, text)?;
+        let node =
+            self.by_text(panel, text, World::holder::<NodeOf>)?;
         let mut node = self.app.world_mut().entity_mut(node);
         if !node.contains::<PickingHovered>() {
             return Err(format!("{text:?} is not watched for hover"));
@@ -339,16 +334,18 @@ impl Harness {
         Ok(())
     }
 
-    /// The nearest entity with a `C` at or above the text `text` in
-    /// the retained panel `panel`, once there is one.
-    fn by_text<C: Component>(
+    /// What `find` finds from the text `text` in the panel `panel`,
+    /// given the text's entity and the panel's root, once it finds
+    /// one.
+    fn by_text(
         &mut self,
         panel: &str,
         text: &str,
+        find: fn(&World, Entity, Entity) -> Option<Entity>,
     ) -> Result<Entity, String> {
         let mut found = None;
         self.until(|harness| {
-            let Some(root) = harness.retained(panel) else {
+            let Some(root) = harness.root(panel) else {
                 return false;
             };
             let world = harness.app.world_mut();
@@ -359,53 +356,50 @@ impl Harness {
                 .map(|(entity, _)| entity)
                 .collect::<Vec<_>>()
                 .into_iter()
-                .find_map(|entity| world.holder::<C>(entity, root));
+                .find_map(|entity| find(world, entity, root));
             found.is_some()
         });
         found.ok_or_else(|| format!("{panel} never showed {text:?}"))
     }
 
-    /// Leaves the text `text` in the field `widget` of `panel`.
+    /// Tells the plugin of the node `node` that the person did
+    /// `input` to it.
+    fn tell(&mut self, node: Entity, input: NodeInput) {
+        let world = self.app.world_mut();
+        if let Some(&NodeOf { plugin, key, .. }) = world.get(node) {
+            world.write_message(NodeAction { plugin, key, input });
+        }
+    }
+
+    /// Leaves the text `text` in the field of `panel` whose
+    /// placeholder is `widget`.
     pub fn write(
         &mut self,
         panel: &str,
         widget: &str,
         text: &str,
     ) -> Result<(), String> {
-        self.act(panel, widget, Action::Text(text.into()))
+        let field =
+            self.by_text(panel, widget, World::holder::<NodeOf>)?;
+        self.tell(field, NodeInput::Commit(text.into()));
+        Ok(())
     }
 
-    /// Switches the toggle `widget` of `panel` to `on`.
+    /// Switches the toggle of `panel` nearest the text `widget` to
+    /// `on`.
     pub fn toggle(
         &mut self,
         panel: &str,
         widget: &str,
         on: bool,
     ) -> Result<(), String> {
-        self.act(panel, widget, Action::Toggle(on))
-    }
-
-    fn act(
-        &mut self,
-        panel: &str,
-        widget: &str,
-        action: Action,
-    ) -> Result<(), String> {
-        let mut found = None;
-        self.until(|harness| {
-            found = harness.tree(panel).filter(|(_, tree)| {
-                tree.nodes.iter().any(|node| node.id.0 == widget)
-            });
-            found.is_some()
-        });
-        let (surface, _) = found.ok_or_else(|| {
-            format!("{panel} never showed a widget {widget:?}")
-        })?;
-        self.app.world_mut().write_message(Input {
-            surface,
-            widget: WidgetId(widget.into()),
-            action,
-        });
+        let toggle =
+            self.by_text(panel, widget, |world, at, root| {
+                let toggle =
+                    world.nearest::<CheckboxBehavior>(at, root)?;
+                world.holder::<NodeOf>(toggle, root)
+            })?;
+        self.tell(toggle, NodeInput::Toggle(on));
         Ok(())
     }
 

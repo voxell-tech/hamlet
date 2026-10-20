@@ -3707,7 +3707,6 @@ name = "hamlet_engine_core"
 version = "0.1.0"
 dependencies = [
  "bevy",
- "hamlet_engine_api",
  "serde",
  "toml",
 ]
@@ -3778,7 +3777,6 @@ dependencies = [
  "fynix",
  "hamlet_engine_api",
  "lenz",
- "serde",
  "wit-bindgen 0.63.0",
 ]
 

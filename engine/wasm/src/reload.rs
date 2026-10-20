@@ -13,8 +13,6 @@ use bevy::app::{App, Update};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::message::MessageWriter;
-use bevy::ecs::query::With;
-use bevy::ecs::relationship::RelationshipTarget;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Local, Query, Res};
 use bevy::tasks::futures::check_ready;
@@ -35,8 +33,7 @@ use crate::folder::{
 };
 use crate::host::{Host, WasmTuning};
 use crate::instance::{Caps, Fault, Instance, Linked};
-use crate::panel::{Drawn, Redraw};
-use crate::retained::{UiRoot, Widgets};
+use crate::retained::{Holders, UiRoot};
 use crate::run::{Built, Compiling, entry};
 
 pub(crate) fn plugin(app: &mut App) {
@@ -169,10 +166,8 @@ fn swap(
         &mut Spending,
         &mut Reloading,
         &Declared,
-        Option<&Contributions>,
-        Option<&Widgets>,
+        Option<&Holders>,
     )>,
-    surfaces: Query<(), With<Drawn>>,
     roots: Query<(Entity, &UiRoot, &ContributedBy)>,
     host: Option<Res<Host>>,
     budgets: Res<Budgets>,
@@ -192,8 +187,7 @@ fn swap(
         mut spending,
         mut reloading,
         declared,
-        contributions,
-        widgets,
+        holders,
     ) in &mut plugins
     {
         let Some(built) = check_ready(&mut reloading.0.0) else {
@@ -228,30 +222,18 @@ fn swap(
                     &mut log,
                 );
                 fresh.pass_requests(plugin, 0, &mut asked);
-                if contributions_now == declared.0 {
-                    for surface in contributions
-                        .into_iter()
-                        .flat_map(|c| c.iter())
-                    {
-                        if surfaces.contains(surface) {
-                            commands.entity(surface).insert(Redraw);
-                        }
-                    }
-                } else {
+                if contributions_now != declared.0 {
                     commands
                         .entity(plugin)
                         .despawn_related::<Contributions>();
                     commands.switch_on(
                         plugin,
                         info,
-                        entry(
-                            contributions_now.clone(),
-                            linked.retained(),
-                        ),
+                        entry(contributions_now.clone()),
                         &budgets,
                     );
                 }
-                commands.remount(plugin, widgets, &roots);
+                commands.remount(plugin, holders, &roots);
                 commands.entity(plugin).insert((
                     fresh,
                     Built(linked),
