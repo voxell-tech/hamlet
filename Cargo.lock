@@ -3657,7 +3657,9 @@ dependencies = [
 name = "hamlet_engine_agents"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bevy",
+ "chrono",
  "hamlet_core",
  "hamlet_engine_api",
  "hamlet_engine_core",
@@ -3667,6 +3669,7 @@ dependencies = [
  "hamlet_model",
  "hamlet_rules",
  "hamlet_sandbox",
+ "serde_json",
  "tokio",
 ]
 

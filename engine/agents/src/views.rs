@@ -12,13 +12,15 @@ use hamlet_core::core::{self, Sandboxing, Settings as CoreSettings};
 use hamlet_core::oversight::Waiting;
 use hamlet_core::oversight::grants::Grants;
 use hamlet_core::session::{
-    self, Reply, SessionKey, Status as Work, TalksTo, Transcript,
-    Usage,
+    self, Began, Item, Reply, SessionKey, Status as Work, TalksTo,
+    Transcript, Usage, reply_in,
 };
+use hamlet_core::tools::{Change, change};
 use hamlet_engine_api::agents::{
-    CatalogueModel, Charter, Endpoint, Entry, Grant, Link, Listed,
-    Listing, Output, Priced, Provider, RealmLimits, Session,
-    SessionMessage, SessionName, Settings, Status, Trial,
+    CatalogueModel, ChangeLine, Charter, Endpoint, Entry, Grant,
+    Link, Listed, Listing, Mark, Output, Priced, Provider,
+    RealmLimits, Session, SessionMessage, SessionName, Settings,
+    Status, Trial,
 };
 use hamlet_home::charter;
 use hamlet_home::limits::Limits;
@@ -260,6 +262,7 @@ pub(crate) fn session(
     let agent = session
         .get::<TalksTo>()
         .map(|with| hamlet_core::agents::name_of(world, with.0));
+    let said = session.get::<Transcript>();
     Some(Session {
         name: session_name(key),
         agent,
@@ -268,10 +271,11 @@ pub(crate) fn session(
             .get::<Usage>()
             .map(Usage::summary)
             .unwrap_or_default(),
-        last: session
-            .get::<Transcript>()
+        last: said
             .and_then(|said| said.items().last())
             .map(|item| item.id),
+        began: session.get::<Began>().map_or(0, |began| began.0),
+        answering: said.is_some_and(Transcript::answering),
     })
 }
 
@@ -299,12 +303,61 @@ pub(crate) fn messages(
     let skip = items.len().saturating_sub(most as usize);
     items[skip..]
         .iter()
-        .map(|item| SessionMessage {
-            id: item.id,
-            at: item.at,
-            entry: entry(&item.entry),
-        })
+        .map(|item| message(said, item))
         .collect()
+}
+
+/// The message `item` of `said`.
+pub(crate) fn message(
+    said: &Transcript,
+    item: &Item,
+) -> SessionMessage {
+    SessionMessage {
+        id: item.id,
+        at: item.at,
+        entry: entry(&item.entry),
+        another: said.of_another(item.id),
+        reply: matches!(&item.entry, session::Entry::User { user, text }
+            if reply_in(user, text).is_some()),
+    }
+}
+
+/// The lines of a change a message carries at most.
+const CHANGE_LINES: usize = 60;
+
+pub(crate) fn change(
+    change: &Change,
+) -> hamlet_engine_api::agents::Change {
+    let wide = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+    hamlet_engine_api::agents::Change {
+        path: change.path.clone(),
+        created: change.created,
+        lines: change
+            .lines
+            .iter()
+            .take(CHANGE_LINES)
+            .map(|line| ChangeLine {
+                mark: match line.mark {
+                    change::Mark::Same => Mark::Same,
+                    change::Mark::Out => Mark::Out,
+                    change::Mark::In => Mark::In,
+                },
+                text: line.text.clone(),
+            })
+            .collect(),
+        total: wide(change.total),
+        added: wide(change.added),
+        removed: wide(change.removed),
+        failure: change.failure.clone(),
+    }
+}
+
+/// The shell command a tool's arguments run, or the arguments.
+fn command(summary: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(summary)
+        .ok()
+        .and_then(|args| args["command"].as_str().map(str::to_string))
+        .unwrap_or_else(|| summary.to_string())
 }
 
 pub(crate) fn entry(entry: &session::Entry) -> Entry {
@@ -323,11 +376,13 @@ pub(crate) fn entry(entry: &session::Entry) -> Entry {
             name,
             summary,
             exit,
-            ..
+            change: asked,
         } => Entry::Tool {
             name: name.clone(),
             summary: summary.clone(),
+            command: command(summary),
             exit: *exit,
+            change: asked.as_ref().map(change),
         },
         session::Entry::Error(text) => Entry::Error(text.clone()),
         session::Entry::Notice(text) => Entry::Notice(text.clone()),

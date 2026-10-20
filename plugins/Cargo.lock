@@ -10,6 +10,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "agents_ui"
+version = "0.1.0"
+dependencies = [
+ "hamlet_engine_sdk",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -26,6 +33,14 @@ name = "bitflags"
 version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ded4057c258ba199e2d26386d3af3780957ecaee6c4ef4041c6b4b8b97c0b06"
+
+[[package]]
+name = "chat"
+version = "0.1.0"
+dependencies = [
+ "agents_ui",
+ "hamlet_engine_sdk",
+]
 
 [[package]]
 name = "cobs"
@@ -144,6 +159,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "inspector"
+version = "0.1.0"
+dependencies = [
+ "agents_ui",
+ "hamlet_engine_sdk",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -201,6 +224,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8164e608c4c02436e77d999d9359bd6ec4e080694b71d031bba08c16485a9f0"
 dependencies = [
  "libm",
+]
+
+[[package]]
+name = "needs"
+version = "0.1.0"
+dependencies = [
+ "agents_ui",
+ "hamlet_engine_sdk",
 ]
 
 [[package]]
@@ -305,6 +336,14 @@ dependencies = [
 name = "settings"
 version = "0.1.0"
 dependencies = [
+ "hamlet_engine_sdk",
+]
+
+[[package]]
+name = "skills"
+version = "0.1.0"
+dependencies = [
+ "agents_ui",
  "hamlet_engine_sdk",
 ]
 

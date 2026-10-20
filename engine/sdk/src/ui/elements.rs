@@ -168,6 +168,14 @@ pub fn icon_button(
     }
 }
 
+/// A button holding `children`, such as a card that leads somewhere.
+pub fn pressable<C>(children: C) -> Stack<Button, C> {
+    Stack {
+        element: Button::unset(),
+        children,
+    }
+}
+
 /// The icon of the engine's set named `name`, as `Glyph::name` has
 /// it.
 pub fn icon(name: impl Into<Prop<World, String>>) -> Icon {

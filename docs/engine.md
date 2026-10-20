@@ -854,6 +854,58 @@ Settings and Welcome have a `steps.toml`; the harness runs no agents
 service, so they check the pages and the card's steps on their own.
 The status items are not read by the harness.
 
+The agents' panels are four more, each following the focus the
+agents service keeps, so what one opens or selects the others show.
+They are built with `plugins/agents_ui`, a library and no plugin: the
+service as the panels read it (`start`, `ask` and `hear`, keeping the
+focus, the roster, the needs and the library's skills as resources),
+a message, a change, the card of an agent's questions, Markdown as
+labels can set it (headings, paragraphs, items, quotes, code and
+rules; a link is its words), and a confirmation on an overlay, the
+verb beside CANCEL with a warning for agents it cuts short.
+
+- **`plugins/chat`** (`hamlet.chat`, asking `agents.read` and
+  `agents.chief`) is the panel Chat, apart from the Inspector. Its
+  head names the house and everyone who speaks, with New session,
+  asked about first. Its line of time is the open conversation and
+  the sessions `Related` gives, in the order said, each run of one
+  speaker to one listener named once; a turn's steps fold into one
+  row whose heading says what it did and opens it, its edits shown
+  even shut. The last 24 rows are built, and EARLIER builds 24 more.
+  A bubble shows its words plainly, quotes dim, or as Markdown, its
+  hour on the chief's clock, and under the pointer Reply and, for the
+  chief's own words while the agent rests, Rewind to here. The bar
+  holds the card of questions the agent waits on, what the next
+  message replies to, the field and SEND. A line that begins with `/`
+  is not sent: the chat says why, in its own line of time. The chat
+  comes to the front when the open conversation moves to another, or
+  a session resumed is read again.
+- **`plugins/inspector`** (`hamlet.inspector`, asking `agents.read`
+  and `agents.chief`) shows what is selected. An agent: its hamlet as
+  a way back, its state, STOP while it works, its purpose, its model
+  and use, its spend, the Model dropdown (`RunModel`), and NOTES
+  (REFLECT NOW), CHARACTER (EDIT), ARCHIVE and PROMPT. The archive
+  lists the past sessions with a search and counts, each read,
+  resumed or deleted, and reads one forty messages at a time. One
+  that is gone, with RESTORE, DELETE FOR GOOD and ITS HAMLET. The
+  library. Every hamlet, searched, with FOUND A HAMLET and those
+  closed down. A hamlet, with RENAME, CLOSE DOWN, the folder it works
+  on and its mode, and AGENTS, BYLAWS (its limits file and START IT
+  AGAIN NOW) and RECORD.
+- **`plugins/skills`** (`hamlet.skills`, asking `agents.read` and
+  `agents.chief`) is the agent's own skills over the library's, each
+  with TAKE OUT.
+- **`plugins/needs`** (`hamlet.needs`, asking `agents.read` and
+  `agents.chief`) is what the agents wait on the chief for, oldest
+  first, with the reason field, STOP ALL, and the answers each takes;
+  a question's card is the one the chat shows. It comes to the front
+  when more wait. It is apart from the engine's Petitions, which ask
+  what a plugin may do before it does it: those are the grants'
+  questions about plugins, these the agents' about their work.
+
+Each has a `steps.toml` checking what shows before the agents
+answer.
+
 ## Assets
 
 `hamlet_engine_assets` keeps the asset store and answers what plugins
@@ -1001,12 +1053,54 @@ says why and every request fails saying so.
 - **The chief**: `Send` a line, a message or a slash command, to an
   agent or a hamlet's mayor, and `Veto`.
 - **Sessions**: `Sessions`, `Open` (the chief's session with an agent
-  or a mayor, which the status then tells of) and `Messages`.
+  or a mayor, which the status then tells of) and `Messages`. A
+  session says when it began and whether it is being answered; a
+  message whether it is another agent's work or a reply to a letter;
+  a tool call its command, its exit and the change an edit asks for.
+- **The focus** is the window's, kept in the service so every panel
+  follows the same (`focus.rs`): the open conversation (`Open`), who
+  it is with, and the thing selected (`Select`: nothing, an agent, a
+  hamlet or the library). Selecting a living agent talks to it, and
+  opening a conversation selects its agent. When the agent of the
+  open conversation is gone, it falls back to the first mayor.
+  `Focus` reads it and each change is an `AgentsEvent::Focus`.
+- **The chat** (`conversation.rs`): `Related` is the sessions an
+  agent's chat shows beside the open one, each with its part (with
+  the agent, or one it wrote to) and who writes in it. Each message
+  that comes or changes is told as `Said`, or `Said` with `again`
+  when a session was read afresh. `Rewind` takes a session back to
+  before a message and `Rewound` gives its words back. `Decree` gives
+  a chief's command to a hamlet as the app does, the answers told in
+  the open conversation.
+- **Papers and skills**: `Papers` (the notes, the character and the
+  own skills of the open conversation's agent, the first two cut at
+  6,000 characters), `Prompt`, `EditCharacter` (made empty if there
+  is none, opened in the system's editor), and `Skills`, the
+  library's, told again as `AgentsEvent::Skills` when they change.
+- **The archive** (`archive.rs`): `Pasts` with a search, `ReadPast`
+  (its messages without the steps between them, the last 400) and
+  `DeletePast` (an archived session only), each by the name of its
+  log in the house of the open conversation's agent.
+- **The roster** (`roster.rs`): `Roster` is every agent and hamlet
+  with its state in words, its account and spend, and the hamlets
+  closed down; it is told again as `AgentsEvent::Roster` when it
+  changes. `Record` is a hamlet's budget, votes, comings and goings
+  and limits file. `RunModel` has an agent run a model from now on,
+  written as the app does: the mayor's pinned in its hamlet's limits,
+  another's chosen as its mayor would, its hamlet let run it.
+- **What waits for the chief** (`needs.rs`): `Needs`, told again as
+  `AgentsEvent::Needs` when it changes and every ten seconds for the
+  time waited. `Answer` gives a choice with a reason or a reply. The
+  answers to an agent's questions are picked in the service (`Pick`,
+  `Turn`, `Submit`), so a card shown in two panels shows the same
+  sheet.
 - **Capabilities**, each on the target `local`: `agents.read` for what
-  is read and watched, `agents.settings` for what changes the settings,
-  the models, the setup, the charter and the limits, `agents.keys` for
-  giving or forgetting a key and signing in, and `agents.chief` for
-  sending, vetoing and revoking. A use answered Ask next time asks the
+  is read and watched, and the focus, `agents.settings` for what
+  changes the settings, the models, the setup, the charter and the
+  limits, `agents.keys` for giving or forgetting a key and signing
+  in, and `agents.chief` for sending, vetoing, revoking, rewinding,
+  decrees, the character, deleting a past session and answering what
+  waits. A use answered Ask next time asks the
   person first, as the other services do.
 - **Secrets stay in the service.** No reply holds a key, a ChatGPT
   token or a sign-in; keys are kept in the system's keychain or a

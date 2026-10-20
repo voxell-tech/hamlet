@@ -1,0 +1,14 @@
+# The chat on its own. The harness runs no agents service, so only
+# what shows before the agents answer is checked.
+#
+#   scripts/build_plugins.sh
+#   cargo run -p hamlet_engine_harness --bin plugin_check -- plugins/dist/hamlet.chat --steps plugins/chat/steps.toml
+
+[[step]]
+allow = "hamlet.chat"
+
+[[step]]
+expect = { panel = "hamlet.chat/chat", text = "SEND" }
+
+[[step]]
+lacks = { panel = "hamlet.chat/chat", text = "START A NEW SESSION?" }

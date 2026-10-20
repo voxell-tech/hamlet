@@ -1,0 +1,20 @@
+# The Inspector on its own. The harness runs no agents service, so
+# the overview is shown with no hamlets.
+#
+#   scripts/build_plugins.sh
+#   cargo run -p hamlet_engine_harness --bin plugin_check -- plugins/dist/hamlet.inspector --steps plugins/inspector/steps.toml
+
+[[step]]
+allow = "hamlet.inspector"
+
+[[step]]
+expect = { panel = "hamlet.inspector/inspector", text = "HAMLETS" }
+
+[[step]]
+expect = { panel = "hamlet.inspector/inspector", text = "No hamlet by that name." }
+
+[[step]]
+click = { panel = "hamlet.inspector/inspector", widget = "FOUND A HAMLET" }
+
+[[step]]
+expect = { panel = "hamlet.inspector/inspector", text = "All three are needed." }

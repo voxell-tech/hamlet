@@ -1,0 +1,14 @@
+id = "hamlet.needs"
+name = "Needs"
+version = "0.1.0"
+api = "0.1.0"
+
+[[asks]]
+capability = "agents.read"
+target = "local"
+reason = "Shows what the agents wait on you for"
+
+[[asks]]
+capability = "agents.chief"
+target = "local"
+reason = "Gives your answers to the agents, and stops them all when you say so"
