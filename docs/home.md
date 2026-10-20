@@ -61,9 +61,9 @@ An already-started refresh can finish after its client disconnects;
 logout or a newer sign-in invalidates its result. Retired credentials and
 transient sign-in answers remain in memory for scrubbing, not on disk.
 
-`chief_document` holds the charter, limits, settings and work-folder
-choices. A limits edit commits its document and record constraints
-together. Character belongs to the recorded agent. House notes are opened
+`chief_document` holds the charter, settings and work-folder choices. A
+hamlet's limits live only in its record, so a limits edit is one record
+change. Character belongs to the recorded agent. House notes are opened
 relative to the retained home descriptor without following links.
 `HAMLET_MODEL`, `HAMLET_BASE_URL`, `HAMLET_REFLECT_EVERY` and `HAMLET_NET`
 override stored settings for this process.
