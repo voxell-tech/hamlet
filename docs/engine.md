@@ -27,10 +27,24 @@ Each depends only on those above it, and each adds one Bevy plugin,
 | `engine/assets` | `hamlet_engine_assets` | The asset store, the type registry, references and change notification |
 | `engine/bus` | `hamlet_engine_bus` | Services and events between plugins, whatever host runs them |
 | `engine/net` | `hamlet_engine_net` | The network service: fetches to granted hosts at public addresses |
+| `engine/agents` | `hamlet_engine_agents` | The agents service: the agent core run in the engine, behind a protocol |
 | `engine/wasm` | `hamlet_engine_wasm` | The host of WASM plugins: wasmtime, a store per plugin, its budgets, and the glue from the WIT to the services. The only crate that knows wasmtime |
 | `engine/harness` | `hamlet_engine_harness` | The engine without a window, for tests, and `plugin_check` |
 | `engine/app` | `hamlet_engine` | The binary, and a demo plugin built into it |
 | `engine/sdk` | `hamlet_engine_sdk` | What a plugin is written with, built for `wasm32-wasip2` |
+
+The agent core is in `engine/` too, under its old crate names, so the
+engine runs it without reaching into `crates/`; the app in `crates/`
+depends on it from here.
+
+| Folder | Crate | What it is |
+|---|---|---|
+| `engine/sandbox` | `hamlet_sandbox` | Per-platform process sandboxes |
+| `engine/model` | `hamlet_model` | The model client, its settings, the catalogue of models, the session log |
+| `engine/home` | `hamlet_home` | A home on disk: its layout, charter and prompt, the chief's limits, the starter skills |
+| `engine/rules` | `hamlet_rules` | The hamlet's record and the rules over it, no Bevy |
+| `engine/agent_core` | `hamlet_core` | The agents' runtime as Bevy plugins: agents, sessions, tools and oversight |
+| `engine/testing` | `hamlet_testing` | A scratch folder for their tests |
 
 `engine/tuning/` holds the engine's tuning files. The typefaces are read
 from the repository's `assets/fonts/`, where their licences are.
@@ -59,8 +73,10 @@ same types.
   does not ask for.
 - **Capabilities.** An ask names a capability, its target and a reason in
   the plugin's words: `net.fetch` a host, `assets.read` a type name,
-  `services.call` another plugin's service. Powers that are never granted
-  have no name, so no manifest can ask for them.
+  `services.call` another plugin's service, and `agents.read`,
+  `agents.chief`, `agents.settings` and `agents.keys` the target `local`
+  (see [The agents](#the-agents)). Powers that are never granted have no
+  name, so no manifest can ask for them.
 - **Assets.** An `AssetId` the store gives, a `TypeName` such as
   `weather.forecast` with a version (`AssetType`), and an `AssetInfo`:
   id, type, owner, name and version. The engine never reads inside an
@@ -99,7 +115,7 @@ types, so the WIT names nothing twice.
   (a panel or settings page by name), and its requests, each giving a
   ticket: `create-asset`, `read-asset`, `update-asset`, `delete-asset`,
   `list-assets`, `hold-asset`, `release-asset`, `call`, `subscribe`,
-  `emit` and `fetch`. A ticket of 0 is a request not taken: one call
+  `emit`, `fetch` and `agents`. A ticket of 0 is a request not taken: one call
   made more than `[budgets] requests_per_call`.
 - **The guest** exports `declare` (its `Contribution`s), `draw` (the
   `WidgetTree` of a panel or settings page), `event` (a `WidgetEvent`),
@@ -247,7 +263,8 @@ builds the samples) runs both samples' scripts.
   unset, it is `~/.hamlet_engine`. Both names are constants in
   `home.rs` and nowhere else. Tests put in a `Home` of their own. It
   holds `workspaces.ron`, `grants.toml`, `switched_off.toml`, the
-  installed plugins in `plugins/` and the asset store in `assets/`.
+  installed plugins in `plugins/` and the asset store in `assets/`, and
+  is the agents' home too: their settings, records and sessions.
 - **Writing a file whole.** `write_whole` writes a file beside its
   place as `saving_<name>` and moves it over the old one, so a stop in
   the middle leaves the old file or the new one. The workspaces, the
@@ -782,6 +799,67 @@ runtime of its own.
 - **A fetch** is a `Fetch` on a child of its plugin, so it goes with
   it. With `Offline` in the app, as the harness has it, fetches are
   never sent and wait for `world.answer_fetch(..)` (`NetWorldExt`).
+
+## The agents
+
+`hamlet_engine_agents` runs the agent core (`hamlet_core`: sessions and
+their workers, oversight, the catalogue, the treasury) in the engine's
+world, as the app's core plugin does, on a Tokio runtime of its own. The
+agents' home is the engine's home. The chief is `HAMLET_USER`, else
+`USER`, and their sessions are kept under the channel `app`. When the
+agents cannot run (no sandbox, settings that cannot be read), the log
+says why and every request fails saying so.
+
+- **The protocol** is `hamlet_engine_api::agents`: a plugin asks with
+  `Request::Agents(AgentsRequest)`, `agents` in the WIT, and is
+  answered with `Reply::Agents(AgentsReply)`. Plain serde types, so a
+  remote harness can stand behind the same protocol later.
+- **Watching.** `Watch` sends each `AgentsEvent` from then on as
+  `AgentsReply::Event`, with the ticket of the `Watch`: the settings,
+  the link, the listing, the catalogue changed, a trial, the setup, the
+  charter, the realm's limits, the lasting permissions, the status,
+  sessions that came or went, what a working session says or does
+  (words streamed in a frame go in one event) and whether it works.
+- **Settings.** `Settings` gives the model, `reflect_every`, `allow_net`
+  and the endpoints by name and address, each with only whether it has
+  a key or is the ChatGPT plan, with the link and the listing. Each of
+  `SetModel`, `SetReflectEvery`, `SetAllowNet` and `RemoveEndpoint`
+  saves the settings; removing an endpoint forgets its key and signs
+  out of ChatGPT. `SetKey` and `ForgetKey` give or forget an endpoint's
+  key by name. `OpenUsage` opens the plan's usage page.
+- **Models.** `TestConnection`, `ListModels`, `Catalogue`,
+  `AllowModel`, `PriceModel` (only a model with no price, or the
+  person's own) and `TryModel`.
+- **Setting up a place for models**, as Welcome does: `Providers`,
+  `BeginSetup` (adding or not), `Connect` with a provider or an address
+  and a key, `SignIn` to OpenRouter or ChatGPT, `FindLocal`,
+  `PickModel` and `EndSetup`, followed in `Setup`: its stage, who
+  answered and with which models, and the problem in plain words. The
+  endpoint being set up, and a key a sign-in gave, stay in the service.
+- **The charter**: `Charter`, `EditCharter` (the home's own, opened in
+  the system's editor) and `ResetCharter`.
+- **The realm's limits**: `Limits`, and `SetLimit` of one key of
+  `votes`, `hamlets` or `road.grows_over_days`, failing with the
+  problem when the file cannot take it.
+- **Lasting permissions**: `Grants` and `Revoke`.
+- **Status**: the sandbox, the model, the link, the open session's use,
+  the first hamlet's spend, how many things wait for the chief, and
+  whether the open session works.
+- **The chief**: `Send` a line, a message or a slash command, to an
+  agent or a hamlet's mayor, and `Veto`.
+- **Sessions**: `Sessions`, `Open` (the chief's session with an agent
+  or a mayor, which the status then tells of) and `Messages`.
+- **Capabilities**, each on the target `local`: `agents.read` for what
+  is read and watched, `agents.settings` for what changes the settings,
+  the models, the setup, the charter and the limits, `agents.keys` for
+  giving or forgetting a key and signing in, and `agents.chief` for
+  sending, vetoing and revoking. A use answered Ask next time asks the
+  person first, as the other services do.
+- **Secrets stay in the service.** No reply holds a key, a ChatGPT
+  token or a sign-in; keys are kept in the system's keychain or a
+  private file of the home, as the app keeps them, but under the
+  keychain service `hamlet_engine` (`KEYCHAIN_SERVICE` in
+  `engine/core`), so the engine never reads or deletes the app's keys.
 
 ## Where the budgets are
 

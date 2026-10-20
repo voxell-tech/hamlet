@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+pub use keys::use_keychain_service;
 use keys::{load_key, save_key};
 use serde::{Deserialize, Serialize};
 

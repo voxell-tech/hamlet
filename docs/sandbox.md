@@ -10,7 +10,7 @@ Petitions for the chief.
 Tools have no network access until "Tools network access" is turned on
 under Agents in Settings, or `HAMLET_NET=1` is set.
 
-`crates/hamlet_sandbox/` holds the sandboxes and the policy a command runs
+`engine/sandbox/` holds the sandboxes and the policy a command runs
 under.
 
 ## A folder a hamlet works on
