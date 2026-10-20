@@ -253,7 +253,7 @@ impl Driver {
                         self.service.home.store(),
                         binding()?,
                         command["before"].as_str().map(str::to_owned),
-                        command["limit"].as_i64().unwrap_or(100),
+                        command["limit"].as_u64().unwrap_or(100),
                     )
                     .await?;
                 Ok(json!({"asked": binding()?.0}))
