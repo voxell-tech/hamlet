@@ -1,0 +1,39 @@
+# The look of the shell: warm near-black surfaces, brass, and lamplight
+# for what is live. Dark only. Each colour is "#rrggbbaa", and a time is
+# in seconds. What each value means is written beside its field in
+# engine/shell/src/theme.rs.
+
+[colors]
+background = "#120e0aff"
+bar = "#1b1510ff"
+seam = "#2c231bff"
+fill = "#2a2018ff"
+hover = "#34291fff"
+hairline = "#45351fff"
+accent = "#c9983fff"
+text = "#f2e7d0ff"
+dim = "#ab9f8bff"
+faint = "#d9c391ff"
+lit = "#f2b35aff"
+critical = "#f47560ff"
+
+[text]
+body = 14.0
+small = 12.0
+title = 13.0
+
+[space]
+gap = 8.0
+row = 28.0
+round = 4.0
+soft = 6.0
+divider = 1.0
+divider_grip = 8.0
+tab_padding = 12.0
+bar = 34.0
+status = 24.0
+panel = 16.0
+
+[motion]
+interact = 0.14
+expand = 0.22

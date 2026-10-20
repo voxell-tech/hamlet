@@ -124,3 +124,17 @@ impl PanelId {
         Self::try_from(format!("{owner}/{name}"))
     }
 }
+
+string_id!(
+    /// A command's full id: its owner and its name.
+    CommandId,
+    "command id",
+    is_owned
+);
+
+impl CommandId {
+    /// The command `name` of `owner`, a plugin's id or [`ENGINE`].
+    pub fn new(owner: &str, name: &str) -> Result<Self, IdError> {
+        Self::try_from(format!("{owner}/{name}"))
+    }
+}

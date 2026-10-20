@@ -1,0 +1,20 @@
+[package]
+name = "hamlet_engine_core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "What every engine module stands on: the tuning files, the home folder, the log and the budgets"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_engine_api.workspace = true
+bevy.workspace = true
+serde.workspace = true
+toml.workspace = true
+
+[features]
+# A saved change to a file under engine/assets/ reaches the running
+# engine: `cargo run -p hamlet_engine --features hot-reload`.
+hot-reload = []

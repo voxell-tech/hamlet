@@ -4,13 +4,15 @@
 pub mod asset;
 pub mod capability;
 pub mod id;
+pub mod layout;
 pub mod manifest;
 pub mod widget;
 pub mod wire;
 
 pub use asset::{AssetId, TypeName};
 pub use capability::{Ask, Capability};
-pub use id::{IdError, PanelId, PluginId};
+pub use id::{CommandId, IdError, PanelId, PluginId};
+pub use layout::{Axis, Layout};
 pub use manifest::{Manifest, ManifestError};
 pub use widget::{
     TreeError, TreeLimits, Widget, WidgetId, WidgetNode, WidgetTree,

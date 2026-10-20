@@ -1,0 +1,17 @@
+[package]
+name = "hamlet_engine_shell"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The engine's window: the theme, the dock and its panels, workspaces, the menu bar, the status line, commands and shortcuts"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_engine_api.workspace = true
+hamlet_engine_core.workspace = true
+bevy.workspace = true
+bevy_fynix.workspace = true
+ron.workspace = true
+serde.workspace = true

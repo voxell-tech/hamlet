@@ -1,8 +1,9 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "engine/*"]
-# The vendored fynix workspace is its own workspace.
-exclude = ["vendor"]
+# The vendored fynix workspace is its own workspace. The engine's
+# assets are files, not a crate.
+exclude = ["vendor", "engine/assets"]
 # `cargo build`, `cargo test` and `cargo clippy` at the root cover every
 # crate, so the checks in AGENTS.md need no flags.
 default-members = [".", "crates/*", "engine/*"]
@@ -29,6 +30,8 @@ hamlet_testing = { version = "0.1.0", path = "crates/hamlet_testing" }
 
 # the engine
 hamlet_engine_api = { version = "0.1.0", path = "engine/api" }
+hamlet_engine_core = { version = "0.1.0", path = "engine/core" }
+hamlet_engine_shell = { version = "0.1.0", path = "engine/shell" }
 
 # fynix
 bevy_fynix = { path = "vendor/fynix/crates/bevy_fynix" }
@@ -58,6 +61,7 @@ pulldown-cmark = { version = "0.13", default-features = false }
 regex = "1"
 rfd = "0.17"
 ring = "0.17"
+ron = "0.12"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1"
