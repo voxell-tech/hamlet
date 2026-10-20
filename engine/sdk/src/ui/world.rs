@@ -18,6 +18,10 @@ pub(crate) enum Handler {
     Toggle(Box<dyn Fn(&mut World, bool) + Send + Sync>),
     Commit(Box<dyn Fn(&mut World, String) + Send + Sync>),
     Pick(Box<dyn Fn(&mut World, u32) + Send + Sync>),
+    Submit(Box<dyn Fn(&mut World, String) + Send + Sync>),
+    Top(Box<dyn Fn(&mut World) + Send + Sync>),
+    Chose(Box<dyn Fn(&mut World, u32) + Send + Sync>),
+    Folder(Box<dyn Fn(&mut World, String) + Send + Sync>),
 }
 
 struct Held {
@@ -30,7 +34,7 @@ struct Held {
 #[derive(Default)]
 pub struct World {
     pub(crate) nodes: Nodes,
-    pub(crate) handlers: HashMap<Key, Handler>,
+    pub(crate) handlers: HashMap<Key, Vec<Handler>>,
     /// The address each node leads to, told of while the pointer is
     /// over it.
     pub(crate) addresses: HashMap<Key, String>,
@@ -126,23 +130,40 @@ impl World {
         }
     }
 
-    /// Runs the handler of `key` for `action`, if it has one for it.
+    /// Runs the handlers of `key` for `action`, those it has for it.
     pub(crate) fn handle(&mut self, key: Key, action: Action) {
-        let Some(handler) = self.handlers.remove(&key) else {
+        let Some(handlers) = self.handlers.remove(&key) else {
             return;
         };
-        match (&handler, action) {
-            (Handler::Click(run), Action::Click) => run(self),
+        for handler in &handlers {
+            handler.run(self, &action);
+        }
+        // A node built again in the meantime has handlers of its own.
+        if self.nodes.has(key) {
+            self.handlers.entry(key).or_insert(handlers);
+        }
+    }
+}
+
+impl Handler {
+    fn run(&self, world: &mut World, action: &Action) {
+        match (self, action) {
+            (Handler::Click(run), Action::Click)
+            | (Handler::Top(run), Action::ReachedTop) => run(world),
             (Handler::Toggle(run), Action::Toggled(on)) => {
-                run(self, on)
+                run(world, *on)
             }
-            (Handler::Commit(run), Action::Committed(text)) => {
-                run(self, text)
+            (Handler::Commit(run), Action::Committed(text))
+            | (Handler::Submit(run), Action::Submitted(text))
+            | (Handler::Folder(run), Action::Chosen(text)) => {
+                run(world, text.clone())
             }
-            (Handler::Pick(run), Action::Picked(at)) => run(self, at),
+            (Handler::Pick(run), Action::Picked(at))
+            | (Handler::Chose(run), Action::Chose(at)) => {
+                run(world, *at)
+            }
             _ => {}
         }
-        self.handlers.entry(key).or_insert(handler);
     }
 }
 

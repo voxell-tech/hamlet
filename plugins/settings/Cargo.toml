@@ -11,4 +11,5 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
+agents_ui = { path = "../agents_ui" }
 hamlet_engine_sdk.workspace = true

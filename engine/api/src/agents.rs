@@ -11,7 +11,7 @@ mod roster;
 use serde::{Deserialize, Serialize};
 
 pub use self::conversation::{
-    Change, ChangeLine, Focus, Mark, Papers, Part, Past, Pasts,
+    Change, ChangeLine, Focus, Gift, Mark, Papers, Part, Past, Pasts,
     Related, Selected, Skill,
 };
 pub use self::needs::{
@@ -19,7 +19,8 @@ pub use self::needs::{
     Sheet,
 };
 pub use self::roster::{
-    ClosedHamlet, Record, Roster, RosterAgent, RosterHamlet, Vote,
+    Bylaws, ClosedHamlet, Record, Roster, RosterAgent, RosterHamlet,
+    Vote,
 };
 use crate::capability::Capability;
 
@@ -198,6 +199,18 @@ pub enum AgentsRequest {
     Roster,
     /// A hamlet's record, by its name: [`AgentsReply::Record`].
     Record(String),
+    /// A hamlet's own limits, by its name: [`AgentsReply::Bylaws`].
+    Bylaws(String),
+    /// Sets one key of the limits of the hamlet `hamlet` to `value`,
+    /// written as in the file, or takes it out when `value` is none.
+    /// A key of the realm's is refused; a value the file cannot take
+    /// fails with the problem.
+    SetBylaw {
+        hamlet: String,
+        section: String,
+        key: String,
+        value: Option<String>,
+    },
     /// What waits for the chief: [`AgentsReply::Needs`].
     Needs,
     /// Answers something that waits, with a reason or a reply.
@@ -255,7 +268,8 @@ impl AgentsRequest {
             | Self::EndSetup
             | Self::EditCharter
             | Self::ResetCharter
-            | Self::SetLimit { .. } => Capability::AgentsSettings,
+            | Self::SetLimit { .. }
+            | Self::SetBylaw { .. } => Capability::AgentsSettings,
             Self::Revoke { .. }
             | Self::Send { .. }
             | Self::Veto(_) => Capability::AgentsChief,
@@ -290,6 +304,7 @@ impl AgentsRequest {
             | Self::ReadPast(_)
             | Self::Roster
             | Self::Record(_)
+            | Self::Bylaws(_)
             | Self::Needs => Capability::AgentsRead,
         }
     }
@@ -320,6 +335,7 @@ pub enum AgentsReply {
     Pasts(Pasts),
     Roster(Roster),
     Record(Record),
+    Bylaws(Bylaws),
     Needs(Vec<Need>),
 }
 

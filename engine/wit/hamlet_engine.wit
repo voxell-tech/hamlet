@@ -102,13 +102,15 @@ interface ui {
         /// A switch showing `on`. The person switching it is a
         /// `toggled`.
         toggle,
-        /// A line of text to edit, showing `text`, and `placeholder`
-        /// while it is empty. What the person leaves in it is a
-        /// `committed`.
+        /// Text to edit, showing `text`, and `placeholder` while it
+        /// is empty. What the person leaves in it is a `committed`.
+        /// With more than one of `lines`, Enter sends what is typed
+        /// as a `submitted` and empties it.
         field,
         /// The rows of a list, a divider between each.
         %list,
-        /// A column that scrolls.
+        /// A column that scrolls. One that sticks is a `reached-top`
+        /// each time it is scrolled to its top.
         scroll,
         /// A line across.
         divider,
@@ -129,6 +131,42 @@ interface ui {
         half,
         gap,
         double,
+    }
+
+    /// Where the children of a frame sit along it.
+    enum align {
+        start,
+        end,
+    }
+
+    /// What a frame is drawn on, by role.
+    enum fill {
+        /// Nothing.
+        none,
+        /// A card: a shade above the panel, in a frame.
+        card,
+        /// The accent's, as what the chief said is.
+        accent,
+        /// A round one, as about a speaker's picture.
+        disc,
+    }
+
+    /// One item of a node's menu.
+    record menu-item {
+        /// Its words.
+        text: string,
+        /// The words of the item it is under, which opens a menu of
+        /// those under it beside the menu, or none if empty.
+        group: string,
+        /// It refuses, stops or throws away.
+        critical: bool,
+    }
+
+    /// A menu a node opens at the pointer on a right-click.
+    record menu {
+        items: list<menu-item>,
+        /// It opens on a click too.
+        click: bool,
     }
 
     /// The colour of text, by role.
@@ -171,8 +209,9 @@ interface ui {
     /// One property of a node, of the kinds named. A node starts with
     /// each at its first value: empty, `body`, `body`, false, `body`,
     /// 1.0, `plain`, `column`, `gap`, empty, false, (0.0, 0.0),
-    /// empty, 0. A role is filled in from the engine's theme as it is
-    /// now, again whenever the theme changes.
+    /// empty, 0, 1, false, empty, `start`, `none`, no items, empty. A
+    /// role is filled in from the engine's theme as it is now, again
+    /// whenever the theme changes.
     variant property {
         /// Of a label, a button, an icon and a field.
         text(string),
@@ -203,6 +242,30 @@ interface ui {
         options(list<string>),
         /// Of a dropdown: the place of the option shown.
         selected(u32),
+        /// Of a field: the most lines it grows to as it is typed in.
+        /// With more than one, Enter sends, Shift+Enter adds a line
+        /// and Escape keeps what is typed and leaves it.
+        lines(u32),
+        /// Of a scroll: it keeps to its end as what it holds grows,
+        /// until the person scrolls up, and again once they are back
+        /// at its end. What is put above it after a `reached-top`
+        /// leaves what was shown where it was.
+        stick(bool),
+        /// Of every kind: words shown near the pointer while it rests
+        /// on the node, or none if empty.
+        tip(string),
+        /// Of a frame.
+        align(align),
+        /// Of a frame: what it is drawn on. A frame with a fill is
+        /// padded and no wider than what holds it.
+        fill(fill),
+        /// Of every kind: the menu it opens, or none with no items.
+        /// The person choosing an item is a `chose`.
+        menu(menu),
+        /// Of a button: the title of the system's dialog a folder is
+        /// chosen in, which a press opens in place of a `click`, or
+        /// none if empty. The folder chosen is a `chosen`.
+        folder(string),
     }
 
     /// What an item of the status line shows.
@@ -228,7 +291,8 @@ interface ui {
 
     /// Brings the plugin's panel `name` to the front, or shows its
     /// settings page `name` in Settings and brings Settings to the
-    /// front.
+    /// front. A full id, `plugin.id/name`, brings the panel of that
+    /// id to the front, of any plugin, if there is one.
     open: func(name: string);
 
     /// A node of a panel. Dropping it takes it away, and every node
@@ -269,6 +333,17 @@ interface ui-guest {
         committed(string),
         /// A dropdown's option picked, by its place.
         picked(u32),
+        /// What was typed in a field of several lines as Enter sent
+        /// it.
+        submitted(string),
+        /// A scroll that sticks was scrolled to its top, or holds too
+        /// little to scroll: once for each height of what it holds.
+        reached-top,
+        /// An item of a node's menu chosen, by its place.
+        chose(u32),
+        /// The folder chosen in the dialog a button opened, by its
+        /// path.
+        chosen(string),
     }
 
     /// What the person did to the node the plugin named `key`.

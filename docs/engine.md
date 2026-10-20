@@ -140,28 +140,53 @@ types, so the WIT names nothing twice.
   plugin's status items shows: an icon by name, words, a tone and
   words under the pointer), `show-overlay` (one of its overlays shown
   or hidden) and `open` (one of its panels brought to the front, or
-  one of its settings pages shown in Settings). Each counts as a
+  one of its settings pages shown in Settings; or, by a full id
+  `plugin.id/name`, a panel of any plugin brought to the front, which
+  needs no capability since it changes only the dock). Each counts
+  as a
   change to a node towards the budgets.
 - **The kinds of node**: `frame` (a column or a row), `label`,
   `button` (showing its text, or holding an icon and a label as an
   icon button does), `icon` (one of the engine's set, by name),
-  `toggle`, `field` (one line of text), `list` (rows with a divider
+  `toggle`, `field` (text to edit), `list` (rows with a divider
   between each), `scroll` (a column that scrolls), `divider` and
   `dropdown` (one of its options shown, opening a list to pick
   another). A frame, a button, a list and a scroll hold nodes.
 - **The properties**, each of the kinds it names: `text`, `tone`,
-  `size`, `bold`, `face` (the body's or the display face), `opacity`
-  and `offset` (of every kind), `style` (a button's), `direction` and
-  `space` (a frame's), `placeholder` (a field's), `on` (a toggle's),
-  and `options` and `selected` (a dropdown's). A tone, a size and a
+  `size`, `bold`, `face` (the body's or the display face), `opacity`,
+  `offset`, `tip` and `menu` (of every kind; a tip is words shown
+  near the pointer while it rests on the node, and a menu its items,
+  opened at the pointer on a right-click and, when it says so, on a
+  click, an item with a `group` under a row of that name that opens
+  them beside it), `style` and `folder` (a button's; a button with a
+  folder's title opens the system's dialog to choose a folder when
+  it is pressed, in place of a click),
+  `direction`, `align` (its children at its start or its end),
+  `fill` (none, a card, the accent's or a disc, by the theme's
+  roles; a filled frame is padded and no wider than what holds it)
+  and
+  `space` (a frame's), `placeholder` and `lines` (a field's: the most
+  lines it grows to, one to start with), `on` (a toggle's), and
+  `options` and `selected` (a dropdown's). A field of more than one
+  line is for a message: Enter sends what is typed and empties it,
+  Shift+Enter adds a line, and Escape keeps what is typed and leaves
+  it. A scroll's `stick` keeps it to its end as it grows, until the
+  person scrolls up, and again once they are back at its end; what
+  is put above it after it reached its top leaves the rows shown
+  where they were. A tone, a size and a
   space are roles, filled in from the theme as it is now. A tone,
   size, opacity, space or offset can move. Setting a property a
   node's kind does not have, or making a node under one that holds
   none, fails the call.
 - **What the person does**: a click, the pointer over a node or off
   it, a press or a release, a toggle switched (`toggled`, with the
-  state asked for), a field's text as it was left (`committed`), and
-  a dropdown's option picked (`picked`, by its place).
+  state asked for), a field's text as it was left (`committed`), a
+  dropdown's option picked (`picked`, by its place), what Enter
+  sent from a field of several lines (`submitted`), and a scroll that
+  sticks scrolled to its top, or holding too little to scroll, once
+  for each height of what it holds (`reached-top`), and an item of a
+  node's menu chosen (`chose`, by its place), and the folder chosen
+  in the dialog a button opened (`chosen`, by its path).
 
 ## Writing a plugin
 
@@ -186,9 +211,15 @@ the engine the SDK comes with.
   `toggle`, `field`, `dropdown`, `divider`, and the holders `column`,
   `row`, `list` and `scroll`; `keyed` builds a view again when its
   key changes, and `each` a view per item of a list. `on_click`,
-  `on_toggle`, `on_commit` and `on_pick` run a handler with the
-  world, and `when::<Hovered, _>` and `when::<Pressed, _>` hold rules
-  while the engine says so. `leads_to` gives a view an address that
+  `on_toggle`, `on_commit`, `on_submit`, `on_pick` and `on_top` run a
+  handler
+  with the world, a node holding as many as it is given, and `when::<Hovered, _>` and `when::<Pressed, _>` hold rules
+  while the engine says so. `tip` gives a view words shown near the
+  pointer while it rests on it, and `menu` (on a right-click) and
+  `menu_on_click` (on a click too) a menu of `menu_item`s, each
+  running a handler when it is chosen, `under` a group or `critical`.
+  A button's `folder` and `on_folder` have the person choose a
+  folder in the system's dialog. `leads_to` gives a view an address that
   the plugin tells the desktop service of (`Hover`) while the pointer
   is over it, so the status line shows it. `set_status`,
   `show_overlay` and `open` change what the plugin added outside its
@@ -607,7 +638,9 @@ plugin to are `[budgets]`.
   whose folder is gone goes with it.
 - **ADD PLUGIN...** on the Plugins panel asks for a plugin to be added
   (`AddPlugin`). The host opens the system's dialog on the main thread
-  and waits for it off the frame. The folder chosen, or one given by
+  and waits for it off the frame (`dialog.rs`, which a button of a
+  plugin's with a `folder` opens too, one dialog at a time). The
+  folder chosen, or one given by
   `AddFrom` as a test does, is checked: a `plugin.toml` the engine can
   take and a `plugin.wasm`, each a plain file within its size, not a
   link, and the folder neither in the home nor holding it. A folder of
@@ -747,17 +780,24 @@ plugin to are `[budgets]`.
   label, a `content_button` setting them out as `icon_button` does; an
   icon one of the engine's set by its name (`plus`, `check`, `bell`,
   ... as `Glyph::name` has them), a name the set does not have shown
-  as it is; a toggle `toggle`, a field `field`, a list `list_row`s, a
-  scroll `scroll_area`, a divider `divider`, and a dropdown
-  `dropdown`. A widget is built again when what it is built as
-  changes, such as a button's style or a dropdown's options.
+  as it is; a toggle `toggle`, a field `field`, or `message_field`
+  with more than one line (`message.rs`), a list `list_row`s, a
+  scroll `scroll_area`, with `StickToEnd` when it sticks
+  (`stick.rs`), a divider `divider`, and a dropdown
+  `dropdown`. A node with a tip has fynix's tooltip, a `note` of it,
+  and one with a menu fynix's context menu, a `submenu` for each
+  group; a click opens it as a right-click does.
+  A widget is built again when what it is built as changes, such as
+  a button's style, a dropdown's options, whether it has a tip, or
+  its menu.
 - **Moved by the engine.** A tone, size, opacity, space or offset set
   over a motion is moved from where it is shown over the theme's curve
   for it, a tone as its colour. A role is filled in from the theme as
   it is now, while it moves and again whenever the theme changes.
 - **Inputs back.** A click, the pointer over a watched node or off it,
   a button down on it or up, a toggle switched and a field's text (on
-  Enter, or as the field is left) go into the inbox, and are handed
+  Enter, or as the field is left, and sent from a field of several
+  lines) go into the inbox, and are handed
   over together in one `input`; the texts together are cut to
   `bytes_per_call`. A plugin that answers that something still moves
   is given a `frame` each frame until it answers that nothing does.
@@ -890,30 +930,53 @@ verb beside CANCEL with a warning for agents it cuts short.
   the sessions `Related` gives, in the order said, each run of one
   speaker to one listener named once; a turn's steps fold into one
   row whose heading says what it did and opens it, its edits shown
-  even shut. The last 24 rows are built, and EARLIER builds 24 more.
+  even shut. It keeps to its end until the chief scrolls up, and
+  another conversation is shown from its end. The last 24 rows are
+  built, and 24 more each time it is scrolled to its top, the rows
+  read staying where they were.
+  The chief's bubbles sit at the right on the accent's fill, and
+  anyone else's at the left on a card, by a disc with the speaker's
+  picture at the end of its run.
   A bubble shows its words plainly, quotes dim, or as Markdown, its
   hour on the chief's clock, and under the pointer Reply and, for the
   chief's own words while the agent rests, Rewind to here. The bar
   holds the card of questions the agent waits on, what the next
-  message replies to, the field and SEND. A line that begins with `/`
+  message replies to, and the field, "Message", which grows to eight
+  lines: Enter sends, Shift+Enter adds a line and Escape keeps the
+  draft. A line that begins with `/`
   is not sent: the chat says why, in its own line of time. The chat
   comes to the front when the open conversation moves to another, or
   a session resumed is read again.
 - **`plugins/inspector`** (`hamlet.inspector`, asking `agents.read`,
-  `agents.chief` and `desktop.open https`) shows what is selected. An agent: its hamlet as
-  a way back, its state, STOP while it works, its purpose, its model
-  and use, its spend, the Model dropdown (`RunModel`), and NOTES
+  `agents.chief`, `agents.settings` and `desktop.open https`) shows
+  what is selected. An agent: its hamlet as
+  a way back, its state, STOP while it works, More (`more.rs`: a
+  menu of talking to it, its prompt, stopping it, a road to another
+  agent of its hamlet, a skill another has, merging, undoing the last
+  change, making it mayor and removing it, each a decree to its
+  hamlet, asked about first where `main` asks), its purpose, its
+  model and use, its spend, the Model dropdown (`RunModel`), and NOTES
   (REFLECT NOW), CHARACTER (EDIT), ARCHIVE and PROMPT. The archive
-  lists the past sessions with a search and counts, each read,
-  resumed or deleted, and reads one forty messages at a time. One
-  that is gone, with RESTORE, DELETE FOR GOOD and ITS HAMLET. The
-  library. Every hamlet, searched, with FOUND A HAMLET and those
-  closed down. A hamlet, with RENAME, CLOSE DOWN, the folder it works
-  on and its mode, and AGENTS, BYLAWS (its limits file and START IT
-  AGAIN NOW) and RECORD.
+  lists the past sessions with a search and counts, each read on a
+  click, and read, resumed (bringing the chat to the front) or
+  deleted from its menu, and reads one
+  forty messages at a time. One that is gone, with RESTORE, DELETE FOR
+  GOOD and ITS HAMLET. The library. Every hamlet, searched, each with
+  Close Down in its menu, with FOUND A HAMLET and those closed down.
+  A hamlet, with RENAME, CLOSE DOWN, the folder it works on, CHOOSE
+  A FOLDER (or CHOOSE ANOTHER) in the system's dialog, which gives it
+  `/folder` with the path, and its mode, and AGENTS, BYLAWS
+  (`bylaws.rs`: its own limits as `main`'s rules panel sets them, on
+  one page: the budget's period and cap with START IT AGAIN NOW, a
+  task's cost and messages, a road's price, the models it may run
+  and its default, what its mayor may do without asking, and its
+  most agents and roads, each written with `SetBylaw`) and RECORD.
+  The realm's page and the bylaws share the controls of a limit,
+  `agents_ui`'s `whole`, `switch` and `setting`.
 - **`plugins/skills`** (`hamlet.skills`, asking `agents.read` and
   `agents.chief`) is the agent's own skills over the library's, each
-  with TAKE OUT.
+  with TAKE OUT, and OPEN CHAT, which brings the chat to the front,
+  while the library is empty.
 - **`plugins/needs`** (`hamlet.needs`, asking `agents.read` and
   `agents.chief`) is what the agents wait on the chief for, oldest
   first, with the reason field, STOP ALL, and the answers each takes;
@@ -1093,7 +1156,8 @@ says why and every request fails saying so.
   the open conversation.
 - **Papers and skills**: `Papers` (the notes, the character and the
   own skills of the open conversation's agent, the first two cut at
-  6,000 characters), `Prompt`, `EditCharacter` (made empty if there
+  6,000 characters, and the skills of the other agents of its
+  hamlet it could be given), `Prompt`, `EditCharacter` (made empty if there
   is none, opened in the system's editor), and `Skills`, the
   library's, told again as `AgentsEvent::Skills` when they change.
 - **The archive** (`archive.rs`): `Pasts` with a search, `ReadPast`
@@ -1104,7 +1168,10 @@ says why and every request fails saying so.
   with its state in words, its account and spend, and the hamlets
   closed down; it is told again as `AgentsEvent::Roster` when it
   changes. `Record` is a hamlet's budget, votes, comings and goings
-  and limits file. `RunModel` has an agent run a model from now on,
+  and limits file. `Bylaws` is what a hamlet's own limits file holds
+  for it alone, and `SetBylaw` writes one key of that file, refusing
+  a key of the realm's and failing with the problem when the file
+  cannot take it. `RunModel` has an agent run a model from now on,
   written as the app does: the mayor's pinned in its hamlet's limits,
   another's chosen as its mayor would, its hamlet let run it.
 - **What waits for the chief** (`needs.rs`): `Needs`, told again as
@@ -1115,8 +1182,8 @@ says why and every request fails saying so.
   sheet.
 - **Capabilities**, each on the target `local`: `agents.read` for what
   is read and watched, and the focus, `agents.settings` for what
-  changes the settings, the models, the setup, the charter and the
-  limits, `agents.keys` for giving or forgetting a key and signing
+  changes the settings, the models, the setup, the charter, the
+  realm's limits and a hamlet's bylaws, `agents.keys` for giving or forgetting a key and signing
   in, and `agents.chief` for sending, vetoing, revoking, rewinding,
   decrees, the character, deleting a past session and answering what
   waits. A use answered Ask next time asks the

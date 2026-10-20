@@ -11,6 +11,7 @@ pub enum SurfaceChange {
     Status { name: String, item: StatusItem },
     /// Its overlay shown or hidden.
     Overlay { name: String, shown: bool },
-    /// Its panel or settings page brought to the front.
+    /// Its panel or settings page brought to the front, or the panel
+    /// of a full id, any plugin's.
     Open(String),
 }

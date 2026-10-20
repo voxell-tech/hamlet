@@ -524,6 +524,27 @@ impl AgentsWorldExt for World {
             AgentsRequest::Record(hamlet) => {
                 self.record(&hamlet).map(AgentsReply::Record)
             }
+            AgentsRequest::Bylaws(hamlet) => {
+                self.hamlet_root(&hamlet).map(|root| {
+                    AgentsReply::Bylaws(views::bylaws(&root))
+                })
+            }
+            AgentsRequest::SetBylaw {
+                hamlet,
+                section,
+                key,
+                value,
+            } => {
+                if views::of_the_realm(&section, &key) {
+                    return Err(Failure::Refused(format!(
+                        "{section}.{key} is a limit of the realm"
+                    )));
+                }
+                let root = self.hamlet_root(&hamlet)?;
+                limits::set(&root, &section, &key, value.as_deref())
+                    .map_err(|why| failed(&why))?;
+                done
+            }
             AgentsRequest::Needs => {
                 Ok(AgentsReply::Needs(self.needs()))
             }

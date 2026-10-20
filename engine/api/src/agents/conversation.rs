@@ -63,6 +63,16 @@ pub struct Papers {
     pub character: String,
     /// Its own skills.
     pub skills: Vec<Skill>,
+    /// The skills another agent of its hamlet has that it could be
+    /// given.
+    pub gifts: Vec<Gift>,
+}
+
+/// A skill an agent could be given, and whose it is.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct Gift {
+    pub skill: String,
+    pub from: Option<String>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]

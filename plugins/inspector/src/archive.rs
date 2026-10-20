@@ -2,7 +2,7 @@
 //! agent, searched, each to be read, resumed or deleted, and the
 //! reader of one.
 
-use agents_ui::{Focused, Heard, ask, entry_view, since};
+use agents_ui::{Focused, Heard, ask, entry_view, show_chat, since};
 use hamlet_engine_sdk::api::agents::{
     AgentsReply, AgentsRequest, Past, Pasts, Recipient,
     SessionMessage,
@@ -10,8 +10,8 @@ use hamlet_engine_sdk::api::agents::{
 use hamlet_engine_sdk::ui::{
     AnyView, ButtonProps, ButtonStyle, Cx, Face, FrameProps, Size,
     Space, Tone, UiExt, ViewExt, World, button, column, divider,
-    each, field, icon_button, keyed, label, pressable, resource, row,
-    scroll,
+    each, field, icon_button, keyed, label, menu_item, pressable,
+    resource, row, scroll,
 };
 
 use crate::with;
@@ -179,6 +179,7 @@ fn resume(world: &mut World, past: &Past) {
             text: format!("/resume {number}"),
         },
     );
+    show_chat();
 }
 
 /// Deletes the session being read.
@@ -197,43 +198,36 @@ fn delete(world: &mut World) {
 
 fn row_view(past: &Past) -> AnyView {
     let live = past.number.is_none();
-    let (read, resumed, doomed) =
-        (past.clone(), past.clone(), past.clone());
-    let mut acts = Vec::new();
+    let (read, opened, resumed, doomed) =
+        (past.clone(), past.clone(), past.clone(), past.clone());
+    let mut items =
+        vec![menu_item("Read", move |world| open(world, &opened))];
     if past.ours {
-        acts.push(
-            button("Resume")
-                .style(ButtonStyle::Quiet)
-                .on_click(move |world| resume(world, &resumed))
-                .boxed(),
-        );
+        items.push(menu_item("Resume", move |world| {
+            resume(world, &resumed)
+        }));
     }
     if !live {
-        acts.push(
-            button("Delete...")
-                .style(ButtonStyle::Quiet)
-                .on_click(move |world| {
-                    // The reader asks before it deletes.
-                    open(world, &doomed);
-                    world.resource_mut::<Archive>().doomed = true;
-                })
-                .boxed(),
+        items.push(
+            menu_item("Delete...", move |world| {
+                // The reader asks before it deletes.
+                open(world, &doomed);
+                world.resource_mut::<Archive>().doomed = true;
+            })
+            .critical(),
         );
     }
-    column((
-        pressable((column((
-            label(shortened(&past.title)).bold(true).tone(if live {
-                Tone::Accent
-            } else {
-                Tone::Body
-            }),
-            label(detail(past)).size(Size::Small).tone(Tone::Dim),
-        ))
-        .space(Space::None),))
-        .on_click(move |world| open(world, &read)),
-        row(acts).space(Space::Half),
+    pressable((column((
+        label(shortened(&past.title)).bold(true).tone(if live {
+            Tone::Accent
+        } else {
+            Tone::Body
+        }),
+        label(detail(past)).size(Size::Small).tone(Tone::Dim),
     ))
-    .space(Space::None)
+    .space(Space::None),))
+    .on_click(move |world| open(world, &read))
+    .menu(items)
     .boxed()
 }
 

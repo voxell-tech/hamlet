@@ -36,15 +36,17 @@ pub use fynix::{
 pub use self::elements::{
     Button, ButtonProps, Divider, DividerProps, Dropdown,
     DropdownProps, Field, FieldProps, Frame, FrameProps, Icon,
-    IconProps, Label, LabelProps, Leads, List, ListProps, OnInput,
-    Scroll, ScrollProps, Stack, Toggle, ToggleProps, UiExt, button,
-    column, divider, dropdown, field, heading, icon, icon_button,
-    label, list, pressable, row, scroll, toggle,
+    IconProps, Label, LabelProps, Leads, List, ListProps, MenuItem,
+    Menued, OnInput, Scroll, ScrollProps, Stack, Tipped, Toggle,
+    ToggleProps, UiExt, button, column, divider, dropdown, field,
+    heading, icon, icon_button, label, list, menu_item, pressable,
+    row, scroll, toggle,
 };
 pub use self::nodes::{Key, States};
 pub use self::world::{World, resource};
 pub use crate::bindings::hamlet::engine::ui::{
-    ButtonStyle, Direction, Face, Size, Space, StatusItem, Tone,
+    Align, ButtonStyle, Direction, Face, Fill, Size, Space,
+    StatusItem, Tone,
 };
 
 /// The engine, as a backend of fynix.
@@ -114,6 +116,8 @@ pub fn show_overlay(name: &str, shown: bool) {
 
 /// Brings the plugin's panel `name` to the front, or shows its
 /// settings page `name` in Settings and brings Settings to the front.
+/// A full id, `plugin.id/name`, brings the panel of that id to the
+/// front, of any plugin, if there is one.
 pub fn open(name: &str) {
     crate::bindings::hamlet::engine::ui::open(name);
 }

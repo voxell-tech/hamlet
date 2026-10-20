@@ -14,10 +14,10 @@ use hamlet_engine_sdk::ui::{
 };
 
 use crate::overview::{pressed_card, standing};
-use crate::select;
+use crate::{bylaws, select};
 
 /// The first hamlet, which is the home itself and stays.
-const HOME: &str = "home";
+pub(crate) const HOME: &str = "home";
 
 /// The characters of a purpose shown on a card.
 const PURPOSE: usize = 96;
@@ -92,7 +92,7 @@ fn decree(world: &mut World, id: &str, text: String) {
 }
 
 /// Asks before the hamlet `id` is closed down.
-fn close_down(world: &mut World, id: &str) {
+pub(crate) fn close_down(world: &mut World, id: &str) {
     let working = world
         .resource::<Roster>()
         .agents
@@ -171,12 +171,25 @@ fn naming(id: String) -> AnyView {
 /// The folder the hamlet works on, and how.
 fn folder(hamlet: &RosterHamlet) -> AnyView {
     let id = hamlet.id.clone();
+    let chooser = id.clone();
     let mut parts = vec![
         label("WORKS ON")
             .bold(true)
             .face(Face::Display)
             .tone(Tone::Faint)
             .boxed(),
+        row((icon_button(
+            "folder",
+            match hamlet.folder {
+                Some(_) => "CHOOSE ANOTHER",
+                None => "CHOOSE A FOLDER",
+            },
+        )
+        .folder("Choose the folder this hamlet works on")
+        .on_folder(move |world, folder| {
+            decree(world, &chooser, format!("/folder {folder}"))
+        }),))
+        .boxed(),
     ];
     match &hamlet.folder {
         Some(folder) => {
@@ -370,32 +383,6 @@ fn agents(agents: &[RosterAgent]) -> AnyView {
     column(parts).space(Space::Half).boxed()
 }
 
-fn bylaws(id: String) -> AnyView {
-    column((
-        label("THE BUDGET")
-            .bold(true)
-            .face(Face::Display)
-            .tone(Tone::Faint),
-        row((icon_button("restore", "START IT AGAIN NOW").on_click(
-            move |world| decree(world, &id, "/reset-budget".into()),
-        ),)),
-        label("What was spent stays in the record.")
-            .size(Size::Small)
-            .tone(Tone::Dim),
-        label("ITS LIMITS")
-            .bold(true)
-            .face(Face::Display)
-            .tone(Tone::Faint),
-        label(resource::<Records, _>(|records| {
-            records.record.limits.clone()
-        }))
-        .size(Size::Small)
-        .tone(Tone::Dim),
-    ))
-    .space(Space::Half)
-    .boxed()
-}
-
 fn record(id: String) -> AnyView {
     keyed(
         resource::<Records, _>(|records| records.record.clone()),
@@ -450,9 +437,13 @@ fn record(id: String) -> AnyView {
 /// Shows `tab` of the hamlet `id`.
 fn show(world: &mut World, id: &str, tab: Tab) {
     world.resource_mut::<Shown>().0 = tab;
-    if tab != Tab::Agents {
-        world.resource_mut::<Records>().of = Some(id.to_string());
-        ask(world, AgentsRequest::Record(id.to_string()));
+    match tab {
+        Tab::Agents => {}
+        Tab::Bylaws => bylaws::read(world, id),
+        Tab::Record => {
+            world.resource_mut::<Records>().of = Some(id.to_string());
+            ask(world, AgentsRequest::Record(id.to_string()));
+        }
     }
 }
 
@@ -516,7 +507,7 @@ pub(crate) fn hamlet(id: String) -> AnyView {
                     )
                     .boxed()
                 }
-                Tab::Bylaws => bylaws(id),
+                Tab::Bylaws => bylaws::bylaws(id),
                 Tab::Record => record(id),
             }
         });

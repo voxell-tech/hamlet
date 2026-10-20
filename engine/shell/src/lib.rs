@@ -7,9 +7,11 @@ pub mod dock;
 pub mod fonts;
 pub mod icons;
 mod menu;
+pub mod message;
 pub mod overlay;
 pub mod settings;
 mod status;
+pub mod stick;
 pub mod style;
 mod switcher;
 pub mod theme;
@@ -62,6 +64,7 @@ pub fn plugin(app: &mut App) {
         switcher::plugin,
         command::plugin,
         menu::plugin,
+        (message::plugin, stick::plugin),
         status::plugin,
         overlay::plugin,
     ));
