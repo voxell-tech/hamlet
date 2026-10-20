@@ -95,7 +95,9 @@ same types.
   mismatch, out of budget, failed). The other messages are `Changed`
   and `Gone` for an asset held, and `Event`.
 - **What a plugin adds** is a `Contribution` each: a panel, a command,
-  a menu entry, a shortcut, a settings page or a suggested workspace.
+  a menu entry, a shortcut, a settings page (with its icon and a line
+  on what it holds), a settings footer, a suggested workspace, a
+  status item or an overlay.
 - **The wire format** is postcard, through `encode` and `decode`.
   `decode` refuses bytes left over after the value.
 
@@ -120,32 +122,42 @@ types, so the WIT names nothing twice.
   call is passed to the services as the call ends, and their messages
   reach it in one `receive` on the next frame it is served. A plugin's
   stores never meet: the engine copies what passes between them.
-- **Panels and settings pages** are the world `ui-plugin`: `plugin`
-  with the interface `ui`, whose resource `node` the plugin makes,
+- **Panels, settings pages, settings footers and overlays** are the
+  world `ui-plugin`: `plugin` with the interface `ui`, whose resource
+  `node` the plugin makes,
   last under a parent that holds nodes, with a key of its own;
   `set`s a property of (at once, or over a `motion` where it can
   move); `reorder`s; `watch`es for hover and press; and drops to take
   it away with what is under it. And the export `ui-guest`: `mount` (a
-  panel or settings page to build under a root node the engine
-  gives), `unmount`, `input` (what the person did, by key) and
-  `frame`, each answering whether something still moves.
+  panel, settings page, footer or overlay to build under a root node
+  the engine gives), `unmount`, `input` (what the person did, by key)
+  and `frame`, each answering whether something still moves.
+- **Besides the nodes**, `ui` has `set-status` (what one of the
+  plugin's status items shows: an icon by name, words, a tone and
+  words under the pointer), `show-overlay` (one of its overlays shown
+  or hidden) and `open` (one of its panels brought to the front, or
+  one of its settings pages shown in Settings). Each counts as a
+  change to a node towards the budgets.
 - **The kinds of node**: `frame` (a column or a row), `label`,
   `button` (showing its text, or holding an icon and a label as an
   icon button does), `icon` (one of the engine's set, by name),
   `toggle`, `field` (one line of text), `list` (rows with a divider
-  between each), `scroll` (a column that scrolls) and `divider`. A
-  frame, a button, a list and a scroll hold nodes.
+  between each), `scroll` (a column that scrolls), `divider` and
+  `dropdown` (one of its options shown, opening a list to pick
+  another). A frame, a button, a list and a scroll hold nodes.
 - **The properties**, each of the kinds it names: `text`, `tone`,
   `size`, `bold`, `face` (the body's or the display face), `opacity`
   and `offset` (of every kind), `style` (a button's), `direction` and
-  `space` (a frame's), `placeholder` (a field's) and `on` (a
-  toggle's). A tone, a size and a space are roles, filled in from the
-  theme as it is now. A tone, size, opacity, space or offset can
-  move. Setting a property a node's kind does not have, or making a
-  node under one that holds none, fails the call.
+  `space` (a frame's), `placeholder` (a field's), `on` (a toggle's),
+  and `options` and `selected` (a dropdown's). A tone, a size and a
+  space are roles, filled in from the theme as it is now. A tone,
+  size, opacity, space or offset can move. Setting a property a
+  node's kind does not have, or making a node under one that holds
+  none, fails the call.
 - **What the person does**: a click, the pointer over a node or off
   it, a press or a release, a toggle switched (`toggled`, with the
-  state asked for), and a field's text as it was left (`committed`).
+  state asked for), a field's text as it was left (`committed`), and
+  a dropdown's option picked (`picked`, by its place).
 
 ## Writing a plugin
 
@@ -167,10 +179,13 @@ the engine the SDK comes with.
   it, of the kind of its element, and a property still at its first
   value is not sent. The elements are `label` (and `heading`),
   `button`, `icon_button` (an icon and a label in a button), `icon`,
-  `toggle`, `field`, `divider`, and the holders `column`, `row`,
-  `list` and `scroll`. `on_click`, `on_toggle` and `on_commit` run a
-  handler with the world, and `when::<Hovered, _>` and
-  `when::<Pressed, _>` hold rules while the engine says so.
+  `toggle`, `field`, `dropdown`, `divider`, and the holders `column`,
+  `row`, `list` and `scroll`; `keyed` builds a view again when its
+  key changes, and `each` a view per item of a list. `on_click`,
+  `on_toggle`, `on_commit` and `on_pick` run a handler with the
+  world, and `when::<Hovered, _>` and `when::<Pressed, _>` hold rules
+  while the engine says so. `set_status`, `show_overlay` and `open`
+  change what the plugin added outside its views.
   `transition` hands each change of a tone, size, opacity, space or
   offset to the engine with its motion, once, and the engine moves it
   over its own theme's curve; the plugin is not called each frame for
@@ -251,8 +266,9 @@ checks the built plugins in the folders (each a `plugin.toml` with its
 failure, the log. Without steps it lets each plugin in and prints its
 panels.
 
-A panel or settings page is built as the dock or Settings builds it
-when it shows it. Its outline is a line for each node, `#` and its
+A panel, settings page, footer or overlay is built as the dock,
+Settings or the window builds it when it shows it, an overlay whether
+it is shown or not. Its outline is a line for each node, `#` and its
 key, indented under the node that holds it, and a line for each text
 it shows. A widget is named by text it shows: `click` presses the
 button whose text it is, `write` leaves text in the field whose
@@ -309,9 +325,17 @@ samples) runs the scripts of hello, notes and board.
   brings a panel to the front.
 - **The console** (`engine/console`) lists the log, newest first.
 - **Settings pages** are entities with a `SettingsPage`, as plugins add
-  them. The Settings panel (`engine/settings`, opened from the View
-  menu) shows a link row to each by title; the page gone through is shown
-  under a head whose SETTINGS leads back.
+  them: a title, an icon and a line on what it holds. The Settings
+  panel (`engine/settings`, opened from the View menu) shows a link
+  row to each in the order they came, and under them each
+  `SettingsFooter`'s content; the page gone through is shown under a
+  head whose SETTINGS leads back. `world.open_settings_page(page)`
+  (`ShellWorldExt`) shows one and brings Settings to the front.
+- **Overlays** (`overlay.rs`) are entities with an `Overlay`, as
+  plugins add them: a card over the dock, at most
+  `[space] overlay_width` wide, on a filled backdrop that takes every
+  press, shown while it carries `OverlayShown`. One is shown at a
+  time, the first by its entity.
 
 ### The theme and styles
 
@@ -343,7 +367,8 @@ buttons, cards, headings, notes, icons and chrome. Dark only.
   face, `icon_button` after an icon; `content_button` is a button
   padded as `icon_button` is, showing any view, and `icon_row` and
   `raised` set out an icon and its text as `icon_button` does.
-  Besides: `field`, `toggle`, `choices`, `heading`, `section`,
+  Besides: `field`, `toggle`, `dropdown`, `choices`, `heading`,
+  `section`,
   `caption`, `note`, `card`, `list` (its rows each a `list_row`),
   `link_row` and `link_rows`, `page_head`, `divider`, `buttons` (a row
   that wraps), `scroll_area` and `title_button`. `StyleExt` wraps any
@@ -439,12 +464,15 @@ person has one or more, and one is shown at a time.
   under itself and stays lit while it is open; a press on another title
   opens that one instead. An entry shows its command's label and first
   key. An entry whose command is not there is left out.
-- **The engine's own.** Quit (Cmd+Q, Ctrl+Q off macOS) in the Hamlet
-  menu, the workspace commands, and for each panel a command in the View
-  menu that brings it to the front, or opens it in the first area.
-- **The status line** at the bottom of the window shows the workspace
-  shown and the log's last line, each behind an icon, a warning in the
-  accent and an error in red.
+- **The engine's own.** Quit Hamlet (Cmd+Q, Ctrl+Q off macOS) in the
+  Hamlet menu, the workspace commands, and for each panel a command in
+  the View menu that brings it to the front, or opens it in the first
+  area (`world.open_panel(id)`).
+- **The status line** at the bottom of the window shows the
+  `StatusItem`s plugins add, in the order they came, each an icon and
+  words in a tone with words under the pointer, hidden while it has no
+  words; then the workspace shown and the log's last line, each behind
+  an icon, a warning in the accent and an error in red.
 
 ## Plugins
 
@@ -457,7 +485,7 @@ person has one or more, and one is shown at a time.
   not kept: the second is turned away, and the log says so.
 - **The entry point** is one function, given an `Entry` to declare what
   the plugin adds: panels, commands, menu entries, shortcuts, settings
-  pages and suggested workspaces. It never reaches the app or the world.
+  pages and footers, suggested workspaces, status items and overlays. It never reaches the app or the world.
   A name in it is the plugin's own; a command is named by its name, or
   by its full id for another's.
 - **What it adds** is an entity each, linked to the plugin by
@@ -597,10 +625,13 @@ plugin to are `[budgets]`.
   the log.
 - **What it adds** comes back from `declare` as `Contribution`s and is
   made into the same `Entry` a built-in plugin fills, so it is added,
-  capped and taken away as theirs is: its panels and settings pages are
-  built node by node as it says, and its commands put their name in
-  its inbox, to run it on the next frame. Its menu entries, shortcuts and suggested
-  workspaces are plain data.
+  capped and taken away as theirs is: its panels, settings pages,
+  footers and overlays are built node by node as it says, and its
+  commands put their name in its inbox, to run it on the next frame.
+  Its menu entries, shortcuts, suggested workspaces and status items
+  are plain data. What a call sets with `set-status`, `show-overlay`
+  and `open` is made once the call ends (`surfaces.rs`), on what the
+  plugin added under that name.
 - **Switched off**, its store goes, and with it its state.
 - **The engine** is one for all plugins, with fuel, an epoch and a pool.
   A thread ticks the epoch every `[wasm] tick` milliseconds. The pool
@@ -703,8 +734,9 @@ plugin to are `[budgets]`.
   icon one of the engine's set by its name (`plus`, `check`, `bell`,
   ... as `Glyph::name` has them), a name the set does not have shown
   as it is; a toggle `toggle`, a field `field`, a list `list_row`s, a
-  scroll `scroll_area`, and a divider `divider`. A widget is built
-  again when what it is built as changes, such as a button's style.
+  scroll `scroll_area`, a divider `divider`, and a dropdown
+  `dropdown`. A widget is built again when what it is built as
+  changes, such as a button's style or a dropdown's options.
 - **Moved by the engine.** A tone, size, opacity, space or offset set
   over a motion is moved from where it is shown over the theme's curve
   for it, a tone as its colour. A role is filled in from the theme as
@@ -779,6 +811,48 @@ script, it is checked by its `steps.toml`:
 ```sh
 cargo run -p hamlet_engine_harness --bin plugin_check -- plugins/dist/hamlet.about --steps plugins/about/steps.toml
 ```
+
+Hamlet's own shell is three plugins over the agents service. None
+holds a key: a key typed in Welcome goes to the service with
+`Connect` and is forgotten.
+
+- **`plugins/settings`** (`hamlet.settings`, asking `agents.read`,
+  `agents.settings` and `agents.chief`) adds five pages to Settings
+  and a footer. Endpoints: each endpoint with whether it has a key or
+  is the ChatGPT plan, MANAGE USAGE for the plan, REMOVE, and ADD A
+  PLACE FOR MODELS, which begins a setup that adds one. Models: the
+  default model as a dropdown of the model run now and those allowed,
+  LIST MODELS, FIND, what each endpoint answered, and the first 40
+  models found, each with its allowed toggle, its prices in and out
+  (a field where the price is unknown or the person's own), where
+  its price comes from and what it holds. Agents: reflect every N
+  turns (0 to 1000), the tools' network access, and the lasting
+  permissions with REVOKE. Charter: the charter as words, EDIT, and
+  BACK TO THE DEFAULT for a home's own charter, asked about first.
+  Realm: every limit of the realm with its bounds. The footer, SET UP
+  AGAIN, begins a setup from the start. Numbers are typed in fields
+  and checked against their bounds; a change the plugin or the
+  service refuses is shown in red on its page. When a setup that adds
+  a place ends, the Models page is shown.
+- **`plugins/welcome`** (`hamlet.welcome`, asking `agents.read`,
+  `agents.settings` and `agents.keys`) is the first-run card, an
+  overlay. It begins a setup at start when no model was chosen, and is
+  shown while a setup is under way (`Setup::begun`), whoever began it.
+  Its steps: the ways in (sign in with OpenRouter, continue with
+  ChatGPT, a key, a model on this computer, or leave), the key with
+  its provider or OTHER and an address, signing in, looking for a
+  local server (LOOK AGAIN), and the models found, narrowed with FIND,
+  of which the one picked is tried. The setup itself, its problems in
+  plain words included, runs in the service.
+- **`plugins/status`** (`hamlet.status`, asking `agents.read`) adds
+  seven status items, from the service's `Status`: the sandbox, the
+  model, the link (red when not connected), what the open session
+  used, the first hamlet's spend, how many things wait for the chief,
+  and whether the open session works.
+
+Settings and Welcome have a `steps.toml`; the harness runs no agents
+service, so they check the pages and the card's steps on their own.
+The status items are not read by the harness.
 
 ## Assets
 
@@ -911,7 +985,8 @@ says why and every request fails saying so.
 - **Setting up a place for models**, as Welcome does: `Providers`,
   `BeginSetup` (adding or not), `Connect` with a provider or an address
   and a key, `SignIn` to OpenRouter or ChatGPT, `FindLocal`,
-  `PickModel` and `EndSetup`, followed in `Setup`: its stage, who
+  `PickModel` and `EndSetup`, followed in `Setup`: whether one is
+  under way (`begun`, from `BeginSetup` until it ends), its stage, who
   answered and with which models, and the problem in plain words. The
   endpoint being set up, and a key a sign-in gave, stay in the service.
 - **The charter**: `Charter`, `EditCharter` (the home's own, opened in

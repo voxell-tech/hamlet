@@ -1,0 +1,9 @@
+id = "hamlet.status"
+name = "Status"
+version = "0.1.0"
+api = "0.1.0"
+
+[[asks]]
+capability = "agents.read"
+target = "local"
+reason = "Shows the agents' sandbox, model and link, what they used and spent, what waits for you and whether they work"

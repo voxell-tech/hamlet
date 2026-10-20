@@ -83,6 +83,7 @@ mod tests {
     use bevy_fynix::views::label;
     use hamlet_engine_api::Layout;
     use hamlet_engine_core::Home;
+    use hamlet_engine_shell::icons::Glyph;
     use hamlet_engine_shell::{
         AnyView, Command, MenuEntry, Panel, SettingsPage, Shortcut,
         SuggestedWorkspace,
@@ -100,7 +101,13 @@ mod tests {
             .command("write", "Write", |_, _| {})
             .menu_entry("Notes", "write")
             .shortcut("Primary+Shift+N", "write")
-            .settings_page("style", "Style", content)
+            .settings_page(
+                "style",
+                "Style",
+                "",
+                Glyph::Sliders,
+                content,
+            )
             .workspace("notes", "Notes", Layout::empty());
     }
 

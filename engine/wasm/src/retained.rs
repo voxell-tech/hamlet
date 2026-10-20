@@ -21,6 +21,7 @@ use bevy::ecs::hierarchy::ChildOf;
 use bevy::ecs::message::{Message, MessageReader, MessageWriter};
 use bevy::ecs::observer::On;
 use bevy::ecs::query::{Changed, Without};
+use bevy::ecs::relationship::RelationshipTarget;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::{
@@ -44,15 +45,21 @@ use bevy_fynix::{
     each, keyed,
 };
 use fynix::Patch;
+use hamlet_engine_api::PanelId;
 use hamlet_engine_core::Budgets;
-use hamlet_engine_plugins::ContributedBy;
+use hamlet_engine_plugins::{
+    ContributedBy, Contributions, PluginInfo,
+};
 use hamlet_engine_shell::fonts::DisplayText;
 use hamlet_engine_shell::icons::{Glyph, glyph};
 use hamlet_engine_shell::style::{
-    ButtonStyle, action, content_button, divider, field, icon_row,
-    list_row, raised, scroll_area, toggle,
+    ButtonStyle, action, content_button, divider, dropdown, field,
+    icon_row, list_row, raised, scroll_area, toggle,
 };
-use hamlet_engine_shell::{AnyView, Cx, EngineTheme, StyleExt};
+use hamlet_engine_shell::{
+    AnyView, Cx, EngineTheme, Overlay, OverlayShown, Panel,
+    SettingsPage, ShellWorldExt, StatusItem, StyleExt,
+};
 
 use crate::WasmCommandsExt;
 use crate::budget::Spending;
@@ -62,6 +69,7 @@ use crate::instance::ui_bindings::hamlet::engine::ui::{
 use crate::instance::{Instance, NodeInput, Spent};
 use crate::nodes::NodeChange;
 use crate::panel::{Inbox, Surface, Work, serve, stopped};
+use crate::surfaces::SurfaceChange;
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<NodeStats>()
@@ -182,6 +190,8 @@ struct Props {
     placeholder: String,
     on: bool,
     offset: Vec2,
+    options: Vec<String>,
+    selected: u32,
     /// The roles its ink, size and gap are filled in from.
     tone: wit::Tone,
     text_size: wit::Size,
@@ -218,6 +228,8 @@ impl Props {
             placeholder: String::new(),
             on: false,
             offset: Vec2::ZERO,
+            options: Vec::new(),
+            selected: 0,
             tone: wit::Tone::Body,
             text_size: wit::Size::Body,
             space: wit::Space::Gap,
@@ -281,6 +293,8 @@ impl Props {
             }
             Property::Placeholder(text) => self.placeholder = text,
             Property::On(on) => self.on = on,
+            Property::Options(options) => self.options = options,
+            Property::Selected(at) => self.selected = at,
             Property::Tone(tone) => self.tone = tone,
             Property::Size(size) => self.text_size = size,
             Property::Space(space) => self.space = space,
@@ -313,6 +327,8 @@ impl Property {
             Property::Placeholder(_) => 9,
             Property::On(_) => 10,
             Property::Offset(_) => 11,
+            Property::Options(_) => 12,
+            Property::Selected(_) => 13,
         };
         1 << at
     }
@@ -352,6 +368,9 @@ enum Shape {
     Field {
         placeholder: String,
     },
+    Dropdown {
+        options: Vec<String>,
+    },
 }
 
 impl Shape {
@@ -373,6 +392,9 @@ impl Shape {
             },
             Kind::Field => Self::Field {
                 placeholder: props.placeholder.clone(),
+            },
+            Kind::Dropdown => Self::Dropdown {
+                options: props.options.clone(),
             },
             _ => Self::Plain,
         }
@@ -653,6 +675,17 @@ fn widget(
             .within(scroll_area(()))
             .boxed(),
         (Kind::Divider, _) => divider(),
+        (Kind::Dropdown, Shape::Dropdown { options }) => dropdown(
+            options.clone(),
+            read(holder, |props| props.selected as usize),
+            move |world, at| {
+                world.write_message(NodeAction {
+                    plugin,
+                    key,
+                    input: NodeInput::Pick(at as u32),
+                });
+            },
+        ),
         _ => column(()).boxed(),
     };
     let built = node(built, holder, plugin, key);
@@ -837,6 +870,23 @@ pub(crate) trait WasmWorldExt {
     /// Builds the widget of the node of `holder` again if its shape
     /// changed.
     fn reshape(&mut self, holder: Entity);
+
+    /// Changes what `plugin` shows outside its panels, each change
+    /// to what it added under the name the change gives.
+    fn change_surfaces(
+        &mut self,
+        plugin: Entity,
+        changes: Vec<SurfaceChange>,
+    );
+
+    /// What `plugin` added under the name `name`, of the kind `C`
+    /// names, by the id `id` reads from it.
+    fn added_named<C: Component>(
+        &self,
+        plugin: Entity,
+        name: &str,
+        id: fn(&C) -> &PanelId,
+    ) -> Option<Entity>;
 }
 
 impl WasmWorldExt for World {
@@ -1052,6 +1102,90 @@ impl WasmWorldExt for World {
         {
             kid.shape = shape;
         }
+    }
+
+    fn change_surfaces(
+        &mut self,
+        plugin: Entity,
+        changes: Vec<SurfaceChange>,
+    ) {
+        for change in changes {
+            match change {
+                SurfaceChange::Status { name, item } => {
+                    let Some(at) = self.added_named::<StatusItem>(
+                        plugin,
+                        &name,
+                        |shown| &shown.id,
+                    ) else {
+                        continue;
+                    };
+                    let Some(mut shown) =
+                        self.get_mut::<StatusItem>(at)
+                    else {
+                        continue;
+                    };
+                    let now = StatusItem {
+                        id: shown.id.clone(),
+                        icon: Glyph::named(&item.icon),
+                        text: item.text,
+                        tone: item.tone.into(),
+                        tip: item.tip,
+                    };
+                    if *shown != now {
+                        *shown = now;
+                    }
+                }
+                SurfaceChange::Overlay { name, shown } => {
+                    let Some(at) = self.added_named::<Overlay>(
+                        plugin,
+                        &name,
+                        |overlay| &overlay.id,
+                    ) else {
+                        continue;
+                    };
+                    let mut overlay = self.entity_mut(at);
+                    if shown {
+                        overlay.insert(OverlayShown);
+                    } else {
+                        overlay.remove::<OverlayShown>();
+                    }
+                }
+                SurfaceChange::Open(name) => {
+                    if let Some(page) = self
+                        .added_named::<SettingsPage>(
+                            plugin,
+                            &name,
+                            |page| &page.id,
+                        )
+                    {
+                        self.open_settings_page(page);
+                    } else if let Some(panel) = self
+                        .added_named::<Panel>(
+                            plugin,
+                            &name,
+                            |panel| &panel.id,
+                        )
+                        .and_then(|panel| self.get::<Panel>(panel))
+                        .map(|panel| panel.id.clone())
+                    {
+                        self.open_panel(&panel);
+                    }
+                }
+            }
+        }
+    }
+
+    fn added_named<C: Component>(
+        &self,
+        plugin: Entity,
+        name: &str,
+        id: fn(&C) -> &PanelId,
+    ) -> Option<Entity> {
+        let owner = self.get::<PluginInfo>(plugin)?.id.as_str();
+        let wanted = PanelId::new(owner, name).ok()?;
+        self.get::<Contributions>(plugin)?.iter().find(|&added| {
+            self.get::<C>(added).is_some_and(|it| *id(it) == wanted)
+        })
     }
 }
 

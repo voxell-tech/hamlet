@@ -345,6 +345,8 @@ pub enum SignInTo {
 /// The setup of a place for models.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Setup {
+    /// A setup was begun and has not ended yet.
+    pub begun: bool,
     pub adding: bool,
     pub stage: Stage,
     /// The name of whoever answered.

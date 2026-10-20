@@ -21,6 +21,7 @@ use wasmtime::{Engine, ResourceLimiter, Store, Trap};
 
 use crate::host::WasmTuning;
 use crate::nodes::{NodeChange, NodeError, Nodes};
+use crate::surfaces::SurfaceChange;
 use crate::wasi::{self, Wasi};
 
 mod bindings {
@@ -242,6 +243,7 @@ pub struct State {
     ticket: Ticket,
     pub(crate) wasi: Wasi,
     pub(crate) nodes: Nodes,
+    pub(crate) surfaces: Vec<SurfaceChange>,
 }
 
 impl State {
@@ -254,6 +256,7 @@ impl State {
             ticket: 0,
             wasi: Wasi::new(caps),
             nodes: Nodes::default(),
+            surfaces: Vec::new(),
         }
     }
 
@@ -375,6 +378,8 @@ pub enum NodeInput {
     Toggle(bool),
     /// A field's text, as the person left it.
     Commit(String),
+    /// A dropdown's option picked, by its place.
+    Pick(u32),
 }
 
 impl Instance {
@@ -472,6 +477,7 @@ impl Instance {
                         left -= text.len();
                         Action::Committed(text)
                     }
+                    NodeInput::Pick(at) => Action::Picked(at),
                 },
             })
             .collect::<Vec<_>>();
@@ -495,6 +501,12 @@ impl Instance {
     /// The changes to its nodes since this was last asked.
     pub fn take_node_changes(&mut self) -> Vec<NodeChange> {
         std::mem::take(&mut self.store.data_mut().nodes.changes)
+    }
+
+    /// The changes to what it shows outside its panels since this was
+    /// last asked.
+    pub fn take_surface_changes(&mut self) -> Vec<SurfaceChange> {
+        std::mem::take(&mut self.store.data_mut().surfaces)
     }
 
     /// What the plugin adds.

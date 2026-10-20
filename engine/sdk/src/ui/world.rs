@@ -16,6 +16,7 @@ pub(crate) enum Handler {
     Click(Box<dyn Fn(&mut World) + Send + Sync>),
     Toggle(Box<dyn Fn(&mut World, bool) + Send + Sync>),
     Commit(Box<dyn Fn(&mut World, String) + Send + Sync>),
+    Pick(Box<dyn Fn(&mut World, u32) + Send + Sync>),
 }
 
 struct Held {
@@ -114,6 +115,7 @@ impl World {
             (Handler::Commit(run), Action::Committed(text)) => {
                 run(self, text)
             }
+            (Handler::Pick(run), Action::Picked(at)) => run(self, at),
             _ => {}
         }
         self.handlers.entry(key).or_insert(handler);

@@ -302,10 +302,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "settings"
+version = "0.1.0"
+dependencies = [
+ "hamlet_engine_sdk",
+]
+
+[[package]]
 name = "sparse_map"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04e14c49a89ad051b56b5d28a99fac4d3e3cce3957d09c8d5a29afeb3d0e45e0"
+
+[[package]]
+name = "status"
+version = "0.1.0"
+dependencies = [
+ "hamlet_engine_sdk",
+]
 
 [[package]]
 name = "syn"
@@ -428,6 +442,13 @@ dependencies = [
  "hashbrown 0.17.1",
  "indexmap",
  "semver",
+]
+
+[[package]]
+name = "welcome"
+version = "0.1.0"
+dependencies = [
+ "hamlet_engine_sdk",
 ]
 
 [[package]]

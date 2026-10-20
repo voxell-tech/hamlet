@@ -26,7 +26,8 @@ use hamlet_engine_plugins::{
 };
 use hamlet_engine_shell::style::{caption, note};
 use hamlet_engine_shell::{
-    AnyView, Cx, EngineTheme, Panel, SettingsPage,
+    AnyView, Cx, EngineTheme, Overlay, Panel, SettingsFooter,
+    SettingsPage,
 };
 
 use crate::WasmCommandsExt;
@@ -42,14 +43,16 @@ pub(crate) fn plugin(app: &mut App) {
         .add_message::<Served>()
         .add_observer(adopt_panel)
         .add_observer(adopt_page)
+        .add_observer(adopt_footer)
+        .add_observer(adopt_overlay)
         .add_systems(
             Update,
             (deliver, tally, serve, show_stopped).chain(),
         );
 }
 
-/// On a WASM plugin's panel or settings page: its name within the
-/// plugin, and why the plugin was stopped, if it was.
+/// On a WASM plugin's panel, settings page or overlay: its name
+/// within the plugin, and why the plugin was stopped, if it was.
 #[derive(Component, Clone, PartialEq, Debug)]
 pub struct Surface {
     pub name: String,
@@ -120,6 +123,34 @@ fn adopt_page(
         && packages.contains(by.0)
     {
         commands.adopt_surface(added.entity, &page.id);
+    }
+}
+
+/// Marks a WASM plugin's new settings footer as its.
+fn adopt_footer(
+    added: On<Add, SettingsFooter>,
+    footers: Query<(&SettingsFooter, &ContributedBy)>,
+    packages: Query<(), With<Package>>,
+    mut commands: Commands,
+) {
+    if let Ok((footer, by)) = footers.get(added.entity)
+        && packages.contains(by.0)
+    {
+        commands.adopt_surface(added.entity, &footer.id);
+    }
+}
+
+/// Marks a WASM plugin's new overlay as its.
+fn adopt_overlay(
+    added: On<Add, Overlay>,
+    overlays: Query<(&Overlay, &ContributedBy)>,
+    packages: Query<(), With<Package>>,
+    mut commands: Commands,
+) {
+    if let Ok((overlay, by)) = overlays.get(added.entity)
+        && packages.contains(by.0)
+    {
+        commands.adopt_surface(added.entity, &overlay.id);
     }
 }
 
@@ -235,8 +266,13 @@ pub(crate) fn serve(
                     ((Ok(()), spent), 0)
                 }
             };
-            // Any call may change the plugin's nodes.
+            // Any call may change the plugin's nodes, and what it
+            // shows outside its panels.
             let changes = instance.take_node_changes();
+            commands.apply_surface_changes(
+                plugin,
+                instance.take_surface_changes(),
+            );
             let done = match viewed {
                 Some((done, root)) => {
                     commands
@@ -280,6 +316,10 @@ pub(crate) fn serve(
             let (done, spent) = instance.frame(&caps, micros);
             let changes = instance.take_node_changes();
             commands.apply_node_changes(plugin, None, changes);
+            commands.apply_surface_changes(
+                plugin,
+                instance.take_surface_changes(),
+            );
             stats.count(&spent);
             spending.charge(spent, false);
             left = left.saturating_sub(spent.time);

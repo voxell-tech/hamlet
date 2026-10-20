@@ -139,6 +139,9 @@ Paths are under the crate's folder in the table above.
 | What a plugin and the engine say to each other | `engine/wit/hamlet_engine.wit`, the types in `engine/api/` |
 | Writing or testing an engine plugin | `engine/sdk/`, `engine/samples/`, `engine/harness/` and `plugin_check`; [`engine.md`](engine.md) |
 | A plugin that comes with Hamlet | A crate in `plugins/`, built by `scripts/build_plugins.sh`; where the engine finds them in `engine/core/src/bundle.rs`; [`engine.md`](engine.md#bundled-plugins) |
+| The engine's Settings pages for the agents, Welcome, or the agents' facts on the status line | `plugins/settings/`, `plugins/welcome/`, `plugins/status/` |
+| A widget an engine plugin can show | Its kind and properties in `engine/wit/hamlet_engine.wit`, its element in `engine/sdk/src/ui/elements.rs`, its widget in `engine/wasm/src/retained.rs`, built from `engine/shell/src/style.rs` |
+| What an engine plugin adds outside its panels: settings pages, status items, overlays | `engine/api/src/contribution.rs`; the shell's `settings.rs`, `status.rs` and `overlay.rs` in `engine/shell/src/`; what a plugin changes on them in `engine/wasm/src/surfaces.rs` |
 
 ## Tuning while the app runs
 

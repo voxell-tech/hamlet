@@ -109,6 +109,10 @@ interface ui {
         scroll,
         /// A line across.
         divider,
+        /// One of its `options` shown, the one `selected`, opening a
+        /// list of them to pick another from. The person picking one
+        /// is a `picked`.
+        dropdown,
     }
 
     enum direction {
@@ -163,9 +167,9 @@ interface ui {
 
     /// One property of a node, of the kinds named. A node starts with
     /// each at its first value: empty, `body`, `body`, false, `body`,
-    /// 1.0, `plain`, `column`, `gap`, empty, false, (0.0, 0.0). A
-    /// role is filled in from the engine's theme as it is now, again
-    /// whenever the theme changes.
+    /// 1.0, `plain`, `column`, `gap`, empty, false, (0.0, 0.0),
+    /// empty, 0. A role is filled in from the engine's theme as it is
+    /// now, again whenever the theme changes.
     variant property {
         /// Of a label, a button, an icon and a field.
         text(string),
@@ -192,7 +196,37 @@ interface ui {
         /// Of every kind: how far the node is moved, across and down,
         /// from where it is laid out, in the interface's pixels.
         offset(tuple<f32, f32>),
+        /// Of a dropdown: what it offers.
+        options(list<string>),
+        /// Of a dropdown: the place of the option shown.
+        selected(u32),
     }
+
+    /// What an item of the status line shows.
+    record status-item {
+        /// An icon of the engine's set, by its name, or none if
+        /// empty.
+        icon: string,
+        /// Its words; an item with none is hidden.
+        text: string,
+        /// The colour of its icon and words.
+        tone: tone,
+        /// Words shown while the pointer rests on it, or none if
+        /// empty.
+        tip: string,
+    }
+
+    /// Shows `item` in the plugin's status item `name`.
+    set-status: func(name: string, item: status-item);
+
+    /// Shows the plugin's overlay `name` over the dock, or hides it.
+    /// Its view is mounted as a panel's is while it is shown.
+    show-overlay: func(name: string, shown: bool);
+
+    /// Brings the plugin's panel `name` to the front, or shows its
+    /// settings page `name` in Settings and brings Settings to the
+    /// front.
+    open: func(name: string);
 
     /// A node of a panel. Dropping it takes it away, and every node
     /// under it.
@@ -230,6 +264,8 @@ interface ui-guest {
         toggled(bool),
         /// A field's text, as the person left it.
         committed(string),
+        /// A dropdown's option picked, by its place.
+        picked(u32),
     }
 
     /// What the person did to the node the plugin named `key`.

@@ -18,12 +18,28 @@ pub enum Contribution {
     /// Keys bound to the command `command`, written as
     /// `Primary+Shift+H`.
     Shortcut { keys: String, command: String },
-    /// A page of settings.
-    SettingsPage { name: String, title: String },
+    /// A page of settings, its link row showing the icon `icon` by
+    /// its name and what it holds, `about`.
+    SettingsPage {
+        name: String,
+        title: String,
+        about: String,
+        icon: String,
+    },
+    /// What Settings shows under the link rows to its pages, built as
+    /// a page is.
+    SettingsFooter { name: String },
     /// A workspace the person can take.
     Workspace {
         name: String,
         title: String,
         layout: Layout,
     },
+    /// An item of the status line, after those that came before it,
+    /// hidden until the plugin gives it words.
+    StatusItem { name: String },
+    /// A card over the dock, on a backdrop that takes every press,
+    /// shown while the plugin says so. Its view is built as a
+    /// panel's is.
+    Overlay { name: String },
 }
