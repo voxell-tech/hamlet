@@ -57,14 +57,13 @@ fn apply(state: &mut State, update: &Update) {
             state.agents.retain(|a| &a.ref_ != ref_);
         }
         Update::Wait { wait } => {
-            let id = wait_id(wait);
-            match state.waits.iter_mut().find(|w| wait_id(w) == id) {
+            match state.waits.iter_mut().find(|w| w.id == wait.id) {
                 Some(old) => *old = wait.clone(),
                 None => state.waits.push(wait.clone()),
             }
         }
         Update::WaitClosed { id, .. } => {
-            state.waits.retain(|w| wait_id(w) != id);
+            state.waits.retain(|w| w.id != *id);
         }
         Update::Grants { grants } => state.grants.clone_from(grants),
         Update::Settings { settings } => {
@@ -73,25 +72,5 @@ fn apply(state: &mut State, update: &Update) {
         Update::Providers { providers } => {
             state.providers.clone_from(providers);
         }
-    }
-}
-
-/// A wait's ID, whatever its kind.
-pub fn wait_id(wait: &Wait) -> &str {
-    match wait {
-        Wait::Approval { id, .. }
-        | Wait::Fault { id, .. }
-        | Wait::Question { id, .. }
-        | Wait::Objection { id, .. } => id,
-    }
-}
-
-/// What a wait says to the chief.
-pub fn wait_says(wait: &Wait) -> &str {
-    match wait {
-        Wait::Approval { says, .. }
-        | Wait::Fault { says, .. }
-        | Wait::Question { says, .. }
-        | Wait::Objection { says, .. } => says,
     }
 }

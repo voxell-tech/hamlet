@@ -106,14 +106,12 @@ fn structured_questions_reconcile_and_send_picks_without_forging_chief_text()
     let world = app.world_mut();
     let mut initial = state();
     let mut question = serde_json::to_value(wait("ask")).unwrap();
-    question["kind"] = json!("question");
-    question["danger"] = json!(null);
     question["answers"] = json!(["reply", "dismiss"]);
-    question["questions"] = json!({"message": "Choose", "questions": [{
+    question["detail"] = json!({"kind": "question", "questions": {"message": "Choose", "questions": [{
         "question": "Which?", "description": "", "options": [
             {"title": "Left", "description": ""}, {"title": "Right", "description": ""}
         ], "text_input": false
-    }]});
+    }]}});
     initial.waits =
         vec![serde_json::from_value(question.clone()).unwrap()];
     receive(world, v0::ServerMessage::State(initial.clone()));
@@ -151,7 +149,10 @@ fn structured_questions_reconcile_and_send_picks_without_forging_chief_text()
     );
     // An older server's full state must remove stale question
     // controls.
-    question.as_object_mut().unwrap().remove("questions");
+    question["detail"]
+        .as_object_mut()
+        .unwrap()
+        .remove("questions");
     initial.waits = vec![serde_json::from_value(question).unwrap()];
     receive(world, v0::ServerMessage::State(initial.clone()));
     assert!(world.get::<Asks>(entity).is_none());

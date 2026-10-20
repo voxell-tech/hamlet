@@ -472,18 +472,18 @@ mod tests {
             app.world().get::<Chat>(session).unwrap().0.clone();
         let question = |id: &str, since, chat: &v0::ChatRef| {
             serde_json::from_value::<v0::Wait>(json!({
-                "id": id, "kind": "question", "agent": null,
-                "by": "founder", "says": "asks", "about": "Choose",
+                "id": id, "agent": null, "by": "founder",
+                "about": "Choose", "subject": "Choose",
                 "change": null, "answers": ["reply", "dismiss"],
-                "since": since, "asked": 1, "chat": chat, "danger": null,
-                "questions": {"message": id, "questions": [
+                "since": since, "asked": 1, "chat": chat,
+                "detail": {"kind": "question", "questions": {"message": id, "questions": [
                     {"question": "Which format?", "description": "",
                      "options": [{"title": "Paper", "description": "Printed"},
                                  {"title": "Digital", "description": "Download"}],
                      "text_input": false},
                     {"question": "Where?", "description": "",
                      "options": [], "text_input": true}
-                ]}
+                ]}}
             })).unwrap()
         };
         let mut other = chat.clone();

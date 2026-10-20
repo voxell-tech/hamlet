@@ -145,8 +145,13 @@ fn recorded_approvals_join_the_founders_needs_until_closed() {
                     wait.answers,
                     [Choice::Allow, Choice::Always, Choice::Deny]
                 );
-                if wait.kind == Kind::Approval(Danger::Command) {
-                    assert_eq!(wait.says, "wants to run");
+                if let v0::WaitDetail::Approval {
+                    danger: v0::WaitDanger::Command,
+                    says,
+                    ..
+                } = &wait.detail
+                {
+                    assert_eq!(says, "wants to run");
                     assert_eq!(
                         wait.line(80),
                         "mayor wants to run `printf \
@@ -219,9 +224,7 @@ fn snapshots_reconcile_by_identity_across_epochs_and_changes_only_advance_the_se
     first.agents.truncate(1);
     first.agents[0].name = "renamed".into();
     first.waits.truncate(1);
-    if let v0::Wait::Approval { about, .. } = &mut first.waits[0] {
-        *about = "a new question".into();
-    }
+    first.waits[0].about = "a new question".into();
     receive(world, v0::ServerMessage::State(first.clone()));
     assert_eq!(named(world, "renamed"), Some(founder));
     assert_eq!(world.get::<LivesIn>(founder).unwrap().0, home);
@@ -299,7 +302,7 @@ fn testing_builders_give_a_hamlet_a_mayor_and_one_wait_in_three_lines()
 
 #[test]
 fn recorded_fault_marks_the_agent_and_keeps_the_fault_in_its_needs() {
-    use hamlet_client::waits::{Kind, RaisedBy, Waiting};
+    use hamlet_client::waits::{RaisedBy, Waiting};
     let mut app = app();
     let world = app.world_mut();
     for message in frames(include_str!(
@@ -324,7 +327,7 @@ fn recorded_fault_marks_the_agent_and_keeps_the_fault_in_its_needs() {
         .single(world)
         .unwrap();
     assert_eq!(raised.0, founder);
-    assert_eq!(wait.kind, Kind::Fault);
+    assert_eq!(wait.detail, v0::WaitDetail::Fault {});
     assert_eq!(
         wait.line(80),
         format!("{} failed: {}", wait.by, wait.about)
@@ -434,14 +437,11 @@ fn streamed_words_only_change_saying_and_keep_relationship_order() {
 #[test]
 fn objections_keep_the_speakers_width_in_the_one_line_subject() {
     let mut state = hamlet_testing::realm::state();
-    let mut wire = serde_json::to_value(hamlet_testing::realm::wait(
-        "objection",
-    ))
-    .unwrap();
-    wire["kind"] = "objection".into();
-    wire["danger"] = serde_json::Value::Null;
-    wire["about"] = "heading\n12345678901234567890".into();
-    state.waits.push(serde_json::from_value(wire).unwrap());
+    let mut wait = hamlet_testing::realm::wait("objection");
+    wait.detail = v0::WaitDetail::Objection {};
+    wait.about = "heading\n12345678901234567890".into();
+    wait.subject = "12345678901234567890".into();
+    state.waits.push(wait);
     let mut app = app();
     receive(app.world_mut(), v0::ServerMessage::State(state));
     let world = app.world_mut();

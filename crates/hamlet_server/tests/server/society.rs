@@ -373,7 +373,7 @@ async fn withdrawal_recovers_after_ruling_before_cancellation() {
     send(&mut socket, json!({"type":"say","to":{"hamlet":"home","agent":"kept"},"text":"Remove it"})).await;
     let state = state_until(&server, |s| {
         s["waits"].as_array().is_some_and(|waits| {
-            waits.iter().any(|w| w["kind"] == "objection")
+            waits.iter().any(|w| w["detail"]["kind"] == "objection")
         })
     })
     .await;
@@ -381,7 +381,7 @@ async fn withdrawal_recovers_after_ruling_before_cancellation() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|w| w["kind"] == "objection")
+        .find(|w| w["detail"]["kind"] == "objection")
         .unwrap();
     send(&mut socket, json!({"type":"answer","wait":wait["id"],"choice":"withdraw","text":"Keep it"})).await;
     paused(&side).await;

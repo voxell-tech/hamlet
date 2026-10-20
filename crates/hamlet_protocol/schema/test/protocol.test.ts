@@ -93,12 +93,10 @@ const agent: Agent = {
 
 const wait: Wait = {
     id: "41",
-    kind: "approval",
-    danger: "edit",
     by: "founder",
     agent: ref,
-    says: "wants to edit",
     about: "src/main.rs",
+    subject: "src/main.rs",
     change: {
         path: "src/main.rs",
         created: false,
@@ -116,6 +114,12 @@ const wait: Wait = {
     since: 1760000000000,
     asked: 1,
     chat,
+    detail: {
+        kind: "approval",
+        danger: "edit",
+        says: "wants to edit",
+        always: "session",
+    },
 };
 
 const usage: UsageView = {
@@ -707,8 +711,8 @@ describe("protocol v0", () => {
     });
 });
 
-it("requires a danger for approvals and null for other waits", () => {
-    const wire = (kind: string, danger: unknown) =>
+it("keeps a danger in an approval's detail and in no other kind's", () => {
+    const wire = (detail: unknown) =>
         JSON.stringify({
             type: "state",
             epoch: 1,
@@ -717,17 +721,19 @@ it("requires a danger for approvals and null for other waits", () => {
             sandbox: "test",
             hamlets: [],
             agents: [],
-            waits: [{ ...wait, kind, danger }],
+            waits: [{ ...wait, detail }],
             grants: [],
             providers: [],
             settings: fromServer.state[0]?.settings,
         });
-    expect(parseServer(wire("approval", null))).toHaveProperty(
+    const approval = { kind: "approval", says: "wants to run", always: null };
+    expect(parseServer(wire(approval))).toHaveProperty(
         "error.kind",
         "malformed",
     );
+    expect(parseServer(wire({ ...approval, danger: "command" })).ok).toBe(true);
     for (const kind of ["fault", "question", "objection"])
-        expect(parseServer(wire(kind, "command"))).toHaveProperty(
+        expect(parseServer(wire({ kind, danger: "command" }))).toHaveProperty(
             "error.kind",
             "malformed",
         );

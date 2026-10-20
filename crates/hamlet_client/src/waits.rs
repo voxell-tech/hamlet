@@ -11,93 +11,51 @@ pub use v0::Choice;
 #[derive(Component, Clone, Debug)]
 pub struct Asks(pub Questions);
 
-/// The reason a tool call needs approval.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Danger {
-    Network,
-    Unconfined,
-    Destructive,
-    Reserved,
-    Edit,
-    Command,
-}
-
-impl Danger {
-    /// Eligibility for approval lasting through this conversation.
-    pub fn for_session(self) -> bool {
-        matches!(self, Self::Edit | Self::Command)
-    }
-}
-
-impl From<v0::WaitDanger> for Danger {
-    fn from(danger: v0::WaitDanger) -> Self {
-        match danger {
-            v0::WaitDanger::Network => Self::Network,
-            v0::WaitDanger::Unconfined => Self::Unconfined,
-            v0::WaitDanger::Destructive => Self::Destructive,
-            v0::WaitDanger::Reserved => Self::Reserved,
-            v0::WaitDanger::Edit => Self::Edit,
-            v0::WaitDanger::Command => Self::Command,
-        }
-    }
-}
-
-/// The kind of need raised for a chief.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Kind {
-    Approval(Danger),
-    Objection,
-    Question,
-    Fault,
-}
-
 /// A received need and the answers offered by the server.
 #[derive(Component, Clone, Debug)]
 pub struct Waiting {
     pub id: String,
-    pub kind: Kind,
     pub by: String,
-    pub says: String,
     pub about: String,
+    /// The line of `about` a one-line view quotes.
+    pub subject: String,
     pub change: Option<v0::Change>,
     pub answers: Vec<Choice>,
     /// Milliseconds since 1970.
     pub since: u64,
     pub asked: u64,
     pub chat: Option<v0::ChatRef>,
+    pub detail: v0::WaitDetail,
 }
 
 impl Waiting {
-    /// One clipped subject line, with the speaker's width for
-    /// objections.
+    /// One line of at most about `max` characters of the subject.
     pub fn line(&self, max: usize) -> String {
-        let about = match self.kind {
-            Kind::Approval(Danger::Edit) => {
-                self.about.lines().next().unwrap_or_default()
-            }
-            Kind::Objection => {
-                self.about.lines().nth(1).unwrap_or(&self.about)
-            }
-            _ => &self.about,
-        };
-        let flat =
-            about.split_whitespace().collect::<Vec<_>>().join(" ");
-        let max = if self.kind == Kind::Objection {
-            max + self.by.len()
-        } else {
-            max
-        };
+        let flat = self
+            .subject
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let objection =
+            matches!(self.detail, v0::WaitDetail::Objection {});
+        // An objection's line has no name before it, so its subject
+        // takes the name's room too.
+        let max = if objection { max + self.by.len() } else { max };
         let clipped = match flat.char_indices().nth(max) {
             Some((cut, _)) => format!("{}...", &flat[..cut]),
             None => flat,
         };
-        match self.kind {
-            Kind::Approval(_) => {
-                format!("{} {} `{clipped}`", self.by, self.says)
+        match &self.detail {
+            v0::WaitDetail::Approval { says, .. } => {
+                format!("{} {says} `{clipped}`", self.by)
             }
-            Kind::Objection => clipped,
-            Kind::Question => format!("{} asks: {clipped}", self.by),
-            Kind::Fault => format!("{} failed: {clipped}", self.by),
+            v0::WaitDetail::Objection {} => clipped,
+            v0::WaitDetail::Question { .. } => {
+                format!("{} asks: {clipped}", self.by)
+            }
+            v0::WaitDetail::Fault {} => {
+                format!("{} failed: {clipped}", self.by)
+            }
         }
     }
 
@@ -156,92 +114,32 @@ pub(crate) fn find(world: &mut World, id: &str) -> Option<Entity> {
 }
 
 pub(crate) fn upsert(world: &mut World, wait: v0::Wait) -> Entity {
-    let questions = match &wait {
-        v0::Wait::Question { questions, .. } => questions.clone(),
-        _ => None,
-    };
-    let kind = match &wait {
-        v0::Wait::Approval { danger, .. } => {
-            Kind::Approval(danger.clone().into())
-        }
-        v0::Wait::Fault { .. } => Kind::Fault,
-        v0::Wait::Question { .. } => Kind::Question,
-        v0::Wait::Objection { .. } => Kind::Objection,
-    };
-    let (v0::Wait::Approval {
-        id,
-        by,
-        says,
-        about,
-        change,
-        answers,
-        since,
-        asked,
-        chat,
-        agent,
-        ..
-    }
-    | v0::Wait::Fault {
-        id,
-        by,
-        says,
-        about,
-        change,
-        answers,
-        since,
-        asked,
-        chat,
-        agent,
-        ..
-    }
-    | v0::Wait::Question {
-        id,
-        by,
-        says,
-        about,
-        change,
-        answers,
-        since,
-        asked,
-        chat,
-        agent,
-        ..
-    }
-    | v0::Wait::Objection {
-        id,
-        by,
-        says,
-        about,
-        change,
-        answers,
-        since,
-        asked,
-        chat,
-        agent,
-        ..
-    }) = wait;
-    let entity =
-        find(world, &id).unwrap_or_else(|| world.spawn_empty().id());
-    let agent = agent
+    let entity = find(world, &wait.id)
+        .unwrap_or_else(|| world.spawn_empty().id());
+    let agent = wait
+        .agent
         .as_ref()
         .and_then(|agent| crate::realm::agent(world, agent));
     let mut entity = world.entity_mut(entity);
-    if let Some(questions) = questions {
-        entity.insert(Asks(questions.into()));
+    if let v0::WaitDetail::Question {
+        questions: Some(questions),
+    } = &wait.detail
+    {
+        entity.insert(Asks(questions.clone().into()));
     } else {
         entity.remove::<Asks>();
     }
     entity.insert(Waiting {
-        id,
-        kind,
-        by,
-        says,
-        about,
-        change,
-        answers,
-        since,
-        asked,
-        chat,
+        id: wait.id,
+        by: wait.by,
+        about: wait.about,
+        subject: wait.subject,
+        change: wait.change,
+        answers: wait.answers,
+        since: wait.since,
+        asked: wait.asked,
+        chat: wait.chat,
+        detail: wait.detail,
     });
     if let Some(agent) = agent {
         entity.insert(RaisedBy(agent));

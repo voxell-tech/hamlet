@@ -5,7 +5,6 @@ use std::fs;
 use std::os::unix::fs::symlink;
 use std::time::Duration;
 
-use hamlet_acceptance::realm::wait_id;
 use hamlet_acceptance::*;
 use hamlet_protocol::v0::*;
 use serde_json::json;
@@ -144,15 +143,15 @@ async fn reaches_a_listener_only_for_the_approved_network_call() {
         .chief
         .wait_for("network leave", |w| {
             matches!(
-                w,
-                Wait::Approval {
+                w.detail,
+                WaitDetail::Approval {
                     danger: WaitDanger::Network,
                     ..
                 }
             )
         })
         .await;
-    s.chief.choose(wait_id(&wait), Choice::Allow, None).await;
+    s.chief.choose(&wait.id, Choice::Allow, None).await;
     s.chief.shows(&chat(mayor()), "Fetched.").await;
     assert!(
         fs::read_to_string(s.home.file("houses/home/0/fetched"))

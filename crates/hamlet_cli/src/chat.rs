@@ -575,38 +575,7 @@ impl Screen {
     }
 
     fn wait(&mut self, wait: &Wait) -> Result<()> {
-        let (kind, id, by, about, answers, danger) = match wait {
-            Wait::Approval {
-                id,
-                by,
-                about,
-                answers,
-                danger,
-                ..
-            } => ("approval", id, by, about, answers, Some(danger)),
-            Wait::Fault {
-                id,
-                by,
-                about,
-                answers,
-                ..
-            } => ("fault", id, by, about, answers, None),
-            Wait::Question {
-                id,
-                by,
-                about,
-                answers,
-                ..
-            } => ("question", id, by, about, answers, None),
-            Wait::Objection {
-                id,
-                by,
-                about,
-                answers,
-                ..
-            } => ("objection", id, by, about, answers, None),
-        };
-        if !self.waits.insert(id.clone()) {
+        if !self.waits.insert(wait.id.clone()) {
             return Ok(());
         }
         let clip = |text: &str| {
@@ -619,40 +588,21 @@ impl Screen {
                 )
             }
         };
-        let line = match danger {
-            Some(danger) => {
-                let says = match danger {
-                    WaitDanger::Network => "wants the network for",
-                    WaitDanger::Unconfined => {
-                        "wants to run, with no sandbox,"
-                    }
-                    WaitDanger::Destructive => {
-                        "wants to run, with no sandbox, the \
-                         destructive"
-                    }
-                    WaitDanger::Reserved => {
-                        "wants to do what you reserved:"
-                    }
-                    WaitDanger::Edit => "wants to edit",
-                    WaitDanger::Command => "wants to run",
-                };
-                let subject = if *danger == WaitDanger::Edit {
-                    about.lines().next().unwrap_or(about)
-                } else {
-                    about
-                };
-                format!("{by} {says} `{}`", clip(subject))
+        let (by, subject) = (&wait.by, clip(&wait.subject));
+        let (kind, line) = match &wait.detail {
+            WaitDetail::Approval { says, .. } => {
+                ("approval", format!("{by} {says} `{subject}`"))
             }
-            None if kind == "objection" => {
-                clip(about.lines().nth(1).unwrap_or(about))
+            WaitDetail::Objection {} => ("objection", subject),
+            WaitDetail::Question { .. } => {
+                ("question", format!("{by} asks: {subject}"))
             }
-            None => format!(
-                "{by} {}: {}",
-                if kind == "question" { "asks" } else { "failed" },
-                clip(about)
-            ),
+            WaitDetail::Fault {} => {
+                ("fault", format!("{by} failed: {subject}"))
+            }
         };
-        let answers = answers
+        let answers = wait
+            .answers
             .iter()
             .map(|answer| {
                 serde_json::to_value(answer).map(|v| {
@@ -664,7 +614,7 @@ impl Screen {
         self.line(&format!(
             "\n  NEEDS YOU: [{kind}] {line}\n    {}\n    answer \
              with: {answers}",
-            about.replace('\n', "\n    ")
+            wait.about.replace('\n', "\n    ")
         ))
     }
 

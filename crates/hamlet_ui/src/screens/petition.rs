@@ -21,11 +21,9 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, each, resource};
 use hamlet_client::chats::{Chat, Entry, Transcript};
 use hamlet_client::messages::{Answer, Veto};
-use hamlet_client::waits::{
-    Asks, Choice, ChoiceExt, Danger, Kind, Waiting,
-};
+use hamlet_client::waits::{Asks, Choice, ChoiceExt, Waiting};
 use hamlet_protocol::asking::Questions;
-use hamlet_protocol::v0::Change;
+use hamlet_protocol::v0::{Change, Lasting, WaitDanger, WaitDetail};
 use hamlet_realm::needs::{TagAnswered, TagOpened};
 
 use crate::dock::{PanelAppExt, lit_panel, show_tab};
@@ -86,7 +84,7 @@ impl Queue {
 #[derive(Clone, Debug, PartialEq)]
 struct Need {
     entity: Entity,
-    kind: Kind,
+    detail: WaitDetail,
     by: String,
     about: String,
     line: String,
@@ -117,7 +115,7 @@ impl Need {
         };
         Self {
             entity,
-            kind: waiting.kind,
+            detail: waiting.detail.clone(),
             by: waiting.by.clone(),
             about: waiting.about.clone(),
             line: waiting.line(80),
@@ -223,12 +221,11 @@ fn button(need: &Need, at: usize) -> AnyView {
         return frame().boxed();
     };
     let entity = need.entity;
-    // An edit or a command of a hamlet in manual mode is let go for
-    // the agent's session, where another approval lasts.
-    let always = match need.kind {
-        Kind::Approval(danger) if danger.for_session() => {
-            "FOR THIS SESSION"
-        }
+    let always = match need.detail {
+        WaitDetail::Approval {
+            always: Some(Lasting::Session),
+            ..
+        } => "FOR THIS SESSION",
         _ => "ALWAYS ALLOW",
     };
     use Glyph::{Check, CheckAll, Cross, Restore, Talk};
@@ -259,7 +256,13 @@ fn held(
     world: &World,
     need: &Need,
 ) -> Option<(Entity, String, Change)> {
-    if need.kind != Kind::Approval(Danger::Edit) {
+    if !matches!(
+        need.detail,
+        WaitDetail::Approval {
+            danger: WaitDanger::Edit,
+            ..
+        }
+    ) {
         return None;
     }
     let waiting = world.get::<Waiting>(need.entity)?;
@@ -319,11 +322,11 @@ fn strip(need: &Need) -> AnyView {
             .tagged(Wraps)
             .boxed(),
         };
-        let what = match need.kind {
-            Kind::Approval(_) => "APPROVAL",
-            Kind::Objection => "OBJECTION",
-            Kind::Question => "QUESTION",
-            Kind::Fault => "FAULT",
+        let what = match need.detail {
+            WaitDetail::Approval { .. } => "APPROVAL",
+            WaitDetail::Objection {} => "OBJECTION",
+            WaitDetail::Question { .. } => "QUESTION",
+            WaitDetail::Fault {} => "FAULT",
         };
         let asked = match need.asked {
             1 => String::new(),
@@ -334,8 +337,8 @@ fn strip(need: &Need) -> AnyView {
             need.by.to_uppercase(),
             need.waited
         );
-        let tone = match need.kind {
-            Kind::Fault => Tone::Critical,
+        let tone = match need.detail {
+            WaitDetail::Fault {} => Tone::Critical,
             _ => Tone::Accent,
         };
         // A form says its questions itself.
@@ -510,9 +513,7 @@ mod tests {
         assert!(stopped);
         let mut state = hamlet_testing::realm::state();
         let mut wait = hamlet_testing::realm::wait("approve-pwd");
-        if let v0::Wait::Approval { about, .. } = &mut wait {
-            *about = "git".into();
-        }
+        wait.about = "git".into();
         state.waits.push(wait);
         hamlet_client::receive(
             app.world_mut(),
@@ -530,25 +531,21 @@ mod tests {
         app.add_plugins((crate::chat::plugin, plugin));
         let mut state = hamlet_testing::realm::state();
         let mut wait = hamlet_testing::realm::wait("edit");
-        if let v0::Wait::Approval {
-            danger,
-            change,
-            about,
-            ..
-        } = &mut wait
-        {
-            *danger = v0::WaitDanger::Edit;
-            *about = "orchard.md".into();
-            *change = Some(v0::Change {
-                path: "orchard.md".into(),
-                created: true,
-                lines: vec![],
-                total: 0,
-                added: 0,
-                removed: 0,
-                count: "A received change count".into(),
-            });
-        }
+        wait.detail = v0::WaitDetail::Approval {
+            danger: v0::WaitDanger::Edit,
+            says: "wants to edit".into(),
+            always: Some(v0::Lasting::Session),
+        };
+        wait.about = "orchard.md".into();
+        wait.change = Some(v0::Change {
+            path: "orchard.md".into(),
+            created: true,
+            lines: vec![],
+            total: 0,
+            added: 0,
+            removed: 0,
+            count: "A received change count".into(),
+        });
         state.waits.push(wait);
         hamlet_client::receive(
             app.world_mut(),

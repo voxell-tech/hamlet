@@ -1,9 +1,7 @@
 //! Protocol views of the record and the chief's settings.
 
 use anyhow::Result;
-use hamlet_protocol::v0::{
-    Changes, ServerMessage, State, Update, Wait,
-};
+use hamlet_protocol::v0::{Changes, ServerMessage, State, Update};
 use serde_json::{Value, json};
 
 use crate::documents::mode_words;
@@ -250,17 +248,16 @@ pub(crate) fn changed(
         }
     }
     for wait in &after.waits {
-        if before.waits.iter().find(|w| id_of(w) == id_of(wait))
-            != Some(wait)
+        if before.waits.iter().find(|w| w.id == wait.id) != Some(wait)
         {
             changes.push(Update::Wait { wait: wait.clone() });
         }
     }
     for wait in &before.waits {
-        if !after.waits.iter().any(|w| id_of(w) == id_of(wait)) {
+        if !after.waits.iter().any(|w| w.id == wait.id) {
             changes.push(Update::WaitClosed {
-                how: endings(id_of(wait)),
-                id: id_of(wait).into(),
+                how: endings(&wait.id),
+                id: wait.id.clone(),
             });
         }
     }
@@ -298,14 +295,4 @@ pub(crate) fn changed(
             changes,
         })
     })
-}
-
-/// The id of `wait`, whatever its kind.
-pub(crate) fn id_of(wait: &Wait) -> &str {
-    match wait {
-        Wait::Approval { id, .. }
-        | Wait::Fault { id, .. }
-        | Wait::Question { id, .. }
-        | Wait::Objection { id, .. } => id,
-    }
 }

@@ -305,9 +305,8 @@ function checkScenario(name: Scenario, frames: Frame[]) {
             const wait = updates.find((update) => update.type === "wait");
             expect(wait).toMatchObject({
                 wait: {
-                    kind: "approval",
-                    danger: "command",
                     answers: ["allow", "always", "deny"],
+                    detail: { kind: "approval", danger: "command" },
                 },
             });
             if (wait?.type !== "wait") throw new Error("No approval");
@@ -321,12 +320,13 @@ function checkScenario(name: Scenario, frames: Frame[]) {
             );
             const edit = updates.find(
                 (update) =>
-                    update.type === "wait" && update.wait.danger === "edit",
+                    update.type === "wait" &&
+                    update.wait.detail.kind === "approval" &&
+                    update.wait.detail.danger === "edit",
             );
             expect(edit).toMatchObject({
                 wait: {
-                    kind: "approval",
-                    danger: "edit",
+                    detail: { kind: "approval", danger: "edit" },
                     change: {
                         path: "result.txt",
                         created: false,
@@ -377,7 +377,8 @@ function checkScenario(name: Scenario, frames: Frame[]) {
             );
             const wait = changes(messages).find(
                 (update) =>
-                    update.type === "wait" && update.wait.kind === "fault",
+                    update.type === "wait" &&
+                    update.wait.detail.kind === "fault",
             );
             if (wait?.type !== "wait") throw new Error("No fault wait");
             expect(changes(messages)).toContainEqual({

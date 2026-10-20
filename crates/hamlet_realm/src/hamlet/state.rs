@@ -6,7 +6,8 @@ use bevy::prelude::*;
 use hamlet_client::realm::{
     Activity, Busy, Doing, Faulted, Left, Paper, Voted,
 };
-use hamlet_client::waits::{Kind, Needs, RaisedBy, Waiting};
+use hamlet_client::waits::{Needs, RaisedBy, Waiting};
+use hamlet_protocol::v0;
 
 use super::Housed;
 use crate::Clock;
@@ -91,7 +92,7 @@ pub(super) fn show(
     let arguing = waiting
         .iter()
         .filter(|(waiting, _)| {
-            matches!(waiting.kind, Kind::Objection)
+            matches!(waiting.detail, v0::WaitDetail::Objection {})
         })
         .filter_map(|(_, by)| housed.get(by.0).ok())
         .map(|agent| agent.0)

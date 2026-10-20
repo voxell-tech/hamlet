@@ -528,6 +528,14 @@ pub struct LastActivity {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum Lasting {
+    #[serde(rename = "session")]
+    Session,
+    #[serde(rename = "grant")]
+    Grant,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Left {
     pub at: u64,
     pub by: String,
@@ -1298,66 +1306,18 @@ pub enum VoterCast {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind")]
-pub enum Wait {
-    #[serde(rename = "approval")]
-    Approval {
-        about: String,
-        agent: Option<AgentRef>,
-        answers: Vec<Choice>,
-        asked: u64,
-        by: String,
-        change: Option<Change>,
-        chat: Option<ChatRef>,
-        danger: WaitDanger,
-        id: String,
-        says: String,
-        since: u64,
-    },
-    #[serde(rename = "fault")]
-    Fault {
-        about: String,
-        agent: Option<AgentRef>,
-        answers: Vec<Choice>,
-        asked: u64,
-        by: String,
-        change: Option<Change>,
-        chat: Option<ChatRef>,
-        danger: (),
-        id: String,
-        says: String,
-        since: u64,
-    },
-    #[serde(rename = "question")]
-    Question {
-        about: String,
-        agent: Option<AgentRef>,
-        answers: Vec<Choice>,
-        asked: u64,
-        by: String,
-        change: Option<Change>,
-        chat: Option<ChatRef>,
-        danger: (),
-        id: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        questions: Option<Questions>,
-        says: String,
-        since: u64,
-    },
-    #[serde(rename = "objection")]
-    Objection {
-        about: String,
-        agent: Option<AgentRef>,
-        answers: Vec<Choice>,
-        asked: u64,
-        by: String,
-        change: Option<Change>,
-        chat: Option<ChatRef>,
-        danger: (),
-        id: String,
-        says: String,
-        since: u64,
-    },
+pub struct Wait {
+    pub about: String,
+    pub agent: Option<AgentRef>,
+    pub answers: Vec<Choice>,
+    pub asked: u64,
+    pub by: String,
+    pub change: Option<Change>,
+    pub chat: Option<ChatRef>,
+    pub detail: WaitDetail,
+    pub id: String,
+    pub since: u64,
+    pub subject: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1374,6 +1334,28 @@ pub enum WaitDanger {
     Edit,
     #[serde(rename = "command")]
     Command,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum WaitDetail {
+    #[serde(rename = "approval")]
+    Approval {
+        always: Option<Lasting>,
+        danger: WaitDanger,
+        says: String,
+    },
+    #[serde(rename = "fault")]
+    Fault {
+    },
+    #[serde(rename = "question")]
+    Question {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        questions: Option<Questions>,
+    },
+    #[serde(rename = "objection")]
+    Objection {
+    },
 }
 
 /// The value of every `v` field.

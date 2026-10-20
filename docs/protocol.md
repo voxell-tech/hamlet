@@ -122,7 +122,7 @@ messages. Both forms are part of the protocol.
 
 ### Questions and answers
 
-A question wait may include `questions: Questions`: a `message` and a list
+A question wait's `detail` may include `questions: Questions`: a `message` and a list
 of one to ten questions. Each question has `question`, `description`, up to
 six `options` (`title` and `description`), and `text_input`. A question with
 no options always accepts custom words. The optional payload is kept across
@@ -281,9 +281,13 @@ not ordered against a chat's `turn` and `transcript` messages. A reset and
 its replacement transcript are sent together, with no message between them.
 Reflections and retries show as notices, as does a compaction.
 
-An approval wait requires its `danger`; fault, question and objection waits
-carry `danger: null`. A refused `edit` changes nothing and replies with an
-error. `check` replies in words and changes the connection status in
+A `Wait` has the fields every wait has (`id`, `by`, `agent`, `about`,
+`subject`, `change`, `answers`, `since`, `asked`, `chat`) and a `detail`
+discriminated by `kind`: `approval` with its `danger`, the agent's wish as
+`says` and how long `always` lasts (`session`, `grant`, or `null` when it is
+not offered); `fault`; `question` with optional `questions`; or
+`objection`. `subject` is the line of `about` a one-line view quotes. A
+refused `edit` changes nothing and replies with an error. `check` replies in words and changes the connection status in
 settings; a model check waits at most 90 s.
 
 ## The society in state

@@ -616,19 +616,6 @@ export const Agent = object({
 });
 export type Agent = Static<typeof Agent>;
 
-/** Something that waits for a chief (H11). */
-const waitFields = {
-    id: Type.String(),
-    by: Type.String(),
-    agent: nullable(AgentRef),
-    says: Type.String(),
-    about: Type.String(),
-    change: nullable(Change),
-    answers: Type.Array(Choice),
-    since: count(),
-    asked: count(),
-    chat: nullable(ChatRef),
-};
 /** The reason an approval needs a chief's decision. */
 export const WaitDanger = Type.Enum([
     "network",
@@ -638,26 +625,43 @@ export const WaitDanger = Type.Enum([
     "edit",
     "command",
 ]);
-/** An open approval, fault, question or objection awaiting a chief. */
-export const Wait = Type.Union([
+
+/** How long an approval's `always` lets such calls run: the agent's session, or a grant until it is revoked. */
+export const Lasting = Type.Enum(["session", "grant"]);
+
+/** What one kind of wait carries besides the fields every wait has. */
+export const WaitDetail = Type.Union([
     object({
-        ...waitFields,
         kind: Type.Literal("approval"),
         danger: WaitDanger,
+        /** The agent's wish, in the words that follow its name. */
+        says: Type.String(),
+        /** Null when `always` is not offered. */
+        always: nullable(Lasting),
     }),
-    object({ ...waitFields, kind: Type.Literal("fault"), danger: Type.Null() }),
+    object({ kind: Type.Literal("fault") }),
     object({
-        ...waitFields,
         kind: Type.Literal("question"),
-        danger: Type.Null(),
         questions: Type.Optional(Questions),
     }),
-    object({
-        ...waitFields,
-        kind: Type.Literal("objection"),
-        danger: Type.Null(),
-    }),
+    object({ kind: Type.Literal("objection") }),
 ]);
+
+/** An open approval, fault, question or objection awaiting a chief (H11). */
+export const Wait = object({
+    id: Type.String(),
+    by: Type.String(),
+    agent: nullable(AgentRef),
+    about: Type.String(),
+    /** The line of `about` a one-line view quotes. */
+    subject: Type.String(),
+    change: nullable(Change),
+    answers: Type.Array(Choice),
+    since: count(),
+    asked: count(),
+    chat: nullable(ChatRef),
+    detail: WaitDetail,
+});
 export type Wait = Static<typeof Wait>;
 
 /** The home's settings, with no credential in them. */

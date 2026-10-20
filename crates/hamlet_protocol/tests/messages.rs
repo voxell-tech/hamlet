@@ -454,10 +454,11 @@ fn change_wire() -> Value {
 
 fn wait_wire() -> Value {
     json!({
-        "id": "wait-1", "kind": "approval", "danger": "edit", "by": "founder",
-        "agent": {"hamlet": "home", "number": 0}, "says": "founder wants to edit", "about": "NOTES.md",
-        "change": change_wire(), "answers": ["allow", "always", "deny", "go", "withdraw", "reply", "dismiss"],
-        "since": 1700000000000_i64, "asked": 1, "chat": {"with": {"hamlet": "home", "agent": "mayor"}}
+        "id": "wait-1", "by": "founder", "agent": {"hamlet": "home", "number": 0},
+        "about": "NOTES.md", "subject": "NOTES.md", "change": change_wire(),
+        "answers": ["allow", "always", "deny", "go", "withdraw", "reply", "dismiss"],
+        "since": 1700000000000_u64, "asked": 1, "chat": {"with": {"hamlet": "home", "agent": "mayor"}},
+        "detail": {"kind": "approval", "danger": "edit", "says": "wants to edit", "always": "session"}
     })
 }
 
@@ -511,11 +512,7 @@ fn state_and_every_update_keep_the_servers_ready_made_values() {
         Some("$3.75 left")
     );
     assert_eq!(
-        match &state.waits[0] {
-            Wait::Approval { change, .. } =>
-                change.as_ref().unwrap().lines[0].mark.clone(),
-            _ => panic!("Expected approval"),
-        },
+        state.waits[0].change.as_ref().unwrap().lines[0].mark,
         ChangeLinesMark::Space
     );
     let updates = [
@@ -665,22 +662,6 @@ fn file_gifts_round_trip_manifests_and_parts_with_the_upload_receipt()
     server(
         json!({"type": "reply", "to": ID, "kind": "notice", "text": "Ready for the gift's file parts.", "upload": "upload-1"}),
     );
-}
-
-#[test]
-fn approval_waits_require_a_danger_and_other_kinds_require_null() {
-    let mut wire = wait_wire();
-    wire["danger"] = Value::Null;
-    assert!(serde_json::from_value::<Wait>(wire.clone()).is_err());
-    for kind in ["fault", "question", "objection"] {
-        wire["kind"] = kind.into();
-        assert!(serde_json::from_value::<Wait>(wire.clone()).is_ok());
-        wire["danger"] = "command".into();
-        assert!(
-            serde_json::from_value::<Wait>(wire.clone()).is_err()
-        );
-        wire["danger"] = Value::Null;
-    }
 }
 
 #[test]

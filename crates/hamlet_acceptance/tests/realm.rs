@@ -154,7 +154,9 @@ async fn founds_a_hamlet_by_vote_has_the_asker_pay_and_overturns_it()
     // The hamlet that asks pays for the answer.
     s.chief
         .until("the home's spending includes both sides", |c| {
-            spent(c, "home") == before + own + peer.usage.micros
+            spent(c, "home")
+                == before
+                    + i64::try_from(own + peer.usage.micros).unwrap()
         })
         .await;
     assert_eq!(spent(&s.join().await, "mill"), 0);
@@ -622,7 +624,7 @@ async fn stops_another_hamlets_agent_by_name_and_office() {
         let wait = s
             .chief
             .wait_for("the mill's approval", |w| {
-                matches!(w, Wait::Approval { .. })
+                matches!(w.detail, WaitDetail::Approval { .. })
             })
             .await;
         let reply =
@@ -632,7 +634,7 @@ async fn stops_another_hamlets_agent_by_name_and_office() {
             .until("the wait lapsed", |c| c.waits().is_empty())
             .await;
         assert!(s.chief.changes().contains(&Update::WaitClosed {
-            id: hamlet_acceptance::realm::wait_id(&wait).into(),
+            id: wait.id.clone(),
             how: "stopped".into()
         }));
         assert!(

@@ -56,11 +56,12 @@ pub fn agent(hamlet: &str, number: i64, name: &str) -> v0::Agent {
 /// An approval raised by the first hamlet's founder.
 pub fn wait(id: &str) -> v0::Wait {
     serde_json::from_value(json!({
-        "id": id, "kind": "approval", "danger": "command",
-        "agent": {"hamlet": "home", "number": 0}, "by": "founder",
-        "says": "wants to run", "about": "pwd", "change": null,
+        "id": id, "agent": {"hamlet": "home", "number": 0}, "by": "founder",
+        "about": "pwd", "subject": "pwd", "change": null,
         "answers": ["allow", "always", "deny"], "since": 1000, "asked": 1,
-        "chat": {"with": {"hamlet": "home", "agent": "mayor"}}
+        "chat": {"with": {"hamlet": "home", "agent": "mayor"}},
+        "detail": {"kind": "approval", "danger": "command",
+                   "says": "wants to run", "always": "session"}
     })).unwrap()
 }
 

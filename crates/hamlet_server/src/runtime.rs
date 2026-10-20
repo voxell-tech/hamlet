@@ -24,7 +24,6 @@ use crate::credentials::write_whole;
 use crate::harness::{self, Harnesses, Notice};
 use crate::protocol::{Protocol, fault};
 use crate::service::Service;
-use crate::state::id_of;
 use crate::{Home, chats};
 
 const LARGEST: usize = 1_048_576;
@@ -645,11 +644,11 @@ fn refresh(
     let mut after = service.state(state.epoch, state.revision)?;
     let mut endings = HashMap::new();
     for wait in &state.waits {
-        if !after.waits.iter().any(|w| id_of(w) == id_of(wait)) {
+        if !after.waits.iter().any(|w| w.id == wait.id) {
             let db = service.home.store().connection();
             endings.insert(
-                id_of(wait).to_owned(),
-                crate::oversight::ended(db, id_of(wait))?,
+                wait.id.clone(),
+                crate::oversight::ended(db, &wait.id)?,
             );
         }
     }

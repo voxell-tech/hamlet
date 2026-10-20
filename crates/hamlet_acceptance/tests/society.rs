@@ -1,7 +1,6 @@
 //! Agents together: creating them, roads, letters, questions, leaving
 //! and coming back, merging, votes, objections and the library.
 
-use hamlet_acceptance::realm::wait_id;
 use hamlet_acceptance::*;
 use hamlet_protocol::v0::*;
 use serde_json::json;
@@ -69,14 +68,14 @@ fn roads(realm: &State) -> Vec<String> {
         .collect()
 }
 
-fn agent(hamlet: &str, number: i64) -> AgentRef {
+fn agent(hamlet: &str, number: u64) -> AgentRef {
     AgentRef {
         hamlet: hamlet.into(),
         number,
     }
 }
 
-fn peer(with: &str, from: i64, kind: ChatRefKind) -> ChatRef {
+fn peer(with: &str, from: u64, kind: ChatRefKind) -> ChatRef {
     ChatRef {
         with: to("home", with),
         from: Some(agent("home", from)),
@@ -739,15 +738,12 @@ async fn holds_an_instruction_for_an_objection_then_goes_or_withdraws()
         let wait = s
             .chief
             .wait_for("an objection", |w| {
-                matches!(w, Wait::Objection { .. })
+                matches!(w.detail, WaitDetail::Objection { .. })
             })
             .await;
-        let Wait::Objection {
+        let Wait {
             about, answers, by, ..
-        } = &wait
-        else {
-            unreachable!()
-        };
+        } = &wait;
         assert_eq!(
             about,
             &format!(
@@ -757,10 +753,8 @@ async fn holds_an_instruction_for_an_objection_then_goes_or_withdraws()
         );
         assert_eq!(answers, &[Choice::Go, Choice::Withdraw]);
         assert_eq!(by, "scout");
-        let reply = s
-            .chief
-            .choose(wait_id(&wait), choice, Some("I checked"))
-            .await;
+        let reply =
+            s.chief.choose(&wait.id, choice, Some("I checked")).await;
         assert_eq!(reply.kind, ReplyKind::Notice);
         s.chief.reply(&pending).await;
         let file = s.home.file(&format!("houses/home/1/{word}.txt"));
@@ -911,20 +905,21 @@ async fn asks_before_a_reserved_creation_and_caps_the_hamlet() {
         .chief
         .wait_for("a reserved deed", |w| {
             matches!(
-                w,
-                Wait::Approval {
+                w.detail,
+                WaitDetail::Approval {
                     danger: WaitDanger::Reserved,
                     ..
                 }
             )
         })
         .await;
-    let Wait::Approval { answers, says, .. } = &wait else {
+    let WaitDetail::Approval { says, .. } = &wait.detail else {
         unreachable!()
     };
+    let answers = &wait.answers;
     assert_eq!(answers, &[Choice::Allow, Choice::Deny]);
     assert_eq!(says, "wants to do what you reserved:");
-    s.chief.choose(wait_id(&wait), Choice::Allow, None).await;
+    s.chief.choose(&wait.id, Choice::Allow, None).await;
     s.chief
         .until("scout created", |c| {
             c.agent("home", "scout").is_some()
@@ -1229,10 +1224,17 @@ async fn a_mayor_review_holds_the_next_step_across_restart() {
             })
             .await;
         std::fs::write(s.home.side().join("review"), "").unwrap();
-        let wait = s.chief.wait_for("mayor's objection", |wait| matches!(wait, Wait::Objection { by, .. } if by == "mayor")).await;
-        let Wait::Objection { answers, about, .. } = &wait else {
-            unreachable!()
-        };
+        let wait = s
+            .chief
+            .wait_for("mayor's objection", |wait| {
+                wait.by == "mayor"
+                    && matches!(
+                        wait.detail,
+                        WaitDetail::Objection { .. }
+                    )
+            })
+            .await;
+        let Wait { answers, about, .. } = &wait;
         assert_eq!(answers, &[Choice::Go, Choice::Withdraw]);
         assert!(about.contains("Keep the only copy."));
         std::fs::write(s.home.side().join("step"), "").unwrap();
@@ -1247,20 +1249,14 @@ async fn a_mayor_review_holds_the_next_step_across_restart() {
         let server = s.home.serve(&script, QUIET).await;
         let mut chief = Client::join(&server).await;
         let recovered = chief
-            .wait_for("recovered review", |w| {
-                wait_id(w) == wait_id(&wait)
-            })
+            .wait_for("recovered review", |w| &w.id == &wait.id)
             .await;
         assert_eq!(recovered, wait);
         assert!(!house.join("second.txt").exists());
         chief.open(&chat(to("home", "scout"))).await;
         assert_eq!(
             chief
-                .choose(
-                    wait_id(&wait),
-                    choice.clone(),
-                    Some("Checked")
-                )
+                .choose(&wait.id, choice.clone(), Some("Checked"))
                 .await
                 .kind,
             ReplyKind::Notice
@@ -1316,19 +1312,14 @@ async fn a_late_mayor_review_only_asks_for_dismissal() {
     let wait = s
         .chief
         .wait_for("late review", |w| {
-            matches!(w, Wait::Objection { .. })
+            matches!(w.detail, WaitDetail::Objection { .. })
         })
         .await;
-    let Wait::Objection { answers, about, .. } = &wait else {
-        unreachable!()
-    };
+    let Wait { answers, about, .. } = &wait;
     assert_eq!(answers, &[Choice::Dismiss]);
     assert!(about.contains("work had already ended"), "{about}");
     assert_eq!(
-        s.chief
-            .choose(wait_id(&wait), Choice::Dismiss, None)
-            .await
-            .kind,
+        s.chief.choose(&wait.id, Choice::Dismiss, None).await.kind,
         ReplyKind::Notice
     );
 }

@@ -44,7 +44,7 @@ impl Capture {
             secrets: vec![token.clone()],
         };
         result
-            .send(json!({"type":"hello","v":0.0,"token":token}))
+            .send(json!({"type":"hello","v":0,"token":token}))
             .await;
         result.next().await;
         assert_eq!(result.frames[1]["message"]["type"], "state");

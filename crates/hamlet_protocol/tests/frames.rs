@@ -34,14 +34,17 @@ fn a_recorded_held_write_carries_its_preview_through_the_wait_and_close()
         })
         .flatten()
         .find_map(|update| match update {
-            Update::Wait {
-                wait:
-                    Wait::Approval {
+            Update::Wait { wait }
+                if matches!(
+                    wait.detail,
+                    WaitDetail::Approval {
                         danger: WaitDanger::Edit,
-                        change,
                         ..
-                    },
-            } => change.as_ref(),
+                    }
+                ) =>
+            {
+                wait.change.as_ref()
+            }
             _ => None,
         })
         .expect(
