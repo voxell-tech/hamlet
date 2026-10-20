@@ -512,7 +512,7 @@ impl Service {
                 from: giver,
             },
         });
-        let tx = self.home.store().db.transaction()?;
+        let tx = self.home.store().transaction()?;
         crate::record::save(&tx, &record)?;
         tx.commit()?;
         Ok(Ok(format!("Gave `{}` the skill `{skill}`.", to.agent)))

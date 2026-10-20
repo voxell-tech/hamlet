@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result, ensure};
-use rusqlite::{Connection, TransactionBehavior};
+use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 /// The schema, one step per version. A step is never edited once
 /// released; a change is a new step.
@@ -54,7 +54,7 @@ const MIGRATIONS: &[&str] = &[
 
 /// A home's realm database, open in this process alone.
 pub struct Store {
-    pub(crate) db: Connection,
+    db: Connection,
 }
 
 impl Store {
@@ -80,6 +80,18 @@ impl Store {
     /// The open database.
     pub fn connection(&self) -> &Connection {
         &self.db
+    }
+
+    /// A transaction that takes the write lock at its first write.
+    pub(crate) fn transaction(&mut self) -> Result<Transaction<'_>> {
+        Ok(self.db.transaction()?)
+    }
+
+    /// A transaction that holds the write lock from its start.
+    pub(crate) fn immediate(&mut self) -> Result<Transaction<'_>> {
+        Ok(self.db.transaction_with_behavior(
+            TransactionBehavior::Immediate,
+        )?)
     }
 
     /// Closes the database and reports any closing error.

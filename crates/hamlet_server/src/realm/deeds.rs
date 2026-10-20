@@ -4,12 +4,12 @@ use anyhow::Result;
 use rusqlite::OptionalExtension;
 
 use super::{At, Removed, read, write};
+use crate::Outcome;
 use crate::harness::Harnesses;
 use crate::protocol::Refusal;
 use crate::record::{self, AgentRef, Audience, FoundRecord};
 use crate::service::Service;
 use crate::society::{self, Deed};
-use crate::{Operation, Outcome};
 
 pub(crate) async fn deed(
     service: &mut Service,
@@ -74,13 +74,8 @@ pub(crate) async fn deed(
             chief: service.chief.clone(),
             at: society::now(),
         };
-        let tx = service.home.store().db.transaction()?;
-        let result =
-            if let Some(refusal) = operation.authorize(&tx)? {
-                Outcome::Refused(refusal)
-            } else {
-                operation.apply(&tx)?
-            };
+        let tx = service.home.store().transaction()?;
+        let result = crate::operation::change(&tx, &operation)?;
         match result {
             Outcome::Refused(refusal) => {
                 return bad(refusal.text(Audience::Chief));
@@ -224,7 +219,7 @@ pub(crate) async fn deed(
         }
         _ => unreachable!("realm deed checked above"),
     };
-    let tx = service.home.store().db.transaction()?;
+    let tx = service.home.store().transaction()?;
     write(&tx, &realm)?;
     if realm.lives(id) {
         record::write(&tx, &r)?;

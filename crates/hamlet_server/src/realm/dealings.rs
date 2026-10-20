@@ -34,7 +34,7 @@ pub(crate) async fn operation(
                 &caller.id.key,
             ))?,
         },
-        tool,
+        &caller.request,
         |db| {
             let mut realm = read(db)?;
             let own = record::read(db, &from.hamlet)?;
@@ -305,7 +305,7 @@ pub(crate) async fn operation(
                 .filter(|n| moving.agreed[1].keep.contains(n))
                 .copied()
                 .collect::<Vec<_>>();
-            let result = record::change(
+            let result = crate::operation::change(
                 db,
                 &RecordOperation {
                     hamlet: agent.hamlet.clone(),

@@ -120,7 +120,7 @@ pub(crate) fn object(
         kept.place.agent.number,
         crate::record::NameFallback::Recorded,
     );
-    let tx = service.home.store().db.transaction()?;
+    let tx = service.home.store().transaction()?;
     tx.execute(
         "INSERT INTO gate_call (runtime,key,binding,input) VALUES \
          (?1,?2,?3,?4) ON CONFLICT DO NOTHING",

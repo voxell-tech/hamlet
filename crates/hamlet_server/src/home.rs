@@ -117,7 +117,7 @@ impl Home {
 /// pre-identity home.
 fn identify(layout: &Layout, store: &mut Store) -> Result<()> {
     let path = layout.root.join(IDENTITY);
-    let tx = store.db.transaction()?;
+    let tx = store.transaction()?;
     let identity = tx
         .query_row(
             "SELECT home FROM store_identity WHERE id = 1",

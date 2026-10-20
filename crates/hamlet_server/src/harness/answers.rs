@@ -32,7 +32,7 @@ pub(crate) fn attempt(
     at: i64,
 ) -> Result<Option<Stop>> {
     let old = store
-        .db
+        .connection()
         .query_row(
             "SELECT binding, provider, model, task FROM \
              harness_attempt WHERE runtime=?1 AND key=?2",
@@ -67,7 +67,7 @@ pub(crate) fn attempt(
     )? {
         return Ok(Some(Stop { words, spend: true }));
     }
-    store.db.execute(
+    store.connection().execute(
         "INSERT INTO harness_attempt (runtime, key, binding, \
          provider, model, at, task, price) VALUES (?1, ?2, ?3, ?4, \
          ?5, ?6, ?7, ?8) ON CONFLICT DO NOTHING",
@@ -95,7 +95,7 @@ pub(crate) fn charge(
     at: i64,
 ) -> Result<Option<()>> {
     let allowed = store
-        .db
+        .connection()
         .query_row(
             "SELECT price FROM harness_attempt WHERE runtime = ?1 \
              AND key = ?2",
@@ -110,7 +110,7 @@ pub(crate) fn charge(
         .map(|p| serde_json::from_str::<serde_json::Value>(&p))
         .transpose()?;
     let amount = crate::spend::amount(usage, price.as_ref());
-    store.db.execute(
+    store.connection().execute(
         "INSERT INTO harness_usage (runtime, key, input, output, \
          cache_read, cache_write, micros, at, ms, estimated, \
          detail, ordinal) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, \

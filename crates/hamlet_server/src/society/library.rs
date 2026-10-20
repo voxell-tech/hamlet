@@ -275,7 +275,7 @@ pub(super) async fn consult(
                 tree::publish(&staging, &library, name, &files)?;
                 crate::fault::point("after_library_publish");
                 job.delivered = true;
-                let tx = service.home.store().db.transaction()?;
+                let tx = service.home.store().transaction()?;
                 super::keep(&tx, "library-consult", &key, &job)?;
                 super::keep(
                     &tx,
@@ -366,18 +366,18 @@ pub(super) fn active(
     runtime: &str,
     call: &str,
 ) -> Result<bool> {
-    Ok(db.query_row(
+    let open = db.query_row(
         "SELECT EXISTS(SELECT 1 FROM gate_call g JOIN \
          harness_binding b ON b.id=g.binding JOIN harness_input i \
          ON i.binding=g.binding AND i.submission=g.input WHERE \
          g.runtime=?1 AND g.key=?2 AND b.cancelling=0 AND \
          i.state!='dropped' AND coalesce(i.status,'queued') NOT IN \
-         ('done','unanswered') AND NOT EXISTS(SELECT 1 FROM marker \
-         m WHERE m.runtime=g.runtime AND m.key=g.key AND \
-         m.kind='tool' AND m.outcome!=''))",
+         ('done','unanswered'))",
         params![runtime, call],
         |row| row.get(0),
-    )?)
+    )?;
+    // Society calls are marked with their outcome, never begun.
+    Ok(open && !crate::operation::is_marked(db, runtime, call)?)
 }
 
 pub(super) fn retire(service: &mut Service) -> Result<()> {

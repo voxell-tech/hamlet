@@ -433,7 +433,7 @@ pub(crate) async fn complete(
                             },
                         });
                         let tx =
-                            service.home.store().db.transaction()?;
+                            service.home.store().transaction()?;
                         crate::record::save(&tx, &record)?;
                         tx.commit()?;
                     }

@@ -2,18 +2,13 @@
 //! identity and kept with the marker of its outcome.
 
 use anyhow::{Result, ensure};
-use rusqlite::{
-    Connection, OptionalExtension, TransactionBehavior, params,
-};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::store::Store;
-
-const MARK: &str = "INSERT INTO marker (runtime, key, kind, digest, \
-                    outcome) VALUES (?1, ?2, ?3, ?4, ?5)";
 
 /// The persistent name of a harness runtime instance.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -95,6 +90,52 @@ pub enum Reply<D, R> {
     Conflict,
 }
 
+/// A request as its marker keeps it: its kind and the SHA-256 of the
+/// kind and the request in canonical JSON.
+pub(crate) struct Request {
+    kind: &'static str,
+    digest: Vec<u8>,
+}
+
+impl Request {
+    pub(crate) fn new(
+        kind: &'static str,
+        request: &impl Serialize,
+    ) -> Result<Self> {
+        let mut canonical = String::new();
+        self::canonical(
+            &serde_json::to_value(request)?,
+            &mut canonical,
+        );
+        let mut hash = Sha256::new();
+        hash.update(kind);
+        hash.update([0]);
+        hash.update(canonical);
+        Ok(Self {
+            kind,
+            digest: hash.finalize().to_vec(),
+        })
+    }
+
+    /// The tool call of `tool` with `arguments`.
+    pub(crate) fn tool(
+        tool: &str,
+        arguments: &impl Serialize,
+    ) -> Result<Self> {
+        Self::new("tool", &(tool, arguments))
+    }
+}
+
+/// What the marker of an identity keeps for a request of its kind.
+#[derive(Debug, PartialEq)]
+pub(crate) enum Marked<T> {
+    /// The request began and its outcome is not kept yet.
+    Begun,
+    Outcome(T),
+    /// The identity is marked for another request.
+    Conflict,
+}
+
 impl Store {
     /// Runs `operation` as `id`. The authority check, the change and
     /// the marker commit together, and an error leaves none of
@@ -104,91 +145,219 @@ impl Store {
         id: &OperationId,
         operation: &O,
     ) -> Result<Reply<O::Done, O::Refusal>> {
-        let digest = digest(operation)?;
-        let mut tx = self.db.transaction_with_behavior(
-            TransactionBehavior::Immediate,
-        )?;
-        let marked = tx
-            .query_row(
-                "SELECT digest, outcome FROM marker
-                 WHERE runtime = ?1 AND key = ?2",
-                params![id.runtime.as_str(), id.key],
-                |row| {
-                    Ok((
-                        row.get::<_, Vec<u8>>(0)?,
-                        row.get::<_, String>(1)?,
-                    ))
-                },
-            )
-            .optional()?;
-        if let Some((kept, outcome)) = marked {
-            // A marked outcome stands even when its authority has
-            // since gone.
-            return Ok(if kept == digest {
-                Reply::Outcome(serde_json::from_str(&outcome)?)
-            } else {
-                Reply::Conflict
-            });
-        }
-        // Checked here, as it runs: a harness recovering a call can
-        // skip its own check, as pi-durable skips
-        // `beforeTool` on replay.
-        let outcome = match operation.authorize(&tx)? {
-            Some(refusal) => Outcome::Refused(refusal),
-            None => {
-                let change = tx.savepoint()?;
-                let outcome = operation.apply(&change)?;
-                if let Outcome::Done(_) = outcome {
-                    change.commit()?;
-                }
-                // Otherwise dropped, which rolls the change back.
-                outcome
-            }
-        };
-        // A refusal is marked too. The harness may already hold it as
-        // the call's result, so a later run of the call must
-        // not decide otherwise against a changed realm.
-        let kept = serde_json::to_string(&outcome)?;
-        let mark = |db: &Connection| {
-            db.execute(
-                MARK,
-                params![
-                    id.runtime.as_str(),
-                    id.key,
-                    O::KIND,
-                    digest,
-                    kept
-                ],
-            )
-        };
+        let request = Request::new(O::KIND, operation)?;
+        let tx = self.immediate()?;
         #[cfg(feature = "faults")]
         if crate::fault::split_marker() {
             // Broken on purpose: the test of this order must catch
             // the result it loses.
+            if let Some(kept) = kept(&tx, id)? {
+                return Ok(match reply_of(kept, &request)? {
+                    Marked::Outcome(outcome) => {
+                        Reply::Outcome(outcome)
+                    }
+                    Marked::Begun | Marked::Conflict => {
+                        Reply::Conflict
+                    }
+                });
+            }
+            let outcome = change(&tx, operation)?;
             crate::fault::point("before_commit");
             tx.commit()?;
             crate::fault::point("after_commit");
-            mark(&self.db)?;
+            mark(self.connection(), id, &request, &outcome)?;
             return Ok(Reply::Outcome(outcome));
         }
-        mark(&tx)?;
+        // A refusal is marked too. The harness may already hold it as
+        // the call's result, so a later run of the call must not
+        // decide otherwise against a changed realm.
+        let outcome =
+            once(&tx, id, &request, |db| change(db, operation))?;
         crate::fault::point("before_commit");
         tx.commit()?;
         crate::fault::point("after_commit");
-        Ok(Reply::Outcome(outcome))
+        Ok(outcome.map_or(Reply::Conflict, Reply::Outcome))
+    }
+
+    /// [`once`] in a transaction of its own.
+    pub(crate) fn once<T: Serialize + DeserializeOwned>(
+        &mut self,
+        id: &OperationId,
+        request: &Request,
+        make: impl FnOnce(&Connection) -> Result<T>,
+    ) -> Result<Option<T>> {
+        let tx = self.immediate()?;
+        let outcome = once(&tx, id, request, make)?;
+        tx.commit()?;
+        Ok(outcome)
     }
 }
 
-/// The SHA-256 of the operation's kind and its request in canonical
-/// JSON.
-fn digest<O: Operation>(operation: &O) -> Result<Vec<u8>> {
-    let mut request = String::new();
-    canonical(&serde_json::to_value(operation)?, &mut request);
-    let mut hash = Sha256::new();
-    hash.update(O::KIND);
-    hash.update([0]);
-    hash.update(request);
-    Ok(hash.finalize().to_vec())
+/// The outcome marked for `id`, else the one `make` decides now in
+/// the transaction `db`, marked there for `request`. `None` when `id`
+/// is marked for another request, and then nothing runs.
+pub(crate) fn once<T: Serialize + DeserializeOwned>(
+    db: &Connection,
+    id: &OperationId,
+    request: &Request,
+    make: impl FnOnce(&Connection) -> Result<T>,
+) -> Result<Option<T>> {
+    let marked = kept(db, id)?
+        .map(|kept| reply_of(kept, request))
+        .transpose()?;
+    let begun = match marked {
+        // A marked outcome stands even when its authority has since
+        // gone.
+        Some(Marked::Outcome(outcome)) => return Ok(Some(outcome)),
+        Some(Marked::Conflict) => return Ok(None),
+        Some(Marked::Begun) => true,
+        None => false,
+    };
+    let outcome = make(db)?;
+    if begun {
+        settle(db, id, &outcome)?;
+    } else {
+        mark(db, id, request, &outcome)?;
+    }
+    Ok(Some(outcome))
+}
+
+/// Runs `operation` in the transaction `db`, whose owner keeps any
+/// marker: the authority check, then the change, undone when it
+/// refuses.
+pub(crate) fn change<O: Operation>(
+    db: &Connection,
+    operation: &O,
+) -> Result<Outcome<O::Done, O::Refusal>> {
+    // Checked here, as it runs: a harness recovering a call can skip
+    // its own check, as pi-durable skips `beforeTool` on replay.
+    if let Some(refusal) = operation.authorize(db)? {
+        return Ok(Outcome::Refused(refusal));
+    }
+    db.execute_batch("SAVEPOINT operation")?;
+    let outcome = operation.apply(db);
+    if matches!(outcome, Ok(Outcome::Done(_))) {
+        db.execute_batch("RELEASE operation")?;
+    } else {
+        db.execute_batch("ROLLBACK TO operation; RELEASE operation")?;
+    }
+    outcome
+}
+
+/// What the marker of `id` keeps for requests of `request`'s kind;
+/// `None` when it has no marker of that kind.
+pub(crate) fn marked<T: DeserializeOwned>(
+    db: &Connection,
+    id: &OperationId,
+    request: &Request,
+) -> Result<Option<Marked<T>>> {
+    kept(db, id)?
+        .filter(|(kind, ..)| kind == request.kind)
+        .map(|kept| reply_of(kept, request))
+        .transpose()
+}
+
+/// Marks `id` as begun for `request`, before an effect that must not
+/// run again.
+pub(crate) fn begin(
+    db: &Connection,
+    id: &OperationId,
+    request: &Request,
+) -> Result<()> {
+    db.execute(
+        "INSERT INTO marker (runtime, key, kind, digest, outcome) \
+         VALUES (?1, ?2, ?3, ?4, '')",
+        params![
+            id.runtime.as_str(),
+            id.key,
+            request.kind,
+            request.digest
+        ],
+    )?;
+    Ok(())
+}
+
+/// Keeps `outcome` as the marked outcome of `id`.
+pub(crate) fn settle(
+    db: &Connection,
+    id: &OperationId,
+    outcome: &impl Serialize,
+) -> Result<()> {
+    db.execute(
+        "UPDATE marker SET outcome = ?3 WHERE runtime = ?1 AND key \
+         = ?2",
+        params![
+            id.runtime.as_str(),
+            id.key,
+            serde_json::to_string(outcome)?
+        ],
+    )?;
+    Ok(())
+}
+
+/// Whether the call `key` of `runtime` is marked, begun or done.
+pub(crate) fn is_marked(
+    db: &Connection,
+    runtime: &str,
+    key: &str,
+) -> Result<bool> {
+    Ok(db
+        .query_row(
+            "SELECT 1 FROM marker WHERE runtime = ?1 AND key = ?2",
+            params![runtime, key],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
+/// The kind, digest and outcome marked for `id`.
+fn kept(
+    db: &Connection,
+    id: &OperationId,
+) -> Result<Option<(String, Vec<u8>, String)>> {
+    Ok(db
+        .query_row(
+            "SELECT kind, digest, outcome FROM marker WHERE runtime \
+             = ?1 AND key = ?2",
+            params![id.runtime.as_str(), id.key],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?)
+}
+
+/// What the marker `kept` keeps for `request`.
+fn reply_of<T: DeserializeOwned>(
+    (_, digest, outcome): (String, Vec<u8>, String),
+    request: &Request,
+) -> Result<Marked<T>> {
+    Ok(if digest != request.digest {
+        Marked::Conflict
+    } else if outcome.is_empty() {
+        Marked::Begun
+    } else {
+        Marked::Outcome(serde_json::from_str(&outcome)?)
+    })
+}
+
+fn mark(
+    db: &Connection,
+    id: &OperationId,
+    request: &Request,
+    outcome: &impl Serialize,
+) -> Result<()> {
+    db.execute(
+        "INSERT INTO marker (runtime, key, kind, digest, outcome) \
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            id.runtime.as_str(),
+            id.key,
+            request.kind,
+            request.digest,
+            serde_json::to_string(outcome)?
+        ],
+    )?;
+    Ok(())
 }
 
 /// `value` as JSON with each object's keys sorted, so equal requests
@@ -220,5 +389,52 @@ pub(crate) fn canonical(value: &Value, out: &mut String) {
             out.push(']');
         }
         scalar => out.push_str(&scalar.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_testing::Scratch;
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn a_changed_request_under_a_used_key_runs_nothing() {
+        let scratch = Scratch::new("operation-changed");
+        let mut store =
+            Store::open(&scratch.join("realm.sqlite")).unwrap();
+        let id = OperationId {
+            runtime: RuntimeInstance::new("pi-1").unwrap(),
+            key: "7".into(),
+        };
+        let asked = |name: &str| {
+            Request::tool("set_model", &json!({"name": name}))
+                .unwrap()
+        };
+        let first =
+            store
+                .once(&id, &asked("ana"), |_| {
+                    Ok("ana's model".to_owned())
+                })
+                .unwrap();
+        assert_eq!(first.as_deref(), Some("ana's model"));
+        let again = store
+            .once(&id, &asked("ana"), |_| -> Result<String> {
+                panic!("a marked call ran again")
+            })
+            .unwrap();
+        assert_eq!(again.as_deref(), Some("ana's model"));
+        let changed = store
+            .once(&id, &asked("bo"), |_| -> Result<String> {
+                panic!("a changed request ran under a used key")
+            })
+            .unwrap();
+        assert_eq!(changed, None);
+        assert_eq!(
+            marked::<String>(store.connection(), &id, &asked("bo"))
+                .unwrap(),
+            Some(Marked::Conflict)
+        );
     }
 }

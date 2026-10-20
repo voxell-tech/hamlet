@@ -704,6 +704,7 @@ pub(crate) async fn complete(
                         )?,
                         key: uuid::Uuid::new_v4().to_string(),
                     },
+                    &crate::operation::Request::new("merge", &plan)?,
                     &plan,
                 )?;
                 let answer = if result["error"] == true {
@@ -799,14 +800,10 @@ async fn respond(
                 let mut outcome =
                     society::outcome(&error.text(), true);
                 service.credentials.scrub(&mut outcome);
-                service.home.store().connection().execute(
-                    "UPDATE marker SET outcome=?3 WHERE runtime=?1 \
-                     AND key=?2 AND kind='tool'",
-                    rusqlite::params![
-                        id.runtime.as_str(),
-                        id.key,
-                        outcome.to_string()
-                    ],
+                crate::operation::settle(
+                    service.home.store().connection(),
+                    &id,
+                    &outcome,
                 )?;
             }
             harnesses.wake(&id.runtime, &id.key).await;

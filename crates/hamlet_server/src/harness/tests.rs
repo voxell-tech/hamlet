@@ -223,7 +223,7 @@ fn usage_is_charged_once_and_only_to_an_allowed_attempt() {
             .unwrap();
     }
     let charged = store
-        .db
+        .connection()
         .query_row(
             "SELECT count(*), sum(micros) FROM harness_usage",
             [],
@@ -307,7 +307,7 @@ fn caps_count_once_keep_task_spend_after_reset_and_roll_over_local_days()
     // A reset and a later charge in the same millisecond are ordered
     // by the ledger.
     store
-        .db
+        .connection()
         .execute(
             "INSERT INTO spend_reset(hamlet,at,by,models,roads) \
              VALUES ('home',?1,'chief',1,0)",

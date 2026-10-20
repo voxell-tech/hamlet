@@ -16,9 +16,7 @@ pub(crate) mod work;
 use std::collections::BTreeMap;
 
 use anyhow::Result;
-use rusqlite::{
-    Connection, OptionalExtension, TransactionBehavior, params,
-};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -30,6 +28,7 @@ use crate::harness::link::{
     ToolSpecReplay,
 };
 use crate::harness::{Answer, Binding, BindingId, Harnesses};
+use crate::operation::Request;
 use crate::protocol::Refusal;
 use crate::record::{Actor, AgentRef};
 use crate::service::Service;
@@ -323,6 +322,8 @@ pub(crate) struct Caller<'a> {
     pub binding: &'a Binding,
     pub place: records::Place,
     pub id: OperationId,
+    /// The call's tool and arguments, as its marker keeps them.
+    pub request: Request,
     pub input: Option<&'a str>,
     /// The H12 task of the turn that called it.
     pub task: Option<String>,
@@ -372,6 +373,7 @@ pub(crate) async fn operation(
             runtime: binding.runtime.clone(),
             key: key.into(),
         },
+        request: Request::tool(tool, arguments)?,
         input,
         task,
     };
@@ -461,10 +463,12 @@ pub(crate) async fn operation(
             outcome(&format!("There is no tool named {tool}."), true)
         }
     };
-    let outcome =
-        once(service.home.store(), &caller.id, tool, |_| {
-            Ok(outcome)
-        })?;
+    let outcome = once(
+        service.home.store(),
+        &caller.id,
+        &caller.request,
+        |_| Ok(outcome),
+    )?;
     if service.house_work.pending.contains(&(
         caller.id.runtime.as_str().into(),
         caller.id.key.clone(),
@@ -497,41 +501,17 @@ pub(crate) fn result(outcome: &Value) -> Answer {
 
 /// The outcome of the call `id`: the one its marker keeps, else the
 /// one `make` decides now, kept with its marker in the same
-/// transaction as what it changed.
+/// transaction as what it changed. A call whose identity is marked
+/// for another request runs nothing.
 pub(crate) fn once(
     store: &mut Store,
     id: &OperationId,
-    tool: &str,
+    request: &Request,
     make: impl FnOnce(&Connection) -> Result<Value>,
 ) -> Result<Value> {
-    let tx = store
-        .db
-        .transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let marked = tx
-        .query_row(
-            "SELECT outcome FROM marker WHERE runtime = ?1 AND key \
-             = ?2",
-            params![id.runtime.as_str(), id.key],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?;
-    if let Some(marked) = marked.filter(|m| !m.is_empty()) {
-        return Ok(serde_json::from_str(&marked)?);
-    }
-    let outcome = make(&tx)?;
-    tx.execute(
-        "INSERT INTO marker (runtime, key, kind, digest, outcome) \
-         VALUES (?1, ?2, 'tool', ?3, ?4) ON CONFLICT (runtime, key) \
-         DO UPDATE SET outcome = excluded.outcome",
-        params![
-            id.runtime.as_str(),
-            id.key,
-            tool.as_bytes(),
-            outcome.to_string()
-        ],
-    )?;
-    tx.commit()?;
-    Ok(outcome)
+    Ok(store.once(id, request, make)?.unwrap_or_else(|| {
+        outcome(crate::harness::tools::CONFLICT, true)
+    }))
 }
 
 /// The author of a change made by `place`: the mayor while it holds

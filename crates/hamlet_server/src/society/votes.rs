@@ -7,13 +7,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::{Caller, Deed, errands, outcome};
+use crate::Outcome;
 use crate::harness::Harnesses;
 use crate::protocol::Refusal;
 use crate::record::{
     self, Actor, AgentRef, Change, NameFallback, RecordOperation,
 };
 use crate::service::Service;
-use crate::{Operation, Outcome};
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Ballot {
@@ -268,7 +268,7 @@ fn call(
         announced: false,
         reported: false,
     });
-    let tx = service.home.store().db.transaction()?;
+    let tx = service.home.store().transaction()?;
     save(&tx, hamlet, &votes)?;
     if let Some(owner) = owner {
         super::keep(&tx, "vote-call", owner, &id)?;
@@ -713,7 +713,7 @@ pub(crate) async fn sweep(
             let newly_closed = v.standing != "open"
                 && votes[index].standing == "open";
             if newly_closed {
-                let tx = service.home.store().db.transaction()?;
+                let tx = service.home.store().transaction()?;
                 if v.standing == "passed" {
                     if v.kind == "replace_mayor" {
                         let current = record::read(&tx, &hamlet)?
@@ -740,7 +740,7 @@ pub(crate) async fn sweep(
                                 },
                             };
                             if let Outcome::Refused(refusal) =
-                                record::change(&tx, &op)?
+                                crate::operation::change(&tx, &op)?
                             {
                                 v.standing = refusal
                                     .text(record::Audience::Chief);
@@ -774,13 +774,8 @@ pub(crate) async fn sweep(
                                     .unwrap_or_default(),
                                 at: super::now(),
                             };
-                            let result = if let Some(refusal) =
-                                op.authorize(&tx)?
-                            {
-                                Outcome::Refused(refusal)
-                            } else {
-                                op.apply(&tx)?
-                            };
+                            let result =
+                                crate::operation::change(&tx, &op)?;
                             if let Outcome::Refused(refusal) = result
                             {
                                 v.standing = refusal
@@ -951,7 +946,7 @@ pub(super) async fn deed(
             "Only a passed or open vote can be overturned.".into(),
         ))));
     }
-    let tx = service.home.store().db.transaction()?;
+    let tx = service.home.store().transaction()?;
     let mut closed = None;
     let text = if v.standing == "open" {
         v.standing = "stopped by a chief".into();
@@ -964,17 +959,19 @@ pub(super) async fn deed(
                 ))));
             }
             let name = r.name_of(v.mayor, NameFallback::Recorded);
-            if let Outcome::Refused(refusal) = record::change(
-                &tx,
-                &RecordOperation {
-                    hamlet: hamlet.into(),
-                    actor: Actor::Chief(service.chief.clone()),
-                    at: super::now(),
-                    reason: reason.clone(),
-                    task: None,
-                    change: Change::Seat { number: v.mayor },
-                },
-            )? {
+            if let Outcome::Refused(refusal) =
+                crate::operation::change(
+                    &tx,
+                    &RecordOperation {
+                        hamlet: hamlet.into(),
+                        actor: Actor::Chief(service.chief.clone()),
+                        at: super::now(),
+                        reason: reason.clone(),
+                        task: None,
+                        change: Change::Seat { number: v.mayor },
+                    },
+                )?
+            {
                 return Ok(Some(Err(Refusal::Invalid(
                     refusal.text(record::Audience::Chief),
                 ))));

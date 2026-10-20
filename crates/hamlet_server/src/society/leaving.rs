@@ -63,7 +63,7 @@ pub(super) async fn remove(
     let value = society::once(
         service.home.store(),
         &caller.id,
-        "remove_agent",
+        &caller.request,
         |db| {
             guards(db, &agent.hamlet)?;
             let change = RecordOperation {
@@ -83,7 +83,7 @@ pub(super) async fn remove(
                     how: Departure::Removed,
                 },
             };
-            Ok(match record::change(db, &change)? {
+            Ok(match crate::operation::change(db, &change)? {
                 Outcome::Done(RecordResult::Departed { archive }) => {
                     removed(
                         &record::read(db, &agent.hamlet)?
@@ -266,8 +266,8 @@ pub(super) async fn deed(
             name,
         };
     }
-    let tx = service.home.store().db.transaction()?;
-    let result = record::change(&tx, &op)?;
+    let tx = service.home.store().transaction()?;
+    let result = crate::operation::change(&tx, &op)?;
     tx.commit()?;
     let result = match result {
         Outcome::Done(RecordResult::Departed { archive }) => {

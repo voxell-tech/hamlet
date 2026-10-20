@@ -293,7 +293,7 @@ async fn question(
         return Ok(Asked::Waiting);
     }
     if !sent.carried {
-        let tx = service.home.store().db.transaction()?;
+        let tx = service.home.store().transaction()?;
         carry_back(&tx, &sent)?;
         tx.execute(
             "UPDATE society_message SET carried = 1 WHERE request = \
@@ -417,7 +417,7 @@ pub(super) async fn request_road(
             "The mayor built the road. You can now ask_agent `{to}`."
         ))));
     }
-    let tx = service.home.store().db.transaction()?;
+    let tx = service.home.store().transaction()?;
     if let Some(sent) =
         sent_by(&tx, caller.id.runtime.as_str(), &caller.id.key)?
         && !sent.refused
@@ -521,7 +521,7 @@ fn carry(
                 change: Change::CarryRoad { to: to.number },
             };
             if let Outcome::Refused(_) =
-                record::change(db, &operation)?
+                crate::operation::change(db, &operation)?
                 && !reply
             {
                 return Ok(Err("There is no road between those \
@@ -615,7 +615,7 @@ async fn prepare(
         }
     );
     let at = society::now();
-    let tx = service.home.store().db.transaction()?;
+    let tx = service.home.store().transaction()?;
     if let Err(words) = carry(&tx, &from, to, &task, false, at)? {
         return Ok(Err(words));
     }
@@ -915,7 +915,7 @@ async fn reply(
     };
     sent.from = from;
     if !sent.carried {
-        let tx = service.home.store().db.transaction()?;
+        let tx = service.home.store().transaction()?;
         carry_back(&tx, &sent)?;
         tx.execute(
             "UPDATE society_message SET carried = 1 WHERE request = \

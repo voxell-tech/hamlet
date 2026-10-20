@@ -19,11 +19,13 @@ use crate::gate::{self, Asked, Standing, TrustKey, Verdict};
 use crate::harness::link::{
     Block, Item, Section, ToolSpec, ToolSpecReplay,
 };
+use crate::harness::tools::CONFLICT;
 use crate::harness::{Answer, BindingId, Call, Harnesses, Re};
+use crate::operation::{self, Marked, Request};
 use crate::oversight::{self, ChatPlace, Raising};
 use crate::record::{AgentRef, Hamlet};
 use crate::service::Service;
-use crate::tools;
+use crate::{OperationId, RuntimeInstance, tools};
 
 /// The words of a call that waits for a chief.
 const WAITING: &str = "This call waits for a chief's answer.";
@@ -704,10 +706,8 @@ fn kept(
     let db = service.home.store().connection();
     let row = db
         .query_row(
-            "SELECT net, block, wait, how, text, EXISTS (SELECT 1 \
-             FROM marker WHERE marker.runtime = gate_call.runtime \
-             AND marker.key = gate_call.key) FROM gate_call WHERE \
-             runtime = ?1 AND key = ?2",
+            "SELECT net, block, wait, how, text FROM gate_call \
+             WHERE runtime = ?1 AND key = ?2",
             params![runtime, key],
             |row| {
                 Ok((
@@ -716,15 +716,14 @@ fn kept(
                     row.get::<_, Option<String>>(2)?,
                     row.get::<_, Option<String>>(3)?,
                     row.get::<_, Option<String>>(4)?,
-                    row.get::<_, bool>(5)?,
                 ))
             },
         )
         .optional()?;
-    let Some((net, block, wait, how, text, marked)) = row else {
+    let Some((net, block, wait, how, text)) = row else {
         return Ok(None);
     };
-    if marked {
+    if operation::is_marked(db, runtime, key)? {
         return Ok(Some(Decision::Run {
             net: net.unwrap_or(false),
         }));
@@ -771,13 +770,13 @@ fn same_request(
     );
     let digest = Sha256::digest(canonical).to_vec();
     let db = service.home.store().connection();
-    db.execute(
-        "INSERT INTO gate_call (runtime, key, binding, digest) \
-         SELECT ?1, ?2, ?3, ?4 WHERE NOT EXISTS (SELECT 1 FROM \
-         marker WHERE runtime = ?1 AND key = ?2) ON CONFLICT DO \
-         NOTHING",
-        params![runtime, key, binding.0, digest],
-    )?;
+    if !operation::is_marked(db, runtime, key)? {
+        db.execute(
+            "INSERT INTO gate_call (runtime, key, binding, digest) \
+             VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING",
+            params![runtime, key, binding.0, digest],
+        )?;
+    }
     Ok(db
         .query_row(
             "SELECT binding, digest FROM gate_call WHERE runtime = \
@@ -975,27 +974,31 @@ async fn operation(
             "The house work is still running.".into(),
         )));
     }
+    let marker = OperationId {
+        runtime: bound.runtime.clone(),
+        key: key.into(),
+    };
+    let request = Request::tool(tool, arguments)?;
     let db = service.home.store().connection();
-    let marked = db
-        .query_row(
-            "SELECT outcome FROM marker WHERE runtime = ?1 AND key \
-             = ?2 AND kind = 'tool'",
-            params![runtime, key],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?;
-    if let Some(outcome) = marked {
-        return Ok(Step::Answer(if outcome.is_empty() {
-            Answer::result(
+    match operation::marked(db, &marker, &request)? {
+        Some(Marked::Begun) => {
+            return Ok(Step::Answer(Answer::result(
                 format!(
                     "Tool {tool} was interrupted by a restart and \
                      may have partially run"
                 ),
                 true,
-            )
-        } else {
-            result(serde_json::from_str(&outcome)?)
-        }));
+            )));
+        }
+        Some(Marked::Outcome(outcome)) => {
+            return Ok(Step::Answer(result(outcome)));
+        }
+        Some(Marked::Conflict) => {
+            return Ok(Step::Answer(Answer::Refusal(
+                CONFLICT.into(),
+            )));
+        }
+        None => {}
     }
     if tool != "object"
         && crate::society::reviews::held(service, binding, input)?
@@ -1005,19 +1008,14 @@ async fn operation(
         )));
     }
     if crate::society::withheld(service, binding, tool)? {
-        let outcome = crate::society::unavailable(tool);
-        service.home.store().connection().execute(
-            "INSERT INTO marker (runtime, key, kind, digest, \
-             outcome) VALUES (?1, ?2, 'tool', ?3, ?4) ON CONFLICT \
-             DO NOTHING",
-            params![
-                runtime,
-                key,
-                tool.as_bytes(),
-                outcome.to_string()
-            ],
-        )?;
-        return Ok(Step::Answer(result(outcome)));
+        let outcome =
+            service.home.store().once(&marker, &request, |_| {
+                Ok(crate::society::unavailable(tool))
+            })?;
+        return Ok(Step::Answer(outcome.map_or_else(
+            || Answer::Refusal(CONFLICT.into()),
+            result,
+        )));
     }
     if tool == "object" {
         return Ok(Step::Society(bound));
@@ -1059,10 +1057,7 @@ async fn operation(
         };
         let (text, error) = crate::harness::tools::run(
             service.home.store(),
-            &crate::OperationId {
-                runtime: bound.runtime.clone(),
-                key: key.into(),
-            },
+            &marker,
             &bound,
             &call,
             super::now(),
@@ -1087,11 +1082,10 @@ async fn operation(
             .iter()
             .any(|manifest| manifest.spec.name == tool)
     {
-        service.home.store().connection().execute(
-            "INSERT INTO marker (runtime, key, kind, digest, \
-             outcome) VALUES (?1, ?2, 'tool', ?3, '') ON CONFLICT \
-             DO NOTHING",
-            params![runtime, key, tool.as_bytes()],
+        operation::begin(
+            service.home.store().connection(),
+            &marker,
+            &request,
         )?;
     }
     let place = places(service, &bound.agent)?;
@@ -1159,12 +1153,14 @@ pub(crate) async fn ran(
         "details": ran.outcome.details,
         "diagnostics": ran.outcome.diagnostics,
     });
-    service.home.store().connection().execute(
-        "UPDATE marker SET outcome = ?3 WHERE runtime = ?1 AND key \
-         = ?2 AND kind = 'tool'",
-        params![ran.runtime, ran.key, outcome.to_string()],
+    operation::settle(
+        service.home.store().connection(),
+        &OperationId {
+            runtime: RuntimeInstance::new(ran.runtime)?,
+            key: ran.key,
+        },
+        &outcome,
     )?;
-    let _ = running.binding;
     for re in running.res {
         harnesses.answer(re, result(outcome.clone())).await;
     }
@@ -1714,7 +1710,7 @@ pub(super) async fn answer_words(
             counted.push(binding);
         }
     }
-    let tx = service.home.store().db.transaction()?;
+    let tx = service.home.store().transaction()?;
     let Some((settled, mut woken)) =
         oversight::settle(&tx, id, choice, &text, Some(&chief), now)?
     else {
@@ -1914,20 +1910,17 @@ mod tests {
             true,
         )
         .unwrap();
+        let marker = OperationId {
+            runtime: bound.runtime.clone(),
+            key: "same-key".into(),
+        };
+        let request = Request::tool("bash", &arguments).unwrap();
         service
             .home
             .store()
-            .connection()
-            .execute(
-                "INSERT INTO marker \
-                 (runtime,key,kind,digest,outcome) VALUES \
-                 (?1,'same-key','tool',?2,?3)",
-                params![
-                    bound.runtime.as_str(),
-                    b"bash".as_slice(),
-                    r#"{"text":"done","error":false}"#
-                ],
-            )
+            .once(&marker, &request, |_| {
+                Ok(json!({"text": "done", "error": false}))
+            })
             .unwrap();
         service.home.store().begin_cancel(binding).unwrap();
         assert!(matches!(
@@ -2082,13 +2075,19 @@ mod tests {
                 Decision::Run { .. }
             ));
         }
+        let finished = OperationId {
+            runtime: RuntimeInstance::new(&runtime).unwrap(),
+            key: "finished".into(),
+        };
+        let request = Request::tool("bash", &args).unwrap();
+        service
+            .home
+            .store()
+            .once(&finished, &request, |_| {
+                Ok("kept outcome".to_owned())
+            })
+            .unwrap();
         let db = service.home.store().connection();
-        db.execute(
-            "INSERT INTO marker (runtime,key,kind,digest,outcome) \
-             VALUES (?1,'finished','tool',?2,?3)",
-            params![runtime, b"bash".as_slice(), "kept outcome"],
-        )
-        .unwrap();
         // Reconstruct the version-8 schema on disposable data.
         db.execute_batch(
             "ALTER TABLE wait DROP COLUMN questions; ALTER TABLE \
@@ -2126,14 +2125,8 @@ mod tests {
             11
         );
         assert_eq!(
-            db.query_row(
-                "SELECT outcome FROM marker WHERE runtime = ?1 AND \
-                 key = 'finished'",
-                [&runtime],
-                |row| row.get::<_, String>(0)
-            )
-            .unwrap(),
-            "kept outcome"
+            operation::marked(db, &finished, &request).unwrap(),
+            Some(Marked::Outcome("kept outcome".to_owned()))
         );
         assert!(matches!(
             decide(&mut service, binding, "new", None, "bash", &args)

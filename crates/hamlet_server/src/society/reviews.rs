@@ -301,7 +301,7 @@ pub(crate) async fn sweep(
                 })
                 .map(|(_, reason)| reason.trim())
                 .filter(|reason| !reason.is_empty());
-            let tx = service.home.store().db.transaction()?;
+            let tx = service.home.store().transaction()?;
             if let Some(reason) = reason
                 && instruction.how.is_none()
             {

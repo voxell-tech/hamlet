@@ -9,12 +9,12 @@ use hamlet_protocol::v0::{
 };
 use serde_json::{Value, json};
 
+use crate::Outcome;
 use crate::limits::record_limits;
 use crate::papers::{CHARTER, cut};
 use crate::protocol::{Refusal, reply};
 use crate::record::{Actor, Audience, Change, RecordOperation, trim};
 use crate::service::{Service, document, save};
-use crate::{Operation, Outcome};
 
 impl Service {
     pub(crate) fn prepare_notes(
@@ -114,14 +114,9 @@ impl Service {
                     reason.as_deref().unwrap_or_default(),
                 );
                 let settings = self.settings()?;
-                let tx = self.home.store().db.transaction()?;
-                if let Some(error) = operation.authorize(&tx)? {
-                    return Ok(Err(Refusal::Invalid(
-                        error.text(Audience::Chief),
-                    )));
-                }
+                let tx = self.home.store().transaction()?;
                 if let Outcome::Refused(error) =
-                    operation.apply(&tx)?
+                    crate::operation::change(&tx, &operation)?
                 {
                     return Ok(Err(Refusal::Invalid(
                         error.text(Audience::Chief),
@@ -245,13 +240,10 @@ impl Service {
                 },
                 "",
             );
-            let tx = self.home.store().db.transaction()?;
-            if let Some(error) = operation.authorize(&tx)? {
-                return Ok(Err(Refusal::Invalid(
-                    error.text(Audience::Chief),
-                )));
-            }
-            if let Outcome::Refused(error) = operation.apply(&tx)? {
+            let tx = self.home.store().transaction()?;
+            if let Outcome::Refused(error) =
+                crate::operation::change(&tx, &operation)?
+            {
                 return Ok(Err(Refusal::Invalid(
                     error.text(Audience::Chief),
                 )));

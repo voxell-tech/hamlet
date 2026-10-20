@@ -192,7 +192,7 @@ pub enum RecordResult {
 impl Store {
     /// A hamlet's complete record, detached from the database.
     pub fn record(&self, hamlet: &str) -> Result<Option<Hamlet>> {
-        load(&self.db, hamlet)
+        load(self.connection(), hamlet)
     }
 
     /// The current location of a living realm-wide name.
@@ -201,7 +201,7 @@ impl Store {
         name: &str,
     ) -> Result<Option<AgentRef>> {
         Ok(self
-            .db
+            .connection()
             .query_row(
                 "SELECT hamlet, number FROM record_name WHERE name \
                  = ?1",
@@ -221,7 +221,7 @@ impl Store {
         &self,
         hamlet: &str,
     ) -> Result<Vec<RoadCharge>> {
-        let mut query = self.db.prepare(
+        let mut query = self.connection().prepare(
             "SELECT agent, task, at, tokens, micros, ms FROM \
              record_road_charge WHERE hamlet = ?1 ORDER BY id",
         )?;
@@ -253,28 +253,6 @@ pub(crate) fn read(
 /// Keeps `record` and its living names in the transaction `db`.
 pub(crate) fn write(db: &Connection, record: &Hamlet) -> Result<()> {
     save(db, record)
-}
-
-/// Runs `operation` inside the transaction `db`, whose owner keeps
-/// the marker: the authority check, then the change, undone when it
-/// refuses.
-pub(crate) fn change(
-    db: &Connection,
-    operation: &RecordOperation,
-) -> Result<Outcome<RecordResult, Refusal>> {
-    if let Some(refusal) = operation.authorize(db)? {
-        return Ok(Outcome::Refused(refusal));
-    }
-    db.execute_batch("SAVEPOINT record_change")?;
-    let outcome = operation.apply(db);
-    if matches!(outcome, Ok(Outcome::Done(_))) {
-        db.execute_batch("RELEASE record_change")?;
-    } else {
-        db.execute_batch(
-            "ROLLBACK TO record_change; RELEASE record_change",
-        )?;
-    }
-    outcome
 }
 
 fn load(db: &Connection, hamlet: &str) -> Result<Option<Hamlet>> {

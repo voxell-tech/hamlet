@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 
 use super::{Caller, Deed, outcome};
 use crate::harness::Harnesses;
+use crate::operation::Request;
 use crate::papers::tree::{self, Entry};
 use crate::protocol::Refusal;
 use crate::record::{
@@ -116,9 +117,9 @@ fn preparing(
             },
         },
     };
-    let tx = service.home.store().db.transaction()?;
+    let tx = service.home.store().transaction()?;
     super::leaving::guards(&tx, hamlet)?;
-    let checked = record::change(&tx, &operation)?;
+    let checked = crate::operation::change(&tx, &operation)?;
     tx.rollback()?;
     if let Outcome::Refused(refusal) = checked {
         return Ok(Err(refusal.text(record::Audience::Chief)));
@@ -373,9 +374,10 @@ fn renamed_skill(bytes: &[u8], old: &str, name: &str) -> Vec<u8> {
 fn commit(
     service: &mut Service,
     id: &OperationId,
+    request: &Request,
     plan: &Plan,
 ) -> Result<Value> {
-    super::once(service.home.store(), id, "merge_agents", |db| {
+    super::once(service.home.store(), id, request, |db| {
         super::leaving::guards(db, &plan.operation.hamlet)?;
         let mut operation = plan.operation.clone();
         operation.at = super::now();
@@ -396,7 +398,7 @@ fn commit(
                 ));
             }
         }
-        match record::change(db, &operation)? {
+        match crate::operation::change(db, &operation)? {
             Outcome::Refused(refusal) => Ok(outcome(
                 &refusal.text(record::Audience::Agent),
                 true,
@@ -523,7 +525,7 @@ pub(super) async fn operation(
             *notes = MergeNotes::Rewritten;
         }
     }
-    let result = commit(service, &caller.id, &plan)?;
+    let result = commit(service, &caller.id, &caller.request, &plan)?;
     if result["error"] != true {
         crate::chats::stop_agent(service, harnesses, &plan.kept)
             .await?;
@@ -586,6 +588,7 @@ pub(super) async fn deed(
             runtime: crate::RuntimeInstance::new("chief")?,
             key: uuid::Uuid::new_v4().to_string(),
         },
+        &Request::new("merge", &plan)?,
         &plan,
     )?;
     finish(service).await?;

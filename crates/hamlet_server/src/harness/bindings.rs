@@ -81,7 +81,7 @@ impl Store {
     /// The harness `agent`'s new conversations run in.
     pub fn harness_of(&self, agent: &AgentRef) -> Result<String> {
         Ok(self
-            .db
+            .connection()
             .query_row(
                 "SELECT harness FROM harness_agent WHERE hamlet = \
                  ?1 AND number = ?2",
@@ -99,7 +99,7 @@ impl Store {
         agent: &AgentRef,
         harness: &str,
     ) -> Result<()> {
-        self.db.execute(
+        self.connection().execute(
             "INSERT INTO harness_agent (hamlet, number, harness) \
              VALUES (?1, ?2, ?3) ON CONFLICT (hamlet, number) DO \
              UPDATE SET harness = excluded.harness",
@@ -114,7 +114,7 @@ impl Store {
 
     /// The binding `id`.
     pub fn binding(&self, id: BindingId) -> Result<Option<Binding>> {
-        self.db
+        self.connection()
             .query_row(
                 &format!("{BINDING} WHERE id = ?1"),
                 [id.0],
@@ -131,7 +131,7 @@ impl Store {
         runtime: &RuntimeInstance,
         conversation: &str,
     ) -> Result<Option<Binding>> {
-        self.db
+        self.connection()
             .query_row(
                 &format!(
                     "{BINDING} WHERE runtime = ?1 AND conversation \
@@ -148,7 +148,7 @@ impl Store {
         &self,
         runtime: &RuntimeInstance,
     ) -> Result<Vec<Binding>> {
-        let mut query = self.db.prepare(&format!(
+        let mut query = self.connection().prepare(&format!(
             "{BINDING} WHERE runtime = ?1 ORDER BY id"
         ))?;
         query
@@ -158,7 +158,7 @@ impl Store {
     }
 
     pub(crate) fn runtimes(&self) -> Result<Vec<RuntimeRow>> {
-        let mut query = self.db.prepare(
+        let mut query = self.connection().prepare(
             "SELECT id, adapter, version, begun FROM \
              harness_runtime ORDER BY id",
         )?;
@@ -190,7 +190,7 @@ impl Store {
         harness: &str,
     ) -> Result<RuntimeInstance> {
         let kept = self
-            .db
+            .connection()
             .query_row(
                 "SELECT id FROM harness_runtime WHERE harness = ?1 \
                  ORDER BY id LIMIT 1",
@@ -205,7 +205,7 @@ impl Store {
             "{harness}-{}",
             uuid::Uuid::new_v4().simple()
         ))?;
-        self.db.execute(
+        self.connection().execute(
             "INSERT INTO harness_runtime (id, harness) VALUES (?1, \
              ?2)",
             params![id.as_str(), harness],
@@ -221,7 +221,7 @@ impl Store {
         adapter: &str,
         version: &str,
     ) -> Result<()> {
-        self.db.execute(
+        self.connection().execute(
             "UPDATE harness_runtime SET adapter = ?2, version = ?3, \
              begun = 1 WHERE id = ?1",
             params![runtime.as_str(), adapter, version],
@@ -236,7 +236,7 @@ impl Store {
         model: &ModelRef,
         runtime: &RuntimeInstance,
     ) -> Result<BindingId> {
-        self.db.execute(
+        self.connection().execute(
             "INSERT INTO harness_binding (hamlet, number, errand, \
              model, runtime) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
@@ -247,7 +247,7 @@ impl Store {
                 runtime.as_str()
             ],
         )?;
-        Ok(BindingId(self.db.last_insert_rowid()))
+        Ok(BindingId(self.connection().last_insert_rowid()))
     }
 
     /// Binds a copy of `parent` up to its entry `at`, in its runtime,
@@ -258,7 +258,7 @@ impl Store {
         at: &str,
     ) -> Result<BindingId> {
         let ordinal = ordinal_of(at)?;
-        let tx = self.db.transaction()?;
+        let tx = self.transaction()?;
         tx.execute(
             "INSERT INTO harness_binding (hamlet, number, errand, \
              model, runtime, fork_of, fork_at) SELECT hamlet, \
@@ -286,7 +286,7 @@ impl Store {
         adapter: &str,
         version: &str,
     ) -> Result<()> {
-        self.db.execute(
+        self.connection().execute(
             "UPDATE harness_binding SET conversation = ?2, adapter \
              = ?3, version = ?4 WHERE id = ?1 AND conversation IS \
              NULL",
@@ -302,7 +302,7 @@ impl Store {
         binding: BindingId,
         tools: &ConfigureTools,
     ) -> Result<bool> {
-        Ok(self.db.execute(
+        Ok(self.connection().execute(
             "UPDATE harness_binding SET tools = ?2 WHERE id = ?1 \
              AND tools IS NOT ?2",
             params![binding.0, serde_json::to_string(tools)?],
@@ -315,7 +315,7 @@ impl Store {
         &self,
         binding: BindingId,
     ) -> Result<Option<ConfigureTools>> {
-        self.db
+        self.connection()
             .query_row(
                 "SELECT tools FROM harness_binding WHERE id = ?1 \
                  AND tools IS NOT NULL AND tools IS NOT tools_told",
@@ -333,7 +333,7 @@ impl Store {
         binding: BindingId,
         tools: &str,
     ) -> Result<()> {
-        self.db.execute(
+        self.connection().execute(
             "UPDATE harness_binding SET tools_told = ?2 WHERE id = \
              ?1",
             params![binding.0, tools],
@@ -350,7 +350,7 @@ impl Store {
     ) -> Result<bool> {
         let mark =
             input.mark.map(serde_json::to_string).transpose()?;
-        let kept = self.db.execute(
+        let kept = self.connection().execute(
             "INSERT INTO harness_input (binding, request, ordinal, \
              content, steer, state, mark, write, boundary) SELECT \
              ?1, ?2, coalesce(max(ordinal), 0) + 1, ?3, ?4, 'kept', \
@@ -377,7 +377,7 @@ impl Store {
         binding: BindingId,
         unsettled: bool,
     ) -> Result<Vec<Owed>> {
-        let mut query = self.db.prepare(
+        let mut query = self.connection().prepare(
             "SELECT request, content, steer, mark, write, boundary \
              FROM harness_input WHERE binding = ?1 AND (state = \
              'kept' OR (?2 AND state = 'admitted' AND followed = 0 \
@@ -414,7 +414,7 @@ impl Store {
         binding: BindingId,
         request: &str,
     ) -> Result<Option<Standing>> {
-        self.db
+        self.connection()
             .query_row(
                 "SELECT submission, status, reason, detail, \
                  followed FROM harness_input WHERE binding = ?1 AND \
@@ -452,7 +452,7 @@ impl Store {
         submission: &str,
     ) -> Result<Option<String>> {
         Ok(self
-            .db
+            .connection()
             .query_row(
                 "SELECT request FROM harness_input WHERE binding = \
                  ?1 AND submission = ?2",
@@ -474,7 +474,7 @@ impl Store {
     ) -> Result<()> {
         let detail = detail.map(serde_json::to_string).transpose()?;
         // A status never goes back once the input ended.
-        self.db.execute(
+        self.connection().execute(
             "UPDATE harness_input SET submission = coalesce(?3, \
              submission), status = ?4, reason = ?5, detail = ?6, \
              state = CASE WHEN ?4 = 'unanswered' THEN 'dropped' \
@@ -496,7 +496,7 @@ impl Store {
         binding: BindingId,
         request: &str,
     ) -> Result<bool> {
-        Ok(self.db.execute(
+        Ok(self.connection().execute(
             "UPDATE harness_input SET followed = 1 WHERE binding = \
              ?1 AND request = ?2 AND followed = 0",
             params![binding.0, request],
@@ -505,7 +505,7 @@ impl Store {
 
     /// The inputs whose end the server has heard and not acted on.
     pub fn unfollowed(&self) -> Result<Vec<(BindingId, String)>> {
-        let mut query = self.db.prepare(
+        let mut query = self.connection().prepare(
             "SELECT binding, request FROM harness_input WHERE \
              followed = 0 AND status IN ('done', 'unanswered') \
              ORDER BY binding, ordinal",
@@ -523,7 +523,7 @@ impl Store {
         binding: BindingId,
         item: &Item,
     ) -> Result<bool> {
-        Ok(self.db.execute(
+        Ok(self.connection().execute(
             "INSERT INTO harness_item (binding, entry, ordinal, \
              item) VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING",
             params![
@@ -537,7 +537,7 @@ impl Store {
 
     /// The items `binding` kept, oldest first.
     pub fn items(&self, binding: BindingId) -> Result<Vec<Item>> {
-        let mut query = self.db.prepare(
+        let mut query = self.connection().prepare(
             "SELECT item FROM harness_item WHERE binding = ?1 ORDER \
              BY ordinal",
         )?;
@@ -554,7 +554,7 @@ impl Store {
         entry: &str,
     ) -> Result<bool> {
         Ok(self
-            .db
+            .connection()
             .query_row(
                 "SELECT 1 FROM harness_item WHERE binding = ?1 AND \
                  entry = ?2",
@@ -573,7 +573,7 @@ impl Store {
         &mut self,
         binding: BindingId,
     ) -> Result<()> {
-        let tx = self.db.transaction()?;
+        let tx = self.transaction()?;
         tx.execute(
             "UPDATE harness_input SET state = 'dropped' WHERE \
              binding = ?1 AND state = 'kept'",
@@ -586,13 +586,31 @@ impl Store {
         // A call of the stopped turn the gate allowed, asked for
         // again after the stop or after a restart, runs
         // nothing (H34); a marked result stands.
-        tx.execute(
-            "UPDATE gate_call SET block = ?2 WHERE binding = ?1 AND \
-             block IS NULL AND NOT EXISTS (SELECT 1 FROM marker \
-             WHERE marker.runtime = gate_call.runtime AND \
-             marker.key = gate_call.key)",
-            params![binding.0, super::answers::STOPPED_WORDS],
-        )?;
+        let open = tx
+            .prepare(
+                "SELECT runtime, key FROM gate_call WHERE binding = \
+                 ?1 AND block IS NULL",
+            )?
+            .query_map([binding.0], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for (runtime, key) in open {
+            if !crate::operation::is_marked(&tx, &runtime, &key)? {
+                tx.execute(
+                    "UPDATE gate_call SET block = ?3 WHERE runtime \
+                     = ?1 AND key = ?2",
+                    params![
+                        runtime,
+                        key,
+                        super::answers::STOPPED_WORDS
+                    ],
+                )?;
+            }
+        }
         tx.commit()?;
         Ok(())
     }
@@ -602,7 +620,7 @@ impl Store {
         &self,
         binding: BindingId,
     ) -> Result<bool> {
-        Ok(self.db.query_row(
+        Ok(self.connection().query_row(
             "SELECT cancelling FROM harness_binding WHERE id = ?1",
             [binding.0],
             |row| row.get::<_, bool>(0),
@@ -614,7 +632,7 @@ impl Store {
         &mut self,
         binding: BindingId,
     ) -> Result<()> {
-        self.db.execute(
+        self.connection().execute(
             "UPDATE harness_binding SET cancelling = 0 WHERE id = ?1",
             [binding.0],
         )?;

@@ -63,7 +63,7 @@ pub(super) async fn create(
     let outcome = society::once(
         service.home.store(),
         &caller.id,
-        "create_agent",
+        &caller.request,
         |db| {
             let operation = RecordOperation {
                 hamlet: place.hamlet.clone(),
@@ -82,7 +82,8 @@ pub(super) async fn create(
                     roads: given.roads.clone(),
                 }),
             };
-            let text = match record::change(db, &operation)? {
+            let text = match crate::operation::change(db, &operation)?
+            {
                 Outcome::Done(RecordResult::Admitted {
                     road_refusals,
                     ..
@@ -167,7 +168,7 @@ pub(super) fn set_model(
     society::once(
         service.home.store(),
         &caller.id,
-        "set_model",
+        &caller.request,
         |db| {
             let refuse = |text: String| Ok(outcome(&text, false));
             let Some(mut r) = record::read(db, &place.hamlet)? else {
@@ -317,8 +318,8 @@ fn chief_change(
         task: None,
         change,
     };
-    let tx = service.home.store().db.transaction()?;
-    let outcome = record::change(&tx, &operation)?;
+    let tx = service.home.store().transaction()?;
+    let outcome = crate::operation::change(&tx, &operation)?;
     tx.commit()?;
     Ok(outcome)
 }
