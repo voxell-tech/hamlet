@@ -126,8 +126,13 @@ pub struct Rejected {
 
 impl fmt::Display for Rejected {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "plugins/{}: ", self.folder)?;
-        match &self.why {
+        write!(f, "plugins/{}: {}", self.folder, self.why)
+    }
+}
+
+impl fmt::Display for Why {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
             Why::Missing(file) => write!(f, "no {file}"),
             Why::BadManifest(why) => {
                 write!(f, "{MANIFEST} cannot be read: {why}")
@@ -181,24 +186,8 @@ pub fn read(
         Kind::Wasm => Body::Wasm(file(WASM)?),
         Kind::Data => Body::Data(file(PANEL)?),
     };
-    if manifest.id != name {
-        return Err(rejected(Why::WrongFolder { id: manifest.id }));
-    }
-    if manifest.kind == Kind::Wasm
-        && manifest.interface.as_deref() != Some(VERSION)
-    {
-        return Err(rejected(Why::Interface {
-            found: manifest
-                .interface
-                .unwrap_or_else(|| "none".into()),
-        }));
-    }
-    if let Some(why) = manifest.problem() {
-        return Err(rejected(Why::BadManifest(why)));
-    }
-    let asks = manifest
-        .asked()
-        .map_err(|refusal| rejected(Why::Asks(refusal)))?;
+    let (manifest, asks) =
+        examine(manifest, Some(&name)).map_err(rejected)?;
     Ok(Installed {
         manifest,
         asks,
@@ -206,9 +195,36 @@ pub fn read(
     })
 }
 
+/// What `manifest` asks for, once it passes the checks of the scan:
+/// its id is the name of its `folder` where one is given, a WASM
+/// plugin's interface is the one this host speaks, it says nothing it
+/// cannot and every ask can be granted.
+pub fn examine(
+    manifest: Manifest,
+    folder: Option<&str>,
+) -> Result<(Manifest, Asks), Why> {
+    if folder.is_some_and(|name| manifest.id != name) {
+        return Err(Why::WrongFolder { id: manifest.id });
+    }
+    if manifest.kind == Kind::Wasm
+        && manifest.interface.as_deref() != Some(VERSION)
+    {
+        return Err(Why::Interface {
+            found: manifest
+                .interface
+                .unwrap_or_else(|| "none".into()),
+        });
+    }
+    if let Some(why) = manifest.problem() {
+        return Err(Why::BadManifest(why));
+    }
+    let asks = manifest.asked().map_err(Why::Asks)?;
+    Ok((manifest, asks))
+}
+
 /// Whether `folder` holds nothing but the data and files of a plugin
 /// that was removed with its data kept.
-fn only_data(folder: &Path) -> bool {
+pub fn only_data(folder: &Path) -> bool {
     std::fs::read_dir(folder).is_ok_and(|entries| {
         let mut names = entries
             .filter_map(|entry| Some(entry.ok()?.file_name()))
@@ -228,10 +244,15 @@ fn is_native(folder: &Path, limits: &Limits) -> bool {
 }
 
 /// Whether `folder` of the install folder is one the scan reads: a
-/// folder, not what a plugin removed with its data left, and not a
-/// native plugin.
+/// folder, not one of the host's own (whose name starts with a dot),
+/// not what a plugin removed with its data left, and not a native
+/// plugin.
 pub fn scanned(folder: &Path, limits: &Limits) -> bool {
+    let own = folder
+        .file_name()
+        .is_some_and(|name| name.to_string_lossy().starts_with('.'));
     folder.is_dir()
+        && !own
         && !only_data(folder)
         && !is_native(folder, limits)
 }

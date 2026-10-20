@@ -7,7 +7,7 @@
 #[cfg(feature = "host")]
 use bevy::prelude::*;
 #[cfg(feature = "host")]
-use hamlet_sdk::capability::open_store;
+use hamlet_sdk::capability::{NativeFolders, open_store};
 
 pub mod abi;
 #[cfg(feature = "host")]
@@ -40,6 +40,7 @@ pub use self::abi::{ABI, Abi, declare};
 #[cfg(feature = "host")]
 pub fn plugin(app: &mut App) {
     app.add_plugins(guard::plugin)
+        .insert_resource(NativeFolders(install::contents))
         .init_resource::<load::Late>()
         .add_observer(load::admit)
         .add_observer(load::appeared)

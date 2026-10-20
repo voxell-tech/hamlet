@@ -29,6 +29,7 @@ use hamlet_realm::pick::{Also, Selected, Thing};
 use hamlet_rules::budget::{AgentBudget, Amount};
 use hamlet_rules::chief::asking::Pick;
 use hamlet_rules::chief::rulings::Choice;
+use hamlet_sdk::capability::{Adding, Question};
 use plugin_chat::chat;
 use plugin_chat::links::{Aimed, Roots};
 use plugin_chat::me::Me;
@@ -125,6 +126,17 @@ pub(super) fn setup(world: &mut World) {
     if scene == Scene::PluginReload {
         super::reload::put(world);
     }
+    // As the host of the installed plugins keeps it.
+    world.insert_resource(match scene {
+        Scene::PluginAdd => Adding::Asking(Question {
+            name: "Roster".into(),
+            version: "0.2.0".into(),
+            build: true,
+            replaces: Some("Roster 0.1.0".into()),
+            native: false,
+        }),
+        _ => Adding::Idle,
+    });
     if matches!(
         scene,
         Scene::PluginPermissions
@@ -177,6 +189,7 @@ pub(super) fn setup(world: &mut World) {
             | Scene::PluginCapabilities
             | Scene::PluginAdds
             | Scene::PluginReload
+            | Scene::PluginAdd
     ) {
         let mut config = hamlet_model::config::Config::default();
         config.endpoints.push(hamlet_model::config::Endpoint {

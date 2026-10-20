@@ -13,7 +13,8 @@ use bevy::prelude::*;
 use hamlet_base::{HomeDir, Tokio};
 use hamlet_desktop::file::{FileDialog, Pick};
 use hamlet_sdk::capability::{
-    Capability, Choice, Decide, Forget, Granted, Verdict, Wanted,
+    Adding, Capability, Choice, Decide, Forget, Granted, Verdict,
+    Wanted,
 };
 use hamlet_sdk::plugin::PluginInfo;
 use tokio::sync::mpsc::{
@@ -114,6 +115,7 @@ pub fn ask(
     mut done: MessageReader<Done>,
     plugins: Query<(&PluginInfo, &Granted)>,
     dialog: Option<Res<FileDialog>>,
+    adding: Res<Adding>,
     limits: Res<Limits>,
     time: Option<Res<Time>>,
     mut picking: ResMut<Picking>,
@@ -150,7 +152,10 @@ pub fn ask(
                 Some(Verdict::Allowed) if dialog.is_none() => {
                     Some("there is no file dialog here".into())
                 }
-                Some(Verdict::Allowed) if picking.busy() => {
+                Some(Verdict::Allowed)
+                    if picking.busy()
+                        || *adding == Adding::Choosing =>
+                {
                     Some("a file dialog is already open".into())
                 }
                 Some(Verdict::Allowed) if resting => Some(

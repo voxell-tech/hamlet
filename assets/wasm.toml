@@ -17,6 +17,7 @@ memory_mib = 16
 wasm_bytes = 16777216
 manifest_bytes = 65536
 panel_bytes = 262144
+build_log_bytes = 16384
 lift_bytes = 8388608
 table_elements = 10000
 plugin_instances = 8

@@ -8,3 +8,4 @@ unclean_starts = 2
 
 [install]
 manifest_bytes = 65536
+library_bytes = 1073741824

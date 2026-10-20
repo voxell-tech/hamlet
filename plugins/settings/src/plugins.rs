@@ -2,6 +2,7 @@
 //! each asks for and what the chief chose, by plugin and by
 //! capability.
 
+mod add;
 mod adds;
 mod capabilities;
 mod control;
@@ -30,6 +31,7 @@ pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Tab>()
         .init_resource::<Open>()
         .add_plugins((
+            add::plugin,
             list::plugin,
             permissions::plugin,
             capabilities::plugin,
@@ -91,6 +93,7 @@ pub(super) fn page() -> AnyView {
                 tabs::strip(&TABS, |world: &mut World, tab| {
                     *world.resource_mut::<Tab>() = tab;
                 }),
+                add::view(),
                 by_tab(),
             ))
             .gap(12.0)

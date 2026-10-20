@@ -60,6 +60,9 @@ pub struct Limits {
     /// The bytes of a data plugin's `panel.ui` the host reads to see
     /// whether it changed, keep it and add it from a folder.
     pub panel_bytes: usize,
+    /// The bytes of what a build of a plugin's source wrote that are
+    /// kept to show the chief, the last ones.
+    pub build_log_bytes: usize,
     /// The bytes the host may copy out of a plugin's memory for one
     /// crossing: the values given to one host function, or returned
     /// by one call of an export. Strings and lists that point at the

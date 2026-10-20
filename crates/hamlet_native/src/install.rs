@@ -5,7 +5,8 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use bevy::prelude::*;
-use hamlet_sdk::plugin::is_native;
+use hamlet_sdk::capability::Contents;
+use hamlet_sdk::plugin::{is_native, plain};
 use sha2::{Digest, Sha256};
 
 use crate::manifest::Manifest;
@@ -19,6 +20,47 @@ pub struct Install {
     /// The bytes of a plugin's `manifest.toml`. A bigger one is not
     /// read.
     pub manifest_bytes: u64,
+    /// The bytes of a plugin's library that the chief may add from a
+    /// folder.
+    pub library_bytes: u64,
+}
+
+/// What the native plugin in `folder`, whose manifest is `text`, is
+/// made of beside its manifest, or why it is not one. `own` says its
+/// id must be the folder's name.
+pub fn contents(
+    folder: &Path,
+    text: &str,
+    own: bool,
+) -> Result<Contents, String> {
+    let manifest = Manifest::parse(text).map_err(|e| {
+        format!("{MANIFEST} cannot be read: {}", e.message())
+    })?;
+    if let Some(why) = manifest.problem() {
+        return Err(why);
+    }
+    let name = folder.file_name().map(|n| n.to_string_lossy());
+    if own && name.as_deref() != Some(manifest.id.as_str()) {
+        return Err(format!(
+            "the manifest's id `{}` is not the folder's",
+            manifest.id
+        ));
+    }
+    if !folder.join(&manifest.library).is_file() {
+        return Err(format!(
+            "the library `{}` is not in the folder",
+            manifest.library
+        ));
+    }
+    Ok(Contents {
+        name: plain(&manifest.name),
+        files: vec![(
+            manifest.library,
+            Install::default().library_bytes,
+        )],
+        id: manifest.id,
+        version: manifest.version,
+    })
 }
 
 /// The text of the manifest in `folder`, if it is there, is text and

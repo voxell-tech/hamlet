@@ -165,6 +165,7 @@ impl Plugin for GalleryPlugin {
                                     | Scene::PluginCapabilities
                                     | Scene::PluginAdds
                                     | Scene::PluginReload
+                                    | Scene::PluginAdd
                                     | Scene::PluginSettingsPage
                             )
                         }),
@@ -287,6 +288,9 @@ pub enum Scene {
     PluginAdds,
     /// The Settings panel at its Plugins page, after reloads.
     PluginReload,
+    /// The Settings panel at its Plugins page, asking before a
+    /// plugin's source is built and takes the place of one there.
+    PluginAdd,
     /// Every icon, at each size it is drawn for.
     Icons,
     /// The panels with the HAMLET menu open.

@@ -2,6 +2,7 @@
 //! names, what a manifest asks for, the chief's choice for each and
 //! the verdict the host functions check.
 
+mod adding;
 mod ask;
 mod choice;
 mod decide;
@@ -18,6 +19,10 @@ mod wanted;
 
 use bevy::app::{App, Startup};
 
+pub use self::adding::{
+    AddAnswer, AddPlugin, Adding, Contents, NativeFolders, Question,
+    ReadNative,
+};
 pub use self::ask::{Asked, Asks, Scope};
 pub use self::choice::Choice;
 pub use self::decide::{Decide, Forget};

@@ -128,6 +128,7 @@ fn scene_tab(scene: Scene) -> Option<String> {
         | Scene::PluginCapabilities
         | Scene::PluginAdds
         | Scene::PluginReload
+        | Scene::PluginAdd
         | Scene::PluginSettingsPage => Some("settings".into()),
         Scene::Skills | Scene::SkillsAlone => Some("skills".into()),
         Scene::PluginRoster => Some(super::roster::id()),
