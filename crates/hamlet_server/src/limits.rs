@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use hamlet_protocol::v0::{
     EditLimits, HamletLimits, LimitsAsking, LimitsBudget,
     LimitsLeaving, LimitsMayor, LimitsPermissions, LimitsRoad,
@@ -143,9 +143,10 @@ pub(crate) fn of(
     db: &rusqlite::Connection,
     hamlet: &str,
 ) -> Result<Limits> {
-    Ok(record::read(db, hamlet)?
-        .map(|record| *record.limits.chief)
-        .unwrap_or_default())
+    let Some(record) = record::read(db, hamlet)? else {
+        bail!("There is no hamlet `{hamlet}` to read the limits of.");
+    };
+    Ok(*record.limits.chief)
 }
 
 /// Sets the limits of `hamlet` as its first chief would.
@@ -330,5 +331,25 @@ fn defaults(schema: &Value, value: &mut Value) {
                 defaults(field, value);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_testing::Scratch;
+
+    use crate::Store;
+
+    #[test]
+    fn an_unknown_hamlet_has_no_limits() {
+        let scratch = Scratch::new("limits-unknown");
+        let store =
+            Store::open(&scratch.join("realm.sqlite")).unwrap();
+        let error =
+            super::of(store.connection(), "nowhere").unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "There is no hamlet `nowhere` to read the limits of."
+        );
     }
 }

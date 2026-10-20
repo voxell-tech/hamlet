@@ -11,7 +11,7 @@ use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_changed;
-use bevy::ecs::system::{Query, Res};
+use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::math::Vec3;
 use bevy::ui::{AlignItems, UiRect, px};
@@ -24,8 +24,7 @@ use bevy_fynix::{ScopedExt, ViewExt, component, derived, keyed};
 use hamlet_client::ViewDir;
 use hamlet_client::messages::UserMessage;
 use hamlet_realm::chief::{
-    self, Beside, Chief, Cloak, Hat, Holds, Light, Look, Player,
-    Stands,
+    self, Beside, Chief, Cloak, Hat, Holds, Kept, Light, Look, Player,
 };
 use hamlet_realm::generator::society::Place as Ground;
 use hamlet_realm::library::{Library, Stood};
@@ -64,16 +63,15 @@ pub(crate) fn enter(world: &mut World) {
         world.entity_mut(chief).insert(Player);
         return;
     }
-    let view = world.resource::<ViewDir>().0.clone();
-    let chief = chief::arrive(world, &user, Look::read(&view, &user));
+    let kept = world.resource::<Kept>().clone();
+    let chief = chief::arrive(world, &user, kept.look(&user));
     world.entity_mut(chief).insert(Player);
-    if let Some(stands) = Stands::read(&view, &user) {
+    if let Some(stands) = kept.place(&user) {
         world.entity_mut(chief).insert(stands);
     }
     // The place the library was last set down, too.
-    let kept = Stands::read_at(&Stood::file(&view));
-    if let (Some(Stands(at)), Some(mut stood)) =
-        (kept, world.get_resource_mut::<Stood>())
+    if let (Some(at), Some(mut stood)) =
+        (kept.library, world.get_resource_mut::<Stood>())
     {
         stood.0 = Some(at);
     }
@@ -154,10 +152,15 @@ pub(crate) fn spoke(
 }
 
 /// Writes a look that was changed to its chief's file.
-pub fn keep(view: Res<ViewDir>, looks: Query<(&Chief, Ref<Look>)>) {
+pub fn keep(
+    view: Res<ViewDir>,
+    mut kept: ResMut<Kept>,
+    looks: Query<(&Chief, Ref<Look>)>,
+) {
     for (chief, look) in &looks {
         if look.is_changed() && !look.is_added() {
             let _ = look.write(&view.0, &chief.user);
+            kept.keep_look(&chief.user, *look);
         }
     }
 }
@@ -462,6 +465,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(ClientPlugin { server: None })
             .insert_resource(ViewDir(view.to_path_buf()))
+            .init_resource::<Kept>()
             .init_resource::<Stood>()
             .add_plugins((crate::me::plugin, plugin));
         app.update();
@@ -481,6 +485,7 @@ mod tests {
     #[test]
     fn the_chiefs_look_returns_from_the_view_folder_at_launch() {
         use hamlet_client::ViewDir;
+        use hamlet_realm::chief::Stands;
         use hamlet_testing::Scratch;
 
         let dir = Scratch::new("chief-look");
@@ -494,6 +499,9 @@ mod tests {
                 app.world_mut().spawn(Name::new("founder")).id();
             let chat = app.world_mut().spawn_empty().id();
             app.insert_resource(ViewDir(dir.join("view")))
+                .insert_resource(
+                    Kept::read(&dir.join("view")).unwrap(),
+                )
                 .insert_resource(Me::of(chat, agent, "wren", None))
                 .init_resource::<Stood>()
                 .add_plugins(plugin);

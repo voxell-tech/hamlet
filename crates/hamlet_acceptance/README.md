@@ -55,7 +55,8 @@ The suite runs the command with these arguments added:
 - `--port 0`, to listen on a free loopback port.
 - `--faux <file>`, the absolute path of a faux script (below). Without it,
   the server uses its real model providers; the suite then points them at
-  a loopback endpoint with `HAMLET_MODEL` and `HAMLET_BASE_URL`.
+  a loopback endpoint with `HAMLET_MODEL` and `HAMLET_BASE_URL`, on the
+  `local` endpoint the default settings list.
 
 Its environment is the suite's own with ambient `HAMLET_SERVER`,
 `HAMLET_TOKEN`, `HAMLET_MODEL`, `HAMLET_BASE_URL`, `HAMLET_API_KEY`,

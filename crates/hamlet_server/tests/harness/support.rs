@@ -111,6 +111,26 @@ impl Realm {
         path
     }
 
+    /// Saves settings that run `model` on the endpoint `endpoint`,
+    /// served at `url`.
+    pub fn serve(&self, model: &str, url: &str) {
+        let (endpoint, _) = model.split_once("::").unwrap();
+        let settings = json!({
+            "model": model, "reflectEvery": 10, "allowNet": false,
+            "endpoints": [{"name": endpoint, "baseUrl": url}],
+            "link": {"state": "untested", "models": null, "words": null},
+            "saved": true,
+        });
+        Connection::open(self.home.join("realm.sqlite"))
+            .unwrap()
+            .execute(
+                "INSERT INTO chief_document(kind, key, value) \
+                 VALUES ('settings', 'home', ?1)",
+                [settings.to_string()],
+            )
+            .unwrap();
+    }
+
     /// The folder where the processes' faults leave their marks.
     pub fn faults(&self) -> PathBuf {
         let dir = self.scratch.join("faults");
@@ -350,8 +370,8 @@ impl Driver {
         Self::start_on(realm, Some(faux), env)
     }
 
-    /// Starts the driver on `realm`, with the model `env` names when
-    /// there is no faux script.
+    /// Starts the driver on `realm` with `env`, and with `faux` when
+    /// given.
     pub fn start_on(
         realm: &Realm,
         faux: Option<&Path>,

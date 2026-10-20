@@ -11,8 +11,11 @@ mod settle;
 mod tests;
 pub mod wickstep;
 
+use std::collections::HashMap;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
+use anyhow::{Context, Result, anyhow};
 use bevy::prelude::*;
 use hamlet_client::ViewDir;
 
@@ -20,7 +23,7 @@ pub use self::look::{Cloak, Hat, Holds, Light, Look};
 pub use self::wickstep::{Mascot, Phase, Stay};
 use crate::generator::land::Land;
 use crate::hand::PlaySettings;
-use crate::library::Library;
+use crate::library::{Library, Stood};
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<ChiefSettings>()
@@ -156,19 +159,17 @@ impl Stands {
         Look::file(view, user).with_extension("place")
     }
 
-    /// The place the chief `user` last set its place down at, if it
-    /// has.
-    pub fn read(view: &Path, user: &str) -> Option<Stands> {
-        Self::read_at(&Self::file(view, user))
-    }
-
-    /// The spot the place whose file is `file` was last set down at.
-    pub fn read_at(file: &Path) -> Option<Stands> {
-        let text = std::fs::read_to_string(file).ok()?;
-        let mut parts = text.split_whitespace().map(|part| {
-            part.parse::<f32>().ok().filter(|n| n.is_finite())
-        });
-        let (x, z) = (parts.next()??, parts.next()??);
+    /// The spot `text` holds, as [`Self::write_at`] writes it.
+    fn parse(text: &str) -> Option<Stands> {
+        let parts = text
+            .split_whitespace()
+            .map(|part| {
+                part.parse::<f32>().ok().filter(|n| n.is_finite())
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let [x, z] = parts[..] else {
+            return None;
+        };
         Some(Stands(Vec2::new(x, z)))
     }
 
@@ -187,6 +188,116 @@ impl Stands {
         }
         std::fs::write(file, format!("{} {}\n", self.0.x, self.0.y))
     }
+}
+
+/// The chiefs' looks and places kept under the window's folder, and
+/// the library's place, as read once at launch and kept since.
+#[derive(Resource, Clone, Debug, Default, PartialEq)]
+pub struct Kept {
+    /// By the name each chief's files are kept under.
+    looks: HashMap<String, Look>,
+    places: HashMap<String, Stands>,
+    /// Where the library was last set down.
+    pub library: Option<Vec2>,
+}
+
+impl Kept {
+    /// What `view` keeps. A file that is missing keeps nothing; one
+    /// that does not parse is an error naming it.
+    pub fn read(view: &Path) -> Result<Self> {
+        let mut kept = Self::default();
+        let chiefs = view.join("chiefs");
+        let entries = match std::fs::read_dir(&chiefs) {
+            Ok(entries) => {
+                entries.collect::<std::io::Result<Vec<_>>>()
+            }
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                Ok(Vec::new())
+            }
+            Err(e) => Err(e),
+        }
+        .with_context(|| format!("reading {}", chiefs.display()))?;
+        for entry in entries {
+            let path = entry.path();
+            let Some(name) =
+                path.file_stem().and_then(|s| s.to_str())
+            else {
+                continue;
+            };
+            match path.extension().and_then(|s| s.to_str()) {
+                Some("toml") => {
+                    let look = text(&path)?.map(|text| {
+                        toml::from_str::<Look>(&text)
+                            .map_err(|e| unparsed(&path, e.message()))
+                    });
+                    if let Some(look) = look.transpose()? {
+                        kept.looks.insert(name.into(), look);
+                    }
+                }
+                Some("place") => {
+                    if let Some(stands) = place(&path)? {
+                        kept.places.insert(name.into(), stands);
+                    }
+                }
+                _ => {}
+            }
+        }
+        kept.library =
+            place(&Stood::file(view))?.map(|stands| stands.0);
+        Ok(kept)
+    }
+
+    /// The look kept for `user`, else the first look.
+    pub fn look(&self, user: &str) -> Look {
+        self.looks
+            .get(&look::kept_name(user))
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// Where `user` last set its place down, if it has.
+    pub fn place(&self, user: &str) -> Option<Stands> {
+        self.places.get(&look::kept_name(user)).copied()
+    }
+
+    /// Notes that `look` is kept for `user`.
+    pub fn keep_look(&mut self, user: &str, look: Look) {
+        self.looks.insert(look::kept_name(user), look);
+    }
+
+    /// Notes that `stands` is kept for `user`.
+    pub fn keep_place(&mut self, user: &str, stands: Stands) {
+        self.places.insert(look::kept_name(user), stands);
+    }
+}
+
+/// The text of `file`; `None` when there is no such file.
+fn text(file: &Path) -> Result<Option<String>> {
+    match std::fs::read_to_string(file) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e)
+            .with_context(|| format!("reading {}", file.display())),
+    }
+}
+
+/// The place `file` keeps, if there is such a file.
+fn place(file: &Path) -> Result<Option<Stands>> {
+    text(file)?
+        .map(|text| {
+            Stands::parse(&text).ok_or_else(|| {
+                unparsed(file, "it does not hold two numbers")
+            })
+        })
+        .transpose()
+}
+
+/// The error of a kept file that does not parse.
+pub fn unparsed(file: &Path, why: &str) -> anyhow::Error {
+    anyhow!(
+        "{} does not parse: {why}. Fix it or remove it.",
+        file.display()
+    )
 }
 
 /// On a chief whose place and mascot are in the world.
@@ -233,12 +344,14 @@ pub fn arrive(world: &mut World, user: &str, look: Look) -> Entity {
 /// Keeps the place a chief set down.
 fn keep_place(
     view: Res<ViewDir>,
+    mut kept: ResMut<Kept>,
     placed: Query<(&Chief, &Stands), Changed<Stands>>,
 ) {
     for (chief, stands) in &placed {
         // One read back at launch is as it was written.
-        if Stands::read(&view.0, &chief.user) != Some(*stands) {
+        if kept.place(&chief.user) != Some(*stands) {
             let _ = stands.write(&view.0, &chief.user);
+            kept.keep_place(&chief.user, *stands);
         }
     }
 }
@@ -267,6 +380,7 @@ mod persistence_tests {
         let mut app = App::new();
         crate::generator::testing::rehearse(&mut app);
         app.insert_resource(ViewDir(dir.join("view")))
+            .init_resource::<Kept>()
             .init_resource::<Society>()
             .init_resource::<Quality>()
             .add_message::<crate::play::Played>()
@@ -275,7 +389,8 @@ mod persistence_tests {
         let at = Stands(Vec2::new(412.5, -96.0));
         app.world_mut().entity_mut(chief).insert(at);
         app.update();
-        assert_eq!(Stands::read(&dir.join("view"), "wren"), Some(at));
+        let kept = || Kept::read(&dir.join("view")).unwrap();
+        assert_eq!(kept().place("wren"), Some(at));
         assert_eq!(
             std::fs::read_to_string(
                 dir.join("view/chiefs/wren.place")
@@ -286,6 +401,10 @@ mod persistence_tests {
         let to = Stands(Vec2::new(-240.0, 93.5));
         app.world_mut().entity_mut(chief).insert(to);
         app.update();
-        assert_eq!(Stands::read(&dir.join("view"), "wren"), Some(to));
+        assert_eq!(kept().place("wren"), Some(to));
+        // Set down where it was at launch, it is kept there again.
+        app.world_mut().entity_mut(chief).insert(at);
+        app.update();
+        assert_eq!(kept().place("wren"), Some(at));
     }
 }

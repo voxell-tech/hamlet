@@ -194,6 +194,10 @@ impl Service {
                     .collect();
             }
             settings.saved = true;
+            if let Err(error) = self.overrides.apply(settings.clone())
+            {
+                return Ok(Err(Refusal::Invalid(error.to_string())));
+            }
             crate::settings::keep(
                 self.home.store().connection(),
                 &settings,

@@ -50,7 +50,8 @@ rename. It holds `installationId`, `connection: {token}` and provider
 credentials. Provider attempts receive needed credentials over the private
 link in memory. Pi asks the server to scrub text before keeping provider
 snapshots or final answers; tool output and client messages are scrubbed too.
-`HAMLET_API_KEY` is an in-memory override, not a file update.
+`HAMLET_API_KEY` is an in-memory override for the settings' model's
+endpoint, not a file update.
 
 ChatGPT and OpenRouter support subscription sign-in. ChatGPT credentials
 are separate from OpenAI API keys. The server serializes credential
@@ -64,7 +65,11 @@ hamlet's limits live only in its record, so a limits edit is one record
 change. Character belongs to the recorded agent. House notes are opened
 relative to the retained home descriptor without following links.
 `HAMLET_MODEL`, `HAMLET_BASE_URL`, `HAMLET_REFLECT_EVERY` and `HAMLET_NET`
-override stored settings for this process.
+override stored settings for this process. `HAMLET_MODEL` is the settings'
+model, so an agent's or hamlet's own choice still stands over it.
+`HAMLET_BASE_URL` is the address of that model's endpoint; the server
+refuses to start when the settings do not list that endpoint, and refuses
+a settings edit that would leave it unlisted.
 
 Settings selects the workspace for the next start. The active connection
 and its token stay fixed until restart, even after Settings changes.

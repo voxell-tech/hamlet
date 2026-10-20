@@ -308,37 +308,76 @@ async fn signs_in_with_a_key_without_sending_it_to_any_client() {
             failed: "Unknown provider: nowhere".into()
         }
     );
-    // Taking the endpoint away forgets its key.
-    let reply = s
-        .chief
-        .request(|id| {
+    let credentials = || {
+        serde_json::from_str::<serde_json::Value>(
+            &std::fs::read_to_string(s.home.file("credentials.json"))
+                .unwrap(),
+        )
+        .unwrap()
+    };
+    let endpoints = |names: &[&str]| {
+        names
+            .iter()
+            .map(|name| Endpoint {
+                name: (*name).into(),
+                base_url: endpoint.url.clone(),
+            })
+            .collect::<Vec<_>>()
+    };
+    let edit = |endpoints: Vec<Endpoint>| {
+        move |id| {
             ClientMessage::Edit(Edit::Settings {
                 id,
                 set: EditSettingsSet {
                     model: None,
                     reflect_every: None,
                     allow_net: None,
-                    endpoints: Some(vec![]),
+                    endpoints: Some(endpoints),
                     workspace: None,
                 },
             })
-        })
-        .await;
+        }
+    };
+    // HAMLET_BASE_URL is for `local`, so it cannot be taken away.
+    let before = (s.chief.realm().settings, credentials());
+    let reply = s.chief.request(edit(Vec::new())).await;
+    assert_eq!(
+        (reply.kind, reply.text.as_str()),
+        (
+            ReplyKind::Error,
+            "HAMLET_BASE_URL is for the endpoint of the model \
+             `local::org/large`, which the settings do not list. \
+             Add the endpoint in Settings, or unset HAMLET_BASE_URL."
+        )
+    );
+    assert_eq!((s.chief.realm().settings, credentials()), before);
+    // Taking another endpoint away forgets its key.
+    let reply =
+        s.chief.request(edit(endpoints(&["local", "spare"]))).await;
+    assert_eq!(reply.kind, ReplyKind::Notice, "{reply:?}");
+    let spare = start_login(&mut s.chief, "spare").await;
+    let done =
+        finish_login(&mut s.chief, &spare.login, "sk-spare").await;
+    assert_eq!(
+        done,
+        LoginStep::Done {
+            done: "spare".into()
+        }
+    );
+    assert_eq!(credentials()["models"]["spare"]["key"], "sk-spare");
+    let reply = s.chief.request(edit(endpoints(&["local"]))).await;
     assert_eq!(reply.kind, ReplyKind::Notice, "{reply:?}");
     s.chief
-        .until("no endpoints", |c| {
-            c.realm().settings.endpoints.is_empty()
+        .until("only local", |c| {
+            c.realm().settings.endpoints.len() == 1
         })
         .await;
-    let stored =
-        std::fs::read_to_string(s.home.file("credentials.json"))
-            .unwrap();
-    let stored =
-        serde_json::from_str::<serde_json::Value>(&stored).unwrap();
+    let stored = credentials();
     assert!(
-        stored["models"].get("local").is_none(),
+        stored["models"].get("spare").is_none(),
         "a key was kept"
     );
+    assert_eq!(stored["models"]["local"]["key"], key);
     assert_eq!(stored["models"]["openai"]["key"], "sk-openai-own");
 }
 

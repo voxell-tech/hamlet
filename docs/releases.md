@@ -14,7 +14,8 @@ Node is **not** bundled. Install the version in `harnesses/pi/.nvmrc`
 (currently 24.1.0). It must be on PATH or selected by `HAMLET_NODE`.
 No checkout or npm install is needed after extraction. Keep the archive's
 layout. The server finds sibling `pi/src/main.ts`, then the macOS bundle's
-`Contents/Resources/pi/src/main.ts`, before its source-checkout fallback.
+`Contents/Resources/pi/src/main.ts`, then the checkout it was built from,
+and refuses to start, naming `HAMLET_PI_HARNESS`, when none of them exists.
 
 ## Archive layout
 

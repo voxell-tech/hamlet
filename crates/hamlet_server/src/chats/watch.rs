@@ -228,16 +228,26 @@ pub(super) fn pasts(
     let mut history = Vec::new();
     for session in records::sessions(db, agent, &chief)? {
         let items = service.home.store().items(session.binding)?;
-        let Some((first, by)) = items.iter().find_map(|item| {
-            match InputMark::of(item.mark.as_ref()?)? {
-                InputMark::Chief { chief, text, .. }
-                    if !text.trim().is_empty() =>
-                {
-                    Some((text, chief))
+        let mut first = None;
+        let mut messages = 0_usize;
+        for item in &items {
+            if let Some(InputMark::Chief { chief, text, .. }) =
+                InputMark::of_item(item.mark.as_ref())?
+            {
+                messages += 1;
+                if first.is_none() && !text.trim().is_empty() {
+                    first = Some((text, chief));
                 }
-                _ => None,
+            } else if item.kind == link::ItemKind::Assistant
+                && item.blocks.iter().flatten().any(|block| {
+                    matches!(block, link::Block::Text { text }
+                            if !text.trim().is_empty())
+                })
+            {
+                messages += 1;
             }
-        }) else {
+        }
+        let Some((first, by)) = first else {
             continue;
         };
         let line = first
@@ -249,19 +259,6 @@ pub(super) fn pasts(
         if line.chars().count() > 90 {
             title.push_str("...");
         }
-        let messages = items
-            .iter()
-            .filter(|item| {
-                matches!(
-                    item.mark.as_ref().and_then(InputMark::of),
-                    Some(InputMark::Chief { .. })
-                ) || (item.kind == link::ItemKind::Assistant
-                    && item.blocks.iter().flatten().any(|block| {
-                        matches!(block, link::Block::Text { text }
-                                if !text.trim().is_empty())
-                    }))
-            })
-            .count();
         let modified = items
             .iter()
             .filter_map(|item| i64::try_from(item.at).ok())

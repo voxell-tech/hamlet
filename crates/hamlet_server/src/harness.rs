@@ -32,8 +32,8 @@ pub(crate) use bindings::{
     ended, fork_of, input_runs, items, working_on,
 };
 use link::{
-    Capability, Diagnostic, HelloStore, Item, Mark, ModelRef,
-    Partial, RuntimeMessage, Section, ServerMessage, ToolSpec,
+    Capability, Diagnostic, HelloStore, Item, Mark, Partial,
+    RuntimeMessage, Section, ServerMessage, ToolSpec,
 };
 pub use mark::{InputMark, Mail};
 pub use process::Pi;
@@ -74,41 +74,16 @@ const SYNC_PAGE: u64 = 200;
 #[derive(Clone, Debug)]
 pub struct Config {
     pub pi: Pi,
-    /// The model `HAMLET_MODEL` or the faux script names, which new
-    /// conversations run before the chosen one, and whose endpoint
-    /// `HAMLET_API_KEY` serves.
-    pub model: Option<ModelRef>,
     pub tools: Vec<ToolSpec>,
 }
 
 impl Config {
     /// The configuration the environment gives: the pi harness's,
-    /// `HAMLET_MODEL` and `HAMLET_BASE_URL`, with `faux` in place of
-    /// a model when given.
+    /// with `faux` in place of real models when given.
     pub fn from_env(faux: Option<PathBuf>) -> Result<Self> {
-        let set =
-            |name| std::env::var(name).ok().filter(|v| !v.is_empty());
         let pi = Pi::from_env(faux)?;
-        let model = if let Some(faux) = pi.faux_model() {
-            Some(faux)
-        } else if let Some(name) = set("HAMLET_MODEL") {
-            let Some((provider, id)) = name
-                .split_once("::")
-                .filter(|(p, id)| !p.is_empty() && !id.is_empty())
-            else {
-                bail!("HAMLET_MODEL is `endpoint::id`, not `{name}`");
-            };
-            Some(ModelRef {
-                provider: provider.into(),
-                id: id.into(),
-                base_url: set("HAMLET_BASE_URL"),
-            })
-        } else {
-            None
-        };
         Ok(Self {
             pi,
-            model,
             tools: crate::tools::specs()
                 .into_iter()
                 .chain(crate::chats::specs())
@@ -494,15 +469,12 @@ impl Harnesses {
     /// credential owner.
     pub async fn credentials(
         &mut self,
+        store: &Store,
         credentials: &mut crate::credentials::Credentials,
-    ) {
-        let serving = self
-            .config
-            .model
-            .as_ref()
-            .map_or("", |m| m.provider.as_str());
+    ) -> Result<()> {
+        let serving = self.serving(store)?;
         for (index, mut answer) in
-            self.credentials.flush(credentials, serving)
+            self.credentials.flush(credentials, &serving)
         {
             self.send(index, |v, id| {
                 answer.v = v;
@@ -511,6 +483,7 @@ impl Harnesses {
             })
             .await;
         }
+        Ok(())
     }
 
     /// The next event to handle.
@@ -590,20 +563,14 @@ impl Harnesses {
     }
 
     /// Binds a new conversation for `agent` to a runtime of its
-    /// harness, which makes it with the environment's model, else
-    /// the one the agent runs now.
+    /// harness, which makes it with the model the agent runs now.
     pub async fn bind(
         &mut self,
         store: &mut Store,
         agent: &AgentRef,
         errand: bool,
     ) -> Result<(BindingId, Vec<Notice>)> {
-        // The environment's model keeps `HAMLET_BASE_URL`, which the
-        // settings drop for an endpoint they do not list.
-        let model = match &self.config.model {
-            Some(model) => model.clone(),
-            None => self.choices(store)?.select(store, agent)?.model,
-        };
+        let model = self.choices(store)?.select(store, agent)?.model;
         let harness = store.harness_of(agent)?;
         if harness != DEFAULT_HARNESS {
             bail!("There is no harness named {harness}.");

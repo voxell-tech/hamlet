@@ -826,7 +826,7 @@ impl Choices {
         faux: bool,
     ) -> Result<Self> {
         let settings = crate::settings::Overrides::from_env(faux)?
-            .apply(crate::settings::stored(store.connection())?);
+            .apply(crate::settings::stored(store.connection())?)?;
         let lists = match std::fs::read(root.join("models.json")) {
             Ok(bytes) => serde_json::from_slice::<Value>(&bytes)?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {

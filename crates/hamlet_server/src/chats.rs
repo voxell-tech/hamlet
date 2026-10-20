@@ -272,7 +272,7 @@ pub(crate) async fn heard(
                 service.chats.conversations.contains_key(&binding);
             let conversation = conversation(service, binding)?;
             if loaded {
-                conversation.fold.entry(&item);
+                conversation.fold.entry(&item)?;
                 conversation.activity.kept(&item);
             }
             broadcast(service, binding)?;
@@ -497,7 +497,7 @@ fn conversation(
         service.chats.conversations.insert(
             binding,
             Conversation {
-                fold: Fold::of(&items),
+                fold: Fold::of(&items)?,
                 activity: Activity::of(&items),
                 running: false,
                 pending: 0,
@@ -543,7 +543,7 @@ fn broadcast(
             &mut items,
         )?;
         let conversation = self::conversation(service, binding)?;
-        let mut fold = Fold::of(&items);
+        let mut fold = Fold::of(&items)?;
         fold.working = conversation.running;
         fold.pending = conversation.pending;
         fold.take();

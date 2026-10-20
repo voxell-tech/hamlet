@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 macro_rules! starter {
     ($name:literal, [$($file:literal),+]) => {
@@ -32,8 +32,17 @@ const RECORD: &str = ".starters";
 /// Returns the names written.
 pub fn install(skills: &Path) -> Result<Vec<&'static str>> {
     let record = skills.join(RECORD);
-    let mut offered =
-        std::fs::read_to_string(&record).unwrap_or_default();
+    let mut offered = match std::fs::read_to_string(&record) {
+        Ok(offered) => offered,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            String::new()
+        }
+        Err(e) => {
+            return Err(e).with_context(|| {
+                format!("reading {}", record.display())
+            });
+        }
+    };
     let mut written = vec![];
     for (name, files) in STARTERS {
         let dir = skills.join(name);

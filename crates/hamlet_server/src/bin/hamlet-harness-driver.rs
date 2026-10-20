@@ -81,7 +81,7 @@ async fn drive(dir: PathBuf, faux: Option<PathBuf>) -> Result<()> {
         tokio::select! {
             event = driver.harnesses.next() => {
                 let notices = driver.harnesses.handle(driver.service.home.store(), event, &credentials).await?;
-                driver.harnesses.credentials(&mut credentials).await;
+                driver.harnesses.credentials(driver.service.home.store(), &mut credentials).await?;
                 driver.answer(notices).await?;
             }
             line = lines.next_line() => {

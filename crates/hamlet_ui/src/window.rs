@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use anyhow::{Context, Result};
 use bevy::app::{App, Update};
 use bevy::ecs::message::MessageReader;
 use bevy::ecs::system::{Local, Res};
@@ -15,6 +16,7 @@ use bevy::window::{
 };
 use bevy::winit::{UpdateMode, WinitSettings};
 use hamlet_client::ViewDir;
+use hamlet_realm::chief;
 
 use crate::chrome;
 
@@ -39,9 +41,9 @@ fn size_file(view: &Path) -> PathBuf {
 }
 
 /// The window plugin at the size last kept in the view folder.
-pub fn window_plugin(view: &Path) -> WindowPlugin {
-    let size = saved_size(view);
-    WindowPlugin {
+pub fn window_plugin(view: &Path) -> Result<WindowPlugin> {
+    let size = saved_size(view)?;
+    Ok(WindowPlugin {
         primary_window: Some(Window {
             title: "Hamlet".into(),
             resolution: WindowResolution::new(size.0, size.1),
@@ -55,21 +57,36 @@ pub fn window_plugin(view: &Path) -> WindowPlugin {
         exit_condition: ExitCondition::DontExit,
         close_when_requested: false,
         ..WindowPlugin::default()
-    }
+    })
 }
 
-pub(crate) fn saved_size(view: &Path) -> (u32, u32) {
-    let parse = |text: String| {
+/// The size kept in the view folder, else the first size.
+fn saved_size(view: &Path) -> Result<(u32, u32)> {
+    let file = size_file(view);
+    let text = match std::fs::read_to_string(&file) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(DEFAULT_SIZE);
+        }
+        Err(e) => {
+            return Err(e).with_context(|| {
+                format!("reading {}", file.display())
+            });
+        }
+    };
+    let parse = |text: &str| {
         let (w, h) = text.trim().split_once('x')?;
         Some((
             w.parse::<u32>().ok()?.max(LEAST_SIZE.0),
             h.parse::<u32>().ok()?.max(LEAST_SIZE.1),
         ))
     };
-    std::fs::read_to_string(size_file(view))
-        .ok()
-        .and_then(parse)
-        .unwrap_or(DEFAULT_SIZE)
+    parse(&text).ok_or_else(|| {
+        chief::unparsed(
+            &file,
+            "it does not hold a size such as 1920x1080",
+        )
+    })
 }
 
 /// Keeps the size once resizing has settled.
@@ -188,9 +205,29 @@ mod tests {
         );
         assert!(!dir.join("window").exists());
         let mut relaunched = App::new();
-        relaunched.add_plugins(window_plugin(&dir.join("view")));
+        relaunched
+            .add_plugins(window_plugin(&dir.join("view")).unwrap());
         let window = window(&mut relaunched);
         assert_eq!(window.resolution.width(), 1420.0);
         assert_eq!(window.resolution.height(), 810.0);
+    }
+
+    #[test]
+    fn a_size_that_does_not_parse_is_refused_and_left() {
+        let dir = Scratch::new("window-unparsed");
+        assert_eq!(saved_size(&dir).unwrap(), DEFAULT_SIZE);
+        std::fs::write(size_file(&dir), "wide").unwrap();
+        let error = window_plugin(&dir).err().unwrap().to_string();
+        assert!(
+            error.starts_with(&format!(
+                "{} does not parse",
+                size_file(&dir).display()
+            )),
+            "{error}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(size_file(&dir)).unwrap(),
+            "wide"
+        );
     }
 }

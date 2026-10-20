@@ -1,6 +1,7 @@
 //! What an input is, as the server marks it for its runtime and its
 //! transcript. The link carries it as an untyped [`Mark`].
 
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use super::link::Mark;
@@ -25,12 +26,7 @@ pub enum InputMark {
     Reflection { task: String, at: i64 },
     /// Words for people alone, which the model never sees (C30).
     #[serde(rename = "hamlet.notice")]
-    Notice {
-        #[serde(default)]
-        text: String,
-        #[serde(default)]
-        at: i64,
-    },
+    Notice { text: String, at: i64 },
     #[serde(rename = "hamlet.letter")]
     Letter(Mail),
     #[serde(rename = "hamlet.question")]
@@ -61,10 +57,22 @@ pub struct Mail {
 }
 
 impl InputMark {
-    /// The mark `mark` of the link; `None` for a kind the server does
-    /// not make.
-    pub fn of(mark: &Mark) -> Option<Self> {
-        serde_json::from_value(serde_json::to_value(mark).ok()?).ok()
+    /// The mark `mark` of the link; `None` for a kind outside
+    /// `hamlet.`, which the server does not make.
+    pub fn of(mark: &Mark) -> Result<Option<Self>> {
+        if !mark.kind.starts_with("hamlet.") {
+            return Ok(None);
+        }
+        serde_json::from_value(serde_json::to_value(mark)?)
+            .map(Some)
+            .with_context(|| {
+                format!("reading a `{}` mark", mark.kind)
+            })
+    }
+
+    /// [`Self::of`] the mark of an item that may have none.
+    pub fn of_item(mark: Option<&Mark>) -> Result<Option<Self>> {
+        mark.map_or(Ok(None), Self::of)
     }
 
     /// A notice of `text`, made now.
@@ -134,13 +142,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_mark_kept_by_an_earlier_server_reads_as_its_kind() {
+    fn a_kept_mark_reads_as_its_kind() {
         let kept = json!({"kind": "hamlet.letter", "data": {
             "from": {"hamlet": "home", "number": 2}, "task": "t",
             "at": 5, "replyTo": 3}});
         let mark =
             serde_json::from_value::<Mark>(kept.clone()).unwrap();
-        let typed = InputMark::of(&mark).unwrap();
+        let typed = InputMark::of(&mark).unwrap().unwrap();
         assert_eq!(
             typed.message().map(|m| (m.from.number, m.reply_to)),
             Some((2, Some(3)))
@@ -149,5 +157,20 @@ mod tests {
             serde_json::to_value(Mark::from(&typed)).unwrap(),
             kept
         );
+    }
+
+    #[test]
+    fn a_malformed_hamlet_mark_is_an_error_and_another_kind_is_none()
+    {
+        let mark = |kept: serde_json::Value| {
+            serde_json::from_value::<Mark>(kept).unwrap()
+        };
+        let bare = mark(json!({"kind": "hamlet.notice", "data": {}}));
+        assert_eq!(
+            InputMark::of(&bare).unwrap_err().to_string(),
+            "reading a `hamlet.notice` mark"
+        );
+        let foreign = mark(json!({"kind": "other.note", "data": {}}));
+        assert_eq!(InputMark::of(&foreign).unwrap(), None);
     }
 }

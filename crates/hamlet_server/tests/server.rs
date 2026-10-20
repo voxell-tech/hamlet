@@ -272,6 +272,172 @@ async fn overrides_and_secrets_stay_in_memory_but_the_chief_is_retained()
     }
 }
 
+#[test]
+fn a_missing_pi_harness_is_refused() {
+    let home = Scratch::new("server-no-pi");
+    let entry = home.join("missing/main.ts");
+    let words = refusal(
+        &home,
+        &[("HAMLET_PI_HARNESS", entry.to_str().unwrap())],
+    );
+    assert!(
+        words.contains(&format!(
+            "HAMLET_PI_HARNESS names {}, which is not a file.",
+            entry.display()
+        )),
+        "{words}"
+    );
+}
+
+/// The words `hamlet-server` gives on standard error as it refuses to
+/// start on `home` with `env`.
+fn refusal(home: &Scratch, env: &[(&str, &str)]) -> String {
+    let output = Command::new(env!("CARGO_BIN_EXE_hamlet-server"))
+        .args(["--home".as_ref(), home.as_os_str()])
+        .args(["--port", "0"])
+        .env_remove("HAMLET_HOME")
+        .env_remove("HAMLET_MODEL")
+        .env_remove("HAMLET_BASE_URL")
+        .env("HAMLET_USER", "chief")
+        .envs(env.iter().copied())
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    String::from_utf8(output.stderr).unwrap()
+}
+
+#[test]
+fn a_model_not_named_endpoint_and_id_is_refused() {
+    let home = Scratch::new("server-bad-model");
+    let words = refusal(&home, &[("HAMLET_MODEL", "garbage")]);
+    assert!(
+        words.contains(
+            "HAMLET_MODEL is `endpoint::id`, not `garbage`"
+        ),
+        "{words}"
+    );
+}
+
+#[test]
+fn a_home_record_without_a_chief_is_refused() {
+    use hamlet_server::record::FoundRecord;
+    use hamlet_server::{OperationId, RuntimeInstance};
+
+    let dir = Scratch::new("server-chiefless");
+    let mut home = Home::open(&dir).unwrap();
+    let id = OperationId {
+        runtime: RuntimeInstance::new("seed").unwrap(),
+        key: "found".into(),
+    };
+    let found = FoundRecord {
+        hamlet: "home".into(),
+        name: "founder".into(),
+        purpose: String::new(),
+        chief: "chief".into(),
+        at: 0,
+    };
+    home.store().run(&id, &found).unwrap();
+    home.store()
+        .connection()
+        .execute(
+            "UPDATE record_hamlet SET document = json_set(document, \
+             '$.chiefs', json('[]')) WHERE id = 'home'",
+            [],
+        )
+        .unwrap();
+    home.close().unwrap();
+    let words = refusal(&dir, &[]);
+    assert!(
+        words.contains("The home hamlet's record names no chief."),
+        "{words}"
+    );
+}
+
+#[test]
+fn a_new_home_without_a_chief_name_is_refused() {
+    let home = Scratch::new("server-no-chief");
+    let output = Command::new(env!("CARGO_BIN_EXE_hamlet-server"))
+        .args(["--home".as_ref(), home.as_os_str()])
+        .args(["--port", "0"])
+        .env_remove("HAMLET_HOME")
+        .env_remove("HAMLET_USER")
+        .env_remove("USER")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let words = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        words.contains(
+            "A new home needs its chief's name: set HAMLET_USER or \
+             USER."
+        ),
+        "{words}"
+    );
+}
+
+#[test]
+fn a_base_url_for_an_endpoint_the_settings_do_not_list_is_refused() {
+    let home = Scratch::new("server-unlisted-base-url");
+    let words = refusal(
+        &home,
+        &[
+            ("HAMLET_MODEL", "elsewhere::large"),
+            ("HAMLET_BASE_URL", "http://localhost:9999/v1"),
+        ],
+    );
+    assert!(
+        words.contains(
+            "HAMLET_BASE_URL is for the endpoint of the model \
+             `elsewhere::large`, which the settings do not list."
+        ),
+        "{words}"
+    );
+    let words = refusal(
+        &home,
+        &[
+            ("HAMLET_MODEL", "anthropic::large"),
+            ("HAMLET_BASE_URL", "http://localhost:9999/v1"),
+        ],
+    );
+    assert!(
+        words.contains(
+            "HAMLET_BASE_URL is for the endpoint of the model \
+             `anthropic::large`, a provider pi knows the address \
+             of. Unset HAMLET_BASE_URL."
+        ),
+        "{words}"
+    );
+    // With no model chosen in Settings and none in HAMLET_MODEL.
+    let none = Scratch::new("server-base-url-no-model");
+    let mut store = Home::open(&none).unwrap();
+    let settings = json!({
+        "model": "", "reflectEvery": 10, "allowNet": false,
+        "endpoints": [], "saved": true,
+        "link": {"state": "untested", "models": null, "words": null},
+    });
+    store
+        .store()
+        .connection()
+        .execute(
+            "INSERT INTO chief_document(kind, key, value) VALUES \
+             ('settings', 'home', ?1)",
+            [settings.to_string()],
+        )
+        .unwrap();
+    store.close().unwrap();
+    let words = refusal(
+        &none,
+        &[("HAMLET_BASE_URL", "http://localhost:9999/v1")],
+    );
+    assert!(
+        words.contains(
+            "HAMLET_BASE_URL needs a model: set HAMLET_MODEL or \
+             choose one in Settings."
+        ),
+        "{words}"
+    );
+}
+
 #[cfg(feature = "harness")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn other_known_credentials_are_absent_from_both_stores() {

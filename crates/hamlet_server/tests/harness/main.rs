@@ -823,11 +823,8 @@ fn a_real_endpoint_gets_the_credential_the_server_hands_over_and_nothing_keeps_i
         credentials.to_string(),
     )
     .unwrap();
-    let env = [
-        ("HAMLET_MODEL", "endpoint::org/large"),
-        ("HAMLET_BASE_URL", endpoint.url.as_str()),
-    ];
-    let mut driver = Driver::start_on(&realm, None, &env);
+    realm.serve("endpoint::org/large", &endpoint.url);
+    let mut driver = Driver::start_on(&realm, None, &[]);
     let (binding, runtime) = driver.bind(0);
     driver.submit(binding, "chief:1", "Hello?");
     driver.answer(binding, "Hello [REDACTED].");
@@ -913,11 +910,8 @@ fn cutoff_recovery_survives_crashes_before_abort_and_after_summary() {
             },
         ]);
         let realm = Realm::new(point);
-        let env = [
-            ("HAMLET_MODEL", "endpoint::org/large"),
-            ("HAMLET_BASE_URL", endpoint.url.as_str()),
-            ("HAMLET_HARNESS_FAULT", point),
-        ];
+        realm.serve("endpoint::org/large", &endpoint.url);
+        let env = [("HAMLET_HARNESS_FAULT", point)];
         let mut driver = Driver::start_on(&realm, None, &env);
         let (binding, _) = driver.bind(0);
         driver.submit(binding, "chief:long", "Long.");

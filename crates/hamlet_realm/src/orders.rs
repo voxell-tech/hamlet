@@ -14,7 +14,7 @@ use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::{self as agents, Deeds, HOME, Settlement};
 use hamlet_protocol::v0;
 
-use crate::chief::{Player, Stands};
+use crate::chief::{Kept, Player, Stands};
 use crate::generator::society::Place;
 use crate::hamlet::{hamlet_of, town_of};
 use crate::hand::{self, Wish};
@@ -538,6 +538,7 @@ fn set_down(world: &mut World, set: SetDown) {
             if let Some(view) = world.get_resource::<ViewDir>() {
                 let file = Stood::file(&view.0);
                 let _ = Stands(set.to).write_at(&file);
+                world.resource_mut::<Kept>().library = Some(set.to);
             }
             world.resource_mut::<Stood>().0 = Some(set.to);
         }
@@ -790,16 +791,16 @@ mod tests {
         let dir = Scratch::new("world-library-view");
         let (mut app, _) = app();
         app.insert_resource(ViewDir(dir.to_path_buf()))
+            .init_resource::<Kept>()
             .init_resource::<Stood>();
         app.world_mut().write_message(SetDown {
             place: Place::Library,
             to: Vec2::new(12.5, -40.0),
         });
         app.update();
-        assert_eq!(
-            Stands::read_at(&Stood::file(&dir)).unwrap().0,
-            Vec2::new(12.5, -40.0)
-        );
+        let library = Some(Vec2::new(12.5, -40.0));
+        assert_eq!(Kept::read(&dir).unwrap().library, library);
+        assert_eq!(app.world().resource::<Kept>().library, library);
     }
 
     #[test]

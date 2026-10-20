@@ -149,6 +149,15 @@ impl Harnesses {
         )
     }
 
+    /// The endpoint `HAMLET_API_KEY` serves: the settings' model's.
+    pub(super) fn serving(&self, store: &Store) -> Result<String> {
+        let settings = crate::settings::Overrides::from_env(
+            self.config.pi.faux.is_some(),
+        )?
+        .apply(crate::settings::stored(store.connection())?)?;
+        Ok(settings.provider().unwrap_or_default().into())
+    }
+
     pub(super) async fn send_cancel(
         &mut self,
         index: usize,

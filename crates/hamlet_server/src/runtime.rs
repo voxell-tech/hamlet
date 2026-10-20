@@ -476,7 +476,9 @@ async fn flush_models(
     for control in std::mem::take(&mut service.models.controls) {
         harnesses.provider_control(control).await;
     }
-    harnesses.credentials(&mut service.credentials).await;
+    harnesses
+        .credentials(service.home.store(), &mut service.credentials)
+        .await?;
     Ok(())
 }
 

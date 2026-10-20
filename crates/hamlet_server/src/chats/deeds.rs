@@ -344,7 +344,7 @@ pub(super) async fn rewind(
         text,
         at,
         ..
-    }) = entry.mark.as_ref().and_then(InputMark::of)
+    }) = InputMark::of_item(entry.mark.as_ref())?
     else {
         return refused(
             "That is not a chief's message in this conversation.",
@@ -359,7 +359,7 @@ pub(super) async fn rewind(
     let kept = &items[..target];
     let mut turns = 0;
     for mark in kept.iter().filter_map(|item| item.mark.as_ref()) {
-        match InputMark::of(mark) {
+        match InputMark::of(mark)? {
             Some(InputMark::Reflection { .. }) => turns = 0,
             Some(mark) if mark.chief_turn() => turns += 1,
             _ => {}

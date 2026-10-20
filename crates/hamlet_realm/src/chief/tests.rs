@@ -370,11 +370,12 @@ fn every_pose_is_finite_and_a_wickstep_ends_as_it_began() {
 #[test]
 fn a_look_is_kept_and_read_back() {
     let home = Scratch::new("chief-kept-look");
+    let kept = || Kept::read(&home).unwrap();
     // Nothing kept: the first look.
-    assert_eq!(Look::read(&home, "wren"), Look::default());
+    assert_eq!(kept().look("wren"), Look::default());
     for look in Look::all().step_by(37) {
         look.write(&home, "wren").unwrap();
-        assert_eq!(Look::read(&home, "wren"), look);
+        assert_eq!(kept().look("wren"), look);
     }
     // Each chief has a file of its own, whatever its name.
     let other = Look {
@@ -382,21 +383,39 @@ fn a_look_is_kept_and_read_back() {
         ..Look::default()
     };
     other.write(&home, "a/b c").unwrap();
-    assert_eq!(Look::read(&home, "a/b c"), other);
-    assert_ne!(Look::read(&home, "wren"), other);
+    assert_eq!(kept().look("a/b c"), other);
+    assert_ne!(kept().look("wren"), other);
     assert!(
         Look::file(&home, "a/b c").starts_with(home.join("chiefs"))
     );
+}
 
-    // A file that names less, or names what is unknown.
-    std::fs::write(Look::file(&home, "wren"), "hat = \"crown\"\n")
-        .unwrap();
-    let read = Look::read(&home, "wren");
-    assert_eq!(read.hat, Hat::Crown);
-    assert_eq!(read.cloak, Cloak::default());
-    std::fs::write(Look::file(&home, "wren"), "hat = \"helmet\"\n")
-        .unwrap();
-    assert_eq!(Look::read(&home, "wren"), Look::default());
+#[test]
+fn a_kept_look_or_place_that_does_not_parse_is_refused_and_left() {
+    let home = Scratch::new("chief-unparsed");
+    let file = Look::file(&home, "wren");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    for (file, text) in [
+        (file.clone(), "hat = \"crown\"\n"),
+        (file.clone(), "hat = \"helmet\"\n"),
+        (file.with_extension("place"), "12.5\n"),
+        (Stood::file(&home), "north 3\n"),
+    ] {
+        std::fs::write(&file, text).unwrap();
+        let error = Kept::read(&home).unwrap_err().to_string();
+        assert!(
+            error.starts_with(&format!(
+                "{} does not parse",
+                file.display()
+            )),
+            "{error}"
+        );
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
+        std::fs::remove_file(&file).unwrap();
+    }
+    // Another file in the folder is left alone.
+    std::fs::write(home.join("chiefs/notes.txt"), "mine").unwrap();
+    assert_eq!(Kept::read(&home).unwrap(), Kept::default());
 }
 
 #[test]
@@ -415,9 +434,12 @@ fn a_place_set_down_elsewhere_stands_there_and_is_remembered() {
     assert_eq!(society.claims[0].at, to);
 
     let home = Scratch::new("chief-kept-place");
-    assert_eq!(Stands::read(&home, "wren"), None);
+    assert_eq!(Kept::read(&home).unwrap().place("wren"), None);
     Stands(to).write(&home, "wren").unwrap();
-    assert_eq!(Stands::read(&home, "wren"), Some(Stands(to)));
+    assert_eq!(
+        Kept::read(&home).unwrap().place("wren"),
+        Some(Stands(to))
+    );
 }
 
 #[test]

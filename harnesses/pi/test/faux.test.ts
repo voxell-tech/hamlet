@@ -11,7 +11,12 @@ import {
 import { afterEach, expect, test } from "vitest";
 import { readScript, type Script, scriptedProvider } from "../src/faux.ts";
 import type { Usage } from "../src/link.ts";
-import { allowedStreams, selectedModel } from "../src/models.ts";
+import {
+    allowedStreams,
+    type Gate,
+    modelProvider,
+    selectedModel,
+} from "../src/models.ts";
 import { providers } from "../src/provider-set.ts";
 
 const folders: string[] = [];
@@ -235,4 +240,37 @@ test("a selection is made as its provider lists the model, at the server's price
         baseUrl: "http://localhost:8080/v1",
         cost: price,
     });
+});
+
+test("a model of a provider pi has no built-in for needs an address", () => {
+    const available = providers();
+    const [called] =
+        available.find((p) => p.id === "openai")?.getModels() ?? [];
+    if (called === undefined) throw new Error("No OpenAI models");
+    const unknown = { provider: "elsewhere", id: "large" };
+    const refusal =
+        "The model elsewhere::large has no address: pi has no provider elsewhere of its own, and the server gave no base URL.";
+    expect(() =>
+        selectedModel(
+            called,
+            {
+                model: unknown,
+                price: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            },
+            available,
+        ),
+    ).toThrow(refusal);
+    const gate: Gate = {
+        attempt: async () => ({ ok: false, words: "unused" }),
+        charge: async () => {},
+        scrub: async (value) => value,
+    };
+    expect(() => modelProvider(unknown, gate, available)).toThrow(refusal);
+    expect(
+        modelProvider(
+            { ...unknown, baseUrl: "http://localhost:8080/v1" },
+            gate,
+            available,
+        ).getModels()[0]?.baseUrl,
+    ).toBe("http://localhost:8080/v1");
 });

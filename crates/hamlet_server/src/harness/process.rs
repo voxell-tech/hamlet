@@ -4,12 +4,11 @@
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::mpsc::UnboundedSender;
 
-use super::link::ModelRef;
 use crate::RuntimeInstance;
 
 /// How the pi harness's runtimes are started.
@@ -28,12 +27,18 @@ impl Pi {
 
     /// The pi harness the environment gives: `HAMLET_NODE` and
     /// `HAMLET_PI_HARNESS`, else Node on the path and the entry
-    /// beside the server or in this checkout.
+    /// beside the server or in the checkout it was built from.
     pub fn from_env(faux: Option<PathBuf>) -> Result<Self> {
         let set =
             |name| std::env::var(name).ok().filter(|v| !v.is_empty());
         let entry = if let Some(path) = set("HAMLET_PI_HARNESS") {
-            PathBuf::from(path)
+            let path = PathBuf::from(path);
+            ensure!(
+                path.is_file(),
+                "HAMLET_PI_HARNESS names {}, which is not a file.",
+                path.display()
+            );
+            path
         } else {
             let executable = std::env::current_exe()?;
             let directory = executable
@@ -42,13 +47,19 @@ impl Pi {
             [
                 directory.join("pi/src/main.ts"),
                 directory.join("../Resources/pi/src/main.ts"),
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../harnesses/pi/src/main.ts"),
             ]
             .into_iter()
             .find(|path| path.is_file())
-            .unwrap_or_else(|| {
-                Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("../../harnesses/pi/src/main.ts")
-            })
+            .with_context(|| {
+                format!(
+                    "No pi harness beside the server in {} or in \
+                     the checkout it was built from. Set \
+                     HAMLET_PI_HARNESS to pi's src/main.ts.",
+                    directory.display()
+                )
+            })?
         };
         Ok(Self {
             node: set("HAMLET_NODE")
@@ -62,15 +73,6 @@ impl Pi {
     /// The store of the runtime whose folder is `folder`.
     pub fn store(folder: &Path) -> PathBuf {
         folder.join("pi.sqlite")
-    }
-
-    /// The model conversations run when the faux script stands in.
-    pub fn faux_model(&self) -> Option<ModelRef> {
-        self.faux.as_ref().map(|_| ModelRef {
-            provider: Self::FAUX_PROVIDER.into(),
-            id: "faux-1".into(),
-            base_url: None,
-        })
     }
 }
 

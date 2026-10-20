@@ -46,6 +46,7 @@ pub use self::looks::{
     ICON, brass, grim, lamp, marked, retrace, well,
 };
 pub use self::me::Me;
+pub use self::remember::Remembered;
 pub use self::roll::Roll;
 pub use self::root::toolbar;
 pub use self::screens::{
@@ -83,8 +84,10 @@ pub(crate) fn with_cx<V: View>(
 }
 
 /// The app's panels, added after the client's plugin, a
-/// [`hamlet_client::ViewDir`], the world's plugin and Bevy's default
-/// plugins set with [`window_plugin`].
+/// [`hamlet_client::ViewDir`] with the [`Remembered`] view and the
+/// chiefs' [`hamlet_realm::chief::Kept`] files read from it, the
+/// world's plugin and Bevy's default plugins set with
+/// [`window_plugin`].
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
@@ -190,7 +193,11 @@ mod tests {
                 }),
             ClientPlugin { server: None },
         ))
-        .insert_resource(ViewDir(view.to_path_buf()));
+        .insert_resource(ViewDir(view.to_path_buf()))
+        .insert_resource(Remembered::read(&view).unwrap())
+        .insert_resource(
+            hamlet_realm::chief::Kept::read(&view).unwrap(),
+        );
         app.add_plugins(UiPlugin);
     }
 }

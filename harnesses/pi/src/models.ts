@@ -366,15 +366,32 @@ function listedModel(
     ref: ModelRef,
     available: readonly Provider[],
 ): Model<Api> {
-    const models =
-        available.find((p) => p.id === ref.provider)?.getModels() ?? [];
-    const [like] = models;
-    return (
-        models.find((m) => m.id === ref.id) ??
-        (like === undefined
-            ? compatibleModel(ref.provider, ref.id, ref.baseUrl ?? "")
-            : { ...like, id: ref.id, name: ref.id })
+    return servedModel(
+        ref,
+        available.find((p) => p.id === ref.provider),
     );
+}
+
+/** `ref` as `provider` lists it, else like its other models, else at the address the server gave. */
+function servedModel(
+    ref: ModelRef,
+    provider: Provider | undefined,
+): Model<Api> {
+    const models = provider?.getModels() ?? [];
+    const [like] = models;
+    if (like !== undefined)
+        return (
+            models.find((m) => m.id === ref.id) ?? {
+                ...like,
+                id: ref.id,
+                name: ref.id,
+            }
+        );
+    if (ref.baseUrl === undefined)
+        throw new Error(
+            `The model ${ref.provider}::${ref.id} has no address: pi has no provider ${ref.provider} of its own, and the server gave no base URL.`,
+        );
+    return compatibleModel(ref.provider, ref.id, ref.baseUrl);
 }
 
 /** A provider whose calls use only the server's per-attempt model and credential. */
@@ -383,12 +400,14 @@ export function modelProvider(
     gate: Gate,
     builtins: readonly Provider[] = providers(),
 ): Provider {
-    const baseUrl = ref.baseUrl ?? "";
     const compatible = openAICompletionsApi();
-    const model = compatibleModel(ref.provider, ref.id, baseUrl);
+    const model = servedModel(
+        ref,
+        builtins.find((p) => p.id === ref.provider),
+    );
     return createProvider({
         id: ref.provider,
-        baseUrl,
+        ...(ref.baseUrl === undefined ? {} : { baseUrl: ref.baseUrl }),
         auth: {
             apiKey: {
                 name: `${ref.provider} key`,
@@ -397,12 +416,7 @@ export function modelProvider(
                 }),
             },
         },
-        models: [
-            builtins
-                .find((p) => p.id === ref.provider)
-                ?.getModels()
-                .find((m) => m.id === ref.id) ?? model,
-        ],
+        models: [model],
         api: allowedStreams(
             {
                 stream: (selected, context, options) => {

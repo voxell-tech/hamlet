@@ -39,6 +39,9 @@ impl Service {
         let root = home.layout().root().to_owned();
         let credentials = Credentials::open(&root)?;
         let overrides = Overrides::from_env(faux)?;
+        overrides.apply(crate::settings::stored(
+            home.store().connection(),
+        )?)?;
         let workspace = overrides
             .workspace
             .as_ref()
@@ -48,21 +51,24 @@ impl Service {
             crate::settings::check_workspace(connection)
                 .map_err(anyhow::Error::msg)?;
         }
-        let chief = home
-            .store()
-            .record("home")?
-            .and_then(|r| r.chiefs.first().cloned())
-            .unwrap_or_else(|| {
-                ["HAMLET_USER", "USER"]
-                    .into_iter()
-                    .find_map(|key| {
-                        std::env::var(key)
-                            .ok()
-                            .filter(|name| !name.is_empty())
-                    })
-                    .unwrap_or_else(|| "user".into())
-            });
-        if home.store().record("home")?.is_none() {
+        let founded = home.store().record("home")?;
+        let chief = match &founded {
+            Some(record) => record.chiefs.first().cloned().context(
+                "The home hamlet's record names no chief.",
+            )?,
+            None => ["HAMLET_USER", "USER"]
+                .into_iter()
+                .find_map(|key| {
+                    std::env::var(key)
+                        .ok()
+                        .filter(|name| !name.is_empty())
+                })
+                .context(
+                    "A new home needs its chief's name: set \
+                     HAMLET_USER or USER.",
+                )?,
+        };
+        if founded.is_none() {
             let result = home.store().run(
                 &OperationId {
                     runtime: RuntimeInstance::new("server")?,
@@ -260,7 +266,7 @@ impl Service {
     pub(crate) fn settings(&mut self) -> Result<Settings> {
         let stored =
             crate::settings::stored(self.home.store().connection())?;
-        Ok(self.overrides.apply(stored))
+        self.overrides.apply(stored)
     }
 
     /// The tools of `agent` working at `place`, reaching the network

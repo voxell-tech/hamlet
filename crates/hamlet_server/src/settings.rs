@@ -114,11 +114,19 @@ impl Overrides {
             },
             None => None,
         };
+        let model = get("HAMLET_MODEL");
+        if let Some(name) = &model
+            && name
+                .split_once("::")
+                .is_none_or(|(p, id)| p.is_empty() || id.is_empty())
+        {
+            bail!("HAMLET_MODEL is `endpoint::id`, not `{name}`");
+        }
         Ok(Self {
             model: if faux {
                 Some("faux::faux-1".into())
             } else {
-                get("HAMLET_MODEL")
+                model
             },
             base_url: get("HAMLET_BASE_URL"),
             reflect_every,
@@ -143,7 +151,9 @@ impl Overrides {
         })
     }
 
-    pub fn apply(&self, mut settings: Settings) -> Settings {
+    /// `settings` with the overrides, refused when `HAMLET_BASE_URL`
+    /// is for an endpoint they do not list.
+    pub fn apply(&self, mut settings: Settings) -> Result<Settings> {
         if let Some(model) = &self.model {
             settings.model.clone_from(model);
         }
@@ -154,15 +164,46 @@ impl Overrides {
             settings.allow_net = net;
         }
         if let Some(url) = &self.base_url {
-            let provider = settings.provider().map(String::from);
-            for endpoint in &mut settings.endpoints {
-                if Some(&endpoint.name) == provider.as_ref() {
-                    endpoint.base_url.clone_from(url);
+            let model = settings.model.clone();
+            let Some(provider) =
+                settings.provider().map(String::from)
+            else {
+                bail!(
+                    "HAMLET_BASE_URL needs a model: set \
+                     HAMLET_MODEL or choose one in Settings."
+                );
+            };
+            let Some(endpoint) = settings
+                .endpoints
+                .iter_mut()
+                .find(|endpoint| endpoint.name == provider)
+            else {
+                if builtins().contains(&provider) {
+                    bail!(
+                        "HAMLET_BASE_URL is for the endpoint of the \
+                         model `{model}`, a provider pi knows the \
+                         address of. Unset HAMLET_BASE_URL."
+                    );
                 }
-            }
+                bail!(
+                    "HAMLET_BASE_URL is for the endpoint of the \
+                     model `{model}`, which the settings do not \
+                     list. Add the endpoint in Settings, or unset \
+                     HAMLET_BASE_URL."
+                );
+            };
+            endpoint.base_url.clone_from(url);
         }
-        settings
+        Ok(settings)
     }
+}
+
+/// The names of pi's own providers.
+fn builtins() -> Vec<String> {
+    serde_json::from_str(include_str!(
+        "../assets/provider-names.json"
+    ))
+    .expect("bundled provider names")
 }
 
 pub(crate) fn validate(
@@ -188,10 +229,7 @@ pub(crate) fn validate(
         return Err(invalid("reflectEvery must be a whole number"));
     }
     let mut names = Vec::new();
-    let builtins = serde_json::from_str::<Vec<String>>(include_str!(
-        "../assets/provider-names.json"
-    ))
-    .expect("bundled provider names");
+    let builtins = builtins();
     for endpoint in set.endpoints.iter().flatten() {
         let name = &endpoint.name;
         if name.is_empty()

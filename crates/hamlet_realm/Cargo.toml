@@ -9,6 +9,7 @@ description = "The 3D world drawn from the client's entities"
 workspace = true
 
 [dependencies]
+anyhow.workspace = true
 base64.workspace = true
 hamlet_protocol.workspace = true
 serde_json.workspace = true

@@ -154,8 +154,7 @@ impl Holds {
     }
 }
 
-/// A chief's look. A choice a file leaves out is the first of its
-/// kind.
+/// A chief's look.
 #[derive(
     Component,
     Clone,
@@ -167,7 +166,6 @@ impl Holds {
     Serialize,
     Deserialize,
 )]
-#[serde(default)]
 pub struct Look {
     pub cloak: Cloak,
     pub light: Light,
@@ -208,26 +206,8 @@ impl Look {
 
     /// The file for the chief's look under the window's folder.
     pub fn file(view: &Path, user: &str) -> PathBuf {
-        let name = user
-            .chars()
-            .map(|c| {
-                if c.is_alphanumeric() || c == '-' || c == '_' {
-                    c
-                } else {
-                    '_'
-                }
-            })
-            .collect::<String>();
-        view.join("chiefs").join(format!("{name}.toml"))
-    }
-
-    /// The kept look of `user`, or the first look where none is
-    /// kept or it cannot be read.
-    pub fn read(view: &Path, user: &str) -> Look {
-        std::fs::read_to_string(Self::file(view, user))
-            .ok()
-            .and_then(|text| toml::from_str::<Look>(&text).ok())
-            .unwrap_or_default()
+        view.join("chiefs")
+            .join(format!("{}.toml", kept_name(user)))
     }
 
     /// Keeps the look of `user`.
@@ -244,4 +224,17 @@ impl Look {
             toml::to_string(&self).map_err(std::io::Error::other)?;
         std::fs::write(file, text)
     }
+}
+
+/// The name `user`'s files are kept under in the window's folder.
+pub(crate) fn kept_name(user: &str) -> String {
+    user.chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }

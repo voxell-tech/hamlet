@@ -4,6 +4,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use anyhow::{Context, Result};
 use hamlet_protocol::v0::{
     Change, Item, ItemKind, ItemTool, LastActivity, Op,
 };
@@ -43,13 +44,13 @@ pub(crate) struct Fold {
 
 impl Fold {
     /// The fold of `items`, kept so far.
-    pub fn of(items: &[link::Item]) -> Self {
+    pub fn of(items: &[link::Item]) -> Result<Self> {
         let mut fold = Self::default();
         for item in items {
-            fold.entry(item);
+            fold.entry(item)?;
         }
         fold.ops.clear();
-        fold
+        Ok(fold)
     }
 
     /// The ops of what was folded since they were last taken.
@@ -89,21 +90,22 @@ impl Fold {
     }
 
     /// Takes in one kept entry of the conversation.
-    pub fn entry(&mut self, entry: &link::Item) {
+    pub fn entry(&mut self, entry: &link::Item) -> Result<()> {
         let lasts = self.lasts;
-        self.entry_items(entry);
+        self.entry_items(entry)?;
         let (working, pending) = (self.working, self.pending);
         self.status(working, pending, lasts);
+        Ok(())
     }
 
-    fn entry_items(&mut self, entry: &link::Item) {
+    fn entry_items(&mut self, entry: &link::Item) -> Result<()> {
         if entry.kind == link::ItemKind::ToolResult {
             let Some(id) = entry
                 .call
                 .as_ref()
                 .and_then(|call| self.calls.get(call))
             else {
-                return;
+                return Ok(());
             };
             let id = id.clone();
             let Ending {
@@ -111,7 +113,7 @@ impl Fold {
                 ms,
                 failure,
                 change,
-            } = ending(entry);
+            } = ending(entry)?;
             if let Some(item) =
                 self.items.iter_mut().find(|i| i.id == id)
                 && let Some(tool) = item.tool.as_mut()
@@ -119,8 +121,8 @@ impl Fold {
                 tool.exit = Some(exit);
                 tool.ms = ms;
                 tool.failure.clone_from(&failure);
-                if let Some(change) = &change {
-                    tool.change.clone_from(change);
+                if change.is_some() {
+                    tool.change.clone_from(&change);
                 }
             }
             self.ops.push(Op::Close {
@@ -128,7 +130,7 @@ impl Fold {
                 exit,
                 ms,
                 failure,
-                change,
+                change: change.map(Some),
             });
             if entry.tool.as_deref() == Some("ask_chief")
                 && let Some(text) = super::asking::said(&entry.text)
@@ -147,10 +149,10 @@ impl Fold {
                     None,
                 );
             }
-            return;
+            return Ok(());
         }
         let answer = entry.kind == link::ItemKind::Assistant;
-        for (block, item) in items_of(entry) {
+        for (block, item) in items_of(entry)? {
             let live = if answer {
                 self.live.remove(&block)
             } else {
@@ -184,7 +186,7 @@ impl Fold {
         if answer {
             self.stale |= !self.live.is_empty();
             self.live.clear();
-            return;
+            return Ok(());
         }
         // The answer being written stays last, as it is read back.
         for id in self.live.values().cloned().collect::<Vec<_>>() {
@@ -195,6 +197,7 @@ impl Fold {
                 self.add(item, Some(id));
             }
         }
+        Ok(())
     }
 
     /// Takes in the answer being written.
@@ -258,7 +261,9 @@ impl Fold {
 }
 
 /// The items `entry` shows, by the content block each comes from.
-pub(crate) fn items_of(entry: &link::Item) -> Vec<(usize, Item)> {
+pub(crate) fn items_of(
+    entry: &link::Item,
+) -> Result<Vec<(usize, Item)>> {
     let id = format!("{}:0", entry.entry);
     let item = |kind, text: String, at| Item {
         at,
@@ -270,53 +275,57 @@ pub(crate) fn items_of(entry: &link::Item) -> Vec<(usize, Item)> {
         text,
         tool: None,
     };
-    let mark = entry.mark.as_ref().and_then(InputMark::of);
-    let at = mark
-        .as_ref()
-        .and_then(|mark| u64::try_from(mark.at()).ok())
-        .unwrap_or(entry.at);
+    let mark = InputMark::of_item(entry.mark.as_ref())?;
+    let at = match &mark {
+        Some(mark) => {
+            u64::try_from(mark.at()).with_context(|| {
+                format!("a mark's time {} is before 1970", mark.at())
+            })?
+        }
+        None => entry.at,
+    };
     match mark {
         Some(InputMark::Chief { chief, text, .. }) => {
-            return vec![(
+            return Ok(vec![(
                 0,
                 Item {
                     chief: Some(chief),
                     rewindable: Some(true),
                     ..item(ItemKind::User, text, at)
                 },
-            )];
+            )]);
         }
         Some(InputMark::Notice { text, .. }) => {
-            return vec![(0, item(ItemKind::Notice, text, at))];
+            return Ok(vec![(0, item(ItemKind::Notice, text, at))]);
         }
         Some(InputMark::Reflection { .. }) => {
-            return vec![(
+            return Ok(vec![(
                 0,
                 item(ItemKind::Notice, "reflection".into(), at),
-            )];
+            )]);
         }
         Some(InputMark::Retry { .. }) => {
-            return vec![(
+            return Ok(vec![(
                 0,
                 item(ItemKind::Notice, entry.text.clone(), at),
-            )];
+            )]);
         }
         Some(
             InputMark::Letter(mail)
             | InputMark::Question(mail)
             | InputMark::Reply(mail),
         ) if entry.kind == link::ItemKind::User => {
-            return vec![(
+            return Ok(vec![(
                 0,
                 Item {
                     author: mail.author,
                     ..item(ItemKind::User, entry.text.clone(), at)
                 },
-            )];
+            )]);
         }
         _ => {}
     }
-    match entry.kind {
+    Ok(match entry.kind {
         link::ItemKind::Summary => vec![(
             0,
             item(ItemKind::Notice, SUMMARY_NOTICE.into(), entry.at),
@@ -335,7 +344,7 @@ pub(crate) fn items_of(entry: &link::Item) -> Vec<(usize, Item)> {
             |block| format!("{}:{block}", entry.entry),
         ),
         _ => Vec::new(),
-    }
+    })
 }
 
 /// The items of an answer's content blocks, and the error it ended
@@ -422,13 +431,12 @@ struct Ending {
     exit: i64,
     ms: Option<u64>,
     failure: Option<String>,
-    /// The record change the call made; `Some(None)` when its result
-    /// names one that cannot be read.
-    change: Option<Option<Change>>,
+    /// The record change the call made.
+    change: Option<Change>,
 }
 
 /// The end of a tool call, from its result.
-fn ending(entry: &link::Item) -> Ending {
+fn ending(entry: &link::Item) -> Result<Ending> {
     let error = entry.error == Some(true);
     let details = entry.details.as_ref();
     let code = details
@@ -438,14 +446,16 @@ fn ending(entry: &link::Item) -> Ending {
     let change = details
         .and_then(|details| details.get("change"))
         .map(|change| {
-            serde_json::from_value::<Change>(change.clone()).ok()
-        });
-    Ending {
+            serde_json::from_value::<Change>(change.clone())
+        })
+        .transpose()
+        .context("reading the change of a tool's result")?;
+    Ok(Ending {
         exit: code.map_or(i64::from(error), |code| code as i64),
         ms: entry.ms,
         failure,
         change,
-    }
+    })
 }
 
 /// The first line of a failed call's text that says something.
@@ -474,5 +484,18 @@ mod tests {
             "broken"
         );
         assert_eq!(failure_of("\n\n"), "");
+    }
+
+    #[test]
+    fn a_result_naming_a_change_that_does_not_read_is_an_error() {
+        let result = serde_json::from_value::<link::Item>(serde_json::json!({
+            "at": 1, "entry": "2", "kind": "tool_result", "text": "",
+            "details": {"change": {"not": "a change"}},
+        }))
+        .unwrap();
+        assert_eq!(
+            ending(&result).err().unwrap().to_string(),
+            "reading the change of a tool's result"
+        );
     }
 }

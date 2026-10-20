@@ -3,6 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
+use anyhow::{Context, Result};
 use bevy::app::{App, Update};
 use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::entity::Entity;
@@ -68,10 +69,8 @@ enum Part {
         tabs: Vec<String>,
         /// The place of the tab in front.
         front: usize,
-        #[serde(default)]
         headless: bool,
         /// It stays when its last tab is closed.
-        #[serde(default)]
         kept: bool,
     },
     Split {
@@ -88,24 +87,42 @@ enum Part {
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct View {
     sky: TimeOfDay,
-    // On where the file says nothing of them.
-    #[serde(default = "on")]
     sound_on: bool,
-    #[serde(default = "on")]
     music_on: bool,
-    #[serde(default = "full")]
     sound_level: f32,
-    #[serde(default = "full")]
     music_level: f32,
-    #[serde(default = "on")]
     keep_awake: bool,
-    #[serde(default)]
     quality: Quality,
-    #[serde(default)]
     dock: Vec<Part>,
     /// The selection when the window closed.
-    #[serde(default)]
     selected: Option<Chosen>,
+}
+
+/// The view kept in the window's folder, as read at launch; none
+/// before the first launch.
+#[derive(Resource, Clone, Debug, Default)]
+pub struct Remembered(Option<View>);
+
+impl Remembered {
+    /// The view `view` keeps; an error naming the file when it does
+    /// not parse.
+    pub fn read(view: &Path) -> Result<Self> {
+        let file = file(view);
+        let text = match std::fs::read_to_string(&file) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Self(None));
+            }
+            Err(e) => {
+                return Err(e).with_context(|| {
+                    format!("reading {}", file.display())
+                });
+            }
+        };
+        toml::from_str::<View>(&text)
+            .map(|view| Self(Some(view)))
+            .map_err(|e| chief::unparsed(&file, e.message()))
+    }
 }
 
 /// Something that was selected, by a name that lasts from one
@@ -243,14 +260,6 @@ pub(crate) fn reselect(world: &mut World) {
             }
         }
     }
-}
-
-fn on() -> bool {
-    true
-}
-
-fn full() -> f32 {
-    1.0
 }
 
 fn file(view: &Path) -> PathBuf {
@@ -407,16 +416,10 @@ fn rebuilt(
     Some(tree)
 }
 
-fn read(view: &Path) -> Option<View> {
-    let text = std::fs::read_to_string(file(view)).ok()?;
-    toml::from_str::<View>(&text).ok()
-}
-
 /// Puts back the kept View choices and the kept dock. False when
 /// there is no dock to put back.
 pub fn restore(world: &mut World) -> bool {
-    let folder = &world.resource::<ViewDir>().0;
-    let Some(view) = read(folder) else {
+    let Some(view) = world.resource::<Remembered>().0.clone() else {
         return false;
     };
     *world.resource_mut::<TimeOfDay>() = view.sky;
@@ -586,6 +589,9 @@ mod tests {
         assert!(!dir.join("view.toml").exists());
 
         let mut relaunched = make();
+        relaunched.insert_resource(
+            Remembered::read(&dir.join("view")).unwrap(),
+        );
         assert!(restore(relaunched.world_mut()));
         assert_eq!(
             *relaunched.world().resource::<TimeOfDay>(),
@@ -675,12 +681,6 @@ mod tests {
         let text = toml::to_string(&view).unwrap();
         let read = toml::from_str::<View>(&text).unwrap();
         assert_eq!(read, view);
-        // A view that says nothing of sound or music has both.
-        let before = text
-            .replace("sound_on = false\n", "")
-            .replace("music_on = false\n", "");
-        let before = toml::from_str::<View>(&before).unwrap();
-        assert!(before.sound_on && before.music_on);
 
         let tree = rebuilt(&read.dock, &|_| true).unwrap();
         assert_eq!(noted(&tree), view.dock);
@@ -689,6 +689,28 @@ mod tests {
         let leaf = tree.leaf(side).unwrap();
         assert_eq!(leaf.tabs().count(), 2);
         assert_eq!(leaf.tab_index(front), Some(0));
+    }
+
+    #[test]
+    fn a_view_that_does_not_parse_is_refused_and_left() {
+        use hamlet_testing::Scratch;
+
+        let dir = Scratch::new("view-unparsed");
+        assert!(Remembered::read(&dir).unwrap().0.is_none());
+        let text = "sky = \"night\"\n";
+        std::fs::write(file(&dir), text).unwrap();
+        let error = Remembered::read(&dir).unwrap_err().to_string();
+        assert!(
+            error.starts_with(&format!(
+                "{} does not parse",
+                file(&dir).display()
+            )),
+            "{error}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(file(&dir)).unwrap(),
+            text
+        );
     }
 
     #[test]

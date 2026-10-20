@@ -1059,12 +1059,10 @@ pub(crate) fn views(
         let mut count = 0;
         let mut last = None::<i64>;
         for item in crate::harness::items(db, BindingId(binding))? {
-            if let Some(message) = item
-                .mark
-                .as_ref()
-                .and_then(InputMark::of)
-                .as_ref()
-                .and_then(InputMark::message)
+            if let Some(message) =
+                InputMark::of_item(item.mark.as_ref())?
+                    .as_ref()
+                    .and_then(InputMark::message)
             {
                 count += 1;
                 last = last.max(Some(message.at));
@@ -1207,8 +1205,7 @@ pub(crate) fn authored(
     items: &mut [Item],
 ) -> Result<()> {
     for item in items {
-        let Some(mut mark) =
-            item.mark.as_ref().and_then(InputMark::of)
+        let Some(mut mark) = InputMark::of_item(item.mark.as_ref())?
         else {
             continue;
         };

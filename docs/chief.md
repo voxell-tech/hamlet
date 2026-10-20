@@ -62,7 +62,8 @@ hand. The first of each is what a chief has until they choose. They are
 changed in the Inspector, and a press changes the mascot and the house in
 that frame.
 
-The look is kept in `chiefs/<name>.toml` in the home, one file per chief:
+The look is kept in `chiefs/<name>.toml` in the window's folder, one file
+per chief, and names all four:
 
 ```toml
 cloak = "river"

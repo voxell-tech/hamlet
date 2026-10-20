@@ -590,12 +590,8 @@ fn a_hello_lacking_the_link_version_or_a_needed_capability_is_refused()
     assert!(words(&recorded).contains("records no runtime"));
 }
 
-/// Harnesses that start no runtime, with `model` as if
-/// `HAMLET_MODEL` named it.
-fn idle(
-    home: &crate::Home,
-    model: Option<ModelRef>,
-) -> super::Harnesses {
+/// Harnesses that start no runtime.
+fn idle(home: &crate::Home) -> super::Harnesses {
     use super::{Config, Harnesses, Pi};
 
     let (sender, receiver) = super::mpsc::unbounded_channel();
@@ -606,7 +602,6 @@ fn idle(
                 entry: "unused".into(),
                 faux: None,
             },
-            model,
             tools: vec![],
         },
         hand_tools: vec![],
@@ -623,8 +618,7 @@ fn idle(
 }
 
 #[tokio::test]
-async fn a_new_conversation_runs_the_agents_model_with_no_model_in_the_environment()
- {
+async fn a_new_conversation_runs_the_model_chosen_for_its_agent() {
     let scratch = Scratch::new("bind-model");
     let home = crate::Home::open(&scratch.join("layout")).unwrap();
     let (mut store, binding) = bound(&scratch, 1);
@@ -633,7 +627,7 @@ async fn a_new_conversation_runs_the_agents_model_with_no_model_in_the_environme
         ..Default::default()
     };
     crate::settings::keep(store.connection(), &settings).unwrap();
-    let mut harnesses = idle(&home, None);
+    let mut harnesses = idle(&home);
     let ready = harnesses.add(binding.runtime.clone());
     harnesses.runtimes[ready].phase = super::Phase::Ready;
     let (made, _) = harnesses
@@ -664,7 +658,7 @@ async fn a_bad_created_reply_stops_only_its_runtime_and_refuses_new_bindings()
             &binding.runtime,
         )
         .unwrap();
-    let mut harnesses = idle(&home, Some(binding.model.clone()));
+    let mut harnesses = idle(&home);
     let bad = harnesses.add(binding.runtime.clone());
     let good =
         harnesses.add(RuntimeInstance::new("unaffected").unwrap());

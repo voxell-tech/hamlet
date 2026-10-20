@@ -539,15 +539,13 @@ impl Store {
             .optional()?)
     }
 
-    /// The mark of the input `request` of `binding`; `None` too for a
-    /// mark of a kind the server does not make.
+    /// The mark of the input `request` of `binding`.
     pub(crate) fn mark_of(
         &self,
         binding: BindingId,
         request: &str,
     ) -> Result<Option<InputMark>> {
-        Ok(self
-            .connection()
+        self.connection()
             .query_row(
                 "SELECT mark FROM harness_input WHERE binding = ?1 \
                  AND request = ?2",
@@ -556,7 +554,11 @@ impl Store {
             )
             .optional()?
             .flatten()
-            .and_then(|mark| serde_json::from_str(&mark).ok()))
+            .map(|mark| {
+                serde_json::from_str(&mark)
+                    .context("reading an input's kept mark")
+            })
+            .transpose()
     }
 
     /// The mark of the input the runtime admitted as `submission`.
@@ -593,16 +595,16 @@ impl Store {
                 row.get::<_, Option<String>>(0)
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(marks
-            .into_iter()
-            .flatten()
-            .filter(|mark| {
-                matches!(
-                    serde_json::from_str(mark),
-                    Ok(InputMark::Chief { .. })
-                )
-            })
-            .count())
+        let mut lines = 0;
+        for mark in marks.into_iter().flatten() {
+            if let InputMark::Chief { .. } =
+                serde_json::from_str(&mark)
+                    .context("reading an input's kept mark")?
+            {
+                lines += 1;
+            }
+        }
+        Ok(lines)
     }
 
     /// Whether the input `request` of `binding` placed an entry.

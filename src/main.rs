@@ -11,7 +11,8 @@ use hamlet_client::{ClientPlugin, Connection, Tokio, ViewDir};
 use hamlet_desktop::DesktopPlugin;
 use hamlet_protocol::discovery::{self, Chosen};
 use hamlet_realm::RealmPlugin;
-use hamlet_ui::{UiPlugin, window_plugin};
+use hamlet_realm::chief::Kept;
+use hamlet_ui::{Remembered, UiPlugin, window_plugin};
 
 const USAGE: &str = "\
 usage: hamlet-app [-h]
@@ -71,11 +72,16 @@ fn main() -> Result<()> {
 
     let view =
         view_dir(std::env::consts::OS, |key| std::env::var_os(key))?;
+    let window = window_plugin(&view)?;
+    let remembered = Remembered::read(&view)?;
+    let kept = Kept::read(&view)?;
     let rt = tokio::runtime::Runtime::new()?;
     let mut app = App::new();
     app.insert_resource(Tokio(rt.handle().clone()))
-        .insert_resource(ViewDir(view.clone()))
-        .add_plugins(DefaultPlugins.set(window_plugin(&view)));
+        .insert_resource(ViewDir(view))
+        .insert_resource(remembered)
+        .insert_resource(kept)
+        .add_plugins(DefaultPlugins.set(window));
     client(&mut app, |key| std::env::var(key).ok());
     let exit = app
         .add_plugins((

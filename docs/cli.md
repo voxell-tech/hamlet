@@ -16,7 +16,8 @@ installing only `hamlet_cli` does not install the server or window.
 The CLI selects `HAMLET_SERVER_BIN`, then a sibling `hamlet-server`, then
 PATH. The server selects `HAMLET_PI_HARNESS` (the path to `src/main.ts`),
 then sibling `pi/src/main.ts`, then the macOS app's
-`Contents/Resources/pi/src/main.ts`, then the harness in its build checkout.
+`Contents/Resources/pi/src/main.ts`, then the harness in its build checkout,
+and refuses to start when the entry it selects does not exist.
 `HAMLET_NODE` selects Node. Node is installed separately; the release
 archive includes the pi package and its production dependencies.
 
@@ -45,9 +46,10 @@ CLI entry, so opening it also starts or reuses the server. Running
 port. Bare `hamlet` starts a server on a free port. Local clients find its
 URL through `server.json` and its token through `credentials.json`;
 elsewhere they use `HAMLET_SERVER` and `HAMLET_TOKEN`, through an SSH
-tunnel. The server runs for one chief, named by `HAMLET_USER`, else
-`USER`, else `user`. Closing a client stops no work; end of input waits for
-that client's submissions and triggers no reflection.
+tunnel. The server runs for one chief, the one its home was founded for.
+A new home takes its chief's name from `HAMLET_USER`, else `USER`, and is
+refused when neither is set. Closing a client stops no work; end of input
+waits for that client's submissions and triggers no reflection.
 
 ## Typed commands
 
@@ -81,7 +83,9 @@ The window has no home claim and runs no agent. It finds a local server
 through the home's `server.json` and connection token, or uses
 `HAMLET_SERVER` and `HAMLET_TOKEN`. Its own size, layout, chief's look and
 places live on its machine under `HAMLET_VIEW`, else the OS's config folder
-for Hamlet. Local links and pictures resolve there too: existing absolute
+for Hamlet. It reads them once at launch: a missing file is the default,
+and one that does not parse stops it with an error naming the file, which
+it leaves as it is. Local links and pictures resolve there too: existing absolute
 paths or paths under the received work folder, never the server's houses.
 Charter and character edits use local temporary files, with each save sent
 through `edit`. Closing polls the editor once more and waits for save

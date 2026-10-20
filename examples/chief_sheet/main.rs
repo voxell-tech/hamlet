@@ -22,8 +22,8 @@ use hamlet_client::realm::{
 };
 use hamlet_realm::chief::mascot::Doing;
 use hamlet_realm::chief::{
-    self, Beside, ChiefSettings, Cloak, Hat, Holds, Light, Look,
-    Mascot, Phase, Place, Settled,
+    self, Beside, ChiefSettings, Cloak, Hat, Holds, Kept, Light,
+    Look, Mascot, Phase, Place, Settled,
 };
 use hamlet_realm::generator::{Loading, Robot};
 use hamlet_realm::hamlet::Housed;
@@ -257,6 +257,7 @@ fn main() {
     let view = hamlet_testing::Scratch::new("chief-sheet-view");
     let mut app = App::new();
     app.insert_resource(ViewDir(view.to_path_buf()))
+        .insert_resource(Kept::read(&view).expect("the kept chiefs"))
         .add_plugins((offscreen::plugins(SIZE), RealmPlugin));
     Target::insert(&mut app, SIZE, 1.0);
     app.insert_resource(Sheet {

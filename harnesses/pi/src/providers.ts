@@ -57,7 +57,7 @@ export async function providerWork(
                 ? faux
                 : request.baseUrl === undefined
                   ? builtins.find((p) => p.id === request.provider)
-                  : compatible(request);
+                  : compatible(request, request.baseUrl);
         if (provider === undefined)
             throw new Error(`Unknown provider: ${request.provider}`);
         const models = createModels({
@@ -145,8 +145,7 @@ export async function providerWork(
 }
 
 /** The OpenAI-compatible endpoint adapter, including its list and key sign-in. */
-function compatible(request: ProviderRequest): Provider {
-    const baseUrl = request.baseUrl ?? "";
+function compatible(request: ProviderRequest, baseUrl: string): Provider {
     const host = new URL(baseUrl).hostname;
     const rate =
         host === "localhost" ||

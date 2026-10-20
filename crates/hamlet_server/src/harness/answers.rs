@@ -198,13 +198,9 @@ impl Harnesses {
         }
         let provider = &selection.model.provider;
         self.credentials.grant(index, &attempt.key, provider);
-        let serving = self
-            .config
-            .model
-            .as_ref()
-            .map_or("", |m| m.provider.as_str());
+        let serving = self.serving(store)?;
         let credential = (provider != Pi::FAUX_PROVIDER)
-            .then(|| credentials.model(provider, serving))
+            .then(|| credentials.model(provider, &serving))
             .flatten()
             .and_then(|credential| pack(credential).ok());
         self.send(index, |v, id| {
