@@ -39,27 +39,6 @@ pub(crate) enum Call {
     },
 }
 
-/// The society tools the server answers itself.
-pub(crate) const SOCIETY: &[&str] = &[
-    "create_agent",
-    "build_road",
-    "set_model",
-    "remove_agent",
-    "merge_agents",
-    "agree_road",
-    "agree_move",
-    "ask_removal",
-    "tell_agent",
-    "ask_agent",
-    "call_vote",
-    "submit_skill",
-    "ask_librarian",
-    "request_road",
-    "object",
-    "ask_chief",
-    "cast_ballot",
-];
-
 /// The call of `tool` with `args`. A write's old text is read apart.
 pub(crate) fn call_of(tool: &str, args: &Value) -> Call {
     let text = |key: &str| {
@@ -107,10 +86,12 @@ pub(crate) fn call_of(tool: &str, args: &Value) -> Call {
             }
         }
         "read" | "search" | "find" => Call::Read,
-        _ if SOCIETY.contains(&tool) => Call::Society {
-            name: tool.into(),
-            args: args.clone(),
-        },
+        _ if crate::society::SocietyTool::named(tool).is_some() => {
+            Call::Society {
+                name: tool.into(),
+                args: args.clone(),
+            }
+        }
         _ => Call::Other {
             name: tool.into(),
             args: args.clone(),

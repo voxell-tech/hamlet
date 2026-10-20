@@ -416,7 +416,7 @@ pub(super) async fn operation(
         }
     };
     sweep(service, harnesses).await?;
-    if service.house_work.founding.contains(&(hamlet.clone(), id)) {
+    if service.house_work.founding(hamlet, id) {
         return Ok(None);
     }
     let v = read(service.home.store().connection(), hamlet)?
@@ -631,11 +631,7 @@ async fn sweep_hamlet(
         service.home.store().record(hamlet)?.expect("vote's record");
     for index in 0..votes.len() {
         let mut v = votes[index].clone();
-        if service
-            .house_work
-            .founding
-            .contains(&(hamlet.into(), v.id))
-        {
+        if service.house_work.founding(hamlet, v.id) {
             continue;
         }
         if !v.announced {
@@ -903,20 +899,7 @@ async fn decide(
         if let Some(remote) =
             service.houses.remote(&destination, 0, false)?
         {
-            let hamlet = hamlet.to_owned();
-            service
-                .house_work
-                .founding
-                .insert((hamlet.clone(), vote));
-            service.house_work.tasks.spawn(async move {
-                let result =
-                    remote.initialize().await.map_err(Into::into);
-                super::work::Completed::Founded {
-                    hamlet,
-                    vote,
-                    result,
-                }
-            });
+            service.house_work.found(hamlet.into(), vote, remote);
             return Ok(true);
         }
         service.houses.initialize(&destination, 0).await?;

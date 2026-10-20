@@ -50,7 +50,7 @@ pub(crate) fn load(root: &Path) -> (Vec<Manifest>, Vec<String>) {
         .chain(crate::harness::tools::specs())
         .map(|tool| tool.name)
         .chain(["powershell".into()])
-        .chain(crate::gate::SOCIETY.iter().map(|name| (*name).into()))
+        .chain(crate::society::SocietyTool::names().map(String::from))
         .collect::<BTreeSet<_>>();
     let mut names = BTreeSet::new();
     for entry in entries {

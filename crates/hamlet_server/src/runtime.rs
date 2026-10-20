@@ -378,7 +378,7 @@ pub async fn serve(options: Options) -> Result<()> {
                     deliver(&mut service, &mut clients)?;
                     refresh(&mut service, &mut state, &mut clients)?;
                 }
-                Some(work) = service.house_work.tasks.join_next() => {
+                Some(work) = service.house_work.next() => {
                     if let Ok(work) = work { crate::society::work::complete(&mut service, &mut harnesses, work).await?; }
                     deliver(&mut service, &mut clients)?;
                     refresh(&mut service, &mut state, &mut clients)?;
@@ -623,7 +623,7 @@ async fn run_once(
             if let Ok(prepared) = prepared { chats::prepared(service, harnesses, prepared).await?; }
             deliver(service, clients)?;
         }
-        Some(work) = service.house_work.tasks.join_next() => {
+        Some(work) = service.house_work.next() => {
             if let Ok(work) = work { crate::society::work::complete(service, harnesses, work).await?; }
             deliver(service, clients)?;
         }

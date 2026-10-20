@@ -22,14 +22,18 @@ enum Origin {
 }
 
 impl Origin {
-    fn key(&self) -> (String, String) {
+    /// The call that waits for the lane, when a call asked.
+    fn call(&self) -> Option<&OperationId> {
         match self {
-            Self::Call(id) => {
-                (id.runtime.as_str().into(), id.key.clone())
-            }
-            Self::Chief { owner, id } => {
-                (format!("client:{owner}"), id.clone())
-            }
+            Self::Call(id) => Some(id),
+            Self::Chief { .. } => None,
+        }
+    }
+
+    /// Lets the call that asked, if one did, stop waiting.
+    fn release(&self, service: &mut Service) {
+        if let Some(id) = self.call() {
+            service.house_work.release(id);
         }
     }
 }
@@ -65,8 +69,7 @@ pub(crate) struct Merges {
     queue: VecDeque<Request>,
     active: Option<Active>,
     clients: HashSet<(u64, String)>,
-    ready:
-        HashMap<(String, String), std::result::Result<Plan, String>>,
+    ready: HashMap<OperationId, std::result::Result<Plan, String>>,
 }
 
 pub(crate) struct Completed {
@@ -102,15 +105,13 @@ impl Merges {
         &mut self,
         id: &OperationId,
     ) -> Option<std::result::Result<Plan, String>> {
-        self.ready
-            .remove(&(id.runtime.as_str().into(), id.key.clone()))
+        self.ready.remove(id)
     }
 
     pub(super) fn owns(&self, id: &OperationId) -> bool {
-        self.active.as_ref().is_some_and(|active| {
-            active.origin.key()
-                == (id.runtime.as_str().into(), id.key.clone())
-        })
+        self.active
+            .as_ref()
+            .is_some_and(|active| active.origin.call() == Some(id))
     }
 
     fn release(&mut self) {
@@ -124,7 +125,7 @@ pub(super) fn offer(
     args: &Value,
 ) -> Result<()> {
     let origin = Origin::Call(caller.id.clone());
-    if service.house_work.pending.insert(origin.key()) {
+    if service.house_work.hold(caller.id.clone()) {
         let actor = society::actor(
             service.home.store().connection(),
             &caller.place.agent,
@@ -195,19 +196,14 @@ pub(crate) async fn advance(
     if let Some(active) = &service.merges.active {
         if let Origin::Call(id) = &active.origin
             && !active.applying
-            && !service
-                .house_work
-                .pending
-                .contains(&active.origin.key())
+            && !service.house_work.pending(id)
             && !society::library::active(
                 service.home.store().connection(),
                 id.runtime.as_str(),
                 &id.key,
             )?
         {
-            if let Some(Ok(plan)) =
-                service.merges.ready.remove(&active.origin.key())
-            {
+            if let Some(Ok(plan)) = service.merges.ready.remove(id) {
                 discard(service, &plan)?;
             }
             service.merges.release();
@@ -229,7 +225,7 @@ pub(crate) async fn advance(
         }
     };
     if !allowed {
-        service.house_work.pending.remove(&request.origin.key());
+        request.origin.release(service);
         return Ok(());
     }
     service.merges.active = Some(Active {
@@ -424,10 +420,7 @@ fn discard(service: &Service, plan: &Plan) -> Result<()> {
 }
 
 pub(super) fn release(service: &mut Service, id: &OperationId) {
-    service
-        .house_work
-        .pending
-        .remove(&(id.runtime.as_str().into(), id.key.clone()));
+    service.house_work.release(id);
     service.merges.release();
 }
 
@@ -484,8 +477,8 @@ fn start_apply(
         .remote(hamlet, number, true)?
         .expect("remote merge");
     let work = Applying::new(service, hamlet, entry, plan.snapshot)?;
-    if let Origin::Call(_) = &origin {
-        service.house_work.pending.insert(origin.key());
+    if let Some(id) = origin.call() {
+        service.house_work.hold(id.clone());
     }
     society::keep(
         service.home.store().connection(),
@@ -534,19 +527,13 @@ pub(crate) async fn complete(
     match completed.result {
         Finished::Prepared(result) => match &completed.origin {
             Origin::Call(id) => {
-                service
-                    .house_work
-                    .pending
-                    .remove(&completed.origin.key());
+                service.house_work.release(id);
                 if society::library::active(
                     service.home.store().connection(),
                     id.runtime.as_str(),
                     &id.key,
                 )? {
-                    service
-                        .merges
-                        .ready
-                        .insert(completed.origin.key(), result);
+                    service.merges.ready.insert(id.clone(), result);
                     harnesses.wake(&id.runtime, &id.key).await;
                 } else {
                     if let Ok(plan) = result {
@@ -675,7 +662,7 @@ async fn respond(
     origin: Origin,
     answer: Deed,
 ) -> Result<()> {
-    service.house_work.pending.remove(&origin.key());
+    origin.release(service);
     service.merges.release();
     match origin {
         Origin::Call(id) => {

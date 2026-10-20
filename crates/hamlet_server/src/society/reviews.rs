@@ -39,31 +39,6 @@ struct Review {
     wait: Option<String>,
 }
 
-fn task_of(
-    service: &mut Service,
-    binding: BindingId,
-    input: Option<&str>,
-) -> Result<Option<String>> {
-    let Some(request) = input
-        .map(|input| service.home.store().request_of(binding, input))
-        .transpose()?
-        .flatten()
-    else {
-        return Ok(None);
-    };
-    Ok(records::mark_of(
-        service.home.store().connection(),
-        binding,
-        &request,
-    )?
-    .and_then(|mark| {
-        mark.data
-            .get("task")
-            .and_then(Value::as_str)
-            .map(String::from)
-    }))
-}
-
 fn active(db: &Connection, task: &str) -> Result<Vec<BindingId>> {
     Ok(db
         .prepare(
@@ -82,7 +57,9 @@ pub(crate) fn held(
     binding: BindingId,
     input: Option<&str>,
 ) -> Result<bool> {
-    let Some(task) = task_of(service, binding, input)? else {
+    let Some(task) =
+        super::marked_task(service.home.store(), binding, input)?
+    else {
         return Ok(false);
     };
     let db = service.home.store().connection();
