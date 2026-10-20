@@ -7,11 +7,13 @@ use std::path::{Path, PathBuf};
 
 use bevy::app::{App, Startup};
 use bevy::ecs::component::Component;
+use bevy::ecs::entity::Entity;
 use bevy::ecs::message::MessageWriter;
 use bevy::ecs::system::{Commands, Res};
 use hamlet_engine_api::Manifest;
 use hamlet_engine_core::{Home, LogLine};
-use hamlet_engine_plugins::{Enable, PluginInfo};
+use hamlet_engine_grants::never_granted;
+use hamlet_engine_plugins::PluginInfo;
 
 use crate::host::WasmTuning;
 
@@ -32,8 +34,9 @@ pub struct Package {
     pub folder: PathBuf,
 }
 
-/// Adds a plugin for each folder in the plugins folder and switches
-/// it on. A folder that is not a plugin is told in the log.
+/// Adds a plugin for each folder in the plugins folder; the grants
+/// decide whether it is switched on. A folder that is not a plugin is
+/// told in the log.
 fn scan(
     home: Res<Home>,
     tuning: Res<WasmTuning>,
@@ -51,18 +54,7 @@ fn scan(
     for folder in folders {
         match read_manifest(&folder, tuning.manifest_bytes) {
             Ok(manifest) => {
-                let plugin = commands
-                    .spawn((
-                        PluginInfo {
-                            id: manifest.id,
-                            name: manifest.name,
-                            version: manifest.version,
-                            builtin: false,
-                        },
-                        Package { folder },
-                    ))
-                    .id();
-                commands.trigger(Enable { entity: plugin });
+                spawn_plugin(&mut commands, manifest, folder);
             }
             Err(why) => {
                 log.write(LogLine::error(
@@ -72,6 +64,26 @@ fn scan(
             }
         }
     }
+}
+
+/// Adds the plugin installed in `folder`, off.
+pub(crate) fn spawn_plugin(
+    commands: &mut Commands,
+    manifest: Manifest,
+    folder: PathBuf,
+) -> Entity {
+    commands
+        .spawn((
+            PluginInfo {
+                id: manifest.id,
+                name: manifest.name,
+                version: manifest.version,
+                builtin: false,
+                asks: manifest.asks,
+            },
+            Package { folder },
+        ))
+        .id()
 }
 
 /// Whether `path` is a folder a plugin may be in: a folder, not a
@@ -93,7 +105,24 @@ pub fn read_manifest(
     let bytes = read_capped(&folder.join(MANIFEST), most)?;
     let text = String::from_utf8(bytes)
         .map_err(|_| format!("{MANIFEST} is not text"))?;
-    let manifest = toml::from_str::<Manifest>(&text)
+    let table = toml::from_str::<toml::Table>(&text)
+        .map_err(|e| format!("{MANIFEST}: {}", e.message()))?;
+    let asked = table
+        .get("asks")
+        .and_then(toml::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|ask| ask.get("capability")?.as_str());
+    for name in asked {
+        if let Some(power) = never_granted(name) {
+            return Err(format!(
+                "{MANIFEST} asks for {name}, and {power} is never \
+                 granted"
+            ));
+        }
+    }
+    let manifest = table
+        .try_into::<Manifest>()
         .map_err(|e| format!("{MANIFEST}: {}", e.message()))?;
     manifest
         .check()

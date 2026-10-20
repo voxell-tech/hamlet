@@ -10,10 +10,13 @@ use bevy::app::{App, TaskPoolPlugin};
 use bevy::ecs::entity::Entity;
 use bevy::time::TimePlugin;
 use hamlet_engine_api::{
-    API_VERSION, Action, CommandId, Widget, WidgetId,
+    API_VERSION, Action, CommandId, PluginId, Widget, WidgetId,
 };
 use hamlet_engine_core::tuning::Tuning;
 use hamlet_engine_core::{Budgets, Home};
+use hamlet_engine_grants::{
+    Grants, Petition, Record, answer_install,
+};
 use hamlet_engine_plugins::Stopped;
 use hamlet_engine_shell::command;
 use wit_component::{ComponentEncoder, StringEncoding};
@@ -198,6 +201,16 @@ fn a_plugin_over_its_budgets_waits_then_is_stopped() {
         strikes: 1,
         ..Budgets::designed()
     });
+    let record = Record {
+        allowed: true,
+        version: "0.1.0".into(),
+        answers: Vec::new(),
+    };
+    let id = PluginId::try_from("test.over").unwrap();
+    app.world_mut()
+        .resource_mut::<Grants>()
+        .set(&id, record)
+        .unwrap();
     let stopped = (0..500).find_map(|_| {
         app.update();
         std::thread::sleep(Duration::from_millis(10));
@@ -237,14 +250,16 @@ fn engine(root: &Path) -> App {
         TimePlugin,
         hamlet_engine_core::plugin,
         hamlet_engine_plugins::plugin,
+        hamlet_engine_grants::plugin,
         crate::plugin,
     ));
     app
 }
 
 /// Builds `engine/samples/hello`, installs it in a home of its own,
-/// and runs the engine without a window: its panel is drawn, and a
-/// press of its button counts.
+/// and runs the engine without a window: the person is asked about
+/// it, and once they allow it its panel is drawn, a press of its
+/// button counts, and its command sets the count back.
 #[test]
 #[ignore = "builds the sample, with the wasm32-wasip2 target"]
 fn the_hello_sample_runs() {
@@ -266,6 +281,14 @@ fn the_hello_sample_runs() {
         .unwrap(),
     );
     let mut app = engine(&root);
+    app.update();
+    app.update();
+    let world = app.world_mut();
+    let (petition, _) = world
+        .query::<(Entity, &Petition)>()
+        .single(world)
+        .expect("the person is asked");
+    answer_install(world, petition, true);
     let count = until(&mut app, |text| text.starts_with("Pressed"));
     assert_eq!(count, "Pressed 0 times.");
 

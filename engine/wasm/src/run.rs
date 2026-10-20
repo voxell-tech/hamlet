@@ -17,6 +17,7 @@ use bevy::tasks::{AsyncComputeTaskPool, Task};
 use bevy::time::{Real, Time};
 use hamlet_engine_api::Contribution;
 use hamlet_engine_core::{Budgets, LogLine};
+use hamlet_engine_grants::Admitted;
 use hamlet_engine_plugins::{
     ContributedBy, Disable, Enable, Enabled, Entry, PluginInfo,
     switch_on,
@@ -60,12 +61,14 @@ pub(crate) fn compile(
     }))
 }
 
+/// Starts a plugin the person let in. The grants ask about one they
+/// did not.
 fn enable(
     event: On<Enable>,
-    plugins: Query<Has<Enabled>, With<Package>>,
+    plugins: Query<(Has<Enabled>, Has<Admitted>), With<Package>>,
     mut commands: Commands,
 ) {
-    if plugins.get(event.entity) == Ok(false) {
+    if plugins.get(event.entity) == Ok((false, true)) {
         commands.entity(event.entity).insert(Starting);
     }
 }

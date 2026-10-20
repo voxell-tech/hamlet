@@ -13,6 +13,7 @@ hamlet_engine_api.workspace = true
 hamlet_engine_core.workspace = true
 hamlet_engine_shell.workspace = true
 hamlet_engine_plugins.workspace = true
+hamlet_engine_grants.workspace = true
 hamlet_engine_wasm.workspace = true
 bevy.workspace = true
 bevy_fynix.workspace = true

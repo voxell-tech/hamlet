@@ -21,6 +21,7 @@ Each depends only on those above it, and each adds one Bevy plugin,
 | `engine/core` | `hamlet_engine_core` | The tuning files, the home, the log, the budgets |
 | `engine/shell` | `hamlet_engine_shell` | The window, its theme, the dock and its panels, workspaces, commands, shortcuts, the menu bar and the status line |
 | `engine/plugins` | `hamlet_engine_plugins` | Plugins as entities, what they add, switching them on and off, the plugin list |
+| `engine/grants` | `hamlet_engine_grants` | What the person lets plugins do: petitions, the grants file, the Permissions page |
 | `engine/wasm` | `hamlet_engine_wasm` | The host of WASM plugins: wasmtime, a store per plugin, its budgets. The only crate that knows wasmtime |
 | `engine/app` | `hamlet_engine` | The binary, and a demo plugin built into it |
 | `engine/plugin` | `hamlet_plugin` | What a plugin is written with, built for `wasm32-wasip2` |
@@ -256,6 +257,44 @@ person has one or more, and one is shown at a time.
   entity, whose `Command` and `ContributedBy` say which it is and
   whose.
 
+## Permissions
+
+`hamlet_engine_grants` keeps what the person lets each installed plugin
+do. Plugins built in are not asked about.
+
+- **Asks.** A plugin's manifest names each capability it asks for, its
+  target and a reason in its own words, shown with it. Each is answered
+  Allow, Ask next time or Don't allow. Powers that are never granted
+  (keys, secrets, answering for the person, the raw home, running
+  processes, turning the sandbox off) are refused when a manifest
+  asking for one is read: `never_granted` names them by the first word
+  of a capability.
+- **Petitions** are questions for the person, each a `Petition` on a
+  child of the plugin's entity, so they go with it. The Needs you panel
+  (`engine/needs_you`) lists them, and is opened in the dock when one
+  comes; the log says so too.
+- **Installing.** A plugin that comes with no answers is asked about:
+  its name and version, and each ask with its reason and a choice of
+  the three answers, Ask next time to start with. Allow lets it in with
+  those answers, marks it `Admitted` and switches it on; Don't allow
+  keeps it off, and switching it on asks again.
+- **An update that asks for more** is asked about again, for what it
+  asks besides, and stays off until the person answers. One that asks
+  for nothing new is let in as before.
+- **First use.** A host that finds a use answered Ask next time
+  (`Grants::verdict` gives `Asking`) sends a `FirstUse`; the person is
+  asked, and `Decided` says whether the use may go on. Allow and Don't
+  allow are kept; Ask next time lets this use go on and asks again next
+  time. `[budgets] petitions_per_minute` of these a plugin may raise in
+  a minute; the rest are refused.
+- **The grants file** is `grants.toml` in the home: for each plugin,
+  whether it was let in, the version answered for, and each answer. It
+  is written to `grants_saving.toml` and moved over the old file, so it
+  is whole or not at all. A file that cannot be read is left as it is:
+  the log says so, and answers are kept only until the engine closes.
+- **The Permissions page** of Settings shows the answers by plugin or
+  by capability, and each can be changed there.
+
 ## The WASM host
 
 `hamlet_engine_wasm` runs plugins built as WASM components, with
@@ -264,12 +303,14 @@ plugin to are `[budgets]`.
 
 - **Installed plugins** are folders in `<home>/plugins/`, each with its
   `plugin.toml` and `plugin.wasm`. At start each is read and added as a
-  plugin, with a `Package` naming its folder, and switched on. A folder
-  whose name starts with a dot, or that is a link, is passed over. A
-  file is read only when it is a plain file and not a link, and its size
-  is checked before a byte of it is read: `[wasm] manifest_bytes` and
-  `wasm_bytes`.
-- **Switched on**, a plugin's component is compiled off the frame, on
+  plugin, with a `Package` naming its folder; the grants switch it on
+  once the person let it in. A folder whose name starts with a dot, or
+  that is a link, is passed over. A file is read only when it is a
+  plain file and not a link, and its size is checked before a byte of
+  it is read: `[wasm] manifest_bytes` and `wasm_bytes`. A manifest that
+  asks for a power that is never granted is refused, and says which.
+- **Switched on**, only when it is `Admitted`, a plugin's component is
+  compiled off the frame, on
   the async compute pool, and kept, so switching it on again needs no
   compile. It is then instantiated in a store of its own and asked what
   it adds. A plugin that imports anything but the host's interface and

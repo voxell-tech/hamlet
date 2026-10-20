@@ -11,7 +11,7 @@ use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::system::Commands;
 use bevy::ecs::world::World;
-use hamlet_engine_api::{Manifest, PluginId};
+use hamlet_engine_api::{Ask, Manifest, PluginId};
 use hamlet_engine_core::LogLine;
 
 pub use self::entry::{Entry, EntryPoint};
@@ -33,6 +33,8 @@ pub struct PluginInfo {
     pub version: String,
     /// Built into the engine, rather than installed.
     pub builtin: bool,
+    /// What it asks the person for, and why.
+    pub asks: Vec<Ask>,
 }
 
 /// Adds the plugin `manifest` describes, built into the engine with
@@ -60,6 +62,7 @@ pub fn add_builtin(
                 name: manifest.name,
                 version: manifest.version,
                 builtin: true,
+                asks: manifest.asks,
             },
             EntryPoint(entry),
         ))
