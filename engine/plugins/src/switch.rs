@@ -14,9 +14,9 @@ use bevy::ecs::world::World;
 use hamlet_engine_api::Manifest;
 use hamlet_engine_core::{Budgets, LogLine};
 
-use crate::PluginInfo;
 use crate::entry::{Entry, EntryPoint};
 use crate::switched_off::SwitchedOff;
+use crate::{PluginInfo, PluginKind};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_message::<LogLine>()
@@ -144,7 +144,7 @@ impl PluginCommandsExt for Commands<'_, '_> {
         let id = manifest.id.clone();
         let plugin = self
             .spawn((
-                PluginInfo::of(manifest, true),
+                PluginInfo::of(manifest, PluginKind::BuiltIn),
                 EntryPoint(entry),
             ))
             .id();

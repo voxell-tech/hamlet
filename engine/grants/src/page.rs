@@ -1,5 +1,6 @@
 //! The Permissions page of Settings: each installed plugin's answers,
-//! by plugin or by capability, each changed in place.
+//! by plugin or by capability, each changed in place, and what each
+//! plugin that comes with Hamlet is allowed.
 
 use bevy::app::{App, Startup, Update};
 use bevy::ecs::change_detection::DetectChanges;
@@ -42,6 +43,7 @@ struct Line {
     id: PluginId,
     name: String,
     allowed: bool,
+    bundled: bool,
     answers: Vec<(Capability, String, Answer)>,
 }
 
@@ -103,11 +105,19 @@ fn by_plugin(plugins: &[Line]) -> AnyView {
     let groups_of = plugins
         .iter()
         .map(|line| {
-            let state = match (line.allowed, line.answers.is_empty())
-            {
-                (false, _) => "Not allowed",
-                (true, true) => "Allowed, and asks for nothing",
-                (true, false) => "Allowed",
+            let state = match (
+                line.bundled,
+                line.allowed,
+                line.answers.is_empty(),
+            ) {
+                (true, _, _) => {
+                    "Comes with Hamlet, and is allowed all it asks"
+                }
+                (false, false, _) => "Not allowed",
+                (false, true, true) => {
+                    "Allowed, and asks for nothing"
+                }
+                (false, true, false) => "Allowed",
             };
             let answers = line
                 .answers
@@ -115,7 +125,7 @@ fn by_plugin(plugins: &[Line]) -> AnyView {
                 .map(|(capability, target, answer)| {
                     answer_view(
                         format!("{} {target}", capability.name()),
-                        &line.id,
+                        line,
                         *capability,
                         target,
                         *answer,
@@ -155,7 +165,7 @@ fn by_capability(plugins: &[Line]) -> AnyView {
                         .map(move |(_, target, answer)| {
                             answer_view(
                                 format!("{} {target}", line.name),
-                                &line.id,
+                                line,
                                 capability,
                                 target,
                                 *answer,
@@ -169,26 +179,35 @@ fn by_capability(plugins: &[Line]) -> AnyView {
     groups(groups_of)
 }
 
-/// One answer, under `what`, with the three to choose from.
+/// One answer of the plugin of `line`, under `what`, with the three
+/// to choose from, or as it is for a plugin that comes with Hamlet.
 fn answer_view(
     what: String,
-    id: &PluginId,
+    line: &Line,
     capability: Capability,
     target: &str,
     answer: Answer,
 ) -> AnyView {
-    let (id, target) = (id.clone(), target.to_owned());
+    let (id, target) = (line.id.clone(), target.to_owned());
     let picked =
         Answer::ALL.iter().position(|a| *a == answer).unwrap_or(1);
-    let answers = choices(
-        Answer::ALL.map(|answer| answer.label().to_owned()).to_vec(),
-        picked,
-        move |world, picked| {
-            if let Some(&answer) = Answer::ALL.get(picked) {
-                world.change_answer(&id, capability, &target, answer);
-            }
-        },
-    );
+    let answers = if line.bundled {
+        label(answer.label()).boxed()
+    } else {
+        choices(
+            Answer::ALL
+                .map(|answer| answer.label().to_owned())
+                .to_vec(),
+            picked,
+            move |world, picked| {
+                if let Some(&answer) = Answer::ALL.get(picked) {
+                    world.change_answer(
+                        &id, capability, &target, answer,
+                    );
+                }
+            },
+        )
+    };
     AnyView::new(move |cx: &mut Cx| {
         let gap = cx.theme().space.gap;
         cx.build(
@@ -227,6 +246,7 @@ fn follow(
                     |info| info.name.clone(),
                 ),
             allowed: record.allowed,
+            bundled: record.bundled,
             answers: record
                 .answers
                 .iter()

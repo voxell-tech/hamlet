@@ -1,6 +1,7 @@
 //! The plugin list: every plugin, whether it is on, a button to
-//! switch it, and for an installed one a button to uninstall it. A
-//! button above asks for a plugin to be added.
+//! switch it, and for an installed one a button to uninstall it; one
+//! that comes with Hamlet says so. A button above asks for a plugin
+//! to be added.
 
 use bevy::app::{App, Startup, Update};
 use bevy::ecs::entity::Entity;
@@ -25,11 +26,11 @@ use hamlet_engine_shell::style::{
 };
 use hamlet_engine_shell::{AnyView, Cx, Panel, StyleExt};
 
-use crate::PluginInfo;
 use crate::switch::{
     Contributions, Disable, Enable, Enabled, Stopped,
 };
 use crate::switched_off::SwitchedOff;
+use crate::{PluginInfo, PluginKind};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Rows>()
@@ -53,7 +54,7 @@ struct Row {
     adds: usize,
     /// Why the engine stopped it.
     stopped: Option<String>,
-    builtin: bool,
+    kind: PluginKind,
 }
 
 /// Asks for a plugin to be added: a host offers the person a folder
@@ -136,7 +137,7 @@ fn row_view(row_of: &Row) -> AnyView {
     })
     .boxed();
     let mut actions = vec![switch];
-    if !row_of.builtin {
+    if row_of.kind == PluginKind::Installed {
         actions.push(
             icon_button(
                 ButtonStyle::Critical,
@@ -150,20 +151,30 @@ fn row_view(row_of: &Row) -> AnyView {
         );
     }
     let (name, about) = (row_of.name.clone(), row_of.about.clone());
+    let bundled = row_of.kind == PluginKind::Bundled;
     AnyView::new(move |cx: &mut Cx| {
         let theme = cx.theme();
         let (gap, size) = (theme.space.gap, theme.text.small);
+        let mut facts = vec![
+            label(about)
+                .size(size)
+                .tone(Tone::Dim)
+                .wrap(false)
+                .boxed(),
+            label(state).size(size).tone(tone).boxed(),
+        ];
+        if bundled {
+            facts.push(
+                label("Comes with Hamlet")
+                    .size(size)
+                    .tone(Tone::Accent)
+                    .boxed(),
+            );
+        }
         cx.build(
             column((
                 label(name).bold(true).wrap(false),
-                row((
-                    label(about)
-                        .size(size)
-                        .tone(Tone::Dim)
-                        .wrap(false),
-                    label(state).size(size).tone(tone),
-                ))
-                .gap(gap),
+                row(facts).gap(gap),
                 buttons(actions),
             ))
             .gap(gap / 2.0),
@@ -212,7 +223,7 @@ fn follow(
             on,
             adds: adds.map_or(0, |adds| adds.len()),
             stopped: stopped.map(|stopped| stopped.0.clone()),
-            builtin: info.builtin,
+            kind: info.kind,
         })
         .collect::<Vec<_>>();
     now.sort_by(|a, b| a.name.cmp(&b.name));

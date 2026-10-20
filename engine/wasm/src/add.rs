@@ -20,7 +20,9 @@ use bevy::tasks::futures::check_ready;
 use bevy::tasks::{IoTaskPool, Task};
 use hamlet_engine_api::Manifest;
 use hamlet_engine_core::{Home, LogLine};
-use hamlet_engine_plugins::{AddPlugin, PluginInfo, Uninstall};
+use hamlet_engine_plugins::{
+    AddPlugin, PluginInfo, PluginKind, Uninstall,
+};
 
 use crate::WasmCommandsExt;
 use crate::folder::{
@@ -109,14 +111,24 @@ fn add_from(
         .and_then(|checked| {
             let id = &checked.manifest.id;
             match plugins.iter().find(|(info, _)| info.id == *id) {
-                Some((_, None)) => Err(format!(
+                // An update goes where the plugin is.
+                Some((info, Some(package)))
+                    if info.kind == PluginKind::Installed =>
+                {
+                    Ok((checked, package.folder.clone()))
+                }
+                Some((info, _))
+                    if info.kind == PluginKind::Bundled =>
+                {
+                    Err(format!(
+                        "{id} is the id of a plugin that comes with \
+                         Hamlet"
+                    ))
+                }
+                Some(_) => Err(format!(
                     "{id} is the id of a plugin built into the \
                      engine"
                 )),
-                // An update goes where the plugin is.
-                Some((_, Some(package))) => {
-                    Ok((checked, package.folder.clone()))
-                }
                 None => {
                     let into = home.path(FOLDER).join(id.as_str());
                     Ok((checked, into))
@@ -161,7 +173,9 @@ fn added(
         match placed {
             Ok((manifest, folder)) => {
                 for (plugin, info) in &plugins {
-                    if info.id == manifest.id {
+                    if info.id == manifest.id
+                        && info.kind == PluginKind::Installed
+                    {
                         commands.entity(plugin).despawn();
                     }
                 }
@@ -172,7 +186,11 @@ fn added(
                         manifest.name, manifest.version
                     ),
                 ));
-                commands.spawn_plugin(manifest, folder);
+                commands.spawn_plugin(
+                    manifest,
+                    folder,
+                    PluginKind::Installed,
+                );
             }
             Err(why) => {
                 log.write(LogLine::error(
@@ -184,7 +202,8 @@ fn added(
     }
 }
 
-/// Takes an installed plugin away, and its folder.
+/// Takes an installed plugin away, and its folder. One that comes
+/// with Hamlet stays.
 fn uninstall(
     event: On<Uninstall>,
     plugins: Query<(&PluginInfo, &Package)>,
@@ -194,6 +213,17 @@ fn uninstall(
     let Ok((info, package)) = plugins.get(event.entity) else {
         return;
     };
+    if info.kind != PluginKind::Installed {
+        log.write(LogLine::warn(
+            "plugins",
+            format!(
+                "{} comes with Hamlet and is not uninstalled; it \
+                 can be switched off",
+                info.name
+            ),
+        ));
+        return;
+    }
     commands.entity(event.entity).despawn();
     // A link is taken away itself, not what it points at.
     let line = match fs::remove_dir_all(&package.folder) {

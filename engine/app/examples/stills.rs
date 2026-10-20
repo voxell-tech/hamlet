@@ -31,7 +31,7 @@ use bevy_fynix::{Focused, Pressed, ViewExt};
 use hamlet_engine_api::{Ask, Capability, Manifest, PluginId};
 use hamlet_engine_core::Home;
 use hamlet_engine_plugins::{
-    Entry, EntryPoint, PluginCommandsExt, PluginInfo,
+    Entry, EntryPoint, PluginCommandsExt, PluginInfo, PluginKind,
 };
 use hamlet_engine_shell::fonts::DisplayText;
 use hamlet_engine_shell::icons::{Glyph, glyph, side};
@@ -643,7 +643,7 @@ fn add_plugins(mut commands: Commands) {
         reason: "Reads the frost dates for the orchard.".into(),
     }];
     commands.spawn((
-        PluginInfo::of(manifest, false),
+        PluginInfo::of(manifest, PluginKind::Installed),
         EntryPoint(|_: &mut Entry| {}),
     ));
 }

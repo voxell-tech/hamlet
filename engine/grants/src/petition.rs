@@ -30,7 +30,9 @@ use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_api::{Ask, Capability, PanelId, PluginId};
 use hamlet_engine_core::{Budgets, LogLine};
-use hamlet_engine_plugins::{Enable, PluginInfo, SwitchedOff};
+use hamlet_engine_plugins::{
+    Enable, PluginInfo, PluginKind, SwitchedOff,
+};
 use hamlet_engine_shell::dock::PanelIcon;
 use hamlet_engine_shell::icons::Glyph;
 use hamlet_engine_shell::style::{
@@ -118,7 +120,8 @@ fn open(mut commands: Commands) {
 }
 
 /// Switches on each installed plugin the person let in and did not
-/// switch off, and asks about the others.
+/// switch off, and asks about the others. A plugin that comes with
+/// Hamlet is let in with all it asks, and nobody is asked.
 fn admit(
     plugins: Query<(Entity, &PluginInfo), Added<PluginInfo>>,
     mut grants: ResMut<Grants>,
@@ -128,10 +131,26 @@ fn admit(
     mut commands: Commands,
 ) {
     for (plugin, info) in &plugins {
-        if info.builtin {
-            continue;
+        match info.kind {
+            PluginKind::BuiltIn => continue,
+            PluginKind::Bundled => {
+                let record =
+                    Record::bundled(&info.version, &info.asks);
+                grants.keep(info, record, &mut log);
+                commands.entity(plugin).insert(Admitted);
+                if !off.contains(&info.id) {
+                    commands.trigger(Enable { entity: plugin });
+                }
+                continue;
+            }
+            PluginKind::Installed => {}
         }
-        let record = grants.record(&info.id).cloned();
+        // What was allowed while a plugin of this id came with Hamlet
+        // is no answer for one installed.
+        let record = grants
+            .record(&info.id)
+            .filter(|record| !record.bundled)
+            .cloned();
         let fresh = |record: &Record| {
             info.asks
                 .iter()
@@ -210,7 +229,7 @@ fn ask_again(
             matches!(petition.0, Question::Install { .. })
         })
     });
-    if info.builtin || admitted || asking {
+    if info.kind != PluginKind::Installed || admitted || asking {
         return;
     }
     commands.raise_petition(
@@ -561,7 +580,8 @@ pub trait GrantsWorldExt {
     fn answer_use(&mut self, petition: Entity, answer: Answer);
 
     /// Changes the answer of the plugin `id` to `capability` on
-    /// `target`, telling the log when it cannot be written.
+    /// `target`, telling the log when it cannot be written. What a
+    /// plugin that comes with Hamlet is allowed is not changed.
     fn change_answer(
         &mut self,
         id: &PluginId,
@@ -613,11 +633,12 @@ impl GrantsWorldExt for World {
         let mut grants = self.resource_mut::<Grants>();
         let mut record = grants
             .record(&info.id)
-            .filter(|record| record.allowed)
+            .filter(|record| record.allowed && !record.bundled)
             .cloned()
             .unwrap_or_else(|| Record {
                 allowed,
                 version: info.version.clone(),
+                bundled: false,
                 answers: Vec::new(),
             });
         record.allowed = allowed;
@@ -696,7 +717,11 @@ impl GrantsWorldExt for World {
         answer: Answer,
     ) {
         let mut grants = self.resource_mut::<Grants>();
-        let Some(mut record) = grants.record(id).cloned() else {
+        let Some(mut record) = grants
+            .record(id)
+            .filter(|record| !record.bundled)
+            .cloned()
+        else {
             return;
         };
         record.set(capability, target, answer);

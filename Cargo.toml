@@ -2,9 +2,10 @@
 resolver = "3"
 members = ["crates/*", "engine/*"]
 # The vendored fynix workspace is its own workspace. The engine's
-# tuning files and its WIT are files, not crates, and each sample
-# plugin is a workspace of its own, built for wasm32-wasip2.
-exclude = ["vendor", "engine/tuning", "engine/wit", "engine/samples"]
+# tuning files and its WIT are files, not crates, each sample plugin
+# is a workspace of its own, and the plugins that come with Hamlet are
+# one, all built for wasm32-wasip2.
+exclude = ["vendor", "engine/tuning", "engine/wit", "engine/samples", "plugins"]
 # `cargo build`, `cargo test` and `cargo clippy` at the root cover every
 # crate, so the checks in AGENTS.md need no flags.
 default-members = [".", "crates/*", "engine/*"]

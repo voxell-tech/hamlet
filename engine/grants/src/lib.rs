@@ -1,7 +1,8 @@
 //! What the person lets plugins do. An installed plugin is switched
 //! on only once the person let it in, and each capability it asks for
-//! is answered Allow, Ask next time or Don't allow. The answers are
-//! kept in the grants file, and changed on the Permissions page.
+//! is answered Allow, Ask next time or Don't allow. A plugin that
+//! comes with Hamlet is allowed all it asks. The answers are kept in
+//! the grants file, and changed on the Permissions page.
 
 mod file;
 mod page;
@@ -15,7 +16,7 @@ use bevy::ecs::observer::On;
 use bevy::ecs::system::{Query, Res, ResMut};
 use hamlet_engine_api::Capability;
 use hamlet_engine_core::{Home, LogLine};
-use hamlet_engine_plugins::{PluginInfo, Uninstall};
+use hamlet_engine_plugins::{PluginInfo, PluginKind, Uninstall};
 
 pub use self::file::{Answer, Answered, FILE, Grants, Record};
 pub use self::petition::{
@@ -101,6 +102,9 @@ fn forget(
     let Ok(info) = plugins.get(event.entity) else {
         return;
     };
+    if info.kind != PluginKind::Installed {
+        return;
+    }
     if let Err(why) = grants.forget(&info.id) {
         log.write(LogLine::error(
             "grants",

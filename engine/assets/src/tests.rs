@@ -7,7 +7,7 @@ use hamlet_engine_api::{
 use hamlet_engine_core::tuning::Tuning;
 use hamlet_engine_core::{Budgets, Home};
 use hamlet_engine_grants::{Answer, Grants, Record};
-use hamlet_engine_plugins::PluginInfo;
+use hamlet_engine_plugins::{PluginInfo, PluginKind};
 
 use crate::{
     AssetStore, FOLDER, INDEX, Outcome, Rules, TypeRegistry,
@@ -46,7 +46,7 @@ fn plugin(
         });
     }
     assert_eq!(manifest.check(), Ok(()));
-    PluginInfo::of(manifest, false)
+    PluginInfo::of(manifest, PluginKind::Installed)
 }
 
 fn done(outcome: Option<Outcome>) -> Result<Reply, Failure> {
@@ -129,6 +129,7 @@ fn the_store_keeps_to_types_grants_and_caps() {
     let mut record = Record {
         allowed: true,
         version: "0.1.0".into(),
+        bundled: false,
         answers: Vec::new(),
     };
     record.set(Capability::AssetRead, "notes.note", Answer::Ask);

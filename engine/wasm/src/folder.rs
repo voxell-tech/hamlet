@@ -1,6 +1,8 @@
-//! The plugins folder in the home: a folder for each installed
-//! plugin, with its `plugin.toml` and its `plugin.wasm`. It is read
-//! at start and looked at again every `[wasm] watch` seconds, so a
+//! The folders WASM plugins are read from: the bundle, a folder for
+//! each plugin that comes with Hamlet, and the plugins folder in the
+//! home, a folder for each installed plugin. Each plugin's folder
+//! holds its `plugin.toml` and its `plugin.wasm`. They are read at
+//! start and looked at again every `[wasm] watch` seconds, so a
 //! folder put there while the engine runs is noticed, and one taken
 //! away takes its plugin with it.
 
@@ -20,9 +22,9 @@ use bevy::ecs::system::{Commands, Local, Query, Res};
 use bevy::time::common_conditions::on_real_timer;
 use hamlet_engine_api::Manifest;
 use hamlet_engine_core::tuning::Tuning;
-use hamlet_engine_core::{Home, LogLine};
+use hamlet_engine_core::{Bundle, Home, LogLine};
 use hamlet_engine_grants::never_granted;
-use hamlet_engine_plugins::PluginInfo;
+use hamlet_engine_plugins::{PluginInfo, PluginKind};
 
 use crate::WasmCommandsExt;
 use crate::add::Adding;
@@ -41,7 +43,7 @@ pub(crate) fn plugin(app: &mut App) {
         .add_systems(Update, watch.run_if(on_real_timer(every)));
 }
 
-/// On an installed plugin: its folder.
+/// On a WASM plugin: its folder, in the bundle or the home.
 #[derive(Component, Clone, Debug)]
 pub struct Package {
     pub folder: PathBuf,
@@ -50,25 +52,68 @@ pub struct Package {
 /// The size and the time of a file, as last looked at.
 pub(crate) type Look = (u64, SystemTime);
 
-/// Adds a plugin for each folder in the plugins folder; the grants
-/// decide whether it is switched on. A folder that is not a plugin is
-/// told in the log.
+/// A folder plugins are read from, and the kind of plugin it holds.
+struct Source {
+    folder: PathBuf,
+    kind: PluginKind,
+}
+
+/// Adds a plugin for each folder in the bundle and the plugins
+/// folder; the grants decide whether it is switched on. A folder that
+/// is not a plugin, and a bundle that is not there, are told in the
+/// log.
 fn scan(
     home: Res<Home>,
+    bundle: Option<Res<Bundle>>,
     tuning: Res<WasmTuning>,
     mut log: MessageWriter<LogLine>,
     mut commands: Commands,
 ) {
-    for folder in home.plugin_folders() {
-        match read_manifest(&folder, tuning.manifest_bytes) {
-            Ok(manifest) => {
-                commands.spawn_plugin(manifest, folder);
-            }
-            Err(why) => {
-                log.write(LogLine::error(
-                    "plugins",
-                    format!("{}: {why}", folder.display()),
-                ));
+    if let Some(bundle) = &bundle
+        && !bundle.root().is_dir()
+    {
+        log.write(LogLine::warn(
+            "plugins",
+            format!(
+                "{} is not there, so no plugin that comes with \
+                 Hamlet is loaded",
+                bundle.root().display()
+            ),
+        ));
+    }
+    let mut bundled = Vec::new();
+    for source in Source::all(&home, bundle.as_deref()) {
+        for folder in source.plugin_folders() {
+            let read = read_manifest(&folder, tuning.manifest_bytes)
+                .and_then(|manifest| {
+                    if source.kind == PluginKind::Installed
+                        && bundled.contains(&manifest.id)
+                    {
+                        return Err(format!(
+                            "{} is the id of a plugin that comes \
+                             with Hamlet",
+                            manifest.id
+                        ));
+                    }
+                    Ok(manifest)
+                });
+            match read {
+                Ok(manifest) => {
+                    if source.kind == PluginKind::Bundled {
+                        bundled.push(manifest.id.clone());
+                    }
+                    commands.spawn_plugin(
+                        manifest,
+                        folder,
+                        source.kind,
+                    );
+                }
+                Err(why) => {
+                    log.write(LogLine::error(
+                        "plugins",
+                        format!("{}: {why}", folder.display()),
+                    ));
+                }
             }
         }
     }
@@ -80,6 +125,7 @@ fn scan(
 /// whose folder is gone.
 fn watch(
     home: Res<Home>,
+    bundle: Option<Res<Bundle>>,
     tuning: Res<WasmTuning>,
     packages: Query<(Entity, &Package, &PluginInfo)>,
     adding: Query<(), With<Adding>>,
@@ -106,9 +152,19 @@ fn watch(
             ));
         }
     }
-    let folders = home.plugin_folders();
-    looked.retain(|folder, _| folders.contains(folder));
-    for folder in folders {
+    let folders = Source::all(&home, bundle.as_deref())
+        .into_iter()
+        .flat_map(|source| {
+            source
+                .plugin_folders()
+                .into_iter()
+                .map(move |folder| (folder, source.kind))
+        })
+        .collect::<Vec<_>>();
+    looked.retain(|folder, _| {
+        folders.iter().any(|(listed, _)| listed == folder)
+    });
+    for (folder, kind) in folders {
         if packages
             .iter()
             .any(|(_, package, _)| package.folder == folder)
@@ -132,7 +188,20 @@ fn watch(
             None => Err(format!(
                 "it has no {WASM}, so it is not a built plugin"
             )),
-        };
+        }
+        .and_then(|manifest| {
+            let bundled = packages.iter().any(|(_, _, info)| {
+                info.kind == PluginKind::Bundled
+                    && info.id == manifest.id
+            });
+            if kind == PluginKind::Installed && bundled {
+                return Err(format!(
+                    "{} is the id of a plugin that comes with Hamlet",
+                    manifest.id
+                ));
+            }
+            Ok(manifest)
+        });
         match read {
             Ok(manifest) => {
                 log.write(LogLine::info(
@@ -143,7 +212,17 @@ fn watch(
                         folder.display()
                     ),
                 ));
-                commands.spawn_plugin(manifest, folder);
+                // One that comes with Hamlet takes the place of one
+                // installed of its id.
+                for (plugin, _, info) in &packages {
+                    if kind == PluginKind::Bundled
+                        && info.kind == PluginKind::Installed
+                        && info.id == manifest.id
+                    {
+                        commands.entity(plugin).despawn();
+                    }
+                }
+                commands.spawn_plugin(manifest, folder, kind);
             }
             Err(why) => {
                 log.write(LogLine::error(
@@ -155,16 +234,24 @@ fn watch(
     }
 }
 
-/// The WASM host's methods on [`Home`].
-trait WasmHomeExt {
-    /// The folders of the plugins folder a plugin may be in, in
-    /// order.
-    fn plugin_folders(&self) -> Vec<PathBuf>;
-}
+impl Source {
+    /// The bundle, when there is one, then the plugins folder in
+    /// `home`.
+    fn all(home: &Home, bundle: Option<&Bundle>) -> Vec<Self> {
+        let bundled = bundle.map(|bundle| Self {
+            folder: bundle.root().to_path_buf(),
+            kind: PluginKind::Bundled,
+        });
+        let installed = Self {
+            folder: home.path(FOLDER),
+            kind: PluginKind::Installed,
+        };
+        bundled.into_iter().chain([installed]).collect()
+    }
 
-impl WasmHomeExt for Home {
+    /// The folders here a plugin may be in, in order.
     fn plugin_folders(&self) -> Vec<PathBuf> {
-        let Ok(entries) = fs::read_dir(self.path(FOLDER)) else {
+        let Ok(entries) = fs::read_dir(&self.folder) else {
             return Vec::new();
         };
         let mut folders = entries

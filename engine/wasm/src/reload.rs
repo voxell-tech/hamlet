@@ -44,8 +44,8 @@ pub(crate) fn plugin(app: &mut App) {
     );
 }
 
-/// On an installed plugin: its `plugin.wasm` and `plugin.toml` as
-/// they were when it was last read.
+/// On a WASM plugin: its `plugin.wasm` and `plugin.toml` as they
+/// were when it was last read.
 #[derive(Component, Clone, Copy, PartialEq, Debug)]
 pub(crate) struct Loaded {
     pub(crate) wasm: Option<Look>,
@@ -71,7 +71,7 @@ pub(crate) enum Failed {
     New(Fault),
 }
 
-/// Looks for changes in each installed plugin's files that stayed
+/// Looks for changes in each WASM plugin's files that stayed
 /// the same from one look to the next, so a file still being written
 /// is not read. A new `plugin.wasm` of a running plugin is compiled;
 /// one of a plugin that is not running is compiled when it starts.
@@ -127,6 +127,7 @@ fn notice(
                     commands.spawn_plugin(
                         manifest,
                         package.folder.clone(),
+                        info.kind,
                     );
                     continue;
                 }

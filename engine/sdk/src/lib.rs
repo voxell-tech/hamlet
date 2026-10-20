@@ -63,6 +63,9 @@ use self::bindings::hamlet::engine::host::{self, Level};
 pub use self::entry::Entry;
 pub use self::ui::World;
 
+/// The version of the engine this SDK comes with.
+pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 /// A plugin. One value of it lives as long as the plugin runs. Each
 /// call is given `world`, the world its views are built in and read
 /// from, and what it changes there is shown once the call ends.
