@@ -87,3 +87,17 @@ pub fn reference(hamlet: &str, number: u64) -> v0::AgentRef {
         number,
     }
 }
+
+/// The advertised deeds named `names`.
+pub fn deeds(names: &[&str]) -> Option<Vec<v0::Deed>> {
+    Some(
+        names
+            .iter()
+            .map(|name| v0::Deed {
+                name: (*name).into(),
+                usage: String::new(),
+                description: String::new(),
+            })
+            .collect(),
+    )
+}

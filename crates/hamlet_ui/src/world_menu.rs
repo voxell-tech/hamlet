@@ -317,7 +317,7 @@ mod tests {
     #[test]
     fn ground_and_town_offer_only_received_deeds() {
         let mut state = realm::state();
-        state.deeds = Some(vec!["new".into(), "undo".into()]);
+        state.deeds = hamlet_testing::realm::deeds(&["new", "undo"]);
         let mut app = app(state.clone());
         app.world_mut().resource_mut::<AskedGround>().0 =
             Some(Vec2::ZERO);
@@ -339,7 +339,7 @@ mod tests {
         );
 
         state.deeds =
-            Some(vec!["found".into(), "move-hamlet".into()]);
+            hamlet_testing::realm::deeds(&["found", "move-hamlet"]);
         hamlet_client::receive(
             app.world_mut(),
             v0::ServerMessage::State(state),
@@ -382,7 +382,7 @@ mod tests {
                 "unsupported: {absent}"
             );
         }
-        state.deeds = Some(vec!["road".into()]);
+        state.deeds = hamlet_testing::realm::deeds(&["road"]);
         hamlet_client::receive(
             app.world_mut(),
             v0::ServerMessage::State(state),
@@ -463,7 +463,7 @@ mod tests {
     fn the_founders_skill_menu_sends_a_received_starter_or_agents_skill()
      {
         let mut state = realm::state();
-        state.deeds = Some(vec!["give".into()]);
+        state.deeds = hamlet_testing::realm::deeds(&["give"]);
         state.starters = Some(vec![v0::Skill {
             name: "research".into(),
             description: "Find sources".into(),

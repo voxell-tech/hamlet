@@ -146,7 +146,7 @@ mod tests {
             .init_resource::<hamlet_realm::pick::Asked>()
             .init_resource::<hamlet_realm::pick::AskedGround>();
         let mut state = realm::state();
-        state.deeds = Some(vec!["found".into()]);
+        state.deeds = hamlet_testing::realm::deeds(&["found"]);
         state.agents.push(realm::agent("home", 1, "scout"));
         hamlet_client::receive(
             app.world_mut(),

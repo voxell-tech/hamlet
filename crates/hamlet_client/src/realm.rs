@@ -206,7 +206,7 @@ pub struct Providers(pub Vec<v0::ProviderView>);
 #[derive(Resource, Clone, Debug, Default)]
 pub struct Grants(pub Vec<v0::Grant>);
 
-/// The chief's deeds supported by the server.
+/// The names of the chief's deeds supported by the server.
 #[derive(Resource, Clone, Debug, Default)]
 pub struct Deeds(pub Vec<String>);
 
@@ -426,7 +426,14 @@ pub(crate) fn state(world: &mut World, state: v0::State) {
     world.insert_resource(Settings(state.settings));
     world.insert_resource(Providers(state.providers));
     world.insert_resource(Grants(state.grants));
-    world.insert_resource(Deeds(state.deeds.unwrap_or_default()));
+    world.insert_resource(Deeds(
+        state
+            .deeds
+            .unwrap_or_default()
+            .into_iter()
+            .map(|deed| deed.name)
+            .collect(),
+    ));
     world.insert_resource(Starters(
         state.starters.unwrap_or_default(),
     ));

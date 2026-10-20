@@ -27,7 +27,7 @@ pub(crate) use self::calls::{Ran, prepared, ran, specs, stop_tools};
 pub(crate) use self::deeds::stop_agent;
 use self::fold::Fold;
 use self::records::Place;
-pub(crate) use self::say::{admit_line, deeds as deed_names};
+pub(crate) use self::say::{admit_line, deeds as advertised_deeds};
 use crate::harness::link::Mark;
 use crate::harness::{BindingId, Harnesses, Input, Notice};
 use crate::protocol::{Refusal, reply};

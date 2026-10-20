@@ -886,7 +886,7 @@ fn a_file_dropped_on_the_founder_begins_a_protocol_gift_without_a_house()
         .add_message::<crate::moving::SetDown>()
         .add_plugins(crate::orders::plugin);
     let mut state = realm::state();
-    state.deeds = Some(vec!["give".into()]);
+    state.deeds = hamlet_testing::realm::deeds(&["give"]);
     receive_state(&mut cast.app, state);
     let founder =
         hamlet_client::realm::mayor(cast.app.world_mut()).unwrap();

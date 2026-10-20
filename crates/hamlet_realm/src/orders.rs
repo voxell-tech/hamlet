@@ -592,10 +592,10 @@ mod tests {
             .add_message::<SetDown>()
             .add_plugins(plugin);
         let mut state = realm::state();
-        state.deeds = Some(vec![
-            "give".into(),
-            "road".into(),
-            "move-hamlet".into(),
+        state.deeds = hamlet_testing::realm::deeds(&[
+            "give",
+            "road",
+            "move-hamlet",
         ]);
         hamlet_client::receive(
             app.world_mut(),
@@ -807,7 +807,7 @@ mod tests {
      {
         let (mut app, founder) = app();
         let mut state = realm::state();
-        state.deeds = Some(vec!["give".into()]);
+        state.deeds = hamlet_testing::realm::deeds(&["give"]);
         state.starters = Some(vec![v0::Skill {
             name: "research".into(),
             description: "Find sources".into(),

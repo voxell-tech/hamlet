@@ -246,7 +246,8 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins(crate::overview::plugin);
         let mut state = hamlet_testing::realm::state();
-        state.deeds = Some(vec!["record".into(), "overturn".into()]);
+        state.deeds =
+            hamlet_testing::realm::deeds(&["record", "overturn"]);
         state
             .agents
             .push(hamlet_testing::realm::agent("home", 1, "scout"));
@@ -369,7 +370,7 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins(crate::overview::plugin);
         let mut state = hamlet_testing::realm::state();
-        state.deeds = Some(vec!["record".into()]);
+        state.deeds = hamlet_testing::realm::deeds(&["record"]);
         hamlet_client::receive(
             app.world_mut(),
             v0::ServerMessage::State(state.clone()),
@@ -427,7 +428,7 @@ mod tests {
         assert!(
             words(&mut app).contains(&"The record recovered".into())
         );
-        state.deeds = Some(vec![]);
+        state.deeds = hamlet_testing::realm::deeds(&[]);
         hamlet_client::receive(
             app.world_mut(),
             v0::ServerMessage::State(state.clone()),
@@ -437,7 +438,7 @@ mod tests {
             .resource_mut::<Outbox>()
             .drain()
             .for_each(drop);
-        state.deeds = Some(vec!["record".into()]);
+        state.deeds = hamlet_testing::realm::deeds(&["record"]);
         hamlet_client::receive(
             app.world_mut(),
             v0::ServerMessage::State(state),

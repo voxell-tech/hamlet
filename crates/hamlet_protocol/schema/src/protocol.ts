@@ -710,6 +710,15 @@ export const ProviderView = object({
 });
 export type ProviderView = Static<typeof ProviderView>;
 
+/** A command the chief can type, as the server carries it out (H26). */
+export const Deed = object({
+    name: Type.String(),
+    /** Its arguments, as `/name` takes them; empty when it takes none. */
+    usage: Type.String(),
+    description: Type.String(),
+});
+export type Deed = Static<typeof Deed>;
+
 /** The whole realm's state (S5). */
 export const State = object({
     /** The server machine's houses folder. Local chat links and pictures must not resolve under it. */
@@ -728,8 +737,8 @@ export const State = object({
     grants: Type.Array(Grant),
     settings: SettingsView,
     providers: Type.Array(ProviderView),
-    /** The chief's command names this server carries out (H26). */
-    deeds: Type.Optional(Type.Array(Type.String())),
+    /** The chief's commands this server carries out (H26). */
+    deeds: Type.Optional(Type.Array(Deed)),
     /** Shipped skills a chief can give (H25). */
     starters: Type.Optional(Type.Array(Skill)),
 });

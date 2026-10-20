@@ -237,6 +237,13 @@ pub enum ConversationViewKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Deed {
+    pub description: String,
+    pub name: String,
+    pub usage: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Doing {
     #[serde(rename = "rest")]
     Rest,
@@ -1148,7 +1155,7 @@ pub struct State {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub closed: Option<Vec<ClosedHamlet>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub deeds: Option<Vec<String>>,
+    pub deeds: Option<Vec<Deed>>,
     pub epoch: i64,
     pub grants: Vec<Grant>,
     pub hamlets: Vec<Hamlet>,
