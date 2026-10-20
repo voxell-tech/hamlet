@@ -159,6 +159,18 @@ macro_rules! operations {
         pub enum Operation {
             $($name($name)),*
         }
+
+        #[cfg(test)]
+        impl Operation {
+            /// Whether `value` is this operation's reply.
+            fn answered_by(&self, value: Value) -> bool {
+                match self {
+                    $(Self::$name(_) => {
+                        serde_json::from_value::<$reply>(value).is_ok()
+                    })*
+                }
+            }
+        }
     };
 }
 
@@ -334,6 +346,10 @@ pub enum Code {
     NotSupported,
     Timeout,
     OutputLimit,
+    /// A tree with more entries than the request allowed.
+    TooMany,
+    /// A tree with more bytes than the request allowed.
+    TooLarge,
     Unavailable,
     Confinement,
     Uncertain,
@@ -356,6 +372,8 @@ impl Code {
             Self::NotSupported => "not_supported",
             Self::Timeout => "timeout",
             Self::OutputLimit => "output_limit",
+            Self::TooMany => "too_many",
+            Self::TooLarge => "too_large",
             Self::Unavailable => "unavailable",
             Self::Confinement => "confinement",
             Self::Uncertain => "uncertain",
@@ -454,6 +472,14 @@ mod tests {
                 case["reply"],
                 "{name}"
             );
+            if let Message::Execute { request } = &message
+                && let Reply::Ok { value } = reply
+            {
+                assert!(
+                    request.operation.answered_by(value),
+                    "{name}: the reply is not the operation's"
+                );
+            }
             if let Message::Execute { request } = message
                 && let Operation::Write(write) = request.operation
             {

@@ -465,20 +465,47 @@ impl Root {
     }
 }
 
+/// A tree past the entries or bytes a request allowed, with its code.
+#[derive(Debug)]
+struct Past(Code);
+
+impl std::fmt::Display for Past {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        f.write_str(self.0.as_str())
+    }
+}
+
+impl std::error::Error for Past {}
+
+fn past(code: Code) -> io::Error {
+    io::Error::other(Past(code))
+}
+
 fn answer<T: Serialize>(result: io::Result<T>) -> Reply {
     match result {
         Ok(value) => Reply::ok(value),
         Err(error) => {
-            let code = match error.kind() {
-                io::ErrorKind::NotFound => Code::NotFound,
-                io::ErrorKind::AlreadyExists => Code::AlreadyExists,
-                io::ErrorKind::PermissionDenied => {
+            let past = error
+                .get_ref()
+                .and_then(|inner| inner.downcast_ref::<Past>());
+            let code = match (past, error.kind()) {
+                (Some(Past(code)), _) => *code,
+                (_, io::ErrorKind::NotFound) => Code::NotFound,
+                (_, io::ErrorKind::AlreadyExists) => {
+                    Code::AlreadyExists
+                }
+                (_, io::ErrorKind::PermissionDenied) => {
                     Code::PermissionDenied
                 }
-                io::ErrorKind::NotADirectory => Code::NotDirectory,
-                io::ErrorKind::IsADirectory => Code::IsDirectory,
-                io::ErrorKind::InvalidInput => Code::Invalid,
-                io::ErrorKind::Unsupported => Code::NotSupported,
+                (_, io::ErrorKind::NotADirectory) => {
+                    Code::NotDirectory
+                }
+                (_, io::ErrorKind::IsADirectory) => Code::IsDirectory,
+                (_, io::ErrorKind::InvalidInput) => Code::Invalid,
+                (_, io::ErrorKind::Unsupported) => Code::NotSupported,
                 _ => Code::Unknown,
             };
             Reply::error(code, FAILED, false)
@@ -564,7 +591,7 @@ fn tree(
 ) -> io::Result<()> {
     for name in names(dir)? {
         if entries.len() as u64 >= cap {
-            return Err(io::ErrorKind::InvalidInput.into());
+            return Err(past(Code::TooMany));
         }
         let stat =
             statat(dir, name.as_str(), AtFlags::SYMLINK_NOFOLLOW)?;
@@ -633,7 +660,7 @@ fn digest(
         }
         *remaining = remaining
             .checked_sub(count as u64)
-            .ok_or(io::ErrorKind::InvalidInput)?;
+            .ok_or_else(|| past(Code::TooLarge))?;
         size += count as u64;
         digest.update(&buffer[..count]);
     }
