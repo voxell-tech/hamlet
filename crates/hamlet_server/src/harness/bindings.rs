@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use rusqlite::types::{
     FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef,
 };
-use rusqlite::{OptionalExtension, ToSql, params};
+use rusqlite::{Connection, OptionalExtension, ToSql, params};
 
 use super::link::{
     AdmittedStatus, ConfigureTools, Item, Mark, ModelRef,
@@ -662,31 +662,11 @@ impl Store {
         // A call of the stopped turn the gate allowed, asked for
         // again after the stop or after a restart, runs
         // nothing (H34); a marked result stands.
-        let open = tx
-            .prepare(
-                "SELECT runtime, key FROM gate_call WHERE binding = \
-                 ?1 AND block IS NULL",
-            )?
-            .query_map([binding.0], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                ))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        for (runtime, key) in open {
-            if !crate::operation::is_marked(&tx, &runtime, &key)? {
-                tx.execute(
-                    "UPDATE gate_call SET block = ?3 WHERE runtime \
-                     = ?1 AND key = ?2",
-                    params![
-                        runtime,
-                        key,
-                        super::answers::STOPPED_WORDS
-                    ],
-                )?;
-            }
-        }
+        crate::oversight::held::block_unrun(
+            &tx,
+            binding,
+            super::answers::STOPPED_WORDS,
+        )?;
         tx.commit()?;
         Ok(())
     }
@@ -717,6 +697,46 @@ impl Store {
 }
 
 /// The SQL test that an input's `status` has ended.
+/// Whether the input admitted as `submission` of `binding` may still
+/// run: its binding is not cancelling, and it was neither dropped nor
+/// ended.
+pub(crate) fn input_runs(
+    db: &Connection,
+    binding: BindingId,
+    submission: &str,
+) -> Result<bool> {
+    Ok(db
+        .query_row(
+            &format!(
+                "SELECT 1 FROM harness_input i JOIN harness_binding \
+                 b ON b.id = i.binding WHERE i.binding = ?1 AND \
+                 i.submission = ?2 AND b.cancelling = 0 AND i.state \
+                 != 'dropped' AND NOT coalesce({ENDED}, 0)"
+            ),
+            params![binding.0, submission],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
+/// The conversations, errands aside, whose inputs of the task `task`
+/// were not dropped and have not ended.
+pub(crate) fn working_on(
+    db: &Connection,
+    task: &str,
+) -> Result<Vec<BindingId>> {
+    Ok(db
+        .prepare(&format!(
+            "SELECT DISTINCT i.binding FROM harness_input i JOIN \
+             harness_binding b ON b.id = i.binding WHERE b.errand = \
+             0 AND i.state != 'dropped' AND NOT coalesce({ENDED}, \
+             0) AND json_extract(i.mark, '$.data.task') = ?1"
+        ))?
+        .query_map([task], |row| Ok(BindingId(row.get(0)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
 const ENDED: &str = "status IN ('done', 'unanswered')";
 
 const BINDING: &str = "SELECT id, hamlet, number, errand, model, \

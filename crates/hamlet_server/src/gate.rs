@@ -4,9 +4,11 @@
 
 use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, params};
-use serde_json::{Value, json};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::harness::BindingId;
+use crate::oversight::Danger;
 use crate::record::AgentRef;
 
 /// A tool call, classified by its reach.
@@ -157,7 +159,7 @@ pub(crate) struct Standing {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Verdict {
     Run { net: bool },
-    Ask(&'static str),
+    Ask(Danger),
     Block(String),
 }
 
@@ -196,7 +198,7 @@ pub(crate) fn rule(
     mayor: bool,
 ) -> Verdict {
     let verdict = if mayor && mayor_reserved(call, limits) {
-        Verdict::Ask("reserved")
+        Verdict::Ask(Danger::Reserved)
     } else {
         reach(call, standing)
     };
@@ -239,7 +241,7 @@ fn reach(call: &Call, standing: &Standing) -> Verdict {
         }
         Call::Edit { .. } => {
             if standing.asks_edits && !standing.house_edit {
-                Verdict::Ask("edit")
+                Verdict::Ask(Danger::Edit)
             } else {
                 Verdict::Run { net: false }
             }
@@ -249,9 +251,9 @@ fn reach(call: &Call, standing: &Standing) -> Verdict {
                 && (*net
                     || matches!(call, Call::Shell {command, ..} if networked(command)))
             {
-                Verdict::Ask("network")
+                Verdict::Ask(Danger::Network)
             } else if standing.asks_commands {
-                Verdict::Ask("command")
+                Verdict::Ask(Danger::Command)
             } else {
                 Verdict::Run { net: standing.net }
             }
@@ -282,7 +284,35 @@ pub(crate) struct Asked {
     pub input: Option<String>,
     pub strikes: i64,
     pub questions: i64,
-    pub refused: Vec<Value>,
+    pub refused: Vec<Refused>,
+}
+
+/// A request the chief refused in a turn.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct Refused {
+    /// The name of the agent that asked.
+    pub by: String,
+    pub what: Covers,
+    pub reason: String,
+}
+
+/// What a refusal covers: a reach of every call, or one exact
+/// request.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Covers {
+    Kind(Danger),
+    Exact(String),
+}
+
+impl Covers {
+    fn of(danger: Danger, about: &str) -> Self {
+        if danger == Danger::Network {
+            Self::Kind(danger)
+        } else {
+            Self::Exact(about.into())
+        }
+    }
 }
 
 impl Asked {
@@ -351,24 +381,16 @@ impl Asked {
     pub fn refuse(
         &mut self,
         by: &str,
-        danger: &str,
+        danger: Danger,
         about: &str,
         reason: &str,
     ) {
         self.strikes += 1;
-        self.refused.push(json!({
-            "by": by,
-            "what": refusal(danger, about),
-            "reason": reason,
-        }));
-    }
-}
-
-fn refusal(danger: &str, about: &str) -> Value {
-    if danger == "network" || danger == "unconfined" {
-        json!({"kind": danger})
-    } else {
-        json!({"exact": about})
+        self.refused.push(Refused {
+            by: by.into(),
+            what: Covers::of(danger, about),
+            reason: reason.into(),
+        });
     }
 }
 
@@ -377,21 +399,21 @@ fn refusal(danger: &str, about: &str) -> Value {
 fn refused(
     asked: &Asked,
     by: &str,
-    danger: &str,
+    danger: Danger,
     about: &str,
     cap: i64,
 ) -> Option<String> {
-    let what = refusal(danger, about);
+    let what = Covers::of(danger, about);
     if let Some(earlier) = asked
         .refused
         .iter()
-        .find(|entry| entry["by"] == by && entry["what"] == what)
+        .find(|entry| entry.by == by && entry.what == what)
     {
         return Some(format!(
             "the chief already refused this in this turn ({}). Do \
              not ask again: go on without it, or report that you \
              could not.",
-            earlier["reason"].as_str().unwrap_or_default()
+            earlier.reason
         ));
     }
     (asked.strikes >= cap).then(|| {
@@ -438,9 +460,10 @@ pub(crate) fn trusted(
 pub(crate) fn trust(
     db: &Connection,
     key: &TrustKey,
-    danger: &str,
+    danger: Danger,
 ) -> Result<()> {
-    let (edit, command) = (danger == "edit", danger == "command");
+    let (edit, command) =
+        (danger == Danger::Edit, danger == Danger::Command);
     db.execute(
         "INSERT INTO gate_trust (hamlet, number, chief, session, \
          edit, command) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT \
@@ -611,18 +634,24 @@ mod tests {
     #[test]
     fn a_refusal_is_not_asked_again_in_its_turn() {
         let mut asked = Asked::default();
-        asked.refuse("mayor", "network", "echo curl", "no network");
+        asked.refuse(
+            "mayor",
+            Danger::Network,
+            "echo curl",
+            "no network",
+        );
         assert!(
-            refused(&asked, "mayor", "network", "echo wget", 3)
+            refused(&asked, "mayor", Danger::Network, "echo wget", 3)
                 .unwrap()
                 .contains("(no network)")
         );
         assert_eq!(
-            refused(&asked, "mayor", "command", "ls", 3),
+            refused(&asked, "mayor", Danger::Command, "ls", 3),
             None
         );
         assert!(
-            refused(&asked, "mayor", "command", "ls", 1).is_some()
+            refused(&asked, "mayor", Danger::Command, "ls", 1)
+                .is_some()
         );
     }
 }

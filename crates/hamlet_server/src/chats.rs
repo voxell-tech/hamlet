@@ -21,11 +21,10 @@ use hamlet_protocol::v0::{
     ChatRef, ClientMessage, Op, Read, ServerMessage, Turn, UsageView,
 };
 use serde_json::{Value, json};
-use tokio::task::JoinSet;
 
 use self::activity::Activity;
 pub(crate) use self::activity::words;
-pub(crate) use self::calls::{Ran, prepared, ran, specs, stop_tools};
+pub(crate) use self::calls::{Finished, finished, specs, stop_tools};
 pub(crate) use self::deeds::stop_agent;
 use self::fold::Fold;
 use self::records::Place;
@@ -48,11 +47,8 @@ pub(crate) struct Chats {
     /// Messages for clients, sent once a request or event is
     /// handled.
     pub outbox: Vec<(u64, ServerMessage)>,
-    /// The tool calls running for runtimes.
-    pub tools: JoinSet<Ran>,
-    running: HashMap<(String, String), calls::Running>,
-    pub preparing: JoinSet<calls::PreparedCall>,
-    preparations: HashMap<uuid::Uuid, calls::Preparing>,
+    /// The tool calls and preparations running for runtimes.
+    calls: calls::Tasks,
     /// The notice of a stop, written once its runtime stopped the
     /// turn.
     stopping: HashMap<BindingId, String>,
@@ -72,6 +68,13 @@ struct Conversation {
     turn: Option<String>,
     /// The usage last shown to its watchers.
     usage: Option<UsageView>,
+}
+
+impl Conversation {
+    /// Whether it runs a turn or has inputs waiting in its runtime.
+    fn busy(&self) -> bool {
+        self.running || self.pending > 0
+    }
 }
 
 /// A client's watch of one chat.
@@ -110,10 +113,7 @@ impl Chats {
             watches: Vec::new(),
             deferred: Vec::new(),
             outbox: Vec::new(),
-            tools: JoinSet::new(),
-            running: HashMap::new(),
-            preparing: JoinSet::new(),
-            preparations: HashMap::new(),
+            calls: calls::Tasks::default(),
             stopping: HashMap::new(),
             closing: false,
             sandbox,
@@ -128,10 +128,16 @@ impl Chats {
 
     /// Stops every tool call that is running.
     pub fn stop_tools(&mut self) {
-        self.tools.abort_all();
-        self.running.clear();
-        self.preparing.abort_all();
-        self.preparations.clear();
+        self.calls.stop_all();
+    }
+
+    /// The next tool call or preparation to end, to answer with
+    /// [`finished`]; pending while none runs.
+    pub async fn next(&mut self) -> Finished {
+        match self.calls.next().await {
+            Some(finished) => finished,
+            None => std::future::pending().await,
+        }
     }
 }
 
@@ -196,22 +202,18 @@ pub(crate) async fn converse(
             deeds::stop(service, harnesses, stop.agent.as_ref())
                 .await?,
         )),
-        ClientMessage::Answer(answer) => {
-            let choice = serde_json::to_value(&answer.choice)?;
-            Some(reply(
-                &answer.id,
-                calls::answer_words(
-                    service,
-                    harnesses,
-                    &answer.wait,
-                    choice.as_str().unwrap_or_default(),
-                    answer.text.as_deref().unwrap_or_default(),
-                    answer.picks.as_deref(),
-                )
-                .await?
-                .map_err(Refusal::Invalid),
-            ))
-        }
+        ClientMessage::Answer(answer) => Some(reply(
+            &answer.id,
+            calls::answer_words(
+                service,
+                harnesses,
+                &answer.wait,
+                &answer.choice,
+                answer.text.as_deref().unwrap_or_default(),
+                answer.picks.as_deref(),
+            )
+            .await?,
+        )),
         ClientMessage::Read(Read::History { agent, id }) => {
             Some(watch::history(service, harnesses, agent, id).await?)
         }
@@ -410,7 +412,7 @@ pub(crate) fn work(
         chats
             .conversations
             .get(binding)
-            .is_some_and(|c| c.running || c.pending > 0)
+            .is_some_and(Conversation::busy)
     });
     let active = bindings
         .iter()

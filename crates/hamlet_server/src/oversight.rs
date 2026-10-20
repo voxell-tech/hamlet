@@ -1,14 +1,195 @@
 //! What waits for a chief (H11, H34): approvals of held tool calls,
 //! faults, and questions, each kept until it is answered or lapses.
 
-use anyhow::{Context, Result};
-use hamlet_protocol::v0::Questions;
-use rusqlite::{Connection, OptionalExtension, params};
+pub(crate) mod held;
+
+use anyhow::{Context, Result, bail};
+use hamlet_protocol::v0::{Choice, Lasting, Questions, WaitDanger};
+use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::RuntimeInstance;
 use crate::change::clip;
+use crate::harness::BindingId;
 use crate::record::{AgentRef, Hamlet};
+use crate::{OperationId, RuntimeInstance};
+
+/// What a held tool call would do that a chief must allow.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Danger {
+    Network,
+    /// A society act the chief's limits reserve to the chief.
+    Reserved,
+    Edit,
+    Command,
+}
+
+impl Danger {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Network => "network",
+            Self::Reserved => "reserved",
+            Self::Edit => "edit",
+            Self::Command => "command",
+        }
+    }
+
+    fn named(name: &str) -> Option<Self> {
+        [Self::Network, Self::Reserved, Self::Edit, Self::Command]
+            .into_iter()
+            .find(|danger| danger.as_str() == name)
+    }
+
+    /// The danger's words after the agent's name.
+    pub fn says(self) -> &'static str {
+        match self {
+            Self::Network => "wants the network for",
+            Self::Reserved => "wants to do what you reserved:",
+            Self::Edit => "wants to edit",
+            Self::Command => "wants to run",
+        }
+    }
+
+    /// What `always` lets go: an edit or a command for the agent's
+    /// session, the network until it is revoked.
+    fn lasting(self) -> Option<Lasting> {
+        match self {
+            Self::Edit | Self::Command => Some(Lasting::Session),
+            Self::Network => Some(Lasting::Grant),
+            Self::Reserved => None,
+        }
+    }
+
+    /// The answers a chief may give.
+    pub fn answers(self) -> Vec<Choice> {
+        match self.lasting() {
+            Some(_) => {
+                vec![Choice::Allow, Choice::Always, Choice::Deny]
+            }
+            None => vec![Choice::Allow, Choice::Deny],
+        }
+    }
+}
+
+impl From<Danger> for WaitDanger {
+    fn from(danger: Danger) -> Self {
+        match danger {
+            Danger::Network => Self::Network,
+            Danger::Reserved => Self::Reserved,
+            Danger::Edit => Self::Edit,
+            Danger::Command => Self::Command,
+        }
+    }
+}
+
+/// What a wait waits for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WaitKind {
+    Approval(Danger),
+    Fault,
+    Question,
+    Objection,
+}
+
+impl WaitKind {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Approval(_) => "approval",
+            Self::Fault => "fault",
+            Self::Question => "question",
+            Self::Objection => "objection",
+        }
+    }
+
+    fn danger(self) -> Option<Danger> {
+        match self {
+            Self::Approval(danger) => Some(danger),
+            _ => None,
+        }
+    }
+
+    fn of(name: &str, danger: Option<Danger>) -> Result<Self> {
+        Ok(match (name, danger) {
+            ("approval", Some(danger)) => Self::Approval(danger),
+            ("fault", _) => Self::Fault,
+            ("question", _) => Self::Question,
+            ("objection", _) => Self::Objection,
+            _ => bail!("a wait of kind {name} and danger {danger:?}"),
+        })
+    }
+}
+
+/// How a wait or the call it held was ended: by a chief's answer, or
+/// by a stop or a rewind.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Ruling {
+    Allow,
+    Always,
+    Deny,
+    Go,
+    Withdraw,
+    Reply,
+    Dismiss,
+    Stopped,
+    Rewound,
+}
+
+impl Ruling {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Allow => "allow",
+            Self::Always => "always",
+            Self::Deny => "deny",
+            Self::Go => "go",
+            Self::Withdraw => "withdraw",
+            Self::Reply => "reply",
+            Self::Dismiss => "dismiss",
+            Self::Stopped => "stopped",
+            Self::Rewound => "rewound",
+        }
+    }
+
+    fn named(name: &str) -> Option<Self> {
+        [
+            Self::Allow,
+            Self::Always,
+            Self::Deny,
+            Self::Go,
+            Self::Withdraw,
+            Self::Reply,
+            Self::Dismiss,
+            Self::Stopped,
+            Self::Rewound,
+        ]
+        .into_iter()
+        .find(|ruling| ruling.as_str() == name)
+    }
+
+    /// Whether it lets a held call run.
+    pub fn allows(self) -> bool {
+        matches!(self, Self::Allow | Self::Always)
+    }
+}
+
+impl From<&Choice> for Ruling {
+    fn from(choice: &Choice) -> Self {
+        match choice {
+            Choice::Allow => Self::Allow,
+            Choice::Always => Self::Always,
+            Choice::Deny => Self::Deny,
+            Choice::Go => Self::Go,
+            Choice::Withdraw => Self::Withdraw,
+            Choice::Reply => Self::Reply,
+            Choice::Dismiss => Self::Dismiss,
+        }
+    }
+}
 
 /// A chief's chat a wait was raised in, with its session number.
 #[derive(Clone, Debug, PartialEq)]
@@ -19,13 +200,20 @@ pub(crate) struct ChatPlace {
     pub session: i64,
 }
 
+impl ChatPlace {
+    /// Whether it is the chat of `chief` with `agent`.
+    fn is_with(&self, agent: &AgentRef, chief: &str) -> bool {
+        self.hamlet == agent.hamlet
+            && self.number == agent.number
+            && self.chief == chief
+    }
+}
+
 /// Something that waits for a chief.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Wait {
     pub id: String,
-    /// `approval`, `fault`, `question` or `objection`.
-    pub kind: String,
-    pub danger: Option<String>,
+    pub kind: WaitKind,
     /// The name of the agent that raised it.
     pub by: String,
     pub agent: Option<AgentRef>,
@@ -33,7 +221,7 @@ pub(crate) struct Wait {
     pub about: String,
     pub change: Option<Value>,
     pub questions: Option<Questions>,
-    pub answers: Vec<String>,
+    pub answers: Vec<Choice>,
     pub since: i64,
     /// Times it was asked while it waited.
     pub asked: i64,
@@ -42,51 +230,27 @@ pub(crate) struct Wait {
 
 /// A wait to raise, and the tool call it holds.
 pub(crate) struct Raising {
-    pub kind: &'static str,
-    pub danger: Option<String>,
+    pub kind: WaitKind,
     pub by: String,
     pub agent: Option<AgentRef>,
     pub about: String,
     pub change: Option<Value>,
     pub questions: Option<Questions>,
-    pub answers: Vec<String>,
+    pub answers: Vec<Choice>,
     pub chat: Option<ChatPlace>,
-    pub call: Option<(RuntimeInstance, String)>,
+    pub call: Option<Holding>,
+}
+
+/// The tool call a raised wait holds.
+pub(crate) struct Holding {
+    pub id: OperationId,
+    pub binding: BindingId,
+    pub input: Option<String>,
+    pub change: Option<Value>,
 }
 
 /// A held call a settled wait ruled on, to be told at once.
 pub(crate) type Woken = Vec<(RuntimeInstance, String)>;
-
-/// Raises a wait, or joins the open one that waits for the same thing
-/// by the same agent. A call already held finds its wait again; one
-/// already ruled raises nothing.
-pub(crate) fn raise(
-    db: &Connection,
-    raising: Raising,
-    at: i64,
-) -> Result<Option<String>> {
-    if let Some((runtime, key)) = &raising.call {
-        let held = db
-            .query_row(
-                "SELECT wait, how FROM gate_call WHERE runtime = ?1 \
-                 AND key = ?2",
-                params![runtime.as_str(), key],
-                |row| {
-                    Ok((
-                        row.get::<_, Option<String>>(0)?,
-                        row.get::<_, Option<String>>(1)?,
-                    ))
-                },
-            )
-            .optional()?;
-        match held {
-            Some((_, Some(_))) => return Ok(None),
-            Some((Some(wait), None)) => return Ok(Some(wait)),
-            _ => {}
-        }
-    }
-    put(db, raising, at).map(Some)
-}
 
 /// Raises a fault: a turn that failed, which a chief can only
 /// dismiss. The same fault again is asked again.
@@ -98,103 +262,21 @@ pub(crate) fn raise_fault(
     about: String,
     at: i64,
 ) -> Result<String> {
-    put(
+    held::put(
         db,
         Raising {
-            kind: "fault",
-            danger: None,
+            kind: WaitKind::Fault,
             by,
             agent: Some(agent),
             about,
             change: None,
             questions: None,
-            answers: vec!["dismiss".into()],
+            answers: vec![Choice::Dismiss],
             chat,
             call: None,
         },
         at,
     )
-}
-
-fn put(db: &Connection, raising: Raising, at: i64) -> Result<String> {
-    let questions = raising
-        .questions
-        .as_ref()
-        .map(serde_json::to_string)
-        .transpose()?;
-    let same = db
-        .query_row(
-            "SELECT id FROM wait WHERE open = 1 AND kind = ?1 AND \
-             danger IS ?2 AND by = ?3 AND about = ?4 AND questions \
-             IS ?5",
-            params![
-                raising.kind,
-                raising.danger,
-                raising.by,
-                raising.about,
-                questions,
-            ],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?;
-    let id = match same {
-        Some(id) => {
-            db.execute(
-                "UPDATE wait SET asked = asked + 1 WHERE id = ?1",
-                [&id],
-            )?;
-            id
-        }
-        None => {
-            let ordinal = db.query_row(
-                "SELECT coalesce(max(ordinal), 0) + 1 FROM wait",
-                [],
-                |row| row.get::<_, i64>(0),
-            )?;
-            let id = format!("{at}-{ordinal}");
-            let chat = raising.chat.as_ref();
-            db.execute(
-                "INSERT INTO wait (id, ordinal, kind, danger, by, \
-                 hamlet, number, about, change, answers, since, \
-                 asked, chat_hamlet, chat_number, chat_chief, \
-                 chat_session, questions) VALUES (?1, ?2, ?3, ?4, \
-                 ?5, ?6, ?7, ?8, ?9, ?10, ?11, 1, ?12, ?13, ?14, \
-                 ?15, ?16)",
-                params![
-                    id,
-                    ordinal,
-                    raising.kind,
-                    raising.danger,
-                    raising.by,
-                    raising.agent.as_ref().map(|a| a.hamlet.clone()),
-                    raising
-                        .agent
-                        .as_ref()
-                        .map(|a| i64::try_from(a.number))
-                        .transpose()?,
-                    raising.about,
-                    raising.change.as_ref().map(Value::to_string),
-                    serde_json::to_string(&raising.answers)?,
-                    at,
-                    chat.map(|c| c.hamlet.clone()),
-                    chat.map(|c| i64::try_from(c.number))
-                        .transpose()?,
-                    chat.map(|c| c.chief.clone()),
-                    chat.map(|c| c.session),
-                    questions,
-                ],
-            )?;
-            id
-        }
-    };
-    if let Some((runtime, key)) = &raising.call {
-        db.execute(
-            "UPDATE gate_call SET wait = ?3 WHERE runtime = ?1 AND \
-             key = ?2",
-            params![runtime.as_str(), key, id],
-        )?;
-    }
-    Ok(id)
 }
 
 /// Ends the open wait `id` and rules on each call it held that has
@@ -203,74 +285,67 @@ fn put(db: &Connection, raising: Raising, at: i64) -> Result<String> {
 pub(crate) fn settle(
     db: &Connection,
     id: &str,
-    how: &str,
+    ruling: Ruling,
     text: &str,
     chief: Option<&str>,
     at: i64,
 ) -> Result<Option<(Wait, Woken)>> {
-    let Some(wait) = find(db, id)? else {
+    let Some(wait) = held::find(db, id)? else {
         return Ok(None);
     };
-    let woken = held(db, id)?;
-    db.execute(
-        "UPDATE gate_call SET how = ?2, text = ?3 WHERE wait = ?1 \
-         AND how IS NULL",
-        params![id, how, text],
-    )?;
-    db.execute(
-        "UPDATE wait SET open = 0, how = ?2, text = ?3, chief = ?4, \
-         settled = ?5 WHERE id = ?1",
-        params![id, how, text, chief, at],
-    )?;
+    let woken = held::rule(db, id, ruling, text)?;
+    held::close(db, id, ruling, text, chief, at)?;
     Ok(Some((wait, woken)))
 }
 
-/// The calls the open wait `id` holds that are not ruled yet.
-fn held(db: &Connection, id: &str) -> Result<Woken> {
-    let mut query = db.prepare(
-        "SELECT runtime, key FROM gate_call WHERE wait = ?1 AND how \
-         IS NULL",
-    )?;
-    query
-        .query_map([id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?
-        .map(|row| {
-            let (runtime, key) = row?;
-            Ok((RuntimeInstance::new(runtime)?, key))
-        })
-        .collect()
-}
-
-/// Ends the waits raised in the chat of `chief` with `agent`: as
-/// `stopped`, all but faults; as `rewound`, those raised since
-/// `since` in the session `session`.
-pub(crate) fn lapse(
+/// Ends the waits a rewind of the chat of `chief` with `agent` takes
+/// back: those raised in its session `session` since `since`.
+pub(crate) fn rewind(
     db: &Connection,
     agent: &AgentRef,
     chief: &str,
-    how: &str,
+    session: i64,
     since: i64,
-    session: Option<i64>,
     at: i64,
 ) -> Result<Woken> {
-    let ids = open(db)?
-        .into_iter()
-        .filter(|wait| {
-            wait.chat.as_ref().is_some_and(|chat| {
-                chat.hamlet == agent.hamlet
-                    && chat.number == agent.number
-                    && chat.chief == chief
-                    && session.is_none_or(|s| s == chat.session)
-            }) && wait.since >= since
-                && !(how == "stopped" && wait.kind == "fault")
-        })
-        .map(|wait| wait.id)
-        .collect::<Vec<_>>();
+    end_all(db, Ruling::Rewound, chief, at, |wait| {
+        wait.since >= since
+            && wait.chat.as_ref().is_some_and(|chat| {
+                chat.is_with(agent, chief) && chat.session == session
+            })
+    })
+}
+
+/// Ends what waits for a stop of `agent` by `chief`: every wait but a
+/// fault that it raised or that was raised in a chat with it.
+pub(crate) fn stop(
+    db: &Connection,
+    agent: &AgentRef,
+    chief: &str,
+    at: i64,
+) -> Result<Woken> {
+    end_all(db, Ruling::Stopped, chief, at, |wait| {
+        wait.kind != WaitKind::Fault
+            && (wait.agent.as_ref() == Some(agent)
+                || wait
+                    .chat
+                    .as_ref()
+                    .is_some_and(|chat| chat.is_with(agent, chief)))
+    })
+}
+
+fn end_all(
+    db: &Connection,
+    ruling: Ruling,
+    chief: &str,
+    at: i64,
+    ends: impl Fn(&Wait) -> bool,
+) -> Result<Woken> {
     let mut woken = Vec::new();
-    for id in ids {
+    for wait in held::open(db)?.into_iter().filter(|wait| ends(wait))
+    {
         if let Some((_, calls)) =
-            settle(db, &id, how, "", Some(chief), at)?
+            settle(db, &wait.id, ruling, "", Some(chief), at)?
         {
             woken.extend(calls);
         }
@@ -280,10 +355,7 @@ pub(crate) fn lapse(
 
 /// The open waits in the order they were raised.
 pub(crate) fn open(db: &Connection) -> Result<Vec<Wait>> {
-    let mut query = db.prepare(&format!(
-        "{WAIT} WHERE open = 1 ORDER BY ordinal"
-    ))?;
-    query.query_map([], wait_row)?.map(|row| row?).collect()
+    held::open(db)
 }
 
 /// The open wait `id`.
@@ -291,96 +363,12 @@ pub(crate) fn find(
     db: &Connection,
     id: &str,
 ) -> Result<Option<Wait>> {
-    db.query_row(
-        &format!("{WAIT} WHERE open = 1 AND id = ?1"),
-        [id],
-        wait_row,
-    )
-    .optional()?
-    .transpose()
+    held::find(db, id)
 }
 
 /// How the wait `id` ended, `lapsed` when that was not kept.
 pub(crate) fn ended(db: &Connection, id: &str) -> Result<String> {
-    Ok(db
-        .query_row(
-            "SELECT how FROM wait WHERE id = ?1 AND open = 0",
-            [id],
-            |row| row.get::<_, Option<String>>(0),
-        )
-        .optional()?
-        .flatten()
-        .unwrap_or_else(|| "lapsed".into()))
-}
-
-const WAIT: &str = "SELECT id, kind, danger, by, hamlet, number, \
-                    about, change, answers, since, asked, \
-                    chat_hamlet, chat_number, chat_chief, \
-                    chat_session, questions FROM wait";
-
-fn wait_row(
-    row: &rusqlite::Row<'_>,
-) -> rusqlite::Result<Result<Wait>> {
-    let id = row.get::<_, String>(0)?;
-    let kind = row.get::<_, String>(1)?;
-    let danger = row.get::<_, Option<String>>(2)?;
-    let by = row.get::<_, String>(3)?;
-    let hamlet = row.get::<_, Option<String>>(4)?;
-    let number = row.get::<_, Option<i64>>(5)?;
-    let about = row.get::<_, String>(6)?;
-    let change = row.get::<_, Option<String>>(7)?;
-    let answers = row.get::<_, String>(8)?;
-    let since = row.get::<_, i64>(9)?;
-    let asked = row.get::<_, i64>(10)?;
-    let chat_hamlet = row.get::<_, Option<String>>(11)?;
-    let chat_number = row.get::<_, Option<i64>>(12)?;
-    let chat_chief = row.get::<_, Option<String>>(13)?;
-    let chat_session = row.get::<_, Option<i64>>(14)?;
-    let questions = row.get::<_, Option<String>>(15)?;
-    Ok((|| {
-        Ok(Wait {
-            id,
-            kind,
-            danger,
-            by,
-            agent: match (hamlet, number) {
-                (Some(hamlet), Some(number)) => Some(AgentRef {
-                    hamlet,
-                    number: u64::try_from(number)?,
-                }),
-                _ => None,
-            },
-            about,
-            change: change
-                .map(|c| serde_json::from_str(&c))
-                .transpose()?,
-            questions: questions
-                .map(|q| serde_json::from_str(&q))
-                .transpose()?,
-            answers: serde_json::from_str(&answers)?,
-            since,
-            asked,
-            chat: match (
-                chat_hamlet,
-                chat_number,
-                chat_chief,
-                chat_session,
-            ) {
-                (
-                    Some(hamlet),
-                    Some(number),
-                    Some(chief),
-                    Some(session),
-                ) => Some(ChatPlace {
-                    hamlet,
-                    number: u64::try_from(number)?,
-                    chief,
-                    session,
-                }),
-                _ => None,
-            },
-        })
-    })())
+    Ok(held::ended(db, id)?.map_or("lapsed", Ruling::as_str).into())
 }
 
 /// The waits raised by `agent`, across its chats.
@@ -401,38 +389,21 @@ pub(crate) fn for_chat<'a>(
     chief: &'a str,
 ) -> impl Iterator<Item = &'a Wait> {
     waits.iter().filter(move |wait| {
-        wait.chat.as_ref().is_some_and(|chat| {
-            chat.hamlet == agent.hamlet
-                && chat.number == agent.number
-                && chat.chief == chief
-        })
+        wait.chat
+            .as_ref()
+            .is_some_and(|chat| chat.is_with(agent, chief))
     })
-}
-
-/// A danger's words after the agent's name.
-pub(crate) fn says(danger: Option<&str>) -> &'static str {
-    match danger {
-        Some("network") => "wants the network for",
-        Some("unconfined") => "wants to run, with no sandbox,",
-        Some("destructive") => {
-            "wants to run, with no sandbox, the destructive"
-        }
-        Some("reserved") => "wants to do what you reserved:",
-        Some("edit") => "wants to edit",
-        Some("command") => "wants to run",
-        _ => "",
-    }
 }
 
 /// The line of a wait's text a one-line view quotes: an edit's file,
 /// or an objection's instruction under the name of its giver.
 pub(crate) fn subject(wait: &Wait) -> &str {
     let mut lines = wait.about.lines();
-    match (wait.kind.as_str(), wait.danger.as_deref()) {
-        ("approval", Some("edit")) => {
+    match wait.kind {
+        WaitKind::Approval(Danger::Edit) => {
             lines.next().unwrap_or_default()
         }
-        ("objection", _) => lines.nth(1).unwrap_or(&wait.about),
+        WaitKind::Objection => lines.nth(1).unwrap_or(&wait.about),
         _ => &wait.about,
     }
 }
@@ -441,22 +412,22 @@ pub(crate) fn subject(wait: &Wait) -> &str {
 /// subject.
 pub(crate) fn line(wait: &Wait, most: usize) -> String {
     let subject = subject(wait);
-    match wait.kind.as_str() {
-        "approval" => format!(
+    match wait.kind {
+        WaitKind::Approval(danger) => format!(
             "{} {} `{}`",
             wait.by,
-            says(wait.danger.as_deref()),
+            danger.says(),
             clip(subject, most, true, true)
         ),
-        "objection" => {
+        WaitKind::Objection => {
             clip(subject, most + wait.by.len(), true, true)
         }
-        "question" => format!(
+        WaitKind::Question => format!(
             "{} asks: {}",
             wait.by,
             clip(subject, most, true, true)
         ),
-        _ => format!(
+        WaitKind::Fault => format!(
             "{} failed: {}",
             wait.by,
             clip(subject, most, true, true)
@@ -468,12 +439,15 @@ pub(crate) fn line(wait: &Wait, most: usize) -> String {
 pub(crate) fn strip(wait: &Wait) -> String {
     format!(
         "[{}] {}\n    {}\n    answer with: {}",
-        wait.kind,
+        wait.kind.name(),
         line(wait, 60),
         wait.about.replace('\n', "\n    "),
         wait.answers
             .iter()
-            .map(|choice| format!("/{choice}"))
+            .map(|choice| format!(
+                "/{}",
+                Ruling::from(choice).as_str()
+            ))
             .collect::<Vec<_>>()
             .join(" ")
     )
@@ -499,23 +473,16 @@ pub(crate) fn view(
         }
         _ => Value::Null,
     };
-    let mut detail = json!({"kind": wait.kind});
-    if wait.kind == "approval" {
-        let danger = wait.danger.as_deref().unwrap_or("unconfined");
-        // An edit or a command is let go for the agent's session,
-        // where the network and no sandbox are granted until revoked.
-        let lasting = match danger {
-            "edit" | "command" => "session",
-            _ => "grant",
-        };
-        detail["danger"] = danger.into();
-        detail["says"] = says(Some(danger)).into();
-        detail["always"] = wait
-            .answers
-            .iter()
-            .any(|answer| answer == "always")
-            .then_some(lasting)
-            .into();
+    let mut detail = json!({"kind": wait.kind.name()});
+    if let WaitKind::Approval(danger) = wait.kind {
+        detail["danger"] =
+            serde_json::to_value(WaitDanger::from(danger))?;
+        detail["says"] = danger.says().into();
+        detail["always"] = serde_json::to_value(
+            danger
+                .lasting()
+                .filter(|_| wait.answers.contains(&Choice::Always)),
+        )?;
     }
     if let Some(questions) = &wait.questions {
         detail["questions"] = serde_json::to_value(questions)

@@ -245,20 +245,17 @@ impl Service {
         });
         Ok(match found {
             Some(agent) => Ok(agent.clone()),
-            None => Err(Refusal::Invalid(
-                record
-                    .archive
-                    .iter()
-                    .rev()
-                    .find(|a| {
-                        a.back.is_none()
-                            && a.agent.name == address.agent
-                    })
-                    .map(|a| record.farewell(a))
-                    .unwrap_or_else(|| {
-                        format!("no agent named `{}`", address.agent)
-                    }),
-            )),
+            None => Err(record
+                .archive
+                .iter()
+                .rev()
+                .find(|a| {
+                    a.back.is_none() && a.agent.name == address.agent
+                })
+                .map_or_else(
+                    || Refusal::NoAgent(address.agent.clone()),
+                    |a| Refusal::Invalid(record.farewell(a)),
+                )),
         })
     }
 

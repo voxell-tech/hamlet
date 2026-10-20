@@ -3,12 +3,13 @@
 
 use anyhow::Result;
 use hamlet_protocol::v0::{
-    Address, Deed, ReplyKind, Say, ServerMessage,
+    Address, Choice, Deed, ReplyKind, Say, ServerMessage,
 };
 use serde_json::{Value, json};
 
 use super::{Deferred, deeds, records};
 use crate::harness::{BindingId, Harnesses, Input, InputStatus};
+use crate::oversight::WaitKind;
 use crate::protocol::{Refusal, reply};
 use crate::record::AgentRef;
 use crate::service::{Service, records as hamlets};
@@ -202,7 +203,7 @@ enum Command {
     Resume(Option<i64>),
     Stop(Option<String>),
     Answer {
-        choice: &'static str,
+        choice: Choice,
         text: String,
     },
     Revoke {
@@ -314,7 +315,10 @@ fn read_command(
                 usage()
             } else {
                 Ok(Command::Answer {
-                    choice: deed,
+                    choice: serde_json::from_value(Value::from(
+                        *deed,
+                    ))
+                    .expect("an answer's command names its choice"),
                     text: rest.into(),
                 })
             }
@@ -559,13 +563,8 @@ pub(super) async fn say(
             hamlet: hamlet.into(),
             number: agent.number,
         }),
-        Err(refusal) => {
-            let words = refusal.text();
-            if !words.starts_with("no agent named") {
-                return Ok(Some(reply(id, Err(refusal))));
-            }
-            Err(refusal)
-        }
+        Err(refusal @ Refusal::NoAgent(_)) => Err(refusal),
+        Err(refusal) => return Ok(Some(reply(id, Err(refusal)))),
     };
     if let Ok(agent) = &target {
         let deed = match &command {
@@ -675,32 +674,42 @@ pub(super) async fn say(
                 service, harnesses, &wait, choice, text, None,
             )
             .await?;
-            return Ok(Some(match outcome {
-                Ok(words) | Err(words) => {
-                    answer(id, ReplyKind::Notice, words)
-                }
-            }));
+            let words = match outcome {
+                Ok(words) => words,
+                Err(refusal) => refusal.text(),
+            };
+            return Ok(Some(answer(id, ReplyKind::Notice, words)));
         }
         _ => {}
     }
     if command.is_none()
         && let Some(wait) =
-            own.as_ref().filter(|w| w.kind == "question")
+            own.as_ref().filter(|w| w.kind == WaitKind::Question)
     {
         let wait = wait.id.clone();
         let outcome = super::calls::answer_words(
-            service, harnesses, &wait, "reply", &text, None,
+            service,
+            harnesses,
+            &wait,
+            &Choice::Reply,
+            &text,
+            None,
         )
         .await?;
         return Ok(Some(match outcome {
             Ok(words) => answer(id, ReplyKind::Notice, words),
-            Err(words) => answer(id, ReplyKind::Error, words),
+            Err(refusal) => {
+                answer(id, ReplyKind::Error, refusal.text())
+            }
         }));
     }
     if !text.trim_start().starts_with('/')
-        && let Some(wait) = own
-            .as_ref()
-            .filter(|w| w.kind == "approval" || w.kind == "objection")
+        && let Some(wait) = own.as_ref().filter(|w| {
+            matches!(
+                w.kind,
+                WaitKind::Approval(_) | WaitKind::Objection
+            )
+        })
     {
         return notice(format!(
             "Not sent. {} is waiting for your answer:\n{}",
@@ -1023,7 +1032,7 @@ mod tests {
         assert_eq!(
             read_command("/deny not here"),
             Some(Ok(Command::Answer {
-                choice: "deny",
+                choice: Choice::Deny,
                 text: "not here".into()
             }))
         );

@@ -27,6 +27,7 @@ use anyhow::{Context, Result, bail};
 pub use bindings::{
     Binding, BindingId, DEFAULT_HARNESS, Input, InputStatus, Standing,
 };
+pub(crate) use bindings::{input_runs, working_on};
 use link::{
     Capability, Diagnostic, HelloStore, Item, Mark, ModelRef,
     Partial, RuntimeMessage, Section, ServerMessage, ToolSpec,
@@ -229,6 +230,18 @@ pub enum Call {
     },
 }
 
+impl Call {
+    /// The runtime's submission id of the input whose turn asks.
+    pub fn input(&self) -> Option<&str> {
+        match self {
+            Self::Allow { input, .. }
+            | Self::Operation { input, .. }
+            | Self::Prompt { input }
+            | Self::Yield { input, .. } => input.as_deref(),
+        }
+    }
+}
+
 /// The message a [`Call`] came in, to answer it by.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Re {
@@ -245,6 +258,19 @@ enum Wake {
     Operation(String),
     /// A chief's ruling on what holds the turns of a conversation.
     Turn(BindingId),
+}
+
+#[cfg(test)]
+impl Re {
+    /// A message no runtime sent.
+    pub(crate) fn test() -> Self {
+        Self {
+            index: 0,
+            generation: 0,
+            id: "test".into(),
+            wake: Wake::Turn(BindingId(0)),
+        }
+    }
 }
 
 impl Wake {
@@ -279,6 +305,19 @@ pub enum Answer {
         notice: Option<Mark>,
         compact: bool,
     },
+}
+
+impl From<crate::tools::Outcome> for Answer {
+    fn from(outcome: crate::tools::Outcome) -> Self {
+        Self::Result {
+            text: outcome.text,
+            error: outcome.error,
+            details: outcome
+                .details
+                .map(|details| details.into_iter().collect()),
+            diagnostics: outcome.diagnostics,
+        }
+    }
 }
 
 impl Answer {

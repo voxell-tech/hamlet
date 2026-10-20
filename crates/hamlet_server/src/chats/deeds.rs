@@ -228,7 +228,7 @@ fn busy(service: &mut Service, binding: BindingId) -> Result<bool> {
         .chats
         .conversations
         .get(&binding)
-        .is_some_and(|c| c.running || c.pending > 0);
+        .is_some_and(super::Conversation::busy);
     Ok(live
         || service
             .home
@@ -390,13 +390,12 @@ pub(super) async fn rewind(
     };
     let count = conversation.unreflected.min(turns);
     let session = conversation.place.session;
-    let woken = oversight::lapse(
+    let woken = oversight::rewind(
         db,
         &agent,
         &chief,
-        "rewound",
+        session,
         i64::try_from(since)?,
-        Some(session),
         super::now(),
     )?;
     for (runtime, key) in woken {
@@ -490,14 +489,18 @@ pub(crate) async fn stop_agent(
     harnesses: &mut Harnesses,
     agent: &AgentRef,
 ) -> Result<()> {
+    let mut stopped = false;
     for binding in records::conversations_of(
         service.home.store().connection(),
         agent,
     )? {
         if busy(service, binding)? {
-            stop_conversation(service, harnesses, agent, binding)
-                .await?;
+            stop_turn(service, harnesses, binding).await?;
+            stopped = true;
         }
+    }
+    if stopped {
+        end_waits(service, harnesses, agent).await?;
     }
     Ok(())
 }
@@ -508,6 +511,35 @@ pub(super) async fn stop_conversation(
     service: &mut Service,
     harnesses: &mut Harnesses,
     agent: &AgentRef,
+    binding: BindingId,
+) -> Result<()> {
+    stop_turn(service, harnesses, binding).await?;
+    end_waits(service, harnesses, agent).await
+}
+
+/// Ends what waits for a stop of `agent` and tells the calls it held.
+async fn end_waits(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    agent: &AgentRef,
+) -> Result<()> {
+    let woken = oversight::stop(
+        service.home.store().connection(),
+        agent,
+        &service.chief,
+        super::now(),
+    )?;
+    for (runtime, key) in woken {
+        harnesses.wake(&runtime, &key).await;
+    }
+    Ok(())
+}
+
+/// Stops the turn of the conversation `binding` and drops its queued
+/// inputs.
+async fn stop_turn(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
     binding: BindingId,
 ) -> Result<()> {
     let chief = service.chief.clone();
@@ -523,39 +555,6 @@ pub(super) async fn stop_conversation(
     )?;
     super::calls::stop_tools(service, binding);
     harnesses.cancel(service.home.store(), binding).await?;
-    let db = service.home.store().connection();
-    let place = records::kept(db, binding)?.map(|kept| kept.place);
-    let mut woken = oversight::lapse(
-        db,
-        agent,
-        place
-            .as_ref()
-            .and_then(|place| place.chief.as_deref())
-            .unwrap_or(&chief),
-        "stopped",
-        0,
-        None,
-        super::now(),
-    )?;
-    for wait in oversight::open(db)?
-        .iter()
-        .filter(|wait| wait.agent.as_ref() == Some(agent))
-        .filter(|wait| wait.kind != "fault")
-    {
-        if let Some((_, calls)) = oversight::settle(
-            db,
-            &wait.id,
-            "stopped",
-            "",
-            Some(&chief),
-            super::now(),
-        )? {
-            woken.extend(calls);
-        }
-    }
-    for (runtime, key) in woken {
-        harnesses.wake(&runtime, &key).await;
-    }
     let text = format!(
         "Stopped: stopped by {chief}{}",
         if dropped == 0 {

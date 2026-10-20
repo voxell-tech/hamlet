@@ -1,12 +1,16 @@
 //! An instruction's one objection, held until its chief answers.
 
 use anyhow::Result;
-use rusqlite::{OptionalExtension, params};
+use hamlet_protocol::v0::Choice;
 use serde_json::{Value, json};
 
+use crate::OperationId;
 use crate::chats::records;
 use crate::harness::{Answer, Binding};
-use crate::oversight::{self, ChatPlace, Raising};
+use crate::oversight::held::{self, CallState};
+use crate::oversight::{
+    ChatPlace, Holding, Raising, Ruling, WaitKind,
+};
 use crate::service::Service;
 
 pub(crate) fn object(
@@ -22,39 +26,34 @@ pub(crate) fn object(
         ));
     }
     let db = service.home.store().connection();
-    let ruled = db
-        .query_row(
-            "SELECT wait,how,text,block FROM gate_call WHERE \
-             runtime=?1 AND key=?2",
-            params![binding.runtime.as_str(), key],
-            |row| {
-                Ok((
-                    row.get::<_, Option<String>>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                ))
-            },
-        )
-        .optional()?;
-    if let Some((_, _, _, Some(words))) = &ruled {
-        return Ok(Answer::Refusal(words.clone()));
-    }
-    if let Some((Some(_), how, text, _)) = ruled {
-        return Ok(match how.as_deref() {
-            None => super::letters::waiting(),
-            Some("go") => Answer::result(
-                format!(
-                    "The chief says go ahead: {}",
-                    text.unwrap_or_default()
-                ),
+    let id = OperationId {
+        runtime: binding.runtime.clone(),
+        key: key.into(),
+    };
+    match held::decision(db, &id)?.map(|call| call.state) {
+        Some(CallState::Blocked(words)) => {
+            return Ok(Answer::Refusal(words));
+        }
+        Some(CallState::Held { .. }) => {
+            return Ok(super::letters::waiting());
+        }
+        Some(CallState::Ruled {
+            ruling: Ruling::Go,
+            text,
+            ..
+        }) => {
+            return Ok(Answer::result(
+                format!("The chief says go ahead: {text}"),
                 false,
-            ),
-            Some(_) => Answer::result(
+            ));
+        }
+        Some(CallState::Ruled { .. }) => {
+            return Ok(Answer::result(
                 "The chief withdrew the instruction.",
                 true,
-            ),
-        });
+            ));
+        }
+        Some(CallState::Open | CallState::Allowed { .. }) | None => {}
     }
     let Some(kept) = records::kept(db, binding.id)? else {
         return Ok(Answer::result(
@@ -121,16 +120,10 @@ pub(crate) fn object(
         crate::record::NameFallback::Recorded,
     );
     let tx = service.home.store().transaction()?;
-    tx.execute(
-        "INSERT INTO gate_call (runtime,key,binding,input) VALUES \
-         (?1,?2,?3,?4) ON CONFLICT DO NOTHING",
-        params![binding.runtime.as_str(), key, binding.id.0, input],
-    )?;
-    let wait = oversight::raise(
+    let wait = held::raise(
         &tx,
         Raising {
-            kind: "objection",
-            danger: None,
+            kind: WaitKind::Objection,
             by: name.clone(),
             agent: Some(kept.place.agent.clone()),
             about: format!(
@@ -139,14 +132,19 @@ pub(crate) fn object(
             ),
             change: None,
             questions: None,
-            answers: vec!["go".into(), "withdraw".into()],
+            answers: vec![Choice::Go, Choice::Withdraw],
             chat: Some(ChatPlace {
                 hamlet: kept.place.agent.hamlet,
                 number: kept.place.agent.number,
                 chief: chief.into(),
                 session: kept.place.session,
             }),
-            call: Some((binding.runtime.clone(), key.into())),
+            call: Some(Holding {
+                id,
+                binding: binding.id,
+                input: input.map(String::from),
+                change: None,
+            }),
         },
         super::now(),
     )?;
@@ -161,6 +159,7 @@ pub(crate) fn object(
 #[cfg(test)]
 mod tests {
     use hamlet_testing::Scratch;
+    use rusqlite::params;
 
     use super::*;
     use crate::harness::link::ModelRef;
@@ -189,15 +188,16 @@ mod tests {
                 &runtime,
             )
             .unwrap();
-        store
-            .connection()
-            .execute(
-                "INSERT INTO gate_call \
-                 (runtime,key,binding,input,net) VALUES \
-                 (?1,'objection',?2,'input',0)",
-                params![runtime.as_str(), id.0],
-            )
-            .unwrap();
+        held::reserve(
+            store.connection(),
+            &OperationId {
+                runtime: runtime.clone(),
+                key: "objection".into(),
+            },
+            id,
+            b"objection",
+        )
+        .unwrap();
         let binding = store.binding(id).unwrap().unwrap();
         records::keep(
             store.connection(),

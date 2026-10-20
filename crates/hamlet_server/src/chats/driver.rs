@@ -2,7 +2,6 @@
 //! them, without protocol v0.
 
 use anyhow::{Context, Result};
-use rusqlite::{OptionalExtension, params};
 
 use super::records::{self, Place};
 use super::{calls, deeds};
@@ -53,18 +52,13 @@ impl Service {
         runtime: &RuntimeInstance,
         key: &str,
     ) -> Result<Option<String>> {
-        Ok(self
-            .home
-            .store()
-            .connection()
-            .query_row(
-                "SELECT g.wait FROM gate_call g JOIN wait w ON w.id \
-                 = g.wait WHERE g.runtime = ?1 AND g.key = ?2 AND \
-                 w.open = 1",
-                params![runtime.as_str(), key],
-                |row| row.get(0),
-            )
-            .optional()?)
+        crate::oversight::held::open_wait_of(
+            self.home.store().connection(),
+            &crate::OperationId {
+                runtime: runtime.clone(),
+                key: key.into(),
+            },
+        )
     }
 
     /// The chief's `choice` on the wait `wait`, in the words a reply
@@ -73,10 +67,13 @@ impl Service {
         &mut self,
         harnesses: &mut Harnesses,
         wait: &str,
-        choice: &str,
+        choice: &hamlet_protocol::v0::Choice,
     ) -> Result<std::result::Result<String, String>> {
-        calls::answer_words(self, harnesses, wait, choice, "", None)
-            .await
+        Ok(calls::answer_words(
+            self, harnesses, wait, choice, "", None,
+        )
+        .await?
+        .map_err(|refusal| refusal.text()))
     }
 
     /// Stops the turn of the conversation `binding`, as a chief's

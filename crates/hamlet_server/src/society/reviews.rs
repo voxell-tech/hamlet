@@ -1,13 +1,16 @@
 //! Mayor reviews beside chief work and task-wide objection rulings.
 
 use anyhow::Result;
+use hamlet_protocol::v0::Choice;
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::chats::records;
 use crate::harness::{BindingId, Harnesses};
-use crate::oversight::{self, ChatPlace, Raising};
+use crate::oversight::{
+    self, ChatPlace, Raising, Ruling, WaitKind, held,
+};
 use crate::record::AgentRef;
 use crate::service::Service;
 
@@ -21,7 +24,7 @@ const DONE: &str = "review-done";
 pub(super) struct Instruction {
     pub binding: i64,
     pub waits: Vec<String>,
-    pub how: Option<String>,
+    pub how: Option<Ruling>,
     text: String,
     notified: bool,
 }
@@ -37,19 +40,6 @@ struct Review {
     prompt: String,
     done: bool,
     wait: Option<String>,
-}
-
-fn active(db: &Connection, task: &str) -> Result<Vec<BindingId>> {
-    Ok(db
-        .prepare(
-            "SELECT DISTINCT i.binding FROM harness_input i JOIN \
-             harness_binding b ON b.id=i.binding WHERE b.errand=0 \
-             AND i.state!='dropped' AND coalesce(i.status,'queued') \
-             IN ('queued','placed') AND \
-             json_extract(i.mark,'$.data.task')=?1",
-        )?
-        .query_map([task], |row| Ok(BindingId(row.get(0)?)))?
-        .collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
 pub(crate) fn held(
@@ -68,12 +58,12 @@ pub(crate) fn held(
         "instruction-ruling",
         &task,
     )?;
-    if instruction.how.as_deref() == Some("withdraw") {
+    if instruction.how == Some(Ruling::Withdraw) {
         return Ok(true);
     }
     for wait in instruction.waits {
         if oversight::find(db, &wait)?.is_some_and(|wait| {
-            wait.answers.iter().any(|answer| answer == "withdraw")
+            wait.answers.contains(&Choice::Withdraw)
         }) {
             return Ok(true);
         }
@@ -284,8 +274,11 @@ async fn sweep_review(
             return Ok(());
         };
         review.done = true;
-        let ended = active(service.home.store().connection(), task)?
-            .is_empty();
+        let ended = crate::harness::working_on(
+            service.home.store().connection(),
+            task,
+        )?
+        .is_empty();
         let tx = service.home.store().transaction()?;
         if let Some(reason) = objection(&answer) {
             object(&tx, task, &mut review, reason, ended)?;
@@ -294,17 +287,18 @@ async fn sweep_review(
         tx.commit()?;
     }
     let db = service.home.store().connection();
-    let ended =
-        || Ok::<_, anyhow::Error>(active(db, task)?.is_empty());
+    let ended = || {
+        Ok::<_, anyhow::Error>(
+            crate::harness::working_on(db, task)?.is_empty(),
+        )
+    };
     let settled = match &review.wait {
         None => true,
         Some(wait) if ended()? => {
-            db.execute(
-                "UPDATE wait SET answers='[\"dismiss\"]', \
-                 about=about || char(10) || '(The work ended before \
-                 you answered.)' WHERE id=?1 AND open=1 AND \
-                 answers!='[\"dismiss\"]'",
-                [wait],
+            held::only_dismiss(
+                db,
+                wait,
+                "(The work ended before you answered.)",
             )?;
             true
         }
@@ -349,11 +343,10 @@ fn object(
     if instruction.how.is_some() {
         return Ok(());
     }
-    review.wait = oversight::raise(
+    review.wait = held::raise(
         tx,
         Raising {
-            kind: "objection",
-            danger: None,
+            kind: WaitKind::Objection,
             by: if review.agent.hamlet == "home" {
                 "mayor".into()
             } else {
@@ -372,9 +365,9 @@ fn object(
             change: None,
             questions: None,
             answers: if ended {
-                vec!["dismiss".into()]
+                vec![Choice::Dismiss]
             } else {
-                vec!["go".into(), "withdraw".into()]
+                vec![Choice::Go, Choice::Withdraw]
             },
             chat: Some(ChatPlace {
                 hamlet: review.agent.hamlet.clone(),
@@ -414,27 +407,20 @@ async fn withdraw(
     for (task, value) in withdrawals {
         let mut instruction =
             serde_json::from_str::<Instruction>(&value)?;
-        for binding in
-            active(service.home.store().connection(), &task)?
-        {
+        for binding in crate::harness::working_on(
+            service.home.store().connection(),
+            &task,
+        )? {
             crate::chats::stop_tools(service, binding);
-            let waits = service
-                .home
-                .store()
-                .connection()
-                .prepare(
-                    "SELECT DISTINCT wait FROM gate_call WHERE \
-                     binding=?1 AND wait IS NOT NULL AND how IS NULL",
-                )?
-                .query_map([binding.0], |row| {
-                    row.get::<_, String>(0)
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let waits = held::waits_holding(
+                service.home.store().connection(),
+                binding,
+            )?;
             for wait in waits {
                 if let Some((_, woken)) = oversight::settle(
                     service.home.store().connection(),
                     &wait,
-                    "stopped",
+                    Ruling::Stopped,
                     "The chief withdrew the instruction.",
                     None,
                     super::now(),
@@ -472,7 +458,7 @@ async fn withdraw(
 pub(crate) fn settle(
     db: &Connection,
     wait: &str,
-    how: &str,
+    ruling: Ruling,
     text: &str,
     chief: &str,
 ) -> Result<oversight::Woken> {
@@ -492,17 +478,17 @@ pub(crate) fn settle(
         .optional()?;
     let mut woken = Vec::new();
     if let Some((task, value)) = found
-        && ["go", "withdraw"].contains(&how)
+        && matches!(ruling, Ruling::Go | Ruling::Withdraw)
     {
         let mut instruction =
             serde_json::from_str::<Instruction>(&value)?;
-        instruction.how = Some(how.into());
+        instruction.how = Some(ruling);
         instruction.text = text.into();
         for id in &instruction.waits {
             if let Some((_, calls)) = oversight::settle(
                 db,
                 id,
-                how,
+                ruling,
                 text,
                 Some(chief),
                 super::now(),

@@ -17,6 +17,7 @@ mod tests;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 use crate::harness::link::{
@@ -42,14 +43,18 @@ pub struct Place {
 
 /// What a tool call ended with: the text pi's own tool would give,
 /// and its remarks apart.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Outcome {
     /// The output pi's own tool would give.
+    #[serde(default)]
     pub text: String,
+    #[serde(default)]
     pub error: bool,
     /// pi's details of the result.
+    #[serde(default)]
     pub details: Option<Map<String, Value>>,
     /// Remarks on the result, in the order pi gives them.
+    #[serde(default)]
     pub diagnostics: Vec<Diagnostic>,
 }
 

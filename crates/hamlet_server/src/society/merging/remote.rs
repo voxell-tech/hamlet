@@ -197,7 +197,7 @@ pub(crate) async fn advance(
         if let Origin::Call(id) = &active.origin
             && !active.applying
             && !service.house_work.pending(id)
-            && !society::library::active(
+            && !crate::oversight::held::unfinished(
                 service.home.store().connection(),
                 id.runtime.as_str(),
                 &id.key,
@@ -215,7 +215,7 @@ pub(crate) async fn advance(
         return Ok(());
     };
     let allowed = match &request.origin {
-        Origin::Call(id) => society::library::active(
+        Origin::Call(id) => crate::oversight::held::unfinished(
             service.home.store().connection(),
             id.runtime.as_str(),
             &id.key,
@@ -532,7 +532,7 @@ pub(crate) async fn complete(
         Finished::Prepared(result) => match &completed.origin {
             Origin::Call(id) => {
                 service.house_work.release(id);
-                if society::library::active(
+                if crate::oversight::held::unfinished(
                     service.home.store().connection(),
                     id.runtime.as_str(),
                     &id.key,

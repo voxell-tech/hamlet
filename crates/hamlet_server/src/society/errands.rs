@@ -1,7 +1,7 @@
 //! Durable one-off conversations and their waiting tool calls.
 
 use anyhow::Result;
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 
 use super::Caller;
@@ -182,4 +182,20 @@ pub(crate) async fn sweep(
         }
     }
     Ok(())
+}
+
+/// The instructions the errand of `binding` was given.
+pub(crate) fn instructions(
+    db: &Connection,
+    binding: BindingId,
+) -> Result<Option<String>> {
+    Ok(db
+        .query_row(
+            "SELECT instructions FROM society_binding WHERE binding \
+             = ?1",
+            [binding.0],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten())
 }
