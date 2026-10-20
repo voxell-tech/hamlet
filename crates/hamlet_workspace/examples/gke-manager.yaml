@@ -1,5 +1,6 @@
-# Private manager on an existing Substrate cluster. Supply the image digest
-# and the hamlet-workspace secret (manager.json and signing-key) separately.
+# Example only, not an official deployment: a private manager on an
+# existing Substrate cluster on GKE. Supply the image digest and the
+# hamlet-workspace secret (manager.json and signing-key) separately.
 apiVersion: v1
 kind: ServiceAccount
 metadata:

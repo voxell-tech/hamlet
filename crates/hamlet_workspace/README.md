@@ -40,8 +40,6 @@ This tags the image `hamlet-workspace:<short commit>` and labels it
 `org.opencontainers.image.revision` with the full commit, so a deployed
 image tells which commit it holds. `WORKSPACE_IMAGE` sets another tag,
 and `DOCKER_FLAGS` passes flags such as `--platform` to `docker build`.
-CI builds the image whenever this crate, the wire crate or the lockfile
-changes, but never pushes it.
 
 The image builds locally. Its runtime smoke check exercises key creation
 and permissions, the packaged tools, worker startup and rejection of an
@@ -87,7 +85,8 @@ docker run --rm \
 ```
 
 Both files reject unknown fields, so they cannot hold comments. Examples
-with placeholders are in [`config/`](config).
+with placeholders are in [`examples/`](examples). They show one setup,
+Substrate on GKE, and are not an official deployment.
 
 ## Keys
 
@@ -108,7 +107,7 @@ serves any number of Hamlet homes. Each home has its own token, and the
 token alone tells the manager which home is calling: two homes never
 share an actor, a file or an operation record, even when their hamlets
 have the same names. See
-[`config/manager.example.json`](config/manager.example.json).
+[`examples/manager.example.json`](examples/manager.example.json).
 
 | Field | Meaning |
 |---|---|
@@ -211,7 +210,7 @@ expose the plain port on a network.
 The image runs as root by default. The manager needs no capabilities
 and can run as any user that owns `state`.
 
-[`config/gke-manager.yaml`](config/gke-manager.yaml) runs one non-root manager
+The example [`examples/gke-manager.yaml`](examples/gke-manager.yaml) runs one non-root manager
 with a 1 GiB persistent volume, a projected control token and the cluster's
 service CA. Supply its immutable image and `hamlet-workspace` Secret separately.
 The secret holds `manager.json` and `signing-key`. Configure the manager to
@@ -254,7 +253,7 @@ written.
 
 The worker holds no private credentials: no signing key, no tokens, no
 model or cloud credentials. See
-[`config/worker.example.json`](config/worker.example.json).
+[`examples/worker.example.json`](examples/worker.example.json).
 
 | Field | Meaning |
 |---|---|
@@ -289,7 +288,7 @@ from being sent. Hamlet still owns librarian judgment, starter installation
 and skill publication/removal, including confined staging from remote
 houses.
 
-[`config/template.example.json`](config/template.example.json) is the
+[`examples/template.example.json`](examples/template.example.json) is the
 protobuf JSON body for `CreateActorTemplate`. Replace its image digest,
 snapshot URI and existing gVisor config placeholders before submission.
 It is not deployment authorization. It limits one actor to 1 CPU and
