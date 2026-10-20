@@ -34,16 +34,17 @@ pub use fynix::{
 };
 
 pub use self::elements::{
-    Button, ButtonProps, Divider, DividerProps, Field, FieldProps,
-    Frame, FrameProps, Icon, IconProps, Label, LabelProps, List,
-    ListProps, OnInput, Scroll, ScrollProps, Stack, Toggle,
-    ToggleProps, UiExt, button, column, divider, field, heading,
-    icon, icon_button, label, list, row, scroll, toggle,
+    Button, ButtonProps, Divider, DividerProps, Dropdown,
+    DropdownProps, Field, FieldProps, Frame, FrameProps, Icon,
+    IconProps, Label, LabelProps, List, ListProps, OnInput, Scroll,
+    ScrollProps, Stack, Toggle, ToggleProps, UiExt, button, column,
+    divider, dropdown, field, heading, icon, icon_button, label,
+    list, row, scroll, toggle,
 };
 pub use self::nodes::{Key, States};
 pub use self::world::{World, resource};
 pub use crate::bindings::hamlet::engine::ui::{
-    ButtonStyle, Direction, Face, Size, Space, Tone,
+    ButtonStyle, Direction, Face, Size, Space, StatusItem, Tone,
 };
 
 /// The engine, as a backend of fynix.
@@ -96,6 +97,50 @@ impl MotionTokens for Theme {
             ease: |t| 1.0 - (1.0 - t) * (1.0 - t),
         }
     }
+}
+
+/// Shows `item` in the plugin's status item `name`, declared with
+/// [`Entry::status_item`](crate::Entry::status_item).
+pub fn set_status(name: &str, item: &StatusItem) {
+    crate::bindings::hamlet::engine::ui::set_status(name, item);
+}
+
+/// Shows the plugin's overlay `name`, declared with
+/// [`Entry::overlay`](crate::Entry::overlay), over the dock, or hides
+/// it. Its view is mounted as a panel's is while it is shown.
+pub fn show_overlay(name: &str, shown: bool) {
+    crate::bindings::hamlet::engine::ui::show_overlay(name, shown);
+}
+
+/// Brings the plugin's panel `name` to the front, or shows its
+/// settings page `name` in Settings and brings Settings to the front.
+pub fn open(name: &str) {
+    crate::bindings::hamlet::engine::ui::open(name);
+}
+
+/// A view of `build(&key)`, built again whenever the key changes to
+/// another value.
+pub fn keyed<K>(
+    key: Signal<World, K>,
+    build: impl Fn(&K) -> AnyView + Send + Sync + 'static,
+) -> fynix::Keyed<Hamlet, Theme, K>
+where
+    K: PartialEq + Clone + Send + Sync + 'static,
+{
+    fynix::keyed(key, build)
+}
+
+/// One view of `build(&item)` per item, matched by `key` when the
+/// list changes. A kept item is not built again.
+pub fn each<I: 'static, K>(
+    items: Signal<World, Vec<I>>,
+    key: fn(&I) -> K,
+    build: impl Fn(&I) -> AnyView + Send + Sync + 'static,
+) -> fynix::Each<Hamlet, Theme, I, K>
+where
+    K: PartialEq + Clone + Send + Sync + 'static,
+{
+    fynix::each(items, key, build)
 }
 
 /// A node in the state `S`, as the engine tells it.

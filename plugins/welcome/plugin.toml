@@ -1,0 +1,19 @@
+id = "hamlet.welcome"
+name = "Welcome"
+version = "0.1.0"
+api = "0.1.0"
+
+[[asks]]
+capability = "agents.read"
+target = "local"
+reason = "Knows whether a model was chosen, the providers a key can be of, and how setting up goes"
+
+[[asks]]
+capability = "agents.settings"
+target = "local"
+reason = "Sets up a place for models, looks for a model on this computer and keeps the model you pick"
+
+[[asks]]
+capability = "agents.keys"
+target = "local"
+reason = "Hands the key you paste to the agents service, and signs you in with your browser"

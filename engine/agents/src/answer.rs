@@ -315,6 +315,7 @@ impl AgentsWorldExt for World {
             )),
             AgentsRequest::BeginSetup { adding } => {
                 *self.resource_mut::<SetupState>() = SetupState {
+                    begun: true,
                     adding,
                     ..SetupState::default()
                 };

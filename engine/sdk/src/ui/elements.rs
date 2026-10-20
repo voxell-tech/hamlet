@@ -115,6 +115,20 @@ pub struct Scroll {
     pub offset: Prop<World, (f32, f32)>,
 }
 
+/// One of `options` shown, the one at `selected`, which opens a list
+/// of them to pick another from.
+#[element(backend = Hamlet)]
+pub struct Dropdown {
+    #[elem(patch = SetOptions)]
+    pub options: Prop<World, Vec<String>>,
+    #[elem(patch = SetSelected)]
+    pub selected: Prop<World, u32>,
+    #[elem(default = 1.0, patch = SetOpacity, blend = blend)]
+    pub opacity: Prop<World, f32>,
+    #[elem(default = (0.0, 0.0), patch = SetOffset, blend = shift)]
+    pub offset: Prop<World, (f32, f32)>,
+}
+
 /// A line across.
 #[element(backend = Hamlet)]
 pub struct Divider {
@@ -183,6 +197,20 @@ pub fn field(text: impl Into<Prop<World, String>>) -> Field {
 
 pub fn divider() -> Divider {
     Divider::unset()
+}
+
+/// A dropdown offering `options`, showing the one at `selected`;
+/// [`on_pick`](UiExt::on_pick) runs with the place of the one the
+/// person picks.
+pub fn dropdown(
+    options: impl Into<Prop<World, Vec<String>>>,
+    selected: impl Into<Prop<World, u32>>,
+) -> Dropdown {
+    Dropdown {
+        options: options.into(),
+        selected: selected.into(),
+        ..Dropdown::unset()
+    }
 }
 
 /// An element with `children` built under it, in order.
@@ -310,6 +338,18 @@ pub trait UiExt: Sized {
             handler: Handler::Commit(Box::new(handler)),
         }
     }
+
+    /// This view, running `handler` with the place of the option the
+    /// person picks in its root node, a dropdown.
+    fn on_pick(
+        self,
+        handler: impl Fn(&mut World, u32) + Send + Sync + 'static,
+    ) -> OnInput<Self> {
+        OnInput {
+            inner: self,
+            handler: Handler::Pick(Box::new(handler)),
+        }
+    }
 }
 
 impl<V> UiExt for V {}
@@ -329,6 +369,7 @@ pub(super) fn kind(element: Option<TypeId>) -> Kind {
         (TypeId::of::<List>(), Kind::List),
         (TypeId::of::<Scroll>(), Kind::Scroll),
         (TypeId::of::<Divider>(), Kind::Divider),
+        (TypeId::of::<Dropdown>(), Kind::Dropdown),
     ]
     .into_iter()
     .find_map(|(id, kind)| (id == element).then_some(kind))
@@ -398,3 +439,7 @@ patch!(SetOn, bool, |on: &bool| Property::On(*on));
 patch!(SetOffset, (f32, f32), |offset: &(f32, f32)| {
     Property::Offset(*offset)
 });
+patch!(SetOptions, Vec<String>, |options: &Vec<String>| {
+    Property::Options(options.clone())
+});
+patch!(SetSelected, u32, |at: &u32| Property::Selected(*at));

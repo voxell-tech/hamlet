@@ -8,8 +8,8 @@ use bevy::text::EditableText;
 use bevy::ui_widgets::{Activate, Button as ButtonBehavior};
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, checkbox, column, frame, label,
-    row, scroll, text_field,
+    BehaviorExt, FrameProps, button, checkbox, column,
+    dropdown as choose, frame, label, row, scroll, text_field,
 };
 use bevy_fynix::{
     Focused, Hovered, Pressed, Prop, ScopedExt, Style, ViewExt, style,
@@ -523,6 +523,30 @@ pub fn toggle(
                 .width(px(side))
                 .height(px(side))
                 .on_change(change),
+        )
+    })
+}
+
+/// One of `options`, the one at `selected`, which opens a list of
+/// them to pick another from, as wide as it is given. `pick` is
+/// handed the place of the one picked.
+pub fn dropdown(
+    options: Vec<String>,
+    selected: impl Into<Prop<usize>>,
+    pick: impl Fn(&mut World, usize) + Send + Sync + 'static,
+) -> AnyView {
+    let selected = selected.into();
+    AnyView::new(move |cx: &mut Cx| {
+        let size = cx.theme().space.icon;
+        cx.build(
+            choose(
+                options,
+                selected,
+                Glyph::ChevronUp.image(size),
+                pick,
+            )
+            .width(percent(100.0))
+            .max_width(percent(100.0)),
         )
     })
 }

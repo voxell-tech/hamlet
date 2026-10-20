@@ -13,6 +13,7 @@ mod panel;
 mod reload;
 mod retained;
 mod run;
+mod surfaces;
 mod wasi;
 
 #[cfg(test)]
@@ -45,6 +46,7 @@ use self::panel::{Inbox, Moving};
 use self::reload::{Loaded, Reloading};
 use self::retained::{Holders, Kids, WasmWorldExt};
 pub use self::retained::{NodeAction, NodeOf, NodeStats, UiRoot};
+use self::surfaces::SurfaceChange;
 
 pub fn plugin(app: &mut App) {
     app.add_plugins((
@@ -89,6 +91,14 @@ pub(crate) trait WasmCommandsExt {
         plugin: Entity,
         root: Option<(u32, Entity)>,
         changes: Vec<NodeChange>,
+    );
+
+    /// Changes what `plugin` shows outside its panels as it changed
+    /// it, once the commands are applied.
+    fn apply_surface_changes(
+        &mut self,
+        plugin: Entity,
+        changes: Vec<SurfaceChange>,
     );
 
     /// Takes away every node of `plugin` but its roots, which are
@@ -170,6 +180,19 @@ impl WasmCommandsExt for Commands<'_, '_> {
             {
                 stats.apply_time += started.elapsed();
             }
+        });
+    }
+
+    fn apply_surface_changes(
+        &mut self,
+        plugin: Entity,
+        changes: Vec<SurfaceChange>,
+    ) {
+        if changes.is_empty() {
+            return;
+        }
+        self.queue(move |world: &mut World| {
+            world.change_surfaces(plugin, changes);
         });
     }
 

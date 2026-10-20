@@ -18,6 +18,7 @@ use bevy_fynix::{ModifierExt, ViewExt, keyed, resource};
 use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_api::{Capability, PanelId, PluginId};
 use hamlet_engine_plugins::PluginInfo;
+use hamlet_engine_shell::icons::Glyph;
 use hamlet_engine_shell::style::{Wraps, choices, note, section};
 use hamlet_engine_shell::{AnyView, Cx, SettingsPage};
 
@@ -51,6 +52,8 @@ fn add(mut commands: Commands) {
     commands.spawn(SettingsPage {
         id: PanelId::new(ENGINE, "permissions").expect("a valid id"),
         title: "Permissions".into(),
+        about: "What each plugin may do.".into(),
+        icon: Glyph::Shield,
         content: view,
     });
 }

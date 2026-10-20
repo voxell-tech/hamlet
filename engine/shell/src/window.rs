@@ -26,7 +26,7 @@ use serde::Deserialize;
 use crate::command::{RunCommand, ShellCommandsExt, engine_id};
 use crate::style::BottomGradient;
 use crate::theme::{EngineTheme, ThemeChanged};
-use crate::{AnyView, Cx, View, menu, status, switcher};
+use crate::{AnyView, Cx, View, menu, overlay, status, switcher};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_systems(Startup, (open, add_quit))
@@ -103,7 +103,7 @@ fn add_quit(mut commands: Commands) {
     commands
         .spawn_command(
             engine_id("quit"),
-            "Quit",
+            "Quit Hamlet",
             Some("Hamlet"),
             &[Chord {
                 key: KeyCode::KeyQ,
@@ -134,6 +134,7 @@ fn root() -> AnyView {
                     .gap(0.0),
                 frame().height(px(line)).fill(separator),
                 status::view(),
+                overlay::view(),
                 menu::open_view(),
                 switcher::rename_view(),
             ))

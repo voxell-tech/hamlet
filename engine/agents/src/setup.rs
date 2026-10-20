@@ -28,6 +28,7 @@ pub(crate) fn plugin(app: &mut App) {
 /// The setup under way.
 #[derive(Resource)]
 pub(crate) struct SetupState {
+    pub begun: bool,
     pub adding: bool,
     pub stage: Stage,
     pub from: String,
@@ -47,6 +48,7 @@ pub(crate) struct SetupState {
 impl Default for SetupState {
     fn default() -> Self {
         Self {
+            begun: false,
             adding: false,
             stage: Stage::Idle,
             from: String::new(),
@@ -64,6 +66,7 @@ impl SetupState {
     /// It as the protocol tells it, with no key.
     pub(crate) fn view(&self) -> hamlet_engine_api::agents::Setup {
         hamlet_engine_api::agents::Setup {
+            begun: self.begun,
             adding: self.adding,
             stage: self.stage,
             from: self.from.clone(),

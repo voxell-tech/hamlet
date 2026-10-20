@@ -23,6 +23,7 @@ use hamlet_engine_plugins::{
     PluginCommandsExt, PluginInfo,
 };
 use hamlet_engine_shell::Command;
+use hamlet_engine_shell::icons::Glyph;
 
 use crate::budget::Spending;
 use crate::folder::{Package, WASM, read_capped};
@@ -109,8 +110,24 @@ pub(crate) fn entry(contributions: Vec<Contribution>) -> Entry {
             Contribution::Shortcut { keys, command } => {
                 entry.shortcut(&keys, &command);
             }
-            Contribution::SettingsPage { name, title } => {
-                entry.settings_page(&name, &title, retained::page);
+            Contribution::SettingsPage {
+                name,
+                title,
+                about,
+                icon,
+            } => {
+                let icon =
+                    Glyph::named(&icon).unwrap_or(Glyph::Sliders);
+                entry.settings_page(
+                    &name,
+                    &title,
+                    &about,
+                    icon,
+                    retained::page,
+                );
+            }
+            Contribution::SettingsFooter { name } => {
+                entry.settings_footer(&name, retained::page);
             }
             Contribution::Workspace {
                 name,
@@ -118,6 +135,12 @@ pub(crate) fn entry(contributions: Vec<Contribution>) -> Entry {
                 layout,
             } => {
                 entry.workspace(&name, &title, layout);
+            }
+            Contribution::StatusItem { name } => {
+                entry.status_item(&name);
+            }
+            Contribution::Overlay { name } => {
+                entry.overlay(&name, retained::page);
             }
         }
     }

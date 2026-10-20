@@ -211,6 +211,8 @@ impl Property {
             Property::Placeholder(_) => 9,
             Property::On(_) => 10,
             Property::Offset(_) => 11,
+            Property::Options(_) => 12,
+            Property::Selected(_) => 13,
         };
         1 << at
     }
@@ -232,6 +234,8 @@ impl Property {
             }
             Property::Space(space) => *space == Space::Gap,
             Property::Offset(offset) => *offset == (0.0, 0.0),
+            Property::Options(options) => options.is_empty(),
+            Property::Selected(at) => *at == 0,
         }
     }
 }

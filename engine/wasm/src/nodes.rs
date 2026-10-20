@@ -10,8 +10,9 @@ use wasmtime::component::Resource;
 
 use crate::instance::State;
 use crate::instance::ui_bindings::hamlet::engine::ui::{
-    Host, HostNode, Kind, Motion, Property,
+    Host, HostNode, Kind, Motion, Property, StatusItem,
 };
+use crate::surfaces::SurfaceChange;
 
 /// A node of a retained panel, as the plugin holds it.
 pub struct UiNode;
@@ -128,6 +129,9 @@ impl Kind {
             }
             Property::Placeholder(_) => self == Self::Field,
             Property::On(_) => self == Self::Toggle,
+            Property::Options(_) | Property::Selected(_) => {
+                self == Self::Dropdown
+            }
         }
     }
 }
@@ -173,7 +177,33 @@ impl fmt::Display for NodeError {
 
 impl core::error::Error for NodeError {}
 
-impl Host for State {}
+impl Host for State {
+    fn set_status(
+        &mut self,
+        name: String,
+        item: StatusItem,
+    ) -> wasmtime::Result<()> {
+        self.nodes.spend(self.caps.node_changes)?;
+        self.surfaces.push(SurfaceChange::Status { name, item });
+        Ok(())
+    }
+
+    fn show_overlay(
+        &mut self,
+        name: String,
+        shown: bool,
+    ) -> wasmtime::Result<()> {
+        self.nodes.spend(self.caps.node_changes)?;
+        self.surfaces.push(SurfaceChange::Overlay { name, shown });
+        Ok(())
+    }
+
+    fn open(&mut self, name: String) -> wasmtime::Result<()> {
+        self.nodes.spend(self.caps.node_changes)?;
+        self.surfaces.push(SurfaceChange::Open(name));
+        Ok(())
+    }
+}
 
 impl HostNode for State {
     fn new(

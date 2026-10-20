@@ -7,6 +7,7 @@ pub mod dock;
 pub mod fonts;
 pub mod icons;
 mod menu;
+pub mod overlay;
 pub mod settings;
 mod status;
 pub mod style;
@@ -21,13 +22,18 @@ use bevy::ecs::world::World;
 use bevy::math::Rect;
 use bevy::prelude::ClearColor;
 use bevy::ui::{ComputedNode, UiGlobalTransform};
+use bevy_fynix::dock::DockTree;
 use bevy_fynix::{Bevy, FynixPlugin, Theme};
 pub use command::{
     Command, MenuEntry, RunCommand, ShellCommandsExt, Shortcut,
 };
 pub use dock::Panel;
-use hamlet_engine_api::CommandId;
-pub use settings::SettingsPage;
+use hamlet_engine_api::id::ENGINE;
+use hamlet_engine_api::{CommandId, PanelId};
+pub use overlay::{Overlay, OverlayShown};
+use settings::{Pages, SETTINGS};
+pub use settings::{SettingsFooter, SettingsPage};
+pub use status::StatusItem;
 pub use style::{ButtonStyle, StyleExt};
 pub use theme::EngineTheme;
 pub use window::window_plugin;
@@ -57,6 +63,7 @@ pub fn plugin(app: &mut App) {
         command::plugin,
         menu::plugin,
         status::plugin,
+        overlay::plugin,
     ));
 }
 
@@ -95,6 +102,14 @@ pub trait ShellWorldExt {
 
     /// Puts `theme` in, for the views and the window behind them.
     fn apply_theme(&mut self, theme: EngineTheme);
+
+    /// Brings the panel `id` to the front, or opens it in the first
+    /// area.
+    fn open_panel(&mut self, id: &PanelId);
+
+    /// Shows the settings page `page` in Settings, and brings
+    /// Settings to the front.
+    fn open_settings_page(&mut self, page: Entity);
 }
 
 impl ShellWorldExt for World {
@@ -169,5 +184,20 @@ impl ShellWorldExt for World {
     fn apply_theme(&mut self, theme: EngineTheme) {
         self.insert_resource(ClearColor(*theme.colors.background));
         self.insert_resource(Theme(theme));
+    }
+
+    fn open_panel(&mut self, id: &PanelId) {
+        if let Some(mut tree) = self.get_resource_mut::<DockTree>() {
+            tree.open_panel(id.as_str());
+        }
+    }
+
+    fn open_settings_page(&mut self, page: Entity) {
+        if let Some(mut pages) = self.get_resource_mut::<Pages>() {
+            pages.chosen = Some(page);
+        }
+        if let Ok(settings) = PanelId::new(ENGINE, SETTINGS) {
+            self.open_panel(&settings);
+        }
     }
 }

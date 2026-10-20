@@ -208,6 +208,10 @@ pub struct Spacing {
     pub status_icon_gap: f32,
     /// The widest a page of Settings is drawn.
     pub page_width: f32,
+    /// The widest a card over the dock is drawn, and the space
+    /// inside it.
+    pub overlay_width: f32,
+    pub overlay_padding: f32,
     /// The least height of a tab within a panel, and the line under
     /// the one shown.
     pub tab_height: f32,

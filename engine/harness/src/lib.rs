@@ -41,7 +41,7 @@ use hamlet_engine_plugins::{
     ContributedBy, Enabled, PluginInfo, Stopped,
 };
 use hamlet_engine_shell::{
-    EngineTheme, Panel, SettingsPage, ShellWorldExt,
+    EngineTheme, Overlay, Panel, SettingsPage, ShellWorldExt,
 };
 use hamlet_engine_wasm::{
     Instance, MANIFEST, NodeAction, NodeInput, NodeOf, UiRoot, WASM,
@@ -257,36 +257,47 @@ impl Harness {
         Some(self.app.world().outline(root))
     }
 
-    /// The root of the panel or settings page `panel`
+    /// The root of the panel, settings page or overlay `panel`
     /// (`plugin.id/name`), once its plugin has it. Its content is
-    /// built as the dock or Settings builds it when it shows it.
+    /// built as the dock, Settings or the window builds it when it
+    /// shows it.
     pub fn root(&mut self, panel: &str) -> Option<Entity> {
         let id = PanelId::try_from(panel).ok()?;
         let world = self.app.world_mut();
         let (surface, content, root, by) = world
             .query::<(
                 Entity,
-                Option<&Panel>,
-                Option<&SettingsPage>,
+                (
+                    Option<&Panel>,
+                    Option<&SettingsPage>,
+                    Option<&Overlay>,
+                ),
                 Option<&UiRoot>,
                 &ContributedBy,
             )>()
             .iter(world)
-            .find_map(|(surface, found, page, root, by)| {
-                let content = match (found, page) {
-                    (Some(found), _) if found.id == id => {
-                        found.content
-                    }
-                    (_, Some(page)) if page.id == id => page.content,
-                    _ => return None,
-                };
-                Some((
-                    surface,
-                    content,
-                    root.map(|root| root.widget),
-                    by.0,
-                ))
-            })?;
+            .find_map(
+                |(surface, (found, page, card), root, by)| {
+                    let content = match (found, page, card) {
+                        (Some(found), ..) if found.id == id => {
+                            found.content
+                        }
+                        (_, Some(page), _) if page.id == id => {
+                            page.content
+                        }
+                        (.., Some(card)) if card.id == id => {
+                            card.content
+                        }
+                        _ => return None,
+                    };
+                    Some((
+                        surface,
+                        content,
+                        root.map(|root| root.widget),
+                        by.0,
+                    ))
+                },
+            )?;
         if root.is_some() {
             return root;
         }
