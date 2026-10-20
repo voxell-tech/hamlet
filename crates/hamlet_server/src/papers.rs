@@ -13,6 +13,9 @@ use anyhow::{Result, ensure};
 
 pub(crate) const CHARTER: &str = include_str!("../assets/charter.md");
 
+/// An agent's notes, at the top of its house.
+pub(crate) const NOTES: &str = "NOTES.md";
+
 /// The opened home directory anchors every notes read and write.
 pub(crate) struct Houses {
     root: File,
@@ -106,7 +109,7 @@ impl Houses {
             }
             match openat(
                 &dir,
-                "NOTES.md",
+                NOTES,
                 OFlags::WRONLY
                     | OFlags::CREATE
                     | OFlags::EXCL
@@ -145,7 +148,7 @@ impl Houses {
             };
             let file = File::from(openat(
                 &dir,
-                "NOTES.md",
+                NOTES,
                 flags
                     | OFlags::NOFOLLOW
                     | OFlags::NONBLOCK
@@ -294,7 +297,7 @@ impl Houses {
                     env: remote,
                     path: "/house".into(),
                 };
-                files.replace("NOTES.md", text.as_bytes()).await
+                files.replace(NOTES, text.as_bytes()).await
             }
             None => self.write(hamlet, number, text),
         }

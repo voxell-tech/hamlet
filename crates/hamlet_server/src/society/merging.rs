@@ -5,7 +5,7 @@ pub(crate) mod remote;
 
 use std::collections::BTreeMap;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -13,6 +13,8 @@ use sha2::{Digest, Sha256};
 use super::{Caller, Deed, outcome};
 use crate::harness::Harnesses;
 use crate::operation::Request;
+use crate::papers::NOTES;
+use crate::papers::files::Files;
 use crate::papers::tree::{self, Entry};
 use crate::protocol::Refusal;
 use crate::record::{
@@ -152,7 +154,7 @@ impl Preparing {
         let mine = mine.read(CAP, 2048).await?;
         let theirs = theirs.read(CAP, 2048).await?;
         let notes = |files: &BTreeMap<String, Entry>| {
-            files.get("NOTES.md").cloned().unwrap_or(Entry {
+            files.get(NOTES).cloned().unwrap_or(Entry {
                 bytes: b"# Notes\n".to_vec(),
                 mode: 0o600,
             })
@@ -242,7 +244,7 @@ impl Preparing {
             renamed.insert(skill.to_string(), name);
         }
         for (path, mut entry) in theirs {
-            if path == "NOTES.md" {
+            if path == NOTES {
                 continue;
             }
             let target = if let Some((skill, rest)) = path
@@ -601,39 +603,183 @@ pub(super) async fn deed(
     }
 }
 
-/// Marks the merge kept under `archive` in `hamlet` applied, as its
-/// file work finished.
-fn applied(
-    db: &rusqlite::Connection,
-    hamlet: &str,
-    archive: &str,
-) -> Result<()> {
-    let operation = RecordOperation {
-        hamlet: hamlet.into(),
-        actor: Actor::Realm,
-        at: super::now(),
-        reason: String::new(),
-        task: None,
-        change: Change::FinishMerge {
-            archive: archive.into(),
-        },
-    };
-    match crate::operation::change(db, &operation)? {
-        Outcome::Done(_) => Ok(()),
-        Outcome::Refused(refusal) => {
-            anyhow::bail!("{}", refusal.text(record::Audience::Chief))
+/// A merge's file work on its kept house: the files its snapshot
+/// brings and its notes, or their undoing once the absorbed agent is
+/// back.
+pub(super) struct Applying {
+    merge: Applied,
+    root: std::fs::File,
+    house: Files,
+}
+
+/// A merge whose file work ran: its archive in its hamlet and the
+/// snapshot its plan kept.
+pub(super) struct Applied {
+    hamlet: String,
+    entry: record::Archived,
+    snapshot: String,
+}
+
+impl Applying {
+    /// The work of the merge archived as `entry` in `hamlet`, whose
+    /// plan kept `snapshot`.
+    fn new(
+        service: &Service,
+        hamlet: &str,
+        entry: record::Archived,
+        snapshot: String,
+    ) -> Result<Self> {
+        let kept =
+            entry.merge.as_ref().expect("merge manifest").kept.number;
+        Ok(Self {
+            root: service.houses.root().try_clone()?,
+            house: service.houses.files(hamlet, kept)?,
+            merge: Applied {
+                hamlet: hamlet.into(),
+                entry,
+                snapshot,
+            },
+        })
+    }
+
+    /// Does the file work; `notes` reads the kept agent's notes as
+    /// they are now.
+    async fn run<F: Future<Output = Result<String>>>(
+        &self,
+        notes: impl Fn() -> F,
+    ) -> Result<()> {
+        let merge =
+            self.merge.entry.merge.as_ref().expect("merge manifest");
+        crate::fault::point("after_merge_record");
+        if self.merge.entry.back.is_none() {
+            let files = tree::read_snapshot(
+                &self.root,
+                &self.merge.snapshot,
+                CAP * 2,
+                4096,
+            )?;
+            for (path, file) in &files {
+                self.house.put(path, file).await?;
+                crate::fault::point("during_merge_files");
+            }
+            let current = notes().await?;
+            if current == merge.files.notes_before {
+                self.house
+                    .replace(
+                        NOTES,
+                        merge.files.notes_after.as_bytes(),
+                    )
+                    .await?;
+                crate::fault::point("after_merge_notes");
+            } else {
+                anyhow::ensure!(
+                    current == merge.files.notes_after,
+                    "The kept notes changed before the merge \
+                     finished; inspect both houses."
+                );
+            }
+        } else {
+            let present = self.house.read(CAP, 4096).await?;
+            for file in &merge.files.brought {
+                if present.get(&file.path).is_some_and(|entry| {
+                    format!("{:x}", Sha256::digest(&entry.bytes))
+                        == file.sha256
+                }) {
+                    self.house.remove(&file.path, false).await?;
+                }
+            }
+            if notes().await? == merge.files.notes_after {
+                self.house
+                    .replace(
+                        NOTES,
+                        merge.files.notes_before.as_bytes(),
+                    )
+                    .await?;
+            }
         }
+        Ok(())
+    }
+
+    /// The merge, once its file work ran.
+    pub(super) fn done(self) -> Applied {
+        self.merge
     }
 }
 
+impl Applied {
+    /// The society document key of the merge's attempt.
+    fn key(&self) -> String {
+        format!("{}:{}", self.hamlet, self.entry.id)
+    }
+
+    /// Marks the merge applied, unless its record changed while the
+    /// work ran, and lets go of its attempt and its snapshot.
+    fn applied(self, service: &mut Service) -> Result<()> {
+        let record = service
+            .home
+            .store()
+            .record(&self.hamlet)?
+            .context("merge record")?;
+        let entry = record
+            .archive
+            .iter()
+            .find(|entry| entry.id == self.entry.id)
+            .context("merge archive")?;
+        anyhow::ensure!(
+            entry.back == self.entry.back
+                && entry.merge == self.entry.merge,
+            "The merge changed while its files were being applied; \
+             inspect both houses."
+        );
+        let operation = RecordOperation {
+            hamlet: self.hamlet.clone(),
+            actor: Actor::Realm,
+            at: super::now(),
+            reason: String::new(),
+            task: None,
+            change: Change::FinishMerge {
+                archive: self.entry.id.clone(),
+            },
+        };
+        let db = service.home.store().connection();
+        if let Outcome::Refused(refusal) =
+            crate::operation::change(db, &operation)?
+        {
+            anyhow::bail!(
+                "{}",
+                refusal.text(record::Audience::Chief)
+            );
+        }
+        let_go(service, &self.hamlet, &self.entry.id, &self.snapshot)
+    }
+}
+
+/// Lets go of the applied merge archived as `archive` in `hamlet`:
+/// its attempt and its snapshot.
+fn let_go(
+    service: &mut Service,
+    hamlet: &str,
+    archive: &str,
+    snapshot: &str,
+) -> Result<()> {
+    service.home.store().connection().execute(
+        "DELETE FROM society_document WHERE \
+         kind='remote-merge-attempt' AND key=?1",
+        [format!("{hamlet}:{archive}")],
+    )?;
+    tree::erase_snapshot(service.houses.root(), snapshot)
+}
+
+/// Finishes the file work of every merge whose record is kept and
+/// whose files are not applied yet, and lets go of what applied ones
+/// kept.
 pub(crate) async fn finish(service: &mut Service) -> Result<()> {
     super::library::retire(service)?;
-    for mut r in
+    for r in
         crate::service::records(service.home.store().connection())?
     {
-        let mut finished = Vec::new();
-        for entry in &mut r.archive {
-            let Some(merge) = &mut entry.merge else {
+        for entry in &r.archive {
+            let Some(merge) = &entry.merge else {
                 continue;
             };
             let key = format!("{}:{}", r.id, entry.id);
@@ -646,7 +792,7 @@ pub(crate) async fn finish(service: &mut Service) -> Result<()> {
                 continue;
             };
             if merge.applied {
-                finished.push(plan.snapshot.clone());
+                let_go(service, &r.id, &entry.id, &plan.snapshot)?;
                 continue;
             }
             if service.houses.workspace.is_some() {
@@ -666,96 +812,16 @@ pub(crate) async fn finish(service: &mut Service) -> Result<()> {
                     &true,
                 )?;
             }
-            crate::fault::point("after_merge_record");
-            let house =
-                service.houses.files(&r.id, merge.kept.number)?;
-            if entry.back.is_none() {
-                let snapshots = tree::directory(
-                    service.houses.root(),
-                    ".society-files",
-                    false,
-                )?;
-                let files = tree::read(
-                    &tree::directory(
-                        &snapshots,
-                        &plan.snapshot,
-                        false,
-                    )?,
-                    CAP * 2,
-                    4096,
-                )?;
-                for (path, file) in &files {
-                    house.put(path, file).await?;
-                    crate::fault::point("during_merge_files");
-                }
-                let current = service
-                    .houses
-                    .read_notes(&r.id, merge.kept.number)
-                    .await?;
-                if current == merge.files.notes_before {
-                    house
-                        .replace(
-                            "NOTES.md",
-                            merge.files.notes_after.as_bytes(),
-                        )
-                        .await?;
-                    crate::fault::point("after_merge_notes");
-                } else if current != merge.files.notes_after {
-                    anyhow::bail!(
-                        "The kept notes changed before the merge \
-                         finished; inspect both houses."
-                    );
-                }
-            } else {
-                let present = house.read(CAP, 4096).await?;
-                for file in &merge.files.brought {
-                    if present.get(&file.path).is_some_and(|f| {
-                        format!("{:x}", Sha256::digest(&f.bytes))
-                            == file.sha256
-                    }) {
-                        house.remove(&file.path, false).await?;
-                    }
-                }
-                if service
-                    .houses
-                    .read_notes(&r.id, merge.kept.number)
-                    .await?
-                    == merge.files.notes_after
-                {
-                    house
-                        .replace(
-                            "NOTES.md",
-                            merge.files.notes_before.as_bytes(),
-                        )
-                        .await?;
-                }
-            }
-            applied(
-                service.home.store().connection(),
+            let work = Applying::new(
+                service,
                 &r.id,
-                &entry.id,
+                entry.clone(),
+                plan.snapshot,
             )?;
-            merge.applied = true;
-            finished.push(plan.snapshot.clone());
-        }
-        for entry in r.archive.iter().filter(|entry| {
-            entry.merge.as_ref().is_some_and(|merge| merge.applied)
-        }) {
-            service.home.store().connection().execute(
-                "DELETE FROM society_document WHERE \
-                 kind='remote-merge-attempt' AND key=?1",
-                [format!("{}:{}", r.id, entry.id)],
-            )?;
-        }
-        if !finished.is_empty() {
-            let snapshots = tree::directory(
-                service.houses.root(),
-                ".society-files",
-                false,
-            )?;
-            for snapshot in finished {
-                tree::erase(&snapshots, &snapshot)?;
-            }
+            let houses = &service.houses;
+            work.run(|| houses.read_notes(&r.id, merge.kept.number))
+                .await?;
+            work.done().applied(service)?;
         }
     }
     let kept = service

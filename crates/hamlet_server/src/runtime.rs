@@ -310,7 +310,7 @@ pub async fn serve(options: Options) -> Result<()> {
                                         let request = request.clone();
                                         client.busy = true;
                                         writes.spawn(async move {
-                                            let result = house.replace("NOTES.md", text.as_bytes()).await;
+                                            let result = house.replace(crate::papers::NOTES, text.as_bytes()).await;
                                             (id, request, result)
                                         });
                                     }
