@@ -424,6 +424,52 @@ async fn lists_prices_and_bills_an_endpoints_models() {
 }
 
 #[tokio::test]
+async fn chats_with_the_model_chosen_in_settings_when_none_is_given()
+{
+    let mut endpoint = openai::Endpoint::start().await;
+    let mut home = Home::new();
+    let server =
+        home.serve_providers(&[("HAMLET_REFLECT_EVERY", "0")]).await;
+    let mut chief = Client::join(&server).await;
+    let reply = chief
+        .request(|id| {
+            ClientMessage::Edit(Edit::Settings {
+                id,
+                set: EditSettingsSet {
+                    model: Some("local::org/large".into()),
+                    reflect_every: None,
+                    allow_net: None,
+                    endpoints: Some(vec![Endpoint {
+                        name: "local".into(),
+                        base_url: endpoint.url.clone(),
+                    }]),
+                    workspace: None,
+                },
+            })
+        })
+        .await;
+    assert_eq!(reply.kind, ReplyKind::Notice, "{reply:?}");
+    let reply = chief.say(mayor(), "Hello").await;
+    assert_eq!(reply.kind, ReplyKind::Notice, "{reply:?}");
+    chief.idle("home", "founder").await;
+    let page = chief.open(&chat(mayor())).await;
+    let texts = page
+        .items
+        .iter()
+        .map(|i| i.text.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(texts, ["Hello", "Hello."]);
+    let asked = endpoint
+        .requests()
+        .iter()
+        .filter_map(|r| {
+            r.body.as_ref()?.get("model")?.as_str().map(String::from)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(asked, ["org/large"]);
+}
+
+#[tokio::test]
 async fn gives_plain_words_for_http_refusals_and_charges_nothing() {
     let endpoint = openai::Endpoint::start().await;
     let mut s = Session::with_endpoint(&endpoint).await;

@@ -74,7 +74,9 @@ const SYNC_PAGE: u64 = 200;
 #[derive(Clone, Debug)]
 pub struct Config {
     pub pi: Pi,
-    /// The model new conversations run, if one is set.
+    /// The model `HAMLET_MODEL` or the faux script names, which new
+    /// conversations run before the chosen one, and whose endpoint
+    /// `HAMLET_API_KEY` serves.
     pub model: Option<ModelRef>,
     pub tools: Vec<ToolSpec>,
 }
@@ -588,15 +590,19 @@ impl Harnesses {
     }
 
     /// Binds a new conversation for `agent` to a runtime of its
-    /// harness, which makes it.
+    /// harness, which makes it with the environment's model, else
+    /// the one the agent runs now.
     pub async fn bind(
         &mut self,
         store: &mut Store,
         agent: &AgentRef,
         errand: bool,
     ) -> Result<(BindingId, Vec<Notice>)> {
-        let Some(model) = self.config.model.clone() else {
-            bail!("No model is set for new conversations.");
+        // The environment's model keeps `HAMLET_BASE_URL`, which the
+        // settings drop for an endpoint they do not list.
+        let model = match &self.config.model {
+            Some(model) => model.clone(),
+            None => self.choices(store)?.select(store, agent)?.model,
         };
         let harness = store.harness_of(agent)?;
         if harness != DEFAULT_HARNESS {
@@ -1213,7 +1219,7 @@ impl Harnesses {
         let mut windows = BTreeMap::new();
         for binding in store.bindings_of(&id)? {
             if let Some(window) =
-                choices.select(store, &binding)?.context_window
+                choices.select(store, &binding.agent)?.context_window
             {
                 windows.insert(binding.id.0.to_string(), window);
             }

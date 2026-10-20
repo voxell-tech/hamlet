@@ -521,7 +521,7 @@ fn every_attempt_uses_the_current_pin_then_hamlet_then_home_model() {
     let chosen = |store: &Store| {
         crate::models::Choices::read(store, &scratch, false)
             .unwrap()
-            .select(store, &binding)
+            .select(store, &binding.agent)
             .unwrap()
     };
     let pinned = chosen(&store);
@@ -590,13 +590,67 @@ fn a_hello_lacking_the_link_version_or_a_needed_capability_is_refused()
     assert!(words(&recorded).contains("records no runtime"));
 }
 
+/// Harnesses that start no runtime, with `model` as if
+/// `HAMLET_MODEL` named it.
+fn idle(
+    home: &crate::Home,
+    model: Option<ModelRef>,
+) -> super::Harnesses {
+    use super::{Config, Harnesses, Pi};
+
+    let (sender, receiver) = super::mpsc::unbounded_channel();
+    Harnesses {
+        config: Config {
+            pi: Pi {
+                node: "node".into(),
+                entry: "unused".into(),
+                faux: None,
+            },
+            model,
+            tools: vec![],
+        },
+        hand_tools: vec![],
+        layout: home.layout().clone(),
+        runtimes: vec![],
+        sender,
+        receiver,
+        session: Default::default(),
+        held_turns: Default::default(),
+        provider_requests: Default::default(),
+        credentials: Default::default(),
+        closing: false,
+    }
+}
+
+#[tokio::test]
+async fn a_new_conversation_runs_the_agents_model_with_no_model_in_the_environment()
+ {
+    let scratch = Scratch::new("bind-model");
+    let home = crate::Home::open(&scratch.join("layout")).unwrap();
+    let (mut store, binding) = bound(&scratch, 1);
+    let settings = crate::settings::Settings {
+        model: "endpoint::home".into(),
+        ..Default::default()
+    };
+    crate::settings::keep(store.connection(), &settings).unwrap();
+    let mut harnesses = idle(&home, None);
+    let ready = harnesses.add(binding.runtime.clone());
+    harnesses.runtimes[ready].phase = super::Phase::Ready;
+    let (made, _) = harnesses
+        .bind(&mut store, &binding.agent, false)
+        .await
+        .unwrap();
+    let model = store.binding(made).unwrap().unwrap().model;
+    assert_eq!(
+        (model.provider.as_str(), model.id.as_str()),
+        ("endpoint", "home")
+    );
+}
+
 #[tokio::test]
 async fn a_bad_created_reply_stops_only_its_runtime_and_refuses_new_bindings()
  {
-    use super::{
-        Config, Event, Harnesses, Inner, Notice, Pending, Phase, Pi,
-        Received,
-    };
+    use super::{Event, Inner, Notice, Pending, Phase, Received};
 
     let scratch = Scratch::new("bad-created");
     let home = crate::Home::open(&scratch.join("layout")).unwrap();
@@ -610,28 +664,7 @@ async fn a_bad_created_reply_stops_only_its_runtime_and_refuses_new_bindings()
             &binding.runtime,
         )
         .unwrap();
-    let (sender, receiver) = super::mpsc::unbounded_channel();
-    let mut harnesses = Harnesses {
-        config: Config {
-            pi: Pi {
-                node: "node".into(),
-                entry: "unused".into(),
-                faux: None,
-            },
-            model: Some(binding.model.clone()),
-            tools: vec![],
-        },
-        hand_tools: vec![],
-        layout: home.layout().clone(),
-        runtimes: vec![],
-        sender,
-        receiver,
-        session: Default::default(),
-        held_turns: Default::default(),
-        provider_requests: Default::default(),
-        credentials: Default::default(),
-        closing: false,
-    };
+    let mut harnesses = idle(&home, Some(binding.model.clone()));
     let bad = harnesses.add(binding.runtime.clone());
     let good =
         harnesses.add(RuntimeInstance::new("unaffected").unwrap());

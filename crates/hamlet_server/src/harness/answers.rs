@@ -169,7 +169,7 @@ impl Harnesses {
             attempt.task.as_deref(),
         )?;
         let selection =
-            self.choices(store)?.select(store, &binding)?;
+            self.choices(store)?.select(store, &binding.agent)?;
         let re = attempt.id;
         if let Some(stop) = self::attempt(
             store,

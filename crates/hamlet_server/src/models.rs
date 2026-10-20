@@ -14,13 +14,14 @@ use serde_json::{Value, json};
 
 use crate::Store;
 use crate::credentials::write_whole;
+use crate::harness::LINK_VERSION;
 use crate::harness::link::{
     ModelRef, Price, ProviderControl, ProviderEvent, ProviderRequest,
     ProviderRequestAction, ProviderRequestMethod, ProviderResult,
     Selection,
 };
-use crate::harness::{Binding, LINK_VERSION};
 use crate::protocol::{Refusal, reply};
+use crate::record::AgentRef;
 use crate::service::{Service, document, save};
 use crate::settings::{Link, Settings};
 
@@ -841,20 +842,19 @@ impl Choices {
         })
     }
 
-    /// The model the next call of `binding` is made with, as the
-    /// limits of its hamlet and the settings choose it now.
+    /// The model the next call of `of` is made with, as the limits
+    /// of its hamlet and the settings choose it now.
     pub fn select(
         &self,
         store: &Store,
-        binding: &Binding,
+        of: &AgentRef,
     ) -> Result<Selection> {
-        let record = store
-            .record(&binding.agent.hamlet)?
-            .context("model's hamlet")?;
+        let record =
+            store.record(&of.hamlet)?.context("model's hamlet")?;
         let agent = record
             .agents
             .iter()
-            .find(|a| a.number == binding.agent.number)
+            .find(|a| a.number == of.number)
             .context("model's agent")?;
         let name = record.limits.chief.model_of(
             agent,

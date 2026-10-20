@@ -88,7 +88,7 @@ impl Harnesses {
                 None => choices.insert(self.choices(store)?),
             };
             let window =
-                choices.select(store, &binding)?.context_window;
+                choices.select(store, &binding.agent)?.context_window;
             for owed in owed {
                 let request = owed.request.clone();
                 if self.session.in_flight(index, |p| {
