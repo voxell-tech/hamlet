@@ -6,6 +6,7 @@ depends on a crate there, and the vendored fynix is the only code they
 share.
 
 ```sh
+scripts/build_plugins.sh
 cargo run -p hamlet_engine
 cargo run --release -p hamlet_engine --features hot-reload
 HAMLET_ENGINE_HOME=/tmp/scratch cargo run -p hamlet_engine
@@ -20,7 +21,7 @@ Each depends only on those above it, and each adds one Bevy plugin,
 | Folder | Crate | What it is |
 |---|---|---|
 | `engine/api` | `hamlet_engine_api` | The names the engine and plugins share. serde only, no Bevy |
-| `engine/core` | `hamlet_engine_core` | The tuning files, the home, the log, the budgets |
+| `engine/core` | `hamlet_engine_core` | The tuning files, the home, the bundle's folder, the log, the budgets |
 | `engine/shell` | `hamlet_engine_shell` | The window, its theme, the dock and its panels, workspaces, commands, shortcuts, the menu bar and the status line |
 | `engine/plugins` | `hamlet_engine_plugins` | Plugins as entities, what they add, switching them on and off, the plugin list, and the mail between plugins and services |
 | `engine/grants` | `hamlet_engine_grants` | What the person lets plugins do: petitions, the grants file, the Permissions page |
@@ -50,7 +51,8 @@ depends on it from here.
 from the repository's `assets/fonts/`, where their licences are.
 `engine/wit/hamlet_engine.wit` is the interface between the engine and
 a plugin. `engine/samples/` holds sample plugins, each a workspace of
-its own.
+its own. `plugins/` at the repository root holds the plugins that come
+with Hamlet (see [Bundled plugins](#bundled-plugins)).
 
 ## The vocabulary
 
@@ -157,7 +159,8 @@ or a call served can change what its views show. `info`, `warn` and
 `error` reach the host; `assets::create`, `read`, `update`, `delete`,
 `list`, `hold` and `release`, `call`, `subscribe`, `emit`, `fetch`
 and `agents` make requests, and `encode` and `decode` turn the
-payloads it shares into bytes.
+payloads it shares into bytes. `ENGINE_VERSION` is the version of
+the engine the SDK comes with.
 
 - **Views** are written with fynix (`hamlet_engine_sdk::ui`). `Hamlet`
   is fynix's backend: a node is made in the engine as fynix spawns
@@ -447,8 +450,10 @@ person has one or more, and one is shown at a time.
 
 `hamlet_engine_plugins` keeps each plugin as an entity.
 
-- **A plugin** is an entity with a `PluginInfo` (id, name, version, and
-  whether it is built in) and an `EntryPoint`. Two plugins of one id are
+- **A plugin** is an entity with a `PluginInfo`: id, name, version,
+  and its `PluginKind`, built in (Rust, in the binary), bundled (WASM
+  that comes with Hamlet) or installed (WASM the person added). A
+  plugin built in has an `EntryPoint` too. Two plugins of one id are
   not kept: the second is turned away, and the log says so.
 - **The entry point** is one function, given an `Entry` to declare what
   the plugin adds: panels, commands, menu entries, shortcuts, settings
@@ -473,14 +478,15 @@ person has one or more, and one is shown at a time.
 - **The plugin list** (`engine/plugins`) is the engine's own panel: each
   plugin, its id and version, whether it is on and how much it adds, or
   why it was stopped, and SWITCH ON or SWITCH OFF; an installed one has
-  UNINSTALL too (`Uninstall`). ADD PLUGIN... above them
+  UNINSTALL too (`Uninstall`), and a bundled one says it comes with
+  Hamlet. ADD PLUGIN... above them
   triggers `AddPlugin`, for a host to answer.
 - **Kept off.** `SwitchedOff` holds the ids the person switched off on
   the plugin list, kept in `switched_off.toml` in the home
   (`plugins = ["hamlet.demo"]`). Only SWITCH OFF and SWITCH ON there
   change it; the engine stopping a plugin, or a hot reload, does not. At
-  start a plugin on it is left off, built in or installed. Letting an
-  install in, and uninstalling, take its id off. A file that cannot be
+  start a plugin on it is left off, of any kind. Letting an install
+  in, and uninstalling, take its id off. A file that cannot be
   read is left as it is: the log says so, and no plugin is kept off.
 - **The demo** in `engine/app/src/demo.rs` is built into the binary. It
   adds a panel, Hello; a command, Say hello, in a Demo menu and on
@@ -497,7 +503,8 @@ person has one or more, and one is shown at a time.
 ## Permissions
 
 `hamlet_engine_grants` keeps what the person lets each installed plugin
-do. Plugins built in are not asked about.
+do. Plugins built in are not asked about, and bundled ones are allowed
+all they ask (see [Bundled plugins](#bundled-plugins)).
 
 - **Asks.** A plugin's manifest names each capability it asks for, its
   target and a reason in its own words, shown with it. Each is answered
@@ -533,7 +540,8 @@ do. Plugins built in are not asked about.
   it is: the log says so, and answers are kept only until the engine
   closes.
 - **The Permissions page** of Settings shows the answers by plugin or
-  by capability, and each can be changed there.
+  by capability, and each can be changed there, but for a bundled
+  plugin's, which are shown as they are.
 
 ## The WASM host
 
@@ -565,8 +573,8 @@ plugin to are `[budgets]`.
   copied off the frame into `<home>/plugins/.adding_<id>`, read again,
   and the folder is moved into place: `<home>/plugins/<id>`, or the
   folder of the installed plugin of that id, which it replaces. The
-  person is asked about it at once. An id of a plugin built in is
-  refused.
+  person is asked about it at once. An id of a plugin built in or
+  bundled is refused.
 - **Uninstall** on the Plugins panel (`Uninstall`) takes an installed
   plugin away with its folder, and the grants forget what the person
   answered for it.
@@ -623,8 +631,8 @@ plugin to are `[budgets]`.
 
 ### Hot reload
 
-- **Noticed.** Every `[wasm] watch` seconds each installed plugin's
-  `plugin.wasm` and `plugin.toml` are checked, and a change is taken
+- **Noticed.** Every `[wasm] watch` seconds each WASM plugin's
+  `plugin.wasm` and `plugin.toml`, installed or bundled, are checked, and a change is taken
   once a file stayed the same from one check to the next.
 - **A new `plugin.wasm`** of a running plugin is compiled off the frame
   and swapped in by one system in the frame's update, never in the
@@ -719,6 +727,58 @@ plugin to are `[budgets]`.
   marked `Stopped` with why, the log says so, and its panels and
   settings pages show that it was stopped and why. Switching it off
   and on starts it afresh.
+
+## Bundled plugins
+
+Hamlet's own features are WASM plugins that come with the engine. They
+are a kind of their own, apart from the plugins built into the binary
+in Rust, such as the demo, and from those the person installs.
+
+- **The folder.** `plugins/` at the repository root is a cargo
+  workspace of its own, left out of the root's, with one release
+  profile for small builds. Each plugin is a crate `plugins/<name>/`,
+  named as its folder, with its `plugin.toml`, depending on
+  `hamlet_engine_sdk` by path.
+- **The script.** `scripts/build_plugins.sh` checks that the
+  `wasm32-wasip2` target is installed, and says how to add it if not;
+  builds the workspace with `cargo build --release --target
+  wasm32-wasip2`; and lays each plugin out as `plugins/dist/<id>/`,
+  its `plugin.toml` and `plugin.wasm`, each file written beside its
+  place and moved over it. `target/` and `dist/` are not kept in git.
+- **Found at start.** `HAMLET_ENGINE_BUNDLE` when it is set; else a
+  `plugins` folder beside the executable; else, in a checkout, the
+  repository's `plugins/dist`, found from the binary crate's
+  `CARGO_MANIFEST_DIR` as it was built. The names are constants in
+  `engine/core/src/bundle.rs` and nowhere else, and the binary puts
+  in the `Bundle`; with none, as in the harness, no folder is read. A
+  bundle that is not there is told once in the log, and the engine
+  runs without it.
+- **Read in place.** Each folder of the bundle is read with the same
+  checks as an installed plugin's, where it is, never copied into the
+  home, and its `PluginInfo` is marked `Bundled`.
+- **Trusted, since they come with Hamlet.** Nobody is asked: a bundled
+  plugin is let in with every capability its manifest asks for
+  allowed, recorded in the grants file as `bundled` so the
+  Permissions page shows it. An update asks nothing either. What was
+  recorded for a bundled plugin is no answer for an installed plugin
+  of the same id.
+- **Off, never away.** A bundled plugin can be switched off, and
+  `switched_off.toml` keeps it off, but it is not uninstalled: the
+  Plugins page shows no UNINSTALL for it and says it comes with
+  Hamlet.
+- **Its id is its own.** An installed plugin with a bundled plugin's
+  id is refused, at start, when it appears and when it is added.
+- **Hot reload.** The bundle is watched as the plugins folder is, so
+  running the script again while the engine runs reloads each plugin
+  that changed and adds a new one.
+
+`plugins/about` is a panel, About, showing the engine's name and
+version (`ENGINE_VERSION`) and the interface's. Built with the
+script, it is checked by its `steps.toml`:
+
+```sh
+cargo run -p hamlet_engine_harness --bin plugin_check -- plugins/dist/hamlet.about --steps plugins/about/steps.toml
+```
 
 ## Assets
 

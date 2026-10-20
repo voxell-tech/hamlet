@@ -28,7 +28,9 @@ use bevy::ecs::system::{Commands, Query};
 use bevy::ecs::world::World;
 use hamlet_engine_api::{Manifest, PanelId};
 use hamlet_engine_core::LogLine;
-use hamlet_engine_plugins::{ContributedBy, PluginInfo, Stopped};
+use hamlet_engine_plugins::{
+    ContributedBy, PluginInfo, PluginKind, Stopped,
+};
 
 pub use self::add::AddFrom;
 use self::budget::Spending;
@@ -58,11 +60,12 @@ pub fn plugin(app: &mut App) {
 
 /// The WASM host's methods on [`Commands`].
 pub(crate) trait WasmCommandsExt {
-    /// Adds the plugin installed in `folder`, off.
+    /// Adds the plugin of `kind` in `folder`, off.
     fn spawn_plugin(
         &mut self,
         manifest: Manifest,
         folder: PathBuf,
+        kind: PluginKind,
     ) -> Entity;
 
     /// Has the WASM plugin build `surface`, its panel or settings
@@ -108,13 +111,14 @@ impl WasmCommandsExt for Commands<'_, '_> {
         &mut self,
         manifest: Manifest,
         folder: PathBuf,
+        kind: PluginKind,
     ) -> Entity {
         let loaded = Loaded {
             wasm: look(&folder.join(WASM)),
             manifest: look(&folder.join(MANIFEST)),
         };
         self.spawn((
-            PluginInfo::of(manifest, false),
+            PluginInfo::of(manifest, kind),
             Package { folder },
             loaded,
         ))

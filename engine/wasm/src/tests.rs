@@ -7,12 +7,16 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use bevy::app::{App, TaskPoolPlugin};
+use bevy::ecs::entity::Entity;
+use bevy::ecs::query::With;
 use bevy::time::TimePlugin;
-use hamlet_engine_api::{API_VERSION, PluginId};
+use hamlet_engine_api::{API_VERSION, Capability, PluginId};
 use hamlet_engine_core::tuning::Tuning;
-use hamlet_engine_core::{Budgets, Home, LogLevel};
-use hamlet_engine_grants::{Grants, Record};
-use hamlet_engine_plugins::Stopped;
+use hamlet_engine_core::{Budgets, Bundle, Home, LogLevel};
+use hamlet_engine_grants::{
+    Admitted, Answer, Grants, Petition, Record,
+};
+use hamlet_engine_plugins::{Stopped, Uninstall};
 use wasmtime::component::Resource;
 use wit_component::{ComponentEncoder, StringEncoding};
 use wit_parser::Resolve;
@@ -341,6 +345,7 @@ fn a_plugin_over_its_budgets_waits_then_is_stopped() {
     let record = Record {
         allowed: true,
         version: "0.1.0".into(),
+        bundled: false,
         answers: Vec::new(),
     };
     let id = PluginId::try_from("test.over").unwrap();
@@ -386,6 +391,56 @@ fn a_reloaded_plugin_keeps_its_state() {
         .expect("it reloads");
     assert_eq!(declared, Vec::new());
     assert_eq!(fresh.save(&caps).0, Ok(3_u32.to_le_bytes().to_vec()));
+}
+
+#[test]
+fn a_bundled_plugin_is_let_in_unasked_and_stays() {
+    let root = home("bundled");
+    let bundle = root.join("bundle");
+    let folder = bundle.join("test.bundled");
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(
+        folder.join(MANIFEST),
+        format!(
+            "id = \"test.bundled\"\nname = \"Bundled\"\nversion = \
+             \"0.1.0\"\napi = \
+             \"{API_VERSION}\"\n\n[[asks]]\ncapability = \
+             \"net.fetch\"\ntarget = \"example.org\"\nreason = \"To \
+             fetch\"\n"
+        ),
+    )
+    .unwrap();
+    fs::write(
+        folder.join(WASM),
+        component(&module("(i32.const 32)", ""), false),
+    )
+    .unwrap();
+    let mut app = engine(&root);
+    app.insert_resource(Bundle::at(&bundle));
+    for _ in 0..3 {
+        app.update();
+    }
+    let id = PluginId::try_from("test.bundled").unwrap();
+    let world = app.world_mut();
+    assert_eq!(world.query::<&Petition>().iter(world).count(), 0);
+    let plugin = world
+        .query_filtered::<Entity, With<Admitted>>()
+        .single(world)
+        .expect("it is let in");
+    let record = world.resource::<Grants>().record(&id).cloned();
+    let record = record.expect("it is recorded");
+    assert!(record.bundled);
+    assert_eq!(
+        record.answer(Capability::NetFetch, "example.org"),
+        Some(Answer::Allow)
+    );
+
+    world.trigger(Uninstall { entity: plugin });
+    app.update();
+    assert!(app.world().get_entity(plugin).is_ok());
+    assert!(folder.join(WASM).is_file());
+    assert!(app.world().resource::<Grants>().record(&id).is_some());
+    let _ = fs::remove_dir_all(&root);
 }
 
 /// How a folder to add a plugin from is made.

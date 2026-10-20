@@ -16,8 +16,8 @@ use hamlet_engine_api::PluginId;
 use hamlet_engine_core::{Home, LogLine, write_whole};
 use serde::{Deserialize, Serialize};
 
-use crate::PluginInfo;
 use crate::list::Uninstall;
+use crate::{PluginInfo, PluginKind};
 
 /// The file's name in the home.
 pub(crate) const FILE: &str = "switched_off.toml";
@@ -112,6 +112,9 @@ fn forget(
     let Ok(info) = plugins.get(event.entity) else {
         return;
     };
+    if info.kind != PluginKind::Installed {
+        return;
+    }
     if let Err(why) = off.set(&info.id, false) {
         log.write(LogLine::error("plugins", why));
     }

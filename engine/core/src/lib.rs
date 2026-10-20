@@ -1,8 +1,10 @@
 //! What every engine module stands on: the tuning files under
-//! `engine/tuning/`, the home folder, the engine's log, the budgets a
-//! plugin spends and writing a file whole.
+//! `engine/tuning/`, the home folder, the bundle of plugins that come
+//! with Hamlet, the engine's log, the budgets a plugin spends and
+//! writing a file whole.
 
 pub mod budget;
+pub mod bundle;
 pub mod file;
 pub mod home;
 pub mod log;
@@ -10,6 +12,7 @@ pub mod tuning;
 
 use bevy::app::App;
 pub use budget::Budgets;
+pub use bundle::Bundle;
 pub use file::write_whole;
 pub use home::Home;
 pub use log::{Log, LogLevel, LogLine};

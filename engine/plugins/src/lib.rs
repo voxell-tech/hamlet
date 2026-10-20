@@ -39,8 +39,7 @@ pub struct PluginInfo {
     pub id: PluginId,
     pub name: String,
     pub version: String,
-    /// Built into the engine, rather than installed.
-    pub builtin: bool,
+    pub kind: PluginKind,
     /// What it asks the person for, and why.
     pub asks: Vec<Ask>,
     pub assets: AssetTypes,
@@ -48,14 +47,25 @@ pub struct PluginInfo {
     pub events: Events,
 }
 
+/// Where a plugin comes from.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PluginKind {
+    /// Rust, linked into the binary.
+    BuiltIn,
+    /// WASM that comes with Hamlet, read from the bundle folder.
+    Bundled,
+    /// WASM the person installed in the home.
+    Installed,
+}
+
 impl PluginInfo {
     /// The plugin `manifest` describes.
-    pub fn of(manifest: Manifest, builtin: bool) -> Self {
+    pub fn of(manifest: Manifest, kind: PluginKind) -> Self {
         Self {
             id: manifest.id,
             name: manifest.name,
             version: manifest.version,
-            builtin,
+            kind,
             asks: manifest.asks,
             assets: manifest.assets,
             services: manifest.services,

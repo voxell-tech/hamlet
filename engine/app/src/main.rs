@@ -4,9 +4,11 @@ mod demo;
 
 use bevy::DefaultPlugins;
 use bevy::app::{App, AppExit, PluginGroup};
+use hamlet_engine_core::Bundle;
 
 fn main() -> AppExit {
     App::new()
+        .insert_resource(Bundle::find(env!("CARGO_MANIFEST_DIR")))
         .add_plugins((
             DefaultPlugins.set(hamlet_engine_shell::window_plugin()),
             hamlet_engine_core::plugin,
