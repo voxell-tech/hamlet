@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use bevy::app::{App, Update};
+use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::event::EntityEvent;
@@ -22,15 +23,19 @@ use bevy::picking::events::{Pointer, Press, Release};
 use bevy::picking::hover::Hovered as PickingHovered;
 use bevy::time::Time;
 use bevy::ui::{AlignItems, FlexDirection};
+use bevy_fynix::patch::PatchInk;
 use bevy_fynix::tokens::{
-    Curve, Motion as Movement, MotionTokens, Tone,
+    Curve, Motion as Movement, MotionTokens, TextTokens, Tone,
 };
+use bevy_fynix::transition::blend_color;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row,
 };
 use bevy_fynix::{
-    Mounts, Signal, Theme, View, ViewExt, component, keyed,
+    Bevy, Mounts, ReducedMotion, Signal, Theme, View, ViewExt,
+    component, keyed,
 };
+use fynix::Patch;
 use hamlet_engine_core::Budgets;
 use hamlet_engine_plugins::ContributedBy;
 use hamlet_engine_shell::fonts::DisplayText;
@@ -123,7 +128,8 @@ struct TellsPresses;
 #[derive(Component, Clone, PartialEq, Debug)]
 struct Props {
     text: String,
-    tone: Tone,
+    /// The colour of its text, by its tone.
+    ink: Color,
     size: f32,
     bold: bool,
     opacity: f32,
@@ -137,7 +143,7 @@ impl Props {
     fn new(theme: &EngineTheme) -> Self {
         Self {
             text: String::new(),
-            tone: Tone::Body,
+            ink: theme.tone(Tone::Body),
             size: theme.text.body,
             bold: false,
             opacity: 1.0,
@@ -152,7 +158,7 @@ impl Props {
     fn gone() -> Self {
         Self {
             text: String::new(),
-            tone: Tone::Body,
+            ink: Color::NONE,
             size: 0.0,
             bold: false,
             opacity: 0.0,
@@ -164,12 +170,94 @@ impl Props {
     }
 }
 
-/// On the holder of a node's properties: its opacity moving toward
-/// `to`, as the engine animates it.
-#[derive(Component, Clone, Copy)]
+/// A property of a node the engine can move, with its value.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Movable {
+    Ink(Color),
+    Size(f32),
+    Gap(f32),
+    Opacity(f32),
+}
+
+impl Movable {
+    /// The value `value` sets, if it is one the engine moves.
+    fn of(value: &Property, theme: &EngineTheme) -> Option<Self> {
+        let gap = theme.space.gap;
+        Some(match *value {
+            Property::Tone(tone) => {
+                Self::Ink(theme.tone(tone_of(tone)))
+            }
+            Property::Size(size) => Self::Size(match size {
+                wit::Size::Small => theme.text.small,
+                wit::Size::Body => theme.text.body,
+                wit::Size::Heading => theme.text.heading,
+                wit::Size::Title => theme.text.title,
+            }),
+            Property::Space(space) => Self::Gap(match space {
+                wit::Space::None => 0.0,
+                wit::Space::Half => gap / 2.0,
+                wit::Space::Gap => gap,
+                wit::Space::Double => gap * 2.0,
+            }),
+            Property::Opacity(opacity) => Self::Opacity(opacity),
+            _ => return None,
+        })
+    }
+
+    /// The same property's value in `props`.
+    fn read(self, props: &Props) -> Self {
+        match self {
+            Self::Ink(_) => Self::Ink(props.ink),
+            Self::Size(_) => Self::Size(props.size),
+            Self::Gap(_) => Self::Gap(props.gap),
+            Self::Opacity(_) => Self::Opacity(props.opacity),
+        }
+    }
+
+    fn write(self, props: &mut Props) {
+        match self {
+            Self::Ink(ink) => props.ink = ink,
+            Self::Size(size) => props.size = size,
+            Self::Gap(gap) => props.gap = gap,
+            Self::Opacity(opacity) => props.opacity = opacity,
+        }
+    }
+
+    /// `t` of the way from this to `to`, the same property.
+    fn blend(self, to: Self, t: f32) -> Self {
+        let mix = |from: f32, to: f32| from + (to - from) * t;
+        match (self, to) {
+            (Self::Ink(from), Self::Ink(to)) => {
+                Self::Ink(blend_color(&from, &to, t))
+            }
+            (Self::Size(from), Self::Size(to)) => {
+                Self::Size(mix(from, to))
+            }
+            (Self::Gap(from), Self::Gap(to)) => {
+                Self::Gap(mix(from, to))
+            }
+            (Self::Opacity(from), Self::Opacity(to)) => {
+                Self::Opacity(mix(from, to))
+            }
+            _ => to,
+        }
+    }
+
+    fn is_same(self, other: Self) -> bool {
+        core::mem::discriminant(&self)
+            == core::mem::discriminant(&other)
+    }
+}
+
+/// On the holder of a node's properties: the values the engine is
+/// moving, each over a curve of its theme.
+#[derive(Component, Default)]
+struct Travels(Vec<Travel>);
+
+#[derive(Clone, Copy)]
 struct Travel {
-    from: f32,
-    to: f32,
+    from: Movable,
+    to: Movable,
     elapsed: Duration,
     curve: Curve,
 }
@@ -384,14 +472,26 @@ fn widget(
             .gap(read(holder, |props| props.gap))
             .align(read(holder, |props| props.align))
             .boxed(),
-        Kind::Label => {
-            label(read(holder, |props| props.text.clone()))
-                .tone(read(holder, |props| props.tone))
-                .size(read(holder, |props| props.size))
-                .bold(read(holder, |props| props.bold))
-                .opacity(read(holder, |props| props.opacity))
-                .boxed()
-        }
+        Kind::Label => AnyView::new(move |cx: &mut Cx| {
+            let node = cx.build(
+                label(read(holder, |props| props.text.clone()))
+                    .size(read(holder, |props| props.size))
+                    .bold(read(holder, |props| props.bold))
+                    .opacity(read(holder, |props| props.opacity)),
+            );
+            // The colour moves between tones, which the label's own
+            // tone cannot.
+            cx.effect(
+                node,
+                read(holder, |props| props.ink).into(),
+                |world, node, ink| {
+                    <PatchInk as Patch<Bevy, Color>>::patch(
+                        world, node, ink,
+                    );
+                },
+            );
+            node
+        }),
         Kind::Button => {
             keyed(read(holder, |props| props.style), move |style| {
                 action(
@@ -425,7 +525,8 @@ fn read<T: Send + Sync + 'static>(
 }
 
 /// Sets `value` on the node whose widget is `entity` and whose
-/// properties are on `holder`.
+/// properties are on `holder`: a [`Movable`] one over the theme's
+/// curve for `motion`, any other at once.
 fn set(
     world: &mut World,
     theme: &EngineTheme,
@@ -439,49 +540,50 @@ fn set(
     {
         entity.insert(DisplayText);
     }
+    let reduced = world
+        .get_resource::<ReducedMotion>()
+        .is_some_and(|reduced| reduced.0);
     let Ok(mut holder) = world.get_entity_mut(holder) else {
         return;
     };
-    let travel = match (&value, motion) {
-        (&Property::Opacity(to), Some(motion)) => {
-            let from =
-                holder.get::<Props>().map_or(to, |p| p.opacity);
-            let motion = match motion {
-                wit::Motion::Interact => Movement::Interact,
-                wit::Motion::Expand => Movement::Expand,
-            };
-            Some(Travel {
-                from,
-                to,
-                elapsed: Duration::ZERO,
-                curve: theme.motion(motion),
-            })
+    if let Some(to) = Movable::of(&value, theme) {
+        let Some(from) = holder.get::<Props>().map(|p| to.read(p))
+        else {
+            return;
+        };
+        let mut travels =
+            holder.take::<Travels>().unwrap_or_default();
+        travels.0.retain(|travel| !travel.to.is_same(to));
+        match motion.filter(|_| !reduced && from != to) {
+            Some(motion) => {
+                let motion = match motion {
+                    wit::Motion::Interact => Movement::Interact,
+                    wit::Motion::Expand => Movement::Expand,
+                };
+                travels.0.push(Travel {
+                    from,
+                    to,
+                    elapsed: Duration::ZERO,
+                    curve: theme.motion(motion),
+                });
+            }
+            None => {
+                if let Some(mut props) = holder.get_mut::<Props>() {
+                    to.write(&mut props);
+                }
+            }
         }
-        _ => None,
-    };
-    if let Some(travel) = travel {
-        holder.insert(travel);
+        if !travels.0.is_empty() {
+            holder.insert(travels);
+        }
         return;
-    }
-    if matches!(value, Property::Opacity(_)) {
-        holder.remove::<Travel>();
     }
     let Some(mut props) = holder.get_mut::<Props>() else {
         return;
     };
     match value {
         Property::Text(text) => props.text = text,
-        Property::Tone(tone) => props.tone = tone_of(tone),
-        Property::Size(size) => {
-            props.size = match size {
-                wit::Size::Small => theme.text.small,
-                wit::Size::Body => theme.text.body,
-                wit::Size::Heading => theme.text.heading,
-                wit::Size::Title => theme.text.title,
-            };
-        }
         Property::Bold(bold) => props.bold = bold,
-        Property::Opacity(opacity) => props.opacity = opacity,
         Property::Style(style) => {
             props.style = match style {
                 wit::ButtonStyle::Plain => ButtonStyle::Plain,
@@ -500,15 +602,10 @@ fn set(
                 }
             };
         }
-        Property::Space(space) => {
-            let gap = theme.space.gap;
-            props.gap = match space {
-                wit::Space::None => 0.0,
-                wit::Space::Half => gap / 2.0,
-                wit::Space::Gap => gap,
-                wit::Space::Double => gap * 2.0,
-            };
-        }
+        Property::Tone(_)
+        | Property::Size(_)
+        | Property::Opacity(_)
+        | Property::Space(_) => {}
     }
 }
 
@@ -632,25 +729,29 @@ fn route(
     }
 }
 
-/// Moves each opacity the engine animates on.
+/// Moves on each value the engine is moving.
 fn travel(
-    mut holders: Query<(Entity, &mut Props, &mut Travel)>,
+    mut holders: Query<(Entity, &mut Props, &mut Travels)>,
     time: Res<Time>,
     mut commands: Commands,
 ) {
-    for (holder, mut props, mut travel) in &mut holders {
-        travel.elapsed += time.delta();
-        let duration = travel.curve.duration;
-        if travel.elapsed >= duration {
-            props.opacity = travel.to;
-            commands.entity(holder).remove::<Travel>();
-            continue;
+    for (holder, mut props, mut travels) in &mut holders {
+        travels.0.retain_mut(|travel| {
+            travel.elapsed += time.delta();
+            let duration = travel.curve.duration;
+            if travel.elapsed >= duration {
+                travel.to.write(&mut props);
+                return false;
+            }
+            let progress =
+                travel.elapsed.as_secs_f32() / duration.as_secs_f32();
+            let eased = (travel.curve.ease)(progress);
+            travel.from.blend(travel.to, eased).write(&mut props);
+            true
+        });
+        if travels.0.is_empty() {
+            commands.entity(holder).remove::<Travels>();
         }
-        let progress =
-            travel.elapsed.as_secs_f32() / duration.as_secs_f32();
-        let eased = (travel.curve.ease)(progress);
-        props.opacity =
-            travel.from + (travel.to - travel.from) * eased;
     }
 }
 

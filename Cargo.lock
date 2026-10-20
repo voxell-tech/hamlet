@@ -3771,6 +3771,7 @@ dependencies = [
  "bevy",
  "bevy_fynix",
  "bytes",
+ "fynix",
  "hamlet_engine_api",
  "hamlet_engine_bus",
  "hamlet_engine_core",

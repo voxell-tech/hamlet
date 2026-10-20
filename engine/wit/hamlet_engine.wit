@@ -161,7 +161,9 @@ interface ui {
         /// plugin's name for it in the events it is given.
         constructor(kind: kind, parent: borrow<node>, key: u32);
 
-        /// Sets `value` at once, or over `motion` where it can move.
+        /// Sets `value` at once, or moves it over the engine's curve
+        /// for `motion`. A tone, size, opacity or space can move; the
+        /// rest are set at once.
         set: func(value: property, motion: option<motion>);
 
         /// Puts the children in the order `children` lists them all.

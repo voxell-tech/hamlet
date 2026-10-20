@@ -18,6 +18,7 @@ hamlet_engine_bus.workspace = true
 bevy.workspace = true
 bevy_fynix.workspace = true
 bytes.workspace = true
+fynix.workspace = true
 rfd.workspace = true
 serde.workspace = true
 tokio.workspace = true

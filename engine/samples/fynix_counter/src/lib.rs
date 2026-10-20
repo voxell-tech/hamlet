@@ -1,8 +1,7 @@
 //! A sample plugin whose panel is retained and written with fynix: a
 //! count and a button that adds one, a button that takes the primary
-//! style under the pointer, two buttons that each fade a label, one
-//! moved on by the plugin and one by the engine, and rows enough for
-//! a panel of about fifty nodes.
+//! style under the pointer, a button that fades and dims a label, and
+//! rows enough for a panel of about fifty nodes.
 
 use hamlet_plugin::ui::{
     AnyView, Button, ButtonStyle, Cx, FrameProps, Hovered, Motion,
@@ -19,13 +18,8 @@ struct Counter;
 
 struct Count(u32);
 
-/// Whether the labels are faded: the one the plugin moves, and the
-/// one the engine does.
-#[derive(Default)]
-struct Faded {
-    plugin: bool,
-    engine: bool,
-}
+/// Whether the label is faded.
+struct Faded(bool);
 
 impl Plugin for Counter {
     fn declare(&self, entry: &mut Entry) {
@@ -35,9 +29,8 @@ impl Plugin for Counter {
     fn mount(&mut self, _: &str, world: &mut World) -> AnyView {
         if world.get::<Count>().is_none() {
             world.insert(Count(0));
-            world.insert(Faded::default());
+            world.insert(Faded(false));
         }
-        let opacity = |faded: bool| if faded { 0.3 } else { 1.0 };
         let rows = (0..ROWS)
             .map(|at| {
                 row((
@@ -64,26 +57,18 @@ impl Plugin for Counter {
                     },
                 ),
             )),
-            row((
-                button("Fade in the plugin").on_click(|world| {
-                    let faded = world.resource_mut::<Faded>();
-                    faded.plugin = !faded.plugin;
-                }),
-                button("Fade in the engine").on_click(|world| {
-                    let faded = world.resource_mut::<Faded>();
-                    faded.engine = !faded.engine;
-                }),
-            )),
-            label("Faded by the plugin")
-                .opacity(resource::<Faded, _>(move |f| {
-                    opacity(f.plugin)
+            button("Fade").on_click(|world| {
+                let faded = world.resource_mut::<Faded>();
+                faded.0 = !faded.0;
+            }),
+            label("Faded by the engine")
+                .opacity(resource::<Faded, _>(|faded| {
+                    if faded.0 { 0.3 } else { 1.0 }
+                }))
+                .tone(resource::<Faded, _>(|faded| {
+                    if faded.0 { Tone::Dim } else { Tone::Body }
                 }))
                 .transition(Motion::Interact),
-            label("Faded by the engine")
-                .opacity(resource::<Faded, _>(move |f| {
-                    opacity(f.engine)
-                }))
-                .engine_transition(Motion::Interact),
             column(rows).space(Space::Half),
         ))
         .boxed()

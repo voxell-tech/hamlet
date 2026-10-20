@@ -1,6 +1,8 @@
 //! The elements a plugin's panels are made of, each a node of the
 //! engine's of one kind, and what is built out of them.
 
+use core::any::TypeId;
+
 use fynix::{Cx, Patch, Prop, Styled, View, ViewSeq, element};
 
 use super::world::{Handler, World};
@@ -11,13 +13,13 @@ use crate::bindings::hamlet::engine::ui::{
 };
 
 /// A run of text.
-#[element(backend = Hamlet, prepare = prepare_label)]
+#[element(backend = Hamlet)]
 pub struct Label {
     #[elem(patch = SetText)]
     pub text: Prop<World, String>,
-    #[elem(default = Tone::Body, patch = SetTone)]
+    #[elem(default = Tone::Body, patch = SetTone, blend = jump)]
     pub tone: Prop<World, Tone>,
-    #[elem(default = Size::Body, patch = SetSize)]
+    #[elem(default = Size::Body, patch = SetSize, blend = jump)]
     pub size: Prop<World, Size>,
     #[elem(patch = SetBold)]
     pub bold: Prop<World, bool>,
@@ -27,7 +29,7 @@ pub struct Label {
 }
 
 /// A button showing `text`, in the engine's style `style`.
-#[element(backend = Hamlet, prepare = prepare_button)]
+#[element(backend = Hamlet)]
 pub struct Button {
     #[elem(patch = SetText)]
     pub text: Prop<World, String>,
@@ -36,11 +38,11 @@ pub struct Button {
 }
 
 /// A column or a row, holding no views of its own.
-#[element(backend = Hamlet, prepare = prepare_frame)]
+#[element(backend = Hamlet)]
 pub struct Frame {
     #[elem(default = Direction::Column, patch = SetDirection)]
     pub direction: Prop<World, Direction>,
-    #[elem(default = Space::Gap, patch = SetSpace)]
+    #[elem(default = Space::Gap, patch = SetSpace, blend = jump)]
     pub space: Prop<World, Space>,
 }
 
@@ -111,23 +113,6 @@ impl<T, V: View<Hamlet, T>> View<Hamlet, T> for OnClick<V> {
     }
 }
 
-/// A view whose values the engine animates when they change, over a
-/// movement of its theme.
-pub struct EngineTransition<V> {
-    inner: V,
-    motion: Movement,
-}
-
-impl<T, V: View<Hamlet, T>> View<Hamlet, T> for EngineTransition<V> {
-    fn build(self, cx: &mut Cx<'_, Hamlet, T>) -> Key {
-        let first = cx.world.nodes.next_key();
-        let node = self.inner.build(cx);
-        // After the build, so the first values are shown at once.
-        cx.world.nodes.animate_from(first, self.motion);
-        node
-    }
-}
-
 /// What any view of a panel can be given.
 pub trait UiExt: Sized {
     /// This view, running `handler` when its root node is clicked.
@@ -140,50 +125,52 @@ pub trait UiExt: Sized {
             handler: Box::new(handler),
         }
     }
-
-    /// This view, with each of its values animated by the engine
-    /// over `motion` when it changes.
-    fn engine_transition(
-        self,
-        motion: fynix::Motion,
-    ) -> EngineTransition<Self> {
-        let motion = match motion {
-            fynix::Motion::Interact => Movement::Interact,
-            fynix::Motion::Expand => Movement::Expand,
-        };
-        EngineTransition {
-            inner: self,
-            motion,
-        }
-    }
 }
 
 impl<V> UiExt for V {}
 
-fn prepare_label(world: &mut World, node: Key) {
-    world.nodes.prepare(node, Kind::Label);
-}
-
-fn prepare_button(world: &mut World, node: Key) {
-    world.nodes.prepare(node, Kind::Button);
-}
-
-fn prepare_frame(world: &mut World, node: Key) {
-    world.nodes.prepare(node, Kind::Frame);
+/// The kind of node the element of the type `element` is. A node no
+/// element is written on is a frame.
+pub(super) fn kind(element: Option<TypeId>) -> Kind {
+    match element {
+        Some(id) if id == TypeId::of::<Label>() => Kind::Label,
+        Some(id) if id == TypeId::of::<Button>() => Kind::Button,
+        _ => Kind::Frame,
+    }
 }
 
 fn blend(from: &f32, to: &f32, t: f32) -> f32 {
     from + (to - from) * t
 }
 
-/// A [`Patch`] sending one property of a node.
+/// A value the engine moves, and the plugin sets straight to its
+/// target.
+fn jump<T: Copy>(_: &T, to: &T, _: f32) -> T {
+    *to
+}
+
+/// A [`Patch`] sending one property of a node, over the motion of a
+/// transition where the engine moves it.
 macro_rules! patch {
     ($name:ident, $value:ty, $make:expr) => {
         pub struct $name;
 
         impl Patch<Hamlet, $value> for $name {
             fn patch(world: &mut World, node: Key, value: &$value) {
-                world.nodes.set(node, $make(value));
+                Self::patch_over(world, node, value, None);
+            }
+
+            fn patch_over(
+                world: &mut World,
+                node: Key,
+                value: &$value,
+                motion: Option<fynix::Motion>,
+            ) {
+                let motion = motion.map(|motion| match motion {
+                    fynix::Motion::Interact => Movement::Interact,
+                    fynix::Motion::Expand => Movement::Expand,
+                });
+                world.nodes.set(node, $make(value), motion);
             }
         }
     };

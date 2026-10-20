@@ -57,11 +57,8 @@ fn measure(home: &Path, folder: &Path) -> Result<(), String> {
     harness.click(PANEL, "Add one")?;
     report("click", &settle(&mut harness));
 
-    harness.click(PANEL, "Fade in the plugin")?;
-    report("a fade the plugin moves", &settle(&mut harness));
-
-    harness.click(PANEL, "Fade in the engine")?;
-    report("a fade the engine moves", &settle(&mut harness));
+    harness.click(PANEL, "Fade")?;
+    report("a fade", &settle(&mut harness));
     Ok(())
 }
 

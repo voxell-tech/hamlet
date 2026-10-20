@@ -1,8 +1,10 @@
 //! Retained panels written with fynix, as the engine's own panels
 //! are. [`Hamlet`] is fynix's backend: each node is a `node` of the
-//! engine's, made when it is first needed, and each prop written is a
-//! `set` on it. The engine builds its own widgets from them, in its
-//! theme, and tells the plugin what the person does to them.
+//! engine's, made as it is spawned, and each prop written is a `set`
+//! on it. A transition is moved by the engine, over its own theme's
+//! curve for the motion. The engine builds its own widgets from the
+//! nodes, in its theme, and tells the plugin what the person does to
+//! them.
 //!
 //! ```ignore
 //! fn mount(&mut self, _: &str, world: &mut World) -> AnyView {
@@ -22,6 +24,7 @@ pub mod glue;
 mod nodes;
 mod world;
 
+use core::any::TypeId;
 use core::marker::PhantomData;
 use core::time::Duration;
 
@@ -31,9 +34,8 @@ pub use fynix::{
 };
 
 pub use self::elements::{
-    Button, ButtonProps, EngineTransition, Frame, FrameProps, Label,
-    LabelProps, OnClick, Stack, UiExt, button, column, heading,
-    label, row,
+    Button, ButtonProps, Frame, FrameProps, Label, LabelProps,
+    OnClick, Stack, UiExt, button, column, heading, label, row,
 };
 pub use self::nodes::{Key, States};
 pub use self::world::{World, resource};
@@ -53,8 +55,14 @@ impl fynix::Backend for Hamlet {
     type World = World;
     type Node = Key;
 
-    fn spawn(world: &mut World, parent: Option<Key>) -> Key {
-        world.nodes.spawn(parent)
+    const ANIMATES: bool = true;
+
+    fn spawn(
+        world: &mut World,
+        parent: Option<Key>,
+        kind: Option<TypeId>,
+    ) -> Key {
+        world.nodes.spawn(parent, elements::kind(kind))
     }
 
     fn despawn(world: &mut World, node: Key) {

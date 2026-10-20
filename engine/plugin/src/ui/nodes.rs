@@ -1,9 +1,7 @@
 //! The plugin's nodes as the engine holds them. A node is made in
-//! the engine when something is first sent for it, so its kind is
-//! known by then, and nodes are made in the order they were spawned,
-//! so a parent is always made before its children.
+//! the engine as fynix spawns it, of the kind of its element.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 
 use crate::bindings::hamlet::engine::ui::{
     ButtonStyle, Direction, Kind, Motion, Node, Property, Size,
@@ -26,10 +24,6 @@ impl States {
         self.0 & other.0 == other.0
     }
 
-    fn is_empty(self) -> bool {
-        self.0 == 0
-    }
-
     fn set(&mut self, other: Self, on: bool) {
         if on {
             self.0 |= other.0;
@@ -47,22 +41,15 @@ impl States {
     }
 }
 
-enum Handle {
-    /// Not made yet, with its kind once an element said it.
-    Waiting(Option<Kind>),
-    Made(Node),
-}
-
 struct Entry {
     parent: Option<Key>,
     children: Vec<Key>,
-    handle: Handle,
+    /// `None` for a node built outside a panel.
+    node: Option<Node>,
     /// The properties sent, one bit each by [`bit`].
     sent: u8,
     watch: States,
     states: States,
-    /// The movement the engine animates its values over.
-    motion: Option<Motion>,
 }
 
 /// Every node of the plugin's panels.
@@ -70,104 +57,71 @@ struct Entry {
 pub struct Nodes {
     next: Key,
     entries: HashMap<Key, Entry>,
-    waiting: BTreeSet<Key>,
     /// Nodes despawned since fynix was last told.
     pub(crate) gone: Vec<Key>,
-    /// Calls made into the engine.
-    pub(crate) calls: u64,
 }
 
 impl Nodes {
     /// Takes `node`, made by the engine, as a node of the plugin's.
     pub fn adopt(&mut self, node: Node) -> Key {
         let key = self.key();
-        self.entries.insert(key, entry(None, Handle::Made(node)));
+        self.entries.insert(key, entry(None, Some(node)));
         key
     }
 
-    pub fn spawn(&mut self, parent: Option<Key>) -> Key {
+    /// Makes a node of `kind`, last under `parent`.
+    pub fn spawn(&mut self, parent: Option<Key>, kind: Kind) -> Key {
         let key = self.key();
-        self.entries
-            .insert(key, entry(parent, Handle::Waiting(None)));
-        if let Some(parent) =
-            parent.and_then(|p| self.entries.get_mut(&p))
-        {
-            parent.children.push(key);
+        let made = parent
+            .and_then(|parent| self.entries.get_mut(&parent))
+            .and_then(|parent| {
+                parent.children.push(key);
+                parent.node.as_ref()
+            })
+            .map(|parent| Node::new(kind, parent, key));
+        if made.is_none() {
+            crate::error("a node of a panel was built outside it");
         }
-        self.waiting.insert(key);
+        self.entries.insert(key, entry(parent, made));
         key
     }
 
-    /// The key the next node spawned will have.
-    pub fn next_key(&self) -> Key {
-        self.next
-    }
-
-    pub fn prepare(&mut self, key: Key, kind: Kind) {
-        if let Some(Entry {
-            handle: Handle::Waiting(waiting),
-            ..
-        }) = self.entries.get_mut(&key)
-        {
-            *waiting = Some(kind);
-        }
-    }
-
-    /// Has the engine animate the values of the nodes from `first`
-    /// on over `motion`.
-    pub fn animate_from(&mut self, first: Key, motion: Motion) {
-        for key in first..self.next {
-            if let Some(entry) = self.entries.get_mut(&key) {
-                entry.motion = Some(motion);
-            }
-        }
-    }
-
-    /// Sends `value` for `key`, unless it is the first value and none
-    /// was sent before.
-    pub fn set(&mut self, key: Key, value: Property) {
+    /// Sends `value` for `key`, over `motion` where the engine moves
+    /// it, unless it is the first value and none was sent before.
+    pub fn set(
+        &mut self,
+        key: Key,
+        value: Property,
+        motion: Option<Motion>,
+    ) {
         let bit = bit(&value);
-        let Some(entry) = self.entries.get(&key) else {
+        let Some(entry) = self.entries.get_mut(&key) else {
             return;
         };
         if entry.sent & bit == 0 && is_first(&value) {
             return;
         }
-        let motion = entry.motion;
-        let Some(node) = self.made(key) else {
-            return;
-        };
-        node.set(&value, motion);
-        self.calls += 1;
-        if let Some(entry) = self.entries.get_mut(&key) {
+        if let Some(node) = &entry.node {
+            node.set(&value, motion);
             entry.sent |= bit;
         }
     }
 
     pub fn reorder(&mut self, parent: Key, children: &[Key]) {
-        if let Some(entry) = self.entries.get_mut(&parent) {
-            entry.children = children.to_vec();
-        }
-        let last = children.iter().copied().chain([parent]).max();
-        if let Some(last) = last {
-            self.make_through(last);
-        }
-        let Some(Handle::Made(node)) =
-            self.entries.get(&parent).map(|entry| &entry.handle)
-        else {
+        let Some(entry) = self.entries.get_mut(&parent) else {
+            return;
+        };
+        entry.children = children.to_vec();
+        let Some(node) = &self.entries[&parent].node else {
             return;
         };
         let handles = children
             .iter()
             .filter_map(|child| {
-                match &self.entries.get(child)?.handle {
-                    Handle::Made(node) => Some(node),
-                    Handle::Waiting(_) => None,
-                }
+                self.entries.get(child)?.node.as_ref()
             })
             .collect::<Vec<_>>();
         node.reorder(&handles);
-        self.calls += 1;
     }
 
     /// Takes `key` away, and every node under it: their handles are
@@ -185,11 +139,7 @@ impl Nodes {
         let mut at = 0;
         while let Some(&key) = gone.get(at) {
             at += 1;
-            self.waiting.remove(&key);
             if let Some(entry) = self.entries.remove(&key) {
-                if matches!(entry.handle, Handle::Made(_)) {
-                    self.calls += 1;
-                }
                 gone.extend(entry.children);
             }
         }
@@ -206,9 +156,8 @@ impl Nodes {
             return;
         }
         entry.watch.set(states, true);
-        if let Handle::Made(node) = &entry.handle {
+        if let Some(node) = &entry.node {
             entry.watch.watch(node);
-            self.calls += 1;
         }
     }
 
@@ -225,77 +174,21 @@ impl Nodes {
         }
     }
 
-    /// Makes every node still waiting.
-    pub fn flush(&mut self) {
-        if let Some(&last) = self.waiting.last() {
-            self.make_through(last);
-        }
-    }
-
     fn key(&mut self) -> Key {
         let key = self.next;
         self.next += 1;
         key
     }
-
-    /// The handle of `key`, making it and every node spawned before
-    /// it first.
-    fn made(&mut self, key: Key) -> Option<&Node> {
-        self.make_through(key);
-        match &self.entries.get(&key)?.handle {
-            Handle::Made(node) => Some(node),
-            Handle::Waiting(_) => None,
-        }
-    }
-
-    fn make_through(&mut self, last: Key) {
-        while let Some(&key) = self.waiting.first() {
-            if key > last {
-                break;
-            }
-            self.waiting.pop_first();
-            self.make(key);
-        }
-    }
-
-    fn make(&mut self, key: Key) {
-        let Some(entry) = self.entries.get(&key) else {
-            return;
-        };
-        let &Handle::Waiting(kind) = &entry.handle else {
-            return;
-        };
-        let watch = entry.watch;
-        let Some(Handle::Made(parent)) = entry
-            .parent
-            .and_then(|parent| self.entries.get(&parent))
-            .map(|parent| &parent.handle)
-        else {
-            crate::error("a node of a panel was built outside it");
-            return;
-        };
-        let node =
-            Node::new(kind.unwrap_or(Kind::Frame), parent, key);
-        self.calls += 1;
-        if !watch.is_empty() {
-            watch.watch(&node);
-            self.calls += 1;
-        }
-        if let Some(entry) = self.entries.get_mut(&key) {
-            entry.handle = Handle::Made(node);
-        }
-    }
 }
 
-fn entry(parent: Option<Key>, handle: Handle) -> Entry {
+fn entry(parent: Option<Key>, node: Option<Node>) -> Entry {
     Entry {
         parent,
         children: Vec::new(),
-        handle,
+        node,
         sent: 0,
         watch: States::default(),
         states: States::default(),
-        motion: None,
     }
 }
 

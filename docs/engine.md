@@ -162,22 +162,24 @@ builds `target/wasm32-wasip2/release/plugin.wasm`, to go beside its
 
 - **Retained panels** are written with fynix, with the feature `ui`
   (`hamlet_plugin::ui`). `Hamlet` is fynix's backend: a node is made in
-  the engine when something is first sent for it, in the order nodes
-  were spawned, and a property still at its first value is not sent.
-  The `World` holds the plugin's resources, which `resource` signals
-  read. The elements are `label` (and `heading`), `button` and the
-  frames `column` and `row`; `on_click` runs a handler, `when::<Hovered,
-  _>` and `when::<Pressed, _>` hold rules while the engine says so,
-  `transition` moves values in the plugin each frame and
-  `engine_transition` has the engine move them. `Plugin::mount` gives
-  a panel's view, built once each time the panel is shown.
+  the engine as fynix spawns it, of the kind of its element, and a
+  property still at its first value is not sent. The `World` holds the
+  plugin's resources, which `resource` signals read. The elements are
+  `label` (and `heading`), `button` and the frames `column` and `row`;
+  `on_click` runs a handler, and `when::<Hovered, _>` and
+  `when::<Pressed, _>` hold rules while the engine says so.
+  `transition` hands each change of a tone, size, opacity or space to
+  the engine with its motion, once, and the engine moves it over its
+  own theme's curve; the plugin is not called each frame for it.
+  `Plugin::mount` gives a panel's view, built once each time the panel
+  is shown.
 
 `engine/samples/fynix_counter` is a retained panel of about fifty
 nodes: a count and a button that adds one, a button that is primary
-under the pointer, and two labels faded one by the plugin and one by
-the engine. `cargo run --release -p hamlet_engine_harness --example
-retained_costs -- <home> engine/samples/fynix_counter` prints what it
-costs the host, frame by frame.
+under the pointer, and a label the engine fades and dims. `cargo run
+--release -p hamlet_engine_harness --example retained_costs -- <home>
+engine/samples/fynix_counter` prints what it costs the host, frame by
+frame.
 
 `engine/samples/notes` and `engine/samples/board` share. Notes makes
 the type `notes.note` (its bytes are the text) and keeps one note of
@@ -654,8 +656,9 @@ plugin to are `[budgets]`.
   and a button down on it or up go into the inbox, and are handed over
   together in one `input`. A plugin that answers that something still
   moves is given a `frame` each frame until it answers that nothing
-  does. An opacity set over a motion is moved by the engine, over the
-  theme's curve.
+  does. A tone, size, opacity or space set over a motion is moved by
+  the engine, over the theme's curve for it, from where it is shown;
+  a tone moves as its colour.
 - **Budgets.** Makes, sets, orders and watches are
   `[budgets] node_changes_per_call` a call, past which the call fails,
   and `node_changes_per_second` a second, past which the plugin waits.

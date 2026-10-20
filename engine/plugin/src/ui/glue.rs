@@ -34,13 +34,13 @@ struct Shown {
 
 impl Panels {
     /// Brings every panel up to date, its transitions moved on by
-    /// `delta`: whether it sent the engine anything.
+    /// `delta`: whether something still moves.
     fn update(&mut self, delta: Duration) -> bool {
-        let before = self.world.nodes.calls;
         let tick = Tick {
             delta,
             reduced_motion: false,
         };
+        let mut moving = false;
         for shown in self.mounted.values_mut() {
             forget_gone(&mut self.world, &mut shown.mounted);
             shown.mounted.run_effects(&mut self.world);
@@ -48,15 +48,14 @@ impl Panels {
                 .mounted
                 .update_structure(&mut self.world, &self.theme);
             forget_gone(&mut self.world, &mut shown.mounted);
-            shown.mounted.update_elements(
+            moving |= shown.mounted.update_elements(
                 &mut self.world,
                 &self.theme,
                 tick,
             );
         }
         self.world.nodes.gone.clear();
-        self.world.nodes.flush();
-        self.world.nodes.calls != before
+        moving
     }
 
     fn unmount(&mut self, name: &str) {
@@ -100,9 +99,7 @@ pub fn mount<P: Plugin>(
             cx.under(root, |cx| view.build(cx));
         }
         panels.mounted.insert(name, Shown { mounted, root });
-        panels.update(Duration::ZERO);
-        // A transition may have begun, which moves on in frames.
-        true
+        panels.update(Duration::ZERO)
     })
 }
 
@@ -126,8 +123,7 @@ pub fn input(events: Vec<UiEvent>) -> bool {
                 shown.mounted.mark_dirty(event.key);
             }
         }
-        panels.update(Duration::ZERO);
-        true
+        panels.update(Duration::ZERO)
     })
 }
 
