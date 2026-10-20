@@ -14,8 +14,7 @@ use crate::harness::{
     Answer, BindingId, Harnesses, Input, InputStatus,
 };
 use crate::record::{
-    self, Actor, AgentRef, Change, Decision, DecisionKind,
-    RecordOperation,
+    self, Actor, AgentRef, Change, DecisionKind, RecordOperation,
 };
 use crate::service::Service;
 use crate::{Outcome, realm, society};
@@ -116,6 +115,45 @@ fn every(db: &Connection, filter: &str) -> Result<Vec<Sent>> {
         .collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
+/// Why a letter or question was not sent.
+enum Unsent {
+    Empty,
+    Left,
+    /// The sender has no road to the agent `name`.
+    NoRoad {
+        name: String,
+    },
+    /// The task has used all `most` of its messages.
+    Spent {
+        most: i64,
+    },
+    /// The road went as the message was counted.
+    Unroaded,
+}
+
+impl Unsent {
+    fn text(&self) -> String {
+        match self {
+            Self::Empty => "`message` is empty".into(),
+            Self::Left => "The agent has left.".into(),
+            Self::NoRoad { name } => format!(
+                "you have no road to `{name}`. Ask the mayor to \
+                 pass a single message on, or ask it for a road \
+                 with request_road."
+            ),
+            Self::Spent { most } => format!(
+                "this task has used all {most} of its messages \
+                 between agents; finish with what you have and \
+                 report. The chief can raise it under One Task on \
+                 the hamlet's Bylaws page"
+            ),
+            Self::Unroaded => {
+                "There is no road between those agents.".into()
+            }
+        }
+    }
+}
+
 /// The words for an agent of a letter or question that was refused.
 fn refused(text: &str) -> Value {
     outcome(text, false)
@@ -183,7 +221,7 @@ pub(super) async fn tell(
     .await?
     {
         Ok(sent) => Ok(refused(&sent_words(&sent.address))),
-        Err(words) => Ok(refused(&words)),
+        Err(unsent) => Ok(refused(&unsent.text())),
     }
 }
 
@@ -268,7 +306,7 @@ async fn question(
     .await?
     {
         Ok(sent) => sent,
-        Err(words) => return Ok(Asked::Refused(words)),
+        Err(unsent) => return Ok(Asked::Refused(unsent.text())),
     };
     if sent.answer.is_none() && sent.failure.is_none() {
         let asked = service
@@ -423,18 +461,21 @@ pub(super) async fn request_road(
     if let Some(sent) =
         sent_by(&tx, caller.id.runtime.as_str(), &caller.id.key)?
         && !sent.refused
-        && let Some(mut r) = record::read(&tx, &place.hamlet)?
     {
-        r.decisions.push(Decision {
-            at: sent.at,
-            by: "mayor".into(),
-            reason: reply.chars().take(160).collect(),
-            kind: DecisionKind::RoadRefused {
-                from: place.number,
-                to: to.into(),
+        crate::operation::change(
+            &tx,
+            &RecordOperation {
+                hamlet: place.hamlet.clone(),
+                actor: Actor::Mayor(sent.to.clone()),
+                at: sent.at,
+                reason: reply.chars().take(160).collect(),
+                task: None,
+                change: Change::RefuseRoad {
+                    from: place.number,
+                    to: to.into(),
+                },
             },
-        });
-        record::write(&tx, &r)?;
+        )?;
         tx.execute(
             "UPDATE society_message SET refused = 1 WHERE request = \
              ?1",
@@ -482,8 +523,8 @@ pub(crate) fn connected(
 }
 
 /// Counts one message of `task` from `from` to `to` on their road;
-/// a reply comes back even when the road has gone since. Gives the
-/// words of why it may not go.
+/// a reply comes back even when the road has gone since. Gives why
+/// it may not go.
 fn carry(
     db: &Connection,
     from: &AgentRef,
@@ -491,7 +532,7 @@ fn carry(
     task: &str,
     reply: bool,
     at: i64,
-) -> Result<std::result::Result<(), String>> {
+) -> Result<std::result::Result<(), Unsent>> {
     let messages = db
         .query_row(
             "SELECT messages FROM society_task WHERE task = ?1",
@@ -503,12 +544,7 @@ fn carry(
     let limits = crate::spend::limits(db, &from.hamlet)?;
     let most = limits["task"]["messages"].as_i64().unwrap_or(12);
     if !reply && messages >= most {
-        return Ok(Err(format!(
-            "this task has used all {most} of its messages between \
-             agents; finish with what you have and report. The \
-             chief can raise it under One Task on the hamlet's \
-             Bylaws page"
-        )));
+        return Ok(Err(Unsent::Spent { most }));
     }
     if from.hamlet == to.hamlet {
         let road = record::read(db, &from.hamlet)?
@@ -526,19 +562,13 @@ fn carry(
                 crate::operation::change(db, &operation)?
                 && !reply
             {
-                return Ok(Err("There is no road between those \
-                               agents."
-                    .into()));
+                return Ok(Err(Unsent::Unroaded));
             }
         } else if !reply {
-            return Ok(Err(
-                "There is no road between those agents.".into()
-            ));
+            return Ok(Err(Unsent::Unroaded));
         }
     } else if !realm::carry(db, from, to, at)? && !reply {
-        return Ok(Err(
-            "There is no road between those agents.".into()
-        ));
+        return Ok(Err(Unsent::Unroaded));
     }
     db.execute(
         "INSERT INTO society_task (task, messages) VALUES (?1, 1) \
@@ -571,7 +601,7 @@ async fn prepare(
     to: &AgentRef,
     text: &str,
     kind: Kind,
-) -> Result<std::result::Result<Sent, String>> {
+) -> Result<std::result::Result<Sent, Unsent>> {
     let runtime = caller.id.runtime.as_str();
     let key = caller.id.key.as_str();
     let db = service.home.store().connection();
@@ -579,21 +609,17 @@ async fn prepare(
         return Ok(Ok(sent));
     }
     if record::trim(text).is_empty() {
-        return Ok(Err("`message` is empty".into()));
+        return Ok(Err(Unsent::Empty));
     }
     let from = caller.place.agent.clone();
     let name = record::read(db, &to.hamlet)?
         .map(|r| r.address_of(to.number).to_owned())
         .unwrap_or_default();
     if name.is_empty() {
-        return Ok(Err("The agent has left.".into()));
+        return Ok(Err(Unsent::Left));
     }
     if !connected(db, &from, to)? {
-        return Ok(Err(format!(
-            "you have no road to `{name}`. Ask the mayor to pass a \
-             single message on, or ask it for a road with \
-             request_road."
-        )));
+        return Ok(Err(Unsent::NoRoad { name }));
     }
     let task = caller
         .task
@@ -618,8 +644,8 @@ async fn prepare(
     );
     let at = society::now();
     let tx = service.home.store().transaction()?;
-    if let Err(words) = carry(&tx, &from, to, &task, false, at)? {
-        return Ok(Err(words));
+    if let Err(unsent) = carry(&tx, &from, to, &task, false, at)? {
+        return Ok(Err(unsent));
     }
     tx.execute(
         "INSERT INTO society_message (request, kind, runtime, key, \

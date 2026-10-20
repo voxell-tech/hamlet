@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use super::{Caller, Deed, outcome};
 use crate::harness::Harnesses;
-use crate::papers::tree;
+use crate::papers::{NOTES, tree};
 use crate::prompt::shelf;
 use crate::protocol::Refusal;
 use crate::service::Service;
@@ -31,6 +31,18 @@ fn valid(name: &str) -> bool {
         })
 }
 
+/// A librarian consultation's next step.
+enum Step {
+    /// The consultation goes on.
+    Next,
+    /// The call is answered with this outcome, or waits for `None`.
+    Answer(Option<Value>),
+}
+
+/// The `submit_skill` or `ask_librarian` call of `caller`: the
+/// librarian's answer, once its errand gives it, and for an offer the
+/// skill shelved and taken out of the caller's house; `None` while it
+/// waits.
 pub(super) async fn consult(
     service: &mut Service,
     harnesses: &mut Harnesses,
@@ -39,12 +51,6 @@ pub(super) async fn consult(
     args: &Value,
 ) -> Result<Option<Value>> {
     retire(service)?;
-    let identity = (
-        caller.id.runtime.as_str().to_owned(),
-        caller.id.key.clone(),
-    );
-    let offered = service.house_work.offers.remove(&identity);
-    let cleaned = service.house_work.cleaned.remove(&identity);
     let key = serde_json::to_string(&(
         caller.id.runtime.as_str(),
         &caller.id.key,
@@ -56,171 +62,16 @@ pub(super) async fn consult(
     )?;
     if let Some(result) = &job.result {
         if let Some(snapshot) = &job.snapshot {
-            tree::erase(
-                &tree::directory(
-                    service.houses.root(),
-                    ".society-files",
-                    false,
-                )?,
-                snapshot,
-            )?;
+            tree::erase_snapshot(service.houses.root(), snapshot)?;
         }
         return Ok(Some(outcome(result, false)));
     }
     if job.prompt.is_empty() {
-        let text = args[if tool == "submit_skill" {
-            "reason"
-        } else {
-            "question"
-        }]
-        .as_str()
-        .unwrap_or_default()
-        .trim();
-        if text.is_empty() {
-            return Ok(Some(outcome(
-                "Say what you are looking for or why the skill \
-                 would help others.",
-                true,
-            )));
+        if let Step::Answer(answer) =
+            begin(service, caller, tool, args, &key, &mut job).await?
+        {
+            return Ok(answer);
         }
-        let record = service
-            .home
-            .store()
-            .record(&caller.place.agent.hamlet)?
-            .expect("caller's record");
-        job.by = format!(
-            "{}@{}",
-            record.name_of(
-                caller.place.agent.number,
-                crate::record::NameFallback::Recorded
-            ),
-            record.id
-        );
-        let library = shelf::library(
-            &service.home.layout().root().join("library"),
-        )
-        .unwrap_or_default();
-        if tool == "submit_skill" {
-            let name = args["skill"].as_str().unwrap_or_default();
-            if !valid(name) {
-                return Ok(Some(outcome(
-                    "`skill` is its folder under skills/, in \
-                     letters, digits, hyphens and underscores.",
-                    true,
-                )));
-            }
-            if views(service)?.iter().any(|s| s["name"] == name) {
-                return Ok(Some(outcome(
-                    &format!(
-                        "the library already has a skill named \
-                         `{name}`. Use that one, or submit yours \
-                         under another name if it does something \
-                         else"
-                    ),
-                    true,
-                )));
-            }
-            let db = service.home.store().connection();
-            let claimed = db.query_row(
-                "SELECT EXISTS (SELECT 1 FROM society_document \
-                 WHERE kind='library-consult' AND key != ?1 AND \
-                 json_extract(value,'$.skill')=?2 AND \
-                 json_extract(value,'$.result') IS NULL)",
-                params![key, name],
-                |row| row.get::<_, bool>(0),
-            )?;
-            if claimed {
-                return Ok(Some(outcome(
-                    "Another offer of that skill is being judged.",
-                    true,
-                )));
-            }
-            let house = service
-                .houses
-                .files(&record.id, caller.place.agent.number)?;
-            let files = if let Some(offered) = offered {
-                offered?
-            } else if service.houses.workspace.is_some() {
-                let name = name.to_owned();
-                let id = caller.id.clone();
-                service.house_work.pending.insert(identity);
-                service.house_work.tasks.spawn(async move {
-                    let result = async {
-                        house
-                            .directory("skills", false)
-                            .await?
-                            .directory(&name, false)
-                            .await?
-                            .read(CAP, 1024)
-                            .await
-                    }
-                    .await;
-                    super::work::Completed::Offered { id, result }
-                });
-                return Ok(None);
-            } else {
-                house
-                    .directory("skills", false)
-                    .await?
-                    .directory(name, false)
-                    .await?
-                    .read(CAP, 1024)
-                    .await?
-            };
-            let paper = files
-                .get("SKILL.md")
-                .map(|f| {
-                    String::from_utf8_lossy(&f.bytes).into_owned()
-                })
-                .unwrap_or_default();
-            let skill = shelf::skill(name.into(), &paper);
-            if skill.name.trim().is_empty()
-                || skill.description.trim().is_empty()
-            {
-                return Ok(Some(outcome(
-                    &format!(
-                        "`{name}` has no SKILL.md that opens with a \
-                         name and a description"
-                    ),
-                    true,
-                )));
-            }
-            job.prompt = format!(
-                "You are the librarian. {} offers a skill: {text}. \
-                 Take it only if useful to others, distinct from \
-                 the shelves, clear enough to run, and free of \
-                 private names, keys or \
-                 paths.\n\n{library}\n\nOffered files: \
-                 {}\n{}\nAnswer with ACCEPT or REFUSE as your first \
-                 word, then explain why.",
-                job.by,
-                files.keys().cloned().collect::<Vec<_>>().join(", "),
-                crate::papers::cut(&paper, 6000, "")
-            );
-            job.skill = Some(name.into());
-            job.snapshot =
-                Some(tree::snapshot(service.houses.root(), &files)?);
-        } else {
-            job.prompt = format!(
-                "You are the librarian. {} asks: \
-                 {text}\n\n{library}\nName the skills that do it \
-                 and their exact commands. Do not invent skills. If \
-                 nothing fits, say so.",
-                job.by
-            );
-        }
-        let notes = tree::directory(
-            service.houses.root(),
-            "librarian",
-            false,
-        )
-        .and_then(|dir| {
-            tree::read_file(&dir, "NOTES.md", 4 * 1024 * 1024)
-        })
-        .ok()
-        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-        .unwrap_or_default();
-        job.prompt = format!("{notes}\n\n{}", job.prompt);
         super::keep(
             service.home.store().connection(),
             "library-consult",
@@ -239,88 +90,18 @@ pub(super) async fn consult(
     else {
         return Ok(None);
     };
-    let result = if let Some(name) = &job.skill {
-        let snapshots = tree::directory(
-            service.houses.root(),
-            ".society-files",
-            false,
-        )?;
-        let files = tree::read(
-            &tree::directory(
-                &snapshots,
-                job.snapshot
-                    .as_deref()
-                    .expect("offered skill snapshot"),
-                false,
-            )?,
-            CAP,
-            1024,
-        )?;
-        let accepted =
-            answer.split_whitespace().next().is_some_and(|first| {
-                first.eq_ignore_ascii_case("ACCEPT")
-            });
-        if accepted {
-            let library = tree::directory(
-                service.houses.root(),
-                "library",
-                false,
-            )?;
-            if !job.delivered {
-                let staging = tree::directory(
-                    service.houses.root(),
-                    ".library-staging",
-                    true,
-                )?;
-                tree::publish(&staging, &library, name, &files)?;
-                crate::fault::point("after_library_publish");
-                job.delivered = true;
-                let tx = service.home.store().transaction()?;
-                super::keep(&tx, "library-consult", &key, &job)?;
-                super::keep(
-                    &tx,
-                    "library-shelved",
-                    name,
-                    &json!({"by":job.by,"reason":answer,"at":super::now()}),
-                )?;
-                tx.commit()?;
+    let result = match job.skill.clone() {
+        Some(name) => {
+            match judged(
+                service, caller, &key, &mut job, &name, &answer,
+            )
+            .await?
+            {
+                Some(result) => result,
+                None => return Ok(None),
             }
-            let house = service.houses.files(
-                &caller.place.agent.hamlet,
-                caller.place.agent.number,
-            )?;
-            let unchanged = if let Some(cleaned) = cleaned {
-                cleaned?
-            } else if service.houses.workspace.is_some() {
-                let name = name.clone();
-                let id = caller.id.clone();
-                service.house_work.pending.insert(identity);
-                service.house_work.tasks.spawn(async move {
-                    let result = clean(house, &name, &files).await;
-                    super::work::Completed::Cleaned { id, result }
-                });
-                return Ok(None);
-            } else {
-                clean(house, name, &files).await?
-            };
-            format!(
-                "The librarian took `{name}`: {answer} It is in the \
-                 library now. {} Use the library's, as every agent \
-                 can.",
-                if unchanged {
-                    "It is no longer in your house."
-                } else {
-                    "Later changes stayed in your house."
-                }
-            )
-        } else {
-            format!(
-                "The librarian did not take `{name}`: {answer} It \
-                 stays in your house."
-            )
         }
-    } else {
-        answer
+        None => answer,
     };
     job.result = Some(result.clone());
     super::keep(
@@ -330,16 +111,253 @@ pub(super) async fn consult(
         &job,
     )?;
     if let Some(snapshot) = &job.snapshot {
-        tree::erase(
-            &tree::directory(
-                service.houses.root(),
-                ".society-files",
-                false,
-            )?,
-            snapshot,
-        )?;
+        tree::erase_snapshot(service.houses.root(), snapshot)?;
     }
     Ok(Some(outcome(&result, false)))
+}
+
+/// Writes the librarian's prompt for the call of `caller` into `job`:
+/// its question, or the skill it offers, whose files are kept in a
+/// snapshot.
+async fn begin(
+    service: &mut Service,
+    caller: &Caller<'_>,
+    tool: &str,
+    args: &Value,
+    key: &str,
+    job: &mut Consult,
+) -> Result<Step> {
+    let offer = tool == "submit_skill";
+    let text = args[if offer { "reason" } else { "question" }]
+        .as_str()
+        .unwrap_or_default()
+        .trim();
+    if text.is_empty() {
+        return Ok(Step::Answer(Some(outcome(
+            "Say what you are looking for or why the skill would \
+             help others.",
+            true,
+        ))));
+    }
+    let record = service
+        .home
+        .store()
+        .record(&caller.place.agent.hamlet)?
+        .expect("caller's record");
+    job.by = format!(
+        "{}@{}",
+        record.name_of(
+            caller.place.agent.number,
+            crate::record::NameFallback::Recorded
+        ),
+        record.id
+    );
+    let library =
+        shelf::library(&service.home.layout().root().join("library"))
+            .unwrap_or_default();
+    if offer {
+        if let Step::Answer(answer) =
+            offered(service, caller, args, key, text, &library, job)
+                .await?
+        {
+            return Ok(Step::Answer(answer));
+        }
+    } else {
+        job.prompt = format!(
+            "You are the librarian. {} asks: \
+             {text}\n\n{library}\nName the skills that do it and \
+             their exact commands. Do not invent skills. If nothing \
+             fits, say so.",
+            job.by
+        );
+    }
+    let notes =
+        tree::directory(service.houses.root(), "librarian", false)
+            .and_then(|dir| {
+                tree::read_file(&dir, NOTES, 4 * 1024 * 1024)
+            })
+            .ok()
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+            .unwrap_or_default();
+    job.prompt = format!("{notes}\n\n{}", job.prompt);
+    Ok(Step::Next)
+}
+
+/// Writes the librarian's prompt for the skill the call of `caller`
+/// offers into `job`, once its files are read from the caller's
+/// house.
+async fn offered(
+    service: &mut Service,
+    caller: &Caller<'_>,
+    args: &Value,
+    key: &str,
+    text: &str,
+    library: &str,
+    job: &mut Consult,
+) -> Result<Step> {
+    let refuse =
+        |text: &str| Ok(Step::Answer(Some(outcome(text, true))));
+    let name = args["skill"].as_str().unwrap_or_default();
+    if !valid(name) {
+        return refuse(
+            "`skill` is its folder under skills/, in letters, \
+             digits, hyphens and underscores.",
+        );
+    }
+    if views(service)?.iter().any(|s| s["name"] == name) {
+        return refuse(&format!(
+            "the library already has a skill named `{name}`. Use \
+             that one, or submit yours under another name if it \
+             does something else"
+        ));
+    }
+    let claimed = service.home.store().connection().query_row(
+        "SELECT EXISTS (SELECT 1 FROM society_document WHERE \
+         kind='library-consult' AND key != ?1 AND \
+         json_extract(value,'$.skill')=?2 AND \
+         json_extract(value,'$.result') IS NULL)",
+        params![key, name],
+        |row| row.get::<_, bool>(0),
+    )?;
+    if claimed {
+        return refuse(
+            "Another offer of that skill is being judged.",
+        );
+    }
+    let house = service.houses.files(
+        &caller.place.agent.hamlet,
+        caller.place.agent.number,
+    )?;
+    let files = if let Some(offered) =
+        service.house_work.take_offer(&caller.id)
+    {
+        offered?
+    } else if service.houses.workspace.is_some() {
+        let name = name.to_owned();
+        service.house_work.offer(caller.id.clone(), async move {
+            skill_files(&house, &name).await
+        });
+        return Ok(Step::Answer(None));
+    } else {
+        skill_files(&house, name).await?
+    };
+    let paper = files
+        .get("SKILL.md")
+        .map(|f| String::from_utf8_lossy(&f.bytes).into_owned())
+        .unwrap_or_default();
+    let skill = shelf::skill(name.into(), &paper);
+    if skill.name.trim().is_empty()
+        || skill.description.trim().is_empty()
+    {
+        return refuse(&format!(
+            "`{name}` has no SKILL.md that opens with a name and a \
+             description"
+        ));
+    }
+    job.prompt = format!(
+        "You are the librarian. {} offers a skill: {text}. Take it \
+         only if useful to others, distinct from the shelves, clear \
+         enough to run, and free of private names, keys or \
+         paths.\n\n{library}\n\nOffered files: {}\n{}\nAnswer with \
+         ACCEPT or REFUSE as your first word, then explain why.",
+        job.by,
+        files.keys().cloned().collect::<Vec<_>>().join(", "),
+        crate::papers::cut(&paper, 6000, "")
+    );
+    job.skill = Some(name.into());
+    job.snapshot =
+        Some(tree::snapshot(service.houses.root(), &files)?);
+    Ok(Step::Next)
+}
+
+/// The files of the skill `name` in `house`.
+async fn skill_files(
+    house: &crate::papers::files::Files,
+    name: &str,
+) -> Result<std::collections::BTreeMap<String, tree::Entry>> {
+    house
+        .directory("skills", false)
+        .await?
+        .directory(name, false)
+        .await?
+        .read(CAP, 1024)
+        .await
+}
+
+/// The words of the librarian's `answer` on the skill `name` offered
+/// by `caller`: once taken, the skill is shelved and taken out of the
+/// caller's house. `None` while the house is being cleaned.
+async fn judged(
+    service: &mut Service,
+    caller: &Caller<'_>,
+    key: &str,
+    job: &mut Consult,
+    name: &str,
+    answer: &str,
+) -> Result<Option<String>> {
+    let accepted = answer
+        .split_whitespace()
+        .next()
+        .is_some_and(|first| first.eq_ignore_ascii_case("ACCEPT"));
+    if !accepted {
+        return Ok(Some(format!(
+            "The librarian did not take `{name}`: {answer} It stays \
+             in your house."
+        )));
+    }
+    let files = tree::read_snapshot(
+        service.houses.root(),
+        job.snapshot.as_deref().expect("offered skill snapshot"),
+        CAP,
+        1024,
+    )?;
+    if !job.delivered {
+        let library =
+            tree::directory(service.houses.root(), "library", false)?;
+        let staging = tree::directory(
+            service.houses.root(),
+            ".library-staging",
+            true,
+        )?;
+        tree::publish(&staging, &library, name, &files)?;
+        crate::fault::point("after_library_publish");
+        job.delivered = true;
+        let tx = service.home.store().transaction()?;
+        super::keep(&tx, "library-consult", key, &job)?;
+        super::keep(
+            &tx,
+            "library-shelved",
+            name,
+            &json!({"by":job.by,"reason":answer,"at":super::now()}),
+        )?;
+        tx.commit()?;
+    }
+    let house = service.houses.files(
+        &caller.place.agent.hamlet,
+        caller.place.agent.number,
+    )?;
+    let unchanged = if let Some(cleaned) =
+        service.house_work.take_cleaned(&caller.id)
+    {
+        cleaned?
+    } else if service.houses.workspace.is_some() {
+        let name = name.to_owned();
+        service.house_work.clean(caller.id.clone(), async move {
+            clean(house, &name, &files).await
+        });
+        return Ok(None);
+    } else {
+        clean(house, name, &files).await?
+    };
+    Ok(Some(format!(
+        "The librarian took `{name}`: {answer} It is in the library \
+         now. {} Use the library's, as every agent can.",
+        if unchanged {
+            "It is no longer in your house."
+        } else {
+            "Later changes stayed in your house."
+        }
+    )))
 }
 
 async fn clean(
@@ -435,14 +453,7 @@ pub(super) fn retire(service: &mut Service) -> Result<()> {
             )?;
         }
         if let Some(snapshot) = job.snapshot {
-            tree::erase(
-                &tree::directory(
-                    service.houses.root(),
-                    ".society-files",
-                    false,
-                )?,
-                &snapshot,
-            )?;
+            tree::erase_snapshot(service.houses.root(), &snapshot)?;
         }
     }
     Ok(())

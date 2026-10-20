@@ -13,7 +13,7 @@ use crate::harness::Harnesses;
 use crate::papers::copy::Snapshot;
 use crate::papers::files::Files;
 use crate::protocol::{Refusal, reply};
-use crate::record::{AgentRef, Decision, DecisionKind};
+use crate::record::AgentRef;
 use crate::service::Service;
 use crate::workspace::Remote;
 
@@ -417,26 +417,14 @@ pub(crate) async fn complete(
             let result = match result {
                 Err(error) => Err(refused(error.to_string())),
                 Ok(()) => {
-                    if let Some(mut record) = service
-                        .home
-                        .store()
-                        .record(&gift.target.hamlet)?
-                    {
-                        record.decisions.push(Decision {
-                            at: chrono::Utc::now().timestamp_millis(),
-                            by: service.chief.clone(),
-                            reason: String::new(),
-                            kind: DecisionKind::SkillGiven {
-                                to: gift.target.number,
-                                skill: gift.name.clone(),
-                                from: gift.giver,
-                            },
-                        });
-                        let tx =
-                            service.home.store().transaction()?;
-                        crate::record::save(&tx, &record)?;
-                        tx.commit()?;
-                    }
+                    crate::record::give_skill(
+                        service.home.store().connection(),
+                        &service.chief,
+                        &gift.target.hamlet,
+                        gift.target.number,
+                        &gift.name,
+                        gift.giver,
+                    )?;
                     Ok(format!(
                         "Gave `{}` the skill `{}`.",
                         gift.to.agent, gift.name

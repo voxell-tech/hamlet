@@ -969,15 +969,15 @@ async fn operation(
         running.res.push(re.clone());
         return Ok(Step::Running);
     }
-    if service.house_work.pending.contains(&id) {
-        return Ok(Step::Answer(Answer::Waiting(
-            "The house work is still running.".into(),
-        )));
-    }
     let marker = OperationId {
         runtime: bound.runtime.clone(),
         key: key.into(),
     };
+    if service.house_work.pending(&marker) {
+        return Ok(Step::Answer(Answer::Waiting(
+            "The house work is still running.".into(),
+        )));
+    }
     let request = Request::tool(tool, arguments)?;
     let db = service.home.store().connection();
     match operation::marked(db, &marker, &request)? {
@@ -1044,7 +1044,9 @@ async fn operation(
             return Ok(Step::Answer(Answer::Waiting(WAITING.into())));
         }
     };
-    if tool != "build_road" && crate::gate::SOCIETY.contains(&tool) {
+    if tool != "build_road"
+        && crate::society::SocietyTool::named(tool).is_some()
+    {
         return Ok(Step::Society(bound));
     }
     if tool == "build_road" {

@@ -102,11 +102,33 @@ pub(crate) fn read_file(
     Ok(bytes)
 }
 
+/// The folder of society snapshots under the houses' root.
+const SNAPSHOTS: &str = ".society-files";
+
+/// The files of the snapshot `name`, read as [`read`] reads a tree.
+pub(crate) fn read_snapshot(
+    root: &File,
+    name: &str,
+    cap: u64,
+    count: usize,
+) -> Result<BTreeMap<String, Entry>> {
+    read(
+        &directory(&directory(root, SNAPSHOTS, false)?, name, false)?,
+        cap,
+        count,
+    )
+}
+
+/// Erases the snapshot `name`.
+pub(crate) fn erase_snapshot(root: &File, name: &str) -> Result<()> {
+    erase(&directory(root, SNAPSHOTS, false)?, name)
+}
+
 pub(crate) fn sweep_snapshots(
     root: &File,
     kept: &[String],
 ) -> Result<()> {
-    let snapshots = directory(root, ".society-files", true)?;
+    let snapshots = directory(root, SNAPSHOTS, true)?;
     for entry in Dir::read_from(&snapshots)? {
         let entry = entry?;
         let name = entry.file_name().to_str()?;
@@ -132,7 +154,7 @@ pub(crate) fn snapshot(
     root: &File,
     files: &BTreeMap<String, Entry>,
 ) -> Result<String> {
-    let snapshots = directory(root, ".society-files", true)?;
+    let snapshots = directory(root, SNAPSHOTS, true)?;
     let name = uuid::Uuid::new_v4().to_string();
     let snapshot = directory(&snapshots, &name, true)?;
     for (path, file) in files {

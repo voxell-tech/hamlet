@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use crate::store::Store;
 
 /// The persistent name of a harness runtime instance.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RuntimeInstance(String);
 
 impl RuntimeInstance {
@@ -43,7 +43,7 @@ impl RuntimeInstance {
 /// The identity of one operation: the runtime instance that asks, and
 /// the key its harness keeps the call under, such as pi-durable's
 /// task ID.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct OperationId {
     pub runtime: RuntimeInstance,
     pub key: String,

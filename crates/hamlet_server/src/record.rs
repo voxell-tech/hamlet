@@ -36,6 +36,9 @@ pub enum Actor {
         leaving: AgentRef,
         joining: AgentRef,
     },
+    /// The server keeping its own account of work an authorized
+    /// actor began: the guards on decisions and a merge's file work.
+    Realm,
 }
 
 impl Actor {
@@ -49,6 +52,7 @@ impl Actor {
             Self::Mayors { leaving, .. } => {
                 format!("mayor@{}", leaving.hamlet)
             }
+            Self::Realm => "realm".into(),
         }
     }
 }
@@ -127,7 +131,39 @@ pub enum Change {
         number: u64,
         text: String,
     },
-    SetLimits(Limits),
+    SetLimits {
+        limits: Limits,
+        /// The model each agent runs under the new limits, for those
+        /// whose model changes.
+        runs: Vec<(u64, String)>,
+    },
+    /// An allowed model for an agent, or `None` for the hamlet's own.
+    SetModel {
+        name: String,
+        model: Option<String>,
+        /// The models the chief's limits allow.
+        allowed: Vec<String>,
+        /// The agents whose model the chief has pinned.
+        pinned: Vec<String>,
+        /// The hamlet's own model.
+        own: String,
+    },
+    /// The mayor refused the road agent `from` asked for to `to`.
+    RefuseRoad {
+        from: u64,
+        to: String,
+    },
+    /// A departed agent deleted for good with its archive.
+    Erase {
+        archive: String,
+    },
+    /// A skill given to agent `to`, from agent `from` or else the
+    /// library.
+    GiveSkill {
+        to: u64,
+        skill: String,
+        from: Option<String>,
+    },
     /// Integration with votes and instructions; these are not agent
     /// tools.
     SetGuards {
@@ -156,7 +192,11 @@ impl Change {
             Self::Seat { .. } => Action::Seat,
             Self::FinishMerge { .. } => Action::FinishMerge,
             Self::SetCharacter { .. } => Action::Character,
-            Self::SetLimits(_) => Action::Limits,
+            Self::SetLimits { .. } => Action::Limits,
+            Self::SetModel { .. } => Action::Model,
+            Self::RefuseRoad { .. } => Action::RefuseRoad,
+            Self::Erase { .. } => Action::Erase,
+            Self::GiveSkill { .. } => Action::GiveSkill,
             Self::SetGuards { .. } => Action::Guards,
         }
     }
@@ -192,7 +232,7 @@ pub enum RecordResult {
 impl Store {
     /// A hamlet's complete record, detached from the database.
     pub fn record(&self, hamlet: &str) -> Result<Option<Hamlet>> {
-        load(self.connection(), hamlet)
+        read(self.connection(), hamlet)
     }
 
     /// The current location of a living realm-wide name.
@@ -247,15 +287,6 @@ pub(crate) fn read(
     db: &Connection,
     hamlet: &str,
 ) -> Result<Option<Hamlet>> {
-    load(db, hamlet)
-}
-
-/// Keeps `record` and its living names in the transaction `db`.
-pub(crate) fn write(db: &Connection, record: &Hamlet) -> Result<()> {
-    save(db, record)
-}
-
-fn load(db: &Connection, hamlet: &str) -> Result<Option<Hamlet>> {
     db.query_row(
         "SELECT document FROM record_hamlet WHERE id = ?1",
         [hamlet],
@@ -269,16 +300,93 @@ fn load(db: &Connection, hamlet: &str) -> Result<Option<Hamlet>> {
     .transpose()
 }
 
-pub(crate) fn save(db: &Connection, record: &Hamlet) -> Result<()> {
+/// Sets the guards on the decisions of `hamlet`, which their owners
+/// keep, in the transaction `db`.
+pub(crate) fn guard(
+    db: &Connection,
+    hamlet: &str,
+    open_votes: Vec<OpenVote>,
+    protected: Vec<Protection>,
+) -> Result<()> {
+    let operation = RecordOperation {
+        hamlet: hamlet.into(),
+        actor: Actor::Realm,
+        at: chrono::Utc::now().timestamp_millis(),
+        reason: String::new(),
+        task: None,
+        change: Change::SetGuards {
+            open_votes,
+            protected,
+        },
+    };
+    match crate::operation::change(db, &operation)? {
+        Outcome::Done(_) => Ok(()),
+        Outcome::Refused(refusal) => {
+            anyhow::bail!("guards refused: {refusal:?}")
+        }
+    }
+}
+
+/// Keeps the decision of chief `chief` giving agent `to` of `hamlet`
+/// the skill `skill`, which was already delivered.
+pub(crate) fn give_skill(
+    db: &Connection,
+    chief: &str,
+    hamlet: &str,
+    to: u64,
+    skill: &str,
+    from: Option<String>,
+) -> Result<()> {
+    let operation = RecordOperation {
+        hamlet: hamlet.into(),
+        actor: Actor::Chief(chief.into()),
+        at: chrono::Utc::now().timestamp_millis(),
+        reason: String::new(),
+        task: None,
+        change: Change::GiveSkill {
+            to,
+            skill: skill.into(),
+            from,
+        },
+    };
+    // A refusal leaves the delivered skill without a decision.
+    crate::operation::change(db, &operation)?;
+    Ok(())
+}
+
+/// Takes the living names of `hamlet` out of the realm's index, as
+/// the hamlet closes.
+pub(crate) fn release_names(
+    db: &Connection,
+    hamlet: &str,
+) -> Result<()> {
+    db.execute(
+        "DELETE FROM record_name WHERE hamlet = ?1",
+        [hamlet],
+    )?;
+    Ok(())
+}
+
+/// Puts the living names of `hamlet` back in the realm's index, as
+/// the hamlet lives again.
+pub(crate) fn claim_names(
+    db: &Connection,
+    hamlet: &str,
+) -> Result<()> {
+    match read(db, hamlet)? {
+        Some(record) => save(db, &record),
+        None => Ok(()),
+    }
+}
+
+/// Keeps `record` and its living names in the transaction `db`.
+fn save(db: &Connection, record: &Hamlet) -> Result<()> {
     db.execute(
         "INSERT INTO record_hamlet(id, document) VALUES (?1, ?2) ON \
          CONFLICT(id) DO UPDATE SET document = excluded.document",
         params![record.id, serde_json::to_string(record)?],
     )?;
-    db.execute(
-        "DELETE FROM record_name WHERE hamlet = ?1",
-        [&record.id],
-    )?;
+    release_names(db, &record.id)?;
     for agent in &record.agents {
         db.execute(
             "INSERT INTO record_name(name, hamlet, number) VALUES \
@@ -375,7 +483,7 @@ impl Operation for RecordOperation {
     type Refusal = Refusal;
 
     fn authorize(&self, db: &Connection) -> Result<Option<Refusal>> {
-        let Some(record) = load(db, &self.hamlet)? else {
+        let Some(record) = read(db, &self.hamlet)? else {
             return Ok(Some(self.refuse(Reason::HamletMissing)));
         };
         if matches!(self.change, Change::CarryRoad { .. }) {
@@ -399,8 +507,10 @@ impl Operation for RecordOperation {
                 | Change::TakeUpRoad { .. }
                 | Change::FinishMerge { .. }
                 | Change::SetCharacter { .. }
-                | Change::SetLimits(_)
+                | Change::SetLimits { .. }
                 | Change::SetGuards { .. }
+                | Change::Erase { .. }
+                | Change::GiveSkill { .. }
         );
         let refused = match &self.actor {
             Actor::Member(_) => Some(self.refuse(Reason::NotMayor)),
@@ -431,6 +541,15 @@ impl Operation for RecordOperation {
                     Change::MoveMember { .. }
                 ) {
                     Some(self.refuse(Reason::NotMayor))
+                } else if matches!(
+                    self.change,
+                    Change::RefuseRoad { .. }
+                ) {
+                    // A refusal is kept even while a vote holds
+                    // decisions: the answer was already given.
+                    record
+                        .require_mayor(place)
+                        .map(|_| self.refuse(Reason::NotMayor))
                 } else {
                     record
                         .require_mayor(place)
@@ -452,12 +571,17 @@ impl Operation for RecordOperation {
                     Some(self.refuse(Reason::NotMayor))
                 }
             }
+            Actor::Realm => (!matches!(
+                self.change,
+                Change::SetGuards { .. } | Change::FinishMerge { .. }
+            ))
+            .then(|| self.refuse(Reason::RecordChief)),
         };
         if refused.is_some() {
             return Ok(refused);
         }
         if let Change::MoveMember { to, .. } = &self.change {
-            let Some(target) = load(db, to)? else {
+            let Some(target) = read(db, to)? else {
                 return Ok(Some(Refusal::new(
                     Action::Move,
                     to,
@@ -479,7 +603,7 @@ impl Operation for RecordOperation {
                         target.may_decide(self.at, Action::Move)
                     })
                 }
-                Actor::Mayor(_) | Actor::Member(_) => {
+                Actor::Mayor(_) | Actor::Member(_) | Actor::Realm => {
                     Some(self.refuse(Reason::NotMayor))
                 }
             });
@@ -491,7 +615,7 @@ impl Operation for RecordOperation {
         &self,
         db: &Connection,
     ) -> Result<Outcome<RecordResult, Refusal>> {
-        let mut record = load(db, &self.hamlet)?
+        let mut record = read(db, &self.hamlet)?
             .context("authorized hamlet missing")?;
         let result = match &self.change {
             Change::Admit(given) => {
@@ -552,7 +676,7 @@ impl Operation for RecordOperation {
                     })),
                 }
             }
-            Change::SetLimits(limits) => {
+            Change::SetLimits { limits, runs } => {
                 if let Some(budget) = &limits.road_budget {
                     ensure!(
                         budget.end > budget.start,
@@ -560,6 +684,56 @@ impl Operation for RecordOperation {
                     );
                 }
                 record.limits = limits.clone();
+                for (agent, model) in runs {
+                    self.decision(
+                        &mut record,
+                        DecisionKind::Model {
+                            agent: *agent,
+                            model: model.clone(),
+                        },
+                        false,
+                    );
+                }
+                Ok(RecordResult::Changed)
+            }
+            Change::SetModel {
+                name,
+                model,
+                allowed,
+                pinned,
+                own,
+            } => self.set_model(
+                &mut record,
+                name,
+                model.as_deref(),
+                allowed,
+                pinned,
+                own,
+            ),
+            Change::RefuseRoad { from, to } => {
+                self.decision(
+                    &mut record,
+                    DecisionKind::RoadRefused {
+                        from: *from,
+                        to: to.clone(),
+                    },
+                    false,
+                );
+                Ok(RecordResult::Changed)
+            }
+            Change::Erase { archive } => {
+                self.erase(&mut record, archive)
+            }
+            Change::GiveSkill { to, skill, from } => {
+                self.decision(
+                    &mut record,
+                    DecisionKind::SkillGiven {
+                        to: *to,
+                        skill: skill.clone(),
+                        from: from.clone(),
+                    },
+                    false,
+                );
                 Ok(RecordResult::Changed)
             }
             Change::SetGuards {
@@ -604,7 +778,7 @@ impl Operation for FoundRecord {
     fn authorize(&self, db: &Connection) -> Result<Option<Refusal>> {
         // The first request is made by home setup after
         // authenticating its chief.
-        Ok(load(db, "home")?
+        Ok(read(db, "home")?
             .filter(|home| !home.chief(&self.chief))
             .map(|_| {
                 Refusal::new(
@@ -626,7 +800,7 @@ impl Operation for FoundRecord {
                 reason,
             )))
         };
-        if load(db, &self.hamlet)?.is_some() {
+        if read(db, &self.hamlet)?.is_some() {
             return refuse(Reason::HamletUsed);
         }
         if let Some(reason) = check_name(&self.hamlet) {

@@ -93,7 +93,13 @@ impl Realm {
             ms: None,
         });
         limits.road_budget.as_mut().unwrap().other.micros = 0;
-        run(&mut store, Change::SetLimits(limits));
+        run(
+            &mut store,
+            Change::SetLimits {
+                limits,
+                runs: Vec::new(),
+            },
+        );
         store.close().unwrap();
         Self { scratch, home }
     }

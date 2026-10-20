@@ -8,17 +8,18 @@ use super::{Caller, Deed, outcome};
 use crate::harness::Harnesses;
 use crate::protocol::Refusal;
 use crate::record::{
-    self, Actor, AgentRef, Audience, Change, Decision, DecisionKind,
-    Departure, NameFallback, RecordOperation, RecordResult,
+    self, Actor, AgentRef, Audience, Change, DecisionKind, Departure,
+    NameFallback, RecordOperation, RecordResult,
 };
 use crate::service::Service;
 use crate::{Outcome, society};
 
+/// Keeps the chiefs' owed tasks of `hamlet` as its record's guards.
 pub(super) fn guards(db: &Connection, hamlet: &str) -> Result<()> {
-    let Some(mut r) = record::read(db, hamlet)? else {
+    let Some(r) = record::read(db, hamlet)? else {
         return Ok(());
     };
-    r.protected = db
+    let protected = db
         .prepare(
             "SELECT number, chief, text, done FROM chat_instruction \
              WHERE hamlet = ?1",
@@ -32,7 +33,7 @@ pub(super) fn guards(db: &Connection, hamlet: &str) -> Result<()> {
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    record::write(db, &r)
+    record::guard(db, hamlet, r.open_votes, protected)
 }
 
 fn removed(r: &record::Hamlet, archive: &str) -> Value {
@@ -156,7 +157,7 @@ pub(super) async fn deed(
     {
         return Ok(None);
     }
-    let mut r = match service.access(hamlet, deed)? {
+    let r = match service.access(hamlet, deed)? {
         Ok(r) => r,
         Err(refusal) => return Ok(Some(Err(refusal))),
     };
@@ -236,18 +237,18 @@ pub(super) async fn deed(
                 },
             )
             .await?;
-            r.archive.retain(|a| a.id != entry.id);
-            r.decisions.push(Decision {
-                at: op.at,
-                by: format!("chief:{}", service.chief),
-                reason: String::new(),
-                kind: DecisionKind::Erased {
-                    agent: entry.agent.number,
-                    name: entry.agent.name.clone(),
-                    archive: entry.id,
-                },
-            });
-            record::write(service.home.store().connection(), &r)?;
+            op.reason = String::new();
+            op.change = Change::Erase { archive: entry.id };
+            if let Outcome::Refused(refusal) =
+                crate::operation::change(
+                    service.home.store().connection(),
+                    &op,
+                )?
+            {
+                return Ok(Some(Err(Refusal::Invalid(
+                    refusal.text(Audience::Chief),
+                ))));
+            }
             crate::fault::point("after_agent_erasure");
             service.houses.erase(hamlet, entry.agent.number)?;
             return Ok(Some(Ok(format!(

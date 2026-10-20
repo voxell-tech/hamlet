@@ -6,7 +6,7 @@ use rusqlite::Connection;
 use super::{
     Action, Actor, Admit, Agent, AgentRef, Archived, DecisionKind,
     Departure, End, Hamlet, InheritedRoad, Merge, Reason,
-    RecordOperation, RecordResult, Refusal, RoadRefusal, load, names,
+    RecordOperation, RecordResult, Refusal, RoadRefusal, names, read,
     save, tidy_name,
 };
 
@@ -476,6 +476,79 @@ impl RecordOperation {
         Ok(Ok(RecordResult::Restored { agent, text }))
     }
 
+    pub(super) fn erase(
+        &self,
+        r: &mut Hamlet,
+        archive: &str,
+    ) -> Result<RecordResult, Refusal> {
+        let Some(index) = r
+            .archive
+            .iter()
+            .position(|a| a.id == archive && a.back.is_none())
+        else {
+            return Err(self.refuse(Reason::ArchiveMissing {
+                archive: archive.into(),
+            }));
+        };
+        let entry = r.archive.remove(index);
+        self.decision(
+            r,
+            DecisionKind::Erased {
+                agent: entry.agent.number,
+                name: entry.agent.name,
+                archive: entry.id,
+            },
+            false,
+        );
+        Ok(RecordResult::Changed)
+    }
+
+    pub(super) fn set_model(
+        &self,
+        r: &mut Hamlet,
+        name: &str,
+        model: Option<&str>,
+        allowed: &[String],
+        pinned: &[String],
+        own: &str,
+    ) -> Result<RecordResult, Refusal> {
+        let Some(agent) =
+            r.named(name).filter(|a| a.number != r.mayor).cloned()
+        else {
+            return Err(self.refuse(Reason::AgentMissing {
+                name: name.into(),
+                local: false,
+            }));
+        };
+        if pinned.contains(&agent.name) {
+            return Err(
+                self.refuse(Reason::ModelPinned { name: agent.name })
+            );
+        }
+        if let Some(model) = model
+            && !allowed.iter().any(|m| m == model)
+        {
+            return Err(self.refuse(Reason::ModelNotAllowed {
+                model: model.into(),
+                allowed: allowed.to_vec(),
+            }));
+        }
+        for living in &mut r.agents {
+            if living.number == agent.number {
+                living.model = model.map(String::from);
+            }
+        }
+        self.decision(
+            r,
+            DecisionKind::Model {
+                agent: agent.number,
+                model: model.unwrap_or(own).into(),
+            },
+            true,
+        );
+        Ok(RecordResult::Changed)
+    }
+
     pub(super) fn move_member(
         &self,
         db: &Connection,
@@ -499,7 +572,7 @@ impl RecordOperation {
                 name: agent.name,
             })));
         }
-        let mut target = load(db, to)?
+        let mut target = read(db, to)?
             .context("authorized move target missing")?;
         if let Some(refusal) = target.room_for(Action::Move) {
             return Ok(Err(refusal));

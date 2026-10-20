@@ -8,7 +8,7 @@ use hamlet_testing::Scratch;
 
 use super::*;
 use crate::record::{
-    Actor, Admit, Change, Departure, RecordOperation,
+    Actor, Admit, Change, DecisionKind, Departure, RecordOperation,
 };
 use crate::{Home, OperationId, Outcome, Reply, RuntimeInstance};
 

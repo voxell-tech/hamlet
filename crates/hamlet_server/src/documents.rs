@@ -66,153 +66,149 @@ impl Service {
             Edit::Notes { agent, text, .. } => {
                 return self.edit_papers(&agent, &text, false).await;
             }
-            Edit::Limits(edit) => {
-                let (hamlet, reason) = match &edit {
-                    EditLimits::Set { hamlet, reason, .. }
-                    | EditLimits::Whole { hamlet, reason, .. } => {
-                        (hamlet, reason)
-                    }
-                };
-                let record =
-                    match self.access(hamlet, "edit limits")? {
-                        Ok(record) => record,
-                        Err(error) => return Ok(Err(error)),
-                    };
-                let current = self.limits_of(hamlet)?;
-                let mut value =
-                    match self.limits.edit(current.clone(), &edit) {
-                        Ok(value) => value,
-                        Err(error) => return Ok(Err(error)),
-                    };
-                self.credentials.scrub(&mut value);
-                let Ok(limits) =
-                    serde_json::from_value::<Limits>(value.clone())
-                else {
-                    return Ok(Err(Refusal::Invalid(
-                        "A limit is outside protocol v0's supported \
-                         number range."
-                            .into(),
-                    )));
-                };
-                if limits.budget.cost.is_some_and(|cost| {
-                    cost * 1_000_000.0 >= i64::MAX as f64
-                }) || limits.budget.minutes.is_some_and(
-                    |minutes| minutes.checked_mul(60_000).is_none(),
-                ) {
-                    return Ok(Err(Refusal::Invalid(
-                        "The budget is outside protocol v0's \
-                         supported number range."
-                            .into(),
-                    )));
-                }
-                let operation = self.operation(
-                    hamlet,
-                    Change::SetLimits(record_limits(
-                        &limits,
-                        &record.limits,
-                    )),
-                    reason.as_deref().unwrap_or_default(),
-                );
-                let settings = self.settings()?;
-                let tx = self.home.store().transaction()?;
-                if let Outcome::Refused(error) =
-                    crate::operation::change(&tx, &operation)?
-                {
-                    return Ok(Err(Refusal::Invalid(
-                        error.text(Audience::Chief),
-                    )));
-                }
-                let mut changed = crate::record::read(&tx, hamlet)?
-                    .expect("edited record");
-                for agent in &record.agents {
-                    let mayor = agent.number == record.mayor;
-                    let before = crate::state::model(
-                        agent, &current, &settings, mayor,
-                    );
-                    let after = crate::state::model(
-                        agent, &value, &settings, mayor,
-                    );
-                    if before != after {
-                        changed
-                            .decisions
-                            .push(crate::record::Decision {
-                            at: operation.at,
-                            by: format!("chief:{}", self.chief),
-                            reason: reason
-                                .clone()
-                                .unwrap_or_default(),
-                            kind:
-                                crate::record::DecisionKind::Model {
-                                    agent: agent.number,
-                                    model: after,
-                                },
-                        });
-                    }
-                }
-                crate::record::write(&tx, &changed)?;
-                save(&tx, "limits", hamlet, &value)?;
-                tx.commit()?;
-            }
+            Edit::Limits(edit) => return self.edit_limits(&edit),
             Edit::Settings { set, .. } => {
-                let previous = self.settings()?;
-                let workspace = match crate::settings::validate(&set)
-                {
-                    Ok(workspace) => workspace,
-                    Err(error) => return Ok(Err(error)),
-                };
-                let mut fields = serde_json::to_value(&set)?;
-                fields
-                    .as_object_mut()
-                    .context("settings edit")?
-                    .remove("workspace");
-                self.credentials.scrub(&mut fields);
-                if !fields
-                    .as_object()
-                    .context("settings edit")?
-                    .is_empty()
-                    || workspace.is_none()
-                {
-                    let mut settings = document(
-                        self.home.store().connection(),
-                        "settings",
-                        "home",
-                    )?
-                    .unwrap_or_else(crate::settings::defaults);
-                    for (key, value) in
-                        fields.as_object().context("settings edit")?
-                    {
-                        settings[key] = value.clone();
-                    }
-                    settings["saved"] = true.into();
-                    save(
-                        self.home.store().connection(),
-                        "settings",
-                        "home",
-                        &settings,
-                    )?;
-                }
-                if let Some(workspace) = workspace {
-                    self.credentials.choose_workspace(workspace)?;
-                }
-                if let Some(endpoints) = set.endpoints {
-                    for old in previous["endpoints"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                    {
-                        if let Some(name) = old["name"].as_str()
-                            && !endpoints
-                                .iter()
-                                .any(|e| e.name == name)
-                        {
-                            self.credentials
-                                .save_model(name, None)?;
-                        }
-                    }
-                }
+                return self.edit_settings(set);
             }
             Edit::Catalogue { model, set, .. } => {
                 return self.edit_catalogue(&model, set);
+            }
+        }
+        Ok(Ok("Saved.".into()))
+    }
+
+    /// The chief's edit of a hamlet's limits, with the model each
+    /// agent runs under them kept in the record.
+    fn edit_limits(
+        &mut self,
+        edit: &EditLimits,
+    ) -> Result<std::result::Result<String, Refusal>> {
+        let (hamlet, reason) = match edit {
+            EditLimits::Set { hamlet, reason, .. }
+            | EditLimits::Whole { hamlet, reason, .. } => {
+                (hamlet, reason)
+            }
+        };
+        let record = match self.access(hamlet, "edit limits")? {
+            Ok(record) => record,
+            Err(error) => return Ok(Err(error)),
+        };
+        let current = self.limits_of(hamlet)?;
+        let mut value = match self.limits.edit(current.clone(), edit)
+        {
+            Ok(value) => value,
+            Err(error) => return Ok(Err(error)),
+        };
+        self.credentials.scrub(&mut value);
+        let Ok(limits) =
+            serde_json::from_value::<Limits>(value.clone())
+        else {
+            return Ok(Err(Refusal::Invalid(
+                "A limit is outside protocol v0's supported number \
+                 range."
+                    .into(),
+            )));
+        };
+        if limits
+            .budget
+            .cost
+            .is_some_and(|cost| cost * 1_000_000.0 >= i64::MAX as f64)
+            || limits.budget.minutes.is_some_and(|minutes| {
+                minutes.checked_mul(60_000).is_none()
+            })
+        {
+            return Ok(Err(Refusal::Invalid(
+                "The budget is outside protocol v0's supported \
+                 number range."
+                    .into(),
+            )));
+        }
+        let settings = self.settings()?;
+        let runs = record
+            .agents
+            .iter()
+            .filter_map(|agent| {
+                let mayor = agent.number == record.mayor;
+                let before = crate::state::model(
+                    agent, &current, &settings, mayor,
+                );
+                let after = crate::state::model(
+                    agent, &value, &settings, mayor,
+                );
+                (before != after).then_some((agent.number, after))
+            })
+            .collect();
+        let operation = self.operation(
+            hamlet,
+            Change::SetLimits {
+                limits: record_limits(&limits, &record.limits),
+                runs,
+            },
+            reason.as_deref().unwrap_or_default(),
+        );
+        let tx = self.home.store().transaction()?;
+        if let Outcome::Refused(error) =
+            crate::operation::change(&tx, &operation)?
+        {
+            return Ok(Err(Refusal::Invalid(
+                error.text(Audience::Chief),
+            )));
+        }
+        save(&tx, "limits", hamlet, &value)?;
+        tx.commit()?;
+        Ok(Ok("Saved.".into()))
+    }
+
+    /// The chief's edit of the home's settings and its workspace.
+    fn edit_settings(
+        &mut self,
+        set: hamlet_protocol::v0::EditSettingsSet,
+    ) -> Result<std::result::Result<String, Refusal>> {
+        let previous = self.settings()?;
+        let workspace = match crate::settings::validate(&set) {
+            Ok(workspace) => workspace,
+            Err(error) => return Ok(Err(error)),
+        };
+        let mut fields = serde_json::to_value(&set)?;
+        fields
+            .as_object_mut()
+            .context("settings edit")?
+            .remove("workspace");
+        self.credentials.scrub(&mut fields);
+        if !fields.as_object().context("settings edit")?.is_empty()
+            || workspace.is_none()
+        {
+            let mut settings = document(
+                self.home.store().connection(),
+                "settings",
+                "home",
+            )?
+            .unwrap_or_else(crate::settings::defaults);
+            for (key, value) in
+                fields.as_object().context("settings edit")?
+            {
+                settings[key] = value.clone();
+            }
+            settings["saved"] = true.into();
+            save(
+                self.home.store().connection(),
+                "settings",
+                "home",
+                &settings,
+            )?;
+        }
+        if let Some(workspace) = workspace {
+            self.credentials.choose_workspace(workspace)?;
+        }
+        if let Some(endpoints) = set.endpoints {
+            for old in
+                previous["endpoints"].as_array().into_iter().flatten()
+            {
+                if let Some(name) = old["name"].as_str()
+                    && !endpoints.iter().any(|e| e.name == name)
+                {
+                    self.credentials.save_model(name, None)?;
+                }
             }
         }
         Ok(Ok("Saved.".into()))

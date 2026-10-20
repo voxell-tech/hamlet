@@ -12,14 +12,15 @@ use crate::papers::tree::Entry;
 use crate::service::Service;
 use crate::workspace::Remote;
 
+/// House work running apart from the service loop, and what waits
+/// for it, by the operation that started it.
 #[derive(Default)]
 pub(crate) struct Work {
-    pub tasks: JoinSet<Completed>,
-    pub pending: HashSet<(String, String)>,
-    pub offers:
-        HashMap<(String, String), Result<BTreeMap<String, Entry>>>,
-    pub cleaned: HashMap<(String, String), Result<bool>>,
-    pub founding: HashSet<(String, u64)>,
+    tasks: JoinSet<Completed>,
+    pending: HashSet<OperationId>,
+    offers: HashMap<OperationId, Result<BTreeMap<String, Entry>>>,
+    cleaned: HashMap<OperationId, Result<bool>>,
+    founding: HashSet<(String, u64)>,
 }
 
 pub(crate) enum Completed {
@@ -43,28 +44,132 @@ pub(crate) enum Completed {
 }
 
 impl Work {
+    /// The next piece of work that finished.
+    pub async fn next(
+        &mut self,
+    ) -> Option<Result<Completed, tokio::task::JoinError>> {
+        self.tasks.join_next().await
+    }
+
+    /// Whether the operation `id` waits for its work.
+    pub fn pending(&self, id: &OperationId) -> bool {
+        self.pending.contains(id)
+    }
+
+    /// Marks the operation `id` as waiting for work; false when it
+    /// already was.
+    pub fn hold(&mut self, id: OperationId) -> bool {
+        self.pending.insert(id)
+    }
+
+    /// Marks the operation `id` as no longer waiting.
+    pub fn release(&mut self, id: &OperationId) {
+        self.pending.remove(id);
+    }
+
+    /// Reads the files a skill offer of `id` brings with `read`.
+    pub fn offer(
+        &mut self,
+        id: OperationId,
+        read: impl Future<Output = Result<BTreeMap<String, Entry>>>
+        + Send
+        + 'static,
+    ) {
+        self.pending.insert(id.clone());
+        self.tasks.spawn(async move {
+            Completed::Offered {
+                id,
+                result: read.await,
+            }
+        });
+    }
+
+    /// Takes a shelved skill out of the house for `id` with `clean`,
+    /// which says whether the house's copy was unchanged.
+    pub fn clean(
+        &mut self,
+        id: OperationId,
+        clean: impl Future<Output = Result<bool>> + Send + 'static,
+    ) {
+        self.pending.insert(id.clone());
+        self.tasks.spawn(async move {
+            Completed::Cleaned {
+                id,
+                result: clean.await,
+            }
+        });
+    }
+
+    /// The offered files read for `id`, once.
+    pub fn take_offer(
+        &mut self,
+        id: &OperationId,
+    ) -> Option<Result<BTreeMap<String, Entry>>> {
+        self.offers.remove(id)
+    }
+
+    /// Whether the house's copy was unchanged when it was cleaned for
+    /// `id`, once.
+    pub fn take_cleaned(
+        &mut self,
+        id: &OperationId,
+    ) -> Option<Result<bool>> {
+        self.cleaned.remove(id)
+    }
+
+    /// Prepares the remote house of the hamlet founded by vote `vote`
+    /// of `hamlet`.
+    pub fn found(
+        &mut self,
+        hamlet: String,
+        vote: u64,
+        remote: Remote,
+    ) {
+        self.founding.insert((hamlet.clone(), vote));
+        self.tasks.spawn(async move {
+            let result =
+                remote.initialize().await.map_err(Into::into);
+            Completed::Founded {
+                hamlet,
+                vote,
+                result,
+            }
+        });
+    }
+
+    /// Whether the hamlet founded by vote `vote` of `hamlet` is still
+    /// being prepared.
+    pub fn founding(&self, hamlet: &str, vote: u64) -> bool {
+        self.founding.contains(&(hamlet.into(), vote))
+    }
+
+    /// Forgets the read and cleaned results of calls that stopped.
     pub fn retire(
         &mut self,
         db: &rusqlite::Connection,
     ) -> Result<()> {
-        let keys = self
+        let ids = self
             .offers
             .keys()
             .chain(self.cleaned.keys())
             .cloned()
             .collect::<Vec<_>>();
-        for (runtime, key) in keys {
-            if !super::library::active(db, &runtime, &key)? {
-                self.offers.remove(&(runtime.clone(), key.clone()));
-                self.cleaned.remove(&(runtime, key));
+        for id in ids {
+            if !super::library::active(
+                db,
+                id.runtime.as_str(),
+                &id.key,
+            )? {
+                self.offers.remove(&id);
+                self.cleaned.remove(&id);
             }
         }
         Ok(())
     }
 
+    /// Prepares the remote house of the agent recorded by `id`.
     pub fn initialize(&mut self, id: OperationId, remote: Remote) {
-        self.pending
-            .insert((id.runtime.as_str().into(), id.key.clone()));
+        self.pending.insert(id.clone());
         self.tasks.spawn(async move {
             let result =
                 remote.initialize().await.map_err(Into::into);
@@ -96,34 +201,29 @@ pub(crate) async fn complete(
             super::votes::changed(service, harnesses).await?;
         }
         Completed::Offered { id, result } => {
-            let key = (id.runtime.as_str().into(), id.key.clone());
-            service.house_work.pending.remove(&key);
+            service.house_work.pending.remove(&id);
             if super::library::active(
                 service.home.store().connection(),
                 id.runtime.as_str(),
                 &id.key,
             )? {
-                service.house_work.offers.insert(key, result);
                 harnesses.wake(&id.runtime, &id.key).await;
+                service.house_work.offers.insert(id, result);
             }
         }
         Completed::Cleaned { id, result } => {
-            let key = (id.runtime.as_str().into(), id.key.clone());
-            service.house_work.pending.remove(&key);
+            service.house_work.pending.remove(&id);
             if super::library::active(
                 service.home.store().connection(),
                 id.runtime.as_str(),
                 &id.key,
             )? {
-                service.house_work.cleaned.insert(key, result);
                 harnesses.wake(&id.runtime, &id.key).await;
+                service.house_work.cleaned.insert(id, result);
             }
         }
         Completed::Initialized { id, result } => {
-            service.house_work.pending.remove(&(
-                id.runtime.as_str().into(),
-                id.key.clone(),
-            ));
+            service.house_work.pending.remove(&id);
             if let Err(error) = result {
                 let mut diagnostic = json!(format!(
                     "Could not prepare the recorded agent's remote \

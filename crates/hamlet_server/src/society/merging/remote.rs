@@ -4,16 +4,14 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use tokio::task::JoinSet;
 
-use super::{CAP, Plan, preparing};
+use super::{Applied, Applying, Plan, Planned, Unplanned, preparing};
 use crate::OperationId;
 use crate::harness::Harnesses;
-use crate::papers::files::Files;
-use crate::papers::tree;
+use crate::papers::{NOTES, tree};
 use crate::protocol::{Refusal, reply};
-use crate::record::{self, Actor, AgentRef};
+use crate::record::{Actor, AgentRef};
 use crate::service::Service;
 use crate::society::{self, Caller, Deed};
 
@@ -24,14 +22,18 @@ enum Origin {
 }
 
 impl Origin {
-    fn key(&self) -> (String, String) {
+    /// The call that waits for the lane, when a call asked.
+    fn call(&self) -> Option<&OperationId> {
         match self {
-            Self::Call(id) => {
-                (id.runtime.as_str().into(), id.key.clone())
-            }
-            Self::Chief { owner, id } => {
-                (format!("client:{owner}"), id.clone())
-            }
+            Self::Call(id) => Some(id),
+            Self::Chief { .. } => None,
+        }
+    }
+
+    /// Lets the call that asked, if one did, stop waiting.
+    fn release(&self, service: &mut Service) {
+        if let Some(id) = self.call() {
+            service.house_work.release(id);
         }
     }
 }
@@ -67,8 +69,7 @@ pub(crate) struct Merges {
     queue: VecDeque<Request>,
     active: Option<Active>,
     clients: HashSet<(u64, String)>,
-    ready:
-        HashMap<(String, String), std::result::Result<Plan, String>>,
+    ready: HashMap<OperationId, Planned>,
 }
 
 pub(crate) struct Completed {
@@ -77,27 +78,12 @@ pub(crate) struct Completed {
 }
 
 enum Finished {
-    Prepared(std::result::Result<Plan, String>),
+    Prepared(Planned),
     Applied {
         work: Applied,
         answer: Deed,
         result: Result<()>,
     },
-}
-
-struct Applying {
-    hamlet: String,
-    entry: record::Archived,
-    snapshot: String,
-    root: std::fs::File,
-    house: Files,
-    notes: crate::workspace::Remote,
-}
-
-struct Applied {
-    hamlet: String,
-    entry: record::Archived,
-    snapshot: String,
 }
 
 impl Merges {
@@ -118,16 +104,14 @@ impl Merges {
     pub(super) fn take(
         &mut self,
         id: &OperationId,
-    ) -> Option<std::result::Result<Plan, String>> {
-        self.ready
-            .remove(&(id.runtime.as_str().into(), id.key.clone()))
+    ) -> Option<Planned> {
+        self.ready.remove(id)
     }
 
     pub(super) fn owns(&self, id: &OperationId) -> bool {
-        self.active.as_ref().is_some_and(|active| {
-            active.origin.key()
-                == (id.runtime.as_str().into(), id.key.clone())
-        })
+        self.active
+            .as_ref()
+            .is_some_and(|active| active.origin.call() == Some(id))
     }
 
     fn release(&mut self) {
@@ -141,7 +125,7 @@ pub(super) fn offer(
     args: &Value,
 ) -> Result<()> {
     let origin = Origin::Call(caller.id.clone());
-    if service.house_work.pending.insert(origin.key()) {
+    if service.house_work.hold(caller.id.clone()) {
         let actor = society::actor(
             service.home.store().connection(),
             &caller.place.agent,
@@ -212,19 +196,14 @@ pub(crate) async fn advance(
     if let Some(active) = &service.merges.active {
         if let Origin::Call(id) = &active.origin
             && !active.applying
-            && !service
-                .house_work
-                .pending
-                .contains(&active.origin.key())
+            && !service.house_work.pending(id)
             && !society::library::active(
                 service.home.store().connection(),
                 id.runtime.as_str(),
                 &id.key,
             )?
         {
-            if let Some(Ok(plan)) =
-                service.merges.ready.remove(&active.origin.key())
-            {
+            if let Some(Ok(plan)) = service.merges.ready.remove(id) {
                 discard(service, &plan)?;
             }
             service.merges.release();
@@ -246,7 +225,7 @@ pub(crate) async fn advance(
         }
     };
     if !allowed {
-        service.house_work.pending.remove(&request.origin.key());
+        request.origin.release(service);
         return Ok(());
     }
     service.merges.active = Some(Active {
@@ -334,10 +313,14 @@ pub(crate) async fn advance(
                         .await?;
                     }
                     service.merges.tasks.spawn(async move {
-                        let result =
-                            prepared.run().await.unwrap_or_else(
-                                |error| Err(error.to_string()),
-                            );
+                        let result = prepared
+                            .run()
+                            .await
+                            .unwrap_or_else(|error| {
+                                Err(Unplanned::Failed(
+                                    error.to_string(),
+                                ))
+                            });
                         Completed {
                             origin: request.origin,
                             result: Finished::Prepared(result),
@@ -437,21 +420,11 @@ pub(crate) async fn advance(
 }
 
 fn discard(service: &Service, plan: &Plan) -> Result<()> {
-    tree::erase(
-        &tree::directory(
-            service.houses.root(),
-            ".society-files",
-            false,
-        )?,
-        &plan.snapshot,
-    )
+    tree::erase_snapshot(service.houses.root(), &plan.snapshot)
 }
 
 pub(super) fn release(service: &mut Service, id: &OperationId) {
-    service
-        .house_work
-        .pending
-        .remove(&(id.runtime.as_str().into(), id.key.clone()));
+    service.house_work.release(id);
     service.merges.release();
 }
 
@@ -503,19 +476,13 @@ fn start_apply(
     )?
     .context("merge plan")?;
     let number = entry.merge.as_ref().expect("merge").kept.number;
-    let work = Applying {
-        hamlet: hamlet.into(),
-        entry,
-        snapshot: plan.snapshot,
-        root: service.houses.root().try_clone()?,
-        house: service.houses.files(hamlet, number)?,
-        notes: service
-            .houses
-            .remote(hamlet, number, true)?
-            .expect("remote merge"),
-    };
-    if let Origin::Call(_) = &origin {
-        service.house_work.pending.insert(origin.key());
+    let notes = service
+        .houses
+        .remote(hamlet, number, true)?
+        .expect("remote merge");
+    let work = Applying::new(service, hamlet, entry, plan.snapshot)?;
+    if let Some(id) = origin.call() {
+        service.house_work.hold(id.clone());
     }
     society::keep(
         service.home.store().connection(),
@@ -526,15 +493,16 @@ fn start_apply(
     service.merges.active.as_mut().expect("merge lane").applying =
         true;
     service.merges.tasks.spawn(async move {
-        let result = work.run().await;
+        let result = work
+            .run(|| {
+                let notes = notes.clone();
+                async move { read_notes(&notes).await }
+            })
+            .await;
         Completed {
             origin,
             result: Finished::Applied {
-                work: Applied {
-                    hamlet: work.hamlet,
-                    entry: work.entry,
-                    snapshot: work.snapshot,
-                },
+                work: work.done(),
                 answer: Ok(answer),
                 result,
             },
@@ -543,104 +511,16 @@ fn start_apply(
     Ok(true)
 }
 
-impl Applying {
-    async fn notes(&self) -> Result<String> {
-        let bytes =
-            self.notes.read("/house/NOTES.md", true).await.map_err(
-                |error| anyhow::anyhow!("{}", error.message),
-            )?;
-        Ok(String::from_utf8(bytes)?)
-    }
-
-    async fn run(&self) -> Result<()> {
-        let merge =
-            self.entry.merge.as_ref().expect("merge manifest");
-        crate::fault::point("after_merge_record");
-        if self.entry.back.is_none() {
-            let snapshots =
-                tree::directory(&self.root, ".society-files", false)?;
-            let files = tree::read(
-                &tree::directory(&snapshots, &self.snapshot, false)?,
-                CAP * 2,
-                4096,
-            )?;
-            for (path, file) in &files {
-                self.house.put(path, file).await?;
-                crate::fault::point("during_merge_files");
-            }
-            let current = self.notes().await?;
-            if current == merge.files.notes_before {
-                self.house
-                    .replace(
-                        "NOTES.md",
-                        merge.files.notes_after.as_bytes(),
-                    )
-                    .await?;
-                crate::fault::point("after_merge_notes");
-            } else {
-                anyhow::ensure!(
-                    current == merge.files.notes_after,
-                    "The kept notes changed before the merge \
-                     finished; inspect both houses."
-                );
-            }
-        } else {
-            let present = self.house.read(CAP, 4096).await?;
-            for file in &merge.files.brought {
-                if present.get(&file.path).is_some_and(|entry| {
-                    format!("{:x}", Sha256::digest(&entry.bytes))
-                        == file.sha256
-                }) {
-                    self.house.remove(&file.path, false).await?;
-                }
-            }
-            if self.notes().await? == merge.files.notes_after {
-                self.house
-                    .replace(
-                        "NOTES.md",
-                        merge.files.notes_before.as_bytes(),
-                    )
-                    .await?;
-            }
-        }
-        Ok(())
-    }
-}
-
-impl Applied {
-    fn keep(self, service: &mut Service) -> Result<()> {
-        let mut record = service
-            .home
-            .store()
-            .record(&self.hamlet)?
-            .context("merge record")?;
-        let entry = record
-            .archive
-            .iter_mut()
-            .find(|entry| entry.id == self.entry.id)
-            .context("merge archive")?;
-        anyhow::ensure!(
-            entry.back == self.entry.back
-                && entry.merge == self.entry.merge,
-            "The merge changed while its files were being applied; \
-             inspect both houses."
-        );
-        entry.merge.as_mut().expect("merge manifest").applied = true;
-        record::write(service.home.store().connection(), &record)?;
-        service.home.store().connection().execute(
-            "DELETE FROM society_document WHERE \
-             kind='remote-merge-attempt' AND key=?1",
-            [format!("{}:{}", self.hamlet, self.entry.id)],
-        )?;
-        tree::erase(
-            &tree::directory(
-                service.houses.root(),
-                ".society-files",
-                false,
-            )?,
-            &self.snapshot,
-        )
-    }
+/// The kept agent's notes in its remote house, as they are now.
+async fn read_notes(
+    remote: &crate::workspace::Remote,
+) -> Result<String> {
+    let bytes =
+        remote
+            .read(&format!("/house/{NOTES}"), true)
+            .await
+            .map_err(|error| anyhow::anyhow!("{}", error.message))?;
+    Ok(String::from_utf8(bytes)?)
 }
 
 pub(crate) async fn complete(
@@ -651,19 +531,13 @@ pub(crate) async fn complete(
     match completed.result {
         Finished::Prepared(result) => match &completed.origin {
             Origin::Call(id) => {
-                service
-                    .house_work
-                    .pending
-                    .remove(&completed.origin.key());
+                service.house_work.release(id);
                 if society::library::active(
                     service.home.store().connection(),
                     id.runtime.as_str(),
                     &id.key,
                 )? {
-                    service
-                        .merges
-                        .ready
-                        .insert(completed.origin.key(), result);
+                    service.merges.ready.insert(id.clone(), result);
                     harnesses.wake(&id.runtime, &id.key).await;
                 } else {
                     if let Ok(plan) = result {
@@ -691,7 +565,7 @@ pub(crate) async fn complete(
                             service,
                             harnesses,
                             completed.origin,
-                            Err(Refusal::Invalid(error)),
+                            Err(Refusal::Invalid(error.text())),
                         )
                         .await;
                     }
@@ -743,8 +617,8 @@ pub(crate) async fn complete(
             answer,
             result,
         } => {
-            let key = format!("{}:{}", work.hamlet, work.entry.id);
-            let result = result.and_then(|()| work.keep(service));
+            let key = work.key();
+            let result = result.and_then(|()| work.applied(service));
             let answer = match result {
                 Ok(()) => answer,
                 Err(error) => {
@@ -792,7 +666,7 @@ async fn respond(
     origin: Origin,
     answer: Deed,
 ) -> Result<()> {
-    service.house_work.pending.remove(&origin.key());
+    origin.release(service);
     service.merges.release();
     match origin {
         Origin::Call(id) => {

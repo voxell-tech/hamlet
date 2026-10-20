@@ -9,8 +9,8 @@ use super::{Caller, Deed, outcome};
 use crate::harness::Harnesses;
 use crate::protocol::Refusal;
 use crate::record::{
-    self, Actor, Admit, Audience, Change, Decision, DecisionKind,
-    RecordOperation, RecordResult, tidy_name,
+    self, Actor, Admit, Audience, Change, RecordOperation,
+    RecordResult, tidy_name,
 };
 use crate::service::Service;
 use crate::{Outcome, society};
@@ -164,97 +164,62 @@ pub(super) fn set_model(
     let place = caller.place.agent.clone();
     let limits = service.limits_of(&place.hamlet)?;
     let settings = service.settings()?;
+    let strings = |value: &Value| {
+        value
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(String::from)
+            .collect::<Vec<_>>()
+    };
+    let change = Change::SetModel {
+        name: given.name.clone(),
+        model: (!given.model.is_empty()).then(|| given.model.clone()),
+        allowed: strings(&limits["models"]),
+        pinned: limits["pinned"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter(|(_, pin)| !pin.is_null())
+            .map(|(name, _)| name.clone())
+            .collect(),
+        own: limits["model"]
+            .as_str()
+            .or_else(|| settings["model"].as_str())
+            .unwrap_or_default()
+            .into(),
+    };
     let at = society::now();
     society::once(
         service.home.store(),
         &caller.id,
         &caller.request,
         |db| {
-            let refuse = |text: String| Ok(outcome(&text, false));
-            let Some(mut r) = record::read(db, &place.hamlet)? else {
-                return refuse("Only the mayor may do that.".into());
-            };
-            if let Some(refusal) = r
-                .require_mayor(&place)
-                .or_else(|| r.may_decide(at, record::Action::Mayor))
-            {
-                return refuse(refusal.text(Audience::Agent));
-            }
-            let Some(agent) = r
-                .named(&given.name)
-                .filter(|a| a.number != r.mayor)
-                .cloned()
-            else {
-                return refuse(format!(
-                    "no agent named `{}`",
-                    given.name
-                ));
-            };
-            if limits["pinned"]
-                .get(&agent.name)
-                .is_some_and(|pin| !pin.is_null())
-            {
-                return refuse(format!(
-                    "the chief has set the model of `{}`; only the \
-                     chief can change it",
-                    agent.name
-                ));
-            }
-            let models = limits["models"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .collect::<Vec<_>>();
-            if !given.model.is_empty()
-                && !models.contains(&given.model.as_str())
-            {
-                return refuse(format!(
-                    "this hamlet may not run `{}`. You may choose: \
-                     {}",
-                    given.model,
-                    if models.is_empty() {
-                        "the hamlet's own model".into()
-                    } else {
-                        models.join(", ")
-                    }
-                ));
-            }
-            let chosen = (!given.model.is_empty())
-                .then(|| given.model.clone());
-            for living in &mut r.agents {
-                if living.number == agent.number {
-                    living.model.clone_from(&chosen);
-                }
-            }
-            let now = r
-                .agents
-                .iter()
-                .find(|a| a.number == agent.number)
-                .map(|a| {
-                    crate::state::model(a, &limits, &settings, false)
-                })
-                .unwrap_or_default();
-            r.decisions.push(Decision {
+            let operation = RecordOperation {
+                hamlet: place.hamlet.clone(),
+                actor: society::actor(db, &place)?,
                 at,
-                by: "mayor".into(),
-                reason: record::trim(&given.reason).into(),
-                kind: DecisionKind::Model {
-                    agent: agent.number,
-                    model: now,
-                },
-            });
-            record::write(db, &r)?;
-            Ok(outcome(
-                &format!(
+                reason: given.reason.clone(),
+                task: caller.task.clone(),
+                change,
+            };
+            let text = match crate::operation::change(db, &operation)?
+            {
+                Outcome::Done(_) => format!(
                     "`{}` now runs {}.",
-                    agent.name,
-                    chosen
-                        .as_deref()
-                        .unwrap_or("the hamlet's own model")
+                    given.name,
+                    if given.model.is_empty() {
+                        "the hamlet's own model"
+                    } else {
+                        &given.model
+                    }
                 ),
-                false,
-            ))
+                Outcome::Refused(refusal) => {
+                    refusal.text(Audience::Agent)
+                }
+            };
+            Ok(outcome(&text, false))
         },
     )
 }

@@ -30,6 +30,10 @@ pub enum Action {
     Character,
     Limits,
     Guards,
+    Model,
+    RefuseRoad,
+    Erase,
+    GiveSkill,
 }
 
 /// A refused record operation, kept in its marker.
@@ -125,6 +129,13 @@ pub enum Reason {
         later: String,
         kept: String,
         absorbed: String,
+    },
+    ModelPinned {
+        name: String,
+    },
+    ModelNotAllowed {
+        model: String,
+        allowed: Vec<String>,
     },
 }
 
@@ -324,6 +335,19 @@ impl Refusal {
             } => format!(
                 "`{later}` was merged into `{kept}` after \
                  `{absorbed}`; split that one first"
+            ),
+            Reason::ModelPinned { name } => format!(
+                "the chief has set the model of `{name}`; only the \
+                 chief can change it"
+            ),
+            Reason::ModelNotAllowed { model, allowed } => format!(
+                "this hamlet may not run `{model}`. You may choose: \
+                 {}",
+                if allowed.is_empty() {
+                    "the hamlet's own model".into()
+                } else {
+                    allowed.join(", ")
+                }
             ),
         }
     }

@@ -139,7 +139,17 @@ fn limits(
 ) {
     let mut limits = record(store, hamlet).limits;
     change(&mut limits);
-    done(store, key, &request(hamlet, Change::SetLimits(limits)));
+    done(
+        store,
+        key,
+        &request(
+            hamlet,
+            Change::SetLimits {
+                limits,
+                runs: Vec::new(),
+            },
+        ),
+    );
 }
 
 fn departed(store: &mut Store, key: &str, name: &str) -> String {
@@ -170,6 +180,92 @@ fn a_departed_namesake_reports_the_latest_departure() {
          (\"The second scout finished\"). Its house is archived and \
          its roads went with it; only a chief can restore it."
     );
+}
+
+#[test]
+fn a_model_is_set_by_the_mayor_alone_within_the_chiefs_limits() {
+    let (_scratch, mut store) = seeded("record-model");
+    done(&mut store, "scout", &request("home", admit("scout")));
+    done(&mut store, "smith", &request("home", admit("smith")));
+    let set = |name: &str, model: Option<&str>| {
+        let mut call = request(
+            "home",
+            Change::SetModel {
+                name: name.into(),
+                model: model.map(String::from),
+                allowed: vec!["fast".into()],
+                pinned: vec!["smith".into()],
+                own: "house".into(),
+            },
+        );
+        call.actor = Actor::Mayor(place("home", 0));
+        call
+    };
+    let mut member = set("scout", Some("fast"));
+    member.actor = Actor::Member(place("home", 2));
+    assert_eq!(
+        refused(&mut store, "member", &member).reason,
+        Reason::NotMayor
+    );
+    assert_eq!(
+        refused(&mut store, "office", &set("mayor", Some("fast")))
+            .reason,
+        Reason::AgentMissing {
+            name: "mayor".into(),
+            local: false
+        }
+    );
+    assert_eq!(
+        refused(&mut store, "pinned", &set("smith", Some("fast")))
+            .reason,
+        Reason::ModelPinned {
+            name: "smith".into()
+        }
+    );
+    assert!(matches!(
+        refused(&mut store, "slow", &set("scout", Some("slow")))
+            .reason,
+        Reason::ModelNotAllowed { .. }
+    ));
+    done(&mut store, "fast", &set("scout", Some("fast")));
+    assert_eq!(
+        record(&store, "home").named("scout").unwrap().model,
+        Some("fast".into())
+    );
+    done(&mut store, "own", &set("scout", None));
+    let r = record(&store, "home");
+    assert_eq!(r.named("scout").unwrap().model, None);
+    assert_eq!(
+        r.decisions.last().map(|d| (&d.by, &d.reason, &d.kind)),
+        Some((
+            &"mayor".to_owned(),
+            &"Needed".to_owned(),
+            &DecisionKind::Model {
+                agent: 1,
+                model: "house".into()
+            }
+        ))
+    );
+    done(
+        &mut store,
+        "hold",
+        &request(
+            "home",
+            Change::SetGuards {
+                open_votes: vec![OpenVote {
+                    id: 1,
+                    called: 100,
+                    motion: "replace the mayor".into(),
+                }],
+                protected: Vec::new(),
+            },
+        ),
+    );
+    assert!(matches!(
+        refused(&mut store, "held", &set("scout", Some("fast")))
+            .reason,
+        Reason::VoteOpen { vote: 1, .. }
+    ));
 }
 
 #[test]

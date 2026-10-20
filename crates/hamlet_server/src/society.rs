@@ -34,155 +34,248 @@ use crate::record::{Actor, AgentRef};
 use crate::service::Service;
 use crate::{OperationId, Store};
 
-/// The tools the mayor alone is offered.
-const MAYOR: &[&str] = &[
-    "create_agent",
-    "build_road",
-    "set_model",
-    "remove_agent",
-    "merge_agents",
-];
-/// The mayor's tools for dealing with other hamlets, offered while
-/// more than one lives.
-const REALM: &[&str] = &["agree_road", "agree_move", "ask_removal"];
-/// The tools every agent is offered in its own conversations.
-const EVERY: &[&str] = &[
-    "tell_agent",
-    "ask_agent",
-    "call_vote",
-    "submit_skill",
-    "ask_librarian",
-    "ask_chief",
-];
+/// A tool of the society, which this server answers itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SocietyTool {
+    CreateAgent,
+    BuildRoad,
+    SetModel,
+    RemoveAgent,
+    MergeAgents,
+    AgreeRoad,
+    AgreeMove,
+    AskRemoval,
+    TellAgent,
+    AskAgent,
+    RequestRoad,
+    CallVote,
+    CastBallot,
+    SubmitSkill,
+    AskLibrarian,
+    Object,
+    AskChief,
+}
+
+/// The conversations a [`SocietyTool`] is offered in.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Role {
+    /// The mayor's own.
+    Mayor,
+    /// The mayor's, while more than one hamlet lives.
+    Realm,
+    /// Every agent's own.
+    Every,
+    /// An agent's own besides the mayor's.
+    Member,
+    /// One a chief instructs.
+    Instructed,
+    /// A ballot errand's, which offers it alone.
+    Ballot,
+}
+
+impl SocietyTool {
+    const ALL: [Self; 17] = [
+        Self::CreateAgent,
+        Self::BuildRoad,
+        Self::SetModel,
+        Self::RemoveAgent,
+        Self::MergeAgents,
+        Self::AgreeRoad,
+        Self::AgreeMove,
+        Self::AskRemoval,
+        Self::TellAgent,
+        Self::AskAgent,
+        Self::RequestRoad,
+        Self::CallVote,
+        Self::CastBallot,
+        Self::SubmitSkill,
+        Self::AskLibrarian,
+        Self::Object,
+        Self::AskChief,
+    ];
+
+    /// The name of every society tool.
+    pub(crate) fn names() -> impl Iterator<Item = &'static str> {
+        Self::ALL.into_iter().map(Self::name)
+    }
+
+    /// The society tool named `name`.
+    pub(crate) fn named(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|tool| tool.name() == name)
+    }
+
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::CreateAgent => "create_agent",
+            Self::BuildRoad => "build_road",
+            Self::SetModel => "set_model",
+            Self::RemoveAgent => "remove_agent",
+            Self::MergeAgents => "merge_agents",
+            Self::AgreeRoad => "agree_road",
+            Self::AgreeMove => "agree_move",
+            Self::AskRemoval => "ask_removal",
+            Self::TellAgent => "tell_agent",
+            Self::AskAgent => "ask_agent",
+            Self::RequestRoad => "request_road",
+            Self::CallVote => "call_vote",
+            Self::CastBallot => "cast_ballot",
+            Self::SubmitSkill => "submit_skill",
+            Self::AskLibrarian => "ask_librarian",
+            Self::Object => "object",
+            Self::AskChief => "ask_chief",
+        }
+    }
+
+    fn role(self) -> Role {
+        match self {
+            Self::CreateAgent
+            | Self::BuildRoad
+            | Self::SetModel
+            | Self::RemoveAgent
+            | Self::MergeAgents => Role::Mayor,
+            Self::AgreeRoad | Self::AgreeMove | Self::AskRemoval => {
+                Role::Realm
+            }
+            Self::TellAgent
+            | Self::AskAgent
+            | Self::CallVote
+            | Self::SubmitSkill
+            | Self::AskLibrarian
+            | Self::AskChief => Role::Every,
+            Self::RequestRoad => Role::Member,
+            Self::Object => Role::Instructed,
+            Self::CastBallot => Role::Ballot,
+        }
+    }
+
+    /// The tool as runtimes are given it; `None` for those given by
+    /// their owners.
+    fn spec(self) -> Option<ToolSpec> {
+        let string = || json!({"type": "string"});
+        let strings =
+            || json!({"type": "array", "items": {"type": "string"}});
+        let (description, properties, required): (_, _, &[&str]) =
+            match self {
+                Self::BuildRoad | Self::AskChief => return None,
+                Self::CreateAgent => (
+                    "Create an agent with a purpose, roads, model \
+                     and character.",
+                    json!({"name": string(), "purpose": string(), "reason": string(), "roads": strings(), "model": string(), "character": string()}),
+                    &["name", "purpose", "reason"],
+                ),
+                Self::SetModel => (
+                    "Choose an allowed model for an agent, or empty \
+                     for the hamlet's own.",
+                    json!({"name": string(), "model": string(), "reason": string()}),
+                    &["name", "model", "reason"],
+                ),
+                Self::RemoveAgent => (
+                    "Remove an agent, archiving its house and \
+                     roads. A reason is kept in the record.",
+                    json!({"name": string(), "reason": string()}),
+                    &["name", "reason"],
+                ),
+                Self::MergeAgents => (
+                    "Merge two agents' houses and roads under the \
+                     kept agent's new purpose. A reason is kept in \
+                     the record.",
+                    json!({"keep": string(), "absorb": string(), "purpose": string(), "reason": string()}),
+                    &["keep", "absorb", "purpose", "reason"],
+                ),
+                Self::AgreeRoad => (
+                    "Agree to a road between agents of different \
+                     hamlets. Both mayors must agree.",
+                    json!({"a": string(), "b": string(), "reason": string()}),
+                    &["a", "b", "reason"],
+                ),
+                Self::AgreeMove => (
+                    "Agree that an agent moves with its house. Only \
+                     roads both mayors name are kept.",
+                    json!({"agent": string(), "to": string(), "keep_roads": strings(), "reason": string()}),
+                    &["agent", "to", "reason"],
+                ),
+                Self::AskRemoval => (
+                    "Ask the chief to remove a hamlet. Nothing is \
+                     removed until a chief confirms.",
+                    json!({"hamlet": string(), "reason": string()}),
+                    &["hamlet", "reason"],
+                ),
+                Self::TellAgent => (
+                    "Send a letter along a road. Its reply comes as \
+                     a new message.",
+                    json!({"name": string(), "message": string()}),
+                    &["name", "message"],
+                ),
+                Self::AskAgent => (
+                    "Ask an agent along a road and wait for its \
+                     answer.",
+                    json!({"name": string(), "message": string()}),
+                    &["name", "message"],
+                ),
+                Self::RequestRoad => (
+                    "Ask the mayor to build a road to another agent.",
+                    json!({"to": string(), "reason": string()}),
+                    &["to", "reason"],
+                ),
+                Self::CallVote => (
+                    "Call a vote to replace the mayor or found a \
+                     hamlet. Every agent besides the mayor votes \
+                     from its own house. Returns the count; the \
+                     chief may overturn it.",
+                    json!({"kind": string(), "reason": string(), "candidate": string(), "hamlet": string(), "mayor": string(), "purpose": string()}),
+                    &["kind", "reason"],
+                ),
+                Self::CastBallot => (
+                    "Cast your ballot in the vote you were asked \
+                     about, with words copied from your own notes \
+                     or history.",
+                    json!({"choice": string(), "reason": string(), "evidence": string()}),
+                    &["choice", "reason", "evidence"],
+                ),
+                Self::SubmitSkill => (
+                    "Offer one of your own skills to the shared \
+                     library. The librarian takes it or says why \
+                     not. Once taken it moves out of your house; \
+                     use the library's copy.",
+                    json!({"skill": string(), "reason": string()}),
+                    &["skill", "reason"],
+                ),
+                Self::AskLibrarian => (
+                    "Ask which skill on the library's shelves does \
+                     what you need, and the command that runs it. \
+                     Ask before writing a skill of your own.",
+                    json!({"question": string()}),
+                    &["question"],
+                ),
+                Self::Object => (
+                    "Tell the chief why the instruction you were \
+                     just given is a mistake. The work waits for \
+                     its reply. You may object once; after go \
+                     ahead, do the work.",
+                    json!({"reason": string()}),
+                    &["reason"],
+                ),
+            };
+        Some(ToolSpec {
+            name: self.name().into(),
+            description: description.into(),
+            parameters: object(json!({
+                "type": "object",
+                "properties": properties,
+                "required": required,
+            })),
+            replay: ToolSpecReplay::Safe,
+        })
+    }
+}
 
 /// The society tools runtimes are given; `build_road` and `ask_chief`
 /// are given by their owners.
 pub(crate) fn specs() -> Vec<ToolSpec> {
-    let string = || json!({"type": "string"});
-    let strings =
-        || json!({"type": "array", "items": {"type": "string"}});
-    let tool = |name: &str,
-                description: &str,
-                properties: Value,
-                required: &[&str]| ToolSpec {
-        name: name.into(),
-        description: description.into(),
-        parameters: object(json!({
-            "type": "object",
-            "properties": properties,
-            "required": required,
-        })),
-        replay: ToolSpecReplay::Safe,
-    };
-    vec![
-        tool(
-            "create_agent",
-            "Create an agent with a purpose, roads, model and \
-             character.",
-            json!({"name": string(), "purpose": string(), "reason": string(), "roads": strings(), "model": string(), "character": string()}),
-            &["name", "purpose", "reason"],
-        ),
-        tool(
-            "set_model",
-            "Choose an allowed model for an agent, or empty for the \
-             hamlet's own.",
-            json!({"name": string(), "model": string(), "reason": string()}),
-            &["name", "model", "reason"],
-        ),
-        tool(
-            "remove_agent",
-            "Remove an agent, archiving its house and roads. A \
-             reason is kept in the record.",
-            json!({"name": string(), "reason": string()}),
-            &["name", "reason"],
-        ),
-        tool(
-            "merge_agents",
-            "Merge two agents' houses and roads under the kept \
-             agent's new purpose. A reason is kept in the record.",
-            json!({"keep": string(), "absorb": string(), "purpose": string(), "reason": string()}),
-            &["keep", "absorb", "purpose", "reason"],
-        ),
-        tool(
-            "agree_road",
-            "Agree to a road between agents of different hamlets. \
-             Both mayors must agree.",
-            json!({"a": string(), "b": string(), "reason": string()}),
-            &["a", "b", "reason"],
-        ),
-        tool(
-            "agree_move",
-            "Agree that an agent moves with its house. Only roads \
-             both mayors name are kept.",
-            json!({"agent": string(), "to": string(), "keep_roads": strings(), "reason": string()}),
-            &["agent", "to", "reason"],
-        ),
-        tool(
-            "ask_removal",
-            "Ask the chief to remove a hamlet. Nothing is removed \
-             until a chief confirms.",
-            json!({"hamlet": string(), "reason": string()}),
-            &["hamlet", "reason"],
-        ),
-        tool(
-            "tell_agent",
-            "Send a letter along a road. Its reply comes as a new \
-             message.",
-            json!({"name": string(), "message": string()}),
-            &["name", "message"],
-        ),
-        tool(
-            "ask_agent",
-            "Ask an agent along a road and wait for its answer.",
-            json!({"name": string(), "message": string()}),
-            &["name", "message"],
-        ),
-        tool(
-            "request_road",
-            "Ask the mayor to build a road to another agent.",
-            json!({"to": string(), "reason": string()}),
-            &["to", "reason"],
-        ),
-        tool(
-            "call_vote",
-            "Call a vote to replace the mayor or found a hamlet. \
-             Every agent besides the mayor votes from its own \
-             house. Returns the count; the chief may overturn it.",
-            json!({"kind": string(), "reason": string(), "candidate": string(), "hamlet": string(), "mayor": string(), "purpose": string()}),
-            &["kind", "reason"],
-        ),
-        tool(
-            "cast_ballot",
-            "Cast your ballot in the vote you were asked about, \
-             with words copied from your own notes or history.",
-            json!({"choice": string(), "reason": string(), "evidence": string()}),
-            &["choice", "reason", "evidence"],
-        ),
-        tool(
-            "submit_skill",
-            "Offer one of your own skills to the shared library. \
-             The librarian takes it or says why not. Once taken it \
-             moves out of your house; use the library's copy.",
-            json!({"skill": string(), "reason": string()}),
-            &["skill", "reason"],
-        ),
-        tool(
-            "ask_librarian",
-            "Ask which skill on the library's shelves does what you \
-             need, and the command that runs it. Ask before writing \
-             a skill of your own.",
-            json!({"question": string()}),
-            &["question"],
-        ),
-        tool(
-            "object",
-            "Tell the chief why the instruction you were just given \
-             is a mistake. The work waits for its reply. You may \
-             object once; after go ahead, do the work.",
-            json!({"reason": string()}),
-            &["reason"],
-        ),
-    ]
+    SocietyTool::ALL
+        .into_iter()
+        .filter_map(SocietyTool::spec)
+        .collect()
 }
 
 fn object(value: Value) -> BTreeMap<String, Value> {
@@ -202,11 +295,13 @@ pub(crate) fn tools_of(
     let db = service.home.store().connection();
     if let Some(kind) = errand_of(db, binding)? {
         return Ok(ConfigureTools::Only {
-            only: if kind == "ballot" {
-                vec!["cast_ballot".into()]
-            } else {
-                Vec::new()
-            },
+            only: SocietyTool::ALL
+                .into_iter()
+                .filter(|tool| {
+                    tool.role() == Role::Ballot && kind == "ballot"
+                })
+                .map(|tool| tool.name().into())
+                .collect(),
         });
     }
     let Some(kept) = records::kept(db, binding)? else {
@@ -221,21 +316,19 @@ pub(crate) fn tools_of(
     let realm =
         crate::realm::live(service.home.store().connection())?.len()
             > 1;
-    let allowed = |tool: &str| {
-        EVERY.contains(&tool)
-            || (tool == "object" && place.chief.is_some())
-            || if mayor {
-                MAYOR.contains(&tool)
-                    || (realm && REALM.contains(&tool))
-            } else {
-                tool == "request_road"
-            }
+    let allowed = |tool: SocietyTool| match tool.role() {
+        Role::Every => true,
+        Role::Instructed => place.chief.is_some(),
+        Role::Mayor => mayor,
+        Role::Realm => mayor && realm,
+        Role::Member => !mayor,
+        Role::Ballot => false,
     };
     Ok(ConfigureTools::Remove {
-        remove: crate::gate::SOCIETY
-            .iter()
-            .filter(|tool| !allowed(tool))
-            .map(|tool| (*tool).into())
+        remove: SocietyTool::ALL
+            .into_iter()
+            .filter(|tool| !allowed(*tool))
+            .map(|tool| tool.name().into())
             .collect(),
     })
 }
@@ -250,7 +343,9 @@ pub(crate) fn withheld(
 ) -> Result<bool> {
     let db = service.home.store().connection();
     Ok(errand_of(db, binding)?.is_some_and(|kind| {
-        !(kind == "ballot" && tool == "cast_ballot")
+        !(kind == "ballot"
+            && SocietyTool::named(tool)
+                .is_some_and(|tool| tool.role() == Role::Ballot))
     }))
 }
 
@@ -349,23 +444,7 @@ pub(crate) async fn operation(
             session: 0,
         },
     };
-    let request = match input {
-        Some(input) => {
-            service.home.store().request_of(binding.id, input)?
-        }
-        None => None,
-    };
-    let db = service.home.store().connection();
-    let task = match request {
-        Some(request) => records::mark_of(db, binding.id, &request)?
-            .and_then(|mark| {
-                mark.data
-                    .get("task")
-                    .and_then(Value::as_str)
-                    .map(String::from)
-            }),
-        None => None,
-    };
+    let task = marked_task(service.home.store(), binding.id, input)?;
     let caller = Caller {
         binding,
         place,
@@ -378,22 +457,28 @@ pub(crate) async fn operation(
         task,
     };
     let args = Value::Object(arguments.clone().into_iter().collect());
-    let outcome = match tool {
-        "object" => {
+    let answered = match SocietyTool::named(tool) {
+        // The owners of these answer them.
+        None
+        | Some(SocietyTool::BuildRoad | SocietyTool::AskChief) => {
+            Some(outcome(
+                &format!("There is no tool named {tool}."),
+                true,
+            ))
+        }
+        Some(SocietyTool::Object) => {
             return objections::object(
                 service, binding, key, input, &args,
             );
         }
-        "cast_ballot" => votes::ballot(service, &caller, &args)?,
-        "merge_agents" => match merging::operation(
-            service, harnesses, &caller, &args,
-        )
-        .await?
-        {
-            Some(answer) => answer,
-            None => return Ok(letters::waiting()),
-        },
-        "call_vote" => {
+        Some(SocietyTool::CastBallot) => {
+            Some(votes::ballot(service, &caller, &args)?)
+        }
+        Some(SocietyTool::MergeAgents) => {
+            merging::operation(service, harnesses, &caller, &args)
+                .await?
+        }
+        Some(SocietyTool::CallVote) => {
             service.home.store().connection().execute(
                 "INSERT INTO society_call \
                  (runtime,key,binding,tool,input,data) VALUES \
@@ -406,62 +491,56 @@ pub(crate) async fn operation(
                     args.to_string()
                 ],
             )?;
-            match votes::operation(service, harnesses, &caller, &args)
+            votes::operation(service, harnesses, &caller, &args)
                 .await?
-            {
-                Some(answer) => answer,
-                None => return Ok(letters::waiting()),
-            }
         }
-        "create_agent" => {
-            agents::create(service, &caller, &args).await?
+        Some(SocietyTool::CreateAgent) => {
+            Some(agents::create(service, &caller, &args).await?)
         }
-        "set_model" => agents::set_model(service, &caller, &args)?,
-        "submit_skill" | "ask_librarian" => {
-            match library::consult(
-                service, harnesses, &caller, tool, &args,
+        Some(SocietyTool::SetModel) => {
+            Some(agents::set_model(service, &caller, &args)?)
+        }
+        Some(
+            SocietyTool::SubmitSkill | SocietyTool::AskLibrarian,
+        ) => {
+            library::consult(service, harnesses, &caller, tool, &args)
+                .await?
+        }
+        Some(SocietyTool::AgreeRoad) => {
+            crate::realm::dealings::agree_road(
+                service, harnesses, &caller, &args,
             )
             .await?
-            {
-                Some(answer) => answer,
-                None => return Ok(letters::waiting()),
-            }
         }
-        "agree_road" | "agree_move" | "ask_removal" => {
-            match crate::realm::dealings::operation(
-                service, harnesses, &caller, tool, &args,
+        Some(SocietyTool::AgreeMove) => {
+            crate::realm::dealings::agree_move(
+                service, harnesses, &caller, &args,
             )
             .await?
-            {
-                Some(answer) => answer,
-                None => return Ok(letters::waiting()),
-            }
         }
-        "remove_agent" => {
+        Some(SocietyTool::AskRemoval) => {
+            crate::realm::dealings::ask_removal(
+                service, harnesses, &caller, &args,
+            )
+            .await?
+        }
+        Some(SocietyTool::RemoveAgent) => Some(
             leaving::remove(service, harnesses, &caller, &args)
+                .await?,
+        ),
+        Some(SocietyTool::TellAgent) => Some(
+            letters::tell(service, harnesses, &caller, &args).await?,
+        ),
+        Some(SocietyTool::AskAgent) => {
+            letters::ask(service, harnesses, &caller, &args).await?
+        }
+        Some(SocietyTool::RequestRoad) => {
+            letters::request_road(service, harnesses, &caller, &args)
                 .await?
         }
-        "tell_agent" => {
-            letters::tell(service, harnesses, &caller, &args).await?
-        }
-        "ask_agent" | "request_road" => {
-            let answered = if tool == "ask_agent" {
-                letters::ask(service, harnesses, &caller, &args)
-                    .await?
-            } else {
-                letters::request_road(
-                    service, harnesses, &caller, &args,
-                )
-                .await?
-            };
-            match answered {
-                Some(outcome) => outcome,
-                None => return Ok(letters::waiting()),
-            }
-        }
-        _ => {
-            outcome(&format!("There is no tool named {tool}."), true)
-        }
+    };
+    let Some(outcome) = answered else {
+        return Ok(letters::waiting());
     };
     let outcome = once(
         service.home.store(),
@@ -469,10 +548,7 @@ pub(crate) async fn operation(
         &caller.request,
         |_| Ok(outcome),
     )?;
-    if service.house_work.pending.contains(&(
-        caller.id.runtime.as_str().into(),
-        caller.id.key.clone(),
-    )) {
+    if service.house_work.pending(&caller.id) {
         return Ok(letters::waiting());
     }
     Ok(result(&outcome))
@@ -569,6 +645,31 @@ pub(crate) fn now() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
+/// The H12 task of the turn whose input `input` of `binding` made a
+/// call, as the input's mark keeps it.
+pub(crate) fn marked_task(
+    store: &Store,
+    binding: BindingId,
+    input: Option<&str>,
+) -> Result<Option<String>> {
+    let Some(request) = input
+        .map(|input| store.request_of(binding, input))
+        .transpose()?
+        .flatten()
+    else {
+        return Ok(None);
+    };
+    Ok(records::mark_of(store.connection(), binding, &request)?
+        .and_then(|mark| {
+            mark.data
+                .get("task")
+                .and_then(Value::as_str)
+                .map(String::from)
+        }))
+}
+
+/// The H12 task of the turn whose input `input` of `binding` made a
+/// call: the marked one, else one of the input's own.
 pub(crate) fn task_of(
     store: &Store,
     binding: &Binding,
@@ -577,18 +678,11 @@ pub(crate) fn task_of(
     let Some(input) = input else {
         return Ok(None);
     };
-    if let Some(request) = store.request_of(binding.id, input)?
-        && let Some(mark) = records::mark_of(
-            store.connection(),
-            binding.id,
-            &request,
-        )?
-        && let Some(task) =
-            mark.data.get("task").and_then(Value::as_str)
-    {
-        return Ok(Some(task.into()));
-    }
-    Ok(Some(format!("{}:{input}", binding.runtime.as_str())))
+    Ok(Some(
+        marked_task(store, binding.id, Some(input))?.unwrap_or_else(
+            || format!("{}:{input}", binding.runtime.as_str()),
+        ),
+    ))
 }
 
 pub(crate) fn payer(
