@@ -609,14 +609,14 @@ impl Applying {
 
 impl Applied {
     fn keep(self, service: &mut Service) -> Result<()> {
-        let mut record = service
+        let record = service
             .home
             .store()
             .record(&self.hamlet)?
             .context("merge record")?;
         let entry = record
             .archive
-            .iter_mut()
+            .iter()
             .find(|entry| entry.id == self.entry.id)
             .context("merge archive")?;
         anyhow::ensure!(
@@ -625,8 +625,11 @@ impl Applied {
             "The merge changed while its files were being applied; \
              inspect both houses."
         );
-        entry.merge.as_mut().expect("merge manifest").applied = true;
-        record::write(service.home.store().connection(), &record)?;
+        super::applied(
+            service.home.store().connection(),
+            &self.hamlet,
+            &self.entry.id,
+        )?;
         service.home.store().connection().execute(
             "DELETE FROM society_document WHERE \
              kind='remote-merge-attempt' AND key=?1",

@@ -12,8 +12,7 @@ use crate::chats::records::{self, Place};
 use crate::harness::link::{Item, ItemKind, Mark};
 use crate::harness::{Answer, BindingId, Harnesses, Input};
 use crate::record::{
-    self, Actor, AgentRef, Change, Decision, DecisionKind,
-    RecordOperation,
+    self, Actor, AgentRef, Change, DecisionKind, RecordOperation,
 };
 use crate::service::Service;
 use crate::{Outcome, realm, society};
@@ -421,18 +420,21 @@ pub(super) async fn request_road(
     if let Some(sent) =
         sent_by(&tx, caller.id.runtime.as_str(), &caller.id.key)?
         && !sent.refused
-        && let Some(mut r) = record::read(&tx, &place.hamlet)?
     {
-        r.decisions.push(Decision {
-            at: sent.at,
-            by: "mayor".into(),
-            reason: reply.chars().take(160).collect(),
-            kind: DecisionKind::RoadRefused {
-                from: place.number,
-                to: to.into(),
+        crate::operation::change(
+            &tx,
+            &RecordOperation {
+                hamlet: place.hamlet.clone(),
+                actor: Actor::Mayor(sent.to.clone()),
+                at: sent.at,
+                reason: reply.chars().take(160).collect(),
+                task: None,
+                change: Change::RefuseRoad {
+                    from: place.number,
+                    to: to.into(),
+                },
             },
-        });
-        record::write(&tx, &r)?;
+        )?;
         tx.execute(
             "UPDATE society_message SET refused = 1 WHERE request = \
              ?1",

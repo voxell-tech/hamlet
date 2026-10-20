@@ -601,6 +601,31 @@ pub(super) async fn deed(
     }
 }
 
+/// Marks the merge kept under `archive` in `hamlet` applied, as its
+/// file work finished.
+fn applied(
+    db: &rusqlite::Connection,
+    hamlet: &str,
+    archive: &str,
+) -> Result<()> {
+    let operation = RecordOperation {
+        hamlet: hamlet.into(),
+        actor: Actor::Realm,
+        at: super::now(),
+        reason: String::new(),
+        task: None,
+        change: Change::FinishMerge {
+            archive: archive.into(),
+        },
+    };
+    match crate::operation::change(db, &operation)? {
+        Outcome::Done(_) => Ok(()),
+        Outcome::Refused(refusal) => {
+            anyhow::bail!("{}", refusal.text(record::Audience::Chief))
+        }
+    }
+}
+
 pub(crate) async fn finish(service: &mut Service) -> Result<()> {
     super::library::retire(service)?;
     for mut r in
@@ -705,10 +730,14 @@ pub(crate) async fn finish(service: &mut Service) -> Result<()> {
                         .await?;
                 }
             }
+            applied(
+                service.home.store().connection(),
+                &r.id,
+                &entry.id,
+            )?;
             merge.applied = true;
             finished.push(plan.snapshot.clone());
         }
-        record::write(service.home.store().connection(), &r)?;
         for entry in r.archive.iter().filter(|entry| {
             entry.merge.as_ref().is_some_and(|merge| merge.applied)
         }) {

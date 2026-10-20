@@ -222,12 +222,9 @@ pub(crate) async fn deed(
     let tx = service.home.store().transaction()?;
     write(&tx, &realm)?;
     if realm.lives(id) {
-        record::write(&tx, &r)?;
+        record::claim_names(&tx, id)?;
     } else {
-        tx.execute(
-            "DELETE FROM record_name WHERE hamlet = ?1",
-            [id],
-        )?;
+        record::release_names(&tx, id)?;
     }
     tx.commit()?;
     if realm.hamlets[index].erased {

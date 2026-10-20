@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 
 use crate::harness::Harnesses;
 use crate::protocol::{Refusal, reply};
-use crate::record::{AgentRef, Decision, DecisionKind};
+use crate::record::AgentRef;
 use crate::service::Service;
 
 #[derive(Default)]
@@ -498,23 +498,14 @@ impl Service {
         if delivered.is_err() {
             return Ok(Err(refused(DELIVERY)));
         }
-        let mut record =
-            self.home.store().record(&to.hamlet)?.ok_or_else(
-                || anyhow::anyhow!("gift recipient has no record"),
-            )?;
-        record.decisions.push(Decision {
-            at: chrono::Utc::now().timestamp_millis(),
-            by: self.chief.clone(),
-            reason: String::new(),
-            kind: DecisionKind::SkillGiven {
-                to: target.number,
-                skill: skill.into(),
-                from: giver,
-            },
-        });
-        let tx = self.home.store().transaction()?;
-        crate::record::save(&tx, &record)?;
-        tx.commit()?;
+        crate::record::give_skill(
+            self.home.store().connection(),
+            &self.chief,
+            &to.hamlet,
+            target.number,
+            skill,
+            giver,
+        )?;
         Ok(Ok(format!("Gave `{}` the skill `{skill}`.", to.agent)))
     }
 }

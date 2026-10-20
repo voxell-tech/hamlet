@@ -53,8 +53,8 @@ fn read(db: &Connection, hamlet: &str) -> Result<Vec<Vote>> {
 
 fn save(db: &Connection, hamlet: &str, votes: &[Vote]) -> Result<()> {
     super::keep(db, "votes", hamlet, &votes)?;
-    if let Some(mut r) = record::read(db, hamlet)? {
-        r.open_votes = votes
+    if let Some(r) = record::read(db, hamlet)? {
+        let open = votes
             .iter()
             .filter(|v| v.standing == "open")
             .map(|v| record::OpenVote {
@@ -63,7 +63,7 @@ fn save(db: &Connection, hamlet: &str, votes: &[Vote]) -> Result<()> {
                 motion: describe(v, &r),
             })
             .collect();
-        record::write(db, &r)?;
+        record::guard(db, hamlet, open, r.protected)?;
     }
     Ok(())
 }
@@ -996,10 +996,7 @@ pub(super) async fn deed(
                 reason: reason.clone(),
             });
             crate::realm::write(&tx, &realm)?;
-            tx.execute(
-                "DELETE FROM record_name WHERE hamlet=?1",
-                [&v.destination],
-            )?;
+            record::release_names(&tx, &v.destination)?;
             closed = record::read(&tx, &v.destination)?;
             format!(
                 "The hamlet `{}` is removed and archived.",

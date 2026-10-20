@@ -105,15 +105,33 @@ impl Service {
                             .into(),
                     )));
                 }
+                let settings = self.settings()?;
+                let runs = record
+                    .agents
+                    .iter()
+                    .filter_map(|agent| {
+                        let mayor = agent.number == record.mayor;
+                        let before = crate::state::model(
+                            agent, &current, &settings, mayor,
+                        );
+                        let after = crate::state::model(
+                            agent, &value, &settings, mayor,
+                        );
+                        (before != after)
+                            .then_some((agent.number, after))
+                    })
+                    .collect();
                 let operation = self.operation(
                     hamlet,
-                    Change::SetLimits(record_limits(
-                        &limits,
-                        &record.limits,
-                    )),
+                    Change::SetLimits {
+                        limits: record_limits(
+                            &limits,
+                            &record.limits,
+                        ),
+                        runs,
+                    },
                     reason.as_deref().unwrap_or_default(),
                 );
-                let settings = self.settings()?;
                 let tx = self.home.store().transaction()?;
                 if let Outcome::Refused(error) =
                     crate::operation::change(&tx, &operation)?
@@ -122,34 +140,6 @@ impl Service {
                         error.text(Audience::Chief),
                     )));
                 }
-                let mut changed = crate::record::read(&tx, hamlet)?
-                    .expect("edited record");
-                for agent in &record.agents {
-                    let mayor = agent.number == record.mayor;
-                    let before = crate::state::model(
-                        agent, &current, &settings, mayor,
-                    );
-                    let after = crate::state::model(
-                        agent, &value, &settings, mayor,
-                    );
-                    if before != after {
-                        changed
-                            .decisions
-                            .push(crate::record::Decision {
-                            at: operation.at,
-                            by: format!("chief:{}", self.chief),
-                            reason: reason
-                                .clone()
-                                .unwrap_or_default(),
-                            kind:
-                                crate::record::DecisionKind::Model {
-                                    agent: agent.number,
-                                    model: after,
-                                },
-                        });
-                    }
-                }
-                crate::record::write(&tx, &changed)?;
                 save(&tx, "limits", hamlet, &value)?;
                 tx.commit()?;
             }
