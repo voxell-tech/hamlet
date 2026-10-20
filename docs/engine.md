@@ -29,6 +29,7 @@ Each depends only on those above it, and each adds one Bevy plugin,
 | `engine/bus` | `hamlet_engine_bus` | Services and events between plugins, whatever host runs them |
 | `engine/net` | `hamlet_engine_net` | The network service: fetches to granted hosts at public addresses |
 | `engine/agents` | `hamlet_engine_agents` | The agents service: the agent core run in the engine, behind a protocol |
+| `engine/desktop` | `hamlet_engine_desktop` | The desktop service: the machine kept awake while an agent works, addresses and files opened for plugins, the address under the pointer, one engine per home |
 | `engine/wasm` | `hamlet_engine_wasm` | The host of WASM plugins: wasmtime, a store per plugin, its budgets, and the glue from the WIT to the services. The only crate that knows wasmtime |
 | `engine/harness` | `hamlet_engine_harness` | The engine without a window, for tests, and `plugin_check` |
 | `engine/app` | `hamlet_engine` | The binary, and a demo plugin built into it |
@@ -77,7 +78,9 @@ same types.
   the plugin's words: `net.fetch` a host, `assets.read` a type name,
   `services.call` another plugin's service, and `agents.read`,
   `agents.chief`, `agents.settings` and `agents.keys` the target `local`
-  (see [The agents](#the-agents)). Powers that are never granted have no
+  (see [The agents](#the-agents)), `desktop.open` the target `https` or
+  a folder, and `desktop.settings` the target `local` (see
+  [The desktop](#the-desktop)). Powers that are never granted have no
   name, so no manifest can ask for them.
 - **Assets.** An `AssetId` the store gives, a `TypeName` such as
   `weather.forecast` with a version (`AssetType`), and an `AssetInfo`:
@@ -89,7 +92,8 @@ same types.
   event the type of its payload.
 - **Requests and messages.** A `Request` is what a plugin asks of the
   engine: an asset made, read, changed, listed, deleted, held or let go,
-  a service called, an event subscribed to or sent, a fetch. It is given
+  a service called, an event subscribed to or sent, a fetch, a request
+  of the agents or of the desktop. It is given
   a `Ticket`, and its answer comes later as a `Message::Reply` with the
   ticket: a `Reply`, or a `Failure` (not found, no implementer, refused,
   mismatch, out of budget, failed). The other messages are `Changed`
@@ -97,7 +101,7 @@ same types.
 - **What a plugin adds** is a `Contribution` each: a panel, a command,
   a menu entry, a shortcut, a settings page (with its icon and a line
   on what it holds), a settings footer, a suggested workspace, a
-  status item or an overlay.
+  status item (one that grows or not) or an overlay.
 - **The wire format** is postcard, through `encode` and `decode`.
   `decode` refuses bytes left over after the value.
 
@@ -110,8 +114,8 @@ types, so the WIT names nothing twice.
 - **The host** gives a plugin `log` (a level and a line), and its
   requests, each giving a ticket: `create-asset`, `read-asset`,
   `update-asset`, `delete-asset`, `list-assets`, `hold-asset`,
-  `release-asset`, `call`, `subscribe`, `emit`, `fetch` and `agents`.
-  A ticket of 0 is a request not taken: one call made more than
+  `release-asset`, `call`, `subscribe`, `emit`, `fetch`, `agents` and
+  `desktop`. A ticket of 0 is a request not taken: one call made more than
   `[budgets] requests_per_call`.
 - **The guest** exports `declare` (its `Contribution`s), `run` (a
   command by name), `save` and `restore` (its state, as bytes of its
@@ -169,8 +173,8 @@ adds, `mount` gives the view of a panel or settings page, and `run`,
 nothing. Each is given the plugin's `World`, so a command, a message
 or a call served can change what its views show. `info`, `warn` and
 `error` reach the host; `assets::create`, `read`, `update`, `delete`,
-`list`, `hold` and `release`, `call`, `subscribe`, `emit`, `fetch`
-and `agents` make requests, and `encode` and `decode` turn the
+`list`, `hold` and `release`, `call`, `subscribe`, `emit`, `fetch`,
+`agents` and `desktop` make requests, and `encode` and `decode` turn the
 payloads it shares into bytes. `ENGINE_VERSION` is the version of
 the engine the SDK comes with.
 
@@ -184,8 +188,12 @@ the engine the SDK comes with.
   key changes, and `each` a view per item of a list. `on_click`,
   `on_toggle`, `on_commit` and `on_pick` run a handler with the
   world, and `when::<Hovered, _>` and `when::<Pressed, _>` hold rules
-  while the engine says so. `set_status`, `show_overlay` and `open`
-  change what the plugin added outside its views.
+  while the engine says so. `leads_to` gives a view an address that
+  the plugin tells the desktop service of (`Hover`) while the pointer
+  is over it, so the status line shows it. `set_status`,
+  `show_overlay` and `open` change what the plugin added outside its
+  views; `Entry::growing_status_item` adds a status item that takes
+  the room left on the line.
   `transition` hands each change of a tone, size, opacity, space or
   offset to the engine with its motion, once, and the engine moves it
   over its own theme's curve; the plugin is not called each frame for
@@ -294,8 +302,9 @@ samples) runs the scripts of hello, notes and board.
   running it never touches the app's data. `HAMLET_ENGINE_HOME` names it;
   unset, it is `~/.hamlet_engine`. Both names are constants in
   `home.rs` and nowhere else. Tests put in a `Home` of their own. It
-  holds `workspaces.ron`, `grants.toml`, `switched_off.toml`, the
-  installed plugins in `plugins/` and the asset store in `assets/`, and
+  holds `workspaces.ron`, `grants.toml`, `switched_off.toml`,
+  `desktop.toml`, the installed plugins in `plugins/` and the asset
+  store in `assets/`, and
   is the agents' home too: their settings, records and sessions.
 - **Writing a file whole.** `write_whole` writes a file beside its
   place as `saving_<name>` and moves it over the old one, so a stop in
@@ -464,15 +473,20 @@ person has one or more, and one is shown at a time.
   under itself and stays lit while it is open; a press on another title
   opens that one instead. An entry shows its command's label and first
   key. An entry whose command is not there is left out.
-- **The engine's own.** Quit Hamlet (Cmd+Q, Ctrl+Q off macOS) in the
-  Hamlet menu, the workspace commands, and for each panel a command in
+- **The engine's own.** Run in Background and Quit Hamlet (Cmd+Q,
+  Ctrl+Q off macOS) in the Hamlet menu, the workspace commands, and for each panel a command in
   the View menu that brings it to the front, or opens it in the first
   area (`world.open_panel(id)`).
 - **The status line** at the bottom of the window shows the
   `StatusItem`s plugins add, in the order they came, each an icon and
   words in a tone with words under the pointer, hidden while it has no
-  words; then the workspace shown and the log's last line, each behind
-  an icon, a warning in the accent and an error in red.
+  words; one that grows takes the room left, words or none, and clips
+  its words. Then the workspace shown and the log's last line, each
+  behind an icon, a warning in the accent and an error in red.
+- **In the background.** Run in Background, or the window's close
+  button, hides the window and the engine runs on, a frame every
+  `[window] hidden_wait` seconds. `ShowWindow` shows it again and
+  gives it the focus.
 
 ## Plugins
 
@@ -817,7 +831,8 @@ holds a key: a key typed in Welcome goes to the service with
 `Connect` and is forgotten.
 
 - **`plugins/settings`** (`hamlet.settings`, asking `agents.read`,
-  `agents.settings` and `agents.chief`) adds five pages to Settings
+  `agents.settings`, `agents.chief`, `desktop.settings` and
+  `desktop.open https`) adds five pages to Settings
   and a footer. Endpoints: each endpoint with whether it has a key or
   is the ChatGPT plan, MANAGE USAGE for the plan, REMOVE, and ADD A
   PLACE FOR MODELS, which begins a setup that adds one. Models: the
@@ -826,8 +841,8 @@ holds a key: a key typed in Welcome goes to the service with
   models found, each with its allowed toggle, its prices in and out
   (a field where the price is unknown or the person's own), where
   its price comes from and what it holds. Agents: reflect every N
-  turns (0 to 1000), the tools' network access, and the lasting
-  permissions with REVOKE. Charter: the charter as words, EDIT, and
+  turns (0 to 1000), the tools' network access, Keep awake (from the
+  desktop service), and the lasting permissions with REVOKE. Charter: the charter as words, EDIT, and
   BACK TO THE DEFAULT for a home's own charter, asked about first.
   Realm: every limit of the realm with its bounds. The footer, SET UP
   AGAIN, begins a setup from the start. Numbers are typed in fields
@@ -848,7 +863,9 @@ holds a key: a key typed in Welcome goes to the service with
   seven status items, from the service's `Status`: the sandbox, the
   model, the link (red when not connected), what the open session
   used, the first hamlet's spend, how many things wait for the chief,
-  and whether the open session works.
+  and whether the open session works. Between the spend and what
+  waits, a growing item shows the address under the pointer in the
+  accent, as the desktop service tells its watchers.
 
 Settings and Welcome have a `steps.toml`; the harness runs no agents
 service, so they check the pages and the card's steps on their own.
@@ -861,11 +878,13 @@ service as the panels read it (`start`, `ask` and `hear`, keeping the
 focus, the roster, the needs and the library's skills as resources),
 a message, a change, the card of an agent's questions, Markdown as
 labels can set it (headings, paragraphs, items, quotes, code and
-rules; a link is its words), and a confirmation on an overlay, the
+rules; a link is its words, and each `https` link is a button under
+the text that opens it and leads to its address), and a confirmation
+on an overlay, the
 verb beside CANCEL with a warning for agents it cuts short.
 
-- **`plugins/chat`** (`hamlet.chat`, asking `agents.read` and
-  `agents.chief`) is the panel Chat, apart from the Inspector. Its
+- **`plugins/chat`** (`hamlet.chat`, asking `agents.read`,
+  `agents.chief` and `desktop.open https`) is the panel Chat, apart from the Inspector. Its
   head names the house and everyone who speaks, with New session,
   asked about first. Its line of time is the open conversation and
   the sessions `Related` gives, in the order said, each run of one
@@ -880,8 +899,8 @@ verb beside CANCEL with a warning for agents it cuts short.
   is not sent: the chat says why, in its own line of time. The chat
   comes to the front when the open conversation moves to another, or
   a session resumed is read again.
-- **`plugins/inspector`** (`hamlet.inspector`, asking `agents.read`
-  and `agents.chief`) shows what is selected. An agent: its hamlet as
+- **`plugins/inspector`** (`hamlet.inspector`, asking `agents.read`,
+  `agents.chief` and `desktop.open https`) shows what is selected. An agent: its hamlet as
   a way back, its state, STOP while it works, its purpose, its model
   and use, its spend, the Model dropdown (`RunModel`), and NOTES
   (REFLECT NOW), CHARACTER (EDIT), ARCHIVE and PROMPT. The archive
@@ -1107,6 +1126,37 @@ says why and every request fails saying so.
   private file of the home, as the app keeps them, but under the
   keychain service `hamlet_engine` (`KEYCHAIN_SERVICE` in
   `engine/core`), so the engine never reads or deletes the app's keys.
+
+## The desktop
+
+`hamlet_engine_desktop` is the machine the engine runs on.
+
+- **The protocol** is `hamlet_engine_api::desktop`: a plugin asks with
+  `Request::Desktop(DesktopRequest)`, `desktop` in the WIT, and is
+  answered with `Reply::Desktop(DesktopReply)`. `Watch` sends each
+  `DesktopEvent` from then on with the ticket of the `Watch`: the
+  settings changed, or the address under the pointer.
+- **Keep awake.** While any agent is busy and `KeepAwake` is on, the
+  system's own helper holds the machine awake (`caffeinate` on macOS,
+  `systemd-inhibit` on Linux, none on Windows), and it lets go when
+  the engine dies. `Settings` gives it and `SetKeepAwake` sets it,
+  kept in `desktop.toml` in the home, on when the file is not there.
+- **Opening.** `Open` opens an `https` address in the browser, or a
+  file or folder in the program the system keeps for it, a file the
+  system would run shown in its folder instead. An address needs
+  `desktop.open` on the target `https`, with a host and no user; a
+  path, whole or from `~/`, needs it on a folder that holds the path
+  with every link on the way followed. The program is given it as one
+  argument that no shell reads. A use answered Ask next time asks the
+  person first, as the other services do.
+- **The address under the pointer.** `Hover` tells of it, or that
+  there is none; only the plugin that told of one takes it away, and
+  it goes with that plugin. A view given `leads_to` tells of its own.
+  Neither this nor `Watch` and `Settings` need a capability.
+- **One engine per home.** The binary claims the home before it
+  starts (`claim`, the single-instance lock of `hamlet_home`). A later
+  launch on the same home asks the running engine to show its window
+  (`ShowWindow`), on every system, and ends.
 
 ## Where the budgets are
 

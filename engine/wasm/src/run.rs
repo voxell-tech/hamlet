@@ -136,8 +136,8 @@ pub(crate) fn entry(contributions: Vec<Contribution>) -> Entry {
             } => {
                 entry.workspace(&name, &title, layout);
             }
-            Contribution::StatusItem { name } => {
-                entry.status_item(&name);
+            Contribution::StatusItem { name, grow } => {
+                entry.status_item(&name, grow);
             }
             Contribution::Overlay { name } => {
                 entry.overlay(&name, retained::page);

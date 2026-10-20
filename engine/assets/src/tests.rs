@@ -51,7 +51,7 @@ fn plugin(
 
 fn done(outcome: Option<Outcome>) -> Result<Reply, Failure> {
     match outcome {
-        Some(Outcome::Done(done)) => done,
+        Some(Outcome::Done(done)) => *done,
         other => panic!("not done: {other:?}"),
     }
 }

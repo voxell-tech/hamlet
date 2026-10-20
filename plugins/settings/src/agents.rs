@@ -1,6 +1,8 @@
 //! The Agents page: how often they reflect, whether their tools reach
-//! the network, and the permissions they were given for good.
+//! the network, whether the computer stays awake while they work, and
+//! the permissions they were given for good.
 
+use hamlet_engine_sdk::DesktopRequest;
 use hamlet_engine_sdk::api::agents::{AgentsRequest, Grant};
 use hamlet_engine_sdk::ui::{
     AnyView, ButtonStyle, FrameProps, Size, Space, UiExt, ViewExt,
@@ -62,6 +64,20 @@ pub(crate) fn page() -> AnyView {
     ))
     .space(Space::Half)
     .boxed();
+    let awake = column((
+        toggle(resource::<Known, _>(|known| {
+            known.keep_awake.unwrap_or_default()
+        }))
+        .on_toggle(|world, on| {
+            world.ask_desktop(
+                Page::Agents,
+                DesktopRequest::SetKeepAwake(on),
+            );
+        }),
+        note("The computer stays awake while an agent works."),
+    ))
+    .space(Space::Half)
+    .boxed();
     let held = keyed(
         resource::<Known, _>(|known| known.grants.clone()),
         |grants| permissions(grants),
@@ -74,6 +90,7 @@ pub(crate) fn page() -> AnyView {
             Some("0 means never."),
         ),
         setting("Tools network access", net, None),
+        setting("Keep awake", awake, None),
         setting("Lasting permissions", held, None),
         problem(Page::Agents),
     ))

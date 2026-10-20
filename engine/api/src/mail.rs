@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agents::{AgentsReply, AgentsRequest};
 use crate::asset::{Asset, AssetId, AssetInfo};
+use crate::desktop::{DesktopReply, DesktopRequest};
 use crate::id::{EventId, PluginId};
 use crate::net::{FetchReply, FetchRequest};
 
@@ -55,6 +56,7 @@ pub enum Request {
     },
     Fetch(FetchRequest),
     Agents(AgentsRequest),
+    Desktop(DesktopRequest),
 }
 
 /// What the engine sends a plugin, given to it in a batch on the
@@ -95,6 +97,7 @@ pub enum Reply {
     Subscribed,
     Fetched(FetchReply),
     Agents(AgentsReply),
+    Desktop(DesktopReply),
 }
 
 /// Why a request came to nothing.

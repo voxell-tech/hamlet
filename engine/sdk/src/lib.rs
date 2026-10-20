@@ -55,8 +55,9 @@ pub mod bindings {
 pub use hamlet_engine_api as api;
 pub use hamlet_engine_api::{
     AgentsEvent, AgentsReply, AgentsRequest, Asset, AssetId,
-    AssetInfo, Axis, Failure, FetchReply, FetchRequest, Layout,
-    Message, Method, PanelId, Reply, Ticket, decode, encode,
+    AssetInfo, Axis, DesktopEvent, DesktopReply, DesktopRequest,
+    Failure, FetchReply, FetchRequest, Layout, Message, Method,
+    PanelId, Reply, Ticket, decode, encode,
 };
 
 use self::bindings::hamlet::engine::host::{self, Level};
@@ -151,6 +152,12 @@ pub fn fetch(request: &FetchRequest) -> Ticket {
 /// the manifest asks for: [`Reply::Agents`].
 pub fn agents(request: &AgentsRequest) -> Ticket {
     encode(request).map_or(0, |bytes| host::agents(&bytes))
+}
+
+/// Asks the desktop service `request`, within the desktop
+/// capabilities the manifest asks for: [`Reply::Desktop`].
+pub fn desktop(request: &DesktopRequest) -> Ticket {
+    encode(request).map_or(0, |bytes| host::desktop(&bytes))
 }
 
 /// Writes `text` to the engine's log.

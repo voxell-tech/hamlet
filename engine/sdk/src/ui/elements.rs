@@ -6,7 +6,7 @@ use core::any::TypeId;
 use fynix::{Cx, Patch, Prop, Styled, View, ViewSeq, element};
 
 use super::world::{Handler, World};
-use super::{Hamlet, Key};
+use super::{Hamlet, Key, States};
 use crate::bindings::hamlet::engine::ui::{
     ButtonStyle, Direction, Face, Kind, Motion as Movement, Property,
     Size, Space, Tone,
@@ -309,8 +309,33 @@ impl<T, V: View<Hamlet, T>> View<Hamlet, T> for OnInput<V> {
     }
 }
 
+/// A view whose root node leads to an address, told to the desktop
+/// service while the pointer is over it.
+pub struct Leads<V> {
+    inner: V,
+    address: String,
+}
+
+impl<T, V: View<Hamlet, T>> View<Hamlet, T> for Leads<V> {
+    fn build(self, cx: &mut Cx<'_, Hamlet, T>) -> Key {
+        let node = self.inner.build(cx);
+        cx.world.addresses.insert(node, self.address);
+        cx.world.nodes.watch(node, States::HOVER);
+        node
+    }
+}
+
 /// What any view of a panel can be given.
 pub trait UiExt: Sized {
+    /// This view, its root node leading to `address`: the status
+    /// line shows it while the pointer is over the node.
+    fn leads_to(self, address: impl Into<String>) -> Leads<Self> {
+        Leads {
+            inner: self,
+            address: address.into(),
+        }
+    }
+
     /// This view, running `handler` when its root node, a button, is
     /// clicked.
     fn on_click(

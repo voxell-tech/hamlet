@@ -74,6 +74,7 @@ enum Declared {
     },
     StatusItem {
         name: String,
+        grow: bool,
     },
     Overlay {
         name: String,
@@ -188,10 +189,17 @@ impl Entry {
         self
     }
 
-    /// An item of the status line, hidden until it is given words.
-    pub fn status_item(&mut self, name: &str) -> &mut Self {
-        self.declared
-            .push(Declared::StatusItem { name: name.into() });
+    /// An item of the status line, hidden until it is given words, or
+    /// taking the room left on the line when it grows.
+    pub fn status_item(
+        &mut self,
+        name: &str,
+        grow: bool,
+    ) -> &mut Self {
+        self.declared.push(Declared::StatusItem {
+            name: name.into(),
+            grow,
+        });
         self
     }
 
@@ -313,9 +321,10 @@ impl Entry {
                         ));
                     },
                 ),
-                Declared::StatusItem { name } => {
+                Declared::StatusItem { name, grow } => {
                     PanelId::new(owner, &name).map(|id| {
-                        commands.spawn((StatusItem::new(id), link));
+                        commands
+                            .spawn((StatusItem::new(id, grow), link));
                     })
                 }
                 Declared::Overlay { name, content } => {

@@ -19,7 +19,8 @@ use hamlet_engine_sdk::api::agents::{
 };
 use hamlet_engine_sdk::ui::{AnyView, ViewExt, column, open};
 use hamlet_engine_sdk::{
-    Entry, Message, Plugin, Reply, Ticket, World, agents, warn,
+    DesktopReply, DesktopRequest, Entry, Message, Plugin, Reply,
+    Ticket, World, agents, desktop, warn,
 };
 
 /// The most models the Models page lists at once.
@@ -47,7 +48,8 @@ impl Plugin for SettingsPages {
             .settings_page(
                 "agents",
                 "Agents",
-                "Reflection, network access and lasting permissions.",
+                "Reflection, network access, keeping awake and \
+                 lasting permissions.",
                 "robot",
             )
             .settings_page(
@@ -73,6 +75,7 @@ impl Plugin for SettingsPages {
         ] {
             agents(&request);
         }
+        desktop(&DesktopRequest::Settings);
     }
 
     fn mount(&mut self, name: &str, world: &mut World) -> AnyView {
@@ -98,6 +101,16 @@ impl Plugin for SettingsPages {
         match (reply, page) {
             (Ok(Reply::Agents(reply)), page) => {
                 world.hear(reply, page)
+            }
+            (
+                Ok(Reply::Desktop(DesktopReply::Settings(settings))),
+                page,
+            ) => {
+                let known = world.resource_or_init::<Known>();
+                known.keep_awake = Some(settings.keep_awake);
+                if let Some(page) = page {
+                    known.problems.remove(&page);
+                }
             }
             (Ok(_), _) => {}
             (Err(why), Some(page)) => {
@@ -131,6 +144,9 @@ struct Known {
     confirming: bool,
     limits: Option<RealmLimits>,
     grants: Vec<Grant>,
+    /// The machine is kept awake while an agent works, as the
+    /// desktop service has it.
+    keep_awake: Option<bool>,
     /// Why the last change asked on each page did not go through.
     problems: HashMap<Page, String>,
 }
@@ -146,6 +162,10 @@ trait SettingsWorldExt {
     /// if it fails.
     fn ask(&mut self, page: Page, request: AgentsRequest);
 
+    /// Asks the desktop service `request` on `page`, which shows why
+    /// if it fails.
+    fn ask_desktop(&mut self, page: Page, request: DesktopRequest);
+
     /// Shows on `page` why what the person did cannot be done.
     fn refuse(&mut self, page: Page, why: String);
 
@@ -159,6 +179,11 @@ trait SettingsWorldExt {
 impl SettingsWorldExt for World {
     fn ask(&mut self, page: Page, request: AgentsRequest) {
         let ticket = agents(&request);
+        self.resource_or_init::<Asked>().0.insert(ticket, page);
+    }
+
+    fn ask_desktop(&mut self, page: Page, request: DesktopRequest) {
+        let ticket = desktop(&request);
         self.resource_or_init::<Asked>().0.insert(ticket, page);
     }
 

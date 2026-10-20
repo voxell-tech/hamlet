@@ -1,22 +1,26 @@
 //! The status line's facts about the agents, left to right: the
 //! sandbox, the model, the link, what the open session used, the
-//! first hamlet's spend, how many things wait for the chief, and
-//! whether the open session works. A fact with nothing to say is
-//! hidden.
+//! first hamlet's spend, the address under the pointer in the room
+//! left, how many things wait for the chief, and whether the open
+//! session works. A fact with nothing to say is hidden.
 
 use hamlet_engine_sdk::api::agents::{
     AgentsEvent, AgentsReply, AgentsRequest, Link, Status,
 };
 use hamlet_engine_sdk::ui::{StatusItem, Tone, set_status};
 use hamlet_engine_sdk::{
-    Entry, Message, Plugin, Reply, World, agents, warn,
+    DesktopEvent, DesktopReply, DesktopRequest, Entry, Message,
+    Plugin, Reply, World, agents, desktop, warn,
 };
 
-/// The status items, in the order the line shows them.
+/// The agents' status items, in the order the line shows them.
 const ITEMS: [&str; 7] = [
     "sandbox", "model", "link", "usage", "treasury", "waiting",
     "work",
 ];
+
+/// The item of the address under the pointer, before `waiting`.
+const POINTED: &str = "pointed";
 
 #[derive(Default)]
 struct StatusLine;
@@ -24,10 +28,14 @@ struct StatusLine;
 impl Plugin for StatusLine {
     fn declare(&self, entry: &mut Entry) {
         for name in ITEMS {
+            if name == "waiting" {
+                entry.growing_status_item(POINTED);
+            }
             entry.status_item(name);
         }
         agents(&AgentsRequest::Watch);
         agents(&AgentsRequest::Status);
+        desktop(&DesktopRequest::Watch);
     }
 
     fn receive(&mut self, message: Message, _: &mut World) {
@@ -39,6 +47,17 @@ impl Plugin for StatusLine {
                 AgentsReply::Status(status)
                 | AgentsReply::Event(AgentsEvent::Status(status)),
             )) => status.show(),
+            Ok(Reply::Desktop(DesktopReply::Event(
+                DesktopEvent::Hovered(address),
+            ))) => set_status(
+                POINTED,
+                &StatusItem {
+                    icon: String::new(),
+                    text: address.unwrap_or_default(),
+                    tone: Tone::Accent,
+                    tip: String::new(),
+                },
+            ),
             Ok(_) => {}
             Err(why) => warn(&format!("the agents' status: {why}")),
         }

@@ -1,25 +1,32 @@
 //! The window and the root everything in it is built under.
 
-use bevy::app::{App, AppExit, First, Startup};
+use std::time::Duration;
+
+use bevy::app::{App, AppExit, First, Startup, Update};
 use bevy::camera::Camera2d;
 use bevy::ecs::entity::Entity;
+use bevy::ecs::event::Event;
 use bevy::ecs::message::MessageWriter;
 use bevy::ecs::observer::On;
+use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::on_message;
-use bevy::ecs::system::Commands;
+use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::input::keyboard::KeyCode;
 use bevy::ui::{AlignItems, IsDefaultUiCamera, UiRect, percent, px};
 use bevy::window::{
-    Window, WindowPlugin, WindowResizeConstraints, WindowResolution,
+    ExitCondition, PrimaryWindow, Window, WindowCloseRequested,
+    WindowPlugin, WindowResizeConstraints, WindowResolution,
 };
+use bevy::winit::{UpdateMode, WinitSettings};
 use bevy_fynix::dock::dock;
 use bevy_fynix::shortcut::{Chord, Mods};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, row,
 };
+use hamlet_engine_core::TuningPlugin;
 use hamlet_engine_core::tuning::{ENGINE, Tuning, TuningFile};
 use serde::Deserialize;
 
@@ -29,12 +36,18 @@ use crate::theme::{EngineTheme, ThemeChanged};
 use crate::{AnyView, Cx, View, menu, overlay, status, switcher};
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_systems(Startup, (open, add_quit))
+    app.add_plugins(TuningPlugin::<WindowTuning>::default())
+        .add_observer(show)
+        .add_systems(Startup, (open, add_commands))
         // Before anything this frame queues work on the views it
         // would despawn.
         .add_systems(
             First,
             rebuild.run_if(on_message::<ThemeChanged>),
+        )
+        .add_systems(
+            Update,
+            hide.run_if(on_message::<WindowCloseRequested>),
         );
 }
 
@@ -49,6 +62,8 @@ pub struct WindowTuning {
     /// The least size it can be made, in logical pixels.
     pub least_width: u32,
     pub least_height: u32,
+    /// Seconds between two frames while the window is hidden.
+    pub hidden_wait: f32,
 }
 
 impl Tuning for WindowTuning {
@@ -73,9 +88,20 @@ pub fn window_plugin() -> WindowPlugin {
             },
             ..Window::default()
         }),
+        // Closed, the window is hidden and the engine runs on.
+        exit_condition: ExitCondition::DontExit,
+        close_when_requested: false,
         ..WindowPlugin::default()
     }
 }
+
+/// Shows the window again, if it was hidden, and gives it the focus.
+#[derive(Event, Clone, Copy, Debug)]
+pub struct ShowWindow;
+
+/// While the window is hidden: how the app was updated before.
+#[derive(Resource)]
+struct Hidden(WinitSettings);
 
 /// The root the views are built under.
 #[derive(Resource)]
@@ -98,8 +124,19 @@ fn rebuild(world: &mut World) {
     world.insert_resource(Root(root));
 }
 
-/// Quit, in the Hamlet menu and on the primary key with Q.
-fn add_quit(mut commands: Commands) {
+/// Run in Background and Quit, in the Hamlet menu, Quit on the
+/// primary key with Q.
+fn add_commands(mut commands: Commands) {
+    commands
+        .spawn_command(
+            engine_id("background"),
+            "Run in Background",
+            Some("Hamlet"),
+            &[],
+        )
+        .observe(|_: On<RunCommand>, mut commands: Commands| {
+            commands.run_system_cached(hide);
+        });
     commands
         .spawn_command(
             engine_id("quit"),
@@ -115,6 +152,51 @@ fn add_quit(mut commands: Commands) {
                 exit.write(AppExit::Success);
             },
         );
+}
+
+/// Hides the window and updates the engine seldom; it runs on in the
+/// background.
+fn hide(
+    mut windows: Query<&mut Window, With<PrimaryWindow>>,
+    winit: Option<ResMut<WinitSettings>>,
+    hidden: Option<Res<Hidden>>,
+    tuning: Res<WindowTuning>,
+    mut commands: Commands,
+) {
+    let Ok(mut window) = windows.single_mut() else {
+        return;
+    };
+    window.visible = false;
+    if let Some(mut winit) = winit
+        && hidden.is_none()
+    {
+        commands.insert_resource(Hidden(winit.clone()));
+        let wait = Duration::from_secs_f32(tuning.hidden_wait);
+        *winit = WinitSettings {
+            focused_mode: UpdateMode::reactive_low_power(wait),
+            unfocused_mode: UpdateMode::reactive_low_power(wait),
+        };
+    }
+}
+
+fn show(
+    _: On<ShowWindow>,
+    mut windows: Query<&mut Window, With<PrimaryWindow>>,
+    winit: Option<ResMut<WinitSettings>>,
+    hidden: Option<Res<Hidden>>,
+    mut commands: Commands,
+) {
+    let Ok(mut window) = windows.single_mut() else {
+        return;
+    };
+    if !window.visible {
+        window.visible = true;
+    }
+    window.focused = true;
+    if let (Some(mut winit), Some(hidden)) = (winit, hidden) {
+        *winit = hidden.0.clone();
+        commands.remove_resource::<Hidden>();
+    }
 }
 
 fn root() -> AnyView {

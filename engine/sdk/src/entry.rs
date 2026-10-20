@@ -96,7 +96,19 @@ impl Entry {
     /// hidden until [`ui::set_status`](crate::ui::set_status) gives
     /// it words.
     pub fn status_item(&mut self, name: &str) -> &mut Self {
-        self.add(Contribution::StatusItem { name: name.into() })
+        self.add(Contribution::StatusItem {
+            name: name.into(),
+            grow: false,
+        })
+    }
+
+    /// An item of the status line that takes the room left on it,
+    /// words or none, and clips its words.
+    pub fn growing_status_item(&mut self, name: &str) -> &mut Self {
+        self.add(Contribution::StatusItem {
+            name: name.into(),
+            grow: true,
+        })
     }
 
     /// A card over the dock, on a backdrop that takes every press,

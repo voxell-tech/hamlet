@@ -3646,6 +3646,7 @@ dependencies = [
  "hamlet_engine_assets",
  "hamlet_engine_bus",
  "hamlet_engine_core",
+ "hamlet_engine_desktop",
  "hamlet_engine_grants",
  "hamlet_engine_net",
  "hamlet_engine_plugins",
@@ -3711,6 +3712,24 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "serde",
+ "toml",
+]
+
+[[package]]
+name = "hamlet_engine_desktop"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "hamlet_core",
+ "hamlet_engine_api",
+ "hamlet_engine_core",
+ "hamlet_engine_grants",
+ "hamlet_engine_plugins",
+ "hamlet_engine_shell",
+ "hamlet_home",
+ "hamlet_testing",
+ "serde",
+ "tokio",
  "toml",
 ]
 

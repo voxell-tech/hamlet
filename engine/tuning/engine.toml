@@ -53,6 +53,7 @@ width = 1280
 height = 800
 least_width = 720
 least_height = 480
+hidden_wait = 0.5
 
 [workspaces]
 save_after = 0.5
