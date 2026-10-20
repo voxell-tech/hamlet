@@ -22,7 +22,9 @@ use bevy::time::common_conditions::on_real_timer;
 use hamlet_engine_api::Contribution;
 use hamlet_engine_core::tuning::Tuning;
 use hamlet_engine_core::{Budgets, LogLine};
-use hamlet_engine_plugins::{Contributions, PluginInfo, switch_on};
+use hamlet_engine_plugins::{
+    Asked, Contributions, PluginInfo, switch_on,
+};
 use wasmtime::Engine;
 
 use crate::budget::{Spending, pass_logs};
@@ -31,6 +33,7 @@ use crate::folder::{
 };
 use crate::host::{Host, WasmTuning};
 use crate::instance::{Caps, Fault, Instance, Linked};
+use crate::mail::pass_requests;
 use crate::panel::{Drawn, Redraw, stop};
 use crate::run::{Built, Compiling, compile, entry};
 
@@ -174,6 +177,7 @@ fn swap(
     budgets: Res<Budgets>,
     tuning: Res<WasmTuning>,
     mut log: MessageWriter<LogLine>,
+    mut asked: MessageWriter<Asked>,
     mut commands: Commands,
 ) {
     let Some(host) = host else {
@@ -223,6 +227,7 @@ fn swap(
             &budgets,
             &mut log,
         );
+        pass_requests(plugin, &mut instance, 0, &mut asked);
         match reloaded {
             Ok((mut fresh, contributions_now)) => {
                 pass_logs(
@@ -232,6 +237,7 @@ fn swap(
                     &budgets,
                     &mut log,
                 );
+                pass_requests(plugin, &mut fresh, 0, &mut asked);
                 if contributions_now == declared.0 {
                     for surface in contributions
                         .into_iter()
@@ -295,6 +301,7 @@ pub(crate) fn reload(
     let state = state.map_err(Failed::Old)?;
     let mut fresh =
         Instance::new(engine, linked, caps).map_err(Failed::New)?;
+    fresh.follow(old);
     let (restored, spent) = fresh.restore(caps, &state);
     spending.charge(spent, false);
     restored.map_err(Failed::New)?;

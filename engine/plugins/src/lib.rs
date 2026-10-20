@@ -4,6 +4,7 @@
 
 mod entry;
 mod list;
+mod mail;
 mod switch;
 
 use bevy::app::App;
@@ -11,18 +12,19 @@ use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::system::Commands;
 use bevy::ecs::world::World;
-use hamlet_engine_api::{Ask, Manifest, PluginId};
+use hamlet_engine_api::{Ask, AssetTypes, Manifest, PluginId};
 use hamlet_engine_core::LogLine;
 
 pub use self::entry::{Entry, EntryPoint};
 pub use self::list::{AddPlugin, Uninstall};
+pub use self::mail::{Asked, Deliver};
 pub use self::switch::{
     ContributedBy, Contributions, Disable, Enable, Enabled, Stopped,
     switch_on,
 };
 
 pub fn plugin(app: &mut App) {
-    app.add_plugins((switch::plugin, list::plugin));
+    app.add_plugins((switch::plugin, list::plugin, mail::plugin));
 }
 
 /// On a plugin's entity: who it is, from its manifest.
@@ -36,6 +38,21 @@ pub struct PluginInfo {
     pub builtin: bool,
     /// What it asks the person for, and why.
     pub asks: Vec<Ask>,
+    pub assets: AssetTypes,
+}
+
+impl PluginInfo {
+    /// The plugin `manifest` describes.
+    pub fn of(manifest: Manifest, builtin: bool) -> Self {
+        Self {
+            id: manifest.id,
+            name: manifest.name,
+            version: manifest.version,
+            builtin,
+            asks: manifest.asks,
+            assets: manifest.assets,
+        }
+    }
 }
 
 /// Adds the plugin `manifest` describes, built into the engine with
@@ -57,16 +74,7 @@ pub fn add_builtin(
         return None;
     }
     let plugin = commands
-        .spawn((
-            PluginInfo {
-                id: manifest.id,
-                name: manifest.name,
-                version: manifest.version,
-                builtin: true,
-                asks: manifest.asks,
-            },
-            EntryPoint(entry),
-        ))
+        .spawn((PluginInfo::of(manifest, true), EntryPoint(entry)))
         .id();
     commands.trigger(Enable { entity: plugin });
     Some(plugin)
@@ -78,7 +86,7 @@ mod tests {
     use bevy::time::TimePlugin;
     use bevy_fynix::ViewExt;
     use bevy_fynix::views::label;
-    use hamlet_engine_api::{API_VERSION, Layout};
+    use hamlet_engine_api::Layout;
     use hamlet_engine_core::Home;
     use hamlet_engine_shell::{
         AnyView, Command, MenuEntry, Panel, SettingsPage, Shortcut,
@@ -113,13 +121,11 @@ mod tests {
             hamlet_engine_core::plugin,
             plugin,
         ));
-        let manifest = Manifest {
-            id: PluginId::try_from("hamlet.notes").unwrap(),
-            name: "Notes".into(),
-            version: "0.1.0".into(),
-            api: API_VERSION.into(),
-            asks: Vec::new(),
-        };
+        let manifest = Manifest::new(
+            PluginId::try_from("hamlet.notes").unwrap(),
+            "Notes",
+            "0.1.0",
+        );
         let mut commands = app.world_mut().commands();
         let notes =
             add_builtin(&mut commands, manifest, entry).unwrap();

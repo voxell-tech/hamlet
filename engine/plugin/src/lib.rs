@@ -30,6 +30,7 @@
 //! randomness or printing, stop the plugin: a `HashMap` needs
 //! randomness, so a plugin keeps a `BTreeMap` instead.
 
+pub mod assets;
 mod entry;
 mod ui;
 
@@ -45,7 +46,8 @@ pub mod bindings {
 
 pub use hamlet_engine_api as api;
 pub use hamlet_engine_api::{
-    Action, Axis, Layout, PanelId, WidgetEvent, WidgetId,
+    Action, Asset, AssetId, AssetInfo, Axis, Failure, Layout,
+    Message, PanelId, Reply, Ticket, WidgetEvent, WidgetId,
 };
 
 use self::bindings::hamlet::engine::host::{self, Level};
@@ -79,6 +81,12 @@ pub trait Plugin: Default + 'static {
     /// Takes the state its earlier version saved.
     fn restore(&mut self, state: &[u8]) {
         let _ = state;
+    }
+
+    /// A message from the engine. Its panels are drawn again after
+    /// each batch of them.
+    fn receive(&mut self, message: Message) {
+        let _ = message;
     }
 }
 
@@ -149,6 +157,12 @@ macro_rules! export {
                         <$plugin as $crate::Plugin>::restore(plugin, &state)
                     })
                 }
+
+                fn receive(messages: ::std::vec::Vec<u8>) {
+                    PLUGIN.with_borrow_mut(|plugin| {
+                        $crate::glue::receive(plugin, &messages)
+                    })
+                }
             }
 
             $crate::bindings::export_guest!(
@@ -162,7 +176,7 @@ macro_rules! export {
 /// a [`Plugin`].
 #[doc(hidden)]
 pub mod glue {
-    use hamlet_engine_api::{WidgetEvent, decode, encode};
+    use hamlet_engine_api::{Message, WidgetEvent, decode, encode};
     use serde::Serialize;
 
     use crate::{Entry, Plugin, Ui};
@@ -183,6 +197,17 @@ pub mod glue {
         match decode::<WidgetEvent>(event) {
             Ok(event) => plugin.event(event),
             Err(why) => crate::error(&format!("an event: {why}")),
+        }
+    }
+
+    pub fn receive<P: Plugin>(plugin: &mut P, messages: &[u8]) {
+        match decode::<Vec<Message>>(messages) {
+            Ok(messages) => {
+                for message in messages {
+                    plugin.receive(message);
+                }
+            }
+            Err(why) => crate::error(&format!("messages: {why}")),
         }
     }
 

@@ -7,6 +7,7 @@ mod budget;
 mod folder;
 mod host;
 mod instance;
+mod mail;
 mod panel;
 mod reload;
 mod run;

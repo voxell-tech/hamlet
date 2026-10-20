@@ -15,6 +15,32 @@ interface host {
 
     /// Asks for the panel or settings page `name` to be drawn again.
     redraw: func(name: string);
+
+    // Each request below gives a ticket, and its `Reply` comes in a
+    // later `receive` with that ticket. A ticket of 0 means the
+    // request was not taken: one call made too many.
+
+    /// Makes an asset of the type `kind`, one the plugin makes.
+    create-asset: func(kind: string, name: string, bytes: list<u8>) -> u64;
+
+    /// Reads the asset `id`: its `Asset`.
+    read-asset: func(id: u64) -> u64;
+
+    /// Gives one of the plugin's own assets new bytes.
+    update-asset: func(id: u64, bytes: list<u8>) -> u64;
+
+    /// Takes one of the plugin's own assets away.
+    delete-asset: func(id: u64) -> u64;
+
+    /// Lists the assets of the type `kind`: their `AssetInfo`s.
+    list-assets: func(kind: string) -> u64;
+
+    /// Holds a reference to the asset `id`: a `Changed` message comes
+    /// each time it is at a new version, and `Gone` when it goes.
+    hold-asset: func(id: u64) -> u64;
+
+    /// Lets go of the asset `id`.
+    release-asset: func(id: u64) -> u64;
 }
 
 /// What a plugin gives the engine.
@@ -36,6 +62,9 @@ interface guest {
 
     /// Takes the state an earlier version saved.
     restore: func(state: list<u8>);
+
+    /// What the engine has for the plugin: a `Vec<Message>`.
+    receive: func(messages: list<u8>);
 }
 
 world plugin {

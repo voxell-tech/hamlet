@@ -1,4 +1,4 @@
-//! The tuning files under `engine/assets/`, built into the engine.
+//! The tuning files under `engine/tuning/`, built into the engine.
 //! Each section a module reads is a resource. With `hot-reload` the
 //! files are watched, and a saved change reaches the running engine.
 
@@ -15,12 +15,12 @@ macro_rules! tuning_file {
             name: $name,
             text: include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../assets/",
+                "/../tuning/",
                 $name
             )),
             source: concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../assets/",
+                "/../tuning/",
                 $name
             ),
         }
@@ -78,11 +78,11 @@ impl<T: Tuning> Plugin for TuningPlugin<T> {
     }
 }
 
-/// A file under `engine/assets/`, as it was when the engine was
+/// A file under `engine/tuning/`, as it was when the engine was
 /// built.
 #[derive(Clone, Copy, Debug)]
 pub struct TuningFile {
-    /// Its name under `engine/assets/`.
+    /// Its name under `engine/tuning/`.
     pub name: &'static str,
     pub text: &'static str,
     /// Where it is in the source tree, watched with `hot-reload`.
@@ -100,7 +100,7 @@ pub trait Tuning:
     /// The values as designed: the file as it was built in.
     fn designed() -> Self {
         read::<Self>(Self::FILE.text).unwrap_or_else(|why| {
-            panic!("engine/assets/{}: {why}", Self::FILE.name)
+            panic!("engine/tuning/{}: {why}", Self::FILE.name)
         })
     }
 }
@@ -219,7 +219,7 @@ mod watch {
                     log.write(LogLine::error(
                         "tuning",
                         format!(
-                            "engine/assets/{}: {why}; the last good \
+                            "engine/tuning/{}: {why}; the last good \
                              values stay",
                             file.name
                         ),
@@ -243,7 +243,7 @@ mod watch {
                     commands.insert_resource(read);
                     log.write(LogLine::info(
                         "tuning",
-                        format!("engine/assets/{name} read again"),
+                        format!("engine/tuning/{name} read again"),
                     ));
                 }
                 Ok(_) => {}
@@ -251,7 +251,7 @@ mod watch {
                     log.write(LogLine::error(
                         "tuning",
                         format!(
-                            "engine/assets/{name}: {why}; the last \
+                            "engine/tuning/{name}: {why}; the last \
                              good values stay"
                         ),
                     ));

@@ -26,7 +26,7 @@ Each depends only on those above it, and each adds one Bevy plugin,
 | `engine/app` | `hamlet_engine` | The binary, and a demo plugin built into it |
 | `engine/plugin` | `hamlet_plugin` | What a plugin is written with, built for `wasm32-wasip2` |
 
-`engine/assets/` holds the engine's tuning files. The typefaces are read
+`engine/tuning/` holds the engine's tuning files. The typefaces are read
 from the repository's `assets/fonts/`, where their licences are.
 `engine/wit/hamlet_engine.wit` is the interface between the engine and
 a plugin. `engine/samples/` holds sample plugins, each a workspace of
@@ -112,7 +112,7 @@ builds `target/wasm32-wasip2/release/plugin.wasm`, to go beside its
 
 ## The core
 
-- **Tuning.** `engine/assets/engine.toml` holds the sizes, timings and
+- **Tuning.** `engine/tuning/engine.toml` holds the sizes, timings and
   budgets, and `theme.toml` the shell's look. Both are built into the
   binary. A module reads one section of a file as a resource: it
   implements `Tuning` (the file and the section) and adds

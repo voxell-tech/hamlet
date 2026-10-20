@@ -25,7 +25,7 @@ use hamlet_engine_api::{
 };
 use hamlet_engine_core::{Budgets, LogLine};
 use hamlet_engine_plugins::{
-    ContributedBy, Contributions, PluginInfo, Stopped,
+    Asked, ContributedBy, Contributions, PluginInfo, Stopped,
 };
 use hamlet_engine_shell::{
     AnyView, Panel, SettingsPage, panel, tree_view,
@@ -35,6 +35,7 @@ use crate::budget::{Spending, pass_logs, tally};
 use crate::folder::Package;
 use crate::host::WasmTuning;
 use crate::instance::{Caps, Fault, Instance};
+use crate::mail::{batch, deliver, pass_requests};
 use crate::reload::Reloading;
 
 pub(crate) fn plugin(app: &mut App) {
@@ -43,7 +44,7 @@ pub(crate) fn plugin(app: &mut App) {
         .add_observer(adopt_page)
         .add_systems(
             Update,
-            (route, tally, serve, show_stopped).chain(),
+            (route, deliver, tally, serve, show_stopped).chain(),
         );
 }
 
@@ -76,6 +77,8 @@ pub(crate) enum Work {
     Event(WidgetEvent),
     /// Its command of this name.
     Run(String),
+    /// A message from the engine's services, at its depth in a chain.
+    Mail(hamlet_engine_api::Message, u32),
 }
 
 /// What the person did to a widget of the panel or settings page
@@ -203,6 +206,7 @@ fn serve(
     tuning: Res<WasmTuning>,
     mut frame: Local<u64>,
     mut log: MessageWriter<LogLine>,
+    mut asked: MessageWriter<Asked>,
     mut commands: Commands,
 ) {
     *frame += 1;
@@ -238,11 +242,24 @@ fn serve(
             if left.is_zero() || !spending.may_call(&budgets, event) {
                 break;
             }
-            let (done, spent) = match work {
-                Work::Event(event) => instance.event(&caps, event),
-                Work::Run(name) => instance.run(&caps, name),
+            let Some(work) = inbox.0.pop_front() else {
+                break;
             };
-            inbox.0.pop_front();
+            let ((done, spent), depth) = match work {
+                Work::Event(event) => {
+                    (instance.event(&caps, &event), 0)
+                }
+                Work::Run(name) => (instance.run(&caps, &name), 0),
+                Work::Mail(message, depth) => {
+                    let (messages, depth) = batch(
+                        (message, depth),
+                        &mut inbox,
+                        caps.bytes,
+                    );
+                    (instance.receive(&caps, &messages), depth)
+                }
+            };
+            pass_requests(plugin, &mut instance, depth, &mut asked);
             spending.charge(spent, event);
             left = left.saturating_sub(spent.time);
             (served, all) = (true, true);
@@ -251,7 +268,7 @@ fn serve(
                 break;
             }
         }
-        let asked = instance.take_redraws();
+        let redraws = instance.take_redraws();
         for surface in
             contributions.into_iter().flat_map(|c| c.iter())
         {
@@ -262,7 +279,7 @@ fn serve(
             else {
                 continue;
             };
-            if !(all || redraw || asked.contains(&drawn.name)) {
+            if !(all || redraw || redraws.contains(&drawn.name)) {
                 continue;
             }
             let may = (!left.is_zero() || !drew)
@@ -273,6 +290,7 @@ fn serve(
             }
             commands.entity(surface).remove::<Redraw>();
             let (tree, spent) = instance.draw(&caps, &drawn.name);
+            pass_requests(plugin, &mut instance, 0, &mut asked);
             spending.charge(spent, false);
             left = left.saturating_sub(spent.time);
             (served, drew) = (true, true);

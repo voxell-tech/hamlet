@@ -6,15 +6,19 @@ pub mod capability;
 pub mod contribution;
 pub mod id;
 pub mod layout;
+pub mod mail;
 pub mod manifest;
 pub mod widget;
 pub mod wire;
 
-pub use asset::{AssetId, TypeName};
+pub use asset::{
+    Asset, AssetId, AssetInfo, AssetType, AssetTypes, TypeName,
+};
 pub use capability::{Ask, Capability};
 pub use contribution::Contribution;
 pub use id::{CommandId, IdError, PanelId, PluginId};
 pub use layout::{Axis, Layout};
+pub use mail::{Failure, Message, Reply, Request, Ticket};
 pub use manifest::{Manifest, ManifestError};
 pub use widget::{
     Action, TreeError, TreeLimits, Widget, WidgetEvent, WidgetId,

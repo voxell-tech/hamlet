@@ -60,6 +60,7 @@ fn module(declare: &str, draw: &str) -> String {
   (func (export "hamlet:engine/guest@0.1.0#draw") (param i32 i32) (result i32)
     {draw})
   (func (export "hamlet:engine/guest@0.1.0#event") (param i32 i32))
+  (func (export "hamlet:engine/guest@0.1.0#receive") (param i32 i32))
   (global $count (mut i32) (i32.const 0))
   (func (export "hamlet:engine/guest@0.1.0#run") (param i32 i32)
     (global.set $count (i32.add (global.get $count) (i32.const 1))))

@@ -12,7 +12,8 @@ use std::time::{Duration, Instant};
 
 use bevy::ecs::component::Component;
 use hamlet_engine_api::{
-    Contribution, WidgetEvent, WidgetTree, decode, encode,
+    AssetId, Contribution, Request, Ticket, WidgetEvent, WidgetTree,
+    decode, encode,
 };
 use hamlet_engine_core::{Budgets, LogLevel};
 use wasmtime::component::{Component as Compiled, HasSelf, Linker};
@@ -53,6 +54,8 @@ pub struct Caps {
     pub line_bytes: usize,
     /// Panels asked to be drawn again.
     pub redraws: usize,
+    /// Requests made of the engine's services.
+    pub requests: usize,
     /// Bytes of all the plugin's memories.
     pub memory: usize,
 }
@@ -66,6 +69,7 @@ impl Caps {
             lines: budgets.log_lines_per_second as usize,
             line_bytes: budgets.log_line_bytes,
             redraws: budgets.contributions,
+            requests: budgets.requests_per_call,
             memory: budgets.memory as usize,
         }
     }
@@ -185,9 +189,60 @@ pub struct State {
     caps: Caps,
     logs: Vec<(LogLevel, String)>,
     redraws: Vec<String>,
+    requests: Vec<(Ticket, Request)>,
+    /// The ticket the last request was given.
+    ticket: Ticket,
+}
+
+impl State {
+    /// Takes `request`, within the call's cap: its ticket, or 0.
+    fn ask(&mut self, request: Request) -> Ticket {
+        if self.requests.len() >= self.caps.requests {
+            return 0;
+        }
+        self.ticket += 1;
+        self.requests.push((self.ticket, request));
+        self.ticket
+    }
 }
 
 impl host::Host for State {
+    fn create_asset(
+        &mut self,
+        kind: String,
+        name: String,
+        bytes: Vec<u8>,
+    ) -> Ticket {
+        self.ask(Request::CreateAsset { kind, name, bytes })
+    }
+
+    fn read_asset(&mut self, id: u64) -> Ticket {
+        self.ask(Request::ReadAsset(AssetId(id)))
+    }
+
+    fn update_asset(&mut self, id: u64, bytes: Vec<u8>) -> Ticket {
+        self.ask(Request::UpdateAsset {
+            id: AssetId(id),
+            bytes,
+        })
+    }
+
+    fn delete_asset(&mut self, id: u64) -> Ticket {
+        self.ask(Request::DeleteAsset(AssetId(id)))
+    }
+
+    fn list_assets(&mut self, kind: String) -> Ticket {
+        self.ask(Request::ListAssets(kind))
+    }
+
+    fn hold_asset(&mut self, id: u64) -> Ticket {
+        self.ask(Request::HoldAsset(AssetId(id)))
+    }
+
+    fn release_asset(&mut self, id: u64) -> Ticket {
+        self.ask(Request::ReleaseAsset(AssetId(id)))
+    }
+
     fn log(&mut self, level: Level, mut text: String) {
         if self.logs.len() >= self.caps.lines {
             return;
@@ -229,6 +284,8 @@ impl Instance {
             caps: *caps,
             logs: Vec::new(),
             redraws: Vec::new(),
+            requests: Vec::new(),
+            ticket: 0,
         };
         let mut store = Store::new(engine, state);
         store.limiter(|state| &mut state.limiter);
@@ -306,9 +363,35 @@ impl Instance {
         })
     }
 
+    /// Hands the plugin `messages`, the bytes of a `Vec<Message>`.
+    pub fn receive(
+        &mut self,
+        caps: &Caps,
+        messages: &[u8],
+    ) -> (Result<(), Fault>, Spent) {
+        if messages.len() > caps.bytes {
+            return (Err(Fault::Bytes), Spent::default());
+        }
+        self.call(caps, |guest, store| {
+            guest.call_receive(store, messages)
+        })
+    }
+
     /// Lines the plugin logged since this was last asked.
     pub fn take_logs(&mut self) -> Vec<(LogLevel, String)> {
         std::mem::take(&mut self.store.data_mut().logs)
+    }
+
+    /// Requests the plugin made since this was last asked, with
+    /// their tickets.
+    pub fn take_requests(&mut self) -> Vec<(Ticket, Request)> {
+        std::mem::take(&mut self.store.data_mut().requests)
+    }
+
+    /// Goes on numbering requests from where `earlier`, the plugin's
+    /// version before this one, left off.
+    pub fn follow(&mut self, earlier: &Instance) {
+        self.store.data_mut().ticket = earlier.store.data().ticket;
     }
 
     /// Panels the plugin asked to be drawn again since this was last

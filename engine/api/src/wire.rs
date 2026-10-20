@@ -39,8 +39,9 @@ pub fn decode<T: DeserializeOwned>(
 mod tests {
     use super::*;
     use crate::{
-        API_VERSION, Ask, Capability, Manifest, PluginId, TreeError,
-        TreeLimits, Widget, WidgetId, WidgetNode, WidgetTree,
+        API_VERSION, Ask, AssetTypes, Capability, Manifest, PluginId,
+        TreeError, TreeLimits, Widget, WidgetId, WidgetNode,
+        WidgetTree,
     };
 
     fn node(id: &str, children: u32, widget: Widget) -> WidgetNode {
@@ -94,17 +95,16 @@ mod tests {
         let bytes = encode(&tree).unwrap();
         assert_eq!(decode::<WidgetTree>(&bytes).unwrap(), tree);
 
-        let manifest = Manifest {
-            id: PluginId::try_from("hamlet.weather").unwrap(),
-            name: "Weather".into(),
-            version: "0.1.0".into(),
-            api: API_VERSION.into(),
-            asks: vec![Ask {
-                capability: Capability::NetFetch,
-                target: "forecast.example.org".into(),
-                reason: "Fetches the forecast".into(),
-            }],
-        };
+        let mut manifest = Manifest::new(
+            PluginId::try_from("hamlet.weather").unwrap(),
+            "Weather",
+            "0.1.0",
+        );
+        manifest.asks.push(Ask {
+            capability: Capability::NetFetch,
+            target: "forecast.example.org".into(),
+            reason: "Fetches the forecast".into(),
+        });
         let bytes = encode(&manifest).unwrap();
         assert_eq!(decode::<Manifest>(&bytes).unwrap(), manifest);
         // A byte more is refused, as is an id that is not one.
@@ -117,6 +117,7 @@ mod tests {
             "0.1.0",
             API_VERSION,
             Vec::<Ask>::new(),
+            AssetTypes::default(),
         ))
         .unwrap();
         assert!(decode::<Manifest>(&bad).is_err());

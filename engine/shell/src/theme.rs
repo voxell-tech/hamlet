@@ -1,4 +1,4 @@
-//! The engine's theme, from `engine/assets/theme.toml`: warm
+//! The engine's theme, from `engine/tuning/theme.toml`: warm
 //! near-black surfaces, brass, and lamplight for what is live. Dark
 //! only.
 
@@ -34,7 +34,7 @@ pub(crate) fn plugin(app: &mut App) {
     dress(app.world_mut(), theme);
 }
 
-/// The theme, as `engine/assets/theme.toml` has it.
+/// The theme, as `engine/tuning/theme.toml` has it.
 #[derive(Resource, Clone, PartialEq, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EngineTheme {

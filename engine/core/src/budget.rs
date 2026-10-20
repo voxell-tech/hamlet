@@ -1,5 +1,5 @@
 //! What a plugin may spend, as plain data from
-//! `engine/assets/engine.toml`.
+//! `engine/tuning/engine.toml`.
 
 use bevy::ecs::resource::Resource;
 use hamlet_engine_api::TreeLimits;
@@ -31,13 +31,20 @@ pub struct Budgets {
     pub bytes_per_call: u64,
     pub calls_per_second: u32,
     pub events_per_second: u32,
+    /// Requests to the engine's services one call may make; past
+    /// them a request is not taken.
+    pub requests_per_call: usize,
+    /// Assets made, changed or deleted in one second.
     pub asset_writes_per_second: u32,
     pub panels: usize,
     /// Everything it adds: panels, commands, menu entries,
     /// shortcuts, settings pages and suggested workspaces.
     pub contributions: usize,
-    /// Bytes of one asset.
+    /// Bytes of one asset. Less than `bytes_per_call`, so a read
+    /// asset can be handed over.
     pub asset_bytes: u64,
+    /// Assets it may own.
+    pub assets: usize,
     pub log_lines_per_second: u32,
     /// Bytes of one line of the log; a longer line is cut.
     pub log_line_bytes: usize,

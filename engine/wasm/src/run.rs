@@ -19,8 +19,8 @@ use hamlet_engine_api::Contribution;
 use hamlet_engine_core::{Budgets, LogLine};
 use hamlet_engine_grants::Admitted;
 use hamlet_engine_plugins::{
-    ContributedBy, Disable, Enable, Enabled, Entry, PluginInfo,
-    switch_on,
+    Asked, ContributedBy, Disable, Enable, Enabled, Entry,
+    PluginInfo, switch_on,
 };
 use hamlet_engine_shell::Command;
 
@@ -28,6 +28,7 @@ use crate::budget::{Spending, pass_logs};
 use crate::folder::{Package, WASM, read_capped};
 use crate::host::{Host, WasmTuning};
 use crate::instance::{Caps, Instance, Linked, link};
+use crate::mail::pass_requests;
 use crate::panel::{Inbox, Work, view};
 use crate::reload::{Declared, Reloading};
 
@@ -201,6 +202,7 @@ fn start(
     tuning: Res<WasmTuning>,
     time: Res<Time<Real>>,
     mut log: MessageWriter<LogLine>,
+    mut asked: MessageWriter<Asked>,
     mut commands: Commands,
 ) {
     let Some(host) = host else {
@@ -225,6 +227,7 @@ fn start(
             };
         let mut spending = Spending::new(time.elapsed());
         let (declared, spent) = instance.declare(&caps);
+        pass_requests(plugin, &mut instance, 0, &mut asked);
         spending.charge(spent, false);
         pass_logs(
             info,

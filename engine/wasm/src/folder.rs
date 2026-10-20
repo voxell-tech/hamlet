@@ -187,13 +187,7 @@ pub(crate) fn spawn_plugin(
     };
     commands
         .spawn((
-            PluginInfo {
-                id: manifest.id,
-                name: manifest.name,
-                version: manifest.version,
-                builtin: false,
-                asks: manifest.asks,
-            },
+            PluginInfo::of(manifest, false),
             Package { folder },
             loaded,
         ))

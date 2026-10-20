@@ -9,9 +9,7 @@ use bevy::ecs::world::World;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{FrameProps, column, label};
 use hamlet_engine_api::id::ENGINE;
-use hamlet_engine_api::{
-    API_VERSION, Layout, Manifest, PanelId, PluginId,
-};
+use hamlet_engine_api::{Layout, Manifest, PanelId, PluginId};
 use hamlet_engine_core::LogLine;
 use hamlet_engine_plugins::Entry;
 use hamlet_engine_shell::{AnyView, panel};
@@ -23,13 +21,11 @@ pub fn plugin(app: &mut App) {
 }
 
 fn add(mut commands: Commands) {
-    let manifest = Manifest {
-        id: PluginId::try_from(ID).expect("a valid id"),
-        name: "Demo".into(),
-        version: "0.1.0".into(),
-        api: API_VERSION.into(),
-        asks: Vec::new(),
-    };
+    let manifest = Manifest::new(
+        PluginId::try_from(ID).expect("a valid id"),
+        "Demo",
+        "0.1.0",
+    );
     hamlet_engine_plugins::add_builtin(
         &mut commands,
         manifest,

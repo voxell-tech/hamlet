@@ -14,11 +14,12 @@ hamlet_engine_core.workspace = true
 hamlet_engine_shell.workspace = true
 hamlet_engine_plugins.workspace = true
 hamlet_engine_grants.workspace = true
+hamlet_engine_assets.workspace = true
 hamlet_engine_wasm.workspace = true
 bevy.workspace = true
 bevy_fynix.workspace = true
 
 [features]
-# A saved change to a file under engine/assets/ reaches the running
+# A saved change to a file under engine/tuning/ reaches the running
 # engine: `cargo run -p hamlet_engine --features hot-reload`.
 hot-reload = ["hamlet_engine_core/hot-reload"]

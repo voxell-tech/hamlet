@@ -5,6 +5,7 @@ use core::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::API_VERSION;
+use crate::asset::{AssetTypes, TypeName};
 use crate::capability::{Ask, Capability};
 use crate::id::PluginId;
 
@@ -23,6 +24,23 @@ pub struct Manifest {
     pub api: String,
     #[serde(default)]
     pub asks: Vec<Ask>,
+    #[serde(default)]
+    pub assets: AssetTypes,
+}
+
+impl Manifest {
+    /// A manifest of `id`, `name` and `version` against this API that
+    /// asks for and shares nothing.
+    pub fn new(id: PluginId, name: &str, version: &str) -> Self {
+        Self {
+            id,
+            name: name.into(),
+            version: version.into(),
+            api: API_VERSION.into(),
+            asks: Vec::new(),
+            assets: AssetTypes::default(),
+        }
+    }
 }
 
 /// Why a manifest is refused.
@@ -37,6 +55,11 @@ pub enum ManifestError {
     Target(String),
     /// The same capability and target asked for twice.
     Twice(Capability, String),
+    /// A type of asset named twice, or both made and used.
+    TypeTwice(TypeName),
+    /// Something it takes from another plugin without asking for it:
+    /// the capability and the target it needs.
+    Unasked(Capability, String),
 }
 
 impl fmt::Display for ManifestError {
@@ -56,6 +79,14 @@ impl fmt::Display for ManifestError {
             Self::Twice(capability, target) => write!(
                 f,
                 "{} for {target:?} is asked for twice",
+                capability.name()
+            ),
+            Self::TypeTwice(name) => {
+                write!(f, "the type {name} is named twice")
+            }
+            Self::Unasked(capability, target) => write!(
+                f,
+                "it takes {target} without asking for {} {target}",
                 capability.name()
             ),
         }
@@ -107,6 +138,37 @@ impl Manifest {
                 ));
             }
         }
+        let types = self.assets.makes.iter().chain(&self.assets.uses);
+        for (at, kind) in types.clone().enumerate() {
+            if types
+                .clone()
+                .take(at)
+                .any(|before| before.name == kind.name)
+            {
+                return Err(ManifestError::TypeTwice(
+                    kind.name.clone(),
+                ));
+            }
+        }
+        for used in &self.assets.uses {
+            self.asked(Capability::AssetRead, used.name.as_str())?;
+        }
         Ok(())
+    }
+
+    /// Whether it asks for `capability` on `target`.
+    fn asked(
+        &self,
+        capability: Capability,
+        target: &str,
+    ) -> Result<(), ManifestError> {
+        let asked = self.asks.iter().any(|ask| {
+            ask.capability == capability && ask.target == target
+        });
+        if asked {
+            Ok(())
+        } else {
+            Err(ManifestError::Unasked(capability, target.into()))
+        }
     }
 }

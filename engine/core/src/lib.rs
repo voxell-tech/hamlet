@@ -1,5 +1,5 @@
 //! What every engine module stands on: the tuning files under
-//! `engine/assets/`, the home folder, the engine's log and the
+//! `engine/tuning/`, the home folder, the engine's log and the
 //! budgets a plugin spends.
 
 pub mod budget;
