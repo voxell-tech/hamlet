@@ -2,13 +2,14 @@
 
 use std::collections::VecDeque;
 use std::future::poll_fn;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::task::Poll;
 use std::time::{Duration, Instant};
 
 use bevy_app::{App, Update};
 use bevy_ecs::prelude::*;
 use futures::{SinkExt, StreamExt};
+use hamlet_protocol::discovery::ServerAddress;
 use hamlet_protocol::v0;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, watch};
@@ -32,7 +33,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Heartbeat>()
         .init_resource::<Discovery>()
         .add_systems(Update, update);
-    if let Some(server) = app.world().get_resource::<ServerAddress>()
+    if let Some(Server(server)) = app.world().get_resource::<Server>()
     {
         let words = format!("Connecting to {}...", server.url);
         app.insert_resource(Connection {
@@ -42,122 +43,9 @@ pub fn plugin(app: &mut App) {
     }
 }
 
-/// The WebSocket URL and token of the chosen server.
-#[derive(Resource, Clone)]
-pub struct ServerAddress {
-    pub url: String,
-    pub token: String,
-}
-
-impl std::fmt::Debug for ServerAddress {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
-        f.debug_struct("ServerAddress")
-            .field("url", &self.url)
-            .field("token", &"[REDACTED]")
-            .finish()
-    }
-}
-
-impl ServerAddress {
-    /// The explicit server, or the local home's running server.
-    pub fn find(
-        vars: impl Fn(&str) -> Option<String>,
-    ) -> Result<Self, String> {
-        if let Some(url) = vars("HAMLET_SERVER") {
-            let token = vars("HAMLET_TOKEN").ok_or_else(|| {
-                "HAMLET_SERVER needs HAMLET_TOKEN, its home's token."
-                    .to_owned()
-            })?;
-            return Ok(Self { url, token });
-        }
-        Self::in_home(&Self::local_home(vars)?)
-    }
-
-    /// The local home selected by the environment.
-    pub fn local_home(
-        vars: impl Fn(&str) -> Option<String>,
-    ) -> Result<PathBuf, String> {
-        Ok(match vars("HAMLET_HOME") {
-            Some(home) => PathBuf::from(home),
-            None => {
-                let home = vars("HOME")
-                    .or_else(|| vars("USERPROFILE"))
-                    .ok_or(
-                        "No home directory found. Set HAMLET_SERVER \
-                         and HAMLET_TOKEN.",
-                    )?;
-                PathBuf::from(home).join(".hamlet")
-            }
-        })
-    }
-
-    fn in_home(home: &Path) -> Result<Self, String> {
-        let server = home.join("server.json");
-        let value = match std::fs::read_to_string(&server) {
-            Ok(text) => {
-                serde_json::from_str::<serde_json::Value>(&text)
-                    .map_err(|_| {
-                        format!(
-                            "Cannot read {}: expected JSON.",
-                            server.display()
-                        )
-                    })?
-            }
-            Err(error)
-                if error.kind() == std::io::ErrorKind::NotFound =>
-            {
-                return Err(format!(
-                    "No server runs for {}. Start one with hamlet \
-                     server, or open this window with hamlet window.",
-                    home.display()
-                ));
-            }
-            Err(_) => {
-                return Err(format!(
-                    "Cannot read {}.",
-                    server.display()
-                ));
-            }
-        };
-        let url = field(&value, "/url", &server)?;
-        let credentials = home.join("credentials.json");
-        let text =
-            std::fs::read_to_string(&credentials).map_err(|_| {
-                format!("Cannot read {}.", credentials.display())
-            })?;
-        let value = serde_json::from_str::<serde_json::Value>(&text)
-            .map_err(|_| {
-                format!(
-                    "Cannot read {}: expected JSON.",
-                    credentials.display()
-                )
-            })?;
-        let token = field(&value, "/connection/token", &credentials)?;
-        Ok(Self { url, token })
-    }
-}
-
-fn field(
-    value: &serde_json::Value,
-    key: &str,
-    path: &Path,
-) -> Result<String, String> {
-    value
-        .pointer(key)
-        .and_then(serde_json::Value::as_str)
-        .filter(|text| !text.is_empty())
-        .map(str::to_owned)
-        .ok_or_else(|| {
-            format!(
-                "Cannot read {}: {} must be nonempty text.",
-                path.display(),
-                key
-            )
-        })
-}
+/// The chosen server.
+#[derive(Resource, Clone, Debug)]
+pub struct Server(pub ServerAddress);
 
 /// The first reconnect wait and its ceiling.
 #[derive(Resource, Clone, Copy, Debug)]
@@ -224,7 +112,7 @@ struct Discovery {
 }
 
 fn discover(world: &mut World) {
-    if world.contains_resource::<ServerAddress>() {
+    if world.contains_resource::<Server>() {
         return;
     }
     let Some(local) = world.get_resource::<LocalServer>() else {
@@ -245,7 +133,7 @@ fn discover(world: &mut World) {
                 state: State::Connecting,
                 words: format!("Connecting to {}...", server.url),
             });
-            world.insert_resource(server);
+            world.insert_resource(Server(server));
         }
         Err(words) => {
             world.insert_resource(Connection {
@@ -268,8 +156,8 @@ fn discover(world: &mut World) {
 fn update(world: &mut World) {
     discover(world);
     if !world.contains_resource::<Bridge>() {
-        let (Some(server), Some(runtime)) = (
-            world.get_resource::<ServerAddress>(),
+        let (Some(Server(server)), Some(runtime)) = (
+            world.get_resource::<Server>(),
             world.get_resource::<Tokio>(),
         ) else {
             return;
@@ -298,7 +186,7 @@ fn update(world: &mut World) {
         while let Ok(incoming) = bridge.incoming.try_recv() {
             match incoming {
                 Incoming::Connected { again } => {
-                    let url = &world.resource::<ServerAddress>().url;
+                    let url = &world.resource::<Server>().0.url;
                     let words = format!("Connected to {url}.");
                     world.insert_resource(Connection {
                         state: State::Connected,
@@ -309,7 +197,7 @@ fn update(world: &mut World) {
                     }
                 }
                 Incoming::Lost { answered } => {
-                    let url = &world.resource::<ServerAddress>().url;
+                    let url = &world.resource::<Server>().0.url;
                     let words = if answered {
                         format!(
                             "Lost the server at {url}; trying again."
@@ -326,7 +214,7 @@ fn update(world: &mut World) {
                     });
                 }
                 Incoming::Refused(text) => {
-                    let url = &world.resource::<ServerAddress>().url;
+                    let url = &world.resource::<Server>().0.url;
                     let words = format!(
                         "The server at {url} refused this window: \
                          {text}"
@@ -660,10 +548,10 @@ mod tests {
                 cap: Duration::ZERO,
             });
         app.update();
-        assert!(!app.world().contains_resource::<ServerAddress>());
+        assert!(!app.world().contains_resource::<Server>());
         std::fs::write(
             home.join("server.json"),
-            format!(r#"{{"url":"{url}"}}"#),
+            format!(r#"{{"url":"{url}","pid":7}}"#),
         )
         .unwrap();
         std::fs::write(
@@ -683,7 +571,7 @@ mod tests {
             app.world().resource::<Connection>().state,
             State::Connected
         );
-        assert_eq!(app.world().resource::<ServerAddress>().url, url);
+        assert_eq!(app.world().resource::<Server>().0.url, url);
         task.abort();
     }
 }

@@ -11,7 +11,8 @@ use std::path::PathBuf;
 
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::*;
-pub use connection::{Connection, ServerAddress};
+pub use connection::{Connection, Server};
+use hamlet_protocol::discovery::ServerAddress;
 use hamlet_protocol::v0;
 use tokio::runtime::Handle;
 
@@ -27,7 +28,7 @@ impl Plugin for ClientPlugin {
         app.world_mut().register_component::<waits::RaisedBy>();
         app.world_mut().register_component::<waits::Needs>();
         if let Some(server) = &self.server {
-            app.insert_resource(server.clone());
+            app.insert_resource(Server(server.clone()));
         }
         app.init_resource::<realm::Chief>()
             .init_resource::<realm::Sandbox>()

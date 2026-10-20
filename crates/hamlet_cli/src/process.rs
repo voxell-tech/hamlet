@@ -13,7 +13,7 @@ use std::time::Duration;
 use std::{env, fs};
 
 use anyhow::{Context, Result, bail};
-use serde::Deserialize;
+use hamlet_protocol::discovery::{self, Chosen, Running};
 use tokio::time::timeout;
 #[cfg(unix)]
 use tokio::{
@@ -23,100 +23,22 @@ use tokio::{
 
 use crate::client::{self, ServerAddress};
 
-#[derive(Deserialize)]
-struct Record {
-    url: String,
-    pid: i32,
-    #[cfg(unix)]
-    started: Option<String>,
-}
-
-pub fn home() -> Result<PathBuf> {
-    let path = match nonempty("HAMLET_HOME") {
-        Some(home) => PathBuf::from(home),
-        None => PathBuf::from(
-            nonempty("HOME")
-                .or_else(|| nonempty("USERPROFILE"))
-                .context("HOME is not set")?,
-        )
-        .join(".hamlet"),
-    };
-    absolute(&path)
-}
-
-fn absolute(path: &Path) -> Result<PathBuf> {
-    Ok(std::path::absolute(path)?)
-}
-
-fn read_record(home: &Path) -> Result<Option<Record>> {
-    let path = home.join("server.json");
-    let text = match fs::read(&path) {
-        Ok(text) => text,
-        Err(error)
-            if error.kind() == std::io::ErrorKind::NotFound =>
-        {
-            return Ok(None);
-        }
-        Err(_) => bail!(
-            "Cannot read server.json for {}. Inspect the file \
-             before starting or stopping its server.",
-            home.display()
-        ),
-    };
-    let record = serde_json::from_slice::<Record>(&text)
-        .ok()
-        .filter(|r| r.pid > 0);
-    record.map(Some).ok_or_else(|| {
-        anyhow::anyhow!(
-            "Cannot read server.json for {}. Inspect the file \
-             before starting or stopping its server.",
-            home.display()
-        )
-    })
-}
-
-pub fn address(home: &Path) -> Result<ServerAddress> {
-    if let Some(url) = nonempty("HAMLET_SERVER") {
-        return Ok(ServerAddress {
-            url,
-            token: nonempty("HAMLET_TOKEN").context(
-                "HAMLET_SERVER needs HAMLET_TOKEN, its home's token",
-            )?,
-        });
-    }
-    let record = read_record(home)?.with_context(|| {
-        format!(
-            "no server runs for {}; start one with hamlet server, \
-             or use hamlet dev for a scratch server and window.",
-            home.display()
-        )
-    })?;
-    local_address(home, &record)
-}
-
-fn local_address(
-    home: &Path,
-    record: &Record,
-) -> Result<ServerAddress> {
-    #[derive(Deserialize)]
-    struct Credentials {
-        connection: Connection,
-    }
-    #[derive(Deserialize)]
-    struct Connection {
-        token: String,
-    }
-    let credentials = serde_json::from_slice::<Credentials>(
-        &fs::read(home.join("credentials.json"))?,
-    )?;
-    Ok(ServerAddress {
-        url: record.url.clone(),
-        token: credentials.connection.token,
-    })
-}
-
 fn nonempty(name: &str) -> Option<String> {
     env::var(name).ok().filter(|s| !s.is_empty())
+}
+
+/// The local home the environment selects.
+pub fn home() -> Result<PathBuf> {
+    discovery::home(nonempty).map_err(anyhow::Error::msg)
+}
+
+/// The server the environment selects.
+pub fn address() -> Result<ServerAddress> {
+    ServerAddress::find(nonempty).map_err(anyhow::Error::msg)
+}
+
+fn running(home: &Path) -> Result<Option<Running>> {
+    Running::read(home).map_err(anyhow::Error::msg)
 }
 
 async fn answers(address: &ServerAddress) -> bool {
@@ -129,14 +51,14 @@ async fn answers(address: &ServerAddress) -> bool {
 }
 
 #[cfg(unix)]
-fn alive(pid: i32) -> bool {
+fn alive(pid: u32) -> bool {
     // SAFETY: kill with signal zero checks a positive process ID
     // without sending a signal.
-    unsafe {
+    i32::try_from(pid).is_ok_and(|pid| unsafe {
         libc::kill(pid, 0) == 0
             || std::io::Error::last_os_error().raw_os_error()
                 != Some(libc::ESRCH)
-    }
+    })
 }
 
 #[cfg(unix)]
@@ -157,14 +79,14 @@ fn signal(pid: u32, signal: i32) -> Result<()> {
 #[cfg(unix)]
 async fn inspect(
     home: &Path,
-) -> Result<Option<(Record, ServerAddress)>> {
-    let Some(record) = read_record(home)? else {
+) -> Result<Option<(Running, ServerAddress)>> {
+    let Some(record) = running(home)? else {
         return Ok(None);
     };
     if !alive(record.pid) {
         return Ok(None);
     }
-    if let Ok(address) = local_address(home, &record)
+    if let Ok(address) = record.address(home)
         && answers(&address).await
     {
         return Ok(Some((record, address)));
@@ -318,7 +240,7 @@ fn exit_code(status: ExitStatus) -> i32 {
 
 pub async fn window() -> Result<i32> {
     let app = find_binary("hamlet-app", "HAMLET_APP")?;
-    let command = window_command(&app, &address(&home()?)?);
+    let command = window_command(&app, &address()?);
     Ok(exit_code(
         tokio::process::Command::from(command)
             .status()
@@ -401,7 +323,7 @@ fn mkdir(home: &Path) -> Result<()> {
 }
 
 #[cfg(unix)]
-async fn ensure(home: &Path) -> Result<(Record, ServerAddress)> {
+async fn ensure(home: &Path) -> Result<(Running, ServerAddress)> {
     if let Some(found) = inspect(home).await? {
         return Ok(found);
     }
@@ -457,27 +379,30 @@ async fn ensure(home: &Path) -> Result<(Record, ServerAddress)> {
 }
 
 pub async fn service(action: &str) -> Result<i32> {
-    let home = home()?;
-    if nonempty("HAMLET_SERVER").is_some() {
-        anyhow::ensure!(
-            action != "stop",
-            "Cannot stop HAMLET_SERVER here. A server elsewhere is \
-             stopped on its own machine."
-        );
-        let address = address(&home)?;
-        if action == "status" {
-            let live = answers(&address).await;
-            println!(
-                "hamlet: {} at {}",
-                if live { "running" } else { "not answering" },
-                address.url
-            );
-            return Ok(i32::from(!live));
+    let address = match discovery::choose(nonempty)
+        .map_err(anyhow::Error::msg)?
+    {
+        Chosen::Home(home) => {
+            return local_service(action, &home).await;
         }
-        open_detached(&address)?;
-        return Ok(0);
+        Chosen::At(address) => address,
+    };
+    anyhow::ensure!(
+        action != "stop",
+        "Cannot stop HAMLET_SERVER here. A server elsewhere is \
+         stopped on its own machine."
+    );
+    if action == "status" {
+        let live = answers(&address).await;
+        println!(
+            "hamlet: {} at {}",
+            if live { "running" } else { "not answering" },
+            address.url
+        );
+        return Ok(i32::from(!live));
     }
-    local_service(action, &home).await
+    open_detached(&address)?;
+    Ok(0)
 }
 
 #[cfg(unix)]
@@ -488,7 +413,7 @@ async fn local_service(action: &str, home: &Path) -> Result<i32> {
         inspect(home).await?
     };
     let Some((record, address)) = found else {
-        let stale = read_record(home)?.is_some();
+        let stale = running(home)?.is_some();
         if stale && action == "stop" {
             fs::remove_file(home.join("server.json"))?;
         }
@@ -499,7 +424,7 @@ async fn local_service(action: &str, home: &Path) -> Result<i32> {
         return Ok(i32::from(action != "stop"));
     };
     if action == "stop" {
-        signal(record.pid as u32, libc::SIGTERM)?;
+        signal(record.pid, libc::SIGTERM)?;
         let deadline = Instant::now() + Duration::from_secs(30);
         while alive(record.pid) {
             anyhow::ensure!(
@@ -554,7 +479,7 @@ fn dev_home(chosen: Option<&str>) -> Result<PathBuf> {
         .unwrap_or_else(|| {
             env::temp_dir().join(format!("hamlet-dev-{uid}"))
         });
-    let path = absolute(&path)?;
+    let path = std::path::absolute(&path)?;
     let ordinary = PathBuf::from(env::var("HOME")?).join(".hamlet");
     anyhow::ensure!(
         chosen != Some("~/.hamlet")
@@ -659,9 +584,9 @@ pub async fn develop(
         let ready = async {
             loop {
                 if let Some(status) = server.try_wait()? { bail!("The server exited before becoming ready ({status})."); }
-                if let Ok(Some(record)) = read_record(&home)
-                    && Some(record.pid as u32) == server.id() {
-                        let address = local_address(&home, &record)?;
+                if let Ok(Some(record)) = running(&home)
+                    && Some(record.pid) == server.id() {
+                        let address = record.address(&home).map_err(anyhow::Error::msg)?;
                         if answers(&address).await { return Ok::<_, anyhow::Error>(address); }
                     }
                 sleep(Duration::from_millis(50)).await;

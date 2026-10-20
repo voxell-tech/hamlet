@@ -2,6 +2,7 @@
 
 use anyhow::{Context, Result, bail};
 use futures::{SinkExt, StreamExt};
+pub use hamlet_protocol::discovery::ServerAddress;
 use hamlet_protocol::v0::{
     ClientMessage, Hello, ReadResult, ServerMessage, State, V,
 };
@@ -10,12 +11,6 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream, connect_async,
 };
-
-/// The address and connection token of an agent server.
-pub struct ServerAddress {
-    pub url: String,
-    pub token: String,
-}
 
 /// A chief's authenticated connection.
 pub struct Client(WebSocketStream<MaybeTlsStream<TcpStream>>);

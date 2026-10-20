@@ -3366,6 +3366,7 @@ name = "hamlet_protocol"
 version = "0.1.0"
 dependencies = [
  "hamlet_protocol_gen",
+ "hamlet_testing",
  "serde",
  "serde_json",
 ]

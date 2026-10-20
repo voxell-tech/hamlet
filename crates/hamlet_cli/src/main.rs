@@ -234,19 +234,12 @@ fn main() {
                 }
                 Command::Window => process::window().await,
                 Command::Chat(to) => {
-                    chat::run(
-                        &process::address(&process::home()?)?,
-                        &to,
-                    )
-                    .await?;
+                    chat::run(&process::address()?, &to).await?;
                     Ok(0)
                 }
                 Command::Terminal(command) => {
-                    terminal::run(
-                        command,
-                        &process::address(&process::home()?)?,
-                    )
-                    .await?;
+                    terminal::run(command, &process::address()?)
+                        .await?;
                     Ok(0)
                 }
                 Command::Help | Command::Server { .. } => {
