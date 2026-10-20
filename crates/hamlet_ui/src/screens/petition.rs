@@ -91,7 +91,7 @@ struct Need {
     about: String,
     line: String,
     waited: String,
-    asked: u32,
+    asked: u64,
     answers: Vec<Choice>,
     change: Option<Change>,
     chat: Option<hamlet_protocol::v0::ChatRef>,

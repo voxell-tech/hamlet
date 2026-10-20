@@ -194,7 +194,7 @@ impl Service {
             self.houses.remote(&agent.hamlet, agent.number, false)?;
         if remote.is_some()
             && files.iter().any(|file| {
-                file.size > crate::workspace::MAX_FILE as i64
+                file.size > crate::workspace::MAX_FILE as u64
             })
         {
             return Ok(Err(refused(

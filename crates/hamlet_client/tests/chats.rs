@@ -505,7 +505,7 @@ fn working_and_last_activity_follow_status_and_finishing_is_not_repeated()
     let idle = turn(vec![v0::Op::Status {
         working: false,
         pending: 0,
-        last: Some(v0::OpStatusLast {
+        last: Some(v0::LastActivity {
             at: 1234,
             what: "Finished the chief's task".into(),
         }),

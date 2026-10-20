@@ -464,7 +464,7 @@ mod tests {
      {
         let mut state = realm::state();
         state.deeds = Some(vec!["give".into()]);
-        state.starters = Some(vec![v0::StateStarters {
+        state.starters = Some(vec![v0::Skill {
             name: "research".into(),
             description: "Find sources".into(),
         }]);

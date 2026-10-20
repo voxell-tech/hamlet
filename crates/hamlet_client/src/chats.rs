@@ -194,9 +194,8 @@ pub fn receive(world: &mut World, message: v0::ServerMessage) {
                     page.working,
                     page.pending,
                     page.last.as_ref().map(|last| {
-                        last.as_ref().map(|last| {
-                            (last.at as u64, last.what.clone())
-                        })
+                        last.as_ref()
+                            .map(|last| (last.at, last.what.clone()))
                     }),
                 );
                 world
@@ -230,10 +229,7 @@ pub fn receive(world: &mut World, message: v0::ServerMessage) {
                                 *working,
                                 *pending,
                                 Some(last.as_ref().map(|last| {
-                                    (
-                                        last.at as u64,
-                                        last.what.clone(),
-                                    )
+                                    (last.at, last.what.clone())
                                 })),
                             );
                         }
@@ -262,14 +258,14 @@ fn status(
     world: &mut World,
     chat: Entity,
     working: bool,
-    pending: i64,
+    pending: u64,
     last: Option<Option<(u64, String)>>,
 ) {
     let mut said = world.get_mut::<Transcript>(chat).unwrap();
     let finished = said.answering && !working;
     said.answering = working;
     let mut status = world.get_mut::<Status>(chat).unwrap();
-    status.pending = pending as usize + usize::from(working);
+    status.pending = pending + u64::from(working);
     if let Some(last) = last {
         status.last = last;
     }
@@ -305,8 +301,8 @@ fn received_item(item: v0::Item, chief: &str) -> Item {
             Entry::Tool {
                 name: tool.name,
                 summary: tool.summary,
-                exit: tool.exit.map(|exit| exit as i32),
-                ms: tool.ms.map(|ms| ms as u64),
+                exit: tool.exit,
+                ms: tool.ms,
                 failure: tool.failure,
                 change: tool.change,
             }
@@ -314,7 +310,7 @@ fn received_item(item: v0::Item, chief: &str) -> Item {
     };
     Item {
         id: item.id,
-        at: item.at as u64,
+        at: item.at,
         entry,
     }
 }
@@ -391,7 +387,7 @@ pub enum Entry {
     Tool {
         name: String,
         summary: String,
-        exit: Option<i32>,
+        exit: Option<i64>,
         ms: Option<u64>,
         failure: Option<String>,
         change: Option<v0::Change>,
@@ -474,8 +470,8 @@ impl Transcript {
                     .iter_mut()
                     .find(|shown| &shown.id == item)
                 {
-                    *shown_exit = Some(*exit as i32);
-                    *shown_ms = ms.map(|ms| ms as u64);
+                    *shown_exit = Some(*exit);
+                    *shown_ms = *ms;
                     *shown_failure = failure.clone();
                     if let Some(change) = change {
                         *shown_change = change.clone();
@@ -543,7 +539,7 @@ impl Transcript {
 #[derive(Component, Default, Clone, Debug)]
 pub struct Status {
     /// Messages queued or running.
-    pub pending: usize,
+    pub pending: u64,
     pub last: Option<(u64, String)>,
 }
 
@@ -566,6 +562,6 @@ impl Usage {
 
     /// The input and output tokens reported by the server.
     pub fn tokens(&self) -> u64 {
-        (self.0.input + self.0.output) as u64
+        self.0.input + self.0.output
     }
 }

@@ -12,12 +12,12 @@ import {
     type Op,
     parseClient,
     parseServer,
-    protocolSchema,
     type Say,
     type ServerMessage,
     type UsageView,
     type Wait,
 } from "../src/protocol.ts";
+import { protocolSchema } from "../src/schema.ts";
 
 /** Examples of each message, by its type, covering each of its forms. */
 type Examples<M extends { type: string }> = {

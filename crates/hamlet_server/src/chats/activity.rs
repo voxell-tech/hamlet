@@ -37,7 +37,7 @@ pub(crate) struct Activity {
     pub saying: String,
     pub thought: bool,
     pub working: bool,
-    pub pending: i64,
+    pub pending: u64,
     /// The last answer ended in failure or was stopped.
     pub faulted: bool,
     blocks: BTreeMap<usize, String>,
@@ -89,7 +89,7 @@ impl Activity {
     pub fn live(
         &mut self,
         running: bool,
-        pending: i64,
+        pending: u64,
         partial: Option<&link::Partial>,
     ) {
         self.pending = pending;

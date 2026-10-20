@@ -113,7 +113,7 @@ async fn streams_a_turn_whose_ops_equal_the_transcript_read_again() {
     let last = again.items.last().unwrap();
     assert_eq!(
         again.last,
-        Some(Some(TranscriptLast {
+        Some(Some(LastActivity {
             what: "replied".into(),
             at: last.at
         }))
@@ -534,7 +534,7 @@ async fn faults_when_the_model_fails_until_dismissed() {
     let page = s.chief.open(&mayor_chat).await;
     assert_eq!(
         page.last.unwrap().unwrap(),
-        TranscriptLast {
+        LastActivity {
             what: "error".into(),
             at: error.at
         }

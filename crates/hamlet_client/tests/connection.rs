@@ -221,7 +221,7 @@ async fn hello_precedes_the_outbox_and_received_state_fills_the_world()
     assert_eq!(
         received[0],
         v0::ClientMessage::Hello(v0::Hello {
-            v: 0.0,
+            v: v0::V,
             token: "window-token".into(),
             seen: None
         })
@@ -339,7 +339,7 @@ async fn a_reconnection_keeps_the_realm_and_sends_offline_requests_after_hello_w
     assert_eq!(
         received[0],
         v0::ClientMessage::Hello(v0::Hello {
-            v: 0.0,
+            v: v0::V,
             token: "window-token".into(),
             seen: Some(v0::Seen {
                 epoch: 19,

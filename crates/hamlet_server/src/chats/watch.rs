@@ -263,7 +263,7 @@ pub(super) fn pasts(
             .count();
         let modified = items
             .iter()
-            .map(|item| item.at)
+            .filter_map(|item| i64::try_from(item.at).ok())
             .chain([session.began])
             .max()
             .unwrap_or(session.began);

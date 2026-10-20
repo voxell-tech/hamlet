@@ -181,7 +181,7 @@ fn plate(
 
 /// The end of a tool call's entry, and the words for an edit that
 /// changed nothing.
-fn ended(entry: Option<&Entry>) -> (Option<i32>, Option<String>) {
+fn ended(entry: Option<&Entry>) -> (Option<i64>, Option<String>) {
     match entry {
         Some(Entry::Tool { exit, failure, .. }) => {
             let why = failure.as_ref();

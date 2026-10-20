@@ -63,7 +63,7 @@ pub struct Waiting {
     pub answers: Vec<Choice>,
     /// Milliseconds since 1970.
     pub since: u64,
-    pub asked: u32,
+    pub asked: u64,
     pub chat: Option<v0::ChatRef>,
 }
 
@@ -239,8 +239,8 @@ pub(crate) fn upsert(world: &mut World, wait: v0::Wait) -> Entity {
         about,
         change,
         answers,
-        since: since as u64,
-        asked: asked as u32,
+        since,
+        asked,
         chat,
     });
     if let Some(agent) = agent {

@@ -62,7 +62,7 @@ struct Conversation {
     fold: Fold,
     activity: Activity,
     running: bool,
-    pending: i64,
+    pending: u64,
     /// The runtime's submission id of the running turn's input.
     turn: Option<String>,
     /// The usage last shown to its watchers.

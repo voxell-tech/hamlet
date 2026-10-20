@@ -7,7 +7,9 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use futures::{SinkExt, StreamExt};
-use hamlet_protocol::v0::{ClientMessage, ServerMessage, State};
+use hamlet_protocol::v0::{
+    ClientMessage, MoveHouses, ServerMessage, State,
+};
 use serde_json::json;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, watch};
@@ -294,7 +296,7 @@ pub async fn serve(options: Options) -> Result<()> {
                                 flush_models(&mut service, &mut harnesses).await?;
                                 continue;
                             }
-                            if let ClientMessage::MoveHouses { id: request } = &message {
+                            if let ClientMessage::MoveHouses(MoveHouses { id: request }) = &message {
                                 if let Err(error) = service.start_move(id, request)? {
                                     send(client, &service, crate::protocol::reply(request, Err(error)))?;
                                 }

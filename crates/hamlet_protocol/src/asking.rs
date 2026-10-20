@@ -74,7 +74,7 @@ impl From<Pick> for crate::v0::Pick {
     fn from(pick: Pick) -> Self {
         match pick {
             Pick::Offer(index) => Self::Offer {
-                index: index as i64,
+                index: index as u64,
             },
             Pick::Words(text) => Self::Words { text },
         }

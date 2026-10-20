@@ -3,7 +3,7 @@
 use anyhow::{Context, Result, bail};
 use futures::{SinkExt, StreamExt};
 use hamlet_protocol::v0::{
-    ClientMessage, Hello, ReadResult, ServerMessage, State,
+    ClientMessage, Hello, ReadResult, ServerMessage, State, V,
 };
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -31,7 +31,7 @@ pub async fn connect(
     client
         .send(ClientMessage::Hello(Hello {
             token: address.token.clone(),
-            v: 0.0,
+            v: V,
             seen: None,
         }))
         .await?;

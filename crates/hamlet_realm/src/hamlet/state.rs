@@ -32,8 +32,9 @@ fn work(activity: &Activity) -> Work {
             Doing::CustomTool => Task::CustomTool,
             Doing::Await => Task::Await,
         },
-        step: activity.step,
-        failures: activity.failures,
+        step: u32::try_from(activity.step).unwrap_or(u32::MAX),
+        failures: u32::try_from(activity.failures)
+            .unwrap_or(u32::MAX),
     }
 }
 

@@ -15,6 +15,11 @@ function nullable<T extends TSchema>(type: T) {
     return Type.Union([type, Type.Null()]);
 }
 
+/** A whole number from zero up: a count, an index or a time. */
+function count() {
+    return Type.Integer({ minimum: 0 });
+}
+
 /** The id of a client's request: a UUID the client makes. */
 export const RequestId = Type.String({ format: "uuid" });
 export type RequestId = Static<typeof RequestId>;
@@ -34,7 +39,7 @@ export type Address = Static<typeof Address>;
 /** An agent by its hamlet and number (C9). */
 export const AgentRef = object({
     hamlet: Type.String(),
-    number: Type.Integer(),
+    number: count(),
 });
 export type AgentRef = Static<typeof AgentRef>;
 
@@ -51,7 +56,7 @@ export type ChatRef = Static<typeof ChatRef>;
 export const GivePart = request("give-part", {
     upload: Type.String(),
     path: Type.String(),
-    offset: Type.Integer({ minimum: 0 }),
+    offset: count(),
     data: Type.String(),
 });
 export type GivePart = Static<typeof GivePart>;
@@ -90,9 +95,9 @@ export const Change = object({
         { maxItems: 200 },
     ),
     /** Lines of the whole change, those that stay among them. */
-    total: Type.Integer(),
-    added: Type.Integer(),
-    removed: Type.Integer(),
+    total: count(),
+    added: count(),
+    removed: count(),
     /** The lines added and removed, in words. */
     count: Type.String(),
 });
@@ -478,7 +483,7 @@ export type Report = Static<typeof Report>;
 export const Road = object({
     a: AgentRef,
     b: AgentRef,
-    messages: Type.Integer(),
+    messages: count(),
     level: Type.Enum(["overgrown", "dirt", "paved", "rail"]),
     lastFrom: nullable(AgentRef),
 });
@@ -509,7 +514,7 @@ export const TownAt = object({ x: Type.Number(), z: Type.Number() });
 export const Left = object({
     how: Type.Enum(["removed", "merged"]),
     into: nullable(AgentRef),
-    at: Type.Integer(),
+    at: count(),
     by: Type.String(),
     reason: Type.String(),
     words: Type.String(),
@@ -522,6 +527,13 @@ export const ConversationView = object({
     count: Type.Integer(),
     last: nullable(Type.Integer()),
 });
+
+/** A skill's name and what it is for. */
+export const Skill = object({
+    name: Type.String(),
+    description: Type.String(),
+});
+export type Skill = Static<typeof Skill>;
 
 /** A skill on the library's shelf (H33). */
 export const LibrarySkill = object({
@@ -582,7 +594,7 @@ export const Agent = object({
     name: Type.String(),
     purpose: Type.String(),
     /** Its arrival in the hamlet, in milliseconds since the epoch. */
-    since: Type.Integer(),
+    since: count(),
     mayor: Type.Boolean(),
     model: Type.String(),
     /** A conversation of the agent runs or holds a queued item. */
@@ -593,9 +605,9 @@ export const Agent = object({
         doing: Doing,
         doingWords: Type.String(),
         /** Model calls and tool calls begun since it took up its work. */
-        step: Type.Integer(),
+        step: count(),
         /** Tool calls since then that ended in an error. */
-        failures: Type.Integer(),
+        failures: count(),
     }),
     saying: object({ text: Type.String(), thought: Type.Boolean() }),
     spent: object({ ...Amount.properties, cost: Type.String() }),
@@ -613,8 +625,8 @@ const waitFields = {
     about: Type.String(),
     change: nullable(Change),
     answers: Type.Array(Choice),
-    since: Type.Integer(),
-    asked: Type.Integer(),
+    since: count(),
+    asked: count(),
     chat: nullable(ChatRef),
 };
 /** The reason an approval needs a chief's decision. */
@@ -718,9 +730,7 @@ export const State = object({
     /** The chief's command names this server carries out (H26). */
     deeds: Type.Optional(Type.Array(Type.String())),
     /** Shipped skills a chief can give (H25). */
-    starters: Type.Optional(
-        Type.Array(object({ name: Type.String(), description: Type.String() })),
-    ),
+    starters: Type.Optional(Type.Array(Skill)),
 });
 export type State = Static<typeof State>;
 
@@ -755,16 +765,16 @@ export type Changes = Static<typeof Changes>;
 
 /** Model calls of a conversation and what they spent. */
 export const UsageView = object({
-    calls: Type.Integer(),
+    calls: count(),
     /** Calls whose provider reported no tokens. */
-    unreported: Type.Integer(),
-    input: Type.Integer(),
-    cached: Type.Integer(),
-    output: Type.Integer(),
-    reasoning: Type.Integer(),
-    ms: Type.Integer(),
-    micros: Type.Integer(),
-    lastInput: Type.Integer(),
+    unreported: count(),
+    input: count(),
+    cached: count(),
+    output: count(),
+    reasoning: count(),
+    ms: count(),
+    micros: count(),
+    lastInput: count(),
     summary: Type.String(),
 });
 export type UsageView = Static<typeof UsageView>;
@@ -774,7 +784,7 @@ export const Item = object({
     /** `<entryId>:<block>`. */
     id: Type.String(),
     /** Milliseconds since the epoch. */
-    at: Type.Integer(),
+    at: count(),
     kind: Type.Enum([
         "user",
         "assistant",
@@ -795,7 +805,7 @@ export const Item = object({
             summary: Type.String(),
             /** Null while it runs. */
             exit: nullable(Type.Integer()),
-            ms: nullable(Type.Integer()),
+            ms: nullable(count()),
             failure: nullable(Type.String()),
             change: nullable(Change),
         }),
@@ -804,7 +814,7 @@ export const Item = object({
 export type Item = Static<typeof Item>;
 
 /** A conversation's latest tool call, reply or error, in words for a chief. */
-export const LastActivity = object({ what: Type.String(), at: Type.Integer() });
+export const LastActivity = object({ what: Type.String(), at: count() });
 export type LastActivity = Static<typeof LastActivity>;
 
 /** One step of an open chat's transcript, as it happens. */
@@ -824,7 +834,7 @@ export const Op = Type.Union([
         op: Type.Literal("close"),
         item: Type.String(),
         exit: Type.Integer(),
-        ms: nullable(Type.Integer()),
+        ms: nullable(count()),
         failure: nullable(Type.String()),
         /** The completed write's change, computed before it ran. */
         change: Type.Optional(nullable(Change)),
@@ -832,7 +842,7 @@ export const Op = Type.Union([
     object({
         op: Type.Literal("status"),
         working: Type.Boolean(),
-        pending: Type.Integer(),
+        pending: count(),
         last: nullable(LastActivity),
     }),
     object({ op: Type.Literal("usage"), usage: UsageView }),
@@ -863,7 +873,7 @@ export const Transcript = object({
     earlier: nullable(Type.String()),
     last: Type.Optional(nullable(LastActivity)),
     working: Type.Boolean(),
-    pending: Type.Integer(),
+    pending: count(),
     usage: UsageView,
 });
 export type Transcript = Static<typeof Transcript>;
@@ -909,7 +919,7 @@ export const Past = object({
     began: Type.Integer(),
     modified: Type.Integer(),
     messages: Type.Integer(),
-    tokens: Type.Integer(),
+    tokens: count(),
 });
 export type Past = Static<typeof Past>;
 
@@ -928,9 +938,7 @@ export type Listed = Static<typeof Listed>;
 export const Papers = object({
     notes: Type.String(),
     character: Type.String(),
-    skills: Type.Array(
-        object({ name: Type.String(), description: Type.String() }),
-    ),
+    skills: Type.Array(Skill),
 });
 export type Papers = Static<typeof Papers>;
 
@@ -986,115 +994,6 @@ export const ServerMessage = Type.Union(Object.values(FROM_SERVER));
 export type ServerMessage = Static<
     (typeof FROM_SERVER)[keyof typeof FROM_SERVER]
 >;
-
-/** Every named shape of protocol v0. */
-const DEFINITIONS: Record<string, TSchema> = {
-    RequestId,
-    Address,
-    AgentRef,
-    ChatRef,
-    VoteLimits,
-    HamletLimits,
-    Road,
-    Voter,
-    VoteView,
-    TownAt,
-    Left,
-    ConversationView,
-    LibrarySkill,
-    ClosedHamlet,
-    Choice,
-    Amount,
-    Change,
-    Period,
-    Limits,
-    Permission,
-    Grant,
-    Link,
-    Price,
-    Endpoint,
-    LoginMethod,
-    Seen,
-    Hello,
-    Say,
-    Give,
-    GivePart,
-    Offer,
-    Question,
-    Questions,
-    Pick,
-    Answer,
-    Stop,
-    Rewind,
-    New,
-    Resume,
-    Retry,
-    Edit,
-    Open,
-    Close,
-    Login,
-    Check,
-    Read,
-    ClientMessage,
-    Report,
-    Hamlet,
-    Doing,
-    Agent,
-    Wait,
-    WaitDanger,
-    SettingsView,
-    ProviderView,
-    State,
-    Update,
-    Changes,
-    UsageView,
-    Item,
-    Op,
-    Turn,
-    Transcript,
-    Reply,
-    LoginStep,
-    LoginProgress,
-    Past,
-    Listed,
-    Papers,
-    ReadResult,
-    Fault,
-    ServerMessage,
-};
-
-/** Protocol v0 as one JSON Schema document, where each named shape is defined once and referred to. */
-export function protocolSchema(): Record<string, unknown> {
-    const names = new Map(
-        Object.entries(DEFINITIONS).map(([name, schema]) => [
-            JSON.stringify(schema),
-            name,
-        ]),
-    );
-    const refer = (node: unknown, own = false): unknown => {
-        if (typeof node !== "object" || node === null) return node;
-        const name = own ? undefined : names.get(JSON.stringify(node));
-        if (name !== undefined) return { $ref: `#/$defs/${name}` };
-        if (Array.isArray(node)) return node.map((item) => refer(item));
-        return Object.fromEntries(
-            Object.entries(node).map(([key, value]) => [key, refer(value)]),
-        );
-    };
-    return {
-        $schema: "https://json-schema.org/draft/2020-12/schema",
-        title: "Hamlet protocol v0",
-        anyOf: [
-            { $ref: "#/$defs/ClientMessage" },
-            { $ref: "#/$defs/ServerMessage" },
-        ],
-        $defs: Object.fromEntries(
-            Object.entries(DEFINITIONS).map(([name, schema]) => [
-                name,
-                refer(schema, true),
-            ]),
-        ),
-    };
-}
 
 /** Rejected protocol input, correlated only when its request id is a UUID. */
 export type Malformed = { kind: "malformed"; text: string; to?: RequestId };

@@ -14,7 +14,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     let since = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
-        .as_millis() as i64;
+        .as_millis() as u64;
     let mut state = hamlet_testing::realm::state();
     state.chief = "chief".into();
     let mut wait = hamlet_testing::realm::wait("approval-network");

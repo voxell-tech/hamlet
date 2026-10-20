@@ -159,12 +159,10 @@ mod tests {
         );
         app.update();
         assert!(words(&mut app).iter().any(|text| text.starts_with("The library is empty.")));
-        app.world_mut().resource_mut::<Skills>().0.push(
-            v0::PapersSkills {
-                name: "orchard".into(),
-                description: "Tends the trees".into(),
-            },
-        );
+        app.world_mut().resource_mut::<Skills>().0.push(v0::Skill {
+            name: "orchard".into(),
+            description: "Tends the trees".into(),
+        });
         app.update();
         let shown = words(&mut app);
         assert!(shown.iter().any(|text| text == "orchard"));

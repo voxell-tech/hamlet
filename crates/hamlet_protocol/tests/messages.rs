@@ -61,22 +61,22 @@ fn chat() -> ChatRef {
 fn hello_carries_the_version_token_and_optional_seen_state() {
     client(
         ClientMessage::Hello(Hello {
-            v: 0.0,
+            v: V,
             token: "test-token".into(),
             seen: None,
         }),
-        json!({"type": "hello", "v": 0.0, "token": "test-token"}),
+        json!({"type": "hello", "v": 0, "token": "test-token"}),
     );
     client(
         ClientMessage::Hello(Hello {
-            v: 0.0,
+            v: V,
             token: "test-token".into(),
             seen: Some(Seen {
                 epoch: 1,
                 revision: 3,
             }),
         }),
-        json!({"type": "hello", "v": 0.0, "token": "test-token", "seen": {"epoch": 1, "revision": 3}}),
+        json!({"type": "hello", "v": 0, "token": "test-token", "seen": {"epoch": 1, "revision": 3}}),
     );
 }
 

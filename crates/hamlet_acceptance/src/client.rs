@@ -67,7 +67,7 @@ impl Client {
         let mut wire = Wire::open(&server.url).await;
         wire.send_json(&ClientMessage::Hello(Hello {
             token: server.token.clone(),
-            v: 0.0,
+            v: V,
             seen: None,
         }))
         .await;
@@ -229,7 +229,7 @@ impl Client {
             .iter()
             .map(|(path, bytes)| GiveFilesFiles {
                 path: path.to_string(),
-                size: bytes.len() as i64,
+                size: bytes.len() as u64,
             })
             .collect();
         let mut reply = self
@@ -269,7 +269,7 @@ impl Client {
             ClientMessage::GivePart(GivePart {
                 data,
                 id,
-                offset: offset as i64,
+                offset: offset as u64,
                 path: path.into(),
                 upload: upload.into(),
             })

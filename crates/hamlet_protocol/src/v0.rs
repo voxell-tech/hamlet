@@ -28,7 +28,7 @@ pub struct Agent {
     #[serde(rename = "ref")]
     pub ref_: AgentRef,
     pub saying: AgentSaying,
-    pub since: i64,
+    pub since: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skills: Option<Vec<String>>,
     pub spent: AgentSpent,
@@ -39,8 +39,8 @@ pub struct AgentActivity {
     pub doing: Doing,
     #[serde(rename = "doingWords")]
     pub doing_words: String,
-    pub failures: i64,
-    pub step: i64,
+    pub failures: u64,
+    pub step: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -60,7 +60,7 @@ pub struct AgentSpent {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AgentRef {
     pub hamlet: String,
-    pub number: i64,
+    pub number: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -83,13 +83,13 @@ pub struct Answer {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Change {
-    pub added: i64,
+    pub added: u64,
     pub count: String,
     pub created: bool,
     pub lines: Vec<ChangeLines>,
     pub path: String,
-    pub removed: i64,
-    pub total: i64,
+    pub removed: u64,
+    pub total: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -203,9 +203,7 @@ pub enum ClientMessage {
     #[serde(rename = "read")]
     Read(Read),
     #[serde(rename = "move-houses")]
-    MoveHouses {
-        id: RequestId,
-    },
+    MoveHouses(MoveHouses),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -393,7 +391,7 @@ pub enum Give {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GiveFilesFiles {
     pub path: String,
-    pub size: i64,
+    pub size: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -412,7 +410,7 @@ pub enum GiveSkillSkill {
 pub struct GivePart {
     pub data: String,
     pub id: RequestId,
-    pub offset: i64,
+    pub offset: u64,
     pub path: String,
     pub upload: String,
 }
@@ -476,12 +474,12 @@ pub struct Hello {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seen: Option<Seen>,
     pub token: String,
-    pub v: f64,
+    pub v: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Item {
-    pub at: i64,
+    pub at: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub author: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -518,14 +516,20 @@ pub struct ItemTool {
     pub change: Option<Change>,
     pub exit: Option<i64>,
     pub failure: Option<String>,
-    pub ms: Option<i64>,
+    pub ms: Option<u64>,
     pub name: String,
     pub summary: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LastActivity {
+    pub at: u64,
+    pub what: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Left {
-    pub at: i64,
+    pub at: u64,
     pub by: String,
     pub how: LeftHow,
     pub into: Option<AgentRef>,
@@ -754,6 +758,11 @@ pub enum LoginStep {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MoveHouses {
+    pub id: RequestId,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct New {
     pub id: RequestId,
     pub to: Address,
@@ -787,12 +796,12 @@ pub enum Op {
         exit: i64,
         failure: Option<String>,
         item: String,
-        ms: Option<i64>,
+        ms: Option<u64>,
     },
     #[serde(rename = "status")]
     Status {
-        last: Option<OpStatusLast>,
-        pending: i64,
+        last: Option<LastActivity>,
+        pending: u64,
         working: bool,
     },
     #[serde(rename = "usage")]
@@ -802,12 +811,6 @@ pub enum Op {
     #[serde(rename = "reset")]
     Reset {
     },
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct OpStatusLast {
-    pub at: i64,
-    pub what: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -822,13 +825,7 @@ pub struct Open {
 pub struct Papers {
     pub character: String,
     pub notes: String,
-    pub skills: Vec<PapersSkills>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct PapersSkills {
-    pub description: String,
-    pub name: String,
+    pub skills: Vec<Skill>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -840,7 +837,7 @@ pub struct Past {
     pub modified: i64,
     pub number: i64,
     pub title: String,
-    pub tokens: i64,
+    pub tokens: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -864,7 +861,7 @@ pub enum Permission {
 pub enum Pick {
     #[serde(rename = "offer")]
     Offer {
-        index: i64,
+        index: u64,
     },
     #[serde(rename = "words")]
     Words {
@@ -1032,7 +1029,7 @@ pub struct Road {
     #[serde(rename = "lastFrom")]
     pub last_from: Option<AgentRef>,
     pub level: RoadLevel,
-    pub messages: i64,
+    pub messages: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1131,6 +1128,12 @@ pub enum SettingsViewWorkspaceMoveState {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Skill {
+    pub description: String,
+    pub name: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct State {
     pub agents: Vec<Agent>,
     pub chief: String,
@@ -1150,14 +1153,8 @@ pub struct State {
     pub sandbox: String,
     pub settings: SettingsView,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub starters: Option<Vec<StateStarters>>,
+    pub starters: Option<Vec<Skill>>,
     pub waits: Vec<Wait>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct StateStarters {
-    pub description: String,
-    pub name: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1180,20 +1177,14 @@ pub struct Transcript {
     pub items: Vec<Item>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "present")]
-    pub last: Option<Option<TranscriptLast>>,
+    pub last: Option<Option<LastActivity>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub number: Option<i64>,
-    pub pending: i64,
+    pub pending: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub to: Option<RequestId>,
     pub usage: UsageView,
     pub working: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct TranscriptLast {
-    pub at: i64,
-    pub what: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1245,17 +1236,17 @@ pub enum Update {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct UsageView {
-    pub cached: i64,
-    pub calls: i64,
-    pub input: i64,
+    pub cached: u64,
+    pub calls: u64,
+    pub input: u64,
     #[serde(rename = "lastInput")]
-    pub last_input: i64,
-    pub micros: i64,
-    pub ms: i64,
-    pub output: i64,
-    pub reasoning: i64,
+    pub last_input: u64,
+    pub micros: u64,
+    pub ms: u64,
+    pub output: u64,
+    pub reasoning: u64,
     pub summary: String,
-    pub unreported: i64,
+    pub unreported: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1314,35 +1305,35 @@ pub enum Wait {
         about: String,
         agent: Option<AgentRef>,
         answers: Vec<Choice>,
-        asked: i64,
+        asked: u64,
         by: String,
         change: Option<Change>,
         chat: Option<ChatRef>,
         danger: WaitDanger,
         id: String,
         says: String,
-        since: i64,
+        since: u64,
     },
     #[serde(rename = "fault")]
     Fault {
         about: String,
         agent: Option<AgentRef>,
         answers: Vec<Choice>,
-        asked: i64,
+        asked: u64,
         by: String,
         change: Option<Change>,
         chat: Option<ChatRef>,
         danger: (),
         id: String,
         says: String,
-        since: i64,
+        since: u64,
     },
     #[serde(rename = "question")]
     Question {
         about: String,
         agent: Option<AgentRef>,
         answers: Vec<Choice>,
-        asked: i64,
+        asked: u64,
         by: String,
         change: Option<Change>,
         chat: Option<ChatRef>,
@@ -1351,21 +1342,21 @@ pub enum Wait {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         questions: Option<Questions>,
         says: String,
-        since: i64,
+        since: u64,
     },
     #[serde(rename = "objection")]
     Objection {
         about: String,
         agent: Option<AgentRef>,
         answers: Vec<Choice>,
-        asked: i64,
+        asked: u64,
         by: String,
         change: Option<Change>,
         chat: Option<ChatRef>,
         danger: (),
         id: String,
         says: String,
-        since: i64,
+        since: u64,
     },
 }
 
@@ -1384,6 +1375,9 @@ pub enum WaitDanger {
     #[serde(rename = "command")]
     Command,
 }
+
+/// The value of every `v` field.
+pub const V: u64 = 0;
 
 fn present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where

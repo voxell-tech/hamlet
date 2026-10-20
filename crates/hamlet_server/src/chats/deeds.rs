@@ -364,7 +364,7 @@ pub(super) async fn rewind(
     let since = line
         .data
         .get("at")
-        .and_then(|t| t.as_i64())
+        .and_then(|t| t.as_u64())
         .unwrap_or(entry.at);
     let kept = &items[..target];
     let mut turns = 0;
@@ -395,7 +395,7 @@ pub(super) async fn rewind(
         &agent,
         &chief,
         "rewound",
-        since,
+        i64::try_from(since)?,
         Some(session),
         super::now(),
     )?;

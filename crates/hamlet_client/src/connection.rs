@@ -397,7 +397,7 @@ async fn connect(
             tokio_tungstenite::connect_async(&server.url).await
         {
             let hello = v0::ClientMessage::Hello(v0::Hello {
-                v: 0.0,
+                v: v0::V,
                 token: server.token.clone(),
                 seen: seen.borrow().clone(),
             });

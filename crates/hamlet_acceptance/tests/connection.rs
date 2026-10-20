@@ -161,7 +161,7 @@ async fn answers_malformed_messages_with_faults_and_stays_open() {
     assert_eq!(reply.text, "Nothing waits for you.");
     let hello = ClientMessage::Hello(Hello {
         token: s.server.token.clone(),
-        v: 0.0,
+        v: V,
         seen: None,
     });
     chief.send(hello).await;
