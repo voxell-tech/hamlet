@@ -11,7 +11,8 @@ import {
 import { afterEach, expect, test } from "vitest";
 import { readScript, type Script, scriptedProvider } from "../src/faux.ts";
 import type { Usage } from "../src/link.ts";
-import { allowedStreams } from "../src/models.ts";
+import { allowedStreams, selectedModel } from "../src/models.ts";
+import { providers } from "../src/provider-set.ts";
 
 const folders: string[] = [];
 
@@ -189,4 +190,49 @@ test("keeps no provider output when the server cannot scrub it", async () => {
     expect(answer.errorMessage).toBe(
         "The server could not scrub model output.",
     );
+});
+
+test("a selection is made as its provider lists the model, at the server's price and window", () => {
+    const available = providers();
+    const listed = available.find((p) => p.id === "openai")?.getModels();
+    const [called, other] = listed ?? [];
+    if (called === undefined || other === undefined)
+        throw new Error("No OpenAI models");
+    const price = { input: 3, output: 7, cacheRead: 0.5, cacheWrite: 4 };
+    const switched = selectedModel(
+        called,
+        {
+            model: { provider: "openai", id: other.id },
+            contextWindow: 1234,
+            price,
+        },
+        available,
+    );
+    expect(switched).toMatchObject({
+        id: other.id,
+        api: other.api,
+        baseUrl: other.baseUrl,
+        contextWindow: 1234,
+        maxTokens: other.maxTokens,
+        cost: price,
+    });
+    const endpoint = selectedModel(
+        called,
+        {
+            model: {
+                provider: "local",
+                id: "small",
+                baseUrl: "http://localhost:8080/v1",
+            },
+            price,
+        },
+        available,
+    );
+    expect(endpoint).toMatchObject({
+        provider: "local",
+        id: "small",
+        api: "openai-completions",
+        baseUrl: "http://localhost:8080/v1",
+        cost: price,
+    });
 });

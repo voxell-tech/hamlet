@@ -82,7 +82,19 @@ test("a runtime speaks only the link's messages from hello to an answer, and exi
                 });
                 break;
             case "attempt":
-                send({ type: "allowance", re });
+                send({
+                    type: "allowance",
+                    re,
+                    selection: {
+                        model: { provider: "faux", id: "faux-1" },
+                        price: {
+                            input: 0,
+                            output: 0,
+                            cacheRead: 0,
+                            cacheWrite: 0,
+                        },
+                    },
+                });
                 break;
             case "usage":
                 send({ type: "charged", re });

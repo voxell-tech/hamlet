@@ -13,6 +13,8 @@ mod credentials;
 #[rustfmt::skip]
 pub mod link;
 mod process;
+mod session;
+mod sync;
 #[cfg(test)]
 mod tests;
 pub mod tools;
@@ -26,14 +28,16 @@ pub use bindings::{
     Binding, BindingId, DEFAULT_HARNESS, Input, Standing,
 };
 use link::{
-    Capability, Diagnostic, HelloStore, Item, LinkError, Mark,
-    ModelRef, Partial, RuntimeMessage, Section, ServerMessage,
-    ToolSpec,
+    Capability, Diagnostic, HelloStore, Item, Mark, ModelRef,
+    Partial, RuntimeMessage, Section, ServerMessage, ToolSpec,
 };
+pub use process::Pi;
 use process::{Launch, Process, Received};
 use serde_json::Value;
+use session::{Pending, Session, id_of, parse};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
+use crate::credentials::Credentials;
 use crate::record::AgentRef;
 use crate::{Layout, RuntimeInstance, Store};
 
@@ -61,34 +65,28 @@ const STOP_GRACE: Duration = Duration::from_secs(5);
 /// Entries asked for at once when catching up on a conversation.
 const SYNC_PAGE: i64 = 200;
 
+/// The kind of an entry written for people alone.
+const NOTICE: &str = "hamlet.notice";
+
 /// How this server starts runtimes and what it gives them.
 #[derive(Clone, Debug)]
 pub struct Config {
-    pub node: PathBuf,
-    /// The pi harness's entry, `harnesses/pi/src/main.ts`.
-    pub entry: PathBuf,
-    /// A faux script in place of real models.
-    pub faux: Option<PathBuf>,
+    pub pi: Pi,
     /// The model new conversations run, if one is set.
     pub model: Option<ModelRef>,
-    /// The key `HAMLET_API_KEY` gives, held in memory alone.
-    pub api_key: Option<String>,
     pub tools: Vec<ToolSpec>,
 }
 
 impl Config {
-    /// The configuration the environment gives: `HAMLET_NODE`,
-    /// `HAMLET_PI_HARNESS`, `HAMLET_MODEL`, `HAMLET_BASE_URL` and
-    /// `HAMLET_API_KEY`, with `faux` in place of a model when given.
+    /// The configuration the environment gives: the pi harness's,
+    /// `HAMLET_MODEL` and `HAMLET_BASE_URL`, with `faux` in place of
+    /// a model when given.
     pub fn from_env(faux: Option<PathBuf>) -> Result<Self> {
         let set =
             |name| std::env::var(name).ok().filter(|v| !v.is_empty());
-        let model = if faux.is_some() {
-            Some(ModelRef {
-                provider: "faux".into(),
-                id: "faux-1".into(),
-                base_url: None,
-            })
+        let pi = Pi::from_env(faux)?;
+        let model = if let Some(faux) = pi.faux_model() {
+            Some(faux)
         } else if let Some(name) = set("HAMLET_MODEL") {
             let Some((provider, id)) = name
                 .split_once("::")
@@ -104,32 +102,9 @@ impl Config {
         } else {
             None
         };
-        let entry = if let Some(path) = set("HAMLET_PI_HARNESS") {
-            PathBuf::from(path)
-        } else {
-            let executable = std::env::current_exe()?;
-            let directory = executable
-                .parent()
-                .context("Cannot locate the server's directory")?;
-            [
-                directory.join("pi/src/main.ts"),
-                directory.join("../Resources/pi/src/main.ts"),
-            ]
-            .into_iter()
-            .find(|path| path.is_file())
-            .unwrap_or_else(|| {
-                Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("../../harnesses/pi/src/main.ts")
-            })
-        };
         Ok(Self {
-            node: set("HAMLET_NODE")
-                .unwrap_or_else(|| "node".into())
-                .into(),
-            entry,
-            faux,
+            pi,
             model,
-            api_key: set("HAMLET_API_KEY"),
             tools: crate::tools::specs()
                 .into_iter()
                 .chain(crate::chats::specs())
@@ -260,6 +235,26 @@ pub struct Re {
     index: usize,
     generation: u64,
     id: String,
+    wake: Wake,
+}
+
+/// What ends the wait of a call answered [`Answer::Waiting`].
+#[derive(Clone, Debug, PartialEq)]
+enum Wake {
+    /// A chief's answer to the operation `key`.
+    Operation(String),
+    /// A chief's ruling on what holds the turns of a conversation.
+    Turn(BindingId),
+}
+
+impl Wake {
+    /// The key the runtime is told the wait ends by.
+    fn key(&self) -> String {
+        match self {
+            Self::Operation(key) => key.clone(),
+            Self::Turn(binding) => format!("turn:{}", binding.0),
+        }
+    }
 }
 
 /// The host's answer to a [`Call`].
@@ -306,19 +301,6 @@ enum Inner {
     Restart(usize),
 }
 
-/// What a request to a runtime was for, until its reply.
-enum Pending {
-    Create(BindingId),
-    Submit(BindingId, String),
-    Cancel(BindingId),
-    History(BindingId),
-    /// A page read to catch up on entries kept while the server did
-    /// not hear of them.
-    Sync(BindingId),
-    /// The tools a conversation offers, as they were told.
-    Configure(BindingId, String),
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
     Down,
@@ -336,10 +318,6 @@ struct Runtime {
     restart_at: Option<Instant>,
     failures: u32,
     ready_since: Option<Instant>,
-    creating: HashSet<BindingId>,
-    cancelling: HashSet<BindingId>,
-    submitting: HashSet<(BindingId, String)>,
-    configuring: HashSet<BindingId>,
 }
 
 /// The runtimes of one home and their link to this server.
@@ -350,8 +328,9 @@ pub struct Harnesses {
     runtimes: Vec<Runtime>,
     sender: UnboundedSender<Received>,
     receiver: UnboundedReceiver<Received>,
-    next: u64,
-    pending: HashMap<String, (usize, Pending)>,
+    session: Session,
+    /// The turns told to wait for a chief's ruling, by runtime.
+    held_turns: HashSet<(usize, BindingId)>,
     provider_requests: HashMap<usize, Vec<link::ProviderRequest>>,
     credentials: credentials::Authority,
     /// Set once the harnesses close, so no runtime starts again.
@@ -379,8 +358,8 @@ impl Harnesses {
             runtimes: Vec::new(),
             sender,
             receiver,
-            next: 1,
-            pending: HashMap::new(),
+            session: Session::default(),
+            held_turns: HashSet::new(),
             provider_requests: HashMap::new(),
             credentials: credentials::Authority::default(),
             closing: false,
@@ -512,13 +491,13 @@ impl Harnesses {
         }
     }
 
-    /// Handles `event` with the host's current known secrets,
-    /// answering the runtime that sent it.
+    /// Handles `event` with the host's credentials, answering the
+    /// runtime that sent it.
     pub async fn handle(
         &mut self,
         store: &mut Store,
         event: Event,
-        secrets: &[String],
+        credentials: &Credentials,
     ) -> Result<Vec<Notice>> {
         match event.0 {
             Inner::Restart(index) => {
@@ -537,7 +516,7 @@ impl Harnesses {
                                 store,
                                 received.runtime,
                                 &line,
-                                secrets,
+                                credentials,
                             )
                             .await
                         {
@@ -653,6 +632,12 @@ impl Harnesses {
         {
             return;
         }
+        if let (Answer::Waiting(_), Wake::Turn(binding)) =
+            (&answer, &re.wake)
+        {
+            self.held_turns.insert((re.index, *binding));
+        }
+        let key = re.wake.key();
         let re_id = re.id;
         self.send(re.index, |v, id| {
             let re = re_id;
@@ -667,6 +652,7 @@ impl Harnesses {
                 Answer::Waiting(words) => {
                     ServerMessage::Waiting(link::Waiting {
                         id,
+                        key,
                         re,
                         v,
                         words,
@@ -756,6 +742,24 @@ impl Harnesses {
         }
     }
 
+    /// Tells every turn waiting for a chief's ruling to ask again,
+    /// once one was given.
+    pub async fn wake_turns(&mut self) {
+        for (index, binding) in std::mem::take(&mut self.held_turns) {
+            if self.runtimes[index].phase == Phase::Ready {
+                let key = Wake::Turn(binding).key();
+                self.send(index, |v, id| {
+                    ServerMessage::Answered(link::Answered {
+                        id,
+                        key,
+                        v,
+                    })
+                })
+                .await;
+            }
+        }
+    }
+
     /// Stops the running turn of `binding` and drops its queue:
     /// inputs not yet admitted are dropped here first.
     pub async fn cancel(
@@ -772,32 +776,10 @@ impl Harnesses {
             return Ok(());
         }
         // A runtime that is down is told when it is ready again.
-        self.runtimes[index].cancelling.remove(&binding);
         if let Some(conversation) = bound.conversation {
             self.send_cancel(index, binding, conversation).await;
         }
         Ok(())
-    }
-
-    async fn send_cancel(
-        &mut self,
-        index: usize,
-        binding: BindingId,
-        conversation: String,
-    ) {
-        if !self.runtimes[index].cancelling.insert(binding) {
-            return;
-        }
-        let id = self
-            .send(index, |v, id| {
-                ServerMessage::Cancel(link::Cancel {
-                    conversation,
-                    id,
-                    v,
-                })
-            })
-            .await;
-        self.pending.insert(id, (index, Pending::Cancel(binding)));
     }
 
     /// Asks for a page of the transcript of `binding` before the
@@ -815,18 +797,16 @@ impl Harnesses {
         else {
             bail!("The conversation is not made yet.");
         };
-        let id = self
-            .send(index, |v, id| {
-                ServerMessage::History(link::History {
-                    before,
-                    conversation,
-                    id,
-                    limit,
-                    v,
-                })
+        self.request(index, Pending::History(binding), |v, id| {
+            ServerMessage::History(link::History {
+                before,
+                conversation,
+                id,
+                limit,
+                v,
             })
-            .await;
-        self.pending.insert(id, (index, Pending::History(binding)));
+        })
+        .await;
         Ok(())
     }
 
@@ -877,10 +857,6 @@ impl Harnesses {
             restart_at: None,
             failures: 0,
             ready_since: None,
-            creating: HashSet::new(),
-            cancelling: HashSet::new(),
-            submitting: HashSet::new(),
-            configuring: HashSet::new(),
         });
         self.runtimes.len() - 1
     }
@@ -904,26 +880,19 @@ impl Harnesses {
         store: &Store,
         index: usize,
     ) -> Result<Vec<Notice>> {
-        let row = store
-            .runtimes()?
-            .into_iter()
-            .find(|row| row.id == self.runtimes[index].id)
-            .context("a runtime the store does not keep")?;
+        let row = store.runtime(&self.runtimes[index].id)?;
         let folder = self.layout.harness(&row.id);
         std::fs::create_dir_all(&folder).with_context(|| {
             format!("creating {}", folder.display())
         })?;
-        let store_path = folder.join("pi.sqlite");
         let runtime = &mut self.runtimes[index];
         runtime.generation += 1;
         let process = Process::start(
             &Launch {
-                node: &self.config.node,
-                entry: &self.config.entry,
+                pi: &self.config.pi,
                 id: &runtime.id,
-                store: &store_path,
+                store: &Pi::store(&folder),
                 fresh: !row.begun,
-                faux: self.config.faux.as_deref(),
             },
             index,
             runtime.generation,
@@ -957,11 +926,8 @@ impl Harnesses {
             Some(process) => process.stop(STOP_GRACE).await,
             None => String::from("gone"),
         };
-        runtime.creating.clear();
-        runtime.cancelling.clear();
-        runtime.submitting.clear();
-        runtime.configuring.clear();
-        self.pending.retain(|_, (at, _)| *at != index);
+        self.session.forget(index);
+        self.held_turns.retain(|(at, _)| *at != index);
         let closing = self.closing;
         let runtime = &mut self.runtimes[index];
         let restart_in = if runtime.phase == Phase::Refused {
@@ -991,7 +957,7 @@ impl Harnesses {
         store: &mut Store,
         index: usize,
         line: &str,
-        secrets: &[String],
+        credentials: &Credentials,
     ) -> Result<Vec<Notice>> {
         let message = match parse(line) {
             Ok(message) => message,
@@ -1033,133 +999,28 @@ impl Harnesses {
                 Ok(Vec::new())
             }
             RuntimeMessage::Created(created) => {
-                let Some((_, Pending::Create(binding))) =
-                    self.pending.remove(&created.re)
-                else {
-                    return Ok(Vec::new());
-                };
-                self.runtimes[index].creating.remove(&binding);
-                let row = store
-                    .runtimes()?
-                    .into_iter()
-                    .find(|row| row.id == self.runtimes[index].id);
-                let (adapter, version) = row
-                    .map(|row| {
-                        (
-                            row.adapter.unwrap_or_default(),
-                            row.version.unwrap_or_default(),
-                        )
-                    })
-                    .unwrap_or_default();
-                store.conversation_made(
-                    binding,
-                    &created.conversation,
-                    &adapter,
-                    &version,
-                )?;
-                self.flush(store, index, false).await?;
-                Ok(vec![Notice::Created { binding }])
+                self.created(store, index, created).await
             }
             RuntimeMessage::Admitted(admitted) => {
-                let Some((_, Pending::Submit(binding, request))) =
-                    self.pending.remove(&admitted.re)
-                else {
-                    return Ok(Vec::new());
-                };
-                self.runtimes[index]
-                    .submitting
-                    .remove(&(binding, request.clone()));
-                let status = match admitted.status {
-                    link::AdmittedStatus::Queued => "queued",
-                    link::AdmittedStatus::Placed => "placed",
-                    link::AdmittedStatus::Done => "done",
-                    link::AdmittedStatus::Unanswered => "unanswered",
-                };
-                store.input_stands(
-                    binding,
-                    &request,
-                    Some(&admitted.submission),
-                    status,
-                    admitted.reason.as_deref(),
-                    admitted.detail.as_ref(),
-                )?;
-                let standing = store
-                    .standing(binding, &request)?
-                    .context("an admitted input")?;
-                Ok(vec![Notice::Admitted {
-                    binding,
-                    request,
-                    standing,
-                }])
+                self.admitted(store, admitted)
             }
             RuntimeMessage::Settled(settled) => {
-                let runtime = &self.runtimes[index].id;
-                let Some(binding) =
-                    store.bound(runtime, &settled.conversation)?
-                else {
-                    return Ok(Vec::new());
-                };
-                let status = match settled.status {
-                    link::SettledStatus::Done => "done",
-                    link::SettledStatus::Unanswered => "unanswered",
-                };
-                store.input_stands(
-                    binding.id,
-                    &settled.request,
-                    None,
-                    status,
-                    settled.reason.as_deref(),
-                    settled.detail.as_ref(),
-                )?;
-                // An input this server never kept, such as one the
-                // runtime made itself, ends unheard of.
-                let Some(standing) =
-                    store.standing(binding.id, &settled.request)?
-                else {
-                    return Ok(Vec::new());
-                };
-                Ok(vec![Notice::Settled {
-                    binding: binding.id,
-                    request: settled.request,
-                    standing,
-                }])
+                self.settled(store, index, settled)
             }
             RuntimeMessage::Cancelled(cancelled) => {
-                let Some((_, Pending::Cancel(binding))) =
-                    self.pending.remove(&cancelled.re)
-                else {
-                    return Ok(Vec::new());
-                };
-                self.runtimes[index].cancelling.remove(&binding);
-                store.cancelled(binding)?;
-                self.flush(store, index, true).await?;
-                Ok(vec![Notice::Cancelled { binding }])
+                self.cancelled(store, index, cancelled).await
             }
             RuntimeMessage::Configured(configured) => {
-                let Some((_, Pending::Configure(binding, tools))) =
-                    self.pending.remove(&configured.re)
-                else {
-                    return Ok(Vec::new());
-                };
-                self.runtimes[index].configuring.remove(&binding);
-                store.tools_told(binding, &tools)?;
-                self.flush(store, index, false).await?;
-                Ok(Vec::new())
+                self.configured(store, index, configured).await
             }
             RuntimeMessage::Page(page) => {
-                match self.pending.remove(&page.re) {
-                    Some((_, Pending::History(binding))) => {
-                        Ok(vec![Notice::Page {
-                            binding,
-                            items: page.items,
-                            earlier: page.earlier,
-                        }])
-                    }
-                    Some((_, Pending::Sync(binding))) => {
-                        self.synced(store, index, binding, page).await
-                    }
-                    _ => Ok(Vec::new()),
-                }
+                self.page(store, index, page).await
+            }
+            RuntimeMessage::Kept(kept) => {
+                self.kept(store, index, kept)
+            }
+            RuntimeMessage::Live(live) => {
+                self.live(store, index, live)
             }
             RuntimeMessage::Statuses(_) => Ok(Vec::new()),
             RuntimeMessage::ProviderResult(result) => {
@@ -1240,96 +1101,15 @@ impl Harnesses {
                 .await
             }
             RuntimeMessage::Attempt(attempt) => {
-                let Some(binding) = self
-                    .conversation(
-                        store,
-                        index,
-                        &attempt.conversation,
-                        &attempt.id,
-                    )
-                    .await?
-                else {
-                    return Ok(Vec::new());
-                };
-                let task = crate::society::task_of(
-                    store,
-                    &binding,
-                    attempt.task.as_deref(),
-                )?;
-                let selected = crate::models::choice(
-                    store,
-                    self.layout.root(),
-                    &binding,
-                    self.config.faux.is_some(),
-                )?;
-                let selected_ref = ModelRef {
-                    provider: selected["provider"]
-                        .as_str()
-                        .unwrap_or(&attempt.model.provider)
-                        .into(),
-                    id: selected["id"]
-                        .as_str()
-                        .unwrap_or(&attempt.model.id)
-                        .into(),
-                    base_url: selected["baseUrl"]
-                        .as_str()
-                        .map(String::from),
-                };
-                if let Some(stop) = answers::attempt(
-                    store,
-                    &binding,
-                    &attempt.key,
-                    &selected_ref,
-                    task.as_deref(),
-                    selected.get("cost"),
-                    now(),
-                )? {
-                    let re = attempt.id;
-                    // A cap of spend ends the turn as stopped, with
-                    // its words kept for the chief.
-                    let notice =
-                        stop.spend.then(|| notice(&stop.words));
-                    let words = stop.words;
-                    self.send(index, |v, id| {
-                        ServerMessage::Stopped(link::Stopped {
-                            v,
-                            id,
-                            re,
-                            words,
-                            notice,
-                        })
-                    })
-                    .await;
-                    return Ok(Vec::new());
-                }
-                self.credentials.grant(
-                    index,
-                    &attempt.key,
-                    &selected_ref.provider,
-                );
-                let credential =
-                    self.credential(&selected_ref.provider);
-                let model = selected
-                    .as_object()
-                    .map(|m| m.clone().into_iter().collect());
-                let re = attempt.id;
-                self.send(index, |v, id| {
-                    ServerMessage::Allowance(link::Allowance {
-                        credential,
-                        model,
-                        id,
-                        re,
-                        v,
-                    })
-                })
-                .await;
-                Ok(vec![Notice::Attempted {
-                    binding: binding.id,
-                }])
+                self.allow_attempt(store, index, attempt, credentials)
+                    .await
+            }
+            RuntimeMessage::Usage(report) => {
+                self.charge_usage(store, index, report).await
             }
             RuntimeMessage::Scrub(mut request) => {
                 crate::scrub::scrub_value(
-                    secrets,
+                    &credentials.secrets(),
                     &mut request.value,
                 );
                 self.send(index, |v, id| {
@@ -1343,94 +1123,10 @@ impl Harnesses {
                 .await;
                 Ok(Vec::new())
             }
-            RuntimeMessage::Usage(report) => {
-                self.credentials.finish(index, &report.key);
-                let runtime = self.runtimes[index].id.clone();
-                let charged = answers::charge(
-                    store,
-                    &runtime,
-                    &report.key,
-                    &report.usage,
-                    now(),
-                )?;
-                let re = report.id;
-                match charged {
-                    Some(()) => {
-                        self.send(index, |v, id| {
-                            ServerMessage::Charged(link::Charged {
-                                id,
-                                re,
-                                v,
-                            })
-                        })
-                        .await;
-                    }
-                    None => {
-                        self.error(
-                            index,
-                            Some(re),
-                            link::ErrorCode::Failed,
-                            "No model call was allowed under this \
-                             key.",
-                        )
-                        .await;
-                    }
-                }
-                Ok(Vec::new())
-            }
-            RuntimeMessage::Kept(kept) => {
-                let runtime = &self.runtimes[index].id;
-                let Some(binding) =
-                    store.bound(runtime, &kept.conversation)?
-                else {
-                    return Ok(Vec::new());
-                };
-                Ok(if store.keep_item(binding.id, &kept.item)? {
-                    vec![Notice::Kept {
-                        binding: binding.id,
-                        item: kept.item,
-                    }]
-                } else {
-                    Vec::new()
-                })
-            }
-            RuntimeMessage::Live(live) => {
-                let runtime = &self.runtimes[index].id;
-                Ok(
-                    match store.bound(runtime, &live.conversation)? {
-                        Some(binding) => vec![Notice::Live {
-                            binding: binding.id,
-                            running: live.running,
-                            pending: live.pending,
-                            partial: live.partial,
-                        }],
-                        None => Vec::new(),
-                    },
-                )
-            }
             RuntimeMessage::Error(error) => {
-                if let Some(re) = &error.re
-                    && let Some((_, pending)) =
-                        self.pending.remove(re)
-                {
-                    let runtime = &mut self.runtimes[index];
-                    match pending {
-                        Pending::Create(binding) => {
-                            runtime.creating.remove(&binding);
-                        }
-                        Pending::Submit(binding, request) => {
-                            runtime
-                                .submitting
-                                .remove(&(binding, request));
-                        }
-                        Pending::Cancel(binding) => {
-                            runtime.cancelling.remove(&binding);
-                        }
-                        Pending::Configure(binding, _) => {
-                            runtime.configuring.remove(&binding);
-                        }
-                        Pending::History(_) | Pending::Sync(_) => {}
-                    }
+                // What the request was for is no longer in flight.
+                if let Some(re) = &error.re {
+                    self.session.reply(re);
                 }
                 Ok(vec![self.fault(index, error.message)])
             }
@@ -1444,13 +1140,12 @@ impl Harnesses {
         hello: link::Hello,
     ) -> Result<Vec<Notice>> {
         let id = self.runtimes[index].id.clone();
-        let row = store
-            .runtimes()?
-            .into_iter()
-            .find(|row| row.id == id)
-            .context("a runtime the store does not keep")?;
-        let store_path = self.layout.harness(&id).join("pi.sqlite");
-        let refusal = refusal(&hello, &row, &store_path);
+        let row = store.runtime(&id)?;
+        let refusal = refusal(
+            &hello,
+            &row,
+            &Pi::store(&self.layout.harness(&id)),
+        );
         let re = hello.id;
         if let Some(words) = refusal {
             self.runtimes[index].phase = Phase::Refused;
@@ -1474,9 +1169,12 @@ impl Harnesses {
             .chain(&self.hand_tools)
             .cloned()
             .collect();
+        let choices = self.choices(store)?;
         let mut windows = BTreeMap::new();
         for binding in store.bindings_of(&id)? {
-            if let Some(window) = self.window(store, &binding)? {
+            if let Some(window) =
+                choices.select(store, &binding)?.context_window
+            {
                 windows.insert(binding.id.0.to_string(), window);
             }
         }
@@ -1504,190 +1202,6 @@ impl Harnesses {
             }
         }
         Ok(vec![Notice::Ready { runtime: id }])
-    }
-
-    /// Sends what `index` is owed: conversations to make, then each
-    /// conversation's kept inputs in order, and when `resync` also
-    /// those admitted whose end was not heard, which answer again.
-    async fn flush(
-        &mut self,
-        store: &mut Store,
-        index: usize,
-        resync: bool,
-    ) -> Result<()> {
-        if self.runtimes[index].phase != Phase::Ready {
-            return Ok(());
-        }
-        for request in
-            self.provider_requests.remove(&index).unwrap_or_default()
-        {
-            if let Some(process) =
-                self.runtimes[index].process.as_mut()
-            {
-                process
-                    .write(&serde_json::to_string(
-                        &ServerMessage::ProviderRequest(request),
-                    )?)
-                    .await;
-            }
-        }
-        let runtime_id = self.runtimes[index].id.clone();
-        for binding in store.bindings_of(&runtime_id)? {
-            let Some(conversation) = binding.conversation.clone()
-            else {
-                if self.runtimes[index].creating.insert(binding.id) {
-                    self.make(store, index, &binding).await?;
-                }
-                continue;
-            };
-            // No later input reaches pi until the cancel is durably
-            // acknowledged.
-            if store.cancelling(binding.id)? {
-                self.send_cancel(
-                    index,
-                    binding.id,
-                    conversation.clone(),
-                )
-                .await;
-                continue;
-            }
-            // The tools a conversation offers reach pi before the
-            // inputs kept after they changed.
-            if let Some(tools) = store.tools_owed(binding.id)? {
-                if self.runtimes[index].configuring.insert(binding.id)
-                {
-                    let told = serde_json::to_string(&tools)?;
-                    let id = self
-                        .send(index, |v, id| {
-                            ServerMessage::Configure(
-                                link::Configure {
-                                    conversation: conversation
-                                        .clone(),
-                                    id,
-                                    tools,
-                                    v,
-                                },
-                            )
-                        })
-                        .await;
-                    self.pending.insert(
-                        id,
-                        (index, Pending::Configure(binding.id, told)),
-                    );
-                }
-                continue;
-            }
-            for owed in store.owed(binding.id, resync)? {
-                let request = owed.request.clone();
-                if !self.runtimes[index]
-                    .submitting
-                    .insert((binding.id, request.clone()))
-                {
-                    continue;
-                }
-                let window = self.window(store, &binding)?;
-                let conversation = conversation.clone();
-                let id = self
-                    .send(index, |v, id| {
-                        if owed.write {
-                            ServerMessage::Write(link::Write {
-                                boundary: owed
-                                    .boundary
-                                    .then_some(true),
-                                conversation,
-                                id,
-                                mark: owed.mark.unwrap_or(Mark {
-                                    data: BTreeMap::new(),
-                                    kind: "hamlet.notice".into(),
-                                }),
-                                request: owed.request,
-                                v,
-                            })
-                        } else {
-                            ServerMessage::Submit(link::Submit {
-                                content: owed.content,
-                                conversation,
-                                window,
-                                id,
-                                mark: owed.mark,
-                                request: owed.request,
-                                steer: owed.steer,
-                                v,
-                            })
-                        }
-                    })
-                    .await;
-                self.pending.insert(
-                    id,
-                    (index, Pending::Submit(binding.id, request)),
-                );
-            }
-        }
-        Ok(())
-    }
-
-    fn window(
-        &self,
-        store: &Store,
-        binding: &Binding,
-    ) -> Result<Option<i64>> {
-        Ok(crate::models::choice(
-            store,
-            self.layout.root(),
-            binding,
-            self.config.faux.is_some(),
-        )?["contextWindow"]
-            .as_i64()
-            .filter(|window| *window > 0))
-    }
-
-    /// Asks the runtime to make the conversation of `binding`: a new
-    /// one, or a copy of the one it forks.
-    async fn make(
-        &mut self,
-        store: &Store,
-        index: usize,
-        binding: &Binding,
-    ) -> Result<()> {
-        let key = binding.id.0.to_string();
-        let fork = match (binding.fork_of, &binding.fork_at) {
-            (Some(parent), Some(at)) => Some((
-                self.bound(store, parent)?
-                    .conversation
-                    .context("a fork of a conversation not made")?,
-                at.clone(),
-            )),
-            _ => None,
-        };
-        let agent = format!(
-            "{}:{}",
-            binding.agent.hamlet, binding.agent.number
-        );
-        let errand = binding.errand;
-        let model = binding.model.clone();
-        let message = move |v, id| match fork {
-            Some((conversation, at)) => {
-                ServerMessage::Fork(link::Fork {
-                    at,
-                    conversation,
-                    id,
-                    key,
-                    v,
-                })
-            }
-            None => ServerMessage::Create(link::Create {
-                agent,
-                errand,
-                id,
-                key,
-                model,
-                v,
-            }),
-        };
-        let id = self.send(index, message).await;
-        self.pending
-            .insert(id, (index, Pending::Create(binding.id)));
-        Ok(())
     }
 
     /// The binding of the conversation a runtime names, or an error
@@ -1731,10 +1245,19 @@ impl Harnesses {
         else {
             return Ok(Vec::new());
         };
+        let wake = match &call {
+            Call::Allow { key, .. } | Call::Operation { key, .. } => {
+                Wake::Operation(key.clone())
+            }
+            Call::Prompt { .. } | Call::Yield { .. } => {
+                Wake::Turn(binding.id)
+            }
+        };
         let re = Re {
             index,
             generation: self.runtimes[index].generation,
             id,
+            wake,
         };
         Ok(vec![Notice::Call {
             binding: binding.id,
@@ -1743,134 +1266,11 @@ impl Harnesses {
         }])
     }
 
-    /// Asks for the entries of `conversation` before `before`, to
-    /// keep those the server lacks.
-    async fn sync(
-        &mut self,
-        index: usize,
-        binding: BindingId,
-        conversation: String,
-        before: Option<String>,
-    ) {
-        let id = self
-            .send(index, |v, id| {
-                ServerMessage::History(link::History {
-                    before,
-                    conversation,
-                    id,
-                    limit: SYNC_PAGE,
-                    v,
-                })
-            })
-            .await;
-        self.pending.insert(id, (index, Pending::Sync(binding)));
-    }
-
-    /// Keeps the entries of a page read to catch up, asking for the
-    /// page before it until one holds an entry already kept.
-    async fn synced(
-        &mut self,
-        store: &mut Store,
-        index: usize,
-        binding: BindingId,
-        page: link::Page,
-    ) -> Result<Vec<Notice>> {
-        let mut known = false;
-        let mut notices = Vec::new();
-        for item in page.items.iter() {
-            if store.has_item(binding, &item.entry)? {
-                known = true;
-            } else if store.keep_item(binding, item)? {
-                notices.push(Notice::Kept {
-                    binding,
-                    item: item.clone(),
-                });
-            }
-        }
-        if page.earlier
-            && !known
-            && let (Some(first), Some(conversation)) = (
-                page.items.first(),
-                self.bound(store, binding)?.conversation,
-            )
-        {
-            let before = first.entry.clone();
-            self.sync(index, binding, conversation, Some(before))
-                .await;
-        }
-        Ok(notices)
-    }
-
-    async fn error(
-        &mut self,
-        index: usize,
-        re: Option<String>,
-        code: link::ErrorCode,
-        words: &str,
-    ) {
-        let message = words.to_owned();
-        self.send(index, |v, id| {
-            ServerMessage::Error(LinkError {
-                code,
-                id,
-                message,
-                re,
-                v,
-            })
-        })
-        .await;
-    }
-
     fn fault(&self, index: usize, words: String) -> Notice {
         Notice::Fault {
             runtime: self.runtimes[index].id.clone(),
             words,
         }
-    }
-
-    /// Sends the message `make` builds from the link version and a
-    /// new id; returns the id.
-    async fn send(
-        &mut self,
-        index: usize,
-        make: impl FnOnce(i64, String) -> ServerMessage,
-    ) -> String {
-        let id = format!("s{}", self.next);
-        self.next += 1;
-        let message = make(LINK_VERSION, id.clone());
-        if let (Some(process), Ok(line)) = (
-            self.runtimes[index].process.as_mut(),
-            serde_json::to_string(&message),
-        ) {
-            process.write(&line).await;
-        }
-        id
-    }
-
-    /// The key a model call of `provider` is made with:
-    /// `HAMLET_API_KEY` for an endpoint, else the stored
-    /// credential.
-    fn credential(&self, provider: &str) -> Option<link::Credential> {
-        if provider == "faux" {
-            return None;
-        }
-        if let Some(key) = &self.config.api_key
-            && self
-                .config
-                .model
-                .as_ref()
-                .is_some_and(|m| m.provider == provider)
-        {
-            return Some(link::Credential::ApiKey {
-                key: Some(key.clone()),
-                env: None,
-            });
-        }
-        let text = std::fs::read_to_string(self.layout.credentials())
-            .ok()?;
-        let stored = serde_json::from_str::<Value>(&text).ok()?;
-        let credential = &stored["models"][provider];
-        crate::credentials::pack(credential.clone()).ok()
     }
 }
 
@@ -1940,82 +1340,6 @@ fn refusal(
     None
 }
 
-/// A runtime's line as a link message, or the words of why it is none
-/// with the id it carried.
-fn parse(
-    line: &str,
-) -> Result<RuntimeMessage, (String, Option<String>)> {
-    let value = serde_json::from_str::<Value>(line)
-        .map_err(|error| (format!("Not JSON: {error}."), None))?;
-    let re = value["id"].as_str().map(str::to_owned);
-    if value["v"] != LINK_VERSION {
-        return Err((
-            format!("Link messages here are version {LINK_VERSION}."),
-            re,
-        ));
-    }
-    let message =
-        serde_json::from_value::<RuntimeMessage>(value.clone())
-            .map_err(|error| {
-                (format!("Not a link message: {error}."), re.clone())
-            })?;
-    // Written back, a field the link does not name is missing.
-    if !serde_json::to_value(&message)
-        .is_ok_and(|back| same_fields(&back, &value))
-    {
-        return Err((
-            "The message has fields the link does not name.".into(),
-            re,
-        ));
-    }
-    Ok(message)
-}
-
-/// Whether `a` and `b` have the same fields at every depth; numbers
-/// may be written differently.
-fn same_fields(a: &Value, b: &Value) -> bool {
-    match (a, b) {
-        (Value::Object(a), Value::Object(b)) => {
-            a.len() == b.len()
-                && a.iter().all(|(key, a)| {
-                    b.get(key).is_some_and(|b| same_fields(a, b))
-                })
-        }
-        (Value::Array(a), Value::Array(b)) => {
-            a.len() == b.len()
-                && a.iter().zip(b).all(|(a, b)| same_fields(a, b))
-        }
-        (Value::Number(_), Value::Number(_)) => true,
-        (a, b) => a == b,
-    }
-}
-
-fn id_of(message: &RuntimeMessage) -> String {
-    match message {
-        RuntimeMessage::ProviderResult(m) => m.id.clone(),
-        RuntimeMessage::ProviderEvent(m) => m.id.clone(),
-        RuntimeMessage::CredentialRequest(m) => m.id.clone(),
-        RuntimeMessage::Hello(m) => m.id.clone(),
-        RuntimeMessage::Created(m) => m.id.clone(),
-        RuntimeMessage::Admitted(m) => m.id.clone(),
-        RuntimeMessage::Cancelled(m) => m.id.clone(),
-        RuntimeMessage::Configured(m) => m.id.clone(),
-        RuntimeMessage::Page(m) => m.id.clone(),
-        RuntimeMessage::Statuses(m) => m.id.clone(),
-        RuntimeMessage::Allow(m) => m.id.clone(),
-        RuntimeMessage::Operation(m) => m.id.clone(),
-        RuntimeMessage::Attempt(m) => m.id.clone(),
-        RuntimeMessage::Usage(m) => m.id.clone(),
-        RuntimeMessage::Scrub(m) => m.id.clone(),
-        RuntimeMessage::Prompt(m) => m.id.clone(),
-        RuntimeMessage::Kept(m) => m.id.clone(),
-        RuntimeMessage::Live(m) => m.id.clone(),
-        RuntimeMessage::Settled(m) => m.id.clone(),
-        RuntimeMessage::Yield(m) => m.id.clone(),
-        RuntimeMessage::Error(m) => m.id.clone(),
-    }
-}
-
 /// Puts `runtime` down to start again after its backoff; returns the
 /// wait.
 fn schedule(runtime: &mut Runtime) -> Duration {
@@ -2040,7 +1364,7 @@ fn notice(text: &str) -> Mark {
             ("text".into(), Value::from(text)),
             ("at".into(), Value::from(now())),
         ]),
-        kind: "hamlet.notice".into(),
+        kind: NOTICE.into(),
     }
 }
 

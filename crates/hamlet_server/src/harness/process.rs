@@ -1,7 +1,7 @@
 //! A runtime's process: started with its id, its store and the link
 //! on its standard input and output, one JSON message per line.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use anyhow::{Context, Result};
@@ -9,7 +9,70 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::mpsc::UnboundedSender;
 
+use super::link::ModelRef;
 use crate::RuntimeInstance;
+
+/// How the pi harness's runtimes are started.
+#[derive(Clone, Debug)]
+pub struct Pi {
+    pub node: PathBuf,
+    /// The harness's entry, `harnesses/pi/src/main.ts`.
+    pub entry: PathBuf,
+    /// A faux script in place of real models.
+    pub faux: Option<PathBuf>,
+}
+
+impl Pi {
+    /// The provider of the faux script's models.
+    pub const FAUX_PROVIDER: &str = "faux";
+
+    /// The pi harness the environment gives: `HAMLET_NODE` and
+    /// `HAMLET_PI_HARNESS`, else Node on the path and the entry
+    /// beside the server or in this checkout.
+    pub fn from_env(faux: Option<PathBuf>) -> Result<Self> {
+        let set =
+            |name| std::env::var(name).ok().filter(|v| !v.is_empty());
+        let entry = if let Some(path) = set("HAMLET_PI_HARNESS") {
+            PathBuf::from(path)
+        } else {
+            let executable = std::env::current_exe()?;
+            let directory = executable
+                .parent()
+                .context("Cannot locate the server's directory")?;
+            [
+                directory.join("pi/src/main.ts"),
+                directory.join("../Resources/pi/src/main.ts"),
+            ]
+            .into_iter()
+            .find(|path| path.is_file())
+            .unwrap_or_else(|| {
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../harnesses/pi/src/main.ts")
+            })
+        };
+        Ok(Self {
+            node: set("HAMLET_NODE")
+                .unwrap_or_else(|| "node".into())
+                .into(),
+            entry,
+            faux,
+        })
+    }
+
+    /// The store of the runtime whose folder is `folder`.
+    pub fn store(folder: &Path) -> PathBuf {
+        folder.join("pi.sqlite")
+    }
+
+    /// The model conversations run when the faux script stands in.
+    pub fn faux_model(&self) -> Option<ModelRef> {
+        self.faux.as_ref().map(|_| ModelRef {
+            provider: Self::FAUX_PROVIDER.into(),
+            id: "faux-1".into(),
+            base_url: None,
+        })
+    }
+}
 
 /// A line from a runtime, or `None` once its output closed.
 pub(crate) struct Received {
@@ -20,13 +83,11 @@ pub(crate) struct Received {
 
 /// How a runtime process is started.
 pub(crate) struct Launch<'a> {
-    pub node: &'a Path,
-    pub entry: &'a Path,
+    pub pi: &'a Pi,
     pub id: &'a RuntimeInstance,
     pub store: &'a Path,
     /// The store may be made now.
     pub fresh: bool,
-    pub faux: Option<&'a Path>,
 }
 
 /// A started runtime process.
@@ -44,11 +105,12 @@ impl Process {
         generation: u64,
         sender: UnboundedSender<Received>,
     ) -> Result<Self> {
-        let mut command = Command::new(launch.node);
+        let pi = launch.pi;
+        let mut command = Command::new(&pi.node);
         command
             .env_remove("HAMLET_API_KEY")
             .arg("--disable-warning=ExperimentalWarning")
-            .arg(launch.entry)
+            .arg(&pi.entry)
             .arg("--runtime")
             .arg(launch.id.as_str())
             .arg("--store")
@@ -57,7 +119,7 @@ impl Process {
         if launch.fresh {
             command.arg("--fresh");
         }
-        if let Some(faux) = launch.faux {
+        if let Some(faux) = &pi.faux {
             command.arg("--faux").arg(faux);
         }
         let mut child = command
@@ -70,7 +132,7 @@ impl Process {
                 format!(
                     "starting the runtime {} with {}",
                     launch.id.as_str(),
-                    launch.node.display()
+                    pi.node.display()
                 )
             })?;
         let stdin = child.stdin.take();

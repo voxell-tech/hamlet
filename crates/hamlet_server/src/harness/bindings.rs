@@ -157,6 +157,17 @@ impl Store {
             .collect()
     }
 
+    /// The runtime `id`, as the server keeps it.
+    pub(crate) fn runtime(
+        &self,
+        id: &RuntimeInstance,
+    ) -> Result<RuntimeRow> {
+        self.runtimes()?
+            .into_iter()
+            .find(|row| row.id == *id)
+            .context("a runtime the store does not keep")
+    }
+
     pub(crate) fn runtimes(&self) -> Result<Vec<RuntimeRow>> {
         let mut query = self.connection().prepare(
             "SELECT id, adapter, version, begun FROM \

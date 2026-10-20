@@ -1729,6 +1729,9 @@ pub(super) async fn answer_words(
     for (runtime, key) in woken {
         harnesses.wake(&runtime, &key).await;
     }
+    if settled.kind == "objection" {
+        harnesses.wake_turns().await;
+    }
     Ok(Ok(format!(
         "Answered /{choice}: {}",
         oversight::line(&settled, 80)

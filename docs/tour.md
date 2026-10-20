@@ -76,7 +76,10 @@ the public test boundary is protocol v0 or the process command line.
 | `documents.rs`, `settings.rs`, `limits.rs` | Chief edits and reads, stored settings plus process overrides, JSON limit validation |
 | `chats.rs`, `chats/` | Chief and peer watches, durable inputs, follow-up work, reflection, stop, retry, resume and rewind |
 | `chats/calls.rs`, `gate.rs`, `oversight.rs` | Request digest/binding checks, approval rules, waits, standing grants and execution. Marked outcomes survive replay; changed requests are refused |
-| `harness.rs`, `harness/` | Start/watch runtime processes, bind conversations, admit inputs, carry link messages, admit and charge model attempts, acknowledge updates and retain owed cancellation. Tool calls go to the chats' gate |
+| `harness.rs` | Start/watch runtime processes, bind conversations and dispatch each link message. Tool calls go to the chats' gate |
+| `harness/session.rs`, `harness/sync.rs` | The link's ids and requests in flight; what each conversation is owed (creates, cancels, tools, inputs) and what its runtime reports back |
+| `harness/answers.rs`, `harness/credentials.rs` | Admit and charge model attempts with the typed model selection; credential leases for provider work |
+| `harness/process.rs`, `harness/bindings.rs` | The pi launch profile and processes; runtimes, bindings and inputs in `realm.sqlite` |
 | `chats/driver.rs`, `bin/hamlet-harness-driver.rs` | With the `harness` feature: the test driver's reach into the chats' gate, waits and stop, for the real-process suite in `tests/harness` |
 | `tools.rs`, `tools/`, `hand.rs` | Built-in tools, their confined file/shell execution and hand-added manifests |
 | `sandbox.rs`, `sandbox/` | Bubblewrap/Seatbelt policies, subprocess limits and termination |
@@ -85,7 +88,7 @@ the public test boundary is protocol v0 or the process command line.
 | `gifts.rs`, `gifts/` | Connection-owned upload staging, manifest limits, confined delivery and skill gifts |
 | `prompt.rs`, `prompt/` | `sections` composes charter, machine, project, character, notes, shelf, hamlet and realm |
 | `starters.rs` | Shipped starter content from `crates/hamlet_server/assets/starters/` |
-| `models.rs`, `credentials.rs`, `scrub.rs` | Catalogue and provider requests, atomic credential files, sign-ins and secret removal before publication or harness persistence |
+| `models.rs`, `credentials.rs`, `scrub.rs` | Catalogue and provider requests, the model each attempt runs (`Choices`), atomic credential files, sign-ins and secret removal before publication or harness persistence |
 | `spend.rs` | Budget reservations and usage charges deduplicated by model attempt, plus agent/task/hamlet accounting |
 | `society.rs`, `society/` | Role-specific tool schemas, letters/questions, instructions/objections, votes, library and recoverable merge/departure work |
 | `realm.rs`, `realm/` | Living/closed places, cross-hamlet addresses, founding, agreements and pending house moves |
@@ -107,8 +110,10 @@ JSON lines on stdin/stdout; diagnostics go to stderr.
 |---|---|
 | `link.ts` | TypeBox messages; `npm run schema` exports `link.schema.json` |
 | `channel.ts` | Correlated link requests and replies |
-| `runtime.ts` | Handshake, conversations, input admission, tools, prompt/configure hooks, cancellation, history and updates |
-| `models.ts` | Provider calls admitted and charged by the server; asks it to scrub snapshots and final responses |
+| `runtime.ts` | Handshake, conversations, input admission, configure, cancellation, history and updates |
+| `extension.ts` | The hamlet extension: tools, prompt section and allow/yield hooks, each asked until the server decides; waits end on the key the server gives |
+| `items.ts` | Kept entries and answers as the link shows them |
+| `models.ts` | Provider calls admitted and charged by the server, made with the pi model built from its selection; asks it to scrub snapshots and final responses |
 | `faux.ts` | Offline scripts, with separate agent and errand queues |
 | `faults.ts` | Exact process-crash pauses used by tests |
 

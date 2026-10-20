@@ -15,11 +15,15 @@ import {
     createProvider,
     type Provider,
 } from "@earendil-works/pi-ai/models";
-import type { ModelRef, Usage } from "./link.ts";
+import type { ModelRef, Selection, Usage } from "./link.ts";
 import { providers } from "./provider-set.ts";
 
 /** The context an endpoint that lists no window size is given. */
-const DEFAULT_WINDOW = 32_768;
+export const DEFAULT_WINDOW = 32_768;
+/** The share of a model's window kept for its answer. */
+export const ANSWER_SHARE = 0.2;
+/** The most tokens an answer of an OpenAI-compatible model may take. */
+const MOST_ANSWER = 8192;
 
 /** The server's answer to a model call it was asked about. */
 export type Permit =
@@ -27,7 +31,7 @@ export type Permit =
           readonly ok: true;
           readonly key: string;
           readonly apiKey?: string;
-          readonly model?: Record<string, unknown>;
+          readonly selection?: Selection;
       }
     | {
           readonly ok: false;
@@ -87,7 +91,10 @@ function allowed<O extends StreamOptions>(
                 return;
             }
             secret = permit.apiKey;
-            const selected = { ...model, ...permit.model } as Model<Api>;
+            const selected =
+                permit.selection === undefined
+                    ? { ...model }
+                    : selectedModel(model, permit.selection, available);
             if (selected.provider !== "faux") allowedKey = permit.key;
             let auth: ModelAuth = {};
             let env: Record<string, string> = {};
@@ -307,6 +314,69 @@ function refusedMessage(model: Model<Api>, words: string): AssistantMessage {
     };
 }
 
+/** A model served by an OpenAI-compatible endpoint, as pi calls it, priced at `rate` for every kind of token. */
+export function compatibleModel(
+    provider: string,
+    id: string,
+    baseUrl: string,
+    window = DEFAULT_WINDOW,
+    rate = 0,
+): Model<"openai-completions"> {
+    return {
+        id,
+        name: id,
+        api: "openai-completions",
+        provider,
+        baseUrl,
+        reasoning: false,
+        input: ["text"],
+        cost: { input: rate, output: rate, cacheRead: rate, cacheWrite: rate },
+        contextWindow: window,
+        maxTokens: Math.min(MOST_ANSWER, Math.floor(window * ANSWER_SHARE)),
+        compat: {
+            supportsStore: false,
+            supportsDeveloperRole: false,
+            supportsUsageInStreaming: true,
+        },
+    };
+}
+
+/** The pi model `selection` names: `called` when it is that model, else as its provider lists it. */
+export function selectedModel(
+    called: Model<Api>,
+    selection: Selection,
+    available: readonly Provider[],
+): Model<Api> {
+    const { model: ref } = selection;
+    const listed =
+        ref.provider === called.provider && ref.id === called.id
+            ? called
+            : listedModel(ref, available);
+    return {
+        ...listed,
+        ...(ref.baseUrl === undefined ? {} : { baseUrl: ref.baseUrl }),
+        contextWindow: selection.contextWindow ?? listed.contextWindow,
+        maxTokens: selection.maxTokens ?? listed.maxTokens,
+        cost: { ...selection.price },
+    };
+}
+
+/** `ref` as its provider lists it; a model the provider lists only once refreshed is served like its others. */
+function listedModel(
+    ref: ModelRef,
+    available: readonly Provider[],
+): Model<Api> {
+    const models =
+        available.find((p) => p.id === ref.provider)?.getModels() ?? [];
+    const [like] = models;
+    return (
+        models.find((m) => m.id === ref.id) ??
+        (like === undefined
+            ? compatibleModel(ref.provider, ref.id, ref.baseUrl ?? "")
+            : { ...like, id: ref.id, name: ref.id })
+    );
+}
+
 /** A provider whose calls use only the server's per-attempt model and credential. */
 export function modelProvider(
     ref: ModelRef,
@@ -315,23 +385,7 @@ export function modelProvider(
 ): Provider {
     const baseUrl = ref.baseUrl ?? "";
     const compatible = openAICompletionsApi();
-    const model: Model<"openai-completions"> = {
-        id: ref.id,
-        name: ref.id,
-        api: "openai-completions",
-        provider: ref.provider,
-        baseUrl,
-        reasoning: false,
-        input: ["text"],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: DEFAULT_WINDOW,
-        maxTokens: Math.min(8192, Math.floor(DEFAULT_WINDOW * 0.2)),
-        compat: {
-            supportsStore: false,
-            supportsDeveloperRole: false,
-            supportsUsageInStreaming: true,
-        },
-    };
+    const model = compatibleModel(ref.provider, ref.id, baseUrl);
     return createProvider({
         id: ref.provider,
         baseUrl,

@@ -1,10 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
 import type { Context } from "@earendil-works/chord/context";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
     createModels,
     type MutableModels,
@@ -16,39 +15,32 @@ import {
     configure,
     createRegistry,
     defineDoc,
-    defineExtension,
-    defineTool,
     type EntryId,
-    type EntryRecord,
-    GenerationTask,
     Harness,
     type HarnessSettings,
-    hook,
     InboxDoc,
     type InboxState,
     LiveDoc,
     type LiveState,
     ProviderDoc,
     type Registry,
-    section,
     type TaskId,
-    ToolTask,
 } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { Type } from "typebox";
-import type {
-    Channel,
-    Outgoing,
-    ServerReply,
-    ServerRequest,
+import {
+    type Channel,
+    type Outgoing,
+    type ServerReply,
+    type ServerRequest,
+    unexpected,
 } from "./channel.ts";
 import { linkCredentials } from "./credentials.ts";
+import { hamletExtension, Waits } from "./extension.ts";
 import { fault } from "./faults.ts";
 import { FAUX, readScript, scriptedProvider } from "./faux.ts";
+import { blocksOf, itemOf } from "./items.ts";
 import {
-    type Block,
     type Capability,
-    type Item,
     LINK_VERSION,
     type Mark,
     type ModelRef,
@@ -56,7 +48,13 @@ import {
     type ToolSpec,
     type Usage,
 } from "./link.ts";
-import { allowedStreams, type Gate, modelProvider } from "./models.ts";
+import {
+    ANSWER_SHARE,
+    allowedStreams,
+    DEFAULT_WINDOW,
+    type Gate,
+    modelProvider,
+} from "./models.ts";
 import { providers } from "./provider-set.ts";
 import { providerWork } from "./providers.ts";
 import { RecoveryDoc, recoveryTask } from "./recovery.ts";
@@ -77,19 +75,23 @@ const CAPABILITIES: Capability[] = [
     "history",
 ];
 
-/** How long a held wait sleeps before asking again when no answer is announced. */
-const ASK_AGAIN_MS = 2_000;
-
 /** How every conversation runs: tools one at a time, the server's retry waits, and no retry inside a stream. */
 const SETTINGS = {
     toolExecution: "sequential",
     retry: { maxRetries: 3, baseDelayMs: 1000, maxAgentDelayMs: 30_000 },
     stream: { maxRetries: 0 },
-    compaction: {
-        reserveTokens: Math.round(32768 * 0.2),
-        backgroundTokens: Math.round(32768 * 0.1),
-    },
+    compaction: compaction(DEFAULT_WINDOW),
 } satisfies HarnessSettings;
+
+/** When a conversation of a model with `window` tokens of context is compacted. */
+function compaction(
+    window: number,
+): NonNullable<HarnessSettings["compaction"]> {
+    return {
+        reserveTokens: Math.round(window * ANSWER_SHARE),
+        backgroundTokens: Math.round(window * 0.1),
+    };
+}
 
 /** The runtime id the server gave this store when it made it. */
 const RuntimeDoc = defineDoc<{ id: string }>({
@@ -226,8 +228,7 @@ class Runtime {
     readonly #generations = new Map<string, TaskId>();
     /** Each conversation's requests, handled in their order. */
     readonly #lines = new Map<string, Promise<void>>();
-    /** Held waits by operation key, woken when the server says it was answered. */
-    readonly #waits = new Map<string, () => void>();
+    readonly #waits = new Waits();
     readonly #gate: Gate;
     readonly #recovery: ReturnType<typeof recoveryTask>;
     readonly #signins = new Map<string, ReturnType<typeof signIn>>();
@@ -259,10 +260,7 @@ class Runtime {
                 });
             },
             selected: (model) => {
-                SETTINGS.compaction = {
-                    reserveTokens: Math.round(model.contextWindow * 0.2),
-                    backgroundTokens: Math.round(model.contextWindow * 0.1),
-                };
+                SETTINGS.compaction = compaction(model.contextWindow);
             },
             attempt: async (sessionId, model) => {
                 const known =
@@ -288,9 +286,7 @@ class Runtime {
                         return {
                             ok: true,
                             key,
-                            ...("model" in answer
-                                ? { model: answer.model }
-                                : {}),
+                            selection: answer.selection,
                             ...(answer.credential?.type !== "api_key" ||
                             answer.credential.key === undefined
                                 ? {}
@@ -567,278 +563,19 @@ class Runtime {
     }
 
     #extension(tools: readonly ToolSpec[]) {
-        const channel = this.#channel;
-        const names = new Set(tools.map((tool) => tool.name));
-        return defineExtension({
-            name: "hamlet",
-            tasks: [this.#recovery],
-            tools: tools.map((spec) =>
-                defineTool({
-                    name: spec.name,
-                    description: spec.description,
-                    parameters: Type.Unsafe<Record<string, unknown>>(
-                        spec.parameters,
-                    ),
-                    replay: spec.replay,
-                    // The server bounds a command's output to its end; pi keeps it as given.
-                    ...(spec.name === "bash"
-                        ? { outputLimits: { retain: "tail" as const } }
-                        : {}),
-                    execute: async (args, api, context) => {
-                        const key = String(api.taskId);
-                        await fault("before_operation");
-                        const input = await this.#input(api.conversationId);
-                        for (;;) {
-                            const answer = await abortable(
-                                channel.request({
-                                    type: "operation",
-                                    conversation: String(api.conversationId),
-                                    key,
-                                    ...(input === undefined ? {} : { input }),
-                                    tool: spec.name,
-                                    arguments: args,
-                                }),
-                                context,
-                            );
-                            switch (answer.type) {
-                                case "result":
-                                    return {
-                                        output: [
-                                            { type: "text", text: answer.text },
-                                        ],
-                                        isError: answer.error,
-                                        ...(answer.details === undefined
-                                            ? {}
-                                            : {
-                                                  details:
-                                                      answer.details as never,
-                                              }),
-                                        ...(answer.diagnostics === undefined
-                                            ? {}
-                                            : {
-                                                  diagnostics:
-                                                      answer.diagnostics,
-                                              }),
-                                    };
-                                case "refusal":
-                                    return {
-                                        output: [
-                                            {
-                                                type: "text",
-                                                text: answer.words,
-                                            },
-                                        ],
-                                        isError: true,
-                                    };
-                                case "waiting":
-                                    await this.#held(key, context);
-                                    break;
-                                default:
-                                    throw new Error(unexpected(answer));
-                            }
-                        }
-                    },
-                }),
-            ),
-            sections: [
-                section(
-                    "hamlet",
-                    async (prompt, context) => {
-                        const input = await this.#input(prompt.conversationId);
-                        for (;;) {
-                            const answer = await abortable(
-                                channel.request({
-                                    type: "prompt",
-                                    conversation: String(prompt.conversationId),
-                                    ...(input === undefined ? {} : { input }),
-                                }),
-                                context,
-                            );
-                            if (answer.type === "waiting") {
-                                await this.#held(
-                                    `prompt:${prompt.conversationId}:${input}`,
-                                    context,
-                                );
-                                continue;
-                            }
-                            if (answer.type !== "sections")
-                                throw new Error(unexpected(answer));
-                            return answer.sections
-                                .map((part) => part.text)
-                                .join("\n\n");
-                        }
-                    },
-                    { tag: false },
-                ),
-            ],
-            hooks: [
-                hook(ToolTask, {
-                    // An early ask, so a wait shows before the call is kept as begun; the server decides again as the
-                    // call runs, since a recovered call skips this hook.
-                    beforeTool: async (call, api, context) => {
-                        if (!names.has(call.name)) return undefined;
-                        const key = String(api.taskId);
-                        const input = await this.#input(api.conversationId);
-                        for (;;) {
-                            const answer = await abortable(
-                                channel.request({
-                                    type: "allow",
-                                    conversation: String(api.conversationId),
-                                    key,
-                                    ...(input === undefined ? {} : { input }),
-                                    tool: call.name,
-                                    arguments: call.arguments,
-                                }),
-                                context,
-                            );
-                            switch (answer.type) {
-                                case "allowed":
-                                    return undefined;
-                                case "refusal":
-                                    return { block: answer.words };
-                                case "waiting":
-                                    await this.#held(key, context);
-                                    break;
-                                default:
-                                    return { block: unexpected(answer) };
-                            }
-                        }
-                    },
-                    afterTool: async () => {
-                        await fault("after_receive");
-                        return undefined;
-                    },
-                }),
-                hook(GenerationTask, {
-                    beforeRequest: async (_request, api, context) => {
-                        const live = await this.#harness.snapshot(
-                            LiveDoc,
-                            api.conversationId,
-                            context,
-                        );
-                        if (live?.run?.taskId !== api.taskId)
-                            return untilAborted(context);
-                        this.#generations.set(
-                            String(api.conversationId),
-                            api.taskId,
-                        );
-                        return undefined;
-                    },
-                    // The server says whether a final answer stands; one that fails is kept with its words, and its
-                    // turn ends as aborted, as Hamlet's own empty-answer check ends it.
-                    onYield: async (message, api, context) => {
-                        const conversation = String(api.conversationId);
-                        if (!this.#known.has(conversation)) return undefined;
-                        const input = await this.#input(api.conversationId);
-                        const view = await this.#harness.conversation(
-                            api.conversationId,
-                            context,
-                        );
-                        const active = await view?.context(context);
-                        const recovery = await this.#harness.snapshot(
-                            RecoveryDoc,
-                            api.conversationId,
-                            context,
-                        );
-                        const answer = await abortable(
-                            channel.request({
-                                type: "yield",
-                                conversation,
-                                ...(input === undefined ? {} : { input }),
-                                answer: assistantItem("yield", message),
-                                history:
-                                    (active?.messages.filter(
-                                        (m) => m.role !== "system",
-                                    ).length ?? 0) > 1,
-                                retried:
-                                    input !== undefined &&
-                                    recovery?.retried[input] === true,
-                            }),
-                            context,
-                        );
-                        if (answer.type !== "verdict")
-                            throw new Error(unexpected(answer));
-                        if (answer.compact === true && input !== undefined) {
-                            await this.#harness.commit(async (tx) => {
-                                const live = await tx.doc(
-                                    LiveDoc,
-                                    api.conversationId,
-                                );
-                                if (live.run?.taskId !== api.taskId) return;
-                                const recovery = await tx.doc(
-                                    RecoveryDoc,
-                                    api.conversationId,
-                                );
-                                recovery.retried[input] = true;
-                                recovery.stopped = false;
-                                if (live.generation !== undefined)
-                                    live.generation.message = JSON.parse(
-                                        JSON.stringify(message),
-                                    ) as never;
-                                live.run.taskId = await tx.createTask(
-                                    this.#recovery,
-                                    {
-                                        generation: api.taskId,
-                                        input,
-                                        answer: assistantItem("yield", message),
-                                    },
-                                    {
-                                        ownership: { kind: "conversation" },
-                                        conversationId: api.conversationId,
-                                    },
-                                );
-                            }, context);
-                            return untilAborted(context);
-                        }
-                        const { words, notice } = answer;
-                        if (words === undefined) return undefined;
-                        await this.#harness.commit(async (tx) => {
-                            const live = await tx.doc(
-                                LiveDoc,
-                                api.conversationId,
-                            );
-                            // Kept whole when the abort converts it, with its metered usage.
-                            if (live.generation !== undefined)
-                                live.generation.message = JSON.parse(
-                                    JSON.stringify({
-                                        ...message,
-                                        errorMessage: words,
-                                    }),
-                                ) as never;
-                            if (notice !== undefined)
-                                await tx.appendEntry(api.conversationId, {
-                                    kind: notice.kind,
-                                    data: notice.data as never,
-                                });
-                        }, context);
-                        void this.#harness
-                            .abortTask(api.taskId, BACKGROUND_CONTEXT)
-                            .catch(() => {});
-                        return untilAborted(context);
-                    },
-                }),
-            ],
-        });
-    }
-
-    /** Waits until the server says the wait `key` was answered, or a while has passed. */
-    async #held(key: string, context: Context): Promise<void> {
-        context.abortSignal?.throwIfAborted();
-        const woken = new Promise<void>((resolve) => {
-            this.#waits.set(key, resolve);
-        });
-        await Promise.race([
-            woken,
-            sleep(
-                ASK_AGAIN_MS,
-                undefined,
-                context.abortSignal === undefined
-                    ? {}
-                    : { signal: context.abortSignal },
-            ).catch(() => {}),
-        ]);
-        this.#waits.delete(key);
-        context.abortSignal?.throwIfAborted();
+        return hamletExtension(
+            {
+                channel: this.#channel,
+                harness: this.#harness,
+                recovery: this.#recovery,
+                waits: this.#waits,
+                input: (conversation) => this.#input(conversation),
+                knows: (conversation) => this.#known.has(conversation),
+                generating: (conversation, task) =>
+                    this.#generations.set(conversation, task),
+            },
+            tools,
+        );
     }
 
     /** Handles `request` after the earlier requests of its conversation. */
@@ -1105,7 +842,7 @@ class Runtime {
                 return;
             }
             case "answered": {
-                this.#waits.get(request.key)?.();
+                this.#waits.answered(request.key);
                 return;
             }
             default: {
@@ -1224,173 +961,5 @@ class Runtime {
                 message: `No conversation ${id} in this runtime.`,
             });
         return conversation;
-    }
-}
-
-function unexpected(answer: ServerReply): string {
-    return answer.type === "error"
-        ? `The server could not answer: ${answer.message}`
-        : `The server answered with ${answer.type}.`;
-}
-
-/** Rejects with the abort's reason once `context` is aborted. */
-function untilAborted(context: Context): Promise<never> {
-    return new Promise((_resolve, reject) => {
-        const signal = context.abortSignal;
-        if (signal === undefined)
-            reject(new Error("The work cannot be stopped without its signal."));
-        else if (signal.aborted) reject(signal.reason);
-        else
-            signal.addEventListener("abort", () => reject(signal.reason), {
-                once: true,
-            });
-    });
-}
-
-/** `promise`, or the abort of `context` if that comes first. */
-function abortable<T>(promise: Promise<T>, context: Context): Promise<T> {
-    if (context.abortSignal === undefined) return promise;
-    const aborted = untilAborted(context);
-    aborted.catch(() => {});
-    return Promise.race([promise, aborted]);
-}
-
-/** Hamlet's kind and data of an entry, for one that is not pi's own. */
-function markOf(entry: EntryRecord): Mark | undefined {
-    if (entry.kind.startsWith("pi.")) return undefined;
-    const data = entry.data;
-    return {
-        kind: entry.kind,
-        data:
-            typeof data === "object" && data !== null && !Array.isArray(data)
-                ? { ...data }
-                : {},
-    };
-}
-
-/** The blocks of an answer, in its order. */
-function blocksOf(message: AssistantMessage): Block[] {
-    return message.content.flatMap((part): Block[] => {
-        switch (part.type) {
-            case "text":
-                return [{ type: "text", text: part.text }];
-            case "thinking":
-                return [{ type: "thinking", thinking: part.thinking }];
-            case "toolCall":
-                return [
-                    {
-                        type: "call",
-                        id: part.id,
-                        name: part.name,
-                        arguments: { ...part.arguments },
-                    },
-                ];
-            default:
-                return [];
-        }
-    });
-}
-
-/** An answer as the link shows it, under the entry id `entry`. */
-function assistantItem(entry: string, message: AssistantMessage): Item {
-    const { usage } = message;
-    return {
-        entry,
-        kind: "assistant",
-        at: message.timestamp,
-        text: message.content
-            .map((part) => (part.type === "text" ? part.text : ""))
-            .join(""),
-        blocks: blocksOf(message),
-        stop: message.stopReason,
-        ...(message.errorMessage === undefined
-            ? {}
-            : { failure: message.errorMessage }),
-        usage: {
-            input: usage.input,
-            output: usage.output,
-            cacheRead: usage.cacheRead,
-            cacheWrite: usage.cacheWrite,
-            cost: usage.cost.total,
-        },
-    };
-}
-
-/** A kept entry as the link shows it. */
-function itemOf(entry: EntryRecord, request?: string): Item {
-    const id = String(entry.id);
-    const mark = markOf(entry);
-    const data = mark?.data;
-    const marked = {
-        ...(request === undefined ? {} : { request }),
-        ...(mark === undefined ? {} : { mark }),
-    };
-    const messages: readonly Message[] = entry.model ?? [];
-    const [message] = messages;
-    const at =
-        typeof data?.at === "number" && Number.isSafeInteger(data.at)
-            ? Math.max(0, data.at)
-            : (message?.timestamp ?? 0);
-    if (message === undefined || messages.length > 1)
-        return {
-            entry: id,
-            kind: entry.kind === "pi.compaction" ? "summary" : "other",
-            at,
-            ...marked,
-            text: "",
-        };
-    switch (message.role) {
-        case "user":
-            return {
-                entry: id,
-                kind: "user",
-                at,
-                ...marked,
-                text:
-                    typeof message.content === "string"
-                        ? message.content
-                        : message.content
-                              .map((part) =>
-                                  part.type === "text" ? part.text : "",
-                              )
-                              .join("\n"),
-            };
-        case "assistant":
-            return { ...assistantItem(id, message), ...marked };
-        case "toolResult": {
-            const details = message.details;
-            return {
-                entry: id,
-                kind: "tool_result",
-                at,
-                ...marked,
-                text: message.content
-                    .map((part) => (part.type === "text" ? part.text : ""))
-                    .join("\n"),
-                call: message.toolCallId,
-                tool: message.toolName,
-                error: message.isError,
-                ...(message.durationMs === undefined
-                    ? {}
-                    : { ms: Math.max(0, Math.round(message.durationMs)) }),
-                ...(typeof details === "object" &&
-                details !== null &&
-                !Array.isArray(details)
-                    ? { details: { ...details } }
-                    : {}),
-            };
-        }
-        case "system":
-            return {
-                entry: id,
-                kind: entry.kind === "pi.compaction" ? "summary" : "other",
-                at,
-                ...marked,
-                text: "",
-            };
-        default: {
-            const unhandled: never = message;
-            throw new Error(`Unhandled message ${String(unhandled)}`);
-        }
     }
 }

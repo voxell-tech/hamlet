@@ -10,7 +10,7 @@ import {
 } from "@earendil-works/pi-durable";
 import type { Channel } from "./channel.ts";
 import { fault } from "./faults.ts";
-import type { Item } from "./link.ts";
+import { type Item, NOTICE } from "./link.ts";
 
 /** Cut-off recovery belongs to the original input, including its one permitted retry (C28). */
 export const RecoveryDoc = defineDoc<{
@@ -74,7 +74,7 @@ export function recoveryTask(harness: Harness, channel: Channel) {
                     await fault("after_summary");
                     await runtime.commit(async (tx) => {
                         await tx.appendEntry(runtime.conversationId, {
-                            kind: "hamlet.notice",
+                            kind: NOTICE,
                             data: {
                                 text: "The conversation grew longer than the model can hold, so the earlier part of it was summarised.",
                                 at: runtime.now(),

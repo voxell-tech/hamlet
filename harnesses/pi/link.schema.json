@@ -283,6 +283,50 @@
             },
             "additionalProperties": false
         },
+        "Price": {
+            "type": "object",
+            "required": ["input", "output", "cacheRead", "cacheWrite"],
+            "properties": {
+                "input": {
+                    "type": "number",
+                    "minimum": 0
+                },
+                "output": {
+                    "type": "number",
+                    "minimum": 0
+                },
+                "cacheRead": {
+                    "type": "number",
+                    "minimum": 0
+                },
+                "cacheWrite": {
+                    "type": "number",
+                    "minimum": 0
+                }
+            },
+            "additionalProperties": false
+        },
+        "Selection": {
+            "type": "object",
+            "required": ["model", "price"],
+            "properties": {
+                "model": {
+                    "$ref": "#/$defs/ModelRef"
+                },
+                "contextWindow": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "maxTokens": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "price": {
+                    "$ref": "#/$defs/Price"
+                }
+            },
+            "additionalProperties": false
+        },
         "Credential": {
             "anyOf": [
                 {
@@ -1428,7 +1472,7 @@
         },
         "Waiting": {
             "type": "object",
-            "required": ["type", "v", "id", "re", "words"],
+            "required": ["type", "v", "id", "re", "words", "key"],
             "properties": {
                 "type": {
                     "type": "string",
@@ -1449,6 +1493,10 @@
                 },
                 "words": {
                     "type": "string"
+                },
+                "key": {
+                    "type": "string",
+                    "minLength": 1
                 }
             },
             "additionalProperties": false
@@ -1558,7 +1606,7 @@
         },
         "Allowance": {
             "type": "object",
-            "required": ["type", "v", "id", "re"],
+            "required": ["type", "v", "id", "re", "selection"],
             "properties": {
                 "type": {
                     "type": "string",
@@ -1580,11 +1628,8 @@
                 "credential": {
                     "$ref": "#/$defs/Credential"
                 },
-                "model": {
-                    "type": "object",
-                    "patternProperties": {
-                        "^.*$": {}
-                    }
+                "selection": {
+                    "$ref": "#/$defs/Selection"
                 }
             },
             "additionalProperties": false

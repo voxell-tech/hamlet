@@ -4,10 +4,12 @@
 
 use anyhow::Result;
 use rusqlite::{OptionalExtension, params};
-use serde_json::Value;
 
 use super::bindings::Binding;
-use super::link::{ModelRef, Usage};
+use super::link::{self, ModelRef, Price, ServerMessage, Usage};
+use super::process::Pi;
+use super::{Harnesses, Notice, notice, now};
+use crate::credentials::{Credentials, pack};
 use crate::{RuntimeInstance, Store};
 
 pub(crate) const STOPPED_WORDS: &str =
@@ -28,7 +30,7 @@ pub(crate) fn attempt(
     key: &str,
     model: &ModelRef,
     task: Option<&str>,
-    price: Option<&Value>,
+    price: &Price,
     at: i64,
 ) -> Result<Option<Stop>> {
     let old = store
@@ -79,7 +81,7 @@ pub(crate) fn attempt(
             model.id,
             at,
             task,
-            price.map(Value::to_string)
+            serde_json::to_string(price)?
         ],
     )?;
     Ok(None)
@@ -107,7 +109,7 @@ pub(crate) fn charge(
         return Ok(None);
     };
     let price = price
-        .map(|p| serde_json::from_str::<serde_json::Value>(&p))
+        .map(|p| serde_json::from_str::<Price>(&p))
         .transpose()?;
     let amount = crate::spend::amount(usage, price.as_ref());
     store.connection().execute(
@@ -135,4 +137,126 @@ pub(crate) fn charge(
         ],
     )?;
     Ok(Some(()))
+}
+
+impl Harnesses {
+    /// Answers whether the model call `attempt` may be made, and with
+    /// which model and credential.
+    pub(super) async fn allow_attempt(
+        &mut self,
+        store: &mut Store,
+        index: usize,
+        attempt: link::Attempt,
+        credentials: &Credentials,
+    ) -> Result<Vec<Notice>> {
+        let Some(binding) = self
+            .conversation(
+                store,
+                index,
+                &attempt.conversation,
+                &attempt.id,
+            )
+            .await?
+        else {
+            return Ok(Vec::new());
+        };
+        let task = crate::society::task_of(
+            store,
+            &binding,
+            attempt.task.as_deref(),
+        )?;
+        let selection =
+            self.choices(store)?.select(store, &binding)?;
+        let re = attempt.id;
+        if let Some(stop) = self::attempt(
+            store,
+            &binding,
+            &attempt.key,
+            &selection.model,
+            task.as_deref(),
+            &selection.price,
+            now(),
+        )? {
+            // A cap of spend ends the turn as stopped, with its words
+            // kept for the chief.
+            let notice = stop.spend.then(|| notice(&stop.words));
+            let words = stop.words;
+            self.send(index, |v, id| {
+                ServerMessage::Stopped(link::Stopped {
+                    v,
+                    id,
+                    re,
+                    words,
+                    notice,
+                })
+            })
+            .await;
+            return Ok(Vec::new());
+        }
+        let provider = &selection.model.provider;
+        self.credentials.grant(index, &attempt.key, provider);
+        let serving = self
+            .config
+            .model
+            .as_ref()
+            .map_or("", |m| m.provider.as_str());
+        let credential = (provider != Pi::FAUX_PROVIDER)
+            .then(|| credentials.model(provider, serving))
+            .flatten()
+            .and_then(|credential| pack(credential).ok());
+        self.send(index, |v, id| {
+            ServerMessage::Allowance(link::Allowance {
+                credential,
+                id,
+                re,
+                selection,
+                v,
+            })
+        })
+        .await;
+        Ok(vec![Notice::Attempted {
+            binding: binding.id,
+        }])
+    }
+
+    /// Charges the usage `report` tells to its attempt.
+    pub(super) async fn charge_usage(
+        &mut self,
+        store: &mut Store,
+        index: usize,
+        report: link::UsageReport,
+    ) -> Result<Vec<Notice>> {
+        self.credentials.finish(index, &report.key);
+        let runtime = self.runtimes[index].id.clone();
+        let charged = charge(
+            store,
+            &runtime,
+            &report.key,
+            &report.usage,
+            now(),
+        )?;
+        let re = report.id;
+        match charged {
+            Some(()) => {
+                self.send(index, |v, id| {
+                    ServerMessage::Charged(link::Charged {
+                        id,
+                        re,
+                        v,
+                    })
+                })
+                .await;
+            }
+            None => {
+                self.error(
+                    index,
+                    Some(re),
+                    link::ErrorCode::Failed,
+                    "No model call was allowed under this key.",
+                )
+                .await;
+            }
+        }
+        Ok(Vec::new())
+    }
 }

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::harness::BindingId;
-use crate::harness::link::Usage;
+use crate::harness::link::{Price, Usage};
 use crate::service::{Service, document};
 
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]
@@ -231,7 +231,9 @@ fn show(value: i64, time: bool) -> String {
     }
 }
 
-pub(crate) fn amount(usage: &Usage, price: Option<&Value>) -> Amount {
+/// What `usage` costs: what the endpoint billed, else what pi priced
+/// it at, else `price` with cached tokens at its input rate.
+pub(crate) fn amount(usage: &Usage, price: Option<&Price>) -> Amount {
     let reported = usage.input
         + usage.output
         + usage.cache_read
@@ -246,9 +248,8 @@ pub(crate) fn amount(usage: &Usage, price: Option<&Value>) -> Amount {
             + usage.cache_read
             + usage.cache_write
             + estimate) as f64
-            * p["input"].as_f64().unwrap_or(1.0)
-            + usage.output as f64
-                * p["output"].as_f64().unwrap_or(1.0)
+            * p.input
+            + usage.output as f64 * p.output
     });
     let micros = match usage.billed {
         Some(billed) => (billed * 1_000_000.0).round() as i64,

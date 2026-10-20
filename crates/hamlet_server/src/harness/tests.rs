@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use hamlet_testing::Scratch;
 use serde_json::{Value, json};
 
-use super::link::{ModelRef, Usage};
+use super::link::{ModelRef, Price, Usage};
 use super::{Answer, Binding, answers, parse, tools};
 use crate::record::{
     Actor, Admit, AgentRef, Change, FoundRecord, RecordOperation,
@@ -99,6 +99,16 @@ fn run(
 
 fn result(text: &str, error: bool) -> Answer {
     Answer::result(text, error)
+}
+
+/// A price with cached tokens at the input rate.
+fn price(input: f64, output: f64) -> Price {
+    Price {
+        input,
+        output,
+        cache_read: input,
+        cache_write: input,
+    }
 }
 
 #[test]
@@ -214,7 +224,7 @@ fn usage_is_charged_once_and_only_to_an_allowed_attempt() {
         "a",
         &binding.model,
         None,
-        None,
+        &price(1.0, 1.0),
         2,
     )
     .unwrap();
@@ -254,7 +264,7 @@ fn caps_count_once_keep_task_spend_after_reset_and_roll_over_local_days()
         json!({"cost":0.001,"minutes":null,"period":"day"});
     limits["task"]["cost"] = json!(0.0005);
     save(store.connection(), "limits", "home", &limits).unwrap();
-    let price = json!({"input":2,"output":3});
+    let price = price(2.0, 3.0);
     assert!(
         answers::attempt(
             &mut store,
@@ -262,7 +272,7 @@ fn caps_count_once_keep_task_spend_after_reset_and_roll_over_local_days()
             "first",
             &binding.model,
             Some("task-a"),
-            Some(&price),
+            &price,
             at
         )
         .unwrap()
@@ -296,7 +306,7 @@ fn caps_count_once_keep_task_spend_after_reset_and_roll_over_local_days()
             "second",
             &binding.model,
             Some("task-a"),
-            Some(&price),
+            &price,
             at
         )
         .unwrap()
@@ -345,7 +355,7 @@ fn caps_count_once_keep_task_spend_after_reset_and_roll_over_local_days()
             "new",
             &binding.model,
             Some("task-b"),
-            Some(&price),
+            &price,
             at
         )
         .unwrap()
@@ -410,7 +420,7 @@ fn billed_zero_beats_prices_and_unreported_success_counts_estimates()
 {
     let scratch = Scratch::new("spend-billed");
     let (mut store, binding) = bound(&scratch, 0);
-    let price = json!({"input":10,"output":20});
+    let price = price(10.0, 20.0);
     for (key, usage) in [
         (
             "reported",
@@ -436,7 +446,7 @@ fn billed_zero_beats_prices_and_unreported_success_counts_estimates()
                 key,
                 &binding.model,
                 None,
-                Some(&price),
+                &price,
                 0
             )
             .unwrap()
@@ -500,35 +510,27 @@ fn every_attempt_uses_the_current_pin_then_hamlet_then_home_model() {
         &json!({"endpoint::pinned":{"price":{"input":0,"output":2}}}),
     )
     .unwrap();
-    let chosen =
-        crate::models::choice(&store, &scratch, &binding, false)
-            .unwrap();
-    assert_eq!(chosen["id"], "pinned");
-    assert_eq!(
-        chosen["cost"],
-        json!({"input":0,"output":2,"cacheRead":0,"cacheWrite":0})
-    );
+    let chosen = |store: &Store| {
+        crate::models::Choices::read(store, &scratch, false)
+            .unwrap()
+            .select(store, &binding)
+            .unwrap()
+    };
+    let pinned = chosen(&store);
+    assert_eq!(pinned.model.id, "pinned");
+    assert_eq!(pinned.price, price(0.0, 2.0));
     store.close().unwrap();
     let store = Store::open(&scratch.join("realm.sqlite")).unwrap();
-    assert_eq!(
-        crate::models::choice(&store, &scratch, &binding, false)
-            .unwrap()["id"],
-        "pinned"
-    );
+    assert_eq!(chosen(&store).model.id, "pinned");
     limits["pinned"] = json!({});
     save(store.connection(), "limits", "home", &limits).unwrap();
-    assert_eq!(
-        crate::models::choice(&store, &scratch, &binding, false)
-            .unwrap()["id"],
-        "hamlet"
-    );
+    let hamlet = chosen(&store);
+    assert_eq!(hamlet.model.id, "hamlet");
+    // Unlisted and unpriced, at the rate of a remote endpoint.
+    assert_eq!(hamlet.price, price(1.0, 1.0));
     limits["model"] = Value::Null;
     save(store.connection(), "limits", "home", &limits).unwrap();
-    assert_eq!(
-        crate::models::choice(&store, &scratch, &binding, false)
-            .unwrap()["id"],
-        "home"
-    );
+    assert_eq!(chosen(&store).model.id, "home");
 }
 
 #[test]
@@ -583,7 +585,7 @@ fn a_hello_lacking_the_link_version_or_a_needed_capability_is_refused()
 async fn a_bad_created_reply_stops_only_its_runtime_and_refuses_new_bindings()
  {
     use super::{
-        Config, Event, Harnesses, Inner, Notice, Pending, Phase,
+        Config, Event, Harnesses, Inner, Notice, Pending, Phase, Pi,
         Received,
     };
 
@@ -602,11 +604,12 @@ async fn a_bad_created_reply_stops_only_its_runtime_and_refuses_new_bindings()
     let (sender, receiver) = super::mpsc::unbounded_channel();
     let mut harnesses = Harnesses {
         config: Config {
-            node: "node".into(),
-            entry: "unused".into(),
-            faux: None,
+            pi: Pi {
+                node: "node".into(),
+                entry: "unused".into(),
+                faux: None,
+            },
             model: Some(binding.model.clone()),
-            api_key: None,
             tools: vec![],
         },
         hand_tools: vec![],
@@ -614,8 +617,8 @@ async fn a_bad_created_reply_stops_only_its_runtime_and_refuses_new_bindings()
         runtimes: vec![],
         sender,
         receiver,
-        next: 1,
-        pending: Default::default(),
+        session: Default::default(),
+        held_turns: Default::default(),
         provider_requests: Default::default(),
         credentials: Default::default(),
         closing: false,
@@ -626,12 +629,15 @@ async fn a_bad_created_reply_stops_only_its_runtime_and_refuses_new_bindings()
     harnesses.runtimes[bad].phase = Phase::Ready;
     harnesses.runtimes[good].phase = Phase::Ready;
     harnesses
-        .pending
-        .insert("create".into(), (bad, Pending::Create(other)));
+        .session
+        .expect("create", bad, Pending::Create(other));
+    let credentials =
+        crate::credentials::Credentials::open(home.layout().root())
+            .unwrap();
     let notices = harnesses.handle(&mut store, Event(Inner::Received(Received {
         runtime: bad, generation: 0,
         line: Some(json!({"v":1,"type":"created","id":"r1","re":"create","conversation":"1"}).to_string()),
-    })), &[]).await.unwrap();
+    })), &credentials).await.unwrap();
     assert!(notices.iter().any(|n| matches!(n, Notice::Refused { runtime, .. } if *runtime == binding.runtime)));
     assert!(harnesses.runtimes[good].phase == Phase::Ready);
     assert!(

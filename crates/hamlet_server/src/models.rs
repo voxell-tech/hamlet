@@ -12,13 +12,21 @@ use hamlet_protocol::v0::{
 };
 use serde_json::{Value, json};
 
+use crate::Store;
 use crate::credentials::write_whole;
 use crate::harness::link::{
-    ProviderControl, ProviderEvent, ProviderRequest,
+    ModelRef, Price, ProviderControl, ProviderEvent, ProviderRequest,
     ProviderRequestAction, ProviderRequestMethod, ProviderResult,
+    Selection,
 };
+use crate::harness::{Binding, LINK_VERSION};
 use crate::protocol::{Refusal, reply};
 use crate::service::{Service, document, save};
+
+/// The price in dollars per million tokens of a model nothing prices.
+const RATE: f64 = 1.0;
+/// [`RATE`] for a model served on this machine.
+const LOCAL_RATE: f64 = 0.1;
 
 pub(crate) struct Models {
     file: PathBuf,
@@ -105,7 +113,7 @@ impl Models {
                 p.expires.is_some_and(|end| Instant::now() >= end)
             })
             .map(|(key, _)| ProviderResult {
-                v: 1,
+                v: LINK_VERSION,
                 id: "timeout".into(),
                 re: key.clone(),
                 error: Some(
@@ -206,7 +214,7 @@ impl Service {
             },
         );
         self.models.outgoing.push(ProviderRequest {
-            v: 1,
+            v: LINK_VERSION,
             id: key,
             action,
             provider: provider.into(),
@@ -710,9 +718,9 @@ impl Service {
                 } else if card["priced"] == "unknown"
                     || card["priced"] == "assigned"
                 {
-                    let local = local(&model["baseUrl"]);
+                    let local = local(model["baseUrl"].as_str());
                     card["price"] = if local {
-                        json!({"input":0.1,"output":0.1})
+                        json!({"input":LOCAL_RATE,"output":LOCAL_RATE})
                     } else {
                         Value::Null
                     };
@@ -809,7 +817,7 @@ fn control(
     value: Option<String>,
 ) -> ProviderControl {
     ProviderControl {
-        v: 1,
+        v: LINK_VERSION,
         id: uuid::Uuid::new_v4().to_string(),
         scope: scope.into(),
         cancel: value.is_none(),
@@ -828,71 +836,123 @@ fn login_step(
     )?)
 }
 
-pub(crate) fn choice(
-    store: &crate::Store,
-    root: &Path,
-    binding: &crate::harness::Binding,
-    faux: bool,
-) -> Result<Value> {
-    let settings = crate::settings::Overrides::from_env(faux)?.apply(
-        document(store.connection(), "settings", "home")?
-            .unwrap_or_else(crate::settings::defaults),
-    );
-    let limits = crate::spend::limits(
-        store.connection(),
-        &binding.agent.hamlet,
-    )?;
-    let record = store
-        .record(&binding.agent.hamlet)?
-        .context("model's hamlet")?;
-    let agent = record
-        .agents
-        .iter()
-        .find(|a| a.number == binding.agent.number)
-        .context("model's agent")?;
-    let name = crate::state::model(
-        agent,
-        &limits,
-        &settings,
-        record.mayor == agent.number,
-    );
-    let (provider, id) = name
-        .split_once("::")
-        .context("a model is named endpoint::model")?;
-    let lists = match std::fs::read(root.join("models.json")) {
-        Ok(bytes) => serde_json::from_slice::<Value>(&bytes)?,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(json!({}));
-        }
-        Err(e) => return Err(e.into()),
-    };
-    let mut model = lists[provider]
-        .as_array()
-        .and_then(|list| list.iter().find(|m| m["id"] == id))
-        .cloned()
-        .unwrap_or_else(|| json!({"id":id,"provider":provider}));
-    if let Some(endpoint) = settings["endpoints"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|e| e["name"] == provider)
-    {
-        model["baseUrl"] = endpoint["baseUrl"].clone();
-    }
-    let cards = document(store.connection(), "catalogue", "home")?
-        .unwrap_or_else(|| json!({}));
-    if let Some(price) = cards[&name]["price"].as_object() {
-        model["cost"] = json!({"input":price["input"],"output":price["output"],"cacheRead":price["input"],"cacheWrite":price["input"]});
-    } else if model["cost"].is_null() {
-        let rate = if local(&model["baseUrl"]) { 0.1 } else { 1.0 };
-        model["cost"] = json!({"input":rate,"output":rate,"cacheRead":rate,"cacheWrite":rate});
-    }
-    Ok(model)
+/// What a model call is chosen from, read once for many calls.
+pub(crate) struct Choices {
+    settings: Value,
+    cards: Value,
+    /// The endpoints' model lists, by endpoint.
+    lists: Value,
 }
 
-fn local(base_url: &Value) -> bool {
+impl Choices {
+    pub fn read(
+        store: &Store,
+        root: &Path,
+        faux: bool,
+    ) -> Result<Self> {
+        let settings = crate::settings::Overrides::from_env(faux)?
+            .apply(
+                document(store.connection(), "settings", "home")?
+                    .unwrap_or_else(crate::settings::defaults),
+            );
+        let lists = match std::fs::read(root.join("models.json")) {
+            Ok(bytes) => serde_json::from_slice::<Value>(&bytes)?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                json!({})
+            }
+            Err(e) => return Err(e.into()),
+        };
+        Ok(Self {
+            settings,
+            cards: document(store.connection(), "catalogue", "home")?
+                .unwrap_or_else(|| json!({})),
+            lists,
+        })
+    }
+
+    /// The model the next call of `binding` is made with, as the
+    /// limits of its hamlet and the settings choose it now.
+    pub fn select(
+        &self,
+        store: &Store,
+        binding: &Binding,
+    ) -> Result<Selection> {
+        let limits = crate::spend::limits(
+            store.connection(),
+            &binding.agent.hamlet,
+        )?;
+        let record = store
+            .record(&binding.agent.hamlet)?
+            .context("model's hamlet")?;
+        let agent = record
+            .agents
+            .iter()
+            .find(|a| a.number == binding.agent.number)
+            .context("model's agent")?;
+        let name = crate::state::model(
+            agent,
+            &limits,
+            &self.settings,
+            record.mayor == agent.number,
+        );
+        let (provider, id) = name
+            .split_once("::")
+            .context("a model is named endpoint::model")?;
+        let listed = self.lists[provider]
+            .as_array()
+            .and_then(|list| list.iter().find(|m| m["id"] == id))
+            .unwrap_or(&Value::Null);
+        let base_url = self.settings["endpoints"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|e| e["name"] == provider)
+            .map_or(&listed["baseUrl"], |endpoint| {
+                &endpoint["baseUrl"]
+            })
+            .as_str()
+            .map(String::from);
+        let size =
+            |key: &str| listed[key].as_i64().filter(|n| *n > 0);
+        let card = &self.cards[&name]["price"];
+        let price =
+            match (card["input"].as_f64(), card["output"].as_f64()) {
+                (Some(input), Some(output)) => Price {
+                    input,
+                    output,
+                    cache_read: input,
+                    cache_write: input,
+                },
+                _ => serde_json::from_value(listed["cost"].clone())
+                    .unwrap_or_else(|_| {
+                        let rate = if local(base_url.as_deref()) {
+                            LOCAL_RATE
+                        } else {
+                            RATE
+                        };
+                        Price {
+                            input: rate,
+                            output: rate,
+                            cache_read: rate,
+                            cache_write: rate,
+                        }
+                    }),
+            };
+        Ok(Selection {
+            context_window: size("contextWindow"),
+            max_tokens: size("maxTokens"),
+            model: ModelRef {
+                provider: provider.into(),
+                id: id.into(),
+                base_url,
+            },
+            price,
+        })
+    }
+}
+
+fn local(base_url: Option<&str>) -> bool {
     base_url
-        .as_str()
         .and_then(|s| url::Url::parse(s).ok())
         .is_some_and(|u| {
             u.host_str().is_some_and(|h| {

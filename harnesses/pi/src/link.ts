@@ -53,6 +53,24 @@ export const ModelRef = object({
 });
 export type ModelRef = Static<typeof ModelRef>;
 
+/** A model's price in dollars per million tokens. */
+export const Price = object({
+    input: Type.Number({ minimum: 0 }),
+    output: Type.Number({ minimum: 0 }),
+    cacheRead: Type.Number({ minimum: 0 }),
+    cacheWrite: Type.Number({ minimum: 0 }),
+});
+export type Price = Static<typeof Price>;
+
+/** The model one call is made with, as the server chose it; a size it does not know is the model's own. */
+export const Selection = object({
+    model: ModelRef,
+    contextWindow: Type.Optional(Type.Integer({ minimum: 1 })),
+    maxTokens: Type.Optional(Type.Integer({ minimum: 1 })),
+    price: Price,
+});
+export type Selection = Static<typeof Selection>;
+
 /** A secret the server hands over for one model call, held in memory alone. */
 export const Credential = Type.Union([
     object({
@@ -164,6 +182,9 @@ export const ToolSpec = object({
     replay: Type.Enum(["safe", "unsafe"]),
 });
 export type ToolSpec = Static<typeof ToolSpec>;
+
+/** The kind of an entry written for people alone. */
+export const NOTICE = "hamlet.notice";
 
 /** Hamlet's own kind and data of an entry, such as a chief's line or a notice, kept as the server gave them. */
 export const Mark = object({
@@ -419,8 +440,11 @@ export type Operation = Static<typeof Operation>;
 export const Allowed = reply("allowed", {});
 export type Allowed = Static<typeof Allowed>;
 
-/** The call waits for a chief; nothing is kept of it as a result. */
-export const Waiting = reply("waiting", { words: Type.String() });
+/** The call waits for a chief; nothing is kept of it as a result. Asked again once `key` is answered. */
+export const Waiting = reply("waiting", {
+    words: Type.String(),
+    key: Type.String({ minLength: 1 }),
+});
 export type Waiting = Static<typeof Waiting>;
 
 /** The call may not run, in words for the agent. */
@@ -445,10 +469,10 @@ export const Attempt = message("attempt", {
 });
 export type Attempt = Static<typeof Attempt>;
 
-/** The call may be made, with the credential it needs. */
+/** The call may be made with the model the server chose, and the credential it needs. */
 export const Allowance = reply("allowance", {
     credential: Type.Optional(Credential),
-    model: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+    selection: Selection,
 });
 export type Allowance = Static<typeof Allowance>;
 
@@ -601,6 +625,8 @@ const DEFINITIONS: Record<string, TSchema> = {
     CredentialResult,
     Capability,
     ModelRef,
+    Price,
+    Selection,
     Credential,
     Usage,
     ToolSpec,

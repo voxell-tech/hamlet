@@ -143,9 +143,12 @@ pub async fn serve(options: Options) -> Result<()> {
     let started = async {
         while service.models.starting() {
             let event = harnesses.next().await;
-            let secrets = service.credentials.secrets();
             for notice in harnesses
-                .handle(service.home.store(), event, &secrets)
+                .handle(
+                    service.home.store(),
+                    event,
+                    &service.credentials,
+                )
                 .await?
             {
                 match notice {
@@ -363,8 +366,7 @@ pub async fn serve(options: Options) -> Result<()> {
                     refresh(&mut service, &mut state, &mut clients)?;
                 },
                 event = harnesses.next() => {
-                    let secrets = service.credentials.secrets();
-                    let notices = harnesses.handle(service.home.store(), event, &secrets).await?;
+                    let notices = harnesses.handle(service.home.store(), event, &service.credentials).await?;
                     heard(&mut service, &mut harnesses, &mut clients, notices).await?;
                     refresh(&mut service, &mut state, &mut clients)?;
                 }
@@ -608,9 +610,8 @@ async fn run_once(
         .await?;
     tokio::select! {
         event = harnesses.next() => {
-            let secrets = service.credentials.secrets();
             let notices =
-                harnesses.handle(service.home.store(), event, &secrets).await?;
+                harnesses.handle(service.home.store(), event, &service.credentials).await?;
             heard(service, harnesses, clients, notices).await?;
         }
         Some(ran) = service.chats.tools.join_next() => {

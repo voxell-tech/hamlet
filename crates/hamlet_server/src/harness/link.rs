@@ -46,9 +46,8 @@ pub struct Allowance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credential: Option<Credential>,
     pub id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<std::collections::BTreeMap<String, serde_json::Value>>,
     pub re: String,
+    pub selection: Selection,
     pub v: i64,
 }
 
@@ -429,6 +428,16 @@ pub struct Partial {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Price {
+    #[serde(rename = "cacheRead")]
+    pub cache_read: f64,
+    #[serde(rename = "cacheWrite")]
+    pub cache_write: f64,
+    pub input: f64,
+    pub output: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Prompt {
     pub conversation: String,
     pub id: String,
@@ -631,6 +640,18 @@ pub struct Sections {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Selection {
+    #[serde(rename = "contextWindow")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<i64>,
+    #[serde(rename = "maxTokens")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<i64>,
+    pub model: ModelRef,
+    pub price: Price,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ServerMessage {
     #[serde(rename = "provider_request")]
@@ -826,6 +847,7 @@ pub struct Verdict {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Waiting {
     pub id: String,
+    pub key: String,
     pub re: String,
     pub v: i64,
     pub words: String,

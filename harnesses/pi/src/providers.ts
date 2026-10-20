@@ -11,6 +11,7 @@ import {
     type Provider,
 } from "@earendil-works/pi-ai/models";
 import type { ProviderRequest, ProviderResult } from "./link.ts";
+import { compatibleModel } from "./models.ts";
 import { providers as supportedProviders } from "./provider-set.ts";
 
 type Result = Omit<ProviderResult, "v" | "id" | "type" | "re">;
@@ -154,26 +155,8 @@ function compatible(request: ProviderRequest): Provider {
         host.startsWith("127.")
             ? 0.1
             : 1;
-    const make = (
-        id: string,
-        context = 32768,
-    ): Model<"openai-completions"> => ({
-        id,
-        name: id,
-        provider: request.provider,
-        baseUrl,
-        api: "openai-completions",
-        reasoning: false,
-        input: ["text"],
-        cost: { input: rate, output: rate, cacheRead: rate, cacheWrite: rate },
-        contextWindow: context,
-        maxTokens: Math.min(8192, Math.floor(context * 0.2)),
-        compat: {
-            supportsStore: false,
-            supportsDeveloperRole: false,
-            supportsUsageInStreaming: true,
-        },
-    });
+    const make = (id: string, window?: number) =>
+        compatibleModel(request.provider, id, baseUrl, window, rate);
     const seeds = request.models.map((raw) => ({
         ...make(String(raw.id)),
         ...raw,
@@ -251,7 +234,7 @@ function compatible(request: ProviderRequest): Provider {
                         input === null || output === null
                             ? null
                             : { input, output };
-                    const model = make(id, context ?? 32768);
+                    const model = make(id, context ?? undefined);
                     if (listedPrice !== null)
                         model.cost = {
                             ...listedPrice,

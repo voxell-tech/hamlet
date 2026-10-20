@@ -163,3 +163,10 @@ function readableId(line: string): { re?: string } {
     } catch {}
     return {};
 }
+
+/** Words for a reply that is not the one a request expects. */
+export function unexpected(answer: ServerReply): string {
+    return answer.type === "error"
+        ? `The server could not answer: ${answer.message}`
+        : `The server answered with ${answer.type}.`;
+}
