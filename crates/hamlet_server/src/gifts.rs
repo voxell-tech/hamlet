@@ -422,7 +422,6 @@ impl Service {
             Ok(false) => {}
         }
         let mut giver = None;
-        let mut remote_source = None;
         let source = if let Some(from) = from {
             let agent = match self.agent(from, "give")? {
                 Ok(a) => a,
@@ -437,58 +436,25 @@ impl Service {
                     format!("@{}", from.hamlet)
                 }
             ));
-            if self.houses.workspace.is_some() {
-                let copied = async {
-                    let source = self
-                        .houses
-                        .files(&from.hamlet, agent.number)?
-                        .directory("skills", false)
-                        .await?
-                        .directory(skill, false)
-                        .await?;
-                    let snapshot =
-                        crate::papers::copy::Snapshot::read(
-                            &source, MAX_BYTES, 4096, false,
-                        )
-                        .await?;
-                    anyhow::ensure!(
-                        snapshot.files.contains_key("SKILL.md"),
-                        "`{}` has no skill named `{skill}`",
-                        from.agent
-                    );
-                    Ok::<_, anyhow::Error>(snapshot)
-                }
-                .await;
-                match copied {
-                    Ok(snapshot) => remote_source = Some(snapshot),
-                    Err(error) => {
-                        return Ok(Err(refused(error.to_string())));
-                    }
-                }
-                None
-            } else {
-                let source = self
-                    .houses
-                    .house(&from.hamlet, agent.number, false)
-                    .and_then(|h| {
-                        tree::directory(&h, "skills", false)
-                    });
-                let source = match source {
-                    Ok(s) => s,
-                    Err(_) => return Ok(Err(refused(DELIVERY))),
-                };
-                let paper = match tree::paper(&source, skill) {
-                    Ok(paper) => paper,
-                    Err(words) => return Ok(Err(refused(words))),
-                };
-                if !paper {
-                    return Ok(Err(refused(format!(
-                        "`{}` has no skill named `{skill}`",
-                        from.agent
-                    ))));
-                }
-                Some(source)
+            let source = self
+                .houses
+                .house(&from.hamlet, agent.number, false)
+                .and_then(|h| tree::directory(&h, "skills", false));
+            let source = match source {
+                Ok(s) => s,
+                Err(_) => return Ok(Err(refused(DELIVERY))),
+            };
+            let paper = match tree::paper(&source, skill) {
+                Ok(paper) => paper,
+                Err(words) => return Ok(Err(refused(words))),
+            };
+            if !paper {
+                return Ok(Err(refused(format!(
+                    "`{}` has no skill named `{skill}`",
+                    from.agent
+                ))));
             }
+            Some(source)
         } else {
             if crate::starters::files(skill).is_none() {
                 return Ok(Err(refused(format!(
@@ -503,10 +469,7 @@ impl Service {
             Ok(s) => s,
             Err(_) => return Ok(Err(refused(STAGING))),
         };
-        if let Some(snapshot) = remote_source {
-            let target = tree::directory(&stage.dir, skill, true)?;
-            snapshot.write_local(&target)?;
-        } else if let Some(source) = source {
+        if let Some(source) = source {
             if let Err(words) = tree::copy(&source, &stage, skill) {
                 return Ok(Err(refused(words)));
             }
@@ -527,43 +490,12 @@ impl Service {
             }
         }
         // Reopen the house and shelf after reading the giver's tree.
-        let delivered = if let Some(remote) =
-            self.houses.remote(&to.hamlet, target.number, false)?
-        {
-            async {
-                remote_shelf(&remote, "skills", &[skill.into()])
-                    .await?;
-                let source = crate::papers::files::Files::Local(
-                    stage.dir.try_clone()?,
-                );
-                let snapshot = crate::papers::copy::Snapshot::read(
-                    &source, MAX_BYTES, 4096, false,
-                )
-                .await?;
-                snapshot
-                    .deliver(
-                        &remote,
-                        "/house/skills",
-                        &[skill.into()],
-                        false,
-                    )
-                    .await
-            }
-            .await
-        } else {
-            self.houses
-                .house(&to.hamlet, target.number, false)
-                .and_then(|h| {
-                    tree::shelf(&h, "skills", &[skill.into()])
-                })
-                .and_then(|s| {
-                    stage.deliver(&s, &[skill.into()], false)
-                })
-        };
-        if let Err(error) = delivered {
-            if self.houses.workspace.is_some() {
-                return Ok(Err(refused(error.to_string())));
-            }
+        let delivered = self
+            .houses
+            .house(&to.hamlet, target.number, false)
+            .and_then(|h| tree::shelf(&h, "skills", &[skill.into()]))
+            .and_then(|s| stage.deliver(&s, &[skill.into()], false));
+        if delivered.is_err() {
             return Ok(Err(refused(DELIVERY)));
         }
         let mut record =

@@ -9,7 +9,7 @@ impl Service {
         )
     }
 
-    fn gift_begin(
+    pub(super) async fn gift_begin(
         &mut self,
         _owner: u64,
         _id: &str,
@@ -19,7 +19,7 @@ impl Service {
         Ok(Err(Refusal::Unsupported("gifts on this platform")))
     }
 
-    fn gift_part(
+    pub(super) async fn gift_part(
         &mut self,
         _owner: u64,
         _part: &GivePart,
@@ -27,7 +27,7 @@ impl Service {
         Ok(Err(Refusal::Unsupported("gifts on this platform")))
     }
 
-    pub(crate) fn gift_skill(
+    pub(crate) async fn gift_skill(
         &mut self,
         _to: &Address,
         _skill: &str,
