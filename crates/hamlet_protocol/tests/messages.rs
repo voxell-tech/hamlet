@@ -584,12 +584,7 @@ fn transcripts_keep_every_item_kind_and_page_status() {
 }
 
 #[test]
-fn replies_and_login_steps_keep_their_request_and_payload() {
-    for kind in ["notice", "error", "rewound"] {
-        server(
-            json!({"type": "reply", "to": ID, "kind": kind, "text": "Words"}),
-        );
-    }
+fn login_steps_keep_their_request_and_payload() {
     for step in [
         json!({"url": "https://example.invalid/login", "instructions": "Open this"}),
         json!({"url": "https://example.invalid/login"}),
@@ -606,26 +601,6 @@ fn replies_and_login_steps_keep_their_request_and_payload() {
     server(
         json!({"type": "login", "login": "login-1", "step": {"done": "Connected"}}),
     );
-}
-
-#[test]
-fn reads_return_each_result_without_a_redundant_type_field() {
-    let results = [
-        json!({"type": "read", "to": ID, "prompt": "The prompt"}),
-        json!({"type": "read", "to": ID, "history": [{
-            "number": 1, "current": false, "title": "Earlier", "by": "chief", "began": 10,
-            "modified": 20, "messages": 2, "tokens": 140
-        }]}),
-        json!({"type": "read", "to": ID, "models": [
-            {"name": "faux/test", "price": {"input": 1.0, "output": 2.0}, "priced": "listed", "context": 100000, "allowed": true, "note": "Test"},
-            {"name": "faux/unknown", "price": null, "priced": "unknown", "context": null, "allowed": false, "note": ""}
-        ]}),
-        json!({"type": "read", "to": ID, "papers": {"notes": "Remember", "character": "Careful", "skills": [{"name": "test", "description": "A skill"}]}}),
-        json!({"type": "read", "to": ID, "charter": {"text": "Be kind", "own": true}}),
-    ];
-    for result in results {
-        server(result);
-    }
 }
 
 #[test]
@@ -648,20 +623,6 @@ fn older_windows_accept_optional_additions_to_messages_and_nested_entities()
     assert!(matches!(serde_json::from_value::<ServerMessage>(json!({
         "type": "read", "to": ID, "charter": {"text": "Be kind", "own": true, "later": 1}, "later": true
     })).unwrap(), ServerMessage::Read(ReadResult::Charter { .. })));
-}
-
-#[test]
-fn file_gifts_round_trip_manifests_and_parts_with_the_upload_receipt()
-{
-    for wire in [
-        json!({"type": "give", "id": ID, "to": {"hamlet": "home", "agent": "mayor"}, "files": [{"path": "folder/a", "size": 2}]}),
-        json!({"type": "give-part", "id": ID, "upload": "upload-1", "path": "folder/a", "offset": 1, "data": "Qg=="}),
-    ] {
-        client(serde_json::from_value(wire.clone()).unwrap(), wire);
-    }
-    server(
-        json!({"type": "reply", "to": ID, "kind": "notice", "text": "Ready for the gift's file parts.", "upload": "upload-1"}),
-    );
 }
 
 #[test]

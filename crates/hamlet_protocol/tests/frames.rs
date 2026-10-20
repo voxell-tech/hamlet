@@ -1,12 +1,53 @@
-//! Recorded server messages through the generated wire types.
+//! Recorded sessions through the generated wire types.
+
+use std::path::{Path, PathBuf};
 
 use hamlet_protocol::v0::*;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 
+fn frames() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("frames")
+}
+
+/// Reads `wire` as an `M` and checks it is written back unchanged.
+fn round_trip<M: Serialize + DeserializeOwned>(wire: &Value) {
+    let message = serde_json::from_value::<M>(wire.clone())
+        .unwrap_or_else(|error| panic!("{error}: {wire}"));
+    assert_eq!(&serde_json::to_value(&message).unwrap(), wire);
+}
+
+#[test]
+fn every_recorded_message_reads_and_writes_back_unchanged() {
+    let mut files = std::fs::read_dir(frames())
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|e| e == "jsonl"))
+        .collect::<Vec<_>>();
+    files.sort();
+    assert!(files.len() >= 18, "{files:?}");
+    for file in files {
+        for line in std::fs::read_to_string(&file).unwrap().lines() {
+            let frame = serde_json::from_str::<Value>(line).unwrap();
+            match frame["from"].as_str() {
+                Some("client") => {
+                    round_trip::<ClientMessage>(&frame["message"])
+                }
+                Some("server") => {
+                    round_trip::<ServerMessage>(&frame["message"])
+                }
+                _ => panic!(
+                    "{} has a frame from no side",
+                    file.display()
+                ),
+            }
+        }
+    }
+}
+
 fn messages(name: &str) -> Vec<ServerMessage> {
-    let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("frames")
-        .join(format!("{name}.jsonl"));
+    let file = frames().join(format!("{name}.jsonl"));
     std::fs::read_to_string(file)
         .unwrap()
         .lines()
