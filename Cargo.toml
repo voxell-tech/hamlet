@@ -1,11 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+members = ["crates/*", "engine/*"]
 # The vendored fynix workspace is its own workspace.
 exclude = ["vendor"]
 # `cargo build`, `cargo test` and `cargo clippy` at the root cover every
 # crate, so the checks in AGENTS.md need no flags.
-default-members = [".", "crates/*"]
+default-members = [".", "crates/*", "engine/*"]
 
 [workspace.package]
 version = "0.1.0"
@@ -26,6 +26,9 @@ hamlet_vfx = { version = "0.1.0", path = "crates/hamlet_vfx" }
 hamlet_realm = { version = "0.1.0", path = "crates/hamlet_realm" }
 hamlet_ui = { version = "0.1.0", path = "crates/hamlet_ui" }
 hamlet_testing = { version = "0.1.0", path = "crates/hamlet_testing" }
+
+# the engine
+hamlet_engine_api = { version = "0.1.0", path = "engine/api" }
 
 # fynix
 bevy_fynix = { path = "vendor/fynix/crates/bevy_fynix" }
@@ -60,6 +63,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 tokio = { version = "1", features = ["full"] }
+postcard = { version = "1", default-features = false, features = ["alloc"] }
 objc2 = "0.5"
 objc2-app-kit = { version = "0.2", default-features = false, features = ["std", "NSApplication", "NSImage", "NSResponder"] }
 objc2-foundation = { version = "0.2", default-features = false, features = ["std", "NSData"] }

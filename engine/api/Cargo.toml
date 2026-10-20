@@ -1,0 +1,13 @@
+[package]
+name = "hamlet_engine_api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The names the engine and its plugins share: ids, the manifest, the widget tree, capabilities and the wire format"
+
+[lints]
+workspace = true
+
+[dependencies]
+postcard.workspace = true
+serde.workspace = true

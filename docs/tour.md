@@ -130,6 +130,7 @@ Paths are under `crates/`.
 | The camera | `hamlet_realm/src/pick/camera.rs` |
 | The wizard or the Hearth | `hamlet_realm/src/chief/`; [`chief.md`](chief.md) |
 | What is saved between launches | `hamlet_ui/src/remember.rs`; settings in `hamlet_model/src/config.rs` |
+| The engine, apart from the app | `engine/`; [`engine.md`](engine.md) |
 
 ## Tuning while the app runs
 
