@@ -79,7 +79,8 @@ impl Rules<'_> {
             Request::Call { .. }
             | Request::Subscribe(_)
             | Request::Emit { .. }
-            | Request::Fetch(_) => return None,
+            | Request::Fetch(_)
+            | Request::Agents(_) => return None,
             Request::UpdateAsset { id, bytes } => self
                 .own(store, plugin, *id)
                 .and_then(|()| self.fits(bytes))

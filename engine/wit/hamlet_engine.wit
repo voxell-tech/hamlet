@@ -57,6 +57,9 @@ interface host {
     /// Fetches a `FetchRequest` from a host the plugin asked for:
     /// `Fetched`.
     fetch: func(request: list<u8>) -> u64;
+
+    /// Asks the agents service an `AgentsRequest`: `Agents`.
+    agents: func(request: list<u8>) -> u64;
 }
 
 /// What a plugin gives the engine.

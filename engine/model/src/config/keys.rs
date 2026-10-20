@@ -4,11 +4,26 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 use anyhow::Result;
 
 const KEYCHAIN_SERVICE: &str = "hamlet";
+
+/// The keychain service this process keeps its secrets under, when it
+/// is not [`KEYCHAIN_SERVICE`].
+static SERVICE: OnceLock<&'static str> = OnceLock::new();
+
+/// Keeps every secret of this process under the keychain service
+/// `name`, so two apps with homes of their own never read or delete
+/// each other's keys. Set once, before any secret is read.
+pub fn use_keychain_service(name: &'static str) {
+    let _ = SERVICE.set(name);
+}
+
+fn service() -> &'static str {
+    SERVICE.get().copied().unwrap_or(KEYCHAIN_SERVICE)
+}
 
 /// The secrets read or kept this run, by the file each would be
 /// kept in. The keychain may ask the chief for a password at each
@@ -54,7 +69,7 @@ pub(crate) fn load_secret(home: &Path, name: &str) -> Option<String> {
         return Some(secret.clone());
     }
     drop(known);
-    let read = keyring::Entry::new(KEYCHAIN_SERVICE, name)
+    let read = keyring::Entry::new(service(), name)
         .and_then(|e| e.get_password());
     let secret = match read {
         Ok(k) if !k.is_empty() => Some(k),
@@ -77,7 +92,7 @@ pub(crate) fn save_secret(
     name: &str,
     secret: Option<&str>,
 ) -> Result<()> {
-    let entry = keyring::Entry::new(KEYCHAIN_SERVICE, name);
+    let entry = keyring::Entry::new(service(), name);
     let file = home.join(name);
     let Some(secret) = secret.filter(|k| !k.is_empty()) else {
         know(file.clone(), None);

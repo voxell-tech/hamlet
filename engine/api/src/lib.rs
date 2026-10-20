@@ -1,6 +1,7 @@
 //! The vocabulary the engine and its plugins share. Plain data with
 //! serde, no Bevy and no host, so both sides of a plugin build it.
 
+pub mod agents;
 pub mod asset;
 pub mod capability;
 pub mod contribution;
@@ -14,6 +15,7 @@ pub mod service;
 pub mod widget;
 pub mod wire;
 
+pub use agents::{AgentsEvent, AgentsReply, AgentsRequest};
 pub use asset::{
     Asset, AssetId, AssetInfo, AssetType, AssetTypes, TypeName,
 };

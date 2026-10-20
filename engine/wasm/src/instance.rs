@@ -12,8 +12,8 @@ use std::time::{Duration, Instant};
 
 use bevy::ecs::component::Component;
 use hamlet_engine_api::{
-    AssetId, Contribution, FetchRequest, Request, Ticket,
-    WidgetEvent, WidgetTree, decode, encode,
+    AgentsRequest, AssetId, Contribution, FetchRequest, Request,
+    Ticket, WidgetEvent, WidgetTree, decode, encode,
 };
 use hamlet_engine_core::{Budgets, LogLevel};
 use wasmtime::component::{Component as Compiled, HasSelf, Linker};
@@ -334,6 +334,14 @@ impl host::Host for State {
     fn fetch(&mut self, request: Vec<u8>) -> Ticket {
         match decode::<FetchRequest>(&request) {
             Ok(request) => self.ask(Request::Fetch(request)),
+            Err(_) => 0,
+        }
+    }
+
+    /// A request that cannot be read is not taken.
+    fn agents(&mut self, request: Vec<u8>) -> Ticket {
+        match decode::<AgentsRequest>(&request) {
+            Ok(request) => self.ask(Request::Agents(request)),
             Err(_) => 0,
         }
     }

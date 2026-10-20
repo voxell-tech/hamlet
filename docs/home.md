@@ -37,7 +37,7 @@ speaks the OpenAI chat protocol is an endpoint, and a model is named
 
 ## Starter skills
 
-`crates/hamlet_home/starters/` holds the starter skills: web search, page
+`engine/home/starters/` holds the starter skills: web search, page
 reading, weather, API calls, system info, and guidance on writing skills
 and notes. They are copied into a workspace the first time it is opened and
 belong to the agent after that.

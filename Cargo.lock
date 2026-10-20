@@ -3641,6 +3641,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_fynix",
+ "hamlet_engine_agents",
  "hamlet_engine_api",
  "hamlet_engine_assets",
  "hamlet_engine_bus",
@@ -3650,6 +3651,23 @@ dependencies = [
  "hamlet_engine_plugins",
  "hamlet_engine_shell",
  "hamlet_engine_wasm",
+]
+
+[[package]]
+name = "hamlet_engine_agents"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "hamlet_core",
+ "hamlet_engine_api",
+ "hamlet_engine_core",
+ "hamlet_engine_grants",
+ "hamlet_engine_plugins",
+ "hamlet_home",
+ "hamlet_model",
+ "hamlet_rules",
+ "hamlet_sandbox",
+ "tokio",
 ]
 
 [[package]]

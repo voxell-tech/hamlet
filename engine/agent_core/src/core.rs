@@ -322,8 +322,8 @@ impl From<SignedIn> for Signing {
     }
 }
 
-/// Opens `url` in the chief's browser.
-fn browse(url: &str) -> std::io::Result<()> {
+/// Opens `url`, or a file, in the program the system keeps for it.
+pub fn browse(url: &str) -> std::io::Result<()> {
     use std::process::Command;
     let mut open = if cfg!(target_os = "macos") {
         Command::new("open")

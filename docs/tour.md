@@ -44,21 +44,22 @@ flowchart TD
 
 ## The crates
 
-All are under `crates/`, and each depends only on those above it in this
-table. The binary and the examples are the root package.
+Each depends only on those above it in this table. The agent core, the
+first five, is under `engine/`, since the engine runs it too; the rest are
+under `crates/`. The binary and the examples are the root package.
 
-| Crate | What it is |
-|---|---|
-| `hamlet_sandbox` | Per-platform process sandboxes |
-| `hamlet_model` | The model client, its settings, the catalogue of models, the session log |
-| `hamlet_home` | A home on disk: its layout, charter and prompt, the chief's limits, the starter skills |
-| `hamlet_rules` | The hamlet's record and the rules over it. Plain files and functions, no Bevy |
-| `hamlet_core` | The runtime as Bevy plugins: agents, sessions, tools and oversight. No rendering |
-| `hamlet_desktop` | The machine the app runs on: kept awake while an agent works, its programs that show a file or a link, its folder dialog and the app's icon |
-| `hamlet_assets` | The files under `assets/`, built into the app and loaded as Bevy assets |
-| `hamlet_vfx` | The visual effects: what each is and how it plays |
-| `hamlet_realm` | The 3D world, drawn from the core's entities |
-| `hamlet_ui` | The window: panels, menus, chat and pointer around the world |
+| Crate | Folder | What it is |
+|---|---|---|
+| `hamlet_sandbox` | `engine/sandbox` | Per-platform process sandboxes |
+| `hamlet_model` | `engine/model` | The model client, its settings, the catalogue of models, the session log |
+| `hamlet_home` | `engine/home` | A home on disk: its layout, charter and prompt, the chief's limits, the starter skills |
+| `hamlet_rules` | `engine/rules` | The hamlet's record and the rules over it. Plain files and functions, no Bevy |
+| `hamlet_core` | `engine/agent_core` | The runtime as Bevy plugins: agents, sessions, tools and oversight. No rendering |
+| `hamlet_desktop` | `crates/hamlet_desktop` | The machine the app runs on: kept awake while an agent works, its programs that show a file or a link, its folder dialog and the app's icon |
+| `hamlet_assets` | `crates/hamlet_assets` | The files under `assets/`, built into the app and loaded as Bevy assets |
+| `hamlet_vfx` | `crates/hamlet_vfx` | The visual effects: what each is and how it plays |
+| `hamlet_realm` | `crates/hamlet_realm` | The 3D world, drawn from the core's entities |
+| `hamlet_ui` | `crates/hamlet_ui` | The window: panels, menus, chat and pointer around the world |
 
 Inside a crate, a module with several subjects is a file and a folder of
 the same name, and each file opens with a line saying what it holds. Read
@@ -94,7 +95,7 @@ Names to keep apart:
 
 ## Where do I change...
 
-Paths are under `crates/`.
+Paths are under the crate's folder in the table above.
 
 | To change | Go to |
 |---|---|
@@ -133,6 +134,8 @@ Paths are under `crates/`.
 | The engine, apart from the app | `engine/`; [`engine.md`](engine.md) |
 | A budget of an engine plugin | `engine/tuning/engine.toml`, its fields in `engine/core/src/budget.rs` |
 | What engine plugins share | `engine/assets/` (assets), `engine/bus/` (services and events), `engine/net/` (fetches) |
+| What plugins may ask of the agents | `engine/api/src/agents.rs`, answered in `engine/agents/src/answer.rs`; [`engine.md`](engine.md#the-agents) |
+| What a plugin is told when the agents change | `engine/agents/src/watch.rs` |
 | What a plugin and the engine say to each other | `engine/wit/hamlet_engine.wit`, the types in `engine/api/` |
 | Writing or testing an engine plugin | `engine/sdk/`, `engine/samples/`, `engine/harness/` and `plugin_check`; [`engine.md`](engine.md) |
 

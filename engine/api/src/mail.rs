@@ -6,6 +6,7 @@ use core::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::agents::{AgentsReply, AgentsRequest};
 use crate::asset::{Asset, AssetId, AssetInfo};
 use crate::id::{EventId, PluginId};
 use crate::net::{FetchReply, FetchRequest};
@@ -53,6 +54,7 @@ pub enum Request {
         payload: Vec<u8>,
     },
     Fetch(FetchRequest),
+    Agents(AgentsRequest),
 }
 
 /// What the engine sends a plugin, given to it in a batch on the
@@ -92,6 +94,7 @@ pub enum Reply {
     Answered(Vec<u8>),
     Subscribed,
     Fetched(FetchReply),
+    Agents(AgentsReply),
 }
 
 /// Why a request came to nothing.

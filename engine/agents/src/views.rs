@@ -1,0 +1,379 @@
+//! The agent core's state as the protocol tells it, with no key.
+
+use std::path::Path;
+
+use bevy::ecs::entity::Entity;
+use bevy::ecs::query::With;
+use bevy::ecs::system::{Query, Res, SystemParam, SystemState};
+use bevy::ecs::world::World;
+use hamlet_core::agent::Event as AgentEvent;
+use hamlet_core::agents::{Settlement, Treasury};
+use hamlet_core::core::{self, Sandboxing, Settings as CoreSettings};
+use hamlet_core::oversight::Waiting;
+use hamlet_core::oversight::grants::Grants;
+use hamlet_core::session::{
+    self, Reply, SessionKey, Status as Work, TalksTo, Transcript,
+    Usage,
+};
+use hamlet_engine_api::agents::{
+    CatalogueModel, Charter, Endpoint, Entry, Grant, Link, Listed,
+    Listing, Output, Priced, Provider, RealmLimits, Session,
+    SessionMessage, SessionName, Settings, Status, Trial,
+};
+use hamlet_home::charter;
+use hamlet_home::limits::Limits;
+use hamlet_model::catalogue::{self, Catalogue};
+use hamlet_model::config::providers::PROVIDERS;
+use hamlet_model::config::{self, Config};
+use hamlet_rules::hamlet::HOME;
+
+use crate::Chief;
+
+/// The home's settings with no key, the link and the listing.
+pub(crate) fn settings(world: &World, home: &Path) -> Settings {
+    settings_of(
+        world.resource::<CoreSettings>(),
+        world.resource::<core::Link>(),
+        world.resource::<core::Listing>(),
+        home,
+    )
+}
+
+/// `settings` with no key, with `found` and `listed`, of the home at
+/// `home`.
+pub(crate) fn settings_of(
+    settings: &CoreSettings,
+    found: &core::Link,
+    listed: &core::Listing,
+    home: &Path,
+) -> Settings {
+    let config = &settings.config;
+    Settings {
+        model: config.model.clone(),
+        reflect_every: u32::try_from(config.reflect_every)
+            .unwrap_or(u32::MAX),
+        allow_net: config.allow_net,
+        endpoints: config.endpoints.iter().map(endpoint).collect(),
+        chosen: Config::saved(home)
+            || std::env::var_os("HAMLET_MODEL").is_some(),
+        problem: settings.error.clone(),
+        link: link(found),
+        listing: listing(listed),
+    }
+}
+
+/// An endpoint with only whether it has a key.
+pub(crate) fn endpoint(endpoint: &config::Endpoint) -> Endpoint {
+    Endpoint {
+        name: endpoint.name.clone(),
+        url: endpoint.base_url.clone(),
+        has_key: endpoint.api_key.is_some(),
+        chatgpt: endpoint.chatgpt,
+    }
+}
+
+pub(crate) fn link(link: &core::Link) -> Link {
+    match link {
+        core::Link::Unknown => Link::Untested,
+        core::Link::Testing => Link::Testing,
+        core::Link::Ok { models } => Link::Connected(models.clone()),
+        core::Link::Failed(why) => Link::Failed(why.clone()),
+    }
+}
+
+pub(crate) fn listing(listing: &core::Listing) -> Listing {
+    Listing {
+        asking: u32::try_from(listing.asking).unwrap_or(u32::MAX),
+        said: listing
+            .said
+            .iter()
+            .map(|(endpoint, said)| Listed {
+                endpoint: endpoint.clone(),
+                models: said.clone().map(|count| {
+                    u32::try_from(count).unwrap_or(u32::MAX)
+                }),
+            })
+            .collect(),
+    }
+}
+
+pub(crate) fn trial(trial: &core::Trial) -> Trial {
+    match trial {
+        core::Trial::Untried => Trial::Untried,
+        core::Trial::Trying => Trial::Trying,
+        core::Trial::Answered => Trial::Answered,
+        core::Trial::Failed(why) => Trial::Failed(why.clone()),
+    }
+}
+
+pub(crate) fn catalogue(all: &Catalogue) -> Vec<CatalogueModel> {
+    all.models
+        .iter()
+        .map(|model| CatalogueModel {
+            name: model.name(),
+            allowed: model.allowed,
+            input: model.input,
+            output: model.output,
+            priced: match model.priced {
+                catalogue::Priced::Unknown => Priced::Unknown,
+                catalogue::Priced::Listed => Priced::Listed,
+                catalogue::Priced::Assigned => Priced::Assigned,
+                catalogue::Priced::Yours => Priced::Yours,
+            },
+            context: model.context,
+            note: model.note.clone(),
+        })
+        .collect()
+}
+
+pub(crate) fn providers() -> Vec<Provider> {
+    PROVIDERS
+        .iter()
+        .map(|provider| Provider {
+            name: provider.name.into(),
+            endpoint: provider.endpoint.into(),
+            url: provider.base_url.into(),
+            keys_at: provider.keys.into(),
+        })
+        .collect()
+}
+
+pub(crate) fn charter(home: &Path) -> Charter {
+    let own = charter::own(home);
+    Charter {
+        own: own.is_some(),
+        text: own.unwrap_or_else(|| charter::DEFAULT.to_string()),
+    }
+}
+
+/// The limits of the realm from the home's file, or the defaults and
+/// why it cannot be read.
+pub(crate) fn limits(home: &Path) -> RealmLimits {
+    let (limits, problem) = match Limits::load(home) {
+        Ok(limits) => (limits, None),
+        Err(why) => (Limits::default(), Some(format!("{why:#}"))),
+    };
+    let wide = |n: usize| n as u64;
+    RealmLimits {
+        most_hamlets: wide(limits.hamlets.most),
+        roads_between: limits.hamlets.roads_between,
+        removal_mayors: wide(limits.hamlets.removal_mayors),
+        grows_over_days: limits.road.grows_over_days,
+        pass: limits.votes.pass,
+        least_voters: wide(limits.votes.least_voters),
+        sealed: limits.votes.sealed,
+        grounded_only: limits.votes.grounded_only,
+        ballot_minutes: limits.votes.ballot_minutes,
+        open_minutes: limits.votes.open_minutes,
+        retry_minutes: limits.votes.retry_minutes,
+        problem,
+    }
+}
+
+/// Whether `key` of `section` is a limit of the realm, which the
+/// home's file holds for every hamlet.
+pub(crate) fn of_the_realm(section: &str, key: &str) -> bool {
+    matches!(section, "votes" | "hamlets")
+        || (section, key) == ("road", "grows_over_days")
+}
+
+pub(crate) fn grants(grants: &Grants) -> Vec<Grant> {
+    grants
+        .held()
+        .iter()
+        .map(|grant| Grant {
+            agent: grant.agent,
+            name: grant.name.clone(),
+            permission: grant.permission.name().into(),
+            by: grant.by.clone(),
+        })
+        .collect()
+}
+
+/// What the status line is made of.
+#[derive(SystemParam)]
+pub(crate) struct StatusFacts<'w, 's> {
+    sandbox: Res<'w, Sandboxing>,
+    settings: Res<'w, CoreSettings>,
+    link: Res<'w, core::Link>,
+    chief: Res<'w, Chief>,
+    sessions: Query<'w, 's, (&'static Usage, &'static Work)>,
+    treasuries:
+        Query<'w, 's, (&'static Settlement, &'static Treasury)>,
+    waiting: Query<'w, 's, (), With<Waiting>>,
+}
+
+impl StatusFacts<'_, '_> {
+    /// The facts of the status line, of the chief's open session.
+    pub(crate) fn status(&self) -> Status {
+        let treasury = self
+            .treasuries
+            .iter()
+            .find(|(settlement, _)| settlement.name == HOME)
+            .map(|(_, treasury)| treasury.0.summary())
+            .unwrap_or_default();
+        let open = self.sessions.get(self.chief.session).ok();
+        Status {
+            sandbox: self.sandbox.0.name().into(),
+            model: self.settings.config.model.clone(),
+            link: link(&self.link),
+            usage: open
+                .map(|(usage, _)| usage.summary())
+                .unwrap_or_default(),
+            treasury,
+            waiting: u32::try_from(self.waiting.iter().count())
+                .unwrap_or(u32::MAX),
+            working: open.is_some_and(|(_, work)| work.working()),
+        }
+    }
+}
+
+/// The status as it stands in `world`.
+pub(crate) fn status(world: &mut World) -> Option<Status> {
+    let mut facts = SystemState::<StatusFacts>::new(world);
+    facts.get(world).ok().map(|facts| facts.status())
+}
+
+pub(crate) fn session_name(key: &SessionKey) -> SessionName {
+    SessionName {
+        channel: key.channel.clone(),
+        chat: key.chat.clone(),
+        thread: key.thread.clone(),
+    }
+}
+
+pub(crate) fn session_key(name: &SessionName) -> SessionKey {
+    SessionKey {
+        channel: name.channel.clone(),
+        chat: name.chat.clone(),
+        thread: name.thread.clone(),
+    }
+}
+
+/// The session `entity`, if it is one.
+pub(crate) fn session(
+    world: &World,
+    entity: Entity,
+) -> Option<Session> {
+    let session = world.get_entity(entity).ok()?;
+    let key = session.get::<SessionKey>()?;
+    let agent = session
+        .get::<TalksTo>()
+        .map(|with| hamlet_core::agents::name_of(world, with.0));
+    Some(Session {
+        name: session_name(key),
+        agent,
+        working: session.get::<Work>().is_some_and(Work::working),
+        usage: session
+            .get::<Usage>()
+            .map(Usage::summary)
+            .unwrap_or_default(),
+        last: session
+            .get::<Transcript>()
+            .and_then(|said| said.items().last())
+            .map(|item| item.id),
+    })
+}
+
+pub(crate) fn sessions(world: &mut World) -> Vec<Session> {
+    let all = world
+        .query_filtered::<Entity, With<SessionKey>>()
+        .iter(world)
+        .collect::<Vec<_>>();
+    all.into_iter()
+        .filter_map(|entity| session(world, entity))
+        .collect()
+}
+
+/// The last `most` messages of `said` after the message `after`.
+pub(crate) fn messages(
+    said: &Transcript,
+    after: Option<u64>,
+    most: u32,
+) -> Vec<SessionMessage> {
+    let items = said
+        .items()
+        .iter()
+        .filter(|item| after.is_none_or(|after| item.id > after))
+        .collect::<Vec<_>>();
+    let skip = items.len().saturating_sub(most as usize);
+    items[skip..]
+        .iter()
+        .map(|item| SessionMessage {
+            id: item.id,
+            at: item.at,
+            entry: entry(&item.entry),
+        })
+        .collect()
+}
+
+pub(crate) fn entry(entry: &session::Entry) -> Entry {
+    match entry {
+        session::Entry::User { user, text } => Entry::User {
+            user: user.clone(),
+            text: text.clone(),
+        },
+        session::Entry::Assistant(text) => {
+            Entry::Assistant(text.clone())
+        }
+        session::Entry::Reasoning(text) => {
+            Entry::Reasoning(text.clone())
+        }
+        session::Entry::Tool {
+            name,
+            summary,
+            exit,
+            ..
+        } => Entry::Tool {
+            name: name.clone(),
+            summary: summary.clone(),
+            exit: *exit,
+        },
+        session::Entry::Error(text) => Entry::Error(text.clone()),
+        session::Entry::Notice(text) => Entry::Notice(text.clone()),
+        session::Entry::Answered(text) => {
+            Entry::Answered(text.clone())
+        }
+        session::Entry::Agent { name, text } => Entry::Agent {
+            name: name.clone(),
+            text: text.clone(),
+        },
+    }
+}
+
+/// What a reply of a working session tells a watcher. Nothing for
+/// what only the core follows.
+pub(crate) fn output(reply: &Reply) -> Option<Output> {
+    Some(match reply {
+        Reply::Event(AgentEvent::Text(text)) => {
+            Output::Text(text.clone())
+        }
+        Reply::Event(AgentEvent::Reasoning(text)) => {
+            Output::Reasoning(text.clone())
+        }
+        Reply::Event(AgentEvent::Tool { name, summary, .. }) => {
+            Output::Tool {
+                name: name.clone(),
+                summary: summary.clone(),
+            }
+        }
+        Reply::Event(AgentEvent::ToolDone {
+            name,
+            exit_code,
+            failure,
+            ..
+        }) => Output::ToolDone {
+            name: name.clone(),
+            exit: *exit_code,
+            failure: failure.clone(),
+        },
+        Reply::Event(AgentEvent::Notice(text))
+        | Reply::Notice(text) => Output::Notice(text.clone()),
+        Reply::Event(AgentEvent::Agent { name, .. }) => {
+            Output::Agent(name.clone())
+        }
+        Reply::Done(text) => Output::Done(text.clone()),
+        Reply::Error(text) => Output::Error(text.clone()),
+        Reply::Event(_) => return None,
+    })
+}
