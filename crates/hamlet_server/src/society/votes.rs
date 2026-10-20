@@ -246,6 +246,45 @@ pub(crate) fn views(
     Ok(read(db, &r.id)?.iter().map(|v| json!({"id":v.id,"by":v.by,"motion":describe(v,r),"open":v.standing==Standing::Open,"overturnable":matches!(v.standing, Standing::Passed | Standing::Open),"report":report(v,r,&limits),"voters":v.voters.iter().map(|n| json!({"agent":{"hamlet":r.id,"number":n},"cast":v.ballots.iter().find(|b|b.voter==*n).map(|b|if b.choice.is_empty(){"none"}else{&b.choice})})).collect::<Vec<_>>()})).collect())
 }
 
+/// Why a vote could not be called.
+enum Uncalled {
+    StillOpen { vote: u64, motion: String },
+    FewVoters { least: usize, voters: usize },
+    Kind,
+    NoCandidate,
+    AlreadyMayor { name: String },
+    NoReason,
+    TooSoon { vote: u64 },
+}
+
+impl Uncalled {
+    fn text(&self) -> String {
+        match self {
+            Self::StillOpen { vote, motion } => {
+                format!("Vote {vote} is still open: {motion}")
+            }
+            Self::FewVoters { least, voters } => format!(
+                "A vote needs at least {least} agents besides the \
+                 mayor; there are {voters}."
+            ),
+            Self::Kind => "Use replace_mayor or found_hamlet.".into(),
+            Self::NoCandidate => "The candidate must be an agent of \
+                                  this hamlet."
+                .into(),
+            Self::AlreadyMayor { name } => {
+                format!("`{name}` is the mayor already.")
+            }
+            Self::NoReason => "Give a reason for the vote.".into(),
+            Self::TooSoon { vote } => format!(
+                "Vote {vote} was called too recently. Wait before \
+                 calling it again."
+            ),
+        }
+    }
+}
+
+/// Calls a vote in `hamlet` by `by`, the agent `caller` or a chief,
+/// kept for the call `owner` when an agent's call made it.
 fn call(
     service: &mut Service,
     hamlet: &str,
@@ -253,7 +292,7 @@ fn call(
     caller: Option<u64>,
     args: &Value,
     owner: Option<&str>,
-) -> Result<std::result::Result<u64, String>> {
+) -> Result<std::result::Result<u64, Uncalled>> {
     let r =
         service.home.store().record(hamlet)?.expect("vote's record");
     let limits = service.limits_of(hamlet)?;
@@ -273,11 +312,10 @@ fn call(
     if let Some(v) =
         votes.iter().find(|v| v.standing == Standing::Open)
     {
-        return Ok(Err(format!(
-            "Vote {} is still open: {}",
-            v.id,
-            describe(v, &r)
-        )));
+        return Ok(Err(Uncalled::StillOpen {
+            vote: v.id,
+            motion: describe(v, &r),
+        }));
     }
     let voters = r
         .agents
@@ -288,39 +326,34 @@ fn call(
     let least =
         limits["votes"]["leastVoters"].as_u64().unwrap_or(3) as usize;
     if voters.len() < least {
-        return Ok(Err(format!(
-            "A vote needs at least {least} agents besides the \
-             mayor; there are {}.",
-            voters.len()
-        )));
+        return Ok(Err(Uncalled::FewVoters {
+            least,
+            voters: voters.len(),
+        }));
     }
     let kind = match args["kind"].as_str() {
         None | Some("replace_mayor") => VoteKind::ReplaceMayor,
         Some("found_hamlet") => VoteKind::FoundHamlet,
         Some(_) => {
-            return Ok(Err(
-                "Use replace_mayor or found_hamlet.".into()
-            ));
+            return Ok(Err(Uncalled::Kind));
         }
     };
     let mut candidate = 0;
     if kind == VoteKind::ReplaceMayor {
         let name = args["candidate"].as_str().unwrap_or_default();
         let Some(agent) = r.named(name) else {
-            return Ok(Err("The candidate must be an agent of \
-                           this hamlet."
-                .into()));
+            return Ok(Err(Uncalled::NoCandidate));
         };
         if agent.number == r.mayor {
-            return Ok(Err(format!(
-                "`{name}` is the mayor already."
-            )));
+            return Ok(Err(Uncalled::AlreadyMayor {
+                name: name.into(),
+            }));
         }
         candidate = agent.number;
     }
     let reason = args["reason"].as_str().unwrap_or_default().trim();
     if reason.is_empty() {
-        return Ok(Err("Give a reason for the vote.".into()));
+        return Ok(Err(Uncalled::NoReason));
     }
     let retry_ms = limits["votes"]["retryMinutes"]
         .as_i64()
@@ -335,11 +368,7 @@ fn call(
             )
             && now.saturating_sub(v.called) < retry_ms
     }) {
-        return Ok(Err(format!(
-            "Vote {} was called too recently. Wait before calling \
-             it again.",
-            v.id
-        )));
+        return Ok(Err(Uncalled::TooSoon { vote: v.id }));
     }
     let id = votes.last().map_or(1, |v| v.id + 1);
     votes.push(Vote {
@@ -412,7 +441,9 @@ pub(super) async fn operation(
             Some(&key),
         )? {
             Ok(id) => id,
-            Err(text) => return Ok(Some(outcome(&text, true))),
+            Err(uncalled) => {
+                return Ok(Some(outcome(&uncalled.text(), true)));
+            }
         }
     };
     sweep(service, harnesses).await?;
@@ -1043,7 +1074,9 @@ pub(super) async fn deed(
                          overturn it."
                     )
                 })
-                .map_err(Refusal::Invalid),
+                .map_err(|uncalled| {
+                    Refusal::Invalid(uncalled.text())
+                }),
         ));
     }
     let mut votes = read(service.home.store().connection(), hamlet)?;

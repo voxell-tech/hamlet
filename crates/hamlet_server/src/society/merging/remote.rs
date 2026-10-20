@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use tokio::task::JoinSet;
 
-use super::{Applied, Applying, Plan, preparing};
+use super::{Applied, Applying, Plan, Planned, Unplanned, preparing};
 use crate::OperationId;
 use crate::harness::Harnesses;
 use crate::papers::{NOTES, tree};
@@ -69,7 +69,7 @@ pub(crate) struct Merges {
     queue: VecDeque<Request>,
     active: Option<Active>,
     clients: HashSet<(u64, String)>,
-    ready: HashMap<OperationId, std::result::Result<Plan, String>>,
+    ready: HashMap<OperationId, Planned>,
 }
 
 pub(crate) struct Completed {
@@ -78,7 +78,7 @@ pub(crate) struct Completed {
 }
 
 enum Finished {
-    Prepared(std::result::Result<Plan, String>),
+    Prepared(Planned),
     Applied {
         work: Applied,
         answer: Deed,
@@ -104,7 +104,7 @@ impl Merges {
     pub(super) fn take(
         &mut self,
         id: &OperationId,
-    ) -> Option<std::result::Result<Plan, String>> {
+    ) -> Option<Planned> {
         self.ready.remove(id)
     }
 
@@ -313,10 +313,14 @@ pub(crate) async fn advance(
                         .await?;
                     }
                     service.merges.tasks.spawn(async move {
-                        let result =
-                            prepared.run().await.unwrap_or_else(
-                                |error| Err(error.to_string()),
-                            );
+                        let result = prepared
+                            .run()
+                            .await
+                            .unwrap_or_else(|error| {
+                                Err(Unplanned::Failed(
+                                    error.to_string(),
+                                ))
+                            });
                         Completed {
                             origin: request.origin,
                             result: Finished::Prepared(result),
@@ -561,7 +565,7 @@ pub(crate) async fn complete(
                             service,
                             harnesses,
                             completed.origin,
-                            Err(Refusal::Invalid(error)),
+                            Err(Refusal::Invalid(error.text())),
                         )
                         .await;
                     }
