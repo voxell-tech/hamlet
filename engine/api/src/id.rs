@@ -138,3 +138,46 @@ impl CommandId {
         Self::try_from(format!("{owner}/{name}"))
     }
 }
+
+string_id!(
+    /// A service's full id: the plugin that serves it and its name.
+    ServiceId,
+    "service id",
+    is_owned
+);
+
+impl ServiceId {
+    /// The id of the plugin that serves it.
+    pub fn owner(&self) -> &str {
+        self.0.split_once('/').map_or("", |(owner, _)| owner)
+    }
+
+    /// Its name within that plugin.
+    pub fn name(&self) -> &str {
+        self.0.split_once('/').map_or("", |(_, name)| name)
+    }
+}
+
+string_id!(
+    /// An event's full id: the plugin that sends it and its name.
+    EventId,
+    "event id",
+    is_owned
+);
+
+impl EventId {
+    /// The event `name` of the plugin `owner`.
+    pub fn new(owner: &str, name: &str) -> Result<Self, IdError> {
+        Self::try_from(format!("{owner}/{name}"))
+    }
+
+    /// The id of the plugin that sends it.
+    pub fn owner(&self) -> &str {
+        self.0.split_once('/').map_or("", |(owner, _)| owner)
+    }
+
+    /// Its name within that plugin.
+    pub fn name(&self) -> &str {
+        self.0.split_once('/').map_or("", |(_, name)| name)
+    }
+}

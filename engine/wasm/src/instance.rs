@@ -243,6 +243,18 @@ impl host::Host for State {
         self.ask(Request::ReleaseAsset(AssetId(id)))
     }
 
+    fn call(&mut self, service: String, argument: Vec<u8>) -> Ticket {
+        self.ask(Request::Call { service, argument })
+    }
+
+    fn subscribe(&mut self, event: String) -> Ticket {
+        self.ask(Request::Subscribe(event))
+    }
+
+    fn emit(&mut self, event: String, payload: Vec<u8>) -> Ticket {
+        self.ask(Request::Emit { event, payload })
+    }
+
     fn log(&mut self, level: Level, mut text: String) {
         if self.logs.len() >= self.caps.lines {
             return;
@@ -374,6 +386,23 @@ impl Instance {
         }
         self.call(caps, |guest, store| {
             guest.call_receive(store, messages)
+        })
+    }
+
+    /// Serves a call of the plugin's service `service` by `caller`:
+    /// its result, or why the plugin says it failed.
+    pub fn serve(
+        &mut self,
+        caps: &Caps,
+        service: &str,
+        caller: &str,
+        argument: &[u8],
+    ) -> (Result<Result<Vec<u8>, String>, Fault>, Spent) {
+        if argument.len() > caps.bytes {
+            return (Err(Fault::Bytes), Spent::default());
+        }
+        self.call(caps, |guest, store| {
+            guest.call_serve(store, service, caller, argument)
         })
     }
 

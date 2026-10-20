@@ -12,7 +12,9 @@ use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::system::Commands;
 use bevy::ecs::world::World;
-use hamlet_engine_api::{Ask, AssetTypes, Manifest, PluginId};
+use hamlet_engine_api::{
+    Ask, AssetTypes, Events, Manifest, PluginId, Services,
+};
 use hamlet_engine_core::LogLine;
 
 pub use self::entry::{Entry, EntryPoint};
@@ -39,6 +41,8 @@ pub struct PluginInfo {
     /// What it asks the person for, and why.
     pub asks: Vec<Ask>,
     pub assets: AssetTypes,
+    pub services: Services,
+    pub events: Events,
 }
 
 impl PluginInfo {
@@ -51,6 +55,8 @@ impl PluginInfo {
             builtin,
             asks: manifest.asks,
             assets: manifest.assets,
+            services: manifest.services,
+            events: manifest.events,
         }
     }
 }

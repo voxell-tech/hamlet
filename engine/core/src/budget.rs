@@ -36,6 +36,18 @@ pub struct Budgets {
     pub requests_per_call: usize,
     /// Assets made, changed or deleted in one second.
     pub asset_writes_per_second: u32,
+    /// Calls of other plugins' services in one second.
+    pub service_calls_per_second: u32,
+    /// Fuel the services it called spent serving it in one second,
+    /// charged to it.
+    pub service_fuel_per_second: u64,
+    /// Milliseconds the services it called took in one second,
+    /// charged to it.
+    pub service_time_per_second: f32,
+    /// Plugins a chain of calls and events may cross.
+    pub chain_depth: u32,
+    /// Events it sends in one second; the rest are refused.
+    pub events_sent_per_second: u32,
     pub panels: usize,
     /// Everything it adds: panels, commands, menu entries,
     /// shortcuts, settings pages and suggested workspaces.

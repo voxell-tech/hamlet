@@ -7,7 +7,9 @@ use serde::{Deserialize, Serialize};
 use crate::API_VERSION;
 use crate::asset::{AssetTypes, TypeName};
 use crate::capability::{Ask, Capability};
-use crate::id::PluginId;
+use crate::event::Events;
+use crate::id::{PluginId, is_name};
+use crate::service::Services;
 
 /// The longest a name, version, target or reason may be, in bytes.
 const LONGEST: usize = 256;
@@ -26,6 +28,10 @@ pub struct Manifest {
     pub asks: Vec<Ask>,
     #[serde(default)]
     pub assets: AssetTypes,
+    #[serde(default)]
+    pub services: Services,
+    #[serde(default)]
+    pub events: Events,
 }
 
 impl Manifest {
@@ -39,6 +45,8 @@ impl Manifest {
             api: API_VERSION.into(),
             asks: Vec::new(),
             assets: AssetTypes::default(),
+            services: Services::default(),
+            events: Events::default(),
         }
     }
 }
@@ -60,6 +68,9 @@ pub enum ManifestError {
     /// Something it takes from another plugin without asking for it:
     /// the capability and the target it needs.
     Unasked(Capability, String),
+    /// A service or event that is not well named, or named twice:
+    /// which.
+    Shared(String),
 }
 
 impl fmt::Display for ManifestError {
@@ -89,11 +100,29 @@ impl fmt::Display for ManifestError {
                 "it takes {target} without asking for {} {target}",
                 capability.name()
             ),
+            Self::Shared(name) => {
+                write!(f, "{name:?} is not a name, or named twice")
+            }
         }
     }
 }
 
 impl std::error::Error for ManifestError {}
+
+/// Whether each of `names` is `valid` and none comes twice.
+fn once_each<'a>(
+    names: impl Iterator<Item = &'a str>,
+    valid: fn(&str) -> bool,
+) -> Result<(), ManifestError> {
+    let mut seen = Vec::new();
+    for name in names {
+        if !valid(name) || seen.contains(&name) {
+            return Err(ManifestError::Shared(name.into()));
+        }
+        seen.push(name);
+    }
+    Ok(())
+}
 
 /// Whether `text` can be shown to the person as it is.
 fn readable(text: &str) -> bool {
@@ -153,6 +182,33 @@ impl Manifest {
         for used in &self.assets.uses {
             self.asked(Capability::AssetRead, used.name.as_str())?;
         }
+        let exports = self
+            .services
+            .exports
+            .iter()
+            .map(|export| &export.name[..]);
+        let imports = self
+            .services
+            .imports
+            .iter()
+            .map(|import| import.service.as_str());
+        once_each(exports, is_name)?;
+        once_each(imports, |_| true)?;
+        for import in &self.services.imports {
+            self.asked(
+                Capability::ServiceCall,
+                import.service.as_str(),
+            )?;
+        }
+        let sends =
+            self.events.sends.iter().map(|sent| &sent.name[..]);
+        let hears = self
+            .events
+            .hears
+            .iter()
+            .map(|heard| heard.event.as_str());
+        once_each(sends, is_name)?;
+        once_each(hears, |_| true)?;
         Ok(())
     }
 

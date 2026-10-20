@@ -1,10 +1,13 @@
 //! What a WASM plugin asks of the engine's services, passed on, and
 //! what they send it, put in its inbox and handed over in batches.
 
+use std::time::Duration;
+
 use bevy::ecs::entity::Entity;
 use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::ecs::system::{Query, Res};
 use hamlet_engine_api::{Failure, Message, encode};
+use hamlet_engine_bus::{Serve, Served};
 use hamlet_engine_core::Budgets;
 use hamlet_engine_plugins::{Asked, Deliver};
 
@@ -33,13 +36,34 @@ pub(crate) fn pass_requests(
     }
 }
 
-/// Puts each message for a running plugin in its inbox. An inbox
-/// holds a second's events at most; the rest are left out.
+/// Puts each message and call for a running plugin in its inbox. An
+/// inbox holds a second's events at most; the rest are left out, and
+/// a call left out leaves its caller out of budget.
 pub(crate) fn deliver(
     mut delivered: MessageReader<Deliver>,
+    mut calls: MessageReader<Serve>,
     mut inboxes: Query<(&mut Inbox, &mut Spending)>,
     budgets: Res<Budgets>,
+    mut served: MessageWriter<Served>,
 ) {
+    let most = budgets.events_per_second as usize;
+    for call in calls.read() {
+        match inboxes.get_mut(call.callee) {
+            Ok((mut inbox, _)) if inbox.0.len() < most => {
+                inbox.0.push_back(Work::Serve(call.clone()));
+            }
+            _ => {
+                served.write(Served {
+                    call: call.call,
+                    result: Err(Failure::OutOfBudget(
+                        "the plugin that serves it is busy".into(),
+                    )),
+                    fuel: 0,
+                    time: Duration::ZERO,
+                });
+            }
+        }
+    }
     for Deliver {
         plugin,
         message,
@@ -50,7 +74,7 @@ pub(crate) fn deliver(
         else {
             continue;
         };
-        if inbox.0.len() >= budgets.events_per_second as usize {
+        if inbox.0.len() >= most {
             spending.dropped_events += 1;
             continue;
         }

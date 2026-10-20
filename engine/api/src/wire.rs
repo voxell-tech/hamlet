@@ -39,9 +39,9 @@ pub fn decode<T: DeserializeOwned>(
 mod tests {
     use super::*;
     use crate::{
-        API_VERSION, Ask, AssetTypes, Capability, Manifest, PluginId,
-        TreeError, TreeLimits, Widget, WidgetId, WidgetNode,
-        WidgetTree,
+        API_VERSION, Ask, AssetTypes, Capability, Events, Manifest,
+        PluginId, Services, TreeError, TreeLimits, Widget, WidgetId,
+        WidgetNode, WidgetTree,
     };
 
     fn node(id: &str, children: u32, widget: Widget) -> WidgetNode {
@@ -118,6 +118,8 @@ mod tests {
             API_VERSION,
             Vec::<Ask>::new(),
             AssetTypes::default(),
+            Services::default(),
+            Events::default(),
         ))
         .unwrap();
         assert!(decode::<Manifest>(&bad).is_err());

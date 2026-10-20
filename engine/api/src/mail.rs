@@ -7,6 +7,7 @@ use core::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::asset::{Asset, AssetId, AssetInfo};
+use crate::id::{EventId, PluginId};
 
 /// The number a request is given, which its reply comes back with.
 /// Never 0: a request given 0 was not taken.
@@ -36,6 +37,20 @@ pub enum Request {
     /// changes.
     HoldAsset(AssetId),
     ReleaseAsset(AssetId),
+    /// Calls the service `service` of another plugin with `argument`,
+    /// bytes of the type both name.
+    Call {
+        service: String,
+        argument: Vec<u8>,
+    },
+    /// Subscribes to an event of another plugin (`plugin.id/name`).
+    Subscribe(String),
+    /// Sends the plugin's own event `event` to its subscribers. Only
+    /// a refusal is replied to.
+    Emit {
+        event: String,
+        payload: Vec<u8>,
+    },
 }
 
 /// What the engine sends a plugin, given to it in a batch on the
@@ -51,6 +66,12 @@ pub enum Message {
     Changed { asset: AssetId, version: u64 },
     /// An asset the plugin held is taken away.
     Gone(AssetId),
+    /// An event the plugin subscribed to, with its payload.
+    Event {
+        from: PluginId,
+        event: EventId,
+        payload: Vec<u8>,
+    },
 }
 
 /// What a request came to.
@@ -65,6 +86,9 @@ pub enum Reply {
     /// Held, at this version.
     Held(u64),
     Released,
+    /// A service's result, bytes of the type both name.
+    Answered(Vec<u8>),
+    Subscribed,
 }
 
 /// Why a request came to nothing.
@@ -72,6 +96,8 @@ pub enum Reply {
 pub enum Failure {
     /// There is no such asset.
     NotFound,
+    /// No running plugin serves the service called.
+    NoImplementer,
     /// It may not: why.
     Refused(String),
     /// Two sides name a type differently: how.
@@ -86,6 +112,9 @@ impl fmt::Display for Failure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NotFound => write!(f, "not found"),
+            Self::NoImplementer => {
+                write!(f, "no running plugin serves it")
+            }
             Self::Refused(why) => write!(f, "refused: {why}"),
             Self::Mismatch(why) => write!(f, "mismatch: {why}"),
             Self::OutOfBudget(why) => {

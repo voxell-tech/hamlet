@@ -36,6 +36,7 @@ hamlet_engine_shell = { version = "0.1.0", path = "engine/shell" }
 hamlet_engine_plugins = { version = "0.1.0", path = "engine/plugins" }
 hamlet_engine_grants = { version = "0.1.0", path = "engine/grants" }
 hamlet_engine_assets = { version = "0.1.0", path = "engine/assets" }
+hamlet_engine_bus = { version = "0.1.0", path = "engine/bus" }
 hamlet_engine_wasm = { version = "0.1.0", path = "engine/wasm" }
 hamlet_plugin = { version = "0.1.0", path = "engine/plugin" }
 

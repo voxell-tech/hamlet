@@ -6,6 +6,7 @@
 mod file;
 mod page;
 mod petition;
+mod waiting;
 
 use bevy::app::{App, Startup};
 use bevy::ecs::component::Component;
@@ -21,6 +22,7 @@ pub use self::petition::{
     Decided, FirstUse, NEEDS_YOU, Petition, Question, answer_install,
     answer_use,
 };
+pub use self::waiting::Waiting;
 
 pub fn plugin(app: &mut App) {
     let home = app.world().resource::<Home>().clone();

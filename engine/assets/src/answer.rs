@@ -14,7 +14,9 @@ use hamlet_engine_api::{
     AssetType, Capability, Failure, Reply, Request, TypeName,
 };
 use hamlet_engine_core::Budgets;
-use hamlet_engine_grants::{Decided, FirstUse, Grants, Verdict};
+use hamlet_engine_grants::{
+    Decided, FirstUse, Grants, Verdict, Waiting,
+};
 use hamlet_engine_plugins::{Asked, Deliver, PluginInfo};
 
 use crate::hold::{Change, Holding, tell};
@@ -74,6 +76,9 @@ impl Rules<'_> {
                 }
             }
             Request::ReleaseAsset(_) => Ok(Reply::Released),
+            Request::Call { .. }
+            | Request::Subscribe(_)
+            | Request::Emit { .. } => return None,
             Request::UpdateAsset { id, bytes } => self
                 .own(store, plugin, *id)
                 .and_then(|()| self.fits(bytes))
@@ -244,9 +249,8 @@ fn writes(request: &Request) -> bool {
 }
 
 /// Answers what plugins asked of the store, and what waited for the
-/// person. `writes` holds, for each plugin, when its second began and
-/// how many writes it made in it; `parked` the reads waiting for the
-/// person, with the type each is of.
+/// person. `written` holds, for each plugin, when its second began
+/// and how many writes it made in it.
 pub(crate) fn answer(
     mut asked: MessageReader<Asked>,
     mut decided: MessageReader<Decided>,
@@ -256,7 +260,7 @@ pub(crate) fn answer(
     grants: Res<Grants>,
     budgets: Res<Budgets>,
     time: Res<Time<Real>>,
-    mut parked: Local<Vec<(Asked, TypeName)>>,
+    mut parked: Local<Waiting<Asked>>,
     mut written: Local<HashMap<Entity, (Duration, u32)>>,
     mut deliver: MessageWriter<Deliver>,
     mut first_use: MessageWriter<FirstUse>,
@@ -267,36 +271,23 @@ pub(crate) fn answer(
         budgets: &budgets,
     };
     let now = time.elapsed();
+    parked.keep(|plugin| plugins.contains(plugin));
     let mut again = Vec::new();
-    for decision in decided.read() {
-        if decision.capability != Capability::AssetRead {
-            continue;
+    for (waiting, allowed) in parked.settle(decided.read()) {
+        if allowed {
+            again.push((waiting, true));
+        } else {
+            deliver.write(waiting.reply(Err(Failure::Refused(
+                format!(
+                    "{} was not allowed",
+                    Capability::AssetRead.name()
+                ),
+            ))));
         }
-        parked.retain(|(waiting, kind)| {
-            let this = waiting.plugin == decision.plugin
-                && kind.as_str() == decision.target;
-            match this {
-                true if decision.allowed => {
-                    again.push(waiting.clone())
-                }
-                true => {
-                    deliver.write(waiting.reply(Err(
-                        Failure::Refused(format!(
-                            "{} {kind} was not allowed",
-                            Capability::AssetRead.name()
-                        )),
-                    )));
-                }
-                false => {}
-            }
-            !this
-        });
     }
-    parked.retain(|(waiting, _)| plugins.contains(waiting.plugin));
-    let again = again.into_iter().map(|asked| (asked, true));
     let fresh = asked.read().map(|asked| (asked.clone(), false));
     let mut changes = Vec::<Change>::new();
-    for (request, allowed) in again.chain(fresh) {
+    for (request, allowed) in again.into_iter().chain(fresh) {
         let Ok((_, plugin, mut holding)) =
             plugins.get_mut(request.plugin)
         else {
@@ -359,12 +350,13 @@ pub(crate) fn answer(
                 deliver.write(request.reply(reply));
             }
             Some(Outcome::Asking(kind)) => {
-                first_use.write(FirstUse {
-                    plugin: request.plugin,
-                    capability: Capability::AssetRead,
-                    target: kind.to_string(),
-                });
-                parked.push((request, kind));
+                parked.park(
+                    request.plugin,
+                    Capability::AssetRead,
+                    kind.to_string(),
+                    request,
+                    &mut first_use,
+                );
             }
             None => {}
         }

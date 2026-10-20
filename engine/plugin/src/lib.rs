@@ -47,7 +47,8 @@ pub mod bindings {
 pub use hamlet_engine_api as api;
 pub use hamlet_engine_api::{
     Action, Asset, AssetId, AssetInfo, Axis, Failure, Layout,
-    Message, PanelId, Reply, Ticket, WidgetEvent, WidgetId,
+    Message, PanelId, Reply, Ticket, WidgetEvent, WidgetId, decode,
+    encode,
 };
 
 use self::bindings::hamlet::engine::host::{self, Level};
@@ -88,6 +89,39 @@ pub trait Plugin: Default + 'static {
     fn receive(&mut self, message: Message) {
         let _ = message;
     }
+
+    /// Serves a call of its service `service` by the plugin `caller`,
+    /// with `argument`: the result, or why it failed. The argument
+    /// and the result are bytes of the types its manifest names.
+    fn serve(
+        &mut self,
+        service: &str,
+        caller: &str,
+        argument: &[u8],
+    ) -> Result<Vec<u8>, String> {
+        let _ = (caller, argument);
+        Err(format!("there is no service {service}"))
+    }
+}
+
+/// Calls the service `service` (`plugin.id/name`) of another plugin
+/// with `argument`: its result comes as [`Reply::Answered`], bytes of
+/// the type the manifest names.
+pub fn call(service: &str, argument: &[u8]) -> Ticket {
+    host::call(service, argument)
+}
+
+/// Subscribes to the event `event` (`plugin.id/name`) of another
+/// plugin: [`Reply::Subscribed`], and then each comes as a
+/// [`Message::Event`].
+pub fn subscribe(event: &str) -> Ticket {
+    host::subscribe(event)
+}
+
+/// Sends the plugin's own event `event` with `payload`, bytes of the
+/// type the manifest names. A reply comes only when it is refused.
+pub fn emit(event: &str, payload: &[u8]) -> Ticket {
+    host::emit(event, payload)
 }
 
 /// Writes `text` to the engine's log.
@@ -161,6 +195,21 @@ macro_rules! export {
                 fn receive(messages: ::std::vec::Vec<u8>) {
                     PLUGIN.with_borrow_mut(|plugin| {
                         $crate::glue::receive(plugin, &messages)
+                    })
+                }
+
+                fn serve(
+                    service: ::std::string::String,
+                    caller: ::std::string::String,
+                    argument: ::std::vec::Vec<u8>,
+                ) -> ::core::result::Result<
+                    ::std::vec::Vec<u8>,
+                    ::std::string::String,
+                > {
+                    PLUGIN.with_borrow_mut(|plugin| {
+                        <$plugin as $crate::Plugin>::serve(
+                            plugin, &service, &caller, &argument,
+                        )
                     })
                 }
             }

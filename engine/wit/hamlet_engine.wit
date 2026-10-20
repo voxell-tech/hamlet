@@ -41,6 +41,18 @@ interface host {
 
     /// Lets go of the asset `id`.
     release-asset: func(id: u64) -> u64;
+
+    /// Calls the service `service` (`plugin.id/name`) of another
+    /// plugin with `argument`: its result, `Answered`.
+    call: func(service: string, argument: list<u8>) -> u64;
+
+    /// Subscribes to the event `event` (`plugin.id/name`) of another
+    /// plugin: each comes as an `Event` message.
+    subscribe: func(event: string) -> u64;
+
+    /// Sends the plugin's event `event` with `payload` to its
+    /// subscribers. A reply comes only when it is refused.
+    emit: func(event: string, payload: list<u8>) -> u64;
 }
 
 /// What a plugin gives the engine.
@@ -65,6 +77,10 @@ interface guest {
 
     /// What the engine has for the plugin: a `Vec<Message>`.
     receive: func(messages: list<u8>);
+
+    /// Serves a call of its service `service` by the plugin `caller`:
+    /// the result, or why it failed.
+    serve: func(service: string, caller: string, argument: list<u8>) -> result<list<u8>, string>;
 }
 
 world plugin {

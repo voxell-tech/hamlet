@@ -4,10 +4,12 @@
 pub mod asset;
 pub mod capability;
 pub mod contribution;
+pub mod event;
 pub mod id;
 pub mod layout;
 pub mod mail;
 pub mod manifest;
+pub mod service;
 pub mod widget;
 pub mod wire;
 
@@ -16,10 +18,14 @@ pub use asset::{
 };
 pub use capability::{Ask, Capability};
 pub use contribution::Contribution;
-pub use id::{CommandId, IdError, PanelId, PluginId};
+pub use event::{EventHeard, EventSent, Events};
+pub use id::{
+    CommandId, EventId, IdError, PanelId, PluginId, ServiceId,
+};
 pub use layout::{Axis, Layout};
 pub use mail::{Failure, Message, Reply, Request, Ticket};
 pub use manifest::{Manifest, ManifestError};
+pub use service::{ServiceExport, ServiceImport, Services};
 pub use widget::{
     Action, TreeError, TreeLimits, Widget, WidgetEvent, WidgetId,
     WidgetNode, WidgetTree,

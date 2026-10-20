@@ -21,8 +21,9 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{FrameProps, column, label};
 use bevy_fynix::{ViewExt, component, keyed};
 use hamlet_engine_api::{
-    Action, PanelId, WidgetEvent, WidgetId, WidgetTree,
+    Action, Failure, PanelId, WidgetEvent, WidgetId, WidgetTree,
 };
+use hamlet_engine_bus::{Serve, Served};
 use hamlet_engine_core::{Budgets, LogLine};
 use hamlet_engine_plugins::{
     Asked, ContributedBy, Contributions, PluginInfo, Stopped,
@@ -34,12 +35,14 @@ use hamlet_engine_shell::{
 use crate::budget::{Spending, pass_logs, tally};
 use crate::folder::Package;
 use crate::host::WasmTuning;
-use crate::instance::{Caps, Fault, Instance};
+use crate::instance::{Caps, Fault, Instance, Spent};
 use crate::mail::{batch, deliver, pass_requests};
 use crate::reload::Reloading;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_message::<Input>()
+        .add_message::<Serve>()
+        .add_message::<Served>()
         .add_observer(adopt_panel)
         .add_observer(adopt_page)
         .add_systems(
@@ -79,6 +82,8 @@ pub(crate) enum Work {
     Run(String),
     /// A message from the engine's services, at its depth in a chain.
     Mail(hamlet_engine_api::Message, u32),
+    /// A call of one of its services.
+    Serve(Serve),
 }
 
 /// What the person did to a widget of the panel or settings page
@@ -207,6 +212,7 @@ fn serve(
     mut frame: Local<u64>,
     mut log: MessageWriter<LogLine>,
     mut asked: MessageWriter<Asked>,
+    mut served_calls: MessageWriter<Served>,
     mut commands: Commands,
 ) {
     *frame += 1;
@@ -245,6 +251,8 @@ fn serve(
             let Some(work) = inbox.0.pop_front() else {
                 break;
             };
+            // A service's caller pays for its call.
+            let mut paid = false;
             let ((done, spent), depth) = match work {
                 Work::Event(event) => {
                     (instance.event(&caps, &event), 0)
@@ -258,9 +266,22 @@ fn serve(
                     );
                     (instance.receive(&caps, &messages), depth)
                 }
+                Work::Serve(call) => {
+                    paid = true;
+                    let (done, spent) = serve_call(
+                        &mut instance,
+                        &caps,
+                        &call,
+                        &mut served_calls,
+                    );
+                    ((done, spent), call.depth)
+                }
             };
             pass_requests(plugin, &mut instance, depth, &mut asked);
-            spending.charge(spent, event);
+            spending.charge(
+                if paid { Spent::default() } else { spent },
+                event,
+            );
             left = left.saturating_sub(spent.time);
             (served, all) = (true, true);
             if let Err(why) = done {
@@ -323,6 +344,41 @@ fn serve(
             stop(&mut commands, &mut log, plugin, info, &fault);
         }
     }
+}
+
+/// Serves `call` and says what became of it. A plugin out of its fuel
+/// or time for the call leaves the caller out of budget.
+fn serve_call(
+    instance: &mut Instance,
+    caps: &Caps,
+    call: &Serve,
+    served: &mut MessageWriter<Served>,
+) -> (Result<(), Fault>, Spent) {
+    let (result, spent) = instance.serve(
+        caps,
+        &call.service,
+        call.caller.as_str(),
+        &call.argument,
+    );
+    let (done, result) = match result {
+        Ok(Ok(bytes)) => (Ok(()), Ok(bytes)),
+        Ok(Err(why)) => (Ok(()), Err(Failure::Failed(why))),
+        Err(fault @ (Fault::Fuel | Fault::Time)) => {
+            let why = Failure::OutOfBudget(fault.to_string());
+            (Err(fault), Err(why))
+        }
+        Err(fault) => {
+            let why = Failure::Failed(fault.to_string());
+            (Err(fault), Err(why))
+        }
+    };
+    served.write(Served {
+        call: call.call,
+        result,
+        fuel: spent.fuel,
+        time: spent.time,
+    });
+    (done, spent)
 }
 
 /// Stops a plugin at fault and tells the person why.

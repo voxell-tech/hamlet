@@ -3608,6 +3608,7 @@ dependencies = [
  "bevy_fynix",
  "hamlet_engine_api",
  "hamlet_engine_assets",
+ "hamlet_engine_bus",
  "hamlet_engine_core",
  "hamlet_engine_grants",
  "hamlet_engine_plugins",
@@ -3634,6 +3635,17 @@ dependencies = [
  "hamlet_engine_plugins",
  "serde",
  "toml",
+]
+
+[[package]]
+name = "hamlet_engine_bus"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "hamlet_engine_api",
+ "hamlet_engine_core",
+ "hamlet_engine_grants",
+ "hamlet_engine_plugins",
 ]
 
 [[package]]
@@ -3690,6 +3702,7 @@ dependencies = [
  "bevy",
  "bevy_fynix",
  "hamlet_engine_api",
+ "hamlet_engine_bus",
  "hamlet_engine_core",
  "hamlet_engine_grants",
  "hamlet_engine_plugins",
