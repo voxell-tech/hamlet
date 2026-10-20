@@ -4,7 +4,7 @@
 //! the note's id and version each time it is saved. It hears the
 //! board's `seen`, and shows which version the board saw last.
 
-use hamlet_plugin::{
+use hamlet_engine_sdk::{
     Action, AssetId, Entry, Message, Plugin, Reply, Ui, WidgetEvent,
     assets, decode, emit, encode, info, subscribe, warn,
 };
@@ -153,4 +153,4 @@ impl Plugin for Notes {
     }
 }
 
-hamlet_plugin::export!(Notes);
+hamlet_engine_sdk::export!(Notes);

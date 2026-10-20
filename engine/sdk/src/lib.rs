@@ -8,7 +8,7 @@
 //!     count: u32,
 //! }
 //!
-//! impl hamlet_plugin::Plugin for Hello {
+//! impl hamlet_engine_sdk::Plugin for Hello {
 //!     fn declare(&self, entry: &mut Entry) {
 //!         entry.panel("hello", "Hello");
 //!     }
@@ -23,7 +23,7 @@
 //!     }
 //! }
 //!
-//! hamlet_plugin::export!(Hello);
+//! hamlet_engine_sdk::export!(Hello);
 //! ```
 //!
 //! The standard library has the clocks and randomness, so `Instant`,

@@ -40,7 +40,7 @@ hamlet_engine_bus = { version = "0.1.0", path = "engine/bus" }
 hamlet_engine_net = { version = "0.1.0", path = "engine/net" }
 hamlet_engine_wasm = { version = "0.1.0", path = "engine/wasm" }
 hamlet_engine_harness = { version = "0.1.0", path = "engine/harness" }
-hamlet_plugin = { version = "0.1.0", path = "engine/plugin" }
+hamlet_engine_sdk = { version = "0.1.0", path = "engine/sdk" }
 
 # fynix
 fynix = { path = "vendor/fynix/crates/fynix" }

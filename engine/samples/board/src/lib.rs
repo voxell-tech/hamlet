@@ -4,7 +4,7 @@
 //! has, and tells the notes plugin with its event `seen` which
 //! version it shows.
 
-use hamlet_plugin::{
+use hamlet_engine_sdk::{
     AssetId, Entry, Message, Plugin, Reply, Ui, assets, call, decode,
     emit, encode, info, subscribe, warn,
 };
@@ -119,4 +119,4 @@ impl Plugin for Board {
     }
 }
 
-hamlet_plugin::export!(Board);
+hamlet_engine_sdk::export!(Board);

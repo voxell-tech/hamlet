@@ -3,12 +3,12 @@
 //! style under the pointer, a button that fades and dims a label, and
 //! rows enough for a panel of about fifty nodes.
 
-use hamlet_plugin::ui::{
+use hamlet_engine_sdk::ui::{
     AnyView, Button, ButtonStyle, Cx, FrameProps, Hovered, Motion,
     ScopedExt, Space, StateExt, Tone, UiExt, ViewExt, World, button,
     column, heading, label, resource, row,
 };
-use hamlet_plugin::{Entry, Plugin};
+use hamlet_engine_sdk::{Entry, Plugin};
 
 /// Rows under the buttons, three nodes each.
 const ROWS: u32 = 12;
@@ -75,4 +75,4 @@ impl Plugin for Counter {
     }
 }
 
-hamlet_plugin::export!(Counter);
+hamlet_engine_sdk::export!(Counter);

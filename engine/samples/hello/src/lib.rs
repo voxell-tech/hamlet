@@ -2,7 +2,7 @@
 //! and a command that sets the count back to nought. The count is
 //! kept when the plugin is reloaded.
 
-use hamlet_plugin::{Action, Entry, Plugin, Ui, WidgetEvent};
+use hamlet_engine_sdk::{Action, Entry, Plugin, Ui, WidgetEvent};
 
 #[derive(Default)]
 struct Hello {
@@ -52,4 +52,4 @@ impl Plugin for Hello {
     }
 }
 
-hamlet_plugin::export!(Hello);
+hamlet_engine_sdk::export!(Hello);

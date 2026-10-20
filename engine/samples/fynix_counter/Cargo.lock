@@ -68,7 +68,7 @@ dependencies = [
 name = "fynix_counter"
 version = "0.1.0"
 dependencies = [
- "hamlet_plugin",
+ "hamlet_engine_sdk",
 ]
 
 [[package]]
@@ -90,7 +90,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "hamlet_plugin"
+name = "hamlet_engine_sdk"
 version = "0.1.0"
 dependencies = [
  "fynix",

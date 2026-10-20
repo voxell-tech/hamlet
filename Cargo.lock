@@ -3752,6 +3752,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "hamlet_engine_sdk"
+version = "0.1.0"
+dependencies = [
+ "fynix",
+ "hamlet_engine_api",
+ "lenz",
+ "serde",
+ "wit-bindgen 0.63.0",
+]
+
+[[package]]
 name = "hamlet_engine_shell"
 version = "0.1.0"
 dependencies = [
@@ -3818,17 +3829,6 @@ dependencies = [
  "sha2 0.10.9",
  "tokio",
  "toml",
-]
-
-[[package]]
-name = "hamlet_plugin"
-version = "0.1.0"
-dependencies = [
- "fynix",
- "hamlet_engine_api",
- "lenz",
- "serde",
- "wit-bindgen 0.63.0",
 ]
 
 [[package]]

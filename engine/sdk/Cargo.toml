@@ -1,5 +1,5 @@
 [package]
-name = "hamlet_plugin"
+name = "hamlet_engine_sdk"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -16,6 +16,6 @@ fynix = { workspace = true, optional = true }
 lenz = { workspace = true, optional = true }
 
 [features]
-# Retained panels written with fynix (`hamlet_plugin::ui`), in place
+# Retained panels written with fynix (`hamlet_engine_sdk::ui`), in place
 # of the widget tree a panel is drawn with.
 ui = ["dep:fynix", "dep:lenz"]

@@ -30,7 +30,7 @@ Each depends only on those above it, and each adds one Bevy plugin,
 | `engine/wasm` | `hamlet_engine_wasm` | The host of WASM plugins: wasmtime, a store per plugin, its budgets, and the glue from the WIT to the services. The only crate that knows wasmtime |
 | `engine/harness` | `hamlet_engine_harness` | The engine without a window, for tests, and `plugin_check` |
 | `engine/app` | `hamlet_engine` | The binary, and a demo plugin built into it |
-| `engine/plugin` | `hamlet_plugin` | What a plugin is written with, built for `wasm32-wasip2` |
+| `engine/sdk` | `hamlet_engine_sdk` | What a plugin is written with, built for `wasm32-wasip2` |
 
 `engine/tuning/` holds the engine's tuning files. The typefaces are read
 from the repository's `assets/fonts/`, where their licences are.
@@ -124,8 +124,9 @@ types, so the WIT names nothing twice.
 
 ## Writing a plugin
 
-`hamlet_plugin` is the guest crate. A plugin is a type with `Default`
-that implements `Plugin`, exported with `hamlet_plugin::export!`:
+`hamlet_engine_sdk` is the guest crate. A plugin is a type with
+`Default` that implements `Plugin`, exported with
+`hamlet_engine_sdk::export!`:
 `declare` fills an `Entry` with what it adds, `draw` fills a `Ui` with a
 panel's widgets, and `event`, `run`, `save`, `restore`, `receive` and
 `serve` have defaults that do nothing. `info`, `warn`, `error` and
@@ -161,7 +162,7 @@ builds `target/wasm32-wasip2/release/plugin.wasm`, to go beside its
 `plugin.toml`.
 
 - **Retained panels** are written with fynix, with the feature `ui`
-  (`hamlet_plugin::ui`). `Hamlet` is fynix's backend: a node is made in
+  (`hamlet_engine_sdk::ui`). `Hamlet` is fynix's backend: a node is made in
   the engine as fynix spawns it, of the kind of its element, and a
   property still at its first value is not sent. The `World` holds the
   plugin's resources, which `resource` signals read. The elements are

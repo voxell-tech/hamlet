@@ -56,7 +56,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "hamlet_plugin"
+name = "hamlet_engine_sdk"
 version = "0.1.0"
 dependencies = [
  "hamlet_engine_api",
@@ -83,7 +83,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 name = "hello"
 version = "0.1.0"
 dependencies = [
- "hamlet_plugin",
+ "hamlet_engine_sdk",
 ]
 
 [[package]]
