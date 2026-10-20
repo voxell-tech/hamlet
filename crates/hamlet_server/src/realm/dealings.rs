@@ -10,6 +10,7 @@ use super::{
 };
 use crate::Outcome;
 use crate::harness::Harnesses;
+use crate::limits::Limits;
 use crate::record::{
     self, Actor, AgentRef, Audience, Change, RecordOperation,
     RecordResult,
@@ -200,7 +201,7 @@ fn removal(
     from: &AgentRef,
     reason: &str,
     args: &Value,
-    limits: &Value,
+    limits: &Limits,
 ) -> Result<Value> {
     let id = args["hamlet"].as_str().unwrap_or_default();
     if !realm.lives(id) {
@@ -219,10 +220,7 @@ fn removal(
         .map(|r| r.by.as_str())
         .collect::<std::collections::BTreeSet<_>>();
     let ready = asked.contains(id)
-        || asked.len()
-            >= limits["hamlets"]["removalMayors"]
-                .as_u64()
-                .unwrap_or(3) as usize;
+        || asked.len() >= limits.hamlets.removal_mayors as usize;
     let text = format!(
         "The mayor of `{}` asks for the hamlet `{id}` to be \
          removed. {}",
@@ -248,9 +246,9 @@ fn road(
     from: &AgentRef,
     reason: &str,
     args: &Value,
-    limits: &Value,
+    limits: &Limits,
 ) -> Result<Value> {
-    if limits["hamlets"]["roadsBetween"] == false {
+    if !limits.hamlets.roads_between {
         return Ok(outcome(
             "The chief does not allow roads between hamlets.",
             true,

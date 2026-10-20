@@ -1,7 +1,7 @@
 //! Mayor reviews beside chief work and task-wide objection rulings.
 
 use anyhow::Result;
-use hamlet_protocol::v0::Choice;
+use hamlet_protocol::v0::{Choice, LimitsAskingMayorReview};
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -99,11 +99,11 @@ pub(crate) async fn prepare(
     if r.mayor == kept.place.agent.number {
         return Ok(());
     }
-    let limits = service.limits_of(&r.id)?;
-    if limits["asking"]["mayorReview"] == "never" {
+    let review = r.limits.chief.asking.mayor_review.clone();
+    if review == LimitsAskingMayorReview::Never {
         return Ok(());
     }
-    if limits["asking"]["mayorReview"] == "remote" {
+    if review == LimitsAskingMayorReview::Remote {
         let settings = service.settings()?;
         let mayor = r
             .agents
@@ -111,16 +111,11 @@ pub(crate) async fn prepare(
             .find(|agent| agent.number == r.mayor)
             .expect("mayor");
         let model =
-            crate::state::model(mayor, &limits, &settings, true);
+            r.limits.chief.model_of(mayor, true, &settings.model);
         let (provider, model) =
             model.split_once("::").unwrap_or_default();
-        let endpoint = settings["endpoints"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|endpoint| endpoint["name"] == provider);
-        let url = endpoint
-            .and_then(|endpoint| endpoint["baseUrl"].as_str())
+        let url = settings
+            .base_url(provider)
             .or_else(|| service.models.base_url(provider, model))
             .and_then(|url| url::Url::parse(url).ok());
         let remote = url

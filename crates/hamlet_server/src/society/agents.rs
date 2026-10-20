@@ -89,7 +89,7 @@ pub(super) async fn create(
                     ..
                 }) => {
                     let limits = record::read(db, &place.hamlet)?
-                        .map(|r| r.limits.models)
+                        .map(|r| r.limits.chief.models)
                         .unwrap_or_default();
                     let mut words = vec![format!(
                         "Created `{}`. Give it work with ask_agent.",
@@ -163,32 +163,13 @@ pub(super) fn set_model(
     };
     let place = caller.place.agent.clone();
     let limits = service.limits_of(&place.hamlet)?;
-    let settings = service.settings()?;
-    let strings = |value: &Value| {
-        value
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .map(String::from)
-            .collect::<Vec<_>>()
-    };
+    let home = service.settings()?.model;
     let change = Change::SetModel {
         name: given.name.clone(),
         model: (!given.model.is_empty()).then(|| given.model.clone()),
-        allowed: strings(&limits["models"]),
-        pinned: limits["pinned"]
-            .as_object()
-            .into_iter()
-            .flatten()
-            .filter(|(_, pin)| !pin.is_null())
-            .map(|(name, _)| name.clone())
-            .collect(),
-        own: limits["model"]
-            .as_str()
-            .or_else(|| settings["model"].as_str())
-            .unwrap_or_default()
-            .into(),
+        allowed: limits.models.clone(),
+        pinned: limits.pinned.keys().cloned().collect(),
+        own: limits.model.unwrap_or(home),
     };
     let at = society::now();
     society::once(

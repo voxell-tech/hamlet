@@ -83,12 +83,12 @@ impl Realm {
             );
         }
         let mut limits = Limits::default();
-        limits.road.micros = ROAD;
+        limits.chief.road.cost = ROAD as f64 / 1_000_000.0;
         limits.road_budget = Some(RoadBudget {
             start: 0,
             end: i64::MAX,
             month: false,
-            other: limits.road,
+            other: limits.chief.road_price(),
             cost: Some(CAP),
             ms: None,
         });
@@ -232,16 +232,11 @@ impl Realm {
     pub fn reserve_roads(&self) {
         let db =
             Connection::open(self.home.join("realm.sqlite")).unwrap();
-        let mut limits = serde_json::to_value(
-            hamlet_testing::realm::hamlet("home").limits,
-        )
-        .unwrap();
-        limits["mayor"]["buildRoads"] = json!(false);
         db.execute(
-            "INSERT INTO chief_document (kind, key, value) VALUES \
-             ('limits', 'home', ?1) ON CONFLICT (kind, key) DO \
-             UPDATE SET value = excluded.value",
-            [limits.to_string()],
+            "UPDATE record_hamlet SET document = json_set(document, \
+             '$.limits.chief.mayor.buildRoads', json('false')) \
+             WHERE id = 'home'",
+            [],
         )
         .unwrap();
     }

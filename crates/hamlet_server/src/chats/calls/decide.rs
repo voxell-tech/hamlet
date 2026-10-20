@@ -172,7 +172,9 @@ pub(super) fn decide(
         return Ok(Gate::Preview(Reading {
             remote,
             path: path.into(),
-            signature: service.work(&call.bound.agent.hamlet)?,
+            signature: serde_json::to_value(
+                service.work(&call.bound.agent.hamlet)?,
+            )?,
         }));
     }
     fresh(service, call, preview).map(Gate::Decided)
@@ -263,7 +265,6 @@ fn fresh(
         house_edit: reach.house_edit,
         ..standing(service, &place, &record)?
     };
-    let limits = service.limits_of(&place.agent.hamlet)?;
     let about = service
         .credentials
         .scrub_text(&gate::call_text(&reach.call));
@@ -275,7 +276,7 @@ fn fresh(
         &asked,
         &by,
         &about,
-        &limits,
+        &record.limits.chief,
         record.mayor == place.agent.number,
     );
     let change = reach.change;
@@ -472,8 +473,8 @@ pub(super) fn standing(
 ) -> Result<Standing> {
     let hamlet = &place.agent.hamlet;
     let work = service.work(hamlet)?;
-    let limits = service.limits_of(hamlet)?;
-    let allow_net = service.settings()?["allowNet"] == true;
+    let limits = &record.limits.chief;
+    let allow_net = service.settings()?.allow_net;
     let db = service.home.store().connection();
     let grants = gate::grants(db)?;
     let by = record.address_of(place.agent.number);
@@ -486,13 +487,12 @@ pub(super) fn standing(
             session: place.session,
         },
     )?;
-    let manual =
-        !work["folder"].is_null() && work["mode"] == "manual";
+    let manual = work.asks();
     Ok(Standing {
         house_edit: false,
         net: allow_net
             || gate::holds(
-                &limits,
+                limits,
                 &grants,
                 by,
                 &place.agent,
@@ -534,7 +534,7 @@ pub(super) fn places(
             .join("houses")
             .join(&agent.hamlet)
             .join(agent.number.to_string()),
-        folder: work["folder"].as_str().map(PathBuf::from),
+        folder: work.folder.map(PathBuf::from),
         home: root.clone(),
         shared: vec![root.join("tools"), root.join("library")],
     })
@@ -765,12 +765,11 @@ mod tests {
         let scratch = Scratch::new("calls-waiting");
         let (mut service, binding, _) = served(&scratch);
         let mut limits = service.limits_of("home").unwrap();
-        limits["mayor"]["buildRoads"] = json!(false);
-        crate::service::save(
+        limits.mayor.build_roads = false;
+        crate::limits::set(
             service.home.store().connection(),
-            "limits",
             "home",
-            &limits,
+            limits,
         )
         .unwrap();
         let road = |b: &str| {
@@ -921,7 +920,7 @@ mod tests {
             db.query_row("PRAGMA user_version", [], |row| row
                 .get::<_, i64>(0))
                 .unwrap(),
-            11
+            12
         );
         assert_eq!(
             operation::marked(db, &finished, &request).unwrap(),

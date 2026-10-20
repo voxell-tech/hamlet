@@ -72,8 +72,8 @@ pub(super) fn ask(
     let mut questions = serde_json::to_value(questions)?;
     service.credentials.scrub(&mut questions);
     let questions = serde_json::from_value::<Questions>(questions)?;
-    let limits = service.limits_of(&place.agent.hamlet)?;
-    let most = limits["asking"]["questions"].as_i64().unwrap_or(3);
+    let most =
+        service.limits_of(&place.agent.hamlet)?.asking.questions;
     let db = service.home.store().connection();
     let mut asked = crate::gate::Asked::of(db, binding, call.input)?;
     if asked.questions >= most {

@@ -41,17 +41,17 @@ pub(super) async fn start(
             if !standing.status.is_some_and(InputStatus::is_ended)
                 && ["hearing", "ballot"].contains(&kind)
             {
-                let limits = service.limits_of(&agent.hamlet)?;
+                let ballot = service
+                    .limits_of(&agent.hamlet)?
+                    .votes
+                    .ballot_minutes;
                 let began = service
                     .home
                     .store()
                     .mark_of(binding, "errand")?
                     .map_or_else(super::now, |mark| mark.at());
                 if super::now().saturating_sub(began)
-                    >= limits["votes"]["ballotMinutes"]
-                        .as_i64()
-                        .unwrap_or(5)
-                        .saturating_mul(60_000)
+                    >= ballot.saturating_mul(60_000)
                 {
                     harnesses
                         .cancel(service.home.store(), binding)

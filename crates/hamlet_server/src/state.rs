@@ -2,9 +2,8 @@
 
 use anyhow::Result;
 use hamlet_protocol::v0::{Changes, ServerMessage, State, Update};
-use serde_json::{Value, json};
+use serde_json::json;
 
-use crate::documents::mode_words;
 use crate::record::{self, End};
 use crate::service::{Service, records};
 
@@ -35,7 +34,9 @@ pub(crate) fn state(
         else {
             continue;
         };
-        let limits = service.limits_of(&record.id)?;
+        let limits = &record.limits.chief;
+        let grows =
+            u64::try_from(limits.road.grows_over_days).unwrap_or(0);
         let work = service.work(&record.id)?;
         let reference =
             |number| json!({"hamlet":record.id,"number":number});
@@ -47,15 +48,14 @@ pub(crate) fn state(
         };
         let mut roads = record.roads_of().iter().map(|r| json!({
             "a":end(r.a), "b":end(r.b), "messages":r.messages,
-            "lastFrom":r.last_from.map(end), "level":record::level(r, chrono::Utc::now().timestamp_millis(), limits["road"]["growsOverDays"].as_u64().unwrap_or(7))
+            "lastFrom":r.last_from.map(end), "level":record::level(r, chrono::Utc::now().timestamp_millis(), grows)
         })).collect::<Vec<_>>();
         roads.extend(crate::realm::roads(service.home.store().connection())?.into_iter().filter(|r| r.a.hamlet == record.id || r.b.hamlet == record.id).map(|r| {
-            let old = r.last_used > 0 && crate::society::now().saturating_sub(r.last_used).max(0) as u64 > limits["road"]["growsOverDays"].as_u64().unwrap_or(7).saturating_mul(86_400_000);
+            let old = r.last_used > 0 && crate::society::now().saturating_sub(r.last_used).max(0) as u64 > grows.saturating_mul(86_400_000);
             let level = if old { "overgrown" } else if r.messages < 3 { "dirt" } else if r.messages < 10 { "paved" } else { "rail" };
             json!({"a":r.a,"b":r.b,"messages":r.messages,"lastFrom":r.last_from,"level":level})
         }));
-        let period =
-            limits["budget"]["period"].as_str().unwrap_or("day");
+        let period = limits.period();
         let books = crate::spend::books(
             service.home.store().connection(),
             &record.id,
@@ -64,7 +64,7 @@ pub(crate) fn state(
             chrono::Utc::now().timestamp_millis(),
         )?;
         hamlets.push(json!({"id":record.id, "name":place.title.as_ref().unwrap_or(&record.id), "at":place.at, "roads":roads, "votes":crate::society::votes::views(service.home.store().connection(), &record)?,
-            "folder":work["folder"], "before":work["before"], "mode":work["mode"], "modeWords":mode_words(work["mode"].as_str().unwrap_or("manual")), "limits":limits,
+            "folder":work.folder, "before":work.before, "mode":work.mode, "modeWords":work.mode.words(), "limits":limits,
             "budget":service.budget(&record.id)?}));
         for agent in record.agents.iter().chain(
             record
@@ -102,7 +102,7 @@ pub(crate) fn state(
                 &reference_of,
             )?;
             let mut view = json!({"ref":reference(agent.number), "name":agent.name,"purpose":agent.purpose,"since":agent.since,"mayor":mayor,
-                "model":model(agent,&limits,&settings,mayor),"busy":busy,"faulted":!busy && work.faulted,
+                "model":limits.model_of(agent, mayor, &settings.model),"busy":busy,"faulted":!busy && work.faulted,
                 "activity":{"doing":doing,"doingWords":crate::chats::words(doing),"step":if left.is_some() {0} else {work.step},"failures":if left.is_some() {0} else {work.failures}},
                 "saying":{"text":work.saying,"thought":work.thought},"spent":{"tokens":0,"micros":0,"ms":0,"cost":"$0.00"},"skills":[],"consulting":consulting,"conversations":[]});
             let spent = books
@@ -134,14 +134,13 @@ pub(crate) fn state(
             agents.push(view);
         }
         kept.push(record.clone());
-        for permission in ["network", "unconfined"] {
-            for name in limits["permissions"][permission]
-                .as_array()
-                .into_iter()
-                .flatten()
-            {
+        for (permission, names) in [
+            ("network", &limits.permissions.network),
+            ("unconfined", &limits.permissions.unconfined),
+        ] {
+            for name in names {
                 let agent = record.agents.iter().find(|a| {
-                    if name == "mayor" {
+                    if name == hamlet_protocol::MAYOR {
                         a.number == record.mayor
                     } else {
                         name == &a.name
@@ -173,8 +172,8 @@ pub(crate) fn state(
     }
     let mut view = json!({"epoch":epoch,"revision":revision,"chief":service.chief,"sandbox":service.chats.sandbox.name(), "houses":service.home.layout().root().join("houses"),
         "hamlets":hamlets,"agents":agents,"grants":grants,"waits":waits,"providers":service.provider_views()?,"library":crate::society::library::views(service)?,"closed":closed,"starters":crate::gifts::starters(),"deeds":crate::chats::advertised_deeds(),
-        "settings":{"model":settings["model"],"reflectEvery":settings["reflectEvery"],"allowNet":settings["allowNet"],"unset":settings["saved"] != true,"link":settings["link"],
-            "endpoints":settings["endpoints"].as_array().into_iter().flatten().map(|e|json!({"name":e["name"],"baseUrl":e["baseUrl"],"key":service.credentials.configured(e["name"].as_str().unwrap_or_default())})).collect::<Vec<_>>(),
+        "settings":{"model":settings.model,"reflectEvery":settings.reflect_every,"allowNet":settings.allow_net,"unset":!settings.saved,"link":settings.link,
+            "endpoints":settings.endpoints.iter().map(|e|json!({"name":e.name,"baseUrl":e.base_url,"key":service.credentials.configured(&e.name)})).collect::<Vec<_>>(),
             "workspace":{"url":service.credentials.workspace_url(),"running":service.houses.workspace.as_ref().map(|connection| &connection.url)}}});
     let moving = service.moving.view();
     if !moving.is_null() {
@@ -182,28 +181,6 @@ pub(crate) fn state(
     }
     service.credentials.scrub(&mut view);
     Ok(serde_json::from_value(view)?)
-}
-
-pub(crate) fn model(
-    agent: &record::Agent,
-    limits: &Value,
-    settings: &Value,
-    mayor: bool,
-) -> String {
-    let name = if mayor { "mayor" } else { &agent.name };
-    limits["pinned"][name]
-        .as_str()
-        .or_else(|| {
-            agent.model.as_deref().filter(|model| {
-                limits["models"].as_array().is_some_and(|models| {
-                    models.iter().any(|m| m == model)
-                })
-            })
-        })
-        .or_else(|| limits["model"].as_str())
-        .or_else(|| settings["model"].as_str())
-        .unwrap_or_default()
-        .into()
 }
 
 fn by_words(by: &str) -> String {

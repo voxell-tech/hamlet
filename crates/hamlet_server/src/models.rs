@@ -22,6 +22,7 @@ use crate::harness::link::{
 use crate::harness::{Binding, LINK_VERSION};
 use crate::protocol::{Refusal, reply};
 use crate::service::{Service, document, save};
+use crate::settings::{Link, Settings};
 
 /// The price in dollars per million tokens of a model nothing prices.
 const RATE: f64 = 1.0;
@@ -141,13 +142,11 @@ impl Service {
         )?;
         if !self.models.faux {
             let settings = self.settings()?;
-            for endpoint in
-                settings["endpoints"].as_array().into_iter().flatten()
-            {
+            for endpoint in &settings.endpoints {
                 self.ask_provider(
                     None,
                     "",
-                    endpoint["name"].as_str().unwrap_or_default(),
+                    &endpoint.name,
                     ProviderRequestAction::Refresh,
                     None,
                     None,
@@ -169,21 +168,12 @@ impl Service {
         read: bool,
     ) -> Result<()> {
         let settings = self.settings()?;
-        let serving = settings["model"]
-            .as_str()
-            .and_then(|m| m.split_once("::"))
-            .map_or("", |(p, _)| p);
-        let base_url = settings["endpoints"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|e| e["name"] == provider)
-            .and_then(|e| e["baseUrl"].as_str())
-            .map(String::from);
+        let serving = settings.provider().unwrap_or_default();
+        let base_url = settings.base_url(provider).map(String::from);
         let model = model.or_else(|| {
-            settings["model"]
-                .as_str()
-                .and_then(|m| m.split_once("::"))
+            settings
+                .model
+                .split_once("::")
                 .filter(|(p, _)| *p == provider)
                 .map(|(_, m)| m.into())
         });
@@ -258,10 +248,7 @@ impl Service {
                 };
                 let name = name.unwrap_or_else(|| {
                     self.settings()
-                        .ok()
-                        .and_then(|s| {
-                            s["model"].as_str().map(String::from)
-                        })
+                        .map(|s| s.model)
                         .unwrap_or_default()
                 });
                 let (provider, model) = match self
@@ -286,17 +273,12 @@ impl Service {
             ClientMessage::Read(Read::Models { id, refresh }) => {
                 if *refresh == Some(true) && !self.models.faux {
                     let settings = self.settings()?;
-                    let endpoints = settings["endpoints"]
-                        .as_array()
-                        .cloned()
-                        .unwrap_or_default();
+                    let endpoints = settings.endpoints;
                     for endpoint in &endpoints {
                         self.ask_provider(
                             Some(client),
                             id,
-                            endpoint["name"]
-                                .as_str()
-                                .unwrap_or_default(),
+                            &endpoint.name,
                             ProviderRequestAction::Refresh,
                             None,
                             None,
@@ -632,7 +614,7 @@ impl Service {
             .is_some_and(|list| list.iter().any(|m| m["id"] == id))
         {
             let settings = self.settings()?;
-            if settings["model"] != name {
+            if settings.model != name {
                 return invalid(format!("no model named `{name}`"));
             }
         }
@@ -645,32 +627,24 @@ impl Service {
         count: Option<usize>,
         words: Option<&str>,
     ) -> Result<()> {
-        let mut settings = document(
-            self.home.store().connection(),
-            "settings",
-            "home",
-        )?
-        .unwrap_or_else(crate::settings::defaults);
-        settings["link"] =
-            json!({"state":state,"models":count,"words":words});
-        self.credentials.scrub(&mut settings);
-        save(
-            self.home.store().connection(),
-            "settings",
-            "home",
-            &settings,
-        )
+        let db = self.home.store().connection();
+        let mut settings = crate::settings::stored(db)?;
+        settings.link = Link {
+            state: state.into(),
+            models: count,
+            words: words.map(|w| self.credentials.scrub_text(w)),
+        };
+        crate::settings::keep(db, &settings)
     }
 
     pub(crate) fn provider_views(&mut self) -> Result<Vec<Value>> {
         let settings = self.settings()?;
-        let serving = settings["model"]
-            .as_str()
-            .and_then(|m| m.split_once("::"))
-            .map_or("", |(p, _)| p);
+        let serving = settings.provider().unwrap_or_default();
         let mut providers = self.models.providers.clone();
         if !self.models.faux {
-            providers.extend(settings["endpoints"].as_array().into_iter().flatten().map(|e|json!({"id":e["name"],"name":e["name"],"key":true})));
+            providers.extend(settings.endpoints.iter().map(
+                |e| json!({"id":e.name,"name":e.name,"key":true}),
+            ));
         }
         providers
             .sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
@@ -838,7 +812,7 @@ fn login_step(
 
 /// What a model call is chosen from, read once for many calls.
 pub(crate) struct Choices {
-    settings: Value,
+    settings: Settings,
     cards: Value,
     /// The endpoints' model lists, by endpoint.
     lists: Value,
@@ -851,10 +825,7 @@ impl Choices {
         faux: bool,
     ) -> Result<Self> {
         let settings = crate::settings::Overrides::from_env(faux)?
-            .apply(
-                document(store.connection(), "settings", "home")?
-                    .unwrap_or_else(crate::settings::defaults),
-            );
+            .apply(crate::settings::stored(store.connection())?);
         let lists = match std::fs::read(root.join("models.json")) {
             Ok(bytes) => serde_json::from_slice::<Value>(&bytes)?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -877,10 +848,6 @@ impl Choices {
         store: &Store,
         binding: &Binding,
     ) -> Result<Selection> {
-        let limits = crate::spend::limits(
-            store.connection(),
-            &binding.agent.hamlet,
-        )?;
         let record = store
             .record(&binding.agent.hamlet)?
             .context("model's hamlet")?;
@@ -889,11 +856,10 @@ impl Choices {
             .iter()
             .find(|a| a.number == binding.agent.number)
             .context("model's agent")?;
-        let name = crate::state::model(
+        let name = record.limits.chief.model_of(
             agent,
-            &limits,
-            &self.settings,
             record.mayor == agent.number,
+            &self.settings.model,
         );
         let (provider, id) = name
             .split_once("::")
@@ -902,16 +868,10 @@ impl Choices {
             .as_array()
             .and_then(|list| list.iter().find(|m| m["id"] == id))
             .unwrap_or(&Value::Null);
-        let base_url = self.settings["endpoints"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|e| e["name"] == provider)
-            .map_or(&listed["baseUrl"], |endpoint| {
-                &endpoint["baseUrl"]
-            })
-            .as_str()
-            .map(String::from);
+        let base_url = match self.settings.base_url(provider) {
+            Some(url) => Some(url.into()),
+            None => listed["baseUrl"].as_str().map(String::from),
+        };
         let size =
             |key: &str| listed[key].as_u64().filter(|n| *n > 0);
         let card = &self.cards[&name]["price"];

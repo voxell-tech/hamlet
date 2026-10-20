@@ -149,7 +149,10 @@ async fn prepared(
             else {
                 return Ok(());
             };
-            if service.work(&bound.agent.hamlet)? != signature {
+            if serde_json::to_value(
+                service.work(&bound.agent.hamlet)?,
+            )? != signature
+            {
                 return self::call(
                     service, harnesses, binding, re, call,
                 )
@@ -661,13 +664,10 @@ fn prompt(
     else {
         return Ok(crate::prompt::Prepared::fixed(Vec::new()));
     };
-    let settings = service.settings()?;
-    let limits = service.limits_of(&agent.hamlet)?;
-    let model = crate::state::model(
+    let model = record.limits.chief.model_of(
         &member,
-        &limits,
-        &settings,
         record.mayor == agent.number,
+        &service.settings()?.model,
     );
     let instructions = records::instructions(
         service.home.store().connection(),

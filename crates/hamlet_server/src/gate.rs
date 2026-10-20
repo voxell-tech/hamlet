@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::harness::BindingId;
+use crate::limits::Limits;
 use crate::oversight::Danger;
 use crate::record::AgentRef;
 
@@ -194,7 +195,7 @@ pub(crate) fn rule(
     asked: &Asked,
     by: &str,
     about: &str,
-    limits: &Value,
+    limits: &Limits,
     mayor: bool,
 ) -> Verdict {
     let verdict = if mayor && mayor_reserved(call, limits) {
@@ -205,31 +206,29 @@ pub(crate) fn rule(
     let Verdict::Ask(danger) = verdict else {
         return verdict;
     };
-    let cap = limits["asking"]["refusals"].as_i64().unwrap_or(3);
-    match refused(asked, by, danger, about, cap) {
+    match refused(asked, by, danger, about, limits.asking.refusals) {
         Some(words) => Verdict::Block(words),
         None => verdict,
     }
 }
 
 /// A society act the chief's limits reserve to the chief.
-fn mayor_reserved(call: &Call, limits: &Value) -> bool {
+fn mayor_reserved(call: &Call, limits: &Limits) -> bool {
     let Call::Society { name, args } = call else {
         return false;
     };
-    let allows =
-        |key: &str| limits["mayor"][key] != Value::Bool(false);
+    let allows = &limits.mayor;
     match name.as_str() {
         "create_agent" => {
-            !allows("createAgents")
-                || (!allows("buildRoads")
+            !allows.create_agents
+                || (!allows.build_roads
                     && args["roads"]
                         .as_array()
                         .is_some_and(|roads| !roads.is_empty()))
         }
-        "build_road" => !allows("buildRoads"),
-        "remove_agent" => !allows("removeAgents"),
-        "merge_agents" => !allows("mergeAgents"),
+        "build_road" => !allows.build_roads,
+        "remove_agent" => !allows.remove_agents,
+        "merge_agents" => !allows.merge_agents,
         _ => false,
     }
 }
@@ -551,15 +550,13 @@ pub(crate) fn grants(db: &Connection) -> Result<Vec<Grant>> {
 /// Whether `agent`, called `name`, has `permission` by the limits or
 /// a grant.
 pub(crate) fn holds(
-    limits: &Value,
+    limits: &Limits,
     grants: &[Grant],
     name: &str,
     agent: &AgentRef,
     permission: &str,
 ) -> bool {
-    limits["permissions"][permission]
-        .as_array()
-        .is_some_and(|names| names.iter().any(|n| n == name))
+    limits.permits(permission, name)
         || grants.iter().any(|grant| {
             &grant.agent == agent && grant.permission == permission
         })

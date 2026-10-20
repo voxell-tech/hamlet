@@ -1,17 +1,95 @@
 //! Saved settings and process-only model overrides.
 
 use anyhow::{Result, bail};
-use hamlet_protocol::v0::EditSettingsSet;
-use serde_json::{Value, json};
+use hamlet_protocol::v0::{EditSettingsSet, Endpoint};
+use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 use url::Url;
 
 use crate::credentials::Workspace;
 use crate::protocol::Refusal;
+use crate::service::{document, save};
 
-pub(crate) fn defaults() -> Value {
-    json!({"model":"local::qwen3.6:35b-a3b", "reflectEvery":10, "allowNet":false,
-        "endpoints":[{"name":"local", "baseUrl":"http://localhost:11434/v1"}],
-        "link":{"state":"untested", "models":null, "words":null}, "saved":false})
+/// The home's settings, as the chief saved them.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub(crate) struct Settings {
+    /// The model the home runs, as `endpoint::model`.
+    pub model: String,
+    /// The answered turns after which an agent reflects; none for 0.
+    pub reflect_every: u64,
+    pub allow_net: bool,
+    pub endpoints: Vec<Endpoint>,
+    /// How the last check of the model went.
+    pub link: Link,
+    /// Whether the chief saved them, rather than the defaults
+    /// standing.
+    pub saved: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            model: "local::qwen3.6:35b-a3b".into(),
+            reflect_every: 10,
+            allow_net: false,
+            endpoints: vec![Endpoint {
+                name: "local".into(),
+                base_url: "http://localhost:11434/v1".into(),
+            }],
+            link: Link::default(),
+            saved: false,
+        }
+    }
+}
+
+/// The last check of the home's model.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct Link {
+    pub state: String,
+    pub models: Option<usize>,
+    pub words: Option<String>,
+}
+
+impl Default for Link {
+    fn default() -> Self {
+        Self {
+            state: "untested".into(),
+            models: None,
+            words: None,
+        }
+    }
+}
+
+impl Settings {
+    /// The endpoint of the home's model.
+    pub fn provider(&self) -> Option<&str> {
+        self.model.split_once("::").map(|(provider, _)| provider)
+    }
+
+    /// The address of the endpoint `name`.
+    pub fn base_url(&self, name: &str) -> Option<&str> {
+        self.endpoints
+            .iter()
+            .find(|endpoint| endpoint.name == name)
+            .map(|endpoint| endpoint.base_url.as_str())
+    }
+}
+
+/// The settings the chief saved, else the defaults.
+pub(crate) fn stored(db: &Connection) -> Result<Settings> {
+    Ok(document(db, "settings", "home")?
+        .map(serde_json::from_value)
+        .transpose()?
+        .unwrap_or_default())
+}
+
+/// Keeps `settings` as the chief's.
+pub(crate) fn keep(
+    db: &Connection,
+    settings: &Settings,
+) -> Result<()> {
+    save(db, "settings", "home", &serde_json::to_value(settings)?)
 }
 
 pub(crate) struct Overrides {
@@ -65,28 +143,21 @@ impl Overrides {
         })
     }
 
-    pub fn apply(&self, mut settings: Value) -> Value {
+    pub fn apply(&self, mut settings: Settings) -> Settings {
         if let Some(model) = &self.model {
-            settings["model"] = model.clone().into();
+            settings.model.clone_from(model);
         }
         if let Some(every) = self.reflect_every {
-            settings["reflectEvery"] = every.into();
+            settings.reflect_every = every;
         }
         if let Some(net) = self.allow_net {
-            settings["allowNet"] = net.into();
+            settings.allow_net = net;
         }
-        let provider = settings["model"]
-            .as_str()
-            .and_then(|m| m.split_once("::"))
-            .map(|(p, _)| p.to_owned());
         if let Some(url) = &self.base_url {
-            for endpoint in settings["endpoints"]
-                .as_array_mut()
-                .into_iter()
-                .flatten()
-            {
-                if endpoint["name"].as_str() == provider.as_deref() {
-                    endpoint["baseUrl"] = url.clone().into();
+            let provider = settings.provider().map(String::from);
+            for endpoint in &mut settings.endpoints {
+                if Some(&endpoint.name) == provider.as_ref() {
+                    endpoint.base_url.clone_from(url);
                 }
             }
         }

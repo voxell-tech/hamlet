@@ -1,38 +1,218 @@
 //! Chief limits, omitted defaults and the record's constraints.
 
+use std::collections::BTreeMap;
+use std::sync::LazyLock;
+
 use anyhow::Result;
-use hamlet_protocol::v0::{EditLimits, Limits};
+use hamlet_protocol::v0::{
+    EditLimits, HamletLimits, LimitsAsking, LimitsBudget,
+    LimitsLeaving, LimitsMayor, LimitsPermissions, LimitsRoad,
+    LimitsTask, Period, VoteLimits,
+};
 use jsonschema::error::ValidationErrorKind;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::protocol::Refusal;
-use crate::record;
+use crate::record::{self, Agent};
+
+/// The limits schema, whose defaults fill what a document omits.
+static SCHEMA: LazyLock<Value> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../assets/limits.schema.json"))
+        .expect("the bundled limits schema")
+});
+
+/// A hamlet's limits, as `assets/limits.schema.json` describes them.
+///
+/// Read it with [`Limits::of`], which fills what a document omits.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Limits {
+    pub votes: VoteLimits,
+    pub hamlets: HamletLimits,
+    pub budget: LimitsBudget,
+    pub task: LimitsTask,
+    pub road: LimitsRoad,
+    #[serde(rename = "mostAgents")]
+    pub most_agents: i64,
+    #[serde(rename = "mostRoads")]
+    pub most_roads: i64,
+    pub models: Vec<String>,
+    pub model: Option<String>,
+    /// Models by agent name; [`hamlet_protocol::MAYOR`] names the
+    /// office.
+    pub pinned: BTreeMap<String, String>,
+    pub mayor: LimitsMayor,
+    pub leaving: LimitsLeaving,
+    pub asking: LimitsAsking,
+    pub permissions: LimitsPermissions,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        let mut value = json!({});
+        defaults(&SCHEMA, &mut value);
+        serde_json::from_value(value).expect("the schema's defaults")
+    }
+}
+
+impl Limits {
+    /// The limits `value` holds, with what it omits from the schema.
+    pub fn of(mut value: Value) -> Result<Self> {
+        defaults(&SCHEMA, &mut value);
+        Ok(serde_json::from_value(value)?)
+    }
+
+    /// The most agents a hamlet holds besides its mayor.
+    pub fn agent_room(&self) -> usize {
+        usize::try_from(self.most_agents).unwrap_or(0)
+    }
+
+    /// The most roads between agents a mayor may build.
+    pub fn road_room(&self) -> usize {
+        usize::try_from(self.most_roads).unwrap_or(0)
+    }
+
+    /// The budget's period, as the spend books name it.
+    pub fn period(&self) -> &'static str {
+        match self.budget.period {
+            Period::Day => "day",
+            Period::Month => "month",
+        }
+    }
+
+    /// The price of a road.
+    pub fn road_price(&self) -> record::Amount {
+        record::Amount {
+            tokens: u64::try_from(self.road.tokens).unwrap_or(0),
+            micros: (self.road.cost * 1_000_000.0).round() as u64,
+            ms: minutes(self.road.minutes),
+        }
+    }
+
+    /// How long a vote stays open, in milliseconds.
+    pub fn vote_open_ms(&self) -> u64 {
+        minutes(self.votes.open_minutes)
+    }
+
+    /// How long a new agent is protected from removal, in
+    /// milliseconds.
+    pub fn protected_ms(&self) -> u64 {
+        minutes(self.leaving.protected_minutes)
+    }
+
+    /// Whether `name`, or the mayor when `mayor`, holds `permission`
+    /// by these limits.
+    pub fn permits(&self, permission: &str, name: &str) -> bool {
+        let names = match permission {
+            "network" => &self.permissions.network,
+            "unconfined" => &self.permissions.unconfined,
+            _ => return false,
+        };
+        names.iter().any(|n| n == name)
+    }
+
+    /// The model `agent` runs: pinned for it, else its own choice
+    /// when allowed, else the hamlet's, else `home`.
+    pub fn model_of(
+        &self,
+        agent: &Agent,
+        mayor: bool,
+        home: &str,
+    ) -> String {
+        let name = if mayor {
+            hamlet_protocol::MAYOR
+        } else {
+            &agent.name
+        };
+        self.pinned
+            .get(name)
+            .map(String::as_str)
+            .or_else(|| {
+                agent.model.as_deref().filter(|model| {
+                    self.models.iter().any(|m| m == model)
+                })
+            })
+            .or(self.model.as_deref())
+            .unwrap_or(home)
+            .into()
+    }
+}
+
+/// Limits from a document that may omit some, as an older home kept
+/// them.
+pub(crate) fn filled<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Box<Limits>, D::Error> {
+    Limits::of(Value::deserialize(deserializer)?)
+        .map(Box::new)
+        .map_err(serde::de::Error::custom)
+}
+
+/// The limits of `hamlet`, as its record keeps them.
+pub(crate) fn of(
+    db: &rusqlite::Connection,
+    hamlet: &str,
+) -> Result<Limits> {
+    Ok(record::read(db, hamlet)?
+        .map(|record| *record.limits.chief)
+        .unwrap_or_default())
+}
+
+/// Sets the limits of `hamlet` as its first chief would.
+#[cfg(test)]
+pub(crate) fn set(
+    db: &rusqlite::Connection,
+    hamlet: &str,
+    limits: Limits,
+) -> Result<()> {
+    let record =
+        record::read(db, hamlet)?.expect("a hamlet to limit");
+    let operation = record::RecordOperation {
+        hamlet: hamlet.into(),
+        actor: record::Actor::Chief(record.chiefs[0].clone()),
+        at: 0,
+        reason: String::new(),
+        task: None,
+        change: record::Change::SetLimits {
+            limits: record::Limits {
+                chief: Box::new(limits),
+                road_budget: record.limits.road_budget,
+            },
+            runs: Vec::new(),
+        },
+    };
+    let outcome = crate::operation::change(db, &operation)?;
+    anyhow::ensure!(
+        matches!(outcome, crate::Outcome::Done(_)),
+        "the limits were refused"
+    );
+    Ok(())
+}
+
+/// `minutes` in milliseconds.
+fn minutes(minutes: i64) -> u64 {
+    u64::try_from(minutes).unwrap_or(0).saturating_mul(60_000)
+}
 
 pub(crate) struct Rules {
-    schema: Value,
     validator: jsonschema::Validator,
 }
 
 impl Rules {
     pub fn new() -> Result<Self> {
-        let schema = serde_json::from_str::<Value>(include_str!(
-            "../assets/limits.schema.json"
-        ))?;
-        let validator = jsonschema::validator_for(&schema)?;
-        Ok(Self { schema, validator })
+        Ok(Self {
+            validator: jsonschema::validator_for(&SCHEMA)?,
+        })
     }
 
-    pub fn defaults(&self) -> Value {
-        let mut value = json!({});
-        defaults(&self.schema, &mut value);
-        value
-    }
-
+    /// `current` with the chief's edit, when the schema allows it.
     pub fn edit(
         &self,
-        current: Value,
+        current: &Limits,
         edit: &EditLimits,
     ) -> std::result::Result<Value, Refusal> {
+        let current =
+            serde_json::to_value(current).expect("limits are JSON");
         let mut value = match edit {
             EditLimits::Whole { whole, .. } => {
                 serde_json::to_value(whole).expect("JSON object")
@@ -68,7 +248,7 @@ impl Rules {
                 value
             }
         };
-        defaults(&self.schema, &mut value);
+        defaults(&SCHEMA, &mut value);
         let errors =
             self.validator.iter_errors(&value).collect::<Vec<_>>();
         if let Some(error) = errors
@@ -108,8 +288,7 @@ impl Rules {
                     "expected a list of names"
                 } else if path.ends_with(".cost") {
                     "a cost is a number of zero or more"
-                } else if self
-                    .schema
+                } else if SCHEMA
                     .pointer(&format!(
                         "/properties/{}",
                         path.replace('.', "/properties/")
@@ -118,8 +297,7 @@ impl Rules {
                 {
                     "expected a list of names"
                 } else if path.is_empty()
-                    || self
-                        .schema
+                    || SCHEMA
                         .pointer(&format!("/properties/{path}"))
                         .is_some_and(|s| s["type"] == "object")
                 {
@@ -162,30 +340,5 @@ fn defaults(schema: &Value, value: &mut Value) {
                 defaults(field, value);
             }
         }
-    }
-}
-
-pub(crate) fn record_limits(
-    value: &Limits,
-    previous: &record::Limits,
-) -> record::Limits {
-    record::Limits {
-        most_agents: value.most_agents as usize,
-        most_roads: value.most_roads as usize,
-        models: value.models.clone(),
-        road: record::Amount {
-            tokens: value.road.tokens as u64,
-            micros: (value.road.cost * 1_000_000.0).round() as u64,
-            ms: (value.road.minutes as u64).saturating_mul(60_000),
-        },
-        vote_open_ms: value
-            .votes
-            .as_ref()
-            .map_or(previous.vote_open_ms, |v| {
-                (v.open_minutes as u64).saturating_mul(60_000)
-            }),
-        protected_ms: (value.leaving.protected_minutes as u64)
-            .saturating_mul(60_000),
-        road_budget: previous.road_budget.clone(),
     }
 }

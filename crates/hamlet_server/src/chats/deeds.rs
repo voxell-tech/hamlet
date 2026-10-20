@@ -502,6 +502,7 @@ pub(crate) async fn stop_agent(
 
 /// Stops the turn of the conversation `binding` of `agent`, drops its
 /// queued inputs and ends its waits.
+#[cfg(feature = "harness")]
 pub(super) async fn stop_conversation(
     service: &mut Service,
     harnesses: &mut Harnesses,

@@ -36,7 +36,7 @@ pub(crate) enum Mode {
 
 /// The answered turns after which an agent reflects; none for 0.
 pub(crate) fn reflect_every(service: &mut Service) -> Result<i64> {
-    Ok(service.settings()?["reflectEvery"].as_i64().unwrap_or(10))
+    Ok(i64::try_from(service.settings()?.reflect_every)?)
 }
 
 /// Acts once on the end of the input `request` of `binding`.

@@ -312,7 +312,7 @@ fn admission_has_realm_names_stable_numbers_and_a_cap_beside_the_current_mayor()
  {
     let (_scratch, mut store) = seeded("record-membership");
     found(&mut store, "mill", "miller");
-    limits(&mut store, "cap", "home", |l| l.most_agents = 2);
+    limits(&mut store, "cap", "home", |l| l.chief.most_agents = 2);
     let mut call = request("home", admit("FelineBiologist"));
     call.actor = Actor::Mayor(place("home", 0));
     assert_eq!(
@@ -401,8 +401,8 @@ fn names_validate_after_tidying_and_admission_keeps_partial_roads_and_allowed_mo
     }
     done(&mut store, "peer", &request("home", admit("peer")));
     limits(&mut store, "limits", "home", |l| {
-        l.models = vec!["local::model".into()];
-        l.most_roads = 1;
+        l.chief.models = vec!["local::model".into()];
+        l.chief.most_roads = 1;
     });
     let mut call = request(
         "home",
@@ -458,7 +458,7 @@ fn road_refusals_caps_and_office_changes_preserve_traffic_without_refunds()
     for name in ["scout", "smith", "poet"] {
         done(&mut store, name, &request("home", admit(name)));
     }
-    limits(&mut store, "limit", "home", |l| l.most_roads = 1);
+    limits(&mut store, "limit", "home", |l| l.chief.most_roads = 1);
     assert_eq!(
         refused(
             &mut store,
@@ -648,7 +648,9 @@ fn restoring_keeps_identity_and_surviving_roads_not_namesakes_and_does_not_charg
             .text(Audience::Chief)
             .contains(&format!("/restore {archive} as <new-name>"))
     );
-    limits(&mut store, "road-cap", "home", |l| l.most_roads = 0);
+    limits(&mut store, "road-cap", "home", |l| {
+        l.chief.most_roads = 0
+    });
     let charges = store.road_charges("home").unwrap();
     let RecordResult::Restored { agent, text } = done(
         &mut store,
@@ -696,7 +698,7 @@ fn road_budget_wording_rounds_like_the_typescript_server() {
         (15_000, "$0.01"),
     ] {
         limits(&mut store, &format!("limit-{price}"), "home", |l| {
-            l.road.micros = price;
+            l.chief.road.cost = price as f64 / 1_000_000.0;
             l.road_budget = Some(RoadBudget {
                 start: 0,
                 end: 1000,
@@ -797,7 +799,7 @@ fn road_budget_is_checked_with_the_charge_and_exhaustion_never_leaves_a_road()
         ),
     );
     limits(&mut store, "time-budget", "home", |l| {
-        l.road.ms = 60_000;
+        l.chief.road.minutes = 1;
         let b = l.road_budget.as_mut().unwrap();
         b.cost = None;
         b.ms = Some(150_000);
@@ -853,7 +855,9 @@ fn current_vote_limits_and_chief_tasks_hold_effects_but_chiefs_can_overrule()
             .may_decide(3_600_100, Action::Admit)
             .is_none()
     );
-    limits(&mut store, "expire-vote", "home", |l| l.vote_open_ms = 0);
+    limits(&mut store, "expire-vote", "home", |l| {
+        l.chief.votes.open_minutes = 0
+    });
     call.reason = " ".into();
     assert_eq!(
         refused(&mut store, "blank", &call).reason,
@@ -954,12 +958,12 @@ fn moving_requires_both_current_mayors_and_uses_the_receiving_next_number()
         leaving: place("home", 0),
         joining: place("mill", 2),
     };
-    limits(&mut store, "cap", "mill", |l| l.most_agents = 2);
+    limits(&mut store, "cap", "mill", |l| l.chief.most_agents = 2);
     assert_eq!(
         refused(&mut store, "full", &call).text(Audience::Agent),
         "the hamlet `mill` is full"
     );
-    limits(&mut store, "room", "mill", |l| l.most_agents = 3);
+    limits(&mut store, "room", "mill", |l| l.chief.most_agents = 3);
     assert_eq!(
         done(&mut store, "move", &call),
         RecordResult::Moved(place("mill", 3))
@@ -1158,7 +1162,7 @@ fn merge_restoration_preserves_learned_traffic_and_enforces_reverse_order()
         "split-poet",
         &request("home", restore(&later, "poet")),
     );
-    limits(&mut store, "full", "home", |l| l.most_agents = 3);
+    limits(&mut store, "full", "home", |l| l.chief.most_agents = 3);
     assert!(matches!(
         refused(
             &mut store,
@@ -1168,7 +1172,7 @@ fn merge_restoration_preserves_learned_traffic_and_enforces_reverse_order()
         .reason,
         Reason::HamletFull { most: 3 }
     ));
-    limits(&mut store, "room", "home", |l| l.most_agents = 4);
+    limits(&mut store, "room", "home", |l| l.chief.most_agents = 4);
     done(
         &mut store,
         "split-scout",

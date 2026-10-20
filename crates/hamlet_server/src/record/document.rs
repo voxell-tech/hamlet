@@ -221,33 +221,15 @@ pub struct RoadBudget {
 }
 
 /// The limits read by record operations at their time of effect.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, Default, PartialEq, Serialize, Deserialize,
+)]
 pub struct Limits {
-    pub most_agents: usize,
-    pub most_roads: usize,
-    pub models: Vec<String>,
-    pub road: Amount,
+    /// The chief's limits.
+    #[serde(default, deserialize_with = "crate::limits::filled")]
+    pub chief: Box<crate::limits::Limits>,
+    /// The road spend's window, which only tests set.
     pub road_budget: Option<RoadBudget>,
-    pub vote_open_ms: u64,
-    pub protected_ms: u64,
-}
-
-impl Default for Limits {
-    fn default() -> Self {
-        Self {
-            most_agents: 12,
-            most_roads: 24,
-            models: Vec::new(),
-            road: Amount {
-                tokens: 0,
-                micros: 10_000,
-                ms: 0,
-            },
-            road_budget: None,
-            vote_open_ms: 3_600_000,
-            protected_ms: 0,
-        }
-    }
 }
 
 /// An open vote's decision hold. The votes owner supplies its motion
@@ -269,7 +251,7 @@ pub struct Protection {
 }
 
 /// A hamlet's record and the current constraints on its decisions.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Hamlet {
     pub id: String,
     pub chiefs: Vec<String>,

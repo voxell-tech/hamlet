@@ -525,8 +525,7 @@ fn carry(
         )
         .optional()?
         .unwrap_or(0);
-    let limits = crate::spend::limits(db, &from.hamlet)?;
-    let most = limits["task"]["messages"].as_i64().unwrap_or(12);
+    let most = crate::limits::of(db, &from.hamlet)?.task.messages;
     if !reply && messages >= most {
         return Ok(Err(Unsent::Spent { most }));
     }

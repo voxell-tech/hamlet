@@ -5,14 +5,15 @@ use hamlet_protocol::v0::{
     Address, ClientMessage, Read, ServerMessage, State,
 };
 use rusqlite::{Connection, OptionalExtension, params};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::credentials::Credentials;
+use crate::documents::Work;
 use crate::limits::Rules;
 use crate::papers::Houses;
 use crate::protocol::{Refusal, fault, reply};
 use crate::record::{self, FoundRecord};
-use crate::settings::Overrides;
+use crate::settings::{Overrides, Settings};
 use crate::{Home, OperationId, Outcome, Reply, RuntimeInstance};
 
 /// The served home and its chief-facing requests.
@@ -259,13 +260,10 @@ impl Service {
         })
     }
 
-    pub(crate) fn settings(&mut self) -> Result<Value> {
-        let stored = document(
-            self.home.store().connection(),
-            "settings",
-            "home",
-        )?
-        .unwrap_or_else(crate::settings::defaults);
+    /// The home's settings, with the process's overrides.
+    pub(crate) fn settings(&mut self) -> Result<Settings> {
+        let stored =
+            crate::settings::stored(self.home.store().connection())?;
         Ok(self.overrides.apply(stored))
     }
 
@@ -274,7 +272,7 @@ impl Service {
         agent: &record::AgentRef,
         network: bool,
     ) -> Result<Option<crate::workspace::Remote>> {
-        let project = !self.work(&agent.hamlet)?["folder"].is_null();
+        let project = self.work(&agent.hamlet)?.folder.is_some();
         self.houses
             .workspace
             .as_ref()
@@ -327,17 +325,16 @@ impl Service {
     pub(crate) fn limits_of(
         &mut self,
         hamlet: &str,
-    ) -> Result<Value> {
-        Ok(document(
-            self.home.store().connection(),
-            "limits",
-            hamlet,
-        )?
-        .unwrap_or_else(|| self.limits.defaults()))
+    ) -> Result<crate::limits::Limits> {
+        crate::limits::of(self.home.store().connection(), hamlet)
     }
 
-    pub(crate) fn work(&mut self, hamlet: &str) -> Result<Value> {
-        Ok(document(self.home.store().connection(), "work", hamlet)?.unwrap_or_else(|| json!({"folder":null, "mode":"manual", "before":[]})))
+    /// What the hamlet works on, and how its agents ask.
+    pub(crate) fn work(&mut self, hamlet: &str) -> Result<Work> {
+        Ok(document(self.home.store().connection(), "work", hamlet)?
+            .map(serde_json::from_value)
+            .transpose()?
+            .unwrap_or_default())
     }
 
     pub(crate) async fn read(

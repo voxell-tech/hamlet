@@ -122,13 +122,13 @@ impl RecordOperation {
             .iter()
             .filter(|r| r.a != End::Office && r.b != End::Office)
             .count();
-        if built >= r.limits.most_roads {
+        if built >= r.limits.chief.road_room() {
             return Ok(refuse(Reason::RoadsFull { most: built }));
         }
         if let Some(text) = self.road_afford(db, r)? {
             return Ok(refuse(Reason::RoadBudget { text }));
         }
-        let price = r.limits.road;
+        let price = r.limits.chief.road_price();
         db.execute(
             "INSERT INTO record_road_charge(hamlet, agent, task, \
              at, tokens, micros, ms) VALUES (?1, ?2, ?3, ?4, ?5, \
@@ -179,7 +179,7 @@ impl RecordOperation {
                 ))
             },
         )?;
-        let price = r.limits.road;
+        let price = r.limits.chief.road_price();
         let cost_after = budget
             .other
             .micros

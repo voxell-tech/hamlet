@@ -8,6 +8,7 @@ use hamlet_protocol::v0::{
 use serde_json::Value;
 
 use super::{Deferred, deeds, records};
+use crate::documents::Mode;
 use crate::harness::{
     BindingId, Harnesses, Input, InputMark, InputStatus,
 };
@@ -213,7 +214,7 @@ enum Command {
         permission: String,
     },
     Folder(String),
-    Mode(String),
+    Mode(Mode),
     Give {
         agent: String,
         skill: String,
@@ -341,13 +342,11 @@ fn read_command(
             }
         }
         "folder" => Ok(Command::Folder(rest.into())),
-        "mode" => {
-            if rest == "manual" || rest == "auto" {
-                Ok(Command::Mode(rest.into()))
-            } else {
-                usage()
-            }
-        }
+        "mode" => match rest {
+            "manual" => Ok(Command::Mode(Mode::Manual)),
+            "auto" => Ok(Command::Mode(Mode::Auto)),
+            _ => usage(),
+        },
         "give" => {
             let words = words.collect::<Vec<_>>();
             match words[..] {
@@ -510,7 +509,7 @@ pub(super) async fn say(
             )));
         }
         Some(Command::Mode(mode)) => {
-            return notice(service.set_mode(hamlet, mode)?);
+            return notice(service.set_mode(hamlet, *mode)?);
         }
         Some(Command::Give { agent, skill, from }) => {
             let address = |name: &str| Address {
@@ -873,13 +872,13 @@ pub(super) fn living(
 fn grants(service: &mut Service, hamlet: &str) -> Result<String> {
     let limits = service.limits_of(hamlet)?;
     let mut lines = Vec::new();
-    for (permission, names) in
-        limits["permissions"].as_object().into_iter().flatten()
-    {
-        for name in names.as_array().into_iter().flatten() {
+    for (permission, names) in [
+        ("network", &limits.permissions.network),
+        ("unconfined", &limits.permissions.unconfined),
+    ] {
+        for name in names {
             lines.push(format!(
-                "{} may use: {permission} (limits.toml)",
-                name.as_str().unwrap_or_default()
+                "{name} may use: {permission} (limits.toml)"
             ));
         }
     }
@@ -936,10 +935,7 @@ fn revoke(
             super::now(),
         )?;
     }
-    let limits = service.limits_of(hamlet)?;
-    let held = limits["permissions"][permission]
-        .as_array()
-        .is_some_and(|names| names.iter().any(|n| n == agent));
+    let held = service.limits_of(hamlet)?.permits(permission, agent);
     Ok(if held {
         format!(
             "Revoked what was granted. `{agent}` still has \
