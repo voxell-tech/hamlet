@@ -23,20 +23,21 @@ use hamlet_engine_api::Contribution;
 use hamlet_engine_core::tuning::Tuning;
 use hamlet_engine_core::{Budgets, LogLine};
 use hamlet_engine_plugins::{
-    Asked, ContributedBy, Contributions, PluginInfo, switch_on,
+    Asked, ContributedBy, Contributions, PluginCommandsExt,
+    PluginInfo,
 };
 use wasmtime::Engine;
 
-use crate::budget::{Spending, pass_logs};
+use crate::WasmCommandsExt;
+use crate::budget::Spending;
 use crate::folder::{
-    Look, MANIFEST, Package, WASM, look, read_manifest, spawn_plugin,
+    Look, MANIFEST, Package, WASM, look, read_manifest,
 };
 use crate::host::{Host, WasmTuning};
 use crate::instance::{Caps, Fault, Instance, Linked};
-use crate::mail::pass_requests;
-use crate::panel::{Drawn, Redraw, stop};
-use crate::retained::{self, UiRoot, Widgets};
-use crate::run::{Built, Compiling, compile, entry};
+use crate::panel::{Drawn, Redraw};
+use crate::retained::{UiRoot, Widgets};
+use crate::run::{Built, Compiling, entry};
 
 pub(crate) fn plugin(app: &mut App) {
     let every = Duration::from_secs_f32(WasmTuning::designed().watch);
@@ -126,8 +127,7 @@ fn notice(
                         ),
                     ));
                     commands.entity(plugin).despawn();
-                    spawn_plugin(
-                        &mut commands,
+                    commands.spawn_plugin(
                         manifest,
                         package.folder.clone(),
                     );
@@ -154,11 +154,9 @@ fn notice(
             continue;
         }
         let file = package.folder.join(WASM);
-        commands.entity(plugin).insert(Reloading(compile(
-            &host,
-            file,
-            tuning.wasm_bytes,
-        )));
+        commands
+            .entity(plugin)
+            .insert(Reloading(host.compile(file, tuning.wasm_bytes)));
     }
 }
 
@@ -217,31 +215,19 @@ fn swap(
                 continue;
             }
         };
-        let reloaded = reload(
-            &mut instance,
-            &host.0,
-            &linked,
-            &caps,
-            &mut spending,
-        );
-        pass_logs(
-            info,
-            &mut instance,
-            &mut spending,
-            &budgets,
-            &mut log,
-        );
-        pass_requests(plugin, &mut instance, 0, &mut asked);
+        let reloaded =
+            instance.reload(&host.0, &linked, &caps, &mut spending);
+        instance.pass_logs(info, &mut spending, &budgets, &mut log);
+        instance.pass_requests(plugin, 0, &mut asked);
         match reloaded {
             Ok((mut fresh, contributions_now)) => {
-                pass_logs(
+                fresh.pass_logs(
                     info,
-                    &mut fresh,
                     &mut spending,
                     &budgets,
                     &mut log,
                 );
-                pass_requests(plugin, &mut fresh, 0, &mut asked);
+                fresh.pass_requests(plugin, 0, &mut asked);
                 if contributions_now == declared.0 {
                     for surface in contributions
                         .into_iter()
@@ -255,8 +241,7 @@ fn swap(
                     commands
                         .entity(plugin)
                         .despawn_related::<Contributions>();
-                    switch_on(
-                        &mut commands,
+                    commands.switch_on(
                         plugin,
                         info,
                         entry(
@@ -266,12 +251,7 @@ fn swap(
                         &budgets,
                     );
                 }
-                retained::remount(
-                    &mut commands,
-                    plugin,
-                    widgets,
-                    &roots,
-                );
+                commands.remount(plugin, widgets, &roots);
                 commands.entity(plugin).insert((
                     fresh,
                     Built(linked),
@@ -293,32 +273,34 @@ fn swap(
                 ));
             }
             Err(Failed::Old(fault)) => {
-                stop(&mut commands, &mut log, plugin, info, &fault)
+                commands.stop_plugin(&mut log, plugin, info, &fault)
             }
         }
     }
 }
 
-/// The plugin running in `old` moved to its new version `linked`: the
-/// old version's state is saved, and the new one instantiated, given
-/// the state and asked what it adds.
-pub(crate) fn reload(
-    old: &mut Instance,
-    engine: &Engine,
-    linked: &Linked,
-    caps: &Caps,
-    spending: &mut Spending,
-) -> Result<(Instance, Vec<Contribution>), Failed> {
-    let (state, spent) = old.save(caps);
-    spending.charge(spent, false);
-    let state = state.map_err(Failed::Old)?;
-    let mut fresh =
-        Instance::new(engine, linked, caps).map_err(Failed::New)?;
-    fresh.follow(old);
-    let (restored, spent) = fresh.restore(caps, &state);
-    spending.charge(spent, false);
-    restored.map_err(Failed::New)?;
-    let (declared, spent) = fresh.declare(caps);
-    spending.charge(spent, false);
-    Ok((fresh, declared.map_err(Failed::New)?))
+impl Instance {
+    /// The plugin running here moved to its new version `linked`:
+    /// this version's state is saved, and the new one
+    /// instantiated, given the state and asked what it adds.
+    pub(crate) fn reload(
+        &mut self,
+        engine: &Engine,
+        linked: &Linked,
+        caps: &Caps,
+        spending: &mut Spending,
+    ) -> Result<(Instance, Vec<Contribution>), Failed> {
+        let (state, spent) = self.save(caps);
+        spending.charge(spent, false);
+        let state = state.map_err(Failed::Old)?;
+        let mut fresh = Instance::new(engine, linked, caps)
+            .map_err(Failed::New)?;
+        fresh.follow(self);
+        let (restored, spent) = fresh.restore(caps, &state);
+        spending.charge(spent, false);
+        restored.map_err(Failed::New)?;
+        let (declared, spent) = fresh.declare(caps);
+        spending.charge(spent, false);
+        Ok((fresh, declared.map_err(Failed::New)?))
+    }
 }

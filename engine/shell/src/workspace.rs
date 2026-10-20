@@ -24,8 +24,8 @@ use hamlet_engine_core::TuningPlugin;
 use hamlet_engine_core::tuning::{ENGINE, Tuning, TuningFile};
 use serde::{Deserialize, Serialize};
 
-use self::arrange::{lay_out, layout_of};
-use crate::command::{RunCommand, spawn_command};
+pub use self::arrange::DockTreeExt;
+use crate::command::{RunCommand, ShellCommandsExt};
 use crate::dock::PLUGIN_LIST;
 use crate::{EngineTheme, console};
 
@@ -129,7 +129,7 @@ impl Default for Workspaces {
 
 impl Workspaces {
     pub fn new(list: Vec<Workspace>, shown: usize) -> Self {
-        Self { shown, list }.mended()
+        Self { shown, list }.cleaned()
     }
 
     pub fn list(&self) -> &[Workspace] {
@@ -231,7 +231,7 @@ impl Workspaces {
 
     /// These, with at least one workspace, one of them shown, and
     /// every one named.
-    fn mended(mut self) -> Self {
+    fn cleaned(mut self) -> Self {
         if self.list.is_empty() {
             return Self::default();
         }
@@ -270,20 +270,20 @@ fn suggest(
     };
     let (name, layout) =
         (suggestion.name.clone(), suggestion.layout.clone());
-    spawn_command(
-        &mut commands,
-        suggestion.take.clone(),
-        &format!("Take workspace {name}"),
-        Some("Workspace"),
-        &[],
-    )
-    .insert(ChildOf(entity))
-    .observe(
-        move |_: On<RunCommand>,
-              mut workspaces: ResMut<Workspaces>| {
-            workspaces.take(&name, &layout);
-        },
-    );
+    commands
+        .spawn_command(
+            suggestion.take.clone(),
+            &format!("Take workspace {name}"),
+            Some("Workspace"),
+            &[],
+        )
+        .insert(ChildOf(entity))
+        .observe(
+            move |_: On<RunCommand>,
+                  mut workspaces: ResMut<Workspaces>| {
+                workspaces.take(&name, &layout);
+            },
+        );
 }
 
 /// Lays the shown workspace out in the dock when another is shown,
@@ -303,13 +303,11 @@ fn show(
     if same && !registry.is_changed() {
         return;
     }
-    lay_out(&mut tree, &workspace.layout, |id| {
-        registry.get(id).is_some()
-    });
+    tree.lay_out(&workspace.layout, |id| registry.get(id).is_some());
     *shown = Shown {
         workspace: Some(at),
         saved: Some(workspace.layout.clone()),
-        drawn: Some(layout_of(&tree)),
+        drawn: Some(tree.layout()),
     };
 }
 
@@ -319,7 +317,7 @@ fn capture(
     mut shown: ResMut<Shown>,
     mut workspaces: ResMut<Workspaces>,
 ) {
-    let now = layout_of(&tree);
+    let now = tree.layout();
     if shown.drawn.as_ref() == Some(&now) {
         return;
     }
@@ -341,7 +339,7 @@ mod tests {
     use hamlet_engine_api::PanelId;
     use hamlet_engine_core::Home;
 
-    use super::file::{FILE, Restored, read, write};
+    use super::file::{FILE, Restored};
     use super::*;
 
     /// A fresh home of its own for the test `name`.
@@ -402,22 +400,22 @@ mod tests {
     fn workspaces_come_back_from_the_file_and_the_dock_unchanged() {
         let home = home("round_trip");
         let saved = workspaces();
-        write(&home, &saved).unwrap();
-        let Restored::Read(read) = read(&home) else {
+        saved.write(&home).unwrap();
+        let Restored::Read(read) = Restored::read(&home) else {
             panic!("the file was not read");
         };
         assert_eq!(read, saved);
 
         let mut tree = DockTree::default();
         for workspace in saved.list() {
-            lay_out(&mut tree, &workspace.layout, |_| true);
-            assert_eq!(layout_of(&tree), workspace.layout);
+            tree.lay_out(&workspace.layout, |_| true);
+            assert_eq!(tree.layout(), workspace.layout);
         }
         // A panel the dock does not know is left out, with its area.
-        lay_out(&mut tree, &saved.list()[0].layout, |id| {
+        tree.lay_out(&saved.list()[0].layout, |id| {
             id != "engine/console"
         });
-        let Layout::Split { second, .. } = layout_of(&tree) else {
+        let Layout::Split { second, .. } = tree.layout() else {
             panic!("the split went");
         };
         assert!(
@@ -440,7 +438,8 @@ mod tests {
             let text =
                 format!("(shown: {attempt}, list: [(name: \"Mine\"");
             fs::write(&path, &text).unwrap();
-            let Restored::KeptAside { kept: at, .. } = read(&home)
+            let Restored::KeptAside { kept: at, .. } =
+                Restored::read(&home)
             else {
                 panic!("the broken file was not kept");
             };

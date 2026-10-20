@@ -396,7 +396,7 @@ impl Instance {
         let mut store = Store::new(engine, State::new(caps));
         store.limiter(|state| &mut state.limiter);
         store.epoch_deadline_trap();
-        arm(&mut store, caps)?;
+        store.arm(caps)?;
         let made = linked
             .plugin
             .instance_pre()
@@ -410,7 +410,7 @@ impl Instance {
                     .transpose()?;
                 Ok((plugin, panels))
             });
-        take_written(&mut store);
+        store.take_written();
         let (plugin, panels) = made.map_err(Fault::of)?;
         Ok(Self {
             store,
@@ -627,7 +627,7 @@ impl Instance {
         ) -> wasmtime::Result<T>,
     ) -> (Result<T, Fault>, Spent) {
         let guest = self.plugin.hamlet_engine_guest();
-        spend(&mut self.store, caps, |store| call(guest, store))
+        self.store.spend(caps, |store| call(guest, store))
     }
 
     /// A call of its retained panels; one that has none answers that
@@ -644,51 +644,67 @@ impl Instance {
             return (Ok(false), Spent::default());
         };
         let guest = panels.hamlet_engine_ui_guest();
-        spend(&mut self.store, caps, |store| call(guest, store))
+        self.store.spend(caps, |store| call(guest, store))
     }
 }
 
-/// Makes `call` into `store` within `caps`, and what it spent.
-fn spend<T>(
-    store: &mut Store<State>,
-    caps: &Caps,
-    call: impl FnOnce(&mut Store<State>) -> wasmtime::Result<T>,
-) -> (Result<T, Fault>, Spent) {
-    if let Err(fault) = arm(store, caps) {
-        return (Err(fault), Spent::default());
+/// The WASM host's methods on a plugin's [`Store`].
+trait WasmStoreExt {
+    /// Makes `call` into the store within `caps`, and what it spent.
+    fn spend<T>(
+        &mut self,
+        caps: &Caps,
+        call: impl FnOnce(&mut Self) -> wasmtime::Result<T>,
+    ) -> (Result<T, Fault>, Spent);
+
+    /// Sets what the next call into the store may spend.
+    fn arm(&mut self, caps: &Caps) -> Result<(), Fault>;
+
+    /// Moves what the plugin wrote to stdout and stderr into its log.
+    fn take_written(&mut self);
+}
+
+impl WasmStoreExt for Store<State> {
+    fn spend<T>(
+        &mut self,
+        caps: &Caps,
+        call: impl FnOnce(&mut Self) -> wasmtime::Result<T>,
+    ) -> (Result<T, Fault>, Spent) {
+        if let Err(fault) = self.arm(caps) {
+            return (Err(fault), Spent::default());
+        }
+        let started = Instant::now();
+        let done = call(self);
+        self.take_written();
+        let nodes = &self.data().nodes;
+        let spent = Spent {
+            time: started.elapsed(),
+            fuel: caps
+                .fuel
+                .saturating_sub(self.get_fuel().unwrap_or(0)),
+            changes: nodes.spent as u32,
+            node_calls: nodes.calls,
+        };
+        (done.map_err(Fault::of), spent)
     }
-    let started = Instant::now();
-    let done = call(store);
-    take_written(store);
-    let nodes = &store.data().nodes;
-    let spent = Spent {
-        time: started.elapsed(),
-        fuel: caps.fuel.saturating_sub(store.get_fuel().unwrap_or(0)),
-        changes: nodes.spent as u32,
-        node_calls: nodes.calls,
-    };
-    (done.map_err(Fault::of), spent)
-}
 
-/// Sets what the next call into `store` may spend.
-fn arm(store: &mut Store<State>, caps: &Caps) -> Result<(), Fault> {
-    store.set_fuel(caps.fuel).map_err(Fault::of)?;
-    store.set_epoch_deadline(caps.ticks);
-    store.set_hostcall_fuel(caps.bytes);
-    let state = store.data_mut();
-    state.caps = *caps;
-    state.limiter.memory = caps.memory;
-    state.wasi.arm(caps);
-    state.nodes.spent = 0;
-    state.nodes.calls = 0;
-    Ok(())
-}
+    fn arm(&mut self, caps: &Caps) -> Result<(), Fault> {
+        self.set_fuel(caps.fuel).map_err(Fault::of)?;
+        self.set_epoch_deadline(caps.ticks);
+        self.set_hostcall_fuel(caps.bytes);
+        let state = self.data_mut();
+        state.caps = *caps;
+        state.limiter.memory = caps.memory;
+        state.wasi.arm(caps);
+        state.nodes.spent = 0;
+        state.nodes.calls = 0;
+        Ok(())
+    }
 
-/// Moves what the plugin in `store` wrote to stdout and stderr into
-/// its log.
-fn take_written(store: &mut Store<State>) {
-    let state = store.data_mut();
-    state.wasi.take_written(&state.caps, &mut state.logs);
+    fn take_written(&mut self) {
+        let state = self.data_mut();
+        state.wasi.take_written(&state.caps, &mut state.logs);
+    }
 }
 
 fn read<T: serde::de::DeserializeOwned>(

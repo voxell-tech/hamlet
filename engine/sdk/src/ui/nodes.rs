@@ -65,7 +65,7 @@ impl Nodes {
     /// Takes `node`, made by the engine, as a node of the plugin's.
     pub fn adopt(&mut self, node: Node) -> Key {
         let key = self.key();
-        self.entries.insert(key, entry(None, Some(node)));
+        self.entries.insert(key, Entry::new(None, Some(node)));
         key
     }
 
@@ -82,7 +82,7 @@ impl Nodes {
         if made.is_none() {
             crate::error("a node of a panel was built outside it");
         }
-        self.entries.insert(key, entry(parent, made));
+        self.entries.insert(key, Entry::new(parent, made));
         key
     }
 
@@ -94,11 +94,11 @@ impl Nodes {
         value: Property,
         motion: Option<Motion>,
     ) {
-        let bit = bit(&value);
+        let bit = value.bit();
         let Some(entry) = self.entries.get_mut(&key) else {
             return;
         };
-        if entry.sent & bit == 0 && is_first(&value) {
+        if entry.sent & bit == 0 && value.is_first() {
             return;
         }
         if let Some(node) = &entry.node {
@@ -181,45 +181,49 @@ impl Nodes {
     }
 }
 
-fn entry(parent: Option<Key>, node: Option<Node>) -> Entry {
-    Entry {
-        parent,
-        children: Vec::new(),
-        node,
-        sent: 0,
-        watch: States::default(),
-        states: States::default(),
+impl Entry {
+    fn new(parent: Option<Key>, node: Option<Node>) -> Self {
+        Self {
+            parent,
+            children: Vec::new(),
+            node,
+            sent: 0,
+            watch: States::default(),
+            states: States::default(),
+        }
     }
 }
 
-/// The bit of the property `value` sets, in the order the WIT names
-/// them.
-fn bit(value: &Property) -> u8 {
-    let at = match value {
-        Property::Text(_) => 0,
-        Property::Tone(_) => 1,
-        Property::Size(_) => 2,
-        Property::Bold(_) => 3,
-        Property::Opacity(_) => 4,
-        Property::Style(_) => 5,
-        Property::Direction(_) => 6,
-        Property::Space(_) => 7,
-    };
-    1 << at
-}
+impl Property {
+    /// The bit of the property this sets, in the order the WIT names
+    /// them.
+    fn bit(&self) -> u8 {
+        let at = match self {
+            Property::Text(_) => 0,
+            Property::Tone(_) => 1,
+            Property::Size(_) => 2,
+            Property::Bold(_) => 3,
+            Property::Opacity(_) => 4,
+            Property::Style(_) => 5,
+            Property::Direction(_) => 6,
+            Property::Space(_) => 7,
+        };
+        1 << at
+    }
 
-/// Whether `value` is what a node starts with.
-fn is_first(value: &Property) -> bool {
-    match value {
-        Property::Text(text) => text.is_empty(),
-        Property::Tone(tone) => *tone == Tone::Body,
-        Property::Size(size) => *size == Size::Body,
-        Property::Bold(bold) => !bold,
-        Property::Opacity(opacity) => *opacity == 1.0,
-        Property::Style(style) => *style == ButtonStyle::Plain,
-        Property::Direction(direction) => {
-            *direction == Direction::Column
+    /// Whether this is what a node starts with.
+    fn is_first(&self) -> bool {
+        match self {
+            Property::Text(text) => text.is_empty(),
+            Property::Tone(tone) => *tone == Tone::Body,
+            Property::Size(size) => *size == Size::Body,
+            Property::Bold(bold) => !bold,
+            Property::Opacity(opacity) => *opacity == 1.0,
+            Property::Style(style) => *style == ButtonStyle::Plain,
+            Property::Direction(direction) => {
+                *direction == Direction::Column
+            }
+            Property::Space(space) => *space == Space::Gap,
         }
-        Property::Space(space) => *space == Space::Gap,
     }
 }

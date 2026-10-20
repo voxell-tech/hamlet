@@ -9,7 +9,6 @@ use bevy::ecs::event::EntityEvent;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::system::{Commands, EntityCommands, Query, Res};
-use bevy::ecs::world::World;
 use bevy::input::keyboard::{KeyCode, KeyboardInput};
 use bevy::input::{ButtonInput, ButtonState};
 use bevy::input_focus::{FocusedInput, InputFocus};
@@ -191,48 +190,47 @@ pub fn engine_id(name: &str) -> CommandId {
     CommandId::new(ENGINE, name).expect("a valid id")
 }
 
-/// Spawns the command `id`, with its entry in `menu` and its keys,
-/// which go with it. Its owner observes [`RunCommand`] on what this
-/// returns.
-pub fn spawn_command<'a>(
-    commands: &'a mut Commands,
-    id: CommandId,
-    label: &str,
-    menu: Option<&str>,
-    keys: &[Chord],
-) -> EntityCommands<'a> {
-    let mut command = commands.spawn(Command {
-        id: id.clone(),
-        label: label.into(),
-    });
-    command.with_children(|kids| {
-        if let Some(menu) = menu {
-            kids.spawn(MenuEntry {
-                menu: menu.into(),
-                command: id.clone(),
-            });
-        }
-        for &chord in keys {
-            kids.spawn(Shortcut {
-                chord,
-                command: id.clone(),
-            });
-        }
-    });
-    command
+/// The shell's methods on [`Commands`].
+pub trait ShellCommandsExt {
+    /// Spawns the command `id`, with its entry in `menu` and its
+    /// keys, which go with it. Its owner observes [`RunCommand`] on
+    /// what this returns.
+    fn spawn_command(
+        &mut self,
+        id: CommandId,
+        label: &str,
+        menu: Option<&str>,
+        keys: &[Chord],
+    ) -> EntityCommands<'_>;
 }
 
-/// Runs the command `id`, if there is one.
-pub fn run(world: &mut World, id: &CommandId) {
-    let found = world.try_query::<(Entity, &Command)>().and_then(
-        |mut all| {
-            all.iter(world)
-                .find(|(_, command)| command.id == *id)
-                .map(|(entity, _)| entity)
-        },
-    );
-    if let Some(entity) = found {
-        world.trigger(RunCommand { entity });
+impl ShellCommandsExt for Commands<'_, '_> {
+    fn spawn_command(
+        &mut self,
+        id: CommandId,
+        label: &str,
+        menu: Option<&str>,
+        keys: &[Chord],
+    ) -> EntityCommands<'_> {
+        let mut command = self.spawn(Command {
+            id: id.clone(),
+            label: label.into(),
+        });
+        command.with_children(|kids| {
+            if let Some(menu) = menu {
+                kids.spawn(MenuEntry {
+                    menu: menu.into(),
+                    command: id.clone(),
+                });
+            }
+            for &chord in keys {
+                kids.spawn(Shortcut {
+                    chord,
+                    command: id.clone(),
+                });
+            }
+        });
+        command
     }
 }
 

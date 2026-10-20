@@ -10,9 +10,9 @@ use bevy_fynix::views::{FrameProps, column};
 use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_api::{Layout, Manifest, PanelId, PluginId};
 use hamlet_engine_core::LogLine;
-use hamlet_engine_plugins::Entry;
+use hamlet_engine_plugins::{Entry, PluginCommandsExt};
 use hamlet_engine_shell::style::{heading, note};
-use hamlet_engine_shell::{AnyView, Cx, panel};
+use hamlet_engine_shell::{AnyView, Cx, StyleExt};
 
 const ID: &str = "hamlet.demo";
 
@@ -26,11 +26,7 @@ fn add(mut commands: Commands) {
         "Demo",
         "0.1.0",
     );
-    hamlet_engine_plugins::add_builtin(
-        &mut commands,
-        manifest,
-        entry,
-    );
+    commands.add_builtin(manifest, entry);
 }
 
 fn entry(entry: &mut Entry) {
@@ -61,7 +57,7 @@ fn greet(world: &mut World, _: Entity) {
 }
 
 fn view(_: Entity) -> AnyView {
-    panel(AnyView::new(|cx: &mut Cx| {
+    AnyView::new(|cx: &mut Cx| {
         let gap = cx.theme().space.gap;
         cx.build(
             column((
@@ -74,5 +70,6 @@ fn view(_: Entity) -> AnyView {
             ))
             .gap(gap),
         )
-    }))
+    })
+    .in_panel()
 }

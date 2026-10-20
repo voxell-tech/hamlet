@@ -11,7 +11,7 @@ use hamlet_engine_api::{
     Action, Widget, WidgetId, WidgetNode, WidgetTree,
 };
 
-use crate::icons::{Glyph, mark};
+use crate::icons::{Glyph, side};
 use crate::style::{
     ButtonStyle, action, divider, field, heading, list, scroll_area,
     toggle,
@@ -63,7 +63,7 @@ where
         Widget::Text(text) => label(text.clone()).boxed(),
         Widget::Heading(text) => heading(text.clone()),
         Widget::Icon(name) => match Glyph::named(name) {
-            Some(which) => mark(which, Tone::Faint),
+            Some(which) => side(which, Tone::Faint),
             // A name the set does not have is shown as it is.
             None => label(name.clone()).tone(Tone::Dim).boxed(),
         },

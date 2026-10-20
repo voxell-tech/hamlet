@@ -240,13 +240,21 @@ fn type_name(kind: &str) -> Result<TypeName, Failure> {
         .map_err(|why| Failure::Refused(why.to_string()))
 }
 
-fn writes(request: &Request) -> bool {
-    matches!(
-        request,
-        Request::CreateAsset { .. }
-            | Request::UpdateAsset { .. }
-            | Request::DeleteAsset(_)
-    )
+/// The asset store's methods on [`Request`].
+trait AssetRequestExt {
+    /// Whether the request writes to the store.
+    fn writes(&self) -> bool;
+}
+
+impl AssetRequestExt for Request {
+    fn writes(&self) -> bool {
+        matches!(
+            self,
+            Request::CreateAsset { .. }
+                | Request::UpdateAsset { .. }
+                | Request::DeleteAsset(_)
+        )
+    }
 }
 
 /// Answers what plugins asked of the store, and what waited for the
@@ -294,7 +302,7 @@ pub(crate) fn answer(
         else {
             continue;
         };
-        if writes(&request.request) {
+        if request.request.writes() {
             let (since, count) = written
                 .get(&request.plugin)
                 .copied()

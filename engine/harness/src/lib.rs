@@ -34,20 +34,21 @@ use hamlet_engine_api::{
 use hamlet_engine_core::tuning::{ENGINE, Tuning, TuningFile};
 use hamlet_engine_core::{Home, Log, TuningPlugin};
 use hamlet_engine_grants::{
-    Answer, Petition, Question, answer_install, answer_use,
+    Answer, GrantsWorldExt, Petition, Question,
 };
+use hamlet_engine_net::NetWorldExt;
 use hamlet_engine_plugins::{
     ContributedBy, Enabled, PluginInfo, Stopped,
 };
 use hamlet_engine_shell::{
-    EngineTheme, Panel, SettingsPage, command,
+    EngineTheme, Panel, SettingsPage, ShellWorldExt,
 };
 use hamlet_engine_wasm::{
     Drawn, Input, Instance, MANIFEST, NodeOf, Shows, UiRoot, WASM,
 };
 use serde::Deserialize;
 
-pub use self::outline::{outline, retained_outline};
+pub use self::outline::{HarnessWorldExt, WidgetTreeExt};
 pub use self::steps::{Step, Steps};
 
 /// Where cargo puts a plugin crate's release build, in its folder.
@@ -206,7 +207,7 @@ impl Harness {
         {
             chosen.fill(answer);
         }
-        answer_install(world, petition, true);
+        world.answer_install(petition, true);
         Ok(())
     }
 
@@ -217,7 +218,7 @@ impl Harness {
         answer: Answer,
     ) -> Result<(), String> {
         let petition = self.wait_for_petition(plugin, false)?;
-        answer_use(self.app.world_mut(), petition, answer);
+        self.app.world_mut().answer_use(petition, answer);
         Ok(())
     }
 
@@ -274,10 +275,10 @@ impl Harness {
     /// is drawn; a retained panel once its plugin built it.
     pub fn outline(&mut self, panel: &str) -> Option<String> {
         if let Some((_, tree)) = self.tree(panel) {
-            return Some(outline(&tree));
+            return Some(tree.outline());
         }
         let root = self.retained(panel)?;
-        Some(retained_outline(self.app.world(), root))
+        Some(self.app.world().retained_outline(root))
     }
 
     /// The root of the retained panel `panel` (`plugin.id/name`),
@@ -313,7 +314,7 @@ impl Harness {
     ) -> Result<(), String> {
         if self.retained(panel).is_some() {
             let button =
-                self.lettered::<ButtonBehavior>(panel, widget)?;
+                self.by_text::<ButtonBehavior>(panel, widget)?;
             self.app.world_mut().trigger(Activate { entity: button });
             return Ok(());
         }
@@ -329,7 +330,7 @@ impl Harness {
         text: &str,
         on: bool,
     ) -> Result<(), String> {
-        let node = self.lettered::<NodeOf>(panel, text)?;
+        let node = self.by_text::<NodeOf>(panel, text)?;
         let mut node = self.app.world_mut().entity_mut(node);
         if !node.contains::<PickingHovered>() {
             return Err(format!("{text:?} is not watched for hover"));
@@ -340,7 +341,7 @@ impl Harness {
 
     /// The nearest entity with a `C` at or above the text `text` in
     /// the retained panel `panel`, once there is one.
-    fn lettered<C: Component>(
+    fn by_text<C: Component>(
         &mut self,
         panel: &str,
         text: &str,
@@ -358,7 +359,7 @@ impl Harness {
                 .map(|(entity, _)| entity)
                 .collect::<Vec<_>>()
                 .into_iter()
-                .find_map(|entity| holder::<C>(world, entity, root));
+                .find_map(|entity| world.holder::<C>(entity, root));
             found.is_some()
         });
         found.ok_or_else(|| format!("{panel} never showed {text:?}"))
@@ -412,7 +413,7 @@ impl Harness {
     pub fn run(&mut self, id: &str) -> Result<(), String> {
         let id =
             CommandId::try_from(id).map_err(|why| why.to_string())?;
-        command::run(self.app.world_mut(), &id);
+        self.app.world_mut().run_command(&id);
         Ok(())
     }
 
@@ -466,7 +467,7 @@ impl Harness {
         });
         let fetch = found
             .ok_or_else(|| format!("{url} was never fetched"))?;
-        hamlet_engine_net::answer(self.app.world_mut(), fetch, reply);
+        self.app.world_mut().answer_fetch(fetch, reply);
         Ok(())
     }
 
@@ -506,22 +507,4 @@ impl Harness {
     pub fn world(&mut self) -> &mut World {
         self.app.world_mut()
     }
-}
-
-/// The nearest entity with a `C` from `entity` up to `root`, if
-/// `entity` is under `root`.
-fn holder<C: Component>(
-    world: &World,
-    entity: Entity,
-    root: Entity,
-) -> Option<Entity> {
-    let mut found = None;
-    let mut at = entity;
-    while at != root {
-        if found.is_none() && world.get::<C>(at).is_some() {
-            found = Some(at);
-        }
-        at = world.get::<ChildOf>(at)?.parent();
-    }
-    found
 }

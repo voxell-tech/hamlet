@@ -15,10 +15,10 @@ use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_engine_api::PanelId;
 use hamlet_engine_api::id::ENGINE;
 
-use crate::dock::{Panel, PanelIcon, panel};
+use crate::dock::{Panel, PanelIcon};
 use crate::icons::Glyph;
 use crate::style::{
-    link_row, link_rows, note, page_head, scroll_area,
+    StyleExt, link_row, link_rows, note, page_head, scroll_area,
 };
 use crate::{AnyView, Cx};
 
@@ -112,12 +112,13 @@ fn view(_: Entity) -> AnyView {
         )
     })
     .within(column(()).gap(0.0));
-    panel(AnyView::new(move |cx: &mut Cx| {
+    AnyView::new(move |cx: &mut Cx| {
         let width = cx.theme().space.page_width;
         cx.build(scroll_area((column((page,))
             .gap(0.0)
             .max_width(px(width)),)))
-    }))
+    })
+    .in_panel()
 }
 
 /// The content of the page `page`, as its owner builds it.

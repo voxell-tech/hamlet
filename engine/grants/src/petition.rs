@@ -28,7 +28,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_engine_api::id::ENGINE;
-use hamlet_engine_api::{Ask, Capability, PanelId};
+use hamlet_engine_api::{Ask, Capability, PanelId, PluginId};
 use hamlet_engine_core::{Budgets, LogLine};
 use hamlet_engine_plugins::{Enable, PluginInfo, SwitchedOff};
 use hamlet_engine_shell::dock::PanelIcon;
@@ -37,7 +37,9 @@ use hamlet_engine_shell::style::{
     ButtonStyle, buttons, caption, card, choices, icon_button, note,
     scroll_area, section,
 };
-use hamlet_engine_shell::{AnyView, Cx, Panel, dock, panel};
+use hamlet_engine_shell::{
+    AnyView, Cx, DockTreeExt, Panel, StyleExt,
+};
 
 use crate::Admitted;
 use crate::file::{Answer, Grants, Record};
@@ -150,7 +152,7 @@ fn admit(
                         version: info.version.clone(),
                         ..record
                     };
-                    keep(&mut grants, info, record, &mut log);
+                    grants.keep(info, record, &mut log);
                 }
                 commands.entity(plugin).insert(Admitted);
                 if !off.contains(&info.id) {
@@ -177,10 +179,9 @@ fn admit(
                 asks: fresh(&record),
                 more: true,
             },
-            _ => install(info),
+            _ => Question::install(info),
         };
-        raise(
-            &mut commands,
+        commands.raise_petition(
             tree.as_deref_mut(),
             &mut log,
             plugin,
@@ -212,22 +213,23 @@ fn ask_again(
     if info.builtin || admitted || asking {
         return;
     }
-    raise(
-        &mut commands,
+    commands.raise_petition(
         tree.as_deref_mut(),
         &mut log,
         plugin,
         info,
-        install(info),
+        Question::install(info),
     );
 }
 
-/// Whether the plugin `info` may be added, with all it asks for.
-fn install(info: &PluginInfo) -> Question {
-    Question::Install {
-        asks: info.asks.clone(),
-        chosen: vec![Answer::Ask; info.asks.len()],
-        more: false,
+impl Question {
+    /// Whether the plugin `info` may be added, with all it asks for.
+    fn install(info: &PluginInfo) -> Self {
+        Self::Install {
+            asks: info.asks.clone(),
+            chosen: vec![Answer::Ask; info.asks.len()],
+            more: false,
+        }
     }
 }
 
@@ -287,8 +289,7 @@ fn first_use(
             continue;
         }
         raised.insert(wanted.plugin, (since, count + 1));
-        raise(
-            &mut commands,
+        commands.raise_petition(
             tree.as_deref_mut(),
             &mut log,
             wanted.plugin,
@@ -298,41 +299,57 @@ fn first_use(
     }
 }
 
-/// Puts `question` about `plugin` to the person, in the Petitions
-/// panel.
-fn raise(
-    commands: &mut Commands,
-    tree: Option<&mut DockTree>,
-    log: &mut MessageWriter<LogLine>,
-    plugin: Entity,
-    info: &PluginInfo,
-    question: Question,
-) {
-    commands.spawn((Petition(question), ChildOf(plugin)));
-    log.write(LogLine::info(
-        "grants",
-        format!("{} has a petition: see Petitions", info.name),
-    ));
-    if let (Some(tree), Ok(id)) =
-        (tree, PanelId::new(ENGINE, PETITIONS))
-    {
-        dock::open(tree, id.as_str());
+/// The grants' methods on [`Commands`].
+pub trait GrantsCommandsExt {
+    /// Puts `question` about `plugin` to the person, in the Petitions
+    /// panel, which is brought to the front in `tree`.
+    fn raise_petition(
+        &mut self,
+        tree: Option<&mut DockTree>,
+        log: &mut MessageWriter<LogLine>,
+        plugin: Entity,
+        info: &PluginInfo,
+        question: Question,
+    );
+}
+
+impl GrantsCommandsExt for Commands<'_, '_> {
+    fn raise_petition(
+        &mut self,
+        tree: Option<&mut DockTree>,
+        log: &mut MessageWriter<LogLine>,
+        plugin: Entity,
+        info: &PluginInfo,
+        question: Question,
+    ) {
+        self.spawn((Petition(question), ChildOf(plugin)));
+        log.write(LogLine::info(
+            "grants",
+            format!("{} has a petition: see Petitions", info.name),
+        ));
+        if let (Some(tree), Ok(id)) =
+            (tree, PanelId::new(ENGINE, PETITIONS))
+        {
+            tree.open_panel(id.as_str());
+        }
     }
 }
 
-/// Keeps `record` for the plugin `info`, telling the log when it
-/// cannot be written.
-fn keep(
-    grants: &mut Grants,
-    info: &PluginInfo,
-    record: Record,
-    log: &mut MessageWriter<LogLine>,
-) {
-    if let Err(why) = grants.set(&info.id, record) {
-        log.write(LogLine::error(
-            "grants",
-            format!("{} cannot be written: {why}", crate::FILE),
-        ));
+impl Grants {
+    /// Keeps `record` for the plugin `info`, telling the log when it
+    /// cannot be written.
+    fn keep(
+        &mut self,
+        info: &PluginInfo,
+        record: Record,
+        log: &mut MessageWriter<LogLine>,
+    ) {
+        if let Err(why) = self.set(&info.id, record) {
+            log.write(LogLine::error(
+                "grants",
+                format!("{} cannot be written: {why}", crate::FILE),
+            ));
+        }
     }
 }
 
@@ -407,10 +424,11 @@ fn view(_: Entity) -> AnyView {
         })
     })
     .within(column(()).gap(0.0));
-    panel(AnyView::new(move |cx: &mut Cx| {
+    AnyView::new(move |cx: &mut Cx| {
         let gap = cx.theme().space.section;
         cx.build(column((count, scroll_area((cards,)))).gap(gap))
-    }))
+    })
+    .in_panel()
 }
 
 /// A petition's card: what it is, about which plugin, what it asks
@@ -440,7 +458,9 @@ fn row_view(row_of: &Row) -> AnyView {
                                 .to_vec(),
                             picked,
                             move |world, picked| {
-                                choose(world, petition, at, picked)
+                                world.choose_answer(
+                                    petition, at, picked,
+                                )
                             },
                         ),
                     )
@@ -453,7 +473,7 @@ fn row_view(row_of: &Row) -> AnyView {
                     "ALLOW",
                 )
                 .on_activate(move |world| {
-                    answer_install(world, petition, true)
+                    world.answer_install(petition, true)
                 })
                 .boxed(),
                 icon_button(
@@ -462,7 +482,7 @@ fn row_view(row_of: &Row) -> AnyView {
                     "DON'T ALLOW",
                 )
                 .on_activate(move |world| {
-                    answer_install(world, petition, false)
+                    world.answer_install(petition, false)
                 })
                 .boxed(),
             ]);
@@ -489,7 +509,7 @@ fn row_view(row_of: &Row) -> AnyView {
                         answer.label().to_uppercase(),
                     )
                     .on_activate(move |world| {
-                        answer_use(world, petition, answer)
+                        world.answer_use(petition, answer)
                     })
                     .boxed()
                 })
@@ -521,134 +541,181 @@ fn ask_view(ask: &Ask, answers: AnyView) -> AnyView {
     })
 }
 
-/// Chooses the answer at `picked` for the ask at `at` of an install
-/// petition.
-fn choose(
-    world: &mut World,
-    petition: Entity,
-    at: usize,
-    picked: usize,
-) {
-    let Some(mut petition) = world.get_mut::<Petition>(petition)
-    else {
-        return;
-    };
-    if let Question::Install { chosen, .. } = &mut petition.0
-        && let (Some(answer), Some(&now)) =
-            (chosen.get_mut(at), Answer::ALL.get(picked))
-    {
-        *answer = now;
-    }
+/// The grants' methods on [`World`].
+pub trait GrantsWorldExt {
+    /// Chooses the answer at `picked` for the ask at `at` of an
+    /// install petition.
+    fn choose_answer(
+        &mut self,
+        petition: Entity,
+        at: usize,
+        picked: usize,
+    );
+
+    /// Answers an install petition: the plugin is let in, with the
+    /// answers chosen, and switched on, or it is not.
+    fn answer_install(&mut self, petition: Entity, allowed: bool);
+
+    /// Answers the petition of a use: Allow and Don't allow are kept,
+    /// and Ask next time lets this use go on.
+    fn answer_use(&mut self, petition: Entity, answer: Answer);
+
+    /// Changes the answer of the plugin `id` to `capability` on
+    /// `target`, telling the log when it cannot be written.
+    fn change_answer(
+        &mut self,
+        id: &PluginId,
+        capability: Capability,
+        target: &str,
+        answer: Answer,
+    );
+
+    /// The petition `petition` and its plugin.
+    fn petition(
+        &self,
+        petition: Entity,
+    ) -> Option<(Petition, Entity)>;
 }
 
-/// Answers an install petition: the plugin is let in, with the
-/// answers chosen, and switched on, or it is not.
-pub fn answer_install(
-    world: &mut World,
-    petition: Entity,
-    allowed: bool,
-) {
-    let Some((Petition(question), plugin)) = parts(world, petition)
-    else {
-        return;
-    };
-    let Question::Install { asks, chosen, .. } = question else {
-        return;
-    };
-    let Some(info) = world.get::<PluginInfo>(plugin).cloned() else {
-        return;
-    };
-    world.despawn(petition);
-    let mut grants = world.resource_mut::<Grants>();
-    let mut record = grants
-        .record(&info.id)
-        .filter(|record| record.allowed)
-        .cloned()
-        .unwrap_or_else(|| Record {
-            allowed,
-            version: info.version.clone(),
-            answers: Vec::new(),
+impl GrantsWorldExt for World {
+    fn choose_answer(
+        &mut self,
+        petition: Entity,
+        at: usize,
+        picked: usize,
+    ) {
+        let Some(mut petition) = self.get_mut::<Petition>(petition)
+        else {
+            return;
+        };
+        if let Question::Install { chosen, .. } = &mut petition.0
+            && let (Some(answer), Some(&now)) =
+                (chosen.get_mut(at), Answer::ALL.get(picked))
+        {
+            *answer = now;
+        }
+    }
+
+    fn answer_install(&mut self, petition: Entity, allowed: bool) {
+        let Some((Petition(question), plugin)) =
+            self.petition(petition)
+        else {
+            return;
+        };
+        let Question::Install { asks, chosen, .. } = question else {
+            return;
+        };
+        let Some(info) = self.get::<PluginInfo>(plugin).cloned()
+        else {
+            return;
+        };
+        self.despawn(petition);
+        let mut grants = self.resource_mut::<Grants>();
+        let mut record = grants
+            .record(&info.id)
+            .filter(|record| record.allowed)
+            .cloned()
+            .unwrap_or_else(|| Record {
+                allowed,
+                version: info.version.clone(),
+                answers: Vec::new(),
+            });
+        record.allowed = allowed;
+        record.version.clone_from(&info.version);
+        if allowed {
+            for (ask, answer) in asks.iter().zip(chosen) {
+                record.set(ask.capability, &ask.target, answer);
+            }
+        }
+        let written = grants.set(&info.id, record);
+        let said = if allowed {
+            "is allowed"
+        } else {
+            "is not allowed"
+        };
+        self.write_message(LogLine::info(
+            "grants",
+            format!("{} {said}", info.name),
+        ));
+        if let Err(why) = written {
+            self.write_message(LogLine::error(
+                "grants",
+                format!("{} cannot be written: {why}", crate::FILE),
+            ));
+        }
+        if allowed {
+            let kept = self
+                .resource_mut::<SwitchedOff>()
+                .set(&info.id, false);
+            if let Err(why) = kept {
+                self.write_message(LogLine::error("grants", why));
+            }
+            self.entity_mut(plugin).insert(Admitted);
+            self.trigger(Enable { entity: plugin });
+        }
+    }
+
+    fn answer_use(&mut self, petition: Entity, answer: Answer) {
+        let Some((Petition(Question::Use(ask)), plugin)) =
+            self.petition(petition)
+        else {
+            return;
+        };
+        let Some(info) = self.get::<PluginInfo>(plugin).cloned()
+        else {
+            return;
+        };
+        self.despawn(petition);
+        let mut grants = self.resource_mut::<Grants>();
+        let written = match grants.record(&info.id).cloned() {
+            Some(mut record) if answer != Answer::Ask => {
+                record.set(ask.capability, &ask.target, answer);
+                grants.set(&info.id, record)
+            }
+            _ => Ok(()),
+        };
+        if let Err(why) = written {
+            self.write_message(LogLine::error(
+                "grants",
+                format!("{} cannot be written: {why}", crate::FILE),
+            ));
+        }
+        self.write_message(Decided {
+            plugin,
+            capability: ask.capability,
+            target: ask.target,
+            allowed: answer != Answer::Deny,
         });
-    record.allowed = allowed;
-    record.version.clone_from(&info.version);
-    if allowed {
-        for (ask, answer) in asks.iter().zip(chosen) {
-            record.set(ask.capability, &ask.target, answer);
-        }
     }
-    let written = grants.set(&info.id, record);
-    let said = if allowed {
-        "is allowed"
-    } else {
-        "is not allowed"
-    };
-    world.write_message(LogLine::info(
-        "grants",
-        format!("{} {said}", info.name),
-    ));
-    if let Err(why) = written {
-        world.write_message(LogLine::error(
-            "grants",
-            format!("{} cannot be written: {why}", crate::FILE),
-        ));
-    }
-    if allowed {
-        let kept =
-            world.resource_mut::<SwitchedOff>().set(&info.id, false);
-        if let Err(why) = kept {
-            world.write_message(LogLine::error("grants", why));
-        }
-        world.entity_mut(plugin).insert(Admitted);
-        world.trigger(Enable { entity: plugin });
-    }
-}
 
-/// Answers the petition of a use: Allow and Don't allow are kept,
-/// and Ask next time lets this use go on.
-pub fn answer_use(
-    world: &mut World,
-    petition: Entity,
-    answer: Answer,
-) {
-    let Some((Petition(Question::Use(ask)), plugin)) =
-        parts(world, petition)
-    else {
-        return;
-    };
-    let Some(info) = world.get::<PluginInfo>(plugin).cloned() else {
-        return;
-    };
-    world.despawn(petition);
-    let mut grants = world.resource_mut::<Grants>();
-    let written = match grants.record(&info.id).cloned() {
-        Some(mut record) if answer != Answer::Ask => {
-            record.set(ask.capability, &ask.target, answer);
-            grants.set(&info.id, record)
+    fn change_answer(
+        &mut self,
+        id: &PluginId,
+        capability: Capability,
+        target: &str,
+        answer: Answer,
+    ) {
+        let mut grants = self.resource_mut::<Grants>();
+        let Some(mut record) = grants.record(id).cloned() else {
+            return;
+        };
+        record.set(capability, target, answer);
+        if let Err(why) = grants.set(id, record) {
+            self.write_message(LogLine::error(
+                "grants",
+                format!("{} cannot be written: {why}", crate::FILE),
+            ));
         }
-        _ => Ok(()),
-    };
-    if let Err(why) = written {
-        world.write_message(LogLine::error(
-            "grants",
-            format!("{} cannot be written: {why}", crate::FILE),
-        ));
     }
-    world.write_message(Decided {
-        plugin,
-        capability: ask.capability,
-        target: ask.target,
-        allowed: answer != Answer::Deny,
-    });
-}
 
-/// The petition `petition` and its plugin.
-fn parts(
-    world: &World,
-    petition: Entity,
-) -> Option<(Petition, Entity)> {
-    let entity = world.get_entity(petition).ok()?;
-    Some((
-        entity.get::<Petition>()?.clone(),
-        entity.get::<ChildOf>()?.parent(),
-    ))
+    fn petition(
+        &self,
+        petition: Entity,
+    ) -> Option<(Petition, Entity)> {
+        let entity = self.get_entity(petition).ok()?;
+        Some((
+            entity.get::<Petition>()?.clone(),
+            entity.get::<ChildOf>()?.parent(),
+        ))
+    }
 }

@@ -24,9 +24,9 @@ use hamlet_engine_core::{Home, LogLine};
 use hamlet_engine_grants::never_granted;
 use hamlet_engine_plugins::PluginInfo;
 
+use crate::WasmCommandsExt;
 use crate::add::Adding;
 use crate::host::WasmTuning;
-use crate::reload::Loaded;
 
 /// The plugins folder's name in the home.
 pub const FOLDER: &str = "plugins";
@@ -59,10 +59,10 @@ fn scan(
     mut log: MessageWriter<LogLine>,
     mut commands: Commands,
 ) {
-    for folder in plugin_folders(&home) {
+    for folder in home.plugin_folders() {
         match read_manifest(&folder, tuning.manifest_bytes) {
             Ok(manifest) => {
-                spawn_plugin(&mut commands, manifest, folder);
+                commands.spawn_plugin(manifest, folder);
             }
             Err(why) => {
                 log.write(LogLine::error(
@@ -106,7 +106,7 @@ fn watch(
             ));
         }
     }
-    let folders = plugin_folders(&home);
+    let folders = home.plugin_folders();
     looked.retain(|folder, _| folders.contains(folder));
     for folder in folders {
         if packages
@@ -143,7 +143,7 @@ fn watch(
                         folder.display()
                     ),
                 ));
-                spawn_plugin(&mut commands, manifest, folder);
+                commands.spawn_plugin(manifest, folder);
             }
             Err(why) => {
                 log.write(LogLine::error(
@@ -155,43 +155,31 @@ fn watch(
     }
 }
 
-/// The folders of the plugins folder in `home` a plugin may be in,
-/// in order.
-fn plugin_folders(home: &Home) -> Vec<PathBuf> {
-    let Ok(entries) = fs::read_dir(home.path(FOLDER)) else {
-        return Vec::new();
-    };
-    let mut folders = entries
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| is_plugin_folder(path))
-        .collect::<Vec<_>>();
-    folders.sort();
-    folders
+/// The WASM host's methods on [`Home`].
+trait WasmHomeExt {
+    /// The folders of the plugins folder a plugin may be in, in
+    /// order.
+    fn plugin_folders(&self) -> Vec<PathBuf>;
+}
+
+impl WasmHomeExt for Home {
+    fn plugin_folders(&self) -> Vec<PathBuf> {
+        let Ok(entries) = fs::read_dir(self.path(FOLDER)) else {
+            return Vec::new();
+        };
+        let mut folders = entries
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| is_plugin_folder(path))
+            .collect::<Vec<_>>();
+        folders.sort();
+        folders
+    }
 }
 
 /// The size and time of the file at `path`, if there is one.
 pub(crate) fn look(path: &Path) -> Option<Look> {
     let meta = fs::symlink_metadata(path).ok()?;
     Some((meta.len(), meta.modified().ok()?))
-}
-
-/// Adds the plugin installed in `folder`, off.
-pub(crate) fn spawn_plugin(
-    commands: &mut Commands,
-    manifest: Manifest,
-    folder: PathBuf,
-) -> Entity {
-    let loaded = Loaded {
-        wasm: look(&folder.join(WASM)),
-        manifest: look(&folder.join(MANIFEST)),
-    };
-    commands
-        .spawn((
-            PluginInfo::of(manifest, false),
-            Package { folder },
-            loaded,
-        ))
-        .id()
 }
 
 /// Whether `path` is a folder a plugin may be in: a folder, not a

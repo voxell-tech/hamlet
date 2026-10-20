@@ -10,20 +10,16 @@ mod switched_off;
 
 use bevy::app::App;
 use bevy::ecs::component::Component;
-use bevy::ecs::entity::Entity;
-use bevy::ecs::system::Commands;
-use bevy::ecs::world::World;
 use hamlet_engine_api::{
     Ask, AssetTypes, Events, Manifest, PluginId, Services,
 };
-use hamlet_engine_core::LogLine;
 
 pub use self::entry::{Entry, EntryPoint};
 pub use self::list::{AddPlugin, Uninstall};
 pub use self::mail::{Asked, Deliver};
 pub use self::switch::{
-    ContributedBy, Contributions, Disable, Enable, Enabled, Stopped,
-    switch_on,
+    ContributedBy, Contributions, Disable, Enable, Enabled,
+    PluginCommandsExt, Stopped,
 };
 pub use self::switched_off::SwitchedOff;
 
@@ -68,42 +64,9 @@ impl PluginInfo {
     }
 }
 
-/// Adds the plugin `manifest` describes, built into the engine with
-/// its `entry`, and switches it on unless the person switched it off.
-/// A manifest the engine cannot take is told in the log, and nothing
-/// is added.
-pub fn add_builtin(
-    commands: &mut Commands,
-    manifest: Manifest,
-    entry: fn(&mut Entry),
-) -> Option<Entity> {
-    if let Err(why) = manifest.check() {
-        let line = LogLine::error(
-            "plugins",
-            format!("{} is not added: {why}", manifest.id),
-        );
-        commands.queue(move |world: &mut World| {
-            world.write_message(line);
-        });
-        return None;
-    }
-    let id = manifest.id.clone();
-    let plugin = commands
-        .spawn((PluginInfo::of(manifest, true), EntryPoint(entry)))
-        .id();
-    commands.queue(move |world: &mut World| {
-        let off = world
-            .get_resource::<SwitchedOff>()
-            .is_some_and(|off| off.contains(&id));
-        if !off {
-            world.trigger(Enable { entity: plugin });
-        }
-    });
-    Some(plugin)
-}
-
 #[cfg(test)]
 mod tests {
+    use bevy::ecs::entity::Entity;
     use bevy::ecs::query::With;
     use bevy::time::TimePlugin;
     use bevy_fynix::ViewExt;
@@ -148,9 +111,11 @@ mod tests {
             "Notes",
             "0.1.0",
         );
-        let mut commands = app.world_mut().commands();
-        let notes =
-            add_builtin(&mut commands, manifest, entry).unwrap();
+        let notes = app
+            .world_mut()
+            .commands()
+            .add_builtin(manifest, entry)
+            .unwrap();
         app.update();
 
         let count = |app: &mut App| {

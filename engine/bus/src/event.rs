@@ -38,32 +38,41 @@ fn forget(
     }
 }
 
-/// The event `event` that `plugin` subscribes to, if its manifest
-/// hears it.
-fn subscribe(
-    plugin: &PluginInfo,
-    event: &str,
-) -> Result<EventId, Failure> {
-    let id = EventId::try_from(event)
-        .map_err(|why| Failure::Refused(why.to_string()))?;
-    if plugin.events.hears.iter().any(|heard| heard.event == id) {
-        Ok(id)
-    } else {
-        Err(Failure::Refused(format!(
-            "{} does not hear {id}",
-            plugin.id
-        )))
-    }
+/// The bus's methods on [`PluginInfo`].
+trait BusPluginInfoExt {
+    /// The event `event` the plugin subscribes to, if its manifest
+    /// hears it.
+    fn subscribe(&self, event: &str) -> Result<EventId, Failure>;
+
+    /// Whether the plugin hears the event `id` of `from` with the
+    /// payload's type `from` sends it with.
+    fn hears(&self, from: &PluginInfo, id: &EventId) -> bool;
 }
 
-/// Whether `to` hears the event `id` of `from` with the payload's
-/// type `from` sends it with.
-fn hears(from: &PluginInfo, id: &EventId, to: &PluginInfo) -> bool {
-    let sent =
-        from.events.sends.iter().find(|sent| sent.name == id.name());
-    let heard =
-        to.events.hears.iter().find(|heard| heard.event == *id);
-    matches!((sent, heard), (Some(sent), Some(heard)) if sent.payload == heard.payload)
+impl BusPluginInfoExt for PluginInfo {
+    fn subscribe(&self, event: &str) -> Result<EventId, Failure> {
+        let id = EventId::try_from(event)
+            .map_err(|why| Failure::Refused(why.to_string()))?;
+        if self.events.hears.iter().any(|heard| heard.event == id) {
+            Ok(id)
+        } else {
+            Err(Failure::Refused(format!(
+                "{} does not hear {id}",
+                self.id
+            )))
+        }
+    }
+
+    fn hears(&self, from: &PluginInfo, id: &EventId) -> bool {
+        let sent = from
+            .events
+            .sends
+            .iter()
+            .find(|sent| sent.name == id.name());
+        let heard =
+            self.events.hears.iter().find(|heard| heard.event == *id);
+        matches!((sent, heard), (Some(sent), Some(heard)) if sent.payload == heard.payload)
+    }
 }
 
 /// Takes subscriptions, and passes on the events sent this frame.
@@ -88,7 +97,7 @@ fn pass(
         };
         match &request.request {
             Request::Subscribe(event) => {
-                let reply = subscribe(plugin, event).map(|id| {
+                let reply = plugin.subscribe(event).map(|id| {
                     subscriptions.0.insert(id);
                     Reply::Subscribed
                 });
@@ -159,7 +168,7 @@ fn pass(
             continue;
         };
         for (plugin, to, subscriptions) in &plugins {
-            if subscriptions.0.contains(&id) && hears(from, &id, to) {
+            if subscriptions.0.contains(&id) && to.hears(from, &id) {
                 deliver.write(Deliver {
                     plugin,
                     message: Message::Event {

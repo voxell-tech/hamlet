@@ -1,4 +1,5 @@
-//! Switching a plugin on and off, and what links what it adds to it.
+//! Adding a plugin built in, switching a plugin on and off, and what
+//! links what it adds to it.
 
 use bevy::app::App;
 use bevy::ecs::component::Component;
@@ -9,10 +10,13 @@ use bevy::ecs::message::MessageWriter;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::{Has, With};
 use bevy::ecs::system::{Commands, Query, Res};
+use bevy::ecs::world::World;
+use hamlet_engine_api::Manifest;
 use hamlet_engine_core::{Budgets, LogLine};
 
 use crate::PluginInfo;
 use crate::entry::{Entry, EntryPoint};
+use crate::switched_off::SwitchedOff;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_message::<LogLine>()
@@ -94,27 +98,83 @@ fn enable(
     }
     let mut entry = Entry::default();
     (point.0)(&mut entry);
-    switch_on(&mut commands, plugin, info, entry, &budgets);
+    commands.switch_on(plugin, info, entry, &budgets);
 }
 
-/// Adds what `entry` declares, linked to `plugin`, within `budgets`,
-/// and marks the plugin [`Enabled`]. What is left out is told in the
-/// log.
-pub fn switch_on(
-    commands: &mut Commands,
-    plugin: Entity,
-    info: &PluginInfo,
-    entry: Entry,
-    budgets: &Budgets,
-) {
-    for why in entry.spawn(plugin, &info.id, budgets, commands) {
-        commands.write_message(LogLine::warn(info.id.as_str(), why));
+/// The plugins' methods on [`Commands`].
+pub trait PluginCommandsExt {
+    /// Adds the plugin `manifest` describes, built into the engine
+    /// with its `entry`, and switches it on unless the person
+    /// switched it off. A manifest the engine cannot take is told
+    /// in the log, and nothing is added.
+    fn add_builtin(
+        &mut self,
+        manifest: Manifest,
+        entry: fn(&mut Entry),
+    ) -> Option<Entity>;
+
+    /// Adds what `entry` declares, linked to `plugin`, within
+    /// `budgets`, and marks the plugin [`Enabled`]. What is left out
+    /// is told in the log.
+    fn switch_on(
+        &mut self,
+        plugin: Entity,
+        info: &PluginInfo,
+        entry: Entry,
+        budgets: &Budgets,
+    );
+}
+
+impl PluginCommandsExt for Commands<'_, '_> {
+    fn add_builtin(
+        &mut self,
+        manifest: Manifest,
+        entry: fn(&mut Entry),
+    ) -> Option<Entity> {
+        if let Err(why) = manifest.check() {
+            let line = LogLine::error(
+                "plugins",
+                format!("{} is not added: {why}", manifest.id),
+            );
+            self.queue(move |world: &mut World| {
+                world.write_message(line);
+            });
+            return None;
+        }
+        let id = manifest.id.clone();
+        let plugin = self
+            .spawn((
+                PluginInfo::of(manifest, true),
+                EntryPoint(entry),
+            ))
+            .id();
+        self.queue(move |world: &mut World| {
+            let off = world
+                .get_resource::<SwitchedOff>()
+                .is_some_and(|off| off.contains(&id));
+            if !off {
+                world.trigger(Enable { entity: plugin });
+            }
+        });
+        Some(plugin)
     }
-    commands.entity(plugin).insert(Enabled);
-    commands.write_message(LogLine::info(
-        "plugins",
-        format!("{} is on", info.name),
-    ));
+
+    fn switch_on(
+        &mut self,
+        plugin: Entity,
+        info: &PluginInfo,
+        entry: Entry,
+        budgets: &Budgets,
+    ) {
+        for why in entry.spawn(plugin, &info.id, budgets, self) {
+            self.write_message(LogLine::warn(info.id.as_str(), why));
+        }
+        self.entity(plugin).insert(Enabled);
+        self.write_message(LogLine::info(
+            "plugins",
+            format!("{} is on", info.name),
+        ));
+    }
 }
 
 fn disable(

@@ -23,7 +23,7 @@ use bevy_fynix::views::{
 use hamlet_engine_core::tuning::{ENGINE, Tuning, TuningFile};
 use serde::Deserialize;
 
-use crate::command::{RunCommand, engine_id, spawn_command};
+use crate::command::{RunCommand, ShellCommandsExt, engine_id};
 use crate::style::BottomGradient;
 use crate::theme::{EngineTheme, ThemeChanged};
 use crate::{AnyView, Cx, View, menu, status, switcher};
@@ -83,10 +83,6 @@ struct Root(Entity);
 
 fn open(world: &mut World) {
     world.spawn((Camera2d, IsDefaultUiCamera));
-    mount(world);
-}
-
-fn mount(world: &mut World) {
     let root = bevy_fynix::mount::<EngineTheme>(world, root());
     world.insert_resource(Root(root));
 }
@@ -94,30 +90,31 @@ fn mount(world: &mut World) {
 /// Builds the views again for a new theme, which each read as it was
 /// built.
 fn rebuild(world: &mut World) {
-    let Some(Root(root)) = world.remove_resource::<Root>() else {
+    let Some(Root(old)) = world.remove_resource::<Root>() else {
         return;
     };
-    world.despawn(root);
-    mount(world);
+    world.despawn(old);
+    let root = bevy_fynix::mount::<EngineTheme>(world, root());
+    world.insert_resource(Root(root));
 }
 
 /// Quit, in the Hamlet menu and on the primary key with Q.
 fn add_quit(mut commands: Commands) {
-    spawn_command(
-        &mut commands,
-        engine_id("quit"),
-        "Quit",
-        Some("Hamlet"),
-        &[Chord {
-            key: KeyCode::KeyQ,
-            mods: Mods::PRIMARY,
-        }],
-    )
-    .observe(
-        |_: On<RunCommand>, mut exit: MessageWriter<AppExit>| {
-            exit.write(AppExit::Success);
-        },
-    );
+    commands
+        .spawn_command(
+            engine_id("quit"),
+            "Quit",
+            Some("Hamlet"),
+            &[Chord {
+                key: KeyCode::KeyQ,
+                mods: Mods::PRIMARY,
+            }],
+        )
+        .observe(
+            |_: On<RunCommand>, mut exit: MessageWriter<AppExit>| {
+                exit.write(AppExit::Success);
+            },
+        );
 }
 
 fn root() -> AnyView {

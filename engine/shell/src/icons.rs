@@ -561,7 +561,7 @@ pub fn glyph(which: Glyph, size: f32) -> Icon {
 }
 
 /// `which` at the side of an icon beside text, in `tone`.
-pub fn mark(which: Glyph, tone: Tone) -> AnyView {
+pub fn side(which: Glyph, tone: Tone) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let size = cx.theme().space.icon;
         cx.build(glyph(which, size).tone(tone))
@@ -652,7 +652,7 @@ fn in_polygon(p: Vec2, points: &[[f32; 2]]) -> f32 {
 
 /// The share of the pixel at `p` an icon's ink covers, where `stroke`
 /// is the width of a stroke and `pixel` the side of a pixel.
-fn ink(shapes: &[Shape], p: Vec2, stroke: f32, pixel: f32) -> f32 {
+fn alpha(shapes: &[Shape], p: Vec2, stroke: f32, pixel: f32) -> f32 {
     let half = stroke / 2.0;
     let mut away = f32::MAX;
     for shape in shapes {
@@ -693,31 +693,35 @@ fn ink(shapes: &[Shape], p: Vec2, stroke: f32, pixel: f32) -> f32 {
     (0.5 - away / pixel).clamp(0.0, 1.0)
 }
 
-/// `which` in white, for a side of `size`.
-fn drawing(which: Glyph, size: f32) -> Image {
-    let side = (size * DENSITY).round() as usize;
-    let pixel = GRID / side as f32;
-    let stroke = weight(size) * GRID / size;
-    let shapes = which.shapes();
-    let mut data = vec![255u8; side * side * 4];
-    for y in 0..side {
-        for x in 0..side {
-            let p = Vec2::new(x as f32 + 0.5, y as f32 + 0.5) * pixel;
-            data[(y * side + x) * 4 + 3] =
-                (ink(shapes, p, stroke, pixel) * 255.0).round() as u8;
+impl Glyph {
+    /// The glyph in white, for a side of `size`.
+    fn pixels(self, size: f32) -> Image {
+        let side = (size * DENSITY).round() as usize;
+        let pixel = GRID / side as f32;
+        let stroke = weight(size) * GRID / size;
+        let shapes = self.shapes();
+        let mut data = vec![255u8; side * side * 4];
+        for y in 0..side {
+            for x in 0..side {
+                let p =
+                    Vec2::new(x as f32 + 0.5, y as f32 + 0.5) * pixel;
+                data[(y * side + x) * 4 + 3] =
+                    (alpha(shapes, p, stroke, pixel) * 255.0).round()
+                        as u8;
+            }
         }
+        Image::new(
+            Extent3d {
+                width: side as u32,
+                height: side as u32,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            data,
+            TextureFormat::Rgba8UnormSrgb,
+            RenderAssetUsages::RENDER_WORLD,
+        )
     }
-    Image::new(
-        Extent3d {
-            width: side as u32,
-            height: side as u32,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        data,
-        TextureFormat::Rgba8UnormSrgb,
-        RenderAssetUsages::RENDER_WORLD,
-    )
 }
 
 /// Draws every icon at every size.
@@ -729,7 +733,7 @@ fn draw(images: Option<ResMut<Assets<Image>>>) {
     for which in Glyph::ALL {
         for (drawn, size) in SIZES.into_iter().enumerate() {
             let _ = images
-                .insert(&which.drawing(drawn), drawing(which, size));
+                .insert(&which.drawing(drawn), which.pixels(size));
         }
     }
 }

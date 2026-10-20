@@ -42,12 +42,12 @@ impl Panels {
         };
         let mut moving = false;
         for shown in self.mounted.values_mut() {
-            forget_gone(&mut self.world, &mut shown.mounted);
+            self.world.forget_gone(&mut shown.mounted);
             shown.mounted.run_effects(&mut self.world);
             shown
                 .mounted
                 .update_structure(&mut self.world, &self.theme);
-            forget_gone(&mut self.world, &mut shown.mounted);
+            self.world.forget_gone(&mut shown.mounted);
             moving |= shown.mounted.update_elements(
                 &mut self.world,
                 &self.theme,
@@ -65,13 +65,21 @@ impl Panels {
     }
 }
 
-/// Drops the mounts of the nodes despawned since.
-fn forget_gone(
-    world: &mut World,
-    mounted: &mut Mounted<Hamlet, Theme>,
-) {
-    for &key in &world.nodes.gone {
-        mounted.unmount(key);
+impl World {
+    /// Drops from `mounted` the mounts of the nodes despawned since.
+    fn forget_gone(&self, mounted: &mut Mounted<Hamlet, Theme>) {
+        for &key in &self.nodes.gone {
+            mounted.unmount(key);
+        }
+    }
+
+    /// Runs the click handler of `key`.
+    fn click(&mut self, key: Key) {
+        let Some(handler) = self.clicks.remove(&key) else {
+            return;
+        };
+        handler(self);
+        self.clicks.entry(key).or_insert(handler);
     }
 }
 
@@ -112,7 +120,7 @@ pub fn input(events: Vec<UiEvent>) -> bool {
         for event in events {
             let (states, on) = match event.action {
                 Action::Click => {
-                    click(&mut panels.world, event.key);
+                    panels.world.click(event.key);
                     continue;
                 }
                 Action::Hover(on) => (States::HOVER, on),
@@ -131,13 +139,4 @@ pub fn frame(micros: u32) -> bool {
     UI.with_borrow_mut(|panels| {
         panels.update(Duration::from_micros(micros.into()))
     })
-}
-
-/// Runs the click handler of `key`.
-fn click(world: &mut World, key: Key) {
-    let Some(handler) = world.clicks.remove(&key) else {
-        return;
-    };
-    handler(world);
-    world.clicks.entry(key).or_insert(handler);
 }

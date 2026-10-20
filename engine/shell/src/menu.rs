@@ -2,7 +2,6 @@
 //! title each, lit while its menu is open.
 
 use bevy::prelude::*;
-use bevy::ui::{ComputedNode, UiGlobalTransform};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, MENU_Z, frame, label, menu_item,
@@ -11,9 +10,9 @@ use bevy_fynix::views::{
 use bevy_fynix::{Hovered, ModifierExt, ViewExt, keyed, resource};
 use hamlet_engine_api::CommandId;
 
-use crate::command::{self, Command, MenuEntry, Shortcut};
+use crate::command::{Command, MenuEntry, Shortcut};
 use crate::style::{BottomLight, title_button};
-use crate::{AnyView, Cx};
+use crate::{AnyView, Cx, ShellWorldExt};
 
 /// The engine's own menus, first and in this order.
 const OWN: [&str; 3] = ["Hamlet", "Workspace", "View"];
@@ -23,16 +22,16 @@ pub(crate) fn plugin(app: &mut App) {
         .init_resource::<Placed>()
         .init_resource::<OpenMenu>()
         .add_observer(place)
-        .add_systems(Update, (gather, light_titles, follow_pointer));
+        .add_systems(Update, (gather, highlight, follow_pointer));
 }
 
 /// The menus as the bar shows them.
 #[derive(Resource, Clone, PartialEq, Default)]
-struct MenuBar(Vec<Menu>);
+pub(crate) struct MenuBar(pub(crate) Vec<Menu>);
 
 #[derive(Clone, PartialEq)]
-struct Menu {
-    title: String,
+pub(crate) struct Menu {
+    pub(crate) title: String,
     items: Vec<Item>,
 }
 
@@ -55,7 +54,7 @@ struct Placed(u64);
 /// The menu open, and the rect of its title in the window's logical
 /// pixels.
 #[derive(Resource, Clone, PartialEq, Default)]
-struct OpenMenu(Option<(Menu, Rect)>);
+pub(crate) struct OpenMenu(pub(crate) Option<(Menu, Rect)>);
 
 /// On a menu's title: the title of the menu it opens.
 #[derive(Component, Clone)]
@@ -89,7 +88,7 @@ fn title(menu: &Menu) -> AnyView {
             if shown {
                 world.resource_mut::<OpenMenu>().0 = None;
             } else {
-                open(world, &name, node);
+                world.open_menu(&name, node);
             }
         })
         .boxed()
@@ -109,7 +108,7 @@ fn follow_pointer(
         if title.0 != menu.title {
             let name = title.0.clone();
             commands.queue(move |world: &mut World| {
-                open(world, &name, node);
+                world.open_menu(&name, node);
             });
         }
     }
@@ -126,7 +125,11 @@ pub fn open_view() -> AnyView {
             let width = cx.theme().space.menu_width;
             cx.build(
                 popup(anchor, items)
-                    .on_dismiss(|world, _| dismiss(world))
+                    // A press anywhere but a title, or Escape, closes
+                    // it.
+                    .on_dismiss(|world, _| {
+                        world.resource_mut::<OpenMenu>().0 = None
+                    })
                     .min_width(px(width)),
             )
         })
@@ -154,48 +157,14 @@ fn item(item: &Item) -> AnyView {
             )
             .on_activate(move |world| {
                 world.resource_mut::<OpenMenu>().0 = None;
-                command::run(world, &command);
+                world.run_command(&command);
             }),
         )
     })
 }
 
-/// The rect of `node`, in the window's logical pixels.
-fn rect_of(world: &World, node: Entity) -> Option<Rect> {
-    let (computed, at) = world
-        .get::<ComputedNode>(node)
-        .zip(world.get::<UiGlobalTransform>(node))?;
-    let scale = computed.inverse_scale_factor();
-    let (_, _, centre) = at.to_scale_angle_translation();
-    Some(Rect::from_center_size(
-        centre * scale,
-        computed.size() * scale,
-    ))
-}
-
-/// Opens the menu titled `name` under its title, `node`.
-fn open(world: &mut World, name: &str, node: Entity) {
-    let Some(rect) = rect_of(world, node) else {
-        return;
-    };
-    let menu = world
-        .resource::<MenuBar>()
-        .0
-        .iter()
-        .find(|menu| menu.title == name)
-        .cloned();
-    if let Some(menu) = menu {
-        world.resource_mut::<OpenMenu>().0 = Some((menu, rect));
-    }
-}
-
-/// Closes the open menu: a press anywhere but a title, or Escape.
-fn dismiss(world: &mut World) {
-    world.resource_mut::<OpenMenu>().0 = None;
-}
-
 /// Holds a title lit while its menu is open.
-fn light_titles(
+fn highlight(
     open: Res<OpenMenu>,
     mut titles: Query<(&MenuTitle, &mut BottomLight)>,
 ) {

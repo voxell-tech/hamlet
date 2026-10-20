@@ -20,15 +20,14 @@ use hamlet_engine_core::{Budgets, LogLine};
 use hamlet_engine_grants::Admitted;
 use hamlet_engine_plugins::{
     Asked, ContributedBy, Disable, Enable, Enabled, Entry,
-    PluginInfo, switch_on,
+    PluginCommandsExt, PluginInfo,
 };
 use hamlet_engine_shell::Command;
 
-use crate::budget::{Spending, pass_logs};
+use crate::budget::Spending;
 use crate::folder::{Package, WASM, read_capped};
 use crate::host::{Host, WasmTuning};
 use crate::instance::{Caps, Instance, Linked, link};
-use crate::mail::pass_requests;
 use crate::panel::{Inbox, Moving, Work, page, view};
 use crate::reload::{Declared, Reloading};
 use crate::retained;
@@ -51,17 +50,19 @@ pub(crate) struct Compiling(pub(crate) Task<Result<Linked, String>>);
 #[derive(Component, Clone)]
 pub(crate) struct Built(pub(crate) Linked);
 
-/// Compiles the `plugin.wasm` at `file`, of at most `most` bytes, off
-/// the frame.
-pub(crate) fn compile(
-    host: &Host,
-    file: PathBuf,
-    most: u64,
-) -> Compiling {
-    let engine = host.0.clone();
-    Compiling(AsyncComputeTaskPool::get().spawn(async move {
-        link(&engine, &read_capped(&file, most)?)
-    }))
+impl Host {
+    /// Compiles the `plugin.wasm` at `file`, of at most `most` bytes,
+    /// off the frame.
+    pub(crate) fn compile(
+        &self,
+        file: PathBuf,
+        most: u64,
+    ) -> Compiling {
+        let engine = self.0.clone();
+        Compiling(AsyncComputeTaskPool::get().spawn(async move {
+            link(&engine, &read_capped(&file, most)?)
+        }))
+    }
 }
 
 /// Starts a plugin the person let in. The grants ask about one they
@@ -165,11 +166,9 @@ fn begin(
     };
     for (plugin, package) in &plugins {
         let file = package.folder.join(WASM);
-        commands.entity(plugin).insert(compile(
-            &host,
-            file,
-            tuning.wasm_bytes,
-        ));
+        commands
+            .entity(plugin)
+            .insert(host.compile(file, tuning.wasm_bytes));
     }
 }
 
@@ -234,19 +233,12 @@ fn start(
             };
         let mut spending = Spending::new(time.elapsed());
         let (declared, spent) = instance.declare(&caps);
-        pass_requests(plugin, &mut instance, 0, &mut asked);
+        instance.pass_requests(plugin, 0, &mut asked);
         spending.charge(spent, false);
-        pass_logs(
-            info,
-            &mut instance,
-            &mut spending,
-            &budgets,
-            &mut log,
-        );
+        instance.pass_logs(info, &mut spending, &budgets, &mut log);
         match declared {
             Ok(contributions) => {
-                switch_on(
-                    &mut commands,
+                commands.switch_on(
                     plugin,
                     info,
                     entry(contributions.clone(), built.0.retained()),

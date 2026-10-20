@@ -22,9 +22,10 @@ use hamlet_engine_api::Manifest;
 use hamlet_engine_core::{Home, LogLine};
 use hamlet_engine_plugins::{AddPlugin, PluginInfo, Uninstall};
 
+use crate::WasmCommandsExt;
 use crate::folder::{
     FOLDER, MANIFEST, Package, WASM, copy_capped, open_capped,
-    read_manifest, spawn_plugin,
+    read_manifest,
 };
 use crate::host::WasmTuning;
 
@@ -138,7 +139,8 @@ fn add_from(
     let plugins = home.path(FOLDER);
     let tuning = tuning.clone();
     commands.spawn(Adding(IoTaskPool::get().spawn(async move {
-        place(&checked, &plugins, &into, &tuning)
+        checked
+            .place(&plugins, &into, &tuning)
             .map(|manifest| (manifest, into))
     })));
 }
@@ -170,7 +172,7 @@ fn added(
                         manifest.name, manifest.version
                     ),
                 ));
-                spawn_plugin(&mut commands, manifest, folder);
+                commands.spawn_plugin(manifest, folder);
             }
             Err(why) => {
                 log.write(LogLine::error(
@@ -244,46 +246,49 @@ pub(crate) fn check(
     Ok(Checked { manifest, folder })
 }
 
-/// Copies the plugin `checked` into the folder `into` of the plugins
-/// folder `plugins`: into a folder of its own there first, read again
-/// as the engine reads a plugin, then moved into place. What it holds
-/// is the plugin the person chose, unless that changed meanwhile.
-pub(crate) fn place(
-    checked: &Checked,
-    plugins: &Path,
-    into: &Path,
-    tuning: &WasmTuning,
-) -> Result<Manifest, String> {
-    let id = &checked.manifest.id;
-    let stage = plugins.join(format!(".adding_{id}"));
-    let _ = fs::remove_dir_all(&stage);
-    fs::create_dir_all(&stage).map_err(|e| {
-        format!("the plugins folder cannot be written: {e}")
-    })?;
-    let placed = (|| {
-        copy_capped(
-            &checked.folder.join(MANIFEST),
-            &stage.join(MANIFEST),
-            tuning.manifest_bytes,
-        )?;
-        copy_capped(
-            &checked.folder.join(WASM),
-            &stage.join(WASM),
-            tuning.wasm_bytes,
-        )?;
-        let copied = read_manifest(&stage, tuning.manifest_bytes)?;
-        if copied.id != *id
-            || copied.version != checked.manifest.version
-        {
-            return Err(
-                "the folder changed while it was added".to_string()
-            );
-        }
-        put(&stage, into)?;
-        Ok(copied)
-    })();
-    let _ = fs::remove_dir_all(&stage);
-    placed
+impl Checked {
+    /// Copies the plugin into the folder `into` of the plugins folder
+    /// `plugins`: into a folder of its own there first, read again as
+    /// the engine reads a plugin, then moved into place. What it
+    /// holds is the plugin the person chose, unless that changed
+    /// meanwhile.
+    pub(crate) fn place(
+        &self,
+        plugins: &Path,
+        into: &Path,
+        tuning: &WasmTuning,
+    ) -> Result<Manifest, String> {
+        let id = &self.manifest.id;
+        let stage = plugins.join(format!(".adding_{id}"));
+        let _ = fs::remove_dir_all(&stage);
+        fs::create_dir_all(&stage).map_err(|e| {
+            format!("the plugins folder cannot be written: {e}")
+        })?;
+        let placed = (|| {
+            copy_capped(
+                &self.folder.join(MANIFEST),
+                &stage.join(MANIFEST),
+                tuning.manifest_bytes,
+            )?;
+            copy_capped(
+                &self.folder.join(WASM),
+                &stage.join(WASM),
+                tuning.wasm_bytes,
+            )?;
+            let copied =
+                read_manifest(&stage, tuning.manifest_bytes)?;
+            if copied.id != *id
+                || copied.version != self.manifest.version
+            {
+                return Err("the folder changed while it was added"
+                    .to_string());
+            }
+            put(&stage, into)?;
+            Ok(copied)
+        })();
+        let _ = fs::remove_dir_all(&stage);
+        placed
+    }
 }
 
 /// Moves the folder `stage` to `into`, over the folder there.

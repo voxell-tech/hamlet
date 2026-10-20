@@ -4,7 +4,7 @@
 //! back to the plugin.
 
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use bevy::app::{App, Update};
 use bevy::color::Color;
@@ -40,8 +40,9 @@ use hamlet_engine_core::Budgets;
 use hamlet_engine_plugins::ContributedBy;
 use hamlet_engine_shell::fonts::DisplayText;
 use hamlet_engine_shell::style::{ButtonStyle, action};
-use hamlet_engine_shell::{AnyView, Cx, EngineTheme, panel};
+use hamlet_engine_shell::{AnyView, Cx, EngineTheme, StyleExt};
 
+use crate::WasmCommandsExt;
 use crate::budget::Spending;
 use crate::instance::ui_bindings::hamlet::engine::ui::{
     self as wit, Kind, Property,
@@ -102,14 +103,14 @@ pub struct UiRoot(pub Entity);
 /// On a plugin with retained panels: the widget built for each of
 /// its nodes, by the number the host gave the node.
 #[derive(Component, Default)]
-pub(crate) struct Widgets(HashMap<u32, Built>);
+pub(crate) struct Widgets(pub(crate) HashMap<u32, Built>);
 
 #[derive(Clone, Copy)]
-struct Built {
-    entity: Entity,
+pub(crate) struct Built {
+    pub(crate) entity: Entity,
     /// What the widget reads, on an entity of its own. A root has
     /// none, and is the host's.
-    holder: Option<Entity>,
+    pub(crate) holder: Option<Entity>,
 }
 
 /// On the widget of a plugin's node: whose, and the plugin's key.
@@ -118,6 +119,17 @@ pub struct NodeOf {
     pub plugin: Entity,
     pub key: u32,
     hovered: bool,
+}
+
+impl NodeOf {
+    /// The node pressed, `on`, or let go.
+    fn press(&self, on: bool) -> NodeAction {
+        NodeAction {
+            plugin: self.plugin,
+            key: self.key,
+            input: NodeInput::Press(on),
+        }
+    }
 }
 
 /// On the widget of a node whose presses its plugin is told of.
@@ -185,7 +197,7 @@ impl Movable {
         let gap = theme.space.gap;
         Some(match *value {
             Property::Tone(tone) => {
-                Self::Ink(theme.tone(tone_of(tone)))
+                Self::Ink(theme.tone(tone.into()))
             }
             Property::Size(size) => Self::Size(match size {
                 wit::Size::Small => theme.text.small,
@@ -271,189 +283,292 @@ pub(crate) fn view(surface: Entity) -> AnyView {
             _ => None,
         }
     });
-    panel(
-        keyed(stopped_why, move |why| match why {
-            Some(why) => stopped(why.clone()),
-            None => AnyView::new(move |cx: &mut Cx| {
-                let root = cx.build(column(()).gap(0.0));
-                cx.world.entity_mut(surface).insert(UiRoot(root));
-                root
-            }),
-        })
-        .within(column(()).gap(0.0).grow(1.0)),
-    )
+    keyed(stopped_why, move |why| match why {
+        Some(why) => stopped(why.clone()),
+        None => AnyView::new(move |cx: &mut Cx| {
+            let root = cx.build(column(()).gap(0.0));
+            cx.world.entity_mut(surface).insert(UiRoot(root));
+            root
+        }),
+    })
+    .within(column(()).gap(0.0).grow(1.0))
+    .in_panel()
 }
 
-/// Changes `plugin`'s widgets as its nodes were changed, once the
-/// commands are applied. `root` is a node the host made, with the
-/// widget it stands for.
-pub(crate) fn apply(
-    commands: &mut Commands,
-    plugin: Entity,
-    root: Option<(u32, Entity)>,
-    changes: Vec<NodeChange>,
-) {
-    if changes.is_empty() && root.is_none() {
-        return;
-    }
-    commands.queue(move |world: &mut World| {
-        let started = Instant::now();
-        build(world, plugin, root, changes);
-        if let Some(mut stats) = world.get_resource_mut::<NodeStats>()
-        {
-            stats.apply_time += started.elapsed();
-        }
-    });
-}
-
-fn build(
-    world: &mut World,
-    plugin: Entity,
-    root: Option<(u32, Entity)>,
-    changes: Vec<NodeChange>,
-) {
-    let built = world.contains_resource::<Mounts<EngineTheme>>()
-        && world.contains_resource::<Theme<EngineTheme>>();
-    let Some(mut widgets) =
-        world.get_entity_mut(plugin).ok().filter(|_| built).map(
-            |mut entity| entity.take::<Widgets>().unwrap_or_default(),
-        )
-    else {
-        return;
-    };
-    if let Some((number, entity)) = root {
-        widgets.0.insert(
-            number,
-            Built {
-                entity,
-                holder: None,
-            },
-        );
-    }
-    world.resource_scope::<Mounts<EngineTheme>, _>(
-        |world, mut mounts| {
-            world.resource_scope::<Theme<EngineTheme>, _>(
-                |world, theme| {
-                    for change in changes {
-                        change_one(
-                            world,
-                            &theme.0,
-                            &mut mounts,
-                            plugin,
-                            &mut widgets,
-                            change,
-                        );
-                    }
-                },
-            );
-        },
+/// The WASM host's methods on [`World`].
+pub(crate) trait WasmWorldExt {
+    /// Changes `plugin`'s widgets as its nodes were changed. `root`
+    /// is a node the host made, with the widget it stands for.
+    fn build_nodes(
+        &mut self,
+        plugin: Entity,
+        root: Option<(u32, Entity)>,
+        changes: Vec<NodeChange>,
     );
-    world.entity_mut(plugin).insert(widgets);
+
+    /// Changes one of `plugin`'s `widgets` as its node was changed.
+    fn change_node(
+        &mut self,
+        theme: &EngineTheme,
+        mounts: &mut Mounts<EngineTheme>,
+        plugin: Entity,
+        widgets: &mut Widgets,
+        change: NodeChange,
+    );
+
+    /// Sets `value` on the node whose widget is `entity` and whose
+    /// properties are on `holder`: a [`Movable`] one over the theme's
+    /// curve for `motion`, any other at once.
+    fn set_node(
+        &mut self,
+        theme: &EngineTheme,
+        entity: Entity,
+        holder: Entity,
+        value: Property,
+        motion: Option<wit::Motion>,
+    );
 }
 
-fn change_one(
-    world: &mut World,
-    theme: &EngineTheme,
-    mounts: &mut Mounts<EngineTheme>,
-    plugin: Entity,
-    widgets: &mut Widgets,
-    change: NodeChange,
-) {
-    match change {
-        NodeChange::Make {
-            node,
-            key,
-            kind,
-            parent,
-        } => {
-            let Some(parent) = widgets
-                .0
-                .get(&parent)
-                .map(|built| built.entity)
-                .filter(|&parent| world.get_entity(parent).is_ok())
-            else {
-                return;
-            };
-            let holder = world
-                .spawn((Props::new(theme), ChildOf(plugin)))
-                .id();
-            let view = widget(kind, holder, plugin, key);
-            let entity = {
-                let mut cx = Cx::new(world, theme, &mut mounts.0);
-                cx.under(parent, |cx| view.build(cx))
-            };
-            world.entity_mut(entity).insert(NodeOf {
-                plugin,
-                key,
-                hovered: false,
-            });
+impl WasmWorldExt for World {
+    fn build_nodes(
+        &mut self,
+        plugin: Entity,
+        root: Option<(u32, Entity)>,
+        changes: Vec<NodeChange>,
+    ) {
+        let built = self.contains_resource::<Mounts<EngineTheme>>()
+            && self.contains_resource::<Theme<EngineTheme>>();
+        let Some(mut widgets) =
+            self.get_entity_mut(plugin).ok().filter(|_| built).map(
+                |mut entity| {
+                    entity.take::<Widgets>().unwrap_or_default()
+                },
+            )
+        else {
+            return;
+        };
+        if let Some((number, entity)) = root {
             widgets.0.insert(
-                node,
+                number,
                 Built {
                     entity,
-                    holder: Some(holder),
+                    holder: None,
                 },
             );
         }
-        NodeChange::Set {
-            node,
-            value,
-            motion,
-        } => {
-            let Some(&Built {
-                entity,
-                holder: Some(holder),
-            }) = widgets.0.get(&node)
-            else {
-                return;
-            };
-            set(world, theme, entity, holder, value, motion);
-        }
-        NodeChange::Order { node, children } => {
-            let Some(entity) = widgets.0.get(&node).map(|b| b.entity)
-            else {
-                return;
-            };
-            let children = children
-                .iter()
-                .filter_map(|child| widgets.0.get(child))
-                .map(|built| built.entity)
-                .collect::<Vec<_>>();
-            if let Ok(mut entity) = world.get_entity_mut(entity) {
-                entity.replace_children(&children);
+        self.resource_scope::<Mounts<EngineTheme>, _>(
+            |world, mut mounts| {
+                world.resource_scope::<Theme<EngineTheme>, _>(
+                    |world, theme| {
+                        for change in changes {
+                            world.change_node(
+                                &theme.0,
+                                &mut mounts,
+                                plugin,
+                                &mut widgets,
+                                change,
+                            );
+                        }
+                    },
+                );
+            },
+        );
+        self.entity_mut(plugin).insert(widgets);
+    }
+
+    fn change_node(
+        &mut self,
+        theme: &EngineTheme,
+        mounts: &mut Mounts<EngineTheme>,
+        plugin: Entity,
+        widgets: &mut Widgets,
+        change: NodeChange,
+    ) {
+        match change {
+            NodeChange::Make {
+                node,
+                key,
+                kind,
+                parent,
+            } => {
+                let Some(parent) = widgets
+                    .0
+                    .get(&parent)
+                    .map(|built| built.entity)
+                    .filter(|&parent| {
+                        self.get_entity(parent).is_ok()
+                    })
+                else {
+                    return;
+                };
+                let holder = self
+                    .spawn((Props::new(theme), ChildOf(plugin)))
+                    .id();
+                let view = widget(kind, holder, plugin, key);
+                let entity = {
+                    let mut cx = Cx::new(self, theme, &mut mounts.0);
+                    cx.under(parent, |cx| view.build(cx))
+                };
+                self.entity_mut(entity).insert(NodeOf {
+                    plugin,
+                    key,
+                    hovered: false,
+                });
+                widgets.0.insert(
+                    node,
+                    Built {
+                        entity,
+                        holder: Some(holder),
+                    },
+                );
             }
-        }
-        NodeChange::Watch { node, hover, press } => {
-            let Some(mut entity) =
-                widgets.0.get(&node).and_then(|built| {
-                    world.get_entity_mut(built.entity).ok()
-                })
-            else {
-                return;
-            };
-            if hover && !entity.contains::<PickingHovered>() {
-                entity.insert(PickingHovered::default());
+            NodeChange::Set {
+                node,
+                value,
+                motion,
+            } => {
+                let Some(&Built {
+                    entity,
+                    holder: Some(holder),
+                }) = widgets.0.get(&node)
+                else {
+                    return;
+                };
+                self.set_node(theme, entity, holder, value, motion);
             }
-            if press && !entity.contains::<TellsPresses>() {
-                entity
-                    .insert(TellsPresses)
-                    .observe(pressed)
-                    .observe(released);
-            }
-        }
-        NodeChange::Drop(node) => {
-            let Some(Built {
-                entity,
-                holder: Some(holder),
-            }) = widgets.0.remove(&node)
-            else {
-                return;
-            };
-            for gone in [entity, holder] {
-                if let Ok(gone) = world.get_entity_mut(gone) {
-                    gone.despawn();
+            NodeChange::Order { node, children } => {
+                let Some(entity) =
+                    widgets.0.get(&node).map(|b| b.entity)
+                else {
+                    return;
+                };
+                let children = children
+                    .iter()
+                    .filter_map(|child| widgets.0.get(child))
+                    .map(|built| built.entity)
+                    .collect::<Vec<_>>();
+                if let Ok(mut entity) = self.get_entity_mut(entity) {
+                    entity.replace_children(&children);
                 }
             }
+            NodeChange::Watch { node, hover, press } => {
+                let Some(mut entity) =
+                    widgets.0.get(&node).and_then(|built| {
+                        self.get_entity_mut(built.entity).ok()
+                    })
+                else {
+                    return;
+                };
+                if hover && !entity.contains::<PickingHovered>() {
+                    entity.insert(PickingHovered::default());
+                }
+                if press && !entity.contains::<TellsPresses>() {
+                    entity
+                        .insert(TellsPresses)
+                        .observe(pressed)
+                        .observe(released);
+                }
+            }
+            NodeChange::Drop(node) => {
+                let Some(Built {
+                    entity,
+                    holder: Some(holder),
+                }) = widgets.0.remove(&node)
+                else {
+                    return;
+                };
+                for gone in [entity, holder] {
+                    if let Ok(gone) = self.get_entity_mut(gone) {
+                        gone.despawn();
+                    }
+                }
+            }
+        }
+    }
+
+    fn set_node(
+        &mut self,
+        theme: &EngineTheme,
+        entity: Entity,
+        holder: Entity,
+        value: Property,
+        motion: Option<wit::Motion>,
+    ) {
+        if let Property::Size(wit::Size::Title) = value
+            && let Ok(mut entity) = self.get_entity_mut(entity)
+        {
+            entity.insert(DisplayText);
+        }
+        let reduced = self
+            .get_resource::<ReducedMotion>()
+            .is_some_and(|reduced| reduced.0);
+        let Ok(mut holder) = self.get_entity_mut(holder) else {
+            return;
+        };
+        if let Some(to) = Movable::of(&value, theme) {
+            let Some(from) =
+                holder.get::<Props>().map(|p| to.read(p))
+            else {
+                return;
+            };
+            let mut travels =
+                holder.take::<Travels>().unwrap_or_default();
+            travels.0.retain(|travel| !travel.to.is_same(to));
+            match motion.filter(|_| !reduced && from != to) {
+                Some(motion) => {
+                    let motion = match motion {
+                        wit::Motion::Interact => Movement::Interact,
+                        wit::Motion::Expand => Movement::Expand,
+                    };
+                    travels.0.push(Travel {
+                        from,
+                        to,
+                        elapsed: Duration::ZERO,
+                        curve: theme.motion(motion),
+                    });
+                }
+                None => {
+                    if let Some(mut props) = holder.get_mut::<Props>()
+                    {
+                        to.write(&mut props);
+                    }
+                }
+            }
+            if !travels.0.is_empty() {
+                holder.insert(travels);
+            }
+            return;
+        }
+        let Some(mut props) = holder.get_mut::<Props>() else {
+            return;
+        };
+        match value {
+            Property::Text(text) => props.text = text,
+            Property::Bold(bold) => props.bold = bold,
+            Property::Style(style) => {
+                props.style = match style {
+                    wit::ButtonStyle::Plain => ButtonStyle::Plain,
+                    wit::ButtonStyle::Primary => ButtonStyle::Primary,
+                    wit::ButtonStyle::Critical => {
+                        ButtonStyle::Critical
+                    }
+                    wit::ButtonStyle::Quiet => ButtonStyle::Quiet,
+                };
+            }
+            Property::Direction(direction) => {
+                (props.direction, props.align) = match direction {
+                    wit::Direction::Column => {
+                        (FlexDirection::Column, AlignItems::Default)
+                    }
+                    wit::Direction::Row => {
+                        (FlexDirection::Row, AlignItems::Center)
+                    }
+                };
+            }
+            Property::Tone(_)
+            | Property::Size(_)
+            | Property::Opacity(_)
+            | Property::Space(_) => {}
         }
     }
 }
@@ -524,98 +639,15 @@ fn read<T: Send + Sync + 'static>(
     })
 }
 
-/// Sets `value` on the node whose widget is `entity` and whose
-/// properties are on `holder`: a [`Movable`] one over the theme's
-/// curve for `motion`, any other at once.
-fn set(
-    world: &mut World,
-    theme: &EngineTheme,
-    entity: Entity,
-    holder: Entity,
-    value: Property,
-    motion: Option<wit::Motion>,
-) {
-    if let Property::Size(wit::Size::Title) = value
-        && let Ok(mut entity) = world.get_entity_mut(entity)
-    {
-        entity.insert(DisplayText);
-    }
-    let reduced = world
-        .get_resource::<ReducedMotion>()
-        .is_some_and(|reduced| reduced.0);
-    let Ok(mut holder) = world.get_entity_mut(holder) else {
-        return;
-    };
-    if let Some(to) = Movable::of(&value, theme) {
-        let Some(from) = holder.get::<Props>().map(|p| to.read(p))
-        else {
-            return;
-        };
-        let mut travels =
-            holder.take::<Travels>().unwrap_or_default();
-        travels.0.retain(|travel| !travel.to.is_same(to));
-        match motion.filter(|_| !reduced && from != to) {
-            Some(motion) => {
-                let motion = match motion {
-                    wit::Motion::Interact => Movement::Interact,
-                    wit::Motion::Expand => Movement::Expand,
-                };
-                travels.0.push(Travel {
-                    from,
-                    to,
-                    elapsed: Duration::ZERO,
-                    curve: theme.motion(motion),
-                });
-            }
-            None => {
-                if let Some(mut props) = holder.get_mut::<Props>() {
-                    to.write(&mut props);
-                }
-            }
+impl From<wit::Tone> for Tone {
+    fn from(tone: wit::Tone) -> Self {
+        match tone {
+            wit::Tone::Body => Self::Body,
+            wit::Tone::Dim => Self::Dim,
+            wit::Tone::Faint => Self::Faint,
+            wit::Tone::Accent => Self::Accent,
+            wit::Tone::Critical => Self::Critical,
         }
-        if !travels.0.is_empty() {
-            holder.insert(travels);
-        }
-        return;
-    }
-    let Some(mut props) = holder.get_mut::<Props>() else {
-        return;
-    };
-    match value {
-        Property::Text(text) => props.text = text,
-        Property::Bold(bold) => props.bold = bold,
-        Property::Style(style) => {
-            props.style = match style {
-                wit::ButtonStyle::Plain => ButtonStyle::Plain,
-                wit::ButtonStyle::Primary => ButtonStyle::Primary,
-                wit::ButtonStyle::Critical => ButtonStyle::Critical,
-                wit::ButtonStyle::Quiet => ButtonStyle::Quiet,
-            };
-        }
-        Property::Direction(direction) => {
-            (props.direction, props.align) = match direction {
-                wit::Direction::Column => {
-                    (FlexDirection::Column, AlignItems::Default)
-                }
-                wit::Direction::Row => {
-                    (FlexDirection::Row, AlignItems::Center)
-                }
-            };
-        }
-        Property::Tone(_)
-        | Property::Size(_)
-        | Property::Opacity(_)
-        | Property::Space(_) => {}
-    }
-}
-
-fn tone_of(tone: wit::Tone) -> Tone {
-    match tone {
-        wit::Tone::Body => Tone::Body,
-        wit::Tone::Dim => Tone::Dim,
-        wit::Tone::Faint => Tone::Faint,
-        wit::Tone::Accent => Tone::Accent,
-        wit::Tone::Critical => Tone::Critical,
     }
 }
 
@@ -624,7 +656,9 @@ fn pressed(
     nodes: Query<&NodeOf>,
     mut actions: MessageWriter<NodeAction>,
 ) {
-    tell(&nodes, press.event_target(), true, &mut actions);
+    if let Ok(node) = nodes.get(press.event_target()) {
+        actions.write(node.press(true));
+    }
 }
 
 fn released(
@@ -632,21 +666,8 @@ fn released(
     nodes: Query<&NodeOf>,
     mut actions: MessageWriter<NodeAction>,
 ) {
-    tell(&nodes, release.event_target(), false, &mut actions);
-}
-
-fn tell(
-    nodes: &Query<&NodeOf>,
-    entity: Entity,
-    on: bool,
-    actions: &mut MessageWriter<NodeAction>,
-) {
-    if let Ok(node) = nodes.get(entity) {
-        actions.write(NodeAction {
-            plugin: node.plugin,
-            key: node.key,
-            input: NodeInput::Press(on),
-        });
+    if let Ok(node) = nodes.get(release.event_target()) {
+        actions.write(node.press(false));
     }
 }
 
@@ -761,39 +782,6 @@ fn forget_stopped(
     mut commands: Commands,
 ) {
     for (plugin, widgets) in &plugins {
-        forget(&mut commands, plugin, widgets);
-    }
-}
-
-/// Takes away every widget of `plugin`'s nodes but its roots.
-pub(crate) fn forget(
-    commands: &mut Commands,
-    plugin: Entity,
-    widgets: &Widgets,
-) {
-    for built in widgets.0.values() {
-        if let Some(holder) = built.holder {
-            commands.entity(built.entity).try_despawn();
-            commands.entity(holder).try_despawn();
-        }
-    }
-    commands.entity(plugin).try_remove::<Widgets>();
-}
-
-/// Has a reloaded plugin build its retained panels again: its
-/// widgets are taken away, and each panel shown is offered anew.
-pub(crate) fn remount(
-    commands: &mut Commands,
-    plugin: Entity,
-    widgets: Option<&Widgets>,
-    roots: &Query<(Entity, &UiRoot, &ContributedBy)>,
-) {
-    if let Some(widgets) = widgets {
-        forget(commands, plugin, widgets);
-    }
-    for (surface, root, by) in roots {
-        if by.0 == plugin {
-            commands.entity(surface).insert(*root);
-        }
+        commands.forget_widgets(plugin, widgets);
     }
 }

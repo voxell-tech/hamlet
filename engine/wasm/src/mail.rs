@@ -18,21 +18,23 @@ use crate::panel::{Inbox, Work};
 /// The bytes a batch keeps aside for the length of its list.
 const LIST: usize = 16;
 
-/// Passes on what the plugin `plugin` asked for in its last call,
-/// made `depth` deep.
-pub(crate) fn pass_requests(
-    plugin: Entity,
-    instance: &mut Instance,
-    depth: u32,
-    asked: &mut MessageWriter<Asked>,
-) {
-    for (ticket, request) in instance.take_requests() {
-        asked.write(Asked {
-            plugin,
-            ticket,
-            request,
-            depth: depth + 1,
-        });
+impl Instance {
+    /// Passes on what the plugin `plugin` asked for in its last call,
+    /// made `depth` deep.
+    pub(crate) fn pass_requests(
+        &mut self,
+        plugin: Entity,
+        depth: u32,
+        asked: &mut MessageWriter<Asked>,
+    ) {
+        for (ticket, request) in self.take_requests() {
+            asked.write(Asked {
+                plugin,
+                ticket,
+                request,
+                depth: depth + 1,
+            });
+        }
     }
 }
 

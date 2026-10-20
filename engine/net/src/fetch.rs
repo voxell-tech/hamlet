@@ -33,7 +33,7 @@ use reqwest::{Client, Url};
 use tokio::runtime::Runtime;
 use tokio::task::JoinHandle;
 
-use crate::address::{listed, reach};
+use crate::address::{NetPluginInfoExt, reach};
 
 pub(crate) fn plugin(app: &mut App) {
     if !app.world().contains_resource::<Offline>() {
@@ -117,7 +117,7 @@ fn start(
         else {
             continue;
         };
-        let (url, target) = match listed(plugin, &fetch.url) {
+        let (url, target) = match plugin.listed(&fetch.url) {
             Ok(listed) => listed,
             Err(why) => {
                 deliver.write(request.reply(Err(why)));
@@ -220,43 +220,57 @@ fn finish(
         let done = done.unwrap_or_else(|why| {
             Err(Failure::Failed(format!("the fetch stopped: {why}")))
         });
-        deliver.write(reply(fetch, parent.parent(), done));
+        deliver.write(fetch.reply(parent.parent(), done));
         commands.entity(entity).despawn();
     }
 }
 
-/// Replies to the fetch `fetch` with `done`, as the network would
-/// have, and lets it go.
-pub fn answer(
-    world: &mut World,
-    fetch: Entity,
-    done: Result<FetchReply, Failure>,
-) {
-    let Ok(entity) = world.get_entity(fetch) else {
-        return;
-    };
-    let (Some(made), Some(parent)) =
-        (entity.get::<Fetch>().cloned(), entity.get::<ChildOf>())
-    else {
-        return;
-    };
-    let message = reply(&made, parent.parent(), done);
-    world.write_message(message);
-    world.despawn(fetch);
+/// The network's methods on [`World`].
+pub trait NetWorldExt {
+    /// Replies to the fetch `fetch` with `done`, as the network would
+    /// have, and lets it go.
+    fn answer_fetch(
+        &mut self,
+        fetch: Entity,
+        done: Result<FetchReply, Failure>,
+    );
 }
 
-fn reply(
-    fetch: &Fetch,
-    plugin: Entity,
-    done: Result<FetchReply, Failure>,
-) -> Deliver {
-    Deliver {
-        plugin,
-        message: hamlet_engine_api::Message::Reply {
-            ticket: fetch.ticket,
-            reply: done.map(Reply::Fetched),
-        },
-        depth: fetch.depth,
+impl NetWorldExt for World {
+    fn answer_fetch(
+        &mut self,
+        fetch: Entity,
+        done: Result<FetchReply, Failure>,
+    ) {
+        let Ok(entity) = self.get_entity(fetch) else {
+            return;
+        };
+        let (Some(made), Some(parent)) =
+            (entity.get::<Fetch>().cloned(), entity.get::<ChildOf>())
+        else {
+            return;
+        };
+        let message = made.reply(parent.parent(), done);
+        self.write_message(message);
+        self.despawn(fetch);
+    }
+}
+
+impl Fetch {
+    /// The reply `done` to this fetch, for `plugin`.
+    fn reply(
+        &self,
+        plugin: Entity,
+        done: Result<FetchReply, Failure>,
+    ) -> Deliver {
+        Deliver {
+            plugin,
+            message: hamlet_engine_api::Message::Reply {
+                ticket: self.ticket,
+                reply: done.map(Reply::Fetched),
+            },
+            depth: self.depth,
+        }
     }
 }
 

@@ -271,8 +271,9 @@ builds the samples) runs both samples' scripts.
   title, and a function that builds its content given the entity. While
   the entity is there the dock can show it; when it goes, its tabs go.
   Its tab shows its title in capitals, after its `PanelIcon` if it has
-  one. `panel(view)` gives content the panel's padding and its fill,
-  shaded toward the bottom.
+  one. `view.in_panel()` gives content the panel's padding and its
+  fill, shaded toward the bottom. `tree.open_panel(id)` (`DockTreeExt`)
+  brings a panel to the front.
 - **The console** (`engine/console`) lists the log, newest first.
 - **Settings pages** are entities with a `SettingsPage`, as plugins add
   them. The Settings panel (`engine/settings`, opened from the View
@@ -309,8 +310,10 @@ buttons, cards, headings, notes, icons and chrome. Dark only.
   face, `icon_button` after an icon. Besides: `field`, `toggle`, `choices`,
   `heading`, `section`, `caption`, `note`, `card`, `list`, `link_row`
   and `link_rows`, `page_head`, `divider`, `buttons` (a row that wraps),
-  `scroll_area`, `title_button` and `tab_button`. A `BottomGradient` surface,
-  as a panel or the bar, shades toward `background_bottom`.
+  `scroll_area` and `title_button`. `StyleExt` wraps any view:
+  `styled(kind)` as a button, `with_icon(glyph)`, `in_tab(shown)` and
+  `in_panel()`. A `BottomGradient` surface, as a panel or the bar,
+  shades toward `background_bottom`.
 - **Glows** are Bevy's `BoxShadow` and `BackgroundGradient` and
   nothing else: no shader of the shell's own. A control glows by what
   it is for (`Glow`): eased toward the pointer, a press or the caret,
@@ -384,8 +387,9 @@ person has one or more, and one is shown at a time.
 
 - **A command** is an entity with a `Command`: its id (`engine/quit`,
   `hamlet.demo/hello`) and its label. Its owner observes `RunCommand` on
-  it. `command::run(world, id)` runs one by id; `spawn_command` spawns
-  one with its menu entry and keys as its children.
+  it. `world.run_command(id)` (`ShellWorldExt`) runs one by id;
+  `commands.spawn_command(..)` (`ShellCommandsExt`) spawns one with its
+  menu entry and keys as its children.
 - **A shortcut** is an entity with a `Shortcut`: a chord and the id of
   the command it runs. A key press runs the command of the first
   shortcut with its chord, unless a bare key goes to a text field being
@@ -428,9 +432,10 @@ person has one or more, and one is shown at a time.
   workspaces, and come back when it is switched on again.
 - **Stopped.** A plugin the engine stopped while it was on carries
   `Stopped` with why; what it added stays until it is switched off.
-- **Built in.** `add_builtin(commands, manifest, entry)` adds a plugin
-  linked into the binary and switches it on, unless it is kept off. A
-  manifest that `check` refuses is told in the log and not added.
+- **Built in.** `commands.add_builtin(manifest, entry)`
+  (`PluginCommandsExt`) adds a plugin linked into the binary and
+  switches it on, unless it is kept off. A manifest that `check`
+  refuses is told in the log and not added.
 - **The plugin list** (`engine/plugins`) is the engine's own panel: each
   plugin, its id and version, whether it is on and how much it adds, or
   why it was stopped, and SWITCH ON or SWITCH OFF; an installed one has
@@ -447,7 +452,8 @@ person has one or more, and one is shown at a time.
   adds a panel, Hello; a command, Say hello, in a Demo menu and on
   Primary+Shift+H, which writes to the log; and a workspace to take,
   Hello with the console.
-- **`switch_on`** adds what an `Entry` declares and marks the plugin on.
+- **`commands.switch_on(..)`** adds what an `Entry` declares and marks
+  the plugin on.
   A built-in plugin's entry point runs through it, and so does a WASM
   plugin once it has said what it adds.
 - **A command's function** is given the world and the command's
@@ -775,7 +781,7 @@ runtime of its own.
   once, `fetch_bytes` of an answer, `fetch_time` seconds for the whole.
 - **A fetch** is a `Fetch` on a child of its plugin, so it goes with
   it. With `Offline` in the app, as the harness has it, fetches are
-  never sent and wait for `answer`.
+  never sent and wait for `world.answer_fetch(..)` (`NetWorldExt`).
 
 ## Where the budgets are
 

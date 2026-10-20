@@ -1,7 +1,7 @@
 //! The styles of the shell's widgets, built from the theme: buttons
-//! of each kind, fields, toggles, choices, headings, notes, cards,
-//! lists, link rows, dividers and scroll areas, and how a control
-//! glows and gives under the hand.
+//! of each kind, tabs, fields, toggles, choices, headings, notes,
+//! cards, lists, link rows, dividers, scroll areas and a panel's
+//! content, and how a control glows and gives under the hand.
 
 use bevy::prelude::*;
 use bevy::text::EditableText;
@@ -21,12 +21,12 @@ use crate::theme::EngineTheme;
 use crate::{AnyView, Cx, View};
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_observer(answer).add_systems(
+    app.add_observer(pulse).add_systems(
         Update,
         (
             (add_glow_state, animate, apply_glow, bottom_light)
                 .chain(),
-            shade,
+            gradient,
             wrap,
             clip_inside,
             glow_margin,
@@ -75,7 +75,7 @@ pub enum Glow {
 
 /// On the tab that is shown.
 #[derive(Component, Clone, Copy, Debug)]
-pub struct Shown;
+pub struct Active;
 
 /// A title or a tab lit from below under the pointer, at a press,
 /// and for as long as it is `held`: a gradient from the active colour
@@ -272,7 +272,7 @@ impl ButtonStyle {
                 .pressed(|s| {
                     s.fill(|_| Color::NONE).tone(Tone::Faint)
                 })
-                .when::<Shown>(|s| s.tone(Tone::Body)),
+                .when::<Active>(|s| s.tone(Tone::Body)),
         };
         rules.transition(Motion::Interact).bundle()
     }
@@ -298,17 +298,100 @@ fn framed_button_rules() -> Rules {
     })
 }
 
-/// A button of the style `kind` showing `content`.
-pub fn styled<C: View>(kind: ButtonStyle, content: C) -> impl View {
-    button(content).rules(kind.rules()).tagged(kind.glow())
+/// The shell's styles on any view.
+pub trait StyleExt: View + Sized {
+    /// A button of the style `kind` showing this view.
+    fn styled(self, kind: ButtonStyle) -> impl View {
+        button(self).rules(kind.rules()).tagged(kind.glow())
+    }
+
+    /// The icon `which` before this view, set a little high to sit on
+    /// the middle of the display face's capitals.
+    fn with_icon(self, which: Glyph) -> AnyView {
+        AnyView::new(move |cx: &mut Cx| {
+            let theme = cx.theme();
+            let (size, gap, offset) = (
+                theme.space.icon,
+                theme.space.icon_gap,
+                theme.space.icon_offset,
+            );
+            cx.build(
+                row((
+                    row((glyph(which, size),))
+                        .gap(0.0)
+                        .padding(UiRect::bottom(px(offset))),
+                    self,
+                ))
+                .gap(gap)
+                .align(AlignItems::Center),
+            )
+        })
+    }
+
+    /// A tab showing this view, lit and underlined across its width
+    /// while `shown`.
+    fn in_tab(self, shown: bool) -> AnyView {
+        AnyView::new(move |cx: &mut Cx| {
+            let theme = cx.theme();
+            let (line, under, pad) = (
+                theme.space.underline,
+                *theme.colors.accent_soft,
+                theme.space.gap / 2.0,
+            );
+            let underline = frame()
+                .height(px(line))
+                .width(percent(100.0))
+                .fill(if shown { under } else { Color::NONE });
+            let tab = column((
+                column((self,))
+                    .grow(1.0)
+                    .padding(UiRect::axes(px(pad), px(0.0)))
+                    .justify(JustifyContent::Center),
+                underline,
+            ))
+            .gap(0.0)
+            .align(AlignItems::Stretch)
+            .styled(ButtonStyle::Tab)
+            .tagged(BottomLight::new(shown));
+            if shown {
+                cx.build(tab.tagged(Active))
+            } else {
+                cx.build(tab)
+            }
+        })
+    }
+
+    /// A panel's content: this view, inside the panel's padding on a
+    /// surface that shades toward its bottom, cut at the padding.
+    fn in_panel(self) -> AnyView {
+        AnyView::new(move |cx: &mut Cx| {
+            let theme = cx.theme();
+            let (fill, inset) =
+                (*theme.colors.background, theme.space.panel);
+            cx.build(
+                column((self,))
+                    .grow(1.0)
+                    .min_width(px(0.0))
+                    .min_height(px(0.0))
+                    .padding(UiRect::all(px(inset)))
+                    .gap(0.0)
+                    .fill(fill)
+                    .overflow(Overflow::clip())
+                    .tagged(BottomGradient)
+                    .tagged(ClipInside),
+            )
+        })
+    }
 }
+
+impl<V: View> StyleExt for V {}
 
 /// A button of the style `kind` showing `text` in the display face.
 pub fn action(
     kind: ButtonStyle,
     text: impl Into<Prop<String>>,
 ) -> impl View {
-    styled(kind, label(text).wrap(false).tagged(DisplayText))
+    label(text).wrap(false).tagged(DisplayText).styled(kind)
 }
 
 /// A button of the style `kind` with the icon `which` before its
@@ -318,18 +401,17 @@ pub fn icon_button(
     which: Glyph,
     text: impl Into<Prop<String>>,
 ) -> impl View {
-    button(with_icon(
-        which,
-        label(text).wrap(false).tagged(DisplayText),
-    ))
+    button(
+        label(text).wrap(false).tagged(DisplayText).with_icon(which),
+    )
     .rules(
         style::<EngineTheme>()
             .frame(|f, t| {
                 // Less on the icon's side, which has air of its
                 // own.
                 f.padding(UiRect::new(
-                    px(t.space.mark_start),
-                    px(t.space.mark_end),
+                    px(t.space.pad_start),
+                    px(t.space.pad_end),
                     px(0.0),
                     px(0.0),
                 ))
@@ -340,78 +422,18 @@ pub fn icon_button(
     .tagged(kind.glow())
 }
 
-/// The icon `which` before `words`, set a little high to sit on the
-/// middle of the display face's capitals.
-pub fn with_icon<V: View>(which: Glyph, words: V) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
-        let theme = cx.theme();
-        let (size, gap, offset) = (
-            theme.space.icon,
-            theme.space.icon_gap,
-            theme.space.icon_offset,
-        );
-        cx.build(
-            row((
-                row((glyph(which, size),))
-                    .gap(0.0)
-                    .padding(UiRect::bottom(px(offset))),
-                words,
-            ))
-            .gap(gap)
-            .align(AlignItems::Center),
-        )
-    })
-}
-
 /// A menu's title, `text`, lit from below while `held`.
 pub fn title_button(
     text: impl Into<Prop<String>>,
     held: bool,
 ) -> AnyView {
-    styled(
-        ButtonStyle::Title,
-        column((label(text).wrap(false).tagged(DisplayText),))
-            .gap(0.0)
-            .height(percent(100.0))
-            .justify(JustifyContent::Center),
-    )
-    .tagged(BottomLight::new(held))
-    .boxed()
-}
-
-/// A tab showing `content`, lit and underlined across its width
-/// while `shown`.
-pub fn tab_button<C: View>(content: C, shown: bool) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
-        let theme = cx.theme();
-        let (line, under, pad) = (
-            theme.space.underline,
-            *theme.colors.accent_soft,
-            theme.space.gap / 2.0,
-        );
-        let underline = frame()
-            .height(px(line))
-            .width(percent(100.0))
-            .fill(if shown { under } else { Color::NONE });
-        let tab = styled(
-            ButtonStyle::Tab,
-            column((
-                column((content,))
-                    .grow(1.0)
-                    .padding(UiRect::axes(px(pad), px(0.0)))
-                    .justify(JustifyContent::Center),
-                underline,
-            ))
-            .gap(0.0)
-            .align(AlignItems::Stretch),
-        )
-        .tagged(BottomLight::new(shown));
-        if shown {
-            cx.build(tab.tagged(Shown))
-        } else {
-            cx.build(tab)
-        }
-    })
+    column((label(text).wrap(false).tagged(DisplayText),))
+        .gap(0.0)
+        .height(percent(100.0))
+        .justify(JustifyContent::Center)
+        .styled(ButtonStyle::Title)
+        .tagged(BottomLight::new(held))
+        .boxed()
 }
 
 /// A text field showing `value`, handing what was typed to `commit`,
@@ -650,10 +672,13 @@ pub fn link_row(
             theme.text.small,
             theme.space.section,
         );
-        let mut lines = vec![with_icon(
-            which,
-            label(title).bold(true).wrap(false).tagged(DisplayText),
-        )];
+        let mut lines = vec![
+            label(title)
+                .bold(true)
+                .wrap(false)
+                .tagged(DisplayText)
+                .with_icon(which),
+        ];
         if let Some(holds) = holds {
             lines.push(
                 label(holds)
@@ -663,8 +688,7 @@ pub fn link_row(
                     .boxed(),
             );
         }
-        cx.build(styled(
-            ButtonStyle::Row,
+        cx.build(
             row((
                 column(lines)
                     .gap(gap / 2.0)
@@ -674,8 +698,9 @@ pub fn link_row(
             ))
             .gap(section)
             .grow(1.0)
-            .align(AlignItems::Center),
-        ))
+            .align(AlignItems::Center)
+            .styled(ButtonStyle::Row),
+        )
     })
 }
 
@@ -706,14 +731,12 @@ pub fn page_head(
             row((
                 icon_button(ButtonStyle::Quiet, Glyph::Back, front)
                     .on_activate(back),
-                with_icon(
-                    which,
-                    label(name)
-                        .bold(true)
-                        .wrap(false)
-                        .tone(Tone::Faint)
-                        .tagged(DisplayText),
-                ),
+                label(name)
+                    .bold(true)
+                    .wrap(false)
+                    .tone(Tone::Faint)
+                    .tagged(DisplayText)
+                    .with_icon(which),
             ))
             .gap(section)
             .align(AlignItems::Center),
@@ -836,7 +859,7 @@ fn add_glow_state(
 
 /// A button that has done its work pulses, or shakes if what it did
 /// was to refuse.
-fn answer(
+fn pulse(
     activated: On<Activate>,
     mut controls: Query<(&mut GlowState, Option<&Glow>)>,
 ) {
@@ -936,7 +959,7 @@ fn animate(
             pulse,
             shake,
             glow: (lit * flicker).clamp(0.0, 1.0),
-            reach: set.reach + set.pulse_reach * pulse.max(shake),
+            reach: set.blur + set.pulse_blur * pulse.max(shake),
         };
     }
 }
@@ -1082,7 +1105,7 @@ fn bottom_light(
 
 /// Gives each new [`BottomGradient`] surface its shading toward its
 /// bottom.
-fn shade(
+fn gradient(
     theme: Res<EngineTheme>,
     surfaces: Query<Entity, Added<BottomGradient>>,
     mut commands: Commands,
@@ -1151,7 +1174,7 @@ fn glow_margin(
     mut nodes: Query<(Ref<GlowMargin>, &mut Node)>,
 ) {
     let set = &theme.glow;
-    let room = (set.reach + set.pulse_reach) * (1.0 + set.drop);
+    let room = (set.blur + set.pulse_blur) * (1.0 + set.drop);
     for (margin, mut node) in &mut nodes {
         if theme.is_changed() || margin.is_added() {
             node.overflow_clip_margin =

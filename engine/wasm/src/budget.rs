@@ -14,8 +14,8 @@ use bevy::time::{Real, Time};
 use hamlet_engine_core::{Budgets, LogLine};
 use hamlet_engine_plugins::PluginInfo;
 
+use crate::WasmCommandsExt;
 use crate::instance::{Fault, Instance, Spent};
-use crate::panel::stop;
 
 /// On a running plugin: what it spent in the current second.
 #[derive(Component, Default, Debug)]
@@ -76,27 +76,29 @@ impl Spending {
     }
 }
 
-/// Tells the log what the plugin `info` logged, as many lines of each
-/// level a second as the budgets allow.
-pub(crate) fn pass_logs(
-    info: &PluginInfo,
-    instance: &mut Instance,
-    spending: &mut Spending,
-    budgets: &Budgets,
-    log: &mut MessageWriter<LogLine>,
-) {
-    for (level, text) in instance.take_logs() {
-        let lines = &mut spending.lines[level as usize];
-        if *lines >= budgets.log_lines_per_second {
-            spending.dropped_lines += 1;
-            continue;
+impl Instance {
+    /// Tells the log what the plugin `info` logged, as many lines of
+    /// each level a second as the budgets allow.
+    pub(crate) fn pass_logs(
+        &mut self,
+        info: &PluginInfo,
+        spending: &mut Spending,
+        budgets: &Budgets,
+        log: &mut MessageWriter<LogLine>,
+    ) {
+        for (level, text) in self.take_logs() {
+            let lines = &mut spending.lines[level as usize];
+            if *lines >= budgets.log_lines_per_second {
+                spending.dropped_lines += 1;
+                continue;
+            }
+            *lines += 1;
+            log.write(LogLine {
+                level,
+                source: info.id.to_string(),
+                text,
+            });
         }
-        *lines += 1;
-        log.write(LogLine {
-            level,
-            source: info.id.to_string(),
-            text,
-        });
     }
 }
 
@@ -140,7 +142,7 @@ pub(crate) fn tally(
         };
         if strikes >= budgets.strikes {
             let fault = Fault::Over(strikes);
-            stop(&mut commands, &mut log, plugin, info, &fault);
+            commands.stop_plugin(&mut log, plugin, info, &fault);
             continue;
         }
         if strikes == 1 {

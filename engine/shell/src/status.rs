@@ -65,12 +65,12 @@ pub fn view() -> AnyView {
                         }
                     };
                     row((
-                        fact(
+                        item(
                             Glyph::Folder,
                             status.workspace.clone(),
                             Tone::Dim,
                         ),
-                        fact(which, text, tone),
+                        item(which, text, tone),
                     ))
                     .gap(gap)
                     .align(AlignItems::Center)
@@ -94,7 +94,7 @@ pub fn view() -> AnyView {
 
 /// An icon and the words it stands before, both in `tone`, the words
 /// on one line however many lines they came in.
-fn fact(which: Glyph, text: String, tone: Tone) -> AnyView {
+fn item(which: Glyph, text: String, tone: Tone) -> AnyView {
     let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
     AnyView::new(move |cx: &mut Cx| {
         let theme = cx.theme();

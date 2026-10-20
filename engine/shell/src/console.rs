@@ -10,9 +10,9 @@ use hamlet_engine_api::PanelId;
 use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_core::{Log, LogLevel, LogLine};
 
-use crate::dock::{Panel, PanelIcon, panel};
+use crate::dock::{Panel, PanelIcon};
 use crate::icons::Glyph;
-use crate::style::scroll_area;
+use crate::style::{StyleExt, scroll_area};
 use crate::{AnyView, Cx};
 
 pub(crate) fn plugin(app: &mut App) {
@@ -45,10 +45,11 @@ fn view(_: Entity) -> AnyView {
         |(number, _)| *number,
         |(_, line)| line_view(line),
     );
-    panel(AnyView::new(move |cx: &mut Cx| {
+    AnyView::new(move |cx: &mut Cx| {
         let gap = cx.theme().space.gap / 2.0;
         cx.build(scroll_area((lines.within(column(()).gap(gap)),)))
-    }))
+    })
+    .in_panel()
 }
 
 /// A line: where it came from, dim, and what it says in the tone of

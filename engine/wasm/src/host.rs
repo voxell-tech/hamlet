@@ -96,25 +96,32 @@ impl Host {
                 InstanceAllocationStrategy::Pooling(pool),
             );
         let engine = Engine::new(&config)?;
-        tick(&engine, Duration::from_secs_f32(tuning.tick / 1000.0))?;
+        engine.tick(Duration::from_secs_f32(tuning.tick / 1000.0))?;
         Ok(Self(engine))
     }
 }
 
-/// Ticks the epoch of `engine` every `every` until the engine is
-/// gone.
-fn tick(engine: &Engine, every: Duration) -> std::io::Result<()> {
-    let weak = engine.weak();
-    thread::Builder::new()
-        .name("wasm epoch".into())
-        .spawn(move || {
-            while let Some(engine) = weak.upgrade() {
-                engine.increment_epoch();
-                drop(engine);
-                thread::sleep(every);
-            }
-        })
-        .map(drop)
+/// The WASM host's methods on [`Engine`].
+trait WasmEngineExt {
+    /// Ticks the engine's epoch every `every` until the engine is
+    /// gone.
+    fn tick(&self, every: Duration) -> std::io::Result<()>;
+}
+
+impl WasmEngineExt for Engine {
+    fn tick(&self, every: Duration) -> std::io::Result<()> {
+        let weak = self.weak();
+        thread::Builder::new()
+            .name("wasm epoch".into())
+            .spawn(move || {
+                while let Some(engine) = weak.upgrade() {
+                    engine.increment_epoch();
+                    drop(engine);
+                    thread::sleep(every);
+                }
+            })
+            .map(drop)
+    }
 }
 
 fn start(

@@ -15,15 +15,15 @@ use hamlet_engine_api::{
 use hamlet_engine_core::tuning::Tuning;
 use hamlet_engine_core::{Budgets, Home, Log, LogLevel};
 use hamlet_engine_grants::{
-    Grants, Petition, Record, answer_install,
+    Grants, GrantsWorldExt, Petition, Record,
 };
 use hamlet_engine_plugins::Stopped;
-use hamlet_engine_shell::command;
+use hamlet_engine_shell::ShellWorldExt;
 use wasmtime::component::Resource;
 use wit_component::{ComponentEncoder, StringEncoding};
 use wit_parser::Resolve;
 
-use crate::add::{check, place};
+use crate::add::check;
 use crate::budget::Spending;
 use crate::folder::{FOLDER, MANIFEST, WASM};
 use crate::host::{Host, WasmTuning};
@@ -32,7 +32,6 @@ use crate::instance::ui_bindings::hamlet::engine::ui::{
 };
 use crate::instance::{Caps, Fault, Instance, State, link};
 use crate::panel::{Drawn, Input, Shows};
-use crate::reload::reload;
 
 /// The exports every test plugin has, with `declare` and `draw`
 /// doing what they are given. The return area at 0 points at an empty
@@ -381,9 +380,9 @@ fn a_reloaded_plugin_keeps_its_state() {
         assert_eq!(old.run(&caps, "count").0, Ok(()));
     }
     let mut spending = Spending::new(Duration::ZERO);
-    let (mut fresh, declared) =
-        reload(&mut old, &host.0, &linked, &caps, &mut spending)
-            .expect("it reloads");
+    let (mut fresh, declared) = old
+        .reload(&host.0, &linked, &caps, &mut spending)
+        .expect("it reloads");
     assert_eq!(declared, Vec::new());
     assert_eq!(fresh.save(&caps).0, Ok(3_u32.to_le_bytes().to_vec()));
 }
@@ -475,7 +474,7 @@ fn only_the_folder_of_a_built_plugin_is_added() {
         }
         let added =
             check(&folder, &root, &tuning).and_then(|checked| {
-                place(&checked, &plugins, &into, &tuning)
+                checked.place(&plugins, &into, &tuning)
             });
         match added {
             Ok(manifest) => {
@@ -568,8 +567,8 @@ fn the_hello_sample_runs() {
         .query::<(Entity, &Petition)>()
         .single(world)
         .expect("the person is asked");
-    answer_install(world, petition, true);
-    let count = until(&mut app, |text| text.starts_with("Pressed"));
+    world.answer_install(petition, true);
+    let count = app.until(|text| text.starts_with("Pressed"));
     assert_eq!(count, "Pressed 0 times.");
 
     let world = app.world_mut();
@@ -582,7 +581,7 @@ fn the_hello_sample_runs() {
         widget: WidgetId("press".into()),
         action: Action::Click,
     });
-    let count = until(&mut app, |text| text != "Pressed 0 times.");
+    let count = app.until(|text| text != "Pressed 0 times.");
     assert_eq!(count, "Pressed once.");
 
     // Built again, it is reloaded with its count.
@@ -598,25 +597,30 @@ fn the_hello_sample_runs() {
             .any(|(_, line)| line.text.ends_with("is reloaded"))
     });
     assert!(reloaded, "it was never reloaded");
-    assert_eq!(until(&mut app, |_| true), "Pressed once.");
+    assert_eq!(app.until(|_| true), "Pressed once.");
 
     // Its command, as a menu or its keys run it.
     let reset = CommandId::try_from("hamlet.hello/reset").unwrap();
-    command::run(app.world_mut(), &reset);
-    let count = until(&mut app, |text| text != "Pressed once.");
+    app.world_mut().run_command(&reset);
+    let count = app.until(|text| text != "Pressed once.");
     assert_eq!(count, "Pressed 0 times.");
     let _ = fs::remove_dir_all(&root);
 }
 
-/// Runs `app` until the text "count" of its one WASM panel is one
-/// that `wanted` takes, and gives it.
-fn until(app: &mut App, wanted: impl Fn(&str) -> bool) -> String {
-    for _ in 0..500 {
-        app.update();
-        let world = app.world_mut();
-        let shown =
-            world.query::<&Drawn>().iter(world).find_map(|drawn| {
-                match &drawn.shows {
+/// The tests' methods on [`App`].
+trait TestAppExt {
+    /// Runs the app until the text "count" of its one WASM panel is
+    /// one that `wanted` takes, and gives it.
+    fn until(&mut self, wanted: impl Fn(&str) -> bool) -> String;
+}
+
+impl TestAppExt for App {
+    fn until(&mut self, wanted: impl Fn(&str) -> bool) -> String {
+        for _ in 0..500 {
+            self.update();
+            let world = self.world_mut();
+            let shown = world.query::<&Drawn>().iter(world).find_map(
+                |drawn| match &drawn.shows {
                     Shows::Tree(tree) => {
                         tree.nodes.iter().find_map(|node| {
                             match (&node.id.0[..], &node.widget) {
@@ -628,12 +632,13 @@ fn until(app: &mut App, wanted: impl Fn(&str) -> bool) -> String {
                         })
                     }
                     _ => None,
-                }
-            });
-        if let Some(text) = shown.filter(|text| wanted(text)) {
-            return text;
+                },
+            );
+            if let Some(text) = shown.filter(|text| wanted(text)) {
+                return text;
+            }
+            std::thread::sleep(Duration::from_millis(10));
         }
-        std::thread::sleep(Duration::from_millis(10));
+        panic!("the panel never showed what was wanted");
     }
-    panic!("the panel never showed what was wanted");
 }

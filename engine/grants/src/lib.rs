@@ -19,8 +19,8 @@ use hamlet_engine_plugins::{PluginInfo, Uninstall};
 
 pub use self::file::{Answer, Answered, FILE, Grants, Record};
 pub use self::petition::{
-    Decided, FirstUse, PETITIONS, Petition, Question, answer_install,
-    answer_use,
+    Decided, FirstUse, GrantsCommandsExt, GrantsWorldExt, PETITIONS,
+    Petition, Question,
 };
 pub use self::waiting::Waiting;
 

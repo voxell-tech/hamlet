@@ -15,52 +15,59 @@ const HTTPS: u16 = 443;
 /// The characters of an address that a refusal repeats.
 const CUT: usize = 60;
 
-/// The address `url`, and the target of the ask of `plugin` it is
-/// on: an `https` address with no user, on a host such as
-/// `api.example.org`, or `host:port` for a port other than 443.
-pub(crate) fn listed(
-    plugin: &PluginInfo,
-    url: &str,
-) -> Result<(Url, String), Failure> {
-    let shown = url.chars().take(CUT).collect::<String>();
-    let refused = |why: String| Failure::Refused(why);
-    let parsed = Url::parse(url).map_err(|_| {
-        refused(format!("{shown:?} is not an address"))
-    })?;
-    if parsed.scheme() != "https" {
-        return Err(refused(format!("{shown:?} is not https")));
-    }
-    if !parsed.username().is_empty() || parsed.password().is_some() {
-        return Err(refused(format!("{shown:?} names a user")));
-    }
-    let host = parsed
-        .host_str()
-        .ok_or_else(|| refused(format!("{shown:?} has no host")))?
-        .to_ascii_lowercase();
-    let port = parsed.port_or_known_default().unwrap_or(HTTPS);
-    let target = plugin
-        .asks
-        .iter()
-        .filter(|ask| ask.capability == Capability::NetFetch)
-        .map(|ask| &ask.target)
-        .find(|target| {
-            let target = target.to_ascii_lowercase();
-            match target.rsplit_once(':') {
-                Some((name, number))
-                    if number.parse::<u16>().is_ok() =>
-                {
-                    name == host && number.parse::<u16>() == Ok(port)
-                }
-                _ => target == host && port == HTTPS,
-            }
-        })
-        .ok_or_else(|| {
-            refused(format!(
-                "{host} is not a host {} asked for",
-                plugin.id
-            ))
+/// The network's methods on [`PluginInfo`].
+pub(crate) trait NetPluginInfoExt {
+    /// The address `url`, and the target of the plugin's ask it is
+    /// on: an `https` address with no user, on a host such as
+    /// `api.example.org`, or `host:port` for a port other than 443.
+    fn listed(&self, url: &str) -> Result<(Url, String), Failure>;
+}
+
+impl NetPluginInfoExt for PluginInfo {
+    fn listed(&self, url: &str) -> Result<(Url, String), Failure> {
+        let shown = url.chars().take(CUT).collect::<String>();
+        let refused = |why: String| Failure::Refused(why);
+        let parsed = Url::parse(url).map_err(|_| {
+            refused(format!("{shown:?} is not an address"))
         })?;
-    Ok((parsed, target.clone()))
+        if parsed.scheme() != "https" {
+            return Err(refused(format!("{shown:?} is not https")));
+        }
+        if !parsed.username().is_empty()
+            || parsed.password().is_some()
+        {
+            return Err(refused(format!("{shown:?} names a user")));
+        }
+        let host = parsed
+            .host_str()
+            .ok_or_else(|| refused(format!("{shown:?} has no host")))?
+            .to_ascii_lowercase();
+        let port = parsed.port_or_known_default().unwrap_or(HTTPS);
+        let target = self
+            .asks
+            .iter()
+            .filter(|ask| ask.capability == Capability::NetFetch)
+            .map(|ask| &ask.target)
+            .find(|target| {
+                let target = target.to_ascii_lowercase();
+                match target.rsplit_once(':') {
+                    Some((name, number))
+                        if number.parse::<u16>().is_ok() =>
+                    {
+                        name == host
+                            && number.parse::<u16>() == Ok(port)
+                    }
+                    _ => target == host && port == HTTPS,
+                }
+            })
+            .ok_or_else(|| {
+                refused(format!(
+                    "{host} is not a host {} asked for",
+                    self.id
+                ))
+            })?;
+        Ok((parsed, target.clone()))
+    }
 }
 
 /// Whether `address` may be reached by a plugin: not loopback,

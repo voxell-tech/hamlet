@@ -48,50 +48,70 @@ impl Unsaved {
     pub fn pending(&self) -> bool {
         self.since.is_some()
     }
-}
 
-/// Reads the workspaces in `home`.
-pub fn read(home: &Home) -> Restored {
-    let path = home.path(FILE);
-    let text = match fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Restored::Fresh;
+    /// Writes `workspaces` to `home`, unless saving is off.
+    fn store(
+        &mut self,
+        home: &Home,
+        workspaces: &Workspaces,
+        log: &mut MessageWriter<LogLine>,
+    ) {
+        self.since = None;
+        if self.held {
+            return;
         }
-        Err(e) => return Restored::Held { why: e.to_string() },
-    };
-    let why = match ron::from_str::<Workspaces>(&text) {
-        Ok(workspaces) => return Restored::Read(workspaces.mended()),
-        Err(e) => e.to_string(),
-    };
-    let kept = (1..)
-        .map(|n| match n {
-            1 => home.path("workspaces_broken.ron"),
-            n => home.path(&format!("workspaces_broken_{n}.ron")),
-        })
-        .find(|kept| !kept.exists())
-        .unwrap_or_else(|| home.path("workspaces_broken.ron"));
-    match fs::rename(&path, &kept) {
-        Ok(()) => Restored::KeptAside { why, kept },
-        Err(e) => Restored::Held {
-            why: format!(
-                "{why}; and it could not be moved aside: {e}"
-            ),
-        },
+        if let Err(why) = workspaces.write(home) {
+            log.write(LogLine::error(
+                "workspaces",
+                format!("{FILE} could not be saved: {why}"),
+            ));
+        }
     }
 }
 
-/// Writes `workspaces` to the home, whole or not at all.
-pub fn write(
-    home: &Home,
-    workspaces: &Workspaces,
-) -> Result<(), String> {
-    let text = ron::ser::to_string_pretty(
-        workspaces,
-        PrettyConfig::default(),
-    )
-    .map_err(|e| e.to_string())?;
-    write_whole(&home.path(FILE), text).map_err(|e| e.to_string())
+impl Restored {
+    /// Reads the workspaces in `home`.
+    pub fn read(home: &Home) -> Self {
+        let path = home.path(FILE);
+        let text = match fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Self::Fresh;
+            }
+            Err(e) => return Self::Held { why: e.to_string() },
+        };
+        let why = match ron::from_str::<Workspaces>(&text) {
+            Ok(workspaces) => {
+                return Self::Read(workspaces.cleaned());
+            }
+            Err(e) => e.to_string(),
+        };
+        let kept = (1..)
+            .map(|n| match n {
+                1 => home.path("workspaces_broken.ron"),
+                n => home.path(&format!("workspaces_broken_{n}.ron")),
+            })
+            .find(|kept| !kept.exists())
+            .unwrap_or_else(|| home.path("workspaces_broken.ron"));
+        match fs::rename(&path, &kept) {
+            Ok(()) => Self::KeptAside { why, kept },
+            Err(e) => Self::Held {
+                why: format!(
+                    "{why}; and it could not be moved aside: {e}"
+                ),
+            },
+        }
+    }
+}
+
+impl Workspaces {
+    /// Writes the workspaces to `home`, whole or not at all.
+    pub fn write(&self, home: &Home) -> Result<(), String> {
+        let text =
+            ron::ser::to_string_pretty(self, PrettyConfig::default())
+                .map_err(|e| e.to_string())?;
+        write_whole(&home.path(FILE), text).map_err(|e| e.to_string())
+    }
 }
 
 /// Puts in the workspaces the home holds.
@@ -101,7 +121,7 @@ pub fn restore(
     mut log: MessageWriter<LogLine>,
     mut commands: Commands,
 ) {
-    let workspaces = match read(&home) {
+    let workspaces = match Restored::read(&home) {
         Restored::Read(workspaces) => workspaces,
         Restored::Fresh => Workspaces::default(),
         Restored::KeptAside { why, kept } => {
@@ -152,7 +172,7 @@ pub fn save(
     if (time.elapsed() - since).as_secs_f32() < tuning.save_after {
         return;
     }
-    store(&home, &workspaces, &mut unsaved, &mut log);
+    unsaved.store(&home, &workspaces, &mut log);
 }
 
 /// Saves what is not saved yet, as the engine closes.
@@ -163,24 +183,6 @@ pub fn save_now(
     mut log: MessageWriter<LogLine>,
 ) {
     if unsaved.pending() {
-        store(&home, &workspaces, &mut unsaved, &mut log);
-    }
-}
-
-fn store(
-    home: &Home,
-    workspaces: &Workspaces,
-    unsaved: &mut Unsaved,
-    log: &mut MessageWriter<LogLine>,
-) {
-    unsaved.since = None;
-    if unsaved.held {
-        return;
-    }
-    if let Err(why) = write(home, workspaces) {
-        log.write(LogLine::error(
-            "workspaces",
-            format!("{FILE} could not be saved: {why}"),
-        ));
+        unsaved.store(&home, &workspaces, &mut log);
     }
 }

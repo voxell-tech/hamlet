@@ -32,7 +32,7 @@ fn measure(home: &Path, folder: &Path) -> Result<(), String> {
     let mut harness = Harness::new(home);
     let id = harness.install(folder)?;
     harness.allow(id.as_str(), Answer::Allow)?;
-    let before = stats(&mut harness);
+    let before = harness.stats();
     let mounted = harness.until(|harness| {
         harness
             .outline(PANEL)
@@ -43,22 +43,22 @@ fn measure(home: &Path, folder: &Path) -> Result<(), String> {
     }
     let world = harness.world();
     let nodes = world.query::<&NodeOf>().iter(world).count();
-    report("mount", &settle_from(&mut harness, before));
+    report("mount", &harness.settle_from(before));
     println!("nodes: {nodes}");
     println!();
 
-    report("idle", &run(&mut harness, 120));
+    report("idle", &harness.run_frames(120));
 
     harness.hover(PANEL, "Hover me", true)?;
-    report("hover in", &settle(&mut harness));
+    report("hover in", &harness.settle());
     harness.hover(PANEL, "Hover me", false)?;
-    report("hover out", &settle(&mut harness));
+    report("hover out", &harness.settle());
 
     harness.click(PANEL, "Add one")?;
-    report("click", &settle(&mut harness));
+    report("click", &harness.settle());
 
     harness.click(PANEL, "Fade")?;
-    report("a fade", &settle(&mut harness));
+    report("a fade", &harness.settle());
     Ok(())
 }
 
@@ -70,61 +70,84 @@ struct Frame {
     update: Duration,
 }
 
-fn stats(harness: &mut Harness) -> NodeStats {
-    *harness.world().resource::<NodeStats>()
+/// The example's methods on [`Harness`].
+trait CostsHarnessExt {
+    fn stats(&mut self) -> NodeStats;
+
+    /// Runs `count` frames: what each cost.
+    fn run_frames(&mut self, count: usize) -> Vec<Frame>;
+
+    /// Runs frames until ten in a row cost the plugin nothing: what
+    /// each cost.
+    fn settle(&mut self) -> Vec<Frame>;
+
+    /// As [`settle`](Self::settle), the first frame counted from
+    /// `before`.
+    fn settle_from(&mut self, before: NodeStats) -> Vec<Frame>;
 }
 
-/// Runs `count` frames: what each cost.
-fn run(harness: &mut Harness, count: usize) -> Vec<Frame> {
-    let mut frames = Vec::new();
-    for _ in 0..count {
-        let before = stats(harness);
-        let update = harness.timed_frame();
-        frames.push(Frame {
-            stats: since(stats(harness), before),
-            update,
-        });
+impl CostsHarnessExt for Harness {
+    fn stats(&mut self) -> NodeStats {
+        *self.world().resource::<NodeStats>()
     }
-    frames
-}
 
-/// Runs frames until ten in a row cost the plugin nothing: what each
-/// cost.
-fn settle(harness: &mut Harness) -> Vec<Frame> {
-    let before = stats(harness);
-    settle_from(harness, before)
-}
-
-/// As [`settle`], the first frame counted from `before`.
-fn settle_from(
-    harness: &mut Harness,
-    before: NodeStats,
-) -> Vec<Frame> {
-    let mut frames = Vec::new();
-    let mut quiet = 0;
-    let mut last = before;
-    while quiet < 10 && frames.len() < 1_000 {
-        let update = harness.timed_frame();
-        let now = stats(harness);
-        let frame = since(now, last);
-        last = now;
-        quiet = if frame.calls == 0 { quiet + 1 } else { 0 };
-        frames.push(Frame {
-            stats: frame,
-            update,
-        });
+    fn run_frames(&mut self, count: usize) -> Vec<Frame> {
+        let mut frames = Vec::new();
+        for _ in 0..count {
+            let before = self.stats();
+            let update = self.timed_frame();
+            frames.push(Frame {
+                stats: self.stats().since(before),
+                update,
+            });
+        }
+        frames
     }
-    frames.truncate(frames.len().saturating_sub(10));
-    frames
+
+    fn settle(&mut self) -> Vec<Frame> {
+        let before = self.stats();
+        self.settle_from(before)
+    }
+
+    fn settle_from(&mut self, before: NodeStats) -> Vec<Frame> {
+        let mut frames = Vec::new();
+        let mut quiet = 0;
+        let mut last = before;
+        while quiet < 10 && frames.len() < 1_000 {
+            let update = self.timed_frame();
+            let now = self.stats();
+            let frame = now.since(last);
+            last = now;
+            quiet = if frame.calls == 0 { quiet + 1 } else { 0 };
+            frames.push(Frame {
+                stats: frame,
+                update,
+            });
+        }
+        frames.truncate(frames.len().saturating_sub(10));
+        frames
+    }
 }
 
-fn since(now: NodeStats, before: NodeStats) -> NodeStats {
-    NodeStats {
-        calls: now.calls - before.calls,
-        node_calls: now.node_calls - before.node_calls,
-        changes: now.changes - before.changes,
-        call_time: now.call_time.saturating_sub(before.call_time),
-        apply_time: now.apply_time.saturating_sub(before.apply_time),
+/// The example's methods on [`NodeStats`].
+trait CostsStatsExt {
+    /// What was counted since `before`.
+    fn since(self, before: NodeStats) -> NodeStats;
+}
+
+impl CostsStatsExt for NodeStats {
+    fn since(self, before: NodeStats) -> NodeStats {
+        NodeStats {
+            calls: self.calls - before.calls,
+            node_calls: self.node_calls - before.node_calls,
+            changes: self.changes - before.changes,
+            call_time: self
+                .call_time
+                .saturating_sub(before.call_time),
+            apply_time: self
+                .apply_time
+                .saturating_sub(before.apply_time),
+        }
     }
 }
 

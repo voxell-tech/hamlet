@@ -33,16 +33,18 @@ use hamlet_engine_api::{
     WidgetNode, WidgetTree,
 };
 use hamlet_engine_core::Home;
-use hamlet_engine_plugins::{Entry, EntryPoint, PluginInfo};
+use hamlet_engine_plugins::{
+    Entry, EntryPoint, PluginCommandsExt, PluginInfo,
+};
 use hamlet_engine_shell::fonts::DisplayText;
 use hamlet_engine_shell::icons::{Glyph, glyph};
 use hamlet_engine_shell::style::{
     BottomGradient, ButtonStyle, Wraps, card, choices, divider,
     field, heading, icon_button, link_row, link_rows, list, note,
-    page_head, section, tab_button, title_button, toggle, with_icon,
+    page_head, section, title_button, toggle,
 };
 use hamlet_engine_shell::{
-    AnyView, Cx, EngineTheme, dock, panel, tree_view,
+    AnyView, Cx, DockTreeExt, EngineTheme, StyleExt, tree_view,
 };
 
 /// One still: its name, its size in the interface's pixels and the
@@ -115,7 +117,7 @@ fn main() {
         .iter()
         .find(|shot| shot.name == scene)
         .expect("a scene named in SHOTS");
-    draw(shot, &out);
+    shot.draw(&out);
 }
 
 /// The argument after `name` on the command line.
@@ -125,95 +127,108 @@ fn word(name: &str) -> Option<String> {
     args.get(at + 1).cloned()
 }
 
-fn draw(shot: &Shot, out: &Path) {
-    let home = out.join("home");
-    let _ = std::fs::remove_dir_all(&home);
-    let mut app = App::new();
-    app.insert_resource(Home::at(&home))
-        .insert_resource(hamlet_engine_net::Offline)
-        .add_plugins(
-            DefaultPlugins
-                // A window entity with no winit behind it.
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        resolution: WindowResolution::new(
-                            shot.size.x,
-                            shot.size.y,
-                        )
-                        .with_scale_factor_override(1.0),
+impl Shot {
+    /// Draws the still into `out`.
+    fn draw(&self, out: &Path) {
+        let home = out.join("home");
+        let _ = std::fs::remove_dir_all(&home);
+        let mut app = App::new();
+        app.insert_resource(Home::at(&home))
+            .insert_resource(hamlet_engine_net::Offline)
+            .add_plugins(
+                DefaultPlugins
+                    // A window entity with no winit behind it.
+                    .set(WindowPlugin {
+                        primary_window: Some(Window {
+                            resolution: WindowResolution::new(
+                                self.size.x,
+                                self.size.y,
+                            )
+                            .with_scale_factor_override(1.0),
+                            ..default()
+                        }),
+                        exit_condition: ExitCondition::DontExit,
                         ..default()
-                    }),
-                    exit_condition: ExitCondition::DontExit,
-                    ..default()
-                })
-                .set(RenderPlugin {
-                    synchronous_pipeline_compilation: true,
-                    ..default()
-                })
-                .disable::<WinitPlugin>()
-                .add(ScheduleRunnerPlugin::run_loop(Duration::ZERO)),
-        )
-        .add_plugins((
-            hamlet_engine_core::plugin,
-            hamlet_engine_shell::plugin,
-            hamlet_engine_plugins::plugin,
-            hamlet_engine_grants::plugin,
-            hamlet_engine_assets::plugin,
-            hamlet_engine_bus::plugin,
-            hamlet_engine_net::plugin,
-            hamlet_engine_wasm::plugin,
-        ));
-    let pixels = (shot.size.as_vec2() * shot.scale).as_uvec2();
-    let image = Image::new_target_texture(
-        pixels.x,
-        pixels.y,
-        TextureFormat::Rgba8UnormSrgb,
-        None,
-    );
-    let image =
-        app.world_mut().resource_mut::<Assets<Image>>().add(image);
-    let target = RenderTarget::Image(ImageRenderTarget {
-        handle: image,
-        scale_factor: shot.scale,
-    });
-    app.insert_resource(Still {
-        target,
-        path: out.join(format!("{}.png", shot.name)),
-        update: 0,
-    })
-    .insert_resource(TimeUpdateStrategy::ManualDuration(
-        Duration::from_secs_f64(1.0 / 60.0),
-    ))
-    // No pointer moves here, so a held hover stays held.
-    .insert_resource(PickingSettings {
-        is_hover_enabled: false,
-        ..default()
-    })
-    .add_systems(PostStartup, aim)
-    .add_systems(Update, (reach_in, hold, capture).chain());
-    match shot.name {
-        "controls" => {
-            app.add_systems(PostStartup, |world: &mut World| {
-                bevy_fynix::mount::<EngineTheme>(world, controls());
-            });
+                    })
+                    .set(RenderPlugin {
+                        synchronous_pipeline_compilation: true,
+                        ..default()
+                    })
+                    .disable::<WinitPlugin>()
+                    .add(ScheduleRunnerPlugin::run_loop(
+                        Duration::ZERO,
+                    )),
+            )
+            .add_plugins((
+                hamlet_engine_core::plugin,
+                hamlet_engine_shell::plugin,
+                hamlet_engine_plugins::plugin,
+                hamlet_engine_grants::plugin,
+                hamlet_engine_assets::plugin,
+                hamlet_engine_bus::plugin,
+                hamlet_engine_net::plugin,
+                hamlet_engine_wasm::plugin,
+            ));
+        let pixels = (self.size.as_vec2() * self.scale).as_uvec2();
+        let image = Image::new_target_texture(
+            pixels.x,
+            pixels.y,
+            TextureFormat::Rgba8UnormSrgb,
+            None,
+        );
+        let image = app
+            .world_mut()
+            .resource_mut::<Assets<Image>>()
+            .add(image);
+        let target = RenderTarget::Image(ImageRenderTarget {
+            handle: image,
+            scale_factor: self.scale,
+        });
+        app.insert_resource(Still {
+            target,
+            path: out.join(format!("{}.png", self.name)),
+            update: 0,
+        })
+        .insert_resource(TimeUpdateStrategy::ManualDuration(
+            Duration::from_secs_f64(1.0 / 60.0),
+        ))
+        // No pointer moves here, so a held hover stays held.
+        .insert_resource(PickingSettings {
+            is_hover_enabled: false,
+            ..default()
+        })
+        .add_systems(PostStartup, aim)
+        .add_systems(Update, (reach_in, hold, capture).chain());
+        match self.name {
+            "controls" => {
+                app.add_systems(PostStartup, |world: &mut World| {
+                    bevy_fynix::mount::<EngineTheme>(
+                        world,
+                        controls(),
+                    );
+                });
+            }
+            "icons" => {
+                app.add_systems(PostStartup, |world: &mut World| {
+                    bevy_fynix::mount::<EngineTheme>(
+                        world,
+                        icon_sheet(),
+                    );
+                });
+            }
+            name => {
+                let scene = match name {
+                    "menu" => Shell::Menu,
+                    "settings" => Shell::Settings,
+                    _ => Shell::Panels,
+                };
+                app.insert_resource(scene)
+                    .add_systems(Startup, add_plugins)
+                    .add_systems(Update, (arrange, open_menu));
+            }
         }
-        "icons" => {
-            app.add_systems(PostStartup, |world: &mut World| {
-                bevy_fynix::mount::<EngineTheme>(world, icon_sheet());
-            });
-        }
-        name => {
-            let scene = match name {
-                "menu" => Shell::Menu,
-                "settings" => Shell::Settings,
-                _ => Shell::Panels,
-            };
-            app.insert_resource(scene)
-                .add_systems(Startup, add_plugins)
-                .add_systems(Update, (arrange, open_menu));
-        }
+        app.run();
     }
-    app.run();
 }
 
 /// The image drawn into, where its still goes, and the updates so
@@ -326,9 +341,16 @@ fn reach_in(
 #[derive(Component, Clone, Copy)]
 struct HoldInside(Held);
 
-/// `view` with its first field or button held as `held`.
-fn held_inside(view: AnyView, held: Held) -> AnyView {
-    row((view,)).tagged(HoldInside(held)).boxed()
+/// The stills' methods on [`AnyView`].
+trait StillViewExt {
+    /// This view with its first field or button held as `held`.
+    fn held_inside(self, held: Held) -> AnyView;
+}
+
+impl StillViewExt for AnyView {
+    fn held_inside(self, held: Held) -> AnyView {
+        row((self,)).tagged(HoldInside(held)).boxed()
+    }
 }
 
 /// A caption over what it names.
@@ -379,8 +401,8 @@ fn fields() -> AnyView {
     };
     cells(vec![
         cell("AT REST", one("A reason")),
-        cell("UNDER THE POINTER", held_inside(one(""), Held::Hover)),
-        cell("TYPED IN", held_inside(one("A reason"), Held::Focus)),
+        cell("UNDER THE POINTER", one("").held_inside(Held::Hover)),
+        cell("TYPED IN", one("A reason").held_inside(Held::Focus)),
     ])
 }
 
@@ -402,10 +424,11 @@ fn titles() -> AnyView {
 }
 
 fn tab(which: Glyph, name: &'static str, shown: bool) -> AnyView {
-    tab_button(
-        with_icon(which, label(name).wrap(false).tagged(DisplayText)),
-        shown,
-    )
+    label(name)
+        .wrap(false)
+        .tagged(DisplayText)
+        .with_icon(which)
+        .in_tab(shown)
 }
 
 fn tabs() -> AnyView {
@@ -413,10 +436,7 @@ fn tabs() -> AnyView {
         cell("AT REST", tab(Glyph::Page, "NOTES", false)),
         cell(
             "UNDER THE POINTER",
-            held_inside(
-                tab(Glyph::Page, "NOTES", false),
-                Held::Hover,
-            ),
+            tab(Glyph::Page, "NOTES", false).held_inside(Held::Hover),
         ),
         cell("THE ONE SHOWN", tab(Glyph::Speech, "TALK", true)),
     ])
@@ -440,10 +460,7 @@ fn choosing() -> AnyView {
             label("THE FIRST UNDER THE POINTER")
                 .size(11.0)
                 .tone(Tone::Dim),
-            held_inside(
-                choices(answers(), 1, |_, _| {}),
-                Held::Hover,
-            ),
+            choices(answers(), 1, |_, _| {}).held_inside(Held::Hover),
         ))
         .gap(8.0),
     ))
@@ -617,11 +634,7 @@ fn add_plugins(mut commands: Commands) {
         "Orchard",
         "0.1.0",
     );
-    hamlet_engine_plugins::add_builtin(
-        &mut commands,
-        manifest,
-        entry,
-    );
+    commands.add_builtin(manifest, entry);
     let mut manifest = Manifest::new(
         PluginId::try_from("hamlet.almanac").expect("a valid id"),
         "Almanac",
@@ -682,7 +695,7 @@ fn orchard(_: Entity) -> AnyView {
             node("line", 0, Widget::Divider),
         ],
     };
-    panel(tree_view(&tree, |_, _, _| {}))
+    tree_view(&tree, |_, _, _| {}).in_panel()
 }
 
 /// Sets out the panels of a still of the shell: the plugin's panel
@@ -703,7 +716,7 @@ fn arrange(
     tree.add_tab(leaf, "hamlet.orchard/orchard");
     if *scene == Shell::Settings {
         tree.add_tab(leaf, "engine/settings");
-        dock::open(&mut tree, "engine/plugins");
+        tree.open_panel("engine/plugins");
     }
 }
 

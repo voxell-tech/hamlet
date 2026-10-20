@@ -22,7 +22,7 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{FrameProps, column, label};
 use bevy_fynix::{ViewExt, component, keyed};
 use hamlet_engine_api::{
-    Action, Failure, PanelId, WidgetEvent, WidgetId, WidgetTree,
+    Action, Failure, WidgetEvent, WidgetId, WidgetTree,
 };
 use hamlet_engine_bus::{Serve, Served};
 use hamlet_engine_core::{Budgets, LogLine};
@@ -31,16 +31,17 @@ use hamlet_engine_plugins::{
 };
 use hamlet_engine_shell::style::{caption, note};
 use hamlet_engine_shell::{
-    AnyView, Cx, EngineTheme, Panel, SettingsPage, panel, tree_view,
+    AnyView, Cx, EngineTheme, Panel, SettingsPage, StyleExt,
+    tree_view,
 };
 
-use crate::budget::{Spending, pass_logs, tally};
+use crate::WasmCommandsExt;
+use crate::budget::{Spending, tally};
 use crate::folder::Package;
 use crate::host::WasmTuning;
 use crate::instance::{Caps, Fault, Instance, NodeInput, Spent};
-use crate::mail::{batch, deliver, pass_requests};
-use crate::reload::Reloading;
-use crate::retained::{self, NodeStats};
+use crate::mail::{batch, deliver};
+use crate::retained::NodeStats;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_message::<Input>()
@@ -115,7 +116,7 @@ pub struct Input {
 
 /// The content of a WASM plugin's panel.
 pub(crate) fn view(surface: Entity) -> AnyView {
-    panel(page(surface))
+    page(surface).in_panel()
 }
 
 /// The content of a WASM plugin's settings page, or of its panel
@@ -166,7 +167,7 @@ fn adopt_panel(
     if let Ok((panel, by)) = panels.get(added.entity)
         && packages.contains(by.0)
     {
-        adopt(&mut commands, added.entity, &panel.id);
+        commands.adopt_surface(added.entity, &panel.id);
     }
 }
 
@@ -180,22 +181,8 @@ fn adopt_page(
     if let Ok((page, by)) = pages.get(added.entity)
         && packages.contains(by.0)
     {
-        adopt(&mut commands, added.entity, &page.id);
+        commands.adopt_surface(added.entity, &page.id);
     }
-}
-
-fn adopt(commands: &mut Commands, surface: Entity, id: &PanelId) {
-    let name = id
-        .as_str()
-        .split_once('/')
-        .map_or_else(String::new, |(_, name)| name.to_owned());
-    commands.entity(surface).insert((
-        Drawn {
-            name,
-            shows: Shows::Waiting,
-        },
-        Redraw,
-    ));
 }
 
 /// Hands what the person did to the plugin whose panel it was. An
@@ -316,8 +303,7 @@ pub(crate) fn serve(
                 }
                 Work::Serve(call) => {
                     paid = true;
-                    let (done, spent) = serve_call(
-                        &mut instance,
+                    let (done, spent) = instance.serve_call(
                         &caps,
                         &call,
                         &mut served_calls,
@@ -353,12 +339,8 @@ pub(crate) fn serve(
             let done = match retained {
                 Some((done, root)) => {
                     let changes = instance.take_node_changes();
-                    retained::apply(
-                        &mut commands,
-                        plugin,
-                        root,
-                        changes,
-                    );
+                    commands
+                        .apply_node_changes(plugin, root, changes);
                     stats.count(&spent);
                     moved = true;
                     done.map(|now| moving = now)
@@ -368,7 +350,7 @@ pub(crate) fn serve(
                     done
                 }
             };
-            pass_requests(plugin, &mut instance, depth, &mut asked);
+            instance.pass_requests(plugin, depth, &mut asked);
             spending.charge(
                 if paid { Spent::default() } else { spent },
                 event,
@@ -390,7 +372,7 @@ pub(crate) fn serve(
         {
             let (done, spent) = instance.frame(&caps, micros);
             let changes = instance.take_node_changes();
-            retained::apply(&mut commands, plugin, None, changes);
+            commands.apply_node_changes(plugin, None, changes);
             stats.count(&spent);
             spending.charge(spent, false);
             left = left.saturating_sub(spent.time);
@@ -436,7 +418,7 @@ pub(crate) fn serve(
             }
             commands.entity(surface).remove::<Redraw>();
             let (tree, spent) = instance.draw(&caps, &drawn.name);
-            pass_requests(plugin, &mut instance, 0, &mut asked);
+            instance.pass_requests(plugin, 0, &mut asked);
             spending.charge(spent, false);
             left = left.saturating_sub(spent.time);
             (served, drew) = (true, true);
@@ -455,73 +437,51 @@ pub(crate) fn serve(
                 Err(why) => fault = Some(why),
             }
         }
-        pass_logs(
-            info,
-            &mut instance,
-            &mut spending,
-            &budgets,
-            &mut log,
-        );
+        instance.pass_logs(info, &mut spending, &budgets, &mut log);
         if served {
             spending.served = *frame;
         }
         if let Some(fault) = fault {
-            stop(&mut commands, &mut log, plugin, info, &fault);
+            commands.stop_plugin(&mut log, plugin, info, &fault);
         }
     }
 }
 
-/// Serves `call` and says what became of it. A plugin out of its fuel
-/// or time for the call leaves the caller out of budget.
-fn serve_call(
-    instance: &mut Instance,
-    caps: &Caps,
-    call: &Serve,
-    served: &mut MessageWriter<Served>,
-) -> (Result<(), Fault>, Spent) {
-    let (result, spent) = instance.serve(
-        caps,
-        &call.service,
-        call.caller.as_str(),
-        &call.argument,
-    );
-    let (done, result) = match result {
-        Ok(Ok(bytes)) => (Ok(()), Ok(bytes)),
-        Ok(Err(why)) => (Ok(()), Err(Failure::Failed(why))),
-        Err(fault @ (Fault::Fuel | Fault::Time)) => {
-            let why = Failure::OutOfBudget(fault.to_string());
-            (Err(fault), Err(why))
-        }
-        Err(fault) => {
-            let why = Failure::Failed(fault.to_string());
-            (Err(fault), Err(why))
-        }
-    };
-    served.write(Served {
-        call: call.call,
-        result,
-        fuel: spent.fuel,
-        time: spent.time,
-    });
-    (done, spent)
-}
-
-/// Stops a plugin at fault and tells the person why.
-pub(crate) fn stop(
-    commands: &mut Commands,
-    log: &mut MessageWriter<LogLine>,
-    plugin: Entity,
-    info: &PluginInfo,
-    fault: &Fault,
-) {
-    commands
-        .entity(plugin)
-        .remove::<(Instance, Inbox, Spending, Reloading, Moving)>()
-        .insert(Stopped(fault.to_string()));
-    log.write(LogLine::error(
-        info.id.as_str(),
-        format!("{} was stopped: {fault}", info.name),
-    ));
+impl Instance {
+    /// Serves `call` and says what became of it. A plugin out of its
+    /// fuel or time for the call leaves the caller out of budget.
+    fn serve_call(
+        &mut self,
+        caps: &Caps,
+        call: &Serve,
+        served: &mut MessageWriter<Served>,
+    ) -> (Result<(), Fault>, Spent) {
+        let (result, spent) = self.serve(
+            caps,
+            &call.service,
+            call.caller.as_str(),
+            &call.argument,
+        );
+        let (done, result) = match result {
+            Ok(Ok(bytes)) => (Ok(()), Ok(bytes)),
+            Ok(Err(why)) => (Ok(()), Err(Failure::Failed(why))),
+            Err(fault @ (Fault::Fuel | Fault::Time)) => {
+                let why = Failure::OutOfBudget(fault.to_string());
+                (Err(fault), Err(why))
+            }
+            Err(fault) => {
+                let why = Failure::Failed(fault.to_string());
+                (Err(fault), Err(why))
+            }
+        };
+        served.write(Served {
+            call: call.call,
+            result,
+            fuel: spent.fuel,
+            time: spent.time,
+        });
+        (done, spent)
+    }
 }
 
 /// Shows on a stopped plugin's panels why it was stopped.

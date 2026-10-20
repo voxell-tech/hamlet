@@ -23,7 +23,7 @@ use hamlet_engine_shell::icons::Glyph;
 use hamlet_engine_shell::style::{
     ButtonStyle, buttons, icon_button, list, note, scroll_area,
 };
-use hamlet_engine_shell::{AnyView, Cx, Panel, panel};
+use hamlet_engine_shell::{AnyView, Cx, Panel, StyleExt};
 
 use crate::PluginInfo;
 use crate::switch::{
@@ -92,7 +92,7 @@ fn view(_: Entity) -> AnyView {
         list(rows.0.iter().map(row_view).collect::<Vec<_>>())
     })
     .within(column(()).gap(0.0));
-    panel(AnyView::new(move |cx: &mut Cx| {
+    AnyView::new(move |cx: &mut Cx| {
         let gap = cx.theme().space.section;
         cx.build(
             column((
@@ -101,7 +101,8 @@ fn view(_: Entity) -> AnyView {
             ))
             .gap(gap),
         )
-    }))
+    })
+    .in_panel()
 }
 
 /// A plugin: its name, its id, version and state, and its buttons.

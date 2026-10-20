@@ -8,7 +8,6 @@ use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::ecs::query::Added;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
-use bevy::ecs::world::World;
 use bevy::ui::AlignItems;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
@@ -17,11 +16,11 @@ use bevy_fynix::views::{
 use bevy_fynix::{ModifierExt, ViewExt, keyed, resource};
 use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_api::{Capability, PanelId, PluginId};
-use hamlet_engine_core::LogLine;
 use hamlet_engine_plugins::PluginInfo;
 use hamlet_engine_shell::style::{Wraps, choices, note, section};
 use hamlet_engine_shell::{AnyView, Cx, SettingsPage};
 
+use crate::GrantsWorldExt;
 use crate::file::{Answer, Grants};
 
 pub(crate) fn plugin(app: &mut App) {
@@ -186,7 +185,7 @@ fn answer_view(
         picked,
         move |world, picked| {
             if let Some(&answer) = Answer::ALL.get(picked) {
-                change(world, &id, capability, &target, answer);
+                world.change_answer(&id, capability, &target, answer);
             }
         },
     );
@@ -199,26 +198,6 @@ fn answer_view(
                 .tagged(Wraps),
         )
     })
-}
-
-fn change(
-    world: &mut World,
-    id: &PluginId,
-    capability: Capability,
-    target: &str,
-    answer: Answer,
-) {
-    let mut grants = world.resource_mut::<Grants>();
-    let Some(mut record) = grants.record(id).cloned() else {
-        return;
-    };
-    record.set(capability, target, answer);
-    if let Err(why) = grants.set(id, record) {
-        world.write_message(LogLine::error(
-            "grants",
-            format!("{} cannot be written: {why}", crate::FILE),
-        ));
-    }
 }
 
 /// Gathers the lines again when the answers change, or a plugin comes

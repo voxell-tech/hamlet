@@ -33,7 +33,10 @@ pub(crate) fn add_to_linker(
 ) -> wasmtime::Result<()> {
     wasmtime_wasi::p2::add_to_linker_sync(linker)?;
     linker.allow_shadowing(true);
-    monotonic_clock::add_to_linker::<State, Clocked>(linker, clock)
+    monotonic_clock::add_to_linker::<State, Clocked>(
+        linker,
+        State::clock,
+    )
 }
 
 /// A plugin's system interface: its context, the resources it holds,
@@ -206,11 +209,14 @@ impl HasData for Clocked {
     type Data<'a> = Clock<'a>;
 }
 
-fn clock(state: &mut State) -> Clock<'_> {
-    let deadline = state.wasi.deadline;
-    Clock {
-        view: state.clocks(),
-        deadline,
+impl State {
+    /// The plugin's monotonic clock in the call.
+    fn clock(&mut self) -> Clock<'_> {
+        let deadline = self.wasi.deadline;
+        Clock {
+            view: self.clocks(),
+            deadline,
+        }
     }
 }
 

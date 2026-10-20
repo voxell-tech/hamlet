@@ -4,7 +4,6 @@
 use std::time::Duration;
 
 use bevy::prelude::*;
-use bevy_fynix::Theme;
 use bevy_fynix::tokens::{
     Curve, Motion, MotionTokens, SpacingTokens, SurfaceTokens,
     TextTokens, Tone,
@@ -12,6 +11,8 @@ use bevy_fynix::tokens::{
 use hamlet_engine_core::TuningPlugin;
 use hamlet_engine_core::tuning::{THEME, Tuning, TuningFile};
 use serde::{Deserialize, Deserializer};
+
+use crate::ShellWorldExt;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_plugins(TuningPlugin::<EngineTheme>::default())
@@ -21,7 +22,7 @@ pub(crate) fn plugin(app: &mut App) {
             restyle.run_if(resource_changed::<EngineTheme>),
         );
     let theme = app.world().resource::<EngineTheme>().clone();
-    apply_theme(app.world_mut(), theme);
+    app.world_mut().apply_theme(theme);
 }
 
 /// The theme, as `engine/tuning/theme.toml` has it.
@@ -178,8 +179,8 @@ pub struct Spacing {
     pub button_padding: f32,
     /// The space before the icon of a button that has one, and after
     /// its text.
-    pub mark_start: f32,
-    pub mark_end: f32,
+    pub pad_start: f32,
+    pub pad_end: f32,
     /// The space inside a panel, around its content.
     pub panel: f32,
     /// The space between the parts of a panel.
@@ -258,12 +259,12 @@ pub struct Glow {
     /// The share of its glow a glow flickers by.
     pub flicker: f32,
     /// The share of a control's glow that shows around it, the share
-    /// of that a critical button or a field shows, and how far it
-    /// reaches, at rest and more at the top of a pulse.
+    /// of that a critical button or a field shows, and its blur, at
+    /// rest and more at the top of a pulse.
     pub spread: f32,
     pub spread_muted: f32,
-    pub reach: f32,
-    pub pulse_reach: f32,
+    pub blur: f32,
+    pub pulse_blur: f32,
     /// The share of the reach of the glow's core.
     pub core: f32,
     /// The share of the reach of the glow about text with no
@@ -310,12 +311,6 @@ impl EngineTheme {
     }
 }
 
-/// Puts `theme` in, for the views and the window behind them.
-fn apply_theme(world: &mut World, theme: EngineTheme) {
-    world.insert_resource(ClearColor(*theme.colors.background));
-    world.insert_resource(Theme(theme));
-}
-
 fn restyle(
     theme: Res<EngineTheme>,
     mut changed: MessageWriter<ThemeChanged>,
@@ -326,7 +321,7 @@ fn restyle(
         return;
     }
     let theme = theme.clone();
-    commands.queue(|world: &mut World| apply_theme(world, theme));
+    commands.queue(|world: &mut World| world.apply_theme(theme));
     changed.write(ThemeChanged);
 }
 

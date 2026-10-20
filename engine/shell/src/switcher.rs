@@ -15,9 +15,7 @@ use bevy::input::keyboard::KeyCode;
 use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::math::Rect;
 use bevy::text::EditableText;
-use bevy::ui::{
-    AlignItems, ComputedNode, UiGlobalTransform, UiRect, percent, px,
-};
+use bevy::ui::{AlignItems, UiRect, percent, px};
 use bevy_fynix::shortcut::{Chord, Mods};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
@@ -26,12 +24,12 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ViewExt, keyed, resource};
 
-use crate::command::{CTRL, RunCommand, engine_id, spawn_command};
+use crate::command::{CTRL, RunCommand, ShellCommandsExt, engine_id};
 use crate::fonts::DisplayText;
 use crate::icons::{Glyph, glyph};
-use crate::style::{ButtonStyle, field, section, styled, tab_button};
+use crate::style::{ButtonStyle, StyleExt, field, section};
 use crate::workspace::Workspaces;
-use crate::{AnyView, Cx};
+use crate::{AnyView, Cx, ShellWorldExt};
 
 /// The menu the workspace commands are in.
 const MENU: &str = "Workspace";
@@ -72,11 +70,11 @@ struct Tabs {
 
 /// The workspace being renamed, where its tab is, and its name.
 #[derive(Resource, Clone, PartialEq, Default)]
-struct Renaming(Option<(usize, Rect, String)>);
+pub(crate) struct Renaming(pub(crate) Option<(usize, Rect, String)>);
 
 /// On a workspace's tab: the workspace's index.
 #[derive(Component, Clone, Copy)]
-struct WorkspaceTab(usize);
+pub(crate) struct WorkspaceTab(pub(crate) usize);
 
 /// On the field a workspace is renamed in.
 #[derive(Component, Clone, Copy)]
@@ -96,7 +94,8 @@ pub fn view() -> AnyView {
             let space = &cx.theme().space;
             let (gap, side) = (space.gap, space.icon);
             views.push(
-                styled(ButtonStyle::Quiet, glyph(Glyph::Plus, side))
+                glyph(Glyph::Plus, side)
+                    .styled(ButtonStyle::Quiet)
                     .on_activate(|world| {
                         world.resource_mut::<Workspaces>().add();
                     })
@@ -155,60 +154,34 @@ pub fn rename_view() -> AnyView {
 }
 
 fn tab(at: usize, name: &str, shown: bool, many: bool) -> AnyView {
-    tab_button(
-        label(name.to_uppercase()).wrap(false).tagged(DisplayText),
-        shown,
-    )
-    .tagged(WorkspaceTab(at))
-    .on_activate(move |world| {
-        world.resource_mut::<Workspaces>().show(at);
-    })
-    .context_menu(move || {
-        let mut items = vec![
-            menu_item(label("Rename"))
-                .on_activate(move |world| rename(world, at))
-                .boxed(),
-        ];
-        if many {
-            items.push(
-                menu_item(label("Delete").tone(Tone::Critical))
-                    .on_activate(move |world| {
-                        world.resource_mut::<Workspaces>().delete(at);
-                    })
-                    .boxed(),
-            );
-        }
-        items
-    })
-    .boxed()
-}
-
-/// Opens the rename field over the tab of the workspace at `at`.
-fn rename(world: &mut World, at: usize) {
-    let Some(name) = world
-        .resource::<Workspaces>()
-        .list()
-        .get(at)
-        .map(|workspace| workspace.name.clone())
-    else {
-        return;
-    };
-    let anchor = world
-        .try_query::<(&WorkspaceTab, &ComputedNode, &UiGlobalTransform)>()
-        .and_then(|mut tabs| {
-            tabs.iter(world).find(|(tab, ..)| tab.0 == at).map(
-                |(_, node, place)| {
-                    let scale = node.inverse_scale_factor();
-                    let (_, _, centre) = place.to_scale_angle_translation();
-                    Rect::from_center_size(
-                        centre * scale,
-                        node.size() * scale,
-                    )
-                },
-            )
+    label(name.to_uppercase())
+        .wrap(false)
+        .tagged(DisplayText)
+        .in_tab(shown)
+        .tagged(WorkspaceTab(at))
+        .on_activate(move |world| {
+            world.resource_mut::<Workspaces>().show(at);
         })
-        .unwrap_or_default();
-    world.resource_mut::<Renaming>().0 = Some((at, anchor, name));
+        .context_menu(move || {
+            let mut items = vec![
+                menu_item(label("Rename"))
+                    .on_activate(move |world| world.start_rename(at))
+                    .boxed(),
+            ];
+            if many {
+                items.push(
+                    menu_item(label("Delete").tone(Tone::Critical))
+                        .on_activate(move |world| {
+                            world
+                                .resource_mut::<Workspaces>()
+                                .delete(at);
+                        })
+                        .boxed(),
+                );
+            }
+            items
+        })
+        .boxed()
 }
 
 fn follow(workspaces: Res<Workspaces>, mut tabs: ResMut<Tabs>) {
@@ -245,71 +218,74 @@ fn focus_field(
 /// primary key with 1 to 9 to pick one.
 fn add_commands(mut commands: Commands) {
     let key = |key, mods| Chord { key, mods };
-    spawn_command(
-        &mut commands,
-        engine_id("workspace.new"),
-        "New workspace",
-        Some(MENU),
-        &[],
-    )
-    .observe(
-        |_: On<RunCommand>, mut workspaces: ResMut<Workspaces>| {
-            workspaces.add();
-        },
-    );
-    spawn_command(
-        &mut commands,
-        engine_id("workspace.rename"),
-        "Rename workspace",
-        Some(MENU),
-        &[],
-    )
-    .observe(|_: On<RunCommand>, mut commands: Commands| {
-        commands.queue(|world: &mut World| {
-            let shown = world.resource::<Workspaces>().shown();
-            rename(world, shown);
+    commands
+        .spawn_command(
+            engine_id("workspace.new"),
+            "New workspace",
+            Some(MENU),
+            &[],
+        )
+        .observe(
+            |_: On<RunCommand>,
+             mut workspaces: ResMut<Workspaces>| {
+                workspaces.add();
+            },
+        );
+    commands
+        .spawn_command(
+            engine_id("workspace.rename"),
+            "Rename workspace",
+            Some(MENU),
+            &[],
+        )
+        .observe(|_: On<RunCommand>, mut commands: Commands| {
+            commands.queue(|world: &mut World| {
+                let shown = world.resource::<Workspaces>().shown();
+                world.start_rename(shown);
+            });
         });
-    });
-    spawn_command(
-        &mut commands,
-        engine_id("workspace.delete"),
-        "Delete workspace",
-        Some(MENU),
-        &[],
-    )
-    .observe(
-        |_: On<RunCommand>, mut workspaces: ResMut<Workspaces>| {
-            let shown = workspaces.shown();
-            workspaces.delete(shown);
-        },
-    );
-    spawn_command(
-        &mut commands,
-        engine_id("workspace.next"),
-        "Next workspace",
-        Some(MENU),
-        &[key(KeyCode::Tab, CTRL)],
-    )
-    .observe(
-        |_: On<RunCommand>, mut workspaces: ResMut<Workspaces>| {
-            workspaces.cycle(false);
-        },
-    );
-    spawn_command(
-        &mut commands,
-        engine_id("workspace.previous"),
-        "Previous workspace",
-        Some(MENU),
-        &[key(KeyCode::Tab, CTRL.with(Mods::SHIFT))],
-    )
-    .observe(
-        |_: On<RunCommand>, mut workspaces: ResMut<Workspaces>| {
-            workspaces.cycle(true);
-        },
-    );
+    commands
+        .spawn_command(
+            engine_id("workspace.delete"),
+            "Delete workspace",
+            Some(MENU),
+            &[],
+        )
+        .observe(
+            |_: On<RunCommand>,
+             mut workspaces: ResMut<Workspaces>| {
+                let shown = workspaces.shown();
+                workspaces.delete(shown);
+            },
+        );
+    commands
+        .spawn_command(
+            engine_id("workspace.next"),
+            "Next workspace",
+            Some(MENU),
+            &[key(KeyCode::Tab, CTRL)],
+        )
+        .observe(
+            |_: On<RunCommand>,
+             mut workspaces: ResMut<Workspaces>| {
+                workspaces.cycle(false);
+            },
+        );
+    commands
+        .spawn_command(
+            engine_id("workspace.previous"),
+            "Previous workspace",
+            Some(MENU),
+            &[key(KeyCode::Tab, CTRL.with(Mods::SHIFT))],
+        )
+        .observe(
+            |_: On<RunCommand>,
+             mut workspaces: ResMut<Workspaces>| {
+                workspaces.cycle(true);
+            },
+        );
     for (at, digit) in DIGITS.into_iter().enumerate() {
-        spawn_command(
-            &mut commands,
+        commands.spawn_command(
             engine_id(&format!("workspace.show_{}", at + 1)),
             &format!("Workspace {}", at + 1),
             None,
