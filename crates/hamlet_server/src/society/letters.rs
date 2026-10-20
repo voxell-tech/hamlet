@@ -9,9 +9,9 @@ use serde_json::{Value, json};
 
 use super::{Caller, outcome};
 use crate::chats::records::{self, Place};
-use crate::harness::link::{Item, ItemKind, Mark};
+use crate::harness::link::{Item, ItemKind};
 use crate::harness::{
-    Answer, BindingId, Harnesses, Input, InputStatus,
+    Answer, BindingId, Harnesses, Input, InputMark, InputStatus, Mail,
 };
 use crate::record::{
     self, Actor, AgentRef, Change, DecisionKind, RecordOperation,
@@ -196,8 +196,10 @@ pub(super) async fn tell(
             return Ok(refused(&failure.text(&given.name)));
         }
     };
-    if turn_kind(service, caller)?.as_deref()
-        == Some("hamlet.question")
+    if let Some(InputMark::Question(_)) = service
+        .home
+        .store()
+        .input_mark(caller.binding.id, caller.input)?
     {
         return Ok(refused(
             "another agent is waiting on your reply, so you cannot \
@@ -357,13 +359,13 @@ async fn question(
 fn cycle(db: &Connection, sent: &Sent) -> Result<Option<String>> {
     // An edge stands while its question waits and its asker's turn
     // runs.
-    let mut query = db.prepare(
+    let mut query = db.prepare(&format!(
         "SELECT m.sender, m.receiver FROM society_message m JOIN \
          harness_input i ON i.binding = m.sender AND i.submission = \
          m.input WHERE m.kind = 'question' AND m.answer IS NULL AND \
-         m.failure IS NULL AND m.request != ?1 AND \
-         coalesce(i.status, '') NOT IN ('done', 'unanswered')",
-    )?;
+         m.failure IS NULL AND m.request != ?1 AND NOT {}",
+        crate::harness::ended("i.status")
+    ))?;
     let edges = query
         .query_map([&sent.request], |row| {
             Ok((BindingId(row.get(0)?), BindingId(row.get(1)?)))
@@ -486,24 +488,6 @@ pub(super) async fn request_road(
     Ok(Some(refused(&format!(
         "The mayor did not build it: {reply}"
     ))))
-}
-
-/// The kind of the mark of the input whose turn made the call.
-fn turn_kind(
-    service: &mut Service,
-    caller: &Caller<'_>,
-) -> Result<Option<String>> {
-    let Some(input) = caller.input else {
-        return Ok(None);
-    };
-    let Some(request) =
-        service.home.store().request_of(caller.binding.id, input)?
-    else {
-        return Ok(None);
-    };
-    let db = service.home.store().connection();
-    Ok(records::mark_of(db, caller.binding.id, &request)?
-        .map(|mark| mark.kind))
 }
 
 /// Whether a road joins `from` and `to`.
@@ -787,7 +771,13 @@ async fn submit(
 ) -> Result<()> {
     let db = service.home.store().connection();
     let (from, address) = sender(db, sent)?;
-    let from = json!({"hamlet": from.hamlet, "number": from.number});
+    let message = Mail {
+        from,
+        task: sent.task.clone(),
+        at: sent.at,
+        reply_to: None,
+        author: None,
+    };
     let (content, mark) = if sent.question {
         (
             format!(
@@ -795,18 +785,15 @@ async fn submit(
                  answer):\n{}",
                 sent.text
             ),
-            mark(
-                "hamlet.question",
-                json!({"from": from, "task": sent.task, "at": sent.at}),
-            ),
+            InputMark::Question(message),
         )
     } else {
         (
             format!("Letter from `{address}`:\n{}", sent.text),
-            mark(
-                "hamlet.letter",
-                json!({"from": from, "task": sent.task, "at": sent.at, "replyTo": sent.sender.0}),
-            ),
+            InputMark::Letter(Mail {
+                reply_to: Some(sent.sender.0),
+                ..message
+            }),
         )
     };
     harnesses
@@ -823,13 +810,6 @@ async fn submit(
             },
         )
         .await
-}
-
-fn mark(kind: &str, data: Value) -> Mark {
-    Mark {
-        kind: kind.into(),
-        data: serde_json::from_value(data).unwrap_or_default(),
-    }
 }
 
 /// The agent a conversation is with while it lives in a living
@@ -962,10 +942,13 @@ async fn reply(
         ),
     };
     let request = format!("reply:{}:{}", sent.runtime, sent.key);
-    let mark = mark(
-        "hamlet.reply",
-        json!({"from": {"hamlet": sent.to.hamlet, "number": sent.to.number}, "task": sent.task, "at": society::now()}),
-    );
+    let mark = InputMark::Reply(Mail {
+        from: sent.to.clone(),
+        task: sent.task.clone(),
+        at: society::now(),
+        reply_to: None,
+        author: None,
+    });
     harnesses
         .submit(
             service.home.store(),
@@ -1076,34 +1059,20 @@ pub(crate) fn views(
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut views = Vec::new();
     for (kind, hamlet, number, binding) in peers {
-        let mut query = db.prepare(
-            "SELECT json_extract(item, '$.mark.kind'), \
-             json_extract(item, '$.mark.data.at'), \
-             json_extract(item, '$.at') FROM harness_item WHERE \
-             binding = ?1",
-        )?;
         let mut count = 0;
         let mut last = None::<i64>;
-        for row in query.query_map([binding], |row| {
-            Ok((
-                row.get::<_, Option<String>>(0)?,
-                row.get::<_, Option<i64>>(1)?,
-                row.get::<_, Option<i64>>(2)?,
-            ))
-        })? {
-            let (kind, marked, at) = row?;
-            if matches!(
-                kind.as_deref(),
-                Some(
-                    "hamlet.letter"
-                        | "hamlet.question"
-                        | "hamlet.reply"
-                )
-            ) {
+        for item in crate::harness::items(db, BindingId(binding))? {
+            if let Some(message) = item
+                .mark
+                .as_ref()
+                .and_then(InputMark::of)
+                .as_ref()
+                .and_then(InputMark::message)
+            {
                 count += 1;
-                last = last.max(marked);
+                last = last.max(Some(message.at));
             }
-            last = last.max(at);
+            last = last.max(i64::try_from(item.at).ok());
         }
         views.push(json!({"with": {"hamlet": hamlet, "number": number}, "kind": kind, "count": count, "last": last}));
     }
@@ -1241,21 +1210,19 @@ pub(crate) fn authored(
     items: &mut [Item],
 ) -> Result<()> {
     for item in items {
-        let Some(mark) = item.mark.as_mut() else {
+        let Some(mut mark) =
+            item.mark.as_ref().and_then(InputMark::of)
+        else {
             continue;
         };
-        if !matches!(
-            mark.kind.as_str(),
-            "hamlet.letter" | "hamlet.question" | "hamlet.reply"
-        ) {
-            continue;
-        }
-        let Some(from) = mark.data.get("from").and_then(|from| {
-            serde_json::from_value::<AgentRef>(from.clone()).ok()
-        }) else {
+        let (InputMark::Letter(message)
+        | InputMark::Question(message)
+        | InputMark::Reply(message)) = &mut mark
+        else {
             continue;
         };
-        mark.data.insert("author".into(), author(db, &from)?.into());
+        message.author = Some(author(db, &message.from)?);
+        item.mark = Some((&mark).into());
     }
     Ok(())
 }

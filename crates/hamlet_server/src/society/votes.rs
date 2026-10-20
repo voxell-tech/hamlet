@@ -575,15 +575,15 @@ async fn cancel_errands(
         .home
         .store()
         .connection()
-        .prepare(
+        .prepare(&format!(
             "SELECT s.binding FROM society_binding s JOIN \
              harness_input i ON i.binding=s.binding WHERE s.errand \
              IN ('hearing','ballot') AND \
              json_extract(s.owner,'$.hamlet')=?1 AND \
              json_extract(s.owner,'$.vote')=?2 AND \
-             i.state!='dropped' AND coalesce(i.status,'queued') NOT \
-             IN ('done','unanswered')",
-        )?
+             i.state!='dropped' AND NOT {}",
+            crate::harness::ended("i.status")
+        ))?
         .query_map(
             rusqlite::params![hamlet, i64::try_from(vote)?],
             |row| Ok(crate::harness::BindingId(row.get(0)?)),

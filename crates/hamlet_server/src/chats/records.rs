@@ -403,41 +403,6 @@ fn number_of(agent: &AgentRef) -> Result<i64> {
     i64::try_from(agent.number).context("an agent's number")
 }
 
-/// The chief's lines `binding` holds queued behind its turn, whose
-/// input is `turn`.
-pub(crate) fn queued_lines(
-    db: &Connection,
-    binding: BindingId,
-    turn: Option<&str>,
-) -> Result<i64> {
-    Ok(db.query_row(
-        "SELECT count(*) FROM harness_input WHERE binding = ?1 AND \
-         write = 0 AND request LIKE 'chief:%' AND (state = 'kept' \
-         OR (state = 'admitted' AND status = 'queued' AND \
-         submission IS NOT ?2))",
-        params![binding.0, turn],
-        |row| row.get(0),
-    )?)
-}
-
-/// The mark of the input `request` of `binding`.
-pub(crate) fn mark_of(
-    db: &Connection,
-    binding: BindingId,
-    request: &str,
-) -> Result<Option<crate::harness::link::Mark>> {
-    db.query_row(
-        "SELECT mark FROM harness_input WHERE binding = ?1 AND \
-         request = ?2",
-        params![binding.0, request],
-        |row| row.get::<_, Option<String>>(0),
-    )
-    .optional()?
-    .flatten()
-    .map(|mark| Ok(serde_json::from_str(&mark)?))
-    .transpose()
-}
-
 /// Keeps how the last followed input of `binding` ended.
 pub(crate) fn followed(
     db: &Connection,
@@ -518,21 +483,4 @@ pub(crate) fn keep_budget_words(
         params![binding.0, input, words],
     )?;
     Ok(())
-}
-
-/// Whether the input `request` of `binding` placed an entry.
-pub(crate) fn placed(
-    db: &Connection,
-    binding: BindingId,
-    request: &str,
-) -> Result<bool> {
-    Ok(db
-        .query_row(
-            "SELECT 1 FROM harness_item WHERE binding = ?1 AND \
-             json_extract(item, '$.request') = ?2",
-            params![binding.0, request],
-            |_| Ok(()),
-        )
-        .optional()?
-        .is_some())
 }

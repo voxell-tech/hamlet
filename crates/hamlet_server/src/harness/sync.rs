@@ -1,14 +1,13 @@
 //! Conversation sync: what each runtime is owed of its conversations,
 //! and what it reports of them in turn.
 
-use std::collections::BTreeMap;
-
 use anyhow::{Context, Result};
 
-use super::link::{self, Mark, ServerMessage};
+use super::link::{self, ServerMessage};
 use super::session::Pending;
 use super::{
-    Binding, BindingId, Harnesses, NOTICE, Notice, Phase, SYNC_PAGE,
+    Binding, BindingId, Harnesses, InputMark, Notice, Phase,
+    SYNC_PAGE,
 };
 use crate::Store;
 use crate::models::Choices;
@@ -109,10 +108,15 @@ impl Harnesses {
                                     .then_some(true),
                                 conversation,
                                 id,
-                                mark: owed.mark.unwrap_or(Mark {
-                                    data: BTreeMap::new(),
-                                    kind: NOTICE.into(),
-                                }),
+                                mark: owed.mark.unwrap_or_else(
+                                    || {
+                                        (&InputMark::Notice {
+                                            text: String::new(),
+                                            at: 0,
+                                        })
+                                            .into()
+                                    },
+                                ),
                                 request: owed.request,
                                 v,
                             })

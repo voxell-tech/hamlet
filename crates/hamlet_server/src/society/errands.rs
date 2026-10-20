@@ -6,8 +6,9 @@ use serde_json::{Value, json};
 
 use super::Caller;
 use crate::chats::records::{self, Place};
-use crate::harness::link::Mark;
-use crate::harness::{BindingId, Harnesses, Input, InputStatus};
+use crate::harness::{
+    BindingId, Harnesses, Input, InputMark, InputStatus,
+};
 use crate::record::AgentRef;
 use crate::service::Service;
 
@@ -41,16 +42,11 @@ pub(super) async fn start(
                 && ["hearing", "ballot"].contains(&kind)
             {
                 let limits = service.limits_of(&agent.hamlet)?;
-                let mark = records::mark_of(
-                    service.home.store().connection(),
-                    binding,
-                    "errand",
-                )?;
-                let began = mark
-                    .and_then(|m| {
-                        m.data.get("at").and_then(Value::as_i64)
-                    })
-                    .unwrap_or(super::now());
+                let began = service
+                    .home
+                    .store()
+                    .mark_of(binding, "errand")?
+                    .map_or_else(super::now, |mark| mark.at());
                 if super::now().saturating_sub(began)
                     >= limits["votes"]["ballotMinutes"]
                         .as_i64()
@@ -89,13 +85,9 @@ pub(super) async fn start(
         binding
     };
     super::configure(service, harnesses, binding).await?;
-    let mark = Mark {
-        kind: "hamlet.errand".into(),
-        data: [
-            ("task".into(), task.into()),
-            ("at".into(), super::now().into()),
-        ]
-        .into(),
+    let mark = InputMark::Errand {
+        task: task.into(),
+        at: super::now(),
     };
     harnesses
         .submit(
@@ -163,12 +155,13 @@ pub(crate) async fn sweep(
         .home
         .store()
         .connection()
-        .prepare(
+        .prepare(&format!(
             "SELECT owner FROM society_binding s WHERE errand IS \
              NOT NULL AND EXISTS (SELECT 1 FROM harness_input i \
              WHERE i.binding=s.binding AND i.request='errand' AND \
-             i.status IN ('done','unanswered'))",
-        )?
+             {})",
+            crate::harness::ended("i.status")
+        ))?
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     for owner in owners {

@@ -20,7 +20,7 @@ use anyhow::{Context, Result};
 use hamlet_protocol::v0::{
     ChatRef, ClientMessage, Op, Read, ServerMessage, Turn, UsageView,
 };
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use self::activity::Activity;
 pub(crate) use self::activity::words;
@@ -29,9 +29,8 @@ pub(crate) use self::deeds::stop_agent;
 use self::fold::Fold;
 use self::records::Place;
 pub(crate) use self::say::{admit_line, deeds as advertised_deeds};
-use crate::harness::link::Mark;
 use crate::harness::{
-    BindingId, Harnesses, Input, InputStatus, Notice,
+    BindingId, Harnesses, Input, InputMark, InputStatus, Notice,
 };
 use crate::protocol::{Refusal, reply};
 use crate::record::AgentRef;
@@ -388,8 +387,10 @@ pub(crate) async fn close(
             .conversations
             .get(&binding)
             .is_some_and(|c| c.running);
-        let reflecting = turn_request(service, binding)?
-            .is_some_and(|request| request.starts_with("reflect:"));
+        let reflecting = matches!(
+            turn_mark(service, binding)?,
+            Some(InputMark::Reflection { .. })
+        );
         if !running || reflecting {
             waits.push((binding, request));
         }
@@ -661,20 +662,17 @@ fn usage(
     crate::spend::usage_of(db, &records::lineage(db, binding)?)
 }
 
-/// The request of the input whose turn `binding` runs now.
-fn turn_request(
+/// The mark of the input whose turn `binding` runs now.
+fn turn_mark(
     service: &mut Service,
     binding: BindingId,
-) -> Result<Option<String>> {
-    let Some(turn) = service
+) -> Result<Option<InputMark>> {
+    let turn = service
         .chats
         .conversations
         .get(&binding)
-        .and_then(|c| c.turn.clone())
-    else {
-        return Ok(None);
-    };
-    service.home.store().request_of(binding, &turn)
+        .and_then(|c| c.turn.clone());
+    service.home.store().input_mark(binding, turn.as_deref())
 }
 
 /// The current conversation of `chief`'s chat with `agent`, which its
@@ -760,8 +758,6 @@ pub(crate) async fn tell_chiefs(
     Ok(())
 }
 
-/// Writes a notice into the conversation of `binding`, for people
-/// alone.
 /// Writes the notice `text` into the conversation of `binding`;
 /// gives the write's request.
 async fn write_notice(
@@ -783,7 +779,7 @@ pub(crate) async fn write(
     text: &str,
     boundary: bool,
 ) -> Result<()> {
-    let mark = notice(text);
+    let mark = InputMark::notice(text);
     harnesses
         .submit(
             service.home.store(),
@@ -798,19 +794,6 @@ pub(crate) async fn write(
             },
         )
         .await
-}
-
-/// The mark of a notice: words for people, which the model never
-/// sees (C30).
-pub(crate) fn notice(text: &str) -> Mark {
-    mark("hamlet.notice", json!({"text": text, "at": now()}))
-}
-
-fn mark(kind: &str, data: Value) -> Mark {
-    Mark {
-        kind: kind.into(),
-        data: serde_json::from_value(data).unwrap_or_default(),
-    }
 }
 
 fn now() -> i64 {

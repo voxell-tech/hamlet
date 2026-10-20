@@ -5,10 +5,12 @@ use anyhow::Result;
 use hamlet_protocol::v0::{
     Address, Choice, Deed, ReplyKind, Say, ServerMessage,
 };
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use super::{Deferred, deeds, records};
-use crate::harness::{BindingId, Harnesses, Input, InputStatus};
+use crate::harness::{
+    BindingId, Harnesses, Input, InputMark, InputStatus,
+};
 use crate::oversight::WaitKind;
 use crate::protocol::{Refusal, reply};
 use crate::record::AgentRef;
@@ -761,10 +763,12 @@ pub(crate) async fn admit_line(
         text,
         at,
     )?;
-    let mark = super::mark(
-        "hamlet.chief",
-        json!({"chief": chief, "text": text, "task": task, "at": at}),
-    );
+    let mark = InputMark::Chief {
+        chief,
+        text: text.into(),
+        task,
+        at,
+    };
     harnesses
         .submit(
             service.home.store(),

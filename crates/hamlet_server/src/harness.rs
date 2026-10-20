@@ -9,6 +9,7 @@
 pub(crate) mod answers;
 mod bindings;
 mod credentials;
+mod mark;
 // Generated, so formatted as the generator writes it.
 #[rustfmt::skip]
 pub mod link;
@@ -27,11 +28,12 @@ use anyhow::{Context, Result, bail};
 pub use bindings::{
     Binding, BindingId, DEFAULT_HARNESS, Input, InputStatus, Standing,
 };
-pub(crate) use bindings::{input_runs, working_on};
+pub(crate) use bindings::{ended, input_runs, items, working_on};
 use link::{
     Capability, Diagnostic, HelloStore, Item, Mark, ModelRef,
     Partial, RuntimeMessage, Section, ServerMessage, ToolSpec,
 };
+pub use mark::{InputMark, Mail};
 pub use process::Pi;
 use process::{Launch, Process, Received};
 use serde_json::Value;
@@ -65,9 +67,6 @@ const RESTART_FORGIVEN: Duration = Duration::from_secs(60);
 const STOP_GRACE: Duration = Duration::from_secs(5);
 /// Entries asked for at once when catching up on a conversation.
 const SYNC_PAGE: u64 = 200;
-
-/// The kind of an entry written for people alone.
-const NOTICE: &str = "hamlet.notice";
 
 /// How this server starts runtimes and what it gives them.
 #[derive(Clone, Debug)]
@@ -1393,17 +1392,6 @@ fn schedule(runtime: &mut Runtime) -> Duration {
 async fn sleep_until(at: Option<Instant>) {
     if let Some(at) = at {
         tokio::time::sleep_until(at.into()).await;
-    }
-}
-
-/// A notice for people alone, made now.
-fn notice(text: &str) -> Mark {
-    Mark {
-        data: BTreeMap::from([
-            ("text".into(), Value::from(text)),
-            ("at".into(), Value::from(now())),
-        ]),
-        kind: NOTICE.into(),
     }
 }
 

@@ -9,6 +9,7 @@ use hamlet_protocol::v0::{
 };
 use serde_json::Value;
 
+use crate::harness::InputMark;
 use crate::harness::link::{self, Block};
 use crate::scrub::Scrubber;
 
@@ -264,52 +265,46 @@ pub(crate) fn items_of(entry: &link::Item) -> Vec<(usize, Item)> {
         text,
         tool: None,
     };
-    let data = |key: &str| {
-        entry
-            .mark
-            .as_ref()
-            .and_then(|mark| mark.data.get(key))
-            .cloned()
-            .unwrap_or(Value::Null)
-    };
-    let at = data("at").as_u64().unwrap_or(entry.at);
-    match entry.mark.as_ref().map(|mark| mark.kind.as_str()) {
-        Some("hamlet.chief") => {
-            let text =
-                data("text").as_str().unwrap_or_default().into();
+    let mark = entry.mark.as_ref().and_then(InputMark::of);
+    let at = mark
+        .as_ref()
+        .and_then(|mark| u64::try_from(mark.at()).ok())
+        .unwrap_or(entry.at);
+    match mark {
+        Some(InputMark::Chief { chief, text, .. }) => {
             return vec![(
                 0,
                 Item {
-                    chief: data("chief").as_str().map(String::from),
+                    chief: Some(chief),
                     rewindable: Some(true),
                     ..item(ItemKind::User, text, at)
                 },
             )];
         }
-        Some("hamlet.notice") => {
-            let text =
-                data("text").as_str().unwrap_or_default().into();
+        Some(InputMark::Notice { text, .. }) => {
             return vec![(0, item(ItemKind::Notice, text, at))];
         }
-        Some("hamlet.reflection") => {
+        Some(InputMark::Reflection { .. }) => {
             return vec![(
                 0,
                 item(ItemKind::Notice, "reflection".into(), at),
             )];
         }
-        Some("hamlet.retry") => {
+        Some(InputMark::Retry { .. }) => {
             return vec![(
                 0,
                 item(ItemKind::Notice, entry.text.clone(), at),
             )];
         }
         Some(
-            "hamlet.letter" | "hamlet.question" | "hamlet.reply",
+            InputMark::Letter(mail)
+            | InputMark::Question(mail)
+            | InputMark::Reply(mail),
         ) if entry.kind == link::ItemKind::User => {
             return vec![(
                 0,
                 Item {
-                    author: data("author").as_str().map(String::from),
+                    author: mail.author,
                     ..item(ItemKind::User, entry.text.clone(), at)
                 },
             )];

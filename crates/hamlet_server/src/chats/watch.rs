@@ -8,7 +8,7 @@ use hamlet_protocol::v0::{
 use serde_json::json;
 
 use super::{Watch, records};
-use crate::harness::{BindingId, Harnesses, link};
+use crate::harness::{BindingId, Harnesses, InputMark, link};
 use crate::protocol::{Refusal, fault, reply};
 use crate::service::Service;
 use crate::society::letters::{Kind, peer_of};
@@ -229,19 +229,14 @@ pub(super) fn pasts(
     for session in records::sessions(db, agent, &chief)? {
         let items = service.home.store().items(session.binding)?;
         let Some((first, by)) = items.iter().find_map(|item| {
-            let mark = item.mark.as_ref()?;
-            let text = mark.data.get("text")?.as_str()?;
-            (mark.kind == "hamlet.chief" && !text.trim().is_empty())
-                .then(|| {
-                    (
-                        text.to_owned(),
-                        mark.data
-                            .get("chief")
-                            .and_then(|c| c.as_str())
-                            .unwrap_or_default()
-                            .to_owned(),
-                    )
-                })
+            match InputMark::of(item.mark.as_ref()?)? {
+                InputMark::Chief { chief, text, .. }
+                    if !text.trim().is_empty() =>
+                {
+                    Some((text, chief))
+                }
+                _ => None,
+            }
         }) else {
             continue;
         };
@@ -257,14 +252,14 @@ pub(super) fn pasts(
         let messages = items
             .iter()
             .filter(|item| {
-                item.mark
-                    .as_ref()
-                    .is_some_and(|mark| mark.kind == "hamlet.chief")
-                    || (item.kind == link::ItemKind::Assistant
-                        && item.blocks.iter().flatten().any(|block| {
-                            matches!(block, link::Block::Text { text }
+                matches!(
+                    item.mark.as_ref().and_then(InputMark::of),
+                    Some(InputMark::Chief { .. })
+                ) || (item.kind == link::ItemKind::Assistant
+                    && item.blocks.iter().flatten().any(|block| {
+                        matches!(block, link::Block::Text { text }
                                 if !text.trim().is_empty())
-                        }))
+                    }))
             })
             .count();
         let modified = items

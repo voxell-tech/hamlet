@@ -11,6 +11,7 @@ use super::link::{
     AdmittedStatus, ConfigureTools, Item, Mark, ModelRef,
     SettledStatus,
 };
+use super::mark::InputMark;
 use crate::record::AgentRef;
 use crate::{RuntimeInstance, Store};
 
@@ -67,7 +68,7 @@ pub struct Input<'a> {
     pub request: &'a str,
     pub content: &'a str,
     pub steer: bool,
-    pub mark: Option<&'a Mark>,
+    pub mark: Option<&'a InputMark>,
     pub write: bool,
     pub boundary: bool,
 }
@@ -457,7 +458,8 @@ impl Store {
             "SELECT request, content, steer, mark, write, boundary \
              FROM harness_input WHERE binding = ?1 AND (state = \
              'kept' OR (?2 AND state = 'admitted' AND followed = 0 \
-             AND NOT coalesce({ENDED}, 0))) ORDER BY ordinal"
+             AND NOT {})) ORDER BY ordinal",
+            ended("status")
         ))?;
         query
             .query_map(params![binding.0, unsettled], |row| {
@@ -537,6 +539,90 @@ impl Store {
             .optional()?)
     }
 
+    /// The mark of the input `request` of `binding`; `None` too for a
+    /// mark of a kind the server does not make.
+    pub(crate) fn mark_of(
+        &self,
+        binding: BindingId,
+        request: &str,
+    ) -> Result<Option<InputMark>> {
+        Ok(self
+            .connection()
+            .query_row(
+                "SELECT mark FROM harness_input WHERE binding = ?1 \
+                 AND request = ?2",
+                params![binding.0, request],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten()
+            .and_then(|mark| serde_json::from_str(&mark).ok()))
+    }
+
+    /// The mark of the input the runtime admitted as `submission`.
+    pub(crate) fn input_mark(
+        &self,
+        binding: BindingId,
+        submission: Option<&str>,
+    ) -> Result<Option<InputMark>> {
+        let Some(submission) = submission else {
+            return Ok(None);
+        };
+        match self.request_of(binding, submission)? {
+            Some(request) => self.mark_of(binding, &request),
+            None => Ok(None),
+        }
+    }
+
+    /// The chief's lines `binding` holds queued behind its turn,
+    /// whose input is `turn`.
+    pub(crate) fn queued_lines(
+        &self,
+        binding: BindingId,
+        turn: Option<&str>,
+    ) -> Result<usize> {
+        let marks = self
+            .connection()
+            .prepare(
+                "SELECT mark FROM harness_input WHERE binding = ?1 \
+                 AND write = 0 AND (state = 'kept' OR (state = \
+                 'admitted' AND status = 'queued' AND submission IS \
+                 NOT ?2))",
+            )?
+            .query_map(params![binding.0, turn], |row| {
+                row.get::<_, Option<String>>(0)
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(marks
+            .into_iter()
+            .flatten()
+            .filter(|mark| {
+                matches!(
+                    serde_json::from_str(mark),
+                    Ok(InputMark::Chief { .. })
+                )
+            })
+            .count())
+    }
+
+    /// Whether the input `request` of `binding` placed an entry.
+    pub(crate) fn placed(
+        &self,
+        binding: BindingId,
+        request: &str,
+    ) -> Result<bool> {
+        Ok(self
+            .connection()
+            .query_row(
+                "SELECT 1 FROM harness_item WHERE binding = ?1 AND \
+                 json_extract(item, '$.request') = ?2",
+                params![binding.0, request],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some())
+    }
+
     /// Keeps how the input `request` of `binding` stands now.
     pub(crate) fn input_stands(
         &mut self,
@@ -556,7 +642,8 @@ impl Store {
                  ?6, state = CASE WHEN ?4 = 'unanswered' THEN \
                  'dropped' WHEN state = 'kept' THEN 'admitted' ELSE \
                  state END WHERE binding = ?1 AND request = ?2 AND \
-                 NOT coalesce({ENDED}, 0)"
+                 NOT {}",
+                ended("status")
             ),
             params![
                 binding.0, request, submission, status, reason,
@@ -584,7 +671,8 @@ impl Store {
     pub fn unfollowed(&self) -> Result<Vec<(BindingId, String)>> {
         let mut query = self.connection().prepare(&format!(
             "SELECT binding, request FROM harness_input WHERE \
-             followed = 0 AND {ENDED} ORDER BY binding, ordinal"
+             followed = 0 AND {} ORDER BY binding, ordinal",
+            ended("status")
         ))?;
         Ok(query
             .query_map([], |row| {
@@ -613,14 +701,7 @@ impl Store {
 
     /// The items `binding` kept, oldest first.
     pub fn items(&self, binding: BindingId) -> Result<Vec<Item>> {
-        let mut query = self.connection().prepare(
-            "SELECT item FROM harness_item WHERE binding = ?1 ORDER \
-             BY ordinal",
-        )?;
-        query
-            .query_map([binding.0], |row| row.get::<_, String>(0))?
-            .map(|item| Ok(serde_json::from_str(&item?)?))
-            .collect()
+        items(self.connection(), binding)
     }
 
     /// Whether `binding` kept the entry `entry`.
@@ -711,7 +792,8 @@ pub(crate) fn input_runs(
                 "SELECT 1 FROM harness_input i JOIN harness_binding \
                  b ON b.id = i.binding WHERE i.binding = ?1 AND \
                  i.submission = ?2 AND b.cancelling = 0 AND i.state \
-                 != 'dropped' AND NOT coalesce({ENDED}, 0)"
+                 != 'dropped' AND NOT {}",
+                ended("i.status")
             ),
             params![binding.0, submission],
             |_| Ok(()),
@@ -730,14 +812,44 @@ pub(crate) fn working_on(
         .prepare(&format!(
             "SELECT DISTINCT i.binding FROM harness_input i JOIN \
              harness_binding b ON b.id = i.binding WHERE b.errand = \
-             0 AND i.state != 'dropped' AND NOT coalesce({ENDED}, \
-             0) AND json_extract(i.mark, '$.data.task') = ?1"
+             0 AND i.state != 'dropped' AND NOT {} AND \
+             json_extract(i.mark, '$.data.task') = ?1",
+            ended("i.status")
         ))?
         .query_map([task], |row| Ok(BindingId(row.get(0)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
-const ENDED: &str = "status IN ('done', 'unanswered')";
+/// The items `binding` kept, oldest first.
+pub(crate) fn items(
+    db: &Connection,
+    binding: BindingId,
+) -> Result<Vec<Item>> {
+    let mut query = db.prepare(
+        "SELECT item FROM harness_item WHERE binding = ?1 ORDER BY \
+         ordinal",
+    )?;
+    query
+        .query_map([binding.0], |row| row.get::<_, String>(0))?
+        .map(|item| Ok(serde_json::from_str(&item?)?))
+        .collect()
+}
+
+/// SQL that holds when the input status in `column` ended.
+pub(crate) fn ended(column: &str) -> String {
+    let statuses = [
+        InputStatus::Queued,
+        InputStatus::Placed,
+        InputStatus::Done,
+        InputStatus::Unanswered,
+    ]
+    .into_iter()
+    .filter(|status| status.is_ended())
+    .map(|status| format!("'{}'", status.as_str()))
+    .collect::<Vec<_>>()
+    .join(", ");
+    format!("coalesce({column} IN ({statuses}), 0)")
+}
 
 const BINDING: &str = "SELECT id, hamlet, number, errand, model, \
                        runtime, conversation, fork_of, fork_at FROM \

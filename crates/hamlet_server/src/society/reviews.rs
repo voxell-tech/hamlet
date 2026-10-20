@@ -4,10 +4,10 @@ use anyhow::Result;
 use hamlet_protocol::v0::Choice;
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::json;
 
 use crate::chats::records;
-use crate::harness::{BindingId, Harnesses};
+use crate::harness::{BindingId, Harnesses, InputMark};
 use crate::oversight::{
     self, ChatPlace, Raising, Ruling, WaitKind, held,
 };
@@ -77,23 +77,14 @@ pub(crate) async fn prepare(
     binding: BindingId,
     input: Option<&str>,
 ) -> Result<()> {
-    let Some(request) = input
-        .map(|input| service.home.store().request_of(binding, input))
-        .transpose()?
-        .flatten()
+    let Some(InputMark::Chief {
+        chief, text, task, ..
+    }) = service.home.store().input_mark(binding, input)?
     else {
         return Ok(());
     };
+    let task = task.as_str();
     let db = service.home.store().connection();
-    let Some(mark) = records::mark_of(db, binding, &request)?
-        .filter(|mark| mark.kind == "hamlet.chief")
-    else {
-        return Ok(());
-    };
-    let Some(task) = mark.data.get("task").and_then(Value::as_str)
-    else {
-        return Ok(());
-    };
     if super::document::<Option<Review>>(db, DUE, task)?.is_some()
         || super::document::<Option<Review>>(db, DONE, task)?
             .is_some()
@@ -154,19 +145,11 @@ pub(crate) async fn prepare(
         return Ok(());
     }
     let text = format!(
-        "{} told `{}`: {}",
-        mark.data
-            .get("chief")
-            .and_then(Value::as_str)
-            .unwrap_or_default(),
+        "{chief} told `{}`: {text}",
         r.name_of(
             kept.place.agent.number,
             crate::record::NameFallback::Recorded
         ),
-        mark.data
-            .get("text")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
     );
     let review = Review {
         binding: binding.0,

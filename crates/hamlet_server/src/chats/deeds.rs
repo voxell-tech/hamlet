@@ -6,12 +6,11 @@ use anyhow::Result;
 use hamlet_protocol::v0::{
     Address, ReplyKind, Rewind, ServerMessage,
 };
-use serde_json::json;
 
 use super::follow::{self, Mode};
 use super::records::{self, Place};
 use crate::gate::{self, TrustKey};
-use crate::harness::{BindingId, Harnesses, Input};
+use crate::harness::{BindingId, Harnesses, Input, InputMark};
 use crate::oversight;
 use crate::protocol::{Refusal, reply};
 use crate::record::AgentRef;
@@ -271,10 +270,10 @@ async fn carry_on(
             .into()));
     }
     let request = format!("retry:{}", uuid::Uuid::new_v4());
-    let mark = super::mark(
-        "hamlet.retry",
-        json!({"task": super::new_task(), "at": super::now()}),
-    );
+    let mark = InputMark::Retry {
+        task: super::new_task(),
+        at: super::now(),
+    };
     harnesses
         .submit(
             service.home.store(),
@@ -345,33 +344,29 @@ pub(super) async fn rewind(
         );
     };
     let entry = &items[target];
-    let line = entry.mark.as_ref().filter(|mark| {
-        mark.kind == "hamlet.chief"
-            && mark.data.get("chief").and_then(|c| c.as_str())
-                == Some(chief.as_str())
-    });
-    let Some(line) = line else {
+    let Some(InputMark::Chief {
+        chief: by,
+        text,
+        at,
+        ..
+    }) = entry.mark.as_ref().and_then(InputMark::of)
+    else {
         return refused(
             "That is not a chief's message in this conversation.",
         );
     };
-    let text = line
-        .data
-        .get("text")
-        .and_then(|t| t.as_str())
-        .unwrap_or_default()
-        .to_owned();
-    let since = line
-        .data
-        .get("at")
-        .and_then(|t| t.as_u64())
-        .unwrap_or(entry.at);
+    if by != chief {
+        return refused(
+            "That is not a chief's message in this conversation.",
+        );
+    }
+    let since = at;
     let kept = &items[..target];
     let mut turns = 0;
-    for item in kept {
-        match item.mark.as_ref().map(|mark| mark.kind.as_str()) {
-            Some("hamlet.reflection") => turns = 0,
-            Some("hamlet.chief" | "hamlet.retry") => turns += 1,
+    for mark in kept.iter().filter_map(|item| item.mark.as_ref()) {
+        match InputMark::of(mark) {
+            Some(InputMark::Reflection { .. }) => turns = 0,
+            Some(mark) if mark.chief_turn() => turns += 1,
             _ => {}
         }
     }
@@ -395,7 +390,7 @@ pub(super) async fn rewind(
         &agent,
         &chief,
         session,
-        i64::try_from(since)?,
+        since,
         super::now(),
     )?;
     for (runtime, key) in woken {
@@ -548,11 +543,10 @@ async fn stop_turn(
         .conversations
         .get(&binding)
         .and_then(|c| c.turn.clone());
-    let dropped = records::queued_lines(
-        service.home.store().connection(),
-        binding,
-        turn.as_deref(),
-    )?;
+    let dropped = service
+        .home
+        .store()
+        .queued_lines(binding, turn.as_deref())?;
     super::calls::stop_tools(service, binding);
     harnesses.cancel(service.home.store(), binding).await?;
     let text = format!(

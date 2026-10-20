@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 use crate::OperationId;
 use crate::chats::records;
-use crate::harness::{Answer, Binding};
+use crate::harness::{Answer, Binding, InputMark};
 use crate::oversight::held::{self, CallState};
 use crate::oversight::{
     ChatPlace, Holding, Raising, Ruling, WaitKind,
@@ -61,12 +61,9 @@ pub(crate) fn object(
             true,
         ));
     };
-    let Some(request) = input
-        .map(|input| {
-            service.home.store().request_of(binding.id, input)
-        })
-        .transpose()?
-        .flatten()
+    let Some(InputMark::Chief {
+        chief, text, task, ..
+    }) = service.home.store().input_mark(binding.id, input)?
     else {
         return Ok(Answer::result(
             "No chief oversees this instruction.",
@@ -74,19 +71,7 @@ pub(crate) fn object(
         ));
     };
     let db = service.home.store().connection();
-    let mark = records::mark_of(db, binding.id, &request)?;
-    let Some(mark) = mark.filter(|mark| mark.kind == "hamlet.chief")
-    else {
-        return Ok(Answer::result(
-            "No chief oversees this instruction.",
-            true,
-        ));
-    };
-    let task = mark
-        .data
-        .get("task")
-        .and_then(Value::as_str)
-        .unwrap_or(&request);
+    let task = task.as_str();
     let owner = format!("{}:{task}", binding.id.0);
     let prior = super::document::<Value>(db, "objection", &owner)?;
     let mut instruction = super::document::<
@@ -103,16 +88,6 @@ pub(crate) fn object(
     if reason.is_empty() {
         return Ok(Answer::result("Say why in `reason`.", true));
     }
-    let chief = mark
-        .data
-        .get("chief")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let text = mark
-        .data
-        .get("text")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
     let record = crate::record::read(db, &kept.place.agent.hamlet)?
         .expect("instruction's record");
     let name = record.name_of(
@@ -136,7 +111,7 @@ pub(crate) fn object(
             chat: Some(ChatPlace {
                 hamlet: kept.place.agent.hamlet,
                 number: kept.place.agent.number,
-                chief: chief.into(),
+                chief,
                 session: kept.place.session,
             }),
             call: Some(Holding {
@@ -211,10 +186,25 @@ mod tests {
             0,
         )
         .unwrap();
-        store.connection().execute(
-            "INSERT INTO harness_input (binding,request,ordinal,content,steer,state,submission,mark) VALUES (?1,'request',1,'Work',0,'admitted','input',?2)",
-            params![id.0, json!({"kind":"hamlet.chief", "data":{"task":"task", "chief":"chief", "text":"Work"}}).to_string()],
-        ).unwrap();
+        store
+            .connection()
+            .execute(
+                "INSERT INTO harness_input \
+                 (binding,request,ordinal,content,steer,state,\
+                 submission,mark) VALUES \
+                 (?1,'request',1,'Work',0,'admitted','input',?2)",
+                params![
+                    id.0,
+                    serde_json::to_string(&InputMark::Chief {
+                        chief: "chief".into(),
+                        text: "Work".into(),
+                        task: "task".into(),
+                        at: 0
+                    })
+                    .unwrap()
+                ],
+            )
+            .unwrap();
         store.begin_cancel(id).unwrap();
         for acknowledged in [false, true] {
             if acknowledged {

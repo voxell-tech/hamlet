@@ -445,11 +445,13 @@ pub(crate) fn consulting(
     agent: &crate::record::AgentRef,
 ) -> Result<bool> {
     Ok(db.query_row(
-        "SELECT EXISTS (SELECT 1 FROM society_binding s JOIN \
-         harness_binding b ON b.id=s.binding JOIN harness_input i \
-         ON i.binding=b.id WHERE s.errand='librarian' AND \
-         b.hamlet=?1 AND b.number=?2 AND \
-         coalesce(i.status,'queued') NOT IN ('done','unanswered'))",
+        &format!(
+            "SELECT EXISTS (SELECT 1 FROM society_binding s JOIN \
+             harness_binding b ON b.id=s.binding JOIN harness_input \
+             i ON i.binding=b.id WHERE s.errand='librarian' AND \
+             b.hamlet=?1 AND b.number=?2 AND NOT {})",
+            crate::harness::ended("i.status")
+        ),
         params![agent.hamlet, i64::try_from(agent.number)?],
         |row| row.get(0),
     )?)

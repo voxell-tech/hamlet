@@ -23,7 +23,7 @@ use crate::harness::link::{
 };
 use crate::harness::tools::CONFLICT;
 use crate::harness::{
-    Answer, Binding, BindingId, Call, Harnesses, Re,
+    Answer, Binding, BindingId, Call, Harnesses, InputMark, Re,
 };
 use crate::operation::{self, Marked, Request};
 use crate::service::Service;
@@ -637,24 +637,18 @@ fn prompt(
         ));
     }
     let agent = bound.agent.clone();
-    let request = request_of(service, binding, input)?;
-    let db = service.home.store().connection();
-    if let (Some(input), Some(request)) = (input, &request)
-        && request.starts_with("reflect:")
+    let mark = service.home.store().input_mark(binding, input)?;
+    if let (Some(input), Some(InputMark::Reflection { .. })) =
+        (input, &mark)
     {
-        records::enter(db, binding, input)?;
+        records::enter(
+            service.home.store().connection(),
+            binding,
+            input,
+        )?;
     }
-    let task = request
-        .as_deref()
-        .map(|request| records::mark_of(db, binding, request))
-        .transpose()?
-        .flatten()
-        .and_then(|mark| {
-            mark.data
-                .get("task")
-                .and_then(Value::as_str)
-                .map(String::from)
-        });
+    let task =
+        mark.as_ref().and_then(InputMark::task).map(String::from);
     let Some(record) = service.home.store().record(&agent.hamlet)?
     else {
         return Ok(crate::prompt::Prepared::fixed(Vec::new()));
@@ -746,24 +740,17 @@ fn verdict(
             compact: false,
         });
     }
-    let request = request_of(service, binding, input)?;
-    let db = service.home.store().connection();
-    let mark = request
-        .as_deref()
-        .map(|request| records::mark_of(db, binding, request))
-        .transpose()?
-        .flatten();
-    let reflection = mark
-        .as_ref()
-        .is_some_and(|mark| mark.kind == "hamlet.reflection");
-    let task = mark.as_ref().and_then(|mark| mark.data.get("task"));
+    let mark = service.home.store().input_mark(binding, input)?;
+    let reflection =
+        matches!(mark, Some(InputMark::Reflection { .. }));
+    let tasked = mark.as_ref().and_then(InputMark::task).is_some();
     let cutoff = answer.stop.as_deref() == Some("length")
         && answer
             .usage
             .as_ref()
             .is_some_and(|usage| usage.output < 1024)
         && !reflection
-        && task.is_some_and(|task| !task.is_null());
+        && tasked;
     if cutoff && history && !retried && summary_failure.is_none() {
         return Ok(Answer::Verdict {
             words: None,
@@ -788,26 +775,17 @@ fn verdict(
         EMPTY.into()
     };
     if let Some(input) = input {
-        follow::fail_answer(db, binding, input, &words)?;
+        follow::fail_answer(
+            service.home.store().connection(),
+            binding,
+            input,
+            &words,
+        )?;
     }
     Ok(Answer::Verdict {
-        notice: Some(super::notice(&words)),
+        notice: Some((&InputMark::notice(&words)).into()),
         words: Some(words),
         compact: false,
-    })
-}
-
-/// The request of the input `input` of `binding`.
-fn request_of(
-    service: &mut Service,
-    binding: BindingId,
-    input: Option<&str>,
-) -> Result<Option<String>> {
-    Ok(match input {
-        Some(input) => {
-            service.home.store().request_of(binding, input)?
-        }
-        None => None,
     })
 }
 
@@ -817,8 +795,10 @@ fn reflecting(
     binding: BindingId,
     input: Option<&str>,
 ) -> Result<bool> {
-    Ok(request_of(service, binding, input)?
-        .is_some_and(|request| request.starts_with("reflect:")))
+    Ok(matches!(
+        service.home.store().input_mark(binding, input)?,
+        Some(InputMark::Reflection { .. })
+    ))
 }
 
 /// Whether a chief oversees the turn of `input` at `place`: a chief's
@@ -829,19 +809,9 @@ fn chief_oversees(
     input: Option<&str>,
     place: &records::Place,
 ) -> Result<bool> {
-    let request = request_of(service, binding, input)?;
-    let db = service.home.store().connection();
-    let mark = request
-        .as_deref()
-        .map(|request| records::mark_of(db, binding, request))
-        .transpose()?
-        .flatten();
-    Ok(match mark.as_ref().map(|mark| mark.kind.as_str()) {
-        Some("hamlet.chief") => mark
-            .as_ref()
-            .and_then(|mark| mark.data.get("chief"))
-            .is_some_and(Value::is_string),
-        Some("hamlet.retry") => place.chief.is_some(),
+    Ok(match service.home.store().input_mark(binding, input)? {
+        Some(InputMark::Chief { .. }) => true,
+        Some(InputMark::Retry { .. }) => place.chief.is_some(),
         _ => false,
     })
 }
