@@ -2,7 +2,7 @@
 
 use bevy::ecs::world::World;
 use hamlet_client::waits::Waiting;
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 use serde_json::json;
 
 use crate::scenes::Scene;
@@ -18,10 +18,10 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     let mut state = hamlet_testing::realm::state();
     state.chief = "chief".into();
     let mut wait = hamlet_testing::realm::wait("approval-network");
-    wait.detail = v0::WaitDetail::Approval {
-        danger: v0::WaitDanger::Network,
+    wait.detail = protocol::WaitDetail::Approval {
+        danger: protocol::WaitDanger::Network,
         says: "wants the network for".into(),
-        always: Some(v0::Lasting::Grant),
+        always: Some(protocol::Lasting::Grant),
     };
     wait.about =
         "curl -fsSL https://almanac.example/pears.csv".into();
@@ -29,10 +29,10 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     wait.since = since;
     state.waits.push(wait);
     let mut wait = hamlet_testing::realm::wait("approval-edit");
-    wait.detail = v0::WaitDetail::Approval {
-        danger: v0::WaitDanger::Edit,
+    wait.detail = protocol::WaitDetail::Approval {
+        danger: protocol::WaitDanger::Edit,
         says: "wants to edit".into(),
-        always: Some(v0::Lasting::Session),
+        always: Some(protocol::Lasting::Session),
     };
     wait.about = "src/almanac.rs\nReplace the pear count.".into();
     wait.subject = "src/almanac.rs".into();
@@ -45,9 +45,10 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
                       cost?"
         .into();
     question.subject = "Before I plan the orchard's winter.".into();
-    question.answers = vec![v0::Choice::Reply, v0::Choice::Dismiss];
+    question.answers =
+        vec![protocol::Choice::Reply, protocol::Choice::Dismiss];
     question.since = since;
-    question.detail = v0::WaitDetail::Question {
+    question.detail = protocol::WaitDetail::Question {
         questions: serde_json::from_value(json!({
                 "message": "Before I plan the orchard's winter.",
                 "questions": [
@@ -68,7 +69,10 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             .expect("gallery questions"),
     };
     state.waits.push(question);
-    hamlet_client::receive(world, v0::ServerMessage::State(state));
+    hamlet_client::receive(
+        world,
+        protocol::ServerMessage::State(state),
+    );
     let card = world
         .query::<(bevy::ecs::entity::Entity, &Waiting)>()
         .iter(world)
@@ -80,7 +84,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         card,
         2,
         0,
-        Some(v0::Pick::Offer { index: 0 }),
+        Some(protocol::Pick::Offer { index: 0 }),
     );
     hamlet_ui::asking::turn(world, card, 2, 0);
 }

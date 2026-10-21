@@ -2,7 +2,7 @@
 //! moves between them, and closing, restoring and erasing them.
 
 use hamlet_acceptance::*;
-use hamlet_protocol::v0::*;
+use hamlet_protocol::*;
 use serde_json::json;
 
 fn society() -> Script {

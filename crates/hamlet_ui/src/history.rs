@@ -26,8 +26,8 @@ use hamlet_client::chats::{Chat, Entry, TalksTo, Transcript};
 use hamlet_client::messages::{JobFinished, Response, UserMessage};
 use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::address_of;
-use hamlet_protocol::v0;
-use v0::Past;
+use hamlet_protocol as protocol;
+use protocol::Past;
 
 use crate::dock::show_tab;
 use crate::feel::Mood;
@@ -103,7 +103,7 @@ struct Line {
 
 #[derive(Resource, Default)]
 struct Requests {
-    agent: Option<v0::Address>,
+    agent: Option<protocol::Address>,
     pending: Option<RequestId>,
     open: bool,
 }
@@ -235,7 +235,7 @@ fn open(world: &mut World, number: i64) {
     };
     let holder = world
         .spawn((
-            Chat(v0::ChatRef {
+            Chat(protocol::ChatRef {
                 kind: None,
                 from: None,
                 with,
@@ -295,7 +295,7 @@ pub(crate) fn refresh(world: &mut World) {
         return;
     };
     let id = world.resource_mut::<Outbox>().send(|id| {
-        v0::ClientMessage::Read(v0::Read::History {
+        protocol::ClientMessage::Read(protocol::Read::History {
             id,
             agent: agent.clone(),
         })
@@ -320,19 +320,18 @@ fn response(reply: On<Response>, mut commands: Commands) {
         }
         world.resource_mut::<Requests>().pending = None;
         match reply.message {
-            v0::ServerMessage::Read(v0::ReadResult::History {
-                history,
-                ..
-            }) => {
+            protocol::ServerMessage::Read(
+                protocol::ReadResult::History { history, .. },
+            ) => {
                 world.resource_mut::<History>().pasts = history;
             }
-            v0::ServerMessage::Reply(reply)
-                if reply.kind == v0::ReplyKind::Error =>
+            protocol::ServerMessage::Reply(reply)
+                if reply.kind == protocol::ReplyKind::Error =>
             {
                 world.resource_mut::<History>().failed =
                     Some(reply.text);
             }
-            v0::ServerMessage::Fault(fault) => {
+            protocol::ServerMessage::Fault(fault) => {
                 world.resource_mut::<History>().failed =
                     Some(fault.text);
             }
@@ -739,8 +738,8 @@ mod tests {
                 .filter(|m| {
                     matches!(
                         m,
-                        v0::ClientMessage::Read(
-                            v0::Read::History { .. }
+                        protocol::ClientMessage::Read(
+                            protocol::Read::History { .. }
                         )
                     )
                 })

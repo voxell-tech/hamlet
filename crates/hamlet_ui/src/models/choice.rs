@@ -9,7 +9,7 @@ use bevy_fynix::{ViewExt, keyed};
 use hamlet_client::realm::{
     Account, Bylaws, LivesIn, MAYOR, Mayor, Settings, address_of,
 };
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 
 use super::{Shelf, edit};
 use crate::icons::Glyph;
@@ -25,7 +25,7 @@ pub(super) fn home_default(world: &World) -> String {
 }
 
 fn offered(
-    models: &[v0::Listed],
+    models: &[protocol::Listed],
     default: &str,
     now: &str,
 ) -> Vec<String> {
@@ -91,7 +91,7 @@ pub(super) fn chooser(
 fn whole(
     world: &mut World,
     hamlet: Entity,
-    change: impl FnOnce(&mut v0::Limits),
+    change: impl FnOnce(&mut protocol::Limits),
 ) {
     let Some(mut limits) =
         world.get::<Bylaws>(hamlet).map(|limits| limits.0.clone())
@@ -111,7 +111,7 @@ fn whole(
         >(serde_json::to_value(limits).expect("limits JSON"))
         .expect("limits object");
     edit(world, |id| {
-        v0::Edit::Limits(v0::EditLimits::Whole {
+        protocol::Edit::Limits(protocol::EditLimits::Whole {
             id,
             hamlet: place,
             reason: None,
@@ -130,11 +130,11 @@ fn pin(world: &mut World, agent: Entity, model: &str) {
         address.agent
     };
     edit(world, |id| {
-        v0::Edit::Limits(v0::EditLimits::Set {
+        protocol::Edit::Limits(protocol::EditLimits::Set {
             id,
             hamlet: address.hamlet,
             reason: None,
-            set: v0::EditLimitsSetSet {
+            set: protocol::EditLimitsSetSet {
                 section: "pinned".into(),
                 key,
                 value: model.into(),

@@ -27,7 +27,7 @@ use bevy_fynix::{ScopedExt, ViewExt, each, resource};
 use hamlet_client::chats::{self, Entry, Transcript};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 
 use super::entry::entry_view;
 use super::timeline::{Line, People, Who, timeline};
@@ -66,7 +66,7 @@ fn page_received(
         return;
     };
     if id != &response.to {
-        if matches!(&response.message, v0::ServerMessage::Transcript(page) if page.chat == *reference)
+        if matches!(&response.message, protocol::ServerMessage::Transcript(page) if page.chat == *reference)
         {
             requests.0.remove(id);
             *reading = Reading::default();
@@ -74,7 +74,7 @@ fn page_received(
         return;
     }
     match &response.message {
-        v0::ServerMessage::Transcript(_) => {
+        protocol::ServerMessage::Transcript(_) => {
             reach.rows = lines.rows.len() + reach.page;
             reading.held = scrolls.iter().next().map(|(node, at)| {
                 (
@@ -86,9 +86,8 @@ fn page_received(
             });
             reading.page = None;
         }
-        v0::ServerMessage::Reply(_) | v0::ServerMessage::Fault(_) => {
-            reading.page = None
-        }
+        protocol::ServerMessage::Reply(_)
+        | protocol::ServerMessage::Fault(_) => reading.page = None,
         _ => {}
     }
 }
@@ -448,7 +447,7 @@ pub fn fold_lines(
 #[derive(Resource, Default)]
 pub struct Reading {
     held: Option<(f32, f32, u8)>,
-    page: Option<(String, v0::ChatRef)>,
+    page: Option<(String, protocol::ChatRef)>,
     at_top: bool,
 }
 
@@ -523,7 +522,7 @@ pub fn read_back(
                         .resource::<Outbox>()
                         .iter()
                         .filter_map(|message| match message {
-                            v0::ClientMessage::Open(open)
+                            protocol::ClientMessage::Open(open)
                                 if open.chat == reference
                                     && open.before.is_some() =>
                             {

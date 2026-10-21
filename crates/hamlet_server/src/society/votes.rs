@@ -2,7 +2,7 @@
 //! decisions.
 
 use anyhow::{Context, Result};
-use hamlet_protocol::v0::{self, VoteView, Voter, VoterCast};
+use hamlet_protocol::{self as protocol, VoteView, Voter, VoterCast};
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -229,7 +229,7 @@ pub(crate) fn views(
         .iter()
         .map(|v| {
             let voters = v.voters.iter().map(|&number| Voter {
-                agent: v0::AgentRef {
+                agent: protocol::AgentRef {
                     hamlet: r.id.clone(),
                     number,
                 },

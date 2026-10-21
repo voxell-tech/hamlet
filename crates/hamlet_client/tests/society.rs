@@ -2,7 +2,7 @@ use bevy_app::App;
 use bevy_ecs::prelude::*;
 use hamlet_client::realm::*;
 use hamlet_client::{ClientPlugin, receive};
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 use hamlet_testing::realm::{agent, hamlet, reference, road, state};
 
 fn app() -> App {
@@ -14,11 +14,11 @@ fn app() -> App {
 fn change(
     world: &mut World,
     revision: i64,
-    changes: Vec<v0::Update>,
+    changes: Vec<protocol::Update>,
 ) {
     receive(
         world,
-        v0::ServerMessage::Change(v0::Changes {
+        protocol::ServerMessage::Change(protocol::Changes {
             epoch: 1,
             revision,
             changes,
@@ -32,8 +32,8 @@ fn departures_resolve_later_merge_hosts_and_restores_keep_identity() {
     let world = app.world_mut();
     let mut state = state();
     let mut removed = agent("home", 1, "scout");
-    removed.left = Some(v0::Left {
-        how: v0::LeftHow::Removed,
+    removed.left = Some(protocol::Left {
+        how: protocol::LeftHow::Removed,
         into: None,
         at: 2000,
         by: "chief".into(),
@@ -41,8 +41,8 @@ fn departures_resolve_later_merge_hosts_and_restores_keep_identity() {
         words: "Removed: done".into(),
     });
     let mut merged = agent("home", 2, "smith");
-    merged.left = Some(v0::Left {
-        how: v0::LeftHow::Merged,
+    merged.left = Some(protocol::Left {
+        how: protocol::LeftHow::Merged,
         into: Some(reference("home", 3)),
         at: 3000,
         by: "mayor".into(),
@@ -54,7 +54,7 @@ fn departures_resolve_later_merge_hosts_and_restores_keep_identity() {
         merged,
         agent("home", 3, "keeper"),
     ]);
-    receive(world, v0::ServerMessage::State(state));
+    receive(world, protocol::ServerMessage::State(state));
     let gone = world
         .query::<(Entity, &Citizen)>()
         .iter(world)
@@ -71,14 +71,18 @@ fn departures_resolve_later_merge_hosts_and_restores_keep_identity() {
     );
     assert_eq!(named(world, "scout"), None);
     removed.left = None;
-    change(world, 1, vec![v0::Update::Agent { agent: removed }]);
+    change(
+        world,
+        1,
+        vec![protocol::Update::Agent { agent: removed }],
+    );
     assert_eq!(named(world, "scout"), Some(gone[&1]));
     assert!(world.get::<Left>(gone[&1]).is_none());
     assert_eq!(world.get::<Lived>(gone[&1]).unwrap().until, None);
     change(
         world,
         2,
-        vec![v0::Update::AgentGone {
+        vec![protocol::Update::AgentGone {
             ref_: reference("home", 2),
         }],
     );
@@ -111,7 +115,7 @@ fn roads_are_unordered_shared_and_only_growth_carries_letters() {
     state.hamlets[0].roads =
         vec![home_road.clone(), between.clone(), scout_road.clone()];
     state.hamlets[1].roads = vec![between.clone(), scout_road];
-    receive(world, v0::ServerMessage::State(state.clone()));
+    receive(world, protocol::ServerMessage::State(state.clone()));
     assert_eq!(world.query::<&Road>().iter(world).count(), 3);
     assert!(world.resource::<Letters>().0.is_empty());
     let founder = named(world, "founder").unwrap();
@@ -131,7 +135,7 @@ fn roads_are_unordered_shared_and_only_growth_carries_letters() {
     change(
         world,
         1,
-        vec![v0::Update::Hamlet {
+        vec![protocol::Update::Hamlet {
             hamlet: changed.clone(),
         }],
     );
@@ -143,13 +147,17 @@ fn roads_are_unordered_shared_and_only_growth_carries_letters() {
     change(
         world,
         2,
-        vec![v0::Update::Hamlet {
+        vec![protocol::Update::Hamlet {
             hamlet: changed.clone(),
         }],
     );
     assert_eq!(world.resource::<Letters>().0.len(), 1);
     changed.roads = vec![between];
-    change(world, 3, vec![v0::Update::Hamlet { hamlet: changed }]);
+    change(
+        world,
+        3,
+        vec![protocol::Update::Hamlet { hamlet: changed }],
+    );
     assert_eq!(world.query::<&Road>().iter(world).count(), 1);
     assert!(world.get_entity(entity).is_err());
     state.revision = 4;
@@ -158,7 +166,7 @@ fn roads_are_unordered_shared_and_only_growth_carries_letters() {
     state.agents.retain(|a| a.ref_.hamlet == "home");
     let miller = named(world, "miller").unwrap();
     let mill = world.get::<LivesIn>(miller).unwrap().0;
-    receive(world, v0::ServerMessage::State(state));
+    receive(world, protocol::ServerMessage::State(state));
     assert!(world.get_entity(mill).is_err());
     assert!(world.get_entity(miller).is_err());
     assert_eq!(world.query::<&Road>().iter(world).count(), 0);
@@ -189,32 +197,33 @@ fn society_views_reconcile_and_transition_effects_fire_once() {
     let world = app.world_mut();
     let mut state = state();
     state.agents.push(agent("home", 1, "scout"));
-    state.hamlets[0].votes = vec![v0::VoteView {
+    state.hamlets[0].votes = vec![protocol::VoteView {
         id: 7,
         motion: "scout for mayor".into(),
         by: "chief".into(),
         open: true,
         overturnable: false,
         report: "Waiting for scout".into(),
-        voters: vec![v0::Voter {
+        voters: vec![protocol::Voter {
             agent: reference("home", 1),
             cast: None,
         }],
     }];
-    state.hamlets[0].at = Some(v0::TownAt { x: -21.5, z: 48.0 });
-    state.library = vec![v0::LibrarySkill {
+    state.hamlets[0].at =
+        Some(protocol::TownAt { x: -21.5, z: 48.0 });
+    state.library = vec![protocol::LibrarySkill {
         name: "research".into(),
         description: "Read sources".into(),
         by: "scout".into(),
     }];
-    state.closed = vec![v0::ClosedHamlet {
+    state.closed = vec![protocol::ClosedHamlet {
         id: "mill".into(),
         name: "The Mill".into(),
         at: 99,
         by: "chief".into(),
         reason: "quiet".into(),
     }];
-    receive(world, v0::ServerMessage::State(state.clone()));
+    receive(world, protocol::ServerMessage::State(state.clone()));
     let scout = named(world, "scout").unwrap();
     let home = world.get::<LivesIn>(scout).unwrap().0;
     assert_eq!(
@@ -226,17 +235,17 @@ fn society_views_reconcile_and_transition_effects_fire_once() {
     assert_eq!(world.get::<Votes>(home).unwrap().0[0].id, 7);
     assert!(world.resource::<Ballots>().0.is_empty());
     state.hamlets[0].votes[0].voters[0].cast =
-        Some(v0::VoterCast::Abstain);
+        Some(protocol::VoterCast::Abstain);
     state.agents[1].consulting = true;
     for revision in [1, 2] {
         change(
             world,
             revision,
             vec![
-                v0::Update::Hamlet {
+                protocol::Update::Hamlet {
                     hamlet: state.hamlets[0].clone(),
                 },
-                v0::Update::Agent {
+                protocol::Update::Agent {
                     agent: state.agents[1].clone(),
                 },
             ],
@@ -250,7 +259,7 @@ fn society_views_reconcile_and_transition_effects_fire_once() {
     state.hamlets[0].votes = Vec::new();
     state.hamlets[0].at = None;
     state.agents[1].consulting = false;
-    receive(world, v0::ServerMessage::State(state));
+    receive(world, protocol::ServerMessage::State(state));
     assert!(world.resource::<Closed>().0.is_empty());
     assert!(world.resource::<Skills>().0.is_empty());
     assert!(world.get::<Votes>(home).unwrap().0.is_empty());

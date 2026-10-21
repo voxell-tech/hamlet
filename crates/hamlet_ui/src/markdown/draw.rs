@@ -803,7 +803,7 @@ mod tests {
     fn received_folders_and_absolute_local_files_link_but_house_paths_stay_text()
      {
         use hamlet_client::{ClientPlugin, receive};
-        use hamlet_protocol::v0;
+        use hamlet_protocol as protocol;
         let scratch =
             hamlet_testing::Scratch::new("client-markdown-links");
         let first = scratch.join("first");
@@ -826,7 +826,7 @@ mod tests {
             Some(first.to_string_lossy().into_owned());
         receive(
             app.world_mut(),
-            v0::ServerMessage::State(state.clone()),
+            protocol::ServerMessage::State(state.clone()),
         );
         app.add_plugins((
             crate::me::plugin,
@@ -858,7 +858,10 @@ mod tests {
         assert_eq!(found.len(), 2);
         state.hamlets[0].folder =
             Some(second.to_string_lossy().into_owned());
-        receive(app.world_mut(), v0::ServerMessage::State(state));
+        receive(
+            app.world_mut(),
+            protocol::ServerMessage::State(state),
+        );
         app.update();
         app.update();
         let found = anchors(&mut app);

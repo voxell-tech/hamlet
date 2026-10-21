@@ -386,7 +386,7 @@ pub fn panel(chief: Entity) -> AnyView {
 #[cfg(test)]
 mod tests {
     use bevy::app::{App, Update};
-    use hamlet_protocol::v0;
+    use hamlet_protocol as protocol;
 
     use super::*;
 
@@ -441,7 +441,7 @@ mod tests {
         let key = app.world().resource::<Me>().to.clone();
         // Another chat's message is not this chief's.
         app.world_mut().trigger(UserMessage {
-            to: v0::Address {
+            to: protocol::Address {
                 hamlet: "home".into(),
                 agent: "Sorrel".into(),
             },
@@ -474,7 +474,7 @@ mod tests {
         state.chief = "wren".into();
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         app.update();
         app.update();

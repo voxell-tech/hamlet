@@ -3,7 +3,7 @@
 //! the chief refused in the turn.
 
 use anyhow::{Context, Result};
-use hamlet_protocol::v0::Permission;
+use hamlet_protocol::Permission;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use hamlet_protocol::v0::{
+use hamlet_protocol::{
     Check, ClientMessage, EditCatalogueSet, Link, LinkState, Listed,
     ListedPriced, Login, LoginMethod, LoginProgress, LoginStep,
     Price as ListedPrice, ProviderView, Read, ReadResult,
@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 use crate::Store;
 use crate::credentials::write_whole;
 use crate::harness::LINK_VERSION;
-use crate::harness::link::{
+use crate::harness::runtime::{
     ModelRef, Price, ProviderControl, ProviderEvent, ProviderRequest,
     ProviderRequestAction, ProviderRequestMethod, ProviderResult,
     ProviderResultProviders, Selection,

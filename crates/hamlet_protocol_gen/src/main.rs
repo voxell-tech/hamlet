@@ -4,16 +4,10 @@ use std::fs;
 use std::path::Path;
 
 /// Each schema with the Rust file generated from it.
-const TARGETS: &[(&str, &str)] = &[
-    (
-        "crates/hamlet_protocol/schema.json",
-        "crates/hamlet_protocol/src/v0.rs",
-    ),
-    (
-        "harnesses/pi/link.schema.json",
-        "crates/hamlet_server/src/harness/link.rs",
-    ),
-];
+const TARGETS: &[(&str, &str)] = &[(
+    "harnesses/pi/link.schema.json",
+    "crates/hamlet_server/src/harness/runtime.rs",
+)];
 
 fn main() -> Result<(), String> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

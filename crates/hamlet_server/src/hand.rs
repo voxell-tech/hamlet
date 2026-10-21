@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 
-use crate::harness::link::{
+use crate::harness::runtime::{
     DiagnosticSeverity, ToolSpec, ToolSpecReplay,
 };
 use crate::sandbox::path::{resolve, text};

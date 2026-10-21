@@ -7,7 +7,7 @@ use hamlet_client::realm::{
     Activity, Busy, Doing, Faulted, Left, Paper, Voted,
 };
 use hamlet_client::waits::{Needs, RaisedBy, Waiting};
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 
 use super::Housed;
 use crate::Clock;
@@ -92,7 +92,10 @@ pub(super) fn show(
     let arguing = waiting
         .iter()
         .filter(|(waiting, _)| {
-            matches!(waiting.detail, v0::WaitDetail::Objection {})
+            matches!(
+                waiting.detail,
+                protocol::WaitDetail::Objection {}
+            )
         })
         .filter_map(|(_, by)| housed.get(by.0).ok())
         .map(|agent| agent.0)

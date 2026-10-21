@@ -3,9 +3,9 @@ use bevy_ecs::name::Name;
 use bevy_ecs::prelude::*;
 use hamlet_client::realm::*;
 use hamlet_client::{ClientPlugin, receive};
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 
-fn frames(text: &str) -> Vec<v0::ServerMessage> {
+fn frames(text: &str) -> Vec<protocol::ServerMessage> {
     text.lines()
         .filter_map(|line| {
             let frame =
@@ -32,7 +32,7 @@ fn recorded_hello_fills_the_realm_and_the_servers_words() {
     let recorded = frames(include_str!(
         "../../hamlet_protocol/frames/hello.jsonl"
     ));
-    let v0::ServerMessage::State(state) = &recorded[0] else {
+    let protocol::ServerMessage::State(state) = &recorded[0] else {
         panic!("hello receives a whole state");
     };
     let sandbox = state.sandbox.clone();
@@ -68,7 +68,7 @@ fn recorded_hello_fills_the_realm_and_the_servers_words() {
     assert_eq!(named(world, "mayor"), Some(agent));
     assert_eq!(
         address_of(world, agent),
-        Some(v0::Address {
+        Some(protocol::Address {
             hamlet: "home".into(),
             agent: "founder".into()
         })
@@ -145,8 +145,8 @@ fn recorded_approvals_join_the_founders_needs_until_closed() {
                     wait.answers,
                     [Choice::Allow, Choice::Always, Choice::Deny]
                 );
-                if let v0::WaitDetail::Approval {
-                    danger: v0::WaitDanger::Command,
+                if let protocol::WaitDetail::Approval {
+                    danger: protocol::WaitDanger::Command,
                     says,
                     ..
                 } = &wait.detail
@@ -208,7 +208,7 @@ fn snapshots_reconcile_by_identity_across_epochs_and_changes_only_advance_the_se
     first.hamlets.push(hamlet("other"));
     first.agents.push(agent("other", 0, "scout"));
     first.waits = vec![wait("kept"), wait("gone")];
-    receive(world, v0::ServerMessage::State(first.clone()));
+    receive(world, protocol::ServerMessage::State(first.clone()));
     let founder = named(world, "founder").unwrap();
     let scout = named(world, "scout").unwrap();
     let home = world.get::<LivesIn>(founder).unwrap().0;
@@ -225,7 +225,7 @@ fn snapshots_reconcile_by_identity_across_epochs_and_changes_only_advance_the_se
     first.agents[0].name = "renamed".into();
     first.waits.truncate(1);
     first.waits[0].about = "a new question".into();
-    receive(world, v0::ServerMessage::State(first.clone()));
+    receive(world, protocol::ServerMessage::State(first.clone()));
     assert_eq!(named(world, "renamed"), Some(founder));
     assert_eq!(world.get::<LivesIn>(founder).unwrap().0, home);
     assert!(world.get_entity(scout).is_err());
@@ -244,10 +244,10 @@ fn snapshots_reconcile_by_identity_across_epochs_and_changes_only_advance_the_se
     {
         receive(
             world,
-            v0::ServerMessage::Change(v0::Changes {
+            protocol::ServerMessage::Change(protocol::Changes {
                 epoch,
                 revision,
-                changes: vec![v0::Update::AgentGone {
+                changes: vec![protocol::Update::AgentGone {
                     ref_: first.agents[0].ref_.clone(),
                 }],
             }),
@@ -263,10 +263,10 @@ fn snapshots_reconcile_by_identity_across_epochs_and_changes_only_advance_the_se
     );
     receive(
         world,
-        v0::ServerMessage::Change(v0::Changes {
+        protocol::ServerMessage::Change(protocol::Changes {
             epoch: first.epoch,
             revision: 9,
-            changes: vec![v0::Update::AgentGone {
+            changes: vec![protocol::Update::AgentGone {
                 ref_: first.agents[0].ref_.clone(),
             }],
         }),
@@ -280,7 +280,7 @@ fn testing_builders_give_a_hamlet_a_mayor_and_one_wait_in_three_lines()
     let mut state = hamlet_testing::realm::state();
     state.waits.push(hamlet_testing::realm::wait("approval"));
     let mut app = app();
-    receive(app.world_mut(), v0::ServerMessage::State(state));
+    receive(app.world_mut(), protocol::ServerMessage::State(state));
     assert_eq!(
         app.world_mut()
             .query::<&hamlet_client::waits::Waiting>()
@@ -327,7 +327,7 @@ fn recorded_fault_marks_the_agent_and_keeps_the_fault_in_its_needs() {
         .single(world)
         .unwrap();
     assert_eq!(raised.0, founder);
-    assert_eq!(wait.detail, v0::WaitDetail::Fault {});
+    assert_eq!(wait.detail, protocol::WaitDetail::Fault {});
     assert_eq!(
         wait.line(80),
         format!("{} failed: {}", wait.by, wait.about)
@@ -344,7 +344,7 @@ fn roster_systems_and_exclusive_callers_find_the_same_living_agents()
     let mut state = state();
     state.hamlets.push(hamlet("other"));
     state.agents.push(agent("other", 0, "scout"));
-    receive(world, v0::ServerMessage::State(state));
+    receive(world, protocol::ServerMessage::State(state));
     let founder = mayor(world).unwrap();
     let scout = mayor_of(world, "other").unwrap();
     assert_eq!(name_of(world, founder), "founder");
@@ -374,7 +374,7 @@ fn streamed_words_only_change_saying_and_keep_relationship_order() {
     state
         .agents
         .push(hamlet_testing::realm::agent("home", 1, "scout"));
-    receive(world, v0::ServerMessage::State(state.clone()));
+    receive(world, protocol::ServerMessage::State(state.clone()));
     let founder = mayor(world).unwrap();
     let home = world.get::<LivesIn>(founder).unwrap().0;
     let before = world
@@ -386,14 +386,14 @@ fn streamed_words_only_change_saying_and_keep_relationship_order() {
     state.agents[0].saying.text = "Hello".into();
     receive(
         world,
-        v0::ServerMessage::Change(v0::Changes {
+        protocol::ServerMessage::Change(protocol::Changes {
             epoch: 1,
             revision: 1,
             changes: vec![
-                v0::Update::Hamlet {
+                protocol::Update::Hamlet {
                     hamlet: state.hamlets.remove(0),
                 },
-                v0::Update::Agent {
+                protocol::Update::Agent {
                     agent: state.agents.remove(0),
                 },
             ],
@@ -438,12 +438,12 @@ fn streamed_words_only_change_saying_and_keep_relationship_order() {
 fn objections_keep_the_speakers_width_in_the_one_line_subject() {
     let mut state = hamlet_testing::realm::state();
     let mut wait = hamlet_testing::realm::wait("objection");
-    wait.detail = v0::WaitDetail::Objection {};
+    wait.detail = protocol::WaitDetail::Objection {};
     wait.about = "heading\n12345678901234567890".into();
     wait.subject = "12345678901234567890".into();
     state.waits.push(wait);
     let mut app = app();
-    receive(app.world_mut(), v0::ServerMessage::State(state));
+    receive(app.world_mut(), protocol::ServerMessage::State(state));
     let world = app.world_mut();
     let wait = world
         .query::<&hamlet_client::waits::Waiting>()

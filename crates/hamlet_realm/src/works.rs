@@ -657,7 +657,7 @@ mod tests {
     use bevy::time::TimeUpdateStrategy;
     use hamlet_client::ClientPlugin;
     use hamlet_client::realm::Settlement;
-    use hamlet_protocol::v0;
+    use hamlet_protocol as protocol;
     use hamlet_testing::realm;
 
     use super::plugin;
@@ -708,10 +708,10 @@ mod tests {
         assert_eq!(rotations(&mut app), manual);
         let mut changed = realm::hamlet("home");
         changed.folder = Some("/server/orchard".into());
-        changed.mode = v0::HamletMode::Auto;
+        changed.mode = protocol::HamletMode::Auto;
         receive_change(
             &mut app,
-            v0::Update::Hamlet {
+            protocol::Update::Hamlet {
                 hamlet: changed.clone(),
             },
         );
@@ -725,10 +725,10 @@ mod tests {
                 .iter(world)
                 .any(|reads| reads.0 == "orchard")
         );
-        changed.mode = v0::HamletMode::Manual;
+        changed.mode = protocol::HamletMode::Manual;
         receive_change(
             &mut app,
-            v0::Update::Hamlet {
+            protocol::Update::Hamlet {
                 hamlet: changed.clone(),
             },
         );

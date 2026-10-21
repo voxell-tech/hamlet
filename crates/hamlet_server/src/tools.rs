@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-use crate::harness::link::{
+use crate::harness::runtime::{
     Diagnostic, DiagnosticSeverity, ToolSpec, ToolSpecReplay,
 };
 use crate::sandbox::path::{self, text};

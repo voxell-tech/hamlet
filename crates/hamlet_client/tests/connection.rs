@@ -7,8 +7,8 @@ use hamlet_client::connection::{Connection, State};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Settlement;
 use hamlet_client::{ClientPlugin, Tokio};
+use hamlet_protocol as protocol;
 use hamlet_protocol::discovery::ServerAddress;
-use hamlet_protocol::v0;
 use hamlet_testing::realm;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
@@ -50,7 +50,7 @@ async fn until(
 
 async fn next(
     socket: &mut WebSocketStream<TcpStream>,
-) -> v0::ClientMessage {
+) -> protocol::ClientMessage {
     let frame =
         tokio::time::timeout(Duration::from_secs(5), socket.next())
             .await
@@ -62,7 +62,7 @@ async fn next(
 
 async fn send(
     socket: &mut WebSocketStream<TcpStream>,
-    message: v0::ServerMessage,
+    message: protocol::ServerMessage,
 ) {
     socket
         .send(Message::text(serde_json::to_string(&message).unwrap()))
@@ -92,9 +92,9 @@ async fn window_closed(socket: &mut WebSocketStream<TcpStream>) {
 
 fn say(app: &mut App, text: &str) -> String {
     app.world_mut().resource_mut::<Outbox>().send(|id| {
-        v0::ClientMessage::Say(v0::Say {
+        protocol::ClientMessage::Say(protocol::Say {
             id,
-            to: v0::Address {
+            to: protocol::Address {
                 hamlet: "home".into(),
                 agent: "mayor".into(),
             },
@@ -119,8 +119,11 @@ async fn hello_precedes_the_outbox_and_received_state_fills_the_world()
             .send(Message::text(r#"{"type":"unknown"}"#))
             .await
             .unwrap();
-        send(&mut socket, v0::ServerMessage::State(realm::state()))
-            .await;
+        send(
+            &mut socket,
+            protocol::ServerMessage::State(realm::state()),
+        )
+        .await;
         sent.send(next(&mut socket).await).unwrap();
         sent.send(next(&mut socket).await).unwrap();
         window_closed(&mut socket).await;
@@ -138,8 +141,8 @@ async fn hello_precedes_the_outbox_and_received_state_fills_the_world()
     .await;
     assert_eq!(
         received[0],
-        v0::ClientMessage::Hello(v0::Hello {
-            v: v0::V,
+        protocol::ClientMessage::Hello(protocol::Hello {
+            v: protocol::V,
             token: "window-token".into(),
         })
     );
@@ -147,7 +150,7 @@ async fn hello_precedes_the_outbox_and_received_state_fills_the_world()
         (&received[1], first, "First"),
         (&received[2], second, "Second"),
     ] {
-        let v0::ClientMessage::Say(message) = message else {
+        let protocol::ClientMessage::Say(message) = message else {
             panic!("Expected a say after hello.");
         };
         assert_eq!(message.id, id);
@@ -189,15 +192,16 @@ async fn a_reconnection_keeps_the_realm_and_sends_offline_requests_after_hello()
             tokio_tungstenite::accept_async(stream).await.unwrap();
         assert!(matches!(
             next(&mut socket).await,
-            v0::ClientMessage::Hello(_)
+            protocol::ClientMessage::Hello(_)
         ));
         let mut state = realm::state();
         state.epoch = 19;
         state.revision = 5;
-        send(&mut socket, v0::ServerMessage::State(state)).await;
+        send(&mut socket, protocol::ServerMessage::State(state))
+            .await;
         send(
             &mut socket,
-            v0::ServerMessage::Change(v0::Changes {
+            protocol::ServerMessage::Change(protocol::Changes {
                 epoch: 19,
                 revision: 6,
                 changes: Vec::new(),
@@ -255,12 +259,12 @@ async fn a_reconnection_keeps_the_realm_and_sends_offline_requests_after_hello()
     .await;
     assert_eq!(
         received[0],
-        v0::ClientMessage::Hello(v0::Hello {
-            v: v0::V,
+        protocol::ClientMessage::Hello(protocol::Hello {
+            v: protocol::V,
             token: "window-token".into(),
         })
     );
-    let v0::ClientMessage::Say(message) = &received[1] else {
+    let protocol::ClientMessage::Say(message) = &received[1] else {
         panic!("Expected the offline say.");
     };
     assert_eq!(message.id, request);
@@ -293,11 +297,11 @@ async fn a_refused_token_keeps_the_faults_words_and_stops_retrying() {
             tokio_tungstenite::accept_async(stream).await.unwrap();
         assert!(matches!(
             next(&mut socket).await,
-            v0::ClientMessage::Hello(_)
+            protocol::ClientMessage::Hello(_)
         ));
         send(
             &mut socket,
-            v0::ServerMessage::Fault(v0::Fault {
+            protocol::ServerMessage::Fault(protocol::Fault {
                 to: None,
                 text: "That is not this server's token.".into(),
             }),
@@ -408,10 +412,13 @@ async fn retries_double_to_the_cap_and_a_successful_hello_resets_the_wait()
             tokio_tungstenite::accept_async(stream).await.unwrap();
         assert!(matches!(
             next(&mut socket).await,
-            v0::ClientMessage::Hello(_)
+            protocol::ClientMessage::Hello(_)
         ));
-        send(&mut socket, v0::ServerMessage::State(realm::state()))
-            .await;
+        send(
+            &mut socket,
+            protocol::ServerMessage::State(realm::state()),
+        )
+        .await;
         let closed = Instant::now();
         socket.close(None).await.unwrap();
         drop(socket);
@@ -421,7 +428,7 @@ async fn retries_double_to_the_cap_and_a_successful_hello_resets_the_wait()
             tokio_tungstenite::accept_async(stream).await.unwrap();
         assert!(matches!(
             next(&mut socket).await,
-            v0::ClientMessage::Hello(_)
+            protocol::ClientMessage::Hello(_)
         ));
         sent.send(vec![elapsed]).unwrap();
         window_closed(&mut socket).await;
@@ -515,8 +522,8 @@ async fn the_runtime_may_arrive_later() {
         received.len() == 2
     })
     .await;
-    assert!(matches!(received[0], v0::ClientMessage::Hello(_)));
-    assert!(matches!(received[1], v0::ClientMessage::Say(_)));
+    assert!(matches!(received[0], protocol::ClientMessage::Hello(_)));
+    assert!(matches!(received[1], protocol::ClientMessage::Say(_)));
     drop(app);
     server.await.unwrap();
 }
@@ -535,13 +542,16 @@ async fn a_socket_error_after_state_and_fault_reconnects_instead_of_refusing()
             tokio_tungstenite::accept_async(stream).await.unwrap();
         assert!(matches!(
             next(&mut socket).await,
-            v0::ClientMessage::Hello(_)
+            protocol::ClientMessage::Hello(_)
         ));
-        send(&mut socket, v0::ServerMessage::State(realm::state()))
-            .await;
         send(
             &mut socket,
-            v0::ServerMessage::Fault(v0::Fault {
+            protocol::ServerMessage::State(realm::state()),
+        )
+        .await;
+        send(
+            &mut socket,
+            protocol::ServerMessage::Fault(protocol::Fault {
                 text: "The server's work failed.".into(),
                 to: None,
             }),
@@ -553,7 +563,7 @@ async fn a_socket_error_after_state_and_fault_reconnects_instead_of_refusing()
             tokio_tungstenite::accept_async(stream).await.unwrap();
         assert!(matches!(
             next(&mut socket).await,
-            v0::ClientMessage::Hello(_)
+            protocol::ClientMessage::Hello(_)
         ));
         window_closed(&mut socket).await;
     });
@@ -598,12 +608,12 @@ async fn a_refusal_is_read_even_while_the_outbox_is_backpressured() {
             tokio_tungstenite::accept_async(stream).await.unwrap();
         assert!(matches!(
             next(&mut socket).await,
-            v0::ClientMessage::Hello(_)
+            protocol::ClientMessage::Hello(_)
         ));
         refused.await.unwrap();
         send(
             &mut socket,
-            v0::ServerMessage::Fault(v0::Fault {
+            protocol::ServerMessage::Fault(protocol::Fault {
                 to: None,
                 text: "Use this home's token.".into(),
             }),
@@ -673,7 +683,7 @@ async fn only_policy_after_an_unaddressed_fault_refuses() {
             if let Some(addressed) = addressed {
                 send(
                     &mut socket,
-                    v0::ServerMessage::Fault(v0::Fault {
+                    protocol::ServerMessage::Fault(protocol::Fault {
                         to: addressed.then(|| "a-request".into()),
                         text: "The work failed, not the token".into(),
                     }),
@@ -694,7 +704,7 @@ async fn only_policy_after_an_unaddressed_fault_refuses() {
                 .unwrap();
             assert!(matches!(
                 next(&mut socket).await,
-                v0::ClientMessage::Hello(_)
+                protocol::ClientMessage::Hello(_)
             ));
             window_closed(&mut socket).await;
         });
@@ -735,8 +745,11 @@ async fn a_request_fault_after_skipped_state_and_close_retries() {
         let mut socket =
             tokio_tungstenite::accept_async(stream).await.unwrap();
         next(&mut socket).await;
-        send(&mut socket, v0::ServerMessage::State(realm::state()))
-            .await;
+        send(
+            &mut socket,
+            protocol::ServerMessage::State(realm::state()),
+        )
+        .await;
         next(&mut socket).await;
         socket.close(None).await.unwrap();
         drop(socket);
@@ -745,15 +758,16 @@ async fn a_request_fault_after_skipped_state_and_close_retries() {
             tokio_tungstenite::accept_async(stream).await.unwrap();
         assert!(matches!(
             next(&mut socket).await,
-            v0::ClientMessage::Hello(_)
+            protocol::ClientMessage::Hello(_)
         ));
-        let v0::ClientMessage::Say(say) = next(&mut socket).await
+        let protocol::ClientMessage::Say(say) =
+            next(&mut socket).await
         else {
             panic!("offline say");
         };
         send(
             &mut socket,
-            v0::ServerMessage::Fault(v0::Fault {
+            protocol::ServerMessage::Fault(protocol::Fault {
                 to: Some(say.id),
                 text: "No agent named ghost".into(),
             }),
@@ -928,8 +942,8 @@ async fn pongs_keep_a_socket_alive_and_silence_loses_it() {
         received.len() == 2
     })
     .await;
-    assert!(matches!(received[0], v0::ClientMessage::Hello(_)));
-    let v0::ClientMessage::Say(say) = &received[1] else {
+    assert!(matches!(received[0], protocol::ClientMessage::Hello(_)));
+    let protocol::ClientMessage::Say(say) = &received[1] else {
         panic!("queued say");
     };
     assert_eq!(say.id, id);

@@ -6,8 +6,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use anyhow::Result;
-use hamlet_protocol::v0::Permission;
-use hamlet_protocol::{HOME, MAYOR};
+use hamlet_protocol::{HOME, MAYOR, Permission};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -501,7 +500,7 @@ mod tests {
     use super::*;
     use crate::RuntimeInstance;
     use crate::harness::Answer;
-    use crate::harness::link::ModelRef;
+    use crate::harness::runtime::ModelRef;
     use crate::operation::Request;
 
     fn decide(

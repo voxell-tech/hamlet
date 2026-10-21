@@ -10,7 +10,7 @@ use super::truncate::{
     MAX_BYTES, character_end, format_size, truncate_head,
 };
 use super::{Arguments, Outcome, diagnostic, diff, number_words};
-use crate::harness::link::DiagnosticSeverity;
+use crate::harness::runtime::DiagnosticSeverity;
 use crate::sandbox::{FileError, FileKind};
 
 /// A call that threw, with the words of what it threw.

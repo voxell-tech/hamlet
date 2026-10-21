@@ -2,7 +2,7 @@
 //! and signing in with a key.
 
 use hamlet_acceptance::*;
-use hamlet_protocol::v0::*;
+use hamlet_protocol::*;
 use serde_json::json;
 
 fn links(c: &Client, from: usize) -> Vec<LinkState> {

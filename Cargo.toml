@@ -57,6 +57,7 @@ ring = "0.17"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
+schemars = "1.2.3"
 serde_json = "1"
 sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }

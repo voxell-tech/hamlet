@@ -1,9 +1,7 @@
 //! Saved settings and process-only model overrides.
 
 use anyhow::{Result, bail};
-use hamlet_protocol::v0::{
-    EditSettingsSet, Endpoint, Link, LinkState,
-};
+use hamlet_protocol::{EditSettingsSet, Endpoint, Link, LinkState};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use url::Url;

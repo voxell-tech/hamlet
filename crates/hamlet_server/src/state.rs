@@ -1,7 +1,7 @@
 //! Protocol views of the record and the chief's settings.
 
 use anyhow::{Context, Result};
-use hamlet_protocol::v0::{
+use hamlet_protocol::{
     Agent, AgentActivity, AgentRef, AgentSaying, AgentSpent, Changes,
     ClosedHamlet, Doing, Grant, GrantSource, Hamlet, Left, LeftHow,
     Permission, Road, ServerMessage, SettingsView,

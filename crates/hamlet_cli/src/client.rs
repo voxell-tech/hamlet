@@ -3,7 +3,7 @@
 use anyhow::{Context, Result, bail};
 use futures::{SinkExt, StreamExt};
 pub use hamlet_protocol::discovery::ServerAddress;
-use hamlet_protocol::v0::{
+use hamlet_protocol::{
     ClientMessage, Hello, ServerMessage, State, V,
 };
 use tokio::net::TcpStream;

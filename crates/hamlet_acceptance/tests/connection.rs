@@ -4,7 +4,7 @@
 use std::time::{Duration, Instant};
 
 use hamlet_acceptance::*;
-use hamlet_protocol::v0::*;
+use hamlet_protocol::*;
 use serde_json::json;
 
 fn fault(text: &str, to: Option<&str>) -> ServerMessage {

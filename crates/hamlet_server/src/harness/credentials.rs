@@ -5,7 +5,7 @@ use std::collections::{HashMap, VecDeque};
 use anyhow::{Result, bail, ensure};
 
 use super::LINK_VERSION;
-use super::link::{
+use super::runtime::{
     CredentialRequest, CredentialRequestAction as Action,
     CredentialResult,
 };

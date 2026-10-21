@@ -2,7 +2,7 @@
 
 use bevy::ecs::world::World;
 use hamlet_client::realm::Settlement;
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 use hamlet_realm::pick::{Selected, Thing};
 
 use crate::scenes::Scene;
@@ -23,7 +23,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         "erase-hamlet",
         "found",
     ]);
-    state.closed = vec![v0::ClosedHamlet {
+    state.closed = vec![protocol::ClosedHamlet {
         id: "press".into(),
         name: "The Old Press".into(),
         at: 1000,
@@ -39,7 +39,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         let mut hamlet = hamlet_testing::realm::hamlet(id);
         hamlet.name = title.into();
         if id == "home" {
-            hamlet.votes = vec![v0::VoteView {
+            hamlet.votes = vec![protocol::VoteView {
                 id: 3,
                 motion: "scout for mayor".into(),
                 by: "chief".into(),
@@ -86,7 +86,10 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             state.agents.push(agent);
         }
     }
-    hamlet_client::receive(world, v0::ServerMessage::State(state));
+    hamlet_client::receive(
+        world,
+        protocol::ServerMessage::State(state),
+    );
     let first = world
         .query::<(bevy::ecs::entity::Entity, &Settlement)>()
         .iter(world)

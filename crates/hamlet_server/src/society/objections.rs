@@ -1,7 +1,7 @@
 //! An instruction's one objection, held until its chief answers.
 
 use anyhow::{Context, Result};
-use hamlet_protocol::v0::Choice;
+use hamlet_protocol::Choice;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -143,7 +143,7 @@ mod tests {
     use rusqlite::params;
 
     use super::*;
-    use crate::harness::link::ModelRef;
+    use crate::harness::runtime::ModelRef;
     use crate::record::AgentRef;
 
     #[test]

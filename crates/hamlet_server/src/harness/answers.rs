@@ -6,8 +6,8 @@ use anyhow::Result;
 use rusqlite::{OptionalExtension, params};
 
 use super::bindings::Binding;
-use super::link::{self, ModelRef, Price, ServerMessage, Usage};
 use super::process::Pi;
+use super::runtime::{self, ModelRef, Price, ServerMessage, Usage};
 use super::{Harnesses, InputMark, Notice};
 use crate::clock::now;
 use crate::credentials::{Credentials, pack};
@@ -148,7 +148,7 @@ impl Harnesses {
         &mut self,
         store: &mut Store,
         index: usize,
-        attempt: link::Attempt,
+        attempt: runtime::Attempt,
         credentials: &Credentials,
     ) -> Result<Vec<Notice>> {
         let Some(binding) = self
@@ -186,7 +186,7 @@ impl Harnesses {
                 .then(|| (&InputMark::notice(&stop.words)).into());
             let words = stop.words;
             self.send(index, |v, id| {
-                ServerMessage::Stopped(link::Stopped {
+                ServerMessage::Stopped(runtime::Stopped {
                     v,
                     id,
                     re,
@@ -205,7 +205,7 @@ impl Harnesses {
             .flatten()
             .and_then(|credential| pack(credential).ok());
         self.send(index, |v, id| {
-            ServerMessage::Allowance(link::Allowance {
+            ServerMessage::Allowance(runtime::Allowance {
                 credential,
                 id,
                 re,
@@ -224,7 +224,7 @@ impl Harnesses {
         &mut self,
         store: &mut Store,
         index: usize,
-        report: link::UsageReport,
+        report: runtime::UsageReport,
     ) -> Result<Vec<Notice>> {
         self.credentials.finish(index, &report.key);
         let runtime = self.runtimes[index].id.clone();
@@ -239,7 +239,7 @@ impl Harnesses {
         match charged {
             Some(()) => {
                 self.send(index, |v, id| {
-                    ServerMessage::Charged(link::Charged {
+                    ServerMessage::Charged(runtime::Charged {
                         id,
                         re,
                         v,
@@ -251,7 +251,7 @@ impl Harnesses {
                 self.error(
                     index,
                     Some(re),
-                    link::ErrorCode::Failed,
+                    runtime::ErrorCode::Failed,
                     "No model call was allowed under this key.",
                 )
                 .await;

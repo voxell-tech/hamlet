@@ -2,7 +2,7 @@
 //! makes in one transaction, then told to the calls it ruled on.
 
 use anyhow::Result;
-use hamlet_protocol::v0::{Choice, Permission, Pick};
+use hamlet_protocol::{Choice, Permission, Pick};
 
 use super::super::{asking, records};
 use super::decide::standing;
@@ -244,7 +244,7 @@ mod tests {
 
     use super::super::decide::{Decision, Gate, allow};
     use super::*;
-    use crate::harness::link::ModelRef;
+    use crate::harness::runtime::ModelRef;
     use crate::record::AgentRef;
 
     #[test]

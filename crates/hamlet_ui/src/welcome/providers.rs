@@ -12,7 +12,7 @@ use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Providers;
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 
 use super::pages::{head, news, said};
 use super::{Step, Welcome, commit, go, read_models};
@@ -53,9 +53,9 @@ pub(super) struct Login {
 
 pub(super) fn start(world: &mut World, provider: &str, key: bool) {
     let method = if key {
-        v0::LoginMethod::Key
+        protocol::LoginMethod::Key
     } else {
-        v0::LoginMethod::Subscription
+        protocol::LoginMethod::Subscription
     };
     if !world.resource::<Providers>().0.iter().any(|known| {
         known.id == provider && known.methods.contains(&method)
@@ -65,9 +65,9 @@ pub(super) fn start(world: &mut World, provider: &str, key: bool) {
     go(world, if key { Step::Key } else { Step::SignIn });
     let provider = provider.to_string();
     let id = world.resource_mut::<Outbox>().send(|id| {
-        v0::ClientMessage::Login(v0::Login::Start {
+        protocol::ClientMessage::Login(protocol::Login::Start {
             id,
-            start: v0::LoginStartStart {
+            start: protocol::LoginStartStart {
                 provider: provider.clone(),
                 method,
             },
@@ -90,7 +90,7 @@ pub(super) fn start(world: &mut World, provider: &str, key: bool) {
 
 fn send_cancel(world: &mut World, login: String) {
     world.resource_mut::<Outbox>().send(|id| {
-        v0::ClientMessage::Login(v0::Login::Cancel {
+        protocol::ClientMessage::Login(protocol::Login::Cancel {
             id,
             cancel: login,
         })
@@ -133,9 +133,9 @@ pub(super) fn reply(world: &mut World) {
     let answer = std::mem::take(&mut login.answer);
     login.prompt = None;
     let request = world.resource_mut::<Outbox>().send(|request| {
-        v0::ClientMessage::Login(v0::Login::Reply {
+        protocol::ClientMessage::Login(protocol::Login::Reply {
             id: request,
-            reply: v0::LoginReplyReply {
+            reply: protocol::LoginReplyReply {
                 login: id,
                 value: answer,
             },
@@ -150,7 +150,8 @@ pub(super) fn receive(
     response: &Response,
 ) -> bool {
     if world.resource_mut::<Login>().abandoned.remove(&response.to) {
-        if let v0::ServerMessage::Login(progress) = &response.message
+        if let protocol::ServerMessage::Login(progress) =
+            &response.message
         {
             send_cancel(world, progress.login.clone());
         }
@@ -158,11 +159,11 @@ pub(super) fn receive(
     }
     if world.resource_mut::<Login>().replies.remove(&response.to) {
         let failure = match &response.message {
-            v0::ServerMessage::Fault(fault) => {
+            protocol::ServerMessage::Fault(fault) => {
                 Some(fault.text.clone())
             }
-            v0::ServerMessage::Reply(reply)
-                if reply.kind == v0::ReplyKind::Error =>
+            protocol::ServerMessage::Reply(reply)
+                if reply.kind == protocol::ReplyKind::Error =>
             {
                 Some(reply.text.clone())
             }
@@ -180,25 +181,27 @@ pub(super) fn receive(
         return false;
     }
     let step = match &response.message {
-        v0::ServerMessage::Login(progress) => {
+        protocol::ServerMessage::Login(progress) => {
             world.resource_mut::<Login>().id =
                 Some(progress.login.clone());
             progress.step.clone()
         }
-        v0::ServerMessage::Fault(fault) => v0::LoginStep::Failed {
-            failed: fault.text.clone(),
-        },
-        v0::ServerMessage::Reply(reply)
-            if reply.kind == v0::ReplyKind::Error =>
+        protocol::ServerMessage::Fault(fault) => {
+            protocol::LoginStep::Failed {
+                failed: fault.text.clone(),
+            }
+        }
+        protocol::ServerMessage::Reply(reply)
+            if reply.kind == protocol::ReplyKind::Error =>
         {
-            v0::LoginStep::Failed {
+            protocol::LoginStep::Failed {
                 failed: reply.text.clone(),
             }
         }
         _ => return true,
     };
     match step {
-        v0::LoginStep::Url { url, instructions } => {
+        protocol::LoginStep::Url { url, instructions } => {
             if !world.resource::<Login>().urls.contains(&url) {
                 if browsable(&url) {
                     let browse = world.resource::<Browser>().0;
@@ -213,19 +216,19 @@ pub(super) fn receive(
                     .push(instructions);
             }
         }
-        v0::LoginStep::Code { code } => {
+        protocol::LoginStep::Code { code } => {
             world.resource_mut::<Login>().code = Some(code)
         }
-        v0::LoginStep::Prompt { prompt, secret } => {
+        protocol::LoginStep::Prompt { prompt, secret } => {
             let mut login = world.resource_mut::<Login>();
             login.prompt = Some((prompt, secret));
             login.answer.clear();
             world.resource_mut::<Welcome>().asking = false;
         }
-        v0::LoginStep::Progress { progress } => {
+        protocol::LoginStep::Progress { progress } => {
             world.resource_mut::<Login>().progress = progress
         }
-        v0::LoginStep::Done { .. } => {
+        protocol::LoginStep::Done { .. } => {
             let provider = world.resource::<Login>().provider.clone();
             let abandoned = std::mem::take(
                 &mut world.resource_mut::<Login>().abandoned,
@@ -237,7 +240,7 @@ pub(super) fn receive(
             };
             read_models(world, true);
         }
-        v0::LoginStep::Failed { failed } => {
+        protocol::LoginStep::Failed { failed } => {
             let abandoned = std::mem::take(
                 &mut world.resource_mut::<Login>().abandoned,
             );
@@ -311,7 +314,9 @@ pub(super) fn key_page() -> AnyView {
             let choices = providers
                 .iter()
                 .filter(|provider| {
-                    provider.methods.contains(&v0::LoginMethod::Key)
+                    provider
+                        .methods
+                        .contains(&protocol::LoginMethod::Key)
                 })
                 .map(|provider| {
                     let id = provider.id.clone();

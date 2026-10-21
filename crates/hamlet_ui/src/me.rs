@@ -12,14 +12,14 @@ use hamlet_client::chats::{Chat, Status, Transcript};
 use hamlet_client::realm::{
     self as agents, Chief, Citizen, HOME, MAYOR, Mayor,
 };
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 use hamlet_realm::pick::{Selected, Thing, select};
 
 use crate::dock::show_tab;
 
 /// Opens the chat with the first mayor.
 pub(crate) fn plugin(app: &mut App) {
-    let to = v0::Address {
+    let to = protocol::Address {
         hamlet: HOME.into(),
         agent: MAYOR.into(),
     };
@@ -53,7 +53,7 @@ fn chief_name(chief: Option<Res<Chief>>, mut me: ResMut<Me>) {
 #[derive(Resource)]
 pub struct Me {
     pub session: Entity,
-    pub to: v0::Address,
+    pub to: protocol::Address,
     pub user: String,
     /// The agent the chat is with.
     pub agent: Entity,
@@ -65,7 +65,7 @@ pub struct Me {
 pub(crate) fn address(
     world: &World,
     agent: Entity,
-) -> Option<(v0::Address, Option<String>)> {
+) -> Option<(protocol::Address, Option<String>)> {
     let mut to = agents::address_of(world, agent)?;
     let with = if world.get::<Mayor>(agent).is_some() {
         to.agent = MAYOR.into();
@@ -76,8 +76,8 @@ pub(crate) fn address(
     Some((to, with))
 }
 
-fn watch(world: &mut World, to: v0::Address) -> Entity {
-    let reference = v0::ChatRef {
+fn watch(world: &mut World, to: protocol::Address) -> Entity {
+    let reference = protocol::ChatRef {
         kind: None,
         from: None,
         with: to,
@@ -111,7 +111,7 @@ pub(crate) fn seat(world: &mut World, agent: Entity) -> bool {
 fn seat_as(
     world: &mut World,
     agent: Entity,
-    to: v0::Address,
+    to: protocol::Address,
     with: Option<String>,
 ) {
     let session = watch(world, to.clone());
@@ -162,7 +162,7 @@ pub(crate) fn talk_to_mayor_of(world: &mut World, hamlet: &str) {
         seat_as(
             world,
             mayor,
-            v0::Address {
+            protocol::Address {
                 hamlet: hamlet.into(),
                 agent: MAYOR.into(),
             },
@@ -217,7 +217,7 @@ pub(crate) fn reseat(world: &mut World) {
                     seat_as(
                         world,
                         mayor,
-                        v0::Address {
+                        protocol::Address {
                             hamlet: HOME.into(),
                             agent: MAYOR.into(),
                         },
@@ -251,7 +251,7 @@ impl Me {
     ) -> Me {
         Me {
             session,
-            to: v0::Address {
+            to: protocol::Address {
                 hamlet: HOME.into(),
                 agent: with.unwrap_or(MAYOR).into(),
             },
@@ -282,7 +282,9 @@ pub(crate) mod tests {
         );
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(hamlet_testing::realm::state()),
+            protocol::ServerMessage::State(
+                hamlet_testing::realm::state(),
+            ),
         );
         app.add_plugins((
             plugin,
@@ -336,7 +338,7 @@ pub(crate) mod tests {
         state.chief = "alice".into();
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         app.add_plugins(plugin);
         let me = app.world().resource::<Me>();
@@ -406,7 +408,7 @@ pub(crate) mod tests {
         state.agents.push(realm::agent("home", 1, "scout"));
         receive(
             app.world_mut(),
-            v0::ServerMessage::State(state.clone()),
+            protocol::ServerMessage::State(state.clone()),
         );
         app.update();
         let scout = agents::named(app.world_mut(), "scout").unwrap();
@@ -422,14 +424,14 @@ pub(crate) mod tests {
         let revision = app.world().resource::<Seen>().revision + 1;
         receive(
             app.world_mut(),
-            v0::ServerMessage::Change(v0::Changes {
+            protocol::ServerMessage::Change(protocol::Changes {
                 epoch: state.epoch,
                 revision,
                 changes: state
                     .agents
                     .iter()
                     .cloned()
-                    .map(|agent| v0::Update::Agent { agent })
+                    .map(|agent| protocol::Update::Agent { agent })
                     .collect(),
             }),
         );
@@ -438,7 +440,7 @@ pub(crate) mod tests {
         assert_eq!(me.agent, scout);
         assert_eq!(
             me.to,
-            v0::Address {
+            protocol::Address {
                 hamlet: HOME.into(),
                 agent: MAYOR.into()
             }
@@ -452,10 +454,10 @@ pub(crate) mod tests {
         assert_eq!(app.world().resource::<Me>().to.agent, "founder");
         receive(
             app.world_mut(),
-            v0::ServerMessage::Change(v0::Changes {
+            protocol::ServerMessage::Change(protocol::Changes {
                 epoch: state.epoch,
                 revision: revision + 1,
-                changes: vec![v0::Update::AgentGone {
+                changes: vec![protocol::Update::AgentGone {
                     ref_: state.agents[0].ref_.clone(),
                 }],
             }),
@@ -482,7 +484,7 @@ pub(crate) mod tests {
             .push(hamlet_testing::realm::agent("mill", 1, "carder"));
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         app.update();
         app.world_mut()
@@ -498,7 +500,7 @@ pub(crate) mod tests {
             .resource::<Outbox>()
             .iter()
             .filter_map(|message| match message {
-                v0::ClientMessage::Open(open) => {
+                protocol::ClientMessage::Open(open) => {
                     Some(open.chat.with.clone())
                 }
                 _ => None,
@@ -506,7 +508,7 @@ pub(crate) mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             opens,
-            [v0::Address {
+            [protocol::Address {
                 hamlet: "mill".into(),
                 agent: "carder".into(),
             }]
@@ -521,7 +523,7 @@ pub(crate) mod tests {
         state.chief = "renamed-chief".into();
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         app.update();
         assert_eq!(

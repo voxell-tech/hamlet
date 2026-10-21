@@ -1,7 +1,7 @@
 //! Departure, restoration and the chief's account of the record.
 
 use anyhow::{Context, Result};
-use hamlet_protocol::v0::Permission;
+use hamlet_protocol::Permission;
 use rusqlite::{Connection, params};
 use serde::Deserialize;
 use serde_json::Value;

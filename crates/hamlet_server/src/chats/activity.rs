@@ -3,10 +3,10 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use hamlet_protocol::v0::Doing;
+use hamlet_protocol::Doing;
 use serde_json::Value;
 
-use crate::harness::link::{self, Block};
+use crate::harness::runtime::{self, Block};
 
 /// The most bytes of what an agent says that are shown.
 const SAID: usize = 600;
@@ -48,7 +48,7 @@ pub(crate) struct Activity {
 impl Activity {
     /// The activity of a conversation at rest, as its kept `items`
     /// leave it.
-    pub fn of(items: &[link::Item]) -> Self {
+    pub fn of(items: &[runtime::Item]) -> Self {
         let mut activity = Self {
             doing: Doing::Rest,
             step: 0,
@@ -64,7 +64,7 @@ impl Activity {
         if let Some(last) = items
             .iter()
             .rev()
-            .find(|item| item.kind == link::ItemKind::Assistant)
+            .find(|item| item.kind == runtime::ItemKind::Assistant)
         {
             activity.faulted = matches!(
                 last.stop.as_deref(),
@@ -91,7 +91,7 @@ impl Activity {
         &mut self,
         running: bool,
         pending: u64,
-        partial: Option<&link::Partial>,
+        partial: Option<&runtime::Partial>,
     ) {
         self.pending = pending;
         if running && !self.working {
@@ -123,9 +123,9 @@ impl Activity {
     }
 
     /// Takes in one kept entry.
-    pub fn kept(&mut self, item: &link::Item) {
+    pub fn kept(&mut self, item: &runtime::Item) {
         match item.kind {
-            link::ItemKind::Assistant => {
+            runtime::ItemKind::Assistant => {
                 for (index, block) in
                     item.blocks.iter().flatten().enumerate()
                 {
@@ -137,7 +137,7 @@ impl Activity {
                 );
                 self.blocks.clear();
             }
-            link::ItemKind::ToolResult => {
+            runtime::ItemKind::ToolResult => {
                 self.ended(item.error == Some(true));
             }
             _ => {}

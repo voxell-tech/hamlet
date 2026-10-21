@@ -6,7 +6,7 @@ use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{HOME, MAYOR, mayor};
 use hamlet_client::waits::{Choice, Waiting};
 use hamlet_client::{ClientPlugin, receive};
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 use hamlet_testing::realm::{state, wait};
 
 fn app() -> App {
@@ -15,8 +15,8 @@ fn app() -> App {
     app
 }
 
-fn address(name: &str) -> v0::Address {
-    v0::Address {
+fn address(name: &str) -> protocol::Address {
+    protocol::Address {
         hamlet: HOME.into(),
         agent: name.into(),
     }
@@ -29,11 +29,11 @@ fn chief_messages_become_requests_with_fresh_uuid_ids_and_wire_addresses()
     let world = app.world_mut();
     let mut initial = state();
     initial.waits.push(wait("held"));
-    receive(world, v0::ServerMessage::State(initial));
+    receive(world, protocol::ServerMessage::State(initial));
     let founder = mayor(world).unwrap();
     let wait =
         world.query::<(Entity, &Waiting)>().single(world).unwrap().0;
-    let reference = v0::ChatRef {
+    let reference = protocol::ChatRef {
         kind: None,
         from: None,
         with: address(MAYOR),
@@ -71,19 +71,19 @@ fn chief_messages_become_requests_with_fresh_uuid_ids_and_wire_addresses()
         assert!(ids.insert(id.to_string()));
     }
     assert!(
-        matches!(&requests[0], v0::ClientMessage::Say(say) if say.to == address(MAYOR) && say.text == "hello")
+        matches!(&requests[0], protocol::ClientMessage::Say(say) if say.to == address(MAYOR) && say.text == "hello")
     );
     assert!(
-        matches!(&requests[1], v0::ClientMessage::Answer(answer) if answer.wait == "held" && answer.choice == Choice::Allow && answer.text.as_deref() == Some("go"))
+        matches!(&requests[1], protocol::ClientMessage::Answer(answer) if answer.wait == "held" && answer.choice == Choice::Allow && answer.text.as_deref() == Some("go"))
     );
     assert!(
-        matches!(&requests[2], v0::ClientMessage::Stop(stop) if stop.agent == Some(address("founder")))
+        matches!(&requests[2], protocol::ClientMessage::Stop(stop) if stop.agent == Some(address("founder")))
     );
     assert!(
-        matches!(&requests[3], v0::ClientMessage::Stop(stop) if stop.agent.is_none())
+        matches!(&requests[3], protocol::ClientMessage::Stop(stop) if stop.agent.is_none())
     );
     assert!(
-        matches!(&requests[4], v0::ClientMessage::Rewind(rewind) if rewind.chat == reference && rewind.item == "entry:0")
+        matches!(&requests[4], protocol::ClientMessage::Rewind(rewind) if rewind.chat == reference && rewind.item == "entry:0")
     );
     assert_eq!(world.resource_mut::<Outbox>().drain().count(), 0);
 }
@@ -112,28 +112,29 @@ fn structured_questions_reconcile_and_send_picks_without_forging_chief_text()
         ], "text_input": false
     }]}});
     initial.waits = vec![serde_json::from_value(question).unwrap()];
-    receive(world, v0::ServerMessage::State(initial.clone()));
+    receive(world, protocol::ServerMessage::State(initial.clone()));
     let entity =
         world.query::<(Entity, &Asks)>().single(world).unwrap().0;
     // The server, not the window, judges an answer.
     world.trigger(Answered {
         entity,
-        picks: vec![v0::Pick::Words {
+        picks: vec![protocol::Pick::Words {
             text: "Left".into(),
         }],
     });
     world.flush();
     let sent =
         world.resource_mut::<Outbox>().drain().collect::<Vec<_>>();
-    let [v0::ClientMessage::Answer(refused)] = sent.as_slice() else {
+    let [protocol::ClientMessage::Answer(refused)] = sent.as_slice()
+    else {
         panic!("the words are sent")
     };
     receive(
         world,
-        v0::ServerMessage::Reply(v0::Reply {
+        protocol::ServerMessage::Reply(protocol::Reply {
             upload: None,
             to: refused.id.clone(),
-            kind: v0::ReplyKind::Error,
+            kind: protocol::ReplyKind::Error,
             text: "question 1 takes no words".into(),
         }),
     );
@@ -143,12 +144,13 @@ fn structured_questions_reconcile_and_send_picks_without_forging_chief_text()
     );
     world.trigger(Answered {
         entity,
-        picks: vec![v0::Pick::Offer { index: 1 }],
+        picks: vec![protocol::Pick::Offer { index: 1 }],
     });
     world.flush();
     let requests =
         world.resource_mut::<Outbox>().drain().collect::<Vec<_>>();
-    let [v0::ClientMessage::Answer(answer)] = requests.as_slice()
+    let [protocol::ClientMessage::Answer(answer)] =
+        requests.as_slice()
     else {
         panic!("one typed answer")
     };
@@ -156,20 +158,20 @@ fn structured_questions_reconcile_and_send_picks_without_forging_chief_text()
     assert_eq!(answer.text, None);
     assert_eq!(
         answer.picks,
-        Some(vec![v0::Pick::Offer { index: 1 }])
+        Some(vec![protocol::Pick::Offer { index: 1 }])
     );
     receive(
         world,
-        v0::ServerMessage::Reply(v0::Reply {
+        protocol::ServerMessage::Reply(protocol::Reply {
             upload: None,
             to: answer.id.clone(),
-            kind: v0::ReplyKind::Notice,
+            kind: protocol::ReplyKind::Notice,
             text: "answered".into(),
         }),
     );
     assert!(world.get::<Refused>(entity).is_none());
     initial.waits.clear();
-    receive(world, v0::ServerMessage::State(initial));
+    receive(world, protocol::ServerMessage::State(initial));
     assert!(world.get_entity(entity).is_err());
 }
 
@@ -194,13 +196,13 @@ fn addressed_answers_reach_observers_and_a_rewind_returns_its_removed_words()
             },
         );
     let world = app.world_mut();
-    let id = world
-        .resource_mut::<Outbox>()
-        .send(|id| v0::ClientMessage::Read(v0::Read::Charter { id }));
-    let reply = v0::ServerMessage::Reply(v0::Reply {
+    let id = world.resource_mut::<Outbox>().send(|id| {
+        protocol::ClientMessage::Read(protocol::Read::Charter { id })
+    });
+    let reply = protocol::ServerMessage::Reply(protocol::Reply {
         upload: None,
         to: id.clone(),
-        kind: v0::ReplyKind::Notice,
+        kind: protocol::ReplyKind::Notice,
         text: "read".into(),
     });
     receive(world, reply.clone());
@@ -210,7 +212,7 @@ fn addressed_answers_reach_observers_and_a_rewind_returns_its_removed_words()
         reply
     );
     let chat = world
-        .spawn(Chat(v0::ChatRef {
+        .spawn(Chat(protocol::ChatRef {
             kind: None,
             from: None,
             with: address(MAYOR),
@@ -224,15 +226,15 @@ fn addressed_answers_reach_observers_and_a_rewind_returns_its_removed_words()
     world.flush();
     let requests =
         world.resource_mut::<Outbox>().drain().collect::<Vec<_>>();
-    let v0::ClientMessage::Rewind(rewind) = &requests[1] else {
+    let protocol::ClientMessage::Rewind(rewind) = &requests[1] else {
         panic!("rewind request");
     };
     receive(
         world,
-        v0::ServerMessage::Reply(v0::Reply {
+        protocol::ServerMessage::Reply(protocol::Reply {
             upload: None,
             to: rewind.id.clone(),
-            kind: v0::ReplyKind::Rewound,
+            kind: protocol::ReplyKind::Rewound,
             text: "removed words".into(),
         }),
     );
@@ -251,7 +253,7 @@ fn addressed_answers_reach_observers_and_a_rewind_returns_its_removed_words()
     }
     receive(
         world,
-        v0::ServerMessage::Fault(v0::Fault {
+        protocol::ServerMessage::Fault(protocol::Fault {
             to: None,
             text: "unaddressed failure".into(),
         }),
@@ -270,7 +272,7 @@ fn chats_expose_string_item_ids_server_usage_and_agent_relations() {
     };
     let mut app = app();
     let world = app.world_mut();
-    receive(world, v0::ServerMessage::State(state()));
+    receive(world, protocol::ServerMessage::State(state()));
     let founder = mayor(world).unwrap();
     let transcript = Transcript::from_items(vec![
         Item {
@@ -304,7 +306,7 @@ fn chats_expose_string_item_ids_server_usage_and_agent_relations() {
     assert_eq!(transcript.earlier(), Some("before"));
     let chat = world
         .spawn((
-            Chat(v0::ChatRef {
+            Chat(protocol::ChatRef {
                 kind: None,
                 from: None,
                 with: address(MAYOR),
@@ -327,7 +329,7 @@ fn chats_expose_string_item_ids_server_usage_and_agent_relations() {
     };
     assert!(status.working());
     assert!(!Status::default().working());
-    let usage = Usage(v0::UsageView {
+    let usage = Usage(protocol::UsageView {
         calls: 1,
         unreported: 0,
         input: 100,

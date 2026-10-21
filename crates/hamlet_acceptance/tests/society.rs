@@ -2,7 +2,7 @@
 //! and coming back, merging, votes, objections and the library.
 
 use hamlet_acceptance::*;
-use hamlet_protocol::v0::*;
+use hamlet_protocol::*;
 use serde_json::json;
 
 /// The mayor's first turn: it creates scout (1), smith (2, with a

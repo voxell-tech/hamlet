@@ -8,7 +8,7 @@ use bevy::picking::pointer::{Location, PointerId};
 use bevy::time::TimeUpdateStrategy;
 use hamlet_client::ClientPlugin;
 use hamlet_client::realm::{Busy, Road, Settlement};
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 use hamlet_testing::realm;
 
 use super::pool::gauge::shade;
@@ -640,8 +640,10 @@ fn four_files_dropped_together_send_one_manifest_with_four_roots() {
         .drain()
         .collect::<Vec<_>>();
     let [
-        v0::ClientMessage::Give(v0::Give::Files {
-            files, to, ..
+        protocol::ClientMessage::Give(protocol::Give::Files {
+            files,
+            to,
+            ..
         }),
     ] = &messages[..]
     else {
@@ -849,7 +851,7 @@ fn the_meter_follows_the_budget() {
         changed.budget.left = Some(left);
         receive_change(
             &mut cast.app,
-            v0::Update::Hamlet { hamlet: changed },
+            protocol::Update::Hamlet { hamlet: changed },
         );
         let mut lit = HashSet::new();
         for _ in 0..12 {
@@ -917,8 +919,10 @@ fn a_file_dropped_on_the_founder_begins_a_protocol_gift_without_a_house()
         .drain()
         .collect::<Vec<_>>();
     let [
-        v0::ClientMessage::Give(v0::Give::Files {
-            to, files, ..
+        protocol::ClientMessage::Give(protocol::Give::Files {
+            to,
+            files,
+            ..
         }),
     ] = &messages[..]
     else {
@@ -927,7 +931,7 @@ fn a_file_dropped_on_the_founder_begins_a_protocol_gift_without_a_house()
     assert_eq!(to.agent, "founder");
     assert_eq!(
         files,
-        &[v0::GiveFilesFiles {
+        &[protocol::GiveFilesFiles {
             path: "list.txt".into(),
             size: 4
         }]

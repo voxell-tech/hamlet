@@ -275,18 +275,18 @@ fn gift_reports() -> AnyView {
 mod tests {
     use hamlet_client::outbox::Outbox;
     use hamlet_client::realm::{HOME, Settlement};
-    use hamlet_protocol::v0;
+    use hamlet_protocol as protocol;
     use hamlet_realm::pick::{Also, Selected};
     use hamlet_testing::realm;
 
     use super::*;
     use crate::me::tests::{panel_app, press, words};
 
-    fn app(state: v0::State) -> App {
+    fn app(state: protocol::State) -> App {
         let mut app = panel_app();
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         app.add_plugins((crate::chat::plugin, plugin))
             .init_resource::<Asked>()
@@ -310,7 +310,7 @@ mod tests {
         app.update();
     }
 
-    fn sent(app: &mut App) -> Vec<v0::ClientMessage> {
+    fn sent(app: &mut App) -> Vec<protocol::ClientMessage> {
         app.world_mut().resource_mut::<Outbox>().drain().collect()
     }
 
@@ -342,7 +342,7 @@ mod tests {
             hamlet_testing::realm::deeds(&["found", "move-hamlet"]);
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         open(&mut app, Open::Ground(Vec2::ZERO));
         assert!(
@@ -385,18 +385,19 @@ mod tests {
         state.deeds = hamlet_testing::realm::deeds(&["road"]);
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         open(&mut app, Open::Nothing);
         open(&mut app, Open::Menu(Thing::Resident(a), Vec2::ZERO));
         press(&mut app, "Build a road to scribe");
         let messages = sent(&mut app);
-        let [v0::ClientMessage::Say(say)] = &messages[..] else {
+        let [protocol::ClientMessage::Say(say)] = &messages[..]
+        else {
             panic!("one road: {messages:?}");
         };
         assert_eq!(
             say.to,
-            v0::Address {
+            protocol::Address {
                 hamlet: HOME.into(),
                 agent: "mayor".into()
             }
@@ -412,12 +413,13 @@ mod tests {
         assert!(words(&mut app).iter().any(|text| text == "Prompt"));
         press(&mut app, "New Conversation");
         let messages = sent(&mut app);
-        let [v0::ClientMessage::Say(say)] = &messages[..] else {
+        let [protocol::ClientMessage::Say(say)] = &messages[..]
+        else {
             panic!("one new: {messages:?}");
         };
         assert_eq!(
             say.to,
-            v0::Address {
+            protocol::Address {
                 hamlet: HOME.into(),
                 agent: "founder".into()
             }
@@ -426,7 +428,8 @@ mod tests {
         open(&mut app, Open::Menu(Thing::Keeper, Vec2::ZERO));
         press(&mut app, "Stop the Mayor");
         let messages = sent(&mut app);
-        let [v0::ClientMessage::Stop(stop)] = &messages[..] else {
+        let [protocol::ClientMessage::Stop(stop)] = &messages[..]
+        else {
             panic!("one stop: {messages:?}");
         };
         assert_eq!(
@@ -435,7 +438,7 @@ mod tests {
         );
         open(&mut app, Open::Menu(Thing::Keeper, Vec2::ZERO));
         press(&mut app, "Undo the Last Change");
-        assert!(sent(&mut app).iter().any(|message| matches!(message, v0::ClientMessage::Say(say) if say.text == "/undo")));
+        assert!(sent(&mut app).iter().any(|message| matches!(message, protocol::ClientMessage::Say(say) if say.text == "/undo")));
     }
 
     #[test]
@@ -464,7 +467,7 @@ mod tests {
      {
         let mut state = realm::state();
         state.deeds = hamlet_testing::realm::deeds(&["give"]);
-        state.starters = vec![v0::Skill {
+        state.starters = vec![protocol::Skill {
             name: "research".into(),
             description: "Find sources".into(),
         }];
@@ -475,14 +478,14 @@ mod tests {
         for (label, expected) in [
             (
                 "research (starter)",
-                v0::GiveSkillSkill::Starter {
+                protocol::GiveSkillSkill::Starter {
                     starter: "research".into(),
                 },
             ),
             (
                 "maps (of scout)",
-                v0::GiveSkillSkill::From {
-                    from: v0::Address {
+                protocol::GiveSkillSkill::From {
+                    from: protocol::Address {
                         hamlet: HOME.into(),
                         agent: "scout".into(),
                     },
@@ -496,11 +499,9 @@ mod tests {
             press(&mut app, label);
             let messages = sent(&mut app);
             let [
-                v0::ClientMessage::Give(v0::Give::Skill {
-                    skill,
-                    to,
-                    ..
-                }),
+                protocol::ClientMessage::Give(
+                    protocol::Give::Skill { skill, to, .. },
+                ),
             ] = &messages[..]
             else {
                 panic!("one skill: {messages:?}");

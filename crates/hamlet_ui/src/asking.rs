@@ -27,7 +27,7 @@ use hamlet_client::messages::{Answer, Answered};
 use hamlet_client::waits::{
     Asks, Choice, RaisedBy, Refused, Waiting,
 };
-use hamlet_protocol::v0::{Offer, Pick, Questions};
+use hamlet_protocol::{Offer, Pick, Questions};
 
 use crate::feel::Mood;
 use crate::icons::{Glyph, glyph};
@@ -475,7 +475,7 @@ mod tests {
     use bevy::ecs::query::With;
     use bevy::text::EditableText;
     use hamlet_client::outbox::Outbox;
-    use hamlet_protocol::v0;
+    use hamlet_protocol as protocol;
     use serde_json::json;
 
     use super::*;
@@ -488,8 +488,8 @@ mod tests {
         let session = app.world().resource::<Me>().session;
         let chat =
             app.world().get::<Chat>(session).unwrap().0.clone();
-        let question = |id: &str, since, chat: &v0::ChatRef| {
-            serde_json::from_value::<v0::Wait>(json!({
+        let question = |id: &str, since, chat: &protocol::ChatRef| {
+            serde_json::from_value::<protocol::Wait>(json!({
                 "id": id, "agent": null, "by": "founder",
                 "about": "Choose", "subject": "Choose",
                 "change": null, "answers": ["reply", "dismiss"],
@@ -514,7 +514,7 @@ mod tests {
         ];
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         app.update();
         bevy_fynix::mount::<crate::theme::HamletTheme>(
@@ -567,7 +567,9 @@ mod tests {
             .resource::<Outbox>()
             .iter()
             .find_map(|message| match message {
-                v0::ClientMessage::Answer(answer) => Some(answer),
+                protocol::ClientMessage::Answer(answer) => {
+                    Some(answer)
+                }
                 _ => None,
             })
             .unwrap();

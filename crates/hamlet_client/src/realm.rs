@@ -3,7 +3,7 @@
 use bevy_ecs::name::Name;
 use bevy_ecs::prelude::*;
 use bevy_ecs::system::{SystemParam, SystemState};
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 pub use hamlet_protocol::{HOME, MAYOR};
 
 /// The server machine's houses folder, excluded from local chat
@@ -18,11 +18,11 @@ pub enum Mode {
     Auto,
 }
 
-impl From<v0::HamletMode> for Mode {
-    fn from(mode: v0::HamletMode) -> Self {
+impl From<protocol::HamletMode> for Mode {
+    fn from(mode: protocol::HamletMode) -> Self {
         match mode {
-            v0::HamletMode::Manual => Self::Manual,
-            v0::HamletMode::Auto => Self::Auto,
+            protocol::HamletMode::Manual => Self::Manual,
+            protocol::HamletMode::Auto => Self::Auto,
         }
     }
 }
@@ -46,11 +46,11 @@ pub struct Works {
 
 /// The chief's received limits for a hamlet.
 #[derive(Component, Clone, Debug, PartialEq)]
-pub struct Bylaws(pub v0::Limits);
+pub struct Bylaws(pub protocol::Limits);
 
 /// The server's ready-made budget report.
 #[derive(Component, Clone, Debug, PartialEq)]
-pub struct Treasury(pub v0::Report);
+pub struct Treasury(pub protocol::Report);
 
 /// An agent's lifelong number within its hamlet.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -112,21 +112,21 @@ pub enum Doing {
     Await,
 }
 
-impl From<v0::Doing> for Doing {
-    fn from(doing: v0::Doing) -> Self {
+impl From<protocol::Doing> for Doing {
+    fn from(doing: protocol::Doing) -> Self {
         match doing {
-            v0::Doing::Rest => Self::Unknown,
-            v0::Doing::Think => Self::Think,
-            v0::Doing::ReadFile => Self::Read(Paper::File),
-            v0::Doing::ReadNotes => Self::Read(Paper::Notes),
-            v0::Doing::ReadSkill => Self::Read(Paper::Skill),
-            v0::Doing::WriteFile => Self::Write(Paper::File),
-            v0::Doing::WriteNotes => Self::Write(Paper::Notes),
-            v0::Doing::WriteSkill => Self::Write(Paper::Skill),
-            v0::Doing::Run => Self::Run,
-            v0::Doing::Fetch => Self::Fetch,
-            v0::Doing::Custom => Self::CustomTool,
-            v0::Doing::Await => Self::Await,
+            protocol::Doing::Rest => Self::Unknown,
+            protocol::Doing::Think => Self::Think,
+            protocol::Doing::ReadFile => Self::Read(Paper::File),
+            protocol::Doing::ReadNotes => Self::Read(Paper::Notes),
+            protocol::Doing::ReadSkill => Self::Read(Paper::Skill),
+            protocol::Doing::WriteFile => Self::Write(Paper::File),
+            protocol::Doing::WriteNotes => Self::Write(Paper::Notes),
+            protocol::Doing::WriteSkill => Self::Write(Paper::Skill),
+            protocol::Doing::Run => Self::Run,
+            protocol::Doing::Fetch => Self::Fetch,
+            protocol::Doing::Custom => Self::CustomTool,
+            protocol::Doing::Await => Self::Await,
         }
     }
 }
@@ -152,7 +152,7 @@ pub struct Saying {
 pub struct Account {
     pub model: String,
     pub cost: String,
-    pub spent: v0::Amount,
+    pub spent: protocol::Amount,
 }
 
 impl Account {
@@ -176,22 +176,22 @@ pub struct Sandbox(pub String);
 
 /// The received model, network and reflection settings.
 #[derive(Resource, Clone, Debug)]
-pub struct Settings(pub v0::SettingsView);
+pub struct Settings(pub protocol::SettingsView);
 
 impl Default for Settings {
     fn default() -> Self {
-        Self(v0::SettingsView {
+        Self(protocol::SettingsView {
             model: String::new(),
             reflect_every: 0,
             allow_net: false,
             endpoints: Vec::new(),
             unset: true,
-            link: v0::Link {
-                state: v0::LinkState::Untested,
+            link: protocol::Link {
+                state: protocol::LinkState::Untested,
                 models: None,
                 words: None,
             },
-            workspace: v0::SettingsViewWorkspace {
+            workspace: protocol::SettingsViewWorkspace {
                 move_: None,
                 running: None,
                 url: None,
@@ -202,11 +202,11 @@ impl Default for Settings {
 
 /// The providers and login methods offered by the server.
 #[derive(Resource, Clone, Debug, Default)]
-pub struct Providers(pub Vec<v0::ProviderView>);
+pub struct Providers(pub Vec<protocol::ProviderView>);
 
 /// The lasting permissions supplied by the server.
 #[derive(Resource, Clone, Debug, Default)]
-pub struct Grants(pub Vec<v0::Grant>);
+pub struct Grants(pub Vec<protocol::Grant>);
 
 /// The names of the chief's deeds supported by the server.
 #[derive(Resource, Clone, Debug, Default)]
@@ -230,7 +230,7 @@ pub struct Seen {
 
 /// The shipped skills offered as gifts.
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
-pub struct Starters(pub Vec<v0::Skill>);
+pub struct Starters(pub Vec<protocol::Skill>);
 
 /// The skill folder names in an agent's house.
 #[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
@@ -238,22 +238,22 @@ pub struct HouseSkills(pub Vec<String>);
 
 /// The library shelf, independent of agents' own skills.
 #[derive(Resource, Clone, Debug, Default)]
-pub struct Skills(pub Vec<v0::Skill>);
+pub struct Skills(pub Vec<protocol::Skill>);
 
 /// The removed hamlets available to restore or erase.
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
-pub struct Closed(pub Vec<v0::ClosedHamlet>);
+pub struct Closed(pub Vec<protocol::ClosedHamlet>);
 
 /// The votes and their ready-made reports for a hamlet.
 #[derive(Component, Clone, Debug, Default, PartialEq)]
-pub struct Votes(pub Vec<v0::VoteView>);
+pub struct Votes(pub Vec<protocol::VoteView>);
 
 /// The received conversations with other agents.
 #[derive(Component, Clone, Debug, Default, PartialEq)]
-pub struct PeerChats(pub Vec<v0::ConversationView>);
+pub struct PeerChats(pub Vec<protocol::ConversationView>);
 
 #[derive(Component, Clone, Debug, PartialEq)]
-struct Departure(v0::Left);
+struct Departure(protocol::Left);
 
 #[derive(Component)]
 struct Consulting;
@@ -385,12 +385,12 @@ pub fn hamlet_of(world: &World, agent: Entity) -> Option<&str> {
 pub fn address_of(
     world: &World,
     agent: Entity,
-) -> Option<v0::Address> {
+) -> Option<protocol::Address> {
     world.get::<Citizen>(agent)?;
     if world.get::<Left>(agent).is_some() {
         return None;
     }
-    Some(v0::Address {
+    Some(protocol::Address {
         hamlet: hamlet_of(world, agent)?.into(),
         agent: world.get::<Name>(agent)?.as_str().into(),
     })
@@ -408,14 +408,14 @@ fn settlement(world: &mut World, id: &str) -> Option<Entity> {
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Left;
 
-pub(crate) fn state(world: &mut World, state: v0::State) {
+pub(crate) fn state(world: &mut World, state: protocol::State) {
     let news = world.contains_resource::<Seen>();
     world.insert_resource(Houses(state.houses));
     world.insert_resource(Skills(
         state
             .library
             .into_iter()
-            .map(|skill| v0::Skill {
+            .map(|skill| protocol::Skill {
                 name: skill.name,
                 description: skill.description,
             })
@@ -482,7 +482,10 @@ pub(crate) fn state(world: &mut World, state: v0::State) {
     prune_roads(world);
 }
 
-fn upsert_hamlet(world: &mut World, hamlet: v0::Hamlet) -> Entity {
+fn upsert_hamlet(
+    world: &mut World,
+    hamlet: protocol::Hamlet,
+) -> Entity {
     let entity = settlement(world, &hamlet.id)
         .unwrap_or_else(|| world.spawn_empty().id());
     let mut entity_mut = world.entity_mut(entity);
@@ -508,7 +511,7 @@ fn upsert_hamlet(world: &mut World, hamlet: v0::Hamlet) -> Entity {
 
 pub(crate) fn agent(
     world: &mut World,
-    reference: &v0::AgentRef,
+    reference: &protocol::AgentRef,
 ) -> Option<Entity> {
     world
         .query::<(Entity, &Citizen, &LivesIn)>()
@@ -524,7 +527,7 @@ pub(crate) fn agent(
 
 fn upsert_agent(
     world: &mut World,
-    value: v0::Agent,
+    value: protocol::Agent,
 ) -> Option<Entity> {
     let hamlet = settlement(world, &value.ref_.hamlet)?;
     let entity = agent(world, &value.ref_)
@@ -550,7 +553,7 @@ fn upsert_agent(
         Account {
             model: value.model,
             cost: value.spent.cost,
-            spent: v0::Amount {
+            spent: protocol::Amount {
                 tokens: value.spent.tokens,
                 micros: value.spent.micros,
                 ms: value.spent.ms,
@@ -613,7 +616,7 @@ fn flag<T: Component>(
     }
 }
 
-pub(crate) fn changes(world: &mut World, changes: v0::Changes) {
+pub(crate) fn changes(world: &mut World, changes: protocol::Changes) {
     let Some(seen) = world.get_resource::<Seen>() else {
         return;
     };
@@ -625,31 +628,31 @@ pub(crate) fn changes(world: &mut World, changes: v0::Changes) {
     let mut hamlets = Vec::new();
     for update in changes.changes {
         match update {
-            v0::Update::Hamlet { hamlet } => {
+            protocol::Update::Hamlet { hamlet } => {
                 upsert_hamlet(world, hamlet.clone());
                 hamlets.push(hamlet);
             }
-            v0::Update::Agent { agent } => {
+            protocol::Update::Agent { agent } => {
                 upsert_agent(world, agent);
             }
-            v0::Update::Settings { settings } => {
+            protocol::Update::Settings { settings } => {
                 world.insert_resource(Settings(settings));
             }
-            v0::Update::Providers { providers } => {
+            protocol::Update::Providers { providers } => {
                 world.insert_resource(Providers(providers));
             }
-            v0::Update::Grants { grants } => {
+            protocol::Update::Grants { grants } => {
                 world.insert_resource(Grants(grants));
             }
-            v0::Update::Wait { wait } => {
+            protocol::Update::Wait { wait } => {
                 crate::waits::upsert(world, wait);
             }
-            v0::Update::WaitClosed { id, .. } => {
+            protocol::Update::WaitClosed { id, .. } => {
                 if let Some(entity) = crate::waits::find(world, &id) {
                     world.despawn(entity);
                 }
             }
-            v0::Update::AgentGone { ref_ } => {
+            protocol::Update::AgentGone { ref_ } => {
                 if let Some(entity) = agent(world, &ref_) {
                     world.despawn(entity);
                 }
@@ -685,7 +688,7 @@ fn departures(world: &mut World) {
     }
 }
 
-fn society(world: &mut World, value: v0::Hamlet, news: bool) {
+fn society(world: &mut World, value: protocol::Hamlet, news: bool) {
     let Some(hamlet) = settlement(world, &value.id) else {
         return;
     };
@@ -736,10 +739,10 @@ fn society(world: &mut World, value: v0::Hamlet, news: bool) {
             .map_or(0, |t| t.messages);
         let traffic = Traffic {
             level: match value.level {
-                v0::RoadLevel::Overgrown => RoadUse::Overgrown,
-                v0::RoadLevel::Dirt => RoadUse::Dirt,
-                v0::RoadLevel::Paved => RoadUse::Paved,
-                v0::RoadLevel::Rail => RoadUse::Rail,
+                protocol::RoadLevel::Overgrown => RoadUse::Overgrown,
+                protocol::RoadLevel::Dirt => RoadUse::Dirt,
+                protocol::RoadLevel::Paved => RoadUse::Paved,
+                protocol::RoadLevel::Rail => RoadUse::Rail,
             },
             messages: value.messages,
             last_from: value

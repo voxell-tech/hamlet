@@ -1,4 +1,6 @@
-//! Messages exchanged by the window and agent server.
+//! The client protocol: messages exchanged by the window or CLI and
+//! the server. These serde types are the protocol; `docs/protocol.md`
+//! describes it.
 
 pub mod discovery;
 pub mod transcript;
@@ -9,10 +11,11 @@ pub const HOME: &str = "home";
 /// the office.
 pub const MAYOR: &str = "mayor";
 
-#[rustfmt::skip]
-pub mod v0;
+mod messages;
 
-impl v0::ServerMessage {
+pub use messages::*;
+
+impl ServerMessage {
     /// The request this message answers, if any.
     pub fn to(&self) -> Option<&str> {
         match self {
@@ -21,11 +24,11 @@ impl v0::ServerMessage {
             Self::Transcript(transcript) => transcript.to.as_deref(),
             Self::Login(login) => login.to.as_deref(),
             Self::Read(
-                v0::ReadResult::Prompt { to, .. }
-                | v0::ReadResult::History { to, .. }
-                | v0::ReadResult::Models { to, .. }
-                | v0::ReadResult::Papers { to, .. }
-                | v0::ReadResult::Charter { to, .. },
+                ReadResult::Prompt { to, .. }
+                | ReadResult::History { to, .. }
+                | ReadResult::Models { to, .. }
+                | ReadResult::Papers { to, .. }
+                | ReadResult::Charter { to, .. },
             ) => Some(to),
             Self::State(_) | Self::Change(_) | Self::Turn(_) => None,
         }

@@ -19,7 +19,7 @@ use bevy_fynix::views::{
 };
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 
 use crate::icons::Glyph;
 use crate::looks::{Fills, action, hairline, note};
@@ -135,7 +135,9 @@ struct ConnectionTest {
 
 fn test_connection(world: &mut World) {
     let id = world.resource_mut::<Outbox>().send(|id| {
-        v0::ClientMessage::Check(v0::Check::Connection { id })
+        protocol::ClientMessage::Check(protocol::Check::Connection {
+            id,
+        })
     });
     let mut test = world.resource_mut::<ConnectionTest>();
     test.request = Some(id);
@@ -147,10 +149,10 @@ fn checked(response: On<Response>, mut test: ResMut<ConnectionTest>) {
         return;
     }
     match &response.message {
-        v0::ServerMessage::Reply(reply) => {
+        protocol::ServerMessage::Reply(reply) => {
             test.words.clone_from(&reply.text)
         }
-        v0::ServerMessage::Fault(fault) => {
+        protocol::ServerMessage::Fault(fault) => {
             test.words.clone_from(&fault.text)
         }
         _ => return,
@@ -183,7 +185,7 @@ pub fn connection_test() -> AnyView {
 #[cfg(test)]
 mod tests {
     use hamlet_client::outbox::Outbox;
-    use hamlet_protocol::v0;
+    use hamlet_protocol as protocol;
 
     use super::*;
 
@@ -224,8 +226,8 @@ mod tests {
         assert!(app.world().resource::<Outbox>().iter().any(
             |message| matches!(
                 message,
-                v0::ClientMessage::Check(
-                    v0::Check::Connection { .. }
+                protocol::ClientMessage::Check(
+                    protocol::Check::Connection { .. }
                 )
             )
         ));
@@ -251,25 +253,28 @@ mod tests {
             .resource_mut::<Outbox>()
             .drain()
             .collect::<Vec<_>>();
-        let [v0::ClientMessage::Check(v0::Check::Connection { id })] =
-            &sent[..]
+        let [
+            protocol::ClientMessage::Check(
+                protocol::Check::Connection { id },
+            ),
+        ] = &sent[..]
         else {
             panic!("{sent:?}");
         };
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Reply(v0::Reply {
+            protocol::ServerMessage::Reply(protocol::Reply {
                 to: "another-request".into(),
-                kind: v0::ReplyKind::Notice,
+                kind: protocol::ReplyKind::Notice,
                 text: "Not this test".into(),
                 upload: None,
             }),
         );
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Reply(v0::Reply {
+            protocol::ServerMessage::Reply(protocol::Reply {
                 to: id.clone(),
-                kind: v0::ReplyKind::Notice,
+                kind: protocol::ReplyKind::Notice,
                 text: "Reached the default model.".into(),
                 upload: None,
             }),
@@ -291,15 +296,15 @@ mod tests {
             .resource_mut::<Outbox>()
             .drain()
             .find_map(|message| match message {
-                v0::ClientMessage::Check(v0::Check::Connection {
-                    id,
-                }) => Some(id),
+                protocol::ClientMessage::Check(
+                    protocol::Check::Connection { id },
+                ) => Some(id),
                 _ => None,
             })
             .unwrap();
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Fault(v0::Fault {
+            protocol::ServerMessage::Fault(protocol::Fault {
                 to: Some(id),
                 text: "No model answered.".into(),
             }),

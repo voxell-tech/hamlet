@@ -11,9 +11,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use hamlet_protocol::v0::{
-    self, Address, ClientMessage, Give, GiveFilesFiles, GivePart,
-    GiveSkillSkill, ServerMessage,
+use hamlet_protocol::{
+    self as protocol, Address, ClientMessage, Give, GiveFilesFiles,
+    GivePart, GiveSkillSkill, ServerMessage,
 };
 use hamlet_workspace_wire::{Code, TREE_ENTRIES, TreeKind};
 use rules::{DELIVERY, MAX_BYTES, MISMATCH, STAGING, UNKNOWN};
@@ -847,7 +847,7 @@ fn roots<'a>(paths: impl Iterator<Item = &'a str>) -> Vec<String> {
     roots
 }
 
-pub(crate) fn starters() -> Vec<v0::Skill> {
+pub(crate) fn starters() -> Vec<protocol::Skill> {
     let mut names = crate::starters::names().collect::<Vec<_>>();
     names.sort();
     names
@@ -863,7 +863,7 @@ pub(crate) fn starters() -> Vec<v0::Skill> {
                     })
                 })
                 .unwrap_or_default();
-            v0::Skill {
+            protocol::Skill {
                 description: description.into(),
                 name: name.into(),
             }

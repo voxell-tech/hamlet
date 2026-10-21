@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use anyhow::{Result, bail};
-use hamlet_protocol::v0::{
+use hamlet_protocol::{
     EditLimits, HamletLimits, LimitsAsking, LimitsBudget,
     LimitsLeaving, LimitsMayor, LimitsPermissions, LimitsRoad,
     LimitsTask, Permission, VoteLimits,
@@ -47,7 +47,7 @@ pub struct Limits {
     pub permissions: LimitsPermissions,
 }
 
-impl From<Limits> for hamlet_protocol::v0::Limits {
+impl From<Limits> for hamlet_protocol::Limits {
     fn from(limits: Limits) -> Self {
         Self {
             votes: limits.votes,

@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 use bevy_app::{App, Update};
 use bevy_ecs::prelude::*;
 use futures::{SinkExt, StreamExt};
+use hamlet_protocol as protocol;
 use hamlet_protocol::discovery::ServerAddress;
-use hamlet_protocol::v0;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -81,7 +81,7 @@ impl Default for Heartbeat {
 #[derive(Resource)]
 struct Bridge {
     incoming: mpsc::Receiver<Incoming>,
-    outgoing: mpsc::Sender<Vec<v0::ClientMessage>>,
+    outgoing: mpsc::Sender<Vec<protocol::ClientMessage>>,
     task: JoinHandle<()>,
 }
 
@@ -100,7 +100,7 @@ enum Incoming {
     Lost { answered: bool },
     Refused(String),
     Invalid(String),
-    Frame(v0::ServerMessage),
+    Frame(protocol::ServerMessage),
 }
 
 #[derive(Resource, Default)]
@@ -247,7 +247,7 @@ fn update(world: &mut World) {
 async fn connect(
     server: ServerAddress,
     frames: mpsc::Sender<Incoming>,
-    mut requests: mpsc::Receiver<Vec<v0::ClientMessage>>,
+    mut requests: mpsc::Receiver<Vec<protocol::ClientMessage>>,
     retry: Retry,
     heartbeat: Heartbeat,
 ) {
@@ -263,10 +263,11 @@ async fn connect(
         if let Ok((mut socket, _)) =
             tokio_tungstenite::connect_async(&server.url).await
         {
-            let hello = v0::ClientMessage::Hello(v0::Hello {
-                v: v0::V,
-                token: server.token.clone(),
-            });
+            let hello =
+                protocol::ClientMessage::Hello(protocol::Hello {
+                    v: protocol::V,
+                    token: server.token.clone(),
+                });
             if socket.send(wire(&hello)).await.is_ok() {
                 if frames
                     .send(Incoming::Connected { again: answered })
@@ -316,15 +317,15 @@ fn validate(url: &str) -> Result<(), String> {
     }
 }
 
-fn wire(message: &v0::ClientMessage) -> Message {
+fn wire(message: &protocol::ClientMessage) -> Message {
     Message::text(serde_json::to_string(message).unwrap())
 }
 
 async fn exchange(
     socket: &mut Socket,
     frames: &mpsc::Sender<Incoming>,
-    requests: &mut mpsc::Receiver<Vec<v0::ClientMessage>>,
-    pending: &mut VecDeque<v0::ClientMessage>,
+    requests: &mut mpsc::Receiver<Vec<protocol::ClientMessage>>,
+    pending: &mut VecDeque<protocol::ClientMessage>,
     reported: &mut bool,
     heartbeat: Heartbeat,
 ) -> Option<String> {
@@ -366,10 +367,11 @@ async fn exchange(
         }
         match event {
             SocketEvent::Frame(Some(Ok(Message::Text(text)))) => {
-                match serde_json::from_str::<v0::ServerMessage>(&text)
-                {
+                match serde_json::from_str::<protocol::ServerMessage>(
+                    &text,
+                ) {
                     Ok(message) => {
-                        if let v0::ServerMessage::Fault(message) =
+                        if let protocol::ServerMessage::Fault(message) =
                             &message
                             && message.to.is_none()
                         {
@@ -419,7 +421,7 @@ enum Writing {
 
 async fn advance(
     socket: &mut Socket,
-    pending: &mut VecDeque<v0::ClientMessage>,
+    pending: &mut VecDeque<protocol::ClientMessage>,
     writing: &mut Option<Writing>,
     ping: &mut bool,
 ) -> SocketEvent {

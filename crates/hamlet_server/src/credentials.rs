@@ -258,7 +258,7 @@ impl Credentials {
 
 pub(crate) fn pack(
     mut value: Value,
-) -> Result<crate::harness::link::Credential> {
+) -> Result<crate::harness::runtime::Credential> {
     if value["type"] == "oauth" {
         let mut extra =
             value.as_object().context("OAuth credential")?.clone();
@@ -277,7 +277,7 @@ pub(crate) fn pack(
 }
 
 pub(crate) fn unpack(
-    credential: crate::harness::link::Credential,
+    credential: crate::harness::runtime::Credential,
 ) -> Result<Value> {
     let mut value = serde_json::to_value(credential)?;
     if value["type"] == "oauth" {

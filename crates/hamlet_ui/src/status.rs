@@ -19,7 +19,7 @@ use hamlet_client::connection::State as ConnectionState;
 use hamlet_client::realm::{
     HOME, Sandbox, Settings, Settlement, Treasury,
 };
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 
 use crate::icons::{Glyph, glyph};
 use crate::links::Aimed;
@@ -95,7 +95,8 @@ pub(crate) fn update_status(
                 Tone::Critical
             }
             ConnectionState::Connected
-                if settings.0.link.state == v0::LinkState::Failed =>
+                if settings.0.link.state
+                    == protocol::LinkState::Failed =>
             {
                 Tone::Critical
             }
@@ -301,7 +302,7 @@ mod tests {
             state.sandbox = sandbox.into();
             hamlet_client::receive(
                 app.world_mut(),
-                v0::ServerMessage::State(state),
+                protocol::ServerMessage::State(state),
             );
             for _ in 0..3 {
                 app.update();
@@ -330,7 +331,7 @@ mod tests {
         state.waits.push(hamlet_testing::realm::wait("approval"));
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         let usage = serde_json::json!({
             "calls": 1,
@@ -344,8 +345,9 @@ mod tests {
             "lastInput": 10,
             "summary": "A received usage summary",
         });
-        let usage = serde_json::from_value::<v0::UsageView>(usage)
-            .expect("received usage");
+        let usage =
+            serde_json::from_value::<protocol::UsageView>(usage)
+                .expect("received usage");
         let session = app.world().resource::<Me>().session;
         app.world_mut().entity_mut(session).insert(Usage(usage));
         app.init_resource::<Bar>()
@@ -392,17 +394,19 @@ mod tests {
         );
         let mut settings = hamlet_testing::realm::state().settings;
         settings.model = "server::orchard".into();
-        settings.link = v0::Link {
-            state: v0::LinkState::Connected,
+        settings.link = protocol::Link {
+            state: protocol::LinkState::Connected,
             models: Some(2),
             words: Some("Reached two models on the server.".into()),
         };
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Change(v0::Changes {
+            protocol::ServerMessage::Change(protocol::Changes {
                 epoch: 1,
                 revision: 2,
-                changes: vec![v0::Update::Settings { settings }],
+                changes: vec![protocol::Update::Settings {
+                    settings,
+                }],
             }),
         );
         for _ in 0..3 {

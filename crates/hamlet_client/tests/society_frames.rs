@@ -3,7 +3,7 @@ use bevy_ecs::prelude::*;
 use hamlet_client::chats::{Chat, Entry, Transcript};
 use hamlet_client::realm::*;
 use hamlet_client::{ClientPlugin, receive};
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 
 #[derive(Resource, Default)]
 struct SeenEvents {
@@ -34,12 +34,11 @@ fn replay(text: &str, mut inspect: impl FnMut(&mut World)) -> App {
             serde_json::from_str::<serde_json::Value>(line).unwrap();
         let world = app.world_mut();
         if frame["from"] == "client" {
-            let message =
-                serde_json::from_value::<v0::ClientMessage>(
-                    frame["message"].clone(),
-                )
-                .unwrap();
-            if let v0::ClientMessage::Open(open) = message
+            let message = serde_json::from_value::<
+                protocol::ClientMessage,
+            >(frame["message"].clone())
+            .unwrap();
+            if let protocol::ClientMessage::Open(open) = message
                 && !world
                     .query::<&Chat>()
                     .iter(world)
@@ -88,7 +87,7 @@ fn recorded_society_carries_letters_and_questions_with_their_authors()
             .0
             .iter()
             .any(|chat| chat.kind
-                == v0::ConversationViewKind::Questions
+                == protocol::ConversationViewKind::Questions
                 && chat.count == 1)
     );
     assert!(world.query::<&Transcript>().iter(world).flat_map(Transcript::items).any(|item| matches!(&item.entry, Entry::Agent {name, text} if name == "smith@home" && text.contains("Hinge ready"))));

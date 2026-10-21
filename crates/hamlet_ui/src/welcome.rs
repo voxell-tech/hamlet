@@ -20,7 +20,7 @@ use hamlet_client::connection::State;
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Settings;
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 
 pub use self::pages::view;
 pub use self::providers::Browser;
@@ -140,7 +140,7 @@ fn go(world: &mut World, step: Step) {
 
 fn read_models(world: &mut World, refresh: bool) {
     let id = world.resource_mut::<Outbox>().send(|id| {
-        v0::ClientMessage::Read(v0::Read::Models {
+        protocol::ClientMessage::Read(protocol::Read::Models {
             id,
             refresh: Some(refresh),
         })
@@ -152,10 +152,10 @@ fn read_models(world: &mut World, refresh: bool) {
 
 fn check(world: &mut World, model: bool) {
     let id = world.resource_mut::<Outbox>().send(|id| {
-        v0::ClientMessage::Check(if model {
-            v0::Check::Model { id, model: None }
+        protocol::ClientMessage::Check(if model {
+            protocol::Check::Model { id, model: None }
         } else {
-            v0::Check::Connection { id }
+            protocol::Check::Connection { id }
         })
     });
     world
@@ -174,9 +174,9 @@ fn look(world: &mut World) {
 
 fn pick(world: &mut World, model: &str) {
     let id = world.resource_mut::<Outbox>().send(|id| {
-        v0::ClientMessage::Edit(v0::Edit::Settings {
+        protocol::ClientMessage::Edit(protocol::Edit::Settings {
             id,
-            set: v0::EditSettingsSet {
+            set: protocol::EditSettingsSet {
                 model: Some(model.into()),
                 allow_net: None,
                 reflect_every: None,
@@ -205,11 +205,11 @@ fn answered(response: On<Response>, mut commands: Commands) {
             .remove(&response.to);
         let Some(asked) = asked else { return };
         let failure = match &response.message {
-            v0::ServerMessage::Fault(fault) => {
+            protocol::ServerMessage::Fault(fault) => {
                 Some(fault.text.clone())
             }
-            v0::ServerMessage::Reply(reply)
-                if reply.kind == v0::ReplyKind::Error =>
+            protocol::ServerMessage::Reply(reply)
+                if reply.kind == protocol::ReplyKind::Error =>
             {
                 Some(reply.text.clone())
             }
@@ -225,10 +225,9 @@ fn answered(response: On<Response>, mut commands: Commands) {
         match (asked, response.message) {
             (
                 Asked::Models,
-                v0::ServerMessage::Read(v0::ReadResult::Models {
-                    models,
-                    ..
-                }),
+                protocol::ServerMessage::Read(
+                    protocol::ReadResult::Models { models, .. },
+                ),
             ) => {
                 let filter = world
                     .resource::<providers::Login>()
@@ -277,17 +276,21 @@ fn answered(response: On<Response>, mut commands: Commands) {
                     welcome.step = Step::Models;
                 }
             }
-            (Asked::Pick, v0::ServerMessage::Reply(_)) => {
+            (Asked::Pick, protocol::ServerMessage::Reply(_)) => {
                 check(world, true)
             }
-            (Asked::Check(model), v0::ServerMessage::Reply(_)) => {
+            (
+                Asked::Check(model),
+                protocol::ServerMessage::Reply(_),
+            ) => {
                 let settings = &world.resource::<Settings>().0;
                 let finished = model
                     && !settings.unset
                     && settings.link.state
-                        == v0::LinkState::Connected;
+                        == protocol::LinkState::Connected;
                 let link = &settings.link;
-                let problem = (link.state == v0::LinkState::Failed)
+                let problem = (link.state
+                    == protocol::LinkState::Failed)
                     .then(|| link.words.clone())
                     .flatten();
                 let mut welcome = world.resource_mut::<Welcome>();
@@ -324,11 +327,12 @@ pub fn follow(
             welcome.open = true;
         } else if !welcome.manual
             || !welcome.trying
-                && settings.0.link.state == v0::LinkState::Connected
+                && settings.0.link.state
+                    == protocol::LinkState::Connected
         {
             welcome.open = false;
         }
-        if settings.0.link.state == v0::LinkState::Failed
+        if settings.0.link.state == protocol::LinkState::Failed
             && (welcome.asking
                 || welcome.manual && welcome.step == Step::Models)
         {
@@ -371,7 +375,7 @@ pub(crate) mod server_tests {
     use bevy_fynix::{FynixPlugin, mount};
     use hamlet_assets::Tuning;
     use hamlet_client::{ClientPlugin, receive};
-    use hamlet_protocol::v0;
+    use hamlet_protocol as protocol;
 
     use super::*;
     use crate::theme::{self, HamletTheme};
@@ -398,7 +402,10 @@ pub(crate) mod server_tests {
     pub(crate) fn show(app: &mut App, unset: bool) {
         let mut state = hamlet_testing::realm::state();
         state.settings.unset = unset;
-        receive(app.world_mut(), v0::ServerMessage::State(state));
+        receive(
+            app.world_mut(),
+            protocol::ServerMessage::State(state),
+        );
         app.world_mut()
             .resource_mut::<hamlet_client::Connection>()
             .state = hamlet_client::connection::State::Connected;
@@ -667,7 +674,7 @@ pub(crate) mod server_tests {
         press(&mut app, "LOOK AGAIN");
         let requests = sent(&mut app);
         app.world_mut().resource_mut::<Settings>().0.endpoints.push(
-            v0::SettingsViewEndpoints {
+            protocol::SettingsViewEndpoints {
                 name: "local".into(),
                 base_url: "http://localhost:11434/v1".into(),
                 key: false,
@@ -700,7 +707,7 @@ pub(crate) mod server_tests {
         }
         assert!(words(&mut app).contains("PICK A MODEL"));
         app.world_mut().resource_mut::<Settings>().0.link.state =
-            v0::LinkState::Connected;
+            protocol::LinkState::Connected;
         for _ in 0..3 {
             app.update();
         }
@@ -751,7 +758,7 @@ pub(crate) mod server_tests {
         let mut app = app();
         show(&mut app, true);
         app.world_mut().resource_mut::<Settings>().0.link.state =
-            v0::LinkState::Connected;
+            protocol::LinkState::Connected;
         app.world_mut().resource_mut::<Welcome>().step = Step::Models;
         app.world_mut().resource_mut::<Welcome>().models =
             vec!["local::small".into()];
@@ -817,8 +824,8 @@ pub(crate) mod server_tests {
             serde_json::json!({"type":"reply", "to":check["id"], "kind":"notice", "text":"That model did not answer."}),
         );
         app.world_mut().resource_mut::<Settings>().0.link =
-            v0::Link {
-                state: v0::LinkState::Failed,
+            protocol::Link {
+                state: protocol::LinkState::Failed,
                 models: None,
                 words: Some("That model did not answer.".into()),
             };

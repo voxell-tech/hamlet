@@ -492,7 +492,7 @@ mod tests {
     use bevy::prelude::*;
     use hamlet_client::ClientPlugin;
     use hamlet_client::realm::mayor;
-    use hamlet_protocol::v0;
+    use hamlet_protocol as protocol;
     use hamlet_testing::realm;
 
     use super::{Bubble, plugin};
@@ -515,7 +515,7 @@ mod tests {
         let mut state = realm::state();
         let founder = &mut state.agents[0];
         founder.busy = true;
-        founder.activity.doing = v0::Doing::Run;
+        founder.activity.doing = protocol::Doing::Run;
         founder.saying.thought = true;
         founder.saying.text = "Checking the orchard".into();
         let mut founder = founder.clone();
@@ -553,7 +553,7 @@ mod tests {
         founder.saying.text = "The orchard is ready.".into();
         receive_change(
             &mut app,
-            v0::Update::Agent { agent: founder },
+            protocol::Update::Agent { agent: founder },
         );
         app.update();
         let world = app.world_mut();

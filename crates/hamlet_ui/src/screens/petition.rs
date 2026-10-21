@@ -22,7 +22,7 @@ use bevy_fynix::{ScopedExt, ViewExt, each, resource};
 use hamlet_client::chats::{Chat, Entry, Transcript};
 use hamlet_client::messages::{Answer, Veto};
 use hamlet_client::waits::{Choice, ChoiceExt, Waiting};
-use hamlet_protocol::v0::{Change, Lasting, WaitDanger, WaitDetail};
+use hamlet_protocol::{Change, Lasting, WaitDanger, WaitDetail};
 use hamlet_realm::needs::{TagAnswered, TagOpened};
 
 use crate::dock::{PanelAppExt, lit_panel, show_tab};
@@ -91,7 +91,7 @@ struct Need {
     asked: u64,
     answers: Vec<Choice>,
     change: Option<Change>,
-    chat: Option<hamlet_protocol::v0::ChatRef>,
+    chat: Option<hamlet_protocol::ChatRef>,
 }
 
 impl Need {
@@ -418,7 +418,7 @@ pub fn screen() -> impl View {
 #[cfg(test)]
 mod tests {
     use hamlet_client::outbox::Outbox;
-    use hamlet_protocol::v0;
+    use hamlet_protocol as protocol;
 
     use super::*;
     use crate::me::tests::{panel_app, press, words};
@@ -433,7 +433,7 @@ mod tests {
             .push(hamlet_testing::realm::wait("tag-approval"));
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         let world = app.world_mut();
         let wait = world
@@ -452,7 +452,7 @@ mod tests {
                 .resource_mut::<Outbox>()
                 .drain()
                 .collect::<Vec<_>>();
-            let [v0::ClientMessage::Answer(answer)] = &sent[..]
+            let [protocol::ClientMessage::Answer(answer)] = &sent[..]
             else {
                 panic!("one answer: {sent:?}");
             };
@@ -469,7 +469,7 @@ mod tests {
         state.waits.push(hamlet_testing::realm::wait("approve-pwd"));
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         app.add_plugins(plugin);
         app.update();
@@ -494,7 +494,7 @@ mod tests {
         press(&mut app, "ALLOW ONCE");
         let allowed =
             app.world().resource::<Outbox>().iter().any(|message| {
-                matches!(message, v0::ClientMessage::Answer(answer)
+                matches!(message, protocol::ClientMessage::Answer(answer)
                 if answer.wait == "approve-pwd"
                     && answer.choice == Choice::Allow)
             });
@@ -502,7 +502,7 @@ mod tests {
         press(&mut app, "STOP ALL");
         let stopped =
             app.world().resource::<Outbox>().iter().any(|message| {
-                matches!(message, v0::ClientMessage::Stop(stop)
+                matches!(message, protocol::ClientMessage::Stop(stop)
                 if stop.agent.is_none())
             });
         assert!(stopped);
@@ -512,7 +512,7 @@ mod tests {
         state.waits.push(wait);
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         for _ in 0..3 {
             app.update();
@@ -526,13 +526,13 @@ mod tests {
         app.add_plugins((crate::chat::plugin, plugin));
         let mut state = hamlet_testing::realm::state();
         let mut wait = hamlet_testing::realm::wait("edit");
-        wait.detail = v0::WaitDetail::Approval {
-            danger: v0::WaitDanger::Edit,
+        wait.detail = protocol::WaitDetail::Approval {
+            danger: protocol::WaitDanger::Edit,
             says: "wants to edit".into(),
-            always: Some(v0::Lasting::Session),
+            always: Some(protocol::Lasting::Session),
         };
         wait.about = "orchard.md".into();
-        wait.change = Some(v0::Change {
+        wait.change = Some(protocol::Change {
             path: "orchard.md".into(),
             created: true,
             lines: vec![],
@@ -544,7 +544,7 @@ mod tests {
         state.waits.push(wait);
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         app.update();
         bevy_fynix::mount::<crate::theme::HamletTheme>(

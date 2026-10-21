@@ -12,7 +12,7 @@ use bevy::math::Vec3;
 use bevy::time::Time;
 use bevy_fynix::dock::{ActiveTab, DockDrag, DockTab};
 use hamlet_client::messages::{SessionOutput, UserMessage};
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 use hamlet_realm::sound::{Cue, Sound};
 
 use crate::chat::{ChatError, Unfolded};
@@ -150,7 +150,7 @@ fn sent(_: On<UserMessage>, mut cues: MessageWriter<Cue>) {
 
 /// A reply that could not be finished.
 fn failed(output: On<SessionOutput>, mut cues: MessageWriter<Cue>) {
-    if matches!(&output.op, v0::Op::Add { item, .. } if item.kind == v0::ItemKind::Error)
+    if matches!(&output.op, protocol::Op::Add { item, .. } if item.kind == protocol::ItemKind::Error)
     {
         cues.write(cue(Sound::Error));
     }
@@ -194,10 +194,10 @@ mod tests {
 
         let mut app = app();
         app.add_plugins(hamlet_client::ClientPlugin { server: None });
-        let chat = v0::ChatRef {
+        let chat = protocol::ChatRef {
             kind: None,
             from: None,
-            with: v0::Address {
+            with: protocol::Address {
                 hamlet: "home".into(),
                 agent: "mayor".into(),
             },
@@ -206,15 +206,15 @@ mod tests {
         app.world_mut().spawn(Chat(chat.clone()));
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Turn(v0::Turn {
+            protocol::ServerMessage::Turn(protocol::Turn {
                 chat,
                 number: None,
                 ops: vec![
-                    v0::Op::Add {
-                        item: v0::Item {
+                    protocol::Op::Add {
+                        item: protocol::Item {
                             id: "error:0".into(),
                             at: 0,
-                            kind: v0::ItemKind::Error,
+                            kind: protocol::ItemKind::Error,
                             text: "The model could not answer."
                                 .into(),
                             chief: None,
@@ -224,7 +224,7 @@ mod tests {
                         },
                         replaces: None,
                     },
-                    v0::Op::Append {
+                    protocol::Op::Append {
                         item: "error:0".into(),
                         text: " Try again.".into(),
                     },

@@ -2,13 +2,13 @@
 //! pages, and the history of its sessions (C24, S5).
 
 use anyhow::Result;
-use hamlet_protocol::v0::{
+use hamlet_protocol::{
     Address, ChatRef, ChatRefKind, Open, ReadResult, ServerMessage,
     Transcript,
 };
 
 use super::{Watch, records};
-use crate::harness::{BindingId, Harnesses, InputMark, link};
+use crate::harness::{BindingId, Harnesses, InputMark, runtime};
 use crate::protocol::{Refusable, Refusal, fault, reply};
 use crate::service::Service;
 use crate::society::letters::{Kind, peer_of};
@@ -221,7 +221,7 @@ pub(super) async fn history(
 pub(super) fn pasts(
     service: &mut Service,
     agent: &crate::record::AgentRef,
-) -> Result<Vec<hamlet_protocol::v0::Past>> {
+) -> Result<Vec<hamlet_protocol::Past>> {
     let chief = service.chief.clone();
     let db = service.home.store().connection();
     let current = records::current_number(db, agent, &chief)?;
@@ -238,9 +238,9 @@ pub(super) fn pasts(
                 if first.is_none() && !text.trim().is_empty() {
                     first = Some((text, chief));
                 }
-            } else if item.kind == link::ItemKind::Assistant
+            } else if item.kind == runtime::ItemKind::Assistant
                 && item.blocks.iter().flatten().any(|block| {
-                    matches!(block, link::Block::Text { text }
+                    matches!(block, runtime::Block::Text { text }
                             if !text.trim().is_empty())
                 })
             {
@@ -266,7 +266,7 @@ pub(super) fn pasts(
             .max()
             .unwrap_or(session.began);
         let usage = super::usage(service, session.binding)?;
-        history.push(hamlet_protocol::v0::Past {
+        history.push(hamlet_protocol::Past {
             began: session.began,
             by,
             current: Some(session.number) == current,

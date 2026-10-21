@@ -4,9 +4,9 @@
 pub(crate) mod held;
 
 use anyhow::{Context, Result, bail};
-use hamlet_protocol::v0::{
-    self, Address, ChatRef, Choice, Lasting, Questions, WaitDanger,
-    WaitDetail,
+use hamlet_protocol::{
+    self as protocol, Address, ChatRef, Choice, Lasting, Questions,
+    WaitDanger, WaitDetail,
 };
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -478,7 +478,7 @@ pub(crate) fn view(
     wait: &Wait,
     record: Option<&Hamlet>,
     current: Option<i64>,
-) -> Result<v0::Wait> {
+) -> Result<protocol::Wait> {
     let chat = match (&wait.chat, record) {
         (Some(chat), Some(record)) => Some(ChatRef {
             with: Address {
@@ -512,7 +512,7 @@ pub(crate) fn view(
         .map(serde_json::from_value)
         .transpose()
         .with_context(|| format!("wait {}'s change", wait.id))?;
-    Ok(v0::Wait {
+    Ok(protocol::Wait {
         id: wait.id.clone(),
         by: wait.by.clone(),
         agent: wait.agent.clone().map(Into::into),

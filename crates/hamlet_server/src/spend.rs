@@ -4,15 +4,15 @@ use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
 use chrono::{Datelike, Local, TimeZone, Timelike};
-use hamlet_protocol::v0::{
-    self, Period, Report, ReportCaps, UsageView,
+use hamlet_protocol::{
+    self as protocol, Period, Report, ReportCaps, UsageView,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::harness::BindingId;
-use crate::harness::link::{Price, Usage};
+use crate::harness::runtime::{Price, Usage};
 use crate::service::Service;
 
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]
@@ -380,7 +380,7 @@ impl Service {
             remains: nearest.map(|(spent, cap, time)| {
                 show((cap - spent).max(0), time)
             }),
-            spent: v0::Amount {
+            spent: protocol::Amount {
                 micros: spent.micros,
                 ms: spent.ms,
                 tokens: spent.tokens,
@@ -410,7 +410,7 @@ impl Service {
 pub fn usage(
     db: &Connection,
     binding: BindingId,
-) -> Result<hamlet_protocol::v0::UsageView> {
+) -> Result<hamlet_protocol::UsageView> {
     usage_of(db, &[binding])
 }
 

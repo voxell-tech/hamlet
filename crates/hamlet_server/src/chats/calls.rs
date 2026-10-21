@@ -18,7 +18,7 @@ use self::decide::{Decision, Gate, Reading, Unadmitted};
 use self::tasks::Prepared;
 pub(crate) use self::tasks::{Finished, Tasks};
 use super::{asking, follow, records};
-use crate::harness::link::{
+use crate::harness::runtime::{
     Block, Item, Section, ToolSpec, ToolSpecReplay,
 };
 use crate::harness::tools::CONFLICT;

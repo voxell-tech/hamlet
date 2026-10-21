@@ -12,8 +12,8 @@ use std::path::PathBuf;
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::*;
 pub use connection::{Connection, Server};
+use hamlet_protocol as protocol;
 use hamlet_protocol::discovery::ServerAddress;
-use hamlet_protocol::v0;
 use tokio::runtime::Handle;
 
 /// The window's state, request routing and connection plugins.
@@ -56,15 +56,17 @@ pub struct Tokio(pub Handle);
 pub struct ViewDir(pub PathBuf);
 
 /// One frame of the server's state or a request's answer.
-pub fn receive(world: &mut World, message: v0::ServerMessage) {
+pub fn receive(world: &mut World, message: protocol::ServerMessage) {
     messages::receive(world, &message);
     match message {
-        v0::ServerMessage::State(state) => realm::state(world, state),
-        v0::ServerMessage::Change(changes) => {
+        protocol::ServerMessage::State(state) => {
+            realm::state(world, state)
+        }
+        protocol::ServerMessage::Change(changes) => {
             realm::changes(world, changes)
         }
-        message @ (v0::ServerMessage::Transcript(_)
-        | v0::ServerMessage::Turn(_)) => {
+        message @ (protocol::ServerMessage::Transcript(_)
+        | protocol::ServerMessage::Turn(_)) => {
             chats::receive(world, message)
         }
         _ => {}

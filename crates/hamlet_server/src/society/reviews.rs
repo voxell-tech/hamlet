@@ -1,7 +1,7 @@
 //! Mayor reviews beside chief work and task-wide objection rulings.
 
 use anyhow::{Context, Result};
-use hamlet_protocol::v0::{Choice, LimitsAskingMayorReview};
+use hamlet_protocol::{Choice, LimitsAskingMayorReview};
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::json;

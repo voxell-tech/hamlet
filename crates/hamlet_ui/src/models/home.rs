@@ -9,7 +9,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Providers, Settings};
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 
 use super::choice::{chooser, home_default};
 use super::{
@@ -34,14 +34,14 @@ fn remove(world: &mut World, name: &str) {
         .endpoints
         .iter()
         .filter(|endpoint| endpoint.name != name)
-        .map(|endpoint| v0::Endpoint {
+        .map(|endpoint| protocol::Endpoint {
             name: endpoint.name.clone(),
             base_url: endpoint.base_url.clone(),
         })
         .collect();
-    edit(world, |id| v0::Edit::Settings {
+    edit(world, |id| protocol::Edit::Settings {
         id,
-        set: v0::EditSettingsSet {
+        set: protocol::EditSettingsSet {
             endpoints: Some(endpoints),
             model: None,
             reflect_every: None,
@@ -51,7 +51,7 @@ fn remove(world: &mut World, name: &str) {
     });
 }
 
-fn endpoint(endpoint: &v0::SettingsViewEndpoints) -> AnyView {
+fn endpoint(endpoint: &protocol::SettingsViewEndpoints) -> AnyView {
     let gone = endpoint.name.clone();
     column((
         row((
@@ -143,7 +143,8 @@ fn price(name: &str, output: bool) -> AnyView {
             });
             if !matches!(
                 model.priced,
-                v0::ListedPriced::Unknown | v0::ListedPriced::Yours
+                protocol::ListedPriced::Unknown
+                    | protocol::ListedPriced::Yours
             ) {
                 return row((label(format!("{value:.2}"))
                     .size(12.0)
@@ -159,7 +160,7 @@ fn price(name: &str, output: bool) -> AnyView {
                     .iter()
                     .find(|model| model.name == name)
                     .and_then(|model| model.price.clone())
-                    .unwrap_or(v0::Price {
+                    .unwrap_or(protocol::Price {
                         input: 0.0,
                         output: 0.0,
                     });
@@ -171,7 +172,7 @@ fn price(name: &str, output: bool) -> AnyView {
                 catalogue(
                     world,
                     &name,
-                    v0::EditCatalogueSet {
+                    protocol::EditCatalogueSet {
                         price: Some(Some(price)),
                         allowed: None,
                         note: None,
@@ -190,15 +191,15 @@ fn price(name: &str, output: bool) -> AnyView {
     .boxed()
 }
 
-fn entry(model: &v0::Listed) -> AnyView {
+fn entry(model: &protocol::Listed) -> AnyView {
     let name = model.name.clone();
     let allow = name.clone();
     let describe = name.clone();
     let source = match model.priced {
-        v0::ListedPriced::Unknown => "no price",
-        v0::ListedPriced::Listed => "listed",
-        v0::ListedPriced::Assigned => "assigned",
-        v0::ListedPriced::Yours => "yours",
+        protocol::ListedPriced::Unknown => "no price",
+        protocol::ListedPriced::Listed => "listed",
+        protocol::ListedPriced::Assigned => "assigned",
+        protocol::ListedPriced::Yours => "yours",
     };
     let detail = model.context.map_or(source.into(), |context| {
         format!("{source}, holds {}k", context / 1000)
@@ -209,7 +210,7 @@ fn entry(model: &v0::Listed) -> AnyView {
                 catalogue(
                     world,
                     &allow,
-                    v0::EditCatalogueSet {
+                    protocol::EditCatalogueSet {
                         allowed: Some(allowed),
                         price: None,
                         note: None,
@@ -234,7 +235,7 @@ fn entry(model: &v0::Listed) -> AnyView {
             catalogue(
                 world,
                 &describe,
-                v0::EditCatalogueSet {
+                protocol::EditCatalogueSet {
                     note: Some(note),
                     allowed: None,
                     price: None,
@@ -266,9 +267,9 @@ pub(crate) fn narrowed<N: AsRef<str>>(
 
 fn save_default(world: &mut World, model: &str) {
     let id = world.resource_mut::<Outbox>().send(|id| {
-        v0::ClientMessage::Edit(v0::Edit::Settings {
+        protocol::ClientMessage::Edit(protocol::Edit::Settings {
             id,
-            set: v0::EditSettingsSet {
+            set: protocol::EditSettingsSet {
                 model: Some(model.into()),
                 endpoints: None,
                 reflect_every: None,

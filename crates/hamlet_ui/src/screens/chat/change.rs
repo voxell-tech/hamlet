@@ -16,7 +16,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, component, keyed, resource};
 use hamlet_client::chats::{Entry, Transcript};
-use hamlet_protocol::v0::{
+use hamlet_protocol::{
     Change, ChangeLines as Line, ChangeLinesMark as Mark,
 };
 

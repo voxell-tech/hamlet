@@ -11,7 +11,7 @@ use hamlet_client::messages::{JobFinished, Response};
 use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::address_of;
 use hamlet_desktop::editor::{Edit, Edited};
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 
 use super::agent::Briefing;
 use crate::me::Me;
@@ -27,7 +27,7 @@ pub struct Papers {
 
 #[derive(Resource, Default)]
 pub(super) struct Requests {
-    selected: Option<v0::Address>,
+    selected: Option<protocol::Address>,
     papers: Option<RequestId>,
     prompt: Option<RequestId>,
     pending: HashMap<RequestId, Request>,
@@ -36,24 +36,24 @@ pub(super) struct Requests {
 
 struct Document {
     key: String,
-    agent: v0::Address,
+    agent: protocol::Address,
     latest: Option<RequestId>,
 }
 
 enum Request {
-    Papers(v0::Address),
-    Prompt(v0::Address),
-    Character(v0::Address),
-    Save(v0::Address),
+    Papers(protocol::Address),
+    Prompt(protocol::Address),
+    Character(protocol::Address),
+    Save(protocol::Address),
 }
 
-pub(super) fn selected(world: &World) -> Option<v0::Address> {
+pub(super) fn selected(world: &World) -> Option<protocol::Address> {
     address_of(world, world.resource::<Me>().agent)
 }
 
-fn read(world: &mut World, agent: v0::Address) {
+fn read(world: &mut World, agent: protocol::Address) {
     let id = world.resource_mut::<Outbox>().send(|id| {
-        v0::ClientMessage::Read(v0::Read::Papers {
+        protocol::ClientMessage::Read(protocol::Read::Papers {
             id,
             agent: agent.clone(),
             full: None,
@@ -82,7 +82,7 @@ pub(super) fn prompt(world: &mut World) {
         return;
     };
     let id = world.resource_mut::<Outbox>().send(|id| {
-        v0::ClientMessage::Read(v0::Read::Prompt {
+        protocol::ClientMessage::Read(protocol::Read::Prompt {
             id,
             agent: agent.clone(),
         })
@@ -98,7 +98,7 @@ pub(super) fn edit_character(world: &mut World) {
     };
     world.resource_mut::<Papers>().failed = None;
     let id = world.resource_mut::<Outbox>().send(|id| {
-        v0::ClientMessage::Read(v0::Read::Papers {
+        protocol::ClientMessage::Read(protocol::Read::Papers {
             id,
             agent: agent.clone(),
             full: Some(true),
@@ -123,7 +123,7 @@ pub(super) fn edited(saved: On<Edited>, mut commands: Commands) {
             return;
         };
         let id = world.resource_mut::<Outbox>().send(|id| {
-            v0::ClientMessage::Edit(v0::Edit::Character {
+            protocol::ClientMessage::Edit(protocol::Edit::Character {
                 id,
                 agent: agent.clone(),
                 text: saved.text,
@@ -141,14 +141,16 @@ pub(super) fn edited(saved: On<Edited>, mut commands: Commands) {
     });
 }
 
-fn failure(message: &v0::ServerMessage) -> Option<String> {
+fn failure(message: &protocol::ServerMessage) -> Option<String> {
     match message {
-        v0::ServerMessage::Reply(reply)
-            if reply.kind == v0::ReplyKind::Error =>
+        protocol::ServerMessage::Reply(reply)
+            if reply.kind == protocol::ReplyKind::Error =>
         {
             Some(reply.text.clone())
         }
-        v0::ServerMessage::Fault(fault) => Some(fault.text.clone()),
+        protocol::ServerMessage::Fault(fault) => {
+            Some(fault.text.clone())
+        }
         _ => None,
     }
 }
@@ -172,8 +174,8 @@ pub(super) fn response(reply: On<Response>, mut commands: Commands) {
                 {
                     return;
                 }
-                if let v0::ServerMessage::Read(
-                    v0::ReadResult::Papers { papers, .. },
+                if let protocol::ServerMessage::Read(
+                    protocol::ReadResult::Papers { papers, .. },
                 ) = reply.message
                 {
                     let mut shown = world.resource_mut::<Papers>();
@@ -194,8 +196,8 @@ pub(super) fn response(reply: On<Response>, mut commands: Commands) {
                     return;
                 }
                 let text = match reply.message {
-                    v0::ServerMessage::Read(
-                        v0::ReadResult::Prompt { prompt, .. },
+                    protocol::ServerMessage::Read(
+                        protocol::ReadResult::Prompt { prompt, .. },
                     ) => prompt,
                     _ => match failed {
                         Some(why) => format!(
@@ -214,8 +216,8 @@ pub(super) fn response(reply: On<Response>, mut commands: Commands) {
                     }
                     return;
                 }
-                if let v0::ServerMessage::Read(
-                    v0::ReadResult::Papers { papers, .. },
+                if let protocol::ServerMessage::Read(
+                    protocol::ReadResult::Papers { papers, .. },
                 ) = reply.message
                 {
                     let mut requests = world.resource_mut::<Requests>();
@@ -249,7 +251,7 @@ pub(super) fn response(reply: On<Response>, mut commands: Commands) {
                     .any(|doc| doc.latest.as_ref() == Some(&reply.to));
                 if latest && selected(world) == Some(agent.clone()) {
                     world.resource_mut::<Papers>().failed = failed;
-                    if matches!(reply.message, v0::ServerMessage::Reply(ref reply) if reply.kind == v0::ReplyKind::Notice) {
+                    if matches!(reply.message, protocol::ServerMessage::Reply(ref reply) if reply.kind == protocol::ReplyKind::Notice) {
                         read(world, agent);
                     }
                 }

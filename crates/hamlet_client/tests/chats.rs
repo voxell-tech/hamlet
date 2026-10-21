@@ -4,7 +4,7 @@ use hamlet_client::chats::{Chat, Entry, Item, Transcript};
 use hamlet_client::messages::Reconnected;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::{ClientPlugin, receive};
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 
 fn app() -> App {
     let mut app = App::new();
@@ -12,11 +12,11 @@ fn app() -> App {
     app
 }
 
-fn reference() -> v0::ChatRef {
-    v0::ChatRef {
+fn reference() -> protocol::ChatRef {
+    protocol::ChatRef {
         kind: None,
         from: None,
-        with: v0::Address {
+        with: protocol::Address {
             hamlet: "home".into(),
             agent: "mayor".into(),
         },
@@ -24,7 +24,7 @@ fn reference() -> v0::ChatRef {
     }
 }
 
-fn requests(app: &mut App) -> Vec<v0::ClientMessage> {
+fn requests(app: &mut App) -> Vec<protocol::ClientMessage> {
     app.world_mut().resource_mut::<Outbox>().drain().collect()
 }
 
@@ -36,7 +36,7 @@ fn a_chat_is_watched_until_removed_and_reopens_without_losing_its_items()
     app.update();
     let sent = requests(&mut app);
     assert!(
-        matches!(&sent[..], [v0::ClientMessage::Open(open)] if open.chat == reference() && open.before.is_none())
+        matches!(&sent[..], [protocol::ClientMessage::Open(open)] if open.chat == reference() && open.before.is_none())
     );
     app.world_mut()
         .entity_mut(chat)
@@ -49,7 +49,7 @@ fn a_chat_is_watched_until_removed_and_reopens_without_losing_its_items()
     app.update();
     let sent = requests(&mut app);
     assert!(
-        matches!(&sent[..], [v0::ClientMessage::Open(open)] if open.chat == reference() && open.before.is_none())
+        matches!(&sent[..], [protocol::ClientMessage::Open(open)] if open.chat == reference() && open.before.is_none())
     );
     assert_eq!(
         app.world().get::<Transcript>(chat).unwrap().items().len(),
@@ -58,7 +58,7 @@ fn a_chat_is_watched_until_removed_and_reopens_without_losing_its_items()
     app.world_mut().entity_mut(chat).remove::<Chat>();
     app.update();
     assert!(
-        matches!(&requests(&mut app)[..], [v0::ClientMessage::Close(close)] if close.chat == reference())
+        matches!(&requests(&mut app)[..], [protocol::ClientMessage::Close(close)] if close.chat == reference())
     );
     app.world_mut().entity_mut(chat).insert(Chat(reference()));
     app.update();
@@ -66,11 +66,11 @@ fn a_chat_is_watched_until_removed_and_reopens_without_losing_its_items()
     app.world_mut().despawn(chat);
     app.update();
     assert!(
-        matches!(&requests(&mut app)[..], [v0::ClientMessage::Close(close)] if close.chat == reference())
+        matches!(&requests(&mut app)[..], [protocol::ClientMessage::Close(close)] if close.chat == reference())
     );
 }
 
-fn frames(text: &str) -> Vec<v0::ServerMessage> {
+fn frames(text: &str) -> Vec<protocol::ServerMessage> {
     text.lines()
         .filter_map(|line| {
             let frame =
@@ -86,7 +86,7 @@ fn frames(text: &str) -> Vec<v0::ServerMessage> {
 
 #[derive(Resource, Default)]
 struct Observed {
-    output: Vec<(Entity, v0::Op)>,
+    output: Vec<(Entity, protocol::Op)>,
     finished: Vec<Entity>,
 }
 
@@ -124,8 +124,8 @@ fn live_turns_equal_the_transcript_read_back_and_emit_each_operation_once()
             .world()
             .get::<Transcript>(chat)
             .map_or(0, Transcript::shape);
-        let appended = matches!(&frame, v0::ServerMessage::Turn(turn) if turn.ops.iter().all(|op| matches!(op, v0::Op::Append {..})));
-        if let v0::ServerMessage::Turn(turn) = &frame {
+        let appended = matches!(&frame, protocol::ServerMessage::Turn(turn) if turn.ops.iter().all(|op| matches!(op, protocol::Op::Append {..})));
+        if let protocol::ServerMessage::Turn(turn) = &frame {
             expected_ops.extend(
                 turn.ops.iter().cloned().map(|op| (chat, op)),
             );
@@ -159,7 +159,7 @@ fn live_turns_equal_the_transcript_read_back_and_emit_each_operation_once()
     );
     assert!(!said.answering());
     assert!(!world.get::<Status>(chat).unwrap().working());
-    let v0::ServerMessage::Transcript(page) = &read_back else {
+    let protocol::ServerMessage::Transcript(page) = &read_back else {
         panic!("the recording ends with a read-back transcript");
     };
     assert_eq!(
@@ -195,7 +195,7 @@ fn earlier_requests_one_page_and_prepends_it_to_the_received_transcript()
     ))
     .into_iter()
     .filter_map(|message| {
-        if let v0::ServerMessage::Transcript(page) = message {
+        if let protocol::ServerMessage::Transcript(page) = message {
             Some(page)
         } else {
             None
@@ -204,7 +204,7 @@ fn earlier_requests_one_page_and_prepends_it_to_the_received_transcript()
     .collect::<Vec<_>>();
     receive(
         app.world_mut(),
-        v0::ServerMessage::Transcript(pages[0].clone()),
+        protocol::ServerMessage::Transcript(pages[0].clone()),
     );
     let later = app
         .world()
@@ -221,14 +221,17 @@ fn earlier_requests_one_page_and_prepends_it_to_the_received_transcript()
     earlier(app.world_mut(), chat);
     earlier(app.world_mut(), chat);
     let sent = requests(&mut app);
-    let [v0::ClientMessage::Open(open)] = &sent[..] else {
+    let [protocol::ClientMessage::Open(open)] = &sent[..] else {
         panic!("one page request: {sent:?}");
     };
     assert_eq!(open.chat, reference());
     assert_eq!(open.before.as_deref(), Some(later[0].id.as_str()));
     let mut page = pages[1].clone();
     page.to = Some(open.id.clone());
-    receive(app.world_mut(), v0::ServerMessage::Transcript(page));
+    receive(
+        app.world_mut(),
+        protocol::ServerMessage::Transcript(page),
+    );
     let said = app.world().get::<Transcript>(chat).unwrap();
     assert_eq!(said.items().len(), 46);
     assert_eq!(&said.items()[6..], &later);
@@ -254,7 +257,10 @@ fn chats_follow_the_addressed_agent_and_the_current_mayor_as_the_realm_changes()
     app.update();
     assert!(app.world().get::<TalksTo>(office).is_none());
     let mut realm = state();
-    receive(app.world_mut(), v0::ServerMessage::State(realm.clone()));
+    receive(
+        app.world_mut(),
+        protocol::ServerMessage::State(realm.clone()),
+    );
     app.update();
     let founder = mayor(app.world_mut()).unwrap();
     assert_eq!(
@@ -275,7 +281,10 @@ fn chats_follow_the_addressed_agent_and_the_current_mayor_as_the_realm_changes()
     other.mayor = true;
     realm.agents.push(other);
     realm.revision += 1;
-    receive(app.world_mut(), v0::ServerMessage::State(realm.clone()));
+    receive(
+        app.world_mut(),
+        protocol::ServerMessage::State(realm.clone()),
+    );
     app.update();
     let writer = mayor(app.world_mut()).unwrap();
     assert_ne!(founder, writer);
@@ -283,7 +292,7 @@ fn chats_follow_the_addressed_agent_and_the_current_mayor_as_the_realm_changes()
     assert_eq!(app.world().get::<TalksTo>(named).unwrap().0, founder);
     realm.agents.clear();
     realm.revision += 1;
-    receive(app.world_mut(), v0::ServerMessage::State(realm));
+    receive(app.world_mut(), protocol::ServerMessage::State(realm));
     app.update();
     assert!(app.world().get::<TalksTo>(office).is_none());
     assert!(app.world().get::<TalksTo>(named).is_none());
@@ -307,7 +316,7 @@ fn a_recorded_rewind_returns_the_chief_words_and_replaces_the_reset_items()
     app.update();
     requests(&mut app);
     let mut before = Vec::new();
-    let mut pending = None::<v0::Rewind>;
+    let mut pending = None::<protocol::Rewind>;
     for line in
         include_str!("../../hamlet_protocol/frames/rewind.jsonl")
             .lines()
@@ -315,8 +324,8 @@ fn a_recorded_rewind_returns_the_chief_words_and_replaces_the_reset_items()
         let frame =
             serde_json::from_str::<serde_json::Value>(line).unwrap();
         if frame["from"] == "client" {
-            if let v0::ClientMessage::Rewind(recorded) =
-                serde_json::from_value::<v0::ClientMessage>(
+            if let protocol::ClientMessage::Rewind(recorded) =
+                serde_json::from_value::<protocol::ClientMessage>(
                     frame["message"].clone(),
                 )
                 .unwrap()
@@ -338,7 +347,8 @@ fn a_recorded_rewind_returns_the_chief_words_and_replaces_the_reset_items()
                     item: recorded.item.clone(),
                 });
                 let sent = requests(&mut app);
-                let [v0::ClientMessage::Rewind(rewind)] = &sent[..]
+                let [protocol::ClientMessage::Rewind(rewind)] =
+                    &sent[..]
                 else {
                     panic!("one rewind request: {sent:?}");
                 };
@@ -347,13 +357,12 @@ fn a_recorded_rewind_returns_the_chief_words_and_replaces_the_reset_items()
             }
             continue;
         }
-        let mut message =
-            serde_json::from_value::<v0::ServerMessage>(
-                frame["message"].clone(),
-            )
-            .unwrap();
-        if let v0::ServerMessage::Reply(reply) = &mut message
-            && reply.kind == v0::ReplyKind::Rewound
+        let mut message = serde_json::from_value::<
+            protocol::ServerMessage,
+        >(frame["message"].clone())
+        .unwrap();
+        if let protocol::ServerMessage::Reply(reply) = &mut message
+            && reply.kind == protocol::ReplyKind::Rewound
         {
             reply.to = pending
                 .as_ref()
@@ -361,7 +370,7 @@ fn a_recorded_rewind_returns_the_chief_words_and_replaces_the_reset_items()
                 .id
                 .clone();
         }
-        let reset = matches!(&message, v0::ServerMessage::Turn(turn) if turn.ops.iter().any(|op| matches!(op, v0::Op::Reset {})));
+        let reset = matches!(&message, protocol::ServerMessage::Turn(turn) if turn.ops.iter().any(|op| matches!(op, protocol::Op::Reset {})));
         receive(app.world_mut(), message);
         if reset {
             assert!(
@@ -410,12 +419,14 @@ fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
         let id = recorded
             .iter()
             .filter_map(|message| match message {
-                v0::ServerMessage::Turn(turn) => Some(&turn.ops),
+                protocol::ServerMessage::Turn(turn) => {
+                    Some(&turn.ops)
+                }
                 _ => None,
             })
             .flatten()
             .find_map(|op| match op {
-                v0::Op::Add { item, .. }
+                protocol::Op::Add { item, .. }
                     if item.tool.as_ref().is_some_and(|tool| {
                         tool.summary.contains(summary)
                     }) =>
@@ -428,12 +439,18 @@ fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
         let ms = recorded
             .iter()
             .filter_map(|message| match message {
-                v0::ServerMessage::Turn(turn) => Some(&turn.ops),
+                protocol::ServerMessage::Turn(turn) => {
+                    Some(&turn.ops)
+                }
                 _ => None,
             })
             .flatten()
             .find_map(|op| match op {
-                v0::Op::Close { item, ms, .. } if item == &id => *ms,
+                protocol::Op::Close { item, ms, .. }
+                    if item == &id =>
+                {
+                    *ms
+                }
                 _ => None,
             })
             .expect("the recorded tool close carries its duration");
@@ -477,8 +494,8 @@ fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
     }
 }
 
-fn turn(ops: Vec<v0::Op>) -> v0::ServerMessage {
-    v0::ServerMessage::Turn(v0::Turn {
+fn turn(ops: Vec<protocol::Op>) -> protocol::ServerMessage {
+    protocol::ServerMessage::Turn(protocol::Turn {
         chat: reference(),
         number: Some(1),
         ops,
@@ -494,7 +511,7 @@ fn working_and_last_activity_follow_status_and_finishing_is_not_repeated()
     let chat = app.world_mut().spawn(Chat(reference())).id();
     receive(
         app.world_mut(),
-        turn(vec![v0::Op::Status {
+        turn(vec![protocol::Op::Status {
             working: true,
             pending: 2,
             last: None,
@@ -502,10 +519,10 @@ fn working_and_last_activity_follow_status_and_finishing_is_not_repeated()
     );
     assert_eq!(app.world().get::<Status>(chat).unwrap().pending, 3);
     assert!(app.world().get::<Transcript>(chat).unwrap().answering());
-    let idle = turn(vec![v0::Op::Status {
+    let idle = turn(vec![protocol::Op::Status {
         working: false,
         pending: 0,
-        last: Some(v0::LastActivity {
+        last: Some(protocol::LastActivity {
             at: 1234,
             what: "Finished the chief's task".into(),
         }),
@@ -546,15 +563,16 @@ fn recorded_chats_keep_last_activity_from_live_status_and_transcripts()
         let mut saw_activity = false;
         for message in frames(recording) {
             match &message {
-                v0::ServerMessage::Transcript(page) => {
+                protocol::ServerMessage::Transcript(page) => {
                     expected = page
                         .last
                         .as_ref()
                         .map(|last| (last.at, last.what.clone()));
                 }
-                v0::ServerMessage::Turn(turn) => {
+                protocol::ServerMessage::Turn(turn) => {
                     for op in &turn.ops {
-                        if let v0::Op::Status { last, .. } = op {
+                        if let protocol::Op::Status { last, .. } = op
+                        {
                             expected = last.as_ref().map(|last| {
                                 (last.at, last.what.clone())
                             });
@@ -583,8 +601,10 @@ fn new_and_resumed_conversations_keep_their_received_number() {
     for message in frames(include_str!(
         "../../hamlet_protocol/frames/new-and-resume.jsonl"
     )) {
-        let transcript =
-            matches!(&message, v0::ServerMessage::Transcript(_));
+        let transcript = matches!(
+            &message,
+            protocol::ServerMessage::Transcript(_)
+        );
         receive(app.world_mut(), message);
         if transcript {
             numbers.push(
@@ -624,18 +644,18 @@ fn a_refused_page_can_be_requested_again() {
     for fault in [false, true] {
         earlier(app.world_mut(), chat);
         let sent = requests(&mut app);
-        let [v0::ClientMessage::Open(open)] = &sent[..] else {
+        let [protocol::ClientMessage::Open(open)] = &sent[..] else {
             panic!("page request: {sent:?}");
         };
         let response = if fault {
-            v0::ServerMessage::Fault(v0::Fault {
+            protocol::ServerMessage::Fault(protocol::Fault {
                 to: Some(open.id.clone()),
                 text: "No page".into(),
             })
         } else {
-            v0::ServerMessage::Reply(v0::Reply {
+            protocol::ServerMessage::Reply(protocol::Reply {
                 to: open.id.clone(),
-                kind: v0::ReplyKind::Error,
+                kind: protocol::ReplyKind::Error,
                 text: "No page".into(),
                 upload: None,
             })
@@ -645,7 +665,7 @@ fn a_refused_page_can_be_requested_again() {
     earlier(app.world_mut(), chat);
     assert!(matches!(
         &requests(&mut app)[..],
-        [v0::ClientMessage::Open(_)]
+        [protocol::ClientMessage::Open(_)]
     ));
 }
 
@@ -655,29 +675,31 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
     use hamlet_testing::realm::state;
     let mut app = app();
     let chat = app.world_mut().spawn(Chat(reference())).id();
-    receive(app.world_mut(), v0::ServerMessage::State(state()));
-    let item = |id: &str, kind: v0::ItemKind, text: &str| v0::Item {
-        id: id.into(),
-        at: 42,
-        kind,
-        text: text.into(),
-        chief: None,
-        author: None,
-        rewindable: None,
-        tool: None,
+    receive(app.world_mut(), protocol::ServerMessage::State(state()));
+    let item = |id: &str, kind: protocol::ItemKind, text: &str| {
+        protocol::Item {
+            id: id.into(),
+            at: 42,
+            kind,
+            text: text.into(),
+            chief: None,
+            author: None,
+            rewindable: None,
+            tool: None,
+        }
     };
     for (id, kind, text) in [
-        ("chief", v0::ItemKind::User, "Chief words"),
-        ("reason", v0::ItemKind::Reasoning, "A reason"),
-        ("notice", v0::ItemKind::Notice, "A notice"),
-        ("error", v0::ItemKind::Error, "An error"),
-        ("answer", v0::ItemKind::Answered, "> Which?\nRight"),
+        ("chief", protocol::ItemKind::User, "Chief words"),
+        ("reason", protocol::ItemKind::Reasoning, "A reason"),
+        ("notice", protocol::ItemKind::Notice, "A notice"),
+        ("error", protocol::ItemKind::Error, "An error"),
+        ("answer", protocol::ItemKind::Answered, "> Which?\nRight"),
     ] {
         let before =
             app.world().get::<Transcript>(chat).unwrap().shape();
         receive(
             app.world_mut(),
-            turn(vec![v0::Op::Add {
+            turn(vec![protocol::Op::Add {
                 item: item(id, kind, text),
                 replaces: None,
             }]),
@@ -703,7 +725,7 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
     let shape = said.shape();
     receive(
         app.world_mut(),
-        turn(vec![v0::Op::Append {
+        turn(vec![protocol::Op::Append {
             item: "reason".into(),
             text: " grows".into(),
         }]),
@@ -715,10 +737,10 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
     );
     receive(
         app.world_mut(),
-        turn(vec![v0::Op::Add {
+        turn(vec![protocol::Op::Add {
             item: item(
                 "replacement",
-                v0::ItemKind::Reasoning,
+                protocol::ItemKind::Reasoning,
                 "Kept reason",
             ),
             replaces: Some("reason".into()),
@@ -729,8 +751,8 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
     assert!(said.item("reason").is_none());
     assert_eq!(said.items().last().unwrap().id, "replacement");
     assert_eq!(said.items().len(), 5);
-    let mut tool = item("tool", v0::ItemKind::Tool, "");
-    tool.tool = Some(v0::ItemTool {
+    let mut tool = item("tool", protocol::ItemKind::Tool, "");
+    tool.tool = Some(protocol::ItemTool {
         name: "write".into(), summary: "file".into(), exit: None, ms: None, failure: None,
         change: Some(serde_json::from_value(serde_json::json!({
             "path":"file", "created":true, "lines":[], "total":0, "added":0, "removed":0, "count":"empty"
@@ -738,7 +760,7 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
     });
     receive(
         app.world_mut(),
-        turn(vec![v0::Op::Add {
+        turn(vec![protocol::Op::Add {
             item: tool,
             replaces: None,
         }]),
@@ -748,7 +770,7 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
             app.world().get::<Transcript>(chat).unwrap().shape();
         receive(
             app.world_mut(),
-            turn(vec![v0::Op::Close {
+            turn(vec![protocol::Op::Close {
                 item: "tool".into(),
                 exit: 0,
                 ms: Some(1),
@@ -774,7 +796,7 @@ fn past_and_current_chats_receive_only_their_own_frames() {
     app.update();
     let sent = requests(&mut app);
     assert_eq!(sent.len(), 2);
-    assert!(sent.iter().any(|request| matches!(request, v0::ClientMessage::Open(open) if open.chat == past_ref)));
+    assert!(sent.iter().any(|request| matches!(request, protocol::ClientMessage::Open(open) if open.chat == past_ref)));
     for message in frames(include_str!(
         "../../hamlet_protocol/frames/turn.jsonl"
     )) {
@@ -800,7 +822,8 @@ fn past_and_current_chats_receive_only_their_own_frames() {
     ))
     .pop()
     .unwrap();
-    let v0::ServerMessage::Transcript(transcript) = &mut page else {
+    let protocol::ServerMessage::Transcript(transcript) = &mut page
+    else {
         panic!("transcript");
     };
     transcript.chat = past_ref;
@@ -826,21 +849,24 @@ fn another_transcript_keeps_the_page_outstanding_but_stale() {
         ))
         .into_iter()
         .filter_map(|message| match message {
-            v0::ServerMessage::Transcript(page) => Some(page),
+            protocol::ServerMessage::Transcript(page) => Some(page),
             _ => None,
         })
         .collect::<Vec<_>>();
         receive(
             app.world_mut(),
-            v0::ServerMessage::Transcript(pages[0].clone()),
+            protocol::ServerMessage::Transcript(pages[0].clone()),
         );
         earlier(app.world_mut(), chat);
         let sent = requests(&mut app);
-        let [v0::ClientMessage::Open(open)] = &sent[..] else {
+        let [protocol::ClientMessage::Open(open)] = &sent[..] else {
             panic!("one page request: {sent:?}");
         };
         if reset {
-            receive(app.world_mut(), turn(vec![v0::Op::Reset {}]));
+            receive(
+                app.world_mut(),
+                turn(vec![protocol::Op::Reset {}]),
+            );
         }
         let mut replacement = pages[0].clone();
         replacement.to = (!reset).then(|| "another-open".into());
@@ -853,7 +879,7 @@ fn another_transcript_keeps_the_page_outstanding_but_stale() {
         replacement.usage.summary = "Current usage".into();
         receive(
             app.world_mut(),
-            v0::ServerMessage::Transcript(replacement.clone()),
+            protocol::ServerMessage::Transcript(replacement.clone()),
         );
         earlier(app.world_mut(), chat);
         assert!(
@@ -866,7 +892,7 @@ fn another_transcript_keeps_the_page_outstanding_but_stale() {
         stale.to = Some(open.id.clone());
         receive(
             app.world_mut(),
-            v0::ServerMessage::Transcript(stale),
+            protocol::ServerMessage::Transcript(stale),
         );
         let said = app.world().get::<Transcript>(chat).unwrap();
         assert_eq!(said.items(), kept.items());
@@ -890,7 +916,7 @@ fn another_transcript_keeps_the_page_outstanding_but_stale() {
         );
         earlier(app.world_mut(), chat);
         let sent = requests(&mut app);
-        let [v0::ClientMessage::Open(next)] = &sent[..] else {
+        let [protocol::ClientMessage::Open(next)] = &sent[..] else {
             panic!("a fresh page can be requested: {sent:?}");
         };
         assert_ne!(open.id, next.id);
@@ -898,7 +924,7 @@ fn another_transcript_keeps_the_page_outstanding_but_stale() {
         fresh.to = Some(next.id.clone());
         receive(
             app.world_mut(),
-            v0::ServerMessage::Transcript(fresh),
+            protocol::ServerMessage::Transcript(fresh),
         );
         let said = app.world().get::<Transcript>(chat).unwrap();
         assert_eq!(said.items().len(), 8);

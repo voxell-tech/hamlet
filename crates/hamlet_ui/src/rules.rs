@@ -19,7 +19,7 @@ use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Bylaws, HOME, Settlement};
-use hamlet_protocol::v0::{self, Limits, Period};
+use hamlet_protocol::{self as protocol, Limits, Period};
 use serde_json::Value;
 
 use crate::icons::Glyph;
@@ -91,24 +91,26 @@ fn put(
         None
     };
     let id = world.resource_mut::<Outbox>().send(|id| {
-        v0::ClientMessage::Edit(v0::Edit::Limits(match whole {
-            Some(whole) => v0::EditLimits::Whole {
-                id,
-                hamlet: name,
-                reason: None,
-                whole,
-            },
-            None => v0::EditLimits::Set {
-                id,
-                hamlet: name,
-                reason: None,
-                set: v0::EditLimitsSetSet {
-                    section: section.into(),
-                    key: key.into(),
-                    value,
+        protocol::ClientMessage::Edit(protocol::Edit::Limits(
+            match whole {
+                Some(whole) => protocol::EditLimits::Whole {
+                    id,
+                    hamlet: name,
+                    reason: None,
+                    whole,
+                },
+                None => protocol::EditLimits::Set {
+                    id,
+                    hamlet: name,
+                    reason: None,
+                    set: protocol::EditLimitsSetSet {
+                        section: section.into(),
+                        key: key.into(),
+                        value,
+                    },
                 },
             },
-        }))
+        ))
     });
     let mut book = world.resource_mut::<Book>();
     let field = book.fields.entry((section, key)).or_default();
@@ -125,10 +127,12 @@ fn answered(response: On<Response>, mut book: ResMut<Book>) {
         return;
     };
     let problem = match &response.message {
-        v0::ServerMessage::Reply(reply) => (reply.kind
-            == v0::ReplyKind::Error)
+        protocol::ServerMessage::Reply(reply) => (reply.kind
+            == protocol::ReplyKind::Error)
             .then(|| reply.text.clone()),
-        v0::ServerMessage::Fault(fault) => Some(fault.text.clone()),
+        protocol::ServerMessage::Fault(fault) => {
+            Some(fault.text.clone())
+        }
         _ => return,
     };
     field.pending = None;
@@ -742,7 +746,7 @@ mod tests {
         state.hamlets.push(hamlet_testing::realm::hamlet("mill"));
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         let places = app
             .world_mut()
@@ -782,10 +786,10 @@ mod tests {
         let hamlet = hamlet_testing::realm::hamlet("home");
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Change(v0::Changes {
+            protocol::ServerMessage::Change(protocol::Changes {
                 epoch: 1,
                 revision: 1,
-                changes: vec![v0::Update::Hamlet { hamlet }],
+                changes: vec![protocol::Update::Hamlet { hamlet }],
             }),
         );
         for _ in 0..3 {
@@ -839,7 +843,7 @@ mod tests {
         state.hamlets.push(hamlet_testing::realm::hamlet("mill"));
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         let mill = app
             .world_mut()
@@ -878,7 +882,7 @@ mod tests {
     }
     #[test]
     fn a_refused_edit_restores_the_received_value_beside_its_words() {
-        use hamlet_protocol::v0;
+        use hamlet_protocol as protocol;
 
         use crate::me::tests::words;
         let (mut app, _) = page(Part::Budget);
@@ -886,9 +890,9 @@ mod tests {
         let to = edits(&app)[0]["id"].as_str().unwrap().to_string();
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Reply(v0::Reply {
+            protocol::ServerMessage::Reply(protocol::Reply {
                 to,
-                kind: v0::ReplyKind::Error,
+                kind: protocol::ReplyKind::Error,
                 text: "The daily cost was refused.".into(),
                 upload: None,
             }),
@@ -910,10 +914,10 @@ mod tests {
         hamlet.limits.budget.cost = Some(3.5);
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Change(v0::Changes {
+            protocol::ServerMessage::Change(protocol::Changes {
                 epoch: 1,
                 revision: 1,
-                changes: vec![v0::Update::Hamlet { hamlet }],
+                changes: vec![protocol::Update::Hamlet { hamlet }],
             }),
         );
         for _ in 0..3 {

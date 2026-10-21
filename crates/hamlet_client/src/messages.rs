@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use bevy_app::App;
 use bevy_ecs::prelude::*;
 use bevy_ecs::world::DeferredWorld;
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 
 use crate::chats::Chat;
 use crate::outbox::{Outbox, RequestId};
@@ -21,7 +21,7 @@ pub fn plugin(app: &mut App) {
             |message: On<UserMessage>, mut outbox: ResMut<Outbox>| {
                 let message = message.event();
                 outbox.send(|id| {
-                    v0::ClientMessage::Say(v0::Say {
+                    protocol::ClientMessage::Say(protocol::Say {
                         id,
                         to: message.to.clone(),
                         text: message.text.clone(),
@@ -65,7 +65,10 @@ pub fn plugin(app: &mut App) {
                 None => None,
             };
             world.resource_mut::<Outbox>().send(|id| {
-                v0::ClientMessage::Stop(v0::Stop { id, agent })
+                protocol::ClientMessage::Stop(protocol::Stop {
+                    id,
+                    agent,
+                })
             });
         })
         .add_observer(
@@ -76,11 +79,13 @@ pub fn plugin(app: &mut App) {
                 let rewind = rewind.event();
                 if let Ok(chat) = chats.get(rewind.chat) {
                     let id = outbox.send(|id| {
-                        v0::ClientMessage::Rewind(v0::Rewind {
-                            id,
-                            chat: chat.0.clone(),
-                            item: rewind.item.clone(),
-                        })
+                        protocol::ClientMessage::Rewind(
+                            protocol::Rewind {
+                                id,
+                                chat: chat.0.clone(),
+                                item: rewind.item.clone(),
+                            },
+                        )
                     });
                     rewinds.0.insert(id, rewind.chat);
                 }
@@ -91,7 +96,7 @@ pub fn plugin(app: &mut App) {
 /// A chief's typed line addressed to an agent.
 #[derive(Event, Clone, Debug)]
 pub struct UserMessage {
-    pub to: v0::Address,
+    pub to: protocol::Address,
     pub text: String,
 }
 
@@ -107,7 +112,7 @@ pub struct Answer {
 #[derive(EntityEvent, Clone, Debug)]
 pub struct Answered {
     pub entity: Entity,
-    pub picks: Vec<v0::Pick>,
+    pub picks: Vec<protocol::Pick>,
 }
 
 /// A stop request for one agent, or every agent when absent.
@@ -127,7 +132,7 @@ pub struct Rewind {
 #[derive(Event, Clone, Debug)]
 pub struct SessionOutput {
     pub chat: Entity,
-    pub op: v0::Op,
+    pub op: protocol::Op,
 }
 
 /// The end of a watched chat's running work.
@@ -147,7 +152,7 @@ pub struct Rewound {
 #[derive(Event, Clone, Debug)]
 pub struct Response {
     pub to: RequestId,
-    pub message: v0::ServerMessage,
+    pub message: protocol::ServerMessage,
 }
 
 /// An unaddressed server failure for the chief.
@@ -173,7 +178,7 @@ fn send_answer(
     need: Entity,
     choice: Choice,
     text: Option<String>,
-    picks: Option<Vec<v0::Pick>>,
+    picks: Option<Vec<protocol::Pick>>,
 ) {
     let Some(waiting) =
         world.get::<Waiting>(need).map(|w| w.id.clone())
@@ -181,7 +186,7 @@ fn send_answer(
         return;
     };
     let request = world.resource_mut::<Outbox>().send(|id| {
-        v0::ClientMessage::Answer(v0::Answer {
+        protocol::ClientMessage::Answer(protocol::Answer {
             id,
             wait: waiting,
             choice,
@@ -194,9 +199,9 @@ fn send_answer(
 
 pub(crate) fn receive(
     world: &mut World,
-    message: &v0::ServerMessage,
+    message: &protocol::ServerMessage,
 ) {
-    if let v0::ServerMessage::Fault(fault) = message
+    if let protocol::ServerMessage::Fault(fault) = message
         && fault.to.is_none()
     {
         world.trigger(ServerFault {
@@ -208,12 +213,13 @@ pub(crate) fn receive(
     };
     if matches!(
         message,
-        v0::ServerMessage::Reply(_) | v0::ServerMessage::Fault(_)
+        protocol::ServerMessage::Reply(_)
+            | protocol::ServerMessage::Fault(_)
     ) {
         let chat = world.resource_mut::<Rewinds>().0.remove(to);
-        if let (Some(chat), v0::ServerMessage::Reply(reply)) =
+        if let (Some(chat), protocol::ServerMessage::Reply(reply)) =
             (chat, message)
-            && reply.kind == v0::ReplyKind::Rewound
+            && reply.kind == protocol::ReplyKind::Rewound
         {
             world.trigger(Rewound {
                 chat,
@@ -221,12 +227,12 @@ pub(crate) fn receive(
             });
         }
         let refusal = match message {
-            v0::ServerMessage::Reply(reply)
-                if reply.kind == v0::ReplyKind::Error =>
+            protocol::ServerMessage::Reply(reply)
+                if reply.kind == protocol::ReplyKind::Error =>
             {
                 Some(reply.text.clone())
             }
-            v0::ServerMessage::Fault(fault) => {
+            protocol::ServerMessage::Fault(fault) => {
                 Some(fault.text.clone())
             }
             _ => None,

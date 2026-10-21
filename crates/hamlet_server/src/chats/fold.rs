@@ -5,13 +5,13 @@
 use std::collections::{BTreeMap, HashMap};
 
 use anyhow::{Context, Result};
-use hamlet_protocol::v0::{
+use hamlet_protocol::{
     Change, Item, ItemKind, ItemTool, LastActivity, Op,
 };
 use serde_json::Value;
 
 use crate::harness::InputMark;
-use crate::harness::link::{self, Block};
+use crate::harness::runtime::{self, Block};
 use crate::scrub::Scrubber;
 
 /// Characters of a tool's arguments a transcript shows.
@@ -44,7 +44,7 @@ pub(crate) struct Fold {
 
 impl Fold {
     /// The fold of `items`, kept so far.
-    pub fn of(items: &[link::Item]) -> Result<Self> {
+    pub fn of(items: &[runtime::Item]) -> Result<Self> {
         let mut fold = Self::default();
         for item in items {
             fold.entry(item)?;
@@ -64,7 +64,7 @@ impl Fold {
         &mut self,
         running: bool,
         pending: u64,
-        partial: Option<&link::Partial>,
+        partial: Option<&runtime::Partial>,
         secrets: &[String],
     ) {
         if let Some(partial) = partial {
@@ -90,7 +90,7 @@ impl Fold {
     }
 
     /// Takes in one kept entry of the conversation.
-    pub fn entry(&mut self, entry: &link::Item) -> Result<()> {
+    pub fn entry(&mut self, entry: &runtime::Item) -> Result<()> {
         let lasts = self.lasts;
         self.entry_items(entry)?;
         let (working, pending) = (self.working, self.pending);
@@ -98,8 +98,8 @@ impl Fold {
         Ok(())
     }
 
-    fn entry_items(&mut self, entry: &link::Item) -> Result<()> {
-        if entry.kind == link::ItemKind::ToolResult {
+    fn entry_items(&mut self, entry: &runtime::Item) -> Result<()> {
+        if entry.kind == runtime::ItemKind::ToolResult {
             let Some(id) = entry
                 .call
                 .as_ref()
@@ -151,7 +151,7 @@ impl Fold {
             }
             return Ok(());
         }
-        let answer = entry.kind == link::ItemKind::Assistant;
+        let answer = entry.kind == runtime::ItemKind::Assistant;
         for (block, item) in items_of(entry)? {
             let live = if answer {
                 self.live.remove(&block)
@@ -203,7 +203,7 @@ impl Fold {
     /// Takes in the answer being written.
     fn partial(
         &mut self,
-        partial: &link::Partial,
+        partial: &runtime::Partial,
         secrets: &[String],
     ) {
         for (block, mut item) in
@@ -262,7 +262,7 @@ impl Fold {
 
 /// The items `entry` shows, by the content block each comes from.
 pub(crate) fn items_of(
-    entry: &link::Item,
+    entry: &runtime::Item,
 ) -> Result<Vec<(usize, Item)>> {
     let id = format!("{}:0", entry.entry);
     let item = |kind, text: String, at| Item {
@@ -314,7 +314,7 @@ pub(crate) fn items_of(
             InputMark::Letter(mail)
             | InputMark::Question(mail)
             | InputMark::Reply(mail),
-        ) if entry.kind == link::ItemKind::User => {
+        ) if entry.kind == runtime::ItemKind::User => {
             return Ok(vec![(
                 0,
                 Item {
@@ -326,17 +326,17 @@ pub(crate) fn items_of(
         _ => {}
     }
     Ok(match entry.kind {
-        link::ItemKind::Summary => vec![(
+        runtime::ItemKind::Summary => vec![(
             0,
             item(ItemKind::Notice, SUMMARY_NOTICE.into(), entry.at),
         )],
-        link::ItemKind::User => {
+        runtime::ItemKind::User => {
             vec![(
                 0,
                 item(ItemKind::User, entry.text.clone(), entry.at),
             )]
         }
-        link::ItemKind::Assistant => blocks_of(
+        runtime::ItemKind::Assistant => blocks_of(
             entry.blocks.as_deref().unwrap_or_default(),
             entry.at,
             entry.stop.as_deref(),
@@ -436,7 +436,7 @@ struct Ending {
 }
 
 /// The end of a tool call, from its result.
-fn ending(entry: &link::Item) -> Result<Ending> {
+fn ending(entry: &runtime::Item) -> Result<Ending> {
     let error = entry.error == Some(true);
     let details = entry.details.as_ref();
     let code = details
@@ -488,7 +488,7 @@ mod tests {
 
     #[test]
     fn a_result_naming_a_change_that_does_not_read_is_an_error() {
-        let result = serde_json::from_value::<link::Item>(serde_json::json!({
+        let result = serde_json::from_value::<runtime::Item>(serde_json::json!({
             "at": 1, "entry": "2", "kind": "tool_result", "text": "",
             "details": {"change": {"not": "a change"}},
         }))

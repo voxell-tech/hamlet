@@ -4,7 +4,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use super::link::Mark;
+use super::runtime::Mark;
 use crate::record::AgentRef;
 
 /// The mark of an input or a write.

@@ -2,7 +2,7 @@
 
 use bevy::ecs::world::World;
 use hamlet_client::realm::Settings;
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 use hamlet_ui::settings;
 
 use crate::scenes::Scene;
@@ -15,7 +15,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         return;
     }
     world.resource_mut::<Settings>().0.endpoints.push(
-        v0::SettingsViewEndpoints {
+        protocol::SettingsViewEndpoints {
             name: "far".into(),
             base_url: "https://models.example/api/v1".into(),
             key: true,
@@ -33,7 +33,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     }
     if scene == Scene::Workspace {
         world.resource_mut::<Settings>().0.workspace =
-            v0::SettingsViewWorkspace {
+            protocol::SettingsViewWorkspace {
                 url: Some("https://workspace.example".into()),
                 running: None,
                 move_: None,

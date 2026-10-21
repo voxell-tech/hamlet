@@ -394,7 +394,7 @@ mod tests {
     use bevy::ecs::query::With;
     use bevy::ui::{ComputedNode, UiGlobalTransform};
     use hamlet_client::outbox::Outbox;
-    use hamlet_protocol::v0;
+    use hamlet_protocol as protocol;
 
     use super::*;
     use crate::me::tests::{panel_app, press, words};
@@ -560,7 +560,7 @@ mod tests {
         let was = bottom(&app, field);
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Fault(v0::Fault {
+            protocol::ServerMessage::Fault(protocol::Fault {
                 to: None,
                 text: "The server could not keep that change.".into(),
             }),
@@ -598,7 +598,7 @@ mod tests {
             "Reading the received orchard ledger".into();
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         app.update();
         bevy_fynix::mount::<crate::theme::HamletTheme>(
@@ -612,7 +612,8 @@ mod tests {
         press(&mut app, "STOP");
         let stopped =
             app.world().resource::<Outbox>().iter().any(|message| {
-                let v0::ClientMessage::Stop(stop) = message else {
+                let protocol::ClientMessage::Stop(stop) = message
+                else {
                     return false;
                 };
                 stop.agent.as_ref().is_some_and(|agent| {
@@ -622,7 +623,9 @@ mod tests {
         assert!(stopped);
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(hamlet_testing::realm::state()),
+            protocol::ServerMessage::State(
+                hamlet_testing::realm::state(),
+            ),
         );
         for _ in 0..2 {
             app.update();
@@ -895,18 +898,18 @@ mod tests {
             .push(hamlet_testing::realm::agent("home", 1, "scout"));
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         let agent =
             hamlet_client::realm::named(app.world_mut(), "scout")
                 .unwrap();
-        let to = v0::Address {
+        let to = protocol::Address {
             hamlet: "home".into(),
             agent: "scout".into(),
         };
         let session = app
             .world_mut()
-            .spawn(Chat(v0::ChatRef {
+            .spawn(Chat(protocol::ChatRef {
                 kind: None,
                 from: None,
                 with: to.clone(),
@@ -976,8 +979,10 @@ mod tests {
         ])).unwrap();
         receive(
             &mut app,
-            serde_json::to_value(v0::ServerMessage::State(state))
-                .unwrap(),
+            serde_json::to_value(protocol::ServerMessage::State(
+                state,
+            ))
+            .unwrap(),
         );
         assert!(words(&mut app).contains(&"AGENT CHATS".into()));
         press(&mut app, "AGENT CHATS");
@@ -998,7 +1003,7 @@ mod tests {
                     "with":{"hamlet":"home","agent":"mayor"}, "from":{"hamlet":"home","number":1}, "kind":kind
                 })
             );
-            assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, v0::ClientMessage::Open(open) if open.chat == chat)));
+            assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Open(open) if open.chat == chat)));
             receive(
                 &mut app,
                 json!({"type":"transcript","chat":chat,"items":[

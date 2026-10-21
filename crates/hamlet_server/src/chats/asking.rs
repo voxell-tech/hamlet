@@ -1,7 +1,7 @@
 //! The questions an agent puts to the chief with `ask_chief`: read
 //! from the call and checked, set out as words, and answered.
 
-use hamlet_protocol::v0::{Offer, Pick, Question, Questions};
+use hamlet_protocol::{Offer, Pick, Question, Questions};
 use serde::Deserialize;
 use serde_json::Value;
 

@@ -13,7 +13,7 @@ use super::truncate::{MAX_BYTES, MAX_LINES, Tail};
 use super::{
     Arguments, Outcome, Place, diagnostic, environment, number_words,
 };
-use crate::harness::link::DiagnosticSeverity;
+use crate::harness::runtime::DiagnosticSeverity;
 use crate::sandbox::{ExecError, FileKind, Sandbox};
 use crate::scrub::scrub_text;
 

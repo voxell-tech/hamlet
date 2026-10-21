@@ -3,8 +3,8 @@
 //! and its answer carried back.
 
 use anyhow::{Context, Result, bail};
-use hamlet_protocol::v0::{
-    self, ConversationView, ConversationViewKind,
+use hamlet_protocol::{
+    self as protocol, ConversationView, ConversationViewKind,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Deserialize;
@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use super::{Caller, outcome};
 use crate::chats::records::{self, Place};
-use crate::harness::link::{Item, ItemKind};
+use crate::harness::runtime::{Item, ItemKind};
 use crate::harness::{
     Answer, BindingId, Harnesses, Input, InputMark, InputStatus, Mail,
 };
@@ -995,7 +995,7 @@ pub(super) fn answer_of(
                     .iter()
                     .flatten()
                     .filter_map(|block| match block {
-                        crate::harness::link::Block::Text {
+                        crate::harness::runtime::Block::Text {
                             text,
                         } => Some(text.as_str()),
                         _ => None,
@@ -1073,7 +1073,7 @@ pub(crate) fn views(
             count,
             kind,
             last,
-            with: v0::AgentRef {
+            with: protocol::AgentRef {
                 number: u64::try_from(number).with_context(|| {
                     format!(
                         "a conversation's agent number in {hamlet}"

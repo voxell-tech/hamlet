@@ -17,7 +17,7 @@ use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Settings;
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 
 use super::{Pane, field, told};
 use crate::icons::Glyph;
@@ -69,14 +69,14 @@ fn begin(
 fn save(world: &mut World) {
     let draft = world.resource::<Draft>();
     let workspace =
-        draft.remote.then(|| v0::EditSettingsSetWorkspace {
+        draft.remote.then(|| protocol::EditSettingsSetWorkspace {
             url: draft.url.trim().into(),
             token: draft.token.clone(),
         });
     let id = world.resource_mut::<Outbox>().send(|id| {
-        v0::ClientMessage::Edit(v0::Edit::Settings {
+        protocol::ClientMessage::Edit(protocol::Edit::Settings {
             id,
-            set: v0::EditSettingsSet {
+            set: protocol::EditSettingsSet {
                 workspace: Some(workspace),
                 model: None,
                 endpoints: None,
@@ -95,7 +95,9 @@ fn save(world: &mut World) {
 /// settings it sends show how far it has come.
 fn move_houses(world: &mut World) {
     let id = world.resource_mut::<Outbox>().send(|id| {
-        v0::ClientMessage::MoveHouses(v0::MoveHouses { id })
+        protocol::ClientMessage::MoveHouses(protocol::MoveHouses {
+            id,
+        })
     });
     let mut draft = world.resource_mut::<Draft>();
     draft.moving = Some(id);
@@ -106,12 +108,12 @@ fn answered(response: On<Response>, mut draft: ResMut<Draft>) {
     if draft.moving.as_ref() == Some(&response.to) {
         draft.moving = None;
         match &response.message {
-            v0::ServerMessage::Reply(reply)
-                if reply.kind == v0::ReplyKind::Error =>
+            protocol::ServerMessage::Reply(reply)
+                if reply.kind == protocol::ReplyKind::Error =>
             {
                 draft.refusal.clone_from(&reply.text);
             }
-            v0::ServerMessage::Fault(fault) => {
+            protocol::ServerMessage::Fault(fault) => {
                 draft.refusal.clone_from(&fault.text);
             }
             _ => {}
@@ -122,15 +124,15 @@ fn answered(response: On<Response>, mut draft: ResMut<Draft>) {
         return;
     }
     match &response.message {
-        v0::ServerMessage::Reply(reply)
-            if reply.kind == v0::ReplyKind::Error =>
+        protocol::ServerMessage::Reply(reply)
+            if reply.kind == protocol::ReplyKind::Error =>
         {
             draft.refusal.clone_from(&reply.text);
         }
-        v0::ServerMessage::Fault(fault) => {
+        protocol::ServerMessage::Fault(fault) => {
             draft.refusal.clone_from(&fault.text);
         }
-        v0::ServerMessage::Reply(_) => {
+        protocol::ServerMessage::Reply(_) => {
             draft.token.clear();
             draft.saved = true;
         }
@@ -156,14 +158,14 @@ fn pending(settings: &Settings) -> String {
 /// The latest move of the houses, as the server tells it.
 fn move_of(
     settings: &Settings,
-) -> Option<&v0::SettingsViewWorkspaceMove> {
+) -> Option<&protocol::SettingsViewWorkspaceMove> {
     settings.0.workspace.move_.as_ref()
 }
 
 /// What moving the houses does, how far it has come or how it ended.
 /// A failure is the refusal's to tell.
 fn progress(settings: &Settings) -> String {
-    use v0::SettingsViewWorkspaceMoveState as State;
+    use protocol::SettingsViewWorkspaceMoveState as State;
     if !waiting(settings) {
         return String::new();
     }
@@ -196,7 +198,7 @@ fn moving() -> AnyView {
             waiting(settings)
                 && move_of(settings).is_none_or(|move_| {
                     move_.state
-                        != v0::SettingsViewWorkspaceMoveState::Moving
+                        != protocol::SettingsViewWorkspaceMoveState::Moving
                 })
         }),
         |offered| {
@@ -303,7 +305,7 @@ mod tests {
         EditableText, FontSize, FontSource, TextEdit, TextFont,
     };
     use hamlet_client::outbox::Outbox;
-    use hamlet_protocol::v0;
+    use hamlet_protocol as protocol;
 
     use super::super::Pane;
     use super::super::tests::{
@@ -325,20 +327,22 @@ mod tests {
         revision: i64,
         url: Option<&str>,
         running: Option<&str>,
-        move_: Option<v0::SettingsViewWorkspaceMove>,
+        move_: Option<protocol::SettingsViewWorkspaceMove>,
     ) {
         let mut settings = hamlet_testing::realm::state().settings;
-        settings.workspace = v0::SettingsViewWorkspace {
+        settings.workspace = protocol::SettingsViewWorkspace {
             url: url.map(Into::into),
             running: running.map(Into::into),
             move_,
         };
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Change(v0::Changes {
+            protocol::ServerMessage::Change(protocol::Changes {
                 epoch: 1,
                 revision,
-                changes: vec![v0::Update::Settings { settings }],
+                changes: vec![protocol::Update::Settings {
+                    settings,
+                }],
             }),
         );
         settle(app);
@@ -451,10 +455,9 @@ mod tests {
         );
         requests(&mut app);
         press(&mut app, "SAVE");
-        let Some(v0::ClientMessage::Edit(v0::Edit::Settings {
-            id,
-            ..
-        })) = app.world().resource::<Outbox>().iter().next().cloned()
+        let Some(protocol::ClientMessage::Edit(
+            protocol::Edit::Settings { id, .. },
+        )) = app.world().resource::<Outbox>().iter().next().cloned()
         else {
             panic!("no settings edit was sent");
         };
@@ -468,9 +471,9 @@ mod tests {
         );
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Reply(v0::Reply {
+            protocol::ServerMessage::Reply(protocol::Reply {
                 to: id,
-                kind: v0::ReplyKind::Notice,
+                kind: protocol::ReplyKind::Notice,
                 text: "Saved.".into(),
                 upload: None,
             }),
@@ -509,7 +512,7 @@ mod tests {
     #[test]
     fn houses_move_to_the_saved_workspace_with_their_progress_and_refusal_shown()
      {
-        use v0::SettingsViewWorkspaceMoveState as State;
+        use protocol::SettingsViewWorkspaceMoveState as State;
         let url = Some("https://workspace.example");
         let mut app = page(Pane::Front);
         received(&mut app, 2, None, None);
@@ -528,9 +531,9 @@ mod tests {
         ));
         requests(&mut app);
         press(&mut app, "MOVE HOUSES");
-        let Some(v0::ClientMessage::MoveHouses(v0::MoveHouses {
-            id,
-        })) = app.world().resource::<Outbox>().iter().next().cloned()
+        let Some(protocol::ClientMessage::MoveHouses(
+            protocol::MoveHouses { id },
+        )) = app.world().resource::<Outbox>().iter().next().cloned()
         else {
             panic!("no move was sent");
         };
@@ -539,7 +542,7 @@ mod tests {
             [serde_json::json!({"type": "move-houses"})]
         );
         let moving = |done, state, text: &str| {
-            Some(v0::SettingsViewWorkspaceMove {
+            Some(protocol::SettingsViewWorkspaceMove {
                 state,
                 done,
                 of: 2,
@@ -564,9 +567,9 @@ mod tests {
         );
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Reply(v0::Reply {
+            protocol::ServerMessage::Reply(protocol::Reply {
                 to: id,
-                kind: v0::ReplyKind::Error,
+                kind: protocol::ReplyKind::Error,
                 text: stopped.into(),
                 upload: None,
             }),

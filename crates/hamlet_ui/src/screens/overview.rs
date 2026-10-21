@@ -377,7 +377,7 @@ pub(crate) fn tell(world: &mut World, hamlet: Entity, text: String) {
 
 #[cfg(test)]
 mod tests {
-    use hamlet_protocol::v0;
+    use hamlet_protocol as protocol;
 
     use super::*;
     use crate::me::tests::{panel_app, words};
@@ -394,7 +394,7 @@ mod tests {
             "restore-hamlet",
             "erase-hamlet",
         ]);
-        state.closed = vec![v0::ClosedHamlet {
+        state.closed = vec![protocol::ClosedHamlet {
             id: "mill".into(),
             name: "The Mill".into(),
             at: 100,
@@ -403,7 +403,7 @@ mod tests {
         }];
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         bevy_fynix::mount::<crate::theme::HamletTheme>(
             app.world_mut(),
@@ -414,9 +414,9 @@ mod tests {
             words(&mut app).iter().any(|s| s == "CLOSED DOWN (1)")
         );
         press(&mut app, "RESTORE");
-        assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, v0::ClientMessage::Say(s) if s.text == "/restore-hamlet mill" && s.to.hamlet == "home")));
+        assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/restore-hamlet mill" && s.to.hamlet == "home")));
         press(&mut app, "DELETE FOR GOOD");
-        assert!(!app.world().resource::<Outbox>().iter().any(|m| matches!(m, v0::ClientMessage::Say(s) if s.text.starts_with("/erase-hamlet"))));
+        assert!(!app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text.starts_with("/erase-hamlet"))));
         for _ in 0..3 {
             app.update();
         }
@@ -426,7 +426,7 @@ mod tests {
                 .any(|s| s == "DELETE THE MILL FOR GOOD?")
         );
         press(&mut app, "DELETE");
-        assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, v0::ClientMessage::Say(s) if s.text == "/erase-hamlet mill" && s.to.hamlet == "home")));
+        assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/erase-hamlet mill" && s.to.hamlet == "home")));
         app.world_mut().resource_mut::<Deeds>().0.clear();
         for _ in 0..3 {
             app.update();
@@ -450,7 +450,7 @@ mod tests {
             "restore-hamlet",
             "erase-hamlet",
         ]);
-        state.closed = vec![v0::ClosedHamlet {
+        state.closed = vec![protocol::ClosedHamlet {
             id: "mill".into(),
             name: "Mill".into(),
             at: 100,
@@ -459,7 +459,7 @@ mod tests {
         }];
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state.clone()),
+            protocol::ServerMessage::State(state.clone()),
         );
         let root = bevy_fynix::mount::<crate::theme::HamletTheme>(
             app.world_mut(),
@@ -492,7 +492,7 @@ mod tests {
         state.closed[0].at = 200;
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         app.update();
         app.update();
@@ -521,7 +521,7 @@ mod tests {
         state.agents[0].busy = true;
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state.clone()),
+            protocol::ServerMessage::State(state.clone()),
         );
         for _ in 0..2 {
             app.update();
@@ -534,7 +534,7 @@ mod tests {
         state.waits.push(hamlet_testing::realm::wait("approval"));
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         for _ in 0..2 {
             app.update();
@@ -609,7 +609,7 @@ mod tests {
         ];
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         let hamlet = app
             .world_mut()

@@ -12,7 +12,7 @@ use hamlet_client::ViewDir;
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::{self as agents, Deeds, HOME, Settlement};
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 
 use crate::chief::{Kept, Player, Stands};
 use crate::generator::society::Place;
@@ -42,12 +42,12 @@ pub(super) fn plugin(app: &mut App) {
                     gift.upload.is_none()
                         && outbox.iter().any(
                             |message| match message {
-                                v0::ClientMessage::Give(
-                                    v0::Give::Files {
+                                protocol::ClientMessage::Give(
+                                    protocol::Give::Files {
                                         id: queued,
                                         ..
                                     }
-                                    | v0::Give::Skill {
+                                    | protocol::Give::Skill {
                                         id: queued,
                                         ..
                                     },
@@ -133,7 +133,7 @@ pub fn introduce(world: &mut World, a: Entity, b: Entity) {
 pub struct Offer {
     pub skill: String,
     pub from: Option<String>,
-    source: v0::GiveSkillSkill,
+    source: protocol::GiveSkillSkill,
 }
 
 /// The server's replies to gifts, for the chief.
@@ -168,7 +168,7 @@ pub fn give(world: &mut World, agent: Entity, offer: &Offer) {
     }
     queue(
         world,
-        v0::ClientMessage::Give(v0::Give::Skill {
+        protocol::ClientMessage::Give(protocol::Give::Skill {
             id: String::new(),
             to,
             skill: offer.source.clone(),
@@ -201,7 +201,7 @@ pub fn offers(world: &World, agent: Entity) -> Vec<Offer> {
         .map(|starter| Offer {
             skill: starter.name.clone(),
             from: None,
-            source: v0::GiveSkillSkill::Starter {
+            source: protocol::GiveSkillSkill::Starter {
                 starter: starter.name.clone(),
             },
         })
@@ -232,7 +232,7 @@ pub fn offers(world: &World, agent: Entity) -> Vec<Offer> {
                 |skill| Offer {
                     skill: skill.clone(),
                     from: Some(from.clone()),
-                    source: v0::GiveSkillSkill::From {
+                    source: protocol::GiveSkillSkill::From {
                         from: address.clone(),
                         name: skill.clone(),
                     },
@@ -325,14 +325,14 @@ fn letter(world: &mut World, agent: Entity, paths: &[PathBuf]) {
     let files = gift
         .files
         .iter()
-        .map(|file| v0::GiveFilesFiles {
+        .map(|file| protocol::GiveFilesFiles {
             path: file.path.clone(),
             size: file.size,
         })
         .collect();
     queue(
         world,
-        v0::ClientMessage::Give(v0::Give::Files {
+        protocol::ClientMessage::Give(protocol::Give::Files {
             id: String::new(),
             to,
             files,
@@ -343,7 +343,7 @@ fn letter(world: &mut World, agent: Entity, paths: &[PathBuf]) {
 
 fn queue(
     world: &mut World,
-    mut message: v0::ClientMessage,
+    mut message: protocol::ClientMessage,
     gift: Gift,
 ) {
     if serde_json::to_vec(&message)
@@ -358,11 +358,13 @@ fn queue(
     }
     let id = world.resource_mut::<Outbox>().send(|request| {
         match &mut message {
-            v0::ClientMessage::Give(
-                v0::Give::Files { id, .. }
-                | v0::Give::Skill { id, .. },
+            protocol::ClientMessage::Give(
+                protocol::Give::Files { id, .. }
+                | protocol::Give::Skill { id, .. },
             ) => *id = request,
-            v0::ClientMessage::GivePart(part) => part.id = request,
+            protocol::ClientMessage::GivePart(part) => {
+                part.id = request
+            }
             _ => unreachable!(),
         }
         message
@@ -415,14 +417,14 @@ fn answered(world: &mut World, response: Response) {
         return;
     };
     let reply = match response.message {
-        v0::ServerMessage::Reply(reply) => reply,
-        v0::ServerMessage::Fault(fault) => {
+        protocol::ServerMessage::Reply(reply) => reply,
+        protocol::ServerMessage::Fault(fault) => {
             report(world, fault.text, true);
             return;
         }
         _ => return,
     };
-    if reply.kind != v0::ReplyKind::Notice {
+    if reply.kind != protocol::ReplyKind::Notice {
         report(world, reply.text, true);
         return;
     }
@@ -479,7 +481,7 @@ fn answered(world: &mut World, response: Response) {
         base64::engine::general_purpose::STANDARD.encode(bytes);
     queue(
         world,
-        v0::ClientMessage::GivePart(v0::GivePart {
+        protocol::ClientMessage::GivePart(protocol::GivePart {
             id: String::new(),
             upload,
             path,
@@ -581,7 +583,7 @@ fn grant(
 mod tests {
     use hamlet_client::ClientPlugin;
     use hamlet_client::outbox::Outbox;
-    use hamlet_protocol::v0;
+    use hamlet_protocol as protocol;
     use hamlet_testing::{Scratch, realm};
 
     use super::*;
@@ -600,13 +602,13 @@ mod tests {
         ]);
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         let founder = agents::mayor(app.world_mut()).unwrap();
         (app, founder)
     }
 
-    fn sent(app: &mut App) -> Vec<v0::ClientMessage> {
+    fn sent(app: &mut App) -> Vec<protocol::ClientMessage> {
         app.world_mut().resource_mut::<Outbox>().drain().collect()
     }
 
@@ -622,7 +624,7 @@ mod tests {
         app.update();
         let messages = sent(&mut app);
         let [
-            v0::ClientMessage::Give(v0::Give::Files {
+            protocol::ClientMessage::Give(protocol::Give::Files {
                 files,
                 to,
                 ..
@@ -633,14 +635,14 @@ mod tests {
         };
         assert_eq!(
             to,
-            &v0::Address {
+            &protocol::Address {
                 hamlet: HOME.into(),
                 agent: "founder".into()
             }
         );
         assert_eq!(
             files,
-            &[v0::GiveFilesFiles {
+            &[protocol::GiveFilesFiles {
                 path: "list.txt".into(),
                 size: 4
             }]
@@ -651,13 +653,13 @@ mod tests {
     fn reply(
         app: &mut App,
         to: String,
-        kind: v0::ReplyKind,
+        kind: protocol::ReplyKind,
         text: &str,
         upload: Option<&str>,
     ) {
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Reply(v0::Reply {
+            protocol::ServerMessage::Reply(protocol::Reply {
                 to,
                 kind,
                 text: text.into(),
@@ -682,22 +684,27 @@ mod tests {
             .write_message(Wish::Letter { to: founder, path });
         app.update();
         let messages = sent(&mut app);
-        let [v0::ClientMessage::Give(v0::Give::Files { id, .. })] =
-            &messages[..]
+        let [
+            protocol::ClientMessage::Give(protocol::Give::Files {
+                id,
+                ..
+            }),
+        ] = &messages[..]
         else {
             panic!("manifest");
         };
         reply(
             &mut app,
             id.clone(),
-            v0::ReplyKind::Notice,
+            protocol::ReplyKind::Notice,
             "Ready",
             Some("upload-one"),
         );
         let mut got = Vec::new();
         loop {
             let messages = sent(&mut app);
-            let [v0::ClientMessage::GivePart(part)] = &messages[..]
+            let [protocol::ClientMessage::GivePart(part)] =
+                &messages[..]
             else {
                 panic!("one part at a time: {messages:?}");
             };
@@ -717,7 +724,7 @@ mod tests {
             reply(
                 &mut app,
                 part.id.clone(),
-                v0::ReplyKind::Notice,
+                protocol::ReplyKind::Notice,
                 if done {
                     "Handed over `inbox/big.bin`."
                 } else {
@@ -750,7 +757,7 @@ mod tests {
         app.update();
         let messages = sent(&mut app);
         let [
-            v0::ClientMessage::Give(v0::Give::Files {
+            protocol::ClientMessage::Give(protocol::Give::Files {
                 id,
                 files,
                 ..
@@ -762,11 +769,11 @@ mod tests {
         assert_eq!(
             files,
             &[
-                v0::GiveFilesFiles {
+                protocol::GiveFilesFiles {
                     path: "books/empty.txt".into(),
                     size: 0
                 },
-                v0::GiveFilesFiles {
+                protocol::GiveFilesFiles {
                     path: "books/notes/list.txt".into(),
                     size: 4
                 },
@@ -775,7 +782,7 @@ mod tests {
         reply(
             &mut app,
             id.clone(),
-            v0::ReplyKind::Error,
+            protocol::ReplyKind::Error,
             "The inbox already holds books.",
             None,
         );
@@ -809,7 +816,7 @@ mod tests {
         let (mut app, founder) = app();
         let mut state = realm::state();
         state.deeds = hamlet_testing::realm::deeds(&["give"]);
-        state.starters = vec![v0::Skill {
+        state.starters = vec![protocol::Skill {
             name: "research".into(),
             description: "Find sources".into(),
         }];
@@ -817,7 +824,7 @@ mod tests {
         let mut scout = realm::agent("home", 1, "scout");
         scout.skills = vec!["maps".into(), "own".into()];
         state.agents.push(scout.clone());
-        let message = v0::ServerMessage::State(state);
+        let message = protocol::ServerMessage::State(state);
         hamlet_client::receive(app.world_mut(), message);
         let offered = offers(app.world(), founder);
         assert_eq!(
@@ -831,11 +838,11 @@ mod tests {
             [("research", None), ("maps", Some("scout"))]
         );
         for (index, expected) in [
-            v0::GiveSkillSkill::Starter {
+            protocol::GiveSkillSkill::Starter {
                 starter: "research".into(),
             },
-            v0::GiveSkillSkill::From {
-                from: v0::Address {
+            protocol::GiveSkillSkill::From {
+                from: protocol::Address {
                     hamlet: HOME.into(),
                     agent: "scout".into(),
                 },
@@ -848,11 +855,9 @@ mod tests {
             give(app.world_mut(), founder, &offered[index]);
             let messages = sent(&mut app);
             let [
-                v0::ClientMessage::Give(v0::Give::Skill {
-                    skill,
-                    to,
-                    ..
-                }),
+                protocol::ClientMessage::Give(
+                    protocol::Give::Skill { skill, to, .. },
+                ),
             ] = &messages[..]
             else {
                 panic!("skill gift: {messages:?}");
@@ -861,11 +866,14 @@ mod tests {
             assert_eq!(to.agent, "founder");
         }
         scout.skills = vec!["compass".into()];
-        let message = v0::ServerMessage::Change(v0::Changes {
-            epoch: 1,
-            revision: 1,
-            changes: vec![v0::Update::Agent { agent: scout }],
-        });
+        let message =
+            protocol::ServerMessage::Change(protocol::Changes {
+                epoch: 1,
+                revision: 1,
+                changes: vec![protocol::Update::Agent {
+                    agent: scout,
+                }],
+            });
         hamlet_client::receive(app.world_mut(), message);
         assert_eq!(offers(app.world(), founder)[1].skill, "compass");
     }
@@ -881,20 +889,24 @@ mod tests {
             .write_message(Wish::Letter { to: founder, path });
         app.update();
         let messages = sent(&mut app);
-        let [v0::ClientMessage::Give(v0::Give::Files { id, .. })] =
-            &messages[..]
+        let [
+            protocol::ClientMessage::Give(protocol::Give::Files {
+                id,
+                ..
+            }),
+        ] = &messages[..]
         else {
             panic!("manifest");
         };
         reply(
             &mut app,
             id.clone(),
-            v0::ReplyKind::Notice,
+            protocol::ReplyKind::Notice,
             "Ready",
             Some("folder-upload"),
         );
         let messages = sent(&mut app);
-        let [v0::ClientMessage::GivePart(part)] = &messages[..]
+        let [protocol::ClientMessage::GivePart(part)] = &messages[..]
         else {
             panic!("one nonempty file");
         };
@@ -904,7 +916,7 @@ mod tests {
         reply(
             &mut app,
             part.id.clone(),
-            v0::ReplyKind::Notice,
+            protocol::ReplyKind::Notice,
             "Handed over `inbox/books`.",
             None,
         );
@@ -947,7 +959,7 @@ mod tests {
         app.update();
         let messages = sent(&mut app);
         let [
-            v0::ClientMessage::Give(v0::Give::Files {
+            protocol::ClientMessage::Give(protocol::Give::Files {
                 id,
                 files,
                 ..
@@ -963,13 +975,14 @@ mod tests {
         reply(
             &mut app,
             id.clone(),
-            v0::ReplyKind::Notice,
+            protocol::ReplyKind::Notice,
             "Ready",
             Some("many-files"),
         );
         for n in 0..300 {
             let messages = sent(&mut app);
-            let [v0::ClientMessage::GivePart(part)] = &messages[..]
+            let [protocol::ClientMessage::GivePart(part)] =
+                &messages[..]
             else {
                 panic!("part {n}: {messages:?}");
             };
@@ -978,7 +991,7 @@ mod tests {
             reply(
                 &mut app,
                 part.id.clone(),
-                v0::ReplyKind::Notice,
+                protocol::ReplyKind::Notice,
                 "Received",
                 None,
             );
@@ -1042,9 +1055,9 @@ mod tests {
             app.update();
             let messages = sent(&mut app);
             let [
-                v0::ClientMessage::Give(v0::Give::Files {
-                    id, ..
-                }),
+                protocol::ClientMessage::Give(
+                    protocol::Give::Files { id, .. },
+                ),
             ] = &messages[..]
             else {
                 panic!("manifest");
@@ -1062,7 +1075,7 @@ mod tests {
             reply(
                 &mut app,
                 id.clone(),
-                v0::ReplyKind::Notice,
+                protocol::ReplyKind::Notice,
                 "Ready",
                 Some("swapped"),
             );
@@ -1095,8 +1108,12 @@ mod tests {
         });
         app.update();
         let messages = sent(&mut app);
-        let [v0::ClientMessage::Give(v0::Give::Files { id, .. })] =
-            &messages[..]
+        let [
+            protocol::ClientMessage::Give(protocol::Give::Files {
+                id,
+                ..
+            }),
+        ] = &messages[..]
         else {
             panic!("manifest");
         };
@@ -1105,7 +1122,7 @@ mod tests {
         reply(
             &mut app,
             id.clone(),
-            v0::ReplyKind::Notice,
+            protocol::ReplyKind::Notice,
             "Ready",
             Some("swapped-parent"),
         );
@@ -1129,7 +1146,7 @@ mod tests {
             &Offer {
                 skill: "research".into(),
                 from: None,
-                source: v0::GiveSkillSkill::Starter {
+                source: protocol::GiveSkillSkill::Starter {
                     starter: "research".into(),
                 },
             },
@@ -1142,11 +1159,11 @@ mod tests {
         assert!(app.world().resource::<GiftReports>().0.is_empty());
         let messages = sent(&mut app);
         let [
-            v0::ClientMessage::Give(v0::Give::Skill {
+            protocol::ClientMessage::Give(protocol::Give::Skill {
                 id: skill,
                 ..
             }),
-            v0::ClientMessage::Give(v0::Give::Files {
+            protocol::ClientMessage::Give(protocol::Give::Files {
                 id: files,
                 ..
             }),
@@ -1157,20 +1174,20 @@ mod tests {
         reply(
             &mut app,
             skill.clone(),
-            v0::ReplyKind::Notice,
+            protocol::ReplyKind::Notice,
             "Gave research.",
             None,
         );
         reply(
             &mut app,
             files.clone(),
-            v0::ReplyKind::Notice,
+            protocol::ReplyKind::Notice,
             "Ready",
             Some("offline-files"),
         );
         assert!(matches!(
             sent(&mut app).as_slice(),
-            [v0::ClientMessage::GivePart(_)]
+            [protocol::ClientMessage::GivePart(_)]
         ));
         assert_eq!(
             app.world().resource::<GiftReports>().0,
@@ -1192,7 +1209,7 @@ mod tests {
             &Offer {
                 skill: "research".into(),
                 from: None,
-                source: v0::GiveSkillSkill::Starter {
+                source: protocol::GiveSkillSkill::Starter {
                     starter: "research".into(),
                 },
             },
@@ -1222,7 +1239,7 @@ mod tests {
         app.update();
         let messages = sent(&mut app);
         let [
-            v0::ClientMessage::Give(v0::Give::Files {
+            protocol::ClientMessage::Give(protocol::Give::Files {
                 id,
                 files,
                 ..
@@ -1235,7 +1252,7 @@ mod tests {
         reply(
             &mut app,
             id.clone(),
-            v0::ReplyKind::Notice,
+            protocol::ReplyKind::Notice,
             "Handed over `inbox/empty.txt`.",
             None,
         );
@@ -1256,27 +1273,31 @@ mod tests {
             .write_message(Wish::Letter { to: founder, path });
         app.update();
         let messages = sent(&mut app);
-        let [v0::ClientMessage::Give(v0::Give::Files { id, .. })] =
-            &messages[..]
+        let [
+            protocol::ClientMessage::Give(protocol::Give::Files {
+                id,
+                ..
+            }),
+        ] = &messages[..]
         else {
             panic!("manifest");
         };
         reply(
             &mut app,
             id.clone(),
-            v0::ReplyKind::Notice,
+            protocol::ReplyKind::Notice,
             "Ready",
             Some("refused-upload"),
         );
         let messages = sent(&mut app);
-        let [v0::ClientMessage::GivePart(part)] = &messages[..]
+        let [protocol::ClientMessage::GivePart(part)] = &messages[..]
         else {
             panic!("first part");
         };
         reply(
             &mut app,
             part.id.clone(),
-            v0::ReplyKind::Error,
+            protocol::ReplyKind::Error,
             "The gift expired.",
             None,
         );

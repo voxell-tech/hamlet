@@ -3,7 +3,7 @@
 
 use anyhow::{Context, Result};
 
-use super::link::{self, ServerMessage};
+use super::runtime::{self, ServerMessage};
 use super::session::Pending;
 use super::{
     Binding, BindingId, Harnesses, InputMark, Notice, Phase,
@@ -67,7 +67,7 @@ impl Harnesses {
                         index,
                         Pending::Configure(binding.id, told),
                         |v, id| {
-                            ServerMessage::Configure(link::Configure {
+                            ServerMessage::Configure(runtime::Configure {
                                 conversation,
                                 id,
                                 tools,
@@ -102,7 +102,7 @@ impl Harnesses {
                     Pending::Submit(binding.id, request),
                     |v, id| {
                         if owed.write {
-                            ServerMessage::Write(link::Write {
+                            ServerMessage::Write(runtime::Write {
                                 boundary: owed
                                     .boundary
                                     .then_some(true),
@@ -121,7 +121,7 @@ impl Harnesses {
                                 v,
                             })
                         } else {
-                            ServerMessage::Submit(link::Submit {
+                            ServerMessage::Submit(runtime::Submit {
                                 content: owed.content,
                                 conversation,
                                 window,
@@ -165,7 +165,7 @@ impl Harnesses {
         conversation: String,
     ) {
         self.request(index, Pending::Cancel(binding), |v, id| {
-            ServerMessage::Cancel(link::Cancel {
+            ServerMessage::Cancel(runtime::Cancel {
                 conversation,
                 id,
                 v,
@@ -203,7 +203,7 @@ impl Harnesses {
             Pending::Create(binding.id),
             move |v, id| match fork {
                 Some((conversation, at)) => {
-                    ServerMessage::Fork(link::Fork {
+                    ServerMessage::Fork(runtime::Fork {
                         at,
                         conversation,
                         id,
@@ -211,7 +211,7 @@ impl Harnesses {
                         v,
                     })
                 }
-                None => ServerMessage::Create(link::Create {
+                None => ServerMessage::Create(runtime::Create {
                     agent,
                     errand,
                     id,
@@ -235,7 +235,7 @@ impl Harnesses {
         before: Option<String>,
     ) {
         self.request(index, Pending::Sync(binding), |v, id| {
-            ServerMessage::History(link::History {
+            ServerMessage::History(runtime::History {
                 before,
                 conversation,
                 id,
@@ -253,7 +253,7 @@ impl Harnesses {
         store: &mut Store,
         index: usize,
         binding: BindingId,
-        page: link::Page,
+        page: runtime::Page,
     ) -> Result<Vec<Notice>> {
         let mut known = false;
         let mut notices = Vec::new();
@@ -285,7 +285,7 @@ impl Harnesses {
         &mut self,
         store: &mut Store,
         index: usize,
-        created: link::Created,
+        created: runtime::Created,
     ) -> Result<Vec<Notice>> {
         let Some(Pending::Create(binding)) =
             self.session.reply(&created.re)
@@ -306,7 +306,7 @@ impl Harnesses {
     pub(super) fn admitted(
         &mut self,
         store: &mut Store,
-        admitted: link::Admitted,
+        admitted: runtime::Admitted,
     ) -> Result<Vec<Notice>> {
         let Some(Pending::Submit(binding, request)) =
             self.session.reply(&admitted.re)
@@ -335,7 +335,7 @@ impl Harnesses {
         &self,
         store: &mut Store,
         index: usize,
-        settled: link::Settled,
+        settled: runtime::Settled,
     ) -> Result<Vec<Notice>> {
         let runtime = &self.runtimes[index].id;
         let Some(binding) =
@@ -369,7 +369,7 @@ impl Harnesses {
         &mut self,
         store: &mut Store,
         index: usize,
-        cancelled: link::Cancelled,
+        cancelled: runtime::Cancelled,
     ) -> Result<Vec<Notice>> {
         let Some(Pending::Cancel(binding)) =
             self.session.reply(&cancelled.re)
@@ -385,7 +385,7 @@ impl Harnesses {
         &mut self,
         store: &mut Store,
         index: usize,
-        configured: link::Configured,
+        configured: runtime::Configured,
     ) -> Result<Vec<Notice>> {
         let Some(Pending::Configure(binding, tools)) =
             self.session.reply(&configured.re)
@@ -401,7 +401,7 @@ impl Harnesses {
         &mut self,
         store: &mut Store,
         index: usize,
-        page: link::Page,
+        page: runtime::Page,
     ) -> Result<Vec<Notice>> {
         match self.session.reply(&page.re) {
             Some(Pending::History(binding)) => {
@@ -422,7 +422,7 @@ impl Harnesses {
         &self,
         store: &mut Store,
         index: usize,
-        kept: link::Kept,
+        kept: runtime::Kept,
     ) -> Result<Vec<Notice>> {
         let runtime = &self.runtimes[index].id;
         let Some(binding) =
@@ -444,7 +444,7 @@ impl Harnesses {
         &self,
         store: &Store,
         index: usize,
-        live: link::Live,
+        live: runtime::Live,
     ) -> Result<Vec<Notice>> {
         let runtime = &self.runtimes[index].id;
         Ok(match store.bound(runtime, &live.conversation)? {

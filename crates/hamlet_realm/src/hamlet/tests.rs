@@ -5,7 +5,7 @@ use hamlet_client::realm::{
     Traffic, Voted,
 };
 use hamlet_client::{ClientPlugin, receive};
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 use hamlet_testing::realm;
 
 use super::housing::{
@@ -105,13 +105,16 @@ fn a_hamlet_that_is_removed_takes_its_town_with_it() {
     assert!(society.roads.is_empty());
 }
 
-pub(crate) fn receive_state(app: &mut App, state: v0::State) {
-    receive(app.world_mut(), v0::ServerMessage::State(state));
+pub(crate) fn receive_state(app: &mut App, state: protocol::State) {
+    receive(app.world_mut(), protocol::ServerMessage::State(state));
 }
 
-pub(crate) fn receive_change(app: &mut App, update: v0::Update) {
+pub(crate) fn receive_change(
+    app: &mut App,
+    update: protocol::Update,
+) {
     let seen = app.world().resource::<hamlet_client::realm::Seen>();
-    let frame = v0::ServerMessage::Change(v0::Changes {
+    let frame = protocol::ServerMessage::Change(protocol::Changes {
         epoch: seen.epoch,
         revision: seen.revision + 1,
         changes: vec![update],
@@ -127,13 +130,13 @@ fn settle(app: &mut App, name: &str) -> Entity {
     {
         receive_change(
             app,
-            v0::Update::Hamlet {
+            protocol::Update::Hamlet {
                 hamlet: realm::hamlet(name),
             },
         );
         receive_change(
             app,
-            v0::Update::Agent {
+            protocol::Update::Agent {
                 agent: realm::agent(name, 0, "founder"),
             },
         );
@@ -579,12 +582,12 @@ fn the_founders_robot_follows_its_own_work_and_faults() {
     let (mut app, _) = app();
     let mut founder = realm::agent(HOME, 0, "founder");
     founder.busy = true;
-    founder.activity.doing = v0::Doing::Run;
+    founder.activity.doing = protocol::Doing::Run;
     founder.saying.text = "Checking the orchard".into();
     founder.saying.thought = true;
     receive_change(
         &mut app,
-        v0::Update::Agent {
+        protocol::Update::Agent {
             agent: founder.clone(),
         },
     );
@@ -595,7 +598,7 @@ fn the_founders_robot_follows_its_own_work_and_faults() {
     founder.faulted = true;
     receive_change(
         &mut app,
-        v0::Update::Agent {
+        protocol::Update::Agent {
             agent: founder.clone(),
         },
     );
@@ -604,7 +607,7 @@ fn the_founders_robot_follows_its_own_work_and_faults() {
     founder.busy = false;
     receive_change(
         &mut app,
-        v0::Update::Agent {
+        protocol::Update::Agent {
             agent: founder.clone(),
         },
     );
@@ -612,7 +615,7 @@ fn the_founders_robot_follows_its_own_work_and_faults() {
     assert_eq!(agent(&mut app, 0).state, KState::Fault);
     receive_change(
         &mut app,
-        v0::Update::Wait {
+        protocol::Update::Wait {
             wait: realm::wait("orchard-command"),
         },
     );
@@ -658,7 +661,10 @@ fn a_live_received_merge_builds_a_wing_and_a_restore_splits_it() {
         realm::agent("home", 1, "scout"),
         realm::agent("home", 2, "smith"),
     ]);
-    receive(app.world_mut(), v0::ServerMessage::State(state.clone()));
+    receive(
+        app.world_mut(),
+        protocol::ServerMessage::State(state.clone()),
+    );
     app.update();
     let mut gone = state.agents[1].clone();
     gone.left = Some(serde_json::from_value(serde_json::json!({
@@ -666,20 +672,20 @@ fn a_live_received_merge_builds_a_wing_and_a_restore_splits_it() {
     })).unwrap());
     receive(
         app.world_mut(),
-        v0::ServerMessage::Change(v0::Changes {
+        protocol::ServerMessage::Change(protocol::Changes {
             epoch: 1,
             revision: 1,
-            changes: vec![v0::Update::Agent { agent: gone }],
+            changes: vec![protocol::Update::Agent { agent: gone }],
         }),
     );
     app.update();
     assert_eq!(agent(&mut app, 2).wings, 1);
     receive(
         app.world_mut(),
-        v0::ServerMessage::Change(v0::Changes {
+        protocol::ServerMessage::Change(protocol::Changes {
             epoch: 1,
             revision: 2,
-            changes: vec![v0::Update::Agent {
+            changes: vec![protocol::Update::Agent {
                 agent: state.agents[1].clone(),
             }],
         }),

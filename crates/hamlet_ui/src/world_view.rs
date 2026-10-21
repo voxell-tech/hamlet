@@ -372,7 +372,7 @@ pub fn rest(mut cameras: WorldCameras) {
 
 #[cfg(test)]
 mod tests {
-    use hamlet_protocol::v0;
+    use hamlet_protocol as protocol;
 
     use super::*;
 
@@ -397,7 +397,7 @@ mod tests {
             }
             hamlet_client::receive(
                 app.world_mut(),
-                v0::ServerMessage::State(state),
+                protocol::ServerMessage::State(state),
             );
             app.update();
             assert_eq!(

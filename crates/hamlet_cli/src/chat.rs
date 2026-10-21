@@ -4,8 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{IsTerminal, Write};
 
 use anyhow::{Context, Result, bail};
-use hamlet_protocol::v0::*;
-use hamlet_protocol::{HOME, MAYOR, transcript};
+use hamlet_protocol::{HOME, MAYOR, transcript, *};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use uuid::Uuid;
 

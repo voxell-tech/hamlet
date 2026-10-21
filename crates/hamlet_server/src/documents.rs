@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use hamlet_protocol::v0::{
+use hamlet_protocol::{
     Address, Edit, EditLimits, Papers, Read, ReadResult,
     ReadResultCharterCharter, ServerMessage,
 };
@@ -153,7 +153,7 @@ impl Service {
     /// The chief's edit of the home's settings and its workspace.
     fn edit_settings(
         &mut self,
-        set: hamlet_protocol::v0::EditSettingsSet,
+        set: hamlet_protocol::EditSettingsSet,
     ) -> Result<Refusable<String>> {
         let previous = self.settings()?;
         let workspace = match crate::settings::validate(&set) {
@@ -179,7 +179,7 @@ impl Service {
             if let Some(endpoints) = &set.endpoints {
                 settings.endpoints = endpoints
                     .iter()
-                    .map(|endpoint| hamlet_protocol::v0::Endpoint {
+                    .map(|endpoint| hamlet_protocol::Endpoint {
                         name: self
                             .credentials
                             .scrub_text(&endpoint.name),
@@ -426,7 +426,7 @@ pub(crate) enum Mode {
     Auto,
 }
 
-impl From<Mode> for hamlet_protocol::v0::HamletMode {
+impl From<Mode> for hamlet_protocol::HamletMode {
     fn from(mode: Mode) -> Self {
         match mode {
             Mode::Manual => Self::Manual,
@@ -594,7 +594,7 @@ pub(crate) fn prepare_read(
         conversation: None,
     };
     let mut prompt = crate::prompt::prepare(service, &subject)?;
-    prompt.sections.push(crate::harness::link::Section {
+    prompt.sections.push(crate::harness::runtime::Section {
         name: "budget".into(),
         text: crate::prompt::budget(service, &subject)?,
     });

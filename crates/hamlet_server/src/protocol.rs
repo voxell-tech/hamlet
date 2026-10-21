@@ -1,7 +1,7 @@
 //! Strict protocol v0 parsing and the chief's error envelopes.
 
 use anyhow::{Context, Result};
-use hamlet_protocol::v0::{
+use hamlet_protocol::{
     ClientMessage, Fault, Reply, ReplyKind, ServerMessage,
 };
 use jsonschema::error::{TypeKind, ValidationErrorKind};

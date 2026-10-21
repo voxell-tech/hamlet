@@ -191,7 +191,7 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
 mod tests {
     use hamlet_client::outbox::Outbox;
     use hamlet_client::realm::Settlement;
-    use hamlet_protocol::v0;
+    use hamlet_protocol as protocol;
 
     use super::*;
     use crate::me::tests::{panel_app, press, words};
@@ -211,7 +211,7 @@ mod tests {
             "The server holds each command for its chief.".into();
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state.clone()),
+            protocol::ServerMessage::State(state.clone()),
         );
         let hamlet = app
             .world_mut()
@@ -253,10 +253,10 @@ mod tests {
             .resource::<Outbox>()
             .iter()
             .filter_map(|message| match message {
-                v0::ClientMessage::Say(say) => {
+                protocol::ClientMessage::Say(say) => {
                     assert_eq!(
                         say.to,
-                        v0::Address {
+                        protocol::Address {
                             hamlet: "home".into(),
                             agent: "mayor".into()
                         }
@@ -280,7 +280,7 @@ mod tests {
             "The server says no folder is selected.".into();
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         for _ in 0..3 {
             app.update();

@@ -2,7 +2,7 @@
 //! the answer.
 
 use anyhow::Result;
-use hamlet_protocol::v0::{Choice, Questions};
+use hamlet_protocol::{Choice, Questions};
 
 use super::super::{asking, records};
 use super::WAITING;

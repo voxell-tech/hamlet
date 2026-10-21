@@ -6,7 +6,9 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use super::link::{self, LinkError, RuntimeMessage, ServerMessage};
+use super::runtime::{
+    self, LinkError, RuntimeMessage, ServerMessage,
+};
 use super::{BindingId, Harnesses, LINK_VERSION};
 
 /// What a request to a runtime was for, until its reply.
@@ -103,7 +105,7 @@ impl Harnesses {
         &mut self,
         index: usize,
         re: Option<String>,
-        code: link::ErrorCode,
+        code: runtime::ErrorCode,
         words: &str,
     ) {
         let message = words.to_owned();

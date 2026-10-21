@@ -142,7 +142,7 @@ pub fn card(
 
 #[cfg(test)]
 mod tests {
-    use hamlet_protocol::v0;
+    use hamlet_protocol as protocol;
     use hamlet_realm::pick::{Selected, Thing};
 
     use super::*;
@@ -159,10 +159,12 @@ mod tests {
         );
         app.update();
         assert!(words(&mut app).iter().any(|text| text.starts_with("The library is empty.")));
-        app.world_mut().resource_mut::<Skills>().0.push(v0::Skill {
-            name: "orchard".into(),
-            description: "Tends the trees".into(),
-        });
+        app.world_mut().resource_mut::<Skills>().0.push(
+            protocol::Skill {
+                name: "orchard".into(),
+                description: "Tends the trees".into(),
+            },
+        );
         app.update();
         let shown = words(&mut app);
         assert!(shown.iter().any(|text| text == "orchard"));

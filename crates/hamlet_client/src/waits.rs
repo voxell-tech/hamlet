@@ -3,12 +3,12 @@
 use std::time::Duration;
 
 use bevy_ecs::prelude::*;
-use hamlet_protocol::v0;
-pub use v0::Choice;
+use hamlet_protocol as protocol;
+pub use protocol::Choice;
 
 /// The questions of a received ask_chief call.
 #[derive(Component, Clone, Debug)]
-pub struct Asks(pub v0::Questions);
+pub struct Asks(pub protocol::Questions);
 
 /// The server's refusal of the chief's latest answer to a need.
 #[derive(Component, Clone, Debug, PartialEq)]
@@ -22,13 +22,13 @@ pub struct Waiting {
     pub about: String,
     /// The line of `about` a one-line view quotes.
     pub subject: String,
-    pub change: Option<v0::Change>,
+    pub change: Option<protocol::Change>,
     pub answers: Vec<Choice>,
     /// Milliseconds since 1970.
     pub since: u64,
     pub asked: u64,
-    pub chat: Option<v0::ChatRef>,
-    pub detail: v0::WaitDetail,
+    pub chat: Option<protocol::ChatRef>,
+    pub detail: protocol::WaitDetail,
 }
 
 impl Waiting {
@@ -40,7 +40,7 @@ impl Waiting {
             .collect::<Vec<_>>()
             .join(" ");
         let objection =
-            matches!(self.detail, v0::WaitDetail::Objection {});
+            matches!(self.detail, protocol::WaitDetail::Objection {});
         // An objection's line has no name before it, so its subject
         // takes the name's room too.
         let max = if objection { max + self.by.len() } else { max };
@@ -49,14 +49,14 @@ impl Waiting {
             None => flat,
         };
         match &self.detail {
-            v0::WaitDetail::Approval { says, .. } => {
+            protocol::WaitDetail::Approval { says, .. } => {
                 format!("{} {says} `{clipped}`", self.by)
             }
-            v0::WaitDetail::Objection {} => clipped,
-            v0::WaitDetail::Question { .. } => {
+            protocol::WaitDetail::Objection {} => clipped,
+            protocol::WaitDetail::Question { .. } => {
                 format!("{} asks: {clipped}", self.by)
             }
-            v0::WaitDetail::Fault {} => {
+            protocol::WaitDetail::Fault {} => {
                 format!("{} failed: {clipped}", self.by)
             }
         }
@@ -116,7 +116,10 @@ pub(crate) fn find(world: &mut World, id: &str) -> Option<Entity> {
         .map(|(entity, _)| entity)
 }
 
-pub(crate) fn upsert(world: &mut World, wait: v0::Wait) -> Entity {
+pub(crate) fn upsert(
+    world: &mut World,
+    wait: protocol::Wait,
+) -> Entity {
     let entity = find(world, &wait.id)
         .unwrap_or_else(|| world.spawn_empty().id());
     let agent = wait
@@ -124,7 +127,8 @@ pub(crate) fn upsert(world: &mut World, wait: v0::Wait) -> Entity {
         .as_ref()
         .and_then(|agent| crate::realm::agent(world, agent));
     let mut entity = world.entity_mut(entity);
-    if let v0::WaitDetail::Question { questions } = &wait.detail {
+    if let protocol::WaitDetail::Question { questions } = &wait.detail
+    {
         entity.insert(Asks(questions.clone()));
     }
     entity.insert(Waiting {

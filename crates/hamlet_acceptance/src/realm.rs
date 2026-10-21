@@ -1,7 +1,7 @@
 //! The realm as a client keeps it: the last whole state with the
 //! changes since applied.
 
-use hamlet_protocol::v0::*;
+use hamlet_protocol::*;
 
 /// The realm after every state and change in `log`.
 pub fn fold(log: &[ServerMessage]) -> State {

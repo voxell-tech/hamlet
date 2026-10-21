@@ -4,7 +4,7 @@
 use std::collections::HashSet;
 
 use hamlet_protocol::transcript::apply;
-use hamlet_protocol::v0::*;
+use hamlet_protocol::*;
 
 /// The items of `chat`: its latest opening page, then every op after
 /// it. Older pages fetched with `before`, whose request IDs are in

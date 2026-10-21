@@ -318,7 +318,7 @@ pub(crate) fn question(deed: Deed, at: Vec2) -> AnyView {
 #[cfg(test)]
 mod tests {
     use hamlet_client::outbox::Outbox;
-    use hamlet_protocol::v0;
+    use hamlet_protocol as protocol;
 
     use super::*;
 
@@ -337,7 +337,7 @@ mod tests {
             .push(hamlet_testing::realm::agent("mill", 1, "carder"));
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         let carder =
             agents::named(app.world_mut(), "carder").unwrap();
@@ -348,12 +348,12 @@ mod tests {
             .resource_mut::<Outbox>()
             .drain()
             .collect::<Vec<_>>();
-        let [v0::ClientMessage::Say(say)] = &sent[..] else {
+        let [protocol::ClientMessage::Say(say)] = &sent[..] else {
             panic!("one command: {sent:?}");
         };
         assert_eq!(
             say.to,
-            v0::Address {
+            protocol::Address {
                 hamlet: "mill".into(),
                 agent: "mayor".into(),
             }

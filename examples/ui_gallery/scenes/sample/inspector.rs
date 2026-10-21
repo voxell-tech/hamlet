@@ -2,7 +2,7 @@
 
 use bevy::ecs::world::World;
 use hamlet_client::outbox::Outbox;
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 use hamlet_ui::{Me, inspector};
 
 use crate::scenes::Scene;
@@ -54,17 +54,17 @@ fn keep_notes(world: &mut World) {
         .resource::<Outbox>()
         .iter()
         .find_map(|message| match message {
-            v0::ClientMessage::Read(v0::Read::Papers {
-                id, ..
-            }) => Some(id.clone()),
+            protocol::ClientMessage::Read(
+                protocol::Read::Papers { id, .. },
+            ) => Some(id.clone()),
             _ => None,
         })
         .expect("the papers read");
     hamlet_client::receive(
         world,
-        v0::ServerMessage::Read(v0::ReadResult::Papers {
+        protocol::ServerMessage::Read(protocol::ReadResult::Papers {
             to: id,
-            papers: v0::Papers {
+            papers: protocol::Papers {
                 notes,
                 character,
                 skills: Vec::new(),

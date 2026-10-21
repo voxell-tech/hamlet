@@ -1,7 +1,7 @@
 //! The change an edit or a write makes to a file, as the gate shows
 //! it (C30).
 
-use hamlet_protocol::v0::{Change, ChangeLines, ChangeLinesMark};
+use hamlet_protocol::{Change, ChangeLines, ChangeLinesMark};
 use serde_json::Value;
 
 /// The most lines of a change that are kept.

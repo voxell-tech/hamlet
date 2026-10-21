@@ -133,7 +133,7 @@ pub(super) fn founding(at: Vec2) -> AnyView {
 #[cfg(test)]
 mod tests {
     use hamlet_client::outbox::Outbox;
-    use hamlet_protocol::v0;
+    use hamlet_protocol as protocol;
     use hamlet_testing::realm;
 
     use super::*;
@@ -150,7 +150,7 @@ mod tests {
         state.agents.push(realm::agent("home", 1, "scout"));
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         let scout =
             hamlet_client::realm::named(app.world_mut(), "scout")
@@ -176,13 +176,13 @@ mod tests {
             .resource_mut::<Outbox>()
             .drain()
             .collect::<Vec<_>>();
-        let [v0::ClientMessage::Say(say)] = &sent[..] else {
+        let [protocol::ClientMessage::Say(say)] = &sent[..] else {
             panic!("one founding: {sent:?}");
         };
         assert_eq!(say.text, "/found mill miller Grinds flour");
         assert_eq!(
             say.to,
-            v0::Address {
+            protocol::Address {
                 hamlet: "home".into(),
                 agent: "mayor".into()
             }

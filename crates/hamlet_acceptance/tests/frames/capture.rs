@@ -6,9 +6,7 @@ use hamlet_acceptance::{
     Home, QUIET, Script, Server, Wire, chat, fold, id, mayor, realm,
 };
 pub use hamlet_protocol::MAYOR;
-use hamlet_protocol::v0::{
-    ClientMessage, Item, ServerMessage, State,
-};
+use hamlet_protocol::{ClientMessage, Item, ServerMessage, State};
 use serde_json::{Value, json};
 
 /// The recorder owns the process and captures both directions in

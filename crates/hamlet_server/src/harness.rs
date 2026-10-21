@@ -12,7 +12,7 @@ mod credentials;
 mod mark;
 // Generated, so formatted as the generator writes it.
 #[rustfmt::skip]
-pub mod link;
+pub mod runtime;
 mod process;
 mod session;
 mod sync;
@@ -31,13 +31,13 @@ pub use bindings::{
 pub(crate) use bindings::{
     ended, fork_of, input_runs, items, working_on,
 };
-use link::{
-    Capability, Diagnostic, HelloStore, Item, Mark, Partial,
-    RuntimeMessage, Section, ServerMessage, ToolSpec,
-};
 pub use mark::{InputMark, Mail};
 pub use process::Pi;
 use process::{Launch, Process, Received};
+use runtime::{
+    Capability, Diagnostic, HelloStore, Item, Mark, Partial,
+    RuntimeMessage, Section, ServerMessage, ToolSpec,
+};
 use serde_json::Value;
 use session::{Pending, Session, id_of, parse};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
@@ -99,8 +99,8 @@ impl Config {
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Notice {
-    Provider(link::ProviderResult),
-    ProviderEvent(link::ProviderEvent),
+    Provider(runtime::ProviderResult),
+    ProviderEvent(runtime::ProviderEvent),
     Started {
         runtime: RuntimeInstance,
         pid: u32,
@@ -348,7 +348,7 @@ pub struct Harnesses {
     session: Session,
     /// The turns told to wait for a chief's ruling, by runtime.
     held_turns: HashSet<(usize, BindingId)>,
-    provider_requests: HashMap<usize, Vec<link::ProviderRequest>>,
+    provider_requests: HashMap<usize, Vec<runtime::ProviderRequest>>,
     credentials: credentials::Authority,
     /// Set once the harnesses close, so no runtime starts again.
     closing: bool,
@@ -415,7 +415,7 @@ impl Harnesses {
                 .cloned()
                 .collect();
             self.send(index, |v, id| {
-                ServerMessage::Tools(link::Tools { v, id, tools })
+                ServerMessage::Tools(runtime::Tools { v, id, tools })
             })
             .await;
         }
@@ -426,7 +426,7 @@ impl Harnesses {
     pub async fn provider(
         &mut self,
         store: &mut Store,
-        request: link::ProviderRequest,
+        request: runtime::ProviderRequest,
     ) -> Result<()> {
         let runtime = store.runtime_for(DEFAULT_HARNESS)?;
         let index =
@@ -447,7 +447,7 @@ impl Harnesses {
 
     pub(crate) async fn provider_control(
         &mut self,
-        control: link::ProviderControl,
+        control: runtime::ProviderControl,
     ) {
         let indices = (0..self.runtimes.len())
             .filter(|index| {
@@ -656,14 +656,14 @@ impl Harnesses {
             let re = re_id;
             match answer {
                 Answer::Allowed => {
-                    ServerMessage::Allowed(link::Allowed {
+                    ServerMessage::Allowed(runtime::Allowed {
                         id,
                         re,
                         v,
                     })
                 }
                 Answer::Waiting(words) => {
-                    ServerMessage::Waiting(link::Waiting {
+                    ServerMessage::Waiting(runtime::Waiting {
                         id,
                         key,
                         re,
@@ -672,7 +672,7 @@ impl Harnesses {
                     })
                 }
                 Answer::Refusal(words) => {
-                    ServerMessage::Refusal(link::Refusal {
+                    ServerMessage::Refusal(runtime::Refusal {
                         id,
                         re,
                         v,
@@ -684,7 +684,7 @@ impl Harnesses {
                     error,
                     details,
                     diagnostics,
-                } => ServerMessage::Result(link::Result {
+                } => ServerMessage::Result(runtime::Result {
                     details,
                     diagnostics: (!diagnostics.is_empty())
                         .then_some(diagnostics),
@@ -695,7 +695,7 @@ impl Harnesses {
                     v,
                 }),
                 Answer::Sections(sections) => {
-                    ServerMessage::Sections(link::Sections {
+                    ServerMessage::Sections(runtime::Sections {
                         id,
                         re,
                         sections,
@@ -706,7 +706,7 @@ impl Harnesses {
                     words,
                     notice,
                     compact,
-                } => ServerMessage::Verdict(link::Verdict {
+                } => ServerMessage::Verdict(runtime::Verdict {
                     id,
                     notice,
                     compact: compact.then_some(true),
@@ -725,7 +725,7 @@ impl Harnesses {
         &mut self,
         store: &mut Store,
         binding: BindingId,
-        tools: &link::ConfigureTools,
+        tools: &runtime::ConfigureTools,
     ) -> Result<()> {
         if !store.set_tools(binding, tools)? {
             return Ok(());
@@ -749,7 +749,11 @@ impl Harnesses {
         {
             let key = key.to_owned();
             self.send(index, |v, id| {
-                ServerMessage::Answered(link::Answered { id, key, v })
+                ServerMessage::Answered(runtime::Answered {
+                    id,
+                    key,
+                    v,
+                })
             })
             .await;
         }
@@ -762,7 +766,7 @@ impl Harnesses {
             if self.runtimes[index].phase == Phase::Ready {
                 let key = Wake::Turn(binding).key();
                 self.send(index, |v, id| {
-                    ServerMessage::Answered(link::Answered {
+                    ServerMessage::Answered(runtime::Answered {
                         id,
                         key,
                         v,
@@ -811,7 +815,7 @@ impl Harnesses {
             bail!("The conversation is not made yet.");
         };
         self.request(index, Pending::History(binding), |v, id| {
-            ServerMessage::History(link::History {
+            ServerMessage::History(runtime::History {
                 before,
                 conversation,
                 id,
@@ -837,7 +841,7 @@ impl Harnesses {
             self.runtimes[index].restart_at = None;
             if self.runtimes[index].phase == Phase::Ready {
                 self.send(index, |v, id| {
-                    ServerMessage::Close(link::Close { id, v })
+                    ServerMessage::Close(runtime::Close { id, v })
                 })
                 .await;
             }
@@ -978,7 +982,7 @@ impl Harnesses {
                 self.error(
                     index,
                     re,
-                    link::ErrorCode::Malformed,
+                    runtime::ErrorCode::Malformed,
                     &words,
                 )
                 .await;
@@ -992,7 +996,7 @@ impl Harnesses {
                     self.error(
                         index,
                         Some(hello.id),
-                        link::ErrorCode::Malformed,
+                        runtime::ErrorCode::Malformed,
                         "A runtime says hello once.",
                     )
                     .await;
@@ -1005,7 +1009,7 @@ impl Harnesses {
                 self.error(
                     index,
                     Some(re),
-                    link::ErrorCode::Malformed,
+                    runtime::ErrorCode::Malformed,
                     "A runtime says hello first.",
                 )
                 .await;
@@ -1126,7 +1130,7 @@ impl Harnesses {
                     &mut request.value,
                 );
                 self.send(index, |v, id| {
-                    ServerMessage::Scrubbed(link::Scrubbed {
+                    ServerMessage::Scrubbed(runtime::Scrubbed {
                         v,
                         id,
                         re: request.id,
@@ -1150,7 +1154,7 @@ impl Harnesses {
         &mut self,
         store: &mut Store,
         index: usize,
-        hello: link::Hello,
+        hello: runtime::Hello,
     ) -> Result<Vec<Notice>> {
         let id = self.runtimes[index].id.clone();
         let row = store.runtime(&id)?;
@@ -1164,7 +1168,7 @@ impl Harnesses {
             self.runtimes[index].phase = Phase::Refused;
             let said = words.clone();
             self.send(index, |v, id| {
-                ServerMessage::Refused(link::Refused {
+                ServerMessage::Refused(runtime::Refused {
                     id,
                     re,
                     v,
@@ -1192,7 +1196,7 @@ impl Harnesses {
             }
         }
         self.send(index, |v, id| {
-            ServerMessage::Welcome(link::Welcome {
+            ServerMessage::Welcome(runtime::Welcome {
                 id,
                 re,
                 tools,
@@ -1231,7 +1235,7 @@ impl Harnesses {
             self.error(
                 index,
                 Some(re.into()),
-                link::ErrorCode::UnknownConversation,
+                runtime::ErrorCode::UnknownConversation,
                 &format!(
                     "No conversation {conversation} is bound here."
                 ),
@@ -1289,7 +1293,7 @@ impl Harnesses {
 /// Why the runtime that said `hello` is not taken on, in words for a
 /// chief.
 fn refusal(
-    hello: &link::Hello,
+    hello: &runtime::Hello,
     row: &bindings::RuntimeRow,
     store: &Path,
 ) -> Option<String> {

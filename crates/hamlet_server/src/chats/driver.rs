@@ -67,7 +67,7 @@ impl Service {
         &mut self,
         harnesses: &mut Harnesses,
         wait: &str,
-        choice: &hamlet_protocol::v0::Choice,
+        choice: &hamlet_protocol::Choice,
     ) -> Result<std::result::Result<String, String>> {
         Ok(calls::answer_words(
             self, harnesses, wait, choice, "", None,

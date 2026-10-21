@@ -11,7 +11,7 @@ use hamlet_client::realm::{
     Bylaws, Citizen, Citizens, Deeds, Lived, LivesIn, Mayor, Seen,
     Settlement, Treasury, Votes, Works,
 };
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 
 use super::{heading, tell};
 use crate::AnyView;
@@ -72,9 +72,9 @@ fn request(world: &mut World, hamlet: Entity, opening: bool) {
         return;
     }
     let id = world.resource_mut::<Outbox>().send(|id| {
-        v0::ClientMessage::Say(v0::Say {
+        protocol::ClientMessage::Say(protocol::Say {
             id,
-            to: v0::Address {
+            to: protocol::Address {
                 hamlet: name,
                 agent: "mayor".into(),
             },
@@ -96,8 +96,8 @@ fn answered(response: On<Response>, mut annals: ResMut<Annals>) {
         return;
     }
     let text = match &response.message {
-        v0::ServerMessage::Reply(reply) => &reply.text,
-        v0::ServerMessage::Fault(fault) => &fault.text,
+        protocol::ServerMessage::Reply(reply) => &reply.text,
+        protocol::ServerMessage::Fault(fault) => &fault.text,
         _ => return,
     };
     annals.text.clone_from(text);
@@ -235,7 +235,7 @@ pub(super) fn record_of(hamlet: Entity) -> AnyView {
 #[cfg(test)]
 mod tests {
     use hamlet_client::outbox::Outbox;
-    use hamlet_protocol::v0;
+    use hamlet_protocol as protocol;
 
     use super::*;
     use crate::me::tests::{panel_app, press, words};
@@ -252,7 +252,7 @@ mod tests {
             .agents
             .push(hamlet_testing::realm::agent("home", 1, "scout"));
         state.hamlets[0].votes = vec![
-            v0::VoteView {
+            protocol::VoteView {
                 id: 7,
                 motion: "scout for mayor".into(),
                 by: "chief".into(),
@@ -261,7 +261,7 @@ mod tests {
                 report: "Scout became mayor.".into(),
                 voters: vec![],
             },
-            v0::VoteView {
+            protocol::VoteView {
                 id: 8,
                 motion: "found mill".into(),
                 by: "scout".into(),
@@ -273,7 +273,7 @@ mod tests {
         ];
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state.clone()),
+            protocol::ServerMessage::State(state.clone()),
         );
         let hamlet =
             hamlet_client::realm::mayor(app.world_mut()).unwrap();
@@ -302,7 +302,7 @@ mod tests {
             .resource::<Outbox>()
             .iter()
             .find_map(|message| match message {
-                v0::ClientMessage::Say(say)
+                protocol::ClientMessage::Say(say)
                     if say.text == "/record" =>
                 {
                     Some(say.clone())
@@ -313,9 +313,9 @@ mod tests {
         assert_eq!(record.to.agent, "mayor");
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Reply(v0::Reply {
+            protocol::ServerMessage::Reply(protocol::Reply {
                 to: record.id,
-                kind: v0::ReplyKind::Notice,
+                kind: protocol::ReplyKind::Notice,
                 text: "Scout arrived, and smith was restored.".into(),
                 upload: None,
             }),
@@ -329,14 +329,14 @@ mod tests {
             )
         );
         press(&mut app, "OVERTURN");
-        assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, v0::ClientMessage::Say(s) if s.text == "/overturn 7" && s.to.hamlet == "home")));
+        assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/overturn 7" && s.to.hamlet == "home")));
         state.hamlets[0].name = "The Hollow".into();
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Change(v0::Changes {
+            protocol::ServerMessage::Change(protocol::Changes {
                 epoch: 1,
                 revision: 1,
-                changes: vec![v0::Update::Hamlet {
+                changes: vec![protocol::Update::Hamlet {
                     hamlet: state.hamlets.remove(0),
                 }],
             }),
@@ -344,25 +344,25 @@ mod tests {
         for _ in 0..3 {
             app.update();
         }
-        assert_eq!(app.world().resource::<Outbox>().iter().filter(|m| matches!(m, v0::ClientMessage::Say(s) if s.text == "/record")).count(), 2);
+        assert_eq!(app.world().resource::<Outbox>().iter().filter(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/record")).count(), 2);
         state.agents[0].mayor = false;
         state.agents[1].mayor = true;
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Change(v0::Changes {
+            protocol::ServerMessage::Change(protocol::Changes {
                 epoch: 1,
                 revision: 2,
                 changes: state
                     .agents
                     .into_iter()
-                    .map(|agent| v0::Update::Agent { agent })
+                    .map(|agent| protocol::Update::Agent { agent })
                     .collect(),
             }),
         );
         for _ in 0..3 {
             app.update();
         }
-        assert_eq!(app.world().resource::<Outbox>().iter().filter(|m| matches!(m, v0::ClientMessage::Say(s) if s.text == "/record")).count(), 3);
+        assert_eq!(app.world().resource::<Outbox>().iter().filter(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/record")).count(), 3);
     }
     #[test]
     fn a_record_lost_at_reconnect_is_requested_again_even_without_realm_changes()
@@ -373,7 +373,7 @@ mod tests {
         state.deeds = hamlet_testing::realm::deeds(&["record"]);
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state.clone()),
+            protocol::ServerMessage::State(state.clone()),
         );
         let agent =
             hamlet_client::realm::mayor(app.world_mut()).unwrap();
@@ -388,7 +388,9 @@ mod tests {
             .resource_mut::<Outbox>()
             .drain()
             .filter_map(|m| match m {
-                v0::ClientMessage::Say(s) if s.text == "/record" => {
+                protocol::ClientMessage::Say(s)
+                    if s.text == "/record" =>
+                {
                     Some(s.id)
                 }
                 _ => None,
@@ -399,7 +401,7 @@ mod tests {
             .trigger(hamlet_client::messages::Reconnected);
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state.clone()),
+            protocol::ServerMessage::State(state.clone()),
         );
         app.update();
         let retry = app
@@ -407,7 +409,9 @@ mod tests {
             .resource_mut::<Outbox>()
             .drain()
             .find_map(|m| match m {
-                v0::ClientMessage::Say(s) if s.text == "/record" => {
+                protocol::ClientMessage::Say(s)
+                    if s.text == "/record" =>
+                {
                     Some(s.id)
                 }
                 _ => None,
@@ -416,9 +420,9 @@ mod tests {
         assert_ne!(first, retry);
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Reply(v0::Reply {
+            protocol::ServerMessage::Reply(protocol::Reply {
                 to: retry,
-                kind: v0::ReplyKind::Notice,
+                kind: protocol::ReplyKind::Notice,
                 text: "The record recovered".into(),
                 upload: None,
             }),
@@ -431,7 +435,7 @@ mod tests {
         state.deeds = hamlet_testing::realm::deeds(&[]);
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state.clone()),
+            protocol::ServerMessage::State(state.clone()),
         );
         app.update();
         app.world_mut()
@@ -441,9 +445,9 @@ mod tests {
         state.deeds = hamlet_testing::realm::deeds(&["record"]);
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::State(state),
+            protocol::ServerMessage::State(state),
         );
         app.update();
-        assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m,v0::ClientMessage::Say(s) if s.text == "/record")));
+        assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m,protocol::ClientMessage::Say(s) if s.text == "/record")));
     }
 }

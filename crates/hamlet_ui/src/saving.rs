@@ -8,7 +8,7 @@ use bevy_fynix::views::{FrameProps, column};
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_desktop::editor;
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 
 use crate::icons::Glyph;
 use crate::looks::{action, bad_action, note};
@@ -48,18 +48,18 @@ fn answered(response: On<Response>, mut saves: ResMut<Saves>) {
         return;
     }
     match &response.message {
-        v0::ServerMessage::Reply(reply)
-            if reply.kind == v0::ReplyKind::Notice =>
+        protocol::ServerMessage::Reply(reply)
+            if reply.kind == protocol::ReplyKind::Notice =>
         {
             saves.pending.remove(&response.to);
         }
-        v0::ServerMessage::Reply(reply) => {
+        protocol::ServerMessage::Reply(reply) => {
             saves.pending.insert(
                 response.to.clone(),
                 Some(reply.text.clone()),
             );
         }
-        v0::ServerMessage::Fault(fault) => {
+        protocol::ServerMessage::Fault(fault) => {
             saves.pending.insert(
                 response.to.clone(),
                 Some(fault.text.clone()),
@@ -160,7 +160,7 @@ mod tests {
     use bevy::ecs::system::In;
     use hamlet_client::outbox::Outbox;
     use hamlet_desktop::editor::{Edit, Opener};
-    use hamlet_protocol::v0;
+    use hamlet_protocol as protocol;
 
     #[derive(Resource, Default)]
     struct Opened(Vec<std::path::PathBuf>);
@@ -197,18 +197,20 @@ mod tests {
             .resource::<Outbox>()
             .iter()
             .find_map(|m| match m {
-                v0::ClientMessage::Edit(v0::Edit::Charter {
-                    id,
-                    text: Some(text),
-                }) if text == "The last save" => Some(id.clone()),
+                protocol::ClientMessage::Edit(
+                    protocol::Edit::Charter {
+                        id,
+                        text: Some(text),
+                    },
+                ) if text == "The last save" => Some(id.clone()),
                 _ => None,
             })
             .expect("the final poll queues the edit before closing");
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Reply(v0::Reply {
+            protocol::ServerMessage::Reply(protocol::Reply {
                 to: id,
-                kind: v0::ReplyKind::Notice,
+                kind: protocol::ReplyKind::Notice,
                 text: "Saved.".into(),
                 upload: None,
             }),

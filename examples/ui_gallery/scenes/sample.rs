@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use bevy::ecs::world::World;
 use hamlet_client::chats::{Chat, Status, Usage};
 use hamlet_client::{ViewDir, realm};
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 use hamlet_realm::pick::{Also, Selected, Thing};
 use hamlet_ui::Me;
 pub(super) use welcome::first_run;
@@ -28,9 +28,12 @@ pub(super) fn setup(world: &mut World) {
     state.agents[0].purpose =
         "Keeps the orchard's notes in order.".into();
     state.agents[0].spent.cost = "$0.10".into();
-    hamlet_client::receive(world, v0::ServerMessage::State(state));
+    hamlet_client::receive(
+        world,
+        protocol::ServerMessage::State(state),
+    );
     let agent = realm::mayor(world).expect("the received founder");
-    let to = v0::Address {
+    let to = protocol::Address {
         hamlet: "home".into(),
         agent: "mayor".into(),
     };
@@ -47,11 +50,11 @@ pub(super) fn setup(world: &mut World) {
         "lastInput": 12000,
         "summary": "12.4k tokens",
     });
-    let usage = serde_json::from_value::<v0::UsageView>(usage)
+    let usage = serde_json::from_value::<protocol::UsageView>(usage)
         .expect("received usage");
     let session = world
         .spawn((
-            Chat(v0::ChatRef {
+            Chat(protocol::ChatRef {
                 kind: None,
                 from: None,
                 with: to.clone(),

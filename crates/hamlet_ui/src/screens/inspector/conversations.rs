@@ -9,7 +9,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
 use hamlet_client::chats::Chat;
 use hamlet_client::realm::{PeerChats, address_of, name_of};
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 
 use super::Section;
 use crate::icons::Glyph;
@@ -24,17 +24,17 @@ pub(super) fn read_only(world: &World) -> bool {
         .is_some_and(|chat| chat.0.from.is_some())
 }
 
-fn open(world: &mut World, peer: v0::ConversationView) {
+fn open(world: &mut World, peer: protocol::ConversationView) {
     let me = world.resource::<Me>();
-    let reference = v0::ChatRef {
+    let reference = protocol::ChatRef {
         with: me.to.clone(),
         from: Some(peer.with),
         kind: Some(match peer.kind {
-            v0::ConversationViewKind::Letters => {
-                v0::ChatRefKind::Letters
+            protocol::ConversationViewKind::Letters => {
+                protocol::ChatRefKind::Letters
             }
-            v0::ConversationViewKind::Questions => {
-                v0::ChatRefKind::Questions
+            protocol::ConversationViewKind::Questions => {
+                protocol::ChatRefKind::Questions
             }
         }),
         past: None,
@@ -56,7 +56,7 @@ pub(super) fn chief(world: &mut World) {
     *world.resource_mut::<Section>() = Section::Conversation;
 }
 
-fn peers(world: &World) -> Vec<v0::ConversationView> {
+fn peers(world: &World) -> Vec<protocol::ConversationView> {
     let agent = world.resource::<Me>().agent;
     world
         .get::<PeerChats>(agent)
@@ -64,7 +64,7 @@ fn peers(world: &World) -> Vec<v0::ConversationView> {
         .unwrap_or_default()
 }
 
-fn exchange(peer: v0::ConversationView) -> AnyView {
+fn exchange(peer: protocol::ConversationView) -> AnyView {
     AnyView::new(move |cx: &mut crate::Cx| {
         let name = cx
             .world
@@ -80,8 +80,8 @@ fn exchange(peer: v0::ConversationView) -> AnyView {
                 format!("{}#{}", peer.with.hamlet, peer.with.number)
             });
         let kind = match peer.kind {
-            v0::ConversationViewKind::Letters => "LETTERS",
-            v0::ConversationViewKind::Questions => "QUESTIONS",
+            protocol::ConversationViewKind::Letters => "LETTERS",
+            protocol::ConversationViewKind::Questions => "QUESTIONS",
         };
         let selected = peer.clone();
         let button = button(label(format!(

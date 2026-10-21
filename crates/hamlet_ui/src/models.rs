@@ -14,7 +14,7 @@ use hamlet_client::Connection;
 use hamlet_client::connection::State;
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 
 pub(crate) use self::choice::{of_agent, of_hamlet};
 pub(crate) use self::home::narrowed;
@@ -38,7 +38,7 @@ pub(crate) fn plugin(app: &mut App) {
 /// The catalogue last received from the server.
 #[derive(Resource, Default)]
 pub struct Shelf {
-    pub models: Vec<v0::Listed>,
+    pub models: Vec<protocol::Listed>,
     asking: bool,
     loaded: bool,
     showing: bool,
@@ -79,7 +79,7 @@ pub fn follow(world: &mut World) {
 
 fn read_models(world: &mut World, refresh: bool) {
     let id = world.resource_mut::<Outbox>().send(|id| {
-        v0::ClientMessage::Read(v0::Read::Models {
+        protocol::ClientMessage::Read(protocol::Read::Models {
             id,
             refresh: Some(refresh),
         })
@@ -93,10 +93,13 @@ fn read_models(world: &mut World, refresh: bool) {
     shelf.problem = None;
 }
 
-fn edit(world: &mut World, make: impl FnOnce(String) -> v0::Edit) {
+fn edit(
+    world: &mut World,
+    make: impl FnOnce(String) -> protocol::Edit,
+) {
     let id = world
         .resource_mut::<Outbox>()
-        .send(|id| v0::ClientMessage::Edit(make(id)));
+        .send(|id| protocol::ClientMessage::Edit(make(id)));
     let mut shelf = world.resource_mut::<Shelf>();
     shelf.requests.insert(id, Asked::Edit);
     shelf.problem = None;
@@ -117,9 +120,9 @@ fn problem() -> impl crate::View {
 fn catalogue(
     world: &mut World,
     model: &str,
-    set: v0::EditCatalogueSet,
+    set: protocol::EditCatalogueSet,
 ) {
-    edit(world, |id| v0::Edit::Catalogue {
+    edit(world, |id| protocol::Edit::Catalogue {
         id,
         model: model.into(),
         set,
@@ -137,11 +140,11 @@ fn answered(response: On<Response>, mut commands: Commands) {
             return;
         };
         let failure = match &response.message {
-            v0::ServerMessage::Fault(fault) => {
+            protocol::ServerMessage::Fault(fault) => {
                 Some(fault.text.clone())
             }
-            v0::ServerMessage::Reply(reply)
-                if reply.kind == v0::ReplyKind::Error =>
+            protocol::ServerMessage::Reply(reply)
+                if reply.kind == protocol::ReplyKind::Error =>
             {
                 Some(reply.text.clone())
             }
@@ -159,25 +162,23 @@ fn answered(response: On<Response>, mut commands: Commands) {
         match (asked, response.message) {
             (
                 Asked::Models,
-                v0::ServerMessage::Read(v0::ReadResult::Models {
-                    models,
-                    ..
-                }),
+                protocol::ServerMessage::Read(
+                    protocol::ReadResult::Models { models, .. },
+                ),
             ) => {
                 let mut shelf = world.resource_mut::<Shelf>();
                 shelf.models = models;
                 shelf.asking = false;
                 shelf.loaded = true;
             }
-            (Asked::Edit, v0::ServerMessage::Reply(_)) => {
+            (Asked::Edit, protocol::ServerMessage::Reply(_)) => {
                 read_models(world, false)
             }
-            (Asked::Default, v0::ServerMessage::Reply(_)) => {
+            (Asked::Default, protocol::ServerMessage::Reply(_)) => {
                 world.resource_mut::<Outbox>().send(|id| {
-                    v0::ClientMessage::Check(v0::Check::Model {
-                        id,
-                        model: None,
-                    })
+                    protocol::ClientMessage::Check(
+                        protocol::Check::Model { id, model: None },
+                    )
                 });
             }
             _ => {}

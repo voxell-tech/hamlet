@@ -23,7 +23,7 @@ use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Grants, HOME, MAYOR, Settings};
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_desktop::editor::{Edit, Edited};
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 use hamlet_realm::sky::Quality;
 use hamlet_realm::sound::SoundSettings;
 
@@ -261,7 +261,7 @@ fn permissions() -> AnyView {
                     .0
                     .iter()
                     .filter(|grant| {
-                        grant.source == v0::GrantSource::Grant
+                        grant.source == protocol::GrantSource::Grant
                     })
                     .cloned()
                     .collect::<Vec<_>>()
@@ -282,8 +282,8 @@ fn permissions() -> AnyView {
             .map(|grant| {
                 let agent = grant.name.clone();
                 let permission = match grant.permission {
-                    v0::Permission::Network => "network",
-                    v0::Permission::Unconfined => "unconfined",
+                    protocol::Permission::Network => "network",
+                    protocol::Permission::Unconfined => "unconfined",
                 };
                 let by = grant.by.as_deref().unwrap_or("limits");
                 let hamlet = grant
@@ -301,7 +301,7 @@ fn permissions() -> AnyView {
                         "REVOKE",
                         move |world| {
                             world.trigger(UserMessage {
-                                to: v0::Address {
+                                to: protocol::Address {
                                     hamlet: hamlet.clone(),
                                     agent: MAYOR.into(),
                                 },
@@ -347,7 +347,9 @@ fn read_charter(
 ) {
     if *pane == Pane::Charter {
         requests.read = Some(outbox.send(|id| {
-            v0::ClientMessage::Read(v0::Read::Charter { id })
+            protocol::ClientMessage::Read(protocol::Read::Charter {
+                id,
+            })
         }));
     }
 }
@@ -364,27 +366,30 @@ fn charter_received(
         return;
     }
     match &response.message {
-        v0::ServerMessage::Read(v0::ReadResult::Charter {
-            charter: received,
-            ..
-        }) if reading => {
+        protocol::ServerMessage::Read(
+            protocol::ReadResult::Charter {
+                charter: received, ..
+            },
+        ) if reading => {
             *charter = Charter {
                 text: received.text.clone(),
                 own: received.own,
             };
             requests.loaded = true;
         }
-        v0::ServerMessage::Reply(reply)
-            if reply.kind == v0::ReplyKind::Error =>
+        protocol::ServerMessage::Reply(reply)
+            if reply.kind == protocol::ReplyKind::Error =>
         {
             requests.error.clone_from(&reply.text)
         }
-        v0::ServerMessage::Fault(fault) => {
+        protocol::ServerMessage::Fault(fault) => {
             requests.error.clone_from(&fault.text)
         }
-        v0::ServerMessage::Reply(_) if editing => {
+        protocol::ServerMessage::Reply(_) if editing => {
             requests.read = Some(outbox.send(|id| {
-                v0::ClientMessage::Read(v0::Read::Charter { id })
+                protocol::ClientMessage::Read(
+                    protocol::Read::Charter { id },
+                )
             }));
         }
         _ => return,
@@ -419,7 +424,7 @@ fn charter_saved(
     let text = edited.text.clone();
     commands.queue(move |world: &mut World| {
         let id = world.resource_mut::<Outbox>().send(|id| {
-            v0::ClientMessage::Edit(v0::Edit::Charter {
+            protocol::ClientMessage::Edit(protocol::Edit::Charter {
                 id,
                 text: Some(text),
             })
@@ -434,7 +439,10 @@ fn charter_saved(
 /// A request to restore the server's default charter.
 pub(crate) fn default_charter(world: &mut World) {
     let id = world.resource_mut::<Outbox>().send(|id| {
-        v0::ClientMessage::Edit(v0::Edit::Charter { id, text: None })
+        protocol::ClientMessage::Edit(protocol::Edit::Charter {
+            id,
+            text: None,
+        })
     });
     let mut requests = world.resource_mut::<CharterRequests>();
     requests.error.clear();
@@ -490,9 +498,9 @@ fn charter_page(cx: &Cx) -> impl View + use<> {
 /// An edit of one received setting.
 fn save(
     world: &mut World,
-    change: impl FnOnce(&mut v0::EditSettingsSet),
+    change: impl FnOnce(&mut protocol::EditSettingsSet),
 ) {
-    let mut set = v0::EditSettingsSet {
+    let mut set = protocol::EditSettingsSet {
         model: None,
         endpoints: None,
         reflect_every: None,
@@ -501,7 +509,10 @@ fn save(
     };
     change(&mut set);
     world.resource_mut::<Outbox>().send(|id| {
-        v0::ClientMessage::Edit(v0::Edit::Settings { id, set })
+        protocol::ClientMessage::Edit(protocol::Edit::Settings {
+            id,
+            set,
+        })
     });
 }
 
@@ -618,7 +629,7 @@ mod tests {
     use bevy::ui::Checked;
     use bevy::ui_widgets::{Checkbox, ValueChange};
     use hamlet_client::outbox::Outbox;
-    use hamlet_protocol::v0;
+    use hamlet_protocol as protocol;
 
     use super::*;
     use crate::me::tests::panel_app;
@@ -754,10 +765,12 @@ mod tests {
         settings.reflect_every = 7;
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Change(v0::Changes {
+            protocol::ServerMessage::Change(protocol::Changes {
                 epoch: 1,
                 revision: 2,
-                changes: vec![v0::Update::Settings { settings }],
+                changes: vec![protocol::Update::Settings {
+                    settings,
+                }],
             }),
         );
         settle(&mut app);
@@ -780,22 +793,22 @@ mod tests {
         assert!(words(&mut app).iter().any(|text| text
             == "None yet. Choosing Always Allow on a petition \
                 adds one."));
-        let grant = v0::Grant {
-            agent: Some(v0::AgentRef {
+        let grant = protocol::Grant {
+            agent: Some(protocol::AgentRef {
                 hamlet: "home".into(),
                 number: 0,
             }),
             name: "founder".into(),
-            permission: v0::Permission::Network,
+            permission: protocol::Permission::Network,
             by: Some("chief".into()),
-            source: v0::GrantSource::Grant,
+            source: protocol::GrantSource::Grant,
         };
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Change(v0::Changes {
+            protocol::ServerMessage::Change(protocol::Changes {
                 epoch: 1,
                 revision: 2,
-                changes: vec![v0::Update::Grants {
+                changes: vec![protocol::Update::Grants {
                     grants: vec![grant],
                 }],
             }),
@@ -818,16 +831,16 @@ mod tests {
         let mut app = page(Pane::Agents);
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Change(v0::Changes {
+            protocol::ServerMessage::Change(protocol::Changes {
                 epoch: 1,
                 revision: 2,
-                changes: vec![v0::Update::Grants {
-                    grants: vec![v0::Grant {
+                changes: vec![protocol::Update::Grants {
+                    grants: vec![protocol::Grant {
                         agent: None,
                         name: "founder".into(),
-                        permission: v0::Permission::Network,
+                        permission: protocol::Permission::Network,
                         by: None,
-                        source: v0::GrantSource::Limits,
+                        source: protocol::GrantSource::Limits,
                     }],
                 }],
             }),
@@ -854,21 +867,23 @@ mod tests {
             .resource::<Outbox>()
             .iter()
             .find_map(|message| match message {
-                v0::ClientMessage::Read(v0::Read::Charter { id }) => {
-                    Some(id.clone())
-                }
+                protocol::ClientMessage::Read(
+                    protocol::Read::Charter { id },
+                ) => Some(id.clone()),
                 _ => None,
             })
             .expect("the charter page requests its text");
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Read(v0::ReadResult::Charter {
-                to: sent,
-                charter: v0::ReadResultCharterCharter {
-                    text: "Keep the orchard kind.".into(),
-                    own: true,
+            protocol::ServerMessage::Read(
+                protocol::ReadResult::Charter {
+                    to: sent,
+                    charter: protocol::ReadResultCharterCharter {
+                        text: "Keep the orchard kind.".into(),
+                        own: true,
+                    },
                 },
-            }),
+            ),
         );
         settle(&mut app);
         let shown = words(&mut app);
@@ -900,22 +915,24 @@ mod tests {
             .resource::<Outbox>()
             .iter()
             .filter_map(|message| match message {
-                v0::ClientMessage::Read(v0::Read::Charter { id }) => {
-                    Some(id.clone())
-                }
+                protocol::ClientMessage::Read(
+                    protocol::Read::Charter { id },
+                ) => Some(id.clone()),
                 _ => None,
             })
             .last()
             .unwrap();
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Read(v0::ReadResult::Charter {
-                to: id,
-                charter: v0::ReadResultCharterCharter {
-                    text: "Keep the orchard kind.".into(),
-                    own: true,
+            protocol::ServerMessage::Read(
+                protocol::ReadResult::Charter {
+                    to: id,
+                    charter: protocol::ReadResultCharterCharter {
+                        text: "Keep the orchard kind.".into(),
+                        own: true,
+                    },
                 },
-            }),
+            ),
         );
         app.init_resource::<Edits>().add_observer(
             |edit: On<Edit>, mut edits: ResMut<Edits>| {
@@ -946,8 +963,10 @@ mod tests {
             .next()
             .cloned()
             .unwrap();
-        let v0::ClientMessage::Edit(v0::Edit::Charter { id, .. }) =
-            edit
+        let protocol::ClientMessage::Edit(protocol::Edit::Charter {
+            id,
+            ..
+        }) = edit
         else {
             panic!("{edit:?}");
         };
@@ -959,9 +978,9 @@ mod tests {
         );
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Reply(v0::Reply {
+            protocol::ServerMessage::Reply(protocol::Reply {
                 to: id,
-                kind: v0::ReplyKind::Error,
+                kind: protocol::ReplyKind::Error,
                 text: "The charter was refused.".into(),
                 upload: None,
             }),
@@ -988,10 +1007,9 @@ mod tests {
             .resource::<Outbox>()
             .iter()
             .find_map(|message| match message {
-                v0::ClientMessage::Edit(v0::Edit::Charter {
-                    id,
-                    ..
-                }) => Some(id.clone()),
+                protocol::ClientMessage::Edit(
+                    protocol::Edit::Charter { id, .. },
+                ) => Some(id.clone()),
                 _ => None,
             })
             .unwrap();
@@ -1003,9 +1021,9 @@ mod tests {
         );
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Reply(v0::Reply {
+            protocol::ServerMessage::Reply(protocol::Reply {
                 to: id,
-                kind: v0::ReplyKind::Notice,
+                kind: protocol::ReplyKind::Notice,
                 text: "The default charter is back.".into(),
                 upload: None,
             }),
@@ -1015,21 +1033,23 @@ mod tests {
             .resource_mut::<Outbox>()
             .drain()
             .find_map(|message| match message {
-                v0::ClientMessage::Read(v0::Read::Charter { id }) => {
-                    Some(id)
-                }
+                protocol::ClientMessage::Read(
+                    protocol::Read::Charter { id },
+                ) => Some(id),
                 _ => None,
             })
             .expect("the accepted reset refreshes the charter");
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Read(v0::ReadResult::Charter {
-                to: read,
-                charter: v0::ReadResultCharterCharter {
-                    text: "The server's default words.".into(),
-                    own: false,
+            protocol::ServerMessage::Read(
+                protocol::ReadResult::Charter {
+                    to: read,
+                    charter: protocol::ReadResultCharterCharter {
+                        text: "The server's default words.".into(),
+                        own: false,
+                    },
                 },
-            }),
+            ),
         );
         settle(&mut app);
         let shown = words(&mut app);
@@ -1063,15 +1083,15 @@ mod tests {
             .resource::<Outbox>()
             .iter()
             .find_map(|message| match message {
-                v0::ClientMessage::Read(v0::Read::Charter { id }) => {
-                    Some(id.clone())
-                }
+                protocol::ClientMessage::Read(
+                    protocol::Read::Charter { id },
+                ) => Some(id.clone()),
                 _ => None,
             })
             .expect("a fresh charter after reconnecting");
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Fault(v0::Fault {
+            protocol::ServerMessage::Fault(protocol::Fault {
                 to: Some(sent),
                 text: "Cannot read the charter.".into(),
             }),

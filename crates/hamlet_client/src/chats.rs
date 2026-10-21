@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use bevy_app::{App, PostUpdate};
 use bevy_ecs::name::Name;
 use bevy_ecs::prelude::*;
-use hamlet_protocol::{transcript, v0};
+use hamlet_protocol::{self as protocol, transcript};
 
 use crate::messages::{
     JobFinished, Reconnected, Response, SessionOutput,
@@ -37,8 +37,8 @@ pub fn plugin(app: &mut App) {
             |response: On<Response>, mut watches: ResMut<Watches>| {
                 if matches!(
                     response.message,
-                    v0::ServerMessage::Reply(_)
-                        | v0::ServerMessage::Fault(_)
+                    protocol::ServerMessage::Reply(_)
+                        | protocol::ServerMessage::Fault(_)
                 ) {
                     watches
                         .pages
@@ -50,7 +50,7 @@ pub fn plugin(app: &mut App) {
 
 #[derive(Resource, Default)]
 struct Watches {
-    chats: HashMap<Entity, v0::ChatRef>,
+    chats: HashMap<Entity, protocol::ChatRef>,
     pages: HashMap<Entity, Page>,
     reopen: bool,
 }
@@ -60,9 +60,9 @@ struct Page {
     stale: bool,
 }
 
-fn open(world: &mut World, chat: v0::ChatRef) {
+fn open(world: &mut World, chat: protocol::ChatRef) {
     world.resource_mut::<Outbox>().send(|id| {
-        v0::ClientMessage::Open(v0::Open {
+        protocol::ClientMessage::Open(protocol::Open {
             id,
             chat,
             before: None,
@@ -83,7 +83,7 @@ fn watch(world: &mut World) {
                 entity.remove::<TalksTo>();
             }
             world.resource_mut::<Outbox>().send(|_| {
-                v0::ClientMessage::Close(v0::Close {
+                protocol::ClientMessage::Close(protocol::Close {
                     chat: reference.clone(),
                 })
             });
@@ -139,10 +139,10 @@ fn watch(world: &mut World) {
 }
 
 /// The received transcript or turn for watched chat entities.
-pub fn receive(world: &mut World, message: v0::ServerMessage) {
+pub fn receive(world: &mut World, message: protocol::ServerMessage) {
     let reference = match &message {
-        v0::ServerMessage::Transcript(page) => &page.chat,
-        v0::ServerMessage::Turn(turn) => &turn.chat,
+        protocol::ServerMessage::Transcript(page) => &page.chat,
+        protocol::ServerMessage::Turn(turn) => &turn.chat,
         _ => return,
     };
     let chats = world
@@ -154,7 +154,7 @@ pub fn receive(world: &mut World, message: v0::ServerMessage) {
     let chief = world.resource::<Chief>().0.clone();
     for chat in chats {
         match &message {
-            v0::ServerMessage::Transcript(page) => {
+            protocol::ServerMessage::Transcript(page) => {
                 let mut watches = world.resource_mut::<Watches>();
                 let prepend =
                     watches.pages.get(&chat).is_some_and(|pending| {
@@ -201,14 +201,14 @@ pub fn receive(world: &mut World, message: v0::ServerMessage) {
                     .entity_mut(chat)
                     .insert(Usage(page.usage.clone()));
             }
-            v0::ServerMessage::Turn(turn) => {
+            protocol::ServerMessage::Turn(turn) => {
                 if let Some(number) = turn.number {
                     world
                         .entity_mut(chat)
                         .insert(ConversationNumber(number));
                 }
                 for op in &turn.ops {
-                    if matches!(op, v0::Op::Reset {})
+                    if matches!(op, protocol::Op::Reset {})
                         && let Some(page) = world
                             .resource_mut::<Watches>()
                             .pages
@@ -217,7 +217,7 @@ pub fn receive(world: &mut World, message: v0::ServerMessage) {
                         page.stale = true;
                     }
                     match op {
-                        v0::Op::Status {
+                        protocol::Op::Status {
                             working,
                             pending,
                             last,
@@ -232,7 +232,7 @@ pub fn receive(world: &mut World, message: v0::ServerMessage) {
                                 }),
                             );
                         }
-                        v0::Op::Usage { usage } => {
+                        protocol::Op::Usage { usage } => {
                             world
                                 .entity_mut(chat)
                                 .insert(Usage(usage.clone()));
@@ -271,23 +271,25 @@ fn status(
     }
 }
 
-fn received_item(item: v0::Item, chief: &str) -> Item {
+fn received_item(item: protocol::Item, chief: &str) -> Item {
     let entry = match item.kind {
-        v0::ItemKind::User if item.author.is_some() => Entry::Agent {
-            name: item.author.unwrap(),
-            text: item.text,
-        },
-        v0::ItemKind::User => Entry::User {
+        protocol::ItemKind::User if item.author.is_some() => {
+            Entry::Agent {
+                name: item.author.unwrap(),
+                text: item.text,
+            }
+        }
+        protocol::ItemKind::User => Entry::User {
             user: item.chief.unwrap_or_else(|| chief.into()),
             text: item.text,
         },
-        v0::ItemKind::Assistant => Entry::Assistant(item.text),
-        v0::ItemKind::Reasoning => Entry::Reasoning(item.text),
-        v0::ItemKind::Notice => Entry::Notice(item.text),
-        v0::ItemKind::Error => Entry::Error(item.text),
-        v0::ItemKind::Answered => Entry::Answered(item.text),
-        v0::ItemKind::Tool => {
-            let tool = item.tool.unwrap_or(v0::ItemTool {
+        protocol::ItemKind::Assistant => Entry::Assistant(item.text),
+        protocol::ItemKind::Reasoning => Entry::Reasoning(item.text),
+        protocol::ItemKind::Notice => Entry::Notice(item.text),
+        protocol::ItemKind::Error => Entry::Error(item.text),
+        protocol::ItemKind::Answered => Entry::Answered(item.text),
+        protocol::ItemKind::Tool => {
+            let tool = item.tool.unwrap_or(protocol::ItemTool {
                 name: String::new(),
                 summary: String::new(),
                 exit: None,
@@ -334,7 +336,7 @@ pub fn earlier(world: &mut World, chat: Entity) {
         return;
     };
     let id = world.resource_mut::<Outbox>().send(|id| {
-        v0::ClientMessage::Open(v0::Open {
+        protocol::ClientMessage::Open(protocol::Open {
             id,
             chat: reference,
             before: Some(before),
@@ -349,7 +351,7 @@ pub fn earlier(world: &mut World, chat: Entity) {
 /// A watched conversation identified by the server.
 #[derive(Component, Clone, Debug, PartialEq)]
 #[require(Transcript, Status)]
-pub struct Chat(pub v0::ChatRef);
+pub struct Chat(pub protocol::ChatRef);
 
 /// The server's stable conversation number for a watched chat.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
@@ -387,7 +389,7 @@ pub enum Entry {
         exit: Option<i64>,
         ms: Option<u64>,
         failure: Option<String>,
-        change: Option<v0::Change>,
+        change: Option<protocol::Change>,
     },
     Error(String),
     Notice(String),
@@ -457,17 +459,17 @@ pub struct Transcript {
 }
 
 impl Transcript {
-    fn apply(&mut self, op: &v0::Op, chief: &str) {
+    fn apply(&mut self, op: &protocol::Op, chief: &str) {
         // An op on an item this window does not hold changes nothing.
         let _ = transcript::apply(&mut self.items, op, |item| {
             received_item(item.clone(), chief)
         });
         match op {
-            v0::Op::Reset {} => {
+            protocol::Op::Reset {} => {
                 self.earlier = None;
                 self.shape += 1;
             }
-            v0::Op::Add { .. } | v0::Op::Close { .. } => {
+            protocol::Op::Add { .. } | protocol::Op::Close { .. } => {
                 self.shape += 1
             }
             _ => {}
@@ -538,7 +540,7 @@ impl Status {
 
 /// The server's received usage view.
 #[derive(Component, Clone, Debug, PartialEq)]
-pub struct Usage(pub v0::UsageView);
+pub struct Usage(pub protocol::UsageView);
 
 impl Usage {
     /// The server's ready-made usage words.

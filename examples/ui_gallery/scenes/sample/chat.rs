@@ -2,7 +2,7 @@
 
 use bevy::ecs::world::World;
 use hamlet_client::chats::{Entry, Item, Transcript};
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 use hamlet_ui::links::Roots;
 
 use crate::scenes::Scene;
@@ -171,8 +171,8 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
     }
 }
 
-pub(super) fn change() -> v0::Change {
-    v0::Change {
+pub(super) fn change() -> protocol::Change {
+    protocol::Change {
         path: "src/almanac.rs".into(),
         created: false,
         total: 3,
@@ -180,16 +180,16 @@ pub(super) fn change() -> v0::Change {
         removed: 1,
         count: "+1 -1".into(),
         lines: vec![
-            v0::ChangeLines {
-                mark: v0::ChangeLinesMark::Space,
+            protocol::ChangeLines {
+                mark: protocol::ChangeLinesMark::Space,
                 text: "let rows = read(&path);".into(),
             },
-            v0::ChangeLines {
-                mark: v0::ChangeLinesMark::Minus,
+            protocol::ChangeLines {
+                mark: protocol::ChangeLinesMark::Minus,
                 text: "let pears = 0;".into(),
             },
-            v0::ChangeLines {
-                mark: v0::ChangeLinesMark::Plus,
+            protocol::ChangeLines {
+                mark: protocol::ChangeLinesMark::Plus,
                 text: "let pears = count(&rows);".into(),
             },
         ],

@@ -4,11 +4,11 @@
 
 use std::collections::BTreeMap;
 
-use hamlet_protocol::v0::Period;
+use hamlet_protocol::Period;
 use hamlet_testing::Scratch;
 use serde_json::{Value, json};
 
-use super::link::{ModelRef, Price, Usage};
+use super::runtime::{ModelRef, Price, Usage};
 use super::{Answer, Binding, InputStatus, answers, parse, tools};
 use crate::record::{
     Actor, Admit, AgentRef, Change, FoundRecord, RecordOperation,
@@ -560,7 +560,7 @@ fn a_hello_lacking_the_link_version_or_a_needed_capability_is_refused()
  {
     use std::path::Path;
 
-    use super::link::{Capability, Hello, HelloStore};
+    use super::runtime::{Capability, Hello, HelloStore};
     use super::{LINK_VERSION, NEEDED, refusal};
 
     let row = super::bindings::RuntimeRow {

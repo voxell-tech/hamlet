@@ -50,7 +50,7 @@ use hamlet_client::messages::{
 };
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::MAYOR;
-use hamlet_protocol::v0;
+use hamlet_protocol as protocol;
 use hamlet_realm::orders::{Decree, Tell};
 
 pub(crate) use self::change::change_view;
@@ -139,7 +139,7 @@ fn remember_said(message: On<UserMessage>, mut commands: Commands) {
     // keeps their ids.
     commands.queue(move |world: &mut World| {
         remember(world, |request| match request {
-            v0::ClientMessage::Say(say)
+            protocol::ClientMessage::Say(say)
                 if say.to == message.to
                     && say.text == message.text =>
             {
@@ -161,7 +161,7 @@ fn remember_rewind(
     let (chat, item) = (chat.0.clone(), rewind.item.clone());
     commands.queue(move |world: &mut World| {
         remember(world, |request| match request {
-            v0::ClientMessage::Rewind(rewind)
+            protocol::ClientMessage::Rewind(rewind)
                 if rewind.chat == chat && rewind.item == item =>
             {
                 Some(rewind.id.clone())
@@ -173,7 +173,7 @@ fn remember_rewind(
 
 fn remember(
     world: &mut World,
-    request: impl Fn(&v0::ClientMessage) -> Option<String>,
+    request: impl Fn(&protocol::ClientMessage) -> Option<String>,
 ) {
     let ids = world
         .resource::<Outbox>()
@@ -190,11 +190,11 @@ fn response(
     mut commands: Commands,
 ) {
     let text = match &response.message {
-        v0::ServerMessage::Reply(reply) => (reply.kind
-            == v0::ReplyKind::Error)
+        protocol::ServerMessage::Reply(reply) => (reply.kind
+            == protocol::ReplyKind::Error)
             .then_some(&reply.text),
-        v0::ServerMessage::Fault(fault) => Some(&fault.text),
-        v0::ServerMessage::Transcript(_) => None,
+        protocol::ServerMessage::Fault(fault) => Some(&fault.text),
+        protocol::ServerMessage::Transcript(_) => None,
         _ => return,
     };
     if requests.0.remove(&response.to)
@@ -249,7 +249,7 @@ pub fn send(world: &mut World, text: String) {
 /// A chief's command addressed to a hamlet's mayor.
 pub(crate) fn decree(world: &mut World, hamlet: &str, text: String) {
     world.trigger(UserMessage {
-        to: v0::Address {
+        to: protocol::Address {
             hamlet: hamlet.into(),
             agent: MAYOR.into(),
         },
@@ -552,7 +552,9 @@ mod tests {
             .resource::<Outbox>()
             .iter()
             .find_map(|message| match message {
-                v0::ClientMessage::Say(say) => Some(say.text.clone()),
+                protocol::ClientMessage::Say(say) => {
+                    Some(say.text.clone())
+                }
                 _ => None,
             })
             .unwrap();
@@ -589,7 +591,7 @@ mod tests {
         heard(&mut app);
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Fault(v0::Fault {
+            protocol::ServerMessage::Fault(protocol::Fault {
                 to: None,
                 text: "The server could not keep that change.".into(),
             }),
@@ -629,8 +631,8 @@ mod tests {
                 .resource_mut::<Outbox>()
                 .drain()
                 .find_map(|message| match message {
-                    v0::ClientMessage::Say(say) => Some(say.id),
-                    v0::ClientMessage::Rewind(rewind) => {
+                    protocol::ClientMessage::Say(say) => Some(say.id),
+                    protocol::ClientMessage::Rewind(rewind) => {
                         Some(rewind.id)
                     }
                     _ => None,
@@ -639,14 +641,14 @@ mod tests {
             heard(&mut app);
             let text = "This conversation cannot do that.".into();
             let message = if fault {
-                v0::ServerMessage::Fault(v0::Fault {
+                protocol::ServerMessage::Fault(protocol::Fault {
                     to: Some(id),
                     text,
                 })
             } else {
-                v0::ServerMessage::Reply(v0::Reply {
+                protocol::ServerMessage::Reply(protocol::Reply {
                     to: id,
-                    kind: v0::ReplyKind::Error,
+                    kind: protocol::ReplyKind::Error,
                     text,
                     upload: None,
                 })
@@ -665,13 +667,15 @@ mod tests {
         }
         let id =
             app.world_mut().resource_mut::<Outbox>().send(|id| {
-                v0::ClientMessage::Check(v0::Check::Connection { id })
+                protocol::ClientMessage::Check(
+                    protocol::Check::Connection { id },
+                )
             });
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Reply(v0::Reply {
+            protocol::ServerMessage::Reply(protocol::Reply {
                 to: id,
-                kind: v0::ReplyKind::Error,
+                kind: protocol::ReplyKind::Error,
                 text: "Only the settings panel should show this."
                     .into(),
                 upload: None,
@@ -739,11 +743,14 @@ mod tests {
         send(app.world_mut(), "/agent founder".into());
         send(app.world_mut(), "/hamlet home".into());
         assert!(!app.world().resource::<Outbox>().iter().any(
-            |message| matches!(message, v0::ClientMessage::Say(_))
+            |message| matches!(
+                message,
+                protocol::ClientMessage::Say(_)
+            )
         ));
     }
 
-    fn paging_pages() -> Vec<v0::Transcript> {
+    fn paging_pages() -> Vec<protocol::Transcript> {
         include_str!("../../../hamlet_protocol/frames/paging.jsonl")
             .lines()
             .filter_map(|line| {
@@ -752,13 +759,15 @@ mod tests {
                         .unwrap();
                 (frame["from"] == "server")
                     .then(|| {
-                        serde_json::from_value::<v0::ServerMessage>(
-                            frame["message"].clone(),
+                        serde_json::from_value::<
+                            protocol::ServerMessage,
+                        >(
+                            frame["message"].clone()
                         )
                         .unwrap()
                     })
                     .and_then(|message| match message {
-                        v0::ServerMessage::Transcript(page) => {
+                        protocol::ServerMessage::Transcript(page) => {
                             Some(page)
                         }
                         _ => None,
@@ -777,7 +786,7 @@ mod tests {
         let pages = paging_pages();
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Transcript(pages[0].clone()),
+            protocol::ServerMessage::Transcript(pages[0].clone()),
         );
         bevy_fynix::mount::<crate::theme::HamletTheme>(
             app.world_mut(),
@@ -803,7 +812,7 @@ mod tests {
             .resource_mut::<Outbox>()
             .drain()
             .filter_map(|message| match message {
-                v0::ClientMessage::Open(open)
+                protocol::ClientMessage::Open(open)
                     if open.before.is_some() =>
                 {
                     Some(open)
@@ -816,7 +825,7 @@ mod tests {
         page.to = Some(requests[0].id.clone());
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Transcript(page),
+            protocol::ServerMessage::Transcript(page),
         );
         for _ in 0..10 {
             app.update();
@@ -826,7 +835,7 @@ mod tests {
         assert!(
             !shown.contains("Earlier lines. Scroll up to read them.")
         );
-        assert!(!app.world().resource::<Outbox>().iter().any(|message| matches!(message, v0::ClientMessage::Open(open) if open.before.is_some())));
+        assert!(!app.world().resource::<Outbox>().iter().any(|message| matches!(message, protocol::ClientMessage::Open(open) if open.before.is_some())));
     }
 
     #[test]
@@ -840,7 +849,7 @@ mod tests {
         let pages = paging_pages();
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Transcript(pages[0].clone()),
+            protocol::ServerMessage::Transcript(pages[0].clone()),
         );
         bevy_fynix::mount::<crate::theme::HamletTheme>(
             app.world_mut(),
@@ -893,7 +902,7 @@ mod tests {
             .resource_mut::<Outbox>()
             .drain()
             .filter_map(|message| match message {
-                v0::ClientMessage::Open(open)
+                protocol::ClientMessage::Open(open)
                     if open.before.is_some() =>
                 {
                     Some(open)
@@ -912,7 +921,7 @@ mod tests {
             .resource_mut::<Outbox>()
             .drain()
             .find_map(|message| match message {
-                v0::ClientMessage::Open(open)
+                protocol::ClientMessage::Open(open)
                     if open.before.is_none() =>
                 {
                     Some(open)
@@ -924,7 +933,7 @@ mod tests {
         latest.to = Some(reopened.id);
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Transcript(latest),
+            protocol::ServerMessage::Transcript(latest),
         );
         app.update();
         let requests = app
@@ -932,7 +941,7 @@ mod tests {
             .resource_mut::<Outbox>()
             .drain()
             .filter_map(|message| match message {
-                v0::ClientMessage::Open(open)
+                protocol::ClientMessage::Open(open)
                     if open.before.is_some() =>
                 {
                     Some(open)
@@ -950,7 +959,7 @@ mod tests {
         page.to = Some(requests[0].id.clone());
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Transcript(page),
+            protocol::ServerMessage::Transcript(page),
         );
         app.update();
         app.world_mut()
@@ -1117,7 +1126,7 @@ mod tests {
             .resource::<Outbox>()
             .iter()
             .find_map(|message| match message {
-                v0::ClientMessage::Rewind(request) => {
+                protocol::ClientMessage::Rewind(request) => {
                     Some(request.clone())
                 }
                 _ => None,
@@ -1126,9 +1135,9 @@ mod tests {
         assert_eq!(request.item, "entry-abc:0");
         hamlet_client::receive(
             app.world_mut(),
-            v0::ServerMessage::Reply(v0::Reply {
+            protocol::ServerMessage::Reply(protocol::Reply {
                 to: request.id,
-                kind: v0::ReplyKind::Rewound,
+                kind: protocol::ReplyKind::Rewound,
                 text: "Change these words".into(),
                 upload: None,
             }),

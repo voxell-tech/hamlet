@@ -1,6 +1,6 @@
 //! Wire messages through the generated public types.
 
-use hamlet_protocol::v0::*;
+use hamlet_protocol::*;
 use serde_json::{Value, json};
 
 const ID: &str = "00000000-0000-4000-8000-000000000001";
