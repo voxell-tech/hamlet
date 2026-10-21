@@ -718,7 +718,11 @@ pub(crate) fn document<T: DeserializeOwned + Default>(
     .optional()?
     .map_or_else(
         || Ok(T::default()),
-        |v| Ok(serde_json::from_str(&v)?),
+        |v| {
+            serde_json::from_str(&v).with_context(|| {
+                format!("the stored {kind} document of {key}")
+            })
+        },
     )
 }
 

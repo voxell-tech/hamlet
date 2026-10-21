@@ -5,10 +5,11 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use hamlet_protocol::v0::{
-    Address, Edit, EditLimits, Read, ServerMessage,
+    Address, Edit, EditLimits, Papers, Read, ReadResult,
+    ReadResultCharterCharter, ServerMessage,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::Outcome;
 use crate::limits::Limits;
@@ -426,6 +427,15 @@ pub(crate) enum Mode {
     Auto,
 }
 
+impl From<Mode> for hamlet_protocol::v0::HamletMode {
+    fn from(mode: Mode) -> Self {
+        match mode {
+            Mode::Manual => Self::Manual,
+            Mode::Auto => Self::Auto,
+        }
+    }
+}
+
 impl Mode {
     pub fn words(self) -> &'static str {
         match self {
@@ -451,7 +461,7 @@ pub(crate) enum Reading {
     Ready(Box<ServerMessage>),
     Papers {
         id: String,
-        papers: Value,
+        character: String,
         reader: crate::papers::Reader,
         full: bool,
     },
@@ -467,26 +477,31 @@ impl Reading {
             Self::Ready(message) => Ok(*message),
             Self::Papers {
                 id,
-                mut papers,
+                character,
                 reader,
                 full,
             } => {
                 let notes = reader.notes().await.unwrap_or_default();
-                papers["notes"] = if full {
+                let notes = if full {
                     notes
                 } else {
                     cut(notes.trim(), 6000, "")
-                }
-                .into();
-                Ok(serde_json::from_value(
-                    json!({"type":"read","to":id,"papers":papers}),
-                )?)
+                };
+                Ok(ServerMessage::Read(ReadResult::Papers {
+                    to: id,
+                    papers: Papers {
+                        character,
+                        notes,
+                        skills: Vec::new(),
+                    },
+                }))
             }
             Self::Prompt { id, prompt } => {
                 let sections = prompt.render().await?;
-                Ok(serde_json::from_value(
-                    json!({"type":"read","to":id,"prompt":crate::prompt::text(&sections)}),
-                )?)
+                Ok(ServerMessage::Read(ReadResult::Prompt {
+                    to: id,
+                    prompt: crate::prompt::text(&sections),
+                }))
             }
         }
     }
@@ -500,9 +515,10 @@ pub(crate) fn prepare_read(
         Read::Charter { id } => {
             let (text, own) = service.charter()?;
             return Ok(Reading::Ready(Box::new(
-                serde_json::from_value(
-                    json!({"type":"read", "to":id, "charter":{"text":text,"own":own}}),
-                )?,
+                ServerMessage::Read(ReadResult::Charter {
+                    to: id,
+                    charter: ReadResultCharterCharter { text, own },
+                }),
             )));
         }
         Read::Models { id, .. } => {
@@ -548,7 +564,7 @@ pub(crate) fn prepare_read(
         };
         return Ok(Reading::Papers {
             id,
-            papers: json!({"character":character,"notes":"","skills":[]}),
+            character,
             reader,
             full,
         });

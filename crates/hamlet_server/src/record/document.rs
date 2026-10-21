@@ -11,6 +11,15 @@ pub struct AgentRef {
     pub number: u64,
 }
 
+impl From<AgentRef> for hamlet_protocol::v0::AgentRef {
+    fn from(agent: AgentRef) -> Self {
+        Self {
+            hamlet: agent.hamlet,
+            number: agent.number,
+        }
+    }
+}
+
 /// A living or archived agent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Agent {

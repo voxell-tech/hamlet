@@ -2,7 +2,10 @@
 //! its tool call into the receiver's conversation with the sender,
 //! and its answer carried back.
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
+use hamlet_protocol::v0::{
+    self, ConversationView, ConversationViewKind,
+};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -1026,7 +1029,7 @@ pub(crate) async fn resume(
 pub(crate) fn views(
     db: &Connection,
     agent: &AgentRef,
-) -> Result<Vec<Value>> {
+) -> Result<Vec<ConversationView>> {
     let mut query = db.prepare(
         "SELECT kind, from_hamlet, from_number, binding FROM \
          society_peer WHERE hamlet = ?1 AND number = ?2",
@@ -1059,10 +1062,29 @@ pub(crate) fn views(
             }
             last = last.max(i64::try_from(item.at).ok());
         }
-        views.push(json!({"with": {"hamlet": hamlet, "number": number}, "kind": kind, "count": count, "last": last}));
+        let kind = match kind.as_str() {
+            "letters" => ConversationViewKind::Letters,
+            "questions" => ConversationViewKind::Questions,
+            other => {
+                bail!("a peer conversation of no kind `{other}`")
+            }
+        };
+        views.push(ConversationView {
+            count,
+            kind,
+            last,
+            with: v0::AgentRef {
+                number: u64::try_from(number).with_context(|| {
+                    format!(
+                        "a conversation's agent number in {hamlet}"
+                    )
+                })?,
+                hamlet,
+            },
+        });
     }
     views.sort_by_key(|view| {
-        std::cmp::Reverse(view["last"].as_i64().unwrap_or(0))
+        std::cmp::Reverse(view.last.unwrap_or(0))
     });
     Ok(views)
 }

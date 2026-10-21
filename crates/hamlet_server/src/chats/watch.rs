@@ -3,9 +3,9 @@
 
 use anyhow::Result;
 use hamlet_protocol::v0::{
-    Address, ChatRef, ChatRefKind, Open, ServerMessage, Transcript,
+    Address, ChatRef, ChatRefKind, Open, ReadResult, ServerMessage,
+    Transcript,
 };
-use serde_json::json;
 
 use super::{Watch, records};
 use crate::harness::{BindingId, Harnesses, InputMark, link};
@@ -210,10 +210,10 @@ pub(super) async fn history(
         hamlet: address.hamlet.clone(),
         number: agent.number,
     };
-    let past = pasts(service, &agent)?;
-    Ok(serde_json::from_value(
-        json!({"type": "read", "to": id, "history": past}),
-    )?)
+    Ok(ServerMessage::Read(ReadResult::History {
+        to: id.into(),
+        history: pasts(service, &agent)?,
+    }))
 }
 
 /// The sessions of the chief's chat with `agent` that hold a chief's

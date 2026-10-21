@@ -4,10 +4,13 @@
 pub(crate) mod held;
 
 use anyhow::{Context, Result, bail};
-use hamlet_protocol::v0::{Choice, Lasting, Questions, WaitDanger};
+use hamlet_protocol::v0::{
+    self, Address, ChatRef, Choice, Lasting, Questions, WaitDanger,
+    WaitDetail,
+};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::change::clip;
 use crate::harness::BindingId;
@@ -475,46 +478,53 @@ pub(crate) fn view(
     wait: &Wait,
     record: Option<&Hamlet>,
     current: Option<i64>,
-) -> Result<Value> {
+) -> Result<v0::Wait> {
     let chat = match (&wait.chat, record) {
-        (Some(chat), Some(record)) => {
-            let mut chat_ref = json!({"with": {
-                "hamlet": chat.hamlet,
-                "agent": record.address_of(chat.number),
-            }});
-            if current != Some(chat.session) {
-                chat_ref["past"] = chat.session.into();
-            }
-            chat_ref
-        }
-        _ => Value::Null,
+        (Some(chat), Some(record)) => Some(ChatRef {
+            with: Address {
+                hamlet: chat.hamlet.clone(),
+                agent: record.address_of(chat.number).into(),
+            },
+            past: (current != Some(chat.session))
+                .then_some(chat.session),
+            from: None,
+            kind: None,
+        }),
+        _ => None,
     };
-    let mut detail = json!({"kind": wait.kind.name()});
-    if let WaitKind::Approval(danger) = wait.kind {
-        detail["danger"] =
-            serde_json::to_value(WaitDanger::from(danger))?;
-        detail["says"] = danger.says().into();
-        detail["always"] = serde_json::to_value(
-            danger
+    let detail = match &wait.kind {
+        WaitKind::Approval(danger) => WaitDetail::Approval {
+            always: danger
                 .lasting()
                 .filter(|_| wait.answers.contains(&Choice::Always)),
-        )?;
-    }
-    if let WaitKind::Question(questions) = &wait.kind {
-        detail["questions"] = serde_json::to_value(questions)
-            .context("a wait's questions")?;
-    }
-    Ok(json!({
-        "id": wait.id,
-        "by": wait.by,
-        "agent": wait.agent.as_ref().map(|a| json!({"hamlet": a.hamlet, "number": a.number})),
-        "about": wait.about,
-        "subject": subject(wait),
-        "change": wait.change,
-        "answers": wait.answers,
-        "since": wait.since,
-        "asked": wait.asked,
-        "chat": chat,
-        "detail": detail,
-    }))
+            danger: WaitDanger::from(*danger),
+            says: danger.says().into(),
+        },
+        WaitKind::Fault => WaitDetail::Fault {},
+        WaitKind::Question(questions) => WaitDetail::Question {
+            questions: questions.clone(),
+        },
+        WaitKind::Objection => WaitDetail::Objection {},
+    };
+    let change = wait
+        .change
+        .clone()
+        .map(serde_json::from_value)
+        .transpose()
+        .with_context(|| format!("wait {}'s change", wait.id))?;
+    Ok(v0::Wait {
+        id: wait.id.clone(),
+        by: wait.by.clone(),
+        agent: wait.agent.clone().map(Into::into),
+        about: wait.about.clone(),
+        subject: subject(wait).into(),
+        change,
+        answers: wait.answers.clone(),
+        since: u64::try_from(wait.since)
+            .with_context(|| format!("wait {}'s start", wait.id))?,
+        asked: u64::try_from(wait.asked)
+            .with_context(|| format!("wait {}'s asking", wait.id))?,
+        chat,
+        detail,
+    })
 }

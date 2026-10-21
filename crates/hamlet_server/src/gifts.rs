@@ -12,12 +12,12 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use hamlet_protocol::v0::{
-    Address, ClientMessage, Give, GiveFilesFiles, GivePart,
+    self, Address, ClientMessage, Give, GiveFilesFiles, GivePart,
     GiveSkillSkill, ServerMessage,
 };
 use hamlet_workspace_wire::{Code, TREE_ENTRIES, TreeKind};
 use rules::{DELIVERY, MAX_BYTES, MISMATCH, STAGING, UNKNOWN};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::harness::Harnesses;
 use crate::papers::copy::{Snapshot, Stopped, UNSAFE};
@@ -847,7 +847,7 @@ fn roots<'a>(paths: impl Iterator<Item = &'a str>) -> Vec<String> {
     roots
 }
 
-pub(crate) fn starters() -> Vec<Value> {
+pub(crate) fn starters() -> Vec<v0::Skill> {
     let mut names = crate::starters::names().collect::<Vec<_>>();
     names.sort();
     names
@@ -863,7 +863,10 @@ pub(crate) fn starters() -> Vec<Value> {
                     })
                 })
                 .unwrap_or_default();
-            json!({"name": name, "description": description})
+            v0::Skill {
+                description: description.into(),
+                name: name.into(),
+            }
         })
         .collect()
 }

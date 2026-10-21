@@ -7,8 +7,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use hamlet_protocol::v0::{
-    Check, ClientMessage, EditCatalogueSet, LinkState, Listed,
-    ListedPriced, Login, LoginMethod, Price as ListedPrice, Read,
+    Check, ClientMessage, EditCatalogueSet, Link, LinkState, Listed,
+    ListedPriced, Login, LoginMethod, LoginProgress, LoginStep,
+    Price as ListedPrice, ProviderView, Read, ReadResult,
     ServerMessage,
 };
 use serde_json::{Value, json};
@@ -19,12 +20,12 @@ use crate::harness::LINK_VERSION;
 use crate::harness::link::{
     ModelRef, Price, ProviderControl, ProviderEvent, ProviderRequest,
     ProviderRequestAction, ProviderRequestMethod, ProviderResult,
-    Selection,
+    ProviderResultProviders, Selection,
 };
 use crate::protocol::{Refusable, Refusal, reply};
 use crate::record::AgentRef;
 use crate::service::{Service, document, save};
-use crate::settings::{Link, Settings};
+use crate::settings::Settings;
 
 /// The price in dollars per million tokens of a model nothing prices.
 const RATE: f64 = 1.0;
@@ -34,7 +35,7 @@ const LOCAL_RATE: f64 = 0.1;
 pub(crate) struct Models {
     file: PathBuf,
     lists: BTreeMap<String, Vec<Value>>,
-    providers: Vec<Value>,
+    providers: Vec<ProviderResultProviders>,
     pending: HashMap<String, Pending>,
     logins: HashMap<String, SignIn>,
     pub outgoing: Vec<ProviderRequest>,
@@ -300,25 +301,16 @@ impl Service {
                     let provider = self
                         .provider_views()?
                         .into_iter()
-                        .find(|p| p["id"] == start.provider);
-                    let method = if start.method == LoginMethod::Key {
-                        "key"
-                    } else {
-                        "subscription"
-                    };
+                        .find(|p| p.id == start.provider);
                     let failure = if let Some(provider) = &provider {
-                        (!provider["methods"].as_array().is_some_and(
-                            |methods| {
-                                methods.iter().any(|m| m == method)
-                            },
-                        ))
-                        .then(|| {
-                            format!(
-                                "Signing in with {} is not offered. \
-                                 Use an API key.",
-                                start.provider
-                            )
-                        })
+                        (!provider.methods.contains(&start.method))
+                            .then(|| {
+                                format!(
+                                    "Signing in with {} is not \
+                                     offered. Use an API key.",
+                                    start.provider
+                                )
+                            })
                     } else {
                         Some(format!(
                             "Unknown provider: {}",
@@ -329,7 +321,7 @@ impl Service {
                         answers.push(login_step(
                             id,
                             &key,
-                            json!({"failed":failure}),
+                            LoginStep::Failed { failed: failure },
                         )?);
                     } else {
                         self.ask_provider(
@@ -420,7 +412,9 @@ impl Service {
                     answers.push(login_step(
                         &signin.id,
                         cancel,
-                        json!({"failed":"Sign-in cancelled."}),
+                        LoginStep::Failed {
+                            failed: "Sign-in cancelled.".into(),
+                        },
                     )?);
                     self.models.controls.push(control(
                         &signin.scope,
@@ -467,7 +461,10 @@ impl Service {
             login_step(
                 &signin.id,
                 login,
-                serde_json::to_value(event.step)?,
+                serde_json::from_value(serde_json::to_value(
+                    event.step,
+                )?)
+                .context("a sign-in step from the harness")?,
             )?,
         )])
     }
@@ -490,10 +487,11 @@ impl Service {
             if self.models.logins.remove(&login).is_none() {
                 return Ok(answers);
             }
-            let step = if result.error.is_none() {
-                json!({"done":pending.provider})
-            } else {
-                json!({"failed":result.error.unwrap_or_else(||"Sign-in failed.".into())})
+            let step = match result.error {
+                None => LoginStep::Done {
+                    done: pending.provider.clone(),
+                },
+                Some(failed) => LoginStep::Failed { failed },
             };
             if let Some(client) = pending.client {
                 answers.push((
@@ -504,10 +502,7 @@ impl Service {
             return Ok(answers);
         }
         if let Some(providers) = result.providers {
-            self.models.providers = providers
-                .into_iter()
-                .map(serde_json::to_value)
-                .collect::<std::result::Result<_, _>>()?;
+            self.models.providers = providers;
         }
         if let Some(models) = result.models {
             let mut grouped = BTreeMap::<String, Vec<Value>>::new();
@@ -565,7 +560,10 @@ impl Service {
             if pending.action == ProviderRequestAction::Refresh
                 && result.error.is_none()
             {
-                Some(count)
+                Some(
+                    i64::try_from(count)
+                        .context("the number of models listed")?,
+                )
             } else {
                 None
             },
@@ -602,8 +600,7 @@ impl Service {
                  `endpoint::model`"
             ));
         };
-        if !self.provider_views()?.iter().any(|p| p["id"] == provider)
-        {
+        if !self.provider_views()?.iter().any(|p| p.id == provider) {
             return invalid(format!(
                 "`{name}` is served by the endpoint `{provider}`, \
                  which the settings do not have"
@@ -626,7 +623,7 @@ impl Service {
     fn model_link(
         &mut self,
         state: LinkState,
-        count: Option<usize>,
+        count: Option<i64>,
         words: Option<&str>,
     ) -> Result<()> {
         let db = self.home.store().connection();
@@ -639,25 +636,52 @@ impl Service {
         crate::settings::keep(db, &settings)
     }
 
-    pub(crate) fn provider_views(&mut self) -> Result<Vec<Value>> {
+    pub(crate) fn provider_views(
+        &mut self,
+    ) -> Result<Vec<ProviderView>> {
         let settings = self.settings()?;
         let serving = settings.provider().unwrap_or_default();
         let mut providers = self.models.providers.clone();
         if !self.models.faux {
-            providers.extend(settings.endpoints.iter().map(
-                |e| json!({"id":e.name,"name":e.name,"key":true}),
-            ));
+            providers.extend(settings.endpoints.iter().map(|e| {
+                ProviderResultProviders {
+                    id: e.name.clone(),
+                    key: true,
+                    name: e.name.clone(),
+                    subscription: false,
+                }
+            }));
         }
-        providers
-            .sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
-        Ok(providers.iter().map(|p| {
-            let id = p["id"].as_str().unwrap_or_default();
-            let mut methods = Vec::new();
-            if p["key"] == true { methods.push("key"); }
-            if p["subscription"] == true && ["chatgpt", "openrouter"].contains(&id) { methods.push("subscription"); }
-            let label = match id { "chatgpt" => "Continue with ChatGPT", "openrouter" => "Sign in with OpenRouter", _ => p["name"].as_str().unwrap_or_default() };
-            json!({"id":id,"name":p["name"],"configured":self.credentials.model(id,serving).is_some(),"methods":methods,"label":label})
-        }).collect())
+        providers.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(providers
+            .into_iter()
+            .map(|p| {
+                let mut methods = Vec::new();
+                if p.key {
+                    methods.push(LoginMethod::Key);
+                }
+                if p.subscription
+                    && ["chatgpt", "openrouter"].contains(&&*p.id)
+                {
+                    methods.push(LoginMethod::Subscription);
+                }
+                let label = match &*p.id {
+                    "chatgpt" => "Continue with ChatGPT".into(),
+                    "openrouter" => "Sign in with OpenRouter".into(),
+                    _ => p.name.clone(),
+                };
+                ProviderView {
+                    configured: self
+                        .credentials
+                        .model(&p.id, serving)
+                        .is_some(),
+                    methods,
+                    label,
+                    id: p.id,
+                    name: p.name,
+                }
+            })
+            .collect())
     }
 
     fn take_models(
@@ -734,9 +758,10 @@ impl Service {
         let cards = catalogue(self.home.store().connection())?
             .into_values()
             .collect::<Vec<_>>();
-        Ok(serde_json::from_value(
-            json!({"type":"read","to":id,"models":cards}),
-        )?)
+        Ok(ServerMessage::Read(ReadResult::Models {
+            to: id.into(),
+            models: cards,
+        }))
     }
 
     pub(crate) fn edit_catalogue(
@@ -801,11 +826,13 @@ fn control(
 fn login_step(
     id: &str,
     login: &str,
-    step: Value,
+    step: LoginStep,
 ) -> Result<ServerMessage> {
-    Ok(serde_json::from_value(
-        json!({"type":"login","to":id,"login":login,"step":step}),
-    )?)
+    Ok(ServerMessage::Login(LoginProgress {
+        to: Some(id.into()),
+        login: login.into(),
+        step,
+    }))
 }
 
 /// The model catalogue: each model's card, by its name.

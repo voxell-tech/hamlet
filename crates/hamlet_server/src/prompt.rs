@@ -329,9 +329,9 @@ pub(crate) fn budget(
     if mayor {
         let report =
             service.report(subject.hamlet, Some(OWN_MODEL))?;
-        let lines = std::iter::once(&report["summary"])
-            .chain(report["lines"].as_array().into_iter().flatten())
-            .filter_map(Value::as_str)
+        let lines = std::iter::once(&report.summary)
+            .chain(&report.lines)
+            .map(String::as_str)
             .collect::<Vec<_>>()
             .join("\n");
         let road = limits.road.cost;

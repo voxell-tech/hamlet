@@ -1,9 +1,11 @@
 //! Copies living houses to the next-start backend while the active
 //! backend stays selected.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use hamlet_protocol::v0::{
+    SettingsViewWorkspaceMove, SettingsViewWorkspaceMoveState,
+};
 use hamlet_workspace_wire::{TREE_BYTES, TREE_ENTRIES};
-use serde_json::{Value, json};
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 
@@ -15,20 +17,21 @@ use crate::service::Service;
 
 pub(crate) struct Moving {
     pub tasks: JoinSet<(u64, String, Refusable<String>)>,
-    progress: watch::Receiver<Value>,
+    progress: watch::Receiver<Option<SettingsViewWorkspaceMove>>,
 }
 
 impl Default for Moving {
     fn default() -> Self {
         Self {
             tasks: JoinSet::new(),
-            progress: watch::channel(Value::Null).1,
+            progress: watch::channel(None).1,
         }
     }
 }
 
 impl Moving {
-    pub fn view(&self) -> Value {
+    /// How the last move went, if one was started.
+    pub fn view(&self) -> Option<SettingsViewWorkspaceMove> {
         self.progress.borrow().clone()
     }
 }
@@ -80,18 +83,21 @@ impl Service {
         let root = self.home.layout().root();
         let source = Houses::open(root, from.cloned())?;
         let target = Houses::open(root, to.clone())?;
-        let (progress, receiver) = watch::channel(json!({
-            "state": "moving",
-            "done": 0,
-            "of": agents.len(),
-            "text": "",
-        }));
+        let of = i64::try_from(agents.len())
+            .context("the number of houses to move")?;
+        let (progress, receiver) =
+            watch::channel(Some(SettingsViewWorkspaceMove {
+                state: SettingsViewWorkspaceMoveState::Moving,
+                done: 0,
+                of,
+                text: String::new(),
+            }));
         self.moving.progress = receiver;
         let id = id.to_owned();
         let remote = to.is_some();
         self.moving.tasks.spawn(async move {
             let moved = move_houses(
-                &source, &target, &agents, remote, &progress,
+                &source, &target, &agents, of, remote, &progress,
             )
             .await;
             (owner, id, moved)
@@ -106,12 +112,20 @@ async fn move_houses(
     source: &Houses,
     target: &Houses,
     agents: &[AgentRef],
+    of: i64,
     remote: bool,
-    progress: &watch::Sender<Value>,
+    progress: &watch::Sender<Option<SettingsViewWorkspaceMove>>,
 ) -> Refusable<String> {
-    let of = agents.len();
+    let tell = |state, done, text: &str| {
+        progress.send_replace(Some(SettingsViewWorkspaceMove {
+            state,
+            done,
+            of,
+            text: text.into(),
+        }));
+    };
     let mut skipped = Vec::new();
-    for (done, agent) in agents.iter().enumerate() {
+    for (done, agent) in (0..).zip(agents) {
         match move_house(source, target, agent).await {
             Ok(left) => {
                 skipped.extend(left.into_iter().map(|path| {
@@ -129,21 +143,15 @@ async fn move_houses(
                      target before retrying.",
                     agent.number, agent.hamlet
                 );
-                progress.send_replace(json!({
-                    "state": "failed",
-                    "done": done,
-                    "of": of,
-                    "text": text,
-                }));
+                tell(
+                    SettingsViewWorkspaceMoveState::Failed,
+                    done,
+                    &text,
+                );
                 return Err(Refusal::Invalid(text));
             }
         }
-        progress.send_replace(json!({
-            "state": "moving",
-            "done": done + 1,
-            "of": of,
-            "text": "",
-        }));
+        tell(SettingsViewWorkspaceMoveState::Moving, done + 1, "");
     }
     let mut text = format!(
         "Moved {of} {} to {}. Restart Hamlet to work there; what \
@@ -166,12 +174,7 @@ async fn move_houses(
             skipped[..skipped.len().min(5)].join(", "),
         ));
     }
-    progress.send_replace(json!({
-        "state": "moved",
-        "done": of,
-        "of": of,
-        "text": text,
-    }));
+    tell(SettingsViewWorkspaceMoveState::Moved, of, &text);
     Ok(text)
 }
 

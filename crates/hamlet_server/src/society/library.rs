@@ -1,6 +1,7 @@
 //! Durable librarian consultations and shared skills.
 
 use anyhow::{Context, Result};
+use hamlet_protocol::v0::LibrarySkill;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -214,7 +215,7 @@ async fn offered(
              digits, hyphens and underscores.",
         );
     }
-    if views(service)?.iter().any(|s| s["name"] == name) {
+    if views(service)?.iter().any(|s| s.name == name) {
         return refuse(&format!(
             "the library already has a skill named `{name}`. Use \
              that one, or submit yours under another name if it \
@@ -459,13 +460,27 @@ pub(crate) fn consulting(
     )?)
 }
 
-pub(crate) fn views(service: &mut Service) -> Result<Vec<Value>> {
+pub(crate) fn views(
+    service: &mut Service,
+) -> Result<Vec<LibrarySkill>> {
     let found =
         shelf::shelf(&service.home.layout().root().join("library"));
-    found.into_iter().map(|skill| {
-        let shelved = super::document::<Value>(service.home.store().connection(), "library-shelved", &skill.folder)?;
-        Ok(json!({"name":skill.folder,"description":skill.description,"by":shelved["by"].as_str().unwrap_or("Hamlet")}))
-    }).collect()
+    let db = service.home.store().connection();
+    found
+        .into_iter()
+        .map(|skill| {
+            let shelved = super::document::<Value>(
+                db,
+                "library-shelved",
+                &skill.folder,
+            )?;
+            Ok(LibrarySkill {
+                by: shelved["by"].as_str().unwrap_or("Hamlet").into(),
+                description: skill.description,
+                name: skill.folder,
+            })
+        })
+        .collect()
 }
 
 pub(super) fn unshelve(
@@ -478,7 +493,7 @@ pub(super) fn unshelve(
             "usage: /unshelve <skill>".into(),
         )));
     }
-    if !views(service)?.iter().any(|s| s["name"] == name) {
+    if !views(service)?.iter().any(|s| s.name == name) {
         return Ok(Err(Refusal::Invalid(format!(
             "the library has no skill named `{name}`"
         ))));

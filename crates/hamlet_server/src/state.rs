@@ -1,10 +1,13 @@
 //! Protocol views of the record and the chief's settings.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use hamlet_protocol::v0::{
-    Changes, Doing, ServerMessage, State, Update,
+    Agent, AgentActivity, AgentRef, AgentSaying, AgentSpent, Changes,
+    ClosedHamlet, Doing, Grant, GrantSource, Hamlet, Left, LeftHow,
+    Permission, Road, ServerMessage, SettingsView,
+    SettingsViewEndpoints, SettingsViewWorkspace, State, TownAt,
+    Update,
 };
-use serde_json::json;
 
 use crate::record::{self, End};
 use crate::service::{Service, records};
@@ -18,17 +21,33 @@ pub(crate) fn state(
     let records = records(service.home.store().connection())?;
     let realm =
         crate::realm::read(service.home.store().connection())?;
-    let closed = realm.hamlets.iter().filter(|h| !h.erased).filter_map(|h| h.removed.as_ref().map(|removed| json!({"id":h.id,"name":h.title.as_ref().unwrap_or(&h.id),"at":removed.at,"by":removed.by,"reason":removed.reason}))).collect::<Vec<_>>();
+    let closed = realm
+        .hamlets
+        .iter()
+        .filter(|h| !h.erased)
+        .filter_map(|h| {
+            h.removed.as_ref().map(|removed| ClosedHamlet {
+                id: h.id.clone(),
+                name: h.title.clone().unwrap_or_else(|| h.id.clone()),
+                at: removed.at,
+                by: removed.by.clone(),
+                reason: removed.reason.clone(),
+            })
+        })
+        .collect();
     let mut hamlets = Vec::new();
     let mut agents = Vec::new();
-    let held =
-        crate::gate::grants(service.home.store().connection())?;
-    let mut grants = held
-        .iter()
-        .map(|grant| {
-            json!({"agent":{"hamlet":grant.agent.hamlet,"number":grant.agent.number},"name":grant.name,"permission":grant.permission,"by":grant.by,"source":"grant"})
-        })
-        .collect::<Vec<_>>();
+    let mut grants =
+        crate::gate::grants(service.home.store().connection())?
+            .into_iter()
+            .map(|grant| Grant {
+                agent: Some(grant.agent.into()),
+                name: grant.name,
+                permission: grant.permission,
+                by: Some(grant.by),
+                source: GrantSource::Grant,
+            })
+            .collect::<Vec<_>>();
     let root = service.home.layout().root().to_owned();
     let mut kept = Vec::new();
     for record in records {
@@ -41,33 +60,77 @@ pub(crate) fn state(
             u64::try_from(limits.road.grows_over_days).unwrap_or(0);
         let work = service.work(&record.id)?;
         let now = crate::society::now();
-        let reference =
-            |number| json!({"hamlet":record.id,"number":number});
+        let reference = |number| AgentRef {
+            hamlet: record.id.clone(),
+            number,
+        };
         let end = |end| {
             reference(match end {
                 End::Office => record.mayor,
                 End::Agent(number) => number,
             })
         };
-        let mut roads = record.roads_of().iter().map(|r| json!({
-            "a":end(r.a), "b":end(r.b), "messages":r.messages,
-            "lastFrom":r.last_from.map(end), "level":record::level(r.last_used, r.messages, now, grows)
-        })).collect::<Vec<_>>();
-        roads.extend(crate::realm::roads(service.home.store().connection())?.into_iter().filter(|r| r.a.hamlet == record.id || r.b.hamlet == record.id).map(|r| {
-            let level = record::level(r.last_used, r.messages, now, grows);
-            json!({"a":r.a,"b":r.b,"messages":r.messages,"lastFrom":r.last_from,"level":level})
-        }));
-        let period = &limits.budget.period;
+        let mut roads = record
+            .roads_of()
+            .iter()
+            .map(|r| Road {
+                a: end(r.a),
+                b: end(r.b),
+                messages: r.messages,
+                last_from: r.last_from.map(end),
+                level: record::level(
+                    r.last_used,
+                    r.messages,
+                    now,
+                    grows,
+                ),
+            })
+            .collect::<Vec<_>>();
+        roads.extend(
+            crate::realm::roads(service.home.store().connection())?
+                .into_iter()
+                .filter(|r| {
+                    r.a.hamlet == record.id || r.b.hamlet == record.id
+                })
+                .map(|r| Road {
+                    level: record::level(
+                        r.last_used,
+                        r.messages,
+                        now,
+                        grows,
+                    ),
+                    a: r.a.into(),
+                    b: r.b.into(),
+                    messages: r.messages,
+                    last_from: r.last_from.map(Into::into),
+                }),
+        );
         let books = crate::spend::books(
             service.home.store().connection(),
             &record.id,
-            period,
+            &limits.budget.period,
             None,
             chrono::Utc::now().timestamp_millis(),
         )?;
-        hamlets.push(json!({"id":record.id, "name":place.title.as_ref().unwrap_or(&record.id), "at":place.at, "roads":roads, "votes":crate::society::votes::views(service.home.store().connection(), &record)?,
-            "folder":work.folder, "before":work.before, "mode":work.mode, "modeWords":work.mode.words(), "limits":limits,
-            "budget":service.budget(&record.id)?}));
+        hamlets.push(Hamlet {
+            id: record.id.clone(),
+            name: place
+                .title
+                .clone()
+                .unwrap_or_else(|| record.id.clone()),
+            at: place.at.map(|at| TownAt { x: at.x, z: at.z }),
+            roads,
+            votes: crate::society::votes::views(
+                service.home.store().connection(),
+                &record,
+            )?,
+            folder: work.folder,
+            before: work.before,
+            mode: work.mode.into(),
+            mode_words: work.mode.words().into(),
+            limits: (**limits).clone().into(),
+            budget: service.budget(&record.id)?,
+        });
         for agent in record.agents.iter().chain(
             record
                 .archive
@@ -97,51 +160,92 @@ pub(crate) fn state(
             };
             let work = crate::chats::work(service, &reference_of)?;
             let busy = left.is_none() && work.busy;
-            let doing = if left.is_some() {
-                Doing::Rest
-            } else {
-                work.doing
+            let (doing, step, failures) = match left {
+                Some(_) => (Doing::Rest, 0, 0),
+                None => (work.doing, work.step, work.failures),
             };
-            let consulting = crate::society::library::consulting(
-                service.home.store().connection(),
-                &reference_of,
-            )?;
-            let mut view = json!({"ref":reference(agent.number), "name":agent.name,"purpose":agent.purpose,"since":agent.since,"mayor":mayor,
-                "model":limits.model_of(agent, mayor, &settings.model),"busy":busy,"faulted":!busy && work.faulted,
-                "activity":{"doing":doing,"doingWords":crate::chats::words(&doing),"step":if left.is_some() {0} else {work.step},"failures":if left.is_some() {0} else {work.failures}},
-                "saying":{"text":work.saying,"thought":work.thought},"spent":{"tokens":0,"micros":0,"ms":0,"cost":"$0.00"},"skills":[],"consulting":consulting,"conversations":[]});
             let spent = books
                 .agents
                 .get(&agent.number)
                 .copied()
                 .unwrap_or_default();
-            view["spent"] = serde_json::to_value(spent)?;
-            view["spent"]["cost"] =
-                crate::spend::money(spent.micros).into();
-            if left.is_none() {
-                let house = root
-                    .join("houses")
-                    .join(&record.id)
-                    .join(agent.number.to_string());
-                view["skills"] = service
-                    .houses
-                    .skill_names(&record.id, agent.number, &house)?
-                    .into();
-            }
-            view["conversations"] = crate::society::letters::views(
-                service.home.store().connection(),
-                &reference_of,
-            )?
-            .into();
-            if let Some(left) = left {
-                view["left"] = json!({"how":if left.merge.is_some(){"merged"}else{"removed"}, "into":left.merge.as_ref().map(|m|reference(m.kept.number)), "at":left.at,"by":left.by.words(),"reason":left.reason,"words":record.farewell(left)});
-            }
-            agents.push(view);
+            let skills = match left {
+                Some(_) => Vec::new(),
+                None => service.houses.skill_names(
+                    &record.id,
+                    agent.number,
+                    &root
+                        .join("houses")
+                        .join(&record.id)
+                        .join(agent.number.to_string()),
+                )?,
+            };
+            let left = left
+                .map(|left| {
+                    Ok::<_, anyhow::Error>(Left {
+                        how: match left.merge {
+                            Some(_) => LeftHow::Merged,
+                            None => LeftHow::Removed,
+                        },
+                        into: left
+                            .merge
+                            .as_ref()
+                            .map(|m| reference(m.kept.number)),
+                        at: u64::try_from(left.at).with_context(
+                            || format!("{} left at", left.id),
+                        )?,
+                        by: left.by.words(),
+                        reason: left.reason.clone(),
+                        words: record.farewell(left),
+                    })
+                })
+                .transpose()?;
+            agents.push(Agent {
+                ref_: reference(agent.number),
+                name: agent.name.clone(),
+                purpose: agent.purpose.clone(),
+                since: u64::try_from(agent.since).with_context(
+                    || format!("{}'s start", agent.name),
+                )?,
+                mayor,
+                model: limits.model_of(agent, mayor, &settings.model),
+                busy,
+                faulted: !busy && work.faulted,
+                activity: AgentActivity {
+                    doing_words: crate::chats::words(&doing).into(),
+                    doing,
+                    step: u64::try_from(step).with_context(|| {
+                        format!("{}'s step", agent.name)
+                    })?,
+                    failures: u64::try_from(failures).with_context(
+                        || format!("{}'s failures", agent.name),
+                    )?,
+                },
+                saying: AgentSaying {
+                    text: work.saying,
+                    thought: work.thought,
+                },
+                spent: AgentSpent {
+                    cost: crate::spend::money(spent.micros),
+                    tokens: spent.tokens,
+                    micros: spent.micros,
+                    ms: spent.ms,
+                },
+                skills,
+                consulting: crate::society::library::consulting(
+                    service.home.store().connection(),
+                    &reference_of,
+                )?,
+                conversations: crate::society::letters::views(
+                    service.home.store().connection(),
+                    &reference_of,
+                )?,
+                left,
+            });
         }
-        kept.push(record.clone());
         for (permission, names) in [
-            ("network", &limits.permissions.network),
-            ("unconfined", &limits.permissions.unconfined),
+            (Permission::Network, &limits.permissions.network),
+            (Permission::Unconfined, &limits.permissions.unconfined),
         ] {
             for name in names {
                 let agent = record.agents.iter().find(|a| {
@@ -151,9 +255,16 @@ pub(crate) fn state(
                         name == &a.name
                     }
                 });
-                grants.push(json!({"agent":agent.map(|a|reference(a.number)),"name":name,"permission":permission,"by":null,"source":"limits"}));
+                grants.push(Grant {
+                    agent: agent.map(|a| reference(a.number)),
+                    name: name.clone(),
+                    permission: permission.clone(),
+                    by: None,
+                    source: GrantSource::Limits,
+                });
             }
         }
+        kept.push(record);
     }
     let mut waits = Vec::new();
     for wait in
@@ -175,17 +286,55 @@ pub(crate) fn state(
         };
         waits.push(crate::oversight::view(&wait, record, current)?);
     }
-    let mut view = json!({"epoch":epoch,"revision":revision,"chief":service.chief,"sandbox":service.chats.sandbox.name(), "houses":service.home.layout().root().join("houses"),
-        "hamlets":hamlets,"agents":agents,"grants":grants,"waits":waits,"providers":service.provider_views()?,"library":crate::society::library::views(service)?,"closed":closed,"starters":crate::gifts::starters(),"deeds":crate::chats::advertised_deeds(),
-        "settings":{"model":settings.model,"reflectEvery":settings.reflect_every,"allowNet":settings.allow_net,"unset":!settings.saved,"link":settings.link,
-            "endpoints":settings.endpoints.iter().map(|e|json!({"name":e.name,"baseUrl":e.base_url,"key":service.credentials.configured(&e.name)})).collect::<Vec<_>>(),
-            "workspace":{"url":service.credentials.workspace_url(),"running":service.houses.workspace().map(|connection| &connection.url)}}});
-    let moving = service.moving.view();
-    if !moving.is_null() {
-        view["settings"]["workspace"]["move"] = moving;
-    }
-    service.credentials.scrub(&mut view);
-    Ok(serde_json::from_value(view)?)
+    let endpoints = settings
+        .endpoints
+        .iter()
+        .map(|e| SettingsViewEndpoints {
+            name: e.name.clone(),
+            base_url: e.base_url.clone(),
+            key: service.credentials.configured(&e.name),
+        })
+        .collect();
+    Ok(State {
+        epoch,
+        revision,
+        chief: service.chief.clone(),
+        sandbox: service.chats.sandbox.name().into(),
+        houses: root
+            .join("houses")
+            .to_str()
+            .context("the houses folder's path is not UTF-8")?
+            .into(),
+        hamlets,
+        agents,
+        grants,
+        waits,
+        providers: service.provider_views()?,
+        library: crate::society::library::views(service)?,
+        closed,
+        starters: crate::gifts::starters(),
+        deeds: crate::chats::advertised_deeds(),
+        settings: SettingsView {
+            model: settings.model,
+            reflect_every: i64::try_from(settings.reflect_every)
+                .context("the settings' reflectEvery")?,
+            allow_net: settings.allow_net,
+            unset: !settings.saved,
+            link: settings.link,
+            endpoints,
+            workspace: SettingsViewWorkspace {
+                url: service
+                    .credentials
+                    .workspace_url()
+                    .map(Into::into),
+                running: service
+                    .houses
+                    .workspace()
+                    .map(|connection| connection.url.clone()),
+                move_: service.moving.view(),
+            },
+        },
+    })
 }
 
 pub(crate) fn changed(

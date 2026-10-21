@@ -4,10 +4,12 @@ use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
 use chrono::{Datelike, Local, TimeZone, Timelike};
-use hamlet_protocol::v0::Period;
+use hamlet_protocol::v0::{
+    self, Period, Report, ReportCaps, UsageView,
+};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::harness::BindingId;
 use crate::harness::link::{Price, Usage};
@@ -256,7 +258,7 @@ pub(crate) fn amount(usage: &Usage, price: &Price) -> Amount {
 }
 
 impl Service {
-    pub(crate) fn budget(&mut self, hamlet: &str) -> Result<Value> {
+    pub(crate) fn budget(&mut self, hamlet: &str) -> Result<Report> {
         self.report(hamlet, None)
     }
 
@@ -266,7 +268,7 @@ impl Service {
         &mut self,
         hamlet: &str,
         fallback: Option<&str>,
-    ) -> Result<Value> {
+    ) -> Result<Report> {
         let home = match fallback {
             Some(fallback) => fallback.to_owned(),
             None => self.settings()?.model,
@@ -363,10 +365,29 @@ impl Service {
         }) * 200.0)
             .floor()
             / 200.0;
-        Ok(
-            json!({"period":period,"periodWords":period_words,"gone":gone,"spent":books.hamlet,"caps":{"micros":caps[0].1,"ms":caps[1].1},"summary":summary,"lines":lines,
-            "left":nearest.map(|(spent,cap,_)|(1.0-spent as f64/cap.max(1) as f64).max(0.0)),"remains":nearest.map(|(spent,cap,time)|show((cap-spent).max(0),time))}),
-        )
+        let spent = books.hamlet;
+        Ok(Report {
+            caps: ReportCaps {
+                micros: caps[0].1,
+                ms: caps[1].1,
+            },
+            gone,
+            left: nearest.map(|(spent, cap, _)| {
+                (1.0 - spent as f64 / cap.max(1) as f64).max(0.0)
+            }),
+            lines,
+            period: period.clone(),
+            period_words: period_words.into(),
+            remains: nearest.map(|(spent, cap, time)| {
+                show((cap - spent).max(0), time)
+            }),
+            spent: v0::Amount {
+                micros: spent.micros,
+                ms: spent.ms,
+                tokens: spent.tokens,
+            },
+            summary,
+        })
     }
 
     /// Starts the budget period of `hamlet` again from now, keeping
@@ -403,7 +424,7 @@ pub fn usage(
 pub fn usage_of(
     db: &Connection,
     bindings: &[BindingId],
-) -> Result<hamlet_protocol::v0::UsageView> {
+) -> Result<UsageView> {
     let bindings = serde_json::to_string(
         &bindings.iter().map(|b| b.0).collect::<Vec<_>>(),
     )?;
@@ -468,7 +489,17 @@ pub fn usage_of(
             }
         )
     };
-    Ok(serde_json::from_value(
-        json!({"calls":calls,"unreported":unreported,"input":input,"output":output,"micros":micros,"ms":ms,"summary":summary,"cached":cached,"reasoning":reasoning,"lastInput":last_input}),
-    )?)
+    let count = |n: i64| u64::try_from(n).context("a usage count");
+    Ok(UsageView {
+        cached: count(cached)?,
+        calls: count(calls)?,
+        input: count(input)?,
+        last_input: count(last_input)?,
+        micros: count(micros)?,
+        ms: count(ms)?,
+        output: count(output)?,
+        reasoning: count(reasoning)?,
+        summary,
+        unreported: count(unreported)?,
+    })
 }

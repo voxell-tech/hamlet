@@ -47,6 +47,27 @@ pub struct Limits {
     pub permissions: LimitsPermissions,
 }
 
+impl From<Limits> for hamlet_protocol::v0::Limits {
+    fn from(limits: Limits) -> Self {
+        Self {
+            votes: limits.votes,
+            hamlets: limits.hamlets,
+            budget: limits.budget,
+            task: limits.task,
+            road: limits.road,
+            most_agents: limits.most_agents,
+            most_roads: limits.most_roads,
+            models: limits.models,
+            model: limits.model,
+            pinned: limits.pinned,
+            mayor: limits.mayor,
+            leaving: limits.leaving,
+            asking: limits.asking,
+            permissions: limits.permissions,
+        }
+    }
+}
+
 impl Default for Limits {
     fn default() -> Self {
         let mut value = json!({});

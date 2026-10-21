@@ -580,16 +580,8 @@ async fn to(
 /// The hamlet's spend in lines.
 fn budget(service: &mut Service, hamlet: &str) -> Result<String> {
     let report = service.budget(hamlet)?;
-    let mut lines = vec![
-        report["summary"].as_str().unwrap_or_default().to_owned(),
-    ];
-    lines.extend(
-        report["lines"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|v| v.as_str().map(String::from)),
-    );
+    let mut lines = vec![report.summary];
+    lines.extend(report.lines);
     Ok(lines.join("\n"))
 }
 

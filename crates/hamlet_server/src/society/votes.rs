@@ -2,6 +2,7 @@
 //! decisions.
 
 use anyhow::{Context, Result};
+use hamlet_protocol::v0::{self, VoteView, Voter, VoterCast};
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -19,7 +20,8 @@ use crate::service::Service;
 #[derive(Clone, Serialize, Deserialize)]
 struct Ballot {
     voter: u64,
-    choice: String,
+    /// `None` for a voter that answered without casting a ballot.
+    choice: VoterCast,
     reason: String,
     evidence: String,
     grounded: bool,
@@ -155,10 +157,14 @@ fn describe(v: &Vote, r: &record::Hamlet) -> String {
 }
 
 fn report(v: &Vote, r: &record::Hamlet, limits: &Limits) -> String {
-    let yes = v.ballots.iter().filter(|b| b.choice == "yes").count();
-    let no = v.ballots.iter().filter(|b| b.choice == "no").count();
-    let abstain =
-        v.ballots.iter().filter(|b| b.choice == "abstain").count();
+    let cast = |choice: VoterCast| {
+        v.ballots.iter().filter(|b| b.choice == choice).count()
+    };
+    let (yes, no, abstain) = (
+        cast(VoterCast::Yes),
+        cast(VoterCast::No),
+        cast(VoterCast::Abstain),
+    );
     let silent = v.voters.len() - yes - no - abstain;
     let needed = needed(v, limits);
     let standing = match &v.standing {
@@ -188,10 +194,11 @@ fn report(v: &Vote, r: &record::Hamlet, limits: &Limits) -> String {
             .map(|b| format!(
                 "- {}: {}. {}{}",
                 r.name_of(b.voter, NameFallback::Recorded),
-                if b.choice.is_empty() {
-                    "no answer"
-                } else {
-                    &b.choice
+                match b.choice {
+                    VoterCast::Yes => "yes",
+                    VoterCast::No => "no",
+                    VoterCast::Abstain => "abstain",
+                    VoterCast::None => "no answer",
                 },
                 b.reason,
                 if b.evidence.is_empty() {
@@ -216,9 +223,38 @@ fn report(v: &Vote, r: &record::Hamlet, limits: &Limits) -> String {
 pub(crate) fn views(
     db: &Connection,
     r: &record::Hamlet,
-) -> Result<Vec<Value>> {
+) -> Result<Vec<VoteView>> {
     let limits = crate::limits::of(db, &r.id)?;
-    Ok(read(db, &r.id)?.iter().map(|v| json!({"id":v.id,"by":v.by,"motion":describe(v,r),"open":v.standing==Standing::Open,"overturnable":matches!(v.standing, Standing::Passed | Standing::Open),"report":report(v,r,&limits),"voters":v.voters.iter().map(|n| json!({"agent":{"hamlet":r.id,"number":n},"cast":v.ballots.iter().find(|b|b.voter==*n).map(|b|if b.choice.is_empty(){"none"}else{&b.choice})})).collect::<Vec<_>>()})).collect())
+    read(db, &r.id)?
+        .iter()
+        .map(|v| {
+            let voters = v.voters.iter().map(|&number| Voter {
+                agent: v0::AgentRef {
+                    hamlet: r.id.clone(),
+                    number,
+                },
+                cast: v
+                    .ballots
+                    .iter()
+                    .find(|b| b.voter == number)
+                    .map(|b| b.choice.clone()),
+            });
+            Ok(VoteView {
+                by: v.by.clone(),
+                id: i64::try_from(v.id).with_context(|| {
+                    format!("vote {} of {}", v.id, r.id)
+                })?,
+                motion: describe(v, r),
+                open: v.standing == Standing::Open,
+                overturnable: matches!(
+                    v.standing,
+                    Standing::Passed | Standing::Open
+                ),
+                report: report(v, r, &limits),
+                voters: voters.collect(),
+            })
+        })
+        .collect()
 }
 
 /// Why a vote could not be called.
@@ -489,10 +525,12 @@ pub(super) fn ballot(
     if v.ballots.iter().any(|b| b.voter == voter) {
         return Ok(outcome("Your ballot is already cast.", false));
     }
-    let choice = args.choice.as_str();
-    if !["yes", "no", "abstain"].contains(&choice) {
-        return Ok(outcome("Choose yes, no or abstain.", true));
-    }
+    let choice = match args.choice.as_str() {
+        "yes" => VoterCast::Yes,
+        "no" => VoterCast::No,
+        "abstain" => VoterCast::Abstain,
+        _ => return Ok(outcome("Choose yes, no or abstain.", true)),
+    };
     let evidence = args.evidence.as_str();
     let corpus = super::document::<String>(
         db,
@@ -511,7 +549,7 @@ pub(super) fn ballot(
         quote.windows(4).any(|q| corpus.windows(4).any(|c| c == q));
     v.ballots.push(Ballot {
         voter,
-        choice: choice.into(),
+        choice,
         reason: args.reason.clone(),
         evidence: evidence.into(),
         grounded,
@@ -819,7 +857,7 @@ async fn ask_ballots(
         if errands::answer(service, binding)?.is_some() {
             v.ballots.push(Ballot {
                 voter,
-                choice: String::new(),
+                choice: VoterCast::None,
                 reason: "answered without casting a ballot".into(),
                 evidence: String::new(),
                 grounded: false,
@@ -887,7 +925,8 @@ fn count(v: &mut Vote, limits: &Limits) {
         .ballots
         .iter()
         .filter(|b| {
-            b.choice == "yes" && (!grounded_only || b.grounded)
+            b.choice == VoterCast::Yes
+                && (!grounded_only || b.grounded)
         })
         .count() as u64;
     v.standing = if yes >= needed(v, limits) {
