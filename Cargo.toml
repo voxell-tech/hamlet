@@ -1,8 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
-# The vendored fynix workspace is its own workspace.
-exclude = ["vendor"]
+# The vendored fynix and xtask are workspaces of their own.
+exclude = ["vendor", "xtask"]
 # `cargo build`, `cargo test` and `cargo clippy` at the root cover every
 # crate, so the checks in AGENTS.md need no flags.
 default-members = [".", "crates/*"]

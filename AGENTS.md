@@ -38,7 +38,7 @@ HAMLET_HOME=/tmp/hamlet-try cargo run -p hamlet_cli -- dev
 `dev` builds the checkout's server and window. `HAMLET_SERVER_BIN` and
 `HAMLET_APP` select existing binaries and skip their respective builds.
 Use `cargo run -p hamlet_cli -- <command>` for other commands, or install
-all three with `make install`. That source install keeps using the
+all three with `cargo xtask install`. That source install keeps using the
 checkout's pi package. Packaged archives include pi beside the binaries
 on Linux, or in `Contents/Resources/pi` in the macOS app.
 `HAMLET_PI_HARNESS` selects pi's `src/main.ts`; `HAMLET_NODE` selects Node.
@@ -60,9 +60,8 @@ window ends only its process; agents keep working on the server. Stop
 ## Checks
 
 All four must be clean before a commit. Formatting needs nightly, because
-`rustfmt.toml` uses unstable options. `make check` runs these and the
-feature-gated and Node checks below. `make fmt` formats Rust and both Node
-packages.
+`rustfmt.toml` uses unstable options. `cargo xtask check` runs these and the
+feature-gated and Node checks below. `cargo xtask fmt` formats Rust and pi.
 
 ```sh
 cargo +nightly fmt
@@ -91,7 +90,7 @@ processes on scratch homes and drives them through the client protocol, so plain
 `cargo test` compiles none of it. It needs the built CLI and server,
 and `npm ci --prefix harnesses/pi`. It must be clean before a commit too. It never
 contacts a model server or the internet: models are faux, or a loopback
-fake of its own. `make check` runs it; by hand, at the root:
+fake of its own. `cargo xtask check` runs it; by hand, at the root:
 
 ```sh
 cargo build -p hamlet_cli -p hamlet_server
@@ -104,7 +103,7 @@ same Node, with the same two checks run in that folder. The server's
 tests that start it as a real process, crashes included, are compiled only
 with the `harness` feature, so plain `cargo test` needs no Node. They need
 `npm ci --prefix harnesses/pi`, never contact a model server or the
-internet, and must be clean before a commit too. `make check` runs them;
+internet, and must be clean before a commit too. `cargo xtask check` runs them;
 by hand, at the root:
 
 ```sh

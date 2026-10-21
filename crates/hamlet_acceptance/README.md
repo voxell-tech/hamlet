@@ -20,7 +20,7 @@ scenario that received it.
 The scenarios are compiled only with the `acceptance` feature, so plain
 `cargo test` neither builds nor runs them. They need the built `hamlet`
 and `hamlet-server`, Node from `harnesses/pi/.nvmrc`, and
-`npm ci --prefix harnesses/pi`. `make check` runs them. By hand, at the root:
+`npm ci --prefix harnesses/pi`. `cargo xtask check` runs them. By hand, at the root:
 
 ```sh
 CARGO_INCREMENTAL=0 cargo build -p hamlet_cli -p hamlet_server

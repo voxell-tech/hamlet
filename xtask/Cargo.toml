@@ -1,0 +1,12 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "cargo xtask: builds, installs and checks Hamlet"
+
+# A workspace of its own, so it builds before vendor/fynix is fetched.
+[workspace]
+
+[dependencies]

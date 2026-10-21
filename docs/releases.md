@@ -45,11 +45,11 @@ it is not included in these archives.
 
 Build natively on the target platform: npm's optional/native dependencies
 must match the target. The release job uses the pinned Node version and
-builds all three binaries with `make build` before invoking
+builds all three binaries with `cargo xtask build` before invoking
 `.github/scripts/package.sh`:
 
 ```sh
-make build CARGO_FLAGS="--target x86_64-unknown-linux-gnu"
+cargo xtask build --target x86_64-unknown-linux-gnu
 .github/scripts/package.sh x86_64-unknown-linux-gnu v0.1.0
 ```
 
@@ -57,17 +57,17 @@ For macOS use `aarch64-apple-darwin`. The script accepts an optional third
 argument for the profile directory, defaults to `release`, and respects
 `CARGO_TARGET_DIR`. It creates a clean staging directory, installs pi with
 `npm ci --omit=dev`, and writes the archive under `dist/`. It does not
-bundle the schema-development package or compile TypeScript.
+compile TypeScript.
 
 For Windows, build only `cargo build --release --locked -p hamlet --bin
 hamlet-app --target x86_64-pc-windows-msvc`, then run the script in Bash with
 that target. This branch needs 7-Zip, not Node or npm. It packages only the
 window; no Windows server build is attempted.
 
-`make install` is a different, source-development workflow: it installs
+`cargo xtask install` is a different, source-development workflow: it installs
 all three binaries into Cargo's bin directory but leaves pi in the build
 checkout. Retain that checkout, or set `HAMLET_PI_HARNESS` to another fully
-installed pi entry. `make uninstall` removes the three binaries, not homes.
+installed pi entry. `cargo xtask uninstall` removes the three binaries, not homes.
 
 ## Publishing
 

@@ -67,7 +67,7 @@ jobs:
 
       - name: Build
         if: runner.os != 'Windows'
-        run: make build CARGO_FLAGS="--target ${{ matrix.target }}"
+        run: cargo xtask build --target ${{ matrix.target }}
 
       - name: Build the Windows window
         if: runner.os == 'Windows'

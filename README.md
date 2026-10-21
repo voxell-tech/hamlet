@@ -51,25 +51,25 @@ From the repository root, install the CLI, server and window, and start on your
 home, `~/.hamlet`:
 
 ```sh
-make install
+cargo xtask install
 hamlet
 ```
 
-`make install` fetches the vendored fynix, installs pi's packages and puts
+`cargo xtask install` fetches the vendored fynix, installs pi's packages and puts
 `hamlet`, `hamlet-server` and `hamlet-app` in `~/.cargo/bin`. This source
 installation uses the checkout's `harnesses/pi/`, so keep the checkout and
-run `make install` again after pulling. Linux/macOS release archives contain
+run `cargo xtask install` again after pulling. Linux/macOS release archives contain
 all three binaries and a `pi/` package with production dependencies; they
 need installed Node but no checkout or npm install. Windows has a separate
 window-only archive for connecting to a remote server, without Node or Pi.
 See [releases](docs/releases.md).
-`make` alone builds without installing, `make all` also builds
-`hamlet-workspace` and `hamlet_protocol_gen`, `make uninstall` removes all three
-binaries, and `make dev` tries the checkout on
+`cargo xtask build` builds without installing, `cargo xtask all` builds
+every binary, including `hamlet-workspace`, `cargo xtask uninstall` removes
+all three binaries, and `cargo xtask dev` tries the checkout on
 a scratch home without installing:
 
 ```sh
-HAMLET_HOME=/tmp/hamlet-try make dev
+HAMLET_HOME=/tmp/hamlet-try cargo xtask dev
 ```
 
 `dev` builds the local server and window, starts the server on a free
@@ -124,7 +124,8 @@ cargo test
 (cd harnesses/pi && npm run check && npm test)
 ```
 
-`make check` also runs the real-process harness and acceptance suites.
+`cargo xtask check` also runs the real-process harness and acceptance suites.
+`cargo xtask help` lists every task.
 
 [`docs/tour.md`](docs/tour.md) is the map of the code,
 [`docs/`](docs/README.md) lists every page, and [`AGENTS.md`](AGENTS.md)

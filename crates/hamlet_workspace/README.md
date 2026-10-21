@@ -33,13 +33,14 @@ Deployment requires an operator-provisioned Substrate installation.
 From the repository root:
 
 ```sh
-make workspace-image
+cargo xtask workspace-image
 ```
 
 This tags the image `hamlet-workspace:<short commit>` and labels it
 `org.opencontainers.image.revision` with the full commit, so a deployed
-image tells which commit it holds. `WORKSPACE_IMAGE` sets another tag,
-and `DOCKER_FLAGS` passes flags such as `--platform` to `docker build`.
+image tells which commit it holds. Arguments after the task go to `docker
+build`, such as `--platform linux/amd64`; a `-t` there replaces the
+default tag.
 
 The image builds locally. Its runtime smoke check exercises key creation
 and permissions, the packaged tools, worker startup and rejection of an

@@ -184,6 +184,6 @@ reports an error and keeps the last good values.
 | `cargo run --release --example sound_sheet` | Generated sound WAVs |
 
 `style_test` and `town_gen` open windows. For live work use
-`HAMLET_HOME=/tmp/hamlet-try make dev`; it builds both Rust processes and
+`HAMLET_HOME=/tmp/hamlet-try cargo xtask dev`; it builds both Rust processes and
 sets `HAMLET_VIEW=<home>/window`. Closing the window leaves the server;
 Ctrl-C in the dev terminal stops it. Use Node from `harnesses/pi/.nvmrc`.

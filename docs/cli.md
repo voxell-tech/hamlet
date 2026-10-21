@@ -10,7 +10,7 @@ HAMLET_HOME=/tmp/hamlet-try cargo run -p hamlet_cli -- dev
 ```
 
 This builds the server and window. The server starts its Node pi
-harness as a child process. `make install` installs all three binaries;
+harness as a child process. `cargo xtask install` installs all three binaries;
 installing only `hamlet_cli` does not install the server or window.
 
 The CLI selects `HAMLET_SERVER_BIN`, then a sibling `hamlet-server`, then

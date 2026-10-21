@@ -15,7 +15,7 @@ not built. What is left for later is kept outside this repository.
 3. [`../AGENTS.md`](../AGENTS.md): the checks to run before a commit and
    the rules of working here.
 
-Run `HAMLET_HOME=/tmp/hamlet-try make dev`. It installs pi's dependencies,
+Run `HAMLET_HOME=/tmp/hamlet-try cargo xtask dev`. It installs pi's dependencies,
 then the Rust CLI builds the server and window, starts a scratch server
 and opens the window with its own scratch view folder.
 Closing the window leaves the server running; Ctrl-C stops it. The full
