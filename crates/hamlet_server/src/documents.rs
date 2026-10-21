@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use crate::Outcome;
 use crate::limits::Limits;
 use crate::papers::{CHARTER, cut};
-use crate::protocol::{Refusal, reply};
+use crate::protocol::{Refusable, Refusal, reply};
 use crate::record::{Actor, Audience, Change, RecordOperation};
 use crate::service::{Service, document, save};
 
@@ -22,12 +22,8 @@ impl Service {
         &mut self,
         agent: &Address,
         text: &str,
-    ) -> Result<
-        std::result::Result<
-            (crate::papers::files::Files, String),
-            Refusal,
-        >,
-    > {
+    ) -> Result<Refusable<(crate::papers::files::Files, String)>>
+    {
         let member = match self.agent(agent, "read or edit papers")? {
             Ok(agent) => agent,
             Err(error) => return Ok(Err(error)),
@@ -41,7 +37,7 @@ impl Service {
     pub(crate) async fn edit(
         &mut self,
         edit: Edit,
-    ) -> Result<std::result::Result<String, Refusal>> {
+    ) -> Result<Refusable<String>> {
         match edit {
             Edit::Charter { text, .. } => {
                 let mut own = text
@@ -81,7 +77,7 @@ impl Service {
     fn edit_limits(
         &mut self,
         edit: &EditLimits,
-    ) -> Result<std::result::Result<String, Refusal>> {
+    ) -> Result<Refusable<String>> {
         let (hamlet, reason) = match edit {
             EditLimits::Set { hamlet, reason, .. }
             | EditLimits::Whole { hamlet, reason, .. } => {
@@ -158,7 +154,7 @@ impl Service {
     fn edit_settings(
         &mut self,
         set: hamlet_protocol::v0::EditSettingsSet,
-    ) -> Result<std::result::Result<String, Refusal>> {
+    ) -> Result<Refusable<String>> {
         let previous = self.settings()?;
         let workspace = match crate::settings::validate(&set) {
             Ok(workspace) => workspace,
@@ -221,7 +217,7 @@ impl Service {
         agent: &Address,
         text: &str,
         character: bool,
-    ) -> Result<std::result::Result<String, Refusal>> {
+    ) -> Result<Refusable<String>> {
         let member = match self.agent(agent, "read or edit papers")? {
             Ok(agent) => agent,
             Err(error) => return Ok(Err(error)),
@@ -321,7 +317,7 @@ impl Service {
         &mut self,
         hamlet: &str,
         tail: &str,
-    ) -> Result<std::result::Result<String, Refusal>> {
+    ) -> Result<Refusable<String>> {
         let mut work = self.work(hamlet)?;
         if tail.is_empty() {
             return Ok(Ok(match &work.folder {

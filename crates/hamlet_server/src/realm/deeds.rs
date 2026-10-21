@@ -1,6 +1,6 @@
 //! Chief-controlled founding, placement and closure of hamlets.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rusqlite::OptionalExtension;
 
 use super::{At, Removed, read, write};
@@ -118,7 +118,11 @@ pub(crate) async fn deed(
     else {
         return bad(format!("no hamlet named `{id}`"));
     };
-    let r = service.home.store().record(id)?.expect("placed hamlet");
+    let r = service
+        .home
+        .store()
+        .record(id)?
+        .context("the placed hamlet has no record")?;
     if !r.chiefs.is_empty() && !r.chiefs.contains(&service.chief) {
         return bad("Only a chief of that hamlet may do that.".into());
     }

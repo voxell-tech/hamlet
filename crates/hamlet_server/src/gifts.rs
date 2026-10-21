@@ -23,7 +23,7 @@ use crate::harness::Harnesses;
 use crate::papers::copy::{Snapshot, Stopped, UNSAFE};
 use crate::papers::files::Files;
 use crate::papers::tree::Entry;
-use crate::protocol::{Refusal, reply};
+use crate::protocol::{Refusable, Refusal, reply};
 use crate::record::AgentRef;
 use crate::service::Service;
 
@@ -93,7 +93,7 @@ pub(crate) enum Completed {
         owner: u64,
         id: String,
         gift: Skill,
-        snapshot: std::result::Result<Snapshot, Refusal>,
+        snapshot: Refusable<Snapshot>,
     },
     Delivered {
         owner: u64,
@@ -181,7 +181,7 @@ async fn receipt(
     service: &mut Service,
     harnesses: &mut Harnesses,
     id: &str,
-    progress: std::result::Result<Progress, Refusal>,
+    progress: Refusable<Progress>,
 ) -> Result<Option<ServerMessage>> {
     let progress = match progress {
         Ok(progress) => progress,
@@ -254,7 +254,7 @@ impl Service {
         id: &str,
         to: &Address,
         files: &[GiveFilesFiles],
-    ) -> Result<std::result::Result<Progress, Refusal>> {
+    ) -> Result<Refusable<Progress>> {
         use std::io::Write;
         let target = match self.agent(to, "give")? {
             Ok(a) => a,
@@ -351,7 +351,7 @@ impl Service {
         &mut self,
         owner: u64,
         part: &GivePart,
-    ) -> Result<std::result::Result<Progress, Refusal>> {
+    ) -> Result<Refusable<Progress>> {
         use std::io::Write;
 
         use base64::Engine;
@@ -415,7 +415,7 @@ impl Service {
         &mut self,
         upload: Upload,
         request: &str,
-    ) -> Result<std::result::Result<Progress, Refusal>> {
+    ) -> Result<Refusable<Progress>> {
         let target = match self.agent(&upload.to, "give")? {
             Ok(a) => a,
             Err(e) => return Ok(Err(e)),
@@ -470,7 +470,7 @@ impl Service {
         to: &Address,
         name: &str,
         from: Option<&Address>,
-    ) -> Result<std::result::Result<Progress, Refusal>> {
+    ) -> Result<Refusable<Progress>> {
         let gift = match self.resolve_skill(to, name, from)? {
             Ok(gift) => gift,
             Err(error) => return Ok(Err(error)),
@@ -495,7 +495,7 @@ impl Service {
         to: &Address,
         name: &str,
         from: Option<&Address>,
-    ) -> Result<std::result::Result<Skill, Refusal>> {
+    ) -> Result<Refusable<Skill>> {
         if name.is_empty()
             || !name.bytes().all(|b| {
                 b.is_ascii_alphanumeric() || b == b'_' || b == b'-'
@@ -563,9 +563,7 @@ impl Service {
 impl Skill {
     /// The skill's tree under its name, once the receiver is known
     /// not to have one.
-    async fn snapshot(
-        &self,
-    ) -> std::result::Result<Snapshot, Refusal> {
+    async fn snapshot(&self) -> Refusable<Snapshot> {
         let name = &self.name;
         let shelf = self
             .house
@@ -657,7 +655,7 @@ impl Skill {
     fn allowed(
         &self,
         service: &mut Service,
-    ) -> Result<std::result::Result<(), Refusal>> {
+    ) -> Result<Refusable<()>> {
         for (address, expected) in
             std::iter::once((&self.to, &self.target)).chain(
                 self.from
@@ -728,9 +726,7 @@ pub(crate) async fn complete(
 fn step(
     service: &mut Service,
     completed: Completed,
-) -> Result<
-    Option<(u64, String, std::result::Result<Progress, Refusal>)>,
-> {
+) -> Result<Option<(u64, String, Refusable<Progress>)>> {
     Ok(Some(match completed {
         Completed::Began {
             owner,

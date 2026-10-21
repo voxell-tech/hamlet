@@ -1,6 +1,6 @@
 //! Agreements between current mayors and recoverable house moves.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 use serde_json::{Value, json};
 
@@ -360,9 +360,10 @@ fn moving(
             true,
         ));
     }
-    let old =
-        record::read(db, &agent.hamlet)?.expect("resolved agent");
-    let target = record::read(db, to)?.expect("living target");
+    let old = record::read(db, &agent.hamlet)?
+        .context("the moving agent's hamlet has no record")?;
+    let target = record::read(db, to)?
+        .context("the target hamlet has no record")?;
     let other = if from.hamlet == old.id { &target } else { &old };
     if let Some(held) =
         other.may_decide(society::now(), record::Action::Move)

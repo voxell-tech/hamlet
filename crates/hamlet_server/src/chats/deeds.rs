@@ -12,7 +12,7 @@ use super::records::{self, Place};
 use crate::gate::{self, TrustKey};
 use crate::harness::{BindingId, Harnesses, Input, InputMark};
 use crate::oversight;
-use crate::protocol::{Refusal, reply};
+use crate::protocol::{Refusable, Refusal, reply};
 use crate::record::AgentRef;
 use crate::service::{Service, records as hamlets};
 
@@ -44,7 +44,7 @@ pub(super) async fn protocol(
     harnesses: &mut Harnesses,
     address: &Address,
     deed: Deed,
-) -> Result<std::result::Result<Done, Refusal>> {
+) -> Result<Refusable<Done>> {
     let agent = match chat_agent(service, address)? {
         Ok(agent) => agent,
         Err(refusal) => return Ok(Err(refusal)),
@@ -58,7 +58,7 @@ pub(super) async fn protocol(
 fn chat_agent(
     service: &mut Service,
     address: &Address,
-) -> Result<std::result::Result<AgentRef, Refusal>> {
+) -> Result<Refusable<AgentRef>> {
     Ok(service
         .agent(address, "change chat")?
         .map(|agent| AgentRef {
@@ -443,7 +443,7 @@ pub(super) async fn stop(
     service: &mut Service,
     harnesses: &mut Harnesses,
     agent: Option<&Address>,
-) -> Result<std::result::Result<String, Refusal>> {
+) -> Result<Refusable<String>> {
     let Some(address) = agent else {
         for record in hamlets(service.home.store().connection())? {
             if service.access(&record.id, "stop")?.is_err() {

@@ -9,12 +9,12 @@ use tokio::task::JoinSet;
 
 use super::Houses;
 use super::copy::Snapshot;
-use crate::protocol::Refusal;
+use crate::protocol::{Refusable, Refusal};
 use crate::record::AgentRef;
 use crate::service::Service;
 
 pub(crate) struct Moving {
-    pub tasks: JoinSet<(u64, String, Result<String, Refusal>)>,
+    pub tasks: JoinSet<(u64, String, Refusable<String>)>,
     progress: watch::Receiver<Value>,
 }
 
@@ -38,7 +38,7 @@ impl Service {
         &mut self,
         owner: u64,
         id: &str,
-    ) -> Result<Result<(), Refusal>> {
+    ) -> Result<Refusable<()>> {
         let refuse =
             |text: &str| Ok(Err(Refusal::Invalid(text.into())));
         if self.overrides.workspace.is_some() {

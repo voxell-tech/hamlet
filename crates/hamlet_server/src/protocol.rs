@@ -7,6 +7,9 @@ use hamlet_protocol::v0::{
 use jsonschema::error::{TypeKind, ValidationErrorKind};
 use serde_json::Value;
 
+/// What a request gives, or why it was refused before any effect.
+pub(crate) type Refusable<T> = std::result::Result<T, Refusal>;
+
 /// A request refused before any effect.
 #[derive(Debug)]
 pub enum Refusal {
@@ -30,7 +33,7 @@ impl Refusal {
 
 pub(crate) fn reply(
     id: &str,
-    result: std::result::Result<String, Refusal>,
+    result: Refusable<String>,
 ) -> ServerMessage {
     let (kind, text) = match result {
         Ok(text) => (ReplyKind::Notice, text),

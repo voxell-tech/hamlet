@@ -111,7 +111,7 @@ fn preparing(
         .home
         .store()
         .record(hamlet)?
-        .expect("merge's record");
+        .context("the merging hamlet has no record")?;
     let (keep, absorb) = (
         args["keep"].as_str().unwrap_or_default(),
         args["absorb"].as_str().unwrap_or_default(),
@@ -518,7 +518,7 @@ fn commit(
                     plan,
                 )?;
                 let r = record::read(db, &plan.operation.hamlet)?
-                    .expect("merged record");
+                    .context("the merged hamlet has no record")?;
                 let entry = r
                     .archive
                     .iter()

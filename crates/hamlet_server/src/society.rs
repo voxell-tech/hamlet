@@ -31,7 +31,7 @@ use crate::harness::{
     Answer, Binding, BindingId, Harnesses, InputMark,
 };
 use crate::operation::Request;
-use crate::protocol::Refusal;
+use crate::protocol::Refusable;
 use crate::record::{Actor, AgentRef};
 use crate::service::Service;
 use crate::tools::Outcome;
@@ -698,4 +698,4 @@ pub(crate) fn payer(
 }
 
 /// A chief deed's words, or its refusal.
-pub(crate) type Deed = std::result::Result<String, Refusal>;
+pub(crate) type Deed = Refusable<String>;

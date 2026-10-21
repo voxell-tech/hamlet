@@ -9,7 +9,7 @@ use serde_json::json;
 
 use super::{Watch, records};
 use crate::harness::{BindingId, Harnesses, InputMark, link};
-use crate::protocol::{Refusal, fault, reply};
+use crate::protocol::{Refusable, Refusal, fault, reply};
 use crate::service::Service;
 use crate::society::letters::{Kind, peer_of};
 
@@ -78,7 +78,7 @@ pub(super) async fn resolve(
     service: &mut Service,
     harnesses: &mut Harnesses,
     chat: &ChatRef,
-) -> Result<std::result::Result<BindingId, Refusal>> {
+) -> Result<Refusable<BindingId>> {
     if let Err(refusal) =
         service.access(&chat.with.hamlet, "watch chat")?
     {

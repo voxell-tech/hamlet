@@ -1,7 +1,7 @@
 //! Durable hearings, fixed voters, ballots and their office
 //! decisions.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -268,8 +268,11 @@ fn call(
     args: &Value,
     owner: Option<&str>,
 ) -> Result<std::result::Result<u64, Uncalled>> {
-    let r =
-        service.home.store().record(hamlet)?.expect("vote's record");
+    let r = service
+        .home
+        .store()
+        .record(hamlet)?
+        .context("the voting hamlet has no record")?;
     let limits = service.limits_of(hamlet)?;
     let mut votes = read(service.home.store().connection(), hamlet)?;
     let now = super::now();
@@ -396,7 +399,7 @@ pub(super) async fn operation(
             .home
             .store()
             .record(hamlet)?
-            .expect("voter's record");
+            .context("the voter's hamlet has no record")?;
         match call(
             service,
             hamlet,
@@ -421,12 +424,15 @@ pub(super) async fn operation(
     let v = read(service.home.store().connection(), hamlet)?
         .into_iter()
         .find(|v| v.id == id)
-        .expect("called vote");
+        .context("the called vote has no record")?;
     if v.standing == Standing::Open {
         return Ok(None);
     }
-    let r =
-        service.home.store().record(hamlet)?.expect("vote's record");
+    let r = service
+        .home
+        .store()
+        .record(hamlet)?
+        .context("the voting hamlet has no record")?;
     Ok(Some(outcome(
         &report(&v, &r, &service.limits_of(hamlet)?),
         false,
@@ -503,8 +509,11 @@ async fn announce(
     kind: &str,
     text: &str,
 ) -> Result<()> {
-    let r =
-        service.home.store().record(hamlet)?.expect("vote's record");
+    let r = service
+        .home
+        .store()
+        .record(hamlet)?
+        .context("the voting hamlet has no record")?;
     for chief in r.chiefs {
         let previous = std::mem::replace(&mut service.chief, chief);
         let binding = crate::chats::current(
@@ -626,8 +635,11 @@ async fn sweep_hamlet(
         hamlet,
     )?;
     let limits = service.limits_of(hamlet)?;
-    let r =
-        service.home.store().record(hamlet)?.expect("vote's record");
+    let r = service
+        .home
+        .store()
+        .record(hamlet)?
+        .context("the voting hamlet has no record")?;
     for index in 0..votes.len() {
         let mut v = votes[index].clone();
         if service.house_work.founding(hamlet, v.id) {
@@ -911,7 +923,8 @@ fn seat(
     hamlet: &str,
     v: &Vote,
 ) -> Result<Option<String>> {
-    let current = record::read(tx, hamlet)?.expect("vote's record");
+    let current = record::read(tx, hamlet)?
+        .context("the voting hamlet has no record")?;
     if current.mayor != v.mayor {
         return Ok(Some(
             "the mayor changed while the vote was open".into(),
@@ -1044,8 +1057,11 @@ pub(super) async fn deed(
         ));
     }
     let mut votes = read(service.home.store().connection(), hamlet)?;
-    let r =
-        service.home.store().record(hamlet)?.expect("vote's record");
+    let r = service
+        .home
+        .store()
+        .record(hamlet)?
+        .context("the voting hamlet has no record")?;
     if deed == "votes" {
         let limits = service.limits_of(hamlet)?;
         return Ok(Some(Ok(votes

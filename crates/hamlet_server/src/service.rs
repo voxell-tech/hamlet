@@ -11,7 +11,7 @@ use crate::credentials::Credentials;
 use crate::documents::Work;
 use crate::limits::Rules;
 use crate::papers::{Capability, Houses};
-use crate::protocol::{Refusal, fault, reply};
+use crate::protocol::{Refusable, Refusal, fault, reply};
 use crate::record::{self, FoundRecord};
 use crate::settings::{Overrides, Settings};
 use crate::{Home, OperationId, Outcome, Reply, RuntimeInstance};
@@ -200,7 +200,7 @@ impl Service {
         &mut self,
         hamlet: &str,
         operation: &str,
-    ) -> Result<std::result::Result<record::Hamlet, Refusal>> {
+    ) -> Result<Refusable<record::Hamlet>> {
         if let Some(place) =
             crate::realm::read(self.home.store().connection())?
                 .hamlets
@@ -234,7 +234,7 @@ impl Service {
         &mut self,
         address: &Address,
         operation: &str,
-    ) -> Result<std::result::Result<record::Agent, Refusal>> {
+    ) -> Result<Refusable<record::Agent>> {
         let record = match self.access(&address.hamlet, operation)? {
             Ok(record) => record,
             Err(error) => return Ok(Err(error)),

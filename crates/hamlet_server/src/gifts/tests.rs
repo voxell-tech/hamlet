@@ -16,8 +16,8 @@ use crate::{Home, OperationId, Outcome, Reply, RuntimeInstance};
 impl Service {
     async fn settled(
         &mut self,
-        asked: Result<std::result::Result<Progress, Refusal>>,
-    ) -> Result<std::result::Result<Progress, Refusal>> {
+        asked: Result<Refusable<Progress>>,
+    ) -> Result<Refusable<Progress>> {
         let mut progress = asked?;
         while let Ok(Progress::Pending) = progress {
             let completed = self
@@ -38,7 +38,7 @@ impl Service {
         to: &Address,
         skill: &str,
         from: Option<&Address>,
-    ) -> Result<std::result::Result<String, Refusal>> {
+    ) -> Result<Refusable<String>> {
         let asked = self.gift_skill(1, "give", to, skill, from);
         Ok(self.settled(asked).await?.map(
             |progress| match progress {
@@ -54,7 +54,7 @@ impl Service {
         id: &str,
         to: &Address,
         files: &[GiveFilesFiles],
-    ) -> Result<std::result::Result<Progress, Refusal>> {
+    ) -> Result<Refusable<Progress>> {
         let asked = self.gift_begin(owner, id, to, files);
         self.settled(asked).await
     }
@@ -63,7 +63,7 @@ impl Service {
         &mut self,
         owner: u64,
         part: &GivePart,
-    ) -> Result<std::result::Result<Progress, Refusal>> {
+    ) -> Result<Refusable<Progress>> {
         let asked = self.gift_part(owner, part);
         self.settled(asked).await
     }

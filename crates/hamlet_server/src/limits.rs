@@ -13,7 +13,7 @@ use jsonschema::error::ValidationErrorKind;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::protocol::Refusal;
+use crate::protocol::{Refusable, Refusal};
 use crate::record::{self, Agent};
 
 /// The limits schema, whose defaults fill what a document omits.
@@ -201,7 +201,7 @@ impl Rules {
         &self,
         current: &Limits,
         edit: &EditLimits,
-    ) -> std::result::Result<Value, Refusal> {
+    ) -> Refusable<Value> {
         let current =
             serde_json::to_value(current).expect("limits are JSON");
         let mut value = match edit {

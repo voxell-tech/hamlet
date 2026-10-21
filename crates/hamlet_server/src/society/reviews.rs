@@ -1,6 +1,6 @@
 //! Mayor reviews beside chief work and task-wide objection rulings.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use hamlet_protocol::v0::{Choice, LimitsAskingMayorReview};
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -95,7 +95,7 @@ pub(crate) async fn prepare(
         return Ok(());
     };
     let r = crate::record::read(db, &kept.place.agent.hamlet)?
-        .expect("review's record");
+        .context("the reviewed hamlet has no record")?;
     if r.mayor == kept.place.agent.number {
         return Ok(());
     }

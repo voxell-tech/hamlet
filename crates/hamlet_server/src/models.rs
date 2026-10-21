@@ -20,7 +20,7 @@ use crate::harness::link::{
     ProviderRequestAction, ProviderRequestMethod, ProviderResult,
     Selection,
 };
-use crate::protocol::{Refusal, reply};
+use crate::protocol::{Refusable, Refusal, reply};
 use crate::record::AgentRef;
 use crate::service::{Service, document, save};
 use crate::settings::{Link, Settings};
@@ -590,7 +590,7 @@ impl Service {
     fn named_model(
         &mut self,
         name: &str,
-    ) -> Result<std::result::Result<(String, String), Refusal>> {
+    ) -> Result<Refusable<(String, String)>> {
         let invalid = |text| Ok(Err(Refusal::Invalid(text)));
         let Some((provider, id)) = name
             .split_once("::")
@@ -740,7 +740,7 @@ impl Service {
         &mut self,
         name: &str,
         set: EditCatalogueSet,
-    ) -> Result<std::result::Result<String, Refusal>> {
+    ) -> Result<Refusable<String>> {
         if set.price.as_ref().and_then(|p| p.as_ref()).is_some_and(
             |p| {
                 [p.input, p.output]

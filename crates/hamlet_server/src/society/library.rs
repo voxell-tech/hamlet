@@ -1,6 +1,6 @@
 //! Durable librarian consultations and shared skills.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -143,7 +143,7 @@ async fn begin(
         .home
         .store()
         .record(&caller.place.agent.hamlet)?
-        .expect("caller's record");
+        .context("the caller's hamlet has no record")?;
     job.by = format!(
         "{}@{}",
         record.name_of(

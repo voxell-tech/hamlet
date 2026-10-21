@@ -1,6 +1,6 @@
 //! An instruction's one objection, held until its chief answers.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use hamlet_protocol::v0::Choice;
 use serde_json::{Value, json};
 
@@ -89,7 +89,7 @@ pub(crate) fn object(
         return Ok(Answer::result("Say why in `reason`.", true));
     }
     let record = crate::record::read(db, &kept.place.agent.hamlet)?
-        .expect("instruction's record");
+        .context("the instructed hamlet has no record")?;
     let name = record.name_of(
         kept.place.agent.number,
         crate::record::NameFallback::Recorded,

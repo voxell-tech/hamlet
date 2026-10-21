@@ -31,7 +31,7 @@ pub(crate) use self::say::{admit_line, deeds as advertised_deeds};
 use crate::harness::{
     BindingId, Harnesses, Input, InputMark, InputStatus, Notice,
 };
-use crate::protocol::{Refusal, reply};
+use crate::protocol::{Refusable, reply};
 use crate::record::AgentRef;
 use crate::sandbox::Sandbox;
 use crate::service::Service;
@@ -658,7 +658,7 @@ fn reply_done(
     service: &mut Service,
     client: u64,
     id: &str,
-    done: std::result::Result<deeds::Done, Refusal>,
+    done: Refusable<deeds::Done>,
 ) -> Option<ServerMessage> {
     match done {
         Ok(deeds::Done {

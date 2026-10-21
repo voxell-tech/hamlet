@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 
 use crate::credentials::Workspace;
-use crate::protocol::Refusal;
+use crate::protocol::{Refusable, Refusal};
 use crate::service::{document, save};
 
 /// The home's settings, as the chief saved them.
@@ -208,7 +208,7 @@ fn builtins() -> Vec<String> {
 
 pub(crate) fn validate(
     set: &EditSettingsSet,
-) -> std::result::Result<Option<Option<Workspace>>, Refusal> {
+) -> Refusable<Option<Option<Workspace>>> {
     let invalid = |text: &str| Refusal::Invalid(text.into());
     let workspace = match &set.workspace {
         None => None,

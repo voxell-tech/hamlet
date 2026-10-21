@@ -11,7 +11,7 @@ use crate::harness::{BindingId, Harnesses};
 use crate::oversight::{
     self, Danger, Ruling, Wait, WaitKind, Woken, held,
 };
-use crate::protocol::Refusal;
+use crate::protocol::{Refusable, Refusal};
 use crate::service::Service;
 
 const NOTHING: &str = "Nothing waits for you.";
@@ -24,7 +24,7 @@ pub(in crate::chats) async fn answer_words(
     choice: &Choice,
     text: &str,
     picks: Option<&[Pick]>,
-) -> Result<std::result::Result<String, Refusal>> {
+) -> Result<Refusable<String>> {
     let db = service.home.store().connection();
     let Some(wait) = oversight::find(db, id)? else {
         return Ok(Ok(NOTHING.into()));

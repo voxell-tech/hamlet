@@ -1,6 +1,6 @@
 //! Departure, restoration and the chief's account of the record.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 use serde_json::Value;
 
@@ -88,8 +88,10 @@ pub(super) async fn remove(
             Ok(match crate::operation::change(db, &change)? {
                 Outcome::Done(RecordResult::Departed { archive }) => {
                     removed(
-                        &record::read(db, &agent.hamlet)?
-                            .expect("departed record"),
+                        &record::read(db, &agent.hamlet)?.context(
+                            "the departed agent's hamlet has no \
+                             record",
+                        )?,
                         &archive,
                     )
                 }
@@ -279,11 +281,9 @@ pub(super) async fn deed(
     tx.commit()?;
     let result = match result {
         Outcome::Done(RecordResult::Departed { archive }) => {
-            let r = service
-                .home
-                .store()
-                .record(hamlet)?
-                .expect("departed record");
+            let r = service.home.store().record(hamlet)?.context(
+                "the departed agent's hamlet has no record",
+            )?;
             let value = removed(&r, &archive);
             let number =
                 value["number"].as_u64().expect("departure number");

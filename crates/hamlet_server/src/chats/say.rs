@@ -13,7 +13,7 @@ use crate::harness::{
     BindingId, Harnesses, Input, InputMark, InputStatus,
 };
 use crate::oversight::WaitKind;
-use crate::protocol::{Refusal, reply};
+use crate::protocol::{Refusable, Refusal, reply};
 use crate::record::AgentRef;
 use crate::service::{Service, records as hamlets};
 use crate::{gate, oversight};
@@ -504,7 +504,7 @@ pub(super) async fn say(
 fn addressed(
     service: &mut Service,
     said: &Said,
-) -> Result<Result<AgentRef, Refusal>> {
+) -> Result<Refusable<AgentRef>> {
     Ok(service.agent(said.to, "say")?.map(|agent| AgentRef {
         hamlet: said.hamlet().into(),
         number: agent.number,
@@ -703,7 +703,7 @@ async fn conversation(
 fn present(
     service: &mut Service,
     said: &Said,
-) -> Result<Result<Option<AgentRef>, Refusal>> {
+) -> Result<Refusable<Option<AgentRef>>> {
     Ok(match addressed(service, said)? {
         Ok(agent) => Ok(Some(agent)),
         Err(Refusal::NoAgent(_)) => Ok(None),
