@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use bevy::app::App;
-use bevy::asset::{AssetId, Handle};
+use bevy::asset::{AssetId, Assets, Handle};
 use bevy::core_pipeline::tonemapping::tonemapping;
 use bevy::core_pipeline::{Core3d, Core3dSystems, FullscreenShader};
 use bevy::ecs::component::Component;
@@ -38,7 +38,10 @@ use bevy::render::renderer::{
     RenderContext, RenderDevice, ViewQuery,
 };
 use bevy::render::view::{ExtractedView, ViewTarget};
-use bevy::render::{Render, RenderApp, RenderSystems};
+use bevy::render::{
+    Extract, ExtractSchedule, Render, RenderApp, RenderStartup,
+    RenderSystems,
+};
 use bevy::shader::Shader;
 use wgpu::RenderPassTimestampWrites;
 
@@ -58,6 +61,8 @@ pub(crate) fn plugin(app: &mut App) {
     };
     render
         .init_resource::<PassPipelines>()
+        .add_systems(RenderStartup, forget_device)
+        .add_systems(ExtractSchedule, prune)
         .add_systems(Render, prepare.in_set(RenderSystems::Prepare))
         .add_systems(
             Core3d,
@@ -90,6 +95,12 @@ fn give_slot(
     }
 }
 
+/// Forgets the pipelines and sampler of the device before, as the
+/// renderer starts again on a new one after a failed device.
+fn forget_device(mut commands: Commands) {
+    commands.insert_resource(PassPipelines::default());
+}
+
 /// On a view with a pass: the pipeline it runs.
 #[derive(Component, Clone, Copy, Debug)]
 struct PassPipeline(CachedRenderPipelineId);
@@ -97,10 +108,22 @@ struct PassPipeline(CachedRenderPipelineId);
 #[derive(Resource, Default)]
 struct PassPipelines {
     sampler: Option<Sampler>,
+    /// The pipeline of each shader and format, while the shader is
+    /// kept.
     ids: HashMap<
         (AssetId<Shader>, TextureFormat),
         CachedRenderPipelineId,
     >,
+}
+
+/// Forgets the pipelines of shaders that are gone.
+fn prune(
+    shaders: Extract<Res<Assets<Shader>>>,
+    mut pipelines: ResMut<PassPipelines>,
+) {
+    pipelines
+        .ids
+        .retain(|&(shader, _), _| shaders.contains(shader));
 }
 
 fn layout() -> BindGroupLayoutDescriptor {
@@ -178,7 +201,15 @@ fn run(
     mut ctx: RenderContext,
 ) {
     let (target, extracted, pass, pipeline) = view.into_inner();
-    if throttled.0.contains(&pass.owner) {
+    let timing = pass
+        .slot
+        .filter(|_| clock.buffer.is_some())
+        .zip(clock.set.as_ref());
+    // Untimed, it would escape its owner's GPU time; it waits for a
+    // slot.
+    if throttled.0.contains(&pass.owner)
+        || (clock.set.is_some() && timing.is_none())
+    {
         return;
     }
     let Some(pipeline) =
@@ -226,10 +257,6 @@ fn run(
             frame.as_entire_binding(),
         )),
     );
-    let timing = pass
-        .slot
-        .filter(|_| clock.buffer.is_some())
-        .zip(clock.set.as_ref());
     let encoder = ctx.command_encoder();
     {
         let mut drawn =

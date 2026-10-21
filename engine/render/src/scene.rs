@@ -8,13 +8,15 @@ use std::time::Instant;
 
 use bevy::app::{App, Update};
 use bevy::asset::{Assets, Handle, RenderAssetUsages};
-use bevy::camera::visibility::Visibility;
+use bevy::camera::visibility::{RenderLayers, Visibility};
 use bevy::camera::{
     Camera, Camera3d, Hdr, ImageRenderTarget, RenderTarget,
 };
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
-use bevy::ecs::hierarchy::ChildOf;
+use bevy::ecs::hierarchy::{ChildOf, Children};
+use bevy::ecs::lifecycle::Despawn;
+use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Query, ResMut};
@@ -49,6 +51,8 @@ use crate::viewport::{RenderTuning, ViewPointer};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Backdrop>()
+        .init_resource::<SceneLayers>()
+        .add_observer(give_layer)
         .add_systems(Update, release_backdrop);
 }
 
@@ -73,6 +77,37 @@ pub struct Scene {
     computes: HashMap<u32, Entity>,
     /// The cameras with a pass.
     passes: HashSet<u32>,
+    /// The buffers written in the changes being made.
+    written: HashSet<u32>,
+    /// The render layer of its entities, seen by its cameras alone.
+    layer: usize,
+}
+
+/// The render layers of scenes, each held by one scene.
+#[derive(Resource, Default, Debug)]
+struct SceneLayers {
+    free: Vec<usize>,
+    /// The last layer handed out; the default layer 0 is never one.
+    last: usize,
+}
+
+impl SceneLayers {
+    fn take(&mut self) -> usize {
+        self.free.pop().unwrap_or_else(|| {
+            self.last += 1;
+            self.last
+        })
+    }
+}
+
+fn give_layer(
+    gone: On<Despawn, Scene>,
+    scenes: Query<&Scene>,
+    mut layers: ResMut<SceneLayers>,
+) {
+    if let Ok(scene) = scenes.get(gone.entity) {
+        layers.free.push(scene.layer);
+    }
 }
 
 /// A material of a scene: Bevy's own, or one of the owner's shader.
@@ -86,12 +121,12 @@ enum Look {
 #[derive(Resource, Clone, Debug)]
 struct SpareBuffer(Handle<ShaderBuffer>);
 
-/// The copies of instances, under their own entity.
+/// The copies of instances, under their own entity, and what they
+/// draw, kept after the owner drops its numbers.
 struct Copies {
     root: Entity,
     key: u32,
-    mesh: u32,
-    material: u32,
+    drawn: Option<(Handle<Mesh>, Look)>,
     copies: Vec<Entity>,
     watched: Option<Watched>,
 }
@@ -132,10 +167,11 @@ pub struct SceneCamera {
 }
 
 impl Scene {
-    fn new(owner: Entity, since: Instant) -> Self {
+    fn new(owner: Entity, since: Instant, layer: usize) -> Self {
         Self {
             owner,
             since,
+            layer,
             entities: HashMap::new(),
             meshes: HashMap::new(),
             materials: HashMap::new(),
@@ -146,6 +182,23 @@ impl Scene {
             textures: HashMap::new(),
             computes: HashMap::new(),
             passes: HashSet::new(),
+            written: HashSet::new(),
+        }
+    }
+
+    /// Gives each buffer written since the last upload its bytes,
+    /// once however many writes it had.
+    fn upload(&mut self, world: &mut World) {
+        if self.written.is_empty() {
+            return;
+        }
+        let mut assets = world.resource_mut::<Assets<ShaderBuffer>>();
+        for id in self.written.drain() {
+            if let Some((held, kept)) = self.buffers.get(&id)
+                && let Some(mut buffer) = assets.get_mut(held.id())
+            {
+                buffer.data = Some(kept.clone());
+            }
         }
     }
 
@@ -213,6 +266,7 @@ impl Scene {
                         Transform::default(),
                         Visibility::default(),
                         self.part(key, 0),
+                        self.layers(),
                         ChildOf(under),
                     ))
                     .id();
@@ -230,10 +284,22 @@ impl Scene {
                 self.insert(world, id, shown);
             }
             SceneChange::Parent { id, parent } => {
+                let Some(entity) = self.entity(id) else {
+                    return;
+                };
                 let under = self.under(parent, root);
-                if self.entity(id) != Some(under) {
-                    self.insert(world, id, ChildOf(under));
+                // Under itself, it would leave the scene's tree and
+                // outlive the scene.
+                let mut at = Some(under);
+                while let Some(above) = at {
+                    if above == entity {
+                        return;
+                    }
+                    at = world
+                        .get::<ChildOf>(above)
+                        .map(ChildOf::parent);
                 }
+                self.insert(world, id, ChildOf(under));
             }
             SceneChange::Draw { id, mesh, material } => {
                 if let (Some(mesh), Some(look)) = (
@@ -292,7 +358,11 @@ impl Scene {
                 if let Some(copies) = self.instances.get_mut(&id) {
                     copies.watched = Some(watched);
                     for &copy in &copies.copies {
-                        world.entity_mut(copy).insert(watched);
+                        if let Ok(mut copy) =
+                            world.get_entity_mut(copy)
+                        {
+                            copy.insert(watched);
+                        }
                     }
                 } else {
                     self.insert(world, id, watched);
@@ -340,7 +410,7 @@ impl Scene {
                 self.buffers.insert(id, (made, bytes));
             }
             SceneChange::Write { id, offset, bytes } => {
-                let Some((held, kept)) = self.buffers.get_mut(&id)
+                let Some((_, kept)) = self.buffers.get_mut(&id)
                 else {
                     return;
                 };
@@ -350,12 +420,7 @@ impl Scene {
                     return;
                 };
                 into.copy_from_slice(&bytes);
-                if let Some(mut buffer) = world
-                    .resource_mut::<Assets<ShaderBuffer>>()
-                    .get_mut(held.id())
-                {
-                    buffer.data = Some(kept.clone());
-                }
+                self.written.insert(id);
             }
             SceneChange::Texture {
                 id,
@@ -496,7 +561,11 @@ impl Scene {
                 shader,
                 params,
             } => {
-                let Some(entity) = self.camera(camera) else {
+                let Some(entity) =
+                    self.camera(camera).filter(|&entity| {
+                        world.get_entity(entity).is_ok()
+                    })
+                else {
                     return;
                 };
                 let shader = shader.and_then(|shader| {
@@ -541,13 +610,17 @@ impl Scene {
                         ChildOf(under),
                     ))
                     .id();
+                let drawn = self
+                    .meshes
+                    .get(&mesh)
+                    .cloned()
+                    .zip(self.materials.get(&material).cloned());
                 self.instances.insert(
                     id,
                     Copies {
                         root: made,
                         key,
-                        mesh,
-                        material,
+                        drawn,
                         copies: Vec::new(),
                         watched: None,
                     },
@@ -570,6 +643,7 @@ impl Scene {
                     .map_or(0, |part| part.key);
                 let camera = world
                     .spawn_camera(self.owner, key, at, background);
+                world.entity_mut(camera).insert(self.layers());
                 world.set_up(camera, setup);
                 self.cameras.insert(id, camera);
             }
@@ -580,6 +654,10 @@ impl Scene {
             }
             SceneChange::Drop(id) => self.drop(world, id),
         }
+    }
+
+    fn layers(&self) -> RenderLayers {
+        RenderLayers::layer(self.layer)
     }
 
     fn part(&self, key: u32, index: u32) -> ScenePart {
@@ -624,12 +702,7 @@ impl Scene {
         transforms: Vec<Transform>,
     ) {
         let owner = self.owner;
-        let mesh = self.instances.get(&id).and_then(|copies| {
-            self.meshes.get(&copies.mesh).cloned()
-        });
-        let material = self.instances.get(&id).and_then(|copies| {
-            self.materials.get(&copies.material).cloned()
-        });
+        let layers = self.layers();
         let Some(copies) = self.instances.get_mut(&id) else {
             return;
         };
@@ -657,9 +730,10 @@ impl Scene {
                     key: copies.key,
                     index: at as u32,
                 },
+                layers.clone(),
                 ChildOf(copies.root),
             ));
-            if let (Some(mesh), Some(look)) = (&mesh, &material) {
+            if let Some((mesh, look)) = &copies.drawn {
                 made.draw(mesh.clone(), look.clone());
             }
             if let Some(watched) = copies.watched {
@@ -688,11 +762,32 @@ impl Scene {
             self.textures.remove(&id);
             None
         };
-        if let Some(gone) = gone
-            && let Ok(gone) = world.get_entity_mut(gone)
-        {
-            gone.despawn();
+        let Some(gone) =
+            gone.filter(|&gone| world.get_entity(gone).is_ok())
+        else {
+            return;
+        };
+        let under = if world.get::<Children>(gone).is_some() {
+            world
+                .query::<&Children>()
+                .query(world)
+                .iter_descendants(gone)
+                .collect::<HashSet<_>>()
+        } else {
+            HashSet::new()
+        };
+        world.entity_mut(gone).despawn();
+        if under.is_empty() {
+            return;
         }
+        // What was under it went with it, so its numbers name
+        // nothing.
+        self.entities.retain(|_, entity| !under.contains(entity));
+        self.instances
+            .retain(|_, copies| !under.contains(&copies.root));
+        self.cameras.retain(|_, camera| !under.contains(camera));
+        let cameras = &self.cameras;
+        self.passes.retain(|camera| cameras.contains_key(camera));
     }
 }
 
@@ -755,8 +850,13 @@ impl SceneWorldExt for World {
             Some(root) => root,
             None => {
                 self.clear_scene(owner);
-                self.spawn((Scene::new(owner, since), SceneOf(owner)))
-                    .id()
+                let layer =
+                    self.get_resource_or_init::<SceneLayers>().take();
+                self.spawn((
+                    Scene::new(owner, since, layer),
+                    SceneOf(owner),
+                ))
+                .id()
             }
         };
         let Some(mut scene) = self.entity_mut(root).take::<Scene>()
@@ -766,6 +866,7 @@ impl SceneWorldExt for World {
         for change in changes {
             scene.apply(self, root, change);
         }
+        scene.upload(self);
         self.entity_mut(root).insert(scene);
     }
 
@@ -835,6 +936,10 @@ impl SceneWorldExt for World {
     }
 
     fn set_up(&mut self, camera: Entity, setup: CameraSetup) {
+        // Samples the GPU has not would fail the device.
+        let msaa = self
+            .get_resource::<GpuInfo>()
+            .map_or(setup.msaa, |gpu| gpu.msaa(setup.msaa));
         let Ok(mut camera) = self.get_entity_mut(camera) else {
             return;
         };
@@ -846,7 +951,7 @@ impl SceneWorldExt for World {
             setup.tonemapping,
             setup.exposure,
             setup.ambient,
-            setup.msaa,
+            msaa,
         ));
         if setup.hdr {
             camera.insert(Hdr);
@@ -943,5 +1048,67 @@ fn release_backdrop(
     });
     if !held {
         backdrop.0 = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::ecs::query::Without;
+
+    use super::*;
+
+    #[test]
+    fn what_was_under_a_dropped_entity_is_named_no_more() {
+        let mut world = World::new();
+        let owner = world.spawn_empty().id();
+        let since = Instant::now();
+        let parent = |id, parent| SceneChange::Parent { id, parent };
+        world.apply_scene(
+            owner,
+            since,
+            vec![
+                SceneChange::Entity {
+                    id: 1,
+                    key: 0,
+                    parent: None,
+                },
+                SceneChange::Entity {
+                    id: 2,
+                    key: 0,
+                    parent: Some(1),
+                },
+                // Under its own child, it would leave the scene.
+                parent(1, Some(2)),
+                SceneChange::Instances {
+                    id: 3,
+                    key: 0,
+                    parent: Some(2),
+                    mesh: 0,
+                    material: 0,
+                },
+                SceneChange::Copies {
+                    id: 3,
+                    transforms: vec![Transform::default()],
+                },
+                SceneChange::Drop(1),
+                SceneChange::Watch {
+                    id: 3,
+                    hover: true,
+                    click: true,
+                },
+                SceneChange::Entity {
+                    id: 4,
+                    key: 0,
+                    parent: Some(2),
+                },
+            ],
+        );
+        let scene = world.scene_of(owner).expect("a scene");
+        assert_eq!(scene.entities(), 1);
+        let outside = world
+            .query_filtered::<(), (With<ScenePart>, Without<ChildOf>)>()
+            .iter(&world)
+            .count();
+        assert_eq!(outside, 0);
     }
 }

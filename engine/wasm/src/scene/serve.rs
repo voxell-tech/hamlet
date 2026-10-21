@@ -33,7 +33,11 @@ use crate::panel::{Moving, serve};
 use crate::retained::{Holders, NodeOf};
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_systems(Update, (lose, grant, route).before(serve))
+    // The render crate's messages, for an engine that runs without
+    // it.
+    app.add_message::<GpuLost>()
+        .add_message::<SceneInput>()
+        .add_systems(Update, (lose, grant, route).before(serve))
         .add_systems(
             Update,
             (play, apply, attach, forget).chain().after(serve),
@@ -57,8 +61,8 @@ pub struct ShowsCamera(pub u32);
 fn grant(
     mut plugins: Query<(Entity, &PluginInfo, &mut Instance)>,
     grants: Res<Grants>,
-    backdrop: Res<Backdrop>,
-    gpu: Res<GpuInfo>,
+    backdrop: Option<Res<Backdrop>>,
+    gpu: Option<Res<GpuInfo>>,
     mut decided: MessageReader<Decided>,
     mut first_use: MessageWriter<FirstUse>,
     mut given: Local<HashMap<Entity, Powers>>,
@@ -81,6 +85,11 @@ fn grant(
     }
     given.retain(|plugin, _| plugins.contains(*plugin));
     asked.retain(|plugin, _| plugins.contains(*plugin));
+    // Without the render crate nothing is drawn, so no power is
+    // given.
+    let Some(gpu) = gpu else {
+        return;
+    };
     for (plugin, info, mut instance) in &mut plugins {
         let answered =
             given.get(&plugin).copied().unwrap_or_default();
@@ -109,8 +118,10 @@ fn grant(
         scene.powers = powers;
         scene.asking = asking;
         scene.wanted = Powers::default();
-        scene.backdrop_taken =
-            backdrop.0.is_some_and(|owner| owner != plugin);
+        scene.backdrop_taken = backdrop
+            .as_ref()
+            .and_then(|backdrop| backdrop.0)
+            .is_some_and(|owner| owner != plugin);
         scene.gpu = *gpu;
     }
 }
@@ -126,8 +137,7 @@ fn lose(
         for &plugin in &lost.owners {
             if let Ok(info) = plugins.get(plugin) {
                 let fault = Fault::Trap(format!(
-                    "the GPU failed while it ran its shaders or \
-                     compute: {}",
+                    "the GPU failed while it drew: {}",
                     lost.why
                 ));
                 commands.stop_plugin(&mut log, plugin, info, &fault);

@@ -105,6 +105,7 @@ impl HostShader for State {
         source: String,
     ) -> wasmtime::Result<Result<Resource<ShaderHandle>, String>>
     {
+        self.keep_bytes(source.len())?;
         let (kind, power, name) = match kind {
             Kind::Material => (
                 ShaderKind::Material,
@@ -155,9 +156,15 @@ impl HostBuffer for State {
     {
         let scene = &mut self.scene;
         let bytes = u64::from(size);
+        let largest = scene.gpu.buffer_size;
         let refused = scene
             .allowed_either()
             .and_then(|()| scene.room_gpu(bytes))
+            .and_then(|()| {
+                (bytes <= largest).then_some(()).ok_or_else(|| {
+                    format!("a buffer is {largest} bytes at most")
+                })
+            })
             .and_then(|()| {
                 (size > 0 && size.is_multiple_of(16))
                     .then_some(())
@@ -182,6 +189,7 @@ impl HostBuffer for State {
         offset: u32,
         bytes: Vec<u8>,
     ) -> wasmtime::Result<Result<(), String>> {
+        self.keep_bytes(bytes.len())?;
         let id = buffer.rep();
         let Held::Buffer { bytes: size } = self
             .scene
@@ -249,6 +257,7 @@ impl HostTexture for State {
         pixels: Vec<u8>,
     ) -> wasmtime::Result<Result<Resource<TextureHandle>, String>>
     {
+        self.keep_bytes(pixels.len())?;
         let bytes = pixels.len() as u64;
         let refused = self
             .picture(width, height, &pixels)
@@ -275,6 +284,7 @@ impl HostTexture for State {
         texture: Resource<TextureHandle>,
         pixels: Vec<u8>,
     ) -> wasmtime::Result<Result<(), String>> {
+        self.keep_bytes(pixels.len())?;
         let id = texture.rep();
         let Held::Texture { width, height } = self
             .scene
@@ -312,6 +322,7 @@ impl Host for State {
         data: Option<Resource<BufferHandle>>,
     ) -> wasmtime::Result<Result<Resource<MaterialHandle>, String>>
     {
+        self.keep_bytes(size_of_val(floats.as_slice()))?;
         let scene = &mut self.scene;
         if let Some(texture) = &texture {
             scene.held(texture.rep(), |held| {
@@ -344,7 +355,12 @@ impl Host for State {
         }
         scene.spend(1)?;
         scene.counts.materials += 1;
-        let id = scene.number(Held::Material { shaded: true });
+        let texture = texture.map(|texture| texture.rep());
+        let data = data.map(|data| data.rep());
+        let id = scene.number(Held::Material {
+            shaded: true,
+            uses: [Some(shader.rep()), texture, data],
+        });
         scene.changes.push(SceneChange::Shaded {
             id,
             shader: shader.rep(),
@@ -352,8 +368,8 @@ impl Host for State {
             double_sided: settings.double_sided,
             lit: settings.lit,
             params: floats,
-            texture: texture.map(|texture| texture.rep()),
-            data: data.map(|data| data.rep()),
+            texture,
+            data,
         });
         Ok(Ok(Resource::new_own(id)))
     }
@@ -363,9 +379,10 @@ impl Host for State {
         material: Resource<MaterialHandle>,
         floats: Vec<f32>,
     ) -> wasmtime::Result<Result<(), String>> {
+        self.keep_bytes(size_of_val(floats.as_slice()))?;
         let id = material.rep();
         self.scene.held(id, |held| {
-            *held == Held::Material { shaded: true }
+            matches!(held, Held::Material { shaded: true, .. })
         })?;
         if let Err(why) = params(&floats) {
             return Ok(Err(why));
@@ -381,6 +398,7 @@ impl Host for State {
         shader: Option<Resource<ShaderHandle>>,
         floats: Vec<f32>,
     ) -> wasmtime::Result<Result<(), String>> {
+        self.keep_bytes(size_of_val(floats.as_slice()))?;
         let id = camera.rep();
         let Held::Camera { background, pass } = self
             .scene
@@ -389,37 +407,41 @@ impl Host for State {
             return Err(trap(SceneError::Unknown));
         };
         let scene = &mut self.scene;
-        let now = shader.is_some();
-        if let Some(shader) = &shader {
+        let shader = shader.map(|shader| shader.rep());
+        if let Some(shader) = shader {
             let refused = scene
                 .allowed(Powers::SHADER, "render.shader")
                 .and_then(|()| params(&floats))
                 .and_then(|()| {
-                    if pass { Ok(()) } else { scene.room_gpu(0) }
+                    if pass.is_some() {
+                        Ok(())
+                    } else {
+                        scene.room_gpu(0)
+                    }
                 });
             if let Err(why) = refused {
                 return Ok(Err(why));
             }
             if let Err(why) =
-                scene.shader(shader.rep(), ShaderKind::Pass)?
+                scene.shader(shader, ShaderKind::Pass)?
             {
                 return Ok(Err(why));
             }
         }
         scene.spend(1)?;
         scene.counts.gpu_objects = scene.counts.gpu_objects
-            + usize::from(now)
-            - usize::from(pass);
-        scene.held.insert(
+            + usize::from(shader.is_some())
+            - usize::from(pass.is_some());
+        scene.keep(
             id,
             Held::Camera {
                 background,
-                pass: now,
+                pass: shader,
             },
         );
         scene.changes.push(SceneChange::Pass {
             camera: id,
-            shader: shader.map(|shader| shader.rep()),
+            shader,
             params: floats,
         });
         Ok(Ok(()))
@@ -452,14 +474,18 @@ impl HostCompute for State {
         {
             return Ok(Err(why));
         }
-        let made = scene.make_gpu(Held::Compute, 0, |id| {
-            SceneChange::Compute {
-                id,
-                shader: shader.rep(),
-                data: data.rep(),
-                extra: extra.map(|extra| extra.rep()),
-            }
-        })?;
+        let (shader, data) = (shader.rep(), data.rep());
+        let extra = extra.map(|extra| extra.rep());
+        let uses = [Some(shader), Some(data), extra];
+        let made =
+            scene.make_gpu(Held::Compute { uses }, 0, |id| {
+                SceneChange::Compute {
+                    id,
+                    shader,
+                    data,
+                    extra,
+                }
+            })?;
         Ok(Ok(made))
     }
 
@@ -468,8 +494,9 @@ impl HostCompute for State {
         compute: Resource<ComputeHandle>,
         floats: Vec<f32>,
     ) -> wasmtime::Result<Result<(), String>> {
+        self.keep_bytes(size_of_val(floats.as_slice()))?;
         let id = compute.rep();
-        self.scene.held(id, |held| *held == Held::Compute)?;
+        self.scene.held(id, Held::compute)?;
         if let Err(why) = params(&floats) {
             return Ok(Err(why));
         }
@@ -487,13 +514,20 @@ impl HostCompute for State {
         every_frame: bool,
     ) -> wasmtime::Result<Result<(), String>> {
         let id = compute.rep();
-        self.scene.held(id, |held| *held == Held::Compute)?;
+        self.scene.held(id, Held::compute)?;
         let most = self.scene.caps.workgroups;
         let groups = u64::from(x) * u64::from(y) * u64::from(z);
         if groups > u64::from(most) {
             return Ok(Err(format!(
                 "{groups} workgroups, the most a frame runs is \
                  {most}"
+            )));
+        }
+        let widest = self.scene.gpu.groups;
+        if x.max(y).max(z) > widest {
+            return Ok(Err(format!(
+                "{x} by {y} by {z} workgroups, the most along each \
+                 is {widest}"
             )));
         }
         self.scene.change(SceneChange::Dispatch {

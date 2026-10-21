@@ -11,9 +11,10 @@ use bevy::camera::Camera;
 use bevy::camera::visibility::InheritedVisibility;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
-use bevy::ecs::hierarchy::{ChildOf, Children};
+use bevy::ecs::hierarchy::Children;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Query, Res, SystemParam};
+use bevy::ecs::world::EntityWorldMut;
 use bevy::picking::Pickable;
 use bevy::text::{TextColor, TextFont};
 use bevy::transform::TransformSystems;
@@ -125,7 +126,7 @@ impl Labels<'_, '_> {
                     }
                 }
                 None => {
-                    let mut made = self.commands.spawn((
+                    let text = (
                         Text::new(label.0.clone()),
                         Node {
                             position_type: PositionType::Absolute,
@@ -135,16 +136,28 @@ impl Labels<'_, '_> {
                         },
                         LabelOf(entity),
                         Pickable::IGNORE,
-                        ChildOf(holder),
-                    ));
-                    if let Some(theme) = &self.theme {
-                        made.insert((
+                    );
+                    let style = self.theme.as_ref().map(|theme| {
+                        (
                             TextFont::from_font_size(
                                 theme.text.small,
                             ),
                             TextColor(*theme.colors.text),
-                        ));
-                    }
+                        )
+                    });
+                    // Made only while its holder is there: a holder
+                    // gone in the same frame would leave it at the
+                    // window's root.
+                    self.commands.entity(holder).queue_silenced(
+                        move |mut holder: EntityWorldMut| {
+                            holder.with_children(|texts| {
+                                let mut made = texts.spawn(text);
+                                if let Some(style) = style {
+                                    made.insert(style);
+                                }
+                            });
+                        },
+                    );
                 }
             }
         }
@@ -168,6 +181,12 @@ fn place(
 ) {
     for (viewport, view, computed, children) in &viewports {
         let Ok(camera) = cameras.get(view.camera) else {
+            // Its camera is gone, and the words over it with it.
+            for &child in children.into_iter().flatten() {
+                if labels.shown.contains(child) {
+                    labels.commands.entity(child).despawn();
+                }
+            }
             continue;
         };
         labels.keep(

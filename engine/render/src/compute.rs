@@ -6,13 +6,13 @@
 use std::collections::{HashMap, HashSet};
 
 use bevy::app::App;
-use bevy::asset::{AssetId, Handle};
+use bevy::asset::{AssetId, Assets, Handle};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::lifecycle::HookContext;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
+use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::DeferredWorld;
 use bevy::math::Vec4;
 use bevy::render::render_asset::RenderAssets;
@@ -32,7 +32,8 @@ use bevy::render::renderer::{
 };
 use bevy::render::storage::{GpuShaderBuffer, ShaderBuffer};
 use bevy::render::{
-    Extract, ExtractSchedule, Render, RenderApp, RenderSystems,
+    Extract, ExtractSchedule, Render, RenderApp, RenderStartup,
+    RenderSystems,
 };
 use bevy::shader::Shader;
 use bevy::time::Time;
@@ -53,6 +54,8 @@ pub(crate) fn plugin(app: &mut App) {
     render
         .init_resource::<Jobs>()
         .init_resource::<RenderClock>()
+        .init_resource::<Running>()
+        .add_systems(RenderStartup, forget_device)
         .add_systems(ExtractSchedule, extract)
         .add_systems(
             Render,
@@ -122,8 +125,13 @@ fn extract(
     tuning: Extract<Res<RenderTuning>>,
     time: Extract<Res<Time>>,
     clock: Extract<Option<Res<GpuClock>>>,
+    shaders: Extract<Res<Assets<Shader>>>,
+    mut running: ResMut<Running>,
     mut commands: Commands,
 ) {
+    running
+        .pipelines
+        .retain(|&shader, _| shaders.contains(shader));
     commands.insert_resource(Jobs {
         jobs: jobs
             .iter()
@@ -144,10 +152,19 @@ fn extract(
     });
 }
 
-/// What [`run`] keeps from frame to frame.
-#[derive(Default)]
+/// Forgets what was made on the device before, as the renderer starts
+/// again on a new one after a failed device.
+fn forget_device(mut commands: Commands) {
+    commands.insert_resource(Running::default());
+    commands.insert_resource(RenderClock::default());
+}
+
+/// What [`run`] keeps from frame to frame, on the device it was made
+/// on.
+#[derive(Resource, Default)]
 struct Running {
     layout: Option<BindGroupLayoutDescriptor>,
+    /// The pipeline of each shader, while the shader is kept.
     pipelines: HashMap<AssetId<Shader>, CachedComputePipelineId>,
     /// The dispatches each job ran.
     ran: HashMap<Entity, u64>,
@@ -181,7 +198,7 @@ fn run(
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     mut clock: ResMut<RenderClock>,
-    mut running: Local<Running>,
+    mut running: ResMut<Running>,
 ) {
     running.frames = running.frames.wrapping_add(1);
     let timed =
@@ -214,11 +231,13 @@ fn run(
             device.create_buffer(&BufferDescriptor {
                 label: Some("hamlet_spare"),
                 size: 16,
-                usage: BufferUsages::STORAGE,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             })
         })
         .clone();
+    // A dispatch past it would fail the device.
+    let widest = device.limits().max_compute_workgroups_per_dimension;
     let mut spent = HashMap::<Entity, u32>::new();
     let frame = |count: u32| {
         let mut bytes = Vec::with_capacity(16);
@@ -232,8 +251,16 @@ fn run(
         let owed = job.every_frame
             || running.ran.get(entity).copied().unwrap_or(0)
                 < job.asked;
+        let timing = job
+            .slot
+            .filter(|_| clock.buffer.is_some())
+            .zip(clock.set.as_ref());
+        // Untimed, it would escape its owner's GPU time; it waits for
+        // a slot.
+        let waits = clock.set.is_some() && timing.is_none();
         if job.asked == 0
             || !owed
+            || waits
             || jobs.throttled.contains(&job.owner)
         {
             continue;
@@ -243,7 +270,9 @@ fn run(
         let most =
             jobs.workgroups.get(&job.owner).copied().unwrap_or(0);
         let used = spent.entry(job.owner).or_default();
-        if used.saturating_add(groups) > most {
+        if used.saturating_add(groups) > most
+            || job.groups.iter().any(|&along| along > widest)
+        {
             continue;
         }
         let id = *running
@@ -267,11 +296,19 @@ fn run(
         ) else {
             continue;
         };
-        let extra = job
+        let extra = match job
             .extra
             .as_ref()
             .and_then(|extra| buffers.get(extra))
-            .map_or(&spare, |extra| &extra.buffer);
+        {
+            Some(extra) => &extra.buffer,
+            None => {
+                // Every owner's compute may write it, so none reads
+                // what another wrote.
+                encoder.clear_buffer(&spare, 0, None);
+                &spare
+            }
+        };
         *used += groups;
         let params =
             device.create_buffer_with_data(&BufferInitDescriptor {
@@ -295,10 +332,6 @@ fn run(
                 times.as_entire_binding(),
             )),
         );
-        let timing = job
-            .slot
-            .filter(|_| clock.buffer.is_some())
-            .zip(clock.set.as_ref());
         {
             let mut pass =
                 encoder.begin_compute_pass(&ComputePassDescriptor {

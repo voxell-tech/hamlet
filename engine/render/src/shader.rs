@@ -40,6 +40,10 @@ pub struct ShaderRules {
     pub loops_bounded: bool,
     /// Invocations of one workgroup.
     pub invocations: u32,
+    /// Invocations of one workgroup along each axis.
+    pub workgroup_size: [u32; 3],
+    /// Bytes of a workgroup's shared memory.
+    pub workgroup_memory: u32,
 }
 
 impl ShaderRules {
@@ -49,6 +53,8 @@ impl ShaderRules {
             bytes,
             loops_bounded: gpu.loops_bounded,
             invocations: gpu.invocations,
+            workgroup_size: gpu.workgroup_size,
+            workgroup_memory: gpu.workgroup_memory,
         }
     }
 }
@@ -312,6 +318,9 @@ pub fn check(
     let at = Lines { before, lines };
     let first = at.parse(&format!("{head}{source}\n"))?;
     let displaces = has(&first, "displace");
+    // Before the stand-in calls them, so a function of the wrong
+    // shape is named rather than failing where it is called.
+    own(&first, kind, displaces, rules)?;
     let stand_in = match kind {
         ShaderKind::Material => material_stand_in(displaces),
         ShaderKind::Pass => PASS_STAND_IN.to_owned(),
@@ -327,7 +336,13 @@ pub fn check(
                 &chain(error.as_inner()),
             )
         })?;
-    own(&module, kind, displaces, rules)?;
+    let shared = workgroup_bytes(&module);
+    if shared > u64::from(rules.workgroup_memory) {
+        return Err(format!(
+            "{shared} bytes of workgroup memory, the most is {}",
+            rules.workgroup_memory
+        ));
+    }
     if !rules.loops_bounded && module_loops(&module) {
         return Err("this GPU cannot bound a loop, so a source has \
                     none"
@@ -491,6 +506,13 @@ fn own(
                     rules.invocations
                 ));
             }
+            let [most_x, most_y, most_z] = rules.workgroup_size;
+            if x > most_x || y > most_y || z > most_z {
+                return Err(format!(
+                    "a workgroup of {x} by {y} by {z}, the most is \
+                     {most_x} by {most_y} by {most_z}"
+                ));
+            }
         }
     }
     Ok(())
@@ -529,6 +551,22 @@ fn takes(
     if fits { Ok(()) } else { Err(wanted()) }
 }
 
+/// Bytes of the module's workgroup memory, each variable rounded up
+/// to 16 as backends lay it out. The module is validated, so each
+/// size fits.
+fn workgroup_bytes(module: &Module) -> u64 {
+    module
+        .global_variables
+        .iter()
+        .filter(|(_, global)| global.space == AddressSpace::WorkGroup)
+        .map(|(_, global)| {
+            let size =
+                module.types[global.ty].inner.size(module.to_ctx());
+            u64::from(size).next_multiple_of(16)
+        })
+        .sum()
+}
+
 /// Whether a function of the module loops.
 fn module_loops(module: &Module) -> bool {
     module
@@ -563,6 +601,8 @@ mod tests {
         bytes: 4_096,
         loops_bounded: true,
         invocations: 256,
+        workgroup_size: [256, 256, 64],
+        workgroup_memory: 16_384,
     };
 
     fn refused(kind: ShaderKind, source: &str) -> String {
@@ -621,5 +661,13 @@ mod tests {
         );
         let wide = "@compute @workgroup_size(32, 32) fn main() {}";
         assert!(refused(ShaderKind::Compute, wide).contains("1024"));
+        let deep = "@compute @workgroup_size(1, 1, 128) fn main() {}";
+        assert!(refused(ShaderKind::Compute, deep).contains("64"));
+        let shared = "var<workgroup> kept: array<vec4<f32>, \
+                      2048>;\n@compute @workgroup_size(1) fn main() \
+                      { kept[0] = params[0]; }";
+        assert!(
+            refused(ShaderKind::Compute, shared).contains("16384")
+        );
     }
 }

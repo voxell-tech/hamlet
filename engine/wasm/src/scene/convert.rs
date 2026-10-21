@@ -59,6 +59,17 @@ impl Made {
     }
 }
 
+impl MeshData {
+    /// Bytes the plugin handed over.
+    pub(crate) fn bytes(&self) -> usize {
+        size_of_val(self.positions.as_slice())
+            + size_of_val(self.normals.as_slice())
+            + size_of_val(self.uvs.as_slice())
+            + size_of_val(self.colors.as_slice())
+            + size_of_val(self.indices.as_slice())
+    }
+}
+
 fn finite(values: &[f32]) -> bool {
     values.iter().all(|value| value.is_finite())
 }

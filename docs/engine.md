@@ -1417,12 +1417,18 @@ none of them imports none of them.
   `instances` (copies of one mesh in one material, ten floats a copy,
   copy `i` tagged `i` for a shader; Bevy draws them together) and
   `camera` (at an entity, along its forward). Dropping a handle takes
-  its thing away; dropping an entity takes away what is under it.
+  its thing away; dropping an entity takes away what is under it. A
+  mesh, material, shader, buffer or texture still drawn or run with
+  stays, counted against the budgets, until nothing uses it.
 - **Lights** are directional (with shadows), point and spot, each a
   light of an entity; ambient light is a camera's.
 - **A camera's settings**: a perspective or orthographic projection,
   what it clears to, high range, tonemapping, exposure, distance fog,
-  bloom, ambient light and samples a pixel.
+  bloom, ambient light and samples a pixel (MSAA), lowered to the most
+  the GPU has for a camera's images where it asks more.
+- **One scene a camera.** Each scene is on a render layer of its own
+  and its cameras see that layer alone, so a camera shows its own
+  scene and nothing else.
 - **Only changes cross.** Each call is one change, numbered by the
   host and applied as the frame's calls end; nothing is sent again
   each frame. `animate` asks for `tick` each frame, for a plugin that
@@ -1462,14 +1468,15 @@ none of them imports none of them.
   refusal names the line of the source. A material gives
   `fn shade(surface: Surface) -> vec4<f32>` and may give
   `fn displace(vertex: Vertex) -> vec3<f32>`; a pass
-  `fn post(drawn: Pass) -> vec4<f32>`; compute
-  `@compute @workgroup_size(..) fn main`, of at most the device's
-  invocations a workgroup. The fixed names: `params` (16 `vec4<f32>`,
-  the plugin's 64 floats), and `picture`, `picture_sampler` and
-  `data` (a read-only storage buffer) of a material; `screen`,
-  `screen_sampler` and `frame` (size and time) of a pass; `data` and
-  `extra` (read-write storage buffers) and `frame` (time, delta and a
-  count) of compute.
+  `fn post(drawn: Pass) -> vec4<f32>` (`drawn`, as WGSL reserves
+  `pass`); compute `@compute @workgroup_size(..) fn main`, of at most
+  the device's invocations a workgroup and its size along each axis,
+  and of at most its bytes of `var<workgroup>` memory. The fixed
+  names: `params` (16 `vec4<f32>`, the plugin's 64 floats), and
+  `picture`, `picture_sampler` and `data` (a read-only storage
+  buffer) of a material; `screen`, `screen_sampler` and `frame` (size
+  and time) of a pass; `data` and `extra` (read-write storage
+  buffers) and `frame` (time, delta and a count) of compute.
 - **Bounded.** The shader Bevy is given has wgpu's runtime checks on
   (`ValidateShader::Enabled`): every index is bounds-checked and every
   loop is bounded by naga's force-loop-bounding. Where the backend has
@@ -1485,22 +1492,34 @@ none of them imports none of them.
   the plugin last wrote it), once or every frame, before the cameras
   draw. The workgroups of one plugin's dispatches in a frame are
   `[limits] workgroups_per_frame` at most; one dispatch past them is
-  refused, and what is past them in a frame waits for the next.
+  refused, and what is past them in a frame waits for the next. A
+  dispatch is also at most the device's workgroups along each axis.
+- **The device's sizes.** A buffer, and a mesh's vertices and
+  triangles, are at most the device's largest buffer (the smaller of
+  its `max_buffer_size` and `max_storage_buffer_binding_size`); a
+  texture is at most its widest 2D texture on each side. A make past
+  one is refused.
 - **Passes** (`gpu.set-pass`) run over the image of one of the
   plugin's cameras in Bevy's 3D schedule, after it draws and before
   its tonemapping.
 - **Textures** (`gpu.texture`) are sRGB images a material samples.
 - **GPU time.** Where the device has timestamp queries, each compute
-  and pass is timed (`[render] timed_slots` at once), read back each
-  frame, and its plugin's milliseconds summed over a second; a plugin
-  past `[limits] gpu_time_per_second` has its compute and passes wait
-  for the next second, and the log says so. A material is drawn inside
-  Bevy's own passes, among every other mesh, so it is not timed apart.
+  and pass is timed (`[render] timed_slots` at once, shared by all
+  plugins; one that finds every slot taken does not run until a slot
+  is let go), read back each frame, and its plugin's milliseconds
+  summed over a second; a plugin past `[limits] gpu_time_per_second`
+  has its compute and passes wait for the next second, and the log
+  says so. A material is drawn inside Bevy's own passes, among every
+  other mesh, so it is not timed apart.
 - **A failing device.** Bevy's `RenderErrorHandler` is the engine's:
-  when the device is lost or wgpu reports an error while plugins have
-  GPU work of their own, those plugins are stopped (`GpuLost`) and the
-  renderer is built again (`RenderErrorPolicy::Recover`). With no such
-  work the engine stops, as Bevy's own handler has it.
+  when the device is lost or wgpu reports an error, the plugins with
+  GPU work of their own are stopped (`GpuLost`) and the renderer is
+  built again (`RenderErrorPolicy::Recover`). With no such work it is
+  built again all the same. One that fails again within ten seconds
+  of being built stops the plugins with any scene; with none, nothing
+  is drawn for a second, then twice as long each time it fails again,
+  a minute at most, before it is built again, so a failure of the
+  engine's own does not flash each frame. The engine is not quit.
 
 ### Capabilities and budgets
 
