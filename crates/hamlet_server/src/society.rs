@@ -471,76 +471,22 @@ pub(crate) async fn operation(
             ))
         }
         Some(SocietyTool::Object) => {
-            return objections::object(
-                service, binding, key, input, &args,
-            );
+            return match parsed(tool, &args) {
+                Ok(given) => objections::object(
+                    service, binding, key, input, given,
+                ),
+                Err(Unanswered::Refused(refused)) => result(&refused),
+                Err(Unanswered::Failed(error)) => Err(error),
+            };
         }
-        Some(SocietyTool::CastBallot) => {
-            Some(votes::ballot(service, &caller, &args)?)
-        }
-        Some(SocietyTool::MergeAgents) => {
-            merging::operation(service, harnesses, &caller, &args)
-                .await?
-        }
-        Some(SocietyTool::CallVote) => {
-            service.home.store().connection().execute(
-                "INSERT INTO society_call \
-                 (runtime,key,binding,tool,input,data) VALUES \
-                 (?1,?2,?3,'call_vote',?4,?5) ON CONFLICT DO NOTHING",
-                params![
-                    caller.id.runtime.as_str(),
-                    caller.id.key,
-                    binding.id.0,
-                    input,
-                    args.to_string()
-                ],
-            )?;
-            votes::operation(service, harnesses, &caller, &args)
-                .await?
-        }
-        Some(SocietyTool::CreateAgent) => {
-            Some(agents::create(service, &caller, &args).await?)
-        }
-        Some(SocietyTool::SetModel) => {
-            Some(agents::set_model(service, &caller, &args)?)
-        }
-        Some(
-            SocietyTool::SubmitSkill | SocietyTool::AskLibrarian,
-        ) => {
-            library::consult(service, harnesses, &caller, tool, &args)
-                .await?
-        }
-        Some(SocietyTool::AgreeRoad) => {
-            crate::realm::dealings::agree_road(
-                service, harnesses, &caller, &args,
-            )
-            .await?
-        }
-        Some(SocietyTool::AgreeMove) => {
-            crate::realm::dealings::agree_move(
-                service, harnesses, &caller, &args,
-            )
-            .await?
-        }
-        Some(SocietyTool::AskRemoval) => {
-            crate::realm::dealings::ask_removal(
-                service, harnesses, &caller, &args,
-            )
-            .await?
-        }
-        Some(SocietyTool::RemoveAgent) => Some(
-            leaving::remove(service, harnesses, &caller, &args)
-                .await?,
-        ),
-        Some(SocietyTool::TellAgent) => Some(
-            letters::tell(service, harnesses, &caller, &args).await?,
-        ),
-        Some(SocietyTool::AskAgent) => {
-            letters::ask(service, harnesses, &caller, &args).await?
-        }
-        Some(SocietyTool::RequestRoad) => {
-            letters::request_road(service, harnesses, &caller, &args)
-                .await?
+        Some(tool) => {
+            match answer(service, harnesses, &caller, tool, &args)
+                .await
+            {
+                Ok(answered) => answered,
+                Err(Unanswered::Refused(refused)) => Some(refused),
+                Err(Unanswered::Failed(error)) => return Err(error),
+            }
         }
     };
     let Some(outcome) = answered else {
@@ -556,6 +502,152 @@ pub(crate) async fn operation(
         return Ok(letters::waiting());
     }
     result(&outcome)
+}
+
+/// Why a society call ends before its tool answers.
+enum Unanswered {
+    /// Its arguments do not parse; the outcome says why.
+    Refused(Value),
+    Failed(anyhow::Error),
+}
+
+impl From<anyhow::Error> for Unanswered {
+    fn from(error: anyhow::Error) -> Self {
+        Self::Failed(error)
+    }
+}
+
+/// The arguments of a call to `tool`.
+fn parsed<T: DeserializeOwned>(
+    tool: &str,
+    args: &Value,
+) -> std::result::Result<T, Unanswered> {
+    serde_json::from_value(args.clone()).map_err(|error| {
+        Unanswered::Refused(outcome(
+            &format!(
+                "The arguments of {tool} are not valid: {error}."
+            ),
+            true,
+        ))
+    })
+}
+
+/// What the society call of `caller` to `tool` answers, with its
+/// arguments typed; `None` while it waits.
+async fn answer(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    caller: &Caller<'_>,
+    tool: SocietyTool,
+    args: &Value,
+) -> std::result::Result<Option<Value>, Unanswered> {
+    use crate::realm::dealings;
+    let name = tool.name();
+    Ok(match tool {
+        SocietyTool::BuildRoad
+        | SocietyTool::AskChief
+        | SocietyTool::Object => {
+            unreachable!("{name} is answered before its arguments")
+        }
+        SocietyTool::CastBallot => {
+            Some(votes::ballot(service, caller, parsed(name, args)?)?)
+        }
+        SocietyTool::MergeAgents => {
+            let given = parsed(name, args)?;
+            merging::operation(service, harnesses, caller, given)
+                .await?
+        }
+        SocietyTool::CallVote => {
+            let given = parsed(name, args)?;
+            service
+                .home
+                .store()
+                .connection()
+                .execute(
+                    "INSERT INTO society_call \
+                     (runtime,key,binding,tool,input,data) VALUES \
+                     (?1,?2,?3,'call_vote',?4,?5) ON CONFLICT DO \
+                     NOTHING",
+                    params![
+                        caller.id.runtime.as_str(),
+                        caller.id.key,
+                        caller.binding.id.0,
+                        caller.input,
+                        args.to_string()
+                    ],
+                )
+                .context("keeping the vote's call")?;
+            votes::operation(service, harnesses, caller, &given)
+                .await?
+        }
+        SocietyTool::CreateAgent => {
+            let given = parsed(name, args)?;
+            Some(agents::create(service, caller, given).await?)
+        }
+        SocietyTool::SetModel => Some(agents::set_model(
+            service,
+            caller,
+            parsed(name, args)?,
+        )?),
+        SocietyTool::SubmitSkill => {
+            let given: library::SubmitSkill = parsed(name, args)?;
+            let skill = Some(given.skill.as_str());
+            library::consult(
+                service,
+                harnesses,
+                caller,
+                skill,
+                &given.reason,
+            )
+            .await?
+        }
+        SocietyTool::AskLibrarian => {
+            let given: library::AskLibrarian = parsed(name, args)?;
+            let question = &given.question;
+            library::consult(
+                service, harnesses, caller, None, question,
+            )
+            .await?
+        }
+        SocietyTool::AgreeRoad => {
+            let given = parsed(name, args)?;
+            dealings::agree_road(service, harnesses, caller, given)
+                .await?
+        }
+        SocietyTool::AgreeMove => {
+            let given = parsed(name, args)?;
+            dealings::agree_move(service, harnesses, caller, given)
+                .await?
+        }
+        SocietyTool::AskRemoval => {
+            let given = parsed(name, args)?;
+            dealings::ask_removal(service, harnesses, caller, given)
+                .await?
+        }
+        SocietyTool::RemoveAgent => {
+            let given = parsed(name, args)?;
+            Some(
+                leaving::remove(service, harnesses, caller, given)
+                    .await?,
+            )
+        }
+        SocietyTool::TellAgent => {
+            let given = parsed(name, args)?;
+            Some(
+                letters::tell(service, harnesses, caller, given)
+                    .await?,
+            )
+        }
+        SocietyTool::AskAgent => {
+            let given = parsed(name, args)?;
+            letters::ask(service, harnesses, caller, given).await?
+        }
+        SocietyTool::RequestRoad => {
+            let given = parsed(name, args)?;
+            letters::request_road(service, harnesses, caller, given)
+                .await?
+        }
+    })
 }
 
 /// A tool's outcome as markers keep it: its text and whether it

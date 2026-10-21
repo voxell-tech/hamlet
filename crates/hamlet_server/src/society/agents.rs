@@ -15,8 +15,9 @@ use crate::record::{
 use crate::service::Service;
 use crate::{Outcome, society};
 
+/// The arguments of `create_agent`.
 #[derive(Deserialize)]
-struct Create {
+pub(crate) struct Create {
     name: String,
     purpose: String,
     reason: String,
@@ -26,38 +27,20 @@ struct Create {
     character: Option<String>,
 }
 
+/// The arguments of `set_model`.
 #[derive(Deserialize)]
-struct SetModel {
+pub(crate) struct SetModel {
     name: String,
     model: String,
     reason: String,
-}
-
-/// The arguments of a call, or the words of why they are not.
-fn arguments<T: serde::de::DeserializeOwned>(
-    tool: &str,
-    args: &Value,
-) -> std::result::Result<T, Value> {
-    serde_json::from_value(args.clone()).map_err(|error| {
-        outcome(
-            &format!(
-                "The arguments of {tool} are not valid: {error}."
-            ),
-            true,
-        )
-    })
 }
 
 /// The mayor's `create_agent`: an agent with its own house (H27).
 pub(super) async fn create(
     service: &mut Service,
     caller: &Caller<'_>,
-    args: &Value,
+    given: Create,
 ) -> Result<Value> {
-    let given = match arguments::<Create>("create_agent", args) {
-        Ok(given) => given,
-        Err(words) => return Ok(words),
-    };
     let place = caller.place.agent.clone();
     let at = society::now();
     let outcome = society::once(
@@ -143,12 +126,8 @@ pub(super) async fn create(
 pub(super) fn set_model(
     service: &mut Service,
     caller: &Caller<'_>,
-    args: &Value,
+    given: SetModel,
 ) -> Result<Value> {
-    let given = match arguments::<SetModel>("set_model", args) {
-        Ok(given) => given,
-        Err(words) => return Ok(words),
-    };
     let place = caller.place.agent.clone();
     let limits = service.limits_of(&place.hamlet)?;
     let home = service.settings()?.model;

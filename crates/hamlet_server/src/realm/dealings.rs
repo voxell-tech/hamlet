@@ -2,6 +2,7 @@
 
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{
@@ -18,21 +19,46 @@ use crate::record::{
 use crate::service::Service;
 use crate::society::{self, Caller, outcome};
 
+/// The arguments of `ask_removal`.
+#[derive(Deserialize)]
+pub(crate) struct AskRemoval {
+    hamlet: String,
+    reason: String,
+}
+
+/// The arguments of `agree_road`.
+#[derive(Deserialize)]
+pub(crate) struct AgreeRoad {
+    a: String,
+    b: String,
+    reason: String,
+}
+
+/// The arguments of `agree_move`.
+#[derive(Deserialize)]
+pub(crate) struct AgreeMove {
+    agent: String,
+    to: String,
+    #[serde(default)]
+    keep_roads: Vec<String>,
+    reason: String,
+}
+
 /// The mayor's `ask_removal`: asks the chief to remove a hamlet.
 pub(crate) async fn ask_removal(
     service: &mut Service,
     harnesses: &mut Harnesses,
     caller: &Caller<'_>,
-    args: &Value,
+    given: AskRemoval,
 ) -> Result<Option<Value>> {
     let limits = service.limits_of("home")?;
     deal(
         service,
         harnesses,
         caller,
-        args,
+        &given.reason,
         |db, realm, from, reason| {
-            removal(db, realm, from, reason, args, &limits)
+            removal(db, realm, from, reason, &given.hamlet, &limits)
         },
     )
     .await
@@ -43,16 +69,23 @@ pub(crate) async fn agree_road(
     service: &mut Service,
     harnesses: &mut Harnesses,
     caller: &Caller<'_>,
-    args: &Value,
+    given: AgreeRoad,
 ) -> Result<Option<Value>> {
     let limits = service.limits_of("home")?;
     deal(
         service,
         harnesses,
         caller,
-        args,
+        &given.reason,
         |db, realm, from, reason| {
-            road(db, realm, from, reason, args, &limits)
+            road(
+                db,
+                realm,
+                from,
+                reason,
+                [&given.a, &given.b],
+                &limits,
+            )
         },
     )
     .await
@@ -64,16 +97,16 @@ pub(crate) async fn agree_move(
     service: &mut Service,
     harnesses: &mut Harnesses,
     caller: &Caller<'_>,
-    args: &Value,
+    given: AgreeMove,
 ) -> Result<Option<Value>> {
     let task = caller.task.clone();
     deal(
         service,
         harnesses,
         caller,
-        args,
+        &given.reason,
         |db, realm, from, reason| {
-            moving(db, realm, from, reason, args, task)
+            moving(db, realm, from, reason, &given, task)
         },
     )
     .await
@@ -87,7 +120,7 @@ async fn deal(
     service: &mut Service,
     harnesses: &mut Harnesses,
     caller: &Caller<'_>,
-    args: &Value,
+    reason: &str,
     make: impl FnOnce(
         &Connection,
         &mut Realm,
@@ -128,8 +161,7 @@ async fn deal(
                     true,
                 ));
             }
-            let reason =
-                args["reason"].as_str().unwrap_or_default().trim();
+            let reason = reason.trim();
             if reason.is_empty() {
                 return Ok(outcome(
                     "say why in `reason`; the chief is shown it",
@@ -157,7 +189,7 @@ async fn deal(
             service,
             harnesses,
             caller,
-            &value["ask"],
+            serde_json::from_value(value["ask"].clone())?,
         )
         .await?
         .is_none()
@@ -200,10 +232,9 @@ fn removal(
     realm: &mut Realm,
     from: &AgentRef,
     reason: &str,
-    args: &Value,
+    id: &str,
     limits: &Limits,
 ) -> Result<Value> {
-    let id = args["hamlet"].as_str().unwrap_or_default();
     if !realm.lives(id) {
         return Ok(outcome(&format!("no hamlet named `{id}`"), true));
     }
@@ -245,7 +276,7 @@ fn road(
     realm: &mut Realm,
     from: &AgentRef,
     reason: &str,
-    args: &Value,
+    ends_named: [&str; 2],
     limits: &Limits,
 ) -> Result<Value> {
     if !limits.hamlets.roads_between {
@@ -255,8 +286,7 @@ fn road(
         ));
     }
     let mut ends = Vec::new();
-    for field in ["a", "b"] {
-        let address = args[field].as_str().unwrap_or_default();
+    for address in ends_named {
         match resolve(db, &from.hamlet, address)? {
             Ok(resolved) => ends.push(resolved.agent),
             Err(error) => {
@@ -333,17 +363,17 @@ fn moving(
     realm: &mut Realm,
     from: &AgentRef,
     reason: &str,
-    args: &Value,
+    given: &AgreeMove,
     task: Option<String>,
 ) -> Result<Value> {
-    let address = args["agent"].as_str().unwrap_or_default();
+    let address = &given.agent;
     let agent = match resolve(db, &from.hamlet, address)? {
         Ok(r) => r.agent,
         Err(error) => {
             return Ok(outcome(&error.text(address), true));
         }
     };
-    let to = args["to"].as_str().unwrap_or_default();
+    let to = given.to.as_str();
     if !realm.lives(to)
         || agent.hamlet == to
         || (from.hamlet != agent.hamlet && from.hamlet != to)
@@ -376,11 +406,9 @@ fn moving(
             true,
         ));
     }
-    let keep = args["keep_roads"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
+    let keep = given
+        .keep_roads
+        .iter()
         .filter_map(|name| old.named(name))
         .map(|a| a.number)
         .filter(|number| {

@@ -159,14 +159,16 @@ fn refused(text: &str) -> Value {
     outcome(text, false)
 }
 
+/// The arguments of `tell_agent` and `ask_agent`.
 #[derive(Deserialize)]
-struct Message {
+pub(crate) struct Message {
     name: String,
     message: String,
 }
 
+/// The arguments of `request_road`.
 #[derive(Deserialize)]
-struct RoadAsk {
+pub(crate) struct RoadAsk {
     to: String,
     reason: String,
 }
@@ -176,12 +178,8 @@ pub(super) async fn tell(
     service: &mut Service,
     harnesses: &mut Harnesses,
     caller: &Caller<'_>,
-    args: &Value,
+    given: Message,
 ) -> Result<Value> {
-    let Ok(given) = serde_json::from_value::<Message>(args.clone())
-    else {
-        return Ok(refused("`message` is empty"));
-    };
     let db = service.home.store().connection();
     if let Some(sent) =
         sent_by(db, caller.id.runtime.as_str(), &caller.id.key)?
@@ -239,12 +237,8 @@ pub(crate) async fn ask(
     service: &mut Service,
     harnesses: &mut Harnesses,
     caller: &Caller<'_>,
-    args: &Value,
+    given: Message,
 ) -> Result<Option<Value>> {
-    let Ok(given) = serde_json::from_value::<Message>(args.clone())
-    else {
-        return Ok(Some(refused("`message` is empty")));
-    };
     let db = service.home.store().connection();
     let known =
         sent_by(db, caller.id.runtime.as_str(), &caller.id.key)?;
@@ -397,12 +391,8 @@ pub(super) async fn request_road(
     service: &mut Service,
     harnesses: &mut Harnesses,
     caller: &Caller<'_>,
-    args: &Value,
+    given: RoadAsk,
 ) -> Result<Option<Value>> {
-    let Ok(given) = serde_json::from_value::<RoadAsk>(args.clone())
-    else {
-        return Ok(Some(refused("`message` is empty")));
-    };
     let place = caller.place.agent.clone();
     let Some(record) = service.home.store().record(&place.hamlet)?
     else {

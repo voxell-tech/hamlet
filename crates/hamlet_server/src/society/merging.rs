@@ -94,17 +94,26 @@ struct Preparing {
     operation: RecordOperation,
     kept: record::Agent,
     gone: record::Agent,
-    args: Value,
+    args: Merge,
     root: std::fs::File,
     mine: Files,
     theirs: Files,
+}
+
+/// The arguments of `merge_agents`, and of the chief's `merge`.
+#[derive(Clone, Deserialize)]
+pub(crate) struct Merge {
+    keep: String,
+    absorb: String,
+    purpose: Option<String>,
+    reason: String,
 }
 
 fn preparing(
     service: &mut Service,
     hamlet: &str,
     actor: Actor,
-    args: &Value,
+    args: &Merge,
     task: Option<String>,
 ) -> Result<std::result::Result<Preparing, Unplanned>> {
     let r = service
@@ -112,10 +121,7 @@ fn preparing(
         .store()
         .record(hamlet)?
         .context("the merging hamlet has no record")?;
-    let (keep, absorb) = (
-        args["keep"].as_str().unwrap_or_default(),
-        args["absorb"].as_str().unwrap_or_default(),
-    );
+    let (keep, absorb) = (args.keep.as_str(), args.absorb.as_str());
     let refuse = |reason| {
         Ok(Err(Unplanned::Refused(record::Refusal {
             operation: record::Action::Merge,
@@ -140,17 +146,16 @@ fn preparing(
         hamlet: hamlet.into(),
         actor,
         at: super::now(),
-        reason: args["reason"]
-            .as_str()
-            .filter(|s| !s.is_empty())
-            .unwrap_or("a chief asked")
-            .into(),
+        reason: match args.reason.as_str() {
+            "" => "a chief asked".into(),
+            reason => reason.into(),
+        },
         task,
         change: Change::Depart {
             name: absorb.into(),
             how: Departure::Merged {
                 into: kept.number,
-                purpose: args["purpose"].as_str().map(String::from),
+                purpose: args.purpose.clone(),
                 notes: MergeNotes::Joined,
                 files: MergeFiles {
                     notes_before: String::new(),
@@ -250,8 +255,8 @@ impl Preparing {
             theirs,
         } = self;
         let hamlet = operation.hamlet.clone();
-        let keep = args["keep"].as_str().unwrap_or_default();
-        let absorb = args["absorb"].as_str().unwrap_or_default();
+        let (keep, absorb) =
+            (args.keep.as_str(), args.absorb.as_str());
         let mine = mine.read(CAP, 2048).await?;
         let theirs = theirs.read(CAP, 2048).await?;
         let Some(notes) =
@@ -276,7 +281,7 @@ impl Preparing {
                  {}. Preserve every fact and disagreement with \
                  attribution. Reply only with NOTES.md beginning # \
                  Notes.\nYour notes:\n{}\nNotes from {absorb}:\n{}",
-                args["purpose"].as_str().unwrap_or(&kept.purpose),
+                args.purpose.as_deref().unwrap_or(&kept.purpose),
                 notes.before_text,
                 notes.other_text
             )
@@ -558,10 +563,10 @@ pub(super) async fn operation(
     service: &mut Service,
     harnesses: &mut Harnesses,
     caller: &Caller<'_>,
-    args: &Value,
+    given: Merge,
 ) -> Result<Option<Value>> {
     if !service.merges.owns(&caller.id) {
-        lane::offer(service, caller, args)?;
+        lane::offer(service, caller, given)?;
         return Ok(None);
     }
     let ready = service.merges.take(&caller.id);

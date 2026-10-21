@@ -2,6 +2,7 @@
 
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
+use serde::Deserialize;
 use serde_json::Value;
 
 use super::{Caller, Deed, outcome};
@@ -55,11 +56,20 @@ fn removed(r: &record::Hamlet, archive: &str) -> Value {
     result
 }
 
+/// The arguments of `remove_agent`.
+#[derive(Deserialize)]
+pub(crate) struct Remove {
+    name: String,
+    reason: String,
+}
+
+/// The mayor's `remove_agent`: the agent leaves, its house and roads
+/// archived.
 pub(super) async fn remove(
     service: &mut Service,
     harnesses: &mut Harnesses,
     caller: &Caller<'_>,
-    args: &Value,
+    given: Remove,
 ) -> Result<Value> {
     let agent = &caller.place.agent;
     let value = society::once(
@@ -72,16 +82,10 @@ pub(super) async fn remove(
                 hamlet: agent.hamlet.clone(),
                 actor: society::actor(db, agent)?,
                 at: society::now(),
-                reason: args["reason"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .into(),
+                reason: given.reason,
                 task: caller.task.clone(),
                 change: Change::Depart {
-                    name: args["name"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .into(),
+                    name: given.name,
                     how: Departure::Removed,
                 },
             };

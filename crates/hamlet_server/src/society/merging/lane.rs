@@ -5,10 +5,11 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use anyhow::{Context, Result};
-use serde_json::{Value, json};
 use tokio::task::JoinSet;
 
-use super::{Applied, Applying, Plan, Planned, Unplanned, preparing};
+use super::{
+    Applied, Applying, Merge, Plan, Planned, Unplanned, preparing,
+};
 use crate::OperationId;
 use crate::harness::Harnesses;
 use crate::papers::tree;
@@ -43,7 +44,7 @@ impl Origin {
 enum Action {
     Merge {
         actor: Actor,
-        args: Value,
+        args: Merge,
         task: Option<String>,
     },
     Restore {
@@ -124,7 +125,7 @@ impl Merges {
 pub(super) fn offer(
     service: &mut Service,
     caller: &Caller<'_>,
-    args: &Value,
+    args: Merge,
 ) -> Result<()> {
     let origin = Origin::Call(caller.id.clone());
     if service.house_work.hold(caller.id.clone()) {
@@ -137,7 +138,7 @@ pub(super) fn offer(
             hamlet: caller.place.agent.hamlet.clone(),
             action: Action::Merge {
                 actor,
-                args: args.clone(),
+                args,
                 task: caller.task.clone(),
             },
         });
@@ -170,7 +171,12 @@ pub(crate) fn chief(
         }
         Action::Merge {
             actor: Actor::Chief(service.chief.clone()),
-            args: json!({"absorb":words[0],"keep":words[2],"reason":words[3..].join(" ")}),
+            args: Merge {
+                absorb: words[0].into(),
+                keep: words[2].into(),
+                purpose: None,
+                reason: words[3..].join(" "),
+            },
             task: None,
         }
     } else {

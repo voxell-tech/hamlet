@@ -39,16 +39,30 @@ enum Step {
     Answer(Option<Value>),
 }
 
-/// The `submit_skill` or `ask_librarian` call of `caller`: the
-/// librarian's answer, once its errand gives it, and for an offer the
-/// skill shelved and taken out of the caller's house; `None` while it
+/// The arguments of `submit_skill`.
+#[derive(Deserialize)]
+pub(crate) struct SubmitSkill {
+    pub skill: String,
+    pub reason: String,
+}
+
+/// The arguments of `ask_librarian`.
+#[derive(Deserialize)]
+pub(crate) struct AskLibrarian {
+    pub question: String,
+}
+
+/// The `submit_skill` or `ask_librarian` call of `caller`, which
+/// offers `skill` or asks, saying why in `text`: the librarian's
+/// answer, once its errand gives it, and for an offer the skill
+/// shelved and taken out of the caller's house; `None` while it
 /// waits.
 pub(super) async fn consult(
     service: &mut Service,
     harnesses: &mut Harnesses,
     caller: &Caller<'_>,
-    tool: &str,
-    args: &Value,
+    skill: Option<&str>,
+    text: &str,
 ) -> Result<Option<Value>> {
     retire(service)?;
     let key = serde_json::to_string(&(
@@ -68,7 +82,8 @@ pub(super) async fn consult(
     }
     if job.prompt.is_empty() {
         if let Step::Answer(answer) =
-            begin(service, caller, tool, args, &key, &mut job).await?
+            begin(service, caller, skill, text, &key, &mut job)
+                .await?
         {
             return Ok(answer);
         }
@@ -122,16 +137,12 @@ pub(super) async fn consult(
 async fn begin(
     service: &mut Service,
     caller: &Caller<'_>,
-    tool: &str,
-    args: &Value,
+    skill: Option<&str>,
+    text: &str,
     key: &str,
     job: &mut Consult,
 ) -> Result<Step> {
-    let offer = tool == "submit_skill";
-    let text = args[if offer { "reason" } else { "question" }]
-        .as_str()
-        .unwrap_or_default()
-        .trim();
+    let text = text.trim();
     if text.is_empty() {
         return Ok(Step::Answer(Some(outcome(
             "Say what you are looking for or why the skill would \
@@ -155,9 +166,9 @@ async fn begin(
     let library =
         shelf::library(&service.home.layout().root().join("library"))
             .unwrap_or_default();
-    if offer {
+    if let Some(name) = skill {
         if let Step::Answer(answer) =
-            offered(service, caller, args, key, text, &library, job)
+            offered(service, caller, name, key, text, &library, job)
                 .await?
         {
             return Ok(Step::Answer(answer));
@@ -189,7 +200,7 @@ async fn begin(
 async fn offered(
     service: &mut Service,
     caller: &Caller<'_>,
-    args: &Value,
+    name: &str,
     key: &str,
     text: &str,
     library: &str,
@@ -197,7 +208,6 @@ async fn offered(
 ) -> Result<Step> {
     let refuse =
         |text: &str| Ok(Step::Answer(Some(outcome(text, true))));
-    let name = args["skill"].as_str().unwrap_or_default();
     if !valid(name) {
         return refuse(
             "`skill` is its folder under skills/, in letters, \

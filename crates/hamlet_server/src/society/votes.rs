@@ -258,6 +258,30 @@ impl Uncalled {
     }
 }
 
+/// The arguments of `call_vote`: those a kind of vote does not use
+/// are empty.
+#[derive(Default, Deserialize)]
+pub(crate) struct CallVote {
+    kind: String,
+    reason: String,
+    #[serde(default)]
+    candidate: String,
+    #[serde(default)]
+    hamlet: String,
+    #[serde(default)]
+    mayor: String,
+    #[serde(default)]
+    purpose: String,
+}
+
+/// The arguments of `cast_ballot`.
+#[derive(Deserialize)]
+pub(crate) struct Cast {
+    choice: String,
+    reason: String,
+    evidence: String,
+}
+
 /// Calls a vote in `hamlet` by `by`, the agent `caller` or a chief,
 /// kept for the call `owner` when an agent's call made it.
 fn call(
@@ -265,7 +289,7 @@ fn call(
     hamlet: &str,
     by: String,
     caller: Option<u64>,
-    args: &Value,
+    args: &CallVote,
     owner: Option<&str>,
 ) -> Result<std::result::Result<u64, Uncalled>> {
     let r = service
@@ -305,16 +329,14 @@ fn call(
             voters: voters.len(),
         }));
     }
-    let kind = match args["kind"].as_str() {
-        None | Some("replace_mayor") => VoteKind::ReplaceMayor,
-        Some("found_hamlet") => VoteKind::FoundHamlet,
-        Some(_) => {
-            return Ok(Err(Uncalled::Kind));
-        }
+    let kind = match args.kind.as_str() {
+        "replace_mayor" => VoteKind::ReplaceMayor,
+        "found_hamlet" => VoteKind::FoundHamlet,
+        _ => return Ok(Err(Uncalled::Kind)),
     };
     let mut candidate = 0;
     if kind == VoteKind::ReplaceMayor {
-        let name = args["candidate"].as_str().unwrap_or_default();
+        let name = args.candidate.as_str();
         let Some(agent) = r.named(name) else {
             return Ok(Err(Uncalled::NoCandidate));
         };
@@ -325,7 +347,7 @@ fn call(
         }
         candidate = agent.number;
     }
-    let reason = args["reason"].as_str().unwrap_or_default().trim();
+    let reason = args.reason.trim();
     if reason.is_empty() {
         return Ok(Err(Uncalled::NoReason));
     }
@@ -346,12 +368,9 @@ fn call(
         id,
         kind,
         candidate,
-        destination: args["hamlet"]
-            .as_str()
-            .unwrap_or_default()
-            .into(),
-        founder: args["mayor"].as_str().unwrap_or_default().into(),
-        purpose: args["purpose"].as_str().unwrap_or_default().into(),
+        destination: args.hamlet.clone(),
+        founder: args.mayor.clone(),
+        purpose: args.purpose.clone(),
         by,
         caller,
         reason: reason.into(),
@@ -380,7 +399,7 @@ pub(super) async fn operation(
     service: &mut Service,
     harnesses: &mut Harnesses,
     caller: &Caller<'_>,
-    args: &Value,
+    args: &CallVote,
 ) -> Result<Option<Value>> {
     let key = serde_json::to_string(&(
         caller.id.runtime.as_str(),
@@ -442,7 +461,7 @@ pub(super) async fn operation(
 pub(super) fn ballot(
     service: &mut Service,
     caller: &Caller<'_>,
-    args: &Value,
+    args: Cast,
 ) -> Result<Value> {
     let db = service.home.store().connection();
     let owner = db
@@ -470,11 +489,11 @@ pub(super) fn ballot(
     if v.ballots.iter().any(|b| b.voter == voter) {
         return Ok(outcome("Your ballot is already cast.", false));
     }
-    let choice = args["choice"].as_str().unwrap_or_default();
+    let choice = args.choice.as_str();
     if !["yes", "no", "abstain"].contains(&choice) {
         return Ok(outcome("Choose yes, no or abstain.", true));
     }
-    let evidence = args["evidence"].as_str().unwrap_or_default();
+    let evidence = args.evidence.as_str();
     let corpus = super::document::<String>(
         db,
         "ballot-corpus",
@@ -493,7 +512,7 @@ pub(super) fn ballot(
     v.ballots.push(Ballot {
         voter,
         choice: choice.into(),
-        reason: args["reason"].as_str().unwrap_or_default().into(),
+        reason: args.reason.clone(),
         evidence: evidence.into(),
         grounded,
     });
@@ -1039,7 +1058,16 @@ pub(super) async fn deed(
             hamlet,
             format!("chief:{}", service.chief),
             None,
-            &json!({"candidate":word,"reason":if reason.is_empty(){"a chief asked"}else{&reason}}),
+            &CallVote {
+                kind: "replace_mayor".into(),
+                candidate: word.into(),
+                reason: if reason.is_empty() {
+                    "a chief asked".into()
+                } else {
+                    reason
+                },
+                ..CallVote::default()
+            },
             None,
         )?;
         sweep(service, harnesses).await?;

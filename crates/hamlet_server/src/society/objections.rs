@@ -2,6 +2,7 @@
 
 use anyhow::{Context, Result};
 use hamlet_protocol::v0::Choice;
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::OperationId;
@@ -13,12 +14,18 @@ use crate::oversight::{
 };
 use crate::service::Service;
 
+/// The arguments of `object`.
+#[derive(Deserialize)]
+pub(crate) struct Object {
+    reason: String,
+}
+
 pub(crate) fn object(
     service: &mut Service,
     binding: &Binding,
     key: &str,
     input: Option<&str>,
-    args: &Value,
+    given: Object,
 ) -> Result<Answer> {
     if service.home.store().cancelling(binding.id)? {
         return Ok(Answer::Refusal(
@@ -84,7 +91,7 @@ pub(crate) fn object(
             true,
         ));
     }
-    let reason = args["reason"].as_str().unwrap_or_default().trim();
+    let reason = given.reason.trim();
     if reason.is_empty() {
         return Ok(Answer::result("Say why in `reason`.", true));
     }
@@ -214,7 +221,9 @@ mod tests {
                 &binding,
                 "objection",
                 Some("input"),
-                &json!({"reason": "This work should wait."}),
+                Object {
+                    reason: "This work should wait.".into(),
+                },
             )
             .unwrap();
             assert!(
