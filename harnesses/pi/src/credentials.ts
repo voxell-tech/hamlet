@@ -4,16 +4,16 @@ import type { Channel } from "./channel.ts";
 import type {
     CredentialRequest,
     Credential as WireCredential,
-} from "./link.ts";
+} from "./protocol.ts";
 
-/** A link credential, retaining provider-specific OAuth fields. */
+/** A protocol credential, retaining provider-specific OAuth fields. */
 export function pack(credential: Credential): WireCredential {
     if (credential.type === "api_key") return credential;
     const { type, access, refresh, expires, ...extra } = credential;
     return { type, access, refresh, expires, extra };
 }
 
-/** Pi's canonical credential from its link envelope. */
+/** Pi's canonical credential from its protocol envelope. */
 export function unpack(credential: WireCredential): Credential {
     if (credential.type === "api_key") return credential;
     const { extra, ...known } = credential;
@@ -21,7 +21,7 @@ export function unpack(credential: WireCredential): Credential {
 }
 
 /** Only this authorized attempt or provider operation can use this store. */
-export function linkCredentials(
+export function serverCredentials(
     channel: Channel,
     scope: string,
     provider: string,

@@ -1,4 +1,4 @@
-// Provider work requested over the link; credentials and lists live only in memory (S7).
+// Provider work the server requests; credentials and lists live only in memory (S7).
 import type {
     AuthInteraction,
     CredentialStore,
@@ -10,8 +10,8 @@ import {
     createProvider,
     type Provider,
 } from "@earendil-works/pi-ai/models";
-import type { ProviderRequest, ProviderResult } from "./link.ts";
 import { compatibleModel } from "./models.ts";
+import type { ProviderRequest, ProviderResult } from "./protocol.ts";
 import { providers as supportedProviders } from "./provider-set.ts";
 
 type Result = Omit<ProviderResult, "v" | "id" | "type" | "re">;

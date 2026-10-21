@@ -34,20 +34,11 @@ import {
     type ServerRequest,
     unexpected,
 } from "./channel.ts";
-import { linkCredentials } from "./credentials.ts";
+import { serverCredentials } from "./credentials.ts";
 import { hamletExtension, Waits } from "./extension.ts";
 import { fault } from "./faults.ts";
 import { FAUX, readScript, scriptedProvider } from "./faux.ts";
 import { blocksOf, itemOf } from "./items.ts";
-import {
-    type Capability,
-    LINK_VERSION,
-    type Mark,
-    type ModelRef,
-    type Partial,
-    type ToolSpec,
-    type Usage,
-} from "./link.ts";
 import {
     ANSWER_SHARE,
     allowedStreams,
@@ -55,6 +46,15 @@ import {
     type Gate,
     modelProvider,
 } from "./models.ts";
+import {
+    type Capability,
+    type Mark,
+    type ModelRef,
+    type Partial,
+    PROTOCOL_VERSION,
+    type ToolSpec,
+    type Usage,
+} from "./protocol.ts";
 import { providers } from "./provider-set.ts";
 import { providerWork } from "./providers.ts";
 import { RecoveryDoc, recoveryTask } from "./recovery.ts";
@@ -180,7 +180,7 @@ async function hello(
 ): Promise<ServerReply> {
     return channel.request({
         type: "hello",
-        versions: [LINK_VERSION],
+        versions: [PROTOCOL_VERSION],
         adapter: ADAPTER,
         harness: HARNESS,
         runtime,
@@ -214,7 +214,7 @@ class Runtime {
     readonly #registry: Registry;
     readonly #models: MutableModels;
     readonly #channel: Channel;
-    /** By the conversation's id as the link spells it. */
+    /** By the conversation's id as the protocol spells it. */
     readonly #known = new Map<string, Known>();
     readonly #bySession = new Map<string, Known>();
     /** What each conversation does, as last told to the server. */
@@ -246,7 +246,12 @@ class Runtime {
         this.#recovery = recoveryTask(harness, channel);
         this.#gate = {
             credentials: (scope, provider) =>
-                linkCredentials(channel, scope, provider, this.#credentialJobs),
+                serverCredentials(
+                    channel,
+                    scope,
+                    provider,
+                    this.#credentialJobs,
+                ),
             finished: async (scope) => {
                 await channel.request({
                     type: "credential_request",
@@ -624,7 +629,7 @@ class Runtime {
                         {
                             interaction: session.interaction,
                             providers: this.#providers,
-                            credentials: linkCredentials(
+                            credentials: serverCredentials(
                                 this.#channel,
                                 re,
                                 request.provider,

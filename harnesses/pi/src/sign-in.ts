@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import type { AuthInteraction } from "@earendil-works/pi-ai";
 import type { Channel } from "./channel.ts";
-import type { ProviderControl } from "./link.ts";
+import type { ProviderControl } from "./protocol.ts";
 
 /** One request's provider prompts and cancellation. */
 export function signIn(

@@ -1,7 +1,7 @@
-// Kept entries and answers as the link shows them.
+// Kept entries and answers as the protocol shows them.
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 import type { EntryRecord } from "@earendil-works/pi-durable";
-import type { Block, Item, Mark } from "./link.ts";
+import type { Block, Item, Mark } from "./protocol.ts";
 
 /** Hamlet's kind and data of an entry, for one that is not pi's own. */
 function markOf(entry: EntryRecord): Mark | undefined {
@@ -39,7 +39,7 @@ export function blocksOf(message: AssistantMessage): Block[] {
     });
 }
 
-/** An answer as the link shows it, under the entry id `entry`. */
+/** An answer as the protocol shows it, under the entry id `entry`. */
 export function assistantItem(entry: string, message: AssistantMessage): Item {
     const { usage } = message;
     return {
@@ -64,7 +64,7 @@ export function assistantItem(entry: string, message: AssistantMessage): Item {
     };
 }
 
-/** A kept entry as the link shows it. */
+/** A kept entry as the protocol shows it. */
 export function itemOf(entry: EntryRecord, request?: string): Item {
     const id = String(entry.id);
     const mark = markOf(entry);

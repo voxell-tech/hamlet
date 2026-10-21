@@ -74,7 +74,7 @@ for binary in hamlet hamlet-server hamlet-app; do
   cp "$built/$binary" "$bin/"
 done
 cp -R harnesses/pi/src "$pi/"
-cp harnesses/pi/{package.json,package-lock.json,link.schema.json,.nvmrc} "$pi/"
+cp harnesses/pi/{package.json,package-lock.json,.nvmrc} "$pi/"
 npm ci --omit=dev --prefix "$pi"
 cat > "$stage/README.txt" <<INFO
 Hamlet $version

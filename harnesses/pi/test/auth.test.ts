@@ -1,7 +1,7 @@
 import { PassThrough } from "node:stream";
 import { expect, test } from "vitest";
 import { Channel, type Outgoing } from "../src/channel.ts";
-import { linkCredentials } from "../src/credentials.ts";
+import { serverCredentials } from "../src/credentials.ts";
 import { providers } from "../src/provider-set.ts";
 import { signIn } from "../src/sign-in.ts";
 
@@ -94,7 +94,7 @@ test("cancellation skips a queued credential callback but a started rotation wai
         requests.push(JSON.parse(bytes.toString())),
     );
     const jobs = new Set<Promise<unknown>>();
-    const store = linkCredentials(
+    const store = serverCredentials(
         new Channel(input, output),
         "attempt",
         "chatgpt",

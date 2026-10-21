@@ -1,5 +1,6 @@
 //! What an input is, as the server marks it for its runtime and its
-//! transcript. The link carries it as an untyped [`Mark`].
+//! transcript. The runtime protocol carries it as an untyped
+//! [`Mark`].
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -57,8 +58,8 @@ pub struct Mail {
 }
 
 impl InputMark {
-    /// The mark `mark` of the link; `None` for a kind outside
-    /// `hamlet.`, which the server does not make.
+    /// The input mark of the protocol's `mark`; `None` for a kind
+    /// outside `hamlet.`, which the server does not make.
     pub fn of(mark: &Mark) -> Result<Option<Self>> {
         if !mark.kind.starts_with("hamlet.") {
             return Ok(None);

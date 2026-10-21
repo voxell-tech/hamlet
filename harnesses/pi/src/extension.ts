@@ -23,7 +23,7 @@ import {
 } from "./channel.ts";
 import { fault } from "./faults.ts";
 import { assistantItem } from "./items.ts";
-import type { ToolSpec, Waiting } from "./link.ts";
+import type { ToolSpec, Waiting } from "./protocol.ts";
 import { RecoveryDoc, type recoveryTask } from "./recovery.ts";
 
 /** How long a held wait sleeps before asking again when no answer is announced. */

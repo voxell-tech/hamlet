@@ -1,13 +1,13 @@
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import {
-    LINK_VERSION,
+    PROTOCOL_VERSION,
     parseServerLine,
     type RuntimeMessage,
     type ServerMessage,
-} from "./link.ts";
+} from "./protocol.ts";
 
-/** A message the runtime sends, before the link adds its version and id. */
+/** A message the runtime sends, before the channel adds its version and id. */
 export type Outgoing = RuntimeMessage extends infer M
     ? M extends RuntimeMessage
         ? Omit<M, "v" | "id">
@@ -35,7 +35,7 @@ export type ServerRequest = Extract<ServerMessage, { type: RequestType }>;
 /** A server message that answers one of the runtime's requests. */
 export type ServerReply = Exclude<ServerMessage, { type: RequestType }>;
 
-/** The runtime's end of the harness link: one JSON message per line each way. */
+/** The runtime's end of the runtime protocol: one JSON message per line each way. */
 export class Channel {
     readonly #output: Writable;
     readonly #waiting = new Map<string, (reply: ServerReply) => void>();
@@ -69,7 +69,7 @@ export class Channel {
     send(message: Outgoing): string {
         const id = `r${this.#next++}`;
         this.#output.write(
-            `${JSON.stringify({ ...message, v: LINK_VERSION, id })}\n`,
+            `${JSON.stringify({ ...message, v: PROTOCOL_VERSION, id })}\n`,
         );
         return id;
     }
@@ -102,7 +102,7 @@ export class Channel {
         const waiting = re === undefined ? undefined : this.#waiting.get(re);
         if (re === undefined || waiting === undefined) {
             // A server's error about a message this runtime did not wait on has nobody to tell but the log.
-            process.stderr.write(`link: ${JSON.stringify(sorted.reply)}\n`);
+            process.stderr.write(`protocol: ${JSON.stringify(sorted.reply)}\n`);
             return;
         }
         this.#waiting.delete(re);
@@ -145,7 +145,7 @@ function sort(
             return { reply: message };
         default: {
             const unhandled: never = message;
-            throw new Error(`Unsorted link message ${String(unhandled)}`);
+            throw new Error(`Unsorted protocol message ${String(unhandled)}`);
         }
     }
 }

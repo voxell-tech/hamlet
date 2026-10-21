@@ -1,5 +1,6 @@
 //! Harness runtimes: started and watched by this server, talking to
-//! it over the harness link, with the conversations bound to them.
+//! it over the runtime protocol, with the conversations bound to
+//! them.
 //!
 //! The host owns the [`Store`] and the loop: it waits on
 //! [`Harnesses::next`] and passes each event to
@@ -10,10 +11,8 @@ pub(crate) mod answers;
 mod bindings;
 mod credentials;
 mod mark;
-// Generated, so formatted as the generator writes it.
-#[rustfmt::skip]
-pub mod runtime;
 mod process;
+pub mod runtime;
 mod session;
 mod sync;
 #[cfg(test)]
@@ -45,9 +44,6 @@ use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use crate::credentials::Credentials;
 use crate::record::AgentRef;
 use crate::{Layout, RuntimeInstance, Store};
-
-/// The link version this server speaks.
-pub const LINK_VERSION: u64 = 1;
 
 /// What a runtime must be able to do to be given Hamlet's work (S24).
 const NEEDED: &[Capability] = &[
@@ -170,7 +166,7 @@ pub enum Notice {
         earlier: bool,
     },
     /// The runtime could not handle a message, or sent one that is
-    /// not of the link.
+    /// not of the runtime protocol.
     Fault {
         runtime: RuntimeInstance,
         words: String,
@@ -337,7 +333,7 @@ struct Runtime {
     ready_since: Option<Instant>,
 }
 
-/// The runtimes of one home and their link to this server.
+/// The runtimes of one home and their connections to this server.
 pub struct Harnesses {
     config: Config,
     hand_tools: Vec<ToolSpec>,
@@ -855,8 +851,8 @@ impl Harnesses {
             .all(|runtime| runtime.process.is_none())
     }
 
-    /// Closes every link, so each runtime exits, and waits for them;
-    /// one still there after its grace is killed.
+    /// Closes every runtime's input, so each runtime exits, and waits
+    /// for them; one still there after its grace is killed.
     pub async fn close(mut self) {
         for runtime in &mut self.runtimes {
             if let Some(process) = runtime.process.take() {
@@ -1298,11 +1294,12 @@ fn refusal(
     store: &Path,
 ) -> Option<String> {
     let id = row.id.as_str();
-    if !hello.versions.contains(&LINK_VERSION) {
+    if !hello.versions.contains(&runtime::VERSION) {
         return Some(format!(
-            "The runtime {id} speaks link versions {:?}; this \
-             server speaks {LINK_VERSION}.",
-            hello.versions
+            "The runtime {id} speaks protocol versions {:?}; this \
+             server speaks {}.",
+            hello.versions,
+            runtime::VERSION
         ));
     }
     if hello.store == HelloStore::Missing {

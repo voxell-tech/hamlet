@@ -1,10 +1,10 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { afterEach, expect, test } from "vitest";
-import { isRuntimeMessage, linkSchema } from "../src/link.ts";
+import { isRuntimeMessage } from "../src/protocol.ts";
 
 const MAIN = join(import.meta.dirname, "..", "src", "main.ts");
 const folders: string[] = [];
@@ -14,25 +14,15 @@ afterEach(() => {
         rmSync(folder, { recursive: true, force: true });
 });
 
-test("the checked-in schema is the link's", () => {
-    const kept: unknown = JSON.parse(
-        readFileSync(
-            join(import.meta.dirname, "..", "link.schema.json"),
-            "utf8",
-        ),
-    );
-    expect(kept).toEqual(linkSchema());
-});
-
-/** A field of a JSON object read off the link, or undefined. */
+/** A field of a JSON object read off the protocol, or undefined. */
 function field(value: unknown, name: string): unknown {
     return typeof value === "object" && value !== null && name in value
         ? Object.entries(value).find(([key]) => key === name)?.[1]
         : undefined;
 }
 
-test("a runtime speaks only the link's messages from hello to an answer, and exits when the server goes", async () => {
-    const folder = mkdtempSync(join(tmpdir(), "hamlet-pi-link-"));
+test("a runtime speaks only the protocol's messages from hello to an answer, and exits when the server goes", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "hamlet-pi-protocol-"));
     folders.push(folder);
     const faux = join(folder, "faux.json");
     writeFileSync(faux, JSON.stringify({ agents: { "home:0": ["hi"] } }));
@@ -42,7 +32,7 @@ test("a runtime speaks only the link's messages from hello to an answer, and exi
             "--disable-warning=ExperimentalWarning",
             MAIN,
             ...["--runtime", "pi-test", "--store", join(folder, "pi.sqlite")],
-            ...["--link", "stdio", "--fresh", "--faux", faux],
+            ...["--transport", "stdio", "--fresh", "--faux", faux],
         ],
         { stdio: ["pipe", "pipe", "inherit"] },
     );

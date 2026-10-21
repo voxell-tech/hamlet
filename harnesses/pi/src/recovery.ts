@@ -10,7 +10,7 @@ import {
 } from "@earendil-works/pi-durable";
 import type { Channel } from "./channel.ts";
 import { fault } from "./faults.ts";
-import { type Item, NOTICE } from "./link.ts";
+import { type Item, NOTICE } from "./protocol.ts";
 
 /** Cut-off recovery belongs to the original input, including its one permitted retry (C28). */
 export const RecoveryDoc = defineDoc<{

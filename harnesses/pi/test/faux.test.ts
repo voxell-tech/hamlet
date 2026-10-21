@@ -10,13 +10,13 @@ import {
 } from "@earendil-works/pi-ai";
 import { afterEach, expect, test } from "vitest";
 import { readScript, type Script, scriptedProvider } from "../src/faux.ts";
-import type { Usage } from "../src/link.ts";
 import {
     allowedStreams,
     type Gate,
     modelProvider,
     selectedModel,
 } from "../src/models.ts";
+import type { Usage } from "../src/protocol.ts";
 import { providers } from "../src/provider-set.ts";
 
 const folders: string[] = [];

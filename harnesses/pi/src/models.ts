@@ -15,7 +15,7 @@ import {
     createProvider,
     type Provider,
 } from "@earendil-works/pi-ai/models";
-import type { ModelRef, Selection, Usage } from "./link.ts";
+import type { ModelRef, Selection, Usage } from "./protocol.ts";
 import { providers } from "./provider-set.ts";
 
 /** The context an endpoint that lists no window size is given. */
@@ -275,7 +275,7 @@ function billedCost(event: unknown): number | undefined {
     return typeof cost === "number" && Number.isFinite(cost) ? cost : undefined;
 }
 
-/** The usage the link reports of an answer. */
+/** The usage the protocol reports of an answer. */
 export function usageOf(message: AssistantMessage): Usage {
     const { usage } = message;
     return {

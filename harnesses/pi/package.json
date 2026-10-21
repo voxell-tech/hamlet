@@ -10,7 +10,6 @@
     "scripts": {
         "check": "tsc --noEmit && biome check --error-on-warnings .",
         "format": "biome check --write .",
-        "schema": "node scripts/schema.ts && biome format --write link.schema.json",
         "test": "vitest --run"
     },
     "dependencies": {

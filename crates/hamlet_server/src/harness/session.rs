@@ -1,15 +1,15 @@
-//! The link's own bookkeeping: ids of the server's messages, the
-//! requests awaiting a runtime's reply, and reading a runtime's
-//! lines.
+//! The runtime protocol's own bookkeeping: ids of the server's
+//! messages, the requests awaiting a runtime's reply, and reading a
+//! runtime's lines.
 
 use std::collections::HashMap;
 
 use serde_json::Value;
 
 use super::runtime::{
-    self, LinkError, RuntimeMessage, ServerMessage,
+    self, ProtocolError, RuntimeMessage, ServerMessage,
 };
-use super::{BindingId, Harnesses, LINK_VERSION};
+use super::{BindingId, Harnesses};
 
 /// What a request to a runtime was for, until its reply.
 pub(super) enum Pending {
@@ -24,8 +24,8 @@ pub(super) enum Pending {
     Configure(BindingId, String),
 }
 
-/// The server's end of the links: its message ids and the requests in
-/// flight, by the runtime they went to.
+/// The server's end of the runtime protocol: its message ids and the
+/// requests in flight, by the runtime they went to.
 #[derive(Default)]
 pub(super) struct Session {
     next: u64,
@@ -72,15 +72,15 @@ impl Session {
 }
 
 impl Harnesses {
-    /// Sends the message `make` builds from the link version and a
-    /// new id; returns the id.
+    /// Sends the message `make` builds from the protocol version and
+    /// a new id; returns the id.
     pub(super) async fn send(
         &mut self,
         index: usize,
         make: impl FnOnce(u64, String) -> ServerMessage,
     ) -> String {
         let id = self.session.id();
-        let message = make(LINK_VERSION, id.clone());
+        let message = make(runtime::VERSION, id.clone());
         if let (Some(process), Ok(line)) = (
             self.runtimes[index].process.as_mut(),
             serde_json::to_string(&message),
@@ -110,7 +110,7 @@ impl Harnesses {
     ) {
         let message = words.to_owned();
         self.send(index, |v, id| {
-            ServerMessage::Error(LinkError {
+            ServerMessage::Error(ProtocolError {
                 code,
                 id,
                 message,
@@ -122,22 +122,25 @@ impl Harnesses {
     }
 }
 
-/// A runtime's line as a link message, or the words of why it is none
-/// with the id it carried.
+/// A runtime's line as a protocol message, or the words of why it is
+/// none with the id it carried.
 pub(super) fn parse(
     line: &str,
 ) -> Result<RuntimeMessage, (String, Option<String>)> {
     let value = serde_json::from_str::<Value>(line)
         .map_err(|error| (format!("Not JSON: {error}."), None))?;
     let re = value["id"].as_str().map(str::to_owned);
-    if value["v"] != LINK_VERSION {
+    if value["v"] != runtime::VERSION {
         return Err((
-            format!("Link messages here are version {LINK_VERSION}."),
+            format!(
+                "Protocol messages here are version {}.",
+                runtime::VERSION
+            ),
             re,
         ));
     }
     serde_json::from_value::<RuntimeMessage>(value).map_err(|error| {
-        (format!("Not a link message: {error}."), re)
+        (format!("Not a protocol message: {error}."), re)
     })
 }
 

@@ -3378,13 +3378,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hamlet_protocol_gen"
-version = "0.1.0"
-dependencies = [
- "serde_json",
-]
-
-[[package]]
 name = "hamlet_realm"
 version = "0.1.0"
 dependencies = [
@@ -3413,7 +3406,6 @@ dependencies = [
  "futures",
  "hamlet_acceptance",
  "hamlet_protocol",
- "hamlet_protocol_gen",
  "hamlet_testing",
  "hamlet_workspace_wire",
  "interprocess",

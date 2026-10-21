@@ -52,7 +52,6 @@ rustix = { version = "1", features = ["fs", "process"] }
 
 [dev-dependencies]
 hamlet_acceptance = { path = "../hamlet_acceptance" }
-hamlet_protocol_gen.workspace = true
 hamlet_testing.workspace = true
 libc.workspace = true
 rusqlite.workspace = true

@@ -4,9 +4,8 @@ use std::collections::{HashMap, VecDeque};
 
 use anyhow::{Result, bail, ensure};
 
-use super::LINK_VERSION;
 use super::runtime::{
-    CredentialRequest, CredentialRequestAction as Action,
+    self, CredentialRequest, CredentialRequestAction as Action,
     CredentialResult,
 };
 use crate::credentials::{Credentials, pack, unpack};
@@ -83,7 +82,7 @@ impl Authority {
                 let (at, request) =
                     self.waiting.pop_front().expect("queued request");
                 let mut answer = CredentialResult {
-                    v: LINK_VERSION,
+                    v: runtime::VERSION,
                     id: String::new(),
                     re: request.id.clone(),
                     credential: None,

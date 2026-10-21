@@ -134,7 +134,8 @@ fn a_runtime_claiming_the_mayor_for_a_member_s_conversation_is_refused()
             "{text}"
         );
     }
-    // A claim beside the call is no field of the link's operation.
+    // A claim beside the call is no field of the protocol's
+    // operation.
     let line = json!({
         "type": "operation", "v": 1, "id": "r1", "conversation": "1",
         "key": "k", "tool": "build_road", "arguments": road(),
@@ -556,12 +557,12 @@ fn every_attempt_uses_the_current_pin_then_hamlet_then_home_model() {
 }
 
 #[test]
-fn a_hello_lacking_the_link_version_or_a_needed_capability_is_refused()
+fn a_hello_lacking_the_protocol_version_or_a_needed_capability_is_refused()
  {
     use std::path::Path;
 
-    use super::runtime::{Capability, Hello, HelloStore};
-    use super::{LINK_VERSION, NEEDED, refusal};
+    use super::runtime::{Capability, Hello, HelloStore, VERSION};
+    use super::{NEEDED, refusal};
 
     let row = super::bindings::RuntimeRow {
         id: RuntimeInstance::new("pi-1").unwrap(),
@@ -576,15 +577,15 @@ fn a_hello_lacking_the_link_version_or_a_needed_capability_is_refused()
         id: "r1".into(),
         runtime: Some("pi-1".into()),
         store: HelloStore::Opened,
-        v: LINK_VERSION,
-        versions: vec![LINK_VERSION],
+        v: VERSION,
+        versions: vec![VERSION],
     };
     let store = Path::new("pi.sqlite");
     assert_eq!(refusal(&hello, &row, store), None);
     let words = |hello: &Hello| refusal(hello, &row, store).unwrap();
     let mut other = hello.clone();
-    other.versions = vec![LINK_VERSION + 1];
-    assert!(words(&other).contains("link versions"), "{other:?}");
+    other.versions = vec![VERSION + 1];
+    assert!(words(&other).contains("protocol versions"), "{other:?}");
     // History is optional; recovery is not.
     let mut lacking = hello.clone();
     lacking.capabilities = vec![Capability::History];

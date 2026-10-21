@@ -16,11 +16,10 @@ use serde_json::{Value, json};
 
 use crate::Store;
 use crate::credentials::write_whole;
-use crate::harness::LINK_VERSION;
 use crate::harness::runtime::{
-    ModelRef, Price, ProviderControl, ProviderEvent, ProviderRequest,
-    ProviderRequestAction, ProviderRequestMethod, ProviderResult,
-    ProviderResultProviders, Selection,
+    self, ModelRef, Price, ProviderControl, ProviderEvent,
+    ProviderRequest, ProviderRequestAction, ProviderRequestMethod,
+    ProviderResult, ProviderResultProviders, Selection,
 };
 use crate::protocol::{Refusable, Refusal, reply};
 use crate::record::AgentRef;
@@ -117,7 +116,7 @@ impl Models {
                 p.expires.is_some_and(|end| Instant::now() >= end)
             })
             .map(|(key, _)| ProviderResult {
-                v: LINK_VERSION,
+                v: runtime::VERSION,
                 id: "timeout".into(),
                 re: key.clone(),
                 error: Some(
@@ -207,7 +206,7 @@ impl Service {
             },
         );
         self.models.outgoing.push(ProviderRequest {
-            v: LINK_VERSION,
+            v: runtime::VERSION,
             id: key,
             action,
             provider: provider.into(),
@@ -814,7 +813,7 @@ fn control(
     value: Option<String>,
 ) -> ProviderControl {
     ProviderControl {
-        v: LINK_VERSION,
+        v: runtime::VERSION,
         id: uuid::Uuid::new_v4().to_string(),
         scope: scope.into(),
         cancel: value.is_none(),

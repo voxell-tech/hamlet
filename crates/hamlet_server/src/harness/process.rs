@@ -1,5 +1,6 @@
-//! A runtime's process: started with its id, its store and the link
-//! on its standard input and output, one JSON message per line.
+//! A runtime's process: started with its id, its store and the
+//! runtime protocol on its standard input and output, one JSON
+//! message per line.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -117,7 +118,7 @@ impl Process {
             .arg(launch.id.as_str())
             .arg("--store")
             .arg(launch.store)
-            .args(["--link", "stdio"]);
+            .args(["--transport", "stdio"]);
         if launch.fresh {
             command.arg("--fresh");
         }
@@ -177,7 +178,7 @@ impl Process {
         }
     }
 
-    /// Closes the link, so the runtime exits, and waits for it; a
+    /// Closes the runtime's input, so it exits, and waits for it; a
     /// runtime still there after `grace` is killed.
     pub async fn stop(
         mut self,
