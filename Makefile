@@ -8,7 +8,7 @@
 #   make uninstall  remove all three from ~/.cargo/bin
 #   make dev        try this checkout on a scratch home (HAMLET_HOME picks it)
 #   make check      every check a commit needs
-#   make fmt        format Rust, the protocol schema and pi
+#   make fmt        format Rust and pi
 #   make clean      remove the Rust build output
 #
 # The installed server finds pi in this checkout, so keep it where
@@ -25,7 +25,6 @@ WORKSPACE_IMAGE ?= hamlet-workspace:$(shell git rev-parse --short HEAD)
 
 FYNIX := vendor/fynix/Cargo.toml
 # npm ci rewrites this file, so it is newer than the lockfile it installed.
-SCHEMA := crates/hamlet_protocol/schema/node_modules/.package-lock.json
 PI := harnesses/pi/node_modules/.package-lock.json
 
 .DEFAULT_GOAL := build
@@ -33,9 +32,6 @@ PI := harnesses/pi/node_modules/.package-lock.json
 
 $(FYNIX):
 	git submodule update --init vendor/fynix
-
-$(SCHEMA): crates/hamlet_protocol/schema/package.json crates/hamlet_protocol/schema/package-lock.json
-	$(NPM) ci --prefix crates/hamlet_protocol/schema
 
 $(PI): harnesses/pi/package.json harnesses/pi/package-lock.json
 	$(NPM) ci --prefix harnesses/pi
@@ -67,7 +63,7 @@ uninstall:
 dev: $(FYNIX) $(PI)
 	$(CARGO) run -p hamlet_cli -- dev
 
-check: $(FYNIX) $(SCHEMA) $(PI)
+check: $(FYNIX) $(PI)
 	$(CARGO) +nightly fmt --check
 	$(CARGO) build --all-targets
 	$(CARGO) clippy --all-targets -- -D warnings
@@ -76,14 +72,11 @@ check: $(FYNIX) $(SCHEMA) $(PI)
 	$(CARGO) test -p hamlet_acceptance --features acceptance
 	$(CARGO) clippy -p hamlet_server --all-targets --features harness -- -D warnings
 	$(CARGO) test -p hamlet_server --features harness
-	$(NPM) run check --prefix crates/hamlet_protocol/schema
-	$(NPM) test --prefix crates/hamlet_protocol/schema
 	$(NPM) run check --prefix harnesses/pi
 	$(NPM) test --prefix harnesses/pi
 
-fmt: $(SCHEMA) $(PI)
+fmt: $(PI)
 	$(CARGO) +nightly fmt
-	$(NPM) run format --prefix crates/hamlet_protocol/schema
 	$(NPM) run format --prefix harnesses/pi
 
 clean:

@@ -11,6 +11,7 @@ use hamlet_server::{
     Home, OperationId, Outcome, Reply, RuntimeInstance,
 };
 use hamlet_testing::Scratch;
+use schemars::generate::SchemaSettings;
 use serde_json::{Value, json};
 
 /// `future` run to its end on a runtime of its own, as the server's
@@ -272,14 +273,12 @@ fn state_follows_office_roads_and_departures_from_the_record() {
     assert_eq!(papers["text"], gone.left.as_ref().unwrap().words);
     let encoded =
         serde_json::to_value(ServerMessage::State(state)).unwrap();
-    let schema = serde_json::from_str::<Value>(include_str!(
-        "../../hamlet_protocol/schema.json"
-    ))
-    .unwrap();
-    let validator = jsonschema::validator_for(
-        &json!({"$ref":"#/$defs/State","$defs":schema["$defs"]}),
-    )
-    .unwrap();
+    let schema = SchemaSettings::draft2020_12()
+        .for_serialize()
+        .into_generator()
+        .into_root_schema_for::<ServerMessage>();
+    let validator =
+        jsonschema::validator_for(&schema.to_value()).unwrap();
     assert!(validator.is_valid(&encoded));
 }
 

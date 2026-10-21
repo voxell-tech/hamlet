@@ -13,7 +13,7 @@ The server is Rust, the crate `hamlet_server`, and keeps everything Hamlet
 means: agents, hamlets, the mayor's office, roads, letters, questions,
 votes, tasks and their caps, budgets and spend, what waits for a chief,
 standing permissions, objections, the charter, characters and settings,
-which tools an agent may run and where, protocol v0 and the connection's
+which tools an agent may run and where, the client protocol and the connection's
 token.
 
 An agent's conversations run in a harness: a separate process the server
@@ -67,7 +67,7 @@ out, under the permissions and limits as they are then.
 
 - The project has two languages: Rust for Hamlet, TypeScript for the pi
   harness. The harness interface is a second protocol to version and test,
-  beside protocol v0.
+  beside the client protocol.
 - Every tool call and every change to the record crosses from the harness
   to the server, and each must be safe to ask for twice.
 - A conversation stays with the harness and version it began in. Changing

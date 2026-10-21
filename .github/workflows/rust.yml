@@ -109,11 +109,8 @@ jobs:
           node-version-file: harnesses/pi/.nvmrc
       - run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev bubblewrap
       - run: npm ci --prefix harnesses/pi
-      - run: npm ci --prefix crates/hamlet_protocol/schema
       - run: npm run check --prefix harnesses/pi
       - run: npm test --prefix harnesses/pi
-      - run: npm run check --prefix crates/hamlet_protocol/schema
-      - run: npm test --prefix crates/hamlet_protocol/schema
       - run: cargo build --locked -p hamlet_cli -p hamlet_server
       # Faux and loopback providers only, including real harness processes.
       - run: cargo test --workspace --all-targets --features hamlet_server/harness,hamlet_acceptance/acceptance

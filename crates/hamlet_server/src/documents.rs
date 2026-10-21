@@ -98,7 +98,7 @@ impl Service {
         let Ok(limits) = serde_json::from_value::<Limits>(value)
         else {
             return Ok(Err(Refusal::Invalid(
-                "A limit is outside protocol v0's supported number \
+                "A limit is outside the protocol's supported number \
                  range."
                     .into(),
             )));
@@ -111,7 +111,7 @@ impl Service {
             crate::clock::minutes(minutes) == i64::MAX
         }) {
             return Ok(Err(Refusal::Invalid(
-                "The budget is outside protocol v0's supported \
+                "The budget is outside the protocol's supported \
                  number range."
                     .into(),
             )));

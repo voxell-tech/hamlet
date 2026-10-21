@@ -347,8 +347,8 @@ pub(crate) async fn heard(
     refresh_watches(service, harnesses).await
 }
 
-/// Logs what a chief must hear of the runtimes until protocol v0
-/// shows it.
+/// Logs what a chief must hear of the runtimes until the client
+/// protocol shows it.
 fn report(service: &Service, notice: &Notice) {
     if let Notice::Refused { runtime, words }
     | Notice::Fault { runtime, words } = notice

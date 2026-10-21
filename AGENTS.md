@@ -77,9 +77,9 @@ example `cargo test -p hamlet_server`.
 Offline tests use faux models or loopback fixtures. Do not run live-provider
 or remote-infrastructure tests unless the owner explicitly asks.
 
-Both `harnesses/pi/` and `crates/hamlet_protocol/schema/` are Node packages.
-Run `npm ci` in each, then these checks with the Node version in
-`harnesses/pi/.nvmrc`. They must be clean before a commit too:
+`harnesses/pi/` is a Node package. Run `npm ci` in it, then these checks
+with the Node version in `harnesses/pi/.nvmrc`. They must be clean before
+a commit too:
 
 ```sh
 npm run check   # TypeScript and Biome
@@ -87,7 +87,7 @@ npm test
 ```
 
 The acceptance suite in `crates/hamlet_acceptance` starts real server
-processes on scratch homes and drives them through protocol v0, so plain
+processes on scratch homes and drives them through the client protocol, so plain
 `cargo test` compiles none of it. It needs the built CLI and server,
 and `npm ci --prefix harnesses/pi`. It must be clean before a commit too. It never
 contacts a model server or the internet: models are faux, or a loopback
@@ -112,25 +112,22 @@ cargo clippy -p hamlet_server --all-targets --features harness
 cargo test -p hamlet_server --features harness
 ```
 
-The link's Rust types in `crates/hamlet_server/src/harness/link.rs` are
-generated as protocol v0's are: after changing `harnesses/pi/src/link.ts`,
-run `npm run schema` in `harnesses/pi/`, then
-`cargo run -p hamlet_protocol_gen` at the root.
+The runtime protocol, between the server and a pi runtime, is defined by
+its Rust types in `crates/hamlet_server/src/harness/runtime.rs`. pi reads
+its types and checks from a schema generated from them:
+`cargo test -p hamlet_server` rewrites that schema when it is stale and
+fails, so commit the rewritten file.
 
 `HAMLET_CLI` selects a CLI binary outside `target/debug/hamlet` for the
 acceptance suite. `HAMLET_ACCEPTANCE_SERVER` selects an explicit server
 command; otherwise it tests the default `hamlet server` path.
 
-Protocol v0's Rust types in `crates/hamlet_protocol/src/v0.rs` are
-generated, never edited by hand. After changing the protocol, export its
-schema with `npm run schema` in `crates/hamlet_protocol/schema/`, then regenerate the Rust types
-at the root:
-
-```sh
-cargo run -p hamlet_protocol_gen
-```
-
-Update `docs/protocol.md` when the protocol changes.
+The client protocol, between the window or CLI and the server, is defined
+by its Rust types in `crates/hamlet_protocol/src/messages.rs`. Their
+`#[schemars(...)]` attributes carry the limits serde cannot check, such as
+a request id's UUID format; the server checks every client message against
+the schema derived from them. Update `docs/protocol.md` when the protocol
+changes.
 
 The client tests replay the faux sessions in `crates/hamlet_protocol/frames/`.
 See `docs/protocol.md` for their recording workflow.

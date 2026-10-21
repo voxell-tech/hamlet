@@ -9,6 +9,7 @@ description = "The messages of Hamlet's client protocol"
 workspace = true
 
 [dependencies]
+schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

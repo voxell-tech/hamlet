@@ -112,7 +112,7 @@ an error, never replaced by an empty one.
 **S13.** The `hamlet` command is a Rust binary in `crates/hamlet_cli`,
 run with `cargo run -p hamlet_cli -- <command>` or installed with
 `cargo install --path crates/hamlet_cli`. It manages the server and window
-as separate processes and uses protocol v0 for terminal operations.
+as separate processes and uses the client protocol for terminal operations.
 The server needs Node for the pi harness. `HAMLET_HOME` names the home; development uses a scratch folder.
 The window's executable is `hamlet-app`; the app is called Hamlet.
 Bare `hamlet` serves the home in the background, or reuses its running

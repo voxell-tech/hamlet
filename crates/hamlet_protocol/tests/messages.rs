@@ -1,4 +1,4 @@
-//! Wire messages through the generated public types.
+//! Wire messages through the public types.
 
 use hamlet_protocol::*;
 use serde_json::{Value, json};
@@ -691,5 +691,35 @@ fn a_peer_watch_selects_questions() {
             before: None,
         }),
         json!({"type": "open", "id": ID, "chat": {"with": {"hamlet": "home", "agent": "mayor"}, "from": {"hamlet": "home", "number": 2}, "kind": "questions"}}),
+    );
+}
+
+#[test]
+fn every_message_type_is_documented() {
+    let page = include_str!("../../../docs/protocol.md");
+    let mut generator =
+        schemars::generate::SchemaSettings::draft2020_12()
+            .for_serialize()
+            .into_generator();
+    let mut missing = Vec::new();
+    for union in [
+        generator.root_schema_for::<ClientMessage>(),
+        generator.root_schema_for::<ServerMessage>(),
+    ] {
+        let union = union.to_value();
+        let forms = union["oneOf"].as_array().unwrap();
+        assert!(!forms.is_empty());
+        for form in forms {
+            let kind =
+                form["properties"]["type"]["const"].as_str().unwrap();
+            if !page.contains(&format!("`{kind}`")) {
+                missing.push(kind.to_owned());
+            }
+        }
+    }
+    assert_eq!(
+        missing,
+        Vec::<String>::new(),
+        "missing from docs/protocol.md"
     );
 }

@@ -2,7 +2,7 @@
 
 The acceptance suite for Hamlet's server. Each scenario starts a server
 process on a scratch home and checks what it does from outside: through
-protocol v0 over the authenticated WebSocket, with `hamlet_protocol`'s
+the client protocol over the authenticated WebSocket, with `hamlet_protocol`'s
 generated types, and through the `hamlet` command. It checks behaviour
 only, never the server's insides. The default server is `hamlet server`.
 
@@ -12,7 +12,7 @@ checks yet. CLI lifecycle scenarios exercise detached start, reuse, status
 and stop, and dev with explicit binary overrides.
 
 Every message a server sends is parsed into `ServerMessage`, written back
-and compared with what arrived, so a field outside protocol v0 fails the
+and compared with what arrived, so a field outside the client protocol fails the
 scenario that received it.
 
 ## Running it
@@ -223,7 +223,7 @@ responses. Dropping the endpoint closes held requests too.
 The fixture records requests at the external provider boundary to check
 model choice, retry, compaction and the actual prompt. This is not access
 to the server's internal transcript. Ordinary tool output is not exposed
-in protocol v0, but can be checked in the next model request when needed.
+in the client protocol, but can be checked in the next model request when needed.
 
 ## Scenarios
 
@@ -241,7 +241,7 @@ in protocol v0, but can be checked in the next model request when needed.
 
 ## Known gaps
 
-What a client of protocol v0 or `hamlet` could observe but no scenario
+What a client of the client protocol or `hamlet` could observe but no scenario
 checks yet, grouped by what checking it needs. Process-crash controls at
 exact commit boundaries live in `crates/hamlet_server/tests/`.
 
@@ -279,7 +279,7 @@ exact commit boundaries live in `crates/hamlet_server/tests/`.
     chief left it across a restart.
   - Protocol: the rest of the malformed field forms, and grants kept
     across a restart with a repeated revoke recording nothing.
-- **The next model request.** Ordinary tool output is not in protocol v0.
+- **The next model request.** Ordinary tool output is not in the client protocol.
   Search and find results, letter and librarian refusal words, the
   explanation of a held decision, sandbox hints and the offered tool
   definitions can be checked in the next request to the loopback model.
@@ -302,7 +302,7 @@ exact commit boundaries live in `crates/hamlet_server/tests/`.
 
 ## Recording protocol frames
 
-`tests/frames/` records 18 real server sessions through protocol v0,
+`tests/frames/` records 18 real server sessions through the client protocol,
 including file gifts in chunks. It uses scratch homes, faux responses and
 a loopback login endpoint, never a live provider. Both wire directions are
 saved as JSONL; connection tokens and the fake login key are redacted.
@@ -312,11 +312,9 @@ From the repository root, using the Node version in `harnesses/pi/.nvmrc`:
 
 ```sh
 npm ci --prefix harnesses/pi
-npm ci --prefix crates/hamlet_protocol/schema
 cargo build -p hamlet_server
 HAMLET_ACCEPTANCE_SERVER="$PWD/target/debug/hamlet-server" \
   cargo test -p hamlet_acceptance --features acceptance --test frames -- --ignored
-npm test --prefix crates/hamlet_protocol/schema
 cargo test -p hamlet_protocol -p hamlet_client
 ```
 

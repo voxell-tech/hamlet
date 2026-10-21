@@ -1,7 +1,7 @@
 //! `hamlet-harness-driver --home <dir> [--faux <file>]`: holds a home
 //! and its runtimes for the harness tests, taking commands on
-//! standard input in place of protocol v0 and printing each notice as
-//! a JSON line. Built only with the `harness` feature.
+//! standard input in place of the client protocol and printing each
+//! notice as a JSON line. Built only with the `harness` feature.
 //!
 //! Tool calls go through the chats' gate, in conversations of the
 //! chief. `HAMLET_UNSAFE_TOOLS` names the tools not run again after a

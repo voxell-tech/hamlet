@@ -388,7 +388,7 @@ async fn exchange(
                     Err(_) if !*reported => {
                         eprintln!(
                             "The server sent a message that does \
-                             not fit protocol v0."
+                             not fit the protocol."
                         );
                         *reported = true;
                     }

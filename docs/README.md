@@ -39,7 +39,7 @@ Then read the page for the part you are about to touch.
 | [`ui-warmth.md`](ui-warmth.md) | How the panels glow and answer the hand |
 | [`society.md`](society.md) | Agents, roads, votes, the shared library, departures and the realm, on the server and in the window |
 | [`harness.md`](harness.md) | The harness: runtimes, bindings, the private link, its IDs and what a harness must be able to do |
-| [`protocol.md`](protocol.md) | Protocol v0: transport, messages, watched conversations and errors |
+| [`protocol.md`](protocol.md) | The client protocol: transport, messages, watched conversations and errors |
 | [`chat.md`](chat.md) | Watched conversations, paging, drawing, local links and pictures, and rewinds through the server |
 | [`icons.md`](icons.md) | The icons of the panels: where they are drawn, the rules of the family, how to add one |
 | [`cursors.md`](cursors.md) | The pointer and its modes |

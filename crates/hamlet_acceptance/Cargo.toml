@@ -3,7 +3,7 @@ name = "hamlet_acceptance"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "A black-box acceptance suite for Hamlet's server, driven through protocol v0"
+description = "A black-box acceptance suite for Hamlet's server, driven through the client protocol"
 
 [lints]
 workspace = true

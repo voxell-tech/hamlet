@@ -1,4 +1,4 @@
-//! The window's state and requests over protocol v0.
+//! The window's state and requests over the client protocol.
 
 pub mod chats;
 pub mod connection;

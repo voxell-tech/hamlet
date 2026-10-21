@@ -1,5 +1,5 @@
 //! The chats' gate and deeds as the harness tests' driver reaches
-//! them, without protocol v0.
+//! them, without the client protocol.
 
 use anyhow::{Context, Result};
 

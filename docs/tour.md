@@ -7,14 +7,14 @@ for the checks and conventions.
 ## How a change travels
 
 The Rust server owns the realm and permissions. Its Node pi harness owns
-conversations and model calls. The window and CLI are protocol v0 clients;
+conversations and model calls. The window and CLI are its clients, over the client protocol;
 neither opens the server's database nor runs an agent.
 
 ```text
-Window / terminal -- protocol v0 --> hamlet-server -- private link --> pi
-                                          |                          |
-                                   realm.sqlite                 harness store
-                                   houses, sandbox              conversations
+Window / terminal -- client protocol --> hamlet-server -- runtime protocol --> pi
+                                               |                               |
+                                         realm.sqlite                    harness store
+                                        houses, sandbox                  conversations
 ```
 
 A typed line reaches `chats::converse` through `runtime::serve`. Commands
@@ -35,9 +35,7 @@ Rust crates live under `crates/`. The root package `hamlet` supplies
 | `hamlet_cli` | `hamlet`: process lifecycle, terminal chat, editors and login, without Bevy |
 | `hamlet_server` | `hamlet-server`: realm, permissions, tools, records, credentials and harness supervision |
 | `harnesses/pi/` | Node pi-durable/pi-ai runtime; conversations, provider calls, compaction and forks |
-| `hamlet_protocol/schema/` | TypeBox source and offline schema checks, a separate Node package |
-| `hamlet_protocol_gen` | Generates Rust types from `crates/hamlet_protocol/schema.json` and `harnesses/pi/link.schema.json` |
-| `hamlet_protocol` | Generated v0 types, schema drift checks and recorded frames |
+| `hamlet_protocol` | The client protocol's types and recorded frames |
 | `hamlet_acceptance` | Real-process protocol and CLI scenarios on scratch homes |
 | `hamlet_client` | Connection, outbox, realm, waits and watched chats as Bevy entities |
 | `hamlet_desktop` | File/link openers, editor files, dialogs, wake locks and window icon |
@@ -63,7 +61,7 @@ town generator also adds `generator::plugin` and an `Origin` for its seed.
 
 Paths below are under `crates/hamlet_server/src/`. Modules use a file and
 same-named directory rather than `mod.rs`. Most domain APIs are internal;
-the public test boundary is protocol v0 or the process command line.
+the public test boundary is the client protocol or the process command line.
 
 | Module | Responsibility and interface |
 |---|---|
@@ -72,7 +70,7 @@ the public test boundary is protocol v0 or the process command line.
 | `operation.rs` | `OperationId` identifies runtime plus call key. Owns every marker: `Store::run` commits an operation's result marker with its record effects; `Store::once` and `once` mark any outcome with its request digest, alone or in the caller's transaction, and refuse a changed request under a used key |
 | `service.rs` | `Service` owns the claimed home, credentials, houses, models, chats and uploads; `handle` routes chief requests |
 | `runtime.rs` | `serve` probes the sandbox, starts the harness, publishes `server.json`, authenticates connections and closes in order |
-| `protocol.rs` | `Protocol::parse` validates client input against v0; reply and fault rendering |
+| `protocol.rs` | `Protocol::parse` validates client input against the client protocol's schema; reply and fault rendering |
 | `record.rs`, `record/` | Agent identity, membership, names, roads, office, models, constraints and typed refusals. `RecordOperation` is a transactional change, and every change to a hamlet's record is one of its `Change`s |
 | `documents.rs`, `settings.rs`, `limits.rs` | Chief edits and reads. `Service` reads each document once into a typed `Work`, `Settings` (stored settings plus process overrides) or `Limits`. A hamlet's limits live only in its record, with the schema's defaults filled in; `Limits::model_of` picks each agent's model |
 | `chats.rs`, `chats/` | Chief and peer watches, durable inputs, follow-up work, reflection, stop, retry, resume and rewind. `Chats::next` yields each tool call or preparation as it ends, a panicked one as a failed outcome |
@@ -147,7 +145,7 @@ ordinary tools.
 | A model connection, login or price | `hamlet_server/src/models.rs`, `credentials.rs`; provider implementation in pi |
 | Folder, mode or tool reach | `hamlet_server/src/documents.rs`, `tools.rs`, `sandbox/`; [`sandbox.md`](sandbox.md) |
 | CLI process discovery | `hamlet_cli/src/process.rs`; [`cli.md`](cli.md) |
-| Protocol or generated types | `hamlet_protocol/schema/`, then `npm run schema` and `cargo run -p hamlet_protocol_gen`; [`protocol.md`](protocol.md) |
+| Client protocol | `hamlet_protocol/src/messages.rs`; [`protocol.md`](protocol.md) |
 | Received entities | `hamlet_client/src/connection.rs`, `realm.rs`, `waits.rs`, `chats.rs` |
 | A panel or right-click menu | `hamlet_ui/src/screens/`, `world_menu/items.rs` |
 | Panels' colors, controls and icons | `assets/theme.toml`; `hamlet_ui/src/theme.rs`, `looks.rs`, `widgets/feel/`, `widgets/icons.rs` |

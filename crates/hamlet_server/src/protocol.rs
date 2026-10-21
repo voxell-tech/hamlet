@@ -1,10 +1,11 @@
-//! Strict protocol v0 parsing and the chief's error envelopes.
+//! Strict client protocol parsing and the chief's error envelopes.
 
 use anyhow::{Context, Result};
 use hamlet_protocol::{
     ClientMessage, Fault, Reply, ReplyKind, ServerMessage,
 };
 use jsonschema::error::{TypeKind, ValidationErrorKind};
+use schemars::generate::SchemaSettings;
 use serde_json::Value;
 
 /// What a request gives, or why it was refused before any effect.
@@ -62,36 +63,35 @@ struct Form {
     validator: jsonschema::Validator,
 }
 
-/// The published schema's client forms, including fields serde would
-/// ignore.
+/// The client protocol's message forms, derived from its Rust types,
+/// including fields serde would ignore.
 pub struct Protocol {
     forms: Vec<Form>,
 }
 
 impl Protocol {
     pub fn new() -> Result<Self> {
-        let schema = serde_json::from_str::<Value>(include_str!(
-            "../../hamlet_protocol/schema.json"
-        ))?;
+        // The serialize contract requires every field the types
+        // always write, so a client must send a nullable
+        // field even as null.
+        let schema = SchemaSettings::draft2020_12()
+            .for_serialize()
+            .into_generator()
+            .into_root_schema_for::<ClientMessage>()
+            .to_value();
         let definitions = &schema["$defs"];
         let mut forms = Vec::new();
-        for form in definitions["ClientMessage"]["anyOf"]
-            .as_array()
-            .context("client forms")?
+        for form in
+            schema["oneOf"].as_array().context("client forms")?
         {
-            let form = resolve(form, &schema);
-            for form in form["anyOf"]
-                .as_array()
-                .map(Vec::as_slice)
-                .unwrap_or(std::slice::from_ref(form))
-            {
+            for form in closed(resolve(form, &schema)) {
                 let mut complete = form.clone();
                 complete["$defs"] = definitions.clone();
                 let validator = jsonschema::options()
                     .should_validate_formats(true)
                     .build(&complete)?;
                 forms.push(Form {
-                    schema: form.clone(),
+                    schema: form,
                     validator,
                 });
             }
@@ -141,8 +141,8 @@ impl Protocol {
                 Fault {
                     to,
                     text: format!(
-                        "This `{kind}` message does not fit \
-                         protocol v0: a number is outside the \
+                        "This `{kind}` message does not fit the \
+                         protocol: a number is outside the \
                          supported range."
                     ),
                 }
@@ -188,7 +188,7 @@ impl Protocol {
                 .unwrap_or_else(|| "it is not valid".into())
         };
         fail(format!(
-            "This `{kind}` message does not fit protocol v0: \
+            "This `{kind}` message does not fit the protocol: \
              {words}."
         ))
     }
@@ -226,6 +226,45 @@ fn resolve<'a>(form: &'a Value, schema: &'a Value) -> &'a Value {
         .as_str()
         .and_then(|r| schema.pointer(r.trim_start_matches('#')))
         .unwrap_or(form)
+}
+
+/// A message's forms, each refusing fields it does not name. A
+/// message with several shapes, such as `give` or `edit`, keeps its
+/// tag beside the shapes, where no shape may close itself, so each
+/// shape takes the tag in.
+fn closed(form: &Value) -> Vec<Value> {
+    let Some(shapes) = form["anyOf"]
+        .as_array()
+        .or_else(|| form["oneOf"].as_array())
+    else {
+        let mut form = form.clone();
+        form["additionalProperties"] = Value::Bool(false);
+        return vec![form];
+    };
+    shapes
+        .iter()
+        .flat_map(|shape| {
+            let mut shape = shape.clone();
+            for (key, field) in
+                form["properties"].as_object().into_iter().flatten()
+            {
+                shape["properties"][key] = field.clone();
+            }
+            let mut required = shape["required"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            for key in
+                form["required"].as_array().into_iter().flatten()
+            {
+                if !required.contains(key) {
+                    required.push(key.clone());
+                }
+            }
+            shape["required"] = Value::Array(required);
+            closed(&shape)
+        })
+        .collect()
 }
 
 fn fixed(schema: &Value) -> Vec<Value> {
@@ -329,7 +368,7 @@ mod tests {
         assert_eq!(fault.to.as_deref(), Some(id));
         assert_eq!(
             fault.text,
-            "This `edit` message does not fit protocol v0: \
+            "This `edit` message does not fit the protocol: \
              `set.reflectEvery` must be integer."
         );
     }
@@ -363,7 +402,7 @@ mod tests {
             assert_eq!(
                 fault.text,
                 format!(
-                    "This `edit` message does not fit protocol v0: \
+                    "This `edit` message does not fit the protocol: \
                      {words}."
                 )
             );

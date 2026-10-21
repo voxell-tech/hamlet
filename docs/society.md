@@ -1,7 +1,7 @@
 # The society and the realm
 
 Agents run on the server. The window receives their hamlets, roads,
-departures, votes, library and waits through protocol v0; it reads no
+departures, votes, library and waits through the client protocol; it reads no
 records from the home's disk. The glossary is [`CONTEXT.md`](../CONTEXT.md).
 
 ## Agents and roads

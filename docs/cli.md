@@ -1,7 +1,7 @@
 # The `hamlet` command
 
 The Rust crate `hamlet_cli` supplies `hamlet`. It manages the server and
-the window as separate processes and uses [protocol v0](protocol.md) for
+the window as separate processes and uses [the client protocol](protocol.md) for
 everything it asks the server. With the Node version in `harnesses/pi/.nvmrc`,
 run `npm ci --prefix harnesses/pi`. From the repository root:
 

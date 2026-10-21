@@ -63,7 +63,7 @@ async fn refuses_another_protocol_version() {
     assert_eq!(
         got,
         [fault(
-            "This `hello` message does not fit protocol v0: `v` \
+            "This `hello` message does not fit the protocol: `v` \
              must be `0`.",
             None
         )]
@@ -99,20 +99,20 @@ async fn answers_malformed_messages_with_faults_and_stays_open() {
     let cases = [
         (
             json!({"type": "say", "id": "1", "to": mayor(), "text": "Hi"}),
-            "This `say` message does not fit protocol v0: `id` must \
-             be a UUID.",
+            "This `say` message does not fit the protocol: `id` \
+             must be a UUID.",
             false,
         ),
         (
             json!({"type": "say", "id": "ID", "to": mayor()}),
-            "This `say` message does not fit protocol v0: it lacks \
+            "This `say` message does not fit the protocol: it lacks \
              `text`.",
             true,
         ),
         (
             json!({"type": "say", "id": "ID", "to": mayor(), "text": "Hi", "loud": true}),
-            "This `say` message does not fit protocol v0: it has no \
-             field `loud`.",
+            "This `say` message does not fit the protocol: it has \
+             no field `loud`.",
             true,
         ),
         (
@@ -122,21 +122,21 @@ async fn answers_malformed_messages_with_faults_and_stays_open() {
         ),
         (
             json!({"type": "edit", "id": "ID", "doc": "bylaws"}),
-            "This `edit` message does not fit protocol v0: `doc` \
+            "This `edit` message does not fit the protocol: `doc` \
              must be one of `charter`, `character`, `notes`, \
              `limits`, `settings`, `catalogue`.",
             true,
         ),
         (
             json!({"type": "read", "id": "ID"}),
-            "This `read` message does not fit protocol v0: `what` \
+            "This `read` message does not fit the protocol: `what` \
              must be one of `prompt`, `history`, `models`, \
              `papers`, `charter`.",
             true,
         ),
         (
             json!({"type": "edit", "id": "ID", "doc": "settings", "set": {"reflectEvery": "four"}}),
-            "This `edit` message does not fit protocol v0: \
+            "This `edit` message does not fit the protocol: \
              `set.reflectEvery` must be integer.",
             true,
         ),

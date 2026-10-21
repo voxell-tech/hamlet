@@ -66,7 +66,7 @@ tool output or provider text is persisted or sent to clients.
 
 ## Gifts
 
-The chief sends a manifest and parts through [protocol v0](protocol.md).
+The chief sends a manifest and parts through [the client protocol](protocol.md).
 `gifts::Uploads` owns unfinished uploads by connection; an upload ID from
 another connection is refused. The manifest is checked before staging:
 at most 32 MiB and 4096 files, no unsafe or duplicate normalized paths,

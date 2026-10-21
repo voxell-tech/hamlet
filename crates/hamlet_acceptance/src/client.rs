@@ -543,8 +543,8 @@ impl Wire {
             .expect("the connection takes a message");
     }
 
-    /// The next server message, checked against protocol v0, or
-    /// `None` once the connection ends.
+    /// The next server message, checked against the client protocol,
+    /// or `None` once the connection ends.
     pub async fn message(&mut self) -> Option<ServerMessage> {
         while self.ended.is_none() {
             match self.socket.next().await {
@@ -590,8 +590,8 @@ impl Wire {
     }
 }
 
-/// Parses a server message, failing on any field protocol v0 does not
-/// define.
+/// Parses a server message, failing on any field the client protocol
+/// does not define.
 fn parse(text: &str) -> ServerMessage {
     let raw =
         serde_json::from_str::<Value>(text).unwrap_or_else(|e| {
@@ -601,14 +601,14 @@ fn parse(text: &str) -> ServerMessage {
         serde_json::from_value::<ServerMessage>(raw.clone())
             .unwrap_or_else(|e| {
                 panic!(
-                    "the server sent a message outside protocol v0: \
-                     {e}\n{text}"
+                    "the server sent a message outside the client \
+                     protocol: {e}\n{text}"
                 )
             });
     let again = serde_json::to_value(&message).unwrap();
     assert!(
         same(&raw, &again),
-        "the server sent fields outside protocol v0:\nsent: \
+        "the server sent fields outside the client protocol:\nsent: \
          {raw}\nread: {again}"
     );
     message

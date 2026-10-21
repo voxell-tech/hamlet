@@ -117,13 +117,11 @@ and right-click anything for what can be done to it.
 
 ```sh
 npm ci --prefix harnesses/pi
-npm ci --prefix crates/hamlet_protocol/schema
 cargo +nightly fmt
 cargo build --all-targets
 cargo clippy --all-targets
 cargo test
 (cd harnesses/pi && npm run check && npm test)
-(cd crates/hamlet_protocol/schema && npm run check && npm test)
 ```
 
 `make check` also runs the real-process harness and acceptance suites.
