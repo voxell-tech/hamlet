@@ -3,7 +3,7 @@
 An agent's conversations run in a harness, a process apart from the
 server ([ADR 0001](adr/0001-agents-run-on-a-rust-server-and-harnesses-run-their-conversations.md)).
 This page explains how the server and a harness work together: runtimes
-and bindings, the link between them, the IDs each side makes, and what a
+and bindings, the runtime protocol between them, the IDs each side makes, and what a
 harness must be able to do. The pi harness's files are listed in
 [the tour](tour.md#the-pi-harness).
 
@@ -26,29 +26,30 @@ store (ADR 0005).
 - A one-off conversation, such as a ballot, the mayor's review or a
   library call, is a conversation like any other, bound to a runtime.
 
-## The link
+## The runtime protocol
 
 The server and a runtime talk through one private interface of Hamlet's.
 Its transport is the runtime's standard input and output, which only the
-server holds: one JSON message per line. The messages are defined in
-TypeBox in `harnesses/pi/src/link.ts`, exported to
-`harnesses/pi/link.schema.json` and generated into the server's
-`crates/hamlet_server/src/harness/link.rs`, so both sides are checked
-against one schema. Link version 1 is the only one.
+server holds: one JSON message per line. The messages are the Rust types
+in `crates/hamlet_server/src/harness/runtime.rs`. `cargo test -p
+hamlet_server` writes their JSON Schema to
+`harnesses/pi/src/protocol-schema.ts`, and fails when it was stale so the
+new file is committed; pi takes its types and its checks from that file,
+so both sides are checked against one schema. Version 1 is the only one.
 
-Every message carries the link version and the sender's ID for it. A
+Every message carries the protocol version and the sender's ID for it. A
 reply names the ID it answers. Errors are messages, not closed
 connections.
 
 ### Starting
 
 1. The server starts the runtime with `--runtime <id>`, `--store <path>`
-   and `--link stdio`. It adds `--fresh` only when the runtime has never
+   and `--transport stdio`. It adds `--fresh` only when the runtime has never
    begun, the one time its store may be made.
-2. The runtime says `hello`: the link versions it speaks, its adapter and
+2. The runtime says `hello`: the protocol versions it speaks, its adapter and
    harness versions, the runtime ID its store records, whether the store
    was created, opened or is missing, and its capabilities.
-3. The server refuses a link version it does not speak, a missing store, a
+3. The server refuses a protocol version it does not speak, a missing store, a
    store that records another runtime or none, versions other than those
    the runtime began with, and a runtime that lacks a needed capability.
    The refusal is in words for a chief, never a fallback, and a refused

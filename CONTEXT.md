@@ -63,6 +63,14 @@ One running harness, with its own identity, version and store, serving the
 conversations bound to it. Several agents may share one.
 _Avoid_: worker, harness process
 
+**Client protocol**:
+The messages the window and the CLI exchange with the server.
+_Avoid_: protocol v0
+
+**Runtime protocol**:
+The messages the server exchanges with a runtime.
+_Avoid_: link, harness link
+
 **Binding**:
 The tie between a conversation and the runtime it began in, kept for as
 long as the conversation is.

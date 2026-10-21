@@ -76,11 +76,11 @@ the public test boundary is the client protocol or the process command line.
 | `chats.rs`, `chats/` | Chief and peer watches, durable inputs, follow-up work, reflection, stop, retry, resume and rewind. `Chats::next` yields each tool call or preparation as it ends, a panicked one as a failed outcome |
 | `chats/calls.rs`, `chats/calls/` | The one tool gate: `decide.rs` admits a call by its request digest and keeps the gate's decision, `ask.rs` raises a question, `answer.rs` validates a chief's answer and makes all its writes in one transaction, `tasks.rs` runs the calls. Marked outcomes survive replay; changed requests are refused |
 | `gate.rs`, `oversight.rs`, `oversight/held.rs` | Approval rules on typed limits, typed dangers, wait kinds and rulings. `held.rs` alone stores a held call and its wait, with typed transitions; `oversight::stop` and `rewind` are the policies that end waits |
-| `harness.rs` | Start/watch runtime processes, bind conversations and dispatch each link message. Tool calls go to the chats' gate |
-| `harness/session.rs`, `harness/sync.rs` | The link's ids and requests in flight; what each conversation is owed (creates, cancels, tools, inputs) and what its runtime reports back |
+| `harness.rs` | Start/watch runtime processes, bind conversations and dispatch each runtime protocol message. Tool calls go to the chats' gate |
+| `harness/session.rs`, `harness/sync.rs` | The runtime protocol's ids and requests in flight; what each conversation is owed (creates, cancels, tools, inputs) and what its runtime reports back |
 | `harness/answers.rs`, `harness/credentials.rs` | Admit and charge model attempts with the typed model selection; credential leases for provider work |
 | `harness/process.rs`, `harness/bindings.rs` | The pi launch profile and processes; runtimes, bindings and inputs with their `InputStatus` in `realm.sqlite` |
-| `harness/mark.rs` | `InputMark`, the typed kind and data of each input (chief line, retry, reflection, notice, mail, errand), converted to a link `Mark` at the edge |
+| `harness/mark.rs` | `InputMark`, the typed kind and data of each input (chief line, retry, reflection, notice, mail, errand), converted to a protocol `Mark` at the edge |
 | `chats/driver.rs`, `bin/hamlet-harness-driver.rs` | With the `harness` feature: the test driver's reach into the chats' gate, waits and stop, for the real-process suite in `tests/harness` |
 | `tools.rs`, `tools/`, `hand.rs` | `tools::Session` runs every tool call on the backend `Houses::tools` chose: built-in tools over `environment::Reach` (this machine under the sandbox, or a remote workspace), and hand-added manifests, which only run here |
 | `sandbox.rs`, `sandbox/` | Bubblewrap/Seatbelt policies, subprocess limits and termination |
@@ -106,17 +106,18 @@ link. House files stay files. See [`home.md`](home.md).
 ## The pi harness
 
 `harnesses/pi/src/main.ts` is the Node entry. The server starts it with
-`--runtime`, `--store` and `--link stdio`. The private link is versioned
-JSON lines on stdin/stdout; diagnostics go to stderr. How runtimes,
-bindings and the link work is in [`harness.md`](harness.md).
+`--runtime`, `--store` and `--transport stdio`. The runtime protocol is
+versioned JSON lines on stdin/stdout; diagnostics go to stderr. How
+runtimes, bindings and the runtime protocol work is in
+[`harness.md`](harness.md).
 
 | File under `harnesses/pi/src/` | Owns |
 |---|---|
-| `link.ts` | TypeBox messages; `npm run schema` exports `link.schema.json` |
-| `channel.ts` | Correlated link requests and replies |
+| `protocol.ts` | The runtime protocol's types and checks, from the generated `protocol-schema.ts` |
+| `channel.ts` | Correlated protocol requests and replies |
 | `runtime.ts` | Handshake, conversations, input admission, configure, cancellation, history and updates |
 | `extension.ts` | The hamlet extension: tools, prompt section and allow/yield hooks, each asked until the server decides; waits end on the key the server gives |
-| `items.ts` | Kept entries and answers as the link shows them |
+| `items.ts` | Kept entries and answers as the protocol shows them |
 | `models.ts` | Provider calls admitted and charged by the server, made with the pi model built from its selection; asks it to scrub snapshots and final responses |
 | `faux.ts` | Offline scripts, with separate agent and errand queues |
 | `faults.ts` | Exact process-crash pauses used by tests |

@@ -47,8 +47,8 @@ as if it were a transactional record change.
 
 `credentials.json` is mode 0600 and replaced whole via a temporary file and
 rename. It holds `installationId`, `connection: {token}` and provider
-credentials. Provider attempts receive needed credentials over the private
-link in memory. Pi asks the server to scrub text before keeping provider
+credentials. Provider attempts receive needed credentials over the runtime
+protocol in memory. Pi asks the server to scrub text before keeping provider
 snapshots or final answers; tool output and client messages are scrubbed too.
 `HAMLET_API_KEY` is an in-memory override for the settings' model's
 endpoint, not a file update.
