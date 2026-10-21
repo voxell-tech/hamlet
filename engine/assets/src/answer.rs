@@ -11,9 +11,10 @@ use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::ecs::system::{Local, Query, Res, ResMut};
 use bevy::time::{Real, Time};
 use hamlet_engine_api::{
-    AssetType, Capability, Failure, Reply, Request, TypeName,
+    AssetType, Capability, Failure, PluginLimits, Reply, Request,
+    TypeName,
 };
-use hamlet_engine_core::Budgets;
+use hamlet_engine_core::PluginBudgets;
 use hamlet_engine_grants::{
     Decided, FirstUse, Grants, Verdict, Waiting,
 };
@@ -39,7 +40,8 @@ pub enum Outcome {
 pub struct Rules<'a> {
     pub registry: &'a TypeRegistry,
     pub grants: &'a Grants,
-    pub budgets: &'a Budgets,
+    /// The limits of the plugin asking.
+    pub budgets: &'a PluginLimits,
 }
 
 impl Rules<'_> {
@@ -271,21 +273,16 @@ pub(crate) fn answer(
     mut asked: MessageReader<Asked>,
     mut decided: MessageReader<Decided>,
     mut plugins: Query<(Entity, &PluginInfo, &mut Holding)>,
+    limits: Query<&PluginBudgets>,
     mut store: ResMut<AssetStore>,
     registry: Res<TypeRegistry>,
     grants: Res<Grants>,
-    budgets: Res<Budgets>,
     time: Res<Time<Real>>,
     mut parked: Local<Waiting<Asked>>,
     mut written: Local<HashMap<Entity, (Duration, u32)>>,
     mut deliver: MessageWriter<Deliver>,
     mut first_use: MessageWriter<FirstUse>,
 ) {
-    let rules = Rules {
-        registry: &registry,
-        grants: &grants,
-        budgets: &budgets,
-    };
     let now = time.elapsed();
     parked.keep(|plugin| plugins.contains(plugin));
     let mut again = Vec::new();
@@ -304,10 +301,16 @@ pub(crate) fn answer(
     let fresh = asked.read().map(|asked| (asked.clone(), false));
     let mut changes = Vec::<Change>::new();
     for (request, allowed) in again.into_iter().chain(fresh) {
-        let Ok((_, plugin, mut holding)) =
-            plugins.get_mut(request.plugin)
-        else {
+        let (Ok((_, plugin, mut holding)), Ok(budgets)) = (
+            plugins.get_mut(request.plugin),
+            limits.get(request.plugin),
+        ) else {
             continue;
+        };
+        let rules = Rules {
+            registry: &registry,
+            grants: &grants,
+            budgets,
         };
         if request.request.writes() {
             let (since, count) = written

@@ -1,7 +1,7 @@
 //! What every engine module stands on: the tuning files under
 //! `engine/tuning/`, the home folder, the bundle of plugins that come
-//! with Hamlet, the engine's log, the budgets a plugin spends and
-//! writing a file whole.
+//! with Hamlet, the engine's log, the budgets and limits plugins
+//! spend and writing a file whole.
 
 pub mod budget;
 pub mod bundle;
@@ -11,7 +11,7 @@ pub mod log;
 pub mod tuning;
 
 use bevy::app::App;
-pub use budget::Budgets;
+pub use budget::{Budgets, DefaultLimits, PluginBudgets};
 pub use bundle::Bundle;
 pub use file::write_whole;
 pub use home::Home;
@@ -23,6 +23,7 @@ pub fn plugin(app: &mut App) {
         home::plugin,
         log::plugin,
         TuningPlugin::<Budgets>::default(),
+        TuningPlugin::<DefaultLimits>::default(),
     ));
     // A release build is run from anywhere, so where its files were
     // built from is not watched unless it is asked for.

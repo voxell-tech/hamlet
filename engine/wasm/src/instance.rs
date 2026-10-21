@@ -4,8 +4,8 @@
 //! Every value a plugin hands the host crosses as a string or a list
 //! of bytes. wasmtime checks its pointer and length against the
 //! plugin's memory, and takes its length from the store's hostcall
-//! fuel, before it copies a byte; the fuel is set to
-//! [`Budgets::bytes_per_call`] before every call.
+//! fuel, before it copies a byte; the fuel is set to the plugin's
+//! `bytes_per_call` before every call.
 
 use core::fmt;
 use std::time::{Duration, Instant};
@@ -13,9 +13,9 @@ use std::time::{Duration, Instant};
 use bevy::ecs::component::Component;
 use hamlet_engine_api::{
     AgentsRequest, AssetId, Contribution, DesktopRequest,
-    FetchRequest, Request, Ticket, decode,
+    FetchRequest, PluginLimits, Request, Ticket, decode,
 };
-use hamlet_engine_core::{Budgets, LogLevel};
+use hamlet_engine_core::LogLevel;
 use wasmtime::component::{Component as Compiled, HasSelf, Linker};
 use wasmtime::{Engine, ResourceLimiter, Store, Trap};
 
@@ -89,7 +89,7 @@ pub struct Caps {
 }
 
 impl Caps {
-    pub fn of(budgets: &Budgets, tuning: &WasmTuning) -> Self {
+    pub fn of(budgets: &PluginLimits, tuning: &WasmTuning) -> Self {
         Self {
             fuel: budgets.fuel_per_call,
             ticks: tuning.call_ticks(budgets),

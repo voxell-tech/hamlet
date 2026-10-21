@@ -15,7 +15,7 @@ use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_exists_and_changed;
-use bevy::ecs::system::{Commands, Res, ResMut};
+use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::render::RenderApp;
 use bevy::render::error_handler::{
@@ -32,7 +32,7 @@ use bevy::render::renderer::{
 use bevy::render::settings::{RenderCreation, WgpuSettings};
 use bevy::render::storage::ShaderBuffer;
 use bevy::time::{Real, Time};
-use hamlet_engine_core::{Budgets, LogLine};
+use hamlet_engine_core::{LogLine, PluginBudgets};
 use wgpu::Backend;
 
 use crate::scene::Scene;
@@ -225,7 +225,7 @@ fn read_clock(
 fn tally(
     mut spend: ResMut<GpuSpend>,
     mut throttled: ResMut<Throttled>,
-    budgets: Res<Budgets>,
+    owners: Query<&PluginBudgets>,
     time: Res<Time<Real>>,
     mut log: MessageWriter<LogLine>,
 ) {
@@ -239,6 +239,9 @@ fn tally(
         return;
     }
     for (&owner, &millis) in &spend.spent {
+        let Ok(budgets) = owners.get(owner) else {
+            continue;
+        };
         if millis > budgets.gpu_time_per_second
             && throttled.0.insert(owner)
         {

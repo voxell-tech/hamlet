@@ -20,7 +20,7 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{FrameProps, column, label};
 use hamlet_engine_api::Failure;
 use hamlet_engine_bus::{Serve, Served};
-use hamlet_engine_core::{Budgets, LogLine};
+use hamlet_engine_core::{Budgets, LogLine, PluginBudgets};
 use hamlet_engine_plugins::{
     Asked, ContributedBy, Contributions, PluginInfo, Stopped,
 };
@@ -156,13 +156,14 @@ fn adopt_overlay(
 
 /// Gives the running plugins what is in their inboxes, and a frame
 /// to those whose views still move, within the frame's share and
-/// each plugin's budgets of the second. The plugin served longest ago
+/// each plugin's limits of the second. The plugin served longest ago
 /// goes first, and what is left waits for the next frame. A plugin
 /// at fault is stopped.
 pub(crate) fn serve(
     mut plugins: Query<(
         Entity,
         &PluginInfo,
+        &PluginBudgets,
         &mut Instance,
         &mut Inbox,
         &mut Spending,
@@ -180,7 +181,6 @@ pub(crate) fn serve(
     mut commands: Commands,
 ) {
     *frame += 1;
-    let caps = Caps::of(&budgets, &tuning);
     let motions = theme.map_or([0.0; 2], |theme| {
         [theme.motion.interact, theme.motion.expand]
     });
@@ -196,6 +196,7 @@ pub(crate) fn serve(
         let Ok((
             _,
             info,
+            limits,
             mut instance,
             mut inbox,
             mut spending,
@@ -204,13 +205,14 @@ pub(crate) fn serve(
         else {
             continue;
         };
+        let caps = Caps::of(limits, &tuning);
         let mut fault = None;
         let mut served = false;
         let mut moving = was_moving;
         let mut moved = false;
         while let Some(work) = inbox.0.front() {
             let event = matches!(work, Work::Node(..));
-            if left.is_zero() || !spending.may_call(&budgets, event) {
+            if left.is_zero() || !spending.may_call(limits, event) {
                 break;
             }
             let Some(work) = inbox.0.pop_front() else {
@@ -311,7 +313,7 @@ pub(crate) fn serve(
             && !moved
             && fault.is_none()
             && !left.is_zero()
-            && spending.may_call(&budgets, false)
+            && spending.may_call(limits, false)
         {
             let (done, spent) = instance.frame(&caps, micros);
             let changes = instance.take_node_changes();
@@ -336,7 +338,7 @@ pub(crate) fn serve(
                 commands.entity(plugin).remove::<Moving>();
             }
         }
-        instance.pass_logs(info, &mut spending, &budgets, &mut log);
+        instance.pass_logs(info, &mut spending, limits, &mut log);
         if served {
             spending.served = *frame;
         }

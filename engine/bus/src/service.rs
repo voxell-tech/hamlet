@@ -16,9 +16,10 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Local, Query, Res, ResMut};
 use bevy::time::{Real, Time};
 use hamlet_engine_api::{
-    Capability, Failure, PluginId, Reply, Request, ServiceId, Ticket,
+    Capability, Failure, PluginId, PluginLimits, Reply, Request,
+    ServiceId, Ticket,
 };
-use hamlet_engine_core::Budgets;
+use hamlet_engine_core::{Budgets, PluginBudgets};
 use hamlet_engine_grants::{
     Decided, FirstUse, Grants, Verdict, Waiting,
 };
@@ -129,6 +130,8 @@ impl Calls {
 /// What is known of a call before it is made.
 pub struct Call<'a> {
     pub caller: &'a PluginInfo,
+    /// The caller's limits.
+    pub limits: &'a PluginLimits,
     pub service: &'a str,
     pub depth: u32,
     /// What the caller's calls spent this second.
@@ -180,16 +183,16 @@ impl Call<'_> {
                 budgets.chain_depth
             )));
         }
-        let spent = self.spent;
-        if spent.calls >= budgets.service_calls_per_second {
+        let (spent, limits) = (self.spent, self.limits);
+        if spent.calls >= limits.service_calls_per_second {
             return Err(Failure::OutOfBudget(format!(
                 "{} calls a second, the most",
-                budgets.service_calls_per_second
+                limits.service_calls_per_second
             )));
         }
-        if spent.fuel >= budgets.service_fuel_per_second
+        if spent.fuel >= limits.service_fuel_per_second
             || spent.time.as_secs_f32() * 1000.0
-                >= budgets.service_time_per_second
+                >= limits.service_time_per_second
         {
             return Err(Failure::OutOfBudget(
                 "the services it called spent its budget for this \
@@ -252,6 +255,7 @@ fn call(
     mut asked: MessageReader<Asked>,
     mut decided: MessageReader<Decided>,
     plugins: Query<(Entity, &PluginInfo, Has<Enabled>, Has<Stopped>)>,
+    limits: Query<&PluginBudgets>,
     grants: Res<Grants>,
     budgets: Res<Budgets>,
     time: Res<Time<Real>>,
@@ -282,11 +286,14 @@ fn call(
         else {
             continue;
         };
-        let Ok((_, caller, ..)) = plugins.get(request.plugin) else {
+        let (Ok((_, caller, ..)), Ok(limits)) =
+            (plugins.get(request.plugin), limits.get(request.plugin))
+        else {
             continue;
         };
         let check = Call {
             caller,
+            limits,
             service,
             depth: request.depth,
             spent: calls.second(request.plugin, now),

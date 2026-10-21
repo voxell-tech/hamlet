@@ -11,6 +11,7 @@ use bevy::ecs::message::MessageWriter;
 use bevy::ecs::query::With;
 use bevy::ecs::system::{Commands, Query, Res};
 use bevy::time::{Real, Time};
+use hamlet_engine_api::PluginLimits;
 use hamlet_engine_core::{Budgets, LogLine};
 use hamlet_engine_plugins::PluginInfo;
 
@@ -55,7 +56,7 @@ impl Spending {
     /// event when `event`. A plugin that may not is over a budget.
     pub(crate) fn may_call(
         &mut self,
-        budgets: &Budgets,
+        budgets: &PluginLimits,
         event: bool,
     ) -> bool {
         let within = self.time.as_secs_f32() * 1000.0
@@ -83,12 +84,12 @@ impl Spending {
 
 impl Instance {
     /// Tells the log what the plugin `info` logged, as many lines of
-    /// each level a second as the budgets allow.
+    /// each level a second as its limits allow.
     pub(crate) fn pass_logs(
         &mut self,
         info: &PluginInfo,
         spending: &mut Spending,
-        budgets: &Budgets,
+        budgets: &PluginLimits,
         log: &mut MessageWriter<LogLine>,
     ) {
         for (level, text) in self.take_logs() {

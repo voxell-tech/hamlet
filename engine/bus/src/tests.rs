@@ -7,7 +7,7 @@ use hamlet_engine_api::{
     ServiceId, ServiceImport, TypeName,
 };
 use hamlet_engine_core::tuning::Tuning;
-use hamlet_engine_core::{Budgets, Home};
+use hamlet_engine_core::{Budgets, DefaultLimits, Home};
 use hamlet_engine_grants::{Answer, Grants, Record};
 use hamlet_engine_plugins::{PluginInfo, PluginKind};
 
@@ -77,6 +77,7 @@ fn a_call_goes_through_only_within_its_rules() {
         grants.set(&info.id, record).unwrap();
     }
     let budgets = Budgets::designed();
+    let limits = DefaultLimits::designed();
     let deep = budgets.chain_depth + 1;
     let now = Duration::from_secs(10);
     let mut calls = Calls::default();
@@ -85,7 +86,7 @@ fn a_call_goes_through_only_within_its_rules() {
     calls.charge(
         poor,
         now,
-        budgets.service_fuel_per_second,
+        limits.service_fuel_per_second,
         Duration::ZERO,
     );
 
@@ -125,6 +126,7 @@ fn a_call_goes_through_only_within_its_rules() {
         };
         let call = Call {
             caller: info,
+            limits: &limits,
             service: WORDS,
             depth,
             spent,

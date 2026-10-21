@@ -3,6 +3,7 @@
 //! switching it off despawns them.
 
 mod entry;
+mod limits;
 mod list;
 mod mail;
 mod switch;
@@ -11,10 +12,11 @@ mod switched_off;
 use bevy::app::App;
 use bevy::ecs::component::Component;
 use hamlet_engine_api::{
-    Ask, AssetTypes, Events, Manifest, PluginId, Services,
+    Ask, AssetTypes, Events, Limits, Manifest, PluginId, Services,
 };
 
 pub use self::entry::{Entry, EntryPoint};
+pub use self::limits::ChosenLimits;
 pub use self::list::{AddPlugin, Uninstall};
 pub use self::mail::{Asked, Deliver};
 pub use self::switch::{
@@ -26,6 +28,7 @@ pub use self::switched_off::SwitchedOff;
 pub fn plugin(app: &mut App) {
     app.add_plugins((
         switched_off::plugin,
+        limits::plugin,
         switch::plugin,
         list::plugin,
         mail::plugin,
@@ -45,6 +48,8 @@ pub struct PluginInfo {
     pub assets: AssetTypes,
     pub services: Services,
     pub events: Events,
+    /// The limits it asks for in place of the engine's.
+    pub limits: Limits,
 }
 
 /// Where a plugin comes from.
@@ -70,6 +75,7 @@ impl PluginInfo {
             assets: manifest.assets,
             services: manifest.services,
             events: manifest.events,
+            limits: manifest.limits,
         }
     }
 }

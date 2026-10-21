@@ -1,4 +1,5 @@
-use hamlet_engine_core::Budgets;
+use hamlet_engine_api::PluginLimits;
+use hamlet_engine_core::DefaultLimits;
 use hamlet_engine_core::tuning::Tuning;
 use wasmtime::component::Resource;
 
@@ -9,10 +10,10 @@ use crate::instance::{Caps, State};
 
 #[test]
 fn entities_are_held_to_their_capability_and_budgets() {
-    let budgets = Budgets {
+    let budgets = PluginLimits {
         scene_entities: 2,
         scene_changes_per_call: 3,
-        ..Budgets::designed()
+        ..DefaultLimits::designed().0
     };
     let caps = Caps::of(&budgets, &WasmTuning::designed());
     let mut state = State::new(&caps);

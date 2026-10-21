@@ -5,10 +5,10 @@ use std::time::Duration;
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::message::{MessageReader, MessageWriter};
-use bevy::ecs::system::{Query, Res};
+use bevy::ecs::system::Query;
 use hamlet_engine_api::{Failure, Message, encode};
 use hamlet_engine_bus::{Serve, Served};
-use hamlet_engine_core::Budgets;
+use hamlet_engine_core::PluginBudgets;
 use hamlet_engine_plugins::{Asked, Deliver};
 
 use crate::budget::Spending;
@@ -44,14 +44,15 @@ impl Instance {
 pub(crate) fn deliver(
     mut delivered: MessageReader<Deliver>,
     mut calls: MessageReader<Serve>,
-    mut inboxes: Query<(&mut Inbox, &mut Spending)>,
-    budgets: Res<Budgets>,
+    mut inboxes: Query<(&mut Inbox, &mut Spending, &PluginBudgets)>,
     mut served: MessageWriter<Served>,
 ) {
-    let most = budgets.events_per_second as usize;
     for call in calls.read() {
         match inboxes.get_mut(call.callee) {
-            Ok((mut inbox, _)) if inbox.0.len() < most => {
+            Ok((mut inbox, _, budgets))
+                if inbox.0.len()
+                    < budgets.events_per_second as usize =>
+            {
                 inbox.0.push_back(Work::Serve(call.clone()));
             }
             _ => {
@@ -72,11 +73,12 @@ pub(crate) fn deliver(
         depth,
     } in delivered.read()
     {
-        let Ok((mut inbox, mut spending)) = inboxes.get_mut(*plugin)
+        let Ok((mut inbox, mut spending, budgets)) =
+            inboxes.get_mut(*plugin)
         else {
             continue;
         };
-        if inbox.0.len() >= most {
+        if inbox.0.len() >= budgets.events_per_second as usize {
             spending.dropped_events += 1;
             continue;
         }

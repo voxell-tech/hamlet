@@ -1,6 +1,6 @@
 //! Events between plugins. A plugin subscribes by name to an event
 //! its manifest hears, and sends only the events its manifest sends,
-//! `[budgets] events_sent_per_second` at most. The events of a frame
+//! its `events_sent_per_second` at most. The events of a frame
 //! are passed on together, to each subscriber that names the
 //! payload's type as the sender does, and handed over in one batch on
 //! the next frame.
@@ -16,7 +16,7 @@ use bevy::ecs::observer::On;
 use bevy::ecs::system::{Local, Query, Res};
 use bevy::time::{Real, Time};
 use hamlet_engine_api::{EventId, Failure, Message, Reply, Request};
-use hamlet_engine_core::Budgets;
+use hamlet_engine_core::{Budgets, PluginBudgets};
 use hamlet_engine_plugins::{Asked, Deliver, Disable, PluginInfo};
 
 pub(crate) fn plugin(app: &mut App) {
@@ -81,6 +81,7 @@ impl BusPluginInfoExt for PluginInfo {
 fn pass(
     mut asked: MessageReader<Asked>,
     mut plugins: Query<(Entity, &PluginInfo, &mut Subscriptions)>,
+    limits: Query<&PluginBudgets>,
     budgets: Res<Budgets>,
     time: Res<Time<Real>>,
     mut sent: Local<HashMap<Entity, (Duration, u32)>>,
@@ -90,9 +91,10 @@ fn pass(
     sent.retain(|plugin, _| plugins.contains(*plugin));
     let mut frame = Vec::new();
     for request in asked.read() {
-        let Ok((_, plugin, mut subscriptions)) =
-            plugins.get_mut(request.plugin)
-        else {
+        let (Ok((_, plugin, mut subscriptions)), Ok(limits)) = (
+            plugins.get_mut(request.plugin),
+            limits.get(request.plugin),
+        ) else {
             continue;
         };
         match &request.request {
@@ -143,11 +145,11 @@ fn pass(
                             < Duration::from_secs(1)
                     })
                     .unwrap_or((now, 0));
-                if count >= budgets.events_sent_per_second {
+                if count >= limits.events_sent_per_second {
                     deliver.write(request.reply(Err(
                         Failure::OutOfBudget(format!(
                             "{} events a second, the most",
-                            budgets.events_sent_per_second
+                            limits.events_sent_per_second
                         )),
                     )));
                     continue;

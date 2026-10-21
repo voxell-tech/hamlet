@@ -9,10 +9,10 @@ use bevy::ecs::lifecycle::Add;
 use bevy::ecs::message::MessageWriter;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::{Has, With};
-use bevy::ecs::system::{Commands, Query, Res};
+use bevy::ecs::system::{Commands, Query};
 use bevy::ecs::world::World;
-use hamlet_engine_api::Manifest;
-use hamlet_engine_core::{Budgets, LogLine};
+use hamlet_engine_api::{Manifest, PluginLimits};
+use hamlet_engine_core::{LogLine, PluginBudgets};
 
 use crate::entry::{Entry, EntryPoint};
 use crate::switched_off::SwitchedOff;
@@ -85,12 +85,16 @@ fn one_of_each(
 /// Runs the entry point of a plugin built in.
 fn enable(
     event: On<Enable>,
-    plugins: Query<(&PluginInfo, &EntryPoint, Has<Enabled>)>,
-    budgets: Res<Budgets>,
+    plugins: Query<(
+        &PluginInfo,
+        &EntryPoint,
+        &PluginBudgets,
+        Has<Enabled>,
+    )>,
     mut commands: Commands,
 ) {
     let plugin = event.entity;
-    let Ok((info, point, on)) = plugins.get(plugin) else {
+    let Ok((info, point, budgets, on)) = plugins.get(plugin) else {
         return;
     };
     if on {
@@ -98,7 +102,7 @@ fn enable(
     }
     let mut entry = Entry::default();
     (point.0)(&mut entry);
-    commands.switch_on(plugin, info, entry, &budgets);
+    commands.switch_on(plugin, info, entry, budgets);
 }
 
 /// The plugins' methods on [`Commands`].
@@ -121,7 +125,7 @@ pub trait PluginCommandsExt {
         plugin: Entity,
         info: &PluginInfo,
         entry: Entry,
-        budgets: &Budgets,
+        budgets: &PluginLimits,
     );
 }
 
@@ -164,7 +168,7 @@ impl PluginCommandsExt for Commands<'_, '_> {
         plugin: Entity,
         info: &PluginInfo,
         entry: Entry,
-        budgets: &Budgets,
+        budgets: &PluginLimits,
     ) {
         for why in entry.spawn(plugin, &info.id, budgets, self) {
             self.write_message(LogLine::warn(info.id.as_str(), why));

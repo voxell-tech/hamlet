@@ -2,6 +2,7 @@
 # its field says otherwise. What each value means is written beside its
 # field, in the module that reads its section: [tuning] in
 # engine/core/src/tuning.rs, [log] in log.rs, [budgets] in budget.rs,
+# [limits] in engine/api/src/limits.rs,
 # [window] in engine/shell/src/window.rs, [workspaces] in workspace.rs,
 # [wasm] in engine/wasm/src/host.rs, [render] in
 # engine/render/src/viewport.rs, [harness] in
@@ -14,13 +15,18 @@ every = 0.5
 keep = 500
 
 [budgets]
+strikes = 3
+frame_share = 4.0
+chain_depth = 8
+
+# Each plugin's own, unless its manifest's [limits] or the person
+# gives another value.
+[limits]
 memory = 67_108_864
 fuel_per_call = 50_000_000
 call_time = 20.0
 time_per_second = 100.0
 fuel_per_second = 500_000_000
-strikes = 3
-frame_share = 4.0
 bytes_per_call = 1_048_576
 calls_per_second = 600
 events_per_second = 300
@@ -30,7 +36,6 @@ asset_writes_per_second = 20
 service_calls_per_second = 60
 service_fuel_per_second = 200_000_000
 service_time_per_second = 50.0
-chain_depth = 8
 events_sent_per_second = 30
 fetches_per_minute = 30
 fetches_waiting = 4

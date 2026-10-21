@@ -8,8 +8,9 @@ use bevy::app::{App, Startup};
 use bevy::ecs::message::MessageWriter;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Res};
+use hamlet_engine_api::PluginLimits;
 use hamlet_engine_core::tuning::{ENGINE, Tuning, TuningFile};
-use hamlet_engine_core::{Budgets, LogLine, TuningPlugin};
+use hamlet_engine_core::{LogLine, TuningPlugin};
 use serde::Deserialize;
 use wasmtime::{
     Config, Engine, InstanceAllocationStrategy,
@@ -36,7 +37,7 @@ pub struct WasmTuning {
     /// Core instances one plugin's component may hold.
     pub instances: u32,
     /// Memories one plugin's component may hold. Together they hold
-    /// [`Budgets::memory`] at most.
+    /// the plugin's `memory` limit at most.
     pub memories: u32,
     pub tables: u32,
     /// Elements of one table.
@@ -57,7 +58,7 @@ impl Tuning for WasmTuning {
 
 impl WasmTuning {
     /// Ticks of the epoch one call may last, at least one.
-    pub(crate) fn call_ticks(&self, budgets: &Budgets) -> u64 {
+    pub(crate) fn call_ticks(&self, budgets: &PluginLimits) -> u64 {
         (budgets.call_time / self.tick).ceil().max(1.0) as u64
     }
 }
@@ -70,14 +71,13 @@ impl Host {
     /// An engine for components with fuel and an epoch, and a pool
     /// in which each plugin's share is capped, so no plugin can take
     /// another's room. Its epoch is ticked for as long as it lives.
-    pub fn new(
-        tuning: &WasmTuning,
-        budgets: &Budgets,
-    ) -> wasmtime::Result<Self> {
+    pub fn new(tuning: &WasmTuning) -> wasmtime::Result<Self> {
         let slots = tuning.plugins + 1;
         let mut pool = PoolingAllocationConfig::new();
-        pool.max_memory_size(budgets.memory as usize)
-            .table_elements(tuning.table_elements)
+        // A memory's size is left to the pool's own most, all a
+        // 32-bit memory can address, so each plugin's `memory` limit
+        // holds it, whatever it is set to.
+        pool.table_elements(tuning.table_elements)
             .max_core_instances_per_component(tuning.instances)
             .max_memories_per_component(tuning.memories)
             .max_memories_per_module(tuning.memories)
@@ -126,11 +126,10 @@ impl WasmEngineExt for Engine {
 
 fn start(
     tuning: Res<WasmTuning>,
-    budgets: Res<Budgets>,
     mut log: MessageWriter<LogLine>,
     mut commands: Commands,
 ) {
-    match Host::new(&tuning, &budgets) {
+    match Host::new(&tuning) {
         Ok(host) => commands.insert_resource(host),
         Err(why) => {
             log.write(LogLine::error(

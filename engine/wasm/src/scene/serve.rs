@@ -15,7 +15,7 @@ use bevy::ecs::system::{Commands, Local, Query, Res};
 use bevy::ecs::world::World;
 use bevy::time::Time;
 use hamlet_engine_api::capability::GPU;
-use hamlet_engine_core::{Budgets, LogLine};
+use hamlet_engine_core::{Budgets, LogLine, PluginBudgets};
 use hamlet_engine_grants::{Decided, FirstUse, Grants, Verdict};
 use hamlet_engine_plugins::{Asked, PluginInfo};
 use hamlet_engine_render::{
@@ -141,20 +141,20 @@ fn lose(
 fn route(
     mut inputs: MessageReader<SceneInput>,
     mut plugins: Query<
-        (Option<&mut SceneInbox>, &mut Spending),
+        (Option<&mut SceneInbox>, &mut Spending, &PluginBudgets),
         With<Instance>,
     >,
-    budgets: Res<Budgets>,
     mut commands: Commands,
 ) {
-    let most = budgets.events_per_second as usize;
     // The inboxes of plugins told of something for the first time.
     let mut first = HashMap::<Entity, VecDeque<SceneEvent>>::new();
     for input in inputs.read() {
-        let Ok((inbox, mut spending)) = plugins.get_mut(input.owner)
+        let Ok((inbox, mut spending, budgets)) =
+            plugins.get_mut(input.owner)
         else {
             continue;
         };
+        let most = budgets.events_per_second as usize;
         let events = match inbox {
             Some(inbox) => &mut inbox.into_inner().0,
             None => first.entry(input.owner).or_default(),
@@ -177,6 +177,7 @@ fn play(
     mut plugins: Query<(
         Entity,
         &PluginInfo,
+        &PluginBudgets,
         &mut Instance,
         &mut Spending,
         Option<&mut SceneInbox>,
@@ -188,17 +189,17 @@ fn play(
     mut asked: MessageWriter<Asked>,
     mut commands: Commands,
 ) {
-    let caps = Caps::of(&budgets, &tuning);
     let micros = u32::try_from(time.delta().as_micros()).unwrap_or(0);
     let mut left =
         Duration::from_secs_f32(budgets.frame_share / 1000.0);
-    for (plugin, info, mut instance, mut spending, inbox) in
+    for (plugin, info, limits, mut instance, mut spending, inbox) in
         &mut plugins
     {
+        let caps = Caps::of(limits, &tuning);
         let mut calls = Vec::new();
         if let Some(mut inbox) = inbox
             && !inbox.0.is_empty()
-            && spending.may_call(&budgets, true)
+            && spending.may_call(limits, true)
         {
             let inputs = inbox
                 .0
@@ -210,7 +211,7 @@ fn play(
         if calls.iter().all(|(_, (done, _))| done.is_ok())
             && instance.scene().animate
             && !left.is_zero()
-            && spending.may_call(&budgets, false)
+            && spending.may_call(limits, false)
         {
             calls.push((false, instance.scene_tick(&caps, micros)));
         }
@@ -224,12 +225,7 @@ fn play(
                 event,
                 &mut asked,
             );
-            instance.pass_logs(
-                info,
-                &mut spending,
-                &budgets,
-                &mut log,
-            );
+            instance.pass_logs(info, &mut spending, limits, &mut log);
             if let Err(fault) = done {
                 commands.stop_plugin(&mut log, plugin, info, &fault);
                 break;

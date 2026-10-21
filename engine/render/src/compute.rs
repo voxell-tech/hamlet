@@ -36,7 +36,7 @@ use bevy::render::{
 };
 use bevy::shader::Shader;
 use bevy::time::Time;
-use hamlet_engine_core::Budgets;
+use hamlet_engine_core::PluginBudgets;
 use wgpu::{
     ComputePassTimestampWrites, QuerySet, QuerySetDescriptor,
     QueryType,
@@ -92,7 +92,8 @@ fn give_slot(mut world: DeferredWorld, context: HookContext) {
 struct Jobs {
     jobs: Vec<(Entity, ComputeJob)>,
     throttled: HashSet<Entity>,
-    workgroups: u32,
+    /// The workgroups each owner may run in the frame.
+    workgroups: HashMap<Entity, u32>,
     time: f32,
     delta: f32,
     slots: u32,
@@ -117,7 +118,7 @@ impl RenderClock {
 fn extract(
     jobs: Extract<Query<(Entity, &ComputeJob)>>,
     throttled: Extract<Res<Throttled>>,
-    budgets: Extract<Res<Budgets>>,
+    owners: Extract<Query<&PluginBudgets>>,
     tuning: Extract<Res<RenderTuning>>,
     time: Extract<Res<Time>>,
     clock: Extract<Option<Res<GpuClock>>>,
@@ -129,7 +130,13 @@ fn extract(
             .map(|(entity, job)| (entity, job.clone()))
             .collect(),
         throttled: throttled.0.clone(),
-        workgroups: budgets.workgroups_per_frame,
+        workgroups: jobs
+            .iter()
+            .filter_map(|(_, job)| {
+                let budgets = owners.get(job.owner).ok()?;
+                Some((job.owner, budgets.workgroups_per_frame))
+            })
+            .collect(),
         time: time.elapsed_secs_wrapped(),
         delta: time.delta_secs(),
         slots: tuning.timed_slots,
@@ -233,8 +240,10 @@ fn run(
         }
         let [x, y, z] = job.groups;
         let groups = x.saturating_mul(y).saturating_mul(z);
+        let most =
+            jobs.workgroups.get(&job.owner).copied().unwrap_or(0);
         let used = spent.entry(job.owner).or_default();
-        if used.saturating_add(groups) > jobs.workgroups {
+        if used.saturating_add(groups) > most {
             continue;
         }
         let id = *running

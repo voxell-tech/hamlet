@@ -10,9 +10,13 @@ use bevy::app::{App, TaskPoolPlugin};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::query::With;
 use bevy::time::TimePlugin;
-use hamlet_engine_api::{API_VERSION, Capability, PluginId};
+use hamlet_engine_api::{
+    API_VERSION, Capability, PluginId, PluginLimits,
+};
 use hamlet_engine_core::tuning::Tuning;
-use hamlet_engine_core::{Budgets, Bundle, Home, LogLevel};
+use hamlet_engine_core::{
+    Budgets, Bundle, DefaultLimits, Home, LogLevel,
+};
 use hamlet_engine_grants::{
     Admitted, Answer, Grants, Petition, Record,
 };
@@ -153,23 +157,26 @@ fn component(text: &str, wasi: bool) -> Vec<u8> {
         .expect("the component encodes")
 }
 
-/// The budgets of the tests: a plugin of four pages of memory that
+/// The limits of the tests: a plugin of four pages of memory that
 /// hands over a kilobyte a call.
-fn budgets() -> Budgets {
-    Budgets {
+fn budgets() -> PluginLimits {
+    PluginLimits {
         memory: 4 * 65_536,
         bytes_per_call: 1_024,
-        ..Budgets::designed()
+        ..DefaultLimits::designed().0
     }
 }
 
 /// The plugin `component`, started within `budgets`, with its caps.
-fn start(component: &[u8], budgets: &Budgets) -> (Instance, Caps) {
+fn start(
+    component: &[u8],
+    budgets: &PluginLimits,
+) -> (Instance, Caps) {
     let tuning = WasmTuning {
         plugins: 1,
         ..WasmTuning::designed()
     };
-    let host = Host::new(&tuning, budgets).expect("the host starts");
+    let host = Host::new(&tuning).expect("the host starts");
     let linked = link(&host.0, component).expect("the plugin links");
     let caps = Caps::of(budgets, &tuning);
     let instance = Instance::new(&host.0, &linked, &caps)
@@ -224,7 +231,7 @@ fn hostile_plugins_are_held_to_their_budgets() {
     assert_eq!(instance.declare(&caps).0, Ok(Vec::new()));
 
     let endless = "(loop $again (br $again)) (i32.const 0)";
-    let cases: [(&str, fn(&mut Budgets), Fault); 5] = [
+    let cases: [(&str, fn(&mut PluginLimits), Fault); 5] = [
         // A list twice as long as a call may hand over.
         (
             "(i32.store (i32.const 4) (i32.const 2048)) (i32.const \
@@ -303,7 +310,7 @@ fn a_plugin_has_the_system_and_its_prints_are_cut() {
     let run = "(call $block (call $sleep (i64.const 1000000000000)))";
     let text = module(declare, run).replacen("(module", imports, 1);
     let (mut instance, caps) =
-        start(&component(&text, true), &Budgets::designed());
+        start(&component(&text, true), &DefaultLimits::designed());
 
     assert_eq!(instance.declare(&caps).0, Ok(Vec::new()));
     let logs = instance.take_logs();
@@ -332,13 +339,14 @@ fn a_plugin_over_its_budgets_waits_then_is_stopped() {
         &root,
         &format!(
             "id = \"test.over\"\nname = \"Over\"\nversion = \
-             \"0.1.0\"\napi = \"{API_VERSION}\"\n"
+             \"0.1.0\"\napi = \
+             \"{API_VERSION}\"\n[limits]\nfuel_per_second = \
+             1_000_000\n"
         ),
         &component(&module("(i32.const 32)", run), false),
     );
     let mut app = engine(&root);
     app.insert_resource(Budgets {
-        fuel_per_second: 1_000_000,
         strikes: 1,
         ..Budgets::designed()
     });
@@ -376,7 +384,7 @@ fn a_reloaded_plugin_keeps_its_state() {
         plugins: 1,
         ..WasmTuning::designed()
     };
-    let host = Host::new(&tuning, &budgets).expect("the host starts");
+    let host = Host::new(&tuning).expect("the host starts");
     let plugin = declaring("(i32.const 0)");
     let linked = link(&host.0, &plugin).expect("the plugin links");
     let caps = Caps::of(&budgets, &tuning);

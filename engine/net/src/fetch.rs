@@ -22,7 +22,7 @@ use hamlet_engine_api::{
     Capability, Failure, FetchReply, FetchRequest, Method, Reply,
     Request, Ticket,
 };
-use hamlet_engine_core::{Budgets, LogLine};
+use hamlet_engine_core::{LogLine, PluginBudgets};
 use hamlet_engine_grants::{
     Decided, FirstUse, Grants, Verdict, Waiting,
 };
@@ -79,10 +79,9 @@ struct Sent(JoinHandle<Result<FetchReply, Failure>>);
 fn start(
     mut asked: MessageReader<Asked>,
     mut decided: MessageReader<Decided>,
-    plugins: Query<(&PluginInfo, Option<&Children>)>,
+    plugins: Query<(&PluginInfo, &PluginBudgets, Option<&Children>)>,
     fetches: Query<(), With<Fetch>>,
     grants: Res<Grants>,
-    budgets: Res<Budgets>,
     time: Res<Time<Real>>,
     network: Option<Res<Network>>,
     mut parked: Local<Waiting<Asked>>,
@@ -113,7 +112,8 @@ fn start(
         let Request::Fetch(fetch) = &request.request else {
             continue;
         };
-        let Ok((plugin, children)) = plugins.get(request.plugin)
+        let Ok((plugin, budgets, children)) =
+            plugins.get(request.plugin)
         else {
             continue;
         };

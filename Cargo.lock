@@ -3712,6 +3712,7 @@ name = "hamlet_engine_core"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "hamlet_engine_api",
  "serde",
  "toml",
 ]

@@ -16,7 +16,7 @@ use bevy::tasks::futures::check_ready;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
 use bevy::time::{Real, Time};
 use hamlet_engine_api::Contribution;
-use hamlet_engine_core::{Budgets, LogLine};
+use hamlet_engine_core::{LogLine, PluginBudgets};
 use hamlet_engine_grants::Admitted;
 use hamlet_engine_plugins::{
     Asked, ContributedBy, Disable, Enable, Enabled, Entry,
@@ -220,9 +220,11 @@ fn compiled(
 /// Instantiates each plugin to be started whose component is built,
 /// and adds what it declares.
 fn start(
-    plugins: Query<(Entity, &PluginInfo, &Built), With<Starting>>,
+    plugins: Query<
+        (Entity, &PluginInfo, &PluginBudgets, &Built),
+        With<Starting>,
+    >,
     host: Option<Res<Host>>,
-    budgets: Res<Budgets>,
     tuning: Res<WasmTuning>,
     time: Res<Time<Real>>,
     mut log: MessageWriter<LogLine>,
@@ -232,8 +234,8 @@ fn start(
     let Some(host) = host else {
         return;
     };
-    let caps = Caps::of(&budgets, &tuning);
-    for (plugin, info, built) in &plugins {
+    for (plugin, info, budgets, built) in &plugins {
+        let caps = Caps::of(budgets, &tuning);
         commands.entity(plugin).remove::<Starting>();
         let mut instance =
             match Instance::new(&host.0, &built.0, &caps) {
@@ -253,14 +255,14 @@ fn start(
         let (declared, spent) = instance.declare(&caps);
         instance.pass_requests(plugin, 0, &mut asked);
         spending.charge(spent, false);
-        instance.pass_logs(info, &mut spending, &budgets, &mut log);
+        instance.pass_logs(info, &mut spending, budgets, &mut log);
         match declared {
             Ok(contributions) => {
                 commands.switch_on(
                     plugin,
                     info,
                     entry(contributions.clone()),
-                    &budgets,
+                    budgets,
                 );
                 commands.entity(plugin).insert((
                     instance,

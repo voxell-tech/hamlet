@@ -4,7 +4,8 @@
 //! restores it and says what it adds. A build that fails, or a new
 //! version at fault, leaves the old one running and is told in the
 //! log. A plugin whose `plugin.toml` says something new is added
-//! again, and asked about again where it asks for more.
+//! again, and asked about again where it asks for more; one that
+//! only asks for other limits is held to them as it runs.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -19,7 +20,7 @@ use bevy::tasks::futures::check_ready;
 use bevy::time::common_conditions::on_real_timer;
 use hamlet_engine_api::Contribution;
 use hamlet_engine_core::tuning::Tuning;
-use hamlet_engine_core::{Budgets, LogLine};
+use hamlet_engine_core::{LogLine, PluginBudgets};
 use hamlet_engine_plugins::{
     Asked, ContributedBy, Contributions, PluginCommandsExt,
     PluginInfo,
@@ -131,6 +132,13 @@ fn notice(
                     );
                     continue;
                 }
+                // New limits reach the running plugin as they are.
+                Ok(manifest) if manifest.limits != info.limits => {
+                    commands.entity(plugin).insert(PluginInfo {
+                        limits: manifest.limits,
+                        ..info.clone()
+                    });
+                }
                 Ok(_) => {}
                 Err(why) => {
                     log.write(LogLine::error(
@@ -163,6 +171,7 @@ fn swap(
     mut plugins: Query<(
         Entity,
         &PluginInfo,
+        &PluginBudgets,
         &mut Instance,
         &mut Spending,
         &mut Reloading,
@@ -171,7 +180,6 @@ fn swap(
     )>,
     roots: Query<(Entity, &UiRoot, &ContributedBy)>,
     host: Option<Res<Host>>,
-    budgets: Res<Budgets>,
     tuning: Res<WasmTuning>,
     mut log: MessageWriter<LogLine>,
     mut asked: MessageWriter<Asked>,
@@ -180,10 +188,10 @@ fn swap(
     let Some(host) = host else {
         return;
     };
-    let caps = Caps::of(&budgets, &tuning);
     for (
         plugin,
         info,
+        budgets,
         mut instance,
         mut spending,
         mut reloading,
@@ -194,6 +202,7 @@ fn swap(
         let Some(built) = check_ready(&mut reloading.0.0) else {
             continue;
         };
+        let caps = Caps::of(budgets, &tuning);
         commands.entity(plugin).remove::<Reloading>();
         let source = info.id.as_str();
         let linked = match built {
@@ -212,14 +221,14 @@ fn swap(
         };
         let reloaded =
             instance.reload(&host.0, &linked, &caps, &mut spending);
-        instance.pass_logs(info, &mut spending, &budgets, &mut log);
+        instance.pass_logs(info, &mut spending, budgets, &mut log);
         instance.pass_requests(plugin, 0, &mut asked);
         match reloaded {
             Ok((mut fresh, contributions_now)) => {
                 fresh.pass_logs(
                     info,
                     &mut spending,
-                    &budgets,
+                    budgets,
                     &mut log,
                 );
                 fresh.pass_requests(plugin, 0, &mut asked);
@@ -231,7 +240,7 @@ fn swap(
                         plugin,
                         info,
                         entry(contributions_now.clone()),
-                        &budgets,
+                        budgets,
                     );
                 }
                 commands.remount(plugin, holders, &roots);

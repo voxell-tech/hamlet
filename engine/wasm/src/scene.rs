@@ -14,8 +14,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use bevy::transform::components::Transform as Placed;
-use hamlet_engine_api::Capability;
-use hamlet_engine_core::Budgets;
+use hamlet_engine_api::{Capability, PluginLimits};
 use hamlet_engine_render::{GpuInfo, SceneChange, ShaderKind};
 use wasmtime::component::Resource;
 
@@ -80,7 +79,7 @@ pub struct SceneCaps {
 }
 
 impl SceneCaps {
-    pub fn of(budgets: &Budgets) -> Self {
+    pub fn of(budgets: &PluginLimits) -> Self {
         Self {
             entities: budgets.scene_entities,
             vertices: budgets.scene_vertices,

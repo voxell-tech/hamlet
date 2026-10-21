@@ -25,3 +25,12 @@ reason = "Draws the roads' grooves and their light with shaders of its own"
 
 [events]
 hears = [{ event = "hamlet.inspector/carry", payload = "realm.carry" }]
+
+# Its start-up builds the land, the towns and the roads in one call,
+# far past the engine's limits for a call and a second.
+[limits]
+memory = 268_435_456
+fuel_per_call = 2_000_000_000
+call_time = 2_000.0
+fuel_per_second = 4_000_000_000
+time_per_second = 2_500.0

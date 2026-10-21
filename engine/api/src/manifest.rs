@@ -9,13 +9,14 @@ use crate::asset::{AssetTypes, TypeName};
 use crate::capability::{Ask, Capability};
 use crate::event::Events;
 use crate::id::{PluginId, is_name};
+use crate::limits::{Limit, Limits};
 use crate::service::Services;
 
 /// The longest a name, version, target or reason may be, in bytes.
 const LONGEST: usize = 256;
 
 /// A plugin's `plugin.toml`.
-#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
     pub id: PluginId,
@@ -32,6 +33,9 @@ pub struct Manifest {
     pub services: Services,
     #[serde(default)]
     pub events: Events,
+    /// The limits it asks for in place of the engine's.
+    #[serde(default)]
+    pub limits: Limits,
 }
 
 impl Manifest {
@@ -47,6 +51,7 @@ impl Manifest {
             assets: AssetTypes::default(),
             services: Services::default(),
             events: Events::default(),
+            limits: Limits::default(),
         }
     }
 }
@@ -71,6 +76,8 @@ pub enum ManifestError {
     /// A service or event that is not well named, or named twice:
     /// which.
     Shared(String),
+    /// A limit asked for that is zero or below.
+    Limit(Limit),
 }
 
 impl fmt::Display for ManifestError {
@@ -103,6 +110,11 @@ impl fmt::Display for ManifestError {
             Self::Shared(name) => {
                 write!(f, "{name:?} is not a name, or named twice")
             }
+            Self::Limit(limit) => write!(
+                f,
+                "the limit {} is not above zero",
+                limit.name()
+            ),
         }
     }
 }
@@ -209,7 +221,7 @@ impl Manifest {
             .map(|heard| heard.event.as_str());
         once_each(sends, is_name)?;
         once_each(hears, |_| true)?;
-        Ok(())
+        self.limits.check().map_err(ManifestError::Limit)
     }
 
     /// Whether it asks for `capability` on `target`.

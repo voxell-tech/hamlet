@@ -53,7 +53,7 @@ use bevy_fynix::{
 };
 use fynix::Patch;
 use hamlet_engine_api::PanelId;
-use hamlet_engine_core::Budgets;
+use hamlet_engine_core::PluginBudgets;
 use hamlet_engine_plugins::{
     ContributedBy, Contributions, PluginInfo,
 };
@@ -1633,11 +1633,10 @@ fn hovers(
 /// to, a second's events at most.
 fn route(
     mut actions: MessageReader<NodeAction>,
-    mut inboxes: Query<(&mut Inbox, &mut Spending)>,
-    budgets: Res<Budgets>,
+    mut inboxes: Query<(&mut Inbox, &mut Spending, &PluginBudgets)>,
 ) {
     for action in actions.read() {
-        let Ok((mut inbox, mut spending)) =
+        let Ok((mut inbox, mut spending, budgets)) =
             inboxes.get_mut(action.plugin)
         else {
             continue;

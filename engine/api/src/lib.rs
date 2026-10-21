@@ -9,6 +9,7 @@ pub mod desktop;
 pub mod event;
 pub mod id;
 pub mod layout;
+pub mod limits;
 pub mod mail;
 pub mod manifest;
 pub mod net;
@@ -27,6 +28,7 @@ pub use id::{
     CommandId, EventId, IdError, PanelId, PluginId, ServiceId,
 };
 pub use layout::{Axis, Layout};
+pub use limits::{Limit, LimitValue, Limits, PluginLimits};
 pub use mail::{Failure, Message, Reply, Request, Ticket};
 pub use manifest::{Manifest, ManifestError};
 pub use net::{FetchReply, FetchRequest, Method};

@@ -1,16 +1,22 @@
-//! The plugin list: every plugin, whether it is on, a button to
-//! switch it, and for an installed one a button to uninstall it; one
-//! that comes with Hamlet says so. A button above asks for a plugin
-//! to be added.
+//! The plugin list: every plugin, whether it is on, a switch beside
+//! its name, and for an installed one a button to uninstall it; one
+//! that comes with Hamlet says so. Under each, its limits fold out.
+//! A button above asks for a plugin to be added.
+
+mod limits;
+
+use std::collections::BTreeSet;
 
 use bevy::app::{App, Startup, Update};
+use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::event::{EntityEvent, Event};
 use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::ecs::query::{Changed, Has, Or};
 use bevy::ecs::relationship::RelationshipTarget;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Commands, Query, ResMut};
+use bevy::ecs::system::{Commands, Query, Res, ResMut};
+use bevy::ui::{AlignItems, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row,
@@ -18,14 +24,17 @@ use bevy_fynix::views::{
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_api::{PanelId, PluginId};
-use hamlet_engine_core::LogLine;
+use hamlet_engine_core::{LogLine, PluginBudgets};
 use hamlet_engine_shell::dock::{PLUGIN_LIST, PanelIcon};
 use hamlet_engine_shell::icons::Glyph;
 use hamlet_engine_shell::style::{
-    ButtonStyle, buttons, icon_button, list, note, scroll_area,
+    ButtonStyle, Wraps, buttons, icon_button, list, note,
+    scroll_area, toggle,
 };
 use hamlet_engine_shell::{AnyView, Cx, Panel, StyleExt};
 
+use self::limits::{LimitLine, limits_view, lines};
+use crate::limits::ChosenLimits;
 use crate::switch::{
     Contributions, Disable, Enable, Enabled, Stopped,
 };
@@ -40,7 +49,14 @@ pub(crate) fn plugin(app: &mut App) {
 
 /// The plugins as the list shows them.
 #[derive(Resource, Clone, PartialEq, Default)]
-struct Rows(Vec<Row>);
+struct Rows {
+    plugins: Vec<Row>,
+    /// The plugins whose limits are folded out.
+    unfolded: BTreeSet<Entity>,
+    /// A value typed for a limit of a plugin that was refused, and
+    /// why.
+    refused: Option<(Entity, String)>,
+}
 
 #[derive(Clone, PartialEq)]
 struct Row {
@@ -55,6 +71,7 @@ struct Row {
     /// Why the engine stopped it.
     stopped: Option<String>,
     kind: PluginKind,
+    limits: Vec<LimitLine>,
 }
 
 /// Asks for a plugin to be added: a host offers the person a folder
@@ -87,10 +104,15 @@ fn view(_: Entity) -> AnyView {
         icon_button(ButtonStyle::Plain, Glyph::Plus, "ADD PLUGIN...")
             .on_activate(|world| world.trigger(AddPlugin));
     let rows = keyed(resource::<Rows, _>(Clone::clone), |rows| {
-        if rows.0.is_empty() {
+        if rows.plugins.is_empty() {
             return note("No plugins.");
         }
-        list(rows.0.iter().map(row_view).collect::<Vec<_>>())
+        list(
+            rows.plugins
+                .iter()
+                .map(|row_of| row_view(row_of, rows))
+                .collect::<Vec<_>>(),
+        )
     })
     .within(column(()).gap(0.0));
     AnyView::new(move |cx: &mut Cx| {
@@ -106,37 +128,41 @@ fn view(_: Entity) -> AnyView {
     .in_panel()
 }
 
-/// A plugin: its name, its id, version and state, and its buttons.
-fn row_view(row_of: &Row) -> AnyView {
+/// A plugin: its name over its id, version and state, with its
+/// switch beside them, its buttons, and its limits while `rows` has
+/// them folded out.
+fn row_view(row_of: &Row, rows: &Rows) -> AnyView {
     let plugin = row_of.plugin;
     let id = row_of.id.clone();
-    let on = row_of.on;
-    let (state, tone) = match (&row_of.stopped, on) {
+    let unfolded = rows.unfolded.contains(&plugin);
+    let shown_limits = unfolded.then(|| {
+        let refused = rows
+            .refused
+            .as_ref()
+            .filter(|(at, _)| *at == plugin)
+            .map(|(_, why)| why.clone());
+        limits_view(plugin, &row_of.id, &row_of.limits, refused)
+    });
+    let (state, tone) = match (&row_of.stopped, row_of.on) {
         (Some(why), _) => (format!("Stopped: {why}"), Tone::Critical),
         (None, true) => {
             (format!("On, adds {}", row_of.adds), Tone::Dim)
         }
         (None, false) => ("Off".into(), Tone::Dim),
     };
-    let switch = if on {
-        icon_button(ButtonStyle::Plain, Glyph::Power, "SWITCH OFF")
-    } else {
-        icon_button(ButtonStyle::Plain, Glyph::Power, "SWITCH ON")
-    }
-    .on_activate(move |world| {
+    let switch = toggle(row_of.on, move |world, on| {
         // Only the person's own switch is kept for the next start.
-        let kept = world.resource_mut::<SwitchedOff>().set(&id, on);
+        let kept = world.resource_mut::<SwitchedOff>().set(&id, !on);
         if let Err(why) = kept {
             world.write_message(LogLine::error("plugins", why));
         }
         if on {
-            world.trigger(Disable { entity: plugin });
-        } else {
             world.trigger(Enable { entity: plugin });
+        } else {
+            world.trigger(Disable { entity: plugin });
         }
-    })
-    .boxed();
-    let mut actions = vec![switch];
+    });
+    let mut actions = Vec::new();
     if row_of.kind == PluginKind::Installed {
         actions.push(
             icon_button(
@@ -150,11 +176,27 @@ fn row_view(row_of: &Row) -> AnyView {
             .boxed(),
         );
     }
+    let fold = if unfolded {
+        Glyph::ChevronUp
+    } else {
+        Glyph::ChevronRight
+    };
+    actions.push(
+        icon_button(ButtonStyle::Quiet, fold, "LIMITS")
+            .on_activate(move |world| {
+                let mut rows = world.resource_mut::<Rows>();
+                if !rows.unfolded.remove(&plugin) {
+                    rows.unfolded.insert(plugin);
+                }
+            })
+            .boxed(),
+    );
     let (name, about) = (row_of.name.clone(), row_of.about.clone());
     let bundled = row_of.kind == PluginKind::Bundled;
     AnyView::new(move |cx: &mut Cx| {
         let theme = cx.theme();
-        let (gap, size) = (theme.space.gap, theme.text.small);
+        let (gap, size, section) =
+            (theme.space.gap, theme.text.small, theme.space.section);
         let mut facts = vec![
             label(about)
                 .size(size)
@@ -171,18 +213,26 @@ fn row_view(row_of: &Row) -> AnyView {
                     .boxed(),
             );
         }
-        cx.build(
+        let head = row((
             column((
                 label(name).bold(true).wrap(false),
-                row(facts).gap(gap),
-                buttons(actions),
+                row(facts).gap(gap).tagged(Wraps),
             ))
-            .gap(gap / 2.0),
-        )
+            .gap(gap / 2.0)
+            .grow(1.0)
+            .min_width(px(0.0)),
+            switch,
+        ))
+        .gap(section)
+        .align(AlignItems::Start);
+        let mut parts = vec![head.boxed(), buttons(actions)];
+        parts.extend(shown_limits);
+        cx.build(column(parts).gap(gap / 2.0))
     })
 }
 
-/// Gathers the rows again when a plugin comes, goes, or is switched.
+/// Gathers the rows again when a plugin comes, goes, is switched or
+/// is held to other limits.
 fn follow(
     changed: Query<
         (),
@@ -191,6 +241,7 @@ fn follow(
             Changed<Enabled>,
             Changed<Contributions>,
             Changed<Stopped>,
+            Changed<PluginBudgets>,
         )>,
     >,
     mut gone: RemovedComponents<PluginInfo>,
@@ -203,19 +254,21 @@ fn follow(
         Has<Enabled>,
         Option<&Contributions>,
         Option<&Stopped>,
+        Option<&PluginBudgets>,
     )>,
+    chosen: Res<ChosenLimits>,
     mut rows: ResMut<Rows>,
 ) {
     let went = gone.read().count()
         + off.read().count()
         + empty.read().count()
         + restarted.read().count();
-    if changed.is_empty() && went == 0 {
+    if changed.is_empty() && went == 0 && !chosen.is_changed() {
         return;
     }
     let mut now = plugins
         .iter()
-        .map(|(plugin, info, on, adds, stopped)| Row {
+        .map(|(plugin, info, on, adds, stopped, budgets)| Row {
             plugin,
             id: info.id.clone(),
             name: info.name.clone(),
@@ -224,10 +277,20 @@ fn follow(
             adds: adds.map_or(0, |adds| adds.len()),
             stopped: stopped.map(|stopped| stopped.0.clone()),
             kind: info.kind,
+            limits: budgets.map_or_else(Vec::new, |budgets| {
+                lines(budgets, &info.limits, chosen.get(&info.id))
+            }),
         })
         .collect::<Vec<_>>();
     now.sort_by(|a, b| a.name.cmp(&b.name));
-    if rows.0 != now {
-        rows.0 = now;
+    if rows.plugins != now {
+        rows.plugins = now;
+    }
+    if rows
+        .unfolded
+        .iter()
+        .any(|plugin| !plugins.contains(*plugin))
+    {
+        rows.unfolded.retain(|plugin| plugins.contains(*plugin));
     }
 }
