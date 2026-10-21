@@ -6,6 +6,7 @@
 mod agent;
 mod archive;
 mod bylaws;
+mod founding;
 mod gone;
 mod hamlet;
 mod more;
@@ -23,6 +24,8 @@ use hamlet_engine_sdk::ui::{
     AnyView, ViewExt, World, derived, keyed,
 };
 use hamlet_engine_sdk::{Entry, Message, Plugin};
+
+use crate::founding::FOUND;
 
 /// The page the Inspector shows.
 #[derive(Clone, PartialEq, Debug)]
@@ -107,13 +110,19 @@ fn prepare(world: &mut World) {
     agent::prepare(world);
     archive::prepare(world);
     overview::prepare(world);
+    founding::prepare(world);
     hamlet::prepare(world);
     bylaws::prepare(world);
 }
 
 impl Plugin for Inspector {
     fn declare(&self, entry: &mut Entry) {
-        entry.panel("inspector", "Inspector").overlay(CONFIRM);
+        entry
+            .panel("inspector", "Inspector")
+            .overlay(CONFIRM)
+            .overlay(FOUND)
+            .command(FOUND, "Found a Hamlet...")
+            .menu_entry("Hamlet", FOUND);
         start(&[
             AgentsRequest::Focus,
             AgentsRequest::Roster,
@@ -125,8 +134,10 @@ impl Plugin for Inspector {
 
     fn mount(&mut self, name: &str, world: &mut World) -> AnyView {
         prepare(world);
-        if name == CONFIRM {
-            return confirmation();
+        match name {
+            CONFIRM => return confirmation(),
+            FOUND => return founding::founding(),
+            _ => {}
         }
         keyed(
             derived(page)
@@ -140,6 +151,12 @@ impl Plugin for Inspector {
             },
         )
         .boxed()
+    }
+
+    fn run(&mut self, name: &str, _: &mut World) {
+        if name == FOUND {
+            founding::open();
+        }
     }
 
     fn receive(&mut self, message: Message, world: &mut World) {

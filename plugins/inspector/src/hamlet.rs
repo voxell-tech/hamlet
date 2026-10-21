@@ -147,14 +147,15 @@ fn naming(id: String) -> AnyView {
                             .0
                             .take()
                             .unwrap_or_default();
-                        let name = name.trim();
-                        if !name.is_empty() {
-                            decree(
-                                world,
-                                &id,
-                                format!("/name-hamlet {id} {name}"),
-                            );
-                        }
+                        // No name gives it back its own.
+                        decree(
+                            world,
+                            &id,
+                            format!(
+                                "/name-hamlet {id} {}",
+                                name.trim()
+                            ),
+                        );
                     },
                 ),
                 button("CANCEL").style(ButtonStyle::Quiet).on_click(

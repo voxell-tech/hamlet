@@ -7,49 +7,20 @@ use hamlet_engine_sdk::api::agents::{
 };
 use hamlet_engine_sdk::ui::{
     AnyView, ButtonProps, ButtonStyle, Face, FrameProps, Size, Space,
-    Tone, UiExt, ViewExt, World, button, column, derived, field,
-    heading, icon, icon_button, keyed, label, list, menu_item,
-    pressable, resource, row, scroll,
+    Tone, UiExt, ViewExt, World, column, derived, field, heading,
+    icon, icon_button, keyed, label, list, menu_item, pressable,
+    resource, row, scroll,
 };
 
 use crate::hamlet::{HOME, close_down};
-use crate::{select, with};
+use crate::{founding, select, with};
 
 /// The words typed to search the hamlets.
 #[derive(Default)]
 struct Search(String);
 
-/// The form a hamlet is founded with, while it is open.
-#[derive(Default, Clone, PartialEq)]
-struct Founding {
-    open: bool,
-    name: String,
-    mayor: String,
-    purpose: String,
-}
-
-impl Founding {
-    /// The chief's command that founds it. None until all three are
-    /// given.
-    fn command(&self) -> Option<String> {
-        // A name is lowercase letters and hyphens.
-        let named = |text: &str| {
-            text.trim()
-                .to_lowercase()
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join("-")
-        };
-        let (name, mayor) = (named(&self.name), named(&self.mayor));
-        let purpose = self.purpose.trim();
-        (!name.is_empty() && !mayor.is_empty() && !purpose.is_empty())
-            .then(|| format!("/found {name} {mayor} {purpose}"))
-    }
-}
-
 pub(crate) fn prepare(world: &mut World) {
     world.init_resource::<Search>();
-    world.init_resource::<Founding>();
 }
 
 /// Sends `text` to the open conversation.
@@ -206,86 +177,6 @@ fn erase(world: &mut World, name: &str) {
     );
 }
 
-/// One line of the founding form: its question, and its field.
-fn asks(
-    what: &'static str,
-    read: fn(&Founding) -> &String,
-    write: fn(&mut Founding, String),
-) -> AnyView {
-    column((
-        label(what).size(Size::Small).tone(Tone::Dim),
-        field(resource::<Founding, _>(move |founding| {
-            read(founding).clone()
-        }))
-        .on_commit(move |world, text| {
-            write(world.resource_mut::<Founding>(), text)
-        }),
-    ))
-    .space(Space::None)
-    .boxed()
-}
-
-/// The form a hamlet is founded with, while it is open.
-fn founding() -> AnyView {
-    keyed(resource::<Founding, _>(|founding| founding.open), |open| {
-        if !*open {
-            return column(()).boxed();
-        }
-        column((
-            label("FOUND A HAMLET").bold(true).face(Face::Display),
-            label(
-                "It is built on the next free ground and gets its \
-                 own mayor.",
-            )
-            .size(Size::Small)
-            .tone(Tone::Dim),
-            asks("Its name", |f| &f.name, |f, text| f.name = text),
-            asks(
-                "Its mayor's name",
-                |f| &f.mayor,
-                |f, text| f.mayor = text,
-            ),
-            asks(
-                "What it is for",
-                |f| &f.purpose,
-                |f, text| f.purpose = text,
-            ),
-            label(resource::<Founding, _>(|founding| match founding
-                .command()
-            {
-                Some(_) => "Names are kept as lowercase letters and \
-                            hyphens."
-                    .to_string(),
-                None => "All three are needed.".to_string(),
-            }))
-            .size(Size::Small)
-            .tone(Tone::Dim),
-            row((
-                button("FOUND").style(ButtonStyle::Primary).on_click(
-                    |world| {
-                        let Some(command) =
-                            world.resource::<Founding>().command()
-                        else {
-                            return;
-                        };
-                        world.insert(Founding::default());
-                        tell(world, command);
-                    },
-                ),
-                button("CANCEL").style(ButtonStyle::Quiet).on_click(
-                    |world| {
-                        world.insert(Founding::default());
-                    },
-                ),
-            ))
-            .space(Space::Half),
-        ))
-        .space(Space::Half)
-        .boxed()
-    })
-    .boxed()
-}
-
 /// Every hamlet, with a search over them.
 pub(crate) fn overview() -> AnyView {
     let shown = keyed(
@@ -317,15 +208,13 @@ pub(crate) fn overview() -> AnyView {
                 .on_commit(|world, text| {
                     world.resource_mut::<Search>().0 = text
                 }),
-            icon_button("plus", "FOUND A HAMLET").on_click(|world| {
-                world.resource_mut::<Founding>().open = true;
-            }),
+            icon_button("plus", "FOUND A HAMLET")
+                .on_click(|_| founding::open()),
         ))
         .space(Space::Half),
         label("Search by a hamlet's name or its mayor's.")
             .size(Size::Small)
             .tone(Tone::Dim),
-        founding(),
         scroll((shown, gone)),
     ))
     .space(Space::Gap)

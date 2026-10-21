@@ -1,0 +1,123 @@
+//! The form a hamlet is founded with, on a card over the dock.
+
+use hamlet_engine_sdk::ui::{
+    AnyView, ButtonStyle, Face, FrameProps, Size, Space, Tone, UiExt,
+    ViewExt, World, button, column, field, label, resource, row,
+    show_overlay,
+};
+
+use crate::overview::tell;
+
+/// The name of the form's overlay, and of the command that shows it.
+pub(crate) const FOUND: &str = "found";
+
+/// The name of a hamlet being founded, the name of its mayor, and its
+/// purpose.
+#[derive(Default, Clone, PartialEq)]
+struct Founding {
+    name: String,
+    mayor: String,
+    purpose: String,
+}
+
+impl Founding {
+    /// The chief's command that founds it. None until all three are
+    /// given.
+    fn command(&self) -> Option<String> {
+        // A name is lowercase letters and hyphens.
+        let named = |text: &str| {
+            text.trim()
+                .to_lowercase()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join("-")
+        };
+        let (name, mayor) = (named(&self.name), named(&self.mayor));
+        let purpose = self.purpose.trim();
+        (!name.is_empty() && !mayor.is_empty() && !purpose.is_empty())
+            .then(|| format!("/found {name} {mayor} {purpose}"))
+    }
+}
+
+pub(crate) fn prepare(world: &mut World) {
+    world.init_resource::<Founding>();
+}
+
+/// Shows the form, with what was typed in it before.
+pub(crate) fn open() {
+    show_overlay(FOUND, true);
+}
+
+/// One line of the form: its question, and its field.
+fn asks(
+    what: &'static str,
+    read: fn(&Founding) -> &String,
+    write: fn(&mut Founding, String),
+) -> AnyView {
+    column((
+        label(what).size(Size::Small).tone(Tone::Dim),
+        field(resource::<Founding, _>(move |founding| {
+            read(founding).clone()
+        }))
+        .on_commit(move |world, text| {
+            write(world.resource_mut::<Founding>(), text)
+        }),
+    ))
+    .space(Space::None)
+    .boxed()
+}
+
+/// The form.
+pub(crate) fn founding() -> AnyView {
+    column((
+        label("FOUND A HAMLET").bold(true).face(Face::Display),
+        label(
+            "It is built on the next free ground and gets its own \
+             mayor.",
+        )
+        .size(Size::Small)
+        .tone(Tone::Dim),
+        asks("Its name", |f| &f.name, |f, text| f.name = text),
+        asks(
+            "Its mayor's name",
+            |f| &f.mayor,
+            |f, text| f.mayor = text,
+        ),
+        asks(
+            "What it is for",
+            |f| &f.purpose,
+            |f, text| f.purpose = text,
+        ),
+        label(resource::<Founding, _>(|founding| {
+            match founding.command() {
+                Some(_) => "Names are kept as lowercase letters and \
+                            hyphens."
+                    .to_string(),
+                None => "All three are needed.".to_string(),
+            }
+        }))
+        .size(Size::Small)
+        .tone(Tone::Dim),
+        row((
+            button("FOUND").style(ButtonStyle::Primary).on_click(
+                |world| {
+                    let Some(command) =
+                        world.resource::<Founding>().command()
+                    else {
+                        return;
+                    };
+                    show_overlay(FOUND, false);
+                    world.insert(Founding::default());
+                    tell(world, command);
+                },
+            ),
+            // The words typed stay for the next time it is opened.
+            button("CANCEL")
+                .style(ButtonStyle::Quiet)
+                .on_click(|_| show_overlay(FOUND, false)),
+        ))
+        .space(Space::Half),
+    ))
+    .space(Space::Half)
+    .boxed()
+}

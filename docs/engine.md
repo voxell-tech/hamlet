@@ -988,6 +988,10 @@ verb beside CANCEL with a warning for agents it cuts short.
   forty messages at a time. One that is gone, with RESTORE, DELETE FOR
   GOOD and ITS HAMLET. The library. Every hamlet, searched, each with
   Close Down in its menu, with FOUND A HAMLET and those closed down.
+  FOUND A HAMLET, and Found a Hamlet... in the Hamlet menu, show the
+  form a hamlet is founded with on an overlay (`founding.rs`): its
+  name, its mayor's and what it is for, all three needed, sent as
+  `/found` to the open conversation; CANCEL keeps what was typed.
   A hamlet, with RENAME, CLOSE DOWN, the folder it works on, CHOOSE
   A FOLDER (or CHOOSE ANOTHER) in the system's dialog, which gives it
   `/folder` with the path, and its mode, and AGENTS, BYLAWS

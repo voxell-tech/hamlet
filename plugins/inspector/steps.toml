@@ -17,4 +17,4 @@ expect = { panel = "hamlet.inspector/inspector", text = "No hamlet by that name.
 click = { panel = "hamlet.inspector/inspector", widget = "FOUND A HAMLET" }
 
 [[step]]
-expect = { panel = "hamlet.inspector/inspector", text = "All three are needed." }
+expect = { panel = "hamlet.inspector/found", text = "All three are needed." }
