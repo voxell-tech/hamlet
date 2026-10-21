@@ -146,10 +146,7 @@ fn preparing(
         hamlet: hamlet.into(),
         actor,
         at: crate::clock::now(),
-        reason: match args.reason.as_str() {
-            "" => "a chief asked".into(),
-            reason => reason.into(),
-        },
+        reason: args.reason.clone(),
         task,
         change: Change::Depart {
             name: absorb.into(),

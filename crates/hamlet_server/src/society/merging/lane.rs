@@ -175,7 +175,12 @@ pub(crate) fn chief(
                 absorb: words[0].into(),
                 keep: words[2].into(),
                 purpose: None,
-                reason: words[3..].join(" "),
+                reason: match words[3..].join(" ") {
+                    reason if reason.is_empty() => {
+                        "a chief asked".into()
+                    }
+                    reason => reason,
+                },
             },
             task: None,
         }

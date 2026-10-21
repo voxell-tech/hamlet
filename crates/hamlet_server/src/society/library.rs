@@ -15,6 +15,15 @@ use crate::service::Service;
 
 const CAP: u64 = 4 * 1024 * 1024;
 
+/// Who shelved a skill in the library, why the librarian took it, and
+/// when.
+#[derive(Serialize, Deserialize)]
+struct Shelved {
+    by: String,
+    reason: String,
+    at: i64,
+}
+
 #[derive(Default, Serialize, Deserialize)]
 struct Consult {
     skill: Option<String>,
@@ -314,7 +323,9 @@ async fn judged(
     }
     let files = tree::read_snapshot(
         service.houses.root(),
-        job.snapshot.as_deref().expect("offered skill snapshot"),
+        job.snapshot.as_deref().with_context(|| {
+            format!("the offer of `{name}` kept no snapshot")
+        })?,
         CAP,
         1024,
     )?;
@@ -326,18 +337,28 @@ async fn judged(
             ".library-staging",
             true,
         )?;
+        // Kept before the skill is published, so that every skill in
+        // the library has its record, even after a crash between the
+        // two.
+        super::keep(
+            service.home.store().connection(),
+            "library-shelved",
+            name,
+            &Shelved {
+                by: job.by.clone(),
+                reason: answer.into(),
+                at: crate::clock::now(),
+            },
+        )?;
         tree::publish(&staging, &library, name, &files)?;
         crate::fault::point("after_library_publish");
         job.delivered = true;
-        let tx = service.home.store().transaction()?;
-        super::keep(&tx, "library-consult", key, &job)?;
         super::keep(
-            &tx,
-            "library-shelved",
-            name,
-            &json!({"by":job.by,"reason":answer,"at":crate::clock::now()}),
+            service.home.store().connection(),
+            "library-consult",
+            key,
+            &job,
         )?;
-        tx.commit()?;
     }
     let Some(unchanged) = service.house_work.take_cleaned(&caller.id)
     else {
@@ -469,13 +490,25 @@ pub(crate) fn views(
     found
         .into_iter()
         .map(|skill| {
-            let shelved = super::document::<Value>(
+            let shelved = super::document::<Option<Shelved>>(
                 db,
                 "library-shelved",
                 &skill.folder,
             )?;
+            // A shelved skill's record is kept before it is
+            // published, so a skill without one was stocked by Hamlet
+            // or put in the library by hand.
+            let by = match shelved {
+                Some(shelved) => shelved.by,
+                None if crate::starters::names()
+                    .any(|name| name == skill.folder) =>
+                {
+                    "Hamlet".into()
+                }
+                None => "added by hand".into(),
+            };
             Ok(LibrarySkill {
-                by: shelved["by"].as_str().unwrap_or("Hamlet").into(),
+                by,
                 description: skill.description,
                 name: skill.folder,
             })
