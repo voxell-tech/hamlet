@@ -571,13 +571,7 @@ function checkScenario(name: Scenario, frames: Frame[]) {
             expect(messages).toContainEqual(
                 expect.objectContaining({
                     type: "login",
-                    step: {
-                        // Historical and Rust recordings use different wording.
-                        prompt: expect.stringMatching(
-                            /^(Enter OpenAI API key|Paste your key\.)$/,
-                        ),
-                        secret: true,
-                    },
+                    step: { prompt: "Enter OpenAI API key", secret: true },
                 }),
             );
             expect(sent).toContainEqual(

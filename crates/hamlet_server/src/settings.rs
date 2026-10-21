@@ -222,10 +222,7 @@ pub(crate) fn validate(
             Some(Some(connection))
         }
     };
-    if set
-        .reflect_every
-        .is_some_and(|v| !(0..=9_007_199_254_740_991).contains(&v))
-    {
+    if set.reflect_every.is_some_and(|every| every < 0) {
         return Err(invalid("reflectEvery must be a whole number"));
     }
     let mut names = Vec::new();

@@ -43,7 +43,7 @@ Then read the page for the part you are about to touch.
 | [`chat.md`](chat.md) | Watched conversations, paging, drawing, local links and pictures, and rewinds through the server |
 | [`icons.md`](icons.md) | The icons of the panels: where they are drawn, the rules of the family, how to add one |
 | [`cursors.md`](cursors.md) | The pointer and its modes |
-| [`releases.md`](releases.md) | Packaging the CLI, Rust server, window and pi for Linux and macOS |
+| [`releases.md`](releases.md) | Packaging the CLI, server, window and pi for Linux and macOS |
 
 ## The rules
 

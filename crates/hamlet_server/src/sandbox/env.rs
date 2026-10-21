@@ -1081,7 +1081,7 @@ pub(super) fn status_word(status: &ExitStatus) -> String {
             other => format!("SIG{other}"),
         };
     }
-    "null".into()
+    "ended without an exit code or signal".into()
 }
 
 /// The name of the system error behind `error`, and its words, as

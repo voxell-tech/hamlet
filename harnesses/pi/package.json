@@ -2,7 +2,7 @@
     "name": "hamlet-pi-harness",
     "version": "0.1.0",
     "private": true,
-    "description": "Hamlet's pi harness: a runtime of pi-durable conversations for the Rust server",
+    "description": "Hamlet's pi harness: a runtime of pi-durable conversations for the Hamlet server",
     "type": "module",
     "engines": {
         "node": ">=24.1.0"

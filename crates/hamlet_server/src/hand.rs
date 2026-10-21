@@ -169,10 +169,7 @@ fn parse(
         ("wall_secs", &mut policy.limits.wall_secs),
         ("cpu_secs", &mut policy.limits.cpu_secs),
     ] {
-        if let Some(seconds) = sandbox["limits"][key]
-            .as_u64()
-            .filter(|s| *s <= 9_007_199_254_740_991)
-        {
+        if let Some(seconds) = sandbox["limits"][key].as_u64() {
             *field = seconds;
         }
     }

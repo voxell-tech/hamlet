@@ -9,7 +9,7 @@ description = "A black-box acceptance suite for Hamlet's server, driven through 
 workspace = true
 
 [features]
-# Compiles real-process scenarios, which need the CLI, Rust server
+# Compiles real-process scenarios, which need the CLI, server
 # and Node with `npm ci --prefix harnesses/pi`.
 acceptance = []
 

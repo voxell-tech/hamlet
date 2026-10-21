@@ -589,7 +589,7 @@ describe("protocol v0", () => {
 
     it("takes a whole limits document as the chief wrote it, for the server to check (H22)", () => {
         // Each field left out takes its default, and the server refuses a
-        // wrong one in Rust's words (agents/tests.rs:329).
+        // wrong one in its own words.
         for (const whole of [
             { budget: { cost: 7 } },
             { mostAgents: "12" },

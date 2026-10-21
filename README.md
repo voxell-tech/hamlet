@@ -72,7 +72,7 @@ a scratch home without installing:
 HAMLET_HOME=/tmp/hamlet-try make dev
 ```
 
-`dev` builds the local Rust server and window, starts the server on a free
+`dev` builds the local server and window, starts the server on a free
 port, and opens the window. No global npm command is needed.
 The home is kept between runs; the window's files go in `<home>/window`.
 Use an API key, a local model endpoint, or sign in with ChatGPT or OpenRouter.

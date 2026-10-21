@@ -1,7 +1,7 @@
 # What an agent is told
 
 The system prompt built before every model request, where each part comes
-from, and how the chief reads and edits it. The Rust server builds the
+from, and how the chief reads and edits it. The server builds the
 sections; the pi harness asks for them before each request.
 
 ## The parts, in order

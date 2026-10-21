@@ -3,7 +3,7 @@ name = "hamlet_server"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The Rust Hamlet server: a claimed home, its realm database and the markers of operations"
+description = "The Hamlet server: a claimed home, its realm database and the markers of operations"
 
 [[bin]]
 name = "hamlet-server"

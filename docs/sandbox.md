@@ -11,7 +11,7 @@ allows its namespaces; installing the executable alone is not sufficient.
 `tools::environment` builds the policy from the server-owned `Place`:
 the house, optional project folder, shared library and hand tools.
 The pi harness has no host-tool implementation; it submits operations to
-the Rust server. `gate.rs` decides admission and `chats/calls.rs` checks
+the server. `gate.rs` decides admission and `chats/calls.rs` checks
 permissions at execution, including after approval or replay.
 
 Without a project folder, commands write in their own house and private

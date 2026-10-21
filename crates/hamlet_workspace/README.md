@@ -403,7 +403,7 @@ npm ci --prefix harnesses/pi
 CARGO_INCREMENTAL=0 cargo test -p hamlet_server --features harness --test server remote::
 ```
 
-The server checks start the Rust server and Pi with faux model responses.
+The server checks start the server and pi with faux model responses.
 An authenticated loopback manager double records workspace-v1 requests
 and operates disposable file trees. These checks cover remote house notes,
 prompts, file and skill gifts, agent creation, merge/split, library publication

@@ -9,7 +9,7 @@ run `npm ci --prefix harnesses/pi`. From the repository root:
 HAMLET_HOME=/tmp/hamlet-try cargo run -p hamlet_cli -- dev
 ```
 
-This builds the Rust server and window. The server starts its Node pi
+This builds the server and window. The server starts its Node pi
 harness as a child process. `make install` installs all three binaries;
 installing only `hamlet_cli` does not install the server or window.
 

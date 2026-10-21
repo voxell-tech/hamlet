@@ -73,8 +73,7 @@ impl Sandbox {
         let ran = match ran {
             Ok(ran) => ran,
             Err(error) => bail!(
-                "failed to run {}: spawnSync {} {}. {hint}",
-                argv[0],
+                "failed to run {}: {}. {hint}",
                 argv[0],
                 env::errno_name(&error)
             ),

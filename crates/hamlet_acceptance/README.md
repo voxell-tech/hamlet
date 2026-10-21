@@ -3,8 +3,8 @@
 The acceptance suite for Hamlet's server. Each scenario starts a server
 process on a scratch home and checks what it does from outside: through
 protocol v0 over the authenticated WebSocket, with `hamlet_protocol`'s
-generated types, and through the `hamlet` command. It knows nothing about
-how the server is built. The default server is `hamlet server`.
+generated types, and through the `hamlet` command. It checks behaviour
+only, never the server's insides. The default server is `hamlet server`.
 
 Passing these scenarios does not establish exhaustive behavior or platform
 coverage. [Known gaps](#known-gaps) lists observable cases no scenario
@@ -36,7 +36,7 @@ loopback endpoint in `src/openai.rs`.
 | `HAMLET_CLI` | The `hamlet` command, for the default server and the CLI scenarios. Unset: `target/debug/hamlet`. |
 
 A relative executable path is resolved against the workspace root. To
-start the Rust server directly rather than through the CLI:
+start `hamlet-server` directly rather than through the CLI:
 
 ```sh
 CARGO_INCREMENTAL=0 cargo build -p hamlet_server -p hamlet_cli
@@ -48,7 +48,8 @@ it printed. Nothing is skipped.
 
 ## Starting a server
 
-This is the contract a server command keeps to be judged by the suite.
+How the suite starts `hamlet server`, or `hamlet-server` when
+`HAMLET_ACCEPTANCE_SERVER` names it, and when it counts it as ready.
 
 The suite runs the command with these arguments added:
 
@@ -301,7 +302,7 @@ exact commit boundaries live in `crates/hamlet_server/tests/`.
 
 ## Recording protocol frames
 
-`tests/frames/` records 18 real Rust server sessions through protocol v0,
+`tests/frames/` records 18 real server sessions through protocol v0,
 including file gifts in chunks. It uses scratch homes, faux responses and
 a loopback login endpoint, never a live provider. Both wire directions are
 saved as JSONL; connection tokens and the fake login key are redacted.

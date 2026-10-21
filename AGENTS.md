@@ -88,7 +88,7 @@ npm test
 
 The acceptance suite in `crates/hamlet_acceptance` starts real server
 processes on scratch homes and drives them through protocol v0, so plain
-`cargo test` compiles none of it. It needs the built CLI and Rust server,
+`cargo test` compiles none of it. It needs the built CLI and server,
 and `npm ci --prefix harnesses/pi`. It must be clean before a commit too. It never
 contacts a model server or the internet: models are faux, or a loopback
 fake of its own. `make check` runs it; by hand, at the root:
@@ -100,7 +100,7 @@ cargo test -p hamlet_acceptance --features acceptance
 ```
 
 The pi harness in `harnesses/pi/` is a Node package of its own, on the
-same Node, with the same two checks run in that folder. The Rust server's
+same Node, with the same two checks run in that folder. The server's
 tests that start it as a real process, crashes included, are compiled only
 with the `harness` feature, so plain `cargo test` needs no Node. They need
 `npm ci --prefix harnesses/pi`, never contact a model server or the

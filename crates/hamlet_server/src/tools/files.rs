@@ -205,7 +205,9 @@ async fn read_text(
     Ok(out)
 }
 
-/// `Array.prototype.slice` of `lines` from `start` to `end`.
+/// The lines pi's `read` selects from `start` to `end`: each index
+/// cut toward zero, `NaN` as 0 and a negative one counted
+/// from the end.
 fn slice<'a>(
     lines: &[&'a str],
     start: f64,

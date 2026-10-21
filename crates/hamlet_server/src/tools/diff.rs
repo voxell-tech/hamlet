@@ -1,4 +1,4 @@
-//! The diff and the patch of an edit, as pi makes them with jsdiff.
+//! The diff and the patch of an edit, as pi's `edit` makes them.
 
 use std::collections::HashMap;
 
@@ -28,8 +28,8 @@ fn tokens(text: &str) -> Vec<&str> {
     text.split_inclusive('\n').collect()
 }
 
-/// jsdiff's `diffLines`: Myers's algorithm with its pruning of the
-/// diagonals past an edge.
+/// The line diff of pi's `edit`: Myers's algorithm with its pruning
+/// of the diagonals past an edge.
 fn diff_lines(old: &str, new: &str) -> Vec<Part> {
     let old_tokens = tokens(old);
     let new_tokens = tokens(new);
@@ -304,7 +304,7 @@ fn split_lines(text: &str) -> Vec<String> {
     lines
 }
 
-/// jsdiff's unified patch of `path`, with file headers only and four
+/// pi's unified patch of `path`, with file headers only and four
 /// lines of context.
 pub(crate) fn unified_patch(
     path: &str,
@@ -415,7 +415,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn numbers_the_changed_lines_and_patches_them_as_jsdiff_does() {
+    fn numbers_the_changed_lines_and_patches_them_as_pi_does() {
         let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\n";
         let new = "a\nb\nc\nd\ne\nF\ng\nh\ni\nj\nk";
         let (diff, first) = diff_string(old, new);

@@ -5,7 +5,7 @@
 The macOS and Linux archives include:
 
 - `hamlet`, the CLI and launcher;
-- `hamlet-server`, the Rust server;
+- `hamlet-server`, the server;
 - `hamlet-app`, the window;
 - `pi/` with its source, lockfile and production `node_modules`;
 - licenses and a runtime setup README.

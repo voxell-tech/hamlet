@@ -1,6 +1,6 @@
 # The home
 
-The Rust server keeps one home, `~/.hamlet` unless `HAMLET_HOME` or
+The server keeps one home, `~/.hamlet` unless `HAMLET_HOME` or
 `hamlet-server --home` selects another. Use a fresh scratch home for
 development. `crates/hamlet_server/src/home.rs` defines `Home` and `Layout`.
 

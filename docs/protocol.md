@@ -74,7 +74,7 @@ uses `chief:<say id>` to admit it once in that conversation.
 A retry uses `retry:<UUID>`; this UUID is independent of the wire
 `retry` request's `id`. A reflection uses
 `reflect:<conversation number>:<ordinal>`. Clients send UUIDs, not these
-internal IDs. The Rust server constructs them in `chats/say.rs`,
+internal IDs. The server constructs them in `chats/say.rs`,
 `chats/deeds.rs` and `chats/follow.rs`.
 
 `State.epoch` identifies the running state watcher, using the server clock
@@ -326,7 +326,7 @@ readable `text`; neither carries a machine error code.
 A fault does not itself imply disconnect. Malformed input after hello,
 second hello and request-handler failures leave the connection open.
 Handshake refusals, message size violations and unexpected connection
-failures close it as described above. The Rust server's `protocol.rs`
+failures close it as described above. The server's `protocol.rs`
 and `runtime.rs` own these paths. Watch failures use the `fault` envelope,
 even when their cause is an ordinary access refusal.
 
