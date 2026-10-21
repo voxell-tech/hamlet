@@ -104,8 +104,10 @@ pub struct Hearth {
     flame: Material,
     /// The orb's look and its mesh, kept so that they stay.
     _orb: (Material, Mesh),
-    /// What is left to hand over, and what was.
-    pending: Option<Vec<(Slot, MeshData)>>,
+    /// The steps of [`Hearth::build`] taken, the meshes they built
+    /// that are left to hand over, and those handed over.
+    built: usize,
+    pending: Vec<(Slot, MeshData)>,
     meshes: Meshes,
     /// The candle the gate's lantern was last lit for.
     candle: Option<f32>,
@@ -213,7 +215,8 @@ impl Hearth {
             glass_look,
             flame,
             _orb: (orb_look, orb_mesh),
-            pending: None,
+            built: 0,
+            pending: Vec::new(),
             meshes: Meshes::default(),
             candle: None,
             mascot,
@@ -242,9 +245,6 @@ impl Hearth {
         dt: f32,
         upload: &mut Upload,
     ) {
-        if self.pending.is_none() {
-            self.pending = Some(self.build(ctx.land, ctx.pal));
-        }
         self.hand_over(ctx, upload);
         let now = ctx.clock;
         let candle = ctx.sky.look.candle;
@@ -301,9 +301,41 @@ impl Hearth {
         }
     }
 
-    /// The meshes of the place and the mascot, to hand over, and the
-    /// place's lights and trees set where they stand.
+    /// The meshes of step `step` of the place and the mascot, to hand
+    /// over: the place, with its lights and trees set where they
+    /// stand, then the mascot, then its wick and runes. None past the
+    /// last.
     fn build(
+        &self,
+        step: usize,
+        land: &Land,
+        pal: &Palette,
+    ) -> Option<Vec<(Slot, MeshData)>> {
+        match step {
+            0 => Some(self.build_place(land, pal)),
+            1 => Some(
+                parts(pal, self.look)
+                    .each()
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, mb)| (Slot::Part(i), mb.data()))
+                    .collect(),
+            ),
+            2 => Some(
+                shapes()
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, mb)| (Slot::Rune(i), mb.data()))
+                    .chain([(Slot::Wick, wick().data())])
+                    .collect(),
+            ),
+            _ => None,
+        }
+    }
+
+    /// The meshes of the place, and its lights and trees set where
+    /// they stand.
+    fn build_place(
         &self,
         land: &Land,
         pal: &Palette,
@@ -349,30 +381,24 @@ impl Hearth {
                 flora::mesh(pal, tree.kind).data(),
             ));
         }
-        out.extend(
-            parts(pal, self.look)
-                .each()
-                .into_iter()
-                .enumerate()
-                .map(|(i, mb)| (Slot::Part(i), mb.data())),
-        );
-        out.push((Slot::Wick, wick().data()));
-        out.extend(
-            shapes()
-                .into_iter()
-                .enumerate()
-                .map(|(i, mb)| (Slot::Rune(i), mb.data())),
-        );
         out
     }
 
-    /// Hands over what meshes the call has room for, and draws each
-    /// with what it is for.
+    /// Builds what meshes the call has room for, a step at a time,
+    /// hands them over, and draws each with what it is for.
     fn hand_over(&mut self, ctx: &Ctx, upload: &mut Upload) {
-        let Some(pending) = &mut self.pending else {
-            return;
-        };
-        while !pending.is_empty() && upload.left() {
+        while upload.left() {
+            if self.pending.is_empty() {
+                let Some(built) =
+                    self.build(self.built, ctx.land, ctx.pal)
+                else {
+                    break;
+                };
+                self.pending = built;
+                self.built += 1;
+                continue;
+            }
+            let pending = &mut self.pending;
             let (slot, data) = pending.remove(0);
             let mesh = match upload.mesh(data) {
                 Ok(mesh) => mesh,

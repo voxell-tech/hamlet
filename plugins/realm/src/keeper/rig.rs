@@ -183,7 +183,7 @@ impl Rig {
         key: u32,
     ) -> Result<Self, String> {
         let mut held = Vec::new();
-        let mesh = |at: Option<usize>| at.and_then(|at| kit.mesh(at));
+        let mesh = |at: usize| kit.mesh(at);
         let (matte, brass) = (&stock.matte, &stock.brass);
         let root = Entity::make(None, key)?;
         root.set_transform(at.scene());
@@ -214,7 +214,7 @@ impl Rig {
             &legs[0],
             key,
             axle,
-            mesh(Some(kit.wheels)),
+            mesh(kit.wheels),
             brass,
             false,
         )?;
@@ -222,7 +222,7 @@ impl Rig {
             &legs[1],
             key,
             axle,
-            mesh(Some(kit.wheels)),
+            mesh(kit.wheels),
             brass,
             false,
         )?;
@@ -240,24 +240,18 @@ impl Rig {
             &body,
             key,
             Vec3::ZERO,
-            mesh(Some(kit.emblems[who.emblem as usize])),
+            mesh(kit.emblems[who.emblem as usize]),
             matte,
             true,
         )?);
-        let key_part = piece(
-            &body,
-            key,
-            KEY_AT,
-            mesh(Some(kit.key)),
-            brass,
-            false,
-        )?;
+        let key_part =
+            piece(&body, key, KEY_AT, mesh(kit.key), brass, false)?;
         if who.leader {
             held.push(piece(
                 &body,
                 key,
                 Vec3::ZERO,
-                mesh(Some(kit.mantle)),
+                mesh(kit.mantle),
                 matte,
                 false,
             )?);
@@ -266,7 +260,7 @@ impl Rig {
             &body,
             key,
             Vec3::Y * NECK,
-            mesh(Some(kit.head)),
+            mesh(kit.head),
             brass,
             false,
         )?;
@@ -282,7 +276,7 @@ impl Rig {
             &head,
             key,
             Vec3::Y * FACE,
-            mesh(Some(kit.glass)),
+            mesh(kit.glass),
             &lit,
             true,
         )?);
@@ -290,7 +284,7 @@ impl Rig {
             &head,
             key,
             Vec3::Y * FACE,
-            mesh(Some(kit.eye)),
+            mesh(kit.eye),
             matte,
             true,
         )?;
@@ -298,7 +292,7 @@ impl Rig {
             &head,
             key,
             Vec3::Y * FACE,
-            mesh(Some(kit.eye)),
+            mesh(kit.eye),
             matte,
             true,
         )?;
@@ -315,7 +309,7 @@ impl Rig {
                 &hat,
                 key,
                 Vec3::Y * (SPIRE - 0.02),
-                mesh(Some(kit.pennant)),
+                mesh(kit.pennant),
                 matte,
                 false,
             )?)
@@ -329,36 +323,24 @@ impl Rig {
             [(mesh(kit.pole.0), matte), (mesh(kit.pole.1), brass)],
             &mut held,
         )?;
-        let lamp = piece(
-            &pole,
-            key,
-            HOOK,
-            mesh(Some(kit.lamp)),
-            brass,
-            false,
-        )?;
+        let lamp =
+            piece(&pole, key, HOOK, mesh(kit.lamp), brass, false)?;
         held.push(piece(
             &lamp,
             key,
             LAMP_DROP,
-            mesh(Some(kit.lamp_glass)),
+            mesh(kit.lamp_glass),
             &lit,
             true,
         )?);
-        let ring = piece(
-            &lamp,
-            key,
-            LAMP_DROP,
-            mesh(Some(kit.ring)),
-            &lit,
-            true,
-        )?;
+        let ring =
+            piece(&lamp, key, LAMP_DROP, mesh(kit.ring), &lit, true)?;
         ring.set_visible(false);
         let prop = piece(
             &arms[0],
             key,
             Vec3::ZERO,
-            mesh(Some(kit.props[0])),
+            mesh(kit.props[0]),
             matte,
             false,
         )?;
@@ -643,7 +625,7 @@ impl Rig {
             if let Some(mesh) = kit.mesh(kit.props[i]) {
                 parts.prop.draw(mesh, &stock.matte);
             }
-            match kit.glints[i].and_then(|at| kit.mesh(at)) {
+            match kit.mesh(kit.glints[i]) {
                 Some(mesh) => parts.glint.draw(mesh, &self.lit),
                 None => parts.glint.undraw(),
             }

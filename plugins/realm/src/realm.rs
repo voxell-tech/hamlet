@@ -95,6 +95,8 @@ pub struct Realm {
 
 impl Realm {
     /// The realm with no hamlets yet, its camera behind the dock.
+    /// Only what is cheap is made here: every mesh is built and
+    /// handed over as the realm ticks, within each frame's share.
     pub fn make() -> Result<Self, String> {
         let began = Instant::now();
         let (tuning, pal) = WorldTuning::read()?;
@@ -114,24 +116,12 @@ impl Realm {
         // A chief takes its ground before any town is founded.
         let chief =
             Chief::make(&tuning, &pal, &mut land, &mut society)?;
-        let mut pace = Pace::default();
-        let mut upload = Upload::new(&pace);
-        let ctx = Ctx {
-            tuning: &tuning,
-            pal: &pal,
-            land: &land,
-            society: &society,
-            stock: &stock,
-            sky: &sky,
-            clock: 0.0,
-            eye: Vec3::ZERO,
-            beside: None,
-        };
-        let ground = Ground::make(&ctx, &mut upload)?;
-        let towns = Towns::make(&ctx, &mut upload)?;
-        let roads = Roads::make(&ctx, &mut upload)?;
-        let robots = Robots::make(&ctx, &mut upload)?;
+        let ground = Ground::make(&pal)?;
+        let towns = Towns::make(&pal)?;
+        let roads = Roads::make(&pal)?;
+        let robots = Robots::make(&pal)?;
         let footprint = Footprint::make(&land, &pal, &tuning.carry)?;
+        let mut pace = Pace::default();
         pace.spend(began);
         Ok(Self {
             tuning,
@@ -245,8 +235,12 @@ impl Realm {
             return;
         };
         // A town in hand takes the clicks: the left button sets it
-        // down where it fits, the right puts it back.
+        // down where it fits, the right puts it back. The pointer is
+        // still followed.
         let SceneInput::Pressed(press) = input else {
+            if let SceneInput::Over(_) | SceneInput::Out(_) = input {
+                self.pick.input(input, still);
+            }
             return;
         };
         match (press.button, press.down) {
@@ -260,9 +254,12 @@ impl Realm {
                     self.set_down =
                         Some((carry.hamlet.clone(), command));
                     self.carrying = None;
+                    self.pick.pass_click();
                 }
             }
-            (MouseButton::Secondary, true) => self.carrying = None,
+            (MouseButton::Secondary, false) if still => {
+                self.carrying = None;
+            }
             _ => {}
         }
     }
@@ -470,9 +467,12 @@ impl Realm {
     /// The place of `thing` on the ground.
     fn place(&self, thing: Thing) -> Option<Vec2> {
         match thing {
-            Thing::Robot(agent) => {
-                self.robots.at(agent).map(|at| at.xz())
-            }
+            // An agent without a robot, as one that is gone, is at
+            // its house.
+            Thing::Robot(agent) => match self.robots.at(agent) {
+                Some(at) => Some(at.xz()),
+                None => self.place(Thing::House(agent)),
+            },
             Thing::House(agent) => {
                 let agent = self.society.agent(agent)?;
                 let town = self.society.town(agent.town)?;

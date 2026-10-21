@@ -197,6 +197,9 @@ pub struct Picking {
     /// The left button let go over the view without moving, until a
     /// thing says it was clicked.
     loose: bool,
+    /// The click of a release that was taken for something else, to
+    /// be passed over until the left button next goes down.
+    passed: bool,
     /// What the person chose, to tell the window's focus: a thing,
     /// or nothing for the bare ground.
     chosen: Option<Option<Thing>>,
@@ -211,6 +214,7 @@ impl Picking {
             hovered: None,
             selected: None,
             loose: false,
+            passed: false,
             chosen: None,
             rings: [
                 Ring::make(HOVER_RING, HOVER_GLOW)?,
@@ -250,11 +254,16 @@ impl Picking {
                 }
             }
             SceneInput::Pressed(press)
-                if press.button == MouseButton::Primary
-                    && !press.down
-                    && still =>
+                if press.button == MouseButton::Primary =>
             {
-                self.loose = true;
+                if press.down {
+                    self.passed = false;
+                } else if still {
+                    self.loose = true;
+                }
+            }
+            SceneInput::Click(_) if self.passed => {
+                self.passed = false
             }
             SceneInput::Click(hit) => {
                 self.loose = false;
@@ -265,6 +274,11 @@ impl Picking {
             }
             _ => {}
         }
+    }
+
+    /// Passes over the click of the left button's last release.
+    pub fn pass_click(&mut self) {
+        self.passed = true;
     }
 
     /// Follows the selection of the window's focus, made here or

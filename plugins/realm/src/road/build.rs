@@ -1,16 +1,33 @@
-//! A road built a step at a time: its route, the rows of its surface,
-//! its meshes, and their pieces handed to the engine.
+//! A road built a step at a time: its way between the towns, the
+//! ground along its line, the rows of its surface, its meshes, and
+//! their pieces handed to the engine.
 
+use glam::Vec3Swizzles;
 use hamlet_engine_sdk::scene::{Mesh, MeshData};
 
-use super::mesh::{self, Rows, Span};
+use super::mesh::{self, Rows, Span, Stretch};
+use crate::land::Search;
 use crate::layout::{End, Route};
+use crate::mesh::Line;
 use crate::realm::Ctx;
 use crate::society::RoadLevel;
 use crate::upload::{Unsent, Upload};
 
+/// Crossings of the corridors looked at in one step.
+const CROSSINGS_A_STEP: usize = 64;
+
+/// Points of a road's line whose ground is looked up in one step.
+const GROUND_A_STEP: usize = 128;
+
 /// Rows of a road's surface worked out in one step.
 const ROWS_A_STEP: usize = 48;
+
+/// Rows of a road's surface and groove made into meshes in one step.
+const MESH_ROWS_A_STEP: usize = 256;
+
+/// The farthest apart the towns of a road's two ends may lie for the
+/// road to be laid, so that no road's work is without end.
+const LONGEST: f32 = 3_000.0;
 
 /// The most bytes of one piece of a road's mesh, so that a long road
 /// is handed over in several calls.
@@ -28,12 +45,24 @@ pub(super) struct Build {
 }
 
 enum Stage {
-    /// Its route is yet to be found.
-    Route,
+    /// Its way is yet to be found.
+    Way,
+    /// The corridor between its two towns, being searched for.
+    Search(Search),
+    /// The line of its way, and the ground's height at its points as
+    /// far as it is looked up.
+    Ground { line: Line, ground: Vec<f32> },
     /// The rows of its surface, being worked out.
     Rows { route: Route, rows: Rows },
-    /// Its rows worked out, its meshes yet to be made.
-    Meshes { route: Route, rows: Rows },
+    /// Its meshes, being made a stretch at a time, and the stretches
+    /// left.
+    Meshes {
+        route: Route,
+        rows: Rows,
+        stretches: Vec<Stretch>,
+        surface: Vec<MeshData>,
+        groove: Vec<MeshData>,
+    },
     /// Its meshes, being handed over piece by piece.
     Handing {
         route: Route,
@@ -62,12 +91,18 @@ impl Build {
         salt: u64,
         met: Vec<Span>,
     ) -> Self {
+        // A road's line is the same whichever way its ends are given.
+        let ends = if ends.0 <= ends.1 {
+            ends
+        } else {
+            (ends.1, ends.0)
+        };
         Self {
             ends,
             level,
             salt,
             met,
-            stage: Some(Stage::Route),
+            stage: Some(Stage::Way),
         }
     }
 
@@ -78,42 +113,118 @@ impl Build {
         upload: &mut Upload,
     ) -> Result<Option<Built>, String> {
         let land = ctx.land;
+        let (a, b) = self.ends;
+        let along = |way: Vec<_>| Stage::Ground {
+            line: Line::spline(&way, 0.5),
+            ground: Vec::new(),
+        };
         let stage = match self.stage.take() {
-            Some(Stage::Route) => {
-                let route =
-                    Route::between(land, self.ends.0, self.ends.1);
-                let rows = Rows::new(land, &route, self.level);
-                Stage::Rows { route, rows }
+            Some(Stage::Way) if a.site == b.site => {
+                along(Route::way(land, a, b, &[]))
+            }
+            Some(Stage::Way) => {
+                let apart = land.sites[a.site]
+                    .at
+                    .distance(land.sites[b.site].at);
+                if apart > LONGEST {
+                    return Err(format!(
+                        "its towns lie {apart:.0} apart, more than \
+                         {LONGEST:.0}"
+                    ));
+                }
+                Stage::Search(land.search(a.site, b.site))
+            }
+            Some(Stage::Search(mut search)) => {
+                match search.step(land, CROSSINGS_A_STEP) {
+                    Some(corridor) => {
+                        along(Route::way(land, a, b, &corridor))
+                    }
+                    None => Stage::Search(search),
+                }
+            }
+            Some(Stage::Ground { line, mut ground }) => {
+                let from = ground.len();
+                let to = (from + GROUND_A_STEP).min(line.pts.len());
+                ground.extend(
+                    line.pts[from..to]
+                        .iter()
+                        .map(|p| land.surface(p.xz())),
+                );
+                if ground.len() < line.pts.len() {
+                    Stage::Ground { line, ground }
+                } else {
+                    let route = Route::over(
+                        land,
+                        line,
+                        ground,
+                        [a.site, b.site],
+                    );
+                    let rows = Rows::new(land, &route, self.level);
+                    Stage::Rows { route, rows }
+                }
             }
             Some(Stage::Rows { route, mut rows }) => {
-                let done = rows.fill(land, &route, ROWS_A_STEP);
-                if done {
-                    Stage::Meshes { route, rows }
+                if rows.fill(land, &route, ROWS_A_STEP) {
+                    Stage::Meshes {
+                        stretches: rows.stretches(MESH_ROWS_A_STEP),
+                        route,
+                        rows,
+                        surface: Vec::new(),
+                        groove: Vec::new(),
+                    }
                 } else {
                     Stage::Rows { route, rows }
                 }
             }
-            Some(Stage::Meshes { route, rows }) => {
-                let surface = mesh::surface(
-                    land, &route, &rows, self.level, self.salt,
-                    &self.met,
-                );
-                let groove = mesh::groove(
-                    land, &route, &rows, self.level, self.salt,
-                );
-                let bridge = route
-                    .raised
-                    .iter()
-                    .any(|&h| h > land.set.road.bridge_from);
-                Stage::Handing {
-                    span: Span::of(land, &route),
-                    route,
-                    bridge,
-                    surface: (
-                        surface.data().pieces(PIECE),
-                        Vec::new(),
-                    ),
-                    groove: (groove.data().pieces(PIECE), Vec::new()),
+            Some(Stage::Meshes {
+                route,
+                rows,
+                mut stretches,
+                mut surface,
+                mut groove,
+            }) => {
+                if let Some(stretch) = stretches.pop() {
+                    let (level, salt) = (self.level, self.salt);
+                    let made = [
+                        (
+                            &mut surface,
+                            mesh::surface(
+                                land, &route, &rows, level, salt,
+                                &self.met, stretch,
+                            ),
+                        ),
+                        (
+                            &mut groove,
+                            mesh::groove(
+                                land, &route, &rows, level, salt,
+                                stretch,
+                            ),
+                        ),
+                    ];
+                    for (pieces, mb) in made {
+                        if !mb.is_empty() {
+                            pieces.extend(mb.data().pieces(PIECE));
+                        }
+                    }
+                    Stage::Meshes {
+                        route,
+                        rows,
+                        stretches,
+                        surface,
+                        groove,
+                    }
+                } else {
+                    let bridge = route
+                        .raised
+                        .iter()
+                        .any(|&h| h > land.set.road.bridge_from);
+                    Stage::Handing {
+                        span: Span::of(land, &route),
+                        route,
+                        bridge,
+                        surface: (surface, Vec::new()),
+                        groove: (groove, Vec::new()),
+                    }
                 }
             }
             Some(Stage::Handing {

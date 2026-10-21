@@ -11,6 +11,7 @@ use std::ops::Deref;
 
 use glam::Vec2;
 
+pub(crate) use self::corridor::Search;
 use crate::noise::{key, signed, unit};
 use crate::palette::Palette;
 use crate::tuning::GenSettings;

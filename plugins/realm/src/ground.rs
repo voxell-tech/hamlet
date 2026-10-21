@@ -23,6 +23,7 @@ use self::sod::{Recipe, Sod, SodJob};
 use crate::flora::{self, Tree};
 use crate::frame::Frame;
 use crate::land::{Land, LandData};
+use crate::palette::Palette;
 use crate::realm::Ctx;
 use crate::stock::rgba;
 use crate::upload::{Unsent, Upload};
@@ -221,8 +222,8 @@ fn watered(land: &Land, tile: Tile) -> bool {
 }
 
 /// What the choice of tiles asks of each tile's ground, kept from one
-/// choice to the next until the land changes: whether a river runs
-/// through it, and whether a town stands on it.
+/// choice to the next for the tiles in sight until the land changes:
+/// whether a river runs through it, and whether a town stands on it.
 #[derive(Default)]
 struct Lies(HashMap<Tile, (bool, bool)>);
 
@@ -238,6 +239,15 @@ impl Lies {
                 .any(|s| s.at.distance(mid) < side * 0.71 + hold);
             (watered(land, tile), town)
         })
+    }
+
+    /// Forgets the tiles out of reach of every one of `sights`.
+    fn keep_within(&mut self, chunk: f32, sights: [&Sight; 2]) {
+        self.0.retain(|tile, _| {
+            sights.iter().any(|sight| {
+                tile.away(chunk, sight.centre) <= sight.reach
+            })
+        });
     }
 }
 
@@ -341,8 +351,9 @@ pub struct Ground {
     /// A square for a tile's water, and the water.
     pond: Mesh,
     water: Material,
-    /// The mesh of each kind of tree, as they are handed over.
-    kinds: Vec<Mesh>,
+    /// The mesh of each kind of tree, as they are handed over; none
+    /// for one the engine refused.
+    kinds: Vec<Option<Mesh>>,
     /// The views the tiles were last chosen for: the camera's, and
     /// the one it is being taken to.
     sight: Option<(Sight, Sight)>,
@@ -356,12 +367,8 @@ pub struct Ground {
 }
 
 impl Ground {
-    pub fn make(
-        ctx: &Ctx,
-        upload: &mut Upload,
-    ) -> Result<Self, String> {
-        let _ = upload;
-        let pal = ctx.pal;
+    /// No tiles yet, only the plain ground under where they will be.
+    pub fn make(pal: &Palette) -> Result<Self, String> {
         let plain = pal.grass_shade.lerp(pal.grass, 0.85);
         let bed = Entity::make(None, 0)?;
         let bed_mesh = Mesh::shape(Shape::Plane((2.0, 2.0)))?;
@@ -438,6 +445,7 @@ impl Ground {
                 false,
                 |_, _| 0,
             );
+            self.lies.keep_within(chunk, [&sight, &going]);
             self.sight = Some((sight, going));
         }
         self.sods.retire(top, detail.stale_sink);
@@ -627,11 +635,11 @@ impl Ground {
             match flora::mesh(ctx.pal, self.kinds.len())
                 .upload(upload)
             {
-                Ok(mesh) => self.kinds.push(mesh),
+                Ok(mesh) => self.kinds.push(Some(mesh)),
                 Err(Unsent::Full(_)) => return,
                 Err(Unsent::Refused(why)) => {
                     hamlet_engine_sdk::warn(&format!("trees: {why}"));
-                    return;
+                    self.kinds.push(None);
                 }
             }
         }
@@ -706,12 +714,15 @@ impl Ground {
             _canopy: canopy,
         };
         for (kind, placed) in kinds.iter().enumerate() {
+            let Some(mesh) = &self.kinds[kind] else {
+                continue;
+            };
             if placed.is_empty() {
                 continue;
             }
             let instances = Instances::make(
                 Some(&wood.entity),
-                &self.kinds[kind],
+                mesh,
                 &ctx.stock.matte,
                 0,
             )

@@ -2,7 +2,7 @@
 //! them from one town to another.
 
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::f32::consts::TAU;
 
 use glam::Vec2;
@@ -108,25 +108,55 @@ impl LandData {
             * self.set.town.gate_radius.min(d.length() * 0.92)
     }
 
-    /// The corridor between two towns: from one gate to the other,
-    /// sampled every few units and bent by `Land::warp`. Shared
-    /// stretches of two corridors are the same points.
-    pub(crate) fn corridor(
+    /// A search for the corridor between the towns at `from` and
+    /// `to`, taken a few crossings at a time.
+    pub(crate) fn search(&self, from: usize, to: usize) -> Search {
+        // A corridor is found from the lower site, so that the two
+        // ways along it are the same points.
+        let back = from > to;
+        let (from, to) = if back { (to, from) } else { (from, to) };
+        let mut search = Search {
+            from,
+            to,
+            back,
+            goal: self.sites[to].at,
+            ends: HashSet::new(),
+            reached: HashMap::new(),
+            open: BinaryHeap::new(),
+            homes: HashMap::new(),
+            at: HashMap::new(),
+            looked: 0,
+        };
+        search.ends = self
+            .ways_out(to, &mut search.homes)
+            .into_iter()
+            .map(|(node, _)| node)
+            .collect();
+        for (node, length) in self.ways_out(from, &mut search.homes) {
+            search.reached.insert(node, (length, None));
+            let p = search.place(self, node);
+            search
+                .open
+                .push(rank(length + p.distance(search.goal), node));
+        }
+        search
+    }
+
+    /// The corridor between the towns at `from` and `to` through the
+    /// crossings `nodes`: from one gate to the other, sampled every
+    /// few units and bent by `Land::warp`. Shared stretches of two
+    /// corridors are the same points.
+    fn corridor(
         &self,
         from: usize,
         to: usize,
+        nodes: &[Vec2],
     ) -> Vec<Vec2> {
-        if from > to {
-            let mut back = self.corridor(to, from);
-            back.reverse();
-            return back;
-        }
-        let nodes = self.node_path(from, to).unwrap_or_default();
         let (a, b) = (self.sites[from].at, self.sites[to].at);
         let mut way = vec![
             self.gate(from, nodes.first().copied().unwrap_or(b)),
         ];
-        way.extend_from_slice(&nodes);
+        way.extend_from_slice(nodes);
         way.push(self.gate(to, nodes.last().copied().unwrap_or(a)));
         let mut pts = Vec::new();
         for w in way.windows(2) {
@@ -272,75 +302,112 @@ impl LandData {
                     < self.set.town.radius + 2.0
         })
     }
+}
 
-    /// The shortest way through the corridors between two sites, as
-    /// the points between their gates. None when there is no way
-    /// short enough to look for.
-    fn node_path(&self, from: usize, to: usize) -> Option<Vec<Vec2>> {
-        let goal = self.sites[to].at;
-        let mut homes = HashMap::<Cell, Vec2>::default();
-        let ends = self
-            .ways_out(to, &mut homes)
-            .into_iter()
-            .collect::<HashMap<_, _>>();
-        // Each node reached: the length of the way to it and the
-        // node before it.
-        let mut reached =
-            HashMap::<Node, (f32, Option<Node>)>::default();
-        let mut open = BinaryHeap::new();
-        let mut at = HashMap::<Node, Vec2>::default();
-        let mut place =
-            |node: Node, homes: &mut HashMap<Cell, Vec2>| {
-                *at.entry(node)
-                    .or_insert_with(|| self.node_at(node, homes))
-            };
-        // Lengths are never negative, so their bits sort as they do.
-        let rank = |length: f32, node: Node| {
-            (Reverse(length.to_bits()), Reverse(node))
-        };
-        for (node, length) in self.ways_out(from, &mut homes) {
-            reached.insert(node, (length, None));
-            let p = place(node, &mut homes);
-            open.push(rank(length + p.distance(goal), node));
+/// The rank of a crossing to look at, the nearest by its way first.
+/// Lengths are never negative, so their bits sort as they do.
+fn rank(length: f32, node: Node) -> (Reverse<u32>, Reverse<Node>) {
+    (Reverse(length.to_bits()), Reverse(node))
+}
+
+/// A search for the shortest way through the corridors between two
+/// sites, and the corridor along it.
+pub(crate) struct Search {
+    from: usize,
+    to: usize,
+    /// True when the corridor is wanted from `to` to `from`.
+    back: bool,
+    goal: Vec2,
+    /// The crossings the way may end at.
+    ends: HashSet<Node>,
+    /// Each crossing reached: the length of the way to it and the
+    /// crossing before it.
+    reached: HashMap<Node, (f32, Option<Node>)>,
+    open: BinaryHeap<(Reverse<u32>, Reverse<Node>)>,
+    /// The places of the cells' sites, and of the crossings.
+    homes: HashMap<Cell, Vec2>,
+    at: HashMap<Node, Vec2>,
+    looked: usize,
+}
+
+impl Search {
+    fn place(&mut self, land: &LandData, node: Node) -> Vec2 {
+        if let Some(&p) = self.at.get(&node) {
+            return p;
         }
-        let mut looked = 0;
-        let mut last = None;
-        while let Some((_, Reverse(node))) = open.pop() {
-            if ends.contains_key(&node) {
-                last = Some(node);
-                break;
+        let p = land.node_at(node, &mut self.homes);
+        self.at.insert(node, p);
+        p
+    }
+
+    /// Looks at up to `most` more crossings. The corridor once the
+    /// search is over: along the shortest way, or straight from gate
+    /// to gate when none is found within the land's `search`.
+    pub(crate) fn step(
+        &mut self,
+        land: &LandData,
+        most: usize,
+    ) -> Option<Vec<Vec2>> {
+        for _ in 0..most {
+            let Some((_, Reverse(node))) = self.open.pop() else {
+                return Some(self.corridor(land, None));
+            };
+            if self.ends.contains(&node) {
+                return Some(self.corridor(land, Some(node)));
             }
-            looked += 1;
-            if looked > self.set.road.search {
-                break;
+            self.looked += 1;
+            if self.looked > land.set.road.search {
+                return Some(self.corridor(land, None));
             }
-            let (so_far, _) = reached[&node];
-            let p = place(node, &mut homes);
+            let so_far = self.reached.get(&node).map_or(0.0, |r| r.0);
+            let p = self.place(land, node);
             for next in node.links() {
-                let q = place(next, &mut homes);
-                if self.blocked(q) || self.barred(p, q) {
+                let q = self.place(land, next);
+                if land.blocked(q) || land.barred(p, q) {
                     continue;
                 }
                 // Roads keep to low ground where they can.
                 let climb = 1.0
-                    + self.set.road.climb
-                        * self.mountain((p + q) * 0.5);
+                    + land.set.road.climb
+                        * land.mountain((p + q) * 0.5);
                 let length = so_far + p.distance(q) * climb;
-                if reached.get(&next).is_none_or(|r| length < r.0) {
-                    reached.insert(next, (length, Some(node)));
-                    open.push(rank(length + q.distance(goal), next));
+                if self
+                    .reached
+                    .get(&next)
+                    .is_none_or(|r| length < r.0)
+                {
+                    self.reached.insert(next, (length, Some(node)));
+                    self.open.push(rank(
+                        length + q.distance(self.goal),
+                        next,
+                    ));
                 }
             }
         }
-        let mut path = vec![last?];
-        while let Some(before) = reached[path.last().unwrap()].1 {
-            path.push(before);
+        None
+    }
+
+    /// The corridor through the way that ends at `last`.
+    fn corridor(
+        &mut self,
+        land: &LandData,
+        last: Option<Node>,
+    ) -> Vec<Vec2> {
+        let mut path = Vec::new();
+        let mut node = last;
+        while let Some(at) = node {
+            path.push(at);
+            node = self.reached.get(&at).and_then(|r| r.1);
         }
-        path.reverse();
-        Some(
-            path.into_iter()
-                .map(|node| place(node, &mut homes))
-                .collect(),
-        )
+        let nodes = path
+            .into_iter()
+            .rev()
+            .map(|node| self.place(land, node))
+            .collect::<Vec<_>>();
+        let mut corridor = land.corridor(self.from, self.to, &nodes);
+        if self.back {
+            corridor.reverse();
+        }
+        corridor
     }
 }

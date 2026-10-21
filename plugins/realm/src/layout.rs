@@ -230,15 +230,20 @@ pub struct Route {
 }
 
 impl Route {
-    /// The route between two ends. The order of the ends does not
-    /// matter.
-    pub fn between(land: &Land, a: End, b: End) -> Self {
-        let (a, b) = if a <= b { (a, b) } else { (b, a) };
+    /// The way over the ground from end `a` to end `b`, the first the
+    /// lesser, through `corridor` when they are in two towns: the
+    /// corridor between those.
+    pub fn way(
+        land: &Land,
+        a: End,
+        b: End,
+        corridor: &[Vec2],
+    ) -> Vec<Vec2> {
         let (pa, pb) =
             (plot(land, a.site, a.plot), plot(land, b.site, b.plot));
         let (sa, mut sb) = (stem(land, &pa), stem(land, &pb));
         sb.reverse();
-        let way = if a.site == b.site {
+        if a.site == b.site {
             let mut round = obstacles(land, a.site);
             // Only a road to the hall comes on to the common. One
             // between two houses goes round it.
@@ -252,25 +257,34 @@ impl Route {
             }
             dodge(&sa, &sb, &round)
         } else {
-            let mid = land.corridor(a.site, b.site);
-            let (first, last) = (mid[0], *mid.last().unwrap());
+            let (Some(&first), Some(&last)) =
+                (corridor.first(), corridor.last())
+            else {
+                return dodge(&sa, &sb, &[]);
+            };
             let mut way =
                 dodge(&sa, &[first], &obstacles(land, a.site));
-            way.extend_from_slice(&mid[1..mid.len() - 1]);
+            if corridor.len() > 2 {
+                way.extend_from_slice(
+                    &corridor[1..corridor.len() - 1],
+                );
+            }
             way.extend(dodge(&[last], &sb, &obstacles(land, b.site)));
             way
-        };
-        Self::over(land, &way, [a.site, b.site])
+        }
     }
 
-    /// The road along `way`, which ends at the commons of `ends`.
-    fn over(land: &Land, way: &[Vec2], ends: [usize; 2]) -> Self {
+    /// The road along `line`, which ends at the commons of `ends`,
+    /// given the ground's height at each of its points.
+    pub fn over(
+        land: &Land,
+        line: Line,
+        ground: Vec<f32>,
+        ends: [usize; 2],
+    ) -> Self {
         let (water, town) = (land.set.land.water_y, &land.set.town);
-        let line = Line::spline(way, 0.5);
         let at = |i: usize| Vec2::new(line.pts[i].x, line.pts[i].z);
         let n = line.pts.len();
-        let ground =
-            (0..n).map(|i| land.surface(at(i))).collect::<Vec<_>>();
         let wet = ground
             .iter()
             .map(|&g| g < water + 0.3)

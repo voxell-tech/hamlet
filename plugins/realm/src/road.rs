@@ -19,6 +19,7 @@ use crate::frame::Frame;
 use crate::land::Land;
 use crate::layout::{End, Route};
 use crate::noise;
+use crate::palette::Palette;
 use crate::realm::Ctx;
 use crate::society::{AgentId, Pair, RoadLevel, Society};
 use crate::upload::Upload;
@@ -144,11 +145,8 @@ pub struct Roads {
 }
 
 impl Roads {
-    pub fn make(
-        ctx: &Ctx,
-        upload: &mut Upload,
-    ) -> Result<Self, String> {
-        let _ = upload;
+    /// No roads yet.
+    pub fn make(pal: &Palette) -> Result<Self, String> {
         Ok(Self {
             drawn: HashMap::new(),
             jobs: HashMap::new(),
@@ -156,7 +154,7 @@ impl Roads {
             sites: Vec::new(),
             holds: Vec::new(),
             laid: 0,
-            grooves: Grooves::make(ctx.pal)?,
+            grooves: Grooves::make(pal)?,
         })
     }
 

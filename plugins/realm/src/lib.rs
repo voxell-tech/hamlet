@@ -34,7 +34,7 @@ mod upload;
 mod yard;
 
 use hamlet_engine_sdk::api::agents::{
-    AgentsEvent, AgentsReply, AgentsRequest,
+    AgentsEvent, AgentsReply, AgentsRequest, Selected,
 };
 use hamlet_engine_sdk::scene::{SceneInput, animate};
 use hamlet_engine_sdk::ui::open;
@@ -159,8 +159,12 @@ impl Plugin for RealmPlugin {
         let dt = (micros as f32 / 1_000_000.0).min(LONGEST_FRAME);
         realm.tick(dt);
         if let Some(selected) = realm.choice() {
+            // The bare ground only clears what was selected.
+            let something = selected != Selected::Nothing;
             agents(&AgentsRequest::Select(selected));
-            open(INSPECTOR);
+            if something {
+                open(INSPECTOR);
+            }
         }
         if let Some((hamlet, text)) = realm.set_down() {
             agents(&AgentsRequest::Decree { hamlet, text });

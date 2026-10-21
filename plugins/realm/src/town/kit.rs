@@ -2,7 +2,7 @@
 //! engine's wheel and its steam, the glass of a lantern and the trees
 //! of the gardens, each handed to the engine once.
 
-use hamlet_engine_sdk::scene::Mesh;
+use hamlet_engine_sdk::scene::{Mesh, MeshData};
 
 use crate::flora;
 use crate::lantern::lantern_glass;
@@ -63,43 +63,53 @@ impl Part {
     }
 }
 
-/// The shared meshes, handed over a few at a time.
+/// The shared meshes, built and handed over a few at a time. A part
+/// the engine refused has none.
 pub struct Kit {
     meshes: Vec<Option<Mesh>>,
+    /// Parts built so far, and the last one built while it waits for
+    /// room to be handed over.
+    made: usize,
+    waiting: Option<MeshData>,
 }
 
 impl Kit {
     pub fn new() -> Self {
         Self {
             meshes: (0..Part::ALL).map(|_| None).collect(),
+            made: 0,
+            waiting: None,
         }
     }
 
-    /// Hands over what is missing, within `upload`. True once every
-    /// mesh is there.
+    /// Builds and hands over what is missing, within `upload`. True
+    /// once every part is done.
     pub fn fill(
         &mut self,
         pal: &Palette,
         yard: &YardSettings,
         upload: &mut Upload,
     ) -> bool {
-        for (index, slot) in self.meshes.iter_mut().enumerate() {
-            if slot.is_some() {
-                continue;
-            }
+        while self.made < Part::ALL {
             if !upload.left() {
                 return false;
             }
-            match Part::of(index).build(pal, yard).upload(upload) {
-                Ok(mesh) => *slot = Some(mesh),
-                Err(Unsent::Full(_)) => return false,
+            let data = self.waiting.take().unwrap_or_else(|| {
+                Part::of(self.made).build(pal, yard).data()
+            });
+            match upload.mesh(data) {
+                Ok(mesh) => self.meshes[self.made] = Some(mesh),
+                Err(Unsent::Full(data)) => {
+                    self.waiting = Some(data);
+                    return false;
+                }
                 Err(Unsent::Refused(why)) => {
                     hamlet_engine_sdk::warn(&format!(
                         "a town's kit: {why}"
                     ));
-                    return false;
                 }
             }
+            self.made += 1;
         }
         true
     }

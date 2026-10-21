@@ -25,6 +25,7 @@ use crate::keeper::KState;
 use crate::land::{Land, LandData};
 use crate::layout::{HALL_PLOT, plot};
 use crate::mesh::Mb;
+use crate::palette::Palette;
 use crate::pick::Thing;
 use crate::realm::Ctx;
 use crate::shift::{Part, Shift, Way};
@@ -79,8 +80,10 @@ struct House {
     entity: Entity,
     /// Its place at rest.
     frame: Frame,
-    /// Its meshes while they are being handed over, then as they
-    /// are drawn.
+    /// What it is built from, and its meshes once its turn to be
+    /// built comes: while they are handed over, then as they are
+    /// drawn.
+    recipe: Recipe,
     built: Option<Built>,
     drawn: bool,
     /// Its window panes, and its door lantern with the state it
@@ -158,15 +161,11 @@ impl EntityExt for Entity {
 }
 
 impl Towns {
-    pub fn make(
-        ctx: &Ctx,
-        upload: &mut Upload,
-    ) -> Result<Self, String> {
-        let mut kit = Kit::new();
-        kit.fill(ctx.pal, &ctx.tuning.generator.yard, upload);
+    /// No towns yet, their kit to be built as they update.
+    pub fn make(pal: &Palette) -> Result<Self, String> {
         Ok(Self {
-            kit,
-            lamps: Lamps::make(ctx.pal)?,
+            kit: Kit::new(),
+            lamps: Lamps::make(pal)?,
             flag: FlagSettings::read()?,
             towns: HashMap::new(),
             houses: HashMap::new(),
@@ -355,19 +354,16 @@ impl Towns {
             sig,
             entity,
             frame,
-            built: Some(Built::of(
-                land,
-                &self.flag,
-                Recipe {
-                    agent: agent.id,
-                    site: town.site,
-                    hall,
-                    leader: sig.leader,
-                    remains: agent.remains(&land.set.house),
-                    wings: agent.wings,
-                    yard,
-                },
-            )),
+            recipe: Recipe {
+                agent: agent.id,
+                site: town.site,
+                hall,
+                leader: sig.leader,
+                remains: agent.remains(&land.set.house),
+                wings: agent.wings,
+                yard,
+            },
+            built: None,
             drawn: false,
             panes: None,
             lamp: None,
@@ -450,8 +446,8 @@ impl Towns {
         }
     }
 
-    /// Builds the houses waiting, nearest the camera first, while the
-    /// call has room.
+    /// Builds the houses waiting, one at a time and nearest the
+    /// camera first, while the call has room.
     fn build(&mut self, ctx: &Ctx, upload: &mut Upload) {
         let eye = ctx.eye;
         let houses = &self.houses;
@@ -471,11 +467,11 @@ impl Towns {
                 self.jobs.pop_front();
                 continue;
             };
-            let done = house
-                .built
-                .as_mut()
-                .is_none_or(|built| built.hand(upload));
-            if !done {
+            let recipe = house.recipe;
+            let built = house.built.get_or_insert_with(|| {
+                Built::of(ctx.land, &self.flag, recipe)
+            });
+            if !built.hand(upload) {
                 break;
             }
             self.jobs.pop_front();
@@ -497,7 +493,6 @@ impl Towns {
                     Some(Shift::new(goes, true).after(house.wait.0));
                 self.leaving.push(old);
             }
-            self.stale.insert(house.town);
         }
     }
 
@@ -706,8 +701,10 @@ impl TownDrawn {
     fn make(ctx: &Ctx, town: &Town) -> Result<Self, String> {
         let near = Entity::make(None, PLAIN)?;
         near.set_visible(false);
-        let far = Entity::make(None, PLAIN)?;
+        // From far, the whole town answers as its common.
+        let far = Entity::make(None, Thing::Common(town.id).key())?;
         far.set_shadows(true, true);
+        far.watch(true, true);
         let far_panes = Entity::make(Some(&far), PLAIN)?;
         far_panes.set_shadows(false, true);
         let common =

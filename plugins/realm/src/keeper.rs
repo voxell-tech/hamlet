@@ -26,6 +26,7 @@ use crate::bridge::Moment;
 use crate::frame::Frame;
 use crate::house::yard_of;
 use crate::layout::{HALL_PLOT, plot};
+use crate::palette::Palette;
 use crate::pick::Thing;
 use crate::realm::Ctx;
 use crate::society::{Agent, AgentId};
@@ -48,14 +49,10 @@ pub struct Robots {
 }
 
 impl Robots {
-    pub fn make(
-        ctx: &Ctx,
-        upload: &mut Upload,
-    ) -> Result<Self, String> {
-        let mut kit = Kit::make(ctx.pal)?;
-        kit.hand_over(upload);
+    /// No robots yet, their kit to be built as they update.
+    pub fn make(pal: &Palette) -> Result<Self, String> {
         Ok(Self {
-            kit,
+            kit: Kit::make(pal)?,
             robots: HashMap::new(),
             leaving: Vec::new(),
             asked: HashMap::new(),
@@ -71,7 +68,7 @@ impl Robots {
         dt: f32,
         upload: &mut Upload,
     ) {
-        if !self.kit.hand_over(upload) {
+        if !self.kit.hand_over(ctx.pal, upload) {
             return;
         }
         let now = ctx.clock;

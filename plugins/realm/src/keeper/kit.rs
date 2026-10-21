@@ -1,5 +1,5 @@
-//! The robot's parts as meshes and materials, shared by every robot
-//! and handed to the engine once.
+//! The robot's parts as meshes and materials, shared by every robot,
+//! each built and handed to the engine once, a few a frame.
 
 pub(super) mod body;
 pub(super) mod hats;
@@ -30,13 +30,78 @@ struct Piece {
     brass: Mb,
 }
 
-/// The places in the kit of a part's two meshes, either of which
-/// may be missing.
-pub(super) type Pair = (Option<usize>, Option<usize>);
+/// The places in the kit of a part's two meshes: paint or wood, and
+/// brass.
+pub(super) type Pair = (usize, usize);
+
+/// A part of the kit, built as it is handed over.
+#[derive(Clone, Copy)]
+enum Shape {
+    Hat(Hat),
+    Torso,
+    Arm,
+    Leg,
+    Pole,
+    Key,
+    Wheels,
+    Head,
+    Glass,
+    Eye,
+    Emblem(Emblem),
+    Lamp,
+    LampGlass,
+    Ring,
+    Prop(Prop),
+    Glint(Prop),
+    Mantle,
+    Pennant,
+}
+
+impl Shape {
+    fn build(self, pal: &Palette) -> Piece {
+        let one = |wood: Mb| Piece {
+            wood,
+            brass: Mb::new(),
+        };
+        match self {
+            Self::Hat(which) => hat(which, pal),
+            Self::Torso => torso(pal),
+            Self::Arm => arm(pal),
+            Self::Leg => leg(pal),
+            Self::Pole => pole(pal),
+            Self::Key => one(key(pal)),
+            Self::Wheels => one(wheels(pal)),
+            Self::Head => one(head(pal)),
+            Self::Glass => one(lantern::lantern_glass(0.145, 0.22)),
+            Self::Eye => one(eye(pal)),
+            Self::Emblem(which) => one(emblem(which, pal)),
+            Self::Lamp => one(lamp(pal)),
+            Self::LampGlass => {
+                one(lantern::lantern_glass(0.08, 0.15))
+            }
+            Self::Ring => {
+                let mut ring = Mb::new();
+                ring.torus(
+                    Vec3::ZERO,
+                    Vec3::Y,
+                    0.125,
+                    0.009,
+                    24,
+                    Vec3::ONE,
+                );
+                one(ring)
+            }
+            Self::Prop(which) => one(prop(which, pal)),
+            Self::Glint(which) => one(glint(which)),
+            Self::Mantle => one(mantle(pal)),
+            Self::Pennant => one(pennant(pal)),
+        }
+    }
+}
 
 /// The meshes every robot is made from, by their places in the kit,
 /// and the paints. Robots share them, so a town of robots draws in a
-/// few batches.
+/// few batches. A place whose part has no mesh stays empty.
 pub(super) struct Kit {
     pub paints: [Material; 7],
     pub torso: Pair,
@@ -55,60 +120,60 @@ pub(super) struct Kit {
     pub ring: usize,
     pub props: [usize; 9],
     /// The part of each prop that shows the robot's light.
-    pub glints: [Option<usize>; 9],
+    pub glints: [usize; 9],
     pub mantle: usize,
     pub pennant: usize,
-    /// Every mesh, once it is handed over, and those still waiting.
+    /// Every mesh, once it is handed over.
     meshes: Vec<Option<Mesh>>,
+    /// The parts yet to be built, the last first, each with the
+    /// places of its meshes, and the meshes built but not yet handed
+    /// over.
+    unbuilt: Vec<(Shape, Pair)>,
     waiting: Vec<(usize, MeshData)>,
 }
 
-/// The meshes of a kit as they are made, before they are handed over.
+/// The parts of a kit as their places are given out.
 #[derive(Default)]
-struct Making(Vec<MeshData>);
+struct Plan(Vec<(Shape, Pair)>);
 
-impl Making {
-    fn add(&mut self, mb: Mb) -> usize {
-        self.0.push(mb.data());
-        self.0.len() - 1
+impl Plan {
+    fn pair(&mut self, shape: Shape) -> Pair {
+        let at = self.0.len() * 2;
+        self.0.push((shape, (at, at + 1)));
+        (at, at + 1)
     }
 
-    fn maybe(&mut self, mb: Mb) -> Option<usize> {
-        (!mb.is_empty()).then(|| self.add(mb))
-    }
-
-    fn pair(&mut self, piece: Piece) -> Pair {
-        (self.maybe(piece.wood), self.maybe(piece.brass))
+    fn one(&mut self, shape: Shape) -> usize {
+        self.pair(shape).0
     }
 }
 
 impl Kit {
+    /// The paints, with every mesh still to build.
     pub fn make(pal: &Palette) -> Result<Self, String> {
-        let mut made = Making::default();
-        let mut ring = Mb::new();
-        ring.torus(Vec3::ZERO, Vec3::Y, 0.125, 0.009, 24, Vec3::ONE);
+        let mut plan = Plan::default();
         let paints = Paint::ALL
             .map(|p| Material::make(matte(pal.paints[p as usize])));
         let [a, b, c, d, e, f, g] = paints;
         let paints = [a?, b?, c?, d?, e?, f?, g?];
-        let mut hat = |h: Hat| made.pair(hat(h, pal));
         let hats = [
-            hat(Hat::Dome),
-            hat(Hat::Cap),
-            hat(Hat::Cone),
-            hat(Hat::Bowler),
-            hat(Hat::Pipe),
-            hat(Hat::Knit),
-            hat(Hat::Straw),
-        ];
-        let torso = made.pair(torso(pal));
-        let key = made.add(key(pal));
-        let arm = made.pair(arm(pal));
-        let leg = made.pair(leg(pal));
-        let wheels = made.add(wheels(pal));
-        let head = made.add(head(pal));
-        let glass = made.add(lantern::lantern_glass(0.145, 0.22));
-        let eye = made.add(eye(pal));
+            Hat::Dome,
+            Hat::Cap,
+            Hat::Cone,
+            Hat::Bowler,
+            Hat::Pipe,
+            Hat::Knit,
+            Hat::Straw,
+        ]
+        .map(|which| plan.pair(Shape::Hat(which)));
+        let torso = plan.pair(Shape::Torso);
+        let key = plan.one(Shape::Key);
+        let arm = plan.pair(Shape::Arm);
+        let leg = plan.pair(Shape::Leg);
+        let wheels = plan.one(Shape::Wheels);
+        let head = plan.one(Shape::Head);
+        let glass = plan.one(Shape::Glass);
+        let eye = plan.one(Shape::Eye);
         let emblems = [
             Emblem::Keyhole,
             Emblem::Dot,
@@ -117,17 +182,16 @@ impl Kit {
             Emblem::Plus,
             Emblem::Chevron,
         ]
-        .map(|e| made.add(emblem(e, pal)));
-        let pole = made.pair(pole(pal));
-        let lamp = made.add(lamp(pal));
-        let lamp_glass = made.add(lantern::lantern_glass(0.08, 0.15));
-        let ring = made.add(ring);
-        let props = Prop::HELD.map(|p| made.add(prop(p, pal)));
-        let glints = Prop::HELD.map(|p| made.maybe(glint(p)));
-        let mantle = made.add(mantle(pal));
-        let pennant = made.add(pennant(pal));
-        let waiting =
-            made.0.into_iter().enumerate().collect::<Vec<_>>();
+        .map(|which| plan.one(Shape::Emblem(which)));
+        let pole = plan.pair(Shape::Pole);
+        let lamp = plan.one(Shape::Lamp);
+        let lamp_glass = plan.one(Shape::LampGlass);
+        let ring = plan.one(Shape::Ring);
+        let props = Prop::HELD.map(|p| plan.one(Shape::Prop(p)));
+        let glints = Prop::HELD.map(|p| plan.one(Shape::Glint(p)));
+        let mantle = plan.one(Shape::Mantle);
+        let pennant = plan.one(Shape::Pennant);
+        let Plan(unbuilt) = plan;
         Ok(Self {
             paints,
             torso,
@@ -148,15 +212,38 @@ impl Kit {
             glints,
             mantle,
             pennant,
-            meshes: (0..waiting.len()).map(|_| None).collect(),
-            waiting,
+            meshes: (0..unbuilt.len() * 2).map(|_| None).collect(),
+            unbuilt,
+            waiting: Vec::new(),
         })
     }
 
-    /// Hands over the meshes still waiting, as many as `upload`
-    /// allows. True once every one is handed over.
-    pub fn hand_over(&mut self, upload: &mut Upload) -> bool {
-        while let Some((at, data)) = self.waiting.pop() {
+    /// Builds the parts and hands over their meshes, as many as
+    /// `upload` allows. True once every one is handed over.
+    pub fn hand_over(
+        &mut self,
+        pal: &Palette,
+        upload: &mut Upload,
+    ) -> bool {
+        while !self.unbuilt.is_empty() || !self.waiting.is_empty() {
+            if !upload.left() {
+                return false;
+            }
+            let Some((at, data)) = self.waiting.pop() else {
+                let Some((shape, (wood, brass))) = self.unbuilt.pop()
+                else {
+                    break;
+                };
+                let piece = shape.build(pal);
+                for (at, mb) in
+                    [(wood, piece.wood), (brass, piece.brass)]
+                {
+                    if !mb.is_empty() {
+                        self.waiting.push((at, mb.data()));
+                    }
+                }
+                continue;
+            };
             match upload.mesh(data) {
                 Ok(mesh) => self.meshes[at] = Some(mesh),
                 Err(Unsent::Full(data)) => {

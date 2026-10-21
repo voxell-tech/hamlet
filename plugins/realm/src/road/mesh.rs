@@ -2,6 +2,8 @@
 //! four levels of use, with stone bridges where it crosses water and
 //! the groove for its light.
 
+use std::ops::RangeInclusive;
+
 use glam::{Vec2, Vec3, Vec3Swizzles};
 
 use crate::land::Land;
@@ -167,6 +169,25 @@ impl Rows {
         self.rows.len() == self.wanted.len()
     }
 
+    /// The stretches of `most` rows each, from the first to the last,
+    /// that the road's meshes are built in.
+    pub(super) fn stretches(&self, most: usize) -> Vec<Stretch> {
+        let most = most.max(1);
+        let count = self.rows.len().div_ceil(most).max(1);
+        (0..count)
+            .map(|k| Stretch {
+                from: match k {
+                    0 => f32::NEG_INFINITY,
+                    _ => self.rows[k * most].s,
+                },
+                to: self
+                    .rows
+                    .get((k + 1) * most)
+                    .map_or(f32::INFINITY, |row| row.s),
+            })
+            .collect()
+    }
+
     /// The rows of `stride`.
     fn of(
         &self,
@@ -178,6 +199,44 @@ impl Rows {
             .iter()
             .filter(|row| kept(land, route, row.i, stride))
             .collect()
+    }
+}
+
+/// A stretch of a road, by distance along it: its rows from the first
+/// at `from` or past it to the first at `to` or past it, so that two
+/// stretches that meet share a row.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Stretch {
+    from: f32,
+    to: f32,
+}
+
+impl Stretch {
+    /// The rows of `rows` within it.
+    fn cut<'a>(self, rows: &[&'a Row]) -> Vec<&'a Row> {
+        let first = rows.partition_point(|row| row.s < self.from);
+        let last = rows.partition_point(|row| row.s < self.to);
+        rows[first.min(rows.len())..(last + 1).min(rows.len())]
+            .to_vec()
+    }
+
+    /// The steps of `steps` along a road `total` long within it,
+    /// those at either end included.
+    fn steps(
+        self,
+        total: f32,
+        steps: usize,
+    ) -> RangeInclusive<usize> {
+        let step = |s: f32| {
+            (s / total.max(1e-6) * steps as f32)
+                .floor()
+                .clamp(0.0, steps as f32) as usize
+        };
+        step(self.from)..=step(self.to)
+    }
+
+    fn holds(self, s: f32) -> bool {
+        self.from <= s && s < self.to
     }
 }
 
@@ -282,9 +341,10 @@ impl Span {
     }
 }
 
-/// The road's surface for a level of use. `salt` is the road's own
-/// number, which settles its small differences. Where a bridge of
-/// `met` crosses a bridge of its own, the two are one deck.
+/// The road's surface for a level of use along `stretch`. `salt` is
+/// the road's own number, which settles its small differences. Where
+/// a bridge of `met` crosses a bridge of its own, the two are one
+/// deck.
 pub(super) fn surface(
     land: &Land,
     route: &Route,
@@ -292,11 +352,12 @@ pub(super) fn surface(
     level: RoadLevel,
     salt: u64,
     met: &[Span],
+    stretch: Stretch,
 ) -> Mb {
     let pal = &land.pal;
     let mut mb = Mb::new();
     let lift = lift(level, salt);
-    let laid = rows.of(land, route, stride(level));
+    let laid = stretch.cut(&rows.of(land, route, stride(level)));
     shoulder(&mut mb, land, pal, &laid, level, lift);
     match level {
         RoadLevel::Paved => {
@@ -309,10 +370,10 @@ pub(super) fn surface(
                 false,
             );
         }
-        RoadLevel::Rail => rails(&mut mb, pal, route, lift),
+        RoadLevel::Rail => rails(&mut mb, pal, route, lift, stretch),
         _ => {}
     }
-    bridges(&mut mb, land, pal, route, rows, lift, met);
+    bridges(&mut mb, land, pal, route, rows, lift, met, stretch);
     mb
 }
 
@@ -421,8 +482,14 @@ fn flags(
     }
 }
 
-/// Sleepers on the ballast and two rails over them.
-fn rails(mb: &mut Mb, pal: &Palette, route: &Route, lift: f32) {
+/// Sleepers on the ballast and two rails over them, along `stretch`.
+fn rails(
+    mb: &mut Mb,
+    pal: &Palette,
+    route: &Route,
+    lift: f32,
+    stretch: Stretch,
+) {
     let total = route.total();
     let frame = |s: f32| {
         let (p, tan) = route.at(s);
@@ -435,7 +502,7 @@ fn rails(mb: &mut Mb, pal: &Palette, route: &Route, lift: f32) {
     let count = (total / 0.62).floor() as usize;
     for k in 0..count {
         let s = (k as f32 + 0.5) * total / count as f32;
-        if on_plaza(s) {
+        if !stretch.holds(s) || on_plaza(s) {
             continue;
         }
         let (p, tan, across) = frame(s);
@@ -470,10 +537,10 @@ fn rails(mb: &mut Mb, pal: &Palette, route: &Route, lift: f32) {
         }
     }
     let (steel, bright) = (pal.steel, pal.steel_bright);
-    let steps = total.ceil() as usize;
+    let steps = (total.ceil() as usize).max(1);
     for side in [-1.0f32, 1.0] {
         let mut prev: Option<[Vec3; 4]> = None;
-        for k in 0..=steps {
+        for k in stretch.steps(total, steps) {
             let s = total * k as f32 / steps as f32;
             if on_plaza(s) {
                 prev = None;
@@ -511,8 +578,8 @@ fn rails(mb: &mut Mb, pal: &Palette, route: &Route, lift: f32) {
 }
 
 /// Stone decks, walls and parapets wherever the route stands clear of
-/// the ground, with arches over the water. A parapet stops where it
-/// would stand on the deck of a bridge of `met`.
+/// the ground along `stretch`, with arches over the water. A parapet
+/// stops where it would stand on the deck of a bridge of `met`.
 fn bridges(
     mb: &mut Mb,
     land: &Land,
@@ -521,13 +588,14 @@ fn bridges(
     rows: &Rows,
     lift: f32,
     met: &[Span],
+    stretch: Stretch,
 ) {
     let (water, half) =
         (land.set.land.water_y, land.set.road.bridge_half);
     if !route.raised.iter().any(|&r| r > land.set.road.bridge_from) {
         return;
     }
-    let all = rows.of(land, route, 1);
+    let all = stretch.cut(&rows.of(land, route, 1));
     flags(mb, pal, &all, half - 0.16, lift, true);
     let under = |row: &Row| {
         let ground = row.c.y - route.raised[row.i];
@@ -642,15 +710,16 @@ pub(super) fn groove_lift(level: RoadLevel, salt: u64) -> f32 {
         }
 }
 
-/// The groove: a slate bed with the light strip down its middle. UV.x
-/// is the distance along the road and UV.y runs from -1 to 1 across
-/// it, as the groove's shader expects.
+/// The groove along `stretch`: a slate bed with the light strip down
+/// its middle. UV.x is the distance along the road and UV.y runs from
+/// -1 to 1 across it, as the groove's shader expects.
 pub(super) fn groove(
     land: &Land,
     route: &Route,
     rows: &Rows,
     level: RoadLevel,
     salt: u64,
+    stretch: Stretch,
 ) -> Mb {
     let width = land.set.road.groove_width;
     let (lift, skirt) = (groove_lift(level, salt), 0.07);
@@ -662,7 +731,7 @@ pub(super) fn groove(
         Vec3::ONE
     };
     let mut prev: Option<[u32; 4]> = None;
-    for row in rows.of(land, route, GROOVE_STRIDE) {
+    for row in stretch.cut(&rows.of(land, route, GROOVE_STRIDE)) {
         // On a common the groove hands over to the common's own ring.
         if row.plaza {
             prev = None;

@@ -188,7 +188,7 @@ pub struct Camera {
     view: View,
     ahead: Option<View>,
     steer: Steer,
-    /// The pixels the pointer moved since the left button went down.
+    /// The pixels the pointer moved since a button last went down.
     pub travel: f32,
     /// The view's size, and the pointer over it, in the interface's
     /// pixels.
@@ -364,23 +364,26 @@ impl Camera {
     ) {
         match input {
             SceneInput::Pressed(press) if press.view == VIEW => {
-                self.steer = match (press.button, press.down) {
-                    (MouseButton::Primary, true) => {
-                        self.travel = 0.0;
-                        Steer::Slide
-                    }
-                    (MouseButton::Secondary, true) => Steer::Turn,
-                    _ => Steer::Still,
+                let steer = match press.button {
+                    MouseButton::Primary => Steer::Slide,
+                    MouseButton::Secondary => Steer::Turn,
+                    _ => return,
                 };
+                if press.down {
+                    self.travel = 0.0;
+                    self.steer = steer;
+                } else if self.steer == steer {
+                    // Letting go of the other button leaves the drag
+                    // as it is.
+                    self.steer = Steer::Still;
+                }
             }
             SceneInput::Moved(pointer) if pointer.view == VIEW => {
                 self.pointer = Some(Vec2::new(pointer.x, pointer.y));
                 let delta = Vec2::new(pointer.dx, pointer.dy);
+                self.travel += delta.length();
                 match self.steer {
-                    Steer::Slide => {
-                        self.travel += delta.length();
-                        self.slide(camera, delta);
-                    }
+                    Steer::Slide => self.slide(camera, delta),
                     Steer::Turn => {
                         self.orbit.yaw -= delta.x * camera.turn_rate;
                         self.orbit.pitch = (self.orbit.pitch
