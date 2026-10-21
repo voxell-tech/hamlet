@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use hamlet_protocol::{
     ClientMessage, Fault, Reply, ReplyKind, ServerMessage,
 };
+use jsonschema::JsonType;
 use jsonschema::error::{TypeKind, ValidationErrorKind};
 use schemars::generate::SchemaSettings;
 use serde_json::Value;
@@ -333,7 +334,21 @@ fn words(error: &jsonschema::ValidationError<'_>) -> String {
         ValidationErrorKind::Type {
             kind: TypeKind::Single(kind),
         } => format!("{at} must be {kind}"),
-        ValidationErrorKind::AnyOf { context } => context
+        // A nullable field names the type it holds when it is not
+        // null.
+        ValidationErrorKind::Type {
+            kind: TypeKind::Multiple(kinds),
+        } => kinds
+            .iter()
+            .find(|kind| *kind != JsonType::Null)
+            .map_or_else(
+                || format!("{at} is not valid"),
+                |kind| format!("{at} must be {kind}"),
+            ),
+        // A tagged enum's shapes are a `oneOf`, an untagged one's an
+        // `anyOf`; either way the first shape's error is the words.
+        ValidationErrorKind::AnyOf { context }
+        | ValidationErrorKind::OneOfNotValid { context } => context
             .iter()
             .flatten()
             .next()
@@ -394,6 +409,7 @@ mod tests {
                 r#""doc":"settings","set":{"model":null}"#,
                 "`set.model` must be string",
             ),
+            (r#""doc":"charter","text":7"#, "`text` must be string"),
         ] {
             let message =
                 format!(r#"{{"type":"edit","id":"{id}",{fields}}}"#);
@@ -414,5 +430,19 @@ mod tests {
                 None
             );
         }
+    }
+
+    #[test]
+    fn a_malformed_pick_names_what_it_lacks() {
+        let protocol = Protocol::new().unwrap();
+        let id = "00000000-0000-4000-8000-000000000001";
+        let message = format!(
+            r#"{{"type":"answer","id":"{id}","wait":"w","choice":"reply","picks":[{{"kind":"offer"}}]}}"#
+        );
+        assert_eq!(
+            protocol.parse(&message).unwrap_err().text,
+            "This `answer` message does not fit the protocol: \
+             `picks.0` lacks `index`."
+        );
     }
 }
