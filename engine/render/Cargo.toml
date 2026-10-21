@@ -1,0 +1,17 @@
+[package]
+name = "hamlet_engine_render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "What plugins draw: scenes kept entity by entity, shown in a panel's viewport or behind the dock, and their own GPU work, checked before use"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_engine_core.workspace = true
+hamlet_engine_shell.workspace = true
+bevy.workspace = true
+naga.workspace = true
+serde.workspace = true
+wgpu.workspace = true

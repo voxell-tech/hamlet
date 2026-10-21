@@ -40,6 +40,7 @@ fn main() -> AppExit {
             hamlet_engine_net::plugin,
             hamlet_engine_agents::plugin,
             hamlet_engine_desktop::plugin,
+            hamlet_engine_render::plugin,
             hamlet_engine_wasm::plugin,
             demo::plugin,
         ))

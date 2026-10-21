@@ -3650,6 +3650,7 @@ dependencies = [
  "hamlet_engine_grants",
  "hamlet_engine_net",
  "hamlet_engine_plugins",
+ "hamlet_engine_render",
  "hamlet_engine_shell",
  "hamlet_engine_wasm",
 ]
@@ -3760,6 +3761,7 @@ dependencies = [
  "hamlet_engine_grants",
  "hamlet_engine_net",
  "hamlet_engine_plugins",
+ "hamlet_engine_render",
  "hamlet_engine_shell",
  "hamlet_engine_wasm",
  "serde",
@@ -3790,6 +3792,18 @@ dependencies = [
  "hamlet_engine_shell",
  "serde",
  "toml",
+]
+
+[[package]]
+name = "hamlet_engine_render"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "hamlet_engine_core",
+ "hamlet_engine_shell",
+ "naga",
+ "serde",
+ "wgpu",
 ]
 
 [[package]]
@@ -3828,6 +3842,7 @@ dependencies = [
  "hamlet_engine_core",
  "hamlet_engine_grants",
  "hamlet_engine_plugins",
+ "hamlet_engine_render",
  "hamlet_engine_shell",
  "rfd",
  "serde",

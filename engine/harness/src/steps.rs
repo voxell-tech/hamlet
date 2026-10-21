@@ -87,6 +87,22 @@ pub enum Step {
     },
     /// Fails the fetch of the address once it is made.
     Fail { url: String, why: String },
+    /// Waits for the plugin's scene to hold as many of each as given.
+    ExpectScene {
+        plugin: String,
+        entities: Option<usize>,
+        meshes: Option<usize>,
+        materials: Option<usize>,
+        cameras: Option<usize>,
+    },
+    /// Clicks the entity of the plugin's scene named `key`, the copy
+    /// `index` of instances.
+    Pick {
+        plugin: String,
+        key: u32,
+        #[serde(default)]
+        index: u32,
+    },
 }
 
 fn ok() -> u16 {
@@ -218,6 +234,41 @@ impl Step {
             ),
             Self::Fail { url, why } => {
                 harness.reply(url, Err(Failure::Failed(why.clone())))
+            }
+            Self::ExpectScene {
+                plugin,
+                entities,
+                meshes,
+                materials,
+                cameras,
+            } => {
+                let wanted =
+                    [*entities, *meshes, *materials, *cameras];
+                let mut last = None;
+                let met = harness.until(|harness| {
+                    last = harness.scene(plugin);
+                    last.is_some_and(|held| {
+                        let had = [
+                            held.entities,
+                            held.meshes,
+                            held.materials,
+                            held.cameras,
+                        ];
+                        wanted.iter().zip(had).all(|(want, has)| {
+                            want.is_none_or(|want| want == has)
+                        })
+                    })
+                });
+                met.then_some(()).ok_or_else(|| match last {
+                    Some(held) => format!(
+                        "the scene of {plugin} never held what was \
+                         wanted; it holds {held:?}"
+                    ),
+                    None => format!("{plugin} never made a scene"),
+                })
+            }
+            Self::Pick { plugin, key, index } => {
+                harness.pick(plugin, *key, *index)
             }
         }
     }

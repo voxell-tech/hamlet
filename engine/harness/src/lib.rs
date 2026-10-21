@@ -5,6 +5,7 @@
 //! reached.
 
 mod outline;
+mod scene;
 mod steps;
 
 #[cfg(test)]
@@ -49,6 +50,7 @@ use hamlet_engine_wasm::{
 use serde::Deserialize;
 
 pub use self::outline::HarnessWorldExt;
+pub use self::scene::SceneCounts;
 pub use self::steps::{Step, Steps};
 
 /// Where cargo puts a plugin crate's release build, in its folder.
@@ -97,6 +99,7 @@ impl Harness {
                 hamlet_engine_assets::plugin,
                 hamlet_engine_bus::plugin,
                 hamlet_engine_net::plugin,
+                hamlet_engine_render::plugin,
                 hamlet_engine_wasm::plugin,
                 hamlet_engine_shell::views_plugin,
             ));

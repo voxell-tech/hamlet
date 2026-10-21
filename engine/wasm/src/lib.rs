@@ -14,6 +14,7 @@ mod panel;
 mod reload;
 mod retained;
 mod run;
+mod scene;
 mod surfaces;
 mod wasi;
 
@@ -47,6 +48,9 @@ use self::panel::{Inbox, Moving};
 use self::reload::{Loaded, Reloading};
 use self::retained::{Holders, Kids, WasmWorldExt};
 pub use self::retained::{NodeAction, NodeOf, NodeStats, UiRoot};
+pub use self::scene::{
+    Powers, SceneCaps, SceneError, SceneInbox, ShowsCamera,
+};
 use self::surfaces::SurfaceChange;
 
 pub fn plugin(app: &mut App) {
@@ -59,6 +63,7 @@ pub fn plugin(app: &mut App) {
         panel::plugin,
         retained::plugin,
         reload::plugin,
+        scene::plugin,
     ));
 }
 

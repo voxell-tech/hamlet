@@ -164,6 +164,8 @@ pub(crate) struct Holder {
 pub struct NodeOf {
     pub plugin: Entity,
     pub key: u32,
+    /// The holder of the node's properties.
+    pub holder: Entity,
     hovered: bool,
 }
 
@@ -1088,6 +1090,7 @@ fn node(
         cx.world.entity_mut(node).insert(NodeOf {
             plugin,
             key,
+            holder,
             hovered: false,
         });
         cx.effect(

@@ -284,6 +284,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "scene_demo"
+version = "0.1.0"
+dependencies = [
+ "hamlet_engine_sdk",
+]
+
+[[package]]
 name = "semver"
 version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"

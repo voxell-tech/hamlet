@@ -105,7 +105,7 @@ struct Hidden(WinitSettings);
 
 /// The root the views are built under.
 #[derive(Resource)]
-struct Root(Entity);
+pub(crate) struct Root(pub(crate) Entity);
 
 fn open(world: &mut World) {
     world.spawn((Camera2d, IsDefaultUiCamera));

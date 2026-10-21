@@ -81,6 +81,34 @@ pub struct Budgets {
     /// How deep a node of a retained panel may sit under its root;
     /// a call that makes one deeper fails.
     pub node_depth: usize,
+    /// Entities of its scenes held at once, each copy of instances
+    /// counted; past them a make fails.
+    pub scene_entities: usize,
+    /// Vertices of its meshes held at once.
+    pub scene_vertices: usize,
+    pub scene_materials: usize,
+    pub scene_lights: usize,
+    pub scene_cameras: usize,
+    /// Changes to its scenes in one call; past them the call fails.
+    pub scene_changes_per_call: usize,
+    /// The same, in one second; past them the plugin waits.
+    pub scene_changes_per_second: u32,
+    /// Bytes of GPU memory its meshes, textures and buffers take, as
+    /// the engine counts them; past them a make fails.
+    pub gpu_memory: u64,
+    /// Shaders, buffers, textures, compute and passes it holds at
+    /// once.
+    pub gpu_objects: usize,
+    /// Bytes of one shader's source.
+    pub shader_bytes: usize,
+    /// Workgroups its compute runs in one frame; a dispatch past
+    /// them is refused, and runs past them wait for the next
+    /// frame.
+    pub workgroups_per_frame: u32,
+    /// Milliseconds of GPU time its compute and passes take in one
+    /// second, where the GPU can time them; past them they wait for
+    /// the next second.
+    pub gpu_time_per_second: f32,
 }
 
 impl Tuning for Budgets {

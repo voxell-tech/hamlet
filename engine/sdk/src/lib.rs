@@ -40,13 +40,14 @@
 
 pub mod assets;
 mod entry;
+pub mod scene;
 pub mod ui;
 
 /// The bindings of `engine/wit/hamlet_engine.wit`.
 pub mod bindings {
     wit_bindgen::generate!({
         path: "../wit/hamlet_engine.wit",
-        world: "ui-plugin",
+        world: "render-plugin",
         pub_export_macro: true,
         export_macro_name: "export_guest",
     });
@@ -119,6 +120,17 @@ pub trait Plugin: Default + 'static {
     ) -> Result<Vec<u8>, String> {
         let _ = (caller, argument, world);
         Err(format!("there is no service {service}"))
+    }
+
+    /// What the person did in a view of one of its scenes.
+    fn scene(&mut self, input: scene::SceneInput, world: &mut World) {
+        let _ = (input, world);
+    }
+
+    /// A frame passed, `micros` after the last, while it animates
+    /// ([`scene::animate`]).
+    fn tick(&mut self, micros: u32, world: &mut World) {
+        let _ = (micros, world);
     }
 }
 
@@ -263,6 +275,24 @@ macro_rules! export {
                 }
             }
 
+            impl $crate::bindings::exports::hamlet::engine::scene_guest::Guest
+                for Exports
+            {
+                fn input(
+                    inputs: ::std::vec::Vec<$crate::scene::SceneInput>,
+                ) {
+                    PLUGIN.with_borrow_mut(|plugin| {
+                        $crate::glue::scene(plugin, inputs)
+                    })
+                }
+
+                fn tick(micros: u32) {
+                    PLUGIN.with_borrow_mut(|plugin| {
+                        $crate::glue::tick(plugin, micros)
+                    })
+                }
+            }
+
             $crate::bindings::export_guest!(
                 Exports with_types_in $crate::bindings
             );
@@ -320,5 +350,20 @@ pub mod glue {
         with_world(|world| {
             plugin.serve(service, caller, argument, world)
         })
+    }
+
+    pub fn scene<P: Plugin>(
+        plugin: &mut P,
+        inputs: Vec<crate::scene::SceneInput>,
+    ) {
+        with_world(|world| {
+            for input in inputs {
+                plugin.scene(input, world);
+            }
+        });
+    }
+
+    pub fn tick<P: Plugin>(plugin: &mut P, micros: u32) {
+        with_world(|world| plugin.tick(micros, world));
     }
 }

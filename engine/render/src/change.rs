@@ -1,0 +1,174 @@
+//! A change to a scene, as its owner made it, by the number the
+//! owner's host gave each thing in it.
+
+use bevy::camera::{ClearColorConfig, Exposure, Projection};
+use bevy::core_pipeline::tonemapping::Tonemapping;
+use bevy::light::{
+    AmbientLight, DirectionalLight, PointLight, SpotLight,
+};
+use bevy::material::AlphaMode;
+use bevy::mesh::Mesh;
+use bevy::pbr::{DistanceFog, StandardMaterial};
+use bevy::post_process::bloom::Bloom;
+use bevy::render::view::Msaa;
+use bevy::transform::components::Transform;
+
+use crate::shader::CheckedShader;
+
+#[derive(Clone)]
+pub enum SceneChange {
+    /// An entity, under `parent` or at the scene's root.
+    Entity {
+        id: u32,
+        key: u32,
+        parent: Option<u32>,
+    },
+    Transform {
+        id: u32,
+        transform: Transform,
+    },
+    Visible {
+        id: u32,
+        visible: bool,
+    },
+    Parent {
+        id: u32,
+        parent: Option<u32>,
+    },
+    Draw {
+        id: u32,
+        mesh: u32,
+        material: u32,
+    },
+    Undraw(u32),
+    Light {
+        id: u32,
+        light: Option<SceneLight>,
+    },
+    Shadows {
+        id: u32,
+        cast: bool,
+        receive: bool,
+    },
+    Label {
+        id: u32,
+        text: Option<String>,
+    },
+    Watch {
+        id: u32,
+        hover: bool,
+        click: bool,
+    },
+    /// A mesh made, or given in place of what it was.
+    Mesh {
+        id: u32,
+        mesh: Mesh,
+    },
+    /// A material made, or set.
+    Material {
+        id: u32,
+        material: StandardMaterial,
+    },
+    Instances {
+        id: u32,
+        key: u32,
+        parent: Option<u32>,
+        mesh: u32,
+        material: u32,
+    },
+    /// The copies of instances, one for each transform.
+    Copies {
+        id: u32,
+        transforms: Vec<Transform>,
+    },
+    /// A camera at the entity `at`, drawing behind the dock when
+    /// `background`, else into an image a viewport shows.
+    Camera {
+        id: u32,
+        at: u32,
+        setup: CameraSetup,
+        background: bool,
+    },
+    Setup {
+        id: u32,
+        setup: CameraSetup,
+    },
+    /// A shader that passed its check.
+    Shader {
+        id: u32,
+        shader: CheckedShader,
+    },
+    /// A storage buffer of `size` bytes, zeroed.
+    Buffer {
+        id: u32,
+        size: u32,
+    },
+    Write {
+        id: u32,
+        offset: u32,
+        bytes: Vec<u8>,
+    },
+    /// An image of sRGB bytes, made or given in place of what it was.
+    Texture {
+        id: u32,
+        width: u32,
+        height: u32,
+        pixels: Vec<u8>,
+    },
+    /// A material of the shader `shader`.
+    Shaded {
+        id: u32,
+        shader: u32,
+        alpha: AlphaMode,
+        double_sided: bool,
+        lit: bool,
+        params: Vec<f32>,
+        texture: Option<u32>,
+        data: Option<u32>,
+    },
+    /// The params of a shaded material or of compute.
+    Params {
+        id: u32,
+        params: Vec<f32>,
+    },
+    Compute {
+        id: u32,
+        shader: u32,
+        data: u32,
+        extra: Option<u32>,
+    },
+    Dispatch {
+        id: u32,
+        groups: [u32; 3],
+        every_frame: bool,
+    },
+    /// The pass of the camera `camera`, or none.
+    Pass {
+        camera: u32,
+        shader: Option<u32>,
+        params: Vec<f32>,
+    },
+    /// Takes away whatever has this number, with what is under it.
+    Drop(u32),
+}
+
+#[derive(Clone, Debug)]
+pub enum SceneLight {
+    Directional(DirectionalLight),
+    Point(PointLight),
+    Spot(SpotLight),
+}
+
+/// How a camera draws.
+#[derive(Clone)]
+pub struct CameraSetup {
+    pub projection: Projection,
+    pub clear: ClearColorConfig,
+    pub hdr: bool,
+    pub tonemapping: Tonemapping,
+    pub exposure: Exposure,
+    pub fog: Option<DistanceFog>,
+    pub bloom: Option<Bloom>,
+    pub ambient: AmbientLight,
+    pub msaa: Msaa,
+}

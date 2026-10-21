@@ -92,6 +92,14 @@ impl Nodes {
         Ok(())
     }
 
+    /// Fails unless `node` is a frame the plugin holds.
+    pub(crate) fn frame(&self, node: u32) -> wasmtime::Result<()> {
+        match self.kind(node)? {
+            Kind::Frame => Ok(()),
+            _ => Err(wasmtime::Error::new(NodeError::Property)),
+        }
+    }
+
     fn kind(&self, node: u32) -> wasmtime::Result<Kind> {
         self.held
             .get(&node)

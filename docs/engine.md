@@ -30,6 +30,7 @@ Each depends only on those above it, and each adds one Bevy plugin,
 | `engine/net` | `hamlet_engine_net` | The network service: fetches to granted hosts at public addresses |
 | `engine/agents` | `hamlet_engine_agents` | The agents service: the agent core run in the engine, behind a protocol |
 | `engine/desktop` | `hamlet_engine_desktop` | The desktop service: the machine kept awake while an agent works, addresses and files opened for plugins, the address under the pointer, one engine per home |
+| `engine/render` | `hamlet_engine_render` | What plugins draw: scenes kept entity by entity, their views in a viewport or behind the dock, picking, and plugins' own WGSL checked with naga, their compute and passes, held to their GPU time |
 | `engine/wasm` | `hamlet_engine_wasm` | The host of WASM plugins: wasmtime, a store per plugin, its budgets, and the glue from the WIT to the services. The only crate that knows wasmtime |
 | `engine/harness` | `hamlet_engine_harness` | The engine without a window, for tests, and `plugin_check` |
 | `engine/app` | `hamlet_engine` | The binary, and a demo plugin built into it |
@@ -80,8 +81,10 @@ same types.
   `agents.chief`, `agents.settings` and `agents.keys` the target `local`
   (see [The agents](#the-agents)), `desktop.open` the target `https` or
   a folder, and `desktop.settings` the target `local` (see
-  [The desktop](#the-desktop)). Powers that are never granted have no
-  name, so no manifest can ask for them.
+  [The desktop](#the-desktop)), and `render.scene`, `render.shader`
+  and `render.compute` the target `gpu` (see
+  [Scenes and GPU work](#scenes-and-gpu-work)). Powers that are never
+  granted have no name, so no manifest can ask for them.
 - **Assets.** An `AssetId` the store gives, a `TypeName` such as
   `weather.forecast` with a version (`AssetType`), and an `AssetInfo`:
   id, type, owner, name and version. The engine never reads inside an
@@ -203,6 +206,13 @@ or a call served can change what its views show. `info`, `warn` and
 payloads it shares into bytes. `ENGINE_VERSION` is the version of
 the engine the SDK comes with.
 
+- **Scenes** are `hamlet_engine_sdk::scene`: the handles of the
+  `scene` interface, `Transform::looking_at`, `Pbr::colored`, the
+  default `CameraSettings`, `copies` for instances, `animate`, the
+  view `viewport`, and `scene::gpu` for shaders, buffers, textures,
+  compute and passes. What the person does in a view comes to
+  `Plugin::scene`, and each frame while it animates to `Plugin::tick`
+  (see [Scenes and GPU work](#scenes-and-gpu-work)).
 - **Views** are written with fynix (`hamlet_engine_sdk::ui`). `Hamlet`
   is fynix's backend: a node is made in the engine as fynix spawns
   it, of the kind of its element, and a property still at its first
@@ -291,9 +301,12 @@ A plugin's `steps.toml` is a script for it: `with` lists other built
 plugins it needs, from its folder, and each `[[step]]` does one thing:
 `allow`, `admit` (with an answer for every ask), `answer` (a first
 use), `frames`, `expect` and `lacks` (text in a panel's outline),
-`click`, `write`, `toggle`, `run`, `expect_asset`, `expect_log`, and
-`reply` or `fail` for a fetch. A step that expects waits for it; the
-script stops at the first that fails.
+`click`, `write`, `toggle`, `run`, `expect_asset`, `expect_log`,
+`reply` or `fail` for a fetch, `expect_scene` (how many entities,
+meshes, materials and cameras a plugin's scene holds) and `pick` (a
+click on the entity of a key, and the copy of instances). A step that
+expects waits for it; the script stops at the first that fails. The
+harness has no GPU: a scene is kept and counted, never drawn.
 
 ```sh
 cargo run -p hamlet_engine_harness --bin plugin_check -- <folder> [<folder>...] [--steps <file>]
@@ -911,6 +924,18 @@ Settings and Welcome have a `steps.toml`; the harness runs no agents
 service, so they check the pages and the card's steps on their own.
 The status items are not read by the harness.
 
+`plugins/scene_demo` (`hamlet.scene_demo`, asking `render.scene`,
+`render.shader` and `render.compute`) is the panel Scene: a viewport
+of a lit scene, under a sun with shadows, of a ground, a sphere, a
+ring in a material of its own WGSL (`ring.wgsl`), a six-sided pyramid
+of its own mesh with a colour at each vertex, and a field of 400
+cubes as copies of one, lifted in waves by compute (`waves.wgsl`)
+through the material that draws them (`field.wgsl`), with a pass that
+darkens the view's edges (`edges.wgsl`). Dragging turns the camera
+about the middle and the wheel brings it nearer; the shape or cube
+under the pointer lights up, and a click names what it hit over the
+view. Its `steps.toml` counts the scene and clicks a shape and a cube.
+
 The agents' panels are four more, each following the focus the
 agents service keeps, so what one opens or selects the others show.
 They are built with `plugins/agents_ui`, a library and no plugin: the
@@ -1225,9 +1250,154 @@ says why and every request fails saying so.
   launch on the same home asks the running engine to show its window
   (`ShowWindow`), on every system, and ends.
 
+## Scenes and GPU work
+
+`hamlet_engine_render` draws what plugins build; the WASM host turns
+their calls into its changes (`engine/wasm/src/scene.rs`). The world
+`render-plugin` is `ui-plugin` with `scene-view`: the interfaces
+`scene` and `gpu`, and the export `scene-guest`. A plugin that uses
+none of them imports none of them.
+
+### Layer one: scenes
+
+- **The scene** is a subset of Bevy's ECS, kept by handle: `mesh` (a
+  shape of the engine's, or `mesh-data` of the plugin's: positions,
+  normals made when left out, uvs, a colour at each vertex and the
+  triangles, checked whole and uploaded once; `update` replaces it),
+  `material` (`pbr`: base colour, emissive, roughness, metallic, alpha
+  mode and cutoff, unlit, both faces, fog; a mesh's vertex colours
+  tint it), `entity` (under a parent or the scene's root, with a key
+  of the plugin's: its transform, visibility, parent, mesh and
+  material, light, shadows, words over it and what it watches),
+  `instances` (copies of one mesh in one material, ten floats a copy,
+  copy `i` tagged `i` for a shader; Bevy draws them together) and
+  `camera` (at an entity, along its forward). Dropping a handle takes
+  its thing away; dropping an entity takes away what is under it.
+- **Lights** are directional (with shadows), point and spot, each a
+  light of an entity; ambient light is a camera's.
+- **A camera's settings**: a perspective or orthographic projection,
+  what it clears to, high range, tonemapping, exposure, distance fog,
+  bloom, ambient light and samples a pixel.
+- **Only changes cross.** Each call is one change, numbered by the
+  host and applied as the frame's calls end; nothing is sent again
+  each frame. `animate` asks for `tick` each frame, for a plugin that
+  moves things itself.
+- **A viewport** is a frame of the plugin's panel that `show-in` gives
+  a camera of target `viewport`: its widget shows the image the camera
+  draws into, sized to the room the layout gives it (the frames above
+  it grow, `[render] grow_levels` at most), and the camera draws only
+  while one shows it. In the SDK, `scene::viewport` is that frame.
+- **Behind the dock.** A camera of target `background` draws into the
+  window under the interface. One plugin holds the window's background
+  at a time (the shell's `Backdrop`); another's make is refused. While
+  one does, the shell's root has no fill and lets the pointer through,
+  and the interface is drawn over the scene without clearing it, so
+  the scene shows where the dock has no panel.
+- **The pointer.** Over a view, its moves, buttons and wheel are told
+  to the plugin with the key of the camera's entity, in the
+  interface's pixels; behind the dock, only where no UI node is under
+  it. A press begun over a view is let go anywhere. A ray from the
+  camera through the pointer finds the nearest watched entity of the
+  plugin's (Bevy's mesh ray casting): `over` and `out` as it changes,
+  `click` on a press let go within `[render] click_slop`, each with the
+  point hit and its normal, and the copy of instances.
+- **Words over the world** (`set-label`) are texts of the interface
+  over each viewport, kept where the camera sees the entity.
+
+### Layer two: the plugin's own GPU work
+
+- **WGSL, checked first.** `shader.compile` takes plain WGSL of one
+  kind, without `#`, of at most `[budgets] shader_bytes`. The engine's
+  bindings come before it and its entry points after it, so the source
+  declares no bindings, no entry point but a compute shader's `main`
+  and no `override`; naga parses and validates the whole, and a
+  refusal names the line of the source. A material gives
+  `fn shade(surface: Surface) -> vec4<f32>` and may give
+  `fn displace(vertex: Vertex) -> vec3<f32>`; a pass
+  `fn post(pass: Pass) -> vec4<f32>`; compute
+  `@compute @workgroup_size(..) fn main`, of at most the device's
+  invocations a workgroup. The fixed names: `params` (16 `vec4<f32>`,
+  the plugin's 64 floats), and `picture`, `picture_sampler` and
+  `data` (a read-only storage buffer) of a material; `screen`,
+  `screen_sampler` and `frame` (size and time) of a pass; `data` and
+  `extra` (read-write storage buffers) and `frame` (time, delta and a
+  count) of compute.
+- **Bounded.** The shader Bevy is given has wgpu's runtime checks on
+  (`ValidateShader::Enabled`): every index is bounds-checked and every
+  loop is bounded by naga's force-loop-bounding. Where the backend has
+  no loop bounding (not Vulkan, Metal or DX12), a source with a loop
+  is refused.
+- **Materials** (`gpu.shaded-material`) are Bevy's `Material` with the
+  plugin's shader in place of its own, lit by the scene's lights
+  through Bevy's PBR functions or shown as `shade` gives, fogged and
+  tonemapped as Bevy's own; `set-params` changes their params. Their
+  vertices may move, so they have no prepass and cast no shadows.
+- **Compute** (`gpu.compute`) runs over the plugin's buffers
+  (`gpu.buffer`, of 16-byte items; a write uploads the whole buffer as
+  the plugin last wrote it), once or every frame, before the cameras
+  draw. The workgroups of one plugin's dispatches in a frame are
+  `[budgets] workgroups_per_frame` at most; one dispatch past them is
+  refused, and what is past them in a frame waits for the next.
+- **Passes** (`gpu.set-pass`) run over the image of one of the
+  plugin's cameras in Bevy's 3D schedule, after it draws and before
+  its tonemapping.
+- **Textures** (`gpu.texture`) are sRGB images a material samples.
+- **GPU time.** Where the device has timestamp queries, each compute
+  and pass is timed (`[render] timed_slots` at once), read back each
+  frame, and its plugin's milliseconds summed over a second; a plugin
+  past `[budgets] gpu_time_per_second` has its compute and passes wait
+  for the next second, and the log says so. A material is drawn inside
+  Bevy's own passes, among every other mesh, so it is not timed apart.
+- **A failing device.** Bevy's `RenderErrorHandler` is the engine's:
+  when the device is lost or wgpu reports an error while plugins have
+  GPU work of their own, those plugins are stopped (`GpuLost`) and the
+  renderer is built again (`RenderErrorPolicy::Recover`). With no such
+  work the engine stops, as Bevy's own handler has it.
+
+### Capabilities and budgets
+
+- `render.scene` makes meshes, materials, entities, instances and
+  cameras; `render.shader` compiles material and pass shaders, makes
+  shaded materials and sets passes; `render.compute` compiles compute
+  and dispatches it. A buffer or texture needs either of the last two.
+  Each is asked for on the target `gpu`. A make without its capability
+  fails saying so; one answered Ask next time fails saying it waits,
+  and the person is asked once.
+- **Held at once**: `scene_entities` (each copy counted),
+  `scene_vertices`, `scene_materials`, `scene_lights`,
+  `scene_cameras`, `gpu_objects` (shaders, buffers, textures, compute
+  and passes) and `gpu_memory` (meshes, buffers and textures, as the
+  engine counts their bytes). A make past one fails with why.
+- **Changes**: `scene_changes_per_call`, past which the call fails and
+  the plugin is stopped, as with nodes; `scene_changes_per_second`,
+  past which it waits. A drop is never refused.
+- **Misuse** (a handle of another kind, a number that is not finite
+  where it moves the scene) fails the call.
+
+### What is not possible, and why
+
+- **Raw pipelines and render graphs.** A plugin gives functions the
+  engine wraps; it does not build pipelines, bind groups or its own
+  passes in Bevy's schedules. Bevy 0.19 runs a camera's passes as
+  systems of its schedule, which a plugin cannot add at run time, and
+  a pipeline's layout must be the engine's to keep its bindings safe.
+- **GPU time of a material.** It is drawn in Bevy's passes with other
+  meshes; only its source's size and the runtime checks bound it.
+- **Stopping a runaway shader mid-frame.** A bounded loop can still
+  take long; the GPU's own watchdog loses the device, which is then
+  rebuilt with the plugin stopped. Whether every Bevy asset comes back
+  after a rebuilt device is Bevy's to do, and is not checked here.
+- **Particles** are instances moved by compute through a material's
+  `displace`, as the field of the demo is; Bevy's own particle crates
+  are not offered.
+- **Skinned and animated meshes** of glTF are not offered: a plugin
+  moves its entities' transforms itself, with `tick`.
+- **Words over the world behind the dock** are not drawn; a plugin
+  draws them in an overlay.
+
 ## Where the budgets are
 
 Every cap is a field of `Budgets`, `[budgets]` in
 `engine/tuning/engine.toml`, its meaning beside its field in
-`engine/core/src/budget.rs`. The host's set-up is `[wasm]`, and the
-harness's waiting `[harness]`.
+`engine/core/src/budget.rs`. The host's set-up is `[wasm]`, how
+scenes are shown `[render]`, and the harness's waiting `[harness]`.

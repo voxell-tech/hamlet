@@ -3,7 +3,8 @@
 # field, in the module that reads its section: [tuning] in
 # engine/core/src/tuning.rs, [log] in log.rs, [budgets] in budget.rs,
 # [window] in engine/shell/src/window.rs, [workspaces] in workspace.rs,
-# [wasm] in engine/wasm/src/host.rs, [harness] in
+# [wasm] in engine/wasm/src/host.rs, [render] in
+# engine/render/src/viewport.rs, [harness] in
 # engine/harness/src/lib.rs.
 
 [tuning]
@@ -46,6 +47,18 @@ node_changes_per_call = 4_000
 node_changes_per_second = 20_000
 nodes = 2_000
 node_depth = 32
+scene_entities = 20_000
+scene_vertices = 2_000_000
+scene_materials = 512
+scene_lights = 64
+scene_cameras = 4
+scene_changes_per_call = 20_000
+scene_changes_per_second = 200_000
+gpu_memory = 268_435_456
+gpu_objects = 256
+shader_bytes = 65_536
+workgroups_per_frame = 65_536
+gpu_time_per_second = 200.0
 
 [window]
 title = "Hamlet"
@@ -68,6 +81,14 @@ table_elements = 20_000
 wasm_bytes = 33_554_432
 manifest_bytes = 16_384
 watch = 1.0
+
+[render]
+viewport_least = 160.0
+viewport_most = 8_192
+click_slop = 4.0
+wheel_line = 20.0
+grow_levels = 8
+timed_slots = 256
 
 [harness]
 patience = 1_000

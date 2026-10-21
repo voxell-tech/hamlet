@@ -28,6 +28,8 @@ pub(crate) struct Spending {
     events: u32,
     /// Nodes of retained panels made, set or ordered.
     changes: u32,
+    /// Changes to its scenes.
+    scene_changes: u32,
     /// Lines logged, by level.
     lines: [u32; 3],
     /// Lines and events left out.
@@ -61,6 +63,7 @@ impl Spending {
             && self.fuel < budgets.fuel_per_second
             && self.calls < budgets.calls_per_second
             && self.changes < budgets.node_changes_per_second
+            && self.scene_changes < budgets.scene_changes_per_second
             && (!event || self.events < budgets.events_per_second);
         self.over |= !within;
         within
@@ -73,6 +76,8 @@ impl Spending {
         self.calls += 1;
         self.events += u32::from(event);
         self.changes = self.changes.saturating_add(spent.changes);
+        self.scene_changes =
+            self.scene_changes.saturating_add(spent.scene_changes);
     }
 }
 

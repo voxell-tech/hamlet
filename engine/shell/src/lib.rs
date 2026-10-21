@@ -1,6 +1,7 @@
 //! The engine's window: its theme and styles, and what is built in
 //! it.
 
+mod backdrop;
 pub mod command;
 mod console;
 pub mod dock;
@@ -18,6 +19,7 @@ pub mod theme;
 pub mod window;
 pub mod workspace;
 
+pub use backdrop::Backdrop;
 use bevy::app::App;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
@@ -66,7 +68,7 @@ pub fn plugin(app: &mut App) {
         menu::plugin,
         (message::plugin, stick::plugin),
         status::plugin,
-        overlay::plugin,
+        (overlay::plugin, backdrop::plugin),
     ));
 }
 

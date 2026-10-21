@@ -391,3 +391,410 @@ world ui-plugin {
     include plugin;
     include ui-panels;
 }
+
+/// 3D scenes a plugin keeps entity by entity, as Bevy's ECS holds
+/// them, drawn by the engine. Each call is one change, and only
+/// changes cross. Dropping a handle takes its thing away. A make
+/// fails, saying why, past a budget or without `render.scene`.
+interface scene {
+    use ui.{node};
+
+    /// x, y and z.
+    type vec3 = tuple<f32, f32, f32>;
+    /// A rotation as a quaternion: x, y, z and w.
+    type quat = tuple<f32, f32, f32, f32>;
+    /// A colour: linear red, green, blue and alpha.
+    type rgba = tuple<f32, f32, f32, f32>;
+
+    record transform {
+        translation: vec3,
+        rotation: quat,
+        scale: vec3,
+    }
+
+    /// A shape of the engine's, centred on the origin.
+    variant shape {
+        /// Its size along x, y and z.
+        cuboid(vec3),
+        /// Its radius.
+        sphere(f32),
+        /// A square facing up: its size along x and z.
+        plane(tuple<f32, f32>),
+        /// Its radius and height.
+        cylinder(tuple<f32, f32>),
+        /// Its radius and the length of its middle.
+        capsule(tuple<f32, f32>),
+        /// Its radius and height.
+        cone(tuple<f32, f32>),
+        /// The radius of its tube and of its ring.
+        torus(tuple<f32, f32>),
+    }
+
+    /// Triangles. A list other than `positions` and `indices` may be
+    /// empty.
+    record mesh-data {
+        /// x, y and z of each vertex.
+        positions: list<f32>,
+        /// x, y and z of each vertex; empty, made from the triangles.
+        normals: list<f32>,
+        /// u and v of each vertex.
+        uvs: list<f32>,
+        /// Linear red, green, blue and alpha of each vertex, which the
+        /// material's colour is multiplied by.
+        colors: list<f32>,
+        /// Three vertices for each triangle, counter-clockwise seen
+        /// from its front.
+        indices: list<u32>,
+    }
+
+    enum alpha-mode {
+        opaque,
+        mask,
+        blend,
+        premultiplied,
+        add,
+        multiply,
+    }
+
+    /// A physically based material.
+    record pbr {
+        base-color: rgba,
+        /// Light it gives off; past 1 it blooms.
+        emissive: rgba,
+        /// From 0, a mirror, to 1.
+        roughness: f32,
+        metallic: f32,
+        alpha-mode: alpha-mode,
+        /// Under it a `mask` material shows nothing.
+        alpha-cutoff: f32,
+        /// Shown in its colour, not lit.
+        unlit: bool,
+        double-sided: bool,
+        /// Covered by the camera's fog.
+        fog: bool,
+    }
+
+    /// Light from far away along the entity's forward, -z, in lux.
+    record directional-light {
+        color: rgba,
+        illuminance: f32,
+        shadows: bool,
+    }
+
+    /// Light from the entity, in lumens, reaching `range`.
+    record point-light {
+        color: rgba,
+        intensity: f32,
+        range: f32,
+        radius: f32,
+        shadows: bool,
+    }
+
+    /// A point light in a cone along the entity's forward, its angles
+    /// in radians from its middle.
+    record spot-light {
+        color: rgba,
+        intensity: f32,
+        range: f32,
+        radius: f32,
+        inner-angle: f32,
+        outer-angle: f32,
+        shadows: bool,
+    }
+
+    variant light {
+        directional(directional-light),
+        point(point-light),
+        spot(spot-light),
+    }
+
+    variant projection {
+        /// Its vertical field of view in radians, near and far.
+        perspective(vec3),
+        /// The height it shows in the world's units, near and far.
+        orthographic(vec3),
+    }
+
+    /// How a camera's high range is brought into the screen's.
+    enum tonemapping {
+        none,
+        simple,
+        luminance,
+        fitted,
+        agx,
+        display,
+        neutral,
+        film,
+    }
+
+    variant fog-falloff {
+        /// Where it begins and where it is whole.
+        linear(tuple<f32, f32>),
+        /// Its density.
+        exponential(f32),
+        exponential-squared(f32),
+    }
+
+    record fog {
+        color: rgba,
+        falloff: fog-falloff,
+    }
+
+    record bloom {
+        intensity: f32,
+        low-frequency-boost: f32,
+        /// Light under it does not bloom.
+        threshold: f32,
+    }
+
+    record camera-settings {
+        projection: projection,
+        /// What it clears to before it draws; none draws over what is
+        /// there.
+        clear: option<rgba>,
+        /// Drawn in high range; bloom needs it.
+        hdr: bool,
+        tonemapping: tonemapping,
+        /// In EV100.
+        exposure: f32,
+        fog: option<fog>,
+        bloom: option<bloom>,
+        /// Light from everywhere: its colour and brightness.
+        ambient: tuple<rgba, f32>,
+        /// Samples a pixel: 1, 2, 4 or 8.
+        msaa: u8,
+    }
+
+    /// Where a camera draws.
+    enum target {
+        /// An image shown by `show-in`, sized by the layout.
+        viewport,
+        /// The window, behind the dock. One plugin at a time.
+        background,
+    }
+
+    resource mesh {
+        shape: static func(shape: shape) -> result<mesh, string>;
+
+        /// `data`, checked.
+        build: static func(data: mesh-data) -> result<mesh, string>;
+
+        /// Gives the mesh `data` in place of what it had.
+        update: func(data: mesh-data) -> result<_, string>;
+    }
+
+    resource material {
+        make: static func(pbr: pbr) -> result<material, string>;
+
+        set: func(pbr: pbr);
+    }
+
+    /// An entity, at the scene's root or under `parent`.
+    resource entity {
+        /// `key` is the plugin's name for it in what it is told.
+        make: static func(parent: option<borrow<entity>>, key: u32) -> result<entity, string>;
+
+        set-transform: func(transform: transform);
+
+        set-visible: func(visible: bool);
+
+        set-parent: func(parent: option<borrow<entity>>);
+
+        /// Draws `mesh` with `material` at the entity.
+        draw: func(mesh: borrow<mesh>, material: borrow<material>);
+
+        undraw: func();
+
+        /// Makes the entity a light of a budget's count, or none.
+        set-light: func(light: option<light>) -> result<_, string>;
+
+        /// Whether it casts shadows and is shadowed.
+        set-shadows: func(cast: bool, receive: bool);
+
+        /// Words shown over the entity in each view of the scene.
+        set-label: func(text: option<string>);
+
+        /// Tells the plugin when the pointer comes over it or leaves,
+        /// if `hover`, and when it is clicked, if `click`.
+        watch: func(hover: bool, click: bool);
+    }
+
+    /// Copies of one mesh in one material, drawn together, under
+    /// `parent` or at the scene's root. Copy `i` is tagged `i` for a
+    /// shader.
+    resource instances {
+        make: static func(parent: option<borrow<entity>>, mesh: borrow<mesh>, material: borrow<material>, key: u32) -> result<instances, string>;
+
+        /// A copy for each ten floats: translation, rotation and scale.
+        set: func(transforms: list<f32>) -> result<_, string>;
+
+        watch: func(hover: bool, click: bool);
+    }
+
+    /// A camera at an entity, looking along its forward.
+    resource camera {
+        make: static func(at: borrow<entity>, settings: camera-settings, target: target) -> result<camera, string>;
+
+        set: func(settings: camera-settings);
+
+        /// Shows the camera's image in `frame`, a frame of one of the
+        /// plugin's panels, filling it. The pointer and wheel over it
+        /// are told to the plugin.
+        show-in: func(frame: borrow<node>);
+    }
+
+    /// Has the engine call `tick` each frame while `on`.
+    animate: func(on: bool);
+}
+
+/// What a plugin with scenes gives the engine.
+interface scene-guest {
+    use scene.{vec3};
+
+    /// Where the pointer met a watched entity.
+    record hit {
+        /// The entity's key, or the instances' key and the copy.
+        key: u32,
+        index: u32,
+        point: vec3,
+        normal: vec3,
+    }
+
+    enum mouse-button {
+        primary,
+        secondary,
+        middle,
+    }
+
+    /// The pointer over a camera's view: the key of the camera's
+    /// entity, where in the view's pixels from its top left, and how
+    /// far it moved.
+    record pointer {
+        view: u32,
+        x: f32,
+        y: f32,
+        dx: f32,
+        dy: f32,
+    }
+
+    record press {
+        view: u32,
+        button: mouse-button,
+        down: bool,
+        x: f32,
+        y: f32,
+    }
+
+    /// The wheel turned over a view, in lines.
+    record wheel {
+        view: u32,
+        x: f32,
+        y: f32,
+    }
+
+    variant scene-input {
+        /// The pointer came over a watched entity.
+        over(hit),
+        /// The pointer left the watched entity of this key and copy.
+        out(tuple<u32, u32>),
+        click(hit),
+        moved(pointer),
+        pressed(press),
+        turned(wheel),
+        /// A view's new size: its camera's key, width and height.
+        resized(tuple<u32, f32, f32>),
+    }
+
+    /// What the person did in the plugin's views.
+    input: func(inputs: list<scene-input>);
+
+    /// A frame passed, `micros` after the last.
+    tick: func(micros: u32);
+}
+
+/// A plugin's own GPU work in WGSL, checked with naga before it is
+/// used: materials and passes over a camera's image, with
+/// `render.shader`, and compute, with `render.compute`. A source
+/// declares no bindings of its own: the engine's are at fixed
+/// places, under fixed names. A make fails, saying why, past a
+/// budget or without its capability.
+interface gpu {
+    use scene.{alpha-mode, material, camera};
+
+    enum shader-kind {
+        /// `fn shade(surface: Surface) -> vec4<f32>`, and optionally
+        /// `fn displace(vertex: Vertex) -> vec3<f32>`.
+        material,
+        /// `fn post(pass: Pass) -> vec4<f32>`.
+        pass,
+        /// `@compute @workgroup_size(..) fn main(..)`.
+        compute,
+    }
+
+    resource shader {
+        /// `source` checked as a shader of `kind`: the shader, or why
+        /// it is refused.
+        compile: static func(kind: shader-kind, source: string) -> result<shader, string>;
+    }
+
+    /// A storage buffer of the plugin's, of `vec4<f32>` items.
+    resource buffer {
+        /// `size` bytes, a multiple of 16, zeroed.
+        make: static func(size: u32) -> result<buffer, string>;
+
+        /// Writes `bytes` at `offset`, both multiples of 4.
+        write: func(offset: u32, bytes: list<u8>) -> result<_, string>;
+    }
+
+    /// An image of the plugin's: red, green, blue and alpha bytes of
+    /// each pixel, in sRGB, row by row from the top.
+    resource texture {
+        make: static func(width: u32, height: u32, pixels: list<u8>) -> result<texture, string>;
+
+        write: func(pixels: list<u8>) -> result<_, string>;
+    }
+
+    record shaded {
+        alpha-mode: alpha-mode,
+        double-sided: bool,
+        /// Lit by the scene's lights with the colour `shade` gives as
+        /// its own; else shown as `shade` gives it.
+        lit: bool,
+    }
+
+    /// A material drawn by `shader`, a `material` shader, with
+    /// `params` (64 floats at most), `texture` and `data` bound.
+    shaded-material: func(shader: borrow<shader>, settings: shaded, params: list<f32>, texture: option<borrow<texture>>, data: option<borrow<buffer>>) -> result<material, string>;
+
+    /// Gives a material `shaded-material` made new `params`.
+    set-params: func(material: borrow<material>, params: list<f32>) -> result<_, string>;
+
+    /// A `compute` shader over `data`, and `extra` when given.
+    resource compute {
+        make: static func(shader: borrow<shader>, data: borrow<buffer>, extra: option<borrow<buffer>>) -> result<compute, string>;
+
+        set-params: func(params: list<f32>) -> result<_, string>;
+
+        /// Runs it over `x` by `y` by `z` workgroups on the next frame,
+        /// and every frame after while `every-frame`.
+        dispatch: func(x: u32, y: u32, z: u32, every-frame: bool) -> result<_, string>;
+    }
+
+    /// Runs `shader`, a `pass` shader, over the image of `camera` each
+    /// frame after it draws, before its tonemapping; none takes the
+    /// pass away.
+    set-pass: func(camera: borrow<camera>, shader: option<borrow<shader>>, params: list<f32>) -> result<_, string>;
+}
+
+/// The engine's side of a plugin's scenes, apart from `plugin`.
+world scene-view {
+    import scene;
+    import gpu;
+    export scene-guest;
+}
+
+/// A plugin with panels and scenes.
+world render-plugin {
+    include ui-plugin;
+    include scene-view;
+}

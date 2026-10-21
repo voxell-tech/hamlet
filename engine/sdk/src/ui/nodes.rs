@@ -69,6 +69,11 @@ impl Nodes {
         key
     }
 
+    /// The engine's node of `key`, if it was built in a panel.
+    pub(crate) fn node(&self, key: Key) -> Option<&Node> {
+        self.entries.get(&key)?.node.as_ref()
+    }
+
     /// Makes a node of `kind`, last under `parent`.
     pub fn spawn(&mut self, parent: Option<Key>, kind: Kind) -> Key {
         let key = self.key();

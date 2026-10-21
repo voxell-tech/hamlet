@@ -21,6 +21,9 @@ use wasmtime::{Engine, ResourceLimiter, Store, Trap};
 
 use crate::host::WasmTuning;
 use crate::nodes::{NodeChange, NodeError, Nodes};
+use crate::scene::scene_bindings::exports::hamlet::engine::scene_guest::SceneInput;
+use crate::scene::scene_bindings::{SceneView, SceneViewIndices};
+use crate::scene::{GPU, SCENE, SceneCaps, SceneState, scene_bindings};
 use crate::surfaces::SurfaceChange;
 use crate::wasi::{self, Wasi};
 
@@ -82,6 +85,7 @@ pub struct Caps {
     pub nodes: usize,
     /// How deep a node may sit under its panel's root.
     pub node_depth: usize,
+    pub scene: SceneCaps,
 }
 
 impl Caps {
@@ -99,6 +103,7 @@ impl Caps {
             node_changes: budgets.node_changes_per_call,
             nodes: budgets.nodes,
             node_depth: budgets.node_depth,
+            scene: SceneCaps::of(budgets),
         }
     }
 }
@@ -185,6 +190,8 @@ pub struct Spent {
     pub changes: u32,
     /// Calls on nodes of its panels, of every kind.
     pub node_calls: u64,
+    /// Changes to its scenes.
+    pub scene_changes: u32,
 }
 
 /// A plugin's component, compiled and linked, ready to be
@@ -193,6 +200,7 @@ pub struct Spent {
 pub struct Linked {
     plugin: PluginPre<State>,
     panels: Option<UiPanelsIndices>,
+    scenes: Option<SceneViewIndices>,
 }
 
 /// Compiles and links the component in `bytes`.
@@ -201,7 +209,9 @@ pub fn link(engine: &Engine, bytes: &[u8]) -> Result<Linked, String> {
         Compiled::new(engine, bytes).map_err(|e| format!("{e:#}"))?;
     let ty = component.component_type();
     for (name, _) in ty.imports(engine) {
-        if name.starts_with("wasi:") || name == HOST || name == UI {
+        if name.starts_with("wasi:")
+            || [HOST, UI, SCENE, GPU].contains(&name)
+        {
             continue;
         }
         if name.starts_with("hamlet:engine/") {
@@ -225,12 +235,29 @@ pub fn link(engine: &Engine, bytes: &[u8]) -> Result<Linked, String> {
             HasSelf<State>,
         >(&mut linker, |state| state)
     })
+    .and_then(|()| {
+        scene_bindings::hamlet::engine::scene::add_to_linker::<
+            State,
+            HasSelf<State>,
+        >(&mut linker, |state| state)
+    })
+    .and_then(|()| {
+        scene_bindings::hamlet::engine::gpu::add_to_linker::<
+            State,
+            HasSelf<State>,
+        >(&mut linker, |state| state)
+    })
     .and_then(|()| wasi::add_to_linker(&mut linker))
     .and_then(|()| linker.instantiate_pre(&component))
     .map_err(|e| format!("{e:#}"))?;
     let panels = UiPanelsIndices::new(&pre).ok();
+    let scenes = SceneViewIndices::new(&pre).ok();
     let plugin = PluginPre::new(pre).map_err(|e| format!("{e:#}"))?;
-    Ok(Linked { plugin, panels })
+    Ok(Linked {
+        plugin,
+        panels,
+        scenes,
+    })
 }
 
 /// What the host keeps for a plugin while it is called.
@@ -244,6 +271,7 @@ pub struct State {
     pub(crate) wasi: Wasi,
     pub(crate) nodes: Nodes,
     pub(crate) surfaces: Vec<SurfaceChange>,
+    pub(crate) scene: SceneState,
 }
 
 impl State {
@@ -257,6 +285,7 @@ impl State {
             wasi: Wasi::new(caps),
             nodes: Nodes::default(),
             surfaces: Vec::new(),
+            scene: SceneState::new(caps.scene),
         }
     }
 
@@ -374,6 +403,7 @@ pub struct Instance {
     store: Store<State>,
     plugin: Plugin,
     panels: Option<UiPanels>,
+    scenes: Option<SceneView>,
 }
 
 /// What the person did to a node of a retained panel.
@@ -420,14 +450,20 @@ impl Instance {
                     .as_ref()
                     .map(|panels| panels.load(&mut store, &instance))
                     .transpose()?;
-                Ok((plugin, panels))
+                let scenes = linked
+                    .scenes
+                    .as_ref()
+                    .map(|scenes| scenes.load(&mut store, &instance))
+                    .transpose()?;
+                Ok((plugin, panels, scenes))
             });
         store.take_written();
-        let (plugin, panels) = made.map_err(Fault::of)?;
+        let (plugin, panels, scenes) = made.map_err(Fault::of)?;
         Ok(Self {
             store,
             plugin,
             panels,
+            scenes,
         })
     }
 
@@ -656,6 +692,39 @@ impl Instance {
         let guest = panels.hamlet_engine_ui_guest();
         self.store.spend(caps, |store| call(guest, store))
     }
+
+    /// The plugin's scenes, as its host holds them.
+    pub(crate) fn scene(&mut self) -> &mut SceneState {
+        &mut self.store.data_mut().scene
+    }
+
+    /// Hands over what the person did in its scenes' views.
+    pub fn scene_input(
+        &mut self,
+        caps: &Caps,
+        inputs: &[SceneInput],
+    ) -> (Result<(), Fault>, Spent) {
+        let Some(scenes) = &self.scenes else {
+            return (Ok(()), Spent::default());
+        };
+        let guest = scenes.hamlet_engine_scene_guest();
+        self.store
+            .spend(caps, |store| guest.call_input(store, inputs))
+    }
+
+    /// Moves its scenes on by `micros`.
+    pub fn scene_tick(
+        &mut self,
+        caps: &Caps,
+        micros: u32,
+    ) -> (Result<(), Fault>, Spent) {
+        let Some(scenes) = &self.scenes else {
+            return (Ok(()), Spent::default());
+        };
+        let guest = scenes.hamlet_engine_scene_guest();
+        self.store
+            .spend(caps, |store| guest.call_tick(store, micros))
+    }
 }
 
 /// The WASM host's methods on a plugin's [`Store`].
@@ -694,6 +763,7 @@ impl WasmStoreExt for Store<State> {
                 .saturating_sub(self.get_fuel().unwrap_or(0)),
             changes: nodes.spent as u32,
             node_calls: nodes.calls,
+            scene_changes: self.data().scene.spent as u32,
         };
         (done.map_err(Fault::of), spent)
     }
@@ -708,6 +778,8 @@ impl WasmStoreExt for Store<State> {
         state.wasi.arm(caps);
         state.nodes.spent = 0;
         state.nodes.calls = 0;
+        state.scene.spent = 0;
+        state.scene.caps = caps.scene;
         Ok(())
     }
 

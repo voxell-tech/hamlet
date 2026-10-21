@@ -43,6 +43,7 @@ hamlet_engine_bus = { version = "0.1.0", path = "engine/bus" }
 hamlet_engine_net = { version = "0.1.0", path = "engine/net" }
 hamlet_engine_agents = { version = "0.1.0", path = "engine/agents" }
 hamlet_engine_desktop = { version = "0.1.0", path = "engine/desktop" }
+hamlet_engine_render = { version = "0.1.0", path = "engine/render" }
 hamlet_engine_wasm = { version = "0.1.0", path = "engine/wasm" }
 hamlet_engine_harness = { version = "0.1.0", path = "engine/harness" }
 hamlet_engine_sdk = { version = "0.1.0", path = "engine/sdk" }
@@ -59,7 +60,11 @@ bevy_ecs = { version = "0.19", default-features = false, features = ["std"] }
 # `system_clipboard` has copy and paste in a text box use the system's
 # clipboard, not one inside the app.
 bevy = { version = "0.19", default-features = false, features = ["2d", "3d", "ui", "mesh_picking", "default_platform", "system_clipboard", "bevy_audio", "bevy_dev_tools", "debug", "serialize"] }
-bevy_hanabi = { version = "0.19", default-features = false, features = ["3d"] }
+# Checks plugins' WGSL; held to the version Bevy's wgpu uses.
+naga = { version = "29", default-features = false, features = ["wgsl-in"] }
+# The timestamp queries Bevy does not re-export; held to its version.
+wgpu = { version = "29", default-features = false }
+bevy_hanabi ={ version = "0.19", default-features = false, features = ["3d"] }
 
 # other
 anyhow ="1"

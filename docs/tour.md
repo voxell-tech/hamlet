@@ -145,6 +145,7 @@ Paths are under the crate's folder in the table above.
 | The engine's chat, Inspector, Skills or Needs panels | `plugins/chat/`, `plugins/inspector/`, `plugins/skills/`, `plugins/needs/`, sharing `plugins/agents_ui/` |
 | The window's focus: the open conversation and the thing selected | `engine/agents/src/focus.rs`; the chat's data in `conversation.rs`, `archive.rs`, `roster.rs` and `needs.rs` beside it |
 | A widget an engine plugin can show | Its kind and properties in `engine/wit/hamlet_engine.wit`, its element in `engine/sdk/src/ui/elements.rs`, its widget in `engine/wasm/src/retained.rs`, built from `engine/shell/src/style.rs` |
+| A plugin's 3D scene, its viewport or the window behind the dock, its WGSL, compute and passes | The interfaces `scene` and `gpu` in `engine/wit/hamlet_engine.wit`; the host's side in `engine/wasm/src/scene.rs` and `scene/`; drawing, picking and the checks in `engine/render/`; the SDK's `engine/sdk/src/scene.rs`; [`engine.md`](engine.md#scenes-and-gpu-work) |
 | What an engine plugin adds outside its panels: settings pages, status items, overlays | `engine/api/src/contribution.rs`; the shell's `settings.rs`, `status.rs` and `overlay.rs` in `engine/shell/src/`; what a plugin changes on them in `engine/wasm/src/surfaces.rs` |
 
 ## Tuning while the app runs

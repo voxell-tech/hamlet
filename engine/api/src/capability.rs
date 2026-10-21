@@ -52,7 +52,22 @@ pub enum Capability {
     /// [`LOCAL`](crate::agents::LOCAL).
     #[serde(rename = "desktop.settings")]
     DesktopSettings,
+    /// Building scenes the engine draws, on [`GPU`].
+    #[serde(rename = "render.scene")]
+    RenderScene,
+    /// Drawing with WGSL of the plugin's own: materials and passes
+    /// over a camera's image, on [`GPU`].
+    #[serde(rename = "render.shader")]
+    RenderShader,
+    /// Running WGSL compute of the plugin's own over its buffers, on
+    /// [`GPU`].
+    #[serde(rename = "render.compute")]
+    RenderCompute,
 }
+
+/// The target of the render capabilities: the GPU the engine draws
+/// with.
+pub const GPU: &str = "gpu";
 
 impl Capability {
     /// Its name, as a manifest writes it.
@@ -67,6 +82,9 @@ impl Capability {
             Self::AgentsKeys => "agents.keys",
             Self::DesktopOpen => "desktop.open",
             Self::DesktopSettings => "desktop.settings",
+            Self::RenderScene => "render.scene",
+            Self::RenderShader => "render.shader",
+            Self::RenderCompute => "render.compute",
         }
     }
 }
