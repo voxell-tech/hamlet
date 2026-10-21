@@ -103,14 +103,13 @@ impl Service {
                     .into(),
             )));
         };
-        if limits
-            .budget
-            .cost
-            .is_some_and(|cost| cost * 1_000_000.0 >= i64::MAX as f64)
-            || limits.budget.minutes.is_some_and(|minutes| {
-                minutes.checked_mul(60_000).is_none()
-            })
-        {
+        // The schema keeps both at zero or more; a budget too large
+        // for micros or milliseconds reaches the largest `i64`.
+        if limits.budget.cost.is_some_and(|cost| {
+            crate::spend::micros(cost) == i64::MAX
+        }) || limits.budget.minutes.is_some_and(|minutes| {
+            crate::clock::minutes(minutes) == i64::MAX
+        }) {
             return Ok(Err(Refusal::Invalid(
                 "The budget is outside protocol v0's supported \
                  number range."
@@ -266,7 +265,7 @@ impl Service {
         RecordOperation {
             hamlet: hamlet.into(),
             actor: Actor::Chief(self.chief.clone()),
-            at: chrono::Utc::now().timestamp_millis(),
+            at: crate::clock::now(),
             reason: reason.into(),
             task: None,
             change,

@@ -3,6 +3,8 @@
 //! (C16, C19). Every credential is taken out of its output before any
 //! of it is kept (C32).
 
+use std::time::Duration;
+
 use hamlet_workspace_wire::Code;
 use serde_json::{Map, Value, json};
 
@@ -53,6 +55,14 @@ pub(super) fn description() -> String {
     )
 }
 
+/// pi's `timeout` in seconds, at most [`WALL_SECS`]; none when it is
+/// not a finite number above zero.
+fn seconds(timeout: Option<f64>) -> Option<f64> {
+    let wall =
+        timeout.unwrap_or(WALL_SECS as f64).min(WALL_SECS as f64);
+    (wall.is_finite() && wall > 0.0).then_some(wall)
+}
+
 pub(super) async fn run(
     sandbox: &Sandbox,
     place: &Place,
@@ -87,8 +97,7 @@ pub(super) async fn run(
             env.cwd()
         ));
     }
-    let wall =
-        timeout.unwrap_or(WALL_SECS as f64).min(WALL_SECS as f64);
+    let wall = seconds(timeout);
     let mut kept = Tail::default();
     let mut diagnostics = Vec::new();
     let mut exit_code = -1;
@@ -112,14 +121,14 @@ pub(super) async fn run(
                 ));
             }
         };
-    if !(wall.is_finite() && wall > 0.0) {
-        fail(
-            &mut kept,
-            "Invalid timeout: must be a finite number of seconds",
-        );
-    } else {
+    if let Some(wall) = wall {
         let ran = env
-            .exec(command, wall, secrets, &mut |text| kept.push(text))
+            .exec(
+                command,
+                Duration::from_secs_f64(wall),
+                secrets,
+                &mut |text| kept.push(text),
+            )
             .await;
         match ran {
             Ok(ran) => {
@@ -151,6 +160,11 @@ pub(super) async fn run(
                 };
             }
         }
+    } else {
+        fail(
+            &mut kept,
+            "Invalid timeout: must be a finite number of seconds",
+        );
     }
     if ended
         && exit_code != 0
@@ -192,15 +206,13 @@ pub(super) async fn remote(
         | (_, Err(invalid), _)
         | (.., Err(invalid)) => return invalid,
     };
-    let wall =
-        timeout.unwrap_or(WALL_SECS as f64).min(WALL_SECS as f64);
-    if !(wall.is_finite() && wall > 0.0) {
+    let Some(wall) = seconds(timeout) else {
         return Outcome::failed(
             "Error: Invalid timeout: must be a finite number of \
              seconds. Inspect the output before trying again, or \
              tell the chief.",
         );
-    }
+    };
     let cwd = env.cwd().to_owned();
     match env.file_info(&cwd).await {
         Ok(info) if info.kind == FileKind::Directory => {}
@@ -214,7 +226,7 @@ pub(super) async fn remote(
             ));
         }
     }
-    let ran = env.exec(command, (wall * 1000.0).ceil() as u64).await;
+    let ran = env.exec(command, Duration::from_secs_f64(wall)).await;
     let mut kept = Tail::default();
     let mut diagnostics = Vec::new();
     let mut exit = -1;

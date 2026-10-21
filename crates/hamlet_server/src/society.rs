@@ -742,11 +742,6 @@ pub(crate) fn keep<T: Serialize>(
     Ok(())
 }
 
-/// The present time in milliseconds.
-pub(crate) fn now() -> i64 {
-    chrono::Utc::now().timestamp_millis()
-}
-
 /// The H12 task of the turn whose input `input` of `binding` made a
 /// call, as the input's mark keeps it.
 pub(crate) fn marked_task(

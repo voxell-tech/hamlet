@@ -731,7 +731,7 @@ fn queue(
         return Ok(said.refused(refusal));
     }
     let waits = oversight::open(service.home.store().connection())?;
-    let now = super::now();
+    let now = crate::clock::now();
     Ok(said.notice(if waits.is_empty() {
         "Nothing waits for you.".into()
     } else {
@@ -867,7 +867,7 @@ pub(crate) async fn admit_line(
 ) -> Result<BindingId> {
     let binding = super::current(service, harnesses, agent).await?;
     let chief = service.chief.clone();
-    let at = super::now();
+    let at = crate::clock::now();
     let task = format!("chief:{}:{id}", binding.0);
     records::instruct(
         service.home.store().connection(),
@@ -1046,7 +1046,7 @@ fn revoke(
             &target,
             permission,
             &chief,
-            super::now(),
+            crate::clock::now(),
         )?;
     }
     let held = service.limits_of(hamlet)?.permits(permission, agent);

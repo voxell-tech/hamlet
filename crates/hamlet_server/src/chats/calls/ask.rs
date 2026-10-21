@@ -111,7 +111,7 @@ pub(super) fn ask(
                 change: None,
             }),
         },
-        super::super::now(),
+        crate::clock::now(),
     )?;
     Ok(Answer::Waiting(WAITING.into()))
 }

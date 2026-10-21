@@ -82,7 +82,7 @@ pub(super) async fn remove(
             let change = RecordOperation {
                 hamlet: agent.hamlet.clone(),
                 actor: society::actor(db, agent)?,
-                at: society::now(),
+                at: crate::clock::now(),
                 reason: given.reason,
                 task: caller.task.clone(),
                 change: Change::Depart {
@@ -143,7 +143,7 @@ pub(crate) fn lapse(
             &agent,
             &permission,
             "departure",
-            society::now(),
+            crate::clock::now(),
         )?;
     }
     db.execute(
@@ -184,7 +184,7 @@ pub(super) async fn deed(
     let mut op = RecordOperation {
         hamlet: hamlet.into(),
         actor: Actor::Chief(service.chief.clone()),
-        at: society::now(),
+        at: crate::clock::now(),
         reason: if reason.is_empty() {
             "a chief asked".into()
         } else {

@@ -147,7 +147,7 @@ async fn start(
         &chief,
         number,
         binding,
-        super::now(),
+        crate::clock::now(),
     )?;
     let written =
         super::write_notice(service, harnesses, binding, STARTED)
@@ -267,7 +267,7 @@ async fn carry_on(
     let request = format!("retry:{}", uuid::Uuid::new_v4());
     let mark = InputMark::Retry {
         task: super::new_task(),
-        at: super::now(),
+        at: crate::clock::now(),
     };
     harnesses
         .submit(
@@ -386,7 +386,7 @@ pub(super) async fn rewind(
         &chief,
         session,
         since,
-        super::now(),
+        crate::clock::now(),
     )?;
     for (runtime, key) in woken {
         harnesses.wake(&runtime, &key).await;
@@ -427,7 +427,7 @@ pub(super) async fn rewind(
         &chief,
         session,
         fork,
-        super::now(),
+        crate::clock::now(),
     )?;
     Ok(ServerMessage::Reply(hamlet_protocol::v0::Reply {
         kind: ReplyKind::Rewound,
@@ -518,7 +518,7 @@ async fn end_waits(
         service.home.store().connection(),
         agent,
         &service.chief,
-        super::now(),
+        crate::clock::now(),
     )?;
     for (runtime, key) in woken {
         harnesses.wake(&runtime, &key).await;

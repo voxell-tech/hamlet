@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 
@@ -255,16 +256,21 @@ pub(crate) async fn run(
     );
     let mut output = String::new();
     let ran = env
-        .exec(&command, wall as f64, secrets, &mut |part| {
-            if output.len() < 64 * 1024 {
-                let mut end =
-                    part.len().min(64 * 1024 - output.len());
-                while !part.is_char_boundary(end) {
-                    end -= 1;
+        .exec(
+            &command,
+            Duration::from_secs(wall),
+            secrets,
+            &mut |part| {
+                if output.len() < 64 * 1024 {
+                    let mut end =
+                        part.len().min(64 * 1024 - output.len());
+                    while !part.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    output.push_str(&part[..end]);
                 }
-                output.push_str(&part[..end]);
-            }
-        })
+            },
+        )
         .await;
     let (exit, diagnostics) = match ran {
         Ok(ran) => (

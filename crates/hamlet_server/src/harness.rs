@@ -22,7 +22,7 @@ pub mod tools;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 pub use bindings::{
@@ -1367,13 +1367,4 @@ async fn sleep_until(at: Option<Instant>) {
     if let Some(at) = at {
         tokio::time::sleep_until(at.into()).await;
     }
-}
-
-fn now() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(
-        0,
-        |elapsed| {
-            i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX)
-        },
-    )
 }

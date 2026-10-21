@@ -340,7 +340,7 @@ pub(crate) fn budget(
             "# Budget\nOnly the chief changes this shared \
              budget.\n{lines}\nA road costs {}. Models you may \
              choose: {}.",
-            money((road.max(0.0) * 1_000_000.0).round() as i64),
+            money(crate::spend::micros(road.max(0.0))),
             if models.is_empty() {
                 OWN_MODEL
             } else {
@@ -353,7 +353,7 @@ pub(crate) fn budget(
         subject.hamlet,
         &limits.budget.period,
         subject.task,
-        now(),
+        crate::clock::now(),
     )?;
     Ok(format!(
         "# Budget\nEveryone in the hamlet spends from its one \
@@ -386,7 +386,7 @@ fn terms(
         pass_yes: limits.votes.pass_yes,
         pass_of: limits.votes.pass_of,
         told_days: limits.mayor.told_days,
-        now: now(),
+        now: crate::clock::now(),
     })
 }
 
@@ -531,8 +531,4 @@ fn notes_text(text: &str) -> String {
     format!("# NOTES.md\n{}", cut(text, NOTES_SHOWN, &note))
         .trim_end()
         .into()
-}
-
-fn now() -> i64 {
-    chrono::Local::now().timestamp_millis()
 }

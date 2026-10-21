@@ -84,7 +84,7 @@ pub(crate) async fn deed(
             name: words[1].into(),
             purpose: words[2..].join(" "),
             chief: service.chief.clone(),
-            at: society::now(),
+            at: crate::clock::now(),
         };
         let tx = service.home.store().transaction()?;
         let result = crate::operation::change(&tx, &operation)?;
@@ -176,7 +176,7 @@ pub(crate) async fn deed(
                 );
             }
             realm.hamlets[index].removed = Some(Removed {
-                at: society::now(),
+                at: crate::clock::now(),
                 by: service.chief.clone(),
                 reason: words[1..].join(" "),
             });

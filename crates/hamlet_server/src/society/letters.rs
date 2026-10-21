@@ -20,7 +20,7 @@ use crate::record::{
     self, Actor, AgentRef, Change, DecisionKind, RecordOperation,
 };
 use crate::service::Service;
-use crate::{Outcome, realm, society};
+use crate::{Outcome, realm};
 
 /// The kind of a peer conversation, as clients name it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -563,7 +563,7 @@ fn carry_back(db: &Connection, sent: &Sent) -> Result<()> {
         &sent.from,
         &sent.task,
         true,
-        society::now(),
+        crate::clock::now(),
     )?;
     Ok(())
 }
@@ -616,7 +616,7 @@ async fn prepare(
             "ask"
         }
     );
-    let at = society::now();
+    let at = crate::clock::now();
     let tx = service.home.store().transaction()?;
     if let Err(unsent) = carry(&tx, &from, to, &task, false, at)? {
         return Ok(Err(unsent));
@@ -935,7 +935,7 @@ async fn reply(
     let mark = InputMark::Reply(Mail {
         from: sent.to.clone(),
         task: sent.task.clone(),
-        at: society::now(),
+        at: crate::clock::now(),
         reply_to: None,
         author: None,
     });

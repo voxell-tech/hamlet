@@ -97,20 +97,26 @@ impl Limits {
     pub fn road_price(&self) -> record::Amount {
         record::Amount {
             tokens: u64::try_from(self.road.tokens).unwrap_or(0),
-            micros: (self.road.cost * 1_000_000.0).round() as u64,
-            ms: minutes(self.road.minutes),
+            micros: u64::try_from(crate::spend::micros(
+                self.road.cost,
+            ))
+            .unwrap_or(0),
+            ms: u64::try_from(crate::clock::minutes(
+                self.road.minutes,
+            ))
+            .unwrap_or(0),
         }
     }
 
     /// How long a vote stays open, in milliseconds.
-    pub fn vote_open_ms(&self) -> u64 {
-        minutes(self.votes.open_minutes)
+    pub fn vote_open_ms(&self) -> i64 {
+        crate::clock::minutes(self.votes.open_minutes)
     }
 
     /// How long a new agent is protected from removal, in
     /// milliseconds.
-    pub fn protected_ms(&self) -> u64 {
-        minutes(self.leaving.protected_minutes)
+    pub fn protected_ms(&self) -> i64 {
+        crate::clock::minutes(self.leaving.protected_minutes)
     }
 
     /// Whether `name`, or the mayor when `mayor`, holds `permission`
@@ -194,11 +200,6 @@ pub(crate) fn set(
         "the limits were refused"
     );
     Ok(())
-}
-
-/// `minutes` in milliseconds.
-fn minutes(minutes: i64) -> u64 {
-    u64::try_from(minutes).unwrap_or(0).saturating_mul(60_000)
 }
 
 pub(crate) struct Rules {

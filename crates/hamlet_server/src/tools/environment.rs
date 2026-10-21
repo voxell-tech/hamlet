@@ -1,6 +1,8 @@
 //! What an agent's file tools reach: this machine under the sandbox,
 //! or a remote workspace.
 
+use std::time::Duration;
+
 use hamlet_workspace_wire::{
     Bytes, Canonical, Code, Exec, Info, Kind, LIST_ENTRIES, List,
     Listed, MAX_FILE, Ran, Read, Walk, Walked, Write,
@@ -277,12 +279,16 @@ impl Remote {
         )
     }
 
-    /// Runs `command` with bash in [`Reach::cwd`].
+    /// Runs `command` with bash in [`Reach::cwd`] for at most
+    /// `timeout`, in whole milliseconds rounded up.
     pub async fn exec(
         &self,
         command: &str,
-        timeout_ms: u64,
+        timeout: Duration,
     ) -> Result<Ran, crate::workspace::Failure> {
+        let timeout_ms =
+            u64::try_from(timeout.as_nanos().div_ceil(1_000_000))
+                .unwrap_or(u64::MAX);
         self.session
             .call(Exec {
                 argv: vec![

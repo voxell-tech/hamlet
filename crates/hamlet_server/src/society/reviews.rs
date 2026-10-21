@@ -133,7 +133,7 @@ pub(crate) async fn prepare(
         service.home.store().connection(),
         &r.id,
         Some(task),
-        super::now(),
+        crate::clock::now(),
     )?
     .is_some()
     {
@@ -352,7 +352,7 @@ fn object(
             }),
             call: None,
         },
-        super::now(),
+        crate::clock::now(),
     )?;
     instruction.binding = review.binding;
     instruction.waits.extend(review.wait.clone());
@@ -398,7 +398,7 @@ async fn withdraw(
                     Ruling::Stopped,
                     "The chief withdrew the instruction.",
                     None,
-                    super::now(),
+                    crate::clock::now(),
                 )? {
                     for (runtime, key) in woken {
                         harnesses.wake(&runtime, &key).await;
@@ -466,7 +466,7 @@ pub(crate) fn settle(
                 ruling,
                 text,
                 Some(chief),
-                super::now(),
+                crate::clock::now(),
             )? {
                 woken.extend(calls);
             }

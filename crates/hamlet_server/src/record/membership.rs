@@ -137,7 +137,7 @@ impl RecordOperation {
         if let Some(p) = r.protected.iter().find(|p| {
             p.agent == agent.number
                 && p.done.is_none_or(|done| {
-                    (self.at.saturating_sub(done).max(0) as u64)
+                    self.at.saturating_sub(done).max(0)
                         < r.limits.chief.protected_ms()
                 })
         }) {

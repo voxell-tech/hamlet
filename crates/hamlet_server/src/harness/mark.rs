@@ -79,7 +79,7 @@ impl InputMark {
     pub fn notice(text: &str) -> Self {
         Self::Notice {
             text: text.into(),
-            at: chrono::Utc::now().timestamp_millis(),
+            at: crate::clock::now(),
         }
     }
 

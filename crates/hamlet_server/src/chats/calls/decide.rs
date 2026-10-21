@@ -335,7 +335,7 @@ fn fresh(
                 change,
             }),
         },
-        super::super::now(),
+        crate::clock::now(),
     )?;
     Ok(Decision::Wait(WAITING))
 }

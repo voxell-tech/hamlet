@@ -36,6 +36,11 @@ pub(crate) struct Books {
     pub task: Amount,
 }
 
+/// `dollars` in micros, to the nearest; past an `i64`, its largest.
+pub(crate) fn micros(dollars: f64) -> i64 {
+    (dollars * 1_000_000.0).round() as i64
+}
+
 /// `micros` in dollars to the cent, a half cent rounding up.
 pub(crate) fn money(micros: impl Into<i128>) -> String {
     let micros = micros.into();
@@ -208,12 +213,8 @@ fn meters(
     minutes: Option<i64>,
 ) -> [(i64, Option<i64>, bool); 2] {
     [
-        (
-            spent.micros,
-            cost.map(|n| (n * 1_000_000.0).round() as i64),
-            false,
-        ),
-        (spent.ms, minutes.map(|n| n.saturating_mul(60_000)), true),
+        (spent.micros, cost.map(micros), false),
+        (spent.ms, minutes.map(crate::clock::minutes), true),
     ]
 }
 fn show(value: i64, time: bool) -> String {
@@ -243,10 +244,8 @@ pub(crate) fn amount(usage: &Usage, price: &Price) -> Amount {
         * price.input
         + usage.output as f64 * price.output;
     let micros = match usage.billed {
-        Some(billed) => (billed * 1_000_000.0).round() as i64,
-        None if usage.cost > 0.0 => {
-            (usage.cost * 1_000_000.0).round() as i64
-        }
+        Some(billed) => micros(billed),
+        None if usage.cost > 0.0 => micros(usage.cost),
         None => priced.round() as i64,
     };
     let count = |n: u64| i64::try_from(n).unwrap_or(i64::MAX);
@@ -398,11 +397,7 @@ impl Service {
              VALUES (?1,?2,?3,(SELECT COALESCE(MAX(ordinal),0) FROM \
              harness_usage),(SELECT COALESCE(MAX(id),0) FROM \
              record_road_charge))",
-            params![
-                hamlet,
-                Local::now().timestamp_millis(),
-                self.chief
-            ],
+            params![hamlet, crate::clock::now(), self.chief],
         )?;
         Ok("The budget starts again from here. What was spent \
             before is kept in the ledger."

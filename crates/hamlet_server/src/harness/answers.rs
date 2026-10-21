@@ -8,7 +8,8 @@ use rusqlite::{OptionalExtension, params};
 use super::bindings::Binding;
 use super::link::{self, ModelRef, Price, ServerMessage, Usage};
 use super::process::Pi;
-use super::{Harnesses, InputMark, Notice, now};
+use super::{Harnesses, InputMark, Notice};
+use crate::clock::now;
 use crate::credentials::{Credentials, pack};
 use crate::{RuntimeInstance, Store};
 

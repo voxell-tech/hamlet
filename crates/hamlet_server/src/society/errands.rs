@@ -49,9 +49,9 @@ pub(super) async fn start(
                     .home
                     .store()
                     .mark_of(binding, "errand")?
-                    .map_or_else(super::now, |mark| mark.at());
-                if super::now().saturating_sub(began)
-                    >= ballot.saturating_mul(60_000)
+                    .map_or_else(crate::clock::now, |mark| mark.at());
+                if crate::clock::now().saturating_sub(began)
+                    >= crate::clock::minutes(ballot)
                 {
                     harnesses
                         .cancel(service.home.store(), binding)
@@ -87,7 +87,7 @@ pub(super) async fn start(
     super::configure(service, harnesses, binding).await?;
     let mark = InputMark::Errand {
         task: task.into(),
-        at: super::now(),
+        at: crate::clock::now(),
     };
     harnesses
         .submit(

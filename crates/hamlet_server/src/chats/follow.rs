@@ -80,7 +80,12 @@ pub(crate) async fn follow(
     let mark = store.mark_of(binding, request)?;
     let agent = &kept.place.agent;
     if let Some(InputMark::Chief { task, .. }) = &mark {
-        records::instruction_done(db, agent, task, super::now())?;
+        records::instruction_done(
+            db,
+            agent,
+            task,
+            crate::clock::now(),
+        )?;
     }
     let reflection =
         matches!(mark, Some(InputMark::Reflection { .. }));
@@ -164,7 +169,7 @@ fn raise_fault(
             session: place.session,
         }),
         about,
-        super::now(),
+        crate::clock::now(),
     )?;
     Ok(())
 }
@@ -290,7 +295,7 @@ pub(crate) async fn request_reflection(
             let request =
                 format!("reflect:{}:{ordinal}", kept.place.session);
             let task = super::new_task();
-            let at = super::now();
+            let at = crate::clock::now();
             db.execute(
                 "INSERT INTO chat_reflection (binding, request, \
                  ordinal, count, task, at) VALUES (?1, ?2, ?3, ?4, \

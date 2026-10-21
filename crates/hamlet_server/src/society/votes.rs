@@ -335,8 +335,8 @@ fn call(
         .context("the voting hamlet has no record")?;
     let limits = service.limits_of(hamlet)?;
     let mut votes = read(service.home.store().connection(), hamlet)?;
-    let now = super::now();
-    let open_ms = limits.votes.open_minutes.saturating_mul(60_000);
+    let now = crate::clock::now();
+    let open_ms = limits.vote_open_ms();
     for v in &mut votes {
         if v.standing == Standing::Open
             && now.saturating_sub(v.called) >= open_ms
@@ -387,7 +387,7 @@ fn call(
     if reason.is_empty() {
         return Ok(Err(Uncalled::NoReason));
     }
-    let retry_ms = limits.votes.retry_minutes.saturating_mul(60_000);
+    let retry_ms = crate::clock::minutes(limits.votes.retry_minutes);
     if let Some(v) = votes.iter().rev().find(|v| {
         v.by == by
             && v.kind == kind
@@ -752,8 +752,9 @@ async fn poll(
     limits: &Limits,
     v: &mut Vote,
 ) -> Result<()> {
-    let open_ms = limits.votes.open_minutes.saturating_mul(60_000);
-    if super::now().saturating_sub(v.called) >= open_ms {
+    if crate::clock::now().saturating_sub(v.called)
+        >= limits.vote_open_ms()
+    {
         v.standing = Standing::Lapsed;
         return Ok(());
     }
@@ -993,7 +994,7 @@ fn seat(
         actor: Actor::Chief(
             current.chiefs.first().cloned().unwrap_or_default(),
         ),
-        at: super::now(),
+        at: crate::clock::now(),
         reason: v.reason.clone(),
         task: Some(v.task.clone()),
         change: Change::Seat {
@@ -1031,7 +1032,7 @@ fn found(
         name: v.founder.clone(),
         purpose: v.purpose.clone(),
         chief: r.chiefs.first().cloned().unwrap_or_default(),
-        at: super::now(),
+        at: crate::clock::now(),
     };
     if let Outcome::Refused(refusal) =
         crate::operation::change(tx, &op)?
@@ -1176,7 +1177,7 @@ pub(super) async fn deed(
                     &RecordOperation {
                         hamlet: hamlet.into(),
                         actor: Actor::Chief(service.chief.clone()),
-                        at: super::now(),
+                        at: crate::clock::now(),
                         reason: reason.clone(),
                         task: None,
                         change: Change::Seat { number: v.mayor },
@@ -1202,7 +1203,7 @@ pub(super) async fn deed(
                 ))));
             };
             place.removed = Some(crate::realm::Removed {
-                at: super::now(),
+                at: crate::clock::now(),
                 by: service.chief.clone(),
                 reason: reason.clone(),
             });

@@ -132,7 +132,7 @@ fn rule(
     text: &str,
 ) -> Result<Option<(Wait, Woken)>> {
     let chief = service.chief.clone();
-    let now = super::super::now();
+    let now = crate::clock::now();
     let danger = match wait.kind {
         WaitKind::Approval(danger) => Some(danger),
         _ => None,

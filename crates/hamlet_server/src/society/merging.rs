@@ -145,7 +145,7 @@ fn preparing(
     let operation = RecordOperation {
         hamlet: hamlet.into(),
         actor,
-        at: super::now(),
+        at: crate::clock::now(),
         reason: match args.reason.as_str() {
             "" => "a chief asked".into(),
             reason => reason.into(),
@@ -492,7 +492,7 @@ fn commit(
     super::once(service.home.store(), id, request, |db| {
         super::leaving::guards(db, &plan.operation.hamlet)?;
         let mut operation = plan.operation.clone();
-        operation.at = super::now();
+        operation.at = crate::clock::now();
         if let Change::Depart { name, .. } = &operation.change {
             let current = record::read(db, &operation.hamlet)?;
             if !current.as_ref().is_some_and(|record| {
@@ -774,7 +774,7 @@ impl Applied {
         let operation = RecordOperation {
             hamlet: self.hamlet.clone(),
             actor: Actor::Realm,
-            at: super::now(),
+            at: crate::clock::now(),
             reason: String::new(),
             task: None,
             change: Change::FinishMerge {

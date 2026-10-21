@@ -335,7 +335,7 @@ async fn judged(
             &tx,
             "library-shelved",
             name,
-            &json!({"by":job.by,"reason":answer,"at":super::now()}),
+            &json!({"by":job.by,"reason":answer,"at":crate::clock::now()}),
         )?;
         tx.commit()?;
     }
@@ -506,7 +506,7 @@ pub(super) fn unshelve(
         service.home.store().connection(),
         "library-unshelved",
         name,
-        &json!({"by":chief,"reason":rest,"at":super::now()}),
+        &json!({"by":chief,"reason":rest,"at":crate::clock::now()}),
     )?;
     Ok(Ok(format!("Took `{name}` out of the library.")))
 }

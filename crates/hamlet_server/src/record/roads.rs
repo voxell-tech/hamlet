@@ -64,11 +64,11 @@ pub fn level(
     last_used: i64,
     messages: u64,
     now: i64,
-    grows_over_days: u64,
+    grows_over_days: i64,
 ) -> RoadLevel {
     if last_used > 0
-        && now.saturating_sub(last_used).max(0) as u64
-            > grows_over_days.saturating_mul(86_400_000)
+        && now.saturating_sub(last_used)
+            > crate::clock::days(grows_over_days)
     {
         RoadLevel::Overgrown
     } else if messages < 3 {

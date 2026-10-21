@@ -217,7 +217,7 @@ pub async fn serve(options: Options) -> Result<()> {
     );
     let (events, mut incoming) = mpsc::channel(128);
     let (shutdown, closing) = watch::channel(false);
-    let epoch = chrono::Utc::now().timestamp_millis();
+    let epoch = crate::clock::now();
     let state = service.state(epoch, 0)?;
     let mut serving = Serving {
         service,

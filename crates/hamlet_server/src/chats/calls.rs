@@ -534,7 +534,7 @@ fn operation(
             &call.id,
             &call.bound,
             &call_of,
-            super::now(),
+            crate::clock::now(),
         )?;
         return Ok(Step::Answer(Answer::result(text, error)));
     }

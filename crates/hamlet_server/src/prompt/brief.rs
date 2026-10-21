@@ -245,7 +245,7 @@ fn farewells(record: &Hamlet, reader: Option<u64>) -> Vec<String> {
 fn standing(record: &Hamlet, reader: u64, terms: &Terms) -> String {
     let since = terms
         .now
-        .saturating_sub(terms.told_days.saturating_mul(86_400_000))
+        .saturating_sub(crate::clock::days(terms.told_days))
         .max(0);
     let mut mine = Vec::new();
     let mut decided = Vec::new();

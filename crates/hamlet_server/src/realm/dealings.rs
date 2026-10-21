@@ -154,7 +154,10 @@ async fn deal(
                 ));
             }
             if let Some(held) = own.as_ref().and_then(|r| {
-                r.may_decide(society::now(), record::Action::Mayor)
+                r.may_decide(
+                    crate::clock::now(),
+                    record::Action::Mayor,
+                )
             }) {
                 return Ok(outcome(
                     &held.text(Audience::Agent),
@@ -242,7 +245,7 @@ fn removal(
         hamlet: id.into(),
         by: from.hamlet.clone(),
         reason: reason.into(),
-        at: society::now(),
+        at: crate::clock::now(),
     });
     let asked = realm
         .removals
@@ -396,7 +399,7 @@ fn moving(
         .context("the target hamlet has no record")?;
     let other = if from.hamlet == old.id { &target } else { &old };
     if let Some(held) =
-        other.may_decide(society::now(), record::Action::Move)
+        other.may_decide(crate::clock::now(), record::Action::Move)
     {
         return Ok(outcome(&held.text(Audience::Agent), true));
     }
@@ -445,7 +448,7 @@ fn moving(
         hamlet: from.hamlet.clone(),
         keep,
         reason: reason.into(),
-        at: society::now(),
+        at: crate::clock::now(),
     });
     if moving.agreed.len() < 2 {
         write(db, realm)?;
@@ -478,7 +481,7 @@ fn moving(
                     number: target.mayor,
                 },
             },
-            at: society::now(),
+            at: crate::clock::now(),
             reason: reason.into(),
             task,
             change: Change::MoveMember {

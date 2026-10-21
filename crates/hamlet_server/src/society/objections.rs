@@ -127,7 +127,7 @@ pub(crate) fn object(
                 change: None,
             }),
         },
-        super::now(),
+        crate::clock::now(),
     )?;
     instruction.binding = binding.id.0;
     instruction.waits.extend(wait);

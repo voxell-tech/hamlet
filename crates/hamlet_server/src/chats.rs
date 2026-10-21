@@ -737,7 +737,7 @@ pub(crate) async fn current(
         &chief,
         1,
         binding,
-        now(),
+        crate::clock::now(),
     )?;
     Ok(binding)
 }
@@ -825,11 +825,7 @@ pub(crate) async fn write(
         .await
 }
 
-fn now() -> i64 {
-    chrono::Utc::now().timestamp_millis()
-}
-
 /// A new H12 task, begun now.
 fn new_task() -> String {
-    format!("{}-{}", now(), uuid::Uuid::new_v4())
+    format!("{}-{}", crate::clock::now(), uuid::Uuid::new_v4())
 }

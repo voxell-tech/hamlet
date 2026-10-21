@@ -42,7 +42,7 @@ pub(super) async fn create(
     given: Create,
 ) -> Result<Value> {
     let place = caller.place.agent.clone();
-    let at = society::now();
+    let at = crate::clock::now();
     let outcome = society::once(
         service.home.store(),
         &caller.id,
@@ -138,7 +138,7 @@ pub(super) fn set_model(
         pinned: limits.pinned.keys().cloned().collect(),
         own: limits.model.unwrap_or(home),
     };
-    let at = society::now();
+    let at = crate::clock::now();
     society::once(
         service.home.store(),
         &caller.id,
@@ -222,7 +222,7 @@ fn chief_change(
     let operation = RecordOperation {
         hamlet: hamlet.into(),
         actor: Actor::Chief(service.chief.clone()),
-        at: society::now(),
+        at: crate::clock::now(),
         reason: reason.into(),
         task: None,
         change,

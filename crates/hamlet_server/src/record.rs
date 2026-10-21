@@ -377,7 +377,7 @@ pub(crate) fn guard(
     let operation = RecordOperation {
         hamlet: hamlet.into(),
         actor: Actor::Realm,
-        at: chrono::Utc::now().timestamp_millis(),
+        at: crate::clock::now(),
         reason: String::new(),
         task: None,
         change: Change::SetGuards {
@@ -406,7 +406,7 @@ pub(crate) fn give_skill(
     let operation = RecordOperation {
         hamlet: hamlet.into(),
         actor: Actor::Chief(chief.into()),
-        at: chrono::Utc::now().timestamp_millis(),
+        at: crate::clock::now(),
         reason: String::new(),
         task: None,
         change: Change::GiveSkill {
@@ -498,7 +498,7 @@ impl Hamlet {
         self.open_votes
             .iter()
             .find(|vote| {
-                (now.saturating_sub(vote.called).max(0) as u64)
+                now.saturating_sub(vote.called).max(0)
                     < self.limits.chief.vote_open_ms()
             })
             .map(|vote| {

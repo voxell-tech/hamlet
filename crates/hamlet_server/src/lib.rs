@@ -5,6 +5,7 @@
 mod change;
 mod chats;
 mod claim;
+mod clock;
 mod credentials;
 mod documents;
 mod fault;

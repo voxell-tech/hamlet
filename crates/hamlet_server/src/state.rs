@@ -56,10 +56,9 @@ pub(crate) fn state(
             continue;
         };
         let limits = &record.limits.chief;
-        let grows =
-            u64::try_from(limits.road.grows_over_days).unwrap_or(0);
+        let grows = limits.road.grows_over_days;
         let work = service.work(&record.id)?;
-        let now = crate::society::now();
+        let now = crate::clock::now();
         let reference = |number| AgentRef {
             hamlet: record.id.clone(),
             number,
@@ -110,7 +109,7 @@ pub(crate) fn state(
             &record.id,
             &limits.budget.period,
             None,
-            chrono::Utc::now().timestamp_millis(),
+            crate::clock::now(),
         )?;
         hamlets.push(Hamlet {
             id: record.id.clone(),

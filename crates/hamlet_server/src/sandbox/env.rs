@@ -441,13 +441,13 @@ impl Env {
     }
 
     /// Runs `command` with bash under the policy, for at most
-    /// `timeout` seconds and the policy's own limit. Its output, with
+    /// `timeout` and the policy's own limit. Its output, with
     /// `secrets` taken out, goes to `output` as it comes and, past
     /// the spill limits, all of it to a file.
     pub(crate) async fn exec(
         &self,
         command: &str,
-        timeout: f64,
+        timeout: Duration,
         secrets: &[String],
         output: &mut (impl FnMut(&str) + Send),
     ) -> Result<Ran, ExecError> {
@@ -480,7 +480,7 @@ impl Env {
     async fn spawned(
         &self,
         command: &str,
-        timeout: f64,
+        timeout: Duration,
         output: &mut (impl FnMut(&str) + Send),
     ) -> Result<Ended, ExecError> {
         if let Some(refusal) = self.root_refusal() {
@@ -505,7 +505,8 @@ impl Env {
                 &self.tmp,
             )
             .map_err(ExecError::Spawn)?;
-        let timeout = timeout.min(limits.wall_secs as f64);
+        let timeout =
+            timeout.min(Duration::from_secs(limits.wall_secs));
         if fs::metadata(&self.cwd).is_err() {
             return Err(ExecError::Spawn(format!(
                 "Working directory does not exist: {}\nCannot \
@@ -538,8 +539,7 @@ impl Env {
         let mut decoders = [Decoder::default(), Decoder::default()];
         let mut buffers =
             [vec![0u8; 64 * 1024], vec![0u8; 64 * 1024]];
-        let deadline =
-            tokio::time::sleep(Duration::from_secs_f64(timeout));
+        let deadline = tokio::time::sleep(timeout);
         tokio::pin!(deadline);
         let mut timed_out = false;
         let mut status = None;
