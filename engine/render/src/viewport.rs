@@ -40,7 +40,7 @@ pub(crate) fn plugin(app: &mut App) {
         .add_systems(
             Update,
             (
-                (show, size, activate).chain(),
+                (show, size, size_behind, activate).chain(),
                 (track, pick).chain().run_if(
                     resource_exists::<ButtonInput<MouseButton>>,
                 ),
@@ -189,6 +189,35 @@ fn size(
                 },
             });
         }
+    }
+}
+
+/// Tells the owner of a camera behind the dock the window's size, as
+/// a viewport's is told.
+fn size_behind(
+    windows: Query<&Window, With<PrimaryWindow>>,
+    mut cameras: Query<(&Camera, &SceneCamera, &mut ViewPointer)>,
+    mut inputs: MessageWriter<SceneInput>,
+) {
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let size = Vec2::new(window.width(), window.height());
+    for (camera, scene_camera, mut pointer) in &mut cameras {
+        if scene_camera.image.is_some()
+            || !camera.is_active
+            || pointer.size == size
+        {
+            continue;
+        }
+        pointer.size = size;
+        inputs.write(SceneInput {
+            owner: scene_camera.owner,
+            event: SceneEvent::Resized {
+                view: scene_camera.key,
+                size,
+            },
+        });
     }
 }
 

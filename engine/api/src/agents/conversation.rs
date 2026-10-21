@@ -29,6 +29,8 @@ pub enum Selected {
     /// A hamlet by its name on disk.
     Hamlet(String),
     Library,
+    /// The chief's own place in the realm.
+    Hearth,
 }
 
 /// A session shown in the chat of the open conversation's agent.

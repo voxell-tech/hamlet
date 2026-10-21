@@ -22,3 +22,6 @@ reason = "Changes a hamlet's bylaws: its budget, its models and what its mayor m
 capability = "desktop.open"
 target = "https"
 reason = "Opens a web link of an agent's notes or character in your browser when you click it"
+
+[events]
+sends = [{ name = "carry", payload = "realm.carry" }]

@@ -14,18 +14,19 @@ use bevy::ecs::system::{
 };
 use bevy::ecs::world::World;
 use hamlet_core::agents::{
-    Account, Activity, Busy, Citizen, Doing, Left, LivesIn, Mayor,
-    MergedInto, Paper, Purpose, Settlement, Treasury, Works,
+    Account, Activity, Busy, Citizen, Doing, Left, Lived, LivesIn,
+    Mayor, MergedInto, Paper, Purpose, Road, Settlement, Spot,
+    Traffic, Treasury, Works,
 };
 use hamlet_core::core::{HomeDir, Settings};
 use hamlet_core::oversight::Waiting;
 use hamlet_engine_api::Failure;
 use hamlet_engine_api::agents::{
-    AgentsEvent, ClosedHamlet, Record, Roster, RosterAgent,
-    RosterHamlet, Vote,
+    self as api, AgentsEvent, ClosedHamlet, Record, RoadUse, Roster,
+    RosterAgent, RosterHamlet, RosterRoad, Vote,
 };
 use hamlet_home::limits;
-use hamlet_rules::hamlet::HOME;
+use hamlet_rules::hamlet::{self as rules, HOME};
 use hamlet_rules::realm::Realm;
 use hamlet_rules::vote::{self, Standing};
 use hamlet_rules::work::Mode;
@@ -138,6 +139,7 @@ type Told<'a> = (
     &'a Activity,
     Option<&'a Account>,
     Option<&'a MergedInto>,
+    &'a Lived,
     (Has<Busy>, Has<Mayor>, Has<Left>),
 );
 
@@ -154,8 +156,11 @@ pub(crate) struct RosterFacts<'w, 's> {
             &'static Name,
             Option<&'static Treasury>,
             Option<&'static Works>,
+            Option<&'static Spot>,
         ),
     >,
+    roads: Query<'w, 's, (&'static Road, &'static Traffic)>,
+    ends: Query<'w, 's, (&'static Citizen, &'static LivesIn)>,
     waiting: Query<'w, 's, &'static Waiting>,
     names: Query<'w, 's, &'static Name>,
 }
@@ -173,7 +178,7 @@ impl RosterFacts<'_, '_> {
             self.hamlets
                 .get(hamlet)
                 .ok()
-                .and_then(|(.., treasury, _)| treasury)
+                .and_then(|(.., treasury, _, _)| treasury)
                 .map(|treasury| treasury.0.period.clone())
                 .filter(|period| !period.is_empty())
                 .unwrap_or_else(|| "today".into())
@@ -190,6 +195,7 @@ impl RosterFacts<'_, '_> {
                     activity,
                     account,
                     into,
+                    lived,
                     (busy, mayor, gone),
                 )| {
                     let name = name.as_str().to_string();
@@ -236,6 +242,9 @@ impl RosterFacts<'_, '_> {
                             })
                             .unwrap_or_default(),
                         name,
+                        since: lived.since,
+                        until: lived.until,
+                        doing: activity.doing.told(),
                     }
                 },
             )
@@ -247,7 +256,7 @@ impl RosterFacts<'_, '_> {
         let mut hamlets = self
             .hamlets
             .iter()
-            .map(|(_, settlement, title, treasury, works)| {
+            .map(|(_, settlement, title, treasury, works, spot)| {
                 let here = agents
                     .iter()
                     .filter(|agent| agent.hamlet == settlement.name)
@@ -298,6 +307,7 @@ impl RosterFacts<'_, '_> {
                                 .collect()
                         })
                         .unwrap_or_default(),
+                    spot: spot.and_then(|spot| spot.0),
                 }
             })
             .collect::<Vec<_>>();
@@ -308,7 +318,65 @@ impl RosterFacts<'_, '_> {
         Roster {
             agents,
             hamlets,
+            roads: self.roads(),
             closed,
+        }
+    }
+
+    /// The roads between agents, each end by its hamlet and number.
+    fn roads(&self) -> Vec<RosterRoad> {
+        let end = |agent: Entity| {
+            let (citizen, lives) = self.ends.get(agent).ok()?;
+            let (_, settlement, ..) =
+                self.hamlets.get(lives.0).ok()?;
+            Some((settlement.name.clone(), citizen.0))
+        };
+        let mut roads = self
+            .roads
+            .iter()
+            .filter_map(|(road, traffic)| {
+                Some(RosterRoad {
+                    ends: [end(road.ends.0)?, end(road.ends.1)?],
+                    level: match traffic.level {
+                        rules::RoadUse::Overgrown => {
+                            RoadUse::Overgrown
+                        }
+                        rules::RoadUse::Dirt => RoadUse::Dirt,
+                        rules::RoadUse::Paved => RoadUse::Paved,
+                        rules::RoadUse::Rail => RoadUse::Rail,
+                    },
+                })
+            })
+            .collect::<Vec<_>>();
+        roads.sort_by(|a, b| a.ends.cmp(&b.ends));
+        roads
+    }
+}
+
+/// The roster's methods on [`Doing`].
+trait DoingExt {
+    /// The step as the roster tells it.
+    fn told(self) -> api::Doing;
+}
+
+impl DoingExt for Doing {
+    fn told(self) -> api::Doing {
+        let paper = |paper: Paper| match paper {
+            Paper::File => api::Paper::File,
+            Paper::Notes => api::Paper::Notes,
+            Paper::Skill => api::Paper::Skill,
+        };
+        match self {
+            Doing::Unknown => api::Doing::Unknown,
+            Doing::Think => api::Doing::Think,
+            Doing::Read(read) => api::Doing::Read(paper(read)),
+            Doing::Write(written) => {
+                api::Doing::Write(paper(written))
+            }
+            Doing::Run => api::Doing::Run,
+            Doing::Fetch => api::Doing::Fetch,
+            Doing::CustomTool => api::Doing::CustomTool,
+            Doing::Await => api::Doing::Await,
         }
     }
 }

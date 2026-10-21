@@ -1,0 +1,27 @@
+id = "hamlet.realm"
+name = "Realm"
+version = "0.1.0"
+api = "0.1.0"
+
+[[asks]]
+capability = "agents.read"
+target = "local"
+reason = "Draws every hamlet, agent and road, and selects what you click"
+
+[[asks]]
+capability = "agents.chief"
+target = "local"
+reason = "Sets a hamlet down where you carry it"
+
+[[asks]]
+capability = "render.scene"
+target = "gpu"
+reason = "Draws the realm behind the dock"
+
+[[asks]]
+capability = "render.shader"
+target = "gpu"
+reason = "Draws the roads' grooves and their light with shaders of its own"
+
+[events]
+hears = [{ event = "hamlet.inspector/carry", payload = "realm.carry" }]

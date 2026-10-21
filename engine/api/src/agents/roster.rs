@@ -3,9 +3,10 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Every agent and hamlet, and the hamlets closed down.
+/// Every agent and hamlet, the roads between agents, and the hamlets
+/// closed down.
 #[derive(
-    Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize,
+    Clone, PartialEq, Debug, Default, Serialize, Deserialize,
 )]
 pub struct Roster {
     /// By hamlet: the mayor, the living by their numbers, then those
@@ -13,7 +14,58 @@ pub struct Roster {
     pub agents: Vec<RosterAgent>,
     /// The first hamlet first, then by title.
     pub hamlets: Vec<RosterHamlet>,
+    pub roads: Vec<RosterRoad>,
     pub closed: Vec<ClosedHamlet>,
+}
+
+/// A road between two agents, each named by its hamlet and its
+/// number there.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct RosterRoad {
+    pub ends: [(String, u64); 2],
+    pub level: RoadUse,
+}
+
+/// How much a road is used.
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize,
+)]
+pub enum RoadUse {
+    Overgrown,
+    Dirt,
+    Paved,
+    Rail,
+}
+
+/// The step of its turn a working agent is on.
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize,
+)]
+pub enum Doing {
+    #[default]
+    Unknown,
+    /// Waiting for the model's reply.
+    Think,
+    Read(Paper),
+    Write(Paper),
+    /// Running a shell command.
+    Run,
+    /// Running a command that reaches the network.
+    Fetch,
+    /// Using a tool added by hand.
+    CustomTool,
+    /// Waiting for the answer of an agent it asked.
+    Await,
+}
+
+/// What an agent reads or writes.
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize,
+)]
+pub enum Paper {
+    File,
+    Notes,
+    Skill,
 }
 
 /// An agent, living or gone.
@@ -40,10 +92,15 @@ pub struct RosterAgent {
     /// Its spend from its hamlet's budget in the period, as
     /// "Spent today: $0.10"; empty with no account yet.
     pub spent: String,
+    /// When it came and, once it left, when it left, in
+    /// milliseconds as its hamlet's record has them.
+    pub since: u64,
+    pub until: Option<u64>,
+    pub doing: Doing,
 }
 
 /// A hamlet.
-#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct RosterHamlet {
     /// Its name on disk and in commands.
     pub id: String,
@@ -66,6 +123,9 @@ pub struct RosterHamlet {
     pub mode: String,
     /// The folders it worked on before, the latest first.
     pub before: Vec<String>,
+    /// Where its chief set it down in the realm, as x and z; none
+    /// while it stands where the realm first put it.
+    pub spot: Option<(f32, f32)>,
 }
 
 /// A hamlet closed down, to be restored or deleted.

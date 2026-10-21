@@ -1,0 +1,21 @@
+[package]
+name = "realm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The realm behind the dock: the endless land, every hamlet with its houses, roads and robots, the chief's Hearth, and the camera and pointer over them"
+publish = false
+
+[lib]
+# The build is `target/wasm32-wasip2/release/realm.wasm`.
+crate-type = ["cdylib"]
+
+[lints.clippy]
+# The mesh builders take each measure of a shape.
+too_many_arguments = "allow"
+
+[dependencies]
+hamlet_engine_sdk.workspace = true
+glam = { version = "0.32", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+toml = "1"

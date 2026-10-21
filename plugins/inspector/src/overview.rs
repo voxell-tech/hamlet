@@ -216,6 +216,12 @@ pub(crate) fn overview() -> AnyView {
             .size(Size::Small)
             .tone(Tone::Dim),
         scroll((shown, gone)),
+        row((
+            icon_button("flame", "YOUR HEARTH")
+                .on_click(|world| select(world, Selected::Hearth)),
+            label("Where you live in the realm.").tone(Tone::Dim),
+        ))
+        .space(Space::Gap),
     ))
     .space(Space::Gap)
     .boxed()

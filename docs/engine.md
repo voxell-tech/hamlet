@@ -936,6 +936,41 @@ about the middle and the wheel brings it nearer; the shape or cube
 under the pointer lights up, and a click names what it hit over the
 view. Its `steps.toml` counts the scene and clicks a shape and a cube.
 
+`plugins/realm` (`hamlet.realm`, asking `agents.read`, `agents.chief`,
+`render.scene` and `render.shader`) is the realm, drawn behind the
+dock from the agents service's roster, as `crates/hamlet_realm` draws
+it: the endless land of [`endless-world.md`](endless-world.md) in
+tiles about the camera with its rivers and trees, a town for every
+hamlet with a house, a yard and a robot for every agent, the roads
+between agents with their bridges and lit grooves, and the chief's
+Hearth with its mascot, which goes by a Wickstep to the agent the
+chief talks to. The sky follows the chief's clock (`Focus::offset`).
+Its tuning is `assets/world.toml` and `assets/palette.toml`, built in.
+- **Within its budgets.** Everything is built a step at a time on
+  `tick`, nearest the camera first: `upload.rs` holds each call to a
+  share of the bytes it may hand over and of a second's time, and a
+  mesh with no room left waits for the next call.
+- **The roster** is followed in `bridge.rs` as `main` follows the
+  core's entities: a hamlet founds its town at its spot or the first
+  free site, its agents take their plots in the order they came, one
+  that leaves is a ruin or a wing of the house it merged into, and the
+  roads and what each agent does follow theirs.
+- **The camera** (`camera.rs`) frames every hamlet; the left button
+  slides the ground, the right turns and tilts it, and the wheel comes
+  nearer. Reset Camera, Focus on Selection (F), Follow Selection
+  (Shift+F) and the sky held to day or night are in the View menu.
+- **The pointer.** A robot, a house, a common, the Hearth or the
+  mascot under it has a ring of light, and a click selects its agent,
+  hamlet or the Hearth in the window's focus and brings the Inspector
+  forward; a click on the bare ground selects nothing. A hamlet or the
+  Hearth selected elsewhere is brought into view. Houses, commons and
+  the Hearth have signs while the camera is near, and a robot or the
+  mascot a tag under the pointer.
+- **Moving a town.** It hears the Inspector's `carry`: the town is in
+  hand, its footprint follows the pointer over the ground, gold where
+  it fits and red where it does not, a click sends `/move-hamlet` to
+  its hamlet as a decree, and the right button puts it back.
+
 The agents' panels are four more, each following the focus the
 agents service keeps, so what one opens or selects the others show.
 They are built with `plugins/agents_ui`, a library and no plugin: the
@@ -987,12 +1022,16 @@ verb beside CANCEL with a warning for agents it cuts short.
   deleted from its menu, and reads one
   forty messages at a time. One that is gone, with RESTORE, DELETE FOR
   GOOD and ITS HAMLET. The library. Every hamlet, searched, each with
-  Close Down in its menu, with FOUND A HAMLET and those closed down.
+  Close Down in its menu, with FOUND A HAMLET, those closed down, and
+  YOUR HEARTH, which selects the chief's place for the realm to bring
+  into view.
   FOUND A HAMLET, and Found a Hamlet... in the Hamlet menu, show the
   form a hamlet is founded with on an overlay (`founding.rs`): its
   name, its mayor's and what it is for, all three needed, sent as
   `/found` to the open conversation; CANCEL keeps what was typed.
-  A hamlet, with RENAME, CLOSE DOWN, the folder it works on, CHOOSE
+  A hamlet, with RENAME, MOVE (the event `carry`, with the hamlet's
+  name, for the realm to take its town in hand), CLOSE DOWN, the
+  folder it works on, CHOOSE
   A FOLDER (or CHOOSE ANOTHER) in the system's dialog, which gives it
   `/folder` with the path, and its mode, and AGENTS, BYLAWS
   (`bylaws.rs`: its own limits as `main`'s rules panel sets them, on
@@ -1171,7 +1210,7 @@ says why and every request fails saying so.
 - **The focus** is the window's, kept in the service so every panel
   follows the same (`focus.rs`): the open conversation (`Open`), who
   it is with, and the thing selected (`Select`: nothing, an agent, a
-  hamlet or the library). Selecting a living agent talks to it, and
+  hamlet, the library or the chief's Hearth). Selecting a living agent talks to it, and
   opening a conversation selects its agent. When the agent of the
   open conversation is gone, it falls back to the first mayor.
   `Focus` reads it and each change is an `AgentsEvent::Focus`.
@@ -1194,8 +1233,11 @@ says why and every request fails saying so.
   `DeletePast` (an archived session only), each by the name of its
   log in the house of the open conversation's agent.
 - **The roster** (`roster.rs`): `Roster` is every agent and hamlet
-  with its state in words, its account and spend, and the hamlets
-  closed down; it is told again as `AgentsEvent::Roster` when it
+  with its state in words, its account and spend, the hamlets closed
+  down, and what the realm is drawn from: when each agent came and
+  left and the step it is on, the spot a hamlet's chief set it down
+  on, and the roads between agents, each end by its hamlet and
+  number, with their use; it is told again as `AgentsEvent::Roster` when it
   changes. `Record` is a hamlet's budget, votes, comings and goings
   and limits file. `Bylaws` is what a hamlet's own limits file holds
   for it alone, and `SetBylaw` writes one key of that file, refusing
@@ -1296,7 +1338,8 @@ none of them imports none of them.
   at a time (the shell's `Backdrop`); another's make is refused. While
   one does, the shell's root has no fill and lets the pointer through,
   and the interface is drawn over the scene without clearing it, so
-  the scene shows where the dock has no panel.
+  the scene shows where the dock has no panel. The plugin is told the
+  window's size as `resized`, as a viewport's is told its own.
 - **The pointer.** Over a view, its moves, buttons and wheel are told
   to the plugin with the key of the camera's entity, in the
   interface's pixels; behind the dock, only where no UI node is under
@@ -1306,7 +1349,9 @@ none of them imports none of them.
   `click` on a press let go within `[render] click_slop`, each with the
   point hit and its normal, and the copy of instances.
 - **Words over the world** (`set-label`) are texts of the interface
-  over each viewport, kept where the camera sees the entity.
+  kept where the camera sees the entity: over each viewport, or behind
+  the dock on a layer of their own under every root of the interface
+  (`label.rs`), so the dock's panels cover them.
 
 ### Layer two: the plugin's own GPU work
 
@@ -1396,8 +1441,6 @@ none of them imports none of them.
   are not offered.
 - **Skinned and animated meshes** of glTF are not offered: a plugin
   moves its entities' transforms itself, with `tick`.
-- **Words over the world behind the dock** are not drawn; a plugin
-  draws them in an overlay.
 
 ## Where the budgets are
 

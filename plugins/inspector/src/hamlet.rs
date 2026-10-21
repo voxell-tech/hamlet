@@ -12,12 +12,17 @@ use hamlet_engine_sdk::ui::{
     field, heading, icon, icon_button, keyed, label, list, resource,
     row, scroll,
 };
+use hamlet_engine_sdk::{emit, encode, warn};
 
 use crate::overview::{pressed_card, standing};
 use crate::{bylaws, select};
 
 /// The first hamlet, which is the home itself and stays.
 pub(crate) const HOME: &str = "home";
+
+/// The event that has the realm take a hamlet's town in hand, its
+/// payload the hamlet's name on disk.
+const CARRY: &str = "carry";
 
 /// The characters of a purpose shown on a card.
 const PURPOSE: usize = 96;
@@ -122,6 +127,16 @@ pub(crate) fn close_down(world: &mut World, id: &str) {
             }],
         },
     );
+}
+
+/// Has the realm take the town of the hamlet `id` in hand.
+fn carry(id: &str) {
+    match encode(&id.to_owned()) {
+        Ok(payload) => {
+            emit(CARRY, &payload);
+        }
+        Err(why) => warn(&format!("carry {id}: {why}")),
+    }
 }
 
 /// The field a hamlet is renamed in, while it is.
@@ -295,6 +310,14 @@ fn head(hamlet: &RosterHamlet) -> AnyView {
         icon_button("pencil", "RENAME")
             .on_click(|world| {
                 world.resource_mut::<Naming>().0 = Some(String::new())
+            })
+            .boxed(),
+        // The realm takes its town in hand, to be set down with a
+        // click on the ground.
+        icon_button("move", "MOVE")
+            .on_click({
+                let id = id.clone();
+                move |_| carry(&id)
             })
             .boxed(),
     ];

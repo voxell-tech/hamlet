@@ -46,7 +46,10 @@ fn page(world: &World) -> Page {
         .as_ref()
         .map(|focus| focus.selected.clone());
     match selected {
-        None | Some(Selected::Nothing) => Page::Overview,
+        // The chief's own page, its look, is the realm's to show.
+        None | Some(Selected::Nothing | Selected::Hearth) => {
+            Page::Overview
+        }
         Some(Selected::Library) => Page::Library,
         Some(Selected::Hamlet(id)) => {
             if roster.hamlets.iter().any(|hamlet| hamlet.id == id) {

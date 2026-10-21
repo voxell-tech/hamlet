@@ -19,8 +19,8 @@ pub use self::needs::{
     Sheet,
 };
 pub use self::roster::{
-    Bylaws, ClosedHamlet, Record, Roster, RosterAgent, RosterHamlet,
-    Vote,
+    Bylaws, ClosedHamlet, Doing, Paper, Record, RoadUse, Roster,
+    RosterAgent, RosterHamlet, RosterRoad, Vote,
 };
 use crate::capability::Capability;
 
