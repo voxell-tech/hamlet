@@ -1,7 +1,9 @@
 //! Protocol views of the record and the chief's settings.
 
 use anyhow::Result;
-use hamlet_protocol::v0::{Changes, ServerMessage, State, Update};
+use hamlet_protocol::v0::{
+    Changes, Doing, ServerMessage, State, Update,
+};
 use serde_json::json;
 
 use crate::record::{self, End};
@@ -38,6 +40,7 @@ pub(crate) fn state(
         let grows =
             u64::try_from(limits.road.grows_over_days).unwrap_or(0);
         let work = service.work(&record.id)?;
+        let now = crate::society::now();
         let reference =
             |number| json!({"hamlet":record.id,"number":number});
         let end = |end| {
@@ -48,14 +51,13 @@ pub(crate) fn state(
         };
         let mut roads = record.roads_of().iter().map(|r| json!({
             "a":end(r.a), "b":end(r.b), "messages":r.messages,
-            "lastFrom":r.last_from.map(end), "level":record::level(r, chrono::Utc::now().timestamp_millis(), grows)
+            "lastFrom":r.last_from.map(end), "level":record::level(r.last_used, r.messages, now, grows)
         })).collect::<Vec<_>>();
         roads.extend(crate::realm::roads(service.home.store().connection())?.into_iter().filter(|r| r.a.hamlet == record.id || r.b.hamlet == record.id).map(|r| {
-            let old = r.last_used > 0 && crate::society::now().saturating_sub(r.last_used).max(0) as u64 > grows.saturating_mul(86_400_000);
-            let level = if old { "overgrown" } else if r.messages < 3 { "dirt" } else if r.messages < 10 { "paved" } else { "rail" };
+            let level = record::level(r.last_used, r.messages, now, grows);
             json!({"a":r.a,"b":r.b,"messages":r.messages,"lastFrom":r.last_from,"level":level})
         }));
-        let period = limits.period();
+        let period = &limits.budget.period;
         let books = crate::spend::books(
             service.home.store().connection(),
             &record.id,
@@ -95,15 +97,18 @@ pub(crate) fn state(
             };
             let work = crate::chats::work(service, &reference_of)?;
             let busy = left.is_none() && work.busy;
-            let doing =
-                if left.is_some() { "rest" } else { work.doing };
+            let doing = if left.is_some() {
+                Doing::Rest
+            } else {
+                work.doing
+            };
             let consulting = crate::society::library::consulting(
                 service.home.store().connection(),
                 &reference_of,
             )?;
             let mut view = json!({"ref":reference(agent.number), "name":agent.name,"purpose":agent.purpose,"since":agent.since,"mayor":mayor,
                 "model":limits.model_of(agent, mayor, &settings.model),"busy":busy,"faulted":!busy && work.faulted,
-                "activity":{"doing":doing,"doingWords":crate::chats::words(doing),"step":if left.is_some() {0} else {work.step},"failures":if left.is_some() {0} else {work.failures}},
+                "activity":{"doing":doing,"doingWords":crate::chats::words(&doing),"step":if left.is_some() {0} else {work.step},"failures":if left.is_some() {0} else {work.failures}},
                 "saying":{"text":work.saying,"thought":work.thought},"spent":{"tokens":0,"micros":0,"ms":0,"cost":"$0.00"},"skills":[],"consulting":consulting,"conversations":[]});
             let spent = books
                 .agents
@@ -129,7 +134,7 @@ pub(crate) fn state(
             )?
             .into();
             if let Some(left) = left {
-                view["left"] = json!({"how":if left.merge.is_some(){"merged"}else{"removed"}, "into":left.merge.as_ref().map(|m|reference(m.kept.number)), "at":left.at,"by":by_words(&left.by),"reason":left.reason,"words":record.farewell(left)});
+                view["left"] = json!({"how":if left.merge.is_some(){"merged"}else{"removed"}, "into":left.merge.as_ref().map(|m|reference(m.kept.number)), "at":left.at,"by":left.by.words(),"reason":left.reason,"words":record.farewell(left)});
             }
             agents.push(view);
         }
@@ -181,16 +186,6 @@ pub(crate) fn state(
     }
     service.credentials.scrub(&mut view);
     Ok(serde_json::from_value(view)?)
-}
-
-fn by_words(by: &str) -> String {
-    if by == "mayor" {
-        return "the mayor".into();
-    }
-    by.strip_prefix("chief:").map_or_else(
-        || by.into(),
-        |chief| format!("the chief {chief}"),
-    )
 }
 
 pub(crate) fn changed(

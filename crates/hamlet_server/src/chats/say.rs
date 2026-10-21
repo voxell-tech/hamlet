@@ -3,7 +3,7 @@
 
 use anyhow::Result;
 use hamlet_protocol::v0::{
-    Address, Choice, Deed, ReplyKind, Say, ServerMessage,
+    Address, Choice, Deed, Permission, ReplyKind, Say, ServerMessage,
 };
 use serde_json::Value;
 
@@ -211,7 +211,7 @@ enum Command {
     },
     Revoke {
         agent: String,
-        permission: String,
+        permission: Permission,
     },
     Folder(String),
     Mode(Mode),
@@ -327,15 +327,13 @@ fn read_command(
         "revoke" => {
             let words = words.collect::<Vec<_>>();
             match words[..] {
-                [agent, permission]
-                    if permission == "network"
-                        || permission == "unconfined" =>
-                {
-                    Ok(Command::Revoke {
+                [agent, name] => match gate::permission(name) {
+                    Some(permission) => Ok(Command::Revoke {
                         agent: agent.into(),
-                        permission: permission.into(),
-                    })
-                }
+                        permission,
+                    }),
+                    None => usage(),
+                },
                 _ => usage(),
             }
         }
@@ -998,12 +996,13 @@ fn grants(service: &mut Service, hamlet: &str) -> Result<String> {
     let limits = service.limits_of(hamlet)?;
     let mut lines = Vec::new();
     for (permission, names) in [
-        ("network", &limits.permissions.network),
-        ("unconfined", &limits.permissions.unconfined),
+        (Permission::Network, &limits.permissions.network),
+        (Permission::Unconfined, &limits.permissions.unconfined),
     ] {
         for name in names {
             lines.push(format!(
-                "{name} may use: {permission} (limits.toml)"
+                "{name} may use: {} (limits.toml)",
+                gate::word(&permission)
             ));
         }
     }
@@ -1011,13 +1010,11 @@ fn grants(service: &mut Service, hamlet: &str) -> Result<String> {
         .into_iter()
         .filter(|grant| grant.agent.hamlet == hamlet)
     {
+        let permission = gate::word(&grant.permission);
         lines.push(format!(
-            "{} may use: {} (given by {}; /revoke {} {})",
-            grant.name,
-            grant.permission,
-            grant.by,
-            grant.name,
-            grant.permission
+            "{} may use: {permission} (given by {}; /revoke {} \
+             {permission})",
+            grant.name, grant.by, grant.name,
         ));
     }
     Ok(if lines.is_empty() {
@@ -1033,7 +1030,7 @@ fn revoke(
     service: &mut Service,
     hamlet: &str,
     agent: &str,
-    permission: &str,
+    permission: &Permission,
 ) -> Result<String> {
     let record = service.home.store().record(hamlet)?;
     let db = service.home.store().connection();
@@ -1061,6 +1058,7 @@ fn revoke(
         )?;
     }
     let held = service.limits_of(hamlet)?.permits(permission, agent);
+    let permission = gate::word(permission);
     Ok(if held {
         format!(
             "Revoked what was granted. `{agent}` still has \

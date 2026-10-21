@@ -1,6 +1,7 @@
 //! pi's `read`, `write` and `edit`, whose paths fall in the house or
 //! the folder as C20 says.
 
+use hamlet_workspace_wire::Code;
 use serde_json::{Map, Value, json};
 use unicode_normalization::UnicodeNormalization;
 
@@ -317,7 +318,7 @@ async fn queued(
     loop {
         match env.canonical_path(&path).await {
             Ok(_) => return Ok(()),
-            Err(error) if error.code == "not_found" => {
+            Err(error) if error.code == Code::NotFound => {
                 let parent =
                     crate::sandbox::path::join(&[&path, ".."]);
                 if parent == path || !path.starts_with(&parent) {
@@ -363,14 +364,14 @@ pub(super) async fn preview(
     let full = env.footing(path).await?;
     Ok(match env.read_text(&full).await {
         Ok(text) => Some(text),
-        Err(error) if error.code == "not_found" => None,
+        Err(error) if error.code == Code::NotFound => None,
         Err(error) => {
             let size = env
                 .file_info(&full)
                 .await
                 .map(|info| format!(", {} bytes", info.size))
                 .unwrap_or_default();
-            let reason = if error.code == "invalid" {
+            let reason = if error.code == Code::Invalid {
                 "is not UTF-8 text"
             } else {
                 "could not be read as text"
@@ -437,7 +438,7 @@ async fn edited(
     let access = |error: FileError| {
         format!(
             "Could not edit file: {path}. Error code: {}.",
-            error.code
+            error.code.as_str()
         )
     };
     let absolute = tool_path(env, path);

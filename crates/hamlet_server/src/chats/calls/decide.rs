@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use anyhow::Result;
+use hamlet_protocol::v0::Permission;
 use hamlet_protocol::{HOME, MAYOR};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -15,9 +16,7 @@ use super::{IDENTITY_REFUSAL, NOBODY, OBJECTING, WAITING};
 use crate::gate::{self, Asked, Standing, TrustKey, Verdict};
 use crate::harness::{Binding, BindingId};
 use crate::oversight::held::{self, CallState};
-use crate::oversight::{
-    ChatPlace, Danger, Holding, Raising, WaitKind,
-};
+use crate::oversight::{ChatPlace, Holding, Raising, WaitKind};
 use crate::record::{AgentRef, Hamlet};
 use crate::service::Service;
 use crate::{OperationId, operation, tools};
@@ -451,7 +450,7 @@ pub(super) fn standing(
                 &grants,
                 by,
                 &place.agent,
-                Danger::Network.as_str(),
+                &Permission::Network,
             ),
         asks_edits: manual && !edit,
         asks_commands: manual && !command,
@@ -767,7 +766,7 @@ mod tests {
             service.home.store().connection(),
             &agent,
             "mayor",
-            "network",
+            &Permission::Network,
             "chief",
             0,
         )
@@ -784,7 +783,7 @@ mod tests {
         gate::revoke(
             service.home.store().connection(),
             &agent,
-            "network",
+            &Permission::Network,
             "chief",
             1,
         )

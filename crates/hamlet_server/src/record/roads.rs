@@ -1,10 +1,11 @@
 //! Local roads, office roads and their atomic charges.
 
 use anyhow::{Result, ensure};
+use hamlet_protocol::v0::RoadLevel;
 use rusqlite::{Connection, params};
 
 use super::{
-    Action, DecisionKind, End, Hamlet, Reason, RecordOperation,
+    Action, By, DecisionKind, End, Hamlet, Reason, RecordOperation,
     RecordResult, Refusal, Road,
 };
 use crate::spend::money;
@@ -36,7 +37,7 @@ impl Hamlet {
                     End::Office,
                     End::Agent(agent.number),
                     agent.since,
-                    "office",
+                    By::Office,
                 ));
             }
         }
@@ -57,23 +58,25 @@ impl Hamlet {
     }
 }
 
-/// The drawn road level at `now` (H3).
+/// The drawn level at `now` of a road that carried `messages` and
+/// was last used at `last_used` (H3).
 pub fn level(
-    road: &Road,
+    last_used: i64,
+    messages: u64,
     now: i64,
     grows_over_days: u64,
-) -> &'static str {
-    if road.last_used > 0
-        && now.saturating_sub(road.last_used).max(0) as u64
+) -> RoadLevel {
+    if last_used > 0
+        && now.saturating_sub(last_used).max(0) as u64
             > grows_over_days.saturating_mul(86_400_000)
     {
-        "overgrown"
-    } else if road.messages < 3 {
-        "dirt"
-    } else if road.messages < 10 {
-        "paved"
+        RoadLevel::Overgrown
+    } else if messages < 3 {
+        RoadLevel::Dirt
+    } else if messages < 10 {
+        RoadLevel::Paved
     } else {
-        "rail"
+        RoadLevel::Rail
     }
 }
 
@@ -144,7 +147,7 @@ impl RecordOperation {
                 i64::try_from(price.ms)?
             ],
         )?;
-        let road = Road::new(aa, bb, self.at, &self.actor.by());
+        let road = Road::new(aa, bb, self.at, self.actor.by());
         r.roads.push(road.clone());
         self.decision(
             r,
@@ -319,7 +322,7 @@ impl RecordOperation {
                 End::Office,
                 End::Agent(from),
                 self.at,
-                "office",
+                By::Office,
             ));
         }
         self.decision(

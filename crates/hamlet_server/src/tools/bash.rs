@@ -204,7 +204,7 @@ pub(super) async fn remote(
     let cwd = env.cwd().to_owned();
     match env.file_info(&cwd).await {
         Ok(info) if info.kind == FileKind::Directory => {}
-        Err(error) if error.code != Code::NotFound.as_str() => {
+        Err(error) if error.code != Code::NotFound => {
             return Outcome::failed(error.message);
         }
         _ => {

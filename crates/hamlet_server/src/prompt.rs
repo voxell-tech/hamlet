@@ -351,7 +351,7 @@ pub(crate) fn budget(
     let books = books(
         service.home.store().connection(),
         subject.hamlet,
-        limits.period(),
+        &limits.budget.period,
         subject.task,
         now(),
     )?;

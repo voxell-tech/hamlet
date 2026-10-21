@@ -18,7 +18,8 @@ use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 use hamlet_protocol::v0::{
-    ChatRef, ClientMessage, Op, Read, ServerMessage, Turn, UsageView,
+    ChatRef, ClientMessage, Doing, Op, Read, ServerMessage, Turn,
+    UsageView,
 };
 
 use self::activity::Activity;
@@ -97,7 +98,7 @@ struct Deferred {
 pub(crate) struct Work {
     pub busy: bool,
     pub faulted: bool,
-    pub doing: &'static str,
+    pub doing: Doing,
     pub step: i64,
     pub failures: i64,
     pub saying: String,
@@ -458,7 +459,7 @@ pub(crate) fn work(
         Some(c) => Work {
             busy,
             faulted: !busy && faulted,
-            doing: c.activity.doing,
+            doing: c.activity.doing.clone(),
             step: c.activity.step,
             failures: c.activity.failures,
             saying: c.activity.saying.clone(),
@@ -467,7 +468,7 @@ pub(crate) fn work(
         None => Work {
             busy,
             faulted: !busy && faulted,
-            doing: "rest",
+            doing: Doing::Rest,
             step: 0,
             failures: 0,
             saying: String::new(),

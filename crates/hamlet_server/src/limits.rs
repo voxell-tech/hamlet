@@ -7,7 +7,7 @@ use anyhow::{Result, bail};
 use hamlet_protocol::v0::{
     EditLimits, HamletLimits, LimitsAsking, LimitsBudget,
     LimitsLeaving, LimitsMayor, LimitsPermissions, LimitsRoad,
-    LimitsTask, Period, VoteLimits,
+    LimitsTask, Permission, VoteLimits,
 };
 use jsonschema::error::ValidationErrorKind;
 use serde::{Deserialize, Serialize};
@@ -72,14 +72,6 @@ impl Limits {
         usize::try_from(self.most_roads).unwrap_or(0)
     }
 
-    /// The budget's period, as the spend books name it.
-    pub fn period(&self) -> &'static str {
-        match self.budget.period {
-            Period::Day => "day",
-            Period::Month => "month",
-        }
-    }
-
     /// The price of a road.
     pub fn road_price(&self) -> record::Amount {
         record::Amount {
@@ -102,11 +94,14 @@ impl Limits {
 
     /// Whether `name`, or the mayor when `mayor`, holds `permission`
     /// by these limits.
-    pub fn permits(&self, permission: &str, name: &str) -> bool {
+    pub fn permits(
+        &self,
+        permission: &Permission,
+        name: &str,
+    ) -> bool {
         let names = match permission {
-            "network" => &self.permissions.network,
-            "unconfined" => &self.permissions.unconfined,
-            _ => return false,
+            Permission::Network => &self.permissions.network,
+            Permission::Unconfined => &self.permissions.unconfined,
         };
         names.iter().any(|n| n == name)
     }

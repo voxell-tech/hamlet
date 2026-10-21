@@ -48,7 +48,7 @@ async fn find(
         let listed = env.list_dir(&root).await.map_err(|error| {
             Failure::Unreadable {
                 path: shown(env, &root),
-                reason: error.code,
+                reason: error.code.as_str(),
             }
         })?;
         let mut entries = listed

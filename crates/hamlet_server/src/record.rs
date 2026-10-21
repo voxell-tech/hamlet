@@ -41,18 +41,85 @@ pub enum Actor {
 }
 
 impl Actor {
-    fn by(&self) -> String {
+    fn by(&self) -> By {
         match self {
-            Self::Chief(name) => format!("chief:{name}"),
-            Self::Mayor(_) => "mayor".into(),
-            Self::Member(place) => {
+            Self::Chief(name) => By::Chief(name.clone()),
+            Self::Mayor(_) => By::Mayor,
+            Self::Member(place) => By::Member(place.clone()),
+            Self::Mayors { leaving, .. } => {
+                By::Mayors(leaving.hamlet.clone())
+            }
+            Self::Realm => By::Realm,
+        }
+    }
+}
+
+/// Who made a change the record keeps, written as one word: `mayor`,
+/// `chief:<name>`, `<hamlet>:<number>`, `mayor@<hamlet>`, `realm`
+/// or, for the roads every agent has to its mayor, `office`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(into = "String", try_from = "String")]
+pub enum By {
+    Chief(String),
+    Mayor,
+    Member(AgentRef),
+    /// The mayors of a move, named by the hamlet it leaves.
+    Mayors(String),
+    Realm,
+    Office,
+}
+
+impl By {
+    /// Who it was, in words for the chief and agents.
+    pub fn words(&self) -> String {
+        match self {
+            Self::Mayor => "the mayor".into(),
+            Self::Chief(name) => format!("the chief {name}"),
+            other => other.clone().into(),
+        }
+    }
+}
+
+impl From<By> for String {
+    fn from(by: By) -> Self {
+        match by {
+            By::Chief(name) => format!("chief:{name}"),
+            By::Mayor => "mayor".into(),
+            By::Member(place) => {
                 format!("{}:{}", place.hamlet, place.number)
             }
-            Self::Mayors { leaving, .. } => {
-                format!("mayor@{}", leaving.hamlet)
-            }
-            Self::Realm => "realm".into(),
+            By::Mayors(hamlet) => format!("mayor@{hamlet}"),
+            By::Realm => "realm".into(),
+            By::Office => "office".into(),
         }
+    }
+}
+
+impl TryFrom<String> for By {
+    type Error = String;
+
+    fn try_from(by: String) -> std::result::Result<Self, String> {
+        match by.as_str() {
+            "mayor" => return Ok(Self::Mayor),
+            "realm" => return Ok(Self::Realm),
+            "office" => return Ok(Self::Office),
+            _ => {}
+        }
+        if let Some(name) = by.strip_prefix("chief:") {
+            return Ok(Self::Chief(name.into()));
+        }
+        if let Some(hamlet) = by.strip_prefix("mayor@") {
+            return Ok(Self::Mayors(hamlet.into()));
+        }
+        if let Some((hamlet, number)) = by.rsplit_once(':')
+            && let Ok(number) = number.parse()
+        {
+            return Ok(Self::Member(AgentRef {
+                hamlet: hamlet.into(),
+                number,
+            }));
+        }
+        Err(format!("`{by}` names no one who changes a record"))
     }
 }
 

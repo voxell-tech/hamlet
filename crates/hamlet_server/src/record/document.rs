@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::By;
+
 /// An agent's stable number within its hamlet (C9).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentRef {
@@ -39,7 +41,7 @@ pub struct Road {
     pub last_from: Option<End>,
     pub last_used: i64,
     pub since: i64,
-    pub by: String,
+    pub by: By,
 }
 
 impl Road {
@@ -51,7 +53,7 @@ impl Road {
         self.a == End::Agent(number) || self.b == End::Agent(number)
     }
 
-    pub(super) fn new(a: End, b: End, at: i64, by: &str) -> Self {
+    pub(super) fn new(a: End, b: End, at: i64, by: By) -> Self {
         Self {
             a,
             b,
@@ -59,7 +61,7 @@ impl Road {
             last_from: None,
             last_used: 0,
             since: at,
-            by: by.into(),
+            by,
         }
     }
 }
@@ -68,7 +70,7 @@ impl Road {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Decision {
     pub at: i64,
-    pub by: String,
+    pub by: By,
     pub reason: String,
     pub kind: DecisionKind,
 }
@@ -191,7 +193,7 @@ pub struct Archived {
     pub id: String,
     pub agent: Agent,
     pub at: i64,
-    pub by: String,
+    pub by: By,
     pub reason: String,
     pub roads: Vec<Road>,
     pub merge: Option<Merge>,

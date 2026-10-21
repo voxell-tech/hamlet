@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
+use hamlet_protocol::v0::Doing;
 use serde_json::Value;
 
 use crate::harness::link::{self, Block};
@@ -11,27 +12,27 @@ use crate::harness::link::{self, Block};
 const SAID: usize = 600;
 
 /// The words of each thing an agent can be doing.
-pub(crate) fn words(doing: &str) -> &'static str {
+pub(crate) fn words(doing: &Doing) -> &'static str {
     match doing {
-        "think" => "Thinking",
-        "read-file" => "Reading a file",
-        "read-notes" => "Reading its notes",
-        "read-skill" => "Reading a skill",
-        "write-file" => "Writing a file",
-        "write-notes" => "Writing its notes",
-        "write-skill" => "Writing a skill",
-        "run" => "Running a command",
-        "fetch" => "Fetching from the network",
-        "custom" => "Using a tool added by hand",
-        "await" => "Waiting for an agent's answer",
-        _ => "At rest",
+        Doing::Rest => "At rest",
+        Doing::Think => "Thinking",
+        Doing::ReadFile => "Reading a file",
+        Doing::ReadNotes => "Reading its notes",
+        Doing::ReadSkill => "Reading a skill",
+        Doing::WriteFile => "Writing a file",
+        Doing::WriteNotes => "Writing its notes",
+        Doing::WriteSkill => "Writing a skill",
+        Doing::Run => "Running a command",
+        Doing::Fetch => "Fetching from the network",
+        Doing::Custom => "Using a tool added by hand",
+        Doing::Await => "Waiting for an agent's answer",
     }
 }
 
 /// The work and words of one conversation.
 #[derive(Clone, Debug)]
 pub(crate) struct Activity {
-    pub doing: &'static str,
+    pub doing: Doing,
     pub step: i64,
     pub failures: i64,
     pub saying: String,
@@ -49,7 +50,7 @@ impl Activity {
     /// leave it.
     pub fn of(items: &[link::Item]) -> Self {
         let mut activity = Self {
-            doing: "rest",
+            doing: Doing::Rest,
             step: 0,
             failures: 0,
             saying: String::new(),
@@ -171,16 +172,16 @@ impl Activity {
     }
 
     fn rest(&mut self) {
-        self.doing = "rest";
+        self.doing = Doing::Rest;
         self.step = 0;
         self.failures = 0;
     }
 
     fn think(&mut self) {
-        if self.doing == "think" {
+        if self.doing == Doing::Think {
             return;
         }
-        self.doing = "think";
+        self.doing = Doing::Think;
         self.step += 1;
     }
 
@@ -199,7 +200,7 @@ impl Activity {
         if failed {
             self.failures += 1;
         }
-        self.doing = "think";
+        self.doing = Doing::Think;
         self.step += 1;
     }
 
@@ -235,31 +236,23 @@ impl Activity {
 fn doing_of(
     name: &str,
     arguments: &std::collections::BTreeMap<String, Value>,
-) -> &'static str {
+) -> Doing {
     let text = serde_json::to_string(arguments)
         .unwrap_or_default()
         .to_lowercase();
-    let paper = if text.contains("notes.md") {
-        "notes"
+    let (read, write) = if text.contains("notes.md") {
+        (Doing::ReadNotes, Doing::WriteNotes)
     } else if text.contains("skills/") || text.contains("skill.md") {
-        "skill"
+        (Doing::ReadSkill, Doing::WriteSkill)
     } else {
-        "file"
+        (Doing::ReadFile, Doing::WriteFile)
     };
     match name {
-        "read" | "search" | "find" => match paper {
-            "notes" => "read-notes",
-            "skill" => "read-skill",
-            _ => "read-file",
-        },
-        "edit" | "write" => match paper {
-            "notes" => "write-notes",
-            "skill" => "write-skill",
-            _ => "write-file",
-        },
+        "read" | "search" | "find" => read,
+        "edit" | "write" => write,
         "bash" | "powershell" => {
             if text.contains("skill.md") {
-                "read-skill"
+                Doing::ReadSkill
             } else if [
                 "curl ",
                 "wget ",
@@ -273,17 +266,19 @@ fn doing_of(
             .iter()
             .any(|word| text.contains(word))
             {
-                "fetch"
+                Doing::Fetch
             } else if text.contains("notes.md") {
-                "read-notes"
+                Doing::ReadNotes
             } else {
-                "run"
+                Doing::Run
             }
         }
-        "create_agent" => "think",
+        "create_agent" => Doing::Think,
         "ask_agent" | "request_road" | "agree_road"
-        | "agree_move" | "ask_librarian" | "submit_skill" => "await",
-        _ => "custom",
+        | "agree_move" | "ask_librarian" | "submit_skill" => {
+            Doing::Await
+        }
+        _ => Doing::Custom,
     }
 }
 

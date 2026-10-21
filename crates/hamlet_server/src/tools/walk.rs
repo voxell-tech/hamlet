@@ -81,16 +81,16 @@ pub(super) async fn reached(
     let info = env
         .file_info(&full)
         .await
-        .map_err(|error| failed(error.code))?;
+        .map_err(|error| failed(error.code.as_str()))?;
     // A folder's reach is its listing's, and a file's its opening's.
     if info.kind == FileKind::Directory {
         env.list_dir(&full)
             .await
-            .map_err(|error| failed(error.code))?;
+            .map_err(|error| failed(error.code.as_str()))?;
     } else {
         env.readable(&full)
             .await
-            .map_err(|error| failed(error.code))?;
+            .map_err(|error| failed(error.code.as_str()))?;
     }
     Ok((full, info))
 }

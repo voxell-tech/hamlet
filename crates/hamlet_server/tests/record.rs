@@ -1,7 +1,7 @@
 //! The record's contracts through marker-backed operations.
 
 use hamlet_server::record::{
-    Action, Actor, Admit, AgentRef, Amount, Audience, Change,
+    Action, Actor, Admit, AgentRef, Amount, Audience, By, Change,
     DecisionKind, Departure, End, FoundRecord, Hamlet, Limits,
     MergeFiles, MergeNotes, NameFallback, OpenVote, Protection,
     Reason, RecordOperation, RecordResult, Refusal, RoadBudget,
@@ -237,7 +237,7 @@ fn a_model_is_set_by_the_mayor_alone_within_the_chiefs_limits() {
     assert_eq!(
         r.decisions.last().map(|d| (&d.by, &d.reason, &d.kind)),
         Some((
-            &"mayor".to_owned(),
+            &By::Mayor,
             &"Needed".to_owned(),
             &DecisionKind::Model {
                 agent: 1,
@@ -1210,4 +1210,26 @@ fn merge_restoration_preserves_learned_traffic_and_enforces_reverse_order()
         assert!(entry.back.is_some());
         assert!(entry.merge.as_ref().unwrap().applied);
     }
+}
+
+#[test]
+fn who_changed_a_record_reads_back_as_written() {
+    for by in [
+        By::Chief("ana:2".into()),
+        By::Mayor,
+        By::Member(AgentRef {
+            hamlet: "home".into(),
+            number: 3,
+        }),
+        By::Mayors("home".into()),
+        By::Realm,
+        By::Office,
+    ] {
+        let written = serde_json::to_value(&by).unwrap();
+        assert_eq!(
+            serde_json::from_value::<By>(written).unwrap(),
+            by
+        );
+    }
+    assert!(serde_json::from_value::<By>("scout".into()).is_err());
 }

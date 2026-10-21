@@ -2,7 +2,8 @@
 //! reaches, what the chief's mode, grants and trust allow, and what
 //! the chief refused in the turn.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use hamlet_protocol::v0::Permission;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -503,8 +504,24 @@ pub(crate) fn reset_trust(
 pub(crate) struct Grant {
     pub agent: AgentRef,
     pub name: String,
-    pub permission: String,
+    pub permission: Permission,
     pub by: String,
+}
+
+/// The word for `permission`, as the chief writes it and grant events
+/// keep it.
+pub(crate) fn word(permission: &Permission) -> &'static str {
+    match permission {
+        Permission::Network => "network",
+        Permission::Unconfined => "unconfined",
+    }
+}
+
+/// The permission named `name`.
+pub(crate) fn permission(name: &str) -> Option<Permission> {
+    [Permission::Network, Permission::Unconfined]
+        .into_iter()
+        .find(|permission| word(permission) == name)
 }
 
 /// The grants still held, after the latest event for each agent and
@@ -528,6 +545,13 @@ pub(crate) fn grants(db: &Connection) -> Result<Vec<Grant>> {
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut held = Vec::<Grant>::new();
     for (kind, hamlet, number, name, permission, by) in events {
+        let permission =
+            self::permission(&permission).with_context(|| {
+                format!(
+                    "a grant event names no permission \
+                     `{permission}`"
+                )
+            })?;
         let agent = AgentRef {
             hamlet,
             number: u64::try_from(number)?,
@@ -554,11 +578,11 @@ pub(crate) fn holds(
     grants: &[Grant],
     name: &str,
     agent: &AgentRef,
-    permission: &str,
+    permission: &Permission,
 ) -> bool {
     limits.permits(permission, name)
         || grants.iter().any(|grant| {
-            &grant.agent == agent && grant.permission == permission
+            &grant.agent == agent && &grant.permission == permission
         })
 }
 
@@ -567,7 +591,7 @@ pub(crate) fn give(
     db: &Connection,
     agent: &AgentRef,
     name: &str,
-    permission: &str,
+    permission: &Permission,
     by: &str,
     at: i64,
 ) -> Result<()> {
@@ -578,12 +602,12 @@ pub(crate) fn give(
 pub(crate) fn revoke(
     db: &Connection,
     agent: &AgentRef,
-    permission: &str,
+    permission: &Permission,
     by: &str,
     at: i64,
 ) -> Result<bool> {
     let Some(grant) = grants(db)?.into_iter().find(|grant| {
-        &grant.agent == agent && grant.permission == permission
+        &grant.agent == agent && &grant.permission == permission
     }) else {
         return Ok(false);
     };
@@ -596,7 +620,7 @@ fn event(
     kind: &str,
     agent: &AgentRef,
     name: &str,
-    permission: &str,
+    permission: &Permission,
     by: &str,
     at: i64,
 ) -> Result<()> {
@@ -608,7 +632,7 @@ fn event(
             agent.hamlet,
             i64::try_from(agent.number)?,
             name,
-            permission,
+            word(permission),
             by,
             at
         ],

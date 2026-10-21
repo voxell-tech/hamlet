@@ -330,7 +330,7 @@ fn caps_count_once_keep_task_spend_after_reset_and_roll_over_local_days()
         spend::books(
             store.connection(),
             "home",
-            "day",
+            &Period::Day,
             Some("task-a"),
             at
         )
@@ -366,10 +366,16 @@ fn caps_count_once_keep_task_spend_after_reset_and_roll_over_local_days()
     answers::charge(&mut store, &binding.runtime, "new", &usage, at)
         .unwrap();
     assert_eq!(
-        spend::books(store.connection(), "home", "day", None, at)
-            .unwrap()
-            .hamlet
-            .micros,
+        spend::books(
+            store.connection(),
+            "home",
+            &Period::Day,
+            None,
+            at
+        )
+        .unwrap()
+        .hamlet
+        .micros,
         800
     );
     limits.budget.minutes = Some(1);
@@ -484,7 +490,7 @@ fn billed_zero_beats_prices_and_unreported_success_counts_estimates()
     let books = crate::spend::books(
         store.connection(),
         "home",
-        "day",
+        &Period::Day,
         None,
         0,
     )
@@ -515,7 +521,14 @@ fn every_attempt_uses_the_current_pin_then_hamlet_then_home_model() {
         store.connection(),
         "catalogue",
         "home",
-        &json!({"endpoint::pinned":{"price":{"input":0,"output":2}}}),
+        &json!({"endpoint::pinned": {
+            "name": "endpoint::pinned",
+            "price": {"input": 0, "output": 2},
+            "priced": "yours",
+            "context": null,
+            "allowed": true,
+            "note": "",
+        }}),
     )
     .unwrap();
     let chosen = |store: &Store| {

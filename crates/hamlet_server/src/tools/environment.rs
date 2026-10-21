@@ -117,7 +117,7 @@ impl Local {
         work: impl FnOnce(&Env) -> Result<T, FileError> + Send + 'static,
     ) -> Result<T, FileError> {
         let lost = || FileError {
-            code: "unknown",
+            code: Code::Unknown,
             message: "The tool's environment was lost. Tell the \
                       chief."
                 .into(),
@@ -320,7 +320,7 @@ impl Remote {
 
 fn unknown() -> FileError {
     FileError {
-        code: Code::Unknown.as_str(),
+        code: Code::Unknown,
         message: "The workspace answered with a malformed result. \
                   Inspect its files before repeating the operation."
             .into(),
@@ -370,9 +370,7 @@ impl Reach for Remote {
     ) -> Result<bool, FileError> {
         match self.file_info(path).await {
             Ok(_) => Ok(true),
-            Err(error) if error.code == Code::NotFound.as_str() => {
-                Ok(false)
-            }
+            Err(error) if error.code == Code::NotFound => Ok(false),
             Err(error) => Err(error),
         }
     }
@@ -442,7 +440,7 @@ impl Reach for Remote {
     ) -> Result<(), FileError> {
         if content.len() > MAX_FILE {
             return Err(FileError {
-                code: Code::Invalid.as_str(),
+                code: Code::Invalid,
                 message: TOO_LARGE.into(),
             });
         }

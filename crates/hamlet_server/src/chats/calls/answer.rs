@@ -2,7 +2,7 @@
 //! makes in one transaction, then told to the calls it ruled on.
 
 use anyhow::Result;
-use hamlet_protocol::v0::{Choice, Pick};
+use hamlet_protocol::v0::{Choice, Permission, Pick};
 
 use super::super::{asking, records};
 use super::decide::standing;
@@ -171,7 +171,7 @@ fn rule(
             &tx,
             agent,
             &wait.by,
-            Danger::Network.as_str(),
+            &Permission::Network,
             &chief,
             now,
         )?;

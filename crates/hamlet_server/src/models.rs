@@ -7,7 +7,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use hamlet_protocol::v0::{
-    Check, ClientMessage, EditCatalogueSet, Login, LoginMethod, Read,
+    Check, ClientMessage, EditCatalogueSet, LinkState, Listed,
+    ListedPriced, Login, LoginMethod, Price as ListedPrice, Read,
     ServerMessage,
 };
 use serde_json::{Value, json};
@@ -260,7 +261,7 @@ impl Service {
                         return Ok(Some(vec![reply(id, Err(error))]));
                     }
                 };
-                self.model_link("testing", None, None)?;
+                self.model_link(LinkState::Testing, None, None)?;
                 self.ask_provider(
                     Some(client),
                     id,
@@ -557,9 +558,9 @@ impl Service {
             });
         self.model_link(
             if result.error.is_some() {
-                "failed"
+                LinkState::Failed
             } else {
-                "connected"
+                LinkState::Connected
             },
             if pending.action == ProviderRequestAction::Refresh
                 && result.error.is_none()
@@ -624,14 +625,14 @@ impl Service {
 
     fn model_link(
         &mut self,
-        state: &str,
+        state: LinkState,
         count: Option<usize>,
         words: Option<&str>,
     ) -> Result<()> {
         let db = self.home.store().connection();
         let mut settings = crate::settings::stored(db)?;
         settings.link = Link {
-            state: state.into(),
+            state,
             models: count,
             words: words.map(|w| self.credentials.scrub_text(w)),
         };
@@ -664,73 +665,75 @@ impl Service {
         provider: &str,
         list: &[Value],
     ) -> Result<()> {
-        let mut cards = document(
-            self.home.store().connection(),
-            "catalogue",
-            "home",
-        )?
-        .unwrap_or_else(|| json!({}));
+        let db = self.home.store().connection();
+        let mut cards = catalogue(db)?;
         for model in list {
             let name = format!(
                 "{provider}::{}",
                 model["id"].as_str().unwrap_or_default()
             );
-            let card = &mut cards[&name];
-            if card.is_null() {
-                *card = json!({"name":name,"price":null,"priced":"unknown","context":null,"allowed":false,"note":""});
-            }
+            let card = cards.entry(name.clone()).or_insert(Listed {
+                allowed: false,
+                context: None,
+                name,
+                note: String::new(),
+                price: None,
+                priced: ListedPriced::Unknown,
+            });
             let context = model
                 .get("listedContext")
                 .unwrap_or(&model["contextWindow"]);
-            if !context.is_null() {
-                card["context"] = context.clone();
+            if let Some(context) = context.as_i64() {
+                card.context = Some(context);
             }
-            if card["priced"] != "yours" {
-                let price = model.get("listedPrice").cloned().unwrap_or_else(||json!({"input":model["cost"]["input"],"output":model["cost"]["output"]}));
-                if !price.is_null() {
-                    card["price"] = price;
-                    card["priced"] = "listed".into();
-                } else if card["priced"] == "unknown"
-                    || card["priced"] == "assigned"
-                {
-                    let local = local(model["baseUrl"].as_str());
-                    card["price"] = if local {
-                        json!({"input":LOCAL_RATE,"output":LOCAL_RATE})
-                    } else {
-                        Value::Null
-                    };
-                    card["priced"] =
-                        if local { "assigned" } else { "unknown" }
-                            .into();
+            if card.priced == ListedPriced::Yours {
+                continue;
+            }
+            let price = match model.get("listedPrice") {
+                Some(listed) => {
+                    serde_json::from_value(listed.clone())
+                        .context("a model's listed price")?
                 }
+                None => {
+                    let cost = &model["cost"];
+                    cost["input"]
+                        .as_f64()
+                        .zip(cost["output"].as_f64())
+                        .map(|(input, output)| ListedPrice {
+                            input,
+                            output,
+                        })
+                }
+            };
+            if price.is_some() {
+                card.price = price;
+                card.priced = ListedPriced::Listed;
+            } else if matches!(
+                card.priced,
+                ListedPriced::Unknown | ListedPriced::Assigned
+            ) {
+                let local = local(model["baseUrl"].as_str());
+                (card.price, card.priced) = if local {
+                    let price = ListedPrice {
+                        input: LOCAL_RATE,
+                        output: LOCAL_RATE,
+                    };
+                    (Some(price), ListedPriced::Assigned)
+                } else {
+                    (None, ListedPriced::Unknown)
+                };
             }
         }
-        save(
-            self.home.store().connection(),
-            "catalogue",
-            "home",
-            &cards,
-        )
+        keep_catalogue(db, &serde_json::to_value(&cards)?)
     }
 
     pub(crate) fn catalogue_read(
         &mut self,
         id: &str,
     ) -> Result<ServerMessage> {
-        let cards = document(
-            self.home.store().connection(),
-            "catalogue",
-            "home",
-        )?
-        .unwrap_or_else(|| json!({}));
-        let mut cards = cards
-            .as_object()
-            .into_iter()
-            .flat_map(|m| m.values().cloned())
+        let cards = catalogue(self.home.store().connection())?
+            .into_values()
             .collect::<Vec<_>>();
-        cards.sort_by(|a, b| {
-            a["name"].as_str().cmp(&b["name"].as_str())
-        });
         Ok(serde_json::from_value(
             json!({"type":"read","to":id,"models":cards}),
         )?)
@@ -752,36 +755,30 @@ impl Service {
                 "a cost is a number of zero or more".into(),
             )));
         }
-        let mut cards = document(
-            self.home.store().connection(),
-            "catalogue",
-            "home",
-        )?
-        .unwrap_or_else(|| json!({}));
+        let db = self.home.store().connection();
+        let mut cards = catalogue(db)?;
         let Some(card) = cards.get_mut(name) else {
             return Ok(Err(Refusal::Invalid(format!(
                 "no model named `{name}`"
             ))));
         };
         if let Some(allowed) = set.allowed {
-            card["allowed"] = allowed.into();
+            card.allowed = allowed;
         }
         if let Some(note) = set.note {
-            card["note"] = note.into();
+            card.note = note;
         }
         if let Some(price) = set.price {
-            card["priced"] =
-                if price.is_some() { "yours" } else { "unknown" }
-                    .into();
-            card["price"] = serde_json::to_value(price)?;
+            card.priced = if price.is_some() {
+                ListedPriced::Yours
+            } else {
+                ListedPriced::Unknown
+            };
+            card.price = price;
         }
+        let mut cards = serde_json::to_value(&cards)?;
         self.credentials.scrub(&mut cards);
-        save(
-            self.home.store().connection(),
-            "catalogue",
-            "home",
-            &cards,
-        )?;
+        keep_catalogue(db, &cards)?;
         Ok(Ok("Saved.".into()))
     }
 }
@@ -811,10 +808,28 @@ fn login_step(
     )?)
 }
 
+/// The model catalogue: each model's card, by its name.
+type Catalogue = BTreeMap<String, Listed>;
+
+fn catalogue(db: &rusqlite::Connection) -> Result<Catalogue> {
+    match document(db, "catalogue", "home")? {
+        Some(cards) => serde_json::from_value(cards)
+            .context("reading the model catalogue"),
+        None => Ok(Catalogue::new()),
+    }
+}
+
+fn keep_catalogue(
+    db: &rusqlite::Connection,
+    cards: &Value,
+) -> Result<()> {
+    save(db, "catalogue", "home", cards)
+}
+
 /// What a model call is chosen from, read once for many calls.
 pub(crate) struct Choices {
     settings: Settings,
-    cards: Value,
+    cards: Catalogue,
     /// The endpoints' model lists, by endpoint.
     lists: Value,
 }
@@ -836,8 +851,7 @@ impl Choices {
         };
         Ok(Self {
             settings,
-            cards: document(store.connection(), "catalogue", "home")?
-                .unwrap_or_else(|| json!({})),
+            cards: catalogue(store.connection())?,
             lists,
         })
     }
@@ -874,30 +888,32 @@ impl Choices {
         };
         let size =
             |key: &str| listed[key].as_u64().filter(|n| *n > 0);
-        let card = &self.cards[&name]["price"];
-        let price =
-            match (card["input"].as_f64(), card["output"].as_f64()) {
-                (Some(input), Some(output)) => Price {
-                    input,
-                    output,
-                    cache_read: input,
-                    cache_write: input,
-                },
-                _ => serde_json::from_value(listed["cost"].clone())
-                    .unwrap_or_else(|_| {
-                        let rate = if local(base_url.as_deref()) {
-                            LOCAL_RATE
-                        } else {
-                            RATE
-                        };
-                        Price {
-                            input: rate,
-                            output: rate,
-                            cache_read: rate,
-                            cache_write: rate,
-                        }
-                    }),
-            };
+        let card = self
+            .cards
+            .get(&name)
+            .and_then(|card| card.price.as_ref());
+        let price = match card {
+            Some(&ListedPrice { input, output }) => Price {
+                input,
+                output,
+                cache_read: input,
+                cache_write: input,
+            },
+            _ => serde_json::from_value(listed["cost"].clone())
+                .unwrap_or_else(|_| {
+                    let rate = if local(base_url.as_deref()) {
+                        LOCAL_RATE
+                    } else {
+                        RATE
+                    };
+                    Price {
+                        input: rate,
+                        output: rate,
+                        cache_read: rate,
+                        cache_write: rate,
+                    }
+                }),
+        };
         Ok(Selection {
             context_window: size("contextWindow"),
             max_tokens: size("maxTokens"),

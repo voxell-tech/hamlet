@@ -1,7 +1,7 @@
 //! Saved settings and process-only model overrides.
 
 use anyhow::{Result, bail};
-use hamlet_protocol::v0::{EditSettingsSet, Endpoint};
+use hamlet_protocol::v0::{EditSettingsSet, Endpoint, LinkState};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -46,7 +46,7 @@ impl Default for Settings {
 /// The last check of the home's model.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Link {
-    pub state: String,
+    pub state: LinkState,
     pub models: Option<usize>,
     pub words: Option<String>,
 }
@@ -54,7 +54,7 @@ pub(crate) struct Link {
 impl Default for Link {
     fn default() -> Self {
         Self {
-            state: "untested".into(),
+            state: LinkState::Untested,
             models: None,
             words: None,
         }

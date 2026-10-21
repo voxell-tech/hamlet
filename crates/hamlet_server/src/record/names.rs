@@ -158,13 +158,7 @@ impl Hamlet {
     /// A departed agent's refusal (H28).
     pub fn farewell(&self, entry: &Archived) -> String {
         let name = &entry.agent.name;
-        let by = if entry.by == "mayor" {
-            "the mayor".into()
-        } else if let Some(chief) = entry.by.strip_prefix("chief:") {
-            format!("the chief {chief}")
-        } else {
-            entry.by.clone()
-        };
+        let by = entry.by.words();
         let reason = &entry.reason;
         match &entry.merge {
             None => format!(

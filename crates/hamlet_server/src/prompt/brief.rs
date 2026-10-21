@@ -4,7 +4,7 @@
 use super::{Instruction, OWN_MODEL};
 use crate::papers::cut;
 use crate::record::{
-    Decision, DecisionKind, End, Hamlet, NameFallback,
+    By, Decision, DecisionKind, End, Hamlet, NameFallback,
 };
 
 const MESSAGES: &str =
@@ -298,10 +298,8 @@ fn standing(record: &Hamlet, reader: u64, terms: &Terms) -> String {
 }
 
 fn words(record: &Hamlet, d: &Decision) -> String {
-    let by = if d.by == "mayor" {
+    let by = if d.by == By::Mayor {
         "The mayor"
-    } else if d.by.starts_with("vote:") {
-        "A vote"
     } else {
         "A chief"
     };

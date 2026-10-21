@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
 use chrono::{Datelike, Local, TimeZone, Timelike};
+use hamlet_protocol::v0::Period;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -58,7 +59,7 @@ fn duration(ms: i64) -> String {
 pub(crate) fn books(
     db: &Connection,
     hamlet: &str,
-    period: &str,
+    period: &Period,
     task: Option<&str>,
     at: i64,
 ) -> Result<Books> {
@@ -67,10 +68,9 @@ pub(crate) fn books(
         .single()
         .context("budget date")?;
     let today = date.format("%Y-%m-%d").to_string();
-    let first = if period == "month" {
-        date.format("%Y-%m-01").to_string()
-    } else {
-        today.clone()
+    let first = match period {
+        Period::Month => date.format("%Y-%m-01").to_string(),
+        Period::Day => today.clone(),
     };
     let reset = db
         .query_row(
@@ -150,7 +150,7 @@ pub(crate) fn can_spend(
     at: i64,
 ) -> Result<Option<String>> {
     let limits = crate::limits::of(db, hamlet)?;
-    let period = limits.period();
+    let period = &limits.budget.period;
     let books = books(db, hamlet, period, task, at)?;
     for (kind, spent, cost, minutes) in [
         (
@@ -181,10 +181,11 @@ pub(crate) fn can_spend(
                      hamlet's limits."
                 )
             } else {
-                let (when, again) = if period == "day" {
-                    ("today", "at midnight")
-                } else {
-                    ("this month", "on the first of next month")
+                let (when, again) = match period {
+                    Period::Day => ("today", "at midnight"),
+                    Period::Month => {
+                        ("this month", "on the first of next month")
+                    }
                 };
                 format!(
                     "The hamlet has spent its budget for {when} \
@@ -277,7 +278,7 @@ impl Service {
             .context("budget hamlet")?;
         let limits = &record.limits.chief;
         let at = Local::now();
-        let period = limits.period();
+        let period = &limits.budget.period;
         let books = books(
             self.home.store().connection(),
             hamlet,
@@ -301,10 +302,9 @@ impl Service {
                 (a.0 as f64 / a.1.max(1) as f64)
                     .total_cmp(&(b.0 as f64 / b.1.max(1) as f64))
             });
-        let period_words = if period == "day" {
-            "today"
-        } else {
-            "this month"
+        let period_words = match period {
+            Period::Day => "today",
+            Period::Month => "this month",
         };
         let summary = format!(
             "Hamlet {period_words}: {}",
@@ -356,7 +356,7 @@ impl Service {
         }
         .context("next month")?;
         let days = next.pred_opt().context("last day")?.day();
-        let gone = ((if period == "day" {
+        let gone = ((if *period == Period::Day {
             day
         } else {
             (at.day() as f64 - 1.0 + day) / days as f64

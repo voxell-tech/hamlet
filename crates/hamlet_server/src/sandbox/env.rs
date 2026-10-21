@@ -9,6 +9,7 @@ use std::os::fd::OwnedFd;
 use std::process::{ExitStatus, Stdio};
 use std::time::Duration;
 
+use hamlet_workspace_wire::Code;
 use rustix::fs::{
     AtFlags, Dir, FileType, Mode, OFlags, RawMode, Stat, mkdirat,
     openat, readlinkat, statat,
@@ -64,12 +65,12 @@ struct Root {
 /// for it.
 #[derive(Debug)]
 pub(crate) struct FileError {
-    pub(crate) code: &'static str,
+    pub(crate) code: Code,
     pub(crate) message: String,
 }
 
 impl FileError {
-    fn new(code: &'static str, message: impl Into<String>) -> Self {
+    fn new(code: Code, message: impl Into<String>) -> Self {
         Self {
             code,
             message: message.into(),
@@ -210,7 +211,7 @@ impl Env {
             })
         });
         moved.then(|| {
-            FileError::new("permission_denied", ROOT_REFUSAL)
+            FileError::new(Code::PermissionDenied, ROOT_REFUSAL)
         })
     }
 
@@ -249,7 +250,7 @@ impl Env {
             Ok(reached)
         } else {
             Err(FileError::new(
-                "permission_denied",
+                Code::PermissionDenied,
                 format!(
                     "{path} is out of this agent's reach to {verb}"
                 ),
@@ -274,7 +275,7 @@ impl Env {
     ) -> Result<bool, FileError> {
         match self.file_info(path) {
             Ok(_) => Ok(true),
-            Err(error) if error.code == "not_found" => Ok(false),
+            Err(error) if error.code == Code::NotFound => Ok(false),
             Err(error) => Err(error),
         }
     }
@@ -313,7 +314,7 @@ impl Env {
                 })?;
             match info_of(&name, &stat) {
                 Ok(info) => infos.push(info),
-                Err(error) if error.code == "invalid" => {}
+                Err(error) if error.code == Code::Invalid => {}
                 Err(error) => return Err(error),
             }
         }
@@ -358,13 +359,13 @@ impl Env {
         })?;
         if meta.is_dir() {
             return Err(FileError::new(
-                "is_directory",
+                Code::IsDirectory,
                 "EISDIR: illegal operation on a directory, read",
             ));
         }
         if !meta.is_file() {
             return Err(FileError::new(
-                "invalid",
+                Code::Invalid,
                 "Not a regular file",
             ));
         }
@@ -381,7 +382,7 @@ impl Env {
         let bytes = self.read_file(path)?;
         String::from_utf8(bytes).map_err(|_| {
             FileError::new(
-                "invalid",
+                Code::Invalid,
                 format!("{path} is not UTF-8 text"),
             )
         })
@@ -435,7 +436,7 @@ impl Env {
         #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
         options.open(&path).map(|_| path).map_err(|error| {
-            FileError::new("unknown", format!("Error: {error}"))
+            FileError::new(Code::Unknown, format!("Error: {error}"))
         })
     }
 
@@ -904,7 +905,10 @@ fn walk(resolved: &str, follow: bool) -> Result<Reached, FileError> {
     let reached = |dir, base: String, names: Vec<String>| {
         let real = cased(&base);
         if real.to_lowercase() != base.to_lowercase() {
-            return Err(FileError::new("permission_denied", MOVED));
+            return Err(FileError::new(
+                Code::PermissionDenied,
+                MOVED,
+            ));
         }
         let mut parts = vec![real];
         parts.extend(names.iter().cloned());
@@ -1025,7 +1029,7 @@ fn info_of(name: &str, stat: &Stat) -> Result<FileInfo, FileError> {
         FileType::Symlink => FileKind::Symlink,
         _ => {
             return Err(FileError::new(
-                "invalid",
+                Code::Invalid,
                 "Unsupported file type",
             ));
         }
@@ -1149,15 +1153,15 @@ fn file_error(
     path: &str,
 ) -> FileError {
     let Some((name, words)) = errno(error) else {
-        return FileError::new("unknown", error.to_string());
+        return FileError::new(Code::Unknown, error.to_string());
     };
     let code = match name {
-        "ENOENT" => "not_found",
-        "EACCES" | "EPERM" => "permission_denied",
-        "ENOTDIR" => "not_directory",
-        "EISDIR" => "is_directory",
-        "EINVAL" => "invalid",
-        _ => "unknown",
+        "ENOENT" => Code::NotFound,
+        "EACCES" | "EPERM" => Code::PermissionDenied,
+        "ENOTDIR" => Code::NotDirectory,
+        "EISDIR" => Code::IsDirectory,
+        "EINVAL" => Code::Invalid,
+        _ => Code::Unknown,
     };
     FileError::new(
         code,

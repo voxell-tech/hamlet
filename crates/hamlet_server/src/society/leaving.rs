@@ -1,6 +1,7 @@
 //! Departure, restoration and the chief's account of the record.
 
 use anyhow::{Context, Result};
+use hamlet_protocol::v0::Permission;
 use rusqlite::{Connection, params};
 use serde::Deserialize;
 use serde_json::Value;
@@ -136,11 +137,11 @@ pub(crate) fn lapse(
         hamlet: hamlet.into(),
         number,
     };
-    for permission in ["network", "unconfined"] {
+    for permission in [Permission::Network, Permission::Unconfined] {
         crate::gate::revoke(
             db,
             &agent,
-            permission,
+            &permission,
             "departure",
             society::now(),
         )?;
@@ -372,13 +373,7 @@ fn history(r: &record::Hamlet) -> String {
         .decisions
         .iter()
         .map(|d| {
-            let by = if d.by == "mayor" {
-                "the mayor".into()
-            } else if let Some(chief) = d.by.strip_prefix("chief:") {
-                format!("the chief {chief}")
-            } else {
-                d.by.clone()
-            };
+            let by = d.by.words();
             let text = match &d.kind {
                 DecisionKind::Created { name, purpose, .. } => {
                     format!("the mayor created `{name}` ({purpose})")

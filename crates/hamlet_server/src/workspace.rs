@@ -141,7 +141,7 @@ impl std::error::Error for Failure {}
 impl From<Failure> for FileError {
     fn from(failure: Failure) -> Self {
         Self {
-            code: failure.code.as_str(),
+            code: failure.code,
             message: failure.message,
         }
     }
