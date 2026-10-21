@@ -66,6 +66,18 @@ impl Rules<'_> {
                     ))));
                 };
                 let hold = matches!(request, Request::HoldAsset(_));
+                // A type passes to a plugin whose id comes first, and
+                // what its maker before kept is not handed over.
+                if self.makes(plugin, &info.kind.name)
+                    && info.owner != plugin.id
+                {
+                    return Some(Outcome::Done(Box::new(Err(
+                        Failure::Refused(format!(
+                            "asset {} is {}'s",
+                            id.0, info.owner
+                        )),
+                    ))));
+                }
                 match self.may_read(plugin, &info.kind.name, allowed)
                 {
                     Ok(true) if hold => Ok(Reply::Held(info.version)),
@@ -103,9 +115,16 @@ impl Rules<'_> {
                         ))));
                     }
                 };
+                let makes = self.makes(plugin, &kind);
                 match self.may_read(plugin, &kind, allowed) {
                     Ok(true) => Ok(Reply::Listed(
-                        store.of_type(&kind).cloned().collect(),
+                        store
+                            .of_type(&kind)
+                            .filter(|info| {
+                                !makes || info.owner == plugin.id
+                            })
+                            .cloned()
+                            .collect(),
                     )),
                     Ok(false) => return Some(Outcome::Asking(kind)),
                     Err(why) => Err(why),
@@ -195,6 +214,13 @@ impl Rules<'_> {
         }
     }
 
+    /// Whether `plugin` makes `kind` now.
+    fn makes(&self, plugin: &PluginInfo, kind: &TypeName) -> bool {
+        self.registry
+            .maker(kind)
+            .is_some_and(|(maker, _)| *maker == plugin.id)
+    }
+
     /// Whether `plugin` may read assets of `kind`: `Ok(false)` when
     /// the person is to be asked first.
     pub fn may_read(
@@ -203,10 +229,10 @@ impl Rules<'_> {
         kind: &TypeName,
         allowed: bool,
     ) -> Result<bool, Failure> {
-        let maker = self.registry.maker(kind);
-        if maker.is_some_and(|(maker, _)| *maker == plugin.id) {
+        if self.makes(plugin, kind) {
             return Ok(true);
         }
+        let maker = self.registry.maker(kind);
         let Some(used) =
             plugin.assets.uses.iter().find(|used| used.name == *kind)
         else {

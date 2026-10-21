@@ -123,7 +123,9 @@ fn line_view(
         move |world, typed| {
             match limit.parse(&typed) {
                 // Left as it was: not made the person's.
-                Some(typed) if typed == value => {}
+                Some(typed) if typed == value => {
+                    world.refuse(plugin, None);
+                }
                 Some(typed) => {
                     world.choose(
                         plugin,

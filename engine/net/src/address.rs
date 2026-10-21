@@ -71,12 +71,13 @@ impl NetPluginInfoExt for PluginInfo {
 }
 
 /// Whether `address` may be reached by a plugin: not loopback,
-/// private, link-local, unique-local, shared, multicast, broadcast or
-/// unspecified.
+/// private, link-local, unique-local, shared, multicast, broadcast,
+/// reserved or unspecified, nor an IPv6 address that carries one of
+/// those IPv4 addresses.
 pub fn public(address: IpAddr) -> bool {
     match address {
         IpAddr::V4(v4) => {
-            let [a, b, ..] = v4.octets();
+            let [a, b, c, _] = v4.octets();
             !(v4.is_loopback()
                 || v4.is_private()
                 || v4.is_link_local()
@@ -84,19 +85,46 @@ pub fn public(address: IpAddr) -> bool {
                 || v4.is_broadcast()
                 || v4.is_multicast()
                 || a == 0
-                || (a == 100 && (64..128).contains(&b)))
+                || a >= 240
+                || (a == 100 && (64..128).contains(&b))
+                || (a, b, c) == (192, 0, 0)
+                || (a == 198 && (18..20).contains(&b)))
         }
-        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
-            Some(v4) => public(IpAddr::V4(v4)),
-            None => {
-                let first = v6.segments()[0];
-                !(v6.is_loopback()
-                    || v6.is_unspecified()
-                    || v6.is_multicast()
-                    || first & 0xfe00 == 0xfc00
-                    || first & 0xffc0 == 0xfe80)
+        IpAddr::V6(v6) => {
+            let [first, second, ..] = v6.segments();
+            let octets = v6.octets();
+            let last = |at: usize| {
+                IpAddr::from([
+                    octets[at],
+                    octets[at + 1],
+                    octets[at + 2],
+                    octets[at + 3],
+                ])
+            };
+            // Mapped, compatible, NAT64 and 6to4 addresses reach
+            // the IPv4 address they carry.
+            let carried = if v6.to_ipv4_mapped().is_some()
+                || octets[..12].iter().all(|byte| *byte == 0)
+                || (first, second) == (0x64, 0xff9b)
+            {
+                Some(last(12))
+            } else if first == 0x2002 {
+                Some(last(2))
+            } else {
+                None
+            };
+            match carried {
+                Some(v4) => public(v4),
+                None => {
+                    !(v6.is_loopback()
+                        || v6.is_unspecified()
+                        || v6.is_multicast()
+                        || first & 0xfe00 == 0xfc00
+                        || first & 0xffc0 == 0xfe80
+                        || first & 0xffc0 == 0xfec0)
+                }
             }
-        },
+        }
     }
 }
 

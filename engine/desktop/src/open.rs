@@ -13,12 +13,15 @@ use hamlet_engine_api::{Ask, Capability, Failure};
 
 /// The endings of the files the system runs when it is asked to open
 /// them, in small letters.
-const RUNS: [&str; 34] = [
-    "action", "app", "appimage", "bat", "cmd", "com", "command",
-    "desktop", "dmg", "exe", "fileloc", "hta", "inetloc", "jar",
-    "lnk", "mpkg", "msi", "pif", "pkg", "ps1", "reg", "run", "scpt",
-    "scr", "sh", "terminal", "tool", "url", "vbs", "webloc",
-    "workflow", "wsf", "wsh", "zsh",
+const RUNS: &[&str] = &[
+    "action", "app", "appimage", "bash", "bat", "cmd", "com",
+    "command", "cpl", "csh", "deb", "desktop", "dmg", "exe",
+    "fileloc", "fish", "gadget", "hta", "inetloc", "inf", "jar",
+    "jnlp", "js", "jse", "kext", "ksh", "lnk", "mpkg", "msc", "msi",
+    "msp", "osax", "pif", "pkg", "prefpane", "ps1", "py", "pyw",
+    "reg", "rpm", "run", "saver", "scf", "scpt", "scptd", "scr",
+    "sh", "snap", "terminal", "tool", "url", "vbe", "vbs", "webloc",
+    "workflow", "wsc", "wsf", "wsh", "zsh",
 ];
 
 /// The characters of an address or a path that a refusal repeats.

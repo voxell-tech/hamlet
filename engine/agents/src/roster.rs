@@ -53,9 +53,46 @@ pub(crate) trait RosterWorldExt {
 
     /// The folder of the hamlet `name`, where its limits are.
     fn hamlet_root(&self, name: &str) -> Result<PathBuf, Failure>;
+
+    /// Fails unless the hamlet `name` is there, open or closed down.
+    fn known_hamlet(&self, name: &str) -> Result<(), Failure>;
+
+    /// Fails unless `to` is there: a living agent, or a hamlet open
+    /// or closed down.
+    fn known_recipient(
+        &mut self,
+        to: &api::Recipient,
+    ) -> Result<(), Failure>;
 }
 
 impl RosterWorldExt for World {
+    fn known_hamlet(&self, name: &str) -> Result<(), Failure> {
+        if self.hamlet_root(name).is_ok()
+            || closed(&self.resource::<HomeDir>().0.root)
+                .iter()
+                .any(|hamlet| hamlet.name == name)
+        {
+            return Ok(());
+        }
+        Err(Failure::NotFound)
+    }
+
+    fn known_recipient(
+        &mut self,
+        to: &api::Recipient,
+    ) -> Result<(), Failure> {
+        match to {
+            api::Recipient::Agent(name) => {
+                hamlet_core::agents::named(self, name)
+                    .map(|_| ())
+                    .ok_or(Failure::NotFound)
+            }
+            api::Recipient::Mayor(hamlet) => {
+                self.known_hamlet(hamlet)
+            }
+        }
+    }
+
     fn hamlet_root(&self, name: &str) -> Result<PathBuf, Failure> {
         self.try_query::<&Settlement>()
             .and_then(|mut all| {

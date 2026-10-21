@@ -53,7 +53,8 @@ pub(crate) fn plugin(app: &mut App) {
 }
 
 /// Put in before the plugin, fetches are not sent: each waits for a
-/// reply given with [`answer`], as a test gives one.
+/// reply given with [`NetWorldExt::answer_fetch`], as a test gives
+/// one.
 #[derive(Resource, Default, Debug)]
 pub struct Offline;
 
@@ -69,9 +70,16 @@ pub struct Fetch {
     depth: u32,
 }
 
-/// On a fetch: it being made off the frame.
+/// On a fetch: it being made off the frame, stopped when the fetch
+/// goes with its plugin.
 #[derive(Component)]
 struct Sent(JoinHandle<Result<FetchReply, Failure>>);
+
+impl Drop for Sent {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
 
 /// Starts the fetches that may be made, and answers the others with
 /// why not. `made` holds, for each plugin, when its minute began and
@@ -84,8 +92,10 @@ fn start(
     grants: Res<Grants>,
     time: Res<Time<Real>>,
     network: Option<Res<Network>>,
+    offline: Option<Res<Offline>>,
     mut parked: Local<Waiting<Asked>>,
     mut made: Local<HashMap<Entity, (Duration, u32)>>,
+    mut started: Local<HashMap<Entity, usize>>,
     mut deliver: MessageWriter<Deliver>,
     mut first_use: MessageWriter<FirstUse>,
     mut log: MessageWriter<LogLine>,
@@ -94,6 +104,8 @@ fn start(
     let now = time.elapsed();
     parked.keep(|plugin| plugins.contains(plugin));
     made.retain(|plugin, _| plugins.contains(*plugin));
+    // The fetches spawned this frame are not children yet.
+    started.clear();
     let mut again = Vec::new();
     for (waiting, allowed) in parked.settle(decided.read()) {
         if allowed {
@@ -152,11 +164,18 @@ fn start(
                 }
             }
         }
+        if network.is_none() && offline.is_none() {
+            deliver.write(request.reply(Err(Failure::Failed(
+                "the network could not be started".into(),
+            ))));
+            continue;
+        }
         let waiting = children
             .into_iter()
             .flatten()
             .filter(|child| fetches.contains(**child))
-            .count();
+            .count()
+            + started.get(&request.plugin).copied().unwrap_or(0);
         let (since, count) = made
             .get(&request.plugin)
             .copied()
@@ -180,6 +199,7 @@ fn start(
             continue;
         }
         made.insert(request.plugin, (since, count + 1));
+        *started.entry(request.plugin).or_default() += 1;
         log.write(LogLine::info(
             plugin.id.as_str(),
             format!(
@@ -196,12 +216,24 @@ fn start(
             ChildOf(request.plugin),
         ));
         if let Some(network) = &network {
+            // A limit has no ceiling, so one past what a duration
+            // holds is no limit.
             let patience =
-                Duration::from_secs_f32(budgets.fetch_time);
+                Duration::try_from_secs_f32(budgets.fetch_time)
+                    .unwrap_or(Duration::MAX);
             let most = budgets.fetch_bytes;
             let fetch = fetch.clone();
             entity.insert(Sent(network.0.spawn(async move {
-                send(url, fetch, patience, most).await
+                tokio::time::timeout(
+                    patience,
+                    send(url, fetch, patience, most),
+                )
+                .await
+                .unwrap_or_else(|_| {
+                    Err(Failure::Failed(
+                        "the fetch took too long".into(),
+                    ))
+                })
             })));
         }
     }

@@ -21,7 +21,7 @@ use hamlet_engine_api::{Failure, Request};
 use hamlet_engine_grants::{
     Decided, FirstUse, Grants, Verdict, Waiting,
 };
-use hamlet_engine_plugins::{Asked, Deliver, PluginInfo};
+use hamlet_engine_plugins::{Asked, Deliver, PluginInfo, PluginKind};
 use hamlet_home::charter;
 use hamlet_home::limits::{self, Permission};
 use hamlet_model::catalogue::{self, Catalogue, Listed, Priced};
@@ -326,6 +326,20 @@ impl AgentsWorldExt for World {
                 done
             }
             AgentsRequest::Connect { provider, url, key } => {
+                // An address reaches whatever the engine can, servers
+                // on this computer and its network too, so only
+                // Hamlet's own setup names one.
+                let own =
+                    self.get::<PluginInfo>(asked.plugin).is_some_and(
+                        |info| info.kind != PluginKind::Installed,
+                    );
+                if provider.is_none() && !own {
+                    return Err(Failure::Refused(
+                        "only Hamlet's own setup connects to an \
+                         address; name a provider"
+                            .into(),
+                    ));
+                }
                 match SetupState::endpoint(
                     provider.as_deref(),
                     &url,
@@ -417,6 +431,13 @@ impl AgentsWorldExt for World {
                 key,
                 value,
             } => {
+                if let Some(why) = views::unwritable(
+                    &section,
+                    &key,
+                    value.as_deref(),
+                ) {
+                    return Err(Failure::Refused(why));
+                }
                 if !views::of_the_realm(&section, &key) {
                     return Err(Failure::Refused(format!(
                         "{section}.{key} is not a limit of the realm"
@@ -446,6 +467,9 @@ impl AgentsWorldExt for World {
                 .map(AgentsReply::Status)
                 .ok_or(Failure::NotFound),
             AgentsRequest::Send { to, text } => {
+                // A session is made for each name, so only those
+                // there are taken.
+                self.known_recipient(&to)?;
                 let key = self.chief_key(&to);
                 let user = self.resource::<Chief>().name.clone();
                 self.trigger(UserMessage { key, user, text });
@@ -459,10 +483,12 @@ impl AgentsWorldExt for World {
             AgentsRequest::Sessions => {
                 Ok(AgentsReply::Sessions(views::sessions(self)))
             }
-            AgentsRequest::Open(to) => self
-                .open(to)
-                .map(AgentsReply::Session)
-                .ok_or(Failure::NotFound),
+            AgentsRequest::Open(to) => {
+                self.known_recipient(&to)?;
+                self.open(to)
+                    .map(AgentsReply::Session)
+                    .ok_or(Failure::NotFound)
+            }
             AgentsRequest::Messages {
                 session,
                 after,
@@ -494,8 +520,7 @@ impl AgentsWorldExt for World {
                 self.rewind(&session, entry).and(done)
             }
             AgentsRequest::Decree { hamlet, text } => {
-                self.decree(&hamlet, text);
-                done
+                self.decree(&hamlet, text).and(done)
             }
             AgentsRequest::Papers => {
                 Ok(AgentsReply::Papers(self.papers()))
@@ -535,6 +560,13 @@ impl AgentsWorldExt for World {
                 key,
                 value,
             } => {
+                if let Some(why) = views::unwritable(
+                    &section,
+                    &key,
+                    value.as_deref(),
+                ) {
+                    return Err(Failure::Refused(why));
+                }
                 if views::of_the_realm(&section, &key) {
                     return Err(Failure::Refused(format!(
                         "{section}.{key} is a limit of the realm"

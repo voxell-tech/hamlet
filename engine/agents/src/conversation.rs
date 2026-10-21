@@ -24,6 +24,7 @@ use hamlet_engine_api::agents::{
 use hamlet_home::Home;
 use hamlet_rules::hamlet::{HOME, MAYOR};
 
+use crate::roster::RosterWorldExt;
 use crate::watch::{Gather, Watchers};
 use crate::{CHANNEL, Chief, views};
 
@@ -56,8 +57,13 @@ pub(crate) trait ConversationWorldExt {
     ) -> Result<(), Failure>;
 
     /// Gives a chief's command to `hamlet`, telling the open
-    /// conversation the answers.
-    fn decree(&mut self, hamlet: &str, text: String);
+    /// conversation the answers. Fails for a hamlet that is not
+    /// there.
+    fn decree(
+        &mut self,
+        hamlet: &str,
+        text: String,
+    ) -> Result<(), Failure>;
 
     /// The house of the open conversation's agent.
     fn open_house(&self) -> Home;
@@ -163,13 +169,17 @@ impl ConversationWorldExt for World {
         Ok(())
     }
 
-    fn decree(&mut self, hamlet: &str, text: String) {
+    fn decree(
+        &mut self,
+        hamlet: &str,
+        text: String,
+    ) -> Result<(), Failure> {
         let chief = self.resource::<Chief>();
         let (open, user) = (chief.session, chief.name.clone());
-        let Some(here_key) = self.get::<SessionKey>(open).cloned()
-        else {
-            return;
-        };
+        let here_key = self
+            .get::<SessionKey>(open)
+            .cloned()
+            .ok_or(Failure::NotFound)?;
         let here = self
             .get::<TalksTo>(open)
             .and_then(|with| agents::hamlet_of(self, with.0))
@@ -177,6 +187,7 @@ impl ConversationWorldExt for World {
         let key = if here == hamlet {
             here_key.clone()
         } else {
+            self.known_hamlet(hamlet)?;
             SessionKey::with_mayor(CHANNEL, &user, hamlet)
         };
         let elsewhere = key != here_key;
@@ -195,12 +206,12 @@ impl ConversationWorldExt for World {
         });
         self.flush();
         if !elsewhere {
-            return;
+            return Ok(());
         }
         let Some(there) =
             self.session_named(&views::session_name(&key))
         else {
-            return;
+            return Ok(());
         };
         // The core tells every conversation of some answers itself.
         let told = answers(self, open, before.1);
@@ -212,6 +223,7 @@ impl ConversationWorldExt for World {
                 }
             }
         }
+        Ok(())
     }
 
     fn open_house(&self) -> Home {

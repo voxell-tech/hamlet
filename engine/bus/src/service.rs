@@ -112,14 +112,14 @@ impl Calls {
         self.second(caller, now);
         if let Some(second) = self.seconds.get_mut(&caller) {
             second.fuel = second.fuel.saturating_add(fuel);
-            second.time += time;
+            second.time = second.time.saturating_add(time);
         }
     }
 
     fn open(&mut self, now: Duration, open: Open) -> u64 {
         self.second(open.caller, now);
         if let Some(second) = self.seconds.get_mut(&open.caller) {
-            second.calls += 1;
+            second.calls = second.calls.saturating_add(1);
         }
         self.next += 1;
         self.open.insert(self.next, open);
@@ -267,6 +267,7 @@ fn call(
 ) {
     let now = time.elapsed();
     parked.keep(|plugin| plugins.contains(plugin));
+    calls.seconds.retain(|caller, _| plugins.contains(*caller));
     let mut again = Vec::new();
     for (waiting, allowed) in parked.settle(decided.read()) {
         if allowed {

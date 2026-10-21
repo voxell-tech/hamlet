@@ -28,6 +28,13 @@ pub struct Budgets {
 impl Tuning for Budgets {
     const FILE: TuningFile = ENGINE;
     const SECTION: Option<&'static str> = Some("budgets");
+
+    fn check(&self) -> Result<(), String> {
+        if self.frame_share.is_finite() && self.frame_share > 0.0 {
+            return Ok(());
+        }
+        Err("frame_share is not a number above zero".into())
+    }
 }
 
 /// The limits of a plugin that asks for none and the person did not
@@ -39,6 +46,12 @@ pub struct DefaultLimits(pub PluginLimits);
 impl Tuning for DefaultLimits {
     const FILE: TuningFile = ENGINE;
     const SECTION: Option<&'static str> = Some("limits");
+
+    fn check(&self) -> Result<(), String> {
+        self.0.check().map_err(|limit| {
+            format!("{} is not a number above zero", limit.name())
+        })
+    }
 }
 
 impl Deref for DefaultLimits {
@@ -98,5 +111,19 @@ mod tests {
         assert_eq!(used.memory, defaults.memory);
         assert_eq!(used.fuel_per_call, 2_000_000_000);
         assert_eq!(used.call_time, 3_000.0);
+    }
+
+    #[test]
+    fn engine_limits_not_above_zero_are_refused() {
+        for bad in ["nan", "inf", "0.0", "-1.0"] {
+            let text = ENGINE.text.replace(
+                "call_time = 20.0",
+                &format!("call_time = {bad}"),
+            );
+            assert!(
+                crate::tuning::read::<DefaultLimits>(&text).is_err(),
+                "call_time = {bad} was taken"
+            );
+        }
     }
 }

@@ -108,8 +108,10 @@ macro_rules! limits {
         )]
         #[serde(deny_unknown_fields)]
         pub struct Limits {
+            // No field is skipped when it is none, as postcard is
+            // read by position; toml leaves a none out itself.
             $(
-                #[serde(default, skip_serializing_if = "Option::is_none")]
+                #[serde(default)]
                 pub $field: Option<$ty>,
             )*
         }
@@ -288,6 +290,19 @@ impl Limit {
             LimitValue::Real(text.parse::<f32>().ok()?)
         };
         value.positive().then_some(value)
+    }
+}
+
+impl PluginLimits {
+    /// The first limit that is zero or below, or not finite.
+    pub fn check(&self) -> Result<(), Limit> {
+        match Limit::ALL
+            .iter()
+            .find(|limit| !self.get(**limit).positive())
+        {
+            Some(limit) => Err(*limit),
+            None => Ok(()),
+        }
     }
 }
 

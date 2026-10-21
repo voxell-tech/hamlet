@@ -77,7 +77,10 @@ impl Wasi {
             .allow_udp(false)
             .allow_ip_name_lookup(false)
             // The host makes the bytes before they reach the plugin's
-            // memory, which holds no more.
+            // memory, which holds no more. wasmtime-wasi has no way
+            // to change it once built, so a new limit
+            // reaches it in the plugin's next store, as
+            // it starts or is reloaded.
             .max_random_size(caps.bytes.min(caps.memory) as u64)
             .build();
         Self {

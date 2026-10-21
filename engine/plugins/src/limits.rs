@@ -61,7 +61,18 @@ impl ChosenLimits {
         let path = home.path(FILE);
         let read = match fs::read_to_string(&path) {
             Ok(text) => toml::from_str::<LimitsFile>(&text)
-                .map_err(|e| e.message().to_owned()),
+                .map_err(|e| e.message().to_owned())
+                .and_then(|file| {
+                    for (id, limits) in &file.plugins {
+                        limits.check().map_err(|limit| {
+                            format!(
+                                "{} of {id} is not above zero",
+                                limit.name()
+                            )
+                        })?;
+                    }
+                    Ok(file)
+                }),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 Ok(LimitsFile::default())
             }
@@ -253,6 +264,12 @@ mod tests {
             fs::read_to_string(home.path(FILE)).unwrap(),
             broken
         );
+        fs::write(
+            home.path(FILE),
+            "[plugins.\"hamlet.realm\"]\nmemory = 0\n",
+        )
+        .unwrap();
+        assert!(ChosenLimits::open(&home).held().is_some());
         let _ = fs::remove_dir_all(&root);
     }
 }

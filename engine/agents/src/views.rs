@@ -206,6 +206,38 @@ pub(crate) fn of_the_realm(section: &str, key: &str) -> bool {
         || (section, key) == ("road", "grows_over_days")
 }
 
+/// Why `value` cannot be written at `key` of `section` of a limits
+/// file for a plugin: a section or key that is not one plain word,
+/// a value of more than one line, a table where the root's values
+/// are, or the lasting permissions, which only the chief gives.
+pub(crate) fn unwritable(
+    section: &str,
+    key: &str,
+    value: Option<&str>,
+) -> Option<String> {
+    let word = |name: &str| {
+        name.chars().all(|c| {
+            c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'
+        })
+    };
+    let value = value.unwrap_or_default();
+    if key.is_empty() || !word(key) || !word(section) {
+        Some(format!("{section}.{key} is not a limit"))
+    } else if value.contains(['\n', '\r']) {
+        Some("a value is one line".into())
+    } else if section.is_empty()
+        && value.trim_start().starts_with('{')
+    {
+        Some(format!("{key} is a section"))
+    } else if section == "permissions"
+        || (section.is_empty() && key == "permissions")
+    {
+        Some("the lasting permissions are the chief's to give".into())
+    } else {
+        None
+    }
+}
+
 pub(crate) fn grants(grants: &Grants) -> Vec<Grant> {
     grants
         .held()

@@ -157,6 +157,26 @@ fn the_store_keeps_to_types_grants_and_caps() {
         (asset.info.version, &asset.bytes[..]),
         (2, &b"changed"[..])
     );
+
+    // A plugin that takes the type over does not read what was made
+    // before it.
+    let taker = plugin("test.alpha", &["notes.note"], &[]);
+    let (registry, _) =
+        TypeRegistry::of([&taker, &notes].into_iter());
+    let rules = Rules {
+        registry: &registry,
+        grants: &grants,
+        budgets: &budgets,
+    };
+    assert!(matches!(
+        done(rules.answer(&mut store, &taker, &read, false)),
+        Err(Failure::Refused(_))
+    ));
+    let list = Request::ListAssets("notes.note".into());
+    assert_eq!(
+        done(rules.answer(&mut store, &taker, &list, false)),
+        Ok(Reply::Listed(Vec::new()))
+    );
     let _ = fs::remove_dir_all(home.root());
 }
 

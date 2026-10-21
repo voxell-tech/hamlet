@@ -48,3 +48,26 @@ fn no_reply_carries_a_key() {
         );
     }
 }
+
+#[test]
+fn a_plugin_writes_only_one_plain_limit() {
+    let refused = [
+        ("permissions", "unconfined", "[\"mayor\"]"),
+        ("", "permissions", "{ unconfined = [\"mayor\"] }"),
+        ("", "votes", "{ least_voters = 1 }"),
+        ("mayor", "permissions.unconfined", "[\"mayor\"]"),
+        ("mayor", "build_roads", "true\n[permissions]"),
+        ("mayor]\n[permissions", "unconfined", "[]"),
+    ];
+    for (section, key, value) in refused {
+        assert!(
+            views::unwritable(section, key, Some(value)).is_some(),
+            "{section}.{key} = {value} was written"
+        );
+    }
+    assert_eq!(
+        views::unwritable("mayor", "build_roads", Some("true")),
+        None
+    );
+    assert_eq!(views::unwritable("", "most_agents", None), None);
+}

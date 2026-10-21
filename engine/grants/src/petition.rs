@@ -267,6 +267,8 @@ fn first_use(
     mut commands: Commands,
 ) {
     let now = time.elapsed();
+    // The petitions raised here are not children until the end.
+    let mut asking = Vec::new();
     for wanted in uses.read() {
         let Ok((info, budgets, children)) =
             plugins.get(wanted.plugin)
@@ -284,11 +286,13 @@ fn first_use(
         else {
             continue;
         };
+        let question = Question::Use(ask);
         let open = children.into_iter().flatten().any(|child| {
-            petitions.get(*child).is_ok_and(|petition| {
-                petition.0 == Question::Use(ask.clone())
-            })
-        });
+            petitions
+                .get(*child)
+                .is_ok_and(|petition| petition.0 == question)
+        }) || asking
+            .contains(&(wanted.plugin, question.clone()));
         if open {
             continue;
         }
@@ -309,12 +313,13 @@ fn first_use(
             continue;
         }
         raised.insert(wanted.plugin, (since, count + 1));
+        asking.push((wanted.plugin, question.clone()));
         commands.raise_petition(
             tree.as_deref_mut(),
             &mut log,
             wanted.plugin,
             info,
-            Question::Use(ask),
+            question,
         );
     }
 }

@@ -18,6 +18,12 @@ fn only_public_addresses_are_reached() {
         "fc00::1",
         "fe80::1",
         "::ffff:127.0.0.1",
+        "::127.0.0.1",
+        "64:ff9b::10.0.0.1",
+        "2002:a00:1::1",
+        "fec0::1",
+        "198.18.0.1",
+        "240.0.0.1",
     ];
     for address in refused {
         let address = address.parse::<IpAddr>().unwrap();
@@ -25,6 +31,7 @@ fn only_public_addresses_are_reached() {
     }
     assert!(public("203.0.113.7".parse().unwrap()));
     assert!(public("2001:db8::7".parse().unwrap()));
+    assert!(public("64:ff9b::203.0.113.7".parse().unwrap()));
 
     // A name is resolved first, and refused for where it is.
     let runtime = tokio::runtime::Builder::new_current_thread()

@@ -366,7 +366,9 @@ samples) runs the scripts of hello, notes and board.
   frame's share, the strikes and the chain's depth. `[limits]`, as
   `DefaultLimits`, holds every limit of one plugin as the engine has
   it; each plugin's own are `PluginBudgets` on its entity (see
-  [Limits](#limits)).
+  [Limits](#limits)). A file with a limit or `frame_share` that is
+  not a finite number above zero is refused, as a file that cannot be
+  read is.
 
 ## The shell
 
@@ -741,9 +743,13 @@ their names in `[limits]`.
   randomness. Its calls are held to the same budgets as the host's: a
   list it hands over counts towards `bytes_per_call`, random bytes are
   `bytes_per_call` at most, a wait ends at the call's `call_time`, and
-  it holds `[limits] wasi_resources` resources at most. Each write to
-  stdout or stderr is kept up to 4,096 bytes, `log_lines_per_second`
-  writes a call; the rest are left out without the plugin knowing.
+  it holds `[limits] wasi_resources` resources at most. The most
+  random bytes are fixed as its store is made, since wasmtime-wasi
+  cannot change them after, so a new `bytes_per_call` reaches them
+  only when the plugin next starts or is reloaded. Each write to
+  stdout or stderr is kept up to 4,096 bytes, 1,024 writes a call at
+  most, of which `log_lines_per_second` are kept; the rest are left
+  out without the plugin knowing.
   What is kept is cut into lines, each cut at `log_line_bytes`, for
   the log.
 - **What it adds** comes back from `declare` as `Contribution`s and is
@@ -763,7 +769,8 @@ their names in `[limits]`.
   core instances, memories and tables, and each table's elements.
 - **Every call** into a plugin is given `[limits] fuel_per_call` fuel,
   an epoch deadline of `call_time` milliseconds, and `bytes_per_call`
-  bytes it may hand over. A string or a list from the plugin is checked
+  bytes it may hand over in all, counted across every host and system
+  call it makes in it. A string or a list from the plugin is checked
   against its memory, and its length taken from those bytes, before
   wasmtime copies any of it. What the host hands a plugin is checked
   against the same bytes before the call.
@@ -772,7 +779,7 @@ their names in `[limits]`.
   memory can address, so the limit holds whatever it is set to.
 - **Limits change as it runs.** Each call is armed with the plugin's
   limits as they are then, so a new value reaches a running plugin at
-  its next call.
+  its next call; only the most random bytes wait for its next store.
 - **A fault** is a call over its fuel, its time, its memory or its
   bytes, a trap, or what cannot be read; a plugin cannot be called
   again after one.
@@ -806,9 +813,10 @@ their names in `[limits]`.
   it changes. A running version at fault while it saves is stopped.
 - **A plugin that is not running** forgets its compiled component, so
   it is compiled anew when it starts.
-- **A new `plugin.toml`** that changes the name, the version or the
-  asks adds the plugin again, as if it had just come: one that asks for
-  more is asked about again. Its state is not kept.
+- **A new `plugin.toml`** that changes anything but its limits adds
+  the plugin again, as if it had just come: one that asks for more is
+  asked about again. Its state is not kept. One whose limits alone
+  changed holds the running plugin to them.
 
 ### Budgets
 
@@ -1081,17 +1089,23 @@ verb beside CANCEL with a warning for agents it cuts short.
   `agents.chief`, `agents.settings` and `desktop.open https`) shows
   what is selected. An agent: its hamlet as
   a way back, its state, STOP while it works, More (`more.rs`: a
-  menu of talking to it, its prompt, stopping it, a road to another
-  agent of its hamlet, a skill another has, merging, undoing the last
-  change, making it mayor and removing it, each a decree to its
-  hamlet, asked about first where `main` asks), its purpose, its
+  menu naming agents as they are named, of talking to it, its prompt,
+  stopping it, Build a road to each agent of its hamlet it has no
+  road to yet, Give a skill... with each skill another has or a
+  starter one, Merge X into Y... each way with every other agent of
+  its hamlet, Remove the road to each agent it is joined to
+  (`/unroad`), undoing the last change, making it mayor and removing
+  it, each a decree to its hamlet, asked about first where `main`
+  asks; a mayor's has only talking, its prompt, stopping and
+  undoing), its purpose, its
   model and use, its spend, the Model dropdown (`RunModel`), and NOTES
   (REFLECT NOW), CHARACTER (EDIT), ARCHIVE and PROMPT. The archive
   lists the past sessions with a search and counts, each read on a
   click, and read, resumed (bringing the chat to the front) or
   deleted from its menu, and reads one
   forty messages at a time. One that is gone, with RESTORE, DELETE FOR
-  GOOD and ITS HAMLET. The library. Every hamlet, searched, each with
+  GOOD and ITS HAMLET. The library, with OPEN CHAT while it is empty,
+  which brings the chat to the front. Every hamlet, searched, each with
   Close Down in its menu, with FOUND A HAMLET, those closed down, and
   YOUR HEARTH, which selects the chief's place for the realm to bring
   into view.
@@ -1106,8 +1120,10 @@ verb beside CANCEL with a warning for agents it cuts short.
   `/folder` with the path, and its mode, and AGENTS, BYLAWS
   (`bylaws.rs`: its own limits as `main`'s rules panel sets them, on
   one page: the budget's period and cap with START IT AGAIN NOW, a
-  task's cost and messages, a road's price, the models it may run
-  and its default, what its mayor may do without asking, and its
+  task's cost and messages, a road's price, the models it may run,
+  each a toggle beside its card line (its name, its prices, what it
+  holds and its note), and its default, what its mayor may do
+  without asking, and its
   most agents and roads, each written with `SetBylaw`) and RECORD.
   The realm's page and the bylaws share the controls of a limit,
   `agents_ui`'s `whole`, `switch` and `setting`.
@@ -1244,6 +1260,7 @@ says why and every request fails saying so.
   charter, the realm's limits, the lasting permissions, the status,
   sessions that came or went, what a working session says or does
   (words streamed in a frame go in one event) and whether it works.
+  A plugin switched off is told nothing more until it watches again.
 - **Settings.** `Settings` gives the model, `reflect_every`, `allow_net`
   and the endpoints by name and address, each with only whether it has
   a key or is the ChatGPT plan, with the link and the listing. Each of
@@ -1261,17 +1278,25 @@ says why and every request fails saying so.
   under way (`begun`, from `BeginSetup` until it ends), its stage, who
   answered and with which models, and the problem in plain words. The
   endpoint being set up, and a key a sign-in gave, stay in the service.
+  An address of its own reaches what the engine can, servers on this
+  computer and its network too, so only a plugin built in or bundled
+  `Connect`s to one; an installed plugin names a provider.
 - **The charter**: `Charter`, `EditCharter` (the home's own, opened in
   the system's editor) and `ResetCharter`.
 - **The realm's limits**: `Limits`, and `SetLimit` of one key of
   `votes`, `hamlets` or `road.grows_over_days`, failing with the
-  problem when the file cannot take it.
+  problem when the file cannot take it. Neither it nor `SetBylaw`
+  writes the lasting permissions, which only the chief gives: a key
+  under `permissions`, a value of more than one line, or a table where
+  a value goes is refused.
 - **Lasting permissions**: `Grants` and `Revoke`.
 - **Status**: the sandbox, the model, the link, the open session's use,
   the first hamlet's spend, how many things wait for the chief, and
   whether the open session works.
 - **The chief**: `Send` a line, a message or a slash command, to an
-  agent or a hamlet's mayor, and `Veto`.
+  agent or a hamlet's mayor, and `Veto`. `Send`, `Open` and `Decree`
+  take only a living agent or a hamlet open or closed down, as each
+  name has a session of its own; another is not found.
 - **Sessions**: `Sessions`, `Open` (the chief's session with an agent
   or a mayor, which the status then tells of) and `Messages`. A
   session says when it began and whether it is being answered; a
@@ -1323,11 +1348,13 @@ says why and every request fails saying so.
   sheet.
 - **Capabilities**, each on the target `local`: `agents.read` for what
   is read and watched, and the focus, `agents.settings` for what
-  changes the settings, the models, the setup, the charter, the
-  realm's limits and a hamlet's bylaws, `agents.keys` for giving or forgetting a key and signing
-  in, and `agents.chief` for sending, vetoing, revoking, rewinding,
-  decrees, the character, deleting a past session and answering what
-  waits. A use answered Ask next time asks the
+  changes the settings, the catalogue's models, the setup, the
+  charter, the realm's limits and a hamlet's bylaws, `agents.keys` for
+  giving or forgetting a key, connecting and signing in, and
+  `agents.chief` for sending, vetoing, revoking, rewinding, decrees,
+  the model an agent runs (`RunModel`), the character, deleting a past
+  session and answering what waits. A use answered Ask next time asks
+  the
   person first, as the other services do.
 - **Secrets stay in the service.** No reply holds a key, a ChatGPT
   token or a sign-in; keys are kept in the system's keychain or a
@@ -1343,7 +1370,9 @@ says why and every request fails saying so.
   `Request::Desktop(DesktopRequest)`, `desktop` in the WIT, and is
   answered with `Reply::Desktop(DesktopReply)`. `Watch` sends each
   `DesktopEvent` from then on with the ticket of the `Watch`: the
-  settings changed, or the address under the pointer.
+  settings changed, or the address under the pointer. A plugin
+  switched off is told nothing more until it watches again, and the
+  address it told of goes.
 - **Keep awake.** While any agent is busy and `KeepAwake` is on, the
   system's own helper holds the machine awake (`caffeinate` on macOS,
   `systemd-inhibit` on Linux, none on Windows), and it lets go when

@@ -104,10 +104,16 @@ pub trait Tuning:
             panic!("engine/tuning/{}: {why}", Self::FILE.name)
         })
     }
+
+    /// Why the values read cannot be used, beyond what their types
+    /// hold.
+    fn check(&self) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// `T`'s section of the file `text`.
-fn read<T: Tuning>(text: &str) -> Result<T, String> {
+pub(crate) fn read<T: Tuning>(text: &str) -> Result<T, String> {
     let table = toml::from_str::<toml::Table>(text)
         .map_err(|e| e.to_string())?;
     pick::<T>(table)
@@ -122,7 +128,9 @@ fn pick<T: Tuning>(table: toml::Table) -> Result<T, String> {
             .cloned()
             .ok_or_else(|| format!("no [{name}]"))?,
     };
-    value.try_into::<T>().map_err(|e| e.to_string())
+    let read = value.try_into::<T>().map_err(|e| e.to_string())?;
+    read.check()?;
+    Ok(read)
 }
 
 /// How often the watched files are looked at.

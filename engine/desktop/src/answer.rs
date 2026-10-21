@@ -6,6 +6,7 @@ use bevy::app::{App, PostUpdate};
 use bevy::ecs::change_detection::Mut;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::message::{MessageReader, MessageWriter};
+use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Local, Query, Res, ResMut};
 use hamlet_engine_api::agents::LOCAL;
@@ -18,7 +19,7 @@ use hamlet_engine_core::{Home, LogLine};
 use hamlet_engine_grants::{
     Decided, FirstUse, Grants, Verdict, Waiting,
 };
-use hamlet_engine_plugins::{Asked, Deliver, PluginInfo};
+use hamlet_engine_plugins::{Asked, Deliver, Disable, PluginInfo};
 
 use crate::awake::KeepAwake;
 use crate::open::{Opened, opening};
@@ -30,6 +31,7 @@ const LONGEST: usize = 2048;
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Watchers>()
         .init_resource::<Hovered>()
+        .add_observer(switched_off)
         .add_systems(PostUpdate, take);
 }
 
@@ -67,16 +69,18 @@ fn take(
     mut opened: ResMut<Opened>,
     mut watchers: ResMut<Watchers>,
     mut hovered: ResMut<Hovered>,
-    mut parked: Local<Waiting<Asked>>,
+    mut parked: Local<Waiting<(Asked, String)>>,
     mut deliver: MessageWriter<Deliver>,
     mut first_use: MessageWriter<FirstUse>,
     mut log: MessageWriter<LogLine>,
 ) {
     parked.keep(|plugin| plugins.contains(plugin));
+    // Each request that may go on, with the target it was allowed.
     let mut ready = Vec::new();
-    for (waiting, allowed) in parked.settle(decided.read()) {
+    for ((waiting, target), allowed) in parked.settle(decided.read())
+    {
         if allowed {
-            ready.push(waiting);
+            ready.push((waiting, Some(target)));
         } else if let Request::Desktop(request) = &waiting.request
             && let Some(capability) = request.capability()
         {
@@ -93,7 +97,7 @@ fn take(
             continue;
         };
         let Some(capability) = desktop.capability() else {
-            ready.push(request.clone());
+            ready.push((request.clone(), None));
             continue;
         };
         let target = match desktop {
@@ -109,12 +113,14 @@ fn take(
             _ => LOCAL.to_owned(),
         };
         match grants.verdict(plugin, capability, &target) {
-            Verdict::Allowed => ready.push(request.clone()),
+            Verdict::Allowed => {
+                ready.push((request.clone(), Some(target)));
+            }
             Verdict::Asking => parked.park(
                 request.plugin,
                 capability,
-                target,
-                request.clone(),
+                target.clone(),
+                (request.clone(), target),
                 &mut first_use,
             ),
             Verdict::Refused => {
@@ -138,18 +144,52 @@ fn take(
         log: Vec::new(),
     };
     answering.forget_gone();
-    for request in ready {
+    for (request, allowed) in ready {
         let Request::Desktop(desktop) = &request.request else {
             continue;
         };
-        let reply = answering.answer(&request, desktop.clone());
+        let reply = answering.answer(
+            &request,
+            desktop.clone(),
+            allowed.as_deref(),
+        );
         deliver.write(request.reply(reply.map(Reply::Desktop)));
     }
     for line in answering.log.drain(..) {
         log.write(line);
     }
     for event in answering.told {
-        for (plugin, ticket) in &answering.watchers.0 {
+        answering.watchers.tell(&event, &mut deliver);
+    }
+}
+
+/// Stops telling a plugin switched off, which watches again once it
+/// is on, and lets go of the address it told of.
+fn switched_off(
+    off: On<Disable>,
+    mut watchers: ResMut<Watchers>,
+    mut hovered: ResMut<Hovered>,
+    mut deliver: MessageWriter<Deliver>,
+) {
+    watchers.0.retain(|(plugin, _)| *plugin != off.entity);
+    if hovered
+        .0
+        .as_ref()
+        .is_some_and(|(plugin, _)| *plugin == off.entity)
+    {
+        hovered.0 = None;
+        watchers.tell(&DesktopEvent::Hovered(None), &mut deliver);
+    }
+}
+
+impl Watchers {
+    /// Sends `event` to each watcher.
+    fn tell(
+        &self,
+        event: &DesktopEvent,
+        deliver: &mut MessageWriter<Deliver>,
+    ) {
+        for (plugin, ticket) in &self.0 {
             deliver.write(Deliver {
                 plugin: *plugin,
                 message: Message::Reply {
@@ -193,12 +233,13 @@ impl Answering<'_, '_, '_> {
         }
     }
 
-    /// What `request` of the plugin `asked`, which may go on, comes
-    /// to.
+    /// What `request` of the plugin `asked`, which may go on on the
+    /// target `allowed`, comes to.
     fn answer(
         &mut self,
         asked: &Asked,
         request: DesktopRequest,
+        allowed: Option<&str>,
     ) -> Result<DesktopReply, Failure> {
         match request {
             DesktopRequest::Watch => {
@@ -228,6 +269,14 @@ impl Answering<'_, '_, '_> {
                     .map_err(|_| Failure::NotFound)?;
                 let (opening, target) =
                     opening(&plugin.asks, &written)?;
+                // A link changed while the person was asked may put
+                // the path under another folder.
+                if allowed != Some(target.as_str()) {
+                    return Err(Failure::Refused(format!(
+                        "{written:?} is no longer under {}",
+                        allowed.unwrap_or_default()
+                    )));
+                }
                 let child = opening.start().map_err(|why| {
                     Failure::Failed(format!(
                         "nothing could open it: {why}"

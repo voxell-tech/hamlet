@@ -25,7 +25,7 @@ use hamlet_engine_api::agents::{
     AgentsEvent, AgentsReply, Output, Status,
 };
 use hamlet_engine_api::{Message, Reply, Ticket};
-use hamlet_engine_plugins::{Deliver, PluginInfo};
+use hamlet_engine_plugins::{Deliver, Disable, PluginInfo};
 use hamlet_home::charter;
 use hamlet_rules::hamlet::HOME;
 
@@ -39,6 +39,7 @@ const LOOK: Duration = Duration::from_secs(2);
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Watchers>()
         .add_observer(heard)
+        .add_observer(switched_off)
         .configure_sets(PostUpdate, Gather.after(take))
         .add_systems(PostUpdate, send_events.after(Gather));
 }
@@ -220,6 +221,14 @@ fn heard(out: On<SessionOutput>, mut watchers: ResMut<Watchers>) {
         session: views::session_name(&out.key),
         output,
     });
+}
+
+/// Stops telling a plugin switched off, which watches again once it
+/// is on.
+fn switched_off(off: On<Disable>, mut watchers: ResMut<Watchers>) {
+    watchers
+        .watching
+        .retain(|(plugin, _)| *plugin != off.entity);
 }
 
 /// Sends each watcher what changed since the last frame.
