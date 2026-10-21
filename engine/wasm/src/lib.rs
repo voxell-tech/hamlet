@@ -48,6 +48,7 @@ use self::panel::{Inbox, Moving};
 use self::reload::{Loaded, Reloading};
 use self::retained::{Holders, Kids, WasmWorldExt};
 pub use self::retained::{NodeAction, NodeOf, NodeStats, UiRoot};
+pub use self::run::Compiling;
 pub use self::scene::{
     Powers, SceneCaps, SceneError, SceneInbox, ShowsCamera,
 };

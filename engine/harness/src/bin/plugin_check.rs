@@ -13,8 +13,10 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use bevy::ecs::query::With;
 use hamlet_engine_grants::Answer;
 use hamlet_engine_harness::{Harness, Steps};
+use hamlet_engine_plugins::ContributedBy;
 use hamlet_engine_shell::Panel;
 
 fn main() -> ExitCode {
@@ -77,12 +79,19 @@ fn check(
         harness.frames(10);
         let world = harness.world();
         let panels = world
-            .query::<&Panel>()
+            .query_filtered::<&Panel, With<ContributedBy>>()
             .iter(world)
             .map(|panel| panel.id.to_string())
             .collect::<Vec<_>>();
         for panel in panels {
-            if let Some(shown) = harness.outline(&panel) {
+            // The first call only builds a panel's content, which the
+            // plugin fills on a later frame.
+            let mut shown = None;
+            harness.until(|harness| {
+                shown = harness.outline(&panel);
+                shown.as_ref().is_some_and(|shown| !shown.is_empty())
+            });
+            if let Some(shown) = shown {
                 println!("{panel}\n{shown}\n");
             }
         }

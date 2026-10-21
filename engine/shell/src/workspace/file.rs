@@ -42,6 +42,8 @@ pub struct Unsaved {
     since: Option<Duration>,
     /// Saving is off: the file could not be read and is still there.
     held: bool,
+    /// The workspaces as last read or saved.
+    stored: Workspaces,
 }
 
 impl Unsaved {
@@ -60,11 +62,14 @@ impl Unsaved {
         if self.held {
             return;
         }
-        if let Err(why) = workspaces.write(home) {
-            log.write(LogLine::error(
-                "workspaces",
-                format!("{FILE} could not be saved: {why}"),
-            ));
+        match workspaces.write(home) {
+            Ok(()) => self.stored.clone_from(workspaces),
+            Err(why) => {
+                log.write(LogLine::error(
+                    "workspaces",
+                    format!("{FILE} could not be saved: {why}"),
+                ));
+            }
         }
     }
 }
@@ -148,12 +153,19 @@ pub fn restore(
             Workspaces::default()
         }
     };
+    unsaved.stored.clone_from(&workspaces);
     commands.insert_resource(workspaces);
 }
 
-/// Notes a change, to be saved once the workspaces are still.
-pub fn note(time: Res<Time<Real>>, mut unsaved: ResMut<Unsaved>) {
-    unsaved.since = Some(time.elapsed());
+/// Notes a change, to be saved once the workspaces are still. A
+/// change back to what is stored is not one.
+pub fn note(
+    time: Res<Time<Real>>,
+    workspaces: Res<Workspaces>,
+    mut unsaved: ResMut<Unsaved>,
+) {
+    unsaved.since =
+        (*workspaces != unsaved.stored).then(|| time.elapsed());
 }
 
 /// Saves the workspaces once they have been still for

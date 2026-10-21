@@ -24,7 +24,7 @@ pub enum ShaderKind {
     /// `fn shade(surface: Surface) -> vec4<f32>`, and optionally
     /// `fn displace(vertex: Vertex) -> vec3<f32>`.
     Material,
-    /// `fn post(pass: Pass) -> vec4<f32>`.
+    /// `fn post(drawn: Pass) -> vec4<f32>`.
     Pass,
     /// `@compute @workgroup_size(..) fn main(..)`.
     Compute,

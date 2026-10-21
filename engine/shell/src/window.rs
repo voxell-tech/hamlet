@@ -189,9 +189,7 @@ fn show(
     let Ok(mut window) = windows.single_mut() else {
         return;
     };
-    if !window.visible {
-        window.visible = true;
-    }
+    window.visible = true;
     window.focused = true;
     if let (Some(mut winit), Some(hidden)) = (winit, hidden) {
         *winit = hidden.0.clone();

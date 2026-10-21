@@ -168,20 +168,13 @@ impl ShellWorldExt for World {
             return;
         };
         let anchor = self
-            .try_query::<(&WorkspaceTab, &ComputedNode, &UiGlobalTransform)>()
+            .try_query::<(Entity, &WorkspaceTab)>()
             .and_then(|mut tabs| {
-                tabs.iter(self).find(|(tab, ..)| tab.0 == at).map(
-                    |(_, node, place)| {
-                        let scale = node.inverse_scale_factor();
-                        let (_, _, centre) =
-                            place.to_scale_angle_translation();
-                        Rect::from_center_size(
-                            centre * scale,
-                            node.size() * scale,
-                        )
-                    },
-                )
+                tabs.iter(self)
+                    .find(|(_, tab)| tab.0 == at)
+                    .map(|(node, _)| node)
             })
+            .and_then(|node| self.node_rect(node))
             .unwrap_or_default();
         self.resource_mut::<Renaming>().0 = Some((at, anchor, name));
     }

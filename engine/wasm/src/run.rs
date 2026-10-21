@@ -45,7 +45,7 @@ pub(crate) struct Starting;
 
 /// On a plugin whose component is being compiled off the frame.
 #[derive(Component)]
-pub(crate) struct Compiling(pub(crate) Task<Result<Linked, String>>);
+pub struct Compiling(pub(crate) Task<Result<Linked, String>>);
 
 /// On a plugin: its component, compiled and linked.
 #[derive(Component, Clone)]

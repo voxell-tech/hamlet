@@ -6,7 +6,7 @@
 
 [colors]
 background = "#120e0aff"
-background_bottom ="#1f150cff"
+background_bottom = "#1f150cff"
 surface = "#1b1510ff"
 surface_raised = "#211a13ff"
 surface_sunken = "#0b0806ff"
@@ -17,7 +17,7 @@ separator = "#2c231bff"
 border = "#45351fff"
 border_strong = "#7c5d2fff"
 text = "#f2e7d0ff"
-text_muted ="#ab9f8bff"
+text_muted = "#ab9f8bff"
 text_accent = "#d9c391ff"
 accent = "#c9983fff"
 accent_soft = "#caa666ff"

@@ -3,7 +3,7 @@
 
 use bevy::app::{App, Startup, Update};
 use bevy::ecs::component::Component;
-use bevy::ecs::hierarchy::Children;
+use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::observer::On;
 use bevy::ecs::query::{Added, With};
 use bevy::ecs::resource::Resource;
@@ -123,6 +123,21 @@ pub fn rename_view() -> AnyView {
             };
             let field =
                 field(name, String::new(), move |world, name| {
+                    // Enter keeps the field focused while it commits.
+                    // Focus leaving first, as on a press outside,
+                    // drops the name.
+                    let entered = world
+                        .resource::<InputFocus>()
+                        .get()
+                        .and_then(|input| world.get::<ChildOf>(input))
+                        .is_some_and(|parent| {
+                            world
+                                .get::<RenameField>(parent.parent())
+                                .is_some()
+                        });
+                    if !entered {
+                        return;
+                    }
                     world
                         .resource_mut::<Workspaces>()
                         .rename(at, &name);

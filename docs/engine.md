@@ -1462,7 +1462,7 @@ none of them imports none of them.
   refusal names the line of the source. A material gives
   `fn shade(surface: Surface) -> vec4<f32>` and may give
   `fn displace(vertex: Vertex) -> vec3<f32>`; a pass
-  `fn post(pass: Pass) -> vec4<f32>`; compute
+  `fn post(drawn: Pass) -> vec4<f32>`; compute
   `@compute @workgroup_size(..) fn main`, of at most the device's
   invocations a workgroup. The fixed names: `params` (16 `vec4<f32>`,
   the plugin's 64 floats), and `picture`, `picture_sampler` and

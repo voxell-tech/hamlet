@@ -3,9 +3,14 @@
 //! cards, lists, link rows, dividers, scroll areas and a panel's
 //! content, and how a control glows and gives under the hand.
 
+use std::fmt::Debug;
+
 use bevy::prelude::*;
 use bevy::text::EditableText;
-use bevy::ui_widgets::{Activate, Button as ButtonBehavior};
+use bevy::ui::InteractionDisabled;
+use bevy::ui_widgets::{
+    Activate, ActivateOnPress, Button as ButtonBehavior,
+};
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, checkbox, column,
@@ -21,19 +26,23 @@ use crate::theme::EngineTheme;
 use crate::{AnyView, Cx, View};
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_observer(pulse).add_systems(
-        Update,
-        (
-            (add_glow_state, animate, apply_glow, bottom_light)
-                .chain(),
-            gradient,
-            wrap,
-            clip_inside,
-            glow_margin,
-            show_placeholders,
-            pick_whole_buttons,
-        ),
-    );
+    app.add_observer(pulse)
+        .add_observer(note_press)
+        .add_observer(release_inside)
+        .add_observer(forget_press::<DragEnd>)
+        .add_observer(forget_press::<Cancel>)
+        .add_systems(
+            Update,
+            (
+                (add_glow_state, animate, apply_glow, bottom_light)
+                    .chain(),
+                gradient,
+                wrap,
+                clip_inside,
+                glow_margin,
+                show_placeholders,
+            ),
+        );
 }
 
 /// The kind of a button, which sets its style and its glow.
@@ -126,6 +135,11 @@ pub struct GlowState {
     glow: f32,
     reach: f32,
 }
+
+/// On a button under a primary press: the node inside it the press
+/// landed on.
+#[derive(Component, Clone, Copy, Debug)]
+struct PressedOn(Entity);
 
 type Rules = Style<EngineTheme>;
 
@@ -1209,23 +1223,55 @@ fn clip_inside(mut nodes: Query<&mut Node, Added<ClipInside>>) {
     }
 }
 
-/// Lets the pointer through everything inside a button, so the button
-/// itself is what a press and a release land on. A click counts only
-/// when both land on the same node, and without this a press on the
-/// label and a release on the icon or the padding would not count.
-fn pick_whole_buttons(
-    nodes: Query<Entity, (Added<Node>, Without<ButtonBehavior>)>,
-    parents: Query<&ChildOf>,
-    buttons: Query<(), With<ButtonBehavior>>,
+/// Notes the node inside a button a primary press landed on.
+fn note_press(
+    press: On<Pointer<Press>>,
+    buttons: Query<
+        (),
+        (With<ButtonBehavior>, Without<ActivateOnPress>),
+    >,
     mut commands: Commands,
 ) {
-    for node in &nodes {
-        if parents
-            .iter_ancestors(node)
-            .any(|above| buttons.contains(above))
-        {
-            commands.entity(node).try_insert(Pickable::IGNORE);
-        }
+    let button = press.event_target();
+    if press.button == PointerButton::Primary
+        && buttons.contains(button)
+    {
+        commands
+            .entity(button)
+            .try_insert(PressedOn(press.original_event_target()));
+    }
+}
+
+/// Activates a button when a press and its release land inside it on
+/// different nodes, as on the label and then the icon, which Bevy
+/// does not count as a click.
+fn release_inside(
+    release: On<Pointer<Release>>,
+    buttons: Query<(&PressedOn, Has<InteractionDisabled>)>,
+    mut commands: Commands,
+) {
+    let button = release.event_target();
+    if release.button != PointerButton::Primary {
+        return;
+    }
+    let Ok((pressed, disabled)) = buttons.get(button) else {
+        return;
+    };
+    commands.entity(button).try_remove::<PressedOn>();
+    if pressed.0 != release.original_event_target() && !disabled {
+        commands.trigger(Activate { entity: button });
+    }
+}
+
+/// Forgets a press on a button that ends without a release inside it.
+fn forget_press<E: Debug + Clone + Reflect>(
+    event: On<Pointer<E>>,
+    pressed: Query<(), With<PressedOn>>,
+    mut commands: Commands,
+) {
+    let button = event.event_target();
+    if pressed.contains(button) {
+        commands.entity(button).try_remove::<PressedOn>();
     }
 }
 
@@ -1265,5 +1311,103 @@ fn show_placeholders(
             Visibility::Hidden
         };
         shown.set_if_neq(want);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::camera::NormalizedRenderTarget;
+    use bevy::picking::backend::HitData;
+    use bevy::picking::pointer::{Location, PointerId};
+
+    use super::*;
+
+    #[derive(Resource, Default)]
+    struct Activated(usize);
+
+    /// Sends what picking sends for `event` on `on`, bubbling up.
+    fn send<E: Debug + Clone + Reflect>(
+        world: &mut World,
+        on: Entity,
+        event: E,
+    ) {
+        let location = Location {
+            target: NormalizedRenderTarget::None {
+                width: 1,
+                height: 1,
+            },
+            position: Vec2::ZERO,
+        };
+        world.trigger(Pointer::new(
+            PointerId::Mouse,
+            location,
+            event,
+            on,
+        ));
+        world.flush();
+    }
+
+    fn hit() -> HitData {
+        HitData::new(Entity::PLACEHOLDER, 0.0, None, None)
+    }
+
+    fn press(world: &mut World, on: Entity) {
+        let (button, hit) = (PointerButton::Primary, hit());
+        send(
+            world,
+            on,
+            Press {
+                button,
+                hit,
+                count: 1,
+            },
+        );
+    }
+
+    fn release(world: &mut World, on: Entity) {
+        let (button, hit) = (PointerButton::Primary, hit());
+        send(world, on, Release { button, hit });
+    }
+
+    #[test]
+    fn a_press_and_a_release_inside_a_button_activate_it() {
+        let mut world = World::new();
+        // Pointer events bubble only where windows are known.
+        world.register_component::<Window>();
+        world.init_resource::<Activated>();
+        world.add_observer(note_press);
+        world.add_observer(release_inside);
+        world.add_observer(forget_press::<DragEnd>);
+        world.add_observer(
+            |_: On<Activate>, mut activated: ResMut<Activated>| {
+                activated.0 += 1;
+            },
+        );
+        let button = world.spawn(ButtonBehavior).id();
+        let label = world.spawn(ChildOf(button)).id();
+        let icon = world.spawn(ChildOf(button)).id();
+        let outside = world.spawn_empty().id();
+        let activated =
+            |world: &World| world.resource::<Activated>().0;
+
+        press(&mut world, label);
+        release(&mut world, icon);
+        assert_eq!(activated(&world), 1);
+
+        // On one node, it is a click, left to the button itself.
+        press(&mut world, label);
+        release(&mut world, label);
+        assert_eq!(activated(&world), 1);
+
+        // Let go outside, it is forgotten.
+        press(&mut world, label);
+        release(&mut world, outside);
+        let end = DragEnd {
+            button: PointerButton::Primary,
+            distance: Vec2::ONE,
+        };
+        send(&mut world, label, end);
+        release(&mut world, icon);
+        assert_eq!(activated(&world), 1);
     }
 }

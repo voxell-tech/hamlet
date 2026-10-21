@@ -42,10 +42,12 @@ use hamlet_engine_plugins::{
     ContributedBy, Enabled, PluginInfo, Stopped,
 };
 use hamlet_engine_shell::{
-    EngineTheme, Overlay, Panel, SettingsPage, ShellWorldExt,
+    EngineTheme, Overlay, Panel, SettingsFooter, SettingsPage,
+    ShellWorldExt,
 };
 use hamlet_engine_wasm::{
-    Instance, MANIFEST, NodeAction, NodeInput, NodeOf, UiRoot, WASM,
+    Compiling, Instance, MANIFEST, NodeAction, NodeInput, NodeOf,
+    UiRoot, WASM,
 };
 use serde::Deserialize;
 
@@ -180,20 +182,37 @@ impl Harness {
     }
 
     /// Runs frames until `done` is, for [`HarnessTuning::patience`]
-    /// frames at most: whether it came to be.
+    /// frames at most, not counting those while a plugin is compiled:
+    /// whether it came to be.
     pub fn until(
         &mut self,
         mut done: impl FnMut(&mut Self) -> bool,
     ) -> bool {
         let patience =
             self.app.world().resource::<HarnessTuning>().patience;
-        for _ in 0..patience {
+        let mut waited = 0;
+        while waited < patience {
             if done(self) {
                 return true;
+            }
+            // Compiling takes as long as it takes, however many
+            // frames pass meanwhile.
+            if !self.compiling() {
+                waited += 1;
             }
             self.frame();
         }
         done(self)
+    }
+
+    /// Whether a plugin's component is being compiled.
+    fn compiling(&mut self) -> bool {
+        let world = self.app.world_mut();
+        world
+            .query_filtered::<(), With<Compiling>>()
+            .iter(world)
+            .next()
+            .is_some()
     }
 
     /// Lets the plugin `plugin` in once it asks, each of its asks
@@ -260,10 +279,10 @@ impl Harness {
         Some(self.app.world().outline(root))
     }
 
-    /// The root of the panel, settings page or overlay `panel`
-    /// (`plugin.id/name`), once its plugin has it. Its content is
-    /// built as the dock, Settings or the window builds it when it
-    /// shows it.
+    /// The root of the panel, settings page, footer or overlay
+    /// `panel` (`plugin.id/name`), once its plugin has it. Its
+    /// content is built as the dock, Settings or the window builds it
+    /// when it shows it.
     pub fn root(&mut self, panel: &str) -> Option<Entity> {
         let id = PanelId::try_from(panel).ok()?;
         let world = self.app.world_mut();
@@ -273,6 +292,7 @@ impl Harness {
                 (
                     Option<&Panel>,
                     Option<&SettingsPage>,
+                    Option<&SettingsFooter>,
                     Option<&Overlay>,
                 ),
                 Option<&UiRoot>,
@@ -280,13 +300,18 @@ impl Harness {
             )>()
             .iter(world)
             .find_map(
-                |(surface, (found, page, card), root, by)| {
-                    let content = match (found, page, card) {
+                |(surface, (found, page, footer, card), root, by)| {
+                    let content = match (found, page, footer, card) {
                         (Some(found), ..) if found.id == id => {
                             found.content
                         }
-                        (_, Some(page), _) if page.id == id => {
+                        (_, Some(page), ..) if page.id == id => {
                             page.content
+                        }
+                        (_, _, Some(footer), _)
+                            if footer.id == id =>
+                        {
+                            footer.content
                         }
                         (.., Some(card)) if card.id == id => {
                             card.content

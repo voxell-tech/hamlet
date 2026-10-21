@@ -207,6 +207,7 @@ fn gather(
     commands: Query<&Command>,
     shortcuts: Query<&Shortcut>,
     mut bar: ResMut<MenuBar>,
+    mut open: ResMut<OpenMenu>,
 ) {
     let went = gone.read().count()
         + gone_commands.read().count()
@@ -246,6 +247,17 @@ fn gather(
             .position(|own| *own == menu.title)
             .unwrap_or(OWN.len())
     });
+    // The open menu shows its entries as they are now, or closes
+    // when it has none left.
+    if let Some((shown, rect)) = &open.0 {
+        let now = menus
+            .iter()
+            .find(|menu| menu.title == shown.title)
+            .map(|menu| (menu.clone(), *rect));
+        if open.0 != now {
+            open.0 = now;
+        }
+    }
     let now = MenuBar(menus);
     if *bar != now {
         *bar = now;

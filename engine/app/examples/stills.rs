@@ -164,6 +164,7 @@ impl Shot {
                 hamlet_engine_assets::plugin,
                 hamlet_engine_bus::plugin,
                 hamlet_engine_net::plugin,
+                hamlet_engine_render::plugin,
                 hamlet_engine_wasm::plugin,
             ));
         let pixels = (self.size.as_vec2() * self.scale).as_uvec2();
