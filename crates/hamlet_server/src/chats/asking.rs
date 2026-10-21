@@ -2,6 +2,7 @@
 //! from the call and checked, set out as words, and answered.
 
 use hamlet_protocol::v0::{Offer, Pick, Question, Questions};
+use serde::Deserialize;
 use serde_json::Value;
 
 /// The most questions one call may ask.
@@ -13,9 +14,40 @@ pub(super) const MOST_OPTIONS: usize = 6;
 /// The head of every answer the chief gives to `ask_chief`.
 pub(super) const ANSWERS: &str = "The chief answers:";
 
-/// The words at `key` of `value`, trimmed. Empty when there are none.
-fn text(value: &Value, key: &str) -> String {
-    value[key].as_str().unwrap_or_default().trim().to_string()
+/// The arguments of `ask_chief`, as the tool's schema has them.
+#[derive(Deserialize)]
+struct AskChief {
+    #[serde(default)]
+    message: String,
+    questions: Vec<AskChiefQuestion>,
+}
+
+/// One question as the agent asks it.
+#[derive(Deserialize)]
+struct AskChiefQuestion {
+    question: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    options: Vec<AskChiefOption>,
+    /// Whether the chief may answer in words; pi's default is yes.
+    text_input: Option<bool>,
+}
+
+/// One option: its title alone, or a title and a description.
+#[derive(Deserialize)]
+#[serde(
+    untagged,
+    expecting = "an option is a title, or an object with a `title` \
+                 and a `description`"
+)]
+enum AskChiefOption {
+    Title(String),
+    Described {
+        title: String,
+        #[serde(default)]
+        description: String,
+    },
 }
 
 /// The questions in the arguments of an `ask_chief` call. `Err` says
@@ -23,60 +55,55 @@ fn text(value: &Value, key: &str) -> String {
 pub(super) fn read(args: &str) -> Result<Questions, String> {
     let args = serde_json::from_str::<Value>(args)
         .map_err(|_| "the arguments are not JSON".to_string())?;
-    let asked = match &args["questions"] {
-        Value::Array(asked) => asked.clone(),
-        Value::Null => return Err("say what in `questions`".into()),
-        _ => return Err("`questions` is a list".into()),
-    };
-    if asked.is_empty() {
+    let args = serde_json::from_value::<AskChief>(args).map_err(
+        |error| format!("the arguments are not valid: {error}"),
+    )?;
+    if args.questions.is_empty() {
         return Err("say what in `questions`".into());
     }
-    if asked.len() > MOST_QUESTIONS {
+    if args.questions.len() > MOST_QUESTIONS {
         return Err(format!(
             "ask at most {MOST_QUESTIONS} questions at once"
         ));
     }
-    let questions = asked
-        .iter()
+    let questions = args
+        .questions
+        .into_iter()
         .enumerate()
         .map(|(at, asked)| question(at + 1, asked))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Questions {
-        message: text(&args, "message"),
+        message: args.message.trim().into(),
         questions,
     })
 }
 
 /// The question `n`, counted from one.
-fn question(n: usize, asked: &Value) -> Result<Question, String> {
-    let question = text(asked, "question");
+fn question(
+    n: usize,
+    asked: AskChiefQuestion,
+) -> Result<Question, String> {
+    let question = asked.question.trim().to_string();
     if question.is_empty() {
         return Err(format!("question {n} has no `question`"));
     }
-    let offered = match &asked["options"] {
-        Value::Null => Vec::new(),
-        Value::Array(offered) => offered.clone(),
-        _ => {
-            return Err(format!(
-                "the `options` of question {n} are a list"
-            ));
-        }
-    };
-    if offered.len() > MOST_OPTIONS {
+    if asked.options.len() > MOST_OPTIONS {
         return Err(format!(
             "question {n} offers more than {MOST_OPTIONS} options"
         ));
     }
     let mut options = Vec::<Offer>::new();
-    for offer in &offered {
+    for offer in asked.options {
         let (title, description) = match offer {
-            Value::String(title) => {
-                (title.trim().to_string(), String::new())
-            }
-            offer => {
-                (text(offer, "title"), text(offer, "description"))
+            AskChiefOption::Title(title) => (title, String::new()),
+            AskChiefOption::Described { title, description } => {
+                (title, description)
             }
         };
+        let (title, description) = (
+            title.trim().to_string(),
+            description.trim().to_string(),
+        );
         if title.is_empty() {
             return Err(format!(
                 "an option of question {n} has no `title`"
@@ -90,11 +117,11 @@ fn question(n: usize, asked: &Value) -> Result<Question, String> {
         options.push(Offer { title, description });
     }
     // A question with nothing to pick is answered in words.
-    let text_input = options.is_empty()
-        || asked["text_input"].as_bool().unwrap_or(true);
+    let text_input =
+        options.is_empty() || asked.text_input.unwrap_or(true);
     Ok(Question {
         question,
-        description: text(asked, "description"),
+        description: asked.description.trim().into(),
         options,
         text_input,
     })
@@ -270,7 +297,9 @@ mod tests {
         let twice = json!({"questions": [{"question": "a", "options": ["x", " x"]}]});
         assert!(fails(twice).contains("`x` twice"));
         let untitled = json!({"questions": [{"question": "a", "options": [{"description": "d"}]}]});
-        assert!(fails(untitled).contains("no `title`"));
+        assert!(fails(untitled).contains("`title`"));
+        let unread = json!({"questions": [{"question": "a", "text_input": "no"}]});
+        assert!(fails(unread).contains("a boolean"));
         let options = (0..=MOST_OPTIONS)
             .map(|at| format!("o{at}"))
             .collect::<Vec<_>>();
