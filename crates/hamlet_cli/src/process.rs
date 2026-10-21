@@ -560,6 +560,53 @@ async fn wait_child(child: &mut Child) -> Result<()> {
     Ok(())
 }
 
+/// The address of the dev server `server` once it answers there.
+#[cfg(unix)]
+async fn ready(
+    server: &mut Child,
+    home: &Path,
+) -> Result<ServerAddress> {
+    loop {
+        if let Some(status) = server.try_wait()? {
+            bail!(
+                "The server exited before becoming ready ({status})."
+            );
+        }
+        if let Ok(Some(record)) = running(home)
+            && Some(record.pid) == server.id()
+        {
+            let address =
+                record.address(home).map_err(anyhow::Error::msg)?;
+            if answers(&address).await {
+                return Ok(address);
+            }
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// Forgets the dev window once it closed, saying the server still
+/// serves.
+#[cfg(unix)]
+fn window_closed(
+    window: &mut Option<Child>,
+    home: &Path,
+    address: &ServerAddress,
+) -> Result<()> {
+    if let Some(child) = window
+        && child.try_wait()?.is_some()
+    {
+        *window = None;
+        eprintln!(
+            "hamlet: window closed; still serving {} at {}; Ctrl-C \
+             stops",
+            home.display(),
+            address.url
+        );
+    }
+    Ok(())
+}
+
 #[cfg(unix)]
 pub async fn develop(
     port: u16,
@@ -581,19 +628,12 @@ pub async fn develop(
         tokio::process::Command::from(command).spawn()?;
     let mut window = None;
     let result = async {
-        let ready = async {
-            loop {
-                if let Some(status) = server.try_wait()? { bail!("The server exited before becoming ready ({status})."); }
-                if let Ok(Some(record)) = running(&home)
-                    && Some(record.pid) == server.id() {
-                        let address = record.address(&home).map_err(anyhow::Error::msg)?;
-                        if answers(&address).await { return Ok::<_, anyhow::Error>(address); }
-                    }
-                sleep(Duration::from_millis(50)).await;
-            }
-        };
+        let ready = ready(&mut server, &home);
+        let ready = timeout(Duration::from_secs(15), ready);
         let address = tokio::select! {
-            ready = timeout(Duration::from_secs(15), ready) => ready.context("The server did not become ready within 15 seconds")??,
+            ready = ready => ready.context(
+                "The server did not become ready within 15 seconds",
+            )??,
             _ = interrupt.recv() => return Ok(0),
             _ = terminate.recv() => return Ok(0),
             _ = hangup.recv() => return Ok(0),
@@ -601,24 +641,27 @@ pub async fn develop(
         let mut command = window_command(&app, &address);
         command.env("HAMLET_VIEW", home.join("window"));
         session(&mut command);
-        let child = tokio::process::Command::from(command).spawn().with_context(|| format!("Cannot open {}", app.display()))?;
+        let child = tokio::process::Command::from(command)
+            .spawn()
+            .with_context(|| {
+                format!("Cannot open {}", app.display())
+            })?;
         window = Some(child);
         loop {
             tokio::select! {
                 _ = interrupt.recv() => return Ok(0),
                 _ = terminate.recv() => return Ok(0),
                 _ = hangup.recv() => return Ok(0),
-                status = server.wait() => return Ok(exit_code(status?)),
+                status = server.wait() => {
+                    return Ok(exit_code(status?));
+                }
                 _ = sleep(Duration::from_millis(50)) => {
-                    if let Some(child) = &mut window
-                        && child.try_wait()?.is_some() {
-                            window = None;
-                            eprintln!("hamlet: window closed; still serving {} at {}; Ctrl-C stops", home.display(), address.url);
-                        }
+                    window_closed(&mut window, &home, &address)?
                 }
             }
         }
-    }.await;
+    }
+    .await;
     for pid in [window.as_ref().and_then(Child::id), server.id()]
         .into_iter()
         .flatten()
@@ -643,15 +686,19 @@ pub async fn develop(
         }
     };
     tokio::select! {
-        closed = closing => { closed?; },
+        closed = closing => closed?,
         _ = force => {
-            for pid in [window.as_ref().and_then(Child::id), server.id()].into_iter().flatten() {
+            let window_pid = window.as_ref().and_then(Child::id);
+            let pids = [window_pid, server.id()];
+            for pid in pids.into_iter().flatten() {
                 signal(pid, libc::SIGKILL)?;
             }
-            if let Some(child) = &mut window { child.wait().await?; }
+            if let Some(child) = &mut window {
+                child.wait().await?;
+            }
             server.wait().await?;
             return Ok(130);
-        },
+        }
     }
     result
 }

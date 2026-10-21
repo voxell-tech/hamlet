@@ -80,31 +80,99 @@ impl Service {
         let root = self.home.layout().root();
         let source = Houses::open(root, from.cloned())?;
         let target = Houses::open(root, to.clone())?;
-        let (progress, receiver) = watch::channel(
-            json!({"state":"moving","done":0,"of":agents.len(),"text":""}),
-        );
+        let (progress, receiver) = watch::channel(json!({
+            "state": "moving",
+            "done": 0,
+            "of": agents.len(),
+            "text": "",
+        }));
         self.moving.progress = receiver;
         let id = id.to_owned();
+        let remote = to.is_some();
         self.moving.tasks.spawn(async move {
-            let mut skipped = Vec::new();
-            for (done, agent) in agents.iter().enumerate() {
-                match move_house(&source, &target, agent).await {
-                    Ok(left) => skipped.extend(left.into_iter().map(|path| format!("{}/{}/{path}",agent.hamlet, agent.number))),
-                    Err(error) => {
-                        let text = format!("The house of agent {} in {} was not moved: {error} {done} houses before it moved; moving again copies them all once more. Inspect the target before retrying.", agent.number, agent.hamlet);
-                        progress.send_replace(json!({"state":"failed","done":done,"of":agents.len(),"text":text}));
-                        return (owner, id, Err(Refusal::Invalid(text)));
-                    }
-                }
-                progress.send_replace(json!({"state":"moving","done":done+1,"of":agents.len(),"text":""}));
-            }
-            let mut text = format!("Moved {} {} to {}. Restart Hamlet to work there; what agents change before then stays behind.", agents.len(), if agents.len() == 1 {"house"} else {"houses"}, if to.is_some() {"the remote server"} else {"this computer"});
-            if !skipped.is_empty() { text.push_str(&format!(" Links and special files are not moved: {}{}.", skipped.iter().take(5).cloned().collect::<Vec<_>>().join(", "), if skipped.len() > 5 {format!(", and {} more",skipped.len()-5)} else {String::new()})); }
-            progress.send_replace(json!({"state":"moved","done":agents.len(),"of":agents.len(),"text":text}));
-            (owner, id, Ok(text))
+            let moved = move_houses(
+                &source, &target, &agents, remote, &progress,
+            )
+            .await;
+            (owner, id, moved)
         });
         Ok(Ok(()))
     }
+}
+
+/// Moves each agent's house from `source` to `target`, keeping
+/// `progress` up to date, and says what was moved.
+async fn move_houses(
+    source: &Houses,
+    target: &Houses,
+    agents: &[AgentRef],
+    remote: bool,
+    progress: &watch::Sender<Value>,
+) -> Refusable<String> {
+    let of = agents.len();
+    let mut skipped = Vec::new();
+    for (done, agent) in agents.iter().enumerate() {
+        match move_house(source, target, agent).await {
+            Ok(left) => {
+                skipped.extend(left.into_iter().map(|path| {
+                    format!(
+                        "{}/{}/{path}",
+                        agent.hamlet, agent.number
+                    )
+                }))
+            }
+            Err(error) => {
+                let text = format!(
+                    "The house of agent {} in {} was not moved: \
+                     {error} {done} houses before it moved; moving \
+                     again copies them all once more. Inspect the \
+                     target before retrying.",
+                    agent.number, agent.hamlet
+                );
+                progress.send_replace(json!({
+                    "state": "failed",
+                    "done": done,
+                    "of": of,
+                    "text": text,
+                }));
+                return Err(Refusal::Invalid(text));
+            }
+        }
+        progress.send_replace(json!({
+            "state": "moving",
+            "done": done + 1,
+            "of": of,
+            "text": "",
+        }));
+    }
+    let mut text = format!(
+        "Moved {of} {} to {}. Restart Hamlet to work there; what \
+         agents change before then stays behind.",
+        if of == 1 { "house" } else { "houses" },
+        if remote {
+            "the remote server"
+        } else {
+            "this computer"
+        },
+    );
+    if !skipped.is_empty() {
+        let more = if skipped.len() > 5 {
+            format!(", and {} more", skipped.len() - 5)
+        } else {
+            String::new()
+        };
+        text.push_str(&format!(
+            " Links and special files are not moved: {}{more}.",
+            skipped[..skipped.len().min(5)].join(", "),
+        ));
+    }
+    progress.send_replace(json!({
+        "state": "moved",
+        "done": of,
+        "of": of,
+        "text": text,
+    }));
+    Ok(text)
 }
 
 async fn move_house(

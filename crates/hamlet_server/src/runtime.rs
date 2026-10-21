@@ -8,12 +8,13 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use futures::{SinkExt, StreamExt};
 use hamlet_protocol::v0::{
-    ClientMessage, MoveHouses, ServerMessage, State,
+    Address, ClientMessage, Edit, MoveHouses, Read, ServerMessage,
+    State,
 };
 use serde_json::json;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, watch};
-use tokio::task::JoinSet;
+use tokio::task::{AbortHandle, JoinError, JoinSet};
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::{
     CloseFrame, WebSocketConfig,
@@ -22,13 +23,14 @@ use tokio_tungstenite::tungstenite::{Error, Message};
 
 use crate::credentials::write_whole;
 use crate::harness::{self, Harnesses, InputStatus, Notice};
-use crate::protocol::{Protocol, fault};
+use crate::protocol::{Protocol, Refusable, Refusal, fault, reply};
 use crate::service::Service;
 use crate::{Home, chats};
 
 const LARGEST: usize = 1_048_576;
 const BEGIN: &str =
     "A connection begins with hello and the home's token.";
+const FAILED: &str = "The server could not complete this request.";
 const GRACE: Duration = Duration::from_secs(1);
 /// How long a closing home waits for the reflections it owes.
 const REFLECTING: Duration = Duration::from_secs(120);
@@ -134,7 +136,11 @@ pub async fn serve(options: Options) -> Result<()> {
                 harnesses.close().await;
                 return service.home.close();
             }
-            result = chats::heard(&mut service, &mut harnesses, notice) => result?,
+            result = chats::heard(
+                &mut service,
+                &mut harnesses,
+                notice,
+            ) => result?,
         }
     }
     service.start_models()?;
@@ -168,19 +174,25 @@ pub async fn serve(options: Options) -> Result<()> {
         }
         Ok::<_, anyhow::Error>(())
     };
+    let started =
+        tokio::time::timeout(Duration::from_secs(15), started);
     tokio::select! {
         _ = signals.next() => {
             harnesses.close().await;
             return service.home.close();
         }
-        result = tokio::time::timeout(Duration::from_secs(15), started) => result.context("starting model providers")??,
+        result = started => {
+            result.context("starting model providers")??
+        }
     }
     tokio::select! {
         _ = signals.next() => {
             harnesses.close().await;
             return service.home.close();
         }
-        result = chats::start(&mut service, &mut harnesses) => result?,
+        result = chats::start(&mut service, &mut harnesses) => {
+            result?
+        }
     }
     let protocol = Protocol::new()?;
     let listener = TcpListener::bind((
@@ -190,12 +202,14 @@ pub async fn serve(options: Options) -> Result<()> {
     .await?;
     let url = format!("ws://{}", listener.local_addr()?);
     let published = service.home.layout().root().join("server.json");
-    write_whole(
-        &published,
-        &serde_json::to_vec(
-            &json!({"url":url,"pid":std::process::id(),"started":chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis,true)}),
-        )?,
-    )?;
+    let started = chrono::Utc::now()
+        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let address = json!({
+        "url": url,
+        "pid": std::process::id(),
+        "started": started,
+    });
+    write_whole(&published, &serde_json::to_vec(&address)?)?;
     let published = Published(published);
     eprintln!(
         "hamlet-server: holding {}; serving at {url}; Ctrl-C stops",
@@ -203,16 +217,23 @@ pub async fn serve(options: Options) -> Result<()> {
     );
     let (events, mut incoming) = mpsc::channel(128);
     let (shutdown, closing) = watch::channel(false);
-    let mut tasks = JoinSet::new();
-    let mut reads = JoinSet::new();
-    let mut writes = JoinSet::new();
-    let mut reading =
-        HashMap::<(u64, String), tokio::task::AbortHandle>::new();
-    let mut clients = HashMap::<u64, Client>::new();
-    let mut ready = VecDeque::new();
-    let mut next = 0;
     let epoch = chrono::Utc::now().timestamp_millis();
-    let mut state = service.state(epoch, 0)?;
+    let state = service.state(epoch, 0)?;
+    let mut serving = Serving {
+        service,
+        harnesses,
+        protocol,
+        clients: HashMap::new(),
+        state,
+        next: 0,
+        events,
+        closing,
+        tasks: JoinSet::new(),
+        reads: JoinSet::new(),
+        reading: HashMap::new(),
+        writes: JoinSet::new(),
+        ready: VecDeque::new(),
+    };
     let mut tick = tokio::time::interval(Duration::from_millis(50));
     let result = async {
         loop {
@@ -220,250 +241,823 @@ pub async fn serve(options: Options) -> Result<()> {
                 biased;
                 _ = signals.next() => break,
                 accepted = listener.accept() => {
-                    let (stream, _) = accepted?;
-                    let (send, receive) = mpsc::channel(128);
-                    let id = next;
-                    next += 1;
-                    clients.insert(id, Client { send, welcomed:false, refused:false, busy:false, waiting:VecDeque::new() });
-                    tasks.spawn(connection(stream, id, events.clone(), receive, closing.clone()));
+                    serving.on_accept(accepted?.0)
                 }
-                Some(event) = async {
-                    match ready.pop_front() {
-                        Some((id, text)) => Some(Event::Message(id, text)),
-                        None => incoming.recv().await,
-                    }
-                } => {
-                    match event {
-                        Event::Gone(id) => {
-                            reading.retain(|(owner, _), task| { if *owner == id { task.abort(); false } else { true } });
-                            service.merges.gone(id);
-                            clients.remove(&id); service.models.disconnect(id); flush_models(&mut service, &mut harnesses).await?; service.chats.gone(id); service.gifts.gone(id);
-                        }
-                        Event::Late(id) => {
-                            if let Some(client) = clients.get_mut(&id) && !client.welcomed && !client.refused { refuse(client, BEGIN, 1008)?; }
-                        }
-                        Event::Message(id, text) => {
-                            refresh(&mut service, &mut state, &mut clients)?;
-                            let Some(client) = clients.get_mut(&id).filter(|c|!c.refused) else { continue; };
-                            if client.busy {
-                                if client.waiting.len() == 128 {
-                                    refuse(client, "Too many requests are waiting on this connection.", 1008)?;
-                                } else {
-                                    client.waiting.push_back(text);
-                                }
-                                continue;
-                            }
-                            let message = match protocol.parse(&text) {
-                                Ok(message) => message,
-                                Err(mut error) => {
-                                    if !client.welcomed { error.to = None; }
-                                    send(client, &service, ServerMessage::Fault(error))?;
-                                    if !client.welcomed { client.refused = true; let _ = client.send.try_send(Out::Close(1008)); }
-                                    continue;
-                                }
-                            };
-                            if !client.welcomed {
-                                if let ClientMessage::Hello(hello) = message {
-                                    if service.credentials.accepts(&hello.token) {
-                                        send(client, &service, ServerMessage::State(state.clone()))?;
-                                        client.welcomed = true;
-                                    } else { refuse(client, "That is not this server's token.", 1008)?; }
-                                } else { refuse(client, BEGIN, 1008)?; }
-                                continue;
-                            }
-                            let request = serde_json::to_value(&message)?;
-                            match chats::converse(&mut service, &mut harnesses, id, &message).await {
-                                Ok(chats::Handled::NotMine) => {}
-                                Ok(handled) => {
-                                    if (service.merges.busy(id) || service.gifts.working.iter().any(|(owner, _)| *owner == id)) && let Some(client) = clients.get_mut(&id) { client.busy = true; }
-                                    if let chats::Handled::Reply(answer) = handled && let Some(client) = clients.get_mut(&id) { send(client, &service, *answer)?; }
-                                    deliver(&mut service, &mut clients)?;
-                                    refresh(&mut service, &mut state, &mut clients)?;
-                                    continue;
-                                }
-                                Err(error) => {
-                                    failed(&service, &error);
-                                    if let Some(client) = clients.get_mut(&id) { send(client, &service, fault(request["id"].as_str(), "The server could not complete this request."))?; }
-                                    deliver(&mut service, &mut clients)?;
-                                    refresh(&mut service, &mut state, &mut clients)?;
-                                    continue;
-                                }
-                            }
-                            let Some(client) = clients.get_mut(&id) else { continue; };
-                            if let Some(answers) = service.model_request(id, &message)? {
-                                for answer in answers { send(client, &service, answer)?; }
-                                refresh(&mut service, &mut state, &mut clients)?;
-                                flush_models(&mut service, &mut harnesses).await?;
-                                continue;
-                            }
-                            if let ClientMessage::MoveHouses(MoveHouses { id: request }) = &message {
-                                if let Err(error) = service.start_move(id, request)? {
-                                    send(client, &service, crate::protocol::reply(request, Err(error)))?;
-                                }
-                                refresh(&mut service, &mut state, &mut clients)?;
-                                continue;
-                            }
-                            if let ClientMessage::Edit(hamlet_protocol::v0::Edit::Notes { id: request, agent, text }) = &message
-                            {
-                                match service.prepare_notes(agent, text)? {
-                                    Err(error) => send(client, &service, crate::protocol::reply(request, Err(error)))?,
-                                    Ok((house, text)) => {
-                                        let request = request.clone();
-                                        client.busy = true;
-                                        writes.spawn(async move {
-                                            let result = house.replace(crate::papers::NOTES, text.as_bytes()).await;
-                                            (id, request, result)
-                                        });
-                                    }
-                                }
-                                continue;
-                            }
-                            if let ClientMessage::Read(read) = &message
-                                && let hamlet_protocol::v0::Read::Papers { id: request, agent, .. } | hamlet_protocol::v0::Read::Prompt { id: request, agent } = read
-                            {
-                                let number = service.agent(agent, "read or edit papers")?.ok().map(|agent| agent.number);
-                                let prepared = crate::documents::prepare_read(&mut service, read.clone())?;
-                                let request = request.clone();
-                                let address = agent.clone();
-                                let key = (id, request.clone());
-                                if reading.contains_key(&key) {
-                                    send(client, &service, fault(Some(&request), "That read request is already running."))?;
-                                    continue;
-                                }
-                                let task = reads.spawn(async move { (id, request, address, number, prepared.render().await) });
-                                reading.insert(key, task);
-                                client.busy = true;
-                                continue;
-                            }
-                            match service.handle(message).await {
-                                Ok(Some(answer)) => send(client, &service, answer)?,
-                                Ok(None) => {},
-                                Err(error) => {
-                                    failed(&service, &error);
-                                    send(client, &service, fault(request["id"].as_str(), "The server could not complete this request."))?;
-                                }
-                            }
-                            refresh(&mut service, &mut state, &mut clients)?;
-                        }
+                Some(event) = next_event(
+                    &mut serving.ready,
+                    &mut incoming,
+                ) => {
+                    if !serving.on_event(event).await? {
+                        continue;
                     }
                 }
-                _ = tick.tick() => {
-                    service.gifts.expire();
-                    service.house_work.retire(service.home.store().connection())?;
-                    crate::society::votes::sweep(&mut service, &mut harnesses).await?;
-                    crate::society::reviews::sweep(&mut service, &mut harnesses).await?;
-                    crate::society::merging::lane::advance(&mut service, &mut harnesses).await?;
-                    harnesses.refresh_tools().await;
-                    for result in service.models.expired() {
-                        for (id, answer) in service.provider_result(result)? {
-                            if let Some(client) = clients.get_mut(&id) { send(client, &service, answer)?; }
-                        }
-                    }
-                    flush_models(&mut service, &mut harnesses).await?;
-                    refresh(&mut service, &mut state, &mut clients)?;
-                },
-                event = harnesses.next() => {
-                    let notices = harnesses.handle(service.home.store(), event, &service.credentials).await?;
-                    heard(&mut service, &mut harnesses, &mut clients, notices).await?;
-                    refresh(&mut service, &mut state, &mut clients)?;
+                _ = tick.tick() => serving.on_tick().await?,
+                event = serving.harnesses.next() => {
+                    serving.on_harness(event).await?;
+                    serving.refresh()?;
                 }
-                finished = service.chats.next() => {
-                    chats::finished(&mut service, &mut harnesses, finished).await?;
-                    deliver(&mut service, &mut clients)?;
-                    refresh(&mut service, &mut state, &mut clients)?;
+                finished = serving.service.chats.next() => {
+                    serving.on_finished(finished).await?;
+                    serving.refresh()?;
                 }
-                Some(work) = service.house_work.next() => {
-                    if let Ok(work) = work { crate::society::work::complete(&mut service, &mut harnesses, work).await?; }
-                    deliver(&mut service, &mut clients)?;
-                    refresh(&mut service, &mut state, &mut clients)?;
+                Some(work) = serving.service.house_work.next() => {
+                    serving.on_work(work).await?;
+                    serving.refresh()?;
                 }
-                Some(merged) = service.merges.tasks.join_next() => {
-                    if let Ok(merged) = merged { crate::society::merging::lane::complete(&mut service, &mut harnesses, merged).await?; }
-                    refresh(&mut service, &mut state, &mut clients)?;
+                Some(merged) =
+                    serving.service.merges.tasks.join_next() => {
+                    serving.on_merged(merged).await?;
+                    serving.refresh()?;
                 }
-                Some(moved) = service.moving.tasks.join_next() => {
-                    if let Ok((owner, id, result)) = moved && let Some(client) = clients.get_mut(&owner) {
-                        send(client, &service, crate::protocol::reply(&id, result))?;
-                    }
-                    refresh(&mut service, &mut state, &mut clients)?;
+                Some(moved) =
+                    serving.service.moving.tasks.join_next() => {
+                    serving.on_moved(moved)?
                 }
-                Some(read) = reads.join_next() => {
-                    if let Ok((owner, request, address, number, result)) = read {
-                        reading.remove(&(owner, request.clone()));
-                        if let Some(client) = clients.get_mut(&owner) {
-                            client.busy = false;
-                            ready.extend(client.waiting.drain(..).map(|text| (owner, text)));
-                            // A read refused when prepared keeps its refusal.
-                            let allowed = number.is_none() || service.agent(&address, "read or edit papers")?.ok().is_some_and(|agent| Some(agent.number) == number);
-                            let answer = if !allowed {
-                                fault(Some(&request), "The agent's papers are no longer available.")
-                            } else {
-                                match result {
-                                    Ok(answer) => answer,
-                                    Err(error) => { failed(&service, &error); fault(Some(&request), "The server could not complete this request.") }
-                                }
-                            };
-                            send(client, &service, answer)?;
-                        }
-                    }
+                Some(read) = serving.reads.join_next() => {
+                    serving.on_read(read)?
                 }
-                Some(written) = writes.join_next() => {
-                    if let Ok((owner, request, result)) = written && let Some(client) = clients.get_mut(&owner) {
-                        client.busy = false;
-                        ready.extend(client.waiting.drain(..).map(|text| (owner, text)));
-                        let result = result.map(|()| "Saved.".into()).map_err(|_| crate::protocol::Refusal::Invalid("The agent's NOTES.md could not be written safely. Inspect its house before trying again.".into()));
-                        send(client, &service, crate::protocol::reply(&request, result))?;
-                    }
+                Some(written) = serving.writes.join_next() => {
+                    serving.on_written(written)?
                 }
-                Some(given) = service.gifts.tasks.join_next() => {
-                    if let Ok(given) = given && let Some((owner, answer)) = crate::gifts::complete(&mut service, &mut harnesses, given).await? && let Some(client) = clients.get_mut(&owner) {
-                        client.busy = false;
-                        ready.extend(client.waiting.drain(..).map(|text| (owner, text)));
-                        send(client, &service, answer)?;
-                    }
-                    refresh(&mut service, &mut state, &mut clients)?;
+                Some(given) =
+                    serving.service.gifts.tasks.join_next() => {
+                    serving.on_given(given).await?
                 }
-                Some(_) = tasks.join_next() => {},
+                Some(_) = serving.tasks.join_next() => {}
             }
-            for owner in std::mem::take(&mut service.merges.finished) {
-                if let Some(client) = clients.get_mut(&owner) {
-                    client.busy = false;
-                    ready.extend(client.waiting.drain(..).map(|text| (owner, text)));
-                }
-            }
-            deliver(&mut service, &mut clients)?;
+            serving.settle()?;
         }
         Ok::<_, anyhow::Error>(())
-    }.await;
+    }
+    .await;
     drop(listener);
-    reads.abort_all();
-    writes.abort_all();
+    serving.reads.abort_all();
+    serving.writes.abort_all();
     let result = match result {
-        Ok(()) => {
-            close(
-                &mut service,
-                &mut harnesses,
-                &mut signals,
-                &mut clients,
-            )
-            .await
-        }
+        Ok(()) => serving.close(&mut signals).await,
         result => result,
     };
-    service.chats.stop_tools();
+    serving.service.chats.stop_tools();
     shutdown.send_replace(true);
+    let tasks = &mut serving.tasks;
     let drained =
         async { while tasks.join_next().await.is_some() {} };
     tokio::select! {
         _ = signals.next() => std::process::exit(130),
         _ = tokio::time::timeout(GRACE, drained) => {},
     }
-    tasks.abort_all();
-    while tasks.join_next().await.is_some() {}
-    harnesses.close().await;
+    serving.tasks.abort_all();
+    while serving.tasks.join_next().await.is_some() {}
+    serving.harnesses.close().await;
     drop(published);
-    service.home.close()?;
+    serving.service.home.close()?;
     result
+}
+
+/// What the serve loop holds between the events it handles.
+struct Serving {
+    service: Service,
+    harnesses: Harnesses,
+    protocol: Protocol,
+    clients: HashMap<u64, Client>,
+    /// The state every welcomed client was last sent.
+    state: State,
+    /// The id of the next connection.
+    next: u64,
+    events: mpsc::Sender<Event>,
+    closing: watch::Receiver<bool>,
+    /// The connections' own tasks.
+    tasks: JoinSet<()>,
+    reads: JoinSet<PapersRead>,
+    /// The reads running, by connection and request id.
+    reading: HashMap<(u64, String), AbortHandle>,
+    writes: JoinSet<NotesWritten>,
+    /// Messages a busy connection held back, due now.
+    ready: VecDeque<(u64, String)>,
+}
+
+/// A read of an agent's papers or prompt, rendered off the loop.
+struct PapersRead {
+    owner: u64,
+    request: String,
+    address: Address,
+    /// The agent's number when the read was prepared; unset when it
+    /// was refused then.
+    number: Option<u64>,
+    answer: Result<ServerMessage>,
+}
+
+/// A write of an agent's NOTES.md, done off the loop.
+struct NotesWritten {
+    owner: u64,
+    request: String,
+    result: Result<()>,
+}
+
+/// The next message due: one a busy connection held back, else the
+/// next event of a connection.
+async fn next_event(
+    ready: &mut VecDeque<(u64, String)>,
+    incoming: &mut mpsc::Receiver<Event>,
+) -> Option<Event> {
+    match ready.pop_front() {
+        Some((id, text)) => Some(Event::Message(id, text)),
+        None => incoming.recv().await,
+    }
+}
+
+impl Serving {
+    fn on_accept(&mut self, stream: TcpStream) {
+        let (send, receive) = mpsc::channel(128);
+        let id = self.next;
+        self.next += 1;
+        self.clients.insert(
+            id,
+            Client {
+                send,
+                welcomed: false,
+                refused: false,
+                busy: false,
+                waiting: VecDeque::new(),
+            },
+        );
+        self.tasks.spawn(connection(
+            stream,
+            id,
+            self.events.clone(),
+            receive,
+            self.closing.clone(),
+        ));
+    }
+
+    /// Handles what a connection did. True when the loop should then
+    /// settle: free merged connections and deliver what waits to be
+    /// sent; false when the event was dealt with in full here.
+    async fn on_event(&mut self, event: Event) -> Result<bool> {
+        match event {
+            Event::Gone(id) => self.on_gone(id).await?,
+            Event::Late(id) => {
+                if let Some(client) = self.clients.get_mut(&id)
+                    && !client.welcomed
+                    && !client.refused
+                {
+                    refuse(client, BEGIN, 1008)?;
+                }
+            }
+            Event::Message(id, text) => {
+                return self.on_message(id, text).await;
+            }
+        }
+        Ok(true)
+    }
+
+    async fn on_gone(&mut self, id: u64) -> Result<()> {
+        self.reading.retain(|(owner, _), task| {
+            if *owner == id {
+                task.abort();
+                false
+            } else {
+                true
+            }
+        });
+        self.service.merges.gone(id);
+        self.clients.remove(&id);
+        self.service.models.disconnect(id);
+        flush_models(&mut self.service, &mut self.harnesses).await?;
+        self.service.chats.gone(id);
+        self.service.gifts.gone(id);
+        Ok(())
+    }
+
+    /// Takes one message of connection `id`: held while the
+    /// connection is busy, refused or welcomed before its hello,
+    /// else answered. False when the message was dealt with in
+    /// full here.
+    async fn on_message(
+        &mut self,
+        id: u64,
+        text: String,
+    ) -> Result<bool> {
+        self.refresh()?;
+        let Some(client) =
+            self.clients.get_mut(&id).filter(|c| !c.refused)
+        else {
+            return Ok(false);
+        };
+        if client.busy {
+            if client.waiting.len() == 128 {
+                refuse(
+                    client,
+                    "Too many requests are waiting on this \
+                     connection.",
+                    1008,
+                )?;
+            } else {
+                client.waiting.push_back(text);
+            }
+            return Ok(false);
+        }
+        let message = match self.protocol.parse(&text) {
+            Ok(message) => message,
+            Err(mut error) => {
+                if !client.welcomed {
+                    error.to = None;
+                }
+                send(
+                    client,
+                    &self.service,
+                    ServerMessage::Fault(error),
+                )?;
+                if !client.welcomed {
+                    client.refused = true;
+                    let _ = client.send.try_send(Out::Close(1008));
+                }
+                return Ok(false);
+            }
+        };
+        if client.welcomed {
+            return self.answer(id, message).await;
+        }
+        match message {
+            ClientMessage::Hello(hello)
+                if self.service.credentials.accepts(&hello.token) =>
+            {
+                let state = ServerMessage::State(self.state.clone());
+                send(client, &self.service, state)?;
+                client.welcomed = true;
+            }
+            ClientMessage::Hello(_) => refuse(
+                client,
+                "That is not this server's token.",
+                1008,
+            )?,
+            _ => refuse(client, BEGIN, 1008)?,
+        }
+        Ok(false)
+    }
+
+    /// Answers a welcomed client's request, or starts the work that
+    /// will. True, as [`Self::on_event`], when the loop should then
+    /// settle.
+    async fn answer(
+        &mut self,
+        id: u64,
+        message: ClientMessage,
+    ) -> Result<bool> {
+        let request = serde_json::to_value(&message)?;
+        let handled = chats::converse(
+            &mut self.service,
+            &mut self.harnesses,
+            id,
+            &message,
+        )
+        .await;
+        match handled {
+            Ok(chats::Handled::NotMine) => {}
+            Ok(handled) => {
+                let busy = self.service.merges.busy(id)
+                    || self
+                        .service
+                        .gifts
+                        .working
+                        .iter()
+                        .any(|(owner, _)| *owner == id);
+                if busy
+                    && let Some(client) = self.clients.get_mut(&id)
+                {
+                    client.busy = true;
+                }
+                if let chats::Handled::Reply(answer) = handled {
+                    self.send_to(id, *answer)?;
+                }
+                self.deliver()?;
+                self.refresh()?;
+                return Ok(false);
+            }
+            Err(error) => {
+                failed(&self.service, &error);
+                self.send_to(
+                    id,
+                    fault(request["id"].as_str(), FAILED),
+                )?;
+                self.deliver()?;
+                self.refresh()?;
+                return Ok(false);
+            }
+        }
+        if let Some(answers) =
+            self.service.model_request(id, &message)?
+        {
+            for answer in answers {
+                self.send_to(id, answer)?;
+            }
+            self.refresh()?;
+            flush_models(&mut self.service, &mut self.harnesses)
+                .await?;
+            return Ok(false);
+        }
+        match &message {
+            ClientMessage::MoveHouses(MoveHouses { id: request }) => {
+                if let Err(error) =
+                    self.service.start_move(id, request)?
+                {
+                    self.send_to(id, reply(request, Err(error)))?;
+                }
+                self.refresh()?;
+                return Ok(false);
+            }
+            ClientMessage::Edit(Edit::Notes {
+                id: request,
+                agent,
+                text,
+            }) => {
+                self.edit_notes(id, request, agent, text)?;
+                return Ok(false);
+            }
+            ClientMessage::Read(
+                read @ (Read::Papers {
+                    id: request, agent, ..
+                }
+                | Read::Prompt { id: request, agent }),
+            ) => {
+                self.read_papers(id, read, request, agent)?;
+                return Ok(false);
+            }
+            _ => {}
+        }
+        let answer = match self.service.handle(message).await {
+            Ok(answer) => answer,
+            Err(error) => {
+                failed(&self.service, &error);
+                Some(fault(request["id"].as_str(), FAILED))
+            }
+        };
+        if let Some(answer) = answer {
+            self.send_to(id, answer)?;
+        }
+        self.refresh()?;
+        Ok(true)
+    }
+
+    /// Starts writing an agent's NOTES.md for connection `id`, which
+    /// is busy until it is written.
+    fn edit_notes(
+        &mut self,
+        id: u64,
+        request: &str,
+        agent: &Address,
+        text: &str,
+    ) -> Result<()> {
+        let (house, text) =
+            match self.service.prepare_notes(agent, text)? {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    return self
+                        .send_to(id, reply(request, Err(error)));
+                }
+            };
+        let request = request.to_owned();
+        self.writes.spawn(async move {
+            let result = house
+                .replace(crate::papers::NOTES, text.as_bytes())
+                .await;
+            NotesWritten {
+                owner: id,
+                request,
+                result,
+            }
+        });
+        self.busy(id);
+        Ok(())
+    }
+
+    /// Starts rendering an agent's papers or prompt for connection
+    /// `id`, which is busy until they are read.
+    fn read_papers(
+        &mut self,
+        id: u64,
+        read: &Read,
+        request: &str,
+        agent: &Address,
+    ) -> Result<()> {
+        let number = self
+            .service
+            .agent(agent, "read or edit papers")?
+            .ok()
+            .map(|agent| agent.number);
+        let prepared = crate::documents::prepare_read(
+            &mut self.service,
+            read.clone(),
+        )?;
+        let key = (id, request.to_owned());
+        if self.reading.contains_key(&key) {
+            let running = "That read request is already running.";
+            return self.send_to(id, fault(Some(request), running));
+        }
+        let (request, address) = (request.to_owned(), agent.clone());
+        let task = self.reads.spawn(async move {
+            PapersRead {
+                owner: id,
+                request,
+                address,
+                number,
+                answer: prepared.render().await,
+            }
+        });
+        self.reading.insert(key, task);
+        self.busy(id);
+        Ok(())
+    }
+
+    fn busy(&mut self, id: u64) {
+        if let Some(client) = self.clients.get_mut(&id) {
+            client.busy = true;
+        }
+    }
+
+    async fn on_tick(&mut self) -> Result<()> {
+        use crate::society::{merging, reviews, votes};
+        let service = &mut self.service;
+        service.gifts.expire();
+        service
+            .house_work
+            .retire(service.home.store().connection())?;
+        votes::sweep(service, &mut self.harnesses).await?;
+        reviews::sweep(service, &mut self.harnesses).await?;
+        merging::lane::advance(service, &mut self.harnesses).await?;
+        self.harnesses.refresh_tools().await;
+        for result in self.service.models.expired() {
+            for (id, answer) in
+                self.service.provider_result(result)?
+            {
+                self.send_to(id, answer)?;
+            }
+        }
+        flush_models(&mut self.service, &mut self.harnesses).await?;
+        self.refresh()
+    }
+
+    async fn on_harness(
+        &mut self,
+        event: harness::Event,
+    ) -> Result<()> {
+        let notices = self
+            .harnesses
+            .handle(
+                self.service.home.store(),
+                event,
+                &self.service.credentials,
+            )
+            .await?;
+        self.heard(notices).await
+    }
+
+    async fn on_finished(
+        &mut self,
+        finished: chats::Finished,
+    ) -> Result<()> {
+        chats::finished(
+            &mut self.service,
+            &mut self.harnesses,
+            finished,
+        )
+        .await?;
+        self.deliver()
+    }
+
+    async fn on_work(
+        &mut self,
+        work: Result<crate::society::work::Completed, JoinError>,
+    ) -> Result<()> {
+        if let Ok(work) = work {
+            crate::society::work::complete(
+                &mut self.service,
+                &mut self.harnesses,
+                work,
+            )
+            .await?;
+        }
+        self.deliver()
+    }
+
+    async fn on_merged(
+        &mut self,
+        merged: Result<
+            crate::society::merging::lane::Completed,
+            JoinError,
+        >,
+    ) -> Result<()> {
+        if let Ok(merged) = merged {
+            crate::society::merging::lane::complete(
+                &mut self.service,
+                &mut self.harnesses,
+                merged,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    fn on_moved(
+        &mut self,
+        moved: Result<(u64, String, Refusable<String>), JoinError>,
+    ) -> Result<()> {
+        if let Ok((owner, id, result)) = moved {
+            self.send_to(owner, reply(&id, result))?;
+        }
+        self.refresh()
+    }
+
+    fn on_read(
+        &mut self,
+        read: Result<PapersRead, JoinError>,
+    ) -> Result<()> {
+        let Ok(read) = read else {
+            return Ok(());
+        };
+        self.reading.remove(&(read.owner, read.request.clone()));
+        let Some(client) = self.clients.get_mut(&read.owner) else {
+            return Ok(());
+        };
+        client.busy = false;
+        self.ready.extend(
+            client.waiting.drain(..).map(|text| (read.owner, text)),
+        );
+        // A read refused when prepared keeps its refusal.
+        let allowed = read.number.is_none()
+            || self
+                .service
+                .agent(&read.address, "read or edit papers")?
+                .ok()
+                .is_some_and(|agent| {
+                    Some(agent.number) == read.number
+                });
+        let answer = match read.answer {
+            _ if !allowed => fault(
+                Some(&read.request),
+                "The agent's papers are no longer available.",
+            ),
+            Ok(answer) => answer,
+            Err(error) => {
+                failed(&self.service, &error);
+                fault(Some(&read.request), FAILED)
+            }
+        };
+        send(client, &self.service, answer)
+    }
+
+    fn on_written(
+        &mut self,
+        written: Result<NotesWritten, JoinError>,
+    ) -> Result<()> {
+        let Ok(written) = written else {
+            return Ok(());
+        };
+        let owner = written.owner;
+        let Some(client) = self.clients.get_mut(&owner) else {
+            return Ok(());
+        };
+        client.busy = false;
+        self.ready.extend(
+            client.waiting.drain(..).map(|text| (owner, text)),
+        );
+        let result =
+            written.result.map(|()| "Saved.".into()).map_err(|_| {
+                Refusal::Invalid(
+                    "The agent's NOTES.md could not be written \
+                     safely. Inspect its house before trying again."
+                        .into(),
+                )
+            });
+        send(client, &self.service, reply(&written.request, result))
+    }
+
+    async fn on_given(
+        &mut self,
+        given: Result<crate::gifts::Completed, JoinError>,
+    ) -> Result<()> {
+        if let Ok(given) = given
+            && let Some((owner, answer)) = crate::gifts::complete(
+                &mut self.service,
+                &mut self.harnesses,
+                given,
+            )
+            .await?
+            && let Some(client) = self.clients.get_mut(&owner)
+        {
+            client.busy = false;
+            self.ready.extend(
+                client.waiting.drain(..).map(|text| (owner, text)),
+            );
+            send(client, &self.service, answer)?;
+        }
+        self.refresh()
+    }
+
+    /// Frees the connections whose merge finished and sends what the
+    /// chats hold, after each event.
+    fn settle(&mut self) -> Result<()> {
+        for owner in std::mem::take(&mut self.service.merges.finished)
+        {
+            if let Some(client) = self.clients.get_mut(&owner) {
+                client.busy = false;
+                self.ready.extend(
+                    client
+                        .waiting
+                        .drain(..)
+                        .map(|text| (owner, text)),
+                );
+            }
+        }
+        self.deliver()
+    }
+
+    /// Sends `message` to connection `id`, if it is still open.
+    fn send_to(
+        &mut self,
+        id: u64,
+        message: ServerMessage,
+    ) -> Result<()> {
+        match self.clients.get_mut(&id) {
+            Some(client) => send(client, &self.service, message),
+            None => Ok(()),
+        }
+    }
+
+    /// Takes in what the runtimes told, and sends clients what
+    /// follows.
+    async fn heard(&mut self, notices: Vec<Notice>) -> Result<()> {
+        for notice in notices {
+            match notice {
+                Notice::ProviderEvent(event) => {
+                    for (id, answer) in
+                        self.service.provider_event(event)?
+                    {
+                        self.send_to(id, answer)?;
+                    }
+                }
+                Notice::Provider(result) => {
+                    for (id, answer) in
+                        self.service.provider_result(result)?
+                    {
+                        self.send_to(id, answer)?;
+                    }
+                }
+                notice => {
+                    chats::heard(
+                        &mut self.service,
+                        &mut self.harnesses,
+                        notice,
+                    )
+                    .await?
+                }
+            }
+            self.deliver()?;
+        }
+        flush_models(&mut self.service, &mut self.harnesses).await
+    }
+
+    /// Sends the messages the chats hold for clients.
+    fn deliver(&mut self) -> Result<()> {
+        for (id, message) in
+            std::mem::take(&mut self.service.chats.outbox)
+        {
+            if let Some(client) = self
+                .clients
+                .get_mut(&id)
+                .filter(|c| c.welcomed && !c.refused)
+            {
+                send(client, &self.service, message)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Sends welcomed clients what changed in the state since they
+    /// were last sent it.
+    fn refresh(&mut self) -> Result<()> {
+        let mut after = self
+            .service
+            .state(self.state.epoch, self.state.revision)?;
+        let mut endings = HashMap::new();
+        for wait in &self.state.waits {
+            if !after.waits.iter().any(|w| w.id == wait.id) {
+                let db = self.service.home.store().connection();
+                endings.insert(
+                    wait.id.clone(),
+                    crate::oversight::ended(db, &wait.id)?,
+                );
+            }
+        }
+        let ending = |id: &str| {
+            endings
+                .get(id)
+                .cloned()
+                .unwrap_or_else(|| "lapsed".into())
+        };
+        if let Some(change) =
+            crate::state::changed(&self.state, &mut after, ending)
+        {
+            for client in self
+                .clients
+                .values_mut()
+                .filter(|c| c.welcomed && !c.refused)
+            {
+                send(client, &self.service, change.clone())?;
+            }
+            self.state = after;
+        }
+        // Gone follows the client's last admitted message, even when
+        // it no longer reads replies.
+        self.clients.retain(|_, c| !c.refused);
+        Ok(())
+    }
+
+    /// Closes in order (S3): the reflections owed are asked for and
+    /// waited on, then each runtime stops its work and exits. A
+    /// second signal exits at once.
+    async fn close(&mut self, signals: &mut Signals) -> Result<()> {
+        let waits =
+            chats::close(&mut self.service, &mut self.harnesses)
+                .await?;
+        for client in self.clients.keys() {
+            self.service.models.disconnect(*client);
+        }
+        flush_models(&mut self.service, &mut self.harnesses).await?;
+        self.deliver()?;
+        let settled = |service: &mut Service| -> Result<bool> {
+            for (binding, request) in &waits {
+                let standing = service
+                    .home
+                    .store()
+                    .standing(*binding, request)?;
+                let open = standing.is_none_or(|standing| {
+                    !standing
+                        .status
+                        .is_some_and(InputStatus::is_ended)
+                });
+                if open {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        };
+        let reflected = async {
+            while !settled(&mut self.service)? {
+                self.run_once().await?;
+            }
+            Ok::<_, anyhow::Error>(())
+        };
+        tokio::select! {
+            _ = signals.next() => std::process::exit(130),
+            done = tokio::time::timeout(REFLECTING, reflected) => {
+                if let Ok(done) = done {
+                    done?;
+                }
+            }
+        }
+        self.harnesses.begin_close().await;
+        let stopped = async {
+            while !self.harnesses.down() {
+                self.run_once().await?;
+            }
+            Ok::<_, anyhow::Error>(())
+        };
+        tokio::select! {
+            _ = signals.next() => std::process::exit(130),
+            done = tokio::time::timeout(STOPPING, stopped) => {
+                if let Ok(done) = done {
+                    done?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Handles one event of a runtime or one finished tool call.
+    async fn run_once(&mut self) -> Result<()> {
+        crate::society::merging::lane::advance(
+            &mut self.service,
+            &mut self.harnesses,
+        )
+        .await?;
+        tokio::select! {
+            event = self.harnesses.next() => {
+                self.on_harness(event).await?
+            }
+            finished = self.service.chats.next() => {
+                self.on_finished(finished).await?
+            }
+            Some(work) = self.service.house_work.next() => {
+                self.on_work(work).await?
+            }
+            Some(merged) = self.service.merges.tasks.join_next() => {
+                self.on_merged(merged).await?;
+                self.deliver()?;
+            }
+        }
+        Ok(())
+    }
 }
 
 async fn flush_models(
@@ -482,179 +1076,10 @@ async fn flush_models(
     Ok(())
 }
 
-/// Takes in what the runtimes told, and sends clients what follows.
-async fn heard(
-    service: &mut Service,
-    harnesses: &mut Harnesses,
-    clients: &mut HashMap<u64, Client>,
-    notices: Vec<Notice>,
-) -> Result<()> {
-    for notice in notices {
-        match notice {
-            Notice::ProviderEvent(event) => {
-                for (id, answer) in service.provider_event(event)? {
-                    if let Some(client) = clients.get_mut(&id) {
-                        send(client, service, answer)?;
-                    }
-                }
-            }
-            Notice::Provider(result) => {
-                for (id, answer) in service.provider_result(result)? {
-                    if let Some(client) = clients.get_mut(&id) {
-                        send(client, service, answer)?;
-                    }
-                }
-            }
-            notice => {
-                chats::heard(service, harnesses, notice).await?
-            }
-        }
-        deliver(service, clients)?;
-    }
-    flush_models(service, harnesses).await?;
-    Ok(())
-}
-
-/// Sends the messages the chats hold for clients.
-fn deliver(
-    service: &mut Service,
-    clients: &mut HashMap<u64, Client>,
-) -> Result<()> {
-    for (id, message) in std::mem::take(&mut service.chats.outbox) {
-        if let Some(client) =
-            clients.get_mut(&id).filter(|c| c.welcomed && !c.refused)
-        {
-            send(client, service, message)?;
-        }
-    }
-    Ok(())
-}
-
 fn failed(service: &Service, error: &anyhow::Error) {
     let mut diagnostic = json!(format!("Request failed: {error:#}"));
     service.credentials.scrub(&mut diagnostic);
     eprintln!("{diagnostic}");
-}
-
-/// Closes in order (S3): the reflections owed are asked for and
-/// waited on, then each runtime stops its work and exits. A second
-/// signal exits at once.
-async fn close(
-    service: &mut Service,
-    harnesses: &mut Harnesses,
-    signals: &mut Signals,
-    clients: &mut HashMap<u64, Client>,
-) -> Result<()> {
-    let waits = chats::close(service, harnesses).await?;
-    for client in clients.keys() {
-        service.models.disconnect(*client);
-    }
-    flush_models(service, harnesses).await?;
-    deliver(service, clients)?;
-    let settled = |service: &mut Service| -> Result<bool> {
-        for (binding, request) in &waits {
-            let standing =
-                service.home.store().standing(*binding, request)?;
-            let open = standing.is_none_or(|standing| {
-                !standing.status.is_some_and(InputStatus::is_ended)
-            });
-            if open {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    };
-    let reflected = async {
-        while !settled(service)? {
-            run_once(service, harnesses, clients).await?;
-        }
-        Ok::<_, anyhow::Error>(())
-    };
-    tokio::select! {
-        _ = signals.next() => std::process::exit(130),
-        done = tokio::time::timeout(REFLECTING, reflected) => {
-            if let Ok(done) = done { done?; }
-        }
-    }
-    harnesses.begin_close().await;
-    let stopped = async {
-        while !harnesses.down() {
-            run_once(service, harnesses, clients).await?;
-        }
-        Ok::<_, anyhow::Error>(())
-    };
-    tokio::select! {
-        _ = signals.next() => std::process::exit(130),
-        done = tokio::time::timeout(STOPPING, stopped) => {
-            if let Ok(done) = done { done?; }
-        }
-    }
-    Ok(())
-}
-
-/// Handles one event of a runtime or one finished tool call.
-async fn run_once(
-    service: &mut Service,
-    harnesses: &mut Harnesses,
-    clients: &mut HashMap<u64, Client>,
-) -> Result<()> {
-    crate::society::merging::lane::advance(service, harnesses)
-        .await?;
-    tokio::select! {
-        event = harnesses.next() => {
-            let notices =
-                harnesses.handle(service.home.store(), event, &service.credentials).await?;
-            heard(service, harnesses, clients, notices).await?;
-        }
-        finished = service.chats.next() => {
-            chats::finished(service, harnesses, finished).await?;
-            deliver(service, clients)?;
-        }
-        Some(work) = service.house_work.next() => {
-            if let Ok(work) = work { crate::society::work::complete(service, harnesses, work).await?; }
-            deliver(service, clients)?;
-        }
-        Some(merged) = service.merges.tasks.join_next() => {
-            if let Ok(merged) = merged { crate::society::merging::lane::complete(service, harnesses, merged).await?; }
-            deliver(service, clients)?;
-        }
-    }
-    Ok(())
-}
-
-fn refresh(
-    service: &mut Service,
-    state: &mut State,
-    clients: &mut HashMap<u64, Client>,
-) -> Result<()> {
-    let mut after = service.state(state.epoch, state.revision)?;
-    let mut endings = HashMap::new();
-    for wait in &state.waits {
-        if !after.waits.iter().any(|w| w.id == wait.id) {
-            let db = service.home.store().connection();
-            endings.insert(
-                wait.id.clone(),
-                crate::oversight::ended(db, &wait.id)?,
-            );
-        }
-    }
-    let ending = |id: &str| {
-        endings.get(id).cloned().unwrap_or_else(|| "lapsed".into())
-    };
-    if let Some(change) =
-        crate::state::changed(state, &mut after, ending)
-    {
-        for client in
-            clients.values_mut().filter(|c| c.welcomed && !c.refused)
-        {
-            send(client, service, change.clone())?;
-        }
-        *state = after;
-    }
-    // Gone follows the client's last admitted message, even when it
-    // no longer reads replies.
-    clients.retain(|_, c| !c.refused);
-    Ok(())
 }
 
 fn send(
@@ -688,60 +1113,146 @@ async fn connection(
     mut outgoing: mpsc::Receiver<Out>,
     mut closing: watch::Receiver<bool>,
 ) {
-    let result = async {
-        let config = WebSocketConfig::default().max_message_size(Some(LARGEST)).max_frame_size(Some(LARGEST));
-        let handshake = tokio_tungstenite::accept_async_with_config(stream, Some(config));
-        let mut socket = tokio::select! {
-            _ = closing.changed() => return Ok::<_, anyhow::Error>(()),
-            accepted = tokio::time::timeout(Duration::from_secs(10), handshake) => accepted??,
+    let _ =
+        talk(stream, id, &events, &mut outgoing, &mut closing).await;
+    let _ = events.send(Event::Gone(id)).await;
+}
+
+/// What woke a connection's task.
+enum Woke {
+    Out(Out),
+    Late,
+    Frame(Option<Result<Message, Error>>),
+}
+
+/// Carries one connection: its frames to the loop as events, and what
+/// the loop sends back, until either side closes.
+async fn talk(
+    stream: TcpStream,
+    id: u64,
+    events: &mpsc::Sender<Event>,
+    outgoing: &mut mpsc::Receiver<Out>,
+    closing: &mut watch::Receiver<bool>,
+) -> Result<()> {
+    let config = WebSocketConfig::default()
+        .max_message_size(Some(LARGEST))
+        .max_frame_size(Some(LARGEST));
+    let handshake = tokio_tungstenite::accept_async_with_config(
+        stream,
+        Some(config),
+    );
+    let handshake =
+        tokio::time::timeout(Duration::from_secs(10), handshake);
+    let mut socket = tokio::select! {
+        _ = closing.changed() => return Ok(()),
+        accepted = handshake => accepted??,
+    };
+    let hello = tokio::time::sleep(Duration::from_secs(10));
+    tokio::pin!(hello);
+    let mut timed = false;
+    loop {
+        let woke = tokio::select! {
+            biased;
+            _ = closing.changed() => Woke::Out(Out::Close(1001)),
+            out = outgoing.recv() => {
+                Woke::Out(out.unwrap_or(Out::Close(1011)))
+            }
+            _ = &mut hello, if !timed => Woke::Late,
+            frame = socket.next() => Woke::Frame(frame),
         };
-        let hello = tokio::time::sleep(Duration::from_secs(10));
-        tokio::pin!(hello);
-        let mut timed = false;
-        loop {
-            let send = tokio::select! {
-                biased;
-                _ = closing.changed() => Some(Out::Close(1001)),
-                out = outgoing.recv() => Some(out.unwrap_or(Out::Close(1011))),
-                _ = &mut hello, if !timed => { timed = true; let _ = events.send(Event::Late(id)).await; None },
-                incoming = socket.next() => match incoming {
-                    Some(Ok(Message::Text(text))) => { if events.send(Event::Message(id,text.to_string())).await.is_err() { break; } None },
-                    Some(Ok(Message::Binary(bytes))) => { if events.send(Event::Message(id,String::from_utf8_lossy(&bytes).into_owned())).await.is_err() { break; } None },
-                    Some(Ok(Message::Close(_))) | None => { let _ = socket.flush().await; break; },
-                    Some(Ok(_)) => None,
-                    Some(Err(Error::Capacity(_))) => {
-                        let text = format!("A message is larger than the {LARGEST} bytes this connection takes.");
-                        let _ = tokio::time::timeout(GRACE, socket.send(Message::Text(serde_json::to_string(&fault(None,text))?.into()))).await;
-                        Some(Out::Close(1009))
-                    },
-                    Some(Err(_)) => break,
-                },
-            };
-            match send {
-                Some(Out::Message(text)) => { tokio::time::timeout(GRACE, socket.send(Message::Text(text.into()))).await??; },
-                Some(Out::Close(code)) => {
-                    let reason = if code == 1009 { "Message too large." } else { "" };
-                    let _ = tokio::time::timeout(GRACE, socket.close(Some(CloseFrame { code:CloseCode::from(code), reason:reason.into() }))).await;
-                    // Drain bytes already in flight so closing a large frame does not reset TCP before the client reads the fault.
-                    if code == 1009 {
-                        use tokio::io::AsyncReadExt;
-                        let drain = async {
-                            let mut bytes = [0; 8192];
-                            while socket.get_mut().read(&mut bytes).await.is_ok_and(|n| n > 0) {}
-                        };
-                        let _ = tokio::time::timeout(GRACE, drain).await;
-                    } else {
-                        let _ = tokio::time::timeout(GRACE, socket.next()).await;
-                    }
+        let out = match woke {
+            Woke::Out(out) => out,
+            Woke::Late => {
+                timed = true;
+                let _ = events.send(Event::Late(id)).await;
+                continue;
+            }
+            Woke::Frame(Some(Ok(Message::Text(text)))) => {
+                let text = text.to_string();
+                if events
+                    .send(Event::Message(id, text))
+                    .await
+                    .is_err()
+                {
                     break;
                 }
-                None => {},
+                continue;
+            }
+            Woke::Frame(Some(Ok(Message::Binary(bytes)))) => {
+                let text =
+                    String::from_utf8_lossy(&bytes).into_owned();
+                if events
+                    .send(Event::Message(id, text))
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+                continue;
+            }
+            Woke::Frame(Some(Ok(Message::Close(_))) | None) => {
+                let _ = socket.flush().await;
+                break;
+            }
+            Woke::Frame(Some(Ok(_))) => continue,
+            Woke::Frame(Some(Err(Error::Capacity(_)))) => {
+                let text = format!(
+                    "A message is larger than the {LARGEST} bytes \
+                     this connection takes."
+                );
+                let text = serde_json::to_string(&fault(None, text))?;
+                let sent = socket.send(Message::Text(text.into()));
+                let _ = tokio::time::timeout(GRACE, sent).await;
+                Out::Close(1009)
+            }
+            Woke::Frame(Some(Err(_))) => break,
+        };
+        match out {
+            Out::Message(text) => {
+                let sent = socket.send(Message::Text(text.into()));
+                tokio::time::timeout(GRACE, sent).await??;
+            }
+            Out::Close(code) => {
+                let reason = if code == 1009 {
+                    "Message too large."
+                } else {
+                    ""
+                };
+                let frame = CloseFrame {
+                    code: CloseCode::from(code),
+                    reason: reason.into(),
+                };
+                let _ = tokio::time::timeout(
+                    GRACE,
+                    socket.close(Some(frame)),
+                )
+                .await;
+                // Drain bytes already in flight so closing a large
+                // frame does not reset TCP before the
+                // client reads the fault.
+                if code == 1009 {
+                    use tokio::io::AsyncReadExt;
+                    let drain = async {
+                        let mut bytes = [0; 8192];
+                        while socket
+                            .get_mut()
+                            .read(&mut bytes)
+                            .await
+                            .is_ok_and(|n| n > 0)
+                        {
+                        }
+                    };
+                    let _ = tokio::time::timeout(GRACE, drain).await;
+                } else {
+                    let _ =
+                        tokio::time::timeout(GRACE, socket.next())
+                            .await;
+                }
+                break;
             }
         }
-        Ok(())
-    }.await;
-    let _ = result;
-    let _ = events.send(Event::Gone(id)).await;
+    }
+    Ok(())
 }
 
 struct Signals {
@@ -773,7 +1284,10 @@ impl Signals {
     async fn next(&mut self) {
         #[cfg(unix)]
         {
-            tokio::select! { _ = self.interrupt.recv() => {}, _ = self.terminate.recv() => {} }
+            tokio::select! {
+                _ = self.interrupt.recv() => {}
+                _ = self.terminate.recv() => {}
+            }
         }
         #[cfg(windows)]
         {

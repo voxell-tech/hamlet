@@ -67,77 +67,209 @@ pub async fn run(config: Configuration) -> Result<()> {
     let proxy = proxy::serve(listener);
     tokio::pin!(proxy);
     let mut calls = http::listen(&config.listen).await?;
-    let mut running = HashMap::<String, watch::Sender<bool>>::new();
-    let mut tasks = JoinSet::new();
+    let mut worker = Worker {
+        root,
+        key,
+        actor_uid_file: config.actor_uid_file,
+        network,
+        running: HashMap::new(),
+        tasks: JoinSet::new(),
+    };
     loop {
         tokio::select! {
             served = &mut proxy => {
                 served?;
                 bail!("The network proxy stopped");
             }
-            Some(completed) = tasks.join_next(), if !tasks.is_empty() => {
-                if let Ok(id) = completed { running.remove(&id); }
-            }
-            Some(call) = calls.recv() => {
-                let fresh = call.timestamp.parse::<u64>().ok().is_some_and(|seconds| SystemTime::now().duration_since(UNIX_EPOCH).is_ok_and(|now| now.as_secs().abs_diff(seconds) <= 180));
-                let signed = [call.timestamp.as_bytes(), b"\n", &call.body].concat();
-                let signature = STANDARD.decode(&call.signature).unwrap_or_default();
-                if !fresh || key.verify(&signed, &signature).is_err() {
-                    let _ = call.reply.send(Reply::error(Code::PermissionDenied, "Invalid workspace signature.", false)); continue;
-                }
-                let envelope = match serde_json::from_slice::<Envelope>(&call.body) {
-                    Ok(value) if valid_name(&value.home) && valid_id(value.message.id()) => value,
-                    _ => { let _ = call.reply.send(Reply::error(Code::Invalid, "Invalid signed workspace request.", false)); continue; }
-                };
-                // SystemInfo is refreshed on restore; memory may still hold the snapshot source's UID.
-                if envelope.actor_uid.is_empty() || !fs::read_to_string(&config.actor_uid_file).is_ok_and(|uid| uid == envelope.actor_uid) {
-                    let _ = call.reply.send(Reply::error(Code::PermissionDenied, "Workspace actor identity does not match.", false)); continue;
-                }
-                let home = root.join(&envelope.home);
-                let journal = home.join("operations");
-                fs::create_dir_all(&journal)?;
-                let id = envelope.message.id().to_owned();
-                let marker = journal.join(&id);
-                let result = journal.join(format!("{id}.json"));
-                let active_key = format!("{}:{id}", envelope.home);
-                match envelope.message {
-                    Message::Status { .. } => {
-                        let reply = if running.contains_key(&active_key) { Reply::ok(Progress { state: State::Running }) }
-                            else { fs::read(&result).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_else(Reply::uncertain) };
-                        let _ = call.reply.send(reply);
-                    }
-                    Message::Cancel { .. } => {
-                        if let Some(cancel) = running.get(&active_key) { let _ = cancel.send(true); }
-                        else if !marker.exists() { fs::File::create(&marker)?.sync_all()?; }
-                        let _ = call.reply.send(Reply::ok(Progress { state: State::Cancelling }));
-                    }
-                    Message::Execute { request } => {
-                        if request.version != 1 || !valid_name(&request.workspace) {
-                            let _ = call.reply.send(Reply::error(Code::NotSupported, "Only protocol 1 is supported.", false)); continue;
-                        }
-                        if running.len() >= 16 {
-                            let _ = call.reply.send(Reply::error(Code::Unavailable, "The worker is at its operation limit. Wait for existing commands to finish.", false)); continue;
-                        }
-                        match fs::OpenOptions::new().write(true).create_new(true).open(marker) {
-                            Ok(file) => { file.sync_all()?; fs::File::open(&journal)?.sync_all()?; }
-                            Err(_) => { let _ = call.reply.send(Reply::uncertain()); continue; }
-                        }
-                        let (cancel, cancelled) = watch::channel(false);
-                        running.insert(active_key.clone(), cancel);
-                        let network = network.clone();
-                        tasks.spawn(async move {
-                            let reply = execute(&home, &network, request, cancelled).await.unwrap_or_else(|_| Reply::error(Code::Confinement, "The confined worker did not establish a completed result. Inspect the operation before repeating it; no local fallback was used.", true));
-                            let reply = if save(&result, &reply).is_ok() { reply } else { Reply::uncertain() };
-                            let _ = call.reply.send(reply);
-                            active_key
-                        });
-                    }
+            Some(completed) = worker.tasks.join_next(),
+                if !worker.tasks.is_empty() =>
+            {
+                if let Ok(key) = completed {
+                    worker.running.remove(&key);
                 }
             }
+            Some(call) = calls.recv() => worker.on_call(call)?,
             else => break,
         }
     }
     Ok(())
+}
+
+/// What the worker's loop holds between calls.
+struct Worker {
+    root: PathBuf,
+    key: UnparsedPublicKey<Vec<u8>>,
+    actor_uid_file: PathBuf,
+    network: PathBuf,
+    /// The cancel switch of each running operation, by home and id.
+    running: HashMap<String, watch::Sender<bool>>,
+    /// The running operations, each ending with its key in
+    /// `running`.
+    tasks: JoinSet<String>,
+}
+
+impl Worker {
+    /// Answers one signed call, or starts the operation that will.
+    fn on_call(&mut self, call: http::Call) -> Result<()> {
+        let envelope = match self.verified(&call) {
+            Ok(envelope) => envelope,
+            Err(refused) => {
+                let _ = call.reply.send(refused);
+                return Ok(());
+            }
+        };
+        let home = self.root.join(&envelope.home);
+        let journal = home.join("operations");
+        fs::create_dir_all(&journal)?;
+        let id = envelope.message.id().to_owned();
+        let marker = journal.join(&id);
+        let result = journal.join(format!("{id}.json"));
+        let active_key = format!("{}:{id}", envelope.home);
+        match envelope.message {
+            Message::Status { .. } => {
+                let reply = if self.running.contains_key(&active_key)
+                {
+                    Reply::ok(Progress {
+                        state: State::Running,
+                    })
+                } else {
+                    fs::read(&result)
+                        .ok()
+                        .and_then(|bytes| {
+                            serde_json::from_slice(&bytes).ok()
+                        })
+                        .unwrap_or_else(Reply::uncertain)
+                };
+                let _ = call.reply.send(reply);
+            }
+            Message::Cancel { .. } => {
+                if let Some(cancel) = self.running.get(&active_key) {
+                    let _ = cancel.send(true);
+                } else if !marker.exists() {
+                    fs::File::create(&marker)?.sync_all()?;
+                }
+                let _ = call.reply.send(Reply::ok(Progress {
+                    state: State::Cancelling,
+                }));
+            }
+            Message::Execute { request } => {
+                if request.version != 1
+                    || !valid_name(&request.workspace)
+                {
+                    let _ = call.reply.send(Reply::error(
+                        Code::NotSupported,
+                        "Only protocol 1 is supported.",
+                        false,
+                    ));
+                    return Ok(());
+                }
+                if self.running.len() >= 16 {
+                    let _ = call.reply.send(Reply::error(
+                        Code::Unavailable,
+                        "The worker is at its operation limit. Wait \
+                         for existing commands to finish.",
+                        false,
+                    ));
+                    return Ok(());
+                }
+                let created = fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(marker);
+                match created {
+                    Ok(file) => {
+                        file.sync_all()?;
+                        fs::File::open(&journal)?.sync_all()?;
+                    }
+                    Err(_) => {
+                        let _ = call.reply.send(Reply::uncertain());
+                        return Ok(());
+                    }
+                }
+                let (cancel, cancelled) = watch::channel(false);
+                self.running.insert(active_key.clone(), cancel);
+                let network = self.network.clone();
+                self.tasks.spawn(async move {
+                    let reply =
+                        execute(&home, &network, request, cancelled)
+                            .await
+                            .unwrap_or_else(|_| {
+                                Reply::error(
+                                    Code::Confinement,
+                                    "The confined worker did not \
+                                     establish a completed result. \
+                                     Inspect the operation before \
+                                     repeating it; no local \
+                                     fallback was used.",
+                                    true,
+                                )
+                            });
+                    let reply = if save(&result, &reply).is_ok() {
+                        reply
+                    } else {
+                        Reply::uncertain()
+                    };
+                    let _ = call.reply.send(reply);
+                    active_key
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// The envelope of `call` when its signature is fresh and valid
+    /// and it names this actor, else the reply that refuses it.
+    fn verified(&self, call: &http::Call) -> Result<Envelope, Reply> {
+        let fresh = call.timestamp.parse::<u64>().ok().is_some_and(
+            |seconds| {
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .is_ok_and(|now| {
+                        now.as_secs().abs_diff(seconds) <= 180
+                    })
+            },
+        );
+        let signed =
+            [call.timestamp.as_bytes(), b"\n", &call.body].concat();
+        let signature =
+            STANDARD.decode(&call.signature).unwrap_or_default();
+        if !fresh || self.key.verify(&signed, &signature).is_err() {
+            return Err(Reply::error(
+                Code::PermissionDenied,
+                "Invalid workspace signature.",
+                false,
+            ));
+        }
+        let envelope =
+            match serde_json::from_slice::<Envelope>(&call.body) {
+                Ok(envelope)
+                    if valid_name(&envelope.home)
+                        && valid_id(envelope.message.id()) =>
+                {
+                    envelope
+                }
+                _ => {
+                    return Err(Reply::error(
+                        Code::Invalid,
+                        "Invalid signed workspace request.",
+                        false,
+                    ));
+                }
+            };
+        // SystemInfo is refreshed on restore; memory may still hold
+        // the snapshot source's UID.
+        let actor = fs::read_to_string(&self.actor_uid_file);
+        if envelope.actor_uid.is_empty()
+            || !actor.is_ok_and(|uid| uid == envelope.actor_uid)
+        {
+            return Err(Reply::error(
+                Code::PermissionDenied,
+                "Workspace actor identity does not match.",
+                false,
+            ));
+        }
+        Ok(envelope)
+    }
 }
 
 /// Runs one operation under a trusted PID 1 in fresh namespaces. Only
@@ -274,16 +406,13 @@ async fn execute(
     };
     tokio::pin!(receive);
     tokio::select! {
-        reply = &mut receive => reply,
-        _ = cancelled.changed() => {
-            drop(input);
-            tokio::time::timeout(Duration::from_secs(10), &mut receive).await?
-        }
-        _ = tokio::time::sleep(Duration::from_secs(135)) => {
-            drop(input);
-            tokio::time::timeout(Duration::from_secs(10), &mut receive).await?
-        }
+        reply = &mut receive => return reply,
+        _ = cancelled.changed() => {}
+        _ = tokio::time::sleep(Duration::from_secs(135)) => {}
     }
+    drop(input);
+    tokio::time::timeout(Duration::from_secs(10), &mut receive)
+        .await?
 }
 
 /// How long a library snapshot nobody used is kept.
