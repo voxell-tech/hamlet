@@ -13,7 +13,8 @@ use bevy::render::render_resource::{
     Extent3d, TextureDimension, TextureFormat,
 };
 use hamlet_core::agents::{
-    Account, Busy, Citizen, Left, LivesIn, Mayor, Purpose, Settlement,
+    Account, Busy, Citizen, Left, LivesIn, Mayor, Purpose,
+    Settlement, Works,
 };
 use hamlet_core::core::HomeDir;
 use hamlet_core::oversight::danger::Danger;
@@ -177,8 +178,10 @@ pub(super) fn setup(world: &mut World) {
         world.insert_resource(inspector::Section::History);
         past_sessions(world, scene == Scene::Reading);
     }
-    if matches!(scene, Scene::Overview | Scene::Hamlet | Scene::Rules)
-    {
+    if matches!(
+        scene,
+        Scene::Overview | Scene::Hamlet | Scene::Rules | Scene::Files
+    ) {
         let places = [
             ("home", "Pear Tree Hollow", "founder", 3),
             ("mill", "mill", "miller", 2),
@@ -188,7 +191,9 @@ pub(super) fn setup(world: &mut World) {
         for (id, title, mayor, others) in places {
             // The first hamlet's page shows the folder it works on.
             let home = match (scene, id) {
-                (Scene::Hamlet, "home") => working_home(),
+                (Scene::Hamlet | Scene::Files, "home") => {
+                    working_home()
+                }
                 _ => std::path::PathBuf::new(),
             };
             let hamlet = world
@@ -230,7 +235,9 @@ pub(super) fn setup(world: &mut World) {
         }
         world.entity_mut(agent).insert(LivesIn(first.unwrap()));
         let selected = match scene {
-            Scene::Hamlet | Scene::Rules => first.map(Thing::Common),
+            Scene::Hamlet | Scene::Rules | Scene::Files => {
+                first.map(Thing::Common)
+            }
             _ => None,
         };
         world.insert_resource(Selected(selected));
@@ -245,6 +252,9 @@ pub(super) fn setup(world: &mut World) {
         }
         if scene == Scene::Rules {
             world.insert_resource(overview::Page::Bylaws);
+        }
+        if scene == Scene::Files {
+            browse(world, first.unwrap());
         }
     }
     if scene == Scene::Chief {
@@ -368,6 +378,41 @@ fn working_home() -> std::path::PathBuf {
         hamlet.work_on(Some(&folder), "chief").expect("a record");
     }
     home
+}
+
+/// The Files page of `hamlet`, which works on a small project with
+/// a folder and a file ignored, a folder open and a file selected.
+fn browse(world: &mut World, hamlet: Entity) {
+    let work =
+        world.get::<Settlement>(hamlet).unwrap().record().work();
+    let folder = work.folder.clone().expect("a folder");
+    for inside in [".git", "src/press", "assets", "target/debug"] {
+        std::fs::create_dir_all(folder.join(inside))
+            .expect("a folder");
+    }
+    let files = [
+        (".gitignore", "target/\n*.log\n"),
+        ("Cargo.toml", ""),
+        ("README.md", ""),
+        ("press.log", ""),
+        ("src/main.rs", ""),
+        ("src/ledger.rs", ""),
+        ("src/press/mod.rs", ""),
+        ("src/press/apples.rs", ""),
+        ("src/press/pears.rs", ""),
+        ("src/press/cider10.rs", ""),
+        ("src/press/cider9.rs", ""),
+    ];
+    for (file, text) in files {
+        std::fs::write(folder.join(file), text).expect("a file");
+    }
+    world.entity_mut(hamlet).insert(Works(work));
+    world.insert_resource(overview::Page::Files);
+    hamlet_ui::explorer::reveal(
+        world,
+        hamlet,
+        &folder.join("src/press/apples.rs"),
+    );
 }
 
 /// A line of a log, said `minute` minutes into the gallery's

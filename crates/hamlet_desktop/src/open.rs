@@ -118,6 +118,17 @@ pub fn show(path: &Path, roots: &[PathBuf]) -> bool {
     program(&path, way(&path)).spawn().is_ok()
 }
 
+/// Shows `path` in its folder, unopened, if it is still under
+/// `roots`. False when it is not, or nothing could show it.
+pub fn reveal(path: &Path, roots: &[PathBuf]) -> bool {
+    let Some(path) =
+        path.to_str().and_then(|path| locate(path, roots))
+    else {
+        return false;
+    };
+    program(&path, Way::Reveal).spawn().is_ok()
+}
+
 /// Opens `address` in the chief's browser or mail program.
 pub fn browse(address: &str) -> bool {
     let mut open = if cfg!(target_os = "macos") {

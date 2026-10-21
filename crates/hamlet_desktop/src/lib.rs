@@ -1,10 +1,11 @@
 //! The machine the app runs on: kept awake while an agent works
 //! (`awake`), the programs of the system that show a file or a link
-//! (`open`), its dialog a folder is chosen in (`folder`) and the
-//! app's icon (`app_icon`).
+//! (`open`), its folders listed and watched (`files`), its dialog a
+//! folder is chosen in (`folder`) and the app's icon (`app_icon`).
 
 pub mod app_icon;
 pub mod awake;
+pub mod files;
 pub mod folder;
 pub mod open;
 

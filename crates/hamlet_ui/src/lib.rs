@@ -6,6 +6,7 @@ mod chief;
 pub mod chrome;
 pub mod cursor;
 mod dock;
+pub mod explorer;
 mod folder;
 pub mod history;
 mod hover;
@@ -105,6 +106,7 @@ impl Plugin for UiPlugin {
                 screens::plugin,
                 chief::plugin,
                 folder::plugin,
+                explorer::plugin,
                 rules::plugin,
                 models::plugin,
                 asking::plugin,

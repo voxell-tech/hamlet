@@ -68,7 +68,7 @@ fn work_on(world: &mut World, hamlet: Entity, folder: &Path) {
 }
 
 /// The last part of `folder`, as a button names it.
-fn name_of(folder: &Path) -> String {
+pub(crate) fn name_of(folder: &Path) -> String {
     folder
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())

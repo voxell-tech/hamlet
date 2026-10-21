@@ -92,6 +92,7 @@ impl Plugin for GalleryPlugin {
             .add_plugins((
                 hamlet_ui::widgets::plugin,
                 hamlet_ui::screens::plugin,
+                hamlet_ui::explorer::plugin,
                 asking::plugin,
                 select::plugin,
             ));
@@ -139,6 +140,8 @@ pub enum Scene {
     Hamlet,
     /// The running of that hamlet: its budget, models and rules.
     Rules,
+    /// The files of the folder that hamlet works on.
+    Files,
     /// The Inspector's History page, with its list of sessions.
     History,
     /// The Inspector's History page, with one session being read.

@@ -54,7 +54,7 @@ table. The binary and the examples are the root package.
 | `hamlet_home` | A home on disk: its layout, charter and prompt, the chief's limits, the starter skills |
 | `hamlet_rules` | The hamlet's record and the rules over it. Plain files and functions, no Bevy |
 | `hamlet_core` | The runtime as Bevy plugins: agents, sessions, tools and oversight. No rendering |
-| `hamlet_desktop` | The machine the app runs on: kept awake while an agent works, its programs that show a file or a link, its folder dialog and the app's icon |
+| `hamlet_desktop` | The machine the app runs on: kept awake while an agent works, its programs that show a file or a link, its folders listed and watched, its folder dialog and the app's icon |
 | `hamlet_assets` | The files under `assets/`, built into the app and loaded as Bevy assets |
 | `hamlet_vfx` | The visual effects: what each is and how it plays |
 | `hamlet_realm` | The 3D world, drawn from the core's entities |
@@ -107,6 +107,7 @@ Paths are under `crates/`.
 | What an agent's commands may touch | `hamlet_sandbox/src/`; [`sandbox.md`](sandbox.md) |
 | The folder a hamlet works on | `hamlet_rules/src/work.rs` keeps it; `Tools::work_on` in `hamlet_core/src/tools.rs` applies it |
 | The workbench and its clockwork on a common | `hamlet_realm/src/works.rs` |
+| The Files page of a hamlet: its folder as a tree, kept up with the disk | `hamlet_ui/src/explorer/`; a folder's listing and its watch in `hamlet_desktop/src/files/` |
 | The library of shared skills | `hamlet_rules/src/library.rs` |
 | Spending and limits | `hamlet_rules/src/budget/`, `hamlet_home/src/limits.rs` |
 | Models, their prices and who may run them | `hamlet_model/src/catalogue.rs`, `hamlet_rules/src/models.rs` |

@@ -1,5 +1,6 @@
 //! One hamlet's page of the Inspector: what it is, what can be done
-//! to it, and its agents, its bylaws and its record as tabs.
+//! to it, and its agents, its bylaws, its record and its files as
+//! tabs.
 
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -26,8 +27,8 @@ use super::rows::{
 use crate::feel::Mood;
 use crate::icons::Glyph;
 use crate::looks::{
-    Fills, action, back, bad_action, bare, brass, buttons, lamp,
-    lettered, note, stated, title, well,
+    Fills, action, back, bad_action, bare, brass, buttons, filling,
+    lamp, lettered, note, stated, title, well,
 };
 use crate::me::talk_to;
 use crate::world_menu::Deed;
@@ -102,12 +103,14 @@ pub enum Page {
     Agents,
     Bylaws,
     Record,
+    Files,
 }
 
-const PAGES: [(Page, Glyph, &str); 3] = [
+const PAGES: [(Page, Glyph, &str); 4] = [
     (Page::Agents, Glyph::Robot, "AGENTS"),
     (Page::Bylaws, Glyph::Book, "BYLAWS"),
     (Page::Record, Glyph::History, "RECORD"),
+    (Page::Files, Glyph::Folder, "FILES"),
 ];
 
 /// Everyone in `hamlet`, each pressed to talk to.
@@ -245,15 +248,17 @@ pub fn hamlet(hamlet: Entity) -> AnyView {
     });
     let page =
         keyed(resource::<Page, _>(|page| *page), move |page| {
+            let scrolled = |page: AnyView| {
+                scroll((page,)).fills_height().boxed()
+            };
             match page {
-                Page::Agents => list_of(hamlet).boxed(),
-                Page::Bylaws => crate::rules::panel(hamlet),
-                Page::Record => record_of(hamlet).boxed(),
+                Page::Agents => scrolled(list_of(hamlet).boxed()),
+                Page::Bylaws => scrolled(crate::rules::panel(hamlet)),
+                Page::Record => scrolled(record_of(hamlet).boxed()),
+                // It scrolls its tree under a head that stays.
+                Page::Files => crate::explorer::panel(hamlet),
             }
         })
-        .within(bare());
-    column((head, pages, scroll((page,)).fills_height()))
-        .fills_height()
-        .gap(10.0)
-        .boxed()
+        .within(filling());
+    column((head, pages, page)).fills_height().gap(10.0).boxed()
 }

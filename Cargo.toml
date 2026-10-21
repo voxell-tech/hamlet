@@ -43,10 +43,13 @@ anyhow = "1"
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 futures = "0.3"
+# The walker of ripgrep, for what a folder's git ignore rules leave out.
+ignore = "0.4"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 interprocess = "2"
 keyring = "4"
 libc = "0.2"
+notify = "8"
 # The text layout Bevy's text is built on, for selecting drawn words.
 # Held to the version `bevy_text` uses, so its layouts are this crate's.
 parley = { version = "0.9", default-features = false, features = ["std"] }

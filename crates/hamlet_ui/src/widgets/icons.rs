@@ -108,13 +108,20 @@ pub enum Glyph {
     Globe,
     /// A chevron that points up, for a dropdown to turn.
     Chevron,
-    /// A chevron to the right: this opens a page of its own.
+    /// A chevron to the right: this opens a page of its own, or a
+    /// folder of a tree that is closed.
     Into,
+    /// A chevron down: a folder of a tree that is open.
+    Down,
     /// Three dots: the rest of what can be done.
     More,
     /// Three lines: a list folded away.
     Menu,
     Folder,
+    /// A page with a corner folded: a file.
+    File,
+    /// A square with a minus over another: every folder closed.
+    Fold,
 }
 
 /// A part of an icon, in the units of its square, y downward. Angles
@@ -143,7 +150,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 44] = [
+    pub const ALL: [Glyph; 47] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -185,9 +192,12 @@ impl Glyph {
         Glyph::Globe,
         Glyph::Chevron,
         Glyph::Into,
+        Glyph::Down,
         Glyph::More,
         Glyph::Menu,
         Glyph::Folder,
+        Glyph::File,
+        Glyph::Fold,
     ];
 
     /// Its image for a side of `size`, to be tinted.
@@ -491,6 +501,9 @@ impl Glyph {
             Glyph::Into => {
                 &[Path(&[[6.0, 4.0], [10.0, 8.0], [6.0, 12.0]])]
             }
+            Glyph::Down => {
+                &[Path(&[[4.0, 6.0], [8.0, 10.0], [12.0, 6.0]])]
+            }
             Glyph::More => &[
                 Dot(3.5, 8.0, 1.25),
                 Dot(8.0, 8.0, 1.25),
@@ -509,6 +522,21 @@ impl Glyph {
                 [14.0, 12.75],
                 [2.0, 12.75],
             ])],
+            Glyph::File => &[
+                Loop(&[
+                    [3.5, 2.0],
+                    [9.5, 2.0],
+                    [12.5, 5.0],
+                    [12.5, 14.0],
+                    [3.5, 14.0],
+                ]),
+                Path(&[[9.5, 2.0], [9.5, 5.0], [12.5, 5.0]]),
+            ],
+            Glyph::Fold => &[
+                Round(5.0, 5.0, 14.0, 14.0, 1.5),
+                Path(&[[2.0, 11.0], [2.0, 2.0], [11.0, 2.0]]),
+                Line(7.25, 9.5, 11.75, 9.5),
+            ],
         }
     }
 }

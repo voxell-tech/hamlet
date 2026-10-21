@@ -3,7 +3,7 @@ name = "hamlet_desktop"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The machine the app runs on: kept awake while an agent works, its programs that show a file or a link, its folder dialog and the app's icon"
+description = "The machine the app runs on: kept awake while an agent works, its programs that show a file or a link, its folders listed and watched, its folder dialog and the app's icon"
 
 [lints]
 workspace = true
@@ -11,6 +11,8 @@ workspace = true
 [dependencies]
 hamlet_core.workspace = true
 bevy.workspace = true
+ignore.workspace = true
+notify.workspace = true
 rfd.workspace = true
 tokio.workspace = true
 
