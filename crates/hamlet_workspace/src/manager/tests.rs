@@ -216,6 +216,11 @@ fn id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
+/// An operation record whose outcome is not known yet.
+fn unsettled(route: &str) -> String {
+    json!({ "route": route, "reply": null }).to_string()
+}
+
 fn later(seconds: u64) -> Instant {
     Instant::now() + Duration::from_secs(seconds)
 }
@@ -575,10 +580,14 @@ async fn untrusted_status_answers_keep_the_operation_unknown() {
 }
 
 #[tokio::test]
-async fn staged_route_records_are_kept_and_foreign_ones_refused() {
+async fn unsettled_records_are_kept_and_foreign_ones_refused() {
     let dir = scratch();
     let operation = id();
-    let binding = json!({ "name": name(), "uid": "uid-1" });
+    let binding = json!({
+        "name": name(),
+        "uid": "uid-1",
+        "lifecycle": "active",
+    });
     fs::write(
         control::binding_path(&dir.0, &key()),
         binding.to_string(),
@@ -588,8 +597,7 @@ async fn staged_route_records_are_kept_and_foreign_ones_refused() {
         dir.0.join(format!("homes/home/request-{operation}.json"));
     fs::create_dir_all(path.parent().expect("folder"))
         .expect("folder");
-    fs::write(&path, json!("space/uid-1").to_string())
-        .expect("record");
+    fs::write(&path, unsettled("space/uid-1")).expect("record");
 
     let mut h = open(&dir.0, Fake::default());
     assert_eq!(h.manager.pending[&ticket(&operation)], "space/uid-1");
@@ -600,8 +608,7 @@ async fn staged_route_records_are_kept_and_foreign_ones_refused() {
     assert!(h.manager.actors.log.is_empty());
     drop(h);
 
-    fs::write(&path, json!("elsewhere/uid-1").to_string())
-        .expect("record");
+    fs::write(&path, unsettled("elsewhere/uid-1")).expect("record");
     let (send, _router) = mpsc::unbounded_channel();
     assert!(
         Manager::open(&config(&dir.0), Fake::default(), Fabric(send))
@@ -612,7 +619,7 @@ async fn staged_route_records_are_kept_and_foreign_ones_refused() {
     fs::remove_file(&path).expect("record");
     fs::write(
         dir.0.join(format!("request-{operation}.json")),
-        json!("space/uid-1").to_string(),
+        unsettled("space/uid-1"),
     )
     .expect("record");
     let (send, _router) = mpsc::unbounded_channel();
