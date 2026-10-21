@@ -13,7 +13,8 @@ const MANIFESTS: [&str; 8] = [
     "crates/hamlet_vfx/Cargo.toml",
 ];
 
-const RUNTIME: [&str; 1] = ["hamlet_server"];
+const RUNTIME: [&str; 2] =
+    ["hamlet_server", "hamlet_runtime_protocol"];
 
 fn runtime_dependencies(manifest: &str) -> Vec<String> {
     fn visit(table: &toml::Table, found: &mut Vec<String>) {

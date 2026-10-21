@@ -36,6 +36,7 @@ Rust crates live under `crates/`. The root package `hamlet` supplies
 | `hamlet_server` | `hamlet-server`: realm, permissions, tools, records, credentials and harness supervision |
 | `harnesses/pi/` | Node pi-durable/pi-ai runtime; conversations, provider calls, compaction and forks |
 | `hamlet_protocol` | The client protocol's types and recorded frames |
+| `hamlet_runtime_protocol` | The runtime protocol's types and the schema pi reads |
 | `hamlet_acceptance` | Real-process protocol and CLI scenarios on scratch homes |
 | `hamlet_client` | Connection, outbox, realm, waits and watched chats as Bevy entities |
 | `hamlet_desktop` | File/link openers, editor files, dialogs, wake locks and window icon |
@@ -146,7 +147,8 @@ ordinary tools.
 | A model connection, login or price | `hamlet_server/src/models.rs`, `credentials.rs`; provider implementation in pi |
 | Folder, mode or tool reach | `hamlet_server/src/documents.rs`, `tools.rs`, `sandbox/`; [`sandbox.md`](sandbox.md) |
 | CLI process discovery | `hamlet_cli/src/process.rs`; [`cli.md`](cli.md) |
-| Client protocol | `hamlet_protocol/src/messages.rs`; [`protocol.md`](protocol.md) |
+| Client protocol | `hamlet_protocol/src/`; [`protocol.md`](protocol.md) |
+| Runtime protocol | `hamlet_runtime_protocol/src/`, then `cargo test -p hamlet_runtime_protocol`; [`harness.md`](harness.md) |
 | Received entities | `hamlet_client/src/connection.rs`, `realm.rs`, `waits.rs`, `chats.rs` |
 | A panel or right-click menu | `hamlet_ui/src/screens/`, `world_menu/items.rs` |
 | Panels' colors, controls and icons | `assets/theme.toml`; `hamlet_ui/src/theme.rs`, `looks.rs`, `widgets/feel/`, `widgets/icons.rs` |

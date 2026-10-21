@@ -17,12 +17,12 @@ mod tests;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use hamlet_runtime_protocol::{
+    Diagnostic, DiagnosticSeverity, ToolSpec, ToolSpecReplay,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-use crate::harness::runtime::{
-    Diagnostic, DiagnosticSeverity, ToolSpec, ToolSpecReplay,
-};
 use crate::sandbox::path::{self, text};
 use crate::sandbox::{Env, Sandbox, closed_policy, open_policy};
 use crate::scrub::scrub_value;

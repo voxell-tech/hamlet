@@ -6,13 +6,13 @@ use anyhow::{Context, Result, bail};
 use hamlet_protocol::{
     self as protocol, ConversationView, ConversationViewKind,
 };
+use hamlet_runtime_protocol::{Item, ItemKind};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{Caller, outcome};
 use crate::chats::records::{self, Place};
-use crate::harness::runtime::{Item, ItemKind};
 use crate::harness::{
     Answer, BindingId, Harnesses, Input, InputMark, InputStatus, Mail,
 };
@@ -995,7 +995,7 @@ pub(super) fn answer_of(
                     .iter()
                     .flatten()
                     .filter_map(|block| match block {
-                        crate::harness::runtime::Block::Text {
+                        hamlet_runtime_protocol::Block::Text {
                             text,
                         } => Some(text.as_str()),
                         _ => None,

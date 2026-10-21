@@ -16,6 +16,10 @@ pub(crate) mod work;
 use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
+use hamlet_runtime_protocol::{
+    ConfigureTools, Diagnostic, DiagnosticSeverity, ToolSpec,
+    ToolSpecReplay,
+};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -23,10 +27,6 @@ use serde_json::{Value, json};
 
 pub(crate) use self::agents::deed;
 use crate::chats::records;
-use crate::harness::runtime::{
-    ConfigureTools, Diagnostic, DiagnosticSeverity, ToolSpec,
-    ToolSpecReplay,
-};
 use crate::harness::{
     Answer, Binding, BindingId, Harnesses, InputMark,
 };

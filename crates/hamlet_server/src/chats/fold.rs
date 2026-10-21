@@ -8,10 +8,10 @@ use anyhow::{Context, Result};
 use hamlet_protocol::{
     Change, Item, ItemKind, ItemTool, LastActivity, Op,
 };
+use hamlet_runtime_protocol::{self as runtime, Block};
 use serde_json::Value;
 
 use crate::harness::InputMark;
-use crate::harness::runtime::{self, Block};
 use crate::scrub::Scrubber;
 
 /// Characters of a tool's arguments a transcript shows.

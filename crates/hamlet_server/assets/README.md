@@ -3,7 +3,7 @@
 `limits.schema.json` defines the chief's limits, including defaults and
 constraints. `src/limits.rs` uses it for validation and filling defaults.
 Edit it here when changing a limit; keep the client protocol's `Limits`
-in `crates/hamlet_protocol/src/messages.rs` consistent.
+in `crates/hamlet_protocol/src/limits.rs` consistent.
 
 `provider-names.json` holds the reserved built-in endpoint names. Regenerate
 it from the repository root after `npm ci --prefix harnesses/pi`, using

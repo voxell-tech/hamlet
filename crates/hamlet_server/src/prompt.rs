@@ -9,9 +9,9 @@ mod tests;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
+use hamlet_runtime_protocol::Section;
 use serde_json::Value;
 
-use crate::harness::runtime::Section;
 use crate::papers::{Reader, cut};
 use crate::service::Service;
 use crate::spend::{books, money};

@@ -4,9 +4,8 @@
 use std::collections::{BTreeMap, HashSet};
 
 use hamlet_protocol::Doing;
+use hamlet_runtime_protocol::{self as runtime, Block};
 use serde_json::Value;
-
-use crate::harness::runtime::{self, Block};
 
 /// The most bytes of what an agent says that are shown.
 const SAID: usize = 600;

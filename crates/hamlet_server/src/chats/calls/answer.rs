@@ -239,12 +239,12 @@ fn rule(
 mod tests {
     use std::collections::BTreeMap;
 
+    use hamlet_runtime_protocol::ModelRef;
     use hamlet_testing::Scratch;
     use serde_json::json;
 
     use super::super::decide::{Decision, Gate, allow};
     use super::*;
-    use crate::harness::runtime::ModelRef;
     use crate::record::AgentRef;
 
     #[test]

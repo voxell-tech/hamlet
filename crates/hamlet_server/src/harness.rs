@@ -12,7 +12,6 @@ mod bindings;
 mod credentials;
 mod mark;
 mod process;
-pub mod runtime;
 mod session;
 mod sync;
 #[cfg(test)]
@@ -30,13 +29,13 @@ pub use bindings::{
 pub(crate) use bindings::{
     ended, fork_of, input_runs, items, working_on,
 };
+use hamlet_runtime_protocol::{
+    self as runtime, Capability, Diagnostic, HelloStore, Item, Mark,
+    Partial, RuntimeMessage, Section, ServerMessage, ToolSpec,
+};
 pub use mark::{InputMark, Mail};
 pub use process::Pi;
 use process::{Launch, Process, Received};
-use runtime::{
-    Capability, Diagnostic, HelloStore, Item, Mark, Partial,
-    RuntimeMessage, Section, ServerMessage, ToolSpec,
-};
 use serde_json::Value;
 use session::{Pending, Session, id_of, parse};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};

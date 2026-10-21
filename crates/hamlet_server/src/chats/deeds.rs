@@ -244,7 +244,7 @@ async fn carry_on(
     }
     let items = service.home.store().items(binding)?;
     let last = items.iter().rev().find(|item| {
-        use crate::harness::runtime::ItemKind;
+        use hamlet_runtime_protocol::ItemKind;
         matches!(
             item.kind,
             ItemKind::User
@@ -254,7 +254,7 @@ async fn carry_on(
         )
     });
     let answered = last.is_none_or(|last| {
-        last.kind == crate::harness::runtime::ItemKind::Assistant
+        last.kind == hamlet_runtime_protocol::ItemKind::Assistant
             && matches!(last.stop.as_deref(), Some("stop" | "length"))
     });
     if answered {

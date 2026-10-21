@@ -495,12 +495,12 @@ pub(super) fn places(
 
 #[cfg(test)]
 mod tests {
+    use hamlet_runtime_protocol::ModelRef;
     use hamlet_testing::Scratch;
 
     use super::*;
     use crate::RuntimeInstance;
     use crate::harness::Answer;
-    use crate::harness::runtime::ModelRef;
     use crate::operation::Request;
 
     fn decide(

@@ -2,8 +2,8 @@
 //! and what it reports of them in turn.
 
 use anyhow::{Context, Result};
+use hamlet_runtime_protocol::{self as runtime, ServerMessage};
 
-use super::runtime::{self, ServerMessage};
 use super::session::Pending;
 use super::{
     Binding, BindingId, Harnesses, InputMark, Notice, Phase,

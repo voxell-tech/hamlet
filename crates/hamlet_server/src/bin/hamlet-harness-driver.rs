@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
-use hamlet_server::harness::runtime::{Section, ToolSpecReplay};
+use hamlet_runtime_protocol::{Section, ToolSpecReplay};
 use hamlet_server::harness::{
     Answer, Binding, BindingId, Call, Config, Harnesses, Input,
     Notice,

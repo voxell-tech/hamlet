@@ -5,6 +5,7 @@
 
 use std::time::Duration;
 
+use hamlet_runtime_protocol::DiagnosticSeverity;
 use hamlet_workspace_wire::Code;
 use serde_json::{Map, Value, json};
 
@@ -13,7 +14,6 @@ use super::truncate::{MAX_BYTES, MAX_LINES, Tail};
 use super::{
     Arguments, Outcome, Place, diagnostic, environment, number_words,
 };
-use crate::harness::runtime::DiagnosticSeverity;
 use crate::sandbox::{ExecError, FileKind, Sandbox};
 use crate::scrub::scrub_text;
 

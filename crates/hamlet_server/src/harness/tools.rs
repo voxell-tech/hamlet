@@ -4,11 +4,11 @@
 use std::collections::BTreeMap;
 
 use anyhow::Result;
+use hamlet_runtime_protocol::{ToolSpec, ToolSpecReplay};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::bindings::Binding;
-use super::runtime::{ToolSpec, ToolSpecReplay};
 use crate::record::{
     Actor, Audience, Change, RecordOperation, RecordResult,
 };

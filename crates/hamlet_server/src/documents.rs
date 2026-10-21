@@ -594,7 +594,7 @@ pub(crate) fn prepare_read(
         conversation: None,
     };
     let mut prompt = crate::prompt::prepare(service, &subject)?;
-    prompt.sections.push(crate::harness::runtime::Section {
+    prompt.sections.push(hamlet_runtime_protocol::Section {
         name: "budget".into(),
         text: crate::prompt::budget(service, &subject)?,
     });

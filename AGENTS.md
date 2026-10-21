@@ -111,18 +111,19 @@ cargo clippy -p hamlet_server --all-targets --features harness
 cargo test -p hamlet_server --features harness
 ```
 
-The runtime protocol, between the server and a pi runtime, is defined by
-its Rust types in `crates/hamlet_server/src/harness/runtime.rs`. pi reads
-its types and checks from a schema generated from them:
-`cargo test -p hamlet_server` rewrites that schema when it is stale and
-fails, so commit the rewritten file.
+The runtime protocol, between the server and a harness runtime, is
+defined by the Rust types of `crates/hamlet_runtime_protocol`, which a
+harness written in Rust uses directly. pi reads its types and checks from
+a schema generated from them: `cargo test -p hamlet_runtime_protocol`
+rewrites that schema when it is stale and fails, so commit the rewritten
+file. The window never depends on this crate.
 
 `HAMLET_CLI` selects a CLI binary outside `target/debug/hamlet` for the
 acceptance suite. `HAMLET_ACCEPTANCE_SERVER` selects an explicit server
 command; otherwise it tests the default `hamlet server` path.
 
 The client protocol, between the window or CLI and the server, is defined
-by its Rust types in `crates/hamlet_protocol/src/messages.rs`. Their
+by the Rust types of `crates/hamlet_protocol`, one module per area. Their
 `#[schemars(...)]` attributes carry the limits serde cannot check, such as
 a request id's UUID format; the server checks every client message against
 the schema derived from them. Update `docs/protocol.md` when the protocol

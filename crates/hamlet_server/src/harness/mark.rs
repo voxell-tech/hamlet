@@ -3,9 +3,9 @@
 //! [`Mark`].
 
 use anyhow::{Context, Result};
+use hamlet_runtime_protocol::Mark;
 use serde::{Deserialize, Serialize};
 
-use super::runtime::Mark;
 use crate::record::AgentRef;
 
 /// The mark of an input or a write.

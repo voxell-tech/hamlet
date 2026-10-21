@@ -4,11 +4,12 @@
 
 use std::collections::HashMap;
 
+use hamlet_runtime_protocol::{
+    self as runtime, self, ProtocolError, RuntimeMessage,
+    ServerMessage,
+};
 use serde_json::Value;
 
-use super::runtime::{
-    self, ProtocolError, RuntimeMessage, ServerMessage,
-};
 use super::{BindingId, Harnesses};
 
 /// What a request to a runtime was for, until its reply.

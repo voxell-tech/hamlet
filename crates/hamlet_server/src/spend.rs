@@ -7,12 +7,12 @@ use chrono::{Datelike, Local, TimeZone, Timelike};
 use hamlet_protocol::{
     self as protocol, Period, Report, ReportCaps, UsageView,
 };
+use hamlet_runtime_protocol::{Price, Usage};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::harness::BindingId;
-use crate::harness::runtime::{Price, Usage};
 use crate::service::Service;
 
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]

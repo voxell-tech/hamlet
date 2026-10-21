@@ -31,8 +31,9 @@ store (ADR 0005).
 The server and a runtime talk through one private interface of Hamlet's.
 Its transport is the runtime's standard input and output, which only the
 server holds: one JSON message per line. The messages are the Rust types
-in `crates/hamlet_server/src/harness/runtime.rs`. `cargo test -p
-hamlet_server` writes their JSON Schema to
+of `crates/hamlet_runtime_protocol`, which a harness written in Rust can
+use directly. `cargo test -p hamlet_runtime_protocol` writes their JSON
+Schema to
 `harnesses/pi/src/protocol-schema.ts`, and fails when it was stale so the
 new file is committed; pi takes its types and its checks from that file,
 so both sides are checked against one schema. Version 1 is the only one.

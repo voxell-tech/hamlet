@@ -26,6 +26,7 @@ harness = ["faults"]
 
 [dependencies]
 hamlet_protocol.workspace = true
+hamlet_runtime_protocol.workspace = true
 hamlet_workspace_wire.workspace = true
 anyhow.workspace = true
 base64.workspace = true

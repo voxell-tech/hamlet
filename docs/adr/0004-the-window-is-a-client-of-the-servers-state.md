@@ -12,8 +12,9 @@ turns and transcripts on request) over one WebSocket that needs a token even
 on localhost. The window fills its components from it and holds no rules of
 its own.
 
-The messages are defined once, as one JSON Schema, from which the Rust
-types are generated.
+The messages are defined once, as the Rust types of `hamlet_protocol`;
+the server derives from them the JSON Schema it checks each client
+message against.
 
 ## Considered options
 

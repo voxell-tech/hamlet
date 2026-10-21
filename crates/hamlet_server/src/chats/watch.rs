@@ -6,9 +6,10 @@ use hamlet_protocol::{
     Address, ChatRef, ChatRefKind, Open, ReadResult, ServerMessage,
     Transcript,
 };
+use hamlet_runtime_protocol as runtime;
 
 use super::{Watch, records};
-use crate::harness::{BindingId, Harnesses, InputMark, runtime};
+use crate::harness::{BindingId, Harnesses, InputMark};
 use crate::protocol::{Refusable, Refusal, fault, reply};
 use crate::service::Service;
 use crate::society::letters::{Kind, peer_of};

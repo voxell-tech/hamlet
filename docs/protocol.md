@@ -3,8 +3,10 @@
 The window, `hamlet chat` and the CLI use one authenticated WebSocket to
 Hamlet's server. There is no HTTP API. The wire carries JSON messages.
 
-The contract is the Rust types in
-[`crates/hamlet_protocol/src/messages.rs`](../crates/hamlet_protocol/src/messages.rs).
+The contract is the Rust types of
+[`crates/hamlet_protocol`](../crates/hamlet_protocol/src/lib.rs), one
+module per area: `state`, `chat`, `waits`, `gifts`, `documents`, `limits`
+and `settings`.
 The names below, such as `Hello` and `ClientMessage`, are their type names.
 The handshake's `v` is the protocol's version, 0 until it is stable.
 `?` means optional; `null` is an explicit value. Objects reject extra fields.
@@ -204,7 +206,7 @@ removal, send a whole `state` instead.
 fault flags, activity, short saying, spend, skills, consultation and peer
 conversation summaries, and `left?` once it has left. It contains no
 transcript. `Hamlet`, `Wait`, `Grant`, `SettingsView` and `ProviderView`
-are the complete views defined in `messages.rs`. `SettingsView.workspace`
+are the complete views defined in `hamlet_protocol`. `SettingsView.workspace`
 is `{url, running, move?}`: the remote workspace chosen and the
 one the server works in until it restarts, each `null` for the local one. It
 never holds the token. `move` is the latest move of the houses to the chosen
@@ -333,7 +335,7 @@ even when their cause is an ordinary access refusal.
 
 ## Changing the protocol
 
-1. Edit `crates/hamlet_protocol/src/messages.rs`, the authority for both
+1. Edit the types in `crates/hamlet_protocol/src/`, the authority for both
    directions. The crate has no server-domain dependencies. A limit serde
    cannot check, such as a request id's UUID format or a list's length,
    goes in a `#[schemars(...)]` attribute: the server checks every client

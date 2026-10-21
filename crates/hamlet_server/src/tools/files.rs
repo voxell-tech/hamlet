@@ -1,6 +1,7 @@
 //! pi's `read`, `write` and `edit`, whose paths fall in the house or
 //! the folder as C20 says.
 
+use hamlet_runtime_protocol::DiagnosticSeverity;
 use hamlet_workspace_wire::Code;
 use serde_json::{Map, Value, json};
 use unicode_normalization::UnicodeNormalization;
@@ -10,7 +11,6 @@ use super::truncate::{
     MAX_BYTES, character_end, format_size, truncate_head,
 };
 use super::{Arguments, Outcome, diagnostic, diff, number_words};
-use crate::harness::runtime::DiagnosticSeverity;
 use crate::sandbox::{FileError, FileKind};
 
 /// A call that threw, with the words of what it threw.

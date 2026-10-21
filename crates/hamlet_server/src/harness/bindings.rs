@@ -2,16 +2,16 @@
 //! the inputs owed to them, as the realm database keeps them.
 
 use anyhow::{Context, Result};
+use hamlet_runtime_protocol::{
+    AdmittedStatus, ConfigureTools, Item, Mark, ModelRef,
+    SettledStatus,
+};
 use rusqlite::types::{
     FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef,
 };
 use rusqlite::{Connection, OptionalExtension, ToSql, params};
 
 use super::mark::InputMark;
-use super::runtime::{
-    AdmittedStatus, ConfigureTools, Item, Mark, ModelRef,
-    SettledStatus,
-};
 use crate::record::AgentRef;
 use crate::{RuntimeInstance, Store};
 

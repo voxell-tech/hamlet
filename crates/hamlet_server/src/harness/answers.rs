@@ -3,11 +3,13 @@
 //! asked.
 
 use anyhow::Result;
+use hamlet_runtime_protocol::{
+    self as runtime, ModelRef, Price, ServerMessage, Usage,
+};
 use rusqlite::{OptionalExtension, params};
 
 use super::bindings::Binding;
 use super::process::Pi;
-use super::runtime::{self, ModelRef, Price, ServerMessage, Usage};
 use super::{Harnesses, InputMark, Notice};
 use crate::clock::now;
 use crate::credentials::{Credentials, pack};

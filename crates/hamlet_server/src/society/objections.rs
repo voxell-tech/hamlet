@@ -139,11 +139,11 @@ pub(crate) fn object(
 
 #[cfg(test)]
 mod tests {
+    use hamlet_runtime_protocol::ModelRef;
     use hamlet_testing::Scratch;
     use rusqlite::params;
 
     use super::*;
-    use crate::harness::runtime::ModelRef;
     use crate::record::AgentRef;
 
     #[test]

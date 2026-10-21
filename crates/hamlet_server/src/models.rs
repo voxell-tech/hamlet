@@ -12,15 +12,16 @@ use hamlet_protocol::{
     Price as ListedPrice, ProviderView, Read, ReadResult,
     ServerMessage,
 };
+use hamlet_runtime_protocol::{
+    self as runtime, self, ModelRef, Price, ProviderControl,
+    ProviderEvent, ProviderRequest, ProviderRequestAction,
+    ProviderRequestMethod, ProviderResult, ProviderResultProviders,
+    Selection,
+};
 use serde_json::{Value, json};
 
 use crate::Store;
 use crate::credentials::write_whole;
-use crate::harness::runtime::{
-    self, ModelRef, Price, ProviderControl, ProviderEvent,
-    ProviderRequest, ProviderRequestAction, ProviderRequestMethod,
-    ProviderResult, ProviderResultProviders, Selection,
-};
 use crate::protocol::{Refusable, Refusal, reply};
 use crate::record::AgentRef;
 use crate::service::{Service, document, save};

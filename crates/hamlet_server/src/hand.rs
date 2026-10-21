@@ -5,11 +5,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use serde_json::{Map, Value, json};
-
-use crate::harness::runtime::{
+use hamlet_runtime_protocol::{
     DiagnosticSeverity, ToolSpec, ToolSpecReplay,
 };
+use serde_json::{Map, Value, json};
+
 use crate::sandbox::path::{resolve, text};
 use crate::sandbox::{Env, ExecError, Policy, Sandbox};
 use crate::tools::{Outcome, diagnostic};

@@ -11,6 +11,9 @@ mod tasks;
 use std::collections::BTreeMap;
 
 use anyhow::Result;
+use hamlet_runtime_protocol::{
+    Block, Item, Section, ToolSpec, ToolSpecReplay,
+};
 use serde_json::{Map, Value, json};
 
 pub(super) use self::answer::answer_words;
@@ -18,9 +21,6 @@ use self::decide::{Decision, Gate, Reading, Unadmitted};
 use self::tasks::Prepared;
 pub(crate) use self::tasks::{Finished, Tasks};
 use super::{asking, follow, records};
-use crate::harness::runtime::{
-    Block, Item, Section, ToolSpec, ToolSpecReplay,
-};
 use crate::harness::tools::CONFLICT;
 use crate::harness::{
     Answer, Binding, BindingId, Call, Harnesses, InputMark, Re,
