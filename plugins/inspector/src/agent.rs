@@ -3,7 +3,7 @@
 //! conversation, which selecting an agent opens.
 
 use agents_ui::{
-    Focused, Heard, ask, either, markdown, moved, short,
+    AgentsWorldExt, Focused, Heard, either, markdown, moved, short,
 };
 use hamlet_engine_sdk::api::agents::{
     AgentsEvent, AgentsReply, AgentsRequest, CatalogueModel, Papers,
@@ -16,10 +16,7 @@ use hamlet_engine_sdk::ui::{
     row, scroll,
 };
 
-use crate::{agent_named, archive, more, select, with};
-
-/// The characters of a purpose shown.
-const PURPOSE: usize = 96;
+use crate::{PURPOSE, agent_named, archive, more, select};
 
 /// The part of the agent the page shows.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -58,7 +55,7 @@ struct Briefing(String);
 #[derive(Default)]
 pub(crate) struct Models {
     pub(crate) default: String,
-    pub(crate) allowed: Vec<String>,
+    pub(crate) allowed: Vec<CatalogueModel>,
 }
 
 pub(crate) fn prepare(world: &mut World) {
@@ -68,15 +65,10 @@ pub(crate) fn prepare(world: &mut World) {
     world.init_resource::<Models>();
 }
 
-/// The agent of the open conversation, by its name.
-fn open_agent(world: &World) -> Option<String> {
-    world.resource::<Focused>().0.as_ref()?.open.agent.clone()
-}
-
 /// Reads the papers again for the agent of the open conversation,
 /// and leaves the prompt of one it is no longer with.
 pub(crate) fn follow(world: &mut World) {
-    let agent = open_agent(world);
+    let agent = world.resource::<Focused>().agent();
     let shown = world.resource::<Shown>();
     let moved = shown.agent != agent;
     if moved && shown.tab == Tab::Prompt {
@@ -84,26 +76,44 @@ pub(crate) fn follow(world: &mut World) {
         world.resource_mut::<Shown>().tab = back;
     }
     if moved {
-        archive::forget(world);
+        leave(world, agent.clone());
     }
-    world.resource_mut::<Shown>().agent.clone_from(&agent);
     if agent.is_some() {
-        ask(world, AgentsRequest::Papers);
+        world.ask(AgentsRequest::Papers);
         if world.resource::<Shown>().tab == Tab::Archive {
             archive::refresh(world);
         }
     }
 }
 
-/// Takes in the papers, the prompt and the models.
+/// Forgets what was read for the agent shown before `agent`.
+fn leave(world: &mut World, agent: Option<String>) {
+    archive::forget(world);
+    world.insert(Papers::default());
+    world.insert(Briefing::default());
+    world.resource_mut::<Shown>().agent = agent;
+}
+
+/// Shows the prompt of the agent `name`, talking to it first.
+pub(crate) fn open_prompt(world: &mut World, name: &str) {
+    if world.resource::<Focused>().agent().as_deref() != Some(name) {
+        select(world, Selected::Agent(name.to_string()));
+        // Its papers and prompt are asked after the selection, so
+        // they are its own, and the prompt stays once it is selected.
+        leave(world, Some(name.to_string()));
+    }
+    show(world, Tab::Prompt);
+}
+
+/// Takes in the papers, the prompt and the models. Those of an agent
+/// were asked for the one shown, as each move asks them again.
 pub(crate) fn heard(world: &mut World, heard: &Heard) {
+    let shown = world.resource::<Shown>().agent.is_some();
     match heard {
-        Heard::Reply(_, AgentsReply::Papers(papers)) => {
-            if world.resource::<Papers>() != papers {
-                world.insert(papers.clone());
-            }
+        Heard::Reply(_, AgentsReply::Papers(papers)) if shown => {
+            world.keep(papers.clone());
         }
-        Heard::Reply(_, AgentsReply::Prompt(text)) => {
+        Heard::Reply(_, AgentsReply::Prompt(text)) if shown => {
             world.insert(Briefing(text.clone()));
         }
         Heard::Failed(Some(AgentsRequest::Prompt), why) => {
@@ -119,21 +129,17 @@ pub(crate) fn heard(world: &mut World, heard: &Heard) {
                 .clone_from(&settings.model);
         }
         Heard::Reply(_, AgentsReply::Catalogue(models)) => {
-            world.resource_mut::<Models>().allowed = allowed(models);
+            world.resource_mut::<Models>().allowed = models
+                .iter()
+                .filter(|model| model.allowed)
+                .cloned()
+                .collect();
         }
         Heard::Event(AgentsEvent::Catalogue) => {
-            ask(world, AgentsRequest::Catalogue);
+            world.ask(AgentsRequest::Catalogue);
         }
         _ => {}
     }
-}
-
-fn allowed(models: &[CatalogueModel]) -> Vec<String> {
-    models
-        .iter()
-        .filter(|model| model.allowed)
-        .map(|model| model.name.clone())
-        .collect()
 }
 
 /// Shows `tab`, reading again what it shows.
@@ -143,9 +149,9 @@ pub(crate) fn show(world: &mut World, tab: Tab) {
         shown.back = shown.tab;
     }
     shown.tab = tab;
-    ask(world, AgentsRequest::Papers);
+    world.ask(AgentsRequest::Papers);
     match tab {
-        Tab::Prompt => ask(world, AgentsRequest::Prompt),
+        Tab::Prompt => world.ask(AgentsRequest::Prompt),
         Tab::Archive => archive::refresh(world),
         Tab::Notes | Tab::Character => {}
     }
@@ -206,9 +212,9 @@ fn head_of(world: &World) -> Head {
 /// model the home allows, and `now` when it is none of those.
 pub(crate) fn offered(models: &Models, now: &str) -> Vec<String> {
     let mut names = vec![models.default.clone()];
-    for name in &models.allowed {
-        if !names.contains(name) {
-            names.push(name.clone());
+    for model in &models.allowed {
+        if !names.contains(&model.name) {
+            names.push(model.name.clone());
         }
     }
     if !now.is_empty() && !names.iter().any(|name| name == now) {
@@ -238,13 +244,10 @@ fn model_choice(name: String, now: String) -> AnyView {
                 )
                 .on_pick(move |world, picked| {
                     if let Some(model) = names.get(picked as usize) {
-                        ask(
-                            world,
-                            AgentsRequest::RunModel {
-                                agent: agent.clone(),
-                                model: model.clone(),
-                            },
-                        );
+                        world.ask(AgentsRequest::RunModel {
+                            agent: agent.clone(),
+                            model: model.clone(),
+                        });
                     }
                 }),
             ))
@@ -286,10 +289,7 @@ fn header(head: &Head) -> AnyView {
             icon_button("stop", "STOP")
                 .style(ButtonStyle::Critical)
                 .on_click(move |world| {
-                    ask(
-                        world,
-                        AgentsRequest::Veto(Some(name.clone())),
-                    )
+                    world.ask(AgentsRequest::Veto(Some(name.clone())))
                 })
                 .tip("Stops what it is doing now")
                 .boxed(),
@@ -326,23 +326,10 @@ fn header(head: &Head) -> AnyView {
     column(parts).space(Space::Half).boxed()
 }
 
-/// Sends `text` to the open conversation.
-fn tell(world: &mut World, text: &str) {
-    if let Some(to) = with(world) {
-        ask(
-            world,
-            AgentsRequest::Send {
-                to,
-                text: text.to_string(),
-            },
-        );
-    }
-}
-
 fn notes() -> AnyView {
     column((
         row((icon_button("page", "REFLECT NOW")
-            .on_click(|world| tell(world, "/reflect")),)),
+            .on_click(|world| world.tell("/reflect")),)),
         scroll((keyed(
             resource::<Papers, _>(|papers| papers.notes.clone()),
             |notes| {
@@ -361,9 +348,7 @@ fn notes() -> AnyView {
 fn character() -> AnyView {
     column((
         row((icon_button("pencil", "EDIT")
-            .on_click(|world| {
-                ask(world, AgentsRequest::EditCharacter)
-            })
+            .on_click(|world| world.ask(AgentsRequest::EditCharacter))
             .tip("Opens the file in your editor"),)),
         scroll((keyed(
             resource::<Papers, _>(|papers| papers.character.clone()),

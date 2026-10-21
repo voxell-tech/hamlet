@@ -65,8 +65,9 @@ pub(crate) fn page() -> AnyView {
     .space(Space::Half)
     .boxed();
     let awake = column((
+        // On until the desktop service says, as it is by default.
         toggle(resource::<Known, _>(|known| {
-            known.keep_awake.unwrap_or_default()
+            known.keep_awake.unwrap_or(true)
         }))
         .on_toggle(|world, on| {
             world.ask_desktop(

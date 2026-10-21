@@ -2,19 +2,19 @@
 //! agent, searched, each to be read, resumed or deleted, and the
 //! reader of one.
 
-use agents_ui::{Focused, Heard, ask, entry_view, show_chat, since};
+use agents_ui::{
+    AgentsWorldExt, Focused, Heard, clip, entry_view, name,
+    show_chat, since,
+};
 use hamlet_engine_sdk::api::agents::{
-    AgentsReply, AgentsRequest, Past, Pasts, Recipient,
-    SessionMessage,
+    AgentsReply, AgentsRequest, Past, Pasts, SessionMessage,
 };
 use hamlet_engine_sdk::ui::{
-    AnyView, ButtonProps, ButtonStyle, Cx, Face, FrameProps, Size,
-    Space, Tone, UiExt, ViewExt, World, button, column, divider,
-    each, field, icon_button, keyed, label, menu_item, pressable,
-    resource, row, scroll,
+    AnyView, ButtonProps, ButtonStyle, Cx, FrameProps, Size, Space,
+    Tone, UiExt, ViewExt, World, button, column, divider, each,
+    field, icon_button, keyed, label, menu_item, pressable, resource,
+    row, scroll,
 };
-
-use crate::with;
 
 /// Characters of a title a row shows.
 const TITLE_SHOWN: usize = 90;
@@ -40,8 +40,10 @@ pub(crate) struct Archive {
     reading: Option<Reading>,
     /// A delete of the session being read waits for a yes.
     doomed: bool,
-    /// Why the last delete failed.
+    /// Why the last delete or read failed.
     failed: Option<String>,
+    /// The list was asked for since the archive was last forgotten.
+    asked: bool,
 }
 
 pub(crate) fn prepare(world: &mut World) {
@@ -50,8 +52,10 @@ pub(crate) fn prepare(world: &mut World) {
 
 /// Lists the past sessions again, as the search has it.
 pub(crate) fn refresh(world: &mut World) {
-    let query = world.resource::<Archive>().query.clone();
-    ask(world, AgentsRequest::Pasts { query });
+    let archive = world.resource_mut::<Archive>();
+    archive.asked = true;
+    let query = archive.query.clone();
+    world.ask(AgentsRequest::Pasts { query });
 }
 
 /// Starts afresh for another conversation.
@@ -61,7 +65,14 @@ pub(crate) fn forget(world: &mut World) {
 
 pub(crate) fn heard(world: &mut World, heard: &Heard) {
     match heard {
-        Heard::Reply(_, AgentsReply::Pasts(pasts)) => {
+        // The list of the search typed now, for the agent it was
+        // asked for since the archive was last forgotten.
+        Heard::Reply(
+            Some(AgentsRequest::Pasts { query }),
+            AgentsReply::Pasts(pasts),
+        ) if world.resource::<Archive>().asked
+            && *query == world.resource::<Archive>().query =>
+        {
             let archive = world.resource_mut::<Archive>();
             archive.pasts = pasts.clone();
             // One that is gone is not read on.
@@ -70,9 +81,21 @@ pub(crate) fn heard(world: &mut World, heard: &Heard) {
                     .found
                     .iter()
                     .any(|past| past.name == reading.past.name)
-                && archive.query.trim().is_empty()
             {
                 archive.reading = None;
+            }
+        }
+        Heard::Failed(Some(AgentsRequest::ReadPast(name)), why) => {
+            let archive = world.resource_mut::<Archive>();
+            if archive
+                .reading
+                .as_ref()
+                .is_some_and(|reading| reading.past.name == *name)
+            {
+                archive.reading = None;
+                archive.failed = Some(format!(
+                    "Could not read that session: {why}"
+                ));
             }
         }
         Heard::Reply(
@@ -99,16 +122,6 @@ pub(crate) fn heard(world: &mut World, heard: &Heard) {
         }
         _ => {}
     }
-}
-
-/// `title`, cut to what a row shows.
-fn shortened(title: &str) -> String {
-    let mut shown =
-        title.chars().take(TITLE_SHOWN).collect::<String>();
-    if title.chars().count() > TITLE_SHOWN {
-        shown.push_str("...");
-    }
-    shown
 }
 
 /// The detail line of a past session's row.
@@ -154,7 +167,7 @@ fn open(world: &mut World, past: &Past) {
         said: Vec::new(),
         reach: PAGE,
     });
-    ask(world, AgentsRequest::ReadPast(past.name.clone()));
+    world.ask(AgentsRequest::ReadPast(past.name.clone()));
 }
 
 /// Closes the reader.
@@ -167,18 +180,11 @@ fn close(world: &mut World) {
 /// Carries on from `past` in the open conversation, which goes to
 /// the archive.
 fn resume(world: &mut World, past: &Past) {
-    let (Some(number), Some(to)) = (past.number.clone(), with(world))
-    else {
+    let Some(number) = past.number.clone() else {
         return;
     };
     close(world);
-    ask(
-        world,
-        AgentsRequest::Send {
-            to,
-            text: format!("/resume {number}"),
-        },
-    );
+    world.tell(format!("/resume {number}"));
     show_chat();
 }
 
@@ -192,7 +198,7 @@ fn delete(world: &mut World) {
     close(world);
     // A log in use belongs to an open conversation.
     if let Some(past) = past.filter(|past| past.number.is_some()) {
-        ask(world, AgentsRequest::DeletePast(past.name));
+        world.ask(AgentsRequest::DeletePast(past.name));
     }
 }
 
@@ -218,11 +224,9 @@ fn row_view(past: &Past) -> AnyView {
         );
     }
     pressable((column((
-        label(shortened(&past.title)).bold(true).tone(if live {
-            Tone::Accent
-        } else {
-            Tone::Body
-        }),
+        label(clip(&past.title, TITLE_SHOWN))
+            .bold(true)
+            .tone(if live { Tone::Accent } else { Tone::Body }),
         label(detail(past)).size(Size::Small).tone(Tone::Dim),
     ))
     .space(Space::None),))
@@ -371,7 +375,7 @@ fn reader(reading: &Reading, speaker: String) -> AnyView {
         )
     }));
     column((
-        label(shortened(&past.title)).bold(true),
+        label(clip(&past.title, TITLE_SHOWN)).bold(true),
         label(detail(past)).size(Size::Small).tone(Tone::Dim),
         actions(past),
         label(hint).size(Size::Small).tone(Tone::Dim),
@@ -382,39 +386,23 @@ fn reader(reading: &Reading, speaker: String) -> AnyView {
     .boxed()
 }
 
-/// The agent of the open conversation, by its name.
-fn speaker(world: &World) -> String {
-    world
-        .resource::<Focused>()
-        .0
-        .as_ref()
-        .and_then(|focus| focus.open.agent.clone())
-        .unwrap_or_default()
-}
-
 /// The ARCHIVE tab: the list, or the reader of one session, under
 /// whose it is.
 pub(crate) fn screen() -> AnyView {
-    let whose =
-        label(resource::<Focused, _>(|focused| {
-            match focused.0.as_ref().map(|focus| &focus.with) {
-                Some(Recipient::Agent(name)) => {
-                    format!("{}: ARCHIVE", name.to_uppercase())
-                }
-                _ => "THE MAYOR: ARCHIVE".to_string(),
-            }
-        }))
-        .size(Size::Small)
-        .bold(true)
-        .face(Face::Display)
-        .tone(Tone::Faint);
+    let whose = name(resource::<Focused, _>(|focused| {
+        format!("{}: ARCHIVE", focused.whose())
+    }));
     let shown = keyed(
         resource::<Archive, _>(|archive| archive.reading.clone()),
         |reading| match reading {
             Some(reading) => {
                 let reading = reading.clone();
                 AnyView::new(move |cx: &mut Cx| {
-                    let speaker = speaker(cx.world);
+                    let speaker = cx
+                        .world
+                        .resource::<Focused>()
+                        .agent()
+                        .unwrap_or_default();
                     cx.build(reader(&reading, speaker))
                 })
             }

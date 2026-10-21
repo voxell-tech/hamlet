@@ -11,7 +11,7 @@ use hamlet_engine_sdk::ui::{
     show_overlay,
 };
 
-use crate::client::ask;
+use crate::client::AgentsWorldExt;
 
 /// The name of the overlay a question is asked on.
 pub const CONFIRM: &str = "confirm";
@@ -36,12 +36,6 @@ pub struct Confirm {
 /// The question shown, if any.
 #[derive(Default)]
 pub struct Confirming(pub Option<Confirm>);
-
-/// Asks `question` before it is done.
-pub fn confirm(world: &mut World, question: Confirm) {
-    world.resource_or_init::<Confirming>().0 = Some(question);
-    show_overlay(CONFIRM, true);
-}
 
 /// The question asked, where a panel shows it.
 pub fn confirmation() -> AnyView {
@@ -82,7 +76,7 @@ pub fn confirmation() -> AnyView {
                         .on_click(move |world| {
                             close(world);
                             for request in &then {
-                                ask(world, request.clone());
+                                world.ask(request.clone());
                             }
                         }),
                     button("CANCEL")

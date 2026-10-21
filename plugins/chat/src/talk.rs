@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use agents_ui::{Focused, Heard, ask};
+use agents_ui::{AgentsWorldExt, Focused, Heard};
 use hamlet_engine_sdk::World;
 use hamlet_engine_sdk::api::agents::{
     AgentsEvent, AgentsReply, AgentsRequest, Related, SessionMessage,
@@ -37,7 +37,8 @@ pub struct Kept {
 }
 
 impl Talk {
-    /// Puts in `message`, or the change of the one of its id.
+    /// Puts in `message`, or the change of the one of its id, keeping
+    /// the last [`MOST`] of its session.
     fn take(
         &mut self,
         session: &SessionName,
@@ -55,6 +56,8 @@ impl Talk {
             }
             Err(at) => kept.insert(at, Kept { message, rev: 0 }),
         }
+        let over = kept.len().saturating_sub(MOST as usize);
+        kept.drain(..over);
     }
 }
 
@@ -70,9 +73,11 @@ pub fn follow(world: &mut World) {
     if was == open {
         return;
     }
-    // Talking to someone else brings the chat to the front.
+    // Talking to someone else brings the chat to the front, and
+    // what the next message replied to is let go.
     if was.is_some() {
         hamlet_engine_sdk::ui::open(crate::CHAT);
+        world.resource_mut::<Replying>().0 = None;
     }
     world.insert(Talk {
         open: open.clone(),
@@ -80,9 +85,8 @@ pub fn follow(world: &mut World) {
     });
     world.insert(Reach::default());
     world.insert(Unfolded::default());
-    world.resource_mut::<Replying>().0 = None;
     if open.is_some() {
-        ask(world, AgentsRequest::Related);
+        world.ask(AgentsRequest::Related);
     }
 }
 
@@ -101,7 +105,7 @@ pub fn heard(world: &mut World, heard: &Heard) {
                 .filter(|session| !talk.said.contains_key(session))
                 .collect::<Vec<_>>();
             for session in missing {
-                messages(world, session);
+                world.ask(messages(session));
             }
         }
         Heard::Reply(
@@ -145,7 +149,7 @@ pub fn heard(world: &mut World, heard: &Heard) {
                 {
                     hamlet_engine_sdk::ui::open(crate::CHAT);
                 }
-                return messages(world, session.clone());
+                return world.ask(messages(session.clone()));
             }
             let talk = world.resource_mut::<Talk>();
             for message in said {
@@ -155,7 +159,7 @@ pub fn heard(world: &mut World, heard: &Heard) {
         Heard::Event(AgentsEvent::Sessions)
         | Heard::Event(AgentsEvent::Working { .. }) => {
             if world.resource::<Talk>().open.is_some() {
-                ask(world, AgentsRequest::Related);
+                world.ask(AgentsRequest::Related);
             }
         }
         Heard::Event(AgentsEvent::Rewound { session, text })
@@ -168,14 +172,11 @@ pub fn heard(world: &mut World, heard: &Heard) {
     }
 }
 
-/// Asks for the last messages of `session`.
-fn messages(world: &mut World, session: SessionName) {
-    ask(
-        world,
-        AgentsRequest::Messages {
-            session,
-            after: None,
-            most: MOST,
-        },
-    );
+/// The request of the last messages of `session`.
+fn messages(session: SessionName) -> AgentsRequest {
+    AgentsRequest::Messages {
+        session,
+        after: None,
+        most: MOST,
+    }
 }

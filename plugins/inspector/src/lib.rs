@@ -13,19 +13,32 @@ mod more;
 mod overview;
 
 use agents_ui::{
-    CONFIRM, Focused, Heard, ask, confirmation, either, hear, init,
+    AgentsWorldExt, CONFIRM, Focused, Heard, confirmation, either,
     moved, start,
 };
 use hamlet_engine_sdk::api::agents::{
-    AgentsEvent, AgentsReply, AgentsRequest, Recipient, Roster,
-    RosterAgent, Selected,
+    AgentsEvent, AgentsReply, AgentsRequest, Roster, RosterAgent,
+    Selected,
 };
 use hamlet_engine_sdk::ui::{
     AnyView, ViewExt, World, derived, keyed,
 };
-use hamlet_engine_sdk::{Entry, Message, Plugin};
+use hamlet_engine_sdk::{Entry, Message, Plugin, decode, encode};
 
-use crate::founding::FOUND;
+use crate::founding::{FOUND, Founding};
+use crate::hamlet::Naming;
+use crate::overview::Search;
+
+/// The characters of a purpose shown.
+pub(crate) const PURPOSE: usize = 96;
+
+/// What is typed in the Inspector's fields, kept across a reload:
+/// the founding form, the search of the hamlets and a rename.
+type Kept = (
+    (String, String, String),
+    Option<String>,
+    Option<(String, String)>,
+);
 
 /// The page the Inspector shows.
 #[derive(Clone, PartialEq, Debug)]
@@ -46,7 +59,7 @@ fn page(world: &World) -> Page {
         .as_ref()
         .map(|focus| focus.selected.clone());
     match selected {
-        // The chief's own page, its look, is the realm's to show.
+        // The chief's own page is the realm's to show.
         None | Some(Selected::Nothing | Selected::Hearth) => {
             Page::Overview
         }
@@ -80,16 +93,7 @@ fn page(world: &World) -> Page {
 
 /// Selects `thing`.
 pub(crate) fn select(world: &mut World, thing: Selected) {
-    ask(world, AgentsRequest::Select(thing));
-}
-
-/// Who the open conversation is with.
-pub(crate) fn with(world: &World) -> Option<Recipient> {
-    world
-        .resource::<Focused>()
-        .0
-        .as_ref()
-        .map(|focus| focus.with.clone())
+    world.ask(AgentsRequest::Select(thing));
 }
 
 /// The agent `name` of the roster.
@@ -109,7 +113,7 @@ struct Inspector;
 
 /// Puts in what the Inspector's views read.
 fn prepare(world: &mut World) {
-    init(world);
+    world.init_agents();
     agent::prepare(world);
     archive::prepare(world);
     overview::prepare(world);
@@ -162,9 +166,35 @@ impl Plugin for Inspector {
         }
     }
 
+    fn save(&self, world: &World) -> Vec<u8> {
+        let founding =
+            world.get::<Founding>().cloned().unwrap_or_default();
+        let kept: Kept = (
+            (founding.name, founding.mayor, founding.purpose),
+            world.get::<Search>().map(|search| search.0.clone()),
+            world.get::<Naming>().and_then(|naming| naming.0.clone()),
+        );
+        encode(&kept).unwrap_or_default()
+    }
+
+    fn restore(&mut self, state: &[u8], world: &mut World) {
+        let Ok(((name, mayor, purpose), search, naming)) =
+            decode::<Kept>(state)
+        else {
+            return;
+        };
+        world.insert(Founding {
+            name,
+            mayor,
+            purpose,
+        });
+        world.insert(Search(search.unwrap_or_default()));
+        world.insert(Naming(naming));
+    }
+
     fn receive(&mut self, message: Message, world: &mut World) {
         prepare(world);
-        let Some(told) = hear(world, message) else {
+        let Some(told) = world.hear(message) else {
             return;
         };
         match &told {
@@ -178,8 +208,13 @@ impl Plugin for Inspector {
                 agent::follow(world);
             }
             Heard::Event(AgentsEvent::Roster(_)) => {
-                hamlet::follow(world);
-                bylaws::follow(world);
+                if matches!(page(world), Page::Hamlet(_)) {
+                    hamlet::follow(world);
+                    bylaws::follow(world);
+                } else {
+                    hamlet::leave(world);
+                    bylaws::leave(world);
+                }
             }
             _ => {}
         }

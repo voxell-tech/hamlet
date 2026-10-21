@@ -1,20 +1,14 @@
 //! What the pages are made of: words of each kind, the problem of a
 //! page, and the footer that sets up again.
 
-pub(crate) use agents_ui::{name, part, setting};
-use hamlet_engine_sdk::World;
+pub(crate) use agents_ui::{name, note, part, setting};
 use hamlet_engine_sdk::api::agents::AgentsRequest;
 use hamlet_engine_sdk::ui::{
-    AnyView, FrameProps, Label, Prop, Size, Space, Tone, UiExt,
-    ViewExt, column, icon_button, keyed, label, resource, row,
+    AnyView, FrameProps, Size, Space, Tone, UiExt, ViewExt, column,
+    icon_button, keyed, label, resource, row,
 };
 
 use crate::{Known, Page, SettingsWorldExt};
-
-/// Small words that stand back.
-pub(crate) fn note(text: impl Into<Prop<World, String>>) -> Label {
-    label(text).size(Size::Small).tone(Tone::Dim)
-}
 
 /// Why the last change on `page` did not go through, in red, or
 /// nothing.

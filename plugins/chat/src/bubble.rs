@@ -1,15 +1,17 @@
 //! The chat drawn: its head with everyone who speaks in it, and each
 //! row, a message in its bubble or the steps of a turn as a fold.
 
-use agents_ui::{Confirm, Focused, confirm, entry_view, markdown};
+use agents_ui::{
+    AgentsWorldExt, Confirm, Focused, entry_view, markdown,
+};
 use hamlet_engine_sdk::api::agents::{
     AgentsRequest, Entry, Recipient, SessionName,
 };
 use hamlet_engine_sdk::ui::{
     Align, AnyView, ButtonProps, ButtonStyle, Cx, Face, Fill,
     FrameProps, Hovered, ScopedExt, ScrollProps, Size, Space,
-    StateExt, Tone, UiExt, ViewExt, World, button, column, each,
-    icon, keyed, label, pressable, resource, row, scroll,
+    StateExt, Tone, UiExt, ViewExt, World, button, column, divider,
+    each, icon, keyed, label, pressable, resource, row, scroll,
 };
 
 use crate::bar::reply_to;
@@ -61,36 +63,24 @@ fn names(cast: &[Who]) -> String {
     }
 }
 
-/// Who the open conversation is with.
-fn with(world: &World) -> Option<Recipient> {
-    world
-        .resource::<Focused>()
-        .0
-        .as_ref()
-        .map(|focus| focus.with.clone())
-}
-
 /// Asks before a new session files this one in the archive.
 fn new_session(world: &mut World) {
-    let Some(to) = with(world) else {
+    let Some(to) = world.resource::<Focused>().with() else {
         return;
     };
-    confirm(
-        world,
-        Confirm {
-            question: "START A NEW SESSION?".into(),
-            outcome: "This conversation goes to the Archive, where \
-                      it can be read and resumed. The agent keeps \
-                      its notes and skills."
-                .into(),
-            working: Vec::new(),
-            verb: "NEW SESSION".into(),
-            then: vec![AgentsRequest::Send {
-                to,
-                text: "/new".into(),
-            }],
-        },
-    );
+    world.confirm(Confirm {
+        question: "START A NEW SESSION?".into(),
+        outcome: "This conversation goes to the Archive, where it \
+                  can be read and resumed. The agent keeps its \
+                  notes and skills."
+            .into(),
+        working: Vec::new(),
+        verb: "NEW SESSION".into(),
+        then: vec![AgentsRequest::Send {
+            to,
+            text: "/new".into(),
+        }],
+    });
 }
 
 /// Asks before the open conversation is taken back to the message
@@ -100,21 +90,17 @@ fn rewind(world: &mut World, session: SessionName, entry: u64) {
         || "The agent".to_string(),
         |who| who.name.clone(),
     );
-    confirm(
-        world,
-        Confirm {
-            question: "REWIND TO HERE?".into(),
-            outcome: format!(
-                "{agent} forgets this message and everything after \
-                 it, and the message goes back in the field. \
-                 Changed files, commands that ran, letters and \
-                 spending are not undone."
-            ),
-            working: Vec::new(),
-            verb: "REWIND".into(),
-            then: vec![AgentsRequest::Rewind { session, entry }],
-        },
-    );
+    world.confirm(Confirm {
+        question: "REWIND TO HERE?".into(),
+        outcome: format!(
+            "{agent} forgets this message and everything after it, \
+             and the message goes back in the field. Changed files, \
+             commands that ran, letters and spending are not undone."
+        ),
+        working: Vec::new(),
+        verb: "REWIND".into(),
+        then: vec![AgentsRequest::Rewind { session, entry }],
+    });
 }
 
 /// The head of the chat: the house it is and everyone who speaks in
@@ -136,7 +122,7 @@ pub fn header() -> AnyView {
             .take(FACES)
             .map(face)
             .collect::<Vec<_>>();
-        row((
+        let head = row((
             row(faces).space(Space::Half),
             column((
                 label(title)
@@ -155,8 +141,8 @@ pub fn header() -> AnyView {
                      Archive.",
                 ),
         ))
-        .space(Space::Gap)
-        .boxed()
+        .space(Space::Gap);
+        column((head, divider())).space(Space::Half).boxed()
     })
     .boxed()
 }
@@ -234,12 +220,15 @@ fn said(
             );
         }
         if !line.by.tag.is_empty() {
-            head.push(
-                label(line.by.tag.clone())
-                    .size(Size::Small)
+            let tag = label(line.by.tag.clone()).size(Size::Small);
+            head.push(match line.by.kind {
+                Kind::Mayor => tag
+                    .bold(true)
+                    .face(Face::Display)
                     .tone(Tone::Faint)
                     .boxed(),
-            );
+                _ => tag.tone(Tone::Dim).boxed(),
+            });
         }
         inside.push(row(head).space(Space::Half).boxed());
     }
@@ -272,7 +261,7 @@ fn said(
     let mut foot = vec![
         label(line.hour.clone())
             .size(Size::Small)
-            .tone(Tone::Faint)
+            .tone(if mine { Tone::Faint } else { Tone::Dim })
             .boxed(),
     ];
     // Shown under the pointer.
@@ -434,7 +423,7 @@ fn rows() -> AnyView {
             let line = line.clone();
             let owner = owner.clone();
             AnyView::new(move |cx: &mut Cx| {
-                let to = with(cx.world);
+                let to = cx.world.resource::<Focused>().with();
                 cx.build(line_view(&line, &owner, to))
             })
         },

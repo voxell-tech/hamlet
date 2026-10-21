@@ -131,7 +131,7 @@ struct Demo {
     orbit: Orbit,
     lit: Vec<Lit>,
     glowing: Material,
-    field_look: Material,
+    field_material: Material,
     _held: Held,
 }
 
@@ -172,7 +172,7 @@ impl Demo {
             ShaderKind::Material,
             include_str!("ring.wgsl"),
         )?;
-        let ring_look = shaded_material(
+        let ring_material = shaded_material(
             &ring_shader,
             Shaded {
                 alpha_mode: AlphaMode::Opaque,
@@ -196,7 +196,7 @@ impl Demo {
                 "the ring",
                 (0.0, 1.2, -3.0),
                 Mesh::shape(Shape::Torus((0.3, 1.0)))?,
-                ring_look,
+                ring_material,
             )?,
             Lit::make(
                 PYRAMID,
@@ -217,7 +217,7 @@ impl Demo {
             ShaderKind::Material,
             include_str!("field.wgsl"),
         )?;
-        let field_look = shaded_material(
+        let field_material = shaded_material(
             &field_shader,
             Shaded {
                 alpha_mode: AlphaMode::Opaque,
@@ -229,7 +229,8 @@ impl Demo {
             Some(&lifts),
         )?;
         let cube = Mesh::shape(Shape::Cuboid((0.4, 0.4, 0.4)))?;
-        let field = Instances::make(None, &cube, &field_look, FIELD)?;
+        let field =
+            Instances::make(None, &cube, &field_material, FIELD)?;
         field.set(&copies(&field_places()))?;
         field.watch(true, true);
 
@@ -257,7 +258,7 @@ impl Demo {
             orbit,
             lit,
             glowing,
-            field_look,
+            field_material,
             _held: (
                 sun,
                 ground,
@@ -328,13 +329,15 @@ impl Demo {
     fn light(&self, key: u32, index: u32, on: bool) {
         if key == FIELD {
             let at = on.then_some(index);
-            let _ = set_params(&self.field_look, &field_params(at));
+            let _ =
+                set_params(&self.field_material, &field_params(at));
             return;
         }
         if let Some(lit) = self.lit.iter().find(|lit| lit.key == key)
         {
-            let look = if on { &self.glowing } else { &lit.material };
-            lit.entity.draw(&lit.mesh, look);
+            let material =
+                if on { &self.glowing } else { &lit.material };
+            lit.entity.draw(&lit.mesh, material);
         }
     }
 }

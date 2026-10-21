@@ -8,11 +8,11 @@ use hamlet_engine_sdk::AgentsRequest;
 use hamlet_engine_sdk::api::agents::{Choice, Need, Pick};
 use hamlet_engine_sdk::ui::{
     AnyView, ButtonProps, ButtonStyle, FrameProps, Size, Space, Tone,
-    UiExt, ViewExt, World, button, column, field, icon, label,
-    pressable, row,
+    UiExt, ViewExt, button, column, field, icon, label, pressable,
+    row,
 };
 
-use crate::client::ask;
+use crate::client::AgentsWorldExt;
 
 /// The card of the questions `need` asks, at the question its sheet
 /// shows.
@@ -78,7 +78,11 @@ pub fn card(need: &Need) -> AnyView {
                     ButtonStyle::Quiet
                 })
                 .on_click(move |world| {
-                    picked(world, id, question, then.clone())
+                    world.ask(AgentsRequest::Pick {
+                        need: id,
+                        question,
+                        pick: then.clone(),
+                    })
                 })
                 .boxed()
         })
@@ -100,12 +104,11 @@ pub fn card(need: &Need) -> AnyView {
             row((
                 label(name).size(Size::Small).tone(Tone::Dim),
                 field(typed).on_commit(move |world, text| {
-                    picked(
-                        world,
-                        id,
+                    world.ask(AgentsRequest::Pick {
+                        need: id,
                         question,
-                        Some(Pick::Words(text)),
-                    )
+                        pick: Some(Pick::Words(text)),
+                    })
                 }),
             ))
             .space(Space::Gap)
@@ -116,20 +119,17 @@ pub fn card(need: &Need) -> AnyView {
     let next = if at + 1 < count {
         button("NEXT")
             .on_click(move |world| {
-                ask(
-                    world,
-                    AgentsRequest::Turn {
-                        need: id,
-                        to: question + 1,
-                    },
-                )
+                world.ask(AgentsRequest::Turn {
+                    need: id,
+                    to: question + 1,
+                })
             })
             .boxed()
     } else {
         button("SUBMIT")
             .style(ButtonStyle::Primary)
             .on_click(move |world| {
-                ask(world, AgentsRequest::Submit(id))
+                world.ask(AgentsRequest::Submit(id))
             })
             .boxed()
     };
@@ -140,14 +140,11 @@ pub fn card(need: &Need) -> AnyView {
                 .tone(Tone::Dim),
             button("DISMISS").style(ButtonStyle::Quiet).on_click(
                 move |world| {
-                    ask(
-                        world,
-                        AgentsRequest::Answer {
-                            need: id,
-                            choice: Choice::Dismiss,
-                            text: String::new(),
-                        },
-                    )
+                    world.ask(AgentsRequest::Answer {
+                        need: id,
+                        choice: Choice::Dismiss,
+                        text: String::new(),
+                    })
                 },
             ),
             next,
@@ -158,28 +155,12 @@ pub fn card(need: &Need) -> AnyView {
     column(parts).space(Space::Half).boxed()
 }
 
-fn picked(
-    world: &mut World,
-    need: u64,
-    question: u32,
-    pick: Option<Pick>,
-) {
-    ask(
-        world,
-        AgentsRequest::Pick {
-            need,
-            question,
-            pick,
-        },
-    );
-}
-
 /// The way between the questions of a card, and where it is.
 fn pager(need: u64, count: usize, at: usize) -> AnyView {
     let step = |which: &'static str, to: usize| {
         let to = u32::try_from(to.min(count - 1)).unwrap_or(u32::MAX);
         button(which).style(ButtonStyle::Quiet).on_click(
-            move |world| ask(world, AgentsRequest::Turn { need, to }),
+            move |world| world.ask(AgentsRequest::Turn { need, to }),
         )
     };
     row((

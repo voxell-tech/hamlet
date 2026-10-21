@@ -4,7 +4,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use agents_ui::{Focused, hour, tag_of, titled};
+use agents_ui::{AgentsWorldExt, Focused, hour, tag_of, titled};
 use hamlet_engine_sdk::World;
 use hamlet_engine_sdk::api::agents::{
     Entry, Focus, Part, Recipient, Roster, SessionMessage,
@@ -19,6 +19,9 @@ const MAYOR: &str = "mayor";
 
 /// The rows built from the end, and the rows each step back adds.
 const PAGE: usize = 24;
+
+/// The most notices of the chat's own kept.
+const NOTICES: usize = 16;
 
 /// The folds that are open, by their session and first message.
 #[derive(Default)]
@@ -536,7 +539,11 @@ pub fn lines(world: &World) -> Lines {
     let mut lines = placed
         .into_iter()
         .map(|(_, placed)| {
-            let by = all[placed.by].clone();
+            let mut by = all[placed.by].clone();
+            // The head of the chat says what its own agent is for.
+            if placed.by == 0 {
+                by.tag.clear();
+            }
             // What is said to the agent the chat is with, or to the
             // chief here, needs no saying.
             let to = all
@@ -617,16 +624,14 @@ fn mark_runs(lines: &mut [Line]) {
 /// Builds the chat again from what `world` holds, when it changed.
 pub fn refresh(world: &mut World) {
     let now = lines(world);
-    if world.get::<Lines>() != Some(&now) {
-        world.insert(now);
-    }
+    world.keep(now);
 }
 
 /// Puts a notice of the chat's own in it, now.
 pub fn notice(world: &mut World, text: &str) {
     let at = now();
-    world
-        .resource_mut::<Talk>()
-        .notices
-        .push((at, text.to_string()));
+    let notices = &mut world.resource_mut::<Talk>().notices;
+    notices.push((at, text.to_string()));
+    let over = notices.len().saturating_sub(NOTICES);
+    notices.drain(..over);
 }

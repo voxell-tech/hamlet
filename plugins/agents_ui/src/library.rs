@@ -5,45 +5,37 @@ use hamlet_engine_sdk::AgentsRequest;
 use hamlet_engine_sdk::api::agents::Skill;
 use hamlet_engine_sdk::ui::{
     AnyView, ButtonStyle, FrameProps, Size, Space, Tone, UiExt,
-    ViewExt, World, button, column, keyed, label, list, resource,
-    row,
+    ViewExt, World, button, column, icon_button, keyed, label, list,
+    resource, row,
 };
 
-use crate::client::{Focused, Shelves};
-use crate::confirm::{Confirm, confirm};
+use crate::client::{AgentsWorldExt, Focused, Shelves, show_chat};
+use crate::confirm::Confirm;
 
 const EMPTY: &str = "The library is empty. Agents offer skills and \
                      the librarian decides which to keep.";
 
 /// Asks before `skill` is deleted from the library.
 fn take_out(world: &mut World, skill: &str) {
-    let Some(to) = world
-        .resource::<Focused>()
-        .0
-        .as_ref()
-        .map(|focus| focus.with.clone())
-    else {
+    let Some(to) = world.resource::<Focused>().with() else {
         return;
     };
-    confirm(
-        world,
-        Confirm {
-            question: format!(
-                "TAKE {} OUT OF THE LIBRARY?",
-                skill.to_uppercase()
-            ),
-            outcome: format!(
-                "{skill} is deleted from the library for every \
-                 hamlet. This cannot be undone."
-            ),
-            working: Vec::new(),
-            verb: "TAKE OUT".into(),
-            then: vec![AgentsRequest::Send {
-                to,
-                text: format!("/unshelve {skill}"),
-            }],
-        },
-    );
+    world.confirm(Confirm {
+        question: format!(
+            "TAKE {} OUT OF THE LIBRARY?",
+            skill.to_uppercase()
+        ),
+        outcome: format!(
+            "{skill} is deleted from the library for every hamlet. \
+             This cannot be undone."
+        ),
+        working: Vec::new(),
+        verb: "TAKE OUT".into(),
+        then: vec![AgentsRequest::Send {
+            to,
+            text: format!("/unshelve {skill}"),
+        }],
+    });
 }
 
 fn card(skill: &Skill) -> AnyView {
@@ -64,22 +56,23 @@ fn card(skill: &Skill) -> AnyView {
     .boxed()
 }
 
-/// The library's skills, a card each, or `empty` when there is
-/// none.
-pub fn library_list(empty: fn() -> AnyView) -> AnyView {
+/// The library's skills, a card each, or what an empty library says
+/// with the way to the chat.
+pub fn library_list() -> AnyView {
     keyed(
         resource::<Shelves, _>(|shelves| shelves.0.clone()),
-        move |skills| {
+        |skills| {
             if skills.is_empty() {
-                return empty();
+                return column((
+                    label(EMPTY).tone(Tone::Dim),
+                    row((icon_button("speech", "OPEN CHAT")
+                        .on_click(|_| show_chat()),)),
+                ))
+                .space(Space::Half)
+                .boxed();
             }
             list(skills.iter().map(card).collect::<Vec<_>>()).boxed()
         },
     )
     .boxed()
-}
-
-/// What an empty library says.
-pub fn library_empty() -> AnyView {
-    label(EMPTY).tone(Tone::Dim).boxed()
 }

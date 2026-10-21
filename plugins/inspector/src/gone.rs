@@ -1,7 +1,7 @@
 //! The page of an agent that is gone, and of the library.
 
 use agents_ui::{
-    Confirm, confirm, library_empty, library_list, moved, short,
+    AgentsWorldExt, Confirm, library_list, moved, short,
 };
 use hamlet_engine_sdk::api::agents::{
     AgentsRequest, Roster, RosterAgent, Selected,
@@ -12,16 +12,7 @@ use hamlet_engine_sdk::ui::{
     icon_button, keyed, label, row, scroll,
 };
 
-use crate::{agent_named, select};
-
-/// The characters of a purpose shown.
-const PURPOSE: usize = 96;
-
-/// Gives the chief's command `text` to the hamlet of `agent`.
-fn decree(world: &mut World, agent: &RosterAgent, text: String) {
-    let hamlet = agent.hamlet.clone();
-    agents_ui::ask(world, AgentsRequest::Decree { hamlet, text });
-}
+use crate::{PURPOSE, agent_named, select};
 
 fn page(agent: &RosterAgent) -> AnyView {
     let fate = match &agent.merged_into {
@@ -37,7 +28,9 @@ fn page(agent: &RosterAgent) -> AnyView {
             label(fate).tone(Tone::Critical),
         ))
         .space(Space::Gap),
-        label(short(&agent.purpose, PURPOSE)).tone(Tone::Dim),
+        label(short(&agent.purpose, PURPOSE))
+            .tone(Tone::Dim)
+            .tip(agent.purpose.clone()),
         label(
             "Its house is kept in the archive. Deleting it frees \
              the space on disk.",
@@ -47,9 +40,8 @@ fn page(agent: &RosterAgent) -> AnyView {
             icon_button("restore", "RESTORE")
                 .style(ButtonStyle::Primary)
                 .on_click(move |world| {
-                    decree(
-                        world,
-                        &restored,
+                    world.decree(
+                        &restored.hamlet,
                         format!("/restore {}", restored.name),
                     )
                 }),
@@ -57,26 +49,23 @@ fn page(agent: &RosterAgent) -> AnyView {
                 .style(ButtonStyle::Critical)
                 .on_click(move |world| {
                     let name = erased.name.clone();
-                    confirm(
-                        world,
-                        Confirm {
-                            question: format!(
-                                "DELETE {} FOR GOOD?",
-                                name.to_uppercase()
-                            ),
-                            outcome: format!(
-                                "The archived house of {name} is \
-                                 deleted from disk. This cannot be \
-                                 undone."
-                            ),
-                            working: Vec::new(),
-                            verb: "DELETE".into(),
-                            then: vec![AgentsRequest::Decree {
-                                hamlet: erased.hamlet.clone(),
-                                text: format!("/erase {name}"),
-                            }],
-                        },
-                    );
+                    world.confirm(Confirm {
+                        question: format!(
+                            "DELETE {} FOR GOOD?",
+                            name.to_uppercase()
+                        ),
+                        outcome: format!(
+                            "The archived house of {name} is \
+                             deleted from disk. This cannot be \
+                             undone."
+                        ),
+                        working: Vec::new(),
+                        verb: "DELETE".into(),
+                        then: vec![AgentsRequest::Decree {
+                            hamlet: erased.hamlet.clone(),
+                            text: format!("/erase {name}"),
+                        }],
+                    });
                 }),
             icon_button("house", "ITS HAMLET").on_click(
                 move |world| {
@@ -117,7 +106,7 @@ pub(crate) fn library() -> AnyView {
              and the librarian decides whether to keep it.",
         )
         .tone(Tone::Dim),
-        scroll((library_list(library_empty),)),
+        scroll((library_list(),)),
     ))
     .space(Space::Gap)
     .boxed()

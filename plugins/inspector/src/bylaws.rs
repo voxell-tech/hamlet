@@ -2,9 +2,11 @@
 //! writing one key of it through the agents service, which refuses
 //! the realm's.
 
-use agents_ui::{Heard, ask, part, setting, switch, whole};
+use agents_ui::{
+    AgentsWorldExt, Heard, note, part, setting, switch, whole,
+};
 use hamlet_engine_sdk::api::agents::{
-    AgentsReply, AgentsRequest, Bylaws,
+    AgentsReply, AgentsRequest, Bylaws, CatalogueModel, Priced,
 };
 use hamlet_engine_sdk::ui::{
     AnyView, FrameProps, Size, Space, Tone, UiExt, ViewExt, World,
@@ -13,6 +15,37 @@ use hamlet_engine_sdk::ui::{
 };
 
 use crate::agent::{Models, offered};
+
+/// The most a sum of dollars of the bylaws may be.
+const MOST_DOLLARS: f64 = 1_000_000.0;
+
+/// The bylaws' methods on [`CatalogueModel`].
+trait CatalogueModelExt {
+    /// One line for whoever chooses it: its name, what it costs, how
+    /// much it holds and what it is for.
+    fn card(&self) -> String;
+}
+
+impl CatalogueModelExt for CatalogueModel {
+    fn card(&self) -> String {
+        let mut card = match self.priced {
+            Priced::Unknown => {
+                format!("{}: price not known", self.name)
+            }
+            _ => format!(
+                "{}: ${:.2} in and ${:.2} out for a million tokens",
+                self.name, self.input, self.output
+            ),
+        };
+        if let Some(context) = self.context {
+            card.push_str(&format!(", holds {context} tokens"));
+        }
+        if !self.note.trim().is_empty() {
+            card.push_str(&format!(". {}", self.note.trim()));
+        }
+        card
+    }
+}
 
 /// The bylaws of the hamlet last asked for.
 #[derive(Default)]
@@ -29,14 +62,25 @@ pub(crate) fn prepare(world: &mut World) {
 
 /// Reads the bylaws of the hamlet `id` again.
 pub(crate) fn read(world: &mut World, id: &str) {
-    world.resource_mut::<Laws>().of = Some(id.to_string());
-    ask(world, AgentsRequest::Bylaws(id.to_string()));
+    // Another hamlet's are not shown meanwhile.
+    if world.resource::<Laws>().of.as_deref() != Some(id) {
+        world.insert(Laws {
+            of: Some(id.to_string()),
+            ..Laws::default()
+        });
+    }
+    world.ask(AgentsRequest::Bylaws(id.to_string()));
+}
+
+/// Lets go of the bylaws, as their page is no longer shown.
+pub(crate) fn leave(world: &mut World) {
+    world.resource_mut::<Laws>().of = None;
 }
 
 /// Reads the bylaws shown again, as the hamlets change.
 pub(crate) fn follow(world: &mut World) {
     if let Some(of) = world.resource::<Laws>().of.clone() {
-        ask(world, AgentsRequest::Bylaws(of));
+        world.ask(AgentsRequest::Bylaws(of));
     }
 }
 
@@ -55,14 +99,14 @@ pub(crate) fn heard(world: &mut World, heard: &Heard) {
         Heard::Reply(
             Some(AgentsRequest::SetBylaw { hamlet, .. }),
             AgentsReply::Done,
-        ) => {
+        ) if world.resource::<Laws>().of.as_ref() == Some(hamlet) => {
             world.resource_mut::<Laws>().problem = None;
             read(world, hamlet);
         }
         Heard::Failed(
             Some(AgentsRequest::SetBylaw { hamlet, .. }),
             why,
-        ) => {
+        ) if world.resource::<Laws>().of.as_ref() == Some(hamlet) => {
             world.resource_mut::<Laws>().problem =
                 Some(why.to_string());
             read(world, hamlet);
@@ -82,15 +126,12 @@ fn set(
     let Some(hamlet) = world.resource::<Laws>().of.clone() else {
         return;
     };
-    ask(
-        world,
-        AgentsRequest::SetBylaw {
-            hamlet,
-            section: section.to_string(),
-            key: key.to_string(),
-            value,
-        },
-    );
+    world.ask(AgentsRequest::SetBylaw {
+        hamlet,
+        section: section.to_string(),
+        key: key.to_string(),
+        value,
+    });
 }
 
 fn refuse(world: &mut World, why: String) {
@@ -129,12 +170,11 @@ fn yes(
     )
 }
 
-/// A sum in dollars of the bylaws, at `key` of `section`. 0 is no
-/// cap when `capped`, which takes the key out.
+/// A sum in dollars of the bylaws, at `key` of `section`, from 0 to
+/// [`MOST_DOLLARS`]. 0 takes the key out.
 fn dollars(
     what: &'static str,
     (section, key): (&'static str, &'static str),
-    capped: bool,
     get: fn(&Bylaws) -> Option<f64>,
 ) -> AnyView {
     let control = field(resource::<Laws, _>(move |laws| {
@@ -146,26 +186,21 @@ fn dollars(
             .trim_start_matches('$')
             .parse::<f64>()
             .ok()
-            .filter(|sum| sum.is_finite() && *sum >= 0.0)
+            .filter(|sum| (0.0..=MOST_DOLLARS).contains(sum))
         else {
             return refuse(
                 world,
-                format!("{what}: a sum of dollars, 0 or more."),
+                format!(
+                    "{what}: a sum of dollars from 0 to \
+                     {MOST_DOLLARS}."
+                ),
             );
         };
-        let value =
-            (sum > 0.0 || !capped).then(|| format!("{sum:.2}"));
+        let value = (sum > 0.0).then(|| format!("{sum:.2}"));
         set(world, section, key, value);
     })
     .boxed();
     setting(what, control, None)
-}
-
-fn note(text: &str) -> AnyView {
-    label(text.to_string())
-        .size(Size::Small)
-        .tone(Tone::Dim)
-        .boxed()
 }
 
 fn budget(id: String) -> AnyView {
@@ -185,35 +220,21 @@ fn budget(id: String) -> AnyView {
              limit.",
         ),
         setting("It starts again every", period, None),
-        dollars(
-            "May spend, in dollars",
-            ("budget", "cost"),
-            true,
-            |b| b.budget_cost,
-        ),
+        dollars("May spend, in dollars", ("budget", "cost"), |b| {
+            b.budget_cost
+        }),
         row((
             icon_button("restore", "START IT AGAIN NOW").on_click(
-                move |world| {
-                    ask(
-                        world,
-                        AgentsRequest::Decree {
-                            hamlet: id.clone(),
-                            text: "/reset-budget".into(),
-                        },
-                    )
-                },
+                move |world| world.decree(&id, "/reset-budget"),
             ),
             note("What was spent stays in the record."),
         ))
         .space(Space::Gap),
         part("coins", "ONE TASK"),
         note("Counted across every agent the task touches."),
-        dollars(
-            "May cost, in dollars",
-            ("task", "cost"),
-            true,
-            |b| b.task_cost,
-        ),
+        dollars("May cost, in dollars", ("task", "cost"), |b| {
+            b.task_cost
+        }),
         number(
             "Messages between agents",
             ("task", "messages"),
@@ -223,7 +244,6 @@ fn budget(id: String) -> AnyView {
         dollars(
             "Price of a road, in dollars",
             ("road", "cost"),
-            false,
             |b| Some(b.road_cost),
         ),
     ))
@@ -255,13 +275,14 @@ fn models() -> AnyView {
                 return note(
                     "The home allows no model besides its default \
                      yet. Allow some under Models in Settings.",
-                );
+                )
+                .boxed();
             }
             let rows = allowed
                 .iter()
-                .map(|name| {
+                .map(|model| {
                     let (shown, picked) =
-                        (name.clone(), name.clone());
+                        (model.name.clone(), model.name.clone());
                     row((
                         toggle(resource::<Laws, _>(move |laws| {
                             laws.bylaws.models.contains(&shown)
@@ -269,7 +290,7 @@ fn models() -> AnyView {
                         .on_toggle(
                             move |world, on| pick(world, &picked, on),
                         ),
-                        note(name),
+                        note(model.card()),
                     ))
                     .space(Space::Gap)
                     .boxed()

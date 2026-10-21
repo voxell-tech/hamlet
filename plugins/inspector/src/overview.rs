@@ -1,7 +1,7 @@
 //! Every hamlet, with a search over them, the way to found one, and
 //! those closed down.
 
-use agents_ui::{Confirm, ask, confirm, either, moved};
+use agents_ui::{AgentsWorldExt, Confirm, Focused, either, moved};
 use hamlet_engine_sdk::api::agents::{
     AgentsRequest, ClosedHamlet, Roster, RosterHamlet, Selected,
 };
@@ -13,21 +13,14 @@ use hamlet_engine_sdk::ui::{
 };
 
 use crate::hamlet::{HOME, close_down};
-use crate::{founding, select, with};
+use crate::{founding, select};
 
 /// The words typed to search the hamlets.
 #[derive(Default)]
-struct Search(String);
+pub(crate) struct Search(pub(crate) String);
 
 pub(crate) fn prepare(world: &mut World) {
     world.init_resource::<Search>();
-}
-
-/// Sends `text` to the open conversation.
-pub(crate) fn tell(world: &mut World, text: String) {
-    if let Some(to) = with(world) {
-        ask(world, AgentsRequest::Send { to, text });
-    }
 }
 
 /// The icon, the words and the tone of a hamlet's state.
@@ -139,7 +132,7 @@ fn closed(names: &[ClosedHamlet]) -> AnyView {
             icon_button("restore", "RESTORE")
                 .style(ButtonStyle::Primary)
                 .on_click(move |world| {
-                    tell(world, format!("/restore-hamlet {back}"))
+                    world.tell(format!("/restore-hamlet {back}"))
                 }),
             icon_button("bin", "DELETE")
                 .style(ButtonStyle::Critical)
@@ -153,28 +146,22 @@ fn closed(names: &[ClosedHamlet]) -> AnyView {
 
 /// Asks before everything archived of the hamlet `name` is deleted.
 fn erase(world: &mut World, name: &str) {
-    let Some(to) = with(world) else {
+    let Some(to) = world.resource::<Focused>().with() else {
         return;
     };
-    confirm(
-        world,
-        Confirm {
-            question: format!(
-                "DELETE {} FOR GOOD?",
-                name.to_uppercase()
-            ),
-            outcome: format!(
-                "Everything archived of {name} is deleted from \
-                 disk. This cannot be undone."
-            ),
-            working: Vec::new(),
-            verb: "DELETE".into(),
-            then: vec![AgentsRequest::Send {
-                to,
-                text: format!("/erase-hamlet {name}"),
-            }],
-        },
-    );
+    world.confirm(Confirm {
+        question: format!("DELETE {} FOR GOOD?", name.to_uppercase()),
+        outcome: format!(
+            "Everything archived of {name} is deleted from disk. \
+             This cannot be undone."
+        ),
+        working: Vec::new(),
+        verb: "DELETE".into(),
+        then: vec![AgentsRequest::Send {
+            to,
+            text: format!("/erase-hamlet {name}"),
+        }],
+    });
 }
 
 /// Every hamlet, with a search over them.
@@ -219,7 +206,8 @@ pub(crate) fn overview() -> AnyView {
         row((
             icon_button("flame", "YOUR HEARTH")
                 .on_click(|world| select(world, Selected::Hearth)),
-            label("Where you live in the realm.").tone(Tone::Dim),
+            label("Where you live, and how you look.")
+                .tone(Tone::Dim),
         ))
         .space(Space::Gap),
     ))

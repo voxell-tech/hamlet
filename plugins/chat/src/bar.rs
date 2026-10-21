@@ -1,7 +1,9 @@
 //! The one place to type, under the chat: the card of questions the
 //! agent waits on, what the next message replies to, and the field.
 
-use agents_ui::{Focused, Waits, ask, card};
+use agents_ui::{
+    AgentsWorldExt, Focused, Waits, card, either, moved,
+};
 use hamlet_engine_sdk::api::agents::{AgentsRequest, Need};
 use hamlet_engine_sdk::ui::{
     AnyView, ButtonProps, ButtonStyle, FrameProps, Size, Space, Tone,
@@ -41,12 +43,7 @@ fn send(world: &mut World, typed: String) {
     if typed.is_empty() {
         return;
     }
-    let Some(to) = world
-        .resource::<Focused>()
-        .0
-        .as_ref()
-        .map(|focus| focus.with.clone())
-    else {
+    let Some(to) = world.resource::<Focused>().with() else {
         return;
     };
     world.resource_mut::<Draft>().0.clear();
@@ -59,7 +56,7 @@ fn send(world: &mut World, typed: String) {
         Some(answers) => replied(&answers, &typed),
         None => typed,
     };
-    ask(world, AgentsRequest::Send { to, text });
+    world.ask(AgentsRequest::Send { to, text });
 }
 
 /// The oldest card of questions the open conversation's agent, or a
@@ -80,12 +77,7 @@ fn waiting(world: &World) -> Option<Need> {
 
 /// The card the agent of the open conversation waits on.
 fn questions() -> AnyView {
-    let mut waits = resource::<Waits, _>(|_| ());
-    let mut focused = resource::<Focused, _>(|_| ());
-    // Both are asked, so that neither is left unread.
-    let moved = move |world: &World| {
-        waits.changed(world) | focused.changed(world)
-    };
+    let moved = either(moved::<Waits>(), moved::<Focused>());
     keyed(derived(waiting).when(moved), |need| match need {
         Some(need) => column((
             row((

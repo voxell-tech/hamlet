@@ -11,7 +11,7 @@ mod talk;
 mod timeline;
 
 use agents_ui::{
-    CONFIRM, Focused, Heard, confirmation, hear, init, start,
+    AgentsWorldExt, CONFIRM, Focused, Heard, confirmation, start,
 };
 use hamlet_engine_sdk::api::agents::{
     AgentsEvent, AgentsReply, AgentsRequest,
@@ -19,21 +19,28 @@ use hamlet_engine_sdk::api::agents::{
 use hamlet_engine_sdk::ui::{
     AnyView, FrameProps, Space, ViewExt, column,
 };
-use hamlet_engine_sdk::{Entry, Message, Plugin, World};
+use hamlet_engine_sdk::{
+    Entry, Message, Plugin, World, decode, encode,
+};
 
 use self::bar::{Draft, Replying, message_bar};
+use self::reply::Answers;
 use self::talk::{Talk, follow, heard};
 use self::timeline::{Lines, Reach, Unfolded, refresh};
 
 /// The name of the chat's panel.
 const CHAT: &str = "chat";
 
+/// What is typed and not yet sent, kept across a reload: the draft,
+/// and the speaker and words it replies to.
+type Kept = (Option<String>, Option<(String, String)>);
+
 #[derive(Default)]
 struct Chat;
 
 /// Puts in what the chat's views read.
 fn prepare(world: &mut World) {
-    init(world);
+    world.init_agents();
     world.init_resource::<Talk>();
     world.init_resource::<Draft>();
     world.init_resource::<Replying>();
@@ -70,7 +77,7 @@ impl Plugin for Chat {
 
     fn receive(&mut self, message: Message, world: &mut World) {
         prepare(world);
-        let Some(told) = hear(world, message) else {
+        let Some(told) = world.hear(message) else {
             return;
         };
         match &told {
@@ -87,6 +94,25 @@ impl Plugin for Chat {
         if world.resource::<Focused>().0.is_some() {
             refresh(world);
         }
+    }
+
+    fn save(&self, world: &World) -> Vec<u8> {
+        let draft = world.get::<Draft>().map(|draft| draft.0.clone());
+        let replying = world
+            .get::<Replying>()
+            .and_then(|replying| replying.0.clone())
+            .map(|answers| (answers.by, answers.text));
+        encode(&(draft, replying)).unwrap_or_default()
+    }
+
+    fn restore(&mut self, state: &[u8], world: &mut World) {
+        let Ok((draft, replying)) = decode::<Kept>(state) else {
+            return;
+        };
+        world.insert(Draft(draft.unwrap_or_default()));
+        world.insert(Replying(
+            replying.map(|(by, text)| Answers { by, text }),
+        ));
     }
 }
 

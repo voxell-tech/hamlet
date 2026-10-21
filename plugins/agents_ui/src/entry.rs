@@ -8,11 +8,11 @@ use hamlet_engine_sdk::api::agents::{
 };
 use hamlet_engine_sdk::ui::{
     AnyView, ButtonStyle, Face, FrameProps, Size, Space, Tone, UiExt,
-    ViewExt, World, button, column, label, row,
+    ViewExt, button, column, label, row,
 };
 
 use crate::change::{change_view, state};
-use crate::client::ask;
+use crate::client::AgentsWorldExt;
 use crate::markdown::markdown;
 use crate::words::{clip, tail};
 
@@ -21,18 +21,6 @@ const THOUGHT: usize = 160;
 
 /// The characters of a tool's command shown.
 const COMMAND: usize = 90;
-
-/// Carries on with the reply that failed in the conversation with
-/// `to`.
-pub fn retry(world: &mut World, to: Recipient) {
-    ask(
-        world,
-        AgentsRequest::Send {
-            to,
-            text: "/retry".into(),
-        },
-    );
-}
 
 /// A head over words: a name in small capitals.
 fn head(text: String, tone: Tone) -> AnyView {
@@ -103,8 +91,12 @@ pub fn entry_view(
                 parts.push(
                     button("Try again")
                         .style(ButtonStyle::Quiet)
+                        // Carries on with the reply that failed.
                         .on_click(move |world| {
-                            retry(world, to.clone())
+                            world.ask(AgentsRequest::Send {
+                                to: to.clone(),
+                                text: "/retry".into(),
+                            })
                         })
                         .boxed(),
                 );

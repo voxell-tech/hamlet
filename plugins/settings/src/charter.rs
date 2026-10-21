@@ -1,9 +1,10 @@
 //! The Charter page: the words every agent's prompt opens with, the
 //! way to edit them, and the way back to the ones built in.
 
+use agents_ui::markdown;
 use hamlet_engine_sdk::api::agents::AgentsRequest;
 use hamlet_engine_sdk::ui::{
-    AnyView, ButtonStyle, Face, FrameProps, Size, Space, Tone, UiExt,
+    AnyView, ButtonStyle, Face, FrameProps, Space, Tone, UiExt,
     ViewExt, button, column, divider, icon_button, keyed, label,
     resource, row,
 };
@@ -32,6 +33,7 @@ pub(crate) fn page() -> AnyView {
                             AgentsRequest::EditCharter,
                         );
                     })
+                    .tip("Opens the file in your editor")
                     .boxed(),
             ];
             if own {
@@ -56,11 +58,10 @@ pub(crate) fn page() -> AnyView {
                 .map(|charter| charter.text.clone())
                 .unwrap_or_default()
         }),
-        |text| markdown(text),
+        |text| markdown(text, Tone::Body),
     );
     column((
         note("Every agent reads this at the start of each turn."),
-        note("Edit opens the file in your editor."),
         actions,
         problem(Page::Charter),
         divider(),
@@ -98,56 +99,4 @@ fn confirm() -> AnyView {
     ))
     .space(Space::Half)
     .boxed()
-}
-
-/// `text`, Markdown, as words: a heading a line in bold, an item of a
-/// list a line of its own, and the lines of a paragraph joined.
-fn markdown(text: &str) -> AnyView {
-    let mut blocks = Vec::new();
-    let mut paragraph = Vec::<&str>::new();
-    let mut fenced = false;
-    let end = |paragraph: &mut Vec<&str>,
-               blocks: &mut Vec<AnyView>| {
-        if !paragraph.is_empty() {
-            blocks.push(label(paragraph.join(" ")).boxed());
-            paragraph.clear();
-        }
-    };
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("```") {
-            end(&mut paragraph, &mut blocks);
-            fenced = !fenced;
-            continue;
-        }
-        if fenced {
-            blocks.push(
-                label(line.to_string()).tone(Tone::Dim).boxed(),
-            );
-            continue;
-        }
-        if trimmed.is_empty() {
-            end(&mut paragraph, &mut blocks);
-        } else if let Some(title) = trimmed.strip_prefix('#') {
-            end(&mut paragraph, &mut blocks);
-            blocks.push(
-                label(
-                    title.trim_start_matches('#').trim().to_string(),
-                )
-                .bold(true)
-                .size(Size::Heading)
-                .boxed(),
-            );
-        } else if let Some(item) = trimmed
-            .strip_prefix("- ")
-            .or_else(|| trimmed.strip_prefix("* "))
-        {
-            end(&mut paragraph, &mut blocks);
-            blocks.push(label(format!("- {item}")).boxed());
-        } else {
-            paragraph.push(trimmed);
-        }
-    }
-    end(&mut paragraph, &mut blocks);
-    column(blocks).boxed()
 }

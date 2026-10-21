@@ -1,6 +1,7 @@
 //! The Models page: the default model, and every model the endpoints
 //! serve, for the person to allow and to price.
 
+use agents_ui::narrowed;
 use hamlet_engine_sdk::api::agents::{
     AgentsRequest, CatalogueModel, Listing, Priced,
 };
@@ -49,7 +50,12 @@ pub(crate) fn page() -> AnyView {
         problem(Page::Models),
         keyed(
             resource::<Known, _>(|known| {
-                narrowed(&known.models, &known.narrow)
+                narrowed(
+                    &known.models,
+                    &known.narrow,
+                    SHOWN,
+                    |model| &model.name,
+                )
             }),
             |(models, more)| shelf(models, *more),
         ),
@@ -113,26 +119,6 @@ fn said(listing: &Listing) -> String {
         words.push("Asking...".into());
     }
     words.join(" ")
-}
-
-/// The models with every word of `narrow` in their names, the first
-/// [`SHOWN`] of them, and how many more there are.
-fn narrowed(
-    models: &[CatalogueModel],
-    narrow: &str,
-) -> (Vec<CatalogueModel>, usize) {
-    let words = narrow.to_lowercase();
-    let mut found = models
-        .iter()
-        .filter(|model| {
-            let name = model.name.to_lowercase();
-            words.split_whitespace().all(|word| name.contains(word))
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    let more = found.len().saturating_sub(SHOWN);
-    found.truncate(SHOWN);
-    (found, more)
 }
 
 /// The models listed, and how many more there are.
@@ -214,12 +200,11 @@ fn price(model: &CatalogueModel, input: bool) -> AnyView {
             .tone(Tone::Faint)
             .boxed();
     }
-    let (name, other) = (
-        model.name.clone(),
-        if input { model.output } else { model.input },
-    );
+    let name = model.name.clone();
     field(text)
         .on_commit(move |world, typed| {
+            // The other price as last told, which an edit of it may
+            // have changed since the row was built.
             let Some(typed) = typed
                 .trim()
                 .parse::<f64>()
@@ -232,11 +217,22 @@ fn price(model: &CatalogueModel, input: bool) -> AnyView {
                 );
                 return;
             };
-            let (input, output) = if input {
-                (typed, other)
-            } else {
-                (other, typed)
+            // Kept at once, so an edit of the other price before the
+            // catalogue is told again sends this one with it.
+            let Some(model) = world
+                .resource_mut::<Known>()
+                .models
+                .iter_mut()
+                .find(|model| model.name == name)
+            else {
+                return;
             };
+            if input {
+                model.input = typed;
+            } else {
+                model.output = typed;
+            }
+            let (input, output) = (model.input, model.output);
             world.ask(
                 Page::Models,
                 AgentsRequest::PriceModel {

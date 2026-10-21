@@ -8,13 +8,14 @@
 
 mod pages;
 
+use agents_ui::FailureExt;
 use hamlet_engine_sdk::api::agents::{
     AgentsEvent, AgentsReply, AgentsRequest, Provider, Setup,
     SignInTo, Stage,
 };
 use hamlet_engine_sdk::ui::{AnyView, show_overlay};
 use hamlet_engine_sdk::{
-    Entry, Message, Plugin, Reply, World, agents,
+    Entry, Message, Plugin, Reply, World, agents, decode, encode,
 };
 
 /// The name of the card.
@@ -54,11 +55,73 @@ impl Plugin for WelcomeCard {
             // Shown on the card, as the service's own problems are.
             Err(why) => {
                 world.resource_or_init::<Welcome>().problem =
-                    Some(why.to_string());
+                    Some(why.plain());
             }
         }
     }
+
+    fn save(&self, world: &World) -> Vec<u8> {
+        let Some(welcome) = world.get::<Welcome>() else {
+            return Vec::new();
+        };
+        let (step, to) = match welcome.step {
+            Step::Choice => (0, None),
+            Step::Key => (1, None),
+            Step::SignIn(to) => (2, Some(to)),
+            Step::Local => (3, None),
+            Step::Models => (4, None),
+        };
+        let kept: Kept = (
+            welcome.setup.clone(),
+            (step, to),
+            welcome.provider as u64,
+            welcome.url.clone(),
+            welcome.narrow.clone(),
+            welcome.looked,
+        );
+        encode(&kept).unwrap_or_default()
+    }
+
+    fn restore(&mut self, state: &[u8], world: &mut World) {
+        let Ok((setup, (step, to), provider, url, narrow, looked)) =
+            decode::<Kept>(state)
+        else {
+            return;
+        };
+        let step = match (step, to) {
+            (1, _) => Step::Key,
+            (2, Some(to)) => Step::SignIn(to),
+            (3, _) => Step::Local,
+            (4, _) => Step::Models,
+            _ => Step::Choice,
+        };
+        if setup.as_ref().is_some_and(|setup| setup.begun) {
+            show_overlay(CARD, true);
+        }
+        world.insert(Welcome {
+            setup,
+            step,
+            provider: usize::try_from(provider).unwrap_or_default(),
+            url,
+            narrow,
+            looked,
+            ..Welcome::default()
+        });
+    }
 }
+
+/// What the card keeps across a reload, the key aside: the setup as
+/// last told, the step and the sign-in it is at, the provider chosen,
+/// the address and the words narrowing the models typed, and whether
+/// the settings were heard of.
+type Kept = (
+    Option<Setup>,
+    (u8, Option<SignInTo>),
+    u64,
+    String,
+    String,
+    bool,
+);
 
 /// The step of the card the person is at.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -103,18 +166,24 @@ impl Welcome {
         self.step = step;
         self.key.clear();
         self.narrow.clear();
-        self.problem = None;
+        self.forget_problem();
     }
 
-    /// Whether the service is still at the last thing asked.
+    /// Forgets why the last thing asked did not work.
+    fn forget_problem(&mut self) {
+        self.problem = None;
+        if let Some(setup) = &mut self.setup {
+            setup.problem = None;
+        }
+    }
+
+    /// Whether the service is still at the last thing asked. A
+    /// sign-in waits on the person, not the service.
     fn busy(&self) -> bool {
         self.setup.as_ref().is_some_and(|setup| {
             matches!(
                 setup.stage,
-                Stage::Asking
-                    | Stage::Looking
-                    | Stage::Trying
-                    | Stage::SigningIn(_)
+                Stage::Asking | Stage::Looking | Stage::Trying
             )
         })
     }
@@ -152,13 +221,11 @@ impl Welcome {
             Stage::Found if !setup.adding => self.step = Step::Models,
             Stage::Idle
                 if setup.problem.is_some()
-                    && stage
-                        == Some(Stage::SigningIn(
-                            SignInTo::OpenRouter,
-                        )) =>
+                    && self.step
+                        == Step::SignIn(SignInTo::OpenRouter) =>
             {
-                // Signing in did not finish: a key made by hand
-                // does as well.
+                // Signing in did not finish, or the key it gave did
+                // not answer: a key made by hand does as well.
                 self.step = Step::Key;
                 self.provider = self
                     .providers

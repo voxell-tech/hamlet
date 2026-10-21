@@ -1,5 +1,6 @@
 //! The pages of the card, one for each step.
 
+use agents_ui::{name, narrowed, note};
 use hamlet_engine_sdk::api::agents::{AgentsRequest, SignInTo};
 use hamlet_engine_sdk::ui::{
     AnyView, ButtonProps, ButtonStyle, Face, FrameProps, Size, Space,
@@ -47,19 +48,6 @@ fn title(which: &str, text: &str) -> AnyView {
 
 fn said(text: impl Into<String>) -> AnyView {
     label(text.into()).tone(Tone::Dim).boxed()
-}
-
-fn note(text: impl Into<String>) -> AnyView {
-    label(text.into()).size(Size::Small).tone(Tone::Dim).boxed()
-}
-
-fn small(text: &str) -> AnyView {
-    label(text.to_string())
-        .size(Size::Small)
-        .bold(true)
-        .tone(Tone::Faint)
-        .face(Face::Display)
-        .boxed()
 }
 
 /// The news of the last thing asked: that it is awaited, or why it
@@ -214,7 +202,7 @@ fn key_form(
                 .on_click(move |world| {
                     let welcome = world.resource_mut::<Welcome>();
                     welcome.provider = at;
-                    welcome.problem = None;
+                    welcome.forget_problem();
                 })
                 .boxed()
         })
@@ -231,14 +219,14 @@ fn key_form(
             .into(),
     };
     let mut parts = vec![
-        column((small("WHO GIVES YOU YOUR MODEL"), row(names)))
+        column((name("WHO GIVES YOU YOUR MODEL"), row(names)))
             .space(Space::Half)
             .boxed(),
     ];
     if known.is_none() {
         parts.push(
             column((
-                small("WHERE YOUR MODEL RUNS"),
+                name("WHERE YOUR MODEL RUNS"),
                 field(resource::<Welcome, _>(|welcome| {
                     welcome.url.clone()
                 }))
@@ -258,7 +246,7 @@ fn key_form(
     let endpoint = known.map(|provider| provider.endpoint.clone());
     parts.extend([
         column((
-            small("YOUR KEY"),
+            name("YOUR KEY"),
             field(resource::<Welcome, _>(|welcome| {
                 welcome.key.clone()
             }))
@@ -357,7 +345,7 @@ fn models() -> AnyView {
                 .as_ref()
                 .map(|setup| setup.models.as_slice())
                 .unwrap_or_default();
-            narrowed(models, &welcome.narrow)
+            narrowed(models, &welcome.narrow, SHOWN, String::as_str)
         }),
         |(ids, more)| {
             let mut rows = ids
@@ -391,7 +379,7 @@ fn models() -> AnyView {
         head("check", "PICK A MODEL"),
         label(found).tone(Tone::Dim),
         row((
-            small("FIND"),
+            name("FIND"),
             field(resource::<Welcome, _>(|welcome| {
                 welcome.narrow.clone()
             }))
@@ -405,21 +393,4 @@ fn models() -> AnyView {
     ))
     .space(Space::Double)
     .boxed()
-}
-
-/// The ids with every word of `narrow` in them, the first [`SHOWN`]
-/// of them, and how many more there are.
-fn narrowed(ids: &[String], narrow: &str) -> (Vec<String>, usize) {
-    let words = narrow.to_lowercase();
-    let mut found = ids
-        .iter()
-        .filter(|id| {
-            let id = id.to_lowercase();
-            words.split_whitespace().all(|word| id.contains(word))
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    let more = found.len().saturating_sub(SHOWN);
-    found.truncate(SHOWN);
-    (found, more)
 }

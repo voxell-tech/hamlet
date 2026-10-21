@@ -11,20 +11,24 @@ mod models;
 mod parts;
 mod realm;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
+use agents_ui::FailureExt;
 use hamlet_engine_sdk::api::agents::{
     AgentsEvent, AgentsReply, AgentsRequest, CatalogueModel, Charter,
     Grant, RealmLimits, Settings, Stage,
 };
 use hamlet_engine_sdk::ui::{AnyView, ViewExt, column, open};
 use hamlet_engine_sdk::{
-    DesktopReply, DesktopRequest, Entry, Message, Plugin, Reply,
-    Ticket, World, agents, desktop, warn,
+    DesktopEvent, DesktopReply, DesktopRequest, Entry, Message,
+    Plugin, Reply, Ticket, World, agents, desktop, warn,
 };
 
 /// The most models the Models page lists at once.
 const SHOWN: usize = 40;
+
+/// The most requests remembered at once.
+const REMEMBERED: usize = 256;
 
 #[derive(Default)]
 struct SettingsPages;
@@ -48,8 +52,7 @@ impl Plugin for SettingsPages {
             .settings_page(
                 "agents",
                 "Agents",
-                "Reflection, network access, keeping awake and \
-                 lasting permissions.",
+                "Reflection, network access and keeping awake.",
                 "robot",
             )
             .settings_page(
@@ -75,6 +78,7 @@ impl Plugin for SettingsPages {
         ] {
             agents(&request);
         }
+        desktop(&DesktopRequest::Watch);
         desktop(&DesktopRequest::Settings);
     }
 
@@ -103,7 +107,12 @@ impl Plugin for SettingsPages {
                 world.hear(reply, page)
             }
             (
-                Ok(Reply::Desktop(DesktopReply::Settings(settings))),
+                Ok(Reply::Desktop(
+                    DesktopReply::Settings(settings)
+                    | DesktopReply::Event(DesktopEvent::Settings(
+                        settings,
+                    )),
+                )),
                 page,
             ) => {
                 let known = world.resource_or_init::<Known>();
@@ -113,9 +122,7 @@ impl Plugin for SettingsPages {
                 }
             }
             (Ok(_), _) => {}
-            (Err(why), Some(page)) => {
-                world.refuse(page, why.to_string())
-            }
+            (Err(why), Some(page)) => world.refuse(page, why.plain()),
             (Err(why), None) => warn(&format!("the agents: {why}")),
         }
     }
@@ -154,7 +161,22 @@ struct Known {
 /// The requests that wait for an answer, by ticket, with the page
 /// each was asked on.
 #[derive(Default)]
-struct Asked(HashMap<Ticket, Page>);
+struct Asked(BTreeMap<Ticket, Page>);
+
+impl Asked {
+    /// Remembers the page `ticket` was asked on. A reply the inbox
+    /// left out never comes, so the oldest are forgotten past
+    /// [`REMEMBERED`].
+    fn keep(&mut self, ticket: Ticket, page: Page) {
+        if ticket == 0 {
+            return;
+        }
+        self.0.insert(ticket, page);
+        if self.0.len() > REMEMBERED {
+            self.0.pop_first();
+        }
+    }
+}
 
 /// The settings pages' methods on [`World`].
 trait SettingsWorldExt {
@@ -179,12 +201,12 @@ trait SettingsWorldExt {
 impl SettingsWorldExt for World {
     fn ask(&mut self, page: Page, request: AgentsRequest) {
         let ticket = agents(&request);
-        self.resource_or_init::<Asked>().0.insert(ticket, page);
+        self.resource_or_init::<Asked>().keep(ticket, page);
     }
 
     fn ask_desktop(&mut self, page: Page, request: DesktopRequest) {
         let ticket = desktop(&request);
-        self.resource_or_init::<Asked>().0.insert(ticket, page);
+        self.resource_or_init::<Asked>().keep(ticket, page);
     }
 
     fn refuse(&mut self, page: Page, why: String) {

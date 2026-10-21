@@ -3,17 +3,17 @@
 //! from the engine's Petitions, which ask about what a plugin may do.
 
 use agents_ui::{
-    Heard, Waits, ask, card, change_view, hear, init, start,
+    AgentsWorldExt, Heard, Waits, card, change_view, start,
 };
 use hamlet_engine_sdk::api::agents::{
     AgentsEvent, AgentsReply, AgentsRequest, Choice, Need, NeedKind,
 };
 use hamlet_engine_sdk::ui::{
-    AnyView, ButtonProps, ButtonStyle, Face, FrameProps, Size, Space,
-    Tone, UiExt, ViewExt, World, column, each, field, icon_button,
-    label, resource, row, scroll,
+    AnyView, ButtonProps, ButtonStyle, Face, Fill, FrameProps, Size,
+    Space, Tone, UiExt, ViewExt, World, column, each, field,
+    icon_button, label, resource, row, scroll,
 };
-use hamlet_engine_sdk::{Entry, Message, Plugin};
+use hamlet_engine_sdk::{Entry, Message, Plugin, decode, encode};
 
 /// The name of the panel.
 const NEEDS: &str = "needs";
@@ -33,7 +33,7 @@ struct Reason(String);
 struct Seen(usize);
 
 fn prepare(world: &mut World) {
-    init(world);
+    world.init_agents();
     world.init_resource::<Reason>();
     world.init_resource::<Seen>();
 }
@@ -45,7 +45,7 @@ fn answer(world: &mut World, need: u64, choice: Choice) {
     if choice == Choice::Reply && text.is_empty() {
         return;
     }
-    ask(world, AgentsRequest::Answer { need, choice, text });
+    world.ask(AgentsRequest::Answer { need, choice, text });
     world.resource_mut::<Reason>().0.clear();
 }
 
@@ -136,7 +136,7 @@ fn strip(need: &Need) -> AnyView {
             parts.push(row(answers).space(Space::Half).boxed());
         }
     }
-    column(parts).space(Space::Half).boxed()
+    column(parts).space(Space::Half).fill(Fill::Card).boxed()
 }
 
 impl Plugin for Needs {
@@ -173,7 +173,7 @@ impl Plugin for Needs {
                 icon_button("stop", "STOP ALL")
                     .style(ButtonStyle::Critical)
                     .on_click(|world| {
-                        ask(world, AgentsRequest::Veto(None))
+                        world.ask(AgentsRequest::Veto(None))
                     }),
             ))
             .space(Space::Gap),
@@ -196,9 +196,26 @@ impl Plugin for Needs {
         .boxed()
     }
 
+    fn save(&self, world: &World) -> Vec<u8> {
+        let reason =
+            world.get::<Reason>().map(|reason| reason.0.clone());
+        let seen =
+            world.get::<Seen>().map_or(0, |seen| seen.0 as u64);
+        encode(&(reason.unwrap_or_default(), seen))
+            .unwrap_or_default()
+    }
+
+    // What waited before the reload is not new.
+    fn restore(&mut self, state: &[u8], world: &mut World) {
+        if let Ok((reason, seen)) = decode::<(String, u64)>(state) {
+            world.insert(Reason(reason));
+            world.insert(Seen(usize::try_from(seen).unwrap_or(0)));
+        }
+    }
+
     fn receive(&mut self, message: Message, world: &mut World) {
         prepare(world);
-        let Some(told) = hear(world, message) else {
+        let Some(told) = world.hear(message) else {
             return;
         };
         if let Heard::Reply(_, AgentsReply::Needs(_))

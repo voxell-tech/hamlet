@@ -1,18 +1,24 @@
-//! The controls a limit is set with, as the realm's page and a
-//! hamlet's bylaws show them: its name over a field or a switch,
-//! each read from a resource and handing what is typed on.
+//! The words of a settings page and the controls a limit is set
+//! with, as the realm's page and a hamlet's bylaws show them: its
+//! name over a field or a switch, each read from a resource and
+//! handing what is typed on.
 
 use std::any::Any;
 
 use hamlet_engine_sdk::ui::{
-    AnyView, Face, FrameProps, Label, Size, Space, Tone, UiExt,
+    AnyView, Face, FrameProps, Label, Prop, Size, Space, Tone, UiExt,
     ViewExt, World, column, field, icon, label, resource, row,
     toggle,
 };
 
+/// Small words that stand back.
+pub fn note(text: impl Into<Prop<World, String>>) -> Label {
+    label(text).size(Size::Small).tone(Tone::Dim)
+}
+
 /// The name of a setting, over its control.
-pub fn name(text: &str) -> Label {
-    label(text.to_string())
+pub fn name(text: impl Into<Prop<World, String>>) -> Label {
+    label(text)
         .size(Size::Small)
         .bold(true)
         .tone(Tone::Faint)
@@ -34,12 +40,7 @@ pub fn setting(
 ) -> AnyView {
     let mut parts = vec![name(text).boxed(), control];
     if let Some(help) = help {
-        parts.push(
-            label(help.to_string())
-                .size(Size::Small)
-                .tone(Tone::Dim)
-                .boxed(),
-        );
+        parts.push(note(help.to_string()).boxed());
     }
     column(parts).space(Space::Half).boxed()
 }

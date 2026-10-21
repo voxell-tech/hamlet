@@ -1,12 +1,11 @@
 //! The form a hamlet is founded with, on a card over the dock.
 
+use agents_ui::AgentsWorldExt;
 use hamlet_engine_sdk::ui::{
     AnyView, ButtonStyle, Face, FrameProps, Size, Space, Tone, UiExt,
     ViewExt, World, button, column, field, label, resource, row,
     show_overlay,
 };
-
-use crate::overview::tell;
 
 /// The name of the form's overlay, and of the command that shows it.
 pub(crate) const FOUND: &str = "found";
@@ -14,10 +13,10 @@ pub(crate) const FOUND: &str = "found";
 /// The name of a hamlet being founded, the name of its mayor, and its
 /// purpose.
 #[derive(Default, Clone, PartialEq)]
-struct Founding {
-    name: String,
-    mayor: String,
-    purpose: String,
+pub(crate) struct Founding {
+    pub(crate) name: String,
+    pub(crate) mayor: String,
+    pub(crate) purpose: String,
 }
 
 impl Founding {
@@ -108,7 +107,7 @@ pub(crate) fn founding() -> AnyView {
                     };
                     show_overlay(FOUND, false);
                     world.insert(Founding::default());
-                    tell(world, command);
+                    world.tell(command);
                 },
             ),
             // The words typed stay for the next time it is opened.

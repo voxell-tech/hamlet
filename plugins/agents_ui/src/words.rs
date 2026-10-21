@@ -1,7 +1,9 @@
-//! Words as the panels set them: names, tags, times and text cut
-//! short.
+//! Words as the panels set them: names, tags, times, text cut short,
+//! lists narrowed and why a request failed.
 
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use hamlet_engine_sdk::Failure;
 
 /// The longest tag, in letters.
 const TAG: usize = 24;
@@ -90,6 +92,46 @@ pub fn hour(at: u64, offset: i32) -> String {
     let seconds = (at / 1000) as i64 + i64::from(offset);
     let minutes = seconds.rem_euclid(86_400) / 60;
     format!("{:02}:{:02}", minutes / 60, minutes % 60)
+}
+
+/// The items of `all` whose name has every word of `narrow` in it,
+/// whatever the case, the first `most` of them, and how many more
+/// there are.
+pub fn narrowed<T: Clone>(
+    all: &[T],
+    narrow: &str,
+    most: usize,
+    name: impl Fn(&T) -> &str,
+) -> (Vec<T>, usize) {
+    let words = narrow.to_lowercase();
+    let mut found = all
+        .iter()
+        .filter(|item| {
+            let name = name(item).to_lowercase();
+            words.split_whitespace().all(|word| name.contains(word))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let more = found.len().saturating_sub(most);
+    found.truncate(most);
+    (found, more)
+}
+
+/// The panels' methods on [`Failure`].
+pub trait FailureExt {
+    /// Why it failed in plain words, as the person is told.
+    fn plain(&self) -> String;
+}
+
+impl FailureExt for Failure {
+    fn plain(&self) -> String {
+        match self {
+            Failure::Refused(why) | Failure::Failed(why) => {
+                why.clone()
+            }
+            other => other.to_string(),
+        }
+    }
 }
 
 /// The time since `at`, milliseconds since 1970, in words.
