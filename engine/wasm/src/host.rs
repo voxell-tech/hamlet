@@ -57,9 +57,12 @@ impl Tuning for WasmTuning {
 }
 
 impl WasmTuning {
-    /// Ticks of the epoch one call may last, at least one.
+    /// Ticks of the epoch one call may last, at least one. wasmtime
+    /// adds them to the epoch, so they stay far from `u64::MAX`.
     pub(crate) fn call_ticks(&self, budgets: &PluginLimits) -> u64 {
-        (budgets.call_time / self.tick).ceil().max(1.0) as u64
+        (budgets.call_time / self.tick)
+            .ceil()
+            .clamp(1.0, u32::MAX as f32) as u64
     }
 }
 

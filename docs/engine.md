@@ -721,8 +721,9 @@ their names in `[limits]`.
   link, and the folder neither in the home nor holding it. A folder of
   sources is refused; plugins are not built here. The two files are
   copied off the frame into `<home>/plugins/.adding_<id>`, read again,
-  and the folder is moved into place: `<home>/plugins/<id>`, or the
-  folder of the installed plugin of that id, which it replaces. The
+  and the folder is moved into place: the folder of the installed
+  plugin of that id, which it replaces, or else `<home>/plugins/<id>`,
+  numbered (`<id>_2`, `<id>_3`) past any folder already there. The
   person is asked about it at once. An id of a plugin built in or
   bundled is refused.
 - **Uninstall** on the Plugins panel (`Uninstall`) takes an installed
@@ -886,6 +887,9 @@ their names in `[limits]`.
   and `node_changes_per_second` a second, past which the plugin waits.
   It holds `nodes` nodes at most, none deeper than `node_depth` under
   its root; a call that makes more, or deeper, fails.
+- **Bounded values.** An opacity is held from 0 to 1 and an offset to
+  100,000 pixels either way; one that is not finite is taken as its
+  first value, so the layout never meets it.
 - **Costs.** `NodeStats` counts the calls into plugins for their
   views, the calls they made on nodes, and the time of both.
 - **Stopped.** A plugin at fault is stopped: its store goes, it is

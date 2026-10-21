@@ -10,9 +10,13 @@ use wasmtime::component::Resource;
 
 use crate::instance::State;
 use crate::instance::ui_bindings::hamlet::engine::ui::{
-    Host, HostNode, Kind, Motion, Property, StatusItem,
+    Host, HostNode, Kind, MenuItem, Motion, Property, StatusItem,
 };
 use crate::surfaces::SurfaceChange;
+
+/// The most pixels a node is moved from where it is laid out, either
+/// way, so the layout's sums stay finite.
+const MOST_OFFSET: f32 = 100_000.0;
 
 /// A node of a retained panel, as the plugin holds it.
 pub struct UiNode;
@@ -77,7 +81,14 @@ impl Nodes {
     }
 
     fn number(&mut self, held: Held) -> u32 {
-        self.next += 1;
+        // Numbers go round, past 0 and those still held, so a plugin
+        // that makes nodes for ever never runs out of them.
+        loop {
+            self.next = self.next.wrapping_add(1);
+            if self.next != 0 && !self.held.contains_key(&self.next) {
+                break;
+            }
+        }
         self.held.insert(self.next, held);
         self.next
     }
@@ -153,6 +164,55 @@ impl Kind {
     }
 }
 
+impl Property {
+    /// It with an opacity from 0 to 1 and an offset within
+    /// [`MOST_OFFSET`], a value that is not finite taken as the
+    /// first.
+    fn bounded(self) -> Self {
+        let within = |value: f32, first: f32, most: f32| {
+            if value.is_finite() {
+                value.clamp(-most, most)
+            } else {
+                first
+            }
+        };
+        match self {
+            Self::Opacity(opacity) => {
+                Self::Opacity(within(opacity, 1.0, 1.0).max(0.0))
+            }
+            Self::Offset((x, y)) => Self::Offset((
+                within(x, 0.0, MOST_OFFSET),
+                within(y, 0.0, MOST_OFFSET),
+            )),
+            other => other,
+        }
+    }
+
+    /// Bytes of what it holds that the host keeps.
+    fn bytes(&self) -> usize {
+        match self {
+            Self::Text(text)
+            | Self::Placeholder(text)
+            | Self::Tip(text)
+            | Self::Folder(text) => text.len(),
+            Self::Options(options) => options
+                .iter()
+                .map(|option| size_of::<String>() + option.len())
+                .sum(),
+            Self::Menu(menu) => menu
+                .items
+                .iter()
+                .map(|item| {
+                    size_of::<MenuItem>()
+                        + item.text.len()
+                        + item.group.len()
+                })
+                .sum(),
+            _ => 0,
+        }
+    }
+}
+
 /// A plugin went past a budget of its nodes, or misused one.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum NodeError {
@@ -201,6 +261,12 @@ impl Host for State {
         item: StatusItem,
     ) -> wasmtime::Result<()> {
         self.nodes.spend(self.caps.node_changes)?;
+        self.keep_bytes(
+            name.len()
+                + item.icon.len()
+                + item.text.len()
+                + item.tip.len(),
+        )?;
         self.surfaces.push(SurfaceChange::Status { name, item });
         Ok(())
     }
@@ -211,12 +277,14 @@ impl Host for State {
         shown: bool,
     ) -> wasmtime::Result<()> {
         self.nodes.spend(self.caps.node_changes)?;
+        self.keep_bytes(name.len())?;
         self.surfaces.push(SurfaceChange::Overlay { name, shown });
         Ok(())
     }
 
     fn open(&mut self, name: String) -> wasmtime::Result<()> {
         self.nodes.spend(self.caps.node_changes)?;
+        self.keep_bytes(name.len())?;
         self.surfaces.push(SurfaceChange::Open(name));
         Ok(())
     }
@@ -265,9 +333,10 @@ impl HostNode for State {
         if !self.nodes.kind(node.rep())?.takes(&value) {
             return Err(wasmtime::Error::new(NodeError::Property));
         }
+        self.keep_bytes(value.bytes())?;
         self.nodes.changes.push(NodeChange::Set {
             node: node.rep(),
-            value,
+            value: value.bounded(),
             motion,
         });
         Ok(())
@@ -279,6 +348,7 @@ impl HostNode for State {
         children: Vec<Resource<UiNode>>,
     ) -> wasmtime::Result<()> {
         self.nodes.spend(self.caps.node_changes)?;
+        self.keep_bytes(children.len() * size_of::<u32>())?;
         self.nodes.changes.push(NodeChange::Order {
             node: node.rep(),
             children: children.iter().map(Resource::rep).collect(),

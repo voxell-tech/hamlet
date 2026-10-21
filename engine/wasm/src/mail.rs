@@ -48,23 +48,24 @@ pub(crate) fn deliver(
     mut served: MessageWriter<Served>,
 ) {
     for call in calls.read() {
-        match inboxes.get_mut(call.callee) {
-            Ok((mut inbox, _, budgets))
-                if inbox.0.len()
-                    < budgets.events_per_second as usize =>
-            {
-                inbox.0.push_back(Work::Serve(call.clone()));
-            }
-            _ => {
-                served.write(Served {
-                    call: call.call,
-                    result: Err(Failure::OutOfBudget(
-                        "the plugin that serves it is busy".into(),
-                    )),
-                    fuel: 0,
-                    time: Duration::ZERO,
-                });
-            }
+        let taken = inboxes.get_mut(call.callee).is_ok_and(
+            |(mut inbox, mut spending, budgets)| {
+                inbox.offer(
+                    Work::Serve(call.clone()),
+                    &mut spending,
+                    budgets,
+                )
+            },
+        );
+        if !taken {
+            served.write(Served {
+                call: call.call,
+                result: Err(Failure::OutOfBudget(
+                    "the plugin that serves it is busy".into(),
+                )),
+                fuel: 0,
+                time: Duration::ZERO,
+            });
         }
     }
     for Deliver {
@@ -73,57 +74,76 @@ pub(crate) fn deliver(
         depth,
     } in delivered.read()
     {
-        let Ok((mut inbox, mut spending, budgets)) =
+        if let Ok((mut inbox, mut spending, budgets)) =
             inboxes.get_mut(*plugin)
-        else {
-            continue;
-        };
-        if inbox.0.len() >= budgets.events_per_second as usize {
-            spending.dropped_events += 1;
-            continue;
+        {
+            inbox.offer(
+                Work::Mail(message.clone(), *depth),
+                &mut spending,
+                budgets,
+            );
         }
-        inbox.0.push_back(Work::Mail(message.clone(), *depth));
     }
 }
 
-/// The bytes of `first` and the messages after it in `inbox`, as
-/// many as fit in `most` bytes, and the deepest of them. A reply too
-/// large to hand over at all is handed over as a failure.
-pub(crate) fn batch(
-    first: (Message, u32),
-    inbox: &mut Inbox,
-    most: usize,
-) -> (Vec<u8>, u32) {
-    let room = most.saturating_sub(LIST);
-    let (mut messages, mut depth) = (Vec::new(), 0);
-    let mut used = 0;
-    let mut next = Some(first);
-    while let Some((message, at)) = next.take() {
-        let size =
-            encode(&message).map_or(usize::MAX, |bytes| bytes.len());
-        if used + size <= room {
-            used += size;
-            messages.push(message);
-            depth = depth.max(at);
-        } else if messages.is_empty() {
-            if let Message::Reply { ticket, .. } = message {
-                messages.push(Message::Reply {
-                    ticket,
-                    reply: Err(Failure::Failed(
-                        "the reply is too large to hand over".into(),
-                    )),
-                });
-                depth = depth.max(at);
-            }
-        } else {
-            inbox.0.push_front(Work::Mail(message, at));
-            break;
+impl Inbox {
+    /// Puts `work` last, unless the inbox holds a second's events
+    /// already and it is counted as left out: whether it was put in.
+    pub(crate) fn offer(
+        &mut self,
+        work: Work,
+        spending: &mut Spending,
+        budgets: &PluginBudgets,
+    ) -> bool {
+        if self.0.len() >= budgets.events_per_second as usize {
+            spending.dropped_events += 1;
+            return false;
         }
-        if let Some(Work::Mail(..)) = inbox.0.front()
-            && let Some(Work::Mail(message, at)) = inbox.0.pop_front()
-        {
-            next = Some((message, at));
-        }
+        self.0.push_back(work);
+        true
     }
-    (encode(&messages).unwrap_or_default(), depth)
+
+    /// The bytes of `first` and the messages after it here, as many
+    /// as fit in `most` bytes, and the deepest of them. A reply too
+    /// large to hand over at all is handed over as a failure.
+    pub(crate) fn batch(
+        &mut self,
+        first: (Message, u32),
+        most: usize,
+    ) -> (Vec<u8>, u32) {
+        let room = most.saturating_sub(LIST);
+        let (mut messages, mut depth) = (Vec::new(), 0);
+        let mut used = 0_usize;
+        let mut next = Some(first);
+        while let Some((message, at)) = next.take() {
+            let size = encode(&message)
+                .map_or(usize::MAX, |bytes| bytes.len());
+            if used.saturating_add(size) <= room {
+                used += size;
+                messages.push(message);
+                depth = depth.max(at);
+            } else if messages.is_empty() {
+                if let Message::Reply { ticket, .. } = message {
+                    messages.push(Message::Reply {
+                        ticket,
+                        reply: Err(Failure::Failed(
+                            "the reply is too large to hand over"
+                                .into(),
+                        )),
+                    });
+                    depth = depth.max(at);
+                }
+            } else {
+                self.0.push_front(Work::Mail(message, at));
+                break;
+            }
+            if let Some(Work::Mail(..)) = self.0.front()
+                && let Some(Work::Mail(message, at)) =
+                    self.0.pop_front()
+            {
+                next = Some((message, at));
+            }
+        }
+        (encode(&messages).unwrap_or_default(), depth)
+    }
 }

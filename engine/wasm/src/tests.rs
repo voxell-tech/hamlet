@@ -225,6 +225,31 @@ fn nodes_are_held_to_their_budgets_and_kinds() {
 }
 
 #[test]
+fn a_call_hands_over_its_bytes_in_all() {
+    let caps = Caps::of(&budgets(), &WasmTuning::designed());
+    let mut state = State::new(&caps);
+    let root = state.nodes.root().rep();
+    let label = HostNode::new(
+        &mut state,
+        Kind::Label,
+        Resource::new_borrow(root),
+        0,
+    )
+    .unwrap()
+    .rep();
+    let mut set = || {
+        HostNode::set(
+            &mut state,
+            Resource::new_borrow(label),
+            Property::Text("a".repeat(600)),
+            None,
+        )
+    };
+    assert!(set().is_ok());
+    assert_eq!(Fault::of(set().unwrap_err()), Fault::Bytes);
+}
+
+#[test]
 fn hostile_plugins_are_held_to_their_budgets() {
     let (mut instance, caps) =
         start(&declaring("(i32.const 0)"), &budgets());
@@ -279,6 +304,20 @@ fn hostile_plugins_are_held_to_their_budgets() {
             "{declare}"
         );
     }
+}
+
+#[test]
+fn a_plugin_may_ask_for_the_largest_limits() {
+    let budgets = PluginLimits {
+        call_time: f32::MAX,
+        log_lines_per_second: u32::MAX,
+        bytes_per_call: u64::MAX,
+        node_changes_per_call: usize::MAX,
+        ..budgets()
+    };
+    let (mut instance, caps) =
+        start(&declaring("(i32.const 0)"), &budgets);
+    assert_eq!(instance.declare(&caps).0, Ok(Vec::new()));
 }
 
 #[test]

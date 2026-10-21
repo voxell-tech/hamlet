@@ -3,9 +3,10 @@
 //! the old version saves its state, the new one is instantiated,
 //! restores it and says what it adds. A build that fails, or a new
 //! version at fault, leaves the old one running and is told in the
-//! log. A plugin whose `plugin.toml` says something new is added
-//! again, and asked about again where it asks for more; one that
-//! only asks for other limits is held to them as it runs.
+//! log. A plugin whose `plugin.toml` says something new but its
+//! limits is added again, and asked about again where it asks for
+//! more; one that only asks for other limits is held to them as it
+//! runs.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -27,15 +28,14 @@ use hamlet_engine_plugins::{
 };
 use wasmtime::Engine;
 
-use crate::WasmCommandsExt;
 use crate::budget::Spending;
-use crate::folder::{
-    Look, MANIFEST, Package, WASM, look, read_manifest,
-};
+use crate::folder::{Look, MANIFEST, Package, WASM};
 use crate::host::{Host, WasmTuning};
 use crate::instance::{Caps, Fault, Instance, Linked};
+use crate::panel::{Inbox, Work};
 use crate::retained::{Holders, UiRoot};
 use crate::run::{Built, Compiling, entry};
+use crate::{PluginPathExt, WasmCommandsExt};
 
 pub(crate) fn plugin(app: &mut App) {
     let every = Duration::from_secs_f32(WasmTuning::designed().watch);
@@ -99,8 +99,8 @@ fn notice(
         &mut plugins
     {
         let now = Loaded {
-            wasm: look(&package.folder.join(WASM)),
-            manifest: look(&package.folder.join(MANIFEST)),
+            wasm: package.folder.join(WASM).look(),
+            manifest: package.folder.join(MANIFEST).look(),
         };
         let settled = last.insert(plugin, now) == Some(now);
         if !settled || now == *loaded || reloading.is_some() {
@@ -108,38 +108,37 @@ fn notice(
         }
         let was = std::mem::replace(&mut *loaded, now);
         if now.manifest != was.manifest {
-            match read_manifest(
-                &package.folder,
-                tuning.manifest_bytes,
-            ) {
-                Ok(manifest)
-                    if manifest.name != info.name
-                        || manifest.version != info.version
-                        || manifest.asks != info.asks =>
-                {
-                    log.write(LogLine::info(
-                        "plugins",
-                        format!(
-                            "{} {} is read again",
-                            manifest.name, manifest.version
-                        ),
-                    ));
-                    commands.entity(plugin).despawn();
-                    commands.spawn_plugin(
-                        manifest,
-                        package.folder.clone(),
-                        info.kind,
-                    );
-                    continue;
+            match package.folder.read_manifest(tuning.manifest_bytes)
+            {
+                Ok(manifest) => {
+                    let read =
+                        PluginInfo::of(manifest.clone(), info.kind);
+                    let same_but_limits = PluginInfo {
+                        limits: info.limits.clone(),
+                        ..read.clone()
+                    } == *info;
+                    if !same_but_limits {
+                        log.write(LogLine::info(
+                            "plugins",
+                            format!(
+                                "{} {} is read again",
+                                manifest.name, manifest.version
+                            ),
+                        ));
+                        commands.entity(plugin).despawn();
+                        commands.spawn_plugin(
+                            manifest,
+                            package.folder.clone(),
+                            info.kind,
+                        );
+                        continue;
+                    }
+                    // New limits reach the running plugin as they
+                    // are.
+                    if read.limits != info.limits {
+                        commands.entity(plugin).insert(read);
+                    }
                 }
-                // New limits reach the running plugin as they are.
-                Ok(manifest) if manifest.limits != info.limits => {
-                    commands.entity(plugin).insert(PluginInfo {
-                        limits: manifest.limits,
-                        ..info.clone()
-                    });
-                }
-                Ok(_) => {}
                 Err(why) => {
                     log.write(LogLine::error(
                         info.id.as_str(),
@@ -173,6 +172,7 @@ fn swap(
         &PluginInfo,
         &PluginBudgets,
         &mut Instance,
+        &mut Inbox,
         &mut Spending,
         &mut Reloading,
         &Declared,
@@ -193,6 +193,7 @@ fn swap(
         info,
         budgets,
         mut instance,
+        mut inbox,
         mut spending,
         mut reloading,
         declared,
@@ -243,6 +244,11 @@ fn swap(
                         budgets,
                     );
                 }
+                // Keys of the old version's nodes may name others of
+                // the new one.
+                inbox
+                    .0
+                    .retain(|work| !matches!(work, Work::Node(..)));
                 commands.remount(plugin, holders, &roots);
                 commands.entity(plugin).insert((
                     fresh,

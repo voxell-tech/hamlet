@@ -26,12 +26,12 @@ use hamlet_engine_shell::Command;
 use hamlet_engine_shell::icons::Glyph;
 
 use crate::budget::Spending;
-use crate::folder::{Package, WASM, read_capped};
+use crate::folder::{Package, WASM};
 use crate::host::{Host, WasmTuning};
 use crate::instance::{Caps, Instance, Linked, link};
 use crate::panel::{Inbox, Moving, Work};
 use crate::reload::{Declared, Reloading};
-use crate::retained;
+use crate::{PluginPathExt, retained};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_observer(enable)
@@ -61,7 +61,7 @@ impl Host {
     ) -> Compiling {
         let engine = self.0.clone();
         Compiling(AsyncComputeTaskPool::get().spawn(async move {
-            link(&engine, &read_capped(&file, most)?)
+            link(&engine, &file.read_capped(most)?)
         }))
     }
 }
@@ -163,8 +163,12 @@ fn run_command(world: &mut World, command: Entity) {
     else {
         return;
     };
-    if let Some(mut inbox) = world.get_mut::<Inbox>(plugin) {
-        inbox.0.push_back(Work::Run(name));
+    let mut inboxes =
+        world.query::<(&mut Inbox, &mut Spending, &PluginBudgets)>();
+    if let Ok((mut inbox, mut spending, budgets)) =
+        inboxes.get_mut(world, plugin)
+    {
+        inbox.offer(Work::Run(name), &mut spending, budgets);
     }
 }
 

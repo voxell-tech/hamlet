@@ -1573,14 +1573,20 @@ fn offer_roots(
         (&UiRoot, &Surface, &ContributedBy),
         Changed<UiRoot>,
     >,
-    mut inboxes: Query<&mut Inbox>,
+    mut inboxes: Query<(&mut Inbox, &mut Spending, &PluginBudgets)>,
 ) {
     for (root, shown, by) in &roots {
-        if let Ok(mut inbox) = inboxes.get_mut(by.0) {
-            inbox.0.push_back(Work::Mount {
-                root: root.holder,
-                name: shown.name.clone(),
-            });
+        if let Ok((mut inbox, mut spending, budgets)) =
+            inboxes.get_mut(by.0)
+        {
+            inbox.offer(
+                Work::Mount {
+                    root: root.holder,
+                    name: shown.name.clone(),
+                },
+                &mut spending,
+                budgets,
+            );
         }
     }
 }
@@ -1591,7 +1597,7 @@ fn offer_roots(
 fn lose_roots(
     roots: Query<(Entity, &UiRoot, &Surface, &ContributedBy)>,
     alive: Query<()>,
-    mut inboxes: Query<&mut Inbox>,
+    mut inboxes: Query<(&mut Inbox, &mut Spending, &PluginBudgets)>,
     mut commands: Commands,
 ) {
     for (surface, root, shown, by) in &roots {
@@ -1600,8 +1606,14 @@ fn lose_roots(
         }
         commands.entity(root.holder).try_despawn();
         commands.entity(surface).remove::<UiRoot>();
-        if let Ok(mut inbox) = inboxes.get_mut(by.0) {
-            inbox.0.push_back(Work::Unmount(shown.name.clone()));
+        if let Ok((mut inbox, mut spending, budgets)) =
+            inboxes.get_mut(by.0)
+        {
+            inbox.offer(
+                Work::Unmount(shown.name.clone()),
+                &mut spending,
+                budgets,
+            );
         }
     }
 }
@@ -1636,18 +1648,15 @@ fn route(
     mut inboxes: Query<(&mut Inbox, &mut Spending, &PluginBudgets)>,
 ) {
     for action in actions.read() {
-        let Ok((mut inbox, mut spending, budgets)) =
+        if let Ok((mut inbox, mut spending, budgets)) =
             inboxes.get_mut(action.plugin)
-        else {
-            continue;
-        };
-        if inbox.0.len() >= budgets.events_per_second as usize {
-            spending.dropped_events += 1;
-            continue;
+        {
+            inbox.offer(
+                Work::Node(action.key, action.input.clone()),
+                &mut spending,
+                budgets,
+            );
         }
-        inbox
-            .0
-            .push_back(Work::Node(action.key, action.input.clone()));
     }
 }
 

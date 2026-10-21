@@ -26,6 +26,10 @@ use crate::instance::{Caps, State, keep};
 /// WASI's blocking write takes.
 const CHUNK: usize = 4096;
 
+/// The most writes to stdout and stderr one call keeps, whatever its
+/// limits: the channel holds room for each from the start.
+const WRITES: usize = 1024;
+
 /// Adds the system interface to `linker`, its waits cut at the
 /// call's deadline.
 pub(crate) fn add_to_linker(
@@ -49,15 +53,15 @@ pub(crate) struct Wasi {
     written: SyncCell<Receiver<Written>>,
     /// The line begun and not yet ended at each level.
     lines: [Vec<u8>; 3],
-    /// When the call under way must end.
-    pub(crate) deadline: Instant,
+    /// When the call under way must end, if its time can be told.
+    deadline: Option<Instant>,
 }
 
 impl Wasi {
-    /// A context that grants nothing, whose stdout and stderr keep
-    /// `caps.lines` writes a call.
+    /// A context that grants nothing, whose stdout and stderr go to
+    /// the log.
     pub(crate) fn new(caps: &Caps) -> Self {
-        let (sender, written) = sync_channel(caps.lines);
+        let (sender, written) = sync_channel(WRITES);
         let stdout = Output {
             level: LogLevel::Info,
             sender: sender.clone(),
@@ -72,33 +76,40 @@ impl Wasi {
             .allow_tcp(false)
             .allow_udp(false)
             .allow_ip_name_lookup(false)
-            .max_random_size(caps.bytes as u64)
+            // The host makes the bytes before they reach the plugin's
+            // memory, which holds no more.
+            .max_random_size(caps.bytes.min(caps.memory) as u64)
             .build();
         Self {
             ctx: SyncCell::new(ctx),
             table: SyncCell::new(ResourceTable::new()),
             written: SyncCell::new(written),
             lines: Default::default(),
-            deadline: Instant::now(),
+            deadline: None,
         }
     }
 
     /// Holds the plugin to `caps` for the call about to be made.
     pub(crate) fn arm(&mut self, caps: &Caps) {
-        self.deadline = Instant::now() + caps.time;
+        self.deadline = Instant::now().checked_add(caps.time);
         self.table.get().set_max_capacity(caps.resources);
     }
 
     /// Moves what the plugin wrote since this was last asked into
-    /// `logs`, a line each, within `caps`.
+    /// `logs`, a line each, within `caps`: `caps.lines` writes, and
+    /// the rest left out.
     pub(crate) fn take_written(
         &mut self,
         caps: &Caps,
         logs: &mut Vec<(LogLevel, String)>,
     ) {
-        while let Ok(Written { level, bytes }) =
-            self.written.get().try_recv()
-        {
+        let written = self.written.get();
+        let mut kept = 0;
+        while let Ok(Written { level, bytes }) = written.try_recv() {
+            if kept == caps.lines {
+                continue;
+            }
+            kept += 1;
             let line = &mut self.lines[level as usize];
             for piece in bytes.split_inclusive(|&byte| byte == b'\n')
             {
@@ -178,11 +189,13 @@ impl Pollable for Output {
 }
 
 impl OutputStream for Output {
-    fn write(&mut self, mut bytes: Bytes) -> StreamResult<()> {
-        bytes.truncate(CHUNK);
+    fn write(&mut self, bytes: Bytes) -> StreamResult<()> {
+        // A copy, so the rest of a longer write is not kept with it.
         let _ = self.sender.try_send(Written {
             level: self.level,
-            bytes,
+            bytes: Bytes::copy_from_slice(
+                &bytes[..bytes.len().min(CHUNK)],
+            ),
         });
         Ok(())
     }
@@ -200,7 +213,7 @@ impl OutputStream for Output {
 /// call's deadline.
 struct Clock<'a> {
     view: WasiClocksCtxView<'a>,
-    deadline: Instant,
+    deadline: Option<Instant>,
 }
 
 struct Clocked;
@@ -226,9 +239,11 @@ impl Clock<'_> {
         &mut self,
         nanos: u64,
     ) -> wasmtime::Result<Resource<DynPollable>> {
-        let left =
-            self.deadline.saturating_duration_since(Instant::now());
-        let left = u64::try_from(left.as_nanos()).unwrap_or(u64::MAX);
+        let left = self.deadline.map_or(u64::MAX, |deadline| {
+            let left =
+                deadline.saturating_duration_since(Instant::now());
+            u64::try_from(left.as_nanos()).unwrap_or(u64::MAX)
+        });
         monotonic_clock::Host::subscribe_duration(
             &mut self.view,
             nanos.min(left),

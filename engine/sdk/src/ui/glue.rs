@@ -82,9 +82,12 @@ pub fn mount<P: Plugin>(
 ) -> bool {
     UI.with_borrow_mut(|panels| {
         panels.unmount(&name);
+        let seconds = |seconds: f32| {
+            Duration::try_from_secs_f32(seconds).unwrap_or_default()
+        };
         panels.theme = Theme {
-            interact: Duration::from_secs_f32(motions.interact),
-            expand: Duration::from_secs_f32(motions.expand),
+            interact: seconds(motions.interact),
+            expand: seconds(motions.expand),
         };
         let root = panels.world.nodes.adopt(root);
         let view = plugin.mount(&name, &mut panels.world);

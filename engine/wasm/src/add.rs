@@ -21,13 +21,10 @@ use hamlet_engine_plugins::{
     AddPlugin, PluginInfo, PluginKind, Uninstall,
 };
 
-use crate::WasmCommandsExt;
 use crate::dialog::{Asker, ChooseFolder};
-use crate::folder::{
-    FOLDER, MANIFEST, Package, WASM, copy_capped, open_capped,
-    read_manifest,
-};
+use crate::folder::{FOLDER, MANIFEST, Package, WASM};
 use crate::host::WasmTuning;
+use crate::{PluginPathExt, WasmCommandsExt};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_observer(ask)
@@ -94,8 +91,25 @@ fn add_from(
                     "{id} is the id of a plugin built into the \
                      engine"
                 )),
+                // A folder of its id may hold another plugin, or one
+                // that could not be read, so a free name is found.
                 None => {
-                    let into = home.path(FOLDER).join(id.as_str());
+                    let taken = |path: &Path| {
+                        fs::symlink_metadata(path).is_ok()
+                            || plugins.iter().any(|(_, package)| {
+                                package.is_some_and(|package| {
+                                    package.folder == path
+                                })
+                            })
+                    };
+                    let into = (1..)
+                        .map(|n| match n {
+                            1 => id.to_string(),
+                            n => format!("{id}_{n}"),
+                        })
+                        .map(|name| home.path(FOLDER).join(name))
+                        .find(|path| !taken(path))
+                        .unwrap_or_default();
                     Ok((checked, into))
                 }
             }
@@ -231,13 +245,13 @@ pub(crate) fn check(
                     it"
         .into());
     }
-    let manifest = read_manifest(&folder, tuning.manifest_bytes)?;
+    let manifest = folder.read_manifest(tuning.manifest_bytes)?;
     if !folder.join(WASM).exists() {
         return Err(format!(
             "it has no {WASM}, so it is not a built plugin"
         ));
     }
-    open_capped(&folder.join(WASM), tuning.wasm_bytes)?;
+    folder.join(WASM).open_capped(tuning.wasm_bytes)?;
     Ok(Checked { manifest, folder })
 }
 
@@ -260,58 +274,25 @@ impl Checked {
             format!("the plugins folder cannot be written: {e}")
         })?;
         let placed = (|| {
-            copy_capped(
-                &self.folder.join(MANIFEST),
+            self.folder.join(MANIFEST).copy_capped(
                 &stage.join(MANIFEST),
                 tuning.manifest_bytes,
             )?;
-            copy_capped(
-                &self.folder.join(WASM),
-                &stage.join(WASM),
-                tuning.wasm_bytes,
-            )?;
+            self.folder
+                .join(WASM)
+                .copy_capped(&stage.join(WASM), tuning.wasm_bytes)?;
             let copied =
-                read_manifest(&stage, tuning.manifest_bytes)?;
+                stage.read_manifest(tuning.manifest_bytes)?;
             if copied.id != *id
                 || copied.version != self.manifest.version
             {
                 return Err("the folder changed while it was added"
                     .to_string());
             }
-            put(&stage, into)?;
+            stage.move_over(into)?;
             Ok(copied)
         })();
         let _ = fs::remove_dir_all(&stage);
         placed
-    }
-}
-
-/// Moves the folder `stage` to `into`, over the folder there.
-fn put(stage: &Path, into: &Path) -> Result<(), String> {
-    let moved = |e: std::io::Error| {
-        format!("the plugin cannot take its place: {e}")
-    };
-    match fs::symlink_metadata(into) {
-        Err(_) => fs::rename(stage, into).map_err(moved),
-        Ok(meta) if meta.is_dir() => {
-            let name =
-                into.file_name().map_or_else(String::new, |name| {
-                    name.to_string_lossy().into()
-                });
-            let old =
-                into.with_file_name(format!(".removing_{name}"));
-            let _ = fs::remove_dir_all(&old);
-            fs::rename(into, &old).map_err(moved)?;
-            if let Err(e) = fs::rename(stage, into) {
-                let _ = fs::rename(&old, into);
-                return Err(moved(e));
-            }
-            let _ = fs::remove_dir_all(&old);
-            Ok(())
-        }
-        Ok(_) => Err(format!(
-            "{} is not a folder; take it away by hand",
-            into.display()
-        )),
     }
 }

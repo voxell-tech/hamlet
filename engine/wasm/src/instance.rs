@@ -3,9 +3,10 @@
 //!
 //! Every value a plugin hands the host crosses as a string or a list
 //! of bytes. wasmtime checks its pointer and length against the
-//! plugin's memory, and takes its length from the store's hostcall
-//! fuel, before it copies a byte; the fuel is set to the plugin's
-//! `bytes_per_call` before every call.
+//! plugin's memory, and against the store's hostcall fuel, before it
+//! copies a byte; the fuel is the plugin's `bytes_per_call`, given
+//! anew to each call of the host. What the host keeps of them is
+//! counted against the same bytes for the whole call into the plugin.
 
 use core::fmt;
 use std::time::{Duration, Instant};
@@ -93,7 +94,10 @@ impl Caps {
         Self {
             fuel: budgets.fuel_per_call,
             ticks: tuning.call_ticks(budgets),
-            time: Duration::from_secs_f32(budgets.call_time / 1000.0),
+            time: Duration::try_from_secs_f32(
+                budgets.call_time / 1000.0,
+            )
+            .unwrap_or(Duration::MAX),
             bytes: budgets.bytes_per_call as usize,
             lines: budgets.log_lines_per_second as usize,
             line_bytes: budgets.log_line_bytes,
@@ -164,8 +168,10 @@ impl fmt::Display for Fault {
 
 impl Fault {
     pub(crate) fn of(error: wasmtime::Error) -> Self {
-        if error.is::<OverMemory>() {
-            return Self::Memory;
+        match error.downcast_ref::<OverBudget>() {
+            Some(OverBudget::Memory) => return Self::Memory,
+            Some(OverBudget::Bytes) => return Self::Bytes,
+            None => {}
         }
         if let Some(&error) = error.downcast_ref::<NodeError>() {
             return Self::Node(error);
@@ -268,6 +274,8 @@ pub struct State {
     requests: Vec<(Ticket, Request)>,
     /// The ticket the last request was given.
     ticket: Ticket,
+    /// Bytes the call under way may still hand over to be kept.
+    bytes: usize,
     pub(crate) wasi: Wasi,
     pub(crate) nodes: Nodes,
     pub(crate) surfaces: Vec<SurfaceChange>,
@@ -282,6 +290,7 @@ impl State {
             logs: Vec::new(),
             requests: Vec::new(),
             ticket: 0,
+            bytes: caps.bytes,
             wasi: Wasi::new(caps),
             nodes: Nodes::default(),
             surfaces: Vec::new(),
@@ -289,9 +298,25 @@ impl State {
         }
     }
 
-    /// Takes `request`, within the call's cap: its ticket, or 0.
-    fn ask(&mut self, request: Request) -> Ticket {
-        if self.requests.len() >= self.caps.requests {
+    /// Counts `size` bytes the plugin handed over to be kept, failing
+    /// the call past what it may hand over.
+    pub(crate) fn keep_bytes(
+        &mut self,
+        size: usize,
+    ) -> wasmtime::Result<()> {
+        self.bytes = self
+            .bytes
+            .checked_sub(size)
+            .ok_or_else(|| wasmtime::Error::new(OverBudget::Bytes))?;
+        Ok(())
+    }
+
+    /// Takes `request` of `size` bytes, within the call's caps: its
+    /// ticket, or 0.
+    fn ask(&mut self, size: usize, request: Request) -> Ticket {
+        if self.requests.len() >= self.caps.requests
+            || self.keep_bytes(size).is_err()
+        {
             return 0;
         }
         self.ticket += 1;
@@ -307,52 +332,59 @@ impl host::Host for State {
         name: String,
         bytes: Vec<u8>,
     ) -> Ticket {
-        self.ask(Request::CreateAsset { kind, name, bytes })
+        let size = kind.len() + name.len() + bytes.len();
+        self.ask(size, Request::CreateAsset { kind, name, bytes })
     }
 
     fn read_asset(&mut self, id: u64) -> Ticket {
-        self.ask(Request::ReadAsset(AssetId(id)))
+        self.ask(0, Request::ReadAsset(AssetId(id)))
     }
 
     fn update_asset(&mut self, id: u64, bytes: Vec<u8>) -> Ticket {
-        self.ask(Request::UpdateAsset {
-            id: AssetId(id),
-            bytes,
-        })
+        let size = bytes.len();
+        self.ask(
+            size,
+            Request::UpdateAsset {
+                id: AssetId(id),
+                bytes,
+            },
+        )
     }
 
     fn delete_asset(&mut self, id: u64) -> Ticket {
-        self.ask(Request::DeleteAsset(AssetId(id)))
+        self.ask(0, Request::DeleteAsset(AssetId(id)))
     }
 
     fn list_assets(&mut self, kind: String) -> Ticket {
-        self.ask(Request::ListAssets(kind))
+        self.ask(kind.len(), Request::ListAssets(kind))
     }
 
     fn hold_asset(&mut self, id: u64) -> Ticket {
-        self.ask(Request::HoldAsset(AssetId(id)))
+        self.ask(0, Request::HoldAsset(AssetId(id)))
     }
 
     fn release_asset(&mut self, id: u64) -> Ticket {
-        self.ask(Request::ReleaseAsset(AssetId(id)))
+        self.ask(0, Request::ReleaseAsset(AssetId(id)))
     }
 
     fn call(&mut self, service: String, argument: Vec<u8>) -> Ticket {
-        self.ask(Request::Call { service, argument })
+        let size = service.len() + argument.len();
+        self.ask(size, Request::Call { service, argument })
     }
 
     fn subscribe(&mut self, event: String) -> Ticket {
-        self.ask(Request::Subscribe(event))
+        self.ask(event.len(), Request::Subscribe(event))
     }
 
     fn emit(&mut self, event: String, payload: Vec<u8>) -> Ticket {
-        self.ask(Request::Emit { event, payload })
+        let size = event.len() + payload.len();
+        self.ask(size, Request::Emit { event, payload })
     }
 
     /// A request that cannot be read is not taken.
     fn fetch(&mut self, request: Vec<u8>) -> Ticket {
         match decode::<FetchRequest>(&request) {
-            Ok(request) => self.ask(Request::Fetch(request)),
+            Ok(read) => self.ask(request.len(), Request::Fetch(read)),
             Err(_) => 0,
         }
     }
@@ -360,7 +392,9 @@ impl host::Host for State {
     /// A request that cannot be read is not taken.
     fn agents(&mut self, request: Vec<u8>) -> Ticket {
         match decode::<AgentsRequest>(&request) {
-            Ok(request) => self.ask(Request::Agents(request)),
+            Ok(read) => {
+                self.ask(request.len(), Request::Agents(read))
+            }
             Err(_) => 0,
         }
     }
@@ -368,7 +402,9 @@ impl host::Host for State {
     /// A request that cannot be read is not taken.
     fn desktop(&mut self, request: Vec<u8>) -> Ticket {
         match decode::<DesktopRequest>(&request) {
-            Ok(request) => self.ask(Request::Desktop(request)),
+            Ok(read) => {
+                self.ask(request.len(), Request::Desktop(read))
+            }
             Err(_) => 0,
         }
     }
@@ -394,6 +430,7 @@ pub(crate) fn keep(
         return;
     }
     text.truncate(text.floor_char_boundary(caps.line_bytes));
+    text.shrink_to_fit();
     logs.push((level, text));
 }
 
@@ -761,9 +798,10 @@ impl WasmStoreExt for Store<State> {
             fuel: caps
                 .fuel
                 .saturating_sub(self.get_fuel().unwrap_or(0)),
-            changes: nodes.spent as u32,
+            changes: u32::try_from(nodes.spent).unwrap_or(u32::MAX),
             node_calls: nodes.calls,
-            scene_changes: self.data().scene.spent as u32,
+            scene_changes: u32::try_from(self.data().scene.spent)
+                .unwrap_or(u32::MAX),
         };
         (done.map_err(Fault::of), spent)
     }
@@ -774,6 +812,7 @@ impl WasmStoreExt for Store<State> {
         self.set_hostcall_fuel(caps.bytes);
         let state = self.data_mut();
         state.caps = *caps;
+        state.bytes = caps.bytes;
         state.limiter.memory = caps.memory;
         state.wasi.arm(caps);
         state.nodes.spent = 0;
@@ -795,17 +834,25 @@ fn read<T: serde::de::DeserializeOwned>(
     decode(bytes).map_err(|why| Fault::Unreadable(why.to_string()))
 }
 
-/// A plugin's memories grew past its budget.
+/// A call went past a budget the host counts itself.
 #[derive(Debug)]
-struct OverMemory;
+enum OverBudget {
+    /// The plugin's memories grew past it.
+    Memory,
+    /// The call handed over more bytes than it may.
+    Bytes,
+}
 
-impl fmt::Display for OverMemory {
+impl fmt::Display for OverBudget {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "past the plugin's memory")
+        match self {
+            Self::Memory => write!(f, "past the plugin's memory"),
+            Self::Bytes => write!(f, "past the bytes of a call"),
+        }
     }
 }
 
-impl core::error::Error for OverMemory {}
+impl core::error::Error for OverBudget {}
 
 /// Holds a store's memories together to one budget. A growth past it
 /// fails the call.
@@ -836,7 +883,7 @@ impl ResourceLimiter for Limiter {
     ) -> wasmtime::Result<bool> {
         let growth = desired.saturating_sub(current);
         if self.used.saturating_add(growth) > self.memory {
-            return Err(wasmtime::Error::new(OverMemory));
+            return Err(wasmtime::Error::new(OverBudget::Memory));
         }
         self.used += growth;
         self.growing = growth;

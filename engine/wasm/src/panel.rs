@@ -35,7 +35,7 @@ use crate::budget::{Spending, tally};
 use crate::folder::Package;
 use crate::host::WasmTuning;
 use crate::instance::{Caps, Fault, Instance, NodeInput, Spent};
-use crate::mail::{batch, deliver};
+use crate::mail::deliver;
 use crate::retained::NodeStats;
 
 pub(crate) fn plugin(app: &mut App) {
@@ -226,11 +226,8 @@ pub(crate) fn serve(
             let ((done, spent), depth) = match work {
                 Work::Run(name) => (instance.run(&caps, &name), 0),
                 Work::Mail(message, depth) => {
-                    let (messages, depth) = batch(
-                        (message, depth),
-                        &mut inbox,
-                        caps.bytes,
-                    );
+                    let (messages, depth) =
+                        inbox.batch((message, depth), caps.bytes);
                     (instance.receive(&caps, &messages), depth)
                 }
                 Work::Serve(call) => {

@@ -37,7 +37,7 @@ use hamlet_engine_plugins::{
 
 pub use self::add::AddFrom;
 use self::budget::Spending;
-use self::folder::look;
+pub(crate) use self::folder::PluginPathExt;
 pub use self::folder::{MANIFEST, Package, WASM};
 pub use self::host::{Host, WasmTuning};
 pub use self::instance::{Caps, Fault, Instance, NodeInput, Spent};
@@ -131,8 +131,8 @@ impl WasmCommandsExt for Commands<'_, '_> {
         kind: PluginKind,
     ) -> Entity {
         let loaded = Loaded {
-            wasm: look(&folder.join(WASM)),
-            manifest: look(&folder.join(MANIFEST)),
+            wasm: folder.join(WASM).look(),
+            manifest: folder.join(MANIFEST).look(),
         };
         self.spawn((
             PluginInfo::of(manifest, kind),

@@ -84,7 +84,8 @@ fn scan(
     let mut bundled = Vec::new();
     for source in Source::all(&home, bundle.as_deref()) {
         for folder in source.plugin_folders() {
-            let read = read_manifest(&folder, tuning.manifest_bytes)
+            let read = folder
+                .read_manifest(tuning.manifest_bytes)
                 .and_then(|manifest| {
                     if source.kind == PluginKind::Installed
                         && bundled.contains(&manifest.id)
@@ -172,7 +173,7 @@ fn watch(
             continue;
         }
         let now =
-            (look(&folder.join(WASM)), look(&folder.join(MANIFEST)));
+            (folder.join(WASM).look(), folder.join(MANIFEST).look());
         let before = looked.insert(folder.clone(), (now, false));
         match before {
             Some((then, told)) if then == now => {
@@ -184,7 +185,7 @@ fn watch(
             _ => continue,
         }
         let read = match now.0 {
-            Some(_) => read_manifest(&folder, tuning.manifest_bytes),
+            Some(_) => folder.read_manifest(tuning.manifest_bytes),
             None => Err(format!(
                 "it has no {WASM}, so it is not a built plugin"
             )),
@@ -256,144 +257,192 @@ impl Source {
         };
         let mut folders = entries
             .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-            .filter(|path| is_plugin_folder(path))
+            .filter(|path| path.is_plugin_folder())
             .collect::<Vec<_>>();
         folders.sort();
         folders
     }
 }
 
-/// The size and time of the file at `path`, if there is one.
-pub(crate) fn look(path: &Path) -> Option<Look> {
-    let meta = fs::symlink_metadata(path).ok()?;
-    Some((meta.len(), meta.modified().ok()?))
+/// The WASM host's methods on [`Path`].
+pub(crate) trait PluginPathExt {
+    /// The size and time of the file here, if there is one.
+    fn look(&self) -> Option<Look>;
+
+    /// Whether this is a folder a plugin may be in: a folder, not a
+    /// link, whose name does not start with a dot.
+    fn is_plugin_folder(&self) -> bool;
+
+    /// The manifest in this folder, which the engine can take.
+    fn read_manifest(&self, most: u64) -> Result<Manifest, String>;
+
+    /// The bytes of the plain file here, refused before any is read
+    /// when it is a link, not a plain file, or longer than `most`.
+    fn read_capped(&self, most: u64) -> Result<Vec<u8>, String>;
+
+    /// Copies the plain file here to `to`, refused as
+    /// [`read_capped`](Self::read_capped) refuses it.
+    fn copy_capped(&self, to: &Path, most: u64)
+    -> Result<(), String>;
+
+    /// The plain file here opened, and its name, refused before any
+    /// of it is read when it is a link, not a plain file, or longer
+    /// than `most`.
+    fn open_capped(
+        &self,
+        most: u64,
+    ) -> Result<(fs::File, String), String>;
+
+    /// Moves this folder to `into`, over the folder there.
+    fn move_over(&self, into: &Path) -> Result<(), String>;
 }
 
-/// Whether `path` is a folder a plugin may be in: a folder, not a
-/// link, whose name does not start with a dot.
-pub fn is_plugin_folder(path: &Path) -> bool {
-    let named = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| !name.starts_with('.'));
-    named
-        && fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir())
-}
+impl PluginPathExt for Path {
+    fn look(&self) -> Option<Look> {
+        let meta = fs::symlink_metadata(self).ok()?;
+        Some((meta.len(), meta.modified().ok()?))
+    }
 
-/// The manifest in `folder`, which the engine can take.
-pub fn read_manifest(
-    folder: &Path,
-    most: u64,
-) -> Result<Manifest, String> {
-    let bytes = read_capped(&folder.join(MANIFEST), most)?;
-    let text = String::from_utf8(bytes)
-        .map_err(|_| format!("{MANIFEST} is not text"))?;
-    let table = toml::from_str::<toml::Table>(&text)
-        .map_err(|e| format!("{MANIFEST}: {}", e.message()))?;
-    let asked = table
-        .get("asks")
-        .and_then(toml::Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|ask| ask.get("capability")?.as_str());
-    for name in asked {
-        if let Some(power) = never_granted(name) {
+    fn is_plugin_folder(&self) -> bool {
+        let named = self
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| !name.starts_with('.'));
+        named
+            && fs::symlink_metadata(self)
+                .is_ok_and(|meta| meta.is_dir())
+    }
+
+    fn read_manifest(&self, most: u64) -> Result<Manifest, String> {
+        let bytes = self.join(MANIFEST).read_capped(most)?;
+        let text = String::from_utf8(bytes)
+            .map_err(|_| format!("{MANIFEST} is not text"))?;
+        let table = toml::from_str::<toml::Table>(&text)
+            .map_err(|e| format!("{MANIFEST}: {}", e.message()))?;
+        let asked = table
+            .get("asks")
+            .and_then(toml::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|ask| ask.get("capability")?.as_str());
+        for name in asked {
+            if let Some(power) = never_granted(name) {
+                return Err(format!(
+                    "{MANIFEST} asks for {name}, and {power} is \
+                     never granted"
+                ));
+            }
+        }
+        let manifest = table
+            .try_into::<Manifest>()
+            .map_err(|e| format!("{MANIFEST}: {}", e.message()))?;
+        manifest
+            .check()
+            .map_err(|why| format!("{MANIFEST}: {why}"))?;
+        Ok(manifest)
+    }
+
+    fn read_capped(&self, most: u64) -> Result<Vec<u8>, String> {
+        let (file, name) = self.open_capped(most)?;
+        let mut bytes = Vec::new();
+        // No further than the cap, in case it grew since.
+        file.take(most + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|e| format!("{name} cannot be read: {e}"))?;
+        if bytes.len() as u64 > most {
+            return Err(format!("{name} has more than {most} bytes"));
+        }
+        Ok(bytes)
+    }
+
+    fn copy_capped(
+        &self,
+        to: &Path,
+        most: u64,
+    ) -> Result<(), String> {
+        let (file, name) = self.open_capped(most)?;
+        let unwritten = |e: std::io::Error| {
+            format!("{name} cannot be copied: {e}")
+        };
+        let mut out = fs::File::create(to).map_err(unwritten)?;
+        let copied =
+            std::io::copy(&mut file.take(most + 1), &mut out)
+                .map_err(unwritten)?;
+        if copied > most {
+            return Err(format!("{name} has more than {most} bytes"));
+        }
+        out.sync_all().map_err(unwritten)
+    }
+
+    fn open_capped(
+        &self,
+        most: u64,
+    ) -> Result<(fs::File, String), String> {
+        let name =
+            self.file_name().map_or_else(String::new, |name| {
+                name.to_string_lossy().into()
+            });
+        let unread =
+            |e: std::io::Error| format!("{name} cannot be read: {e}");
+        let meta = fs::symlink_metadata(self).map_err(unread)?;
+        if meta.is_symlink() {
+            return Err(format!("{name} is a link"));
+        }
+        if !meta.is_file() {
+            return Err(format!("{name} is not a plain file"));
+        }
+        if meta.len() > most {
             return Err(format!(
-                "{MANIFEST} asks for {name}, and {power} is never \
-                 granted"
+                "{name} has {} bytes, and the most is {most}",
+                meta.len()
             ));
         }
+        let file = fs::File::open(self).map_err(unread)?;
+        let opened = file.metadata().map_err(unread)?;
+        // The file looked at and the file opened are one, so a link
+        // put in between is not followed.
+        #[cfg(unix)]
+        let same = {
+            use std::os::unix::fs::MetadataExt;
+            opened.is_file()
+                && meta.dev() == opened.dev()
+                && meta.ino() == opened.ino()
+        };
+        #[cfg(not(unix))]
+        let same = opened.is_file() && meta.len() == opened.len();
+        if !same {
+            return Err(format!("{name} changed while it was read"));
+        }
+        Ok((file, name))
     }
-    let manifest = table
-        .try_into::<Manifest>()
-        .map_err(|e| format!("{MANIFEST}: {}", e.message()))?;
-    manifest
-        .check()
-        .map_err(|why| format!("{MANIFEST}: {why}"))?;
-    Ok(manifest)
-}
 
-/// The bytes of the plain file `path`, refused before any is read
-/// when it is a link, not a plain file, or longer than `most`.
-pub fn read_capped(
-    path: &Path,
-    most: u64,
-) -> Result<Vec<u8>, String> {
-    let (file, name) = open_capped(path, most)?;
-    let mut bytes = Vec::new();
-    // No further than the cap, in case it grew since.
-    file.take(most + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|e| format!("{name} cannot be read: {e}"))?;
-    if bytes.len() as u64 > most {
-        return Err(format!("{name} has more than {most} bytes"));
-    }
-    Ok(bytes)
-}
-
-/// Copies the plain file `from` to `to`, refused as [`read_capped`]
-/// refuses it.
-pub(crate) fn copy_capped(
-    from: &Path,
-    to: &Path,
-    most: u64,
-) -> Result<(), String> {
-    let (file, name) = open_capped(from, most)?;
-    let unwritten =
-        |e: std::io::Error| format!("{name} cannot be copied: {e}");
-    let mut out = fs::File::create(to).map_err(unwritten)?;
-    let copied = std::io::copy(&mut file.take(most + 1), &mut out)
-        .map_err(unwritten)?;
-    if copied > most {
-        return Err(format!("{name} has more than {most} bytes"));
-    }
-    out.sync_all().map_err(unwritten)
-}
-
-/// The plain file `path` opened, and its name, refused before any of
-/// it is read when it is a link, not a plain file, or longer than
-/// `most`.
-pub(crate) fn open_capped(
-    path: &Path,
-    most: u64,
-) -> Result<(fs::File, String), String> {
-    let name = path.file_name().map_or_else(String::new, |name| {
-        name.to_string_lossy().into()
-    });
-    let unread =
-        |e: std::io::Error| format!("{name} cannot be read: {e}");
-    let meta = fs::symlink_metadata(path).map_err(unread)?;
-    if meta.is_symlink() {
-        return Err(format!("{name} is a link"));
-    }
-    if !meta.is_file() {
-        return Err(format!("{name} is not a plain file"));
-    }
-    if meta.len() > most {
-        return Err(format!(
-            "{name} has {} bytes, and the most is {most}",
-            meta.len()
-        ));
-    }
-    let file = fs::File::open(path).map_err(unread)?;
-    if !same(&meta, &file.metadata().map_err(unread)?) {
-        return Err(format!("{name} changed while it was read"));
-    }
-    Ok((file, name))
-}
-
-/// Whether a file looked at by its path and the file opened are one,
-/// so a link put in between is not followed.
-fn same(looked: &fs::Metadata, opened: &fs::Metadata) -> bool {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        opened.is_file()
-            && looked.dev() == opened.dev()
-            && looked.ino() == opened.ino()
-    }
-    #[cfg(not(unix))]
-    {
-        opened.is_file() && looked.len() == opened.len()
+    fn move_over(&self, into: &Path) -> Result<(), String> {
+        let moved = |e: std::io::Error| {
+            format!("the plugin cannot take its place: {e}")
+        };
+        match fs::symlink_metadata(into) {
+            Err(_) => fs::rename(self, into).map_err(moved),
+            Ok(meta) if meta.is_dir() => {
+                let name = into
+                    .file_name()
+                    .map_or_else(String::new, |name| {
+                        name.to_string_lossy().into()
+                    });
+                let old =
+                    into.with_file_name(format!(".removing_{name}"));
+                let _ = fs::remove_dir_all(&old);
+                fs::rename(into, &old).map_err(moved)?;
+                if let Err(e) = fs::rename(self, into) {
+                    let _ = fs::rename(&old, into);
+                    return Err(moved(e));
+                }
+                let _ = fs::remove_dir_all(&old);
+                Ok(())
+            }
+            Ok(_) => Err(format!(
+                "{} is not a folder; take it away by hand",
+                into.display()
+            )),
+        }
     }
 }

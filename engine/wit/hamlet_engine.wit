@@ -15,7 +15,8 @@ interface host {
 
     // Each request below gives a ticket, and its `Reply` comes in a
     // later `receive` with that ticket. A ticket of 0 means the
-    // request was not taken: one call made too many.
+    // request was not taken: one call made too many, handed over too
+    // many bytes, or gave one that cannot be read.
 
     /// Makes an asset of the type `kind`, one the plugin makes.
     create-asset: func(kind: string, name: string, bytes: list<u8>) -> u64;
