@@ -1,0 +1,6 @@
+# The engine and the plugins are two Cargo workspaces; rust-analyzer
+# loads both, so either side of the boundary can be read from the
+# other.
+[language-server.rust-analyzer.config]
+check.command = "clippy"
+linkedProjects = ["Cargo.toml", "plugins/Cargo.toml"]
