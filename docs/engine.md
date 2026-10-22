@@ -105,7 +105,11 @@ same types.
   mismatch, out of budget, failed). The other messages are `Changed`
   and `Gone` for an asset held, and `Event`.
 - **What a plugin adds** is a `Contribution` each: a panel (with an
-  icon for its tab or none, `panel_with_icon` in the SDK), a command,
+  icon for its tab or none, `panel_with_icon` in the SDK, and a
+  `PanelPadding` in place of the theme's, a role of the theme's
+  `Space` or pixels, `padding(Space::None)` or `padding_pixels(..)`
+  after it; the engine refuses a panel whose pixels are below zero or
+  not finite), a command,
   a menu entry, a shortcut, a settings page (with its icon and a line
   on what it holds), a settings footer, a suggested workspace, a
   status item (one that grows or not), an overlay or a panel section
@@ -176,14 +180,18 @@ types, so the WIT names nothing twice.
   it is pressed, in place of a click),
   `direction`, `align` (its children at its start or its end),
   `fill` (none, a card, the accent's or a disc, by the theme's
-  roles; a filled frame is padded and no wider than what holds it)
-  and
+  roles; a filled frame is padded and no wider than what holds it),
+  `padding` (a frame's room about what it holds, by the same roles as
+  `space`, past what its fill pads it by), `grow` (a frame's share of
+  the room left along what holds it, none at 0) and
   `space` (a frame's), `placeholder` and `lines` (a field's: the most
   lines it grows to, one to start with), `on` (a toggle's), and
   `options` and `selected` (a dropdown's). A field of more than one
   line is for a message: Enter sends what is typed and empties it,
   Shift+Enter adds a line, and Escape keeps what is typed and leaves
-  it. A scroll's `stick` keeps it to its end as it grows, until the
+  it. A scroll in a panel takes the height left there and scrolls
+  what does not fit, however deep in frames it is. A scroll's `stick`
+  keeps it to its end as it grows, until the
   person scrolls up, and again once they are back at its end; what
   is put above it after it reached its top leaves the rows shown
   where they were. A tone, a size and a
@@ -230,7 +238,8 @@ the engine the SDK comes with.
   `button`, `icon_button` (an icon and a label in a button), `icon`,
   `toggle` (and `switch`, one with words beside it), `field`,
   `dropdown`, `divider`, and the holders `column`,
-  `row`, `list` and `scroll`; `keyed` builds a view again when its
+  `row`, `list` and `scroll`; a column or row's `grow` has it take
+  the room left; `keyed` builds a view again when its
   key changes, and `each` a view per item of a list. `on_click`,
   `on_toggle`, `on_commit`, `on_submit`, `on_pick` and `on_top` run a
   handler
@@ -399,7 +408,9 @@ samples) runs the scripts of hello, notes and board.
   the entity is there the dock can show it; when it goes, its tabs go.
   Its tab shows its title in capitals, after its `PanelIcon` if it has
   one. `view.in_panel()` gives content the panel's padding and its
-  fill, shaded toward the bottom. `tree.open_panel(id)` (`DockTreeExt`)
+  fill, shaded toward the bottom, and `view.in_panel_padded(pixels)`
+  the same inside other padding; a `PanelInset` beside the `Panel`
+  is the padding a plugin declared for it. `tree.open_panel(id)` (`DockTreeExt`)
   brings a panel to the front.
 - **The console** (`engine/console`) lists the log, newest first.
 - **Settings pages** are entities with a `SettingsPage`, as plugins add
@@ -459,8 +470,8 @@ buttons, cards, headings, notes, icons and chrome. Dark only.
   the place in `trail` of its page. `StyleExt` wraps any
   view:
   `styled(kind)` as a button, `with_icon(glyph)`, `in_tab(shown)` and
-  `in_panel()`. A `BottomGradient` surface, as a panel or the bar,
-  shades toward `background_bottom`.
+  `in_panel()` or `in_panel_padded(pixels)`. A `BottomGradient`
+  surface, as a panel or the bar, shades toward `background_bottom`.
 - **Glows** are Bevy's `BoxShadow` and `BackgroundGradient` and
   nothing else: no shader of the shell's own. A control glows by what
   it is for (`Glow`): eased toward the pointer, a press or the caret,
@@ -946,8 +957,8 @@ written here by their names in `[budgets]`.
   settings pages are the same `Panel` and `SettingsPage` as a built-in
   plugin's, and carry a `Surface`: their name within the plugin, and
   why it was stopped if it was. When the dock shows a panel, or
-  Settings a page, a root is built for it, inside a panel's padding,
-  and the plugin is asked to `mount` it there; when the root goes, it
+  Settings a page, a root is built for it, inside a panel's padding
+  or the one the plugin declared for the panel, and the plugin is asked to `mount` it there; when the root goes, it
   is told to `unmount` it. A plugin that does not export `ui-guest`
   leaves them empty.
 - **Holders.** What a call did to its nodes is kept (`nodes.rs`) and
@@ -977,6 +988,13 @@ written here by their names in `[budgets]`.
   A widget is built again when what it is built as changes, such as
   a button's style, a dropdown's options, whether it has a tip, or
   its menu.
+- **Room for a scroll.** A holder is marked (`HoldsScroll`) while a
+  scroll is under it, kept as nodes come, go and move. The frame of a
+  marked node, and the panel's root, may be shorter than what it
+  holds (`min_height` 0) and, under a column, take the room left
+  (`flex_grow` 1), as an engine panel's columns do, so the scroll is
+  given the panel's height and not its content's. A frame with no
+  scroll under it keeps its height, and a `grow` the plugin set wins.
 - **Moved by the engine.** A tone, size, opacity, space or offset set
   over a motion is moved from where it is shown over the theme's curve
   for it, a tone as its colour. A role is filled in from the theme as
@@ -1103,8 +1121,9 @@ service, so they check the pages and the card's steps on their own.
 The status items are not read by the harness.
 
 `plugins/scene_demo` (`hamlet.scene_demo`, asking `render.scene`,
-`render.shader` and `render.compute`) is the panel Scene: a viewport
-of a lit scene, under a sun with shadows, of a ground, a sphere, a
+`render.shader` and `render.compute`) is the panel Scene, which has
+no padding: a line of its own padding over a viewport that reaches
+the panel's edges, of a lit scene, under a sun with shadows, of a ground, a sphere, a
 ring in a material of its own WGSL (`ring.wgsl`), a six-sided pyramid
 of its own mesh with a colour at each vertex, and a field of 400
 cubes as copies of one, lifted in waves by compute (`waves.wgsl`)
@@ -1124,8 +1143,8 @@ between agents with their bridges and lit grooves, and the chief's
 Hearth with its mascot, which goes by a Wickstep to the agent the
 chief talks to. The sky follows the chief's clock (`Focus::offset`).
 Its tuning is `assets/world.toml` and `assets/palette.toml`, built in.
-- **The panel** is a viewport filling it, its camera's
-  (`scene::viewport`), so it is docked, tabbed, split and closed as
+- **The panel** has no padding, and is a viewport filling it to its
+  edges, its camera's (`scene::viewport`), so it is docked, tabbed, split and closed as
   any panel is, and its signs and tags are words over that viewport.
   The realm is made when the panel is first built or the agents
   service first answers, and is kept in the plugin's world. While the

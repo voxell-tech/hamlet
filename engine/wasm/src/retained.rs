@@ -35,8 +35,8 @@ use bevy::picking::hover::Hovered as PickingHovered;
 use bevy::picking::pointer::PointerButton;
 use bevy::time::Time;
 use bevy::ui::{
-    AlignItems, FlexDirection, JustifyContent, Node, UiRect, percent,
-    px,
+    AlignItems, FlexDirection, JustifyContent, Node, UiRect, Val,
+    percent, px,
 };
 use bevy_fynix::patch::{PatchInk, PatchOpacity};
 use bevy_fynix::scroll::ScrollGoal;
@@ -53,11 +53,13 @@ use bevy_fynix::{
     each, keyed,
 };
 use fynix::Patch;
-use hamlet_engine_api::PanelId;
+use hamlet_engine_api::contribution::Space;
+use hamlet_engine_api::{PanelId, PanelPadding};
 use hamlet_engine_core::Budgets;
 use hamlet_engine_plugins::{
     ContributedBy, Contributions, PluginInfo,
 };
+use hamlet_engine_shell::dock::PanelInset;
 use hamlet_engine_shell::fonts::DisplayText;
 use hamlet_engine_shell::icons::{Glyph, glyph};
 use hamlet_engine_shell::message::message_field;
@@ -104,6 +106,7 @@ pub(crate) fn plugin(app: &mut App) {
                     .chain()
                     .run_if(resource_exists::<EngineTheme>),
                 forget_stopped,
+                find_scrolls.after(serve),
             ),
         );
 }
@@ -211,6 +214,8 @@ struct Props {
     tip: String,
     justify: JustifyContent,
     fill: wit::Fill,
+    padding: wit::Space,
+    grow: f32,
     menu: Menu,
     /// The title of the dialog a folder is chosen in, if it opens
     /// one.
@@ -258,6 +263,8 @@ impl Props {
             tip: String::new(),
             justify: JustifyContent::Default,
             fill: wit::Fill::None,
+            padding: wit::Space::None,
+            grow: 0.0,
             menu: Menu::default(),
             folder: String::new(),
             tone: wit::Tone::Body,
@@ -336,6 +343,8 @@ impl Props {
                 };
             }
             Property::Fill(fill) => self.fill = fill,
+            Property::Padding(space) => self.padding = space,
+            Property::Grow(grow) => self.grow = grow,
             Property::Menu(menu) => self.menu = menu.into(),
             Property::Folder(title) => self.folder = title,
             Property::Tone(tone) => self.tone = tone,
@@ -352,6 +361,7 @@ const SIZE: u32 = 1 << 2;
 const BOLD: u32 = 1 << 3;
 const OPACITY: u32 = 1 << 5;
 const OFFSET: u32 = 1 << 11;
+const GROW: u32 = 1 << 22;
 
 impl Property {
     /// The bit of the property this sets, in the order the WIT names
@@ -379,6 +389,8 @@ impl Property {
             Property::Fill(_) => 18,
             Property::Menu(_) => 19,
             Property::Folder(_) => 20,
+            Property::Padding(_) => 21,
+            Property::Grow(_) => 22,
         };
         1 << at
     }
@@ -386,7 +398,13 @@ impl Property {
 
 /// On the holder of a node that holds others: them, in order.
 #[derive(Component, Clone, Default)]
+#[require(HoldsScroll)]
 pub(crate) struct Kids(Vec<Child>);
+
+/// On the holder of a node that holds others: whether a scroll is
+/// among them or further down.
+#[derive(Component, Clone, Copy, Default)]
+pub(crate) struct HoldsScroll(bool);
 
 /// A node under another, as the other's widget builds it.
 #[derive(Clone, PartialEq, Debug)]
@@ -458,6 +476,7 @@ enum Shape {
     Plain,
     Frame {
         fill: wit::Fill,
+        padding: wit::Space,
     },
     Label {
         /// The bits of [`Props::set`] it binds.
@@ -516,7 +535,10 @@ impl Shape {
                 options: props.options.clone(),
             },
             Kind::Scroll => Self::Scroll { stick: props.stick },
-            Kind::Frame => Self::Frame { fill: props.fill },
+            Kind::Frame => Self::Frame {
+                fill: props.fill,
+                padding: props.padding,
+            },
             _ => Self::Plain,
         }
     }
@@ -565,12 +587,7 @@ impl Target {
                 wit::Size::Heading => theme.text.heading,
                 wit::Size::Title => theme.text.title,
             }),
-            Self::Space(space) => Shown::Gap(match space {
-                wit::Space::None => 0.0,
-                wit::Space::Half => gap / 2.0,
-                wit::Space::Gap => gap,
-                wit::Space::Double => gap * 2.0,
-            }),
+            Self::Space(space) => Shown::Gap(gap_of(space, gap)),
             Self::Opacity(opacity) => Shown::Opacity(opacity),
             Self::Offset(offset) => Shown::Offset(offset),
         }
@@ -580,6 +597,27 @@ impl Target {
     fn is_same(self, other: Self) -> bool {
         core::mem::discriminant(&self)
             == core::mem::discriminant(&other)
+    }
+}
+
+/// The room `space` is, by the theme's `gap`.
+fn gap_of(space: wit::Space, gap: f32) -> f32 {
+    match space {
+        wit::Space::None => 0.0,
+        wit::Space::Half => gap / 2.0,
+        wit::Space::Gap => gap,
+        wit::Space::Double => gap * 2.0,
+    }
+}
+
+impl From<Space> for wit::Space {
+    fn from(space: Space) -> Self {
+        match space {
+            Space::None => Self::None,
+            Space::Half => Self::Half,
+            Space::Gap => Self::Gap,
+            Space::Double => Self::Double,
+        }
     }
 }
 
@@ -654,11 +692,28 @@ struct Travel {
     motion: Movement,
 }
 
-/// The content of a WASM plugin's panel, inside the panel's padding.
+/// The content of a WASM plugin's panel, inside the panel's padding
+/// or the one it declared.
 pub(crate) fn view(surface: Entity) -> AnyView {
-    shown(surface)
-        .within(column(()).gap(0.0).grow(1.0))
-        .in_panel()
+    AnyView::new(move |cx: &mut Cx| {
+        let inset =
+            cx.world.get::<PanelInset>(surface).map(|inset| inset.0);
+        let space = &cx.theme().space;
+        let padding = match inset {
+            None => space.panel,
+            Some(PanelPadding::Space(room)) => {
+                gap_of(room.into(), space.gap)
+            }
+            Some(PanelPadding::Pixels(pixels)) => pixels,
+        };
+        cx.build(
+            shown(surface)
+                .within(
+                    column(()).gap(0.0).grow(1.0).min_height(px(0.0)),
+                )
+                .in_panel_padded(padding),
+        )
+    })
 }
 
 /// The content of a WASM plugin's settings page, footer, overlay or
@@ -689,10 +744,14 @@ fn root(surface: Entity) -> AnyView {
             .map_or(Entity::PLACEHOLDER, |by| by.0);
         let holder =
             cx.world.spawn((Kids::default(), ChildOf(surface))).id();
-        let widget = cx.build(
+        let widget = cx.build(roomy(
             kids(holder, plugin, Place::Frame)
-                .within(column(()).gap(0.0)),
-        );
+                .within(column(()).gap(0.0))
+                .boxed(),
+            holder,
+            surface,
+            Place::Frame,
+        ));
         cx.world
             .entity_mut(surface)
             .insert(UiRoot { widget, holder });
@@ -727,9 +786,12 @@ fn widget(
 ) -> AnyView {
     let (holder, key) = (child.holder, child.key);
     let built = match (child.kind, &child.shape) {
-        (Kind::Frame, &Shape::Frame { fill }) => {
-            frame(holder, plugin, fill)
-        }
+        (Kind::Frame, &Shape::Frame { fill, padding }) => roomy(
+            frame(holder, plugin, fill, padding),
+            holder,
+            parent,
+            place,
+        ),
         (Kind::Label, &Shape::Label { set, display }) => {
             inked(text(holder, set, display), holder, set & TONE != 0)
         }
@@ -921,8 +983,6 @@ fn icon(name: &str) -> AnyView {
     })
 }
 
-/// The frame of the node of `holder`, a node of `plugin`, drawn on
-/// `fill`, its colours from the theme.
 /// A button of the style `Row` holding what the node of `holder`
 /// holds, set out as a row of a list is: from its start, its last at
 /// its end. A press runs `click`.
@@ -948,18 +1008,28 @@ fn row_button(
     })
 }
 
-fn frame(holder: Entity, plugin: Entity, fill: wit::Fill) -> AnyView {
+/// The frame of the node of `holder`, a node of `plugin`, drawn on
+/// `fill`, its colours from the theme, with `padding` past what the
+/// fill pads it by.
+fn frame(
+    holder: Entity,
+    plugin: Entity,
+    fill: wit::Fill,
+    padding: wit::Space,
+) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
+        let space = &cx.theme().space;
+        let colors = &cx.theme().colors;
+        let room = gap_of(padding, space.gap);
         let frame = column(())
             .direction(read(holder, |props| props.direction))
             .gap(read(holder, |props| props.gap))
             .align(read(holder, |props| props.align))
-            .justify(read(holder, |props| props.justify));
-        let space = &cx.theme().space;
-        let colors = &cx.theme().colors;
+            .justify(read(holder, |props| props.justify))
+            .padding(UiRect::all(px(room)));
         let card = UiRect::axes(
-            px(space.card_padding_x),
-            px(space.card_padding_y),
+            px(space.card_padding_x + room),
+            px(space.card_padding_y + room),
         );
         let drawn = match fill {
             wit::Fill::None => None,
@@ -980,7 +1050,7 @@ fn frame(holder: Entity, plugin: Entity, fill: wit::Fill) -> AnyView {
                 *colors.surface_raised,
                 *colors.border,
                 space.row,
-                UiRect::all(px(space.gap / 2.0)),
+                UiRect::all(px(space.gap / 2.0 + room)),
             )),
         };
         let frame = match drawn {
@@ -995,6 +1065,80 @@ fn frame(holder: Entity, plugin: Entity, fill: wit::Fill) -> AnyView {
                 .max_width(percent(100.0)),
         };
         cx.build(kids(holder, plugin, Place::Frame).within(frame))
+    })
+}
+
+/// How a frame is laid out within what holds it.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct Room {
+    /// Its share of the room left.
+    grow: f32,
+    min_height: Val,
+}
+
+impl Room {
+    /// The room of the frame of the node of `holder`, held by the
+    /// node of `parent` as `place` says. One with a scroll under it
+    /// may be shorter than what it holds and, along a column, takes
+    /// the room left, so the scroll is given a height to scroll in.
+    fn of(
+        world: &World,
+        holder: Entity,
+        parent: Entity,
+        place: Place,
+    ) -> Self {
+        let scrolls = world
+            .get::<HoldsScroll>(holder)
+            .is_some_and(|holds| holds.0);
+        // A root's parent is the host's column.
+        let along = place == Place::Frame
+            && world.get::<Props>(parent).is_none_or(|props| {
+                props.direction == FlexDirection::Column
+            });
+        let grow = match world.get::<Props>(holder) {
+            Some(props) if props.has(GROW) => props.grow,
+            _ if scrolls && along => 1.0,
+            _ => 0.0,
+        };
+        Self {
+            grow,
+            min_height: if scrolls { px(0.0) } else { Val::Auto },
+        }
+    }
+}
+
+/// `view`, the frame of the node of `holder`, laid out by its
+/// [`Room`].
+fn roomy(
+    view: AnyView,
+    holder: Entity,
+    parent: Entity,
+    place: Place,
+) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let node = cx.build(view);
+        let mut sources = [
+            component::<Props, _>(holder, |_| ()),
+            component::<HoldsScroll, _>(holder, |_| ()),
+            component::<Props, _>(parent, |_| ()),
+        ];
+        let room = Signal::new(
+            move |world: &World| {
+                Room::of(world, holder, parent, place)
+            },
+            move |world: &World| {
+                sources.iter_mut().fold(false, |any, source| {
+                    source.changed(world) | any
+                })
+            },
+        );
+        cx.effect(node, room.into(), |world, node, room: &Room| {
+            if let Some(mut laid) = world.get_mut::<Node>(node) {
+                laid.flex_grow = room.grow;
+                laid.min_height = room.min_height;
+            }
+        });
+        node
     })
 }
 
@@ -1797,6 +1941,35 @@ fn restyle(
 ) {
     for (mut props, travels) in &mut holders {
         props.restyle(&theme, travels);
+    }
+}
+
+/// Marks each holder whose nodes changed, and those above it, by
+/// whether a scroll is under it.
+pub(crate) fn find_scrolls(
+    changed: Query<Entity, Changed<Kids>>,
+    mut holders: Query<(&Kids, &mut HoldsScroll)>,
+    parents: Query<&ChildOf>,
+) {
+    for mut at in &changed {
+        while let Ok((kids, holds)) = holders.get(at) {
+            let scrolls = kids.0.iter().any(|kid| {
+                matches!(kid.kind, Kind::Scroll)
+                    || holders
+                        .get(kid.holder)
+                        .is_ok_and(|(_, below)| below.0)
+            });
+            if holds.0 == scrolls {
+                break;
+            }
+            if let Ok((_, mut holds)) = holders.get_mut(at) {
+                holds.0 = scrolls;
+            }
+            let Ok(parent) = parents.get(at) else {
+                break;
+            };
+            at = parent.parent();
+        }
     }
 }
 

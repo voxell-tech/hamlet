@@ -18,7 +18,8 @@ use hamlet_engine_sdk::scene::{
     Transform, copies, viewport,
 };
 use hamlet_engine_sdk::ui::{
-    AnyView, Tone, ViewExt, World, column, label, resource,
+    AnyView, FrameProps, Space, Tone, ViewExt, World, column, label,
+    resource, row,
 };
 use hamlet_engine_sdk::{Entry, Plugin};
 
@@ -51,7 +52,7 @@ struct SceneDemo;
 
 impl Plugin for SceneDemo {
     fn declare(&self, entry: &mut Entry) {
-        entry.panel("scene", "Scene");
+        entry.panel("scene", "Scene").padding(Space::None);
     }
 
     fn mount(&mut self, _: &str, world: &mut World) -> AnyView {
@@ -69,10 +70,12 @@ impl Plugin for SceneDemo {
             world.insert(Said(said));
         }
         column((
-            label(resource::<Said, _>(|said| said.0.clone()))
-                .tone(Tone::Dim),
+            row((label(resource::<Said, _>(|said| said.0.clone()))
+                .tone(Tone::Dim),))
+            .padding(Space::Gap),
             viewport::<Demo>(|demo| Some(&demo.camera)),
         ))
+        .space(Space::None)
         .boxed()
     }
 

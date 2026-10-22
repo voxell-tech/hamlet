@@ -155,7 +155,9 @@ impl Kind {
             Property::Direction(_)
             | Property::Space(_)
             | Property::Align(_)
-            | Property::Fill(_) => self == Self::Frame,
+            | Property::Fill(_)
+            | Property::Padding(_)
+            | Property::Grow(_) => self == Self::Frame,
             Property::Placeholder(_) | Property::Lines(_) => {
                 self == Self::Field
             }
@@ -188,6 +190,9 @@ impl Property {
                 within(x, 0.0, MOST_OFFSET),
                 within(y, 0.0, MOST_OFFSET),
             )),
+            Self::Grow(grow) => {
+                Self::Grow(within(grow, 0.0, f32::MAX).max(0.0))
+            }
             other => other,
         }
     }

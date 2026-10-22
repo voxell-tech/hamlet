@@ -126,7 +126,7 @@ interface ui {
         row,
     }
 
-    /// Room between the children of a frame.
+    /// Room between the children of a frame, or around them.
     enum space {
         none,
         half,
@@ -270,6 +270,12 @@ interface ui {
         /// chosen in, which a press opens in place of a `click`, or
         /// none if empty. The folder chosen is a `chosen`.
         folder(string),
+        /// Of a frame: room between its edges and what it holds,
+        /// past what its fill pads it by.
+        padding(space),
+        /// Of a frame: its share of the room left along what holds
+        /// it, none at 0.
+        grow(f32),
     }
 
     /// What an item of the status line shows.

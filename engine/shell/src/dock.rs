@@ -12,7 +12,7 @@ use bevy_fynix::dock::{
     DockPlugin, DockRegistry, DockTree, DockWindowKind,
 };
 use hamlet_engine_api::id::ENGINE;
-use hamlet_engine_api::{CommandId, PanelId};
+use hamlet_engine_api::{CommandId, PanelId, PanelPadding};
 
 use crate::command::{RunCommand, ShellCommandsExt};
 use crate::icons::Glyph;
@@ -43,6 +43,12 @@ pub struct Panel {
 #[derive(Component, Clone, Copy, Debug)]
 #[component(immutable)]
 pub struct PanelIcon(pub Glyph);
+
+/// The padding of a panel's content in place of the theme's, beside
+/// its [`Panel`].
+#[derive(Component, Clone, Copy, Debug)]
+#[component(immutable)]
+pub struct PanelInset(pub PanelPadding);
 
 /// Lets the dock show a new panel, and adds a command that opens it
 /// to the View menu.

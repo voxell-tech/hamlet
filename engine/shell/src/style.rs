@@ -397,15 +397,22 @@ pub trait StyleExt: View + Sized {
     /// surface that shades toward its bottom, cut at the padding.
     fn in_panel(self) -> AnyView {
         AnyView::new(move |cx: &mut Cx| {
-            let theme = cx.theme();
-            let (fill, inset) =
-                (*theme.colors.background, theme.space.panel);
+            let padding = cx.theme().space.panel;
+            cx.build(self.in_panel_padded(padding))
+        })
+    }
+
+    /// A panel's content as [`StyleExt::in_panel`] has it, inside
+    /// `padding` in place of the panel's.
+    fn in_panel_padded(self, padding: f32) -> AnyView {
+        AnyView::new(move |cx: &mut Cx| {
+            let fill = *cx.theme().colors.background;
             cx.build(
                 column((self,))
                     .grow(1.0)
                     .min_width(px(0.0))
                     .min_height(px(0.0))
-                    .padding(UiRect::all(px(inset)))
+                    .padding(UiRect::all(px(padding)))
                     .gap(0.0)
                     .fill(fill)
                     .overflow(Overflow::clip())

@@ -229,6 +229,8 @@ impl Property {
             Property::Fill(_) => 18,
             Property::Menu(_) => 19,
             Property::Folder(_) => 20,
+            Property::Padding(_) => 21,
+            Property::Grow(_) => 22,
         };
         1 << at
     }
@@ -254,6 +256,8 @@ impl Property {
             Property::Space(space) => *space == Space::Gap,
             Property::Align(align) => *align == Align::Start,
             Property::Fill(fill) => *fill == Fill::None,
+            Property::Padding(space) => *space == Space::None,
+            Property::Grow(grow) => *grow == 0.0,
             Property::Menu(menu) => menu.items.is_empty(),
             Property::Offset(offset) => *offset == (0.0, 0.0),
             Property::Options(options) => options.is_empty(),

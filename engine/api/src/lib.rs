@@ -21,7 +21,7 @@ pub use crate::asset::{
     Asset, AssetId, AssetInfo, AssetType, AssetTypes, TypeName,
 };
 pub use crate::capability::{Ask, Capability};
-pub use crate::contribution::Contribution;
+pub use crate::contribution::{Contribution, PanelPadding};
 pub use crate::desktop::{
     DesktopEvent, DesktopReply, DesktopRequest,
 };

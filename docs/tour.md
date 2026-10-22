@@ -134,6 +134,8 @@ Paths are under the crate's folder in the table above.
 | The engine, apart from the app | `engine/`; [`engine.md`](engine.md) |
 | A budget or limit of an engine plugin | `engine/tuning/engine.toml`; the caps every plugin is held to alike in `engine/core/src/budget.rs`, a plugin's own memory in `engine/api/src/limits.rs`, resolved with its manifest's and the person's in `engine/plugins/src/limits.rs` and shown on its page in the Plugins panel in `engine/plugins/src/list/limits.rs`; [`engine.md`](engine.md#limits) |
 | The engine's Plugins panel: the list, its search and filter, and each plugin's page | `engine/plugins/src/list.rs`, the page in `list/page.rs`; a section another crate adds to every page is a `PluginPageSection`, as WHAT IT MAY DO in `engine/grants/src/page.rs`; [`engine.md`](engine.md#plugins) |
+| How a plugin's scroll is given the height left in its panel | `HoldsScroll`, `find_scrolls` and `Room` in `engine/wasm/src/retained.rs`; [`engine.md`](engine.md#panels) |
+| The padding of an engine panel, or a plugin's panel without it | `in_panel` and `in_panel_padded` in `engine/shell/src/style.rs`; a plugin's `PanelPadding` in `engine/api/src/contribution.rs`, resolved in `view` in `engine/wasm/src/retained.rs` |
 | The breadcrumb over a page within a panel | `breadcrumb` in `engine/shell/src/style.rs`; a plugin's in `plugins/agents_ui/src/breadcrumb.rs` |
 | What engine plugins share | `engine/assets/` (assets), `engine/bus/` (services and events), `engine/net/` (fetches) |
 | What plugins may ask of the agents | `engine/api/src/agents.rs`, answered in `engine/agents/src/answer.rs`; [`engine.md`](engine.md#the-agents) |

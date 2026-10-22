@@ -1,6 +1,10 @@
 //! What a plugin declares it adds.
 
-use hamlet_engine_api::{Contribution, Layout};
+use hamlet_engine_api::{
+    Contribution, Layout, PanelPadding, contribution as api,
+};
+
+use crate::ui::Space;
 
 /// What a plugin adds, as [`Plugin::declare`](crate::Plugin::declare)
 /// declares it. A name is the plugin's own. A command is named by its
@@ -17,6 +21,7 @@ impl Entry {
             name: name.into(),
             title: title.into(),
             icon: None,
+            padding: None,
         })
     }
 
@@ -32,7 +37,27 @@ impl Entry {
             name: name.into(),
             title: title.into(),
             icon: Some(icon.into()),
+            padding: None,
         })
+    }
+
+    /// Pads the content of the panel just added by `space`, in place
+    /// of the theme's panel padding. `Space::None` lets it reach the
+    /// panel's edges.
+    pub fn padding(&mut self, space: Space) -> &mut Self {
+        let space = match space {
+            Space::None => api::Space::None,
+            Space::Half => api::Space::Half,
+            Space::Gap => api::Space::Gap,
+            Space::Double => api::Space::Double,
+        };
+        self.pad(PanelPadding::Space(space))
+    }
+
+    /// Pads the content of the panel just added by `pixels`, logical
+    /// ones, in place of the theme's panel padding.
+    pub fn padding_pixels(&mut self, pixels: f32) -> &mut Self {
+        self.pad(PanelPadding::Pixels(pixels))
     }
 
     /// A command a menu calls `label`, run by
@@ -160,6 +185,16 @@ impl Entry {
 
     fn add(&mut self, contribution: Contribution) -> &mut Self {
         self.0.push(contribution);
+        self
+    }
+
+    /// Sets the padding of the last thing added, if it is a panel.
+    fn pad(&mut self, to: PanelPadding) -> &mut Self {
+        if let Some(Contribution::Panel { padding, .. }) =
+            self.0.last_mut()
+        {
+            *padding = Some(to);
+        }
         self
     }
 }

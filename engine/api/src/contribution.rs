@@ -10,11 +10,14 @@ use crate::layout::Layout;
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum Contribution {
     /// A panel for the dock, its tab showing the icon `icon` by its
-    /// name, if it has one.
+    /// name, if it has one, its content inside `padding`, or the
+    /// theme's panel padding if none.
     Panel {
         name: String,
         title: String,
         icon: Option<String>,
+        #[serde(default)]
+        padding: Option<PanelPadding>,
     },
     /// A command a menu calls `label`.
     Command { name: String, label: String },
@@ -57,4 +60,40 @@ pub enum Contribution {
         name: String,
         title: String,
     },
+}
+
+/// The room between a panel's edges and its content.
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
+pub enum PanelPadding {
+    /// A role of the theme's.
+    Space(Space),
+    /// Logical pixels.
+    Pixels(f32),
+}
+
+impl PanelPadding {
+    /// Whether it is a padding a panel can have: no pixels below
+    /// zero, and a finite number of them.
+    pub fn is_valid(self) -> bool {
+        match self {
+            Self::Space(_) => true,
+            Self::Pixels(pixels) => {
+                pixels.is_finite() && pixels >= 0.0
+            }
+        }
+    }
+}
+
+/// Room by its role in the theme, as between the children of a frame.
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize,
+)]
+pub enum Space {
+    None,
+    /// Half the theme's gap.
+    Half,
+    /// The theme's gap.
+    Gap,
+    /// Twice the theme's gap.
+    Double,
 }

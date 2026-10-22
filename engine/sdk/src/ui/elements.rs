@@ -63,6 +63,12 @@ pub struct Frame {
     pub align: Prop<World, Align>,
     #[elem(default = Fill::None, patch = SetFill)]
     pub fill: Prop<World, Fill>,
+    /// Room around its children, past what its fill pads it by.
+    #[elem(default = Space::None, patch = SetPadding)]
+    pub padding: Prop<World, Space>,
+    /// Its share of the room left along what holds it, none at 0.
+    #[elem(default = 0.0, patch = SetGrow)]
+    pub grow: Prop<World, f32>,
     #[elem(default = 1.0, patch = SetOpacity, blend = blend)]
     pub opacity: Prop<World, f32>,
     #[elem(default = (0.0, 0.0), patch = SetOffset, blend = shift)]
@@ -680,6 +686,8 @@ patch!(SetLines, u32, |lines: &u32| Property::Lines(*lines));
 patch!(SetStick, bool, |stick: &bool| Property::Stick(*stick));
 patch!(SetAlign, Align, |align: &Align| Property::Align(*align));
 patch!(SetFill, Fill, |fill: &Fill| Property::Fill(*fill));
+patch!(SetPadding, Space, |space: &Space| Property::Padding(*space));
+patch!(SetGrow, f32, |grow: &f32| Property::Grow(*grow));
 patch!(SetFolder, String, |title: &String| {
     Property::Folder(title.clone())
 });

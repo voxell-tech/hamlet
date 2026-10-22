@@ -37,7 +37,9 @@ use hamlet_engine_sdk::api::agents::{
     AgentsEvent, AgentsReply, AgentsRequest, Selected,
 };
 use hamlet_engine_sdk::scene::{SceneInput, animate, viewport};
-use hamlet_engine_sdk::ui::{AnyView, Tone, ViewExt, label, open};
+use hamlet_engine_sdk::ui::{
+    AnyView, FrameProps, Space, Tone, ViewExt, column, label, open,
+};
 use hamlet_engine_sdk::{
     Entry, Message, Plugin, Reply, World, agents, decode, error,
     subscribe, warn,
@@ -68,7 +70,9 @@ struct RealmPlugin {
 
 impl Plugin for RealmPlugin {
     fn declare(&self, entry: &mut Entry) {
-        entry.panel_with_icon(PANEL, "Realm", "globe");
+        entry
+            .panel_with_icon(PANEL, "Realm", "globe")
+            .padding(Space::None);
         let commands = [
             ("reset_camera", "Reset Camera", "View", None),
             ("focus", "Focus on Selection", "View", Some("F")),
@@ -95,10 +99,11 @@ impl Plugin for RealmPlugin {
 
     fn mount(&mut self, _: &str, world: &mut World) -> AnyView {
         if self.realm(world).is_none() {
-            return label(
+            return column((label(
                 "The realm cannot be drawn: the log says why",
             )
-            .tone(Tone::Dim)
+            .tone(Tone::Dim),))
+            .padding(Space::Double)
             .boxed();
         }
         viewport::<Realm>(|realm| Some(realm.lens()))

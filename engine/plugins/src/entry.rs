@@ -7,11 +7,11 @@ use bevy::ecs::system::Commands;
 use bevy::ecs::world::World;
 use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_api::{
-    CommandId, IdError, Layout, PanelId, PluginId,
+    CommandId, IdError, Layout, PanelId, PanelPadding, PluginId,
 };
 use hamlet_engine_core::Budgets;
 use hamlet_engine_shell::command::parse_chord;
-use hamlet_engine_shell::dock::PanelIcon;
+use hamlet_engine_shell::dock::{PanelIcon, PanelInset};
 use hamlet_engine_shell::icons::Glyph;
 use hamlet_engine_shell::{
     AnyView, Command, MenuEntry, Overlay, Panel, PanelSection,
@@ -44,6 +44,7 @@ enum Declared {
         name: String,
         title: String,
         icon: Option<Glyph>,
+        padding: Option<PanelPadding>,
         content: fn(Entity) -> AnyView,
     },
     Command {
@@ -103,6 +104,7 @@ impl Entry {
             name: name.into(),
             title: title.into(),
             icon: None,
+            padding: None,
             content,
         });
         self
@@ -120,8 +122,20 @@ impl Entry {
             name: name.into(),
             title: title.into(),
             icon: Some(icon),
+            padding: None,
             content,
         });
+        self
+    }
+
+    /// Gives the panel just declared a [`PanelInset`] of `padding`,
+    /// for its content to be padded by in place of the theme's.
+    pub fn padding(&mut self, padding: PanelPadding) -> &mut Self {
+        if let Some(Declared::Panel { padding: to, .. }) =
+            self.declared.last_mut()
+        {
+            *to = Some(padding);
+        }
         self
     }
 
@@ -289,6 +303,7 @@ impl Entry {
                     name,
                     title,
                     icon,
+                    padding,
                     content,
                 } => {
                     if panels == budgets.panels {
@@ -298,16 +313,27 @@ impl Entry {
                         ));
                         continue;
                     }
+                    if let Some(padding) =
+                        padding.filter(|padding| !padding.is_valid())
+                    {
+                        problems.push(format!(
+                            "{name}: {padding:?} is no padding"
+                        ));
+                        continue;
+                    }
                     panels += 1;
                     PanelId::new(owner, &name).map(|id| {
                         let panel = Panel { id, title, content };
-                        // With the panel, as the dock reads its icon
-                        // when the panel comes.
-                        match icon {
-                            Some(icon) => commands
-                                .spawn((panel, PanelIcon(icon), link)),
-                            None => commands.spawn((panel, link)),
-                        };
+                        let mut spawned = commands.spawn(link);
+                        if let Some(icon) = icon {
+                            spawned.insert(PanelIcon(icon));
+                        }
+                        if let Some(padding) = padding {
+                            spawned.insert(PanelInset(padding));
+                        }
+                        // Last, as the dock reads the icon when the
+                        // panel comes.
+                        spawned.insert(panel);
                     })
                 }
                 Declared::Command { name, label, run } => {
