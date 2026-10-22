@@ -4,13 +4,15 @@
 use std::f32::consts::{PI, TAU};
 
 use glam::Vec3;
+use hamlet_engine_sdk::scene::gpu::Shader;
 use hamlet_engine_sdk::scene::{Entity, Material, Mesh, Shape};
 
 use crate::build::frame::Frame;
-use crate::build::mark::{self, Mark};
+use crate::build::mark::{Mark, Shape as Outline};
 use crate::build::mesh::smoothstep;
 use crate::build::upload::Upload;
 use crate::folk::chief::ChiefSettings;
+use crate::folk::keeper::Floor;
 
 /// A number in 0..1 that follows from `n` and looks random.
 pub fn chance(n: f32) -> f32 {
@@ -24,7 +26,6 @@ pub fn chance(n: f32) -> f32 {
 /// One shape of a circle of runes as it plays.
 struct Rune {
     mark: Mark,
-    shape: mark::Shape,
     /// Its turns over its life, and when it began, and for how long.
     turn: f32,
     playing: Option<RunePlay>,
@@ -64,17 +65,17 @@ pub struct Charm {
 }
 
 impl Charm {
-    /// The runes and as many motes as two ends of a Wickstep take,
-    /// none shown, the motes drawn with `flame`.
+    /// The runes, drawn by `marks`, and as many motes as two ends of
+    /// a Wickstep take, drawn with `flame`, none shown.
     pub fn make(
         set: &ChiefSettings,
         flame: &Material,
+        marks: &Shader,
     ) -> Result<Self, String> {
         let rune =
-            |shape: mark::Shape, turn: f32| -> Result<Rune, String> {
+            |shape: Outline, turn: f32| -> Result<Rune, String> {
                 Ok(Rune {
-                    mark: Mark::make(0)?,
-                    shape,
+                    mark: Mark::make(0, marks, shape)?,
                     turn,
                     playing: None,
                 })
@@ -94,43 +95,22 @@ impl Charm {
             .collect::<Result<Vec<_>, String>>()?;
         Ok(Self {
             runes: [
-                rune(mark::Shape::RING, 1.2)?,
-                rune(mark::Shape::DIAMOND, -2.0)?,
+                rune(Outline::RING, 1.2)?,
+                rune(Outline::DIAMOND, -2.0)?,
             ],
             motes,
             _mote: mote,
         })
     }
 
-    /// Hands over the pictures of the runes the call has room for,
-    /// and draws each rune with its own.
-    pub fn shape(&mut self, upload: &mut Upload) {
-        for rune in &mut self.runes {
-            if rune.mark.drawn() {
-                continue;
-            }
-            let picture = match rune.shape.upload(upload) {
-                Ok(Some(picture)) => picture,
-                Ok(None) => return,
-                Err(why) => {
-                    hamlet_engine_sdk::warn(&format!("runes: {why}"));
-                    return;
-                }
-            };
-            // The engine keeps the picture while the rune draws it.
-            if let Err(why) = rune.mark.draw(&picture) {
-                hamlet_engine_sdk::warn(&format!("runes: {why}"));
-            }
-        }
-    }
-
     /// The circle and the motes of one end of a Wickstep, at
-    /// `ground`, in the colour `light`.
+    /// `ground` on `floor`, in the colour `light`.
     pub fn cast(
         &mut self,
         set: &ChiefSettings,
         light: Vec3,
         ground: Vec3,
+        floor: &Floor,
         now: f32,
         arrives: bool,
     ) {
@@ -148,6 +128,7 @@ impl Charm {
                 light: light * set.rune_light,
                 at,
             });
+            rune.mark.settle(at, set.rune_radius * 1.1, floor);
             rune.mark.show(true);
         }
         let free =
@@ -180,8 +161,15 @@ impl Charm {
     }
 
     /// Plays the circles and the motes, and hides each at its end.
-    pub fn play(&mut self, set: &ChiefSettings, now: f32) {
+    /// The ground under a circle is handed over within `upload`.
+    pub fn play(
+        &mut self,
+        set: &ChiefSettings,
+        now: f32,
+        upload: &mut Upload,
+    ) {
         for rune in &mut self.runes {
+            rune.mark.hand_over(upload);
             let Some(play) = rune.playing else {
                 continue;
             };

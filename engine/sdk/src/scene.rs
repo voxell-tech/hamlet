@@ -26,14 +26,15 @@ pub use crate::bindings::hamlet::engine::scene::{
     Rgba, Shape, SpotLight, Target, Tonemapping, Transform, Vec3,
 };
 /// A plugin's own GPU work in WGSL, checked by the engine before use:
-/// a material's `shade` and `displace`, a camera's `post` pass, and
-/// compute's `main`, over the engine's bindings. Each make fails,
-/// saying why, when the source is refused. A texture also gives a
-/// decal its picture.
+/// a material's `shade` and `displace`, a decal's `shade`, a camera's
+/// `post` pass, and compute's `main`, over the engine's bindings.
+/// Each make fails, saying why, when the source is refused. A texture
+/// also gives a decal its picture.
 pub mod gpu {
     pub use crate::bindings::hamlet::engine::gpu::{
         Buffer, Compute, Shaded, Shader, ShaderKind, Texture,
-        decal_material, set_params, set_pass, shaded_material,
+        decal_material, set_params, set_pass, shaded_decal,
+        shaded_material,
     };
 }
 

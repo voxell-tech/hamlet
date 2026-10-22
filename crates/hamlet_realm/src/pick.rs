@@ -89,6 +89,9 @@ pub struct PickSettings {
     pub common: (f32, f32),
     /// Height of a ring above the ground.
     pub ring_lift: f32,
+    /// Width of a ring's line in the realm plugin, whatever the size
+    /// of what it is about.
+    pub ring_width: f32,
     /// Distance past its ring to which the ground under a thing that
     /// moves is looked up, so that it is not looked up again every
     /// frame.

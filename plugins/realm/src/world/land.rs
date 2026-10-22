@@ -13,6 +13,7 @@ use glam::Vec2;
 
 use crate::tuning::GenSettings;
 pub(crate) use crate::world::land::corridor::Search;
+pub use crate::world::land::terrain::Surfaces;
 use crate::world::noise::{key, signed, unit};
 use crate::world::palette::Palette;
 

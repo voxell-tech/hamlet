@@ -27,6 +27,7 @@ use bevy::light::{
     DirectionalLight, NotShadowCaster, NotShadowReceiver, PointLight,
     SpotLight,
 };
+use bevy::math::primitives::Cuboid;
 use bevy::mesh::{Mesh, Mesh3d, MeshTag};
 use bevy::pbr::decal::{ForwardDecal, ForwardDecalMaterialExt};
 use bevy::pbr::{
@@ -45,7 +46,7 @@ use hamlet_engine_shell::Backdrop;
 
 use crate::change::{CameraSetup, SceneChange, SceneLight};
 use crate::compute::ComputeJob;
-use crate::decal::{DecalMaterial, DrawsDecals};
+use crate::decal::{DecalMaterial, DrawsDecals, ShadedDecal};
 use crate::guard::{GpuInfo, TimedSlots};
 use crate::label::WorldLabel;
 use crate::material::{self, ShadedMaterial};
@@ -118,12 +119,13 @@ fn give_layer(
 }
 
 /// A material of a scene: Bevy's own, one of the owner's shader, or a
-/// decal's.
+/// decal's, of Bevy's or of the owner's shader.
 #[derive(Clone, Debug)]
 enum Look {
     Standard(Handle<StandardMaterial>),
     Shaded(Handle<ShadedMaterial>),
     Decal(Handle<DecalMaterial>),
+    ShadedDecal(Handle<ShadedDecal>),
 }
 
 /// What an entity draws with: a mesh and its material, or a decal.
@@ -132,12 +134,18 @@ type Drawn = (
     MeshMaterial3d<StandardMaterial>,
     MeshMaterial3d<ShadedMaterial>,
     MeshMaterial3d<DecalMaterial>,
+    MeshMaterial3d<ShadedDecal>,
     ForwardDecal,
 );
 
 /// A buffer bound where an owner gave none.
 #[derive(Resource, Clone, Debug)]
 struct SpareBuffer(Handle<ShaderBuffer>);
+
+/// The box a decal of an owner's shader is drawn on, one unit each
+/// way.
+#[derive(Resource, Clone, Debug)]
+struct DecalBox(Handle<Mesh>);
 
 /// The copies of instances, under their own entity, and what they
 /// draw, kept after the owner drops its numbers.
@@ -221,15 +229,14 @@ impl Scene {
         }
     }
 
-    /// Whether the owner has GPU work of its own: a shaded material,
-    /// compute or a pass.
+    /// Whether the owner has GPU work of its own: a shaded material
+    /// or decal, compute or a pass.
     pub fn gpu_work(&self) -> bool {
         !self.computes.is_empty()
             || !self.passes.is_empty()
-            || self
-                .materials
-                .values()
-                .any(|look| matches!(look, Look::Shaded(_)))
+            || self.materials.values().any(|look| {
+                matches!(look, Look::Shaded(_) | Look::ShadedDecal(_))
+            })
     }
 
     /// Entities, each copy of instances counted.
@@ -339,16 +346,27 @@ impl Scene {
             }
             SceneChange::DrawDecal { id, material } => {
                 let drawn = world.contains_resource::<DrawsDecals>();
-                if let Some(Look::Decal(material)) =
-                    self.materials.get(&material).cloned()
-                    && let Some(entity) = self.entity(id)
-                    && let Ok(mut entity) =
-                        world.get_entity_mut(entity)
-                {
-                    entity.draw_decal(material, drawn);
-                    self.decals.insert(id);
-                    self.prepass(world);
+                let Some(entity) =
+                    self.entity(id).filter(|&entity| {
+                        world.get_entity(entity).is_ok()
+                    })
+                else {
+                    return;
+                };
+                match self.materials.get(&material).cloned() {
+                    Some(Look::Decal(material)) => {
+                        world
+                            .entity_mut(entity)
+                            .draw_decal(material, drawn);
+                    }
+                    Some(look @ Look::ShadedDecal(_)) => {
+                        let cube = world.decal_box();
+                        world.entity_mut(entity).draw(cube, look);
+                    }
+                    _ => return,
                 }
+                self.decals.insert(id);
+                self.prepass(world);
             }
             SceneChange::Undraw(id) => {
                 self.remove::<Drawn>(world, id);
@@ -535,19 +553,11 @@ impl Scene {
                 else {
                     return;
                 };
-                let data = match data
-                    .and_then(|data| self.buffers.get(&data))
-                {
-                    Some((held, _)) => held.clone(),
-                    None => world.spare_buffer(),
-                };
+                let (picture, data) =
+                    self.bound(world, texture, data);
                 let material = ShadedMaterial {
                     params: material::params(&params),
-                    picture: texture
-                        .and_then(|texture| {
-                            self.textures.get(&texture)
-                        })
-                        .cloned(),
+                    picture,
                     data,
                     shader,
                     alpha,
@@ -559,6 +569,32 @@ impl Scene {
                     .add(material);
                 self.materials.insert(id, Look::Shaded(made));
             }
+            SceneChange::ShadedDecal {
+                id,
+                shader,
+                alpha,
+                params,
+                texture,
+                data,
+            } => {
+                let Some(shader) = self.shaders.get(&shader).cloned()
+                else {
+                    return;
+                };
+                let (picture, data) =
+                    self.bound(world, texture, data);
+                let decal = ShadedDecal {
+                    params: material::params(&params),
+                    picture,
+                    data,
+                    shader,
+                    alpha,
+                };
+                let made = world
+                    .resource_mut::<Assets<ShadedDecal>>()
+                    .add(decal);
+                self.materials.insert(id, Look::ShadedDecal(made));
+            }
             SceneChange::Params { id, params } => {
                 if let Some(Look::Shaded(held)) =
                     self.materials.get(&id)
@@ -568,6 +604,15 @@ impl Scene {
                         .get_mut(held.id())
                     {
                         material.params = material::params(&params);
+                    }
+                } else if let Some(Look::ShadedDecal(held)) =
+                    self.materials.get(&id)
+                {
+                    if let Some(mut decal) = world
+                        .resource_mut::<Assets<ShadedDecal>>()
+                        .get_mut(held.id())
+                    {
+                        decal.params = material::params(&params);
                     }
                 } else if let Some(&job) = self.computes.get(&id)
                     && let Some(mut job) =
@@ -747,6 +792,25 @@ impl Scene {
         }
     }
 
+    /// The texture and buffer a shader of the owner's is bound with,
+    /// the spare buffer where it gave none.
+    fn bound(
+        &self,
+        world: &mut World,
+        texture: Option<u32>,
+        data: Option<u32>,
+    ) -> (Option<Handle<Image>>, Handle<ShaderBuffer>) {
+        let picture = texture
+            .and_then(|texture| self.textures.get(&texture))
+            .cloned();
+        let data = match data.and_then(|data| self.buffers.get(&data))
+        {
+            Some((held, _)) => held.clone(),
+            None => world.spare_buffer(),
+        };
+        (picture, data)
+    }
+
     fn part(&self, key: u32, index: u32) -> ScenePart {
         ScenePart {
             owner: self.owner,
@@ -913,6 +977,9 @@ pub trait SceneWorldExt {
 
     /// A zeroed buffer bound where an owner gave none.
     fn spare_buffer(&mut self) -> Handle<ShaderBuffer>;
+
+    /// The box a decal of an owner's shader is drawn on.
+    fn decal_box(&mut self) -> Handle<Mesh>;
 
     /// A slot of the clock for work of `owner`, if the GPU has
     /// timestamps and a slot is left.
@@ -1081,6 +1148,17 @@ impl SceneWorldExt for World {
         spare
     }
 
+    fn decal_box(&mut self) -> Handle<Mesh> {
+        if let Some(cube) = self.get_resource::<DecalBox>() {
+            return cube.0.clone();
+        }
+        let cube = self
+            .resource_mut::<Assets<Mesh>>()
+            .add(Cuboid::from_length(1.0));
+        self.insert_resource(DecalBox(cube.clone()));
+        cube
+    }
+
     fn timed_slot(&mut self, owner: Entity) -> Option<u32> {
         if !self
             .get_resource::<GpuInfo>()
@@ -1115,6 +1193,10 @@ impl SceneEntityExt for EntityWorldMut<'_> {
                     .insert((Mesh3d(mesh), MeshMaterial3d(material)));
             }
             Look::Shaded(material) => {
+                self.remove::<Drawn>()
+                    .insert((Mesh3d(mesh), MeshMaterial3d(material)));
+            }
+            Look::ShadedDecal(material) => {
                 self.remove::<Drawn>()
                     .insert((Mesh3d(mesh), MeshMaterial3d(material)));
             }

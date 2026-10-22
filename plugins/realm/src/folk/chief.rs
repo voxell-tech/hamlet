@@ -11,6 +11,7 @@ mod place;
 mod wickstep;
 
 use glam::Vec3;
+use hamlet_engine_sdk::scene::gpu::Shader;
 
 use crate::build::upload::Upload;
 use crate::folk::chief::hearth::Hearth;
@@ -28,10 +29,12 @@ pub struct Chief {
 }
 
 impl Chief {
-    /// Gives the chief its ground, before any town is founded.
+    /// Gives the chief its ground, before any town is founded. Its
+    /// runes are drawn by `marks`.
     pub fn make(
         tuning: &WorldTuning,
         pal: &Palette,
+        marks: &Shader,
         land: &mut Land,
         society: &mut Society,
     ) -> Result<Self, String> {
@@ -41,6 +44,7 @@ impl Chief {
                 pal,
                 Look::default(),
                 tuning.play.scurry_fastest,
+                marks,
                 land,
                 society,
             )?,

@@ -290,7 +290,8 @@ hamlet_engine_bevy::export!(Hello);
 - **Scenes** are components of the plugin's entities. An entity with
   a `Transform` is an entity of the scene; `Mesh3d`,
   `MeshMaterial3d`, `ForwardDecal` (laying its `MeshMaterial3d`, a
-  decal's, from `Material::decal` or `add_decal_material`),
+  decal's, from `Material::decal`, `add_decal_material` or
+  `add_shaded_decal`),
   `SceneLight`, `Shadows`, `SceneLabel`, `Pickable`, `SceneCamera`
   and `PostPass` on it, `ChildOf` for its parent, and
   `Instances` on an entity of its own are sent in `PostUpdate` as they
@@ -1266,8 +1267,13 @@ Its tuning is `assets/world.toml` and `assets/palette.toml`, built in.
   (Shift+F) and the sky held to day or night are in the View menu.
 - **The pointer.** A robot, a house, a common, the Hearth or the
   mascot under it has a ring of light, as the one selected has, each
-  a decal laid on the ground (`build/mark.rs`, as are the runes of a
-  Wickstep), and a click selects its agent,
+  a decal of the realm's own shader (`build/mark.rs` and `mark.wgsl`,
+  as are the runes of a Wickstep). Its line is worked out for each
+  pixel, its edges soft over one pixel, and is `[pick] ring_width`
+  wide whatever the size of what it is about. It falls only on the
+  ground: the heights of the land and the yards about it are in its
+  buffer, and a wall, a robot or a barrel standing higher is left
+  alone. A click selects its agent,
   hamlet or the Hearth in the window's focus and brings the Inspector
   forward; a click on the bare ground selects nothing. A hamlet or the
   Hearth selected elsewhere is brought into view. Houses, commons and
@@ -1678,7 +1684,8 @@ none of them imports none of them.
   its texture. Once a scene has a decal, each of its cameras has a
   depth prepass, which the decal reads. A decal's material draws no
   mesh, and a mesh's no decal; the call that tries fails. A decal is
-  counted as its entity and its material.
+  counted as its entity and its material. `draw-decal` also lays a
+  decal of the plugin's own shader (`gpu.shaded-decal`, below).
 - **A camera's settings**: a perspective or orthographic projection,
   what it clears to, high range, tonemapping, exposure, distance fog,
   bloom, ambient light and samples a pixel (MSAA), lowered to the most
@@ -1728,14 +1735,15 @@ none of them imports none of them.
   and no `override`; naga parses and validates the whole, and a
   refusal names the line of the source. A material gives
   `fn shade(surface: Surface) -> vec4<f32>` and may give
-  `fn displace(vertex: Vertex) -> vec3<f32>`; a pass
+  `fn displace(vertex: Vertex) -> vec3<f32>`; a decal
+  `fn shade(decal: Decal) -> vec4<f32>`; a pass
   `fn post(drawn: Pass) -> vec4<f32>` (`drawn`, as WGSL reserves
   `pass`); compute `@compute @workgroup_size(..) fn main`, of at most
   the device's invocations a workgroup and its size along each axis,
   and of at most its bytes of `var<workgroup>` memory. The fixed
   names: `params` (16 `vec4<f32>`, the plugin's 64 floats), and
   `picture`, `picture_sampler` and `data` (a read-only storage
-  buffer) of a material; `screen`, `screen_sampler` and `frame` (size
+  buffer) of a material and a decal; `screen`, `screen_sampler` and `frame` (size
   and time) of a pass; `data` and `extra` (read-write storage
   buffers) and `frame` (time, delta and a count) of compute.
 - **Bounded.** The shader Bevy is given has wgpu's runtime checks on
@@ -1760,6 +1768,20 @@ none of them imports none of them.
   its `max_buffer_size` and `max_storage_buffer_binding_size`); a
   texture is at most its widest 2D texture on each side. A make past
   one is refused.
+- **Shader decals** (`gpu.shaded-decal`, laid with `draw-decal`) are
+  drawn through a box one unit each way about the entity, placed,
+  turned and sized by its transform, only its far sides, whatever
+  lies in front (`decal.rs`). For each
+  pixel the depth prepass gives what is seen there, and `shade` is
+  given it as a `Decal`: `position`, that point in the world;
+  `local`, the same in the box, -0.5 to 0.5 each way; `uv`, its
+  place on the box's square, `local.xz + 0.5`; and `time`. A pixel
+  of what lies outside the box is left out, after `shade`, so its
+  derivatives (`fwidth`) hold. `shade` gives a colour and its alpha,
+  blended by the alpha mode, which is one that blends (`add` adds the
+  colour times its alpha). It casts no shadow and has no prepass of
+  its own; `set-params` changes its params. It is counted as a
+  shaded material, and as a decal.
 - **Passes** (`gpu.set-pass`) run over the image of one of the
   plugin's cameras in Bevy's 3D schedule, after it draws and before
   its tonemapping.
@@ -1790,8 +1812,8 @@ none of them imports none of them.
 ### Capabilities and budgets
 
 - `render.scene` makes meshes, materials (a decal's too), entities,
-  instances and cameras; `render.shader` compiles material and pass shaders, makes
-  shaded materials and sets passes; `render.compute` compiles compute
+  instances and cameras; `render.shader` compiles material, decal and pass shaders, makes
+  shaded materials and decals and sets passes; `render.compute` compiles compute
   and dispatches it. A buffer or texture needs either of the last two.
   Each is asked for on the target `gpu`. A make without its capability
   fails saying so; one answered Ask next time fails saying it waits,

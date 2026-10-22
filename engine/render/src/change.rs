@@ -139,7 +139,16 @@ pub enum SceneChange {
         texture: Option<u32>,
         data: Option<u32>,
     },
-    /// The params of a shaded material or of compute.
+    /// A decal's material of the shader `shader`.
+    ShadedDecal {
+        id: u32,
+        shader: u32,
+        alpha: AlphaMode,
+        params: Vec<f32>,
+        texture: Option<u32>,
+        data: Option<u32>,
+    },
+    /// The params of a shaded material or decal, or of compute.
     Params {
         id: u32,
         params: Vec<f32>,

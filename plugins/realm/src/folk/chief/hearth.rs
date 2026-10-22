@@ -3,6 +3,7 @@
 //! and the mascot moved and lit.
 
 use glam::{Quat, Vec2, Vec3, Vec3Swizzles};
+use hamlet_engine_sdk::scene::gpu::Shader;
 use hamlet_engine_sdk::scene::{
     Entity, Material, Mesh, MeshData, Pbr, Shape,
 };
@@ -120,13 +121,14 @@ pub struct Hearth {
 
 impl Hearth {
     /// The chief's place and mascot on the spot the land puts it,
-    /// its ground claimed against the towns and held level. None
-    /// when the land has no room for it.
+    /// its ground claimed against the towns and held level, its runes
+    /// drawn by `marks`. None when the land has no room for it.
     pub fn settle(
         set: &ChiefSettings,
         pal: &Palette,
         look: Look,
         fastest: f32,
+        marks: &Shader,
         land: &mut Land,
         society: &mut Society,
     ) -> Result<Option<Self>, String> {
@@ -196,7 +198,7 @@ impl Hearth {
         );
         let rig = Rig::make(Thing::Mascot.key())?;
         rig.light(light, 0.0, set.lamp_range);
-        let charm = Charm::make(set, &flame)?;
+        let charm = Charm::make(set, &flame, marks)?;
         Ok(Some(Self {
             set: set.clone(),
             look,
@@ -268,12 +270,13 @@ impl Hearth {
                 &self.set,
                 self.light,
                 end.ground,
+                ctx.floor,
                 now,
                 end.arrives,
             );
         }
         if self.charm.playing() {
-            self.charm.play(&self.set, now);
+            self.charm.play(&self.set, now, upload);
         }
         let pose = self.mascot.pose(&self.set, now);
         self.rig.place(&pose, self.set.size, self.look.hat.crest());
@@ -425,7 +428,6 @@ impl Hearth {
             }
             self.meshes.place.push(mesh);
         }
-        self.charm.shape(upload);
         // The mascot is dressed once all of its meshes are there.
         let meshes = &mut self.meshes;
         let parts = meshes.parts.iter().flatten().collect::<Vec<_>>();

@@ -1,9 +1,10 @@
-//! The ground a house stands on, as its robot walks it.
+//! The ground a house stands on, as its robot walks it, and the floor
+//! of the land and every yard that marks of light are laid on.
 
 use glam::{Quat, Vec2, Vec3, Vec3Swizzles};
 
 use crate::places::yard::{Station, Yard};
-use crate::world::land::Land;
+use crate::world::land::{Land, Surfaces};
 use crate::world::layout::Plot;
 
 /// The ground a house stands on, for placing its robot.
@@ -17,18 +18,84 @@ pub(super) struct Lot {
     pub(super) porch: Vec3,
 }
 
+/// The ground as it is drawn: the land, the paving of a common and
+/// the paving of every yard.
+pub struct Floor<'a> {
+    land: &'a Land,
+    lots: Vec<Lot>,
+}
+
+/// The floor about one place, with the yards within its reach.
+pub struct NearFloor<'a> {
+    land: &'a Land,
+    lots: Vec<Lot>,
+    surfaces: Surfaces<'a>,
+}
+
 /// The height a robot stands at: on the common's paving or on the
 /// ground.
 pub(super) fn footing(land: &Land, p: Vec2) -> f32 {
+    footing_on(land, p, |p| land.surface(p))
+}
+
+/// [`footing`], with the ground's surface from `surface`.
+fn footing_on(
+    land: &Land,
+    p: Vec2,
+    surface: impl FnOnce(Vec2) -> f32,
+) -> f32 {
     let town = &land.set.town;
     if land.site_dist(p) < town.plaza_radius - 0.1 {
         land.set.land.site_y + town.plaza_lift
     } else {
-        land.surface(p)
+        surface(p)
+    }
+}
+
+impl<'a> Floor<'a> {
+    pub(super) fn new(land: &'a Land, lots: Vec<Lot>) -> Self {
+        Self { land, lots }
+    }
+
+    /// The floor as far as `half` from `middle` each way.
+    pub fn near(&self, middle: Vec2, half: f32) -> NearFloor<'a> {
+        let lots = self
+            .lots
+            .iter()
+            .filter(|lot| {
+                lot.origin.xz().distance(middle) < half * 1.5 + 12.0
+            })
+            .copied()
+            .collect();
+        NearFloor {
+            land: self.land,
+            lots,
+            surfaces: Surfaces::new(self.land),
+        }
+    }
+}
+
+impl NearFloor<'_> {
+    /// The height of the floor at `p`.
+    pub fn at(&mut self, p: Vec2) -> f32 {
+        let surfaces = &mut self.surfaces;
+        let ground = footing_on(self.land, p, |p| surfaces.at(p));
+        self.lots
+            .iter()
+            .filter_map(|lot| lot.paved(p))
+            .fold(ground, f32::max)
     }
 }
 
 impl Lot {
+    /// The height of the yard's paving at `p`, where it is paved.
+    fn paved(&self, p: Vec2) -> Option<f32> {
+        let local = self.local(Vec3::new(p.x, self.origin.y, p.y));
+        self.yard
+            .holds(local)
+            .then_some(self.origin.y + self.yard.shape.terrace)
+    }
+
     pub(super) fn new(land: &Land, spot: &Plot, yard: Yard) -> Self {
         let porch = spot.porch();
         Self {

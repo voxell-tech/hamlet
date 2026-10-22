@@ -772,6 +772,8 @@ interface gpu {
         pass,
         /// `@compute @workgroup_size(..) fn main(..)`.
         compute,
+        /// `fn shade(decal: Decal) -> vec4<f32>`.
+        decal,
     }
 
     resource shader {
@@ -809,11 +811,18 @@ interface gpu {
     /// `params` (64 floats at most), `texture` and `data` bound.
     shaded-material: func(shader: borrow<shader>, settings: shaded, params: list<f32>, texture: option<borrow<texture>>, data: option<borrow<buffer>>) -> result<material, string>;
 
-    /// Gives a material `shaded-material` made new `params`.
+    /// Gives a material `shaded-material` or `shaded-decal` made new
+    /// `params`.
     set-params: func(material: borrow<material>, params: list<f32>) -> result<_, string>;
 
     /// A material for `draw-decal`, its colour times `texture`'s.
     decal-material: func(decal: decal, texture: borrow<texture>) -> result<material, string>;
+
+    /// A material for `draw-decal` drawn by `shader`, a `decal`
+    /// shader, through a box one unit each way about the entity, with
+    /// `params` (64 floats at most), `texture` and `data` bound.
+    /// `alpha-mode` is one that blends.
+    shaded-decal: func(shader: borrow<shader>, alpha-mode: alpha-mode, params: list<f32>, texture: option<borrow<texture>>, data: option<borrow<buffer>>) -> result<material, string>;
 
     /// A `compute` shader over `data`, and `extra` when given.
     resource compute {

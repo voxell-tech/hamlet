@@ -37,7 +37,7 @@ pub use crate::bindings::hamlet::engine::gpu::{
     Buffer, Compute, Shaded, Shader, ShaderKind, Texture,
 };
 use crate::bindings::hamlet::engine::gpu::{
-    decal_material, set_pass, shaded_material,
+    decal_material, set_pass, shaded_decal, shaded_material,
 };
 use crate::bindings::hamlet::engine::scene::{
     self as wit, Camera, Entity as HostHandle,
@@ -280,6 +280,25 @@ impl SceneAssets {
         Ok(self.add(material))
     }
 
+    /// A material for a [`ForwardDecal`] drawn by the decal shader
+    /// `shader` through a box one unit each way, blended by
+    /// `alpha_mode`, with `params`, `texture` and `data` bound.
+    pub fn add_shaded_decal(
+        &mut self,
+        shader: &Handle<Shader>,
+        alpha_mode: AlphaMode,
+        params: &[f32],
+        texture: Option<&Handle<Texture>>,
+        data: Option<&Handle<Buffer>>,
+    ) -> Result<Handle<Material>, String> {
+        let shader = self.get(shader).ok_or("the shader is gone")?;
+        let texture = texture.and_then(|texture| self.get(texture));
+        let data = data.and_then(|data| self.get(data));
+        let material =
+            shaded_decal(shader, alpha_mode, params, texture, data)?;
+        Ok(self.add(material))
+    }
+
     /// Compute of the shader `shader` over `data`, and `extra` when
     /// given.
     pub fn add_compute(
@@ -305,8 +324,9 @@ impl SceneAssets {
     }
 
     /// Gives a material
-    /// [`add_shaded_material`](Self::add_shaded_material)
-    /// made new `params`.
+    /// [`add_shaded_material`](Self::add_shaded_material) or
+    /// [`add_shaded_decal`](Self::add_shaded_decal) made new
+    /// `params`.
     pub fn set_params(
         &self,
         material: &Handle<Material>,
@@ -375,10 +395,11 @@ pub struct Mesh3d(pub Handle<Mesh>);
 #[require(Transform)]
 pub struct MeshMaterial3d(pub Handle<Material>);
 
-/// Lays the entity's [`MeshMaterial3d`], a decal's (`Material::decal`
-/// or [`SceneAssets::add_decal_material`]), on what lies under and
-/// over a square one unit wide on the entity's x and z, placed,
-/// turned and sized by its transform.
+/// Lays the entity's [`MeshMaterial3d`], a decal's
+/// (`Material::decal`, [`SceneAssets::add_decal_material`] or
+/// [`SceneAssets::add_shaded_decal`]), on what lies under and over a
+/// square one unit wide on the entity's x and z, placed, turned and
+/// sized by its transform.
 #[derive(Component, Clone, Copy, Default, Debug)]
 #[require(Transform)]
 pub struct ForwardDecal;

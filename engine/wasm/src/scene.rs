@@ -176,6 +176,8 @@ enum MaterialKind {
     /// A plugin's shader.
     Shaded,
     Decal,
+    /// A decal of a plugin's shader.
+    ShadedDecal,
 }
 
 impl Held {
@@ -190,11 +192,12 @@ impl Held {
         )
     }
 
+    /// Whether it is a material a decal is laid with.
     fn decal(&self) -> bool {
         matches!(
             self,
             Self::Material {
-                kind: MaterialKind::Decal,
+                kind: MaterialKind::Decal | MaterialKind::ShadedDecal,
                 ..
             }
         )
@@ -745,7 +748,15 @@ impl HostMaterial for State {
     ) -> wasmtime::Result<()> {
         self.keep_bytes(size_of::<Decal>())?;
         let id = material.rep();
-        self.scene.held(id, Held::decal)?;
+        self.scene.held(id, |held| {
+            matches!(
+                held,
+                Held::Material {
+                    kind: MaterialKind::Decal,
+                    ..
+                }
+            )
+        })?;
         let (material, depth_fade) = convert::decal(decal)
             .ok_or_else(|| trap(SceneError::Invalid))?;
         self.scene.change(SceneChange::Decal {

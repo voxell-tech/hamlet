@@ -28,6 +28,8 @@ pub enum ShaderKind {
     Pass,
     /// `@compute @workgroup_size(..) fn main(..)`.
     Compute,
+    /// `fn shade(decal: Decal) -> vec4<f32>`.
+    Decal,
 }
 
 /// What a source is checked against.
@@ -66,7 +68,15 @@ pub struct CheckedShader {
     pub wgsl: String,
 }
 
-/// The material's bindings, their group left to fill in.
+/// The bindings of a material and of a decal, their group left to
+/// fill in.
+const BINDINGS: &str = "
+@group(GROUP) @binding(0) var<uniform> params: array<vec4<f32>, 16>;
+@group(GROUP) @binding(1) var picture: texture_2d<f32>;
+@group(GROUP) @binding(2) var picture_sampler: sampler;
+@group(GROUP) @binding(3) var<storage, read> data: array<vec4<f32>>;
+";
+
 const MATERIAL: &str = "
 struct Surface {
     position: vec3<f32>,
@@ -84,11 +94,15 @@ struct Vertex {
     tag: u32,
     time: f32,
 }
+";
 
-@group(GROUP) @binding(0) var<uniform> params: array<vec4<f32>, 16>;
-@group(GROUP) @binding(1) var picture: texture_2d<f32>;
-@group(GROUP) @binding(2) var picture_sampler: sampler;
-@group(GROUP) @binding(3) var<storage, read> data: array<vec4<f32>>;
+const DECAL: &str = "
+struct Decal {
+    position: vec3<f32>,
+    local: vec3<f32>,
+    uv: vec2<f32>,
+    time: f32,
+}
 ";
 
 const PASS: &str = "
@@ -138,6 +152,15 @@ var<private> pbr_functions: f32;
 var<private> mesh_view_bindings: f32;
 ";
 
+const DECAL_IMPORTS: &str = "
+var<private> mesh_functions: f32;
+var<private> forward_io: f32;
+var<private> view_transformations: f32;
+var<private> prepass_utils: f32;
+var<private> mesh_view_bindings: f32;
+var<private> tonemapping: f32;
+";
+
 const PASS_IMPORTS: &str = "
 var<private> fullscreen_vertex_shader: f32;
 ";
@@ -169,6 +192,16 @@ fn fragment(@builtin(position) at: vec4<f32>) -> @location(0) \
 "
     )
 }
+
+const DECAL_STAND_IN: &str = "
+@fragment
+fn fragment(@builtin(position) at: vec4<f32>) -> @location(0) \
+                              vec4<f32> {
+    let seen = textureSample(picture, picture_sampler, at.xy);
+    return shade(Decal(at.xyz, (seen + data[0] + params[0]).xyz, \
+                              at.xy, 0.0));
+}
+";
 
 const PASS_STAND_IN: &str = "
 @fragment
@@ -282,8 +315,54 @@ fn fragment(input: fullscreen_vertex_shader::FullscreenVertexOutput) \
 }
 ";
 
+const DECAL_HEAD: &str = "
+#import bevy_pbr::mesh_functions
+#import bevy_pbr::forward_io
+#import bevy_pbr::view_transformations
+#import bevy_pbr::prepass_utils
+#import bevy_pbr::mesh_view_bindings
+#ifdef TONEMAP_IN_SHADER
+#import bevy_core_pipeline::tonemapping
+#endif
+";
+
+/// The decal's box is drawn wherever it stands; each pixel is of what
+/// the depth prepass saw there, and is left out when that lies
+/// outside the box.
+const DECAL_TAIL: &str = "
+@fragment
+fn fragment(input: forward_io::VertexOutput) -> @location(0) vec4<f32> {
+#ifdef DEPTH_PREPASS
+    let depth = prepass_utils::prepass_depth(input.position, 0u);
+    let seen = view_transformations::position_ndc_to_world(view_transformations::frag_coord_to_ndc(vec4<f32>(input.position.xy, depth, 1.0)));
+#else
+    let seen = input.world_position.xyz;
+#endif
+    let local = (mesh_functions::get_local_from_world(input.instance_index) * vec4<f32>(seen, 1.0)).xyz;
+    // Before anything is left out, so that `shade` may take
+    // derivatives.
+    var color = shade(Decal(seen, local, local.xz + 0.5, mesh_view_bindings::globals.time));
+    if any(abs(local) > vec3<f32>(0.5)) {
+        discard;
+    }
+#ifdef TONEMAP_IN_SHADER
+    color = tonemapping::tone_mapping(color, mesh_view_bindings::view.color_grading);
+#endif
+#ifdef HAMLET_ADD
+    color = vec4<f32>(color.rgb * color.a, 0.0);
+#endif
+#ifdef BLEND_MULTIPLY
+    color = vec4<f32>(color.rgb * color.a, color.a);
+#endif
+    return color;
+}
+";
+
 /// The shader def a lit material's shader is specialized with.
 pub const LIT: &str = "HAMLET_LIT";
+
+/// The shader def of a decal that adds its light to what is there.
+pub const ADD: &str = "HAMLET_ADD";
 
 /// `source` checked as a shader of `kind` within `rules`: what Bevy
 /// is given, or why it is refused.
@@ -304,13 +383,17 @@ pub fn check(
     }
     let (bindings, imports) = match kind {
         ShaderKind::Material => (
-            MATERIAL.replace("GROUP", "2"),
+            format!("{MATERIAL}{}", BINDINGS.replace("GROUP", "2")),
             MATERIAL_IMPORTS.to_owned(),
         ),
         ShaderKind::Pass => {
             (PASS.to_owned(), PASS_IMPORTS.to_owned())
         }
         ShaderKind::Compute => (COMPUTE.to_owned(), String::new()),
+        ShaderKind::Decal => (
+            format!("{DECAL}{}", BINDINGS.replace("GROUP", "2")),
+            DECAL_IMPORTS.to_owned(),
+        ),
     };
     let head = format!("{bindings}{imports}\n");
     let before = head.lines().count();
@@ -325,6 +408,7 @@ pub fn check(
         ShaderKind::Material => material_stand_in(displaces),
         ShaderKind::Pass => PASS_STAND_IN.to_owned(),
         ShaderKind::Compute => String::new(),
+        ShaderKind::Decal => DECAL_STAND_IN.to_owned(),
     };
     let whole = format!("{head}{source}\n{stand_in}");
     let module = at.parse(&whole)?;
@@ -348,16 +432,19 @@ pub fn check(
                     none"
             .into());
     }
+    let group = BINDINGS.replace("GROUP", "#{MATERIAL_BIND_GROUP}");
     let wgsl = match kind {
         ShaderKind::Material => format!(
-            "{MATERIAL_HEAD}{}\n{source}\n{}",
-            MATERIAL.replace("GROUP", "#{MATERIAL_BIND_GROUP}"),
+            "{MATERIAL_HEAD}{MATERIAL}{group}\n{source}\n{}",
             material_tail(displaces)
         ),
         ShaderKind::Pass => {
             format!("{PASS_HEAD}{PASS}\n{source}\n{PASS_TAIL}")
         }
         ShaderKind::Compute => format!("{COMPUTE}\n{source}\n"),
+        ShaderKind::Decal => format!(
+            "{DECAL_HEAD}{DECAL}{group}\n{source}\n{DECAL_TAIL}"
+        ),
     };
     Ok(CheckedShader { kind, wgsl })
 }
@@ -422,7 +509,7 @@ fn own(
     rules: &ShaderRules,
 ) -> Result<(), String> {
     let engine: &[&str] = match kind {
-        ShaderKind::Material => {
+        ShaderKind::Material | ShaderKind::Decal => {
             &["params", "picture", "picture_sampler", "data"]
         }
         ShaderKind::Pass => {
@@ -448,7 +535,7 @@ fn own(
     }
     let entries: &[&str] = match kind {
         ShaderKind::Material => &["vertex", "fragment"],
-        ShaderKind::Pass => &["fragment"],
+        ShaderKind::Pass | ShaderKind::Decal => &["fragment"],
         ShaderKind::Compute => &["main"],
     };
     if let Some(entry) = module
@@ -485,6 +572,14 @@ fn own(
         }
         ShaderKind::Pass => {
             takes(module, "post", "Pass", vector(VectorSize::Quad))?;
+        }
+        ShaderKind::Decal => {
+            takes(
+                module,
+                "shade",
+                "Decal",
+                vector(VectorSize::Quad),
+            )?;
         }
         ShaderKind::Compute => {
             let Some(main) =
@@ -632,6 +727,33 @@ mod tests {
                      return surface.normal; }";
         assert!(
             refused(ShaderKind::Material, wrong).contains("shade")
+        );
+    }
+
+    #[test]
+    fn a_decal_is_checked_against_the_engines_names() {
+        let shade = "fn shade(decal: Decal) -> vec4<f32> { let edge \
+                     = fwidth(length(decal.uv - 0.5)); return \
+                     params[0] * edge + data[0] * decal.position.y; \
+                     }";
+        assert!(check(ShaderKind::Decal, shade, &RULES).is_ok());
+        let material = "fn shade(surface: Surface) -> vec4<f32> { \
+                        return surface.color; }";
+        assert!(check(ShaderKind::Decal, material, &RULES).is_err());
+        let binding = format!(
+            "{shade}\n@group(2) @binding(9) var<uniform> mine: f32;"
+        );
+        assert!(
+            refused(ShaderKind::Decal, &binding).contains("mine")
+        );
+        let taken = format!("{shade}\nfn tonemapping() {{}}");
+        assert!(!refused(ShaderKind::Decal, &taken).is_empty());
+        let vertex = format!(
+            "{shade}\n@vertex fn vertex() -> @builtin(position) \
+             vec4<f32> {{ return vec4<f32>(0.0); }}"
+        );
+        assert!(
+            refused(ShaderKind::Decal, &vertex).contains("vertex")
         );
     }
 

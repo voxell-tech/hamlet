@@ -165,6 +165,7 @@ robot_box = [0.9, 1.6, 0.9]
 house = [3.4, 5.2]
 common = [6.0, 3.6]
 ring_lift = 0.12
+ring_width = 0.1
 ring_slack = 2.5
 signs_far = 210.0
 

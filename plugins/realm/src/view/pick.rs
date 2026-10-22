@@ -2,13 +2,15 @@
 //! the entities that draw them, the one under it and the one chosen,
 //! each with a ring of light on the ground about it.
 
-use glam::Vec3;
+use glam::{Vec3, Vec3Swizzles};
 use hamlet_engine_sdk::api::agents::{Focus, Selected};
+use hamlet_engine_sdk::scene::gpu::Shader;
 use hamlet_engine_sdk::scene::{MouseButton, SceneInput};
 
 use crate::bridge::Bridge;
 use crate::build::mark::{Mark, Shape};
 use crate::build::upload::Upload;
+use crate::folk::keeper::Floor;
 use crate::society::{AgentId, Society, TownId};
 
 /// The colour of a ring's light, and how bright the ring under the
@@ -33,6 +35,9 @@ pub struct PickSettings {
     pub common: (f32, f32),
     /// Height of a ring above the ground.
     pub ring_lift: f32,
+    /// Width of a ring's line, whatever the size of what it is
+    /// about.
+    pub ring_width: f32,
     /// Distance past its ring to which the ground under a thing that
     /// moves is looked up, so that it is not looked up again every
     /// frame.
@@ -133,23 +138,43 @@ struct Ring {
 }
 
 impl Ring {
-    fn make(key: u32, glow_by: f32) -> Result<Self, String> {
-        let mut mark = Mark::make(key)?;
+    fn make(
+        key: u32,
+        glow_by: f32,
+        shader: &Shader,
+    ) -> Result<Self, String> {
+        let mut mark = Mark::make(key, shader, Shape::RING)?;
         mark.shine(CANDLE * glow_by, 1.0);
         Ok(Self { mark, shown: None })
     }
 
-    /// Lays it at `at` with `radius`, or takes it away.
-    fn lay(&mut self, at: Option<(Vec3, f32)>) {
-        if self.shown == at {
-            return;
-        }
+    /// Lays it at `at` with `radius` on `floor`, or takes it away.
+    fn lay(
+        &mut self,
+        at: Option<(Vec3, f32)>,
+        floor: &Floor,
+        set: &PickSettings,
+        upload: &mut Upload,
+    ) {
         if let Some((at, radius)) = at {
-            self.mark.lay(at, radius, 0.0);
+            let reach = radius * 1.1;
+            if !self.mark.holds(at.xz(), reach) {
+                // A ring that moves with what it is about is given
+                // more ground than it covers, so that its ground is
+                // not looked up again every frame.
+                let moving = self.shown.is_some_and(|(was, of)| {
+                    of == radius && was != at
+                });
+                let slack = if moving { set.ring_slack } else { 0.0 };
+                self.mark.settle(at, reach + slack, floor);
+            }
+            if self.shown != Some((at, radius)) {
+                self.mark.lay(at, radius, 0.0);
+                self.mark.shape(Shape::band(radius, set.ring_width));
+            }
         }
-        if self.shown.is_some() != at.is_some() {
-            self.mark.show(at.is_some());
-        }
+        self.mark.hand_over(upload);
+        self.mark.show(at.is_some());
         self.shown = at;
     }
 }
@@ -171,7 +196,8 @@ pub struct Picking {
 }
 
 impl Picking {
-    pub fn make() -> Result<Self, String> {
+    /// Nothing pointed at or chosen, its rings drawn by `shader`.
+    pub fn make(shader: &Shader) -> Result<Self, String> {
         Ok(Self {
             hovered: None,
             selected: None,
@@ -179,8 +205,8 @@ impl Picking {
             passed: false,
             chosen: None,
             rings: [
-                Ring::make(HOVER_RING, HOVER_GLOW)?,
-                Ring::make(CHOSEN_RING, CHOSEN_GLOW)?,
+                Ring::make(HOVER_RING, HOVER_GLOW, shader)?,
+                Ring::make(CHOSEN_RING, CHOSEN_GLOW, shader)?,
             ],
         })
     }
@@ -264,37 +290,20 @@ impl Picking {
         now
     }
 
-    /// Lays the rings about the thing under the pointer and the one
-    /// chosen, each given as its ground and its radius.
+    /// Lays the rings on `floor` about the thing under the pointer
+    /// and the one chosen, each given as its ground and its radius.
     pub fn lay(
         &mut self,
         hovered: Option<(Vec3, f32)>,
         selected: Option<(Vec3, f32)>,
+        floor: &Floor,
+        set: &PickSettings,
         upload: &mut Upload,
     ) {
-        if !self.rings[0].mark.drawn() {
-            match Shape::BAND.upload(upload) {
-                // The engine keeps the band while a ring draws it.
-                Ok(Some(band)) => {
-                    for ring in &mut self.rings {
-                        if let Err(why) = ring.mark.draw(&band) {
-                            hamlet_engine_sdk::warn(&format!(
-                                "rings: {why}"
-                            ));
-                        }
-                    }
-                }
-                Ok(None) => return,
-                Err(why) => {
-                    hamlet_engine_sdk::warn(&format!("rings: {why}"));
-                    return;
-                }
-            }
-        }
         let hovered =
             hovered.filter(|_| self.hovered != self.selected);
         let [hover, chosen] = &mut self.rings;
-        hover.lay(hovered);
-        chosen.lay(selected);
+        hover.lay(hovered, floor, set, upload);
+        chosen.lay(selected, floor, set, upload);
     }
 }

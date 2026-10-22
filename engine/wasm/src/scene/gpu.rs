@@ -10,8 +10,8 @@ use wasmtime::component::Resource;
 
 use crate::instance::State;
 use crate::scene::scene_bindings::hamlet::engine::gpu::{
-    Decal, Host, HostBuffer, HostCompute, HostShader, HostTexture,
-    Shaded, ShaderKind as Kind,
+    AlphaMode, Decal, Host, HostBuffer, HostCompute, HostShader,
+    HostTexture, Shaded, ShaderKind as Kind,
 };
 use crate::scene::{
     CameraHandle, Held, MaterialHandle, MaterialKind, Powers,
@@ -120,6 +120,9 @@ impl HostShader for State {
                 Powers::COMPUTE,
                 "render.compute",
             ),
+            Kind::Decal => {
+                (ShaderKind::Decal, Powers::SHADER, "render.shader")
+            }
         };
         let scene = &mut self.scene;
         if let Err(why) = scene
@@ -312,6 +315,53 @@ impl HostTexture for State {
     }
 }
 
+impl SceneState {
+    /// Numbers a material of `kind` drawn by `shader` with `floats`,
+    /// `texture` and `data`, made by `change`, if the plugin may make
+    /// it; why not otherwise.
+    fn make_shaded(
+        &mut self,
+        kind: MaterialKind,
+        shader: u32,
+        floats: Vec<f32>,
+        [texture, data]: [Option<u32>; 2],
+        change: impl FnOnce(u32, Vec<f32>) -> SceneChange,
+    ) -> wasmtime::Result<Result<Resource<MaterialHandle>, String>>
+    {
+        if let Some(texture) = texture {
+            self.held(texture, |held| {
+                matches!(held, Held::Texture { .. })
+            })?;
+        }
+        if let Some(data) = data {
+            self.held(data, |held| {
+                matches!(held, Held::Buffer { .. })
+            })?;
+        }
+        let shader_kind = match kind {
+            MaterialKind::ShadedDecal => ShaderKind::Decal,
+            _ => ShaderKind::Material,
+        };
+        let of_kind = self.shader(shader, shader_kind)?;
+        let refused = self
+            .allowed(Powers::SHADER, "render.shader")
+            .and(of_kind)
+            .and_then(|()| params(&floats))
+            .and_then(|()| self.room_material());
+        if let Err(why) = refused {
+            return Ok(Err(why));
+        }
+        self.spend(1)?;
+        self.counts.materials += 1;
+        let id = self.number(Held::Material {
+            kind,
+            uses: [Some(shader), texture, data],
+        });
+        self.changes.push(change(id, floats));
+        Ok(Ok(Resource::new_own(id)))
+    }
+}
+
 impl Host for State {
     fn shaded_material(
         &mut self,
@@ -323,46 +373,59 @@ impl Host for State {
     ) -> wasmtime::Result<Result<Resource<MaterialHandle>, String>>
     {
         self.keep_bytes(size_of_val(floats.as_slice()))?;
-        let scene = &mut self.scene;
-        if let Some(texture) = &texture {
-            scene.held(texture.rep(), |held| {
-                matches!(held, Held::Texture { .. })
-            })?;
-        }
-        if let Some(data) = &data {
-            scene.held(data.rep(), |held| {
-                matches!(held, Held::Buffer { .. })
-            })?;
-        }
-        let kind =
-            scene.shader(shader.rep(), ShaderKind::Material)?;
-        let refused = scene
-            .allowed(Powers::SHADER, "render.shader")
-            .and(kind)
-            .and_then(|()| params(&floats))
-            .and_then(|()| scene.room_material());
-        if let Err(why) = refused {
-            return Ok(Err(why));
-        }
-        scene.spend(1)?;
-        scene.counts.materials += 1;
+        let shader = shader.rep();
         let texture = texture.map(|texture| texture.rep());
         let data = data.map(|data| data.rep());
-        let id = scene.number(Held::Material {
-            kind: MaterialKind::Shaded,
-            uses: [Some(shader.rep()), texture, data],
-        });
-        scene.changes.push(SceneChange::Shaded {
-            id,
-            shader: shader.rep(),
-            alpha: convert::alpha(settings.alpha_mode, CUTOFF),
-            double_sided: settings.double_sided,
-            lit: settings.lit,
-            params: floats,
-            texture,
-            data,
-        });
-        Ok(Ok(Resource::new_own(id)))
+        self.scene.make_shaded(
+            MaterialKind::Shaded,
+            shader,
+            floats,
+            [texture, data],
+            |id, params| SceneChange::Shaded {
+                id,
+                shader,
+                alpha: convert::alpha(settings.alpha_mode, CUTOFF),
+                double_sided: settings.double_sided,
+                lit: settings.lit,
+                params,
+                texture,
+                data,
+            },
+        )
+    }
+
+    fn shaded_decal(
+        &mut self,
+        shader: Resource<ShaderHandle>,
+        alpha_mode: AlphaMode,
+        floats: Vec<f32>,
+        texture: Option<Resource<TextureHandle>>,
+        data: Option<Resource<BufferHandle>>,
+    ) -> wasmtime::Result<Result<Resource<MaterialHandle>, String>>
+    {
+        self.keep_bytes(size_of_val(floats.as_slice()))?;
+        if matches!(alpha_mode, AlphaMode::Opaque | AlphaMode::Mask) {
+            return Ok(Err("a decal's alpha mode is one that \
+                           blends"
+                .to_owned()));
+        }
+        let shader = shader.rep();
+        let texture = texture.map(|texture| texture.rep());
+        let data = data.map(|data| data.rep());
+        self.scene.make_shaded(
+            MaterialKind::ShadedDecal,
+            shader,
+            floats,
+            [texture, data],
+            |id, params| SceneChange::ShadedDecal {
+                id,
+                shader,
+                alpha: convert::alpha(alpha_mode, CUTOFF),
+                params,
+                texture,
+                data,
+            },
+        )
     }
 
     fn set_params(
@@ -376,7 +439,8 @@ impl Host for State {
             matches!(
                 held,
                 Held::Material {
-                    kind: MaterialKind::Shaded,
+                    kind: MaterialKind::Shaded
+                        | MaterialKind::ShadedDecal,
                     ..
                 }
             )

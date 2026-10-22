@@ -21,7 +21,7 @@ reason = "Draws the realm in its panel"
 [[asks]]
 capability = "render.shader"
 target = "gpu"
-reason = "Draws the roads' grooves and their light with shaders of its own"
+reason = "Draws the roads' grooves and their light, and the rings and runes on the ground, with shaders of its own"
 
 [events]
 hears = [{ event = "hamlet.inspector/carry", payload = "realm.carry" }]

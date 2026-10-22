@@ -1,5 +1,6 @@
 //! The shape of the land: its rivers, its heights and its colours.
 
+use std::collections::HashMap;
 use std::f32::consts::TAU;
 
 use glam::{Vec2, Vec3};
@@ -145,16 +146,32 @@ impl LandData {
     /// triangles between the points its finest tiles take from
     /// [`Self::height`]. What stands on the ground stands on this.
     pub fn surface(&self, p: Vec2) -> f32 {
+        self.surface_by(
+            p,
+            |mid| self.cells(mid, self.set.land.chunk),
+            |q| self.height(q),
+        )
+    }
+
+    /// [`Self::surface`], with the cells of the tile about a middle
+    /// from `cells` and the height at each point of it from
+    /// `height`.
+    fn surface_by(
+        &self,
+        p: Vec2,
+        cells: impl FnOnce(Vec2) -> usize,
+        mut height: impl FnMut(Vec2) -> f32,
+    ) -> f32 {
         let chunk = self.set.land.chunk;
         let lo = (p / chunk).floor() * chunk;
-        let cells = self.cells(lo + chunk * 0.5, chunk);
+        let cells = cells(lo + chunk * 0.5);
         let step = chunk / cells as f32;
         let cell = ((p - lo) / step)
             .floor()
             .clamp(Vec2::ZERO, Vec2::splat(cells as f32 - 1.0));
         let f = ((p - lo) / step - cell).clamp(Vec2::ZERO, Vec2::ONE);
-        let h = |i: f32, j: f32| {
-            self.height(lo + (cell + Vec2::new(i, j)) * step)
+        let mut h = |i: f32, j: f32| {
+            height(lo + (cell + Vec2::new(i, j)) * step)
         };
         // A tile's quads are cut from their first corner to the
         // one across.
@@ -346,4 +363,44 @@ impl LandData {
             ),
         )
     }
+}
+
+/// [`LandData::surface`] at many points near each other, each tile
+/// and each of its points looked up once.
+pub struct Surfaces<'a> {
+    land: &'a LandData,
+    cells: HashMap<(u32, u32), usize>,
+    heights: HashMap<(u32, u32), f32>,
+}
+
+impl<'a> Surfaces<'a> {
+    pub fn new(land: &'a LandData) -> Self {
+        Self {
+            land,
+            cells: HashMap::new(),
+            heights: HashMap::new(),
+        }
+    }
+
+    pub fn at(&mut self, p: Vec2) -> f32 {
+        let land = self.land;
+        let (cells, heights) = (&mut self.cells, &mut self.heights);
+        land.surface_by(
+            p,
+            |mid| {
+                *cells.entry(bits(mid)).or_insert_with(|| {
+                    land.cells(mid, land.set.land.chunk)
+                })
+            },
+            |q| {
+                *heights
+                    .entry(bits(q))
+                    .or_insert_with(|| land.height(q))
+            },
+        )
+    }
+}
+
+fn bits(p: Vec2) -> (u32, u32) {
+    (p.x.to_bits(), p.y.to_bits())
 }

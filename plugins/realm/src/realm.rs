@@ -13,10 +13,11 @@ use hamlet_engine_sdk::scene::{
 };
 
 use crate::bridge::Bridge;
+use crate::build::mark;
 use crate::build::stock::Stock;
 use crate::build::upload::{Pace, Upload};
 use crate::folk::chief::Chief;
-use crate::folk::keeper::Robots;
+use crate::folk::keeper::{Floor, Robots};
 use crate::places::house::Remains;
 use crate::places::moving::{Carry, Footprint};
 use crate::places::road::Roads;
@@ -48,6 +49,8 @@ pub struct Ctx<'a> {
     pub tuning: &'a WorldTuning,
     pub pal: &'a Palette,
     pub land: &'a Land,
+    /// The ground as it is drawn, yards and all.
+    pub floor: &'a Floor<'a>,
     pub society: &'a Society,
     pub stock: &'a Stock,
     pub sky: &'a Sky,
@@ -116,9 +119,16 @@ impl Realm {
         );
         lights.show(&sky.look);
         stock.light_windows(&pal, sky.look.candle);
+        // The engine keeps the shader while a mark draws with it.
+        let marks = mark::shader()?;
         // A chief takes its ground before any town is founded.
-        let chief =
-            Chief::make(&tuning, &pal, &mut land, &mut society)?;
+        let chief = Chief::make(
+            &tuning,
+            &pal,
+            &marks,
+            &mut land,
+            &mut society,
+        )?;
         let ground = Ground::make(&pal)?;
         let towns = Towns::make(&pal)?;
         let roads = Roads::make(&pal)?;
@@ -144,7 +154,7 @@ impl Realm {
             roads,
             robots,
             chief,
-            pick: Picking::make()?,
+            pick: Picking::make(&marks)?,
             following: None,
             carrying: None,
             footprint,
@@ -300,6 +310,7 @@ impl Realm {
             dt,
         );
         let mut upload = Upload::new(&self.pace);
+        let floor = self.robots.floor(&self.land);
         let beside = self
             .with
             .as_ref()
@@ -309,6 +320,7 @@ impl Realm {
             tuning: &self.tuning,
             pal: &self.pal,
             land: &self.land,
+            floor: &floor,
             society: &self.society,
             stock: &self.stock,
             sky: &self.sky,
@@ -332,7 +344,13 @@ impl Realm {
         self.chief.update(&ctx, dt, &mut upload);
         let rings = [self.pick.hovered(), self.pick.selected()]
             .map(|thing| thing.and_then(|thing| self.ring(thing)));
-        self.pick.lay(rings[0], rings[1], &mut upload);
+        self.pick.lay(
+            rings[0],
+            rings[1],
+            &floor,
+            &self.tuning.pick,
+            &mut upload,
+        );
         let ray = self.camera.ray(&self.tuning.camera);
         if let Some(carry) = &mut self.carrying {
             // A town that is gone is in nobody's hand.

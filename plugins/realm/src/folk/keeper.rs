@@ -21,6 +21,7 @@ use crate::build::frame::Frame;
 use crate::build::upload::Upload;
 use crate::folk::keeper::acts::Act;
 use crate::folk::keeper::kit::Kit;
+pub use crate::folk::keeper::lot::Floor;
 use crate::folk::keeper::lot::Lot;
 use crate::folk::keeper::rig::Rig;
 use crate::folk::keeper::robot::{Passage, Robot};
@@ -29,6 +30,7 @@ use crate::places::house::yard_of;
 use crate::realm::Ctx;
 use crate::society::{Agent, AgentId};
 use crate::view::pick::Thing;
+use crate::world::land::Land;
 use crate::world::layout::{HALL_PLOT, plot};
 use crate::world::palette::Palette;
 
@@ -235,6 +237,14 @@ impl Robots {
     /// Where the robot of `agent` stands.
     pub fn at(&self, agent: AgentId) -> Option<Vec3> {
         self.robots.get(&agent).map(|robot| robot.rig.at.at)
+    }
+
+    /// The floor of `land` and of the robots' yards.
+    pub fn floor<'a>(&self, land: &'a Land) -> Floor<'a> {
+        Floor::new(
+            land,
+            self.robots.values().map(|robot| robot.lot).collect(),
+        )
     }
 }
 
