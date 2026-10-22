@@ -764,7 +764,7 @@ fn widget(
             if place == Place::Button {
                 raised(icon)
             } else {
-                icon
+                beside_words(icon, parent)
             }
         }
         (Kind::Toggle, _) => toggle(
@@ -861,6 +861,31 @@ fn text(holder: Entity, set: u32, display: bool) -> AnyView {
     } else {
         text.boxed()
     }
+}
+
+/// `icon`, raised as in a button when `parent` lays it in a row
+/// beside words in the display face, as a heading's icon is.
+fn beside_words(icon: AnyView, parent: Entity) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let in_row =
+            cx.world.get::<Props>(parent).is_some_and(|props| {
+                props.direction == FlexDirection::Row
+            });
+        let by_display =
+            cx.world.get::<Kids>(parent).is_some_and(|kids| {
+                kids.0.iter().any(|kid| {
+                    matches!(
+                        kid.shape,
+                        Shape::Label { display: true, .. }
+                    )
+                })
+            });
+        if in_row && by_display {
+            cx.build(raised(icon))
+        } else {
+            cx.build(icon)
+        }
+    })
 }
 
 /// The icon of the engine's set named `name`; a name the set does not
