@@ -82,7 +82,8 @@ restart selects it. See [remote workspaces](sandbox.md#remote-workspaces).
 ## Starting and stopping
 
 `hamlet-server --home <folder> --port 0` publishes a free loopback address.
-`runtime::serve` owns authentication, ordered connections and shutdown;
+`serve::serve` owns the ordered start and shutdown, `connection.rs` the
+sockets, and `requests.rs` authentication and who answers each request;
 `Service` composes domain owners. `--faux` selects an offline response script,
 not a harness entry. `HAMLET_PI_HARNESS` selects that entry instead.
 

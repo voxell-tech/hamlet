@@ -1,7 +1,7 @@
 //! Chief documents and record views through the server's protocol
 //! seam.
 
-use hamlet_protocol::client::{ReplyKind, ServerMessage};
+use hamlet_protocol::client::{ClientMessage, ServerMessage};
 use hamlet_server::protocol::Protocol;
 use hamlet_server::record::{
     Actor, Admit, Change, Departure, RecordOperation,
@@ -21,13 +21,20 @@ fn run<F: Future>(future: F) -> F::Output {
 }
 
 fn request(service: &mut Service, mut value: Value) -> Value {
-    value["id"] = uuid::Uuid::new_v4().to_string().into();
-    let message =
-        Protocol::new().unwrap().parse(&value.to_string()).unwrap();
-    serde_json::to_value(
-        run(service.handle(message)).unwrap().unwrap(),
-    )
-    .unwrap()
+    let id = uuid::Uuid::new_v4().to_string();
+    value["id"] = id.clone().into();
+    let answer = match Protocol::new()
+        .unwrap()
+        .parse(&value.to_string())
+        .unwrap()
+    {
+        ClientMessage::Edit(edit) => {
+            run(service.edit_document(&id, edit))
+        }
+        ClientMessage::Read(read) => run(service.read(read)),
+        message => panic!("not a document request: {message:?}"),
+    };
+    serde_json::to_value(answer.unwrap()).unwrap()
 }
 
 fn open(dir: &Scratch) -> Service {
@@ -320,32 +327,6 @@ fn notes_never_follow_a_link_out_of_the_house() {
                 .unwrap(),
             "Do not change."
         );
-    }
-}
-
-#[test]
-fn unsupported_owners_refuse_without_changing_the_realm() {
-    let dir = Scratch::new("protocol-unsupported");
-    let mut service = open(&dir);
-    let before = service.state(1, 0).unwrap();
-    for mut value in [
-        json!({"type":"check","what":"connection"}),
-        json!({"type":"say","to":mayor(),"text":"Hello"}),
-        json!({"type":"login","start":{"provider":"openai","method":"key"}}),
-    ] {
-        value["id"] = uuid::Uuid::new_v4().to_string().into();
-        let result = run(service.handle(
-            Protocol::new()
-                .unwrap()
-                .parse(&value.to_string())
-                .unwrap(),
-        ))
-        .unwrap()
-        .unwrap();
-        assert!(
-            matches!(result,ServerMessage::Reply(r) if r.kind==ReplyKind::Error && r.text.contains("does not yet support"))
-        );
-        assert_eq!(service.state(1, 0).unwrap(), before);
     }
 }
 

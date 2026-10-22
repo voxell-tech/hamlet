@@ -26,92 +26,40 @@ from the protocol types; this plan only moves the rules into the types.
 
 ## Phase 0: the rules
 
-1. Rewrite `docs/code_convention.md`: the Rust API Guidelines checklist
-   as the base, with the deliberate departures listed; the sections on
-   plugins, tuning, shader colours, tests and no `mod.rs` kept; new
-   sections on where a test lives, names, errors and lints; the
-   smart-pointer rule becomes "justify it in the PR".
-2. A workspace lint block in `Cargo.toml` and a `clippy.toml` with
-   `max-fn-params-bools = 1`. `too_many_arguments` back to warn inside
-   `hamlet_server`. Dead allows deleted, the rest turned into `expect`
-   with a reason.
-3. This plan recorded here, and its deferred items copied to the backlog.
-
-Done when: `cargo clippy` with the new lints is clean under the commands
-CI runs, and the convention contradicts no other document.
+Built: the convention is [`code_convention.md`](../code_convention.md),
+its lints are the workspace block in `Cargo.toml` and `clippy.toml`, and
+what it left out is in the backlog.
 
 ## Phase 1: safety and CI
 
-1. Sort errors in the serve loop. A small `Fatal` wrapper marks claim,
-   store-open and schema failures in `runtime.rs`. Every other handler
-   error sends a `FAILED` fault for its request, and the loop goes on. In
-   `harness.rs`, an error while handling one pi line answers that line
-   with `ErrorCode::Failed` instead of refusing the runtime. One test per
-   path shows the server survives.
-2. One override list. The nine-variable list moves from
-   `hamlet_acceptance` into `hamlet_testing`, and
-   `hamlet_server/tests/server.rs` and `tests/harness/support.rs` use it.
-   `HAMLET_FAULT`, `HAMLET_FAULT_DIR` and `HAMLET_FAULT_SPLIT_MARKER` join
-   it.
-3. Guard the fault feature. `compile_error!` when `faults` is on without
-   debug assertions. Both test features documented as internal in the
-   manifest.
-4. Split the acceptance step in CI. Build the plain binaries, run
-   acceptance, then run the harness tests as a separate command. Delete
-   the `check` and `check-no-defaults` jobs that duplicate clippy.
-5. Operating systems in CI. A `macos-14` job runs the same test steps,
-   which exercises Seatbelt. A Windows job runs clippy on the app package
-   only.
-6. Replace the submodule. The fynix dependency points at its HTTPS git
-   URL with a pinned rev, and xtask loses its fynix step. Open the merge
-   upstream so fynix can later be a crates.io version.
-7. Pin toolchains. `rust-toolchain.toml` for stable, `rust-version` in
-   the workspace package, and a dated nightly that both xtask and CI read
-   for formatting. `release.yml`'s write permission scoped to the publish
-   job, and a check that the tag equals the version.
-8. Hygiene. Delete the stray `node_modules` under the protocol crate and
-   ignore it, remove the duplicate `rusqlite` and `hamlet_protocol`
-   entries, add `publish = false`, and route `hamlet_acceptance` through
-   workspace dependencies.
-
-Done when: CI is green on three operating systems, every CI step uses
-`--locked`, and `HAMLET_WORKSPACE_URL` set in a shell cannot reach a test
-server.
+Built: a failed request or pi line ends only itself
+([`tour.md`](../tour.md), `serve.rs`, `requests.rs` and `harness.rs`),
+the one override list is `hamlet_testing::OVERRIDES`, the `faults`
+feature refuses a release build, CI runs the acceptance and harness
+steps apart on three operating systems with pinned toolchains, and
+fynix is a git dependency pinned to a commit.
 
 ## Phase 2: server seams
 
-1. One request match. A `requests.rs` with one exhaustive match over
-   `ClientMessage`, each arm calling the owning module. Delete the
-   four-stage fallthrough in `runtime.rs` and the unreachable arms in
-   `service.rs`. Add `ClientMessage::id()` and stop re-serializing a
-   message for its id.
-2. Protocol version test. Fingerprint the client schema the way
-   `runtime_schema.rs` does, and fail when it changes without a bump of
-   `V`. Show the server's protocol version in the window's connection
-   words.
-3. Rules into types. `RequestId` as a UUID newtype, and a non-empty
+The one request match, the client schema's fingerprint, `State::apply`
+and the split of the serve loop's files are described in
+[`tour.md`](../tour.md) and [`protocol.md`](../protocol.md). What
+remains:
+
+1. Rules into types. `RequestId` as a UUID newtype, and a non-empty
    string wrapper, so Rust cannot build a message the validator refuses.
    The schema check stays at the edge as ADR 0004 asks.
    `serde_path_to_error` gives the field path in fault words, so the
    schema-walking text builders shrink.
-4. Shared state application. `State::apply` in the protocol crate, used
-   by the CLI and the acceptance suite, replaces the diverged copy in
-   `hamlet_cli`.
-5. Refresh only when something changed. `Store::run` and the chats move a
+2. Refresh only when something changed. `Store::run` and the chats move a
    revision counter; refresh rebuilds state only when it moved. Rescan the
    tools folder on a two-second timer. Measure the tick before and after
    with a hundred agents.
-6. Narrow `Service` in steps. `Service::db()`. The five `expect`
+3. Narrow `Service` in steps. `Service::db()`. The five `expect`
    invariants in `merging/lane.rs` move onto a `Merges::active_mut()`
    method. Stop there unless Phase 5 shows more pain. No rewrite.
-7. Split two files. The WebSocket transport moves out of `runtime.rs`
-   into `connection.rs`, the ordered startup and shutdown into `serve.rs`.
-   The 181-line `received` match in `harness.rs` splits per message, as
-   `hello` already is.
 
-Done when: a panic injected in one handler ends only that request, a
-schema change fails CI until `V` moves, and the server runs no SQLite read
-on an idle tick.
+Done when: the server runs no SQLite read on an idle tick.
 
 ## Phase 3: tests and workspace
 
@@ -215,7 +163,7 @@ unsafe modules, and no type carries a word from a CONTEXT.md avoid list.
   `hamlet_protocol`. Two consumers do not justify them.
 - No `Service` rewrite and no trait for local versus remote. Enum
   dispatch is right for two closed variants. The five parallel enums
-  shrink to two only if Phase 2 step 6 leaves them painful.
+  shrink to two only if Phase 2 step 3 leaves them painful.
 - No change to the schema check beyond moving rules into types, because
   ADR 0004 chose it.
 - No reformat: width 70 and the nightly options stay.

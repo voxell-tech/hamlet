@@ -1,5 +1,6 @@
-//! Points where a test stops this server, so it can be killed there.
-//! They do nothing unless the `faults` feature is on.
+//! Points where a test stops this server, so it can be killed there,
+//! or makes it panic. They do nothing unless the `faults` feature is
+//! on.
 
 #[cfg(all(feature = "faults", not(debug_assertions)))]
 compile_error!(
@@ -12,17 +13,7 @@ compile_error!(
 /// server started after it passes the point.
 #[cfg(feature = "faults")]
 pub(crate) fn point(point: &str) {
-    let (Ok(fault), Some(dir)) = (
-        std::env::var("HAMLET_FAULT"),
-        std::env::var_os("HAMLET_FAULT_DIR"),
-    ) else {
-        return;
-    };
-    let paused = std::path::Path::new(&dir).join("server-paused");
-    if fault != point || paused.exists() {
-        return;
-    }
-    if std::fs::write(&paused, point).is_ok() {
+    if mark(point, "server-paused") {
         loop {
             std::thread::park();
         }
@@ -31,6 +22,35 @@ pub(crate) fn point(point: &str) {
 
 #[cfg(not(feature = "faults"))]
 pub(crate) fn point(_point: &str) {}
+
+/// Panics at `point` when `HAMLET_FAULT` names it, once per
+/// `HAMLET_FAULT_DIR`: the panic writes `server-panicked` there, and
+/// the next pass of the point goes on.
+#[cfg(feature = "faults")]
+pub(crate) fn panic_at(point: &str) {
+    if mark(point, "server-panicked") {
+        panic!("the fault point {point} panics");
+    }
+}
+
+#[cfg(not(feature = "faults"))]
+pub(crate) fn panic_at(_point: &str) {}
+
+/// Writes `marker` in `HAMLET_FAULT_DIR` when `HAMLET_FAULT` names
+/// `point` and the marker is not there yet; whether it did.
+#[cfg(feature = "faults")]
+fn mark(point: &str, marker: &str) -> bool {
+    let (Ok(fault), Some(dir)) = (
+        std::env::var("HAMLET_FAULT"),
+        std::env::var_os("HAMLET_FAULT_DIR"),
+    ) else {
+        return false;
+    };
+    let marker = std::path::Path::new(&dir).join(marker);
+    fault == point
+        && !marker.exists()
+        && std::fs::write(&marker, point).is_ok()
+}
 
 /// Whether `HAMLET_FAULT_SPLIT_MARKER` asks for a change and its
 /// marker committed apart.

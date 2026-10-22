@@ -18,8 +18,8 @@ use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 use hamlet_protocol::client::{
-    ChatRef, ClientMessage, Doing, Op, Read, ServerMessage, Turn,
-    UsageView,
+    Address, Answer, ChatRef, Close, Doing, New, Op, Open, Resume,
+    Retry, Rewind, Say, ServerMessage, Stop, Turn, UsageView,
 };
 
 use self::activity::Activity;
@@ -161,30 +161,36 @@ impl Chats {
     }
 }
 
-/// What became of a client's request.
-pub(crate) enum Handled {
-    /// Another owner answers it.
-    NotMine,
-    /// It is answered once its work is done.
-    Later,
-    Reply(Box<ServerMessage>),
+/// A client's request about conversations.
+pub(crate) enum Request<'a> {
+    Say(&'a Say),
+    Open(&'a Open),
+    Close(&'a Close),
+    New(&'a New),
+    Resume(&'a Resume),
+    Retry(&'a Retry),
+    Rewind(&'a Rewind),
+    Stop(&'a Stop),
+    Answer(&'a Answer),
+    History { agent: &'a Address, id: &'a str },
 }
 
-/// Handles a client's request about conversations.
+/// Handles a client's request about conversations; `None` when it is
+/// answered once its work is done.
 pub(crate) async fn converse(
     service: &mut Service,
     harnesses: &mut Harnesses,
     client: u64,
-    message: &ClientMessage,
-) -> Result<Handled> {
-    let answer = match message {
-        ClientMessage::Say(said) => {
+    request: Request<'_>,
+) -> Result<Option<ServerMessage>> {
+    let answer = match request {
+        Request::Say(said) => {
             say::say(service, harnesses, client, said).await?
         }
-        ClientMessage::Open(open) => {
+        Request::Open(open) => {
             watch::open(service, harnesses, client, open).await?
         }
-        ClientMessage::Close(close) => {
+        Request::Close(close) => {
             let key = watch::key(&close.chat);
             service.chats.watches.retain(|watch| {
                 watch.client != client
@@ -192,7 +198,7 @@ pub(crate) async fn converse(
             });
             None
         }
-        ClientMessage::New(new) => {
+        Request::New(new) => {
             let done = deeds::protocol(
                 service,
                 harnesses,
@@ -202,7 +208,7 @@ pub(crate) async fn converse(
             .await?;
             reply_done(service, client, &new.id, done)
         }
-        ClientMessage::Resume(resume) => {
+        Request::Resume(resume) => {
             let done = deeds::protocol(
                 service,
                 harnesses,
@@ -212,7 +218,7 @@ pub(crate) async fn converse(
             .await?;
             reply_done(service, client, &resume.id, done)
         }
-        ClientMessage::Retry(retry) => {
+        Request::Retry(retry) => {
             let done = deeds::protocol(
                 service,
                 harnesses,
@@ -222,15 +228,15 @@ pub(crate) async fn converse(
             .await?;
             reply_done(service, client, &retry.id, done)
         }
-        ClientMessage::Rewind(rewind) => {
+        Request::Rewind(rewind) => {
             Some(deeds::rewind(service, harnesses, rewind).await?)
         }
-        ClientMessage::Stop(stop) => Some(reply(
+        Request::Stop(stop) => Some(reply(
             &stop.id,
             deeds::stop(service, harnesses, stop.agent.as_ref())
                 .await?,
         )),
-        ClientMessage::Answer(answer) => Some(reply(
+        Request::Answer(answer) => Some(reply(
             &answer.id,
             calls::answer_words(
                 service,
@@ -242,19 +248,12 @@ pub(crate) async fn converse(
             )
             .await?,
         )),
-        ClientMessage::Read(Read::History { agent, id }) => {
+        Request::History { agent, id } => {
             Some(watch::history(service, harnesses, agent, id).await?)
         }
-        ClientMessage::Give(_) | ClientMessage::GivePart(_) => {
-            crate::gifts::request(service, harnesses, client, message)
-                .await?
-        }
-        _ => return Ok(Handled::NotMine),
     };
     refresh_watches(service, harnesses).await?;
-    Ok(answer.map_or(Handled::Later, |answer| {
-        Handled::Reply(Box::new(answer))
-    }))
+    Ok(answer)
 }
 
 /// Takes in what a runtime told.

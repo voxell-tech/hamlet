@@ -17,3 +17,4 @@ serde_json.workspace = true
 
 [dev-dependencies]
 hamlet_testing.workspace = true
+sha2.workspace = true

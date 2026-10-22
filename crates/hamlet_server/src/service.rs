@@ -1,8 +1,8 @@
-//! Protocol requests composed from the home's owners.
+//! The served home and the owners it composes.
 
 use anyhow::{Context, Result, ensure};
 use hamlet_protocol::client::{
-    Address, ClientMessage, Read, ServerMessage, State,
+    Address, Edit, Read, ServerMessage, State,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
@@ -11,7 +11,7 @@ use crate::credentials::Credentials;
 use crate::documents::Work;
 use crate::limits::Rules;
 use crate::papers::{Capability, Houses};
-use crate::protocol::{Refusable, Refusal, fault, reply};
+use crate::protocol::{Refusable, Refusal, reply};
 use crate::record::{self, FoundRecord};
 use crate::settings::{Overrides, Settings};
 use crate::{Home, OperationId, Outcome, Reply, RuntimeInstance};
@@ -154,48 +154,14 @@ impl Service {
         crate::state::state(self, epoch, revision)
     }
 
-    /// Handles one authenticated request; an unsupported owner
-    /// returns a typed refusal.
-    pub async fn handle(
+    /// Answers the chief's edit of a document, the request `id`.
+    pub async fn edit_document(
         &mut self,
-        message: ClientMessage,
-    ) -> Result<Option<ServerMessage>> {
-        let raw = serde_json::to_value(&message)?;
-        let id = raw["id"].as_str().unwrap_or_default();
-        let unsupported =
-            |part| reply(id, Err(Refusal::Unsupported(part)));
-        Ok(Some(match message {
-            ClientMessage::Hello(_) => {
-                fault(None, "This connection said hello already.")
-            }
-            ClientMessage::Close(_) => return Ok(None),
-            ClientMessage::Edit(edit) => {
-                reply(id, self.edit(edit).await?)
-            }
-            ClientMessage::Read(read) => self.read(read).await?,
-            // The runtime hands these to the chats first.
-            ClientMessage::Say(_)
-            | ClientMessage::Open(_)
-            | ClientMessage::New(_)
-            | ClientMessage::Resume(_)
-            | ClientMessage::Retry(_)
-            | ClientMessage::Rewind(_)
-            | ClientMessage::Stop(_)
-            | ClientMessage::Answer(_) => {
-                unsupported("conversations")
-            }
-            ClientMessage::Give(_) | ClientMessage::GivePart(_) => {
-                unsupported("gifts")
-            }
-            ClientMessage::Login(_) => unsupported("sign-ins"),
-            ClientMessage::Check(_) => unsupported("model checks"),
-            ClientMessage::MoveHouses { .. } => {
-                match self.start_move(0, id)? {
-                    Ok(()) => return Ok(None),
-                    Err(error) => reply(id, Err(error)),
-                }
-            }
-        }))
+        id: &str,
+        edit: Edit,
+    ) -> Result<ServerMessage> {
+        crate::fault::panic_at("edit_document");
+        Ok(reply(id, self.edit(edit).await?))
     }
 
     pub(crate) fn access(
@@ -327,7 +293,8 @@ impl Service {
             .unwrap_or_default())
     }
 
-    pub(crate) async fn read(
+    /// Answers the chief's read of a document.
+    pub async fn read(
         &mut self,
         read: Read,
     ) -> Result<ServerMessage> {

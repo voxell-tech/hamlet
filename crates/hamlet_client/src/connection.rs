@@ -226,6 +226,12 @@ fn update(world: &mut World) {
                     });
                 }
                 Incoming::Frame(message) => {
+                    if matches!(
+                        message,
+                        protocol::ServerMessage::State(_)
+                    ) {
+                        greeted(world);
+                    }
                     crate::receive(world, message);
                 }
             }
@@ -242,6 +248,23 @@ fn update(world: &mut World) {
             }
         }
     });
+}
+
+/// Names the protocol version in the words of a connection the server
+/// answered.
+fn greeted(world: &mut World) {
+    // The server answers only a hello whose `v` is its own version.
+    let url = &world.resource::<Server>().0.url;
+    let words = format!(
+        "Connected to {url}, which speaks protocol version {}.",
+        protocol::V
+    );
+    let connection = world.resource::<Connection>();
+    if connection.state == State::Connected
+        && connection.words != words
+    {
+        world.resource_mut::<Connection>().words = words;
+    }
 }
 
 async fn connect(

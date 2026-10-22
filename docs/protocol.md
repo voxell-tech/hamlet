@@ -8,7 +8,8 @@ The contract is the Rust types in
 module per area: `state`, `chat`, `waits`, `gifts`, `documents`, `limits`
 and `settings`.
 The names below, such as `Hello` and `ClientMessage`, are their type names.
-The handshake's `v` is the protocol's version, 0 until it is stable.
+The handshake's `v` is the protocol's version, `V`; it moves whenever a
+message's shape does.
 `?` means optional; `null` is an explicit value. Objects reject extra fields.
 
 ## Transport and handshake
@@ -29,7 +30,10 @@ Send `Hello` first, within 10 seconds:
 {"type":"hello","v":0,"token":"<home token>"}
 ```
 
-A successful hello receives a full `state` before live changes.
+A successful hello receives a full `state` before live changes. The
+server answers only a hello whose `v` is its own, so a client that
+receives that `state` knows the server speaks its version. The window
+says so in its connection words.
 
 | Failure | Answer and connection |
 |---|---|
@@ -45,7 +49,7 @@ The server applies no matching outbound limit to state or transcript pages.
 File gifts have a separate
 **32 MiB** limit and travel in chunks (`Give`, `GivePart`). A server shutdown
 closes clients with **1001**. These rules are in
-[`crates/hamlet_server/src/runtime.rs`](../crates/hamlet_server/src/runtime.rs).
+[`crates/hamlet_server/src/connection.rs`](../crates/hamlet_server/src/connection.rs).
 
 ## Shared shapes
 
@@ -84,6 +88,8 @@ internal IDs. The server constructs them in `chats/say.rs`,
 at its start. Revision starts at zero and increases when the realm state
 changes. `Changes` carries the epoch and new revision. A full `state`
 replaces the client's realm snapshot; `change` applies its listed updates.
+A client that keeps a `State` applies each with
+`hamlet_protocol::client::State::apply`, as the CLI does.
 These counters describe realm state, not transcript operations. Reconnect
 with hello, which brings a full `state`, and reopen watches.
 
@@ -323,15 +329,16 @@ readable `text`; neither carries a machine error code.
 | Envelope | Use |
 |---|---|
 | `reply`, kind `error`, with `to` | An ordinary requested operation is refused: an edit, read, answer, gift, check or conversation action. Some typed command refusals are rendered as kind `notice` instead (`chats/say.rs`). |
-| `fault` with `to` | A malformed request with a recoverable UUID, an open/page refusal, a watch failure still associated with its opening request, or an unexpected request-handler failure. |
+| `fault` with `to` | A malformed request with a recoverable UUID, an open/page refusal, a watch failure still associated with its opening request, or an unexpected request-handler failure, a panic included. |
 | `fault` without `to` | A handshake or connection failure, input with no valid request ID, or a watch failure after its opening request has been answered. |
 
 A fault does not itself imply disconnect. Malformed input after hello,
 second hello and request-handler failures leave the connection open.
 Handshake refusals, message size violations and unexpected connection
-failures close it as described above. The server's `protocol.rs`
-and `runtime.rs` own these paths. Watch failures use the `fault` envelope,
-even when their cause is an ordinary access refusal.
+failures close it as described above. The server's `protocol.rs`,
+`connection.rs` and `requests.rs` own these paths. Watch failures use
+the `fault` envelope, even when their cause is an ordinary access
+refusal.
 
 ## Changing the protocol
 
@@ -340,9 +347,16 @@ even when their cause is an ordinary access refusal.
    cannot check, such as a request id's UUID format or a list's length,
    goes in a `#[schemars(...)]` attribute: the server checks every client
    message against the JSON Schema derived from these types.
-2. Re-record `crates/hamlet_protocol/frames/` when the wire sessions
+2. Move `V` in `crates/hamlet_protocol/src/client.rs` when a message's
+   shape changes.
+   `cargo test -p hamlet_protocol` keeps a sha256 of the client schema
+   with `V` in `crates/hamlet_protocol/client_schema.fingerprint`. It
+   fails while the shapes differ from the recorded ones and `V` has not
+   moved. Once `V` moves, it rewrites the file and fails once: commit
+   the file. Doc comments are not part of the fingerprint.
+3. Re-record `crates/hamlet_protocol/frames/` when the wire sessions
    change. The offline Rust recorder's command is in the
    [acceptance README](../crates/hamlet_acceptance/README.md#recording-protocol-frames).
    Ordinary tests only read these fixtures.
-3. Update this page. `cargo test -p hamlet_protocol` checks that every
+4. Update this page. `cargo test -p hamlet_protocol` checks that every
    client and server message type is named here.

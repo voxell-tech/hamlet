@@ -23,6 +23,54 @@ pub use settings::*;
 pub use state::*;
 pub use waits::*;
 
+impl ClientMessage {
+    /// The id of this request, if it has one.
+    pub fn id(&self) -> Option<&str> {
+        match self {
+            Self::Hello(_) | Self::Close(_) => None,
+            Self::Say(Say { id, .. })
+            | Self::Give(
+                Give::Files { id, .. } | Give::Skill { id, .. },
+            )
+            | Self::GivePart(GivePart { id, .. })
+            | Self::Answer(Answer { id, .. })
+            | Self::Stop(Stop { id, .. })
+            | Self::Rewind(Rewind { id, .. })
+            | Self::New(New { id, .. })
+            | Self::Resume(Resume { id, .. })
+            | Self::Retry(Retry { id, .. })
+            | Self::Edit(
+                Edit::Charter { id, .. }
+                | Edit::Character { id, .. }
+                | Edit::Notes { id, .. }
+                | Edit::Limits(
+                    EditLimits::Set { id, .. }
+                    | EditLimits::Whole { id, .. },
+                )
+                | Edit::Settings { id, .. }
+                | Edit::Catalogue { id, .. },
+            )
+            | Self::Open(Open { id, .. })
+            | Self::Login(
+                Login::Start { id, .. }
+                | Login::Reply { id, .. }
+                | Login::Cancel { id, .. },
+            )
+            | Self::Check(
+                Check::Model { id, .. } | Check::Connection { id },
+            )
+            | Self::Read(
+                Read::Prompt { id, .. }
+                | Read::History { id, .. }
+                | Read::Models { id, .. }
+                | Read::Papers { id, .. }
+                | Read::Charter { id },
+            )
+            | Self::MoveHouses(MoveHouses { id }) => Some(id),
+        }
+    }
+}
+
 impl ServerMessage {
     /// The request this message answers, if any.
     pub fn to(&self) -> Option<&str> {

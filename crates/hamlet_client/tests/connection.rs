@@ -158,7 +158,13 @@ async fn hello_precedes_the_outbox_and_received_state_fills_the_world()
     }
     let connection = app.world().resource::<Connection>();
     assert_eq!(connection.state, State::Connected);
-    assert_eq!(connection.words, format!("Connected to {url}."));
+    assert_eq!(
+        connection.words,
+        format!(
+            "Connected to {url}, which speaks protocol version {}.",
+            protocol::V
+        )
+    );
     assert_eq!(
         app.world_mut()
             .query::<&Settlement>()

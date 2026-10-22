@@ -80,6 +80,16 @@ impl Server {
         env: &[(&str, &str)],
         script: Option<&std::path::Path>,
     ) -> Self {
+        Self::start_logging(home, env, script, Stdio::null())
+    }
+
+    /// Starts the server with its log, its stderr, going to `log`.
+    fn start_logging(
+        home: &Scratch,
+        env: &[(&str, &str)],
+        script: Option<&std::path::Path>,
+        log: Stdio,
+    ) -> Self {
         let mut command =
             Command::new(env!("CARGO_BIN_EXE_hamlet-server"));
         if let Some(script) = script {
@@ -92,7 +102,7 @@ impl Server {
             .env("HAMLET_USER", "chief")
             .envs(env.iter().copied())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(log)
             .spawn()
             .unwrap();
         let until = Instant::now() + Duration::from_secs(10);
@@ -217,36 +227,15 @@ async fn a_request_whose_handler_fails_is_faulted_and_the_next_answered()
     let house = home.join("houses/home/0");
     std::fs::rename(&house, home.join("house-moved-away")).unwrap();
     std::fs::write(&house, "not a folder").unwrap();
-    let edit = uuid::Uuid::new_v4().to_string();
-    let read = uuid::Uuid::new_v4().to_string();
-    for request in [
-        json!({"type": "edit", "doc": "notes", "id": edit,
-            "agent": {"hamlet": "home", "agent": "founder"},
-            "text": "Kept?"}),
-        json!({"type": "read", "what": "charter", "id": read}),
-    ] {
-        socket
-            .send(Message::Text(request.to_string().into()))
-            .await
-            .unwrap();
-    }
-    let mut answers = Vec::new();
-    tokio::time::timeout(Duration::from_secs(3), async {
-        while answers.len() < 2 {
-            let frame = socket.next().await.unwrap().unwrap();
-            let message = serde_json::from_str::<Value>(
-                frame.to_text().unwrap(),
-            )
-            .unwrap();
-            if message["to"] == edit || message["to"] == read {
-                answers.push(message);
-            }
-        }
-    })
-    .await
-    .unwrap();
+    let edit = json!({"type": "edit", "doc": "notes",
+        "id": uuid::Uuid::new_v4().to_string(),
+        "agent": {"hamlet": "home", "agent": "founder"},
+        "text": "Kept?"});
+    let read = json!({"type": "read", "what": "charter",
+        "id": uuid::Uuid::new_v4().to_string()});
+    let answers = answers(&mut socket, &[&edit, &read]).await;
     assert_eq!(answers[0]["type"], "fault", "{answers:?}");
-    assert_eq!(answers[0]["to"], edit);
+    assert_eq!(answers[0]["to"], edit["id"]);
     assert_eq!(
         answers[0]["text"],
         "The server could not complete this request."
@@ -255,6 +244,100 @@ async fn a_request_whose_handler_fails_is_faulted_and_the_next_answered()
     drop(socket);
     server.signal(libc::SIGTERM);
     assert_eq!(server.exit().await, 0);
+}
+
+#[cfg(feature = "faults")]
+#[tokio::test]
+async fn a_request_whose_handler_panics_is_faulted_and_the_server_goes_on()
+ {
+    use std::io::Read as _;
+
+    let home = Scratch::new("server-handler-panics");
+    let faults = home.join("faults");
+    std::fs::create_dir_all(&faults).unwrap();
+    // The log is read once the server has exited, so the pipe holds
+    // it all: a few lines, far below a pipe's buffer.
+    let mut server = Server::start_logging(
+        &home,
+        &[
+            ("HAMLET_FAULT", "edit_document"),
+            ("HAMLET_FAULT_DIR", faults.to_str().unwrap()),
+        ],
+        None,
+        Stdio::piped(),
+    );
+    let published = std::fs::read(home.join("server.json")).unwrap();
+    let (mut socket, _) = server.connect().await;
+    let edit = json!({"type": "edit", "doc": "charter",
+        "id": uuid::Uuid::new_v4().to_string(), "text": "Kept?"});
+    let read = json!({"type": "read", "what": "charter",
+        "id": uuid::Uuid::new_v4().to_string()});
+    let answers = answers(&mut socket, &[&edit, &read]).await;
+    assert!(faults.join("server-panicked").exists());
+    assert_eq!(answers[0]["type"], "fault", "{answers:?}");
+    assert_eq!(answers[0]["to"], edit["id"]);
+    assert_eq!(
+        answers[0]["text"],
+        "The server could not complete this request."
+    );
+    assert_eq!(answers[1]["type"], "read", "{answers:?}");
+    assert_ne!(answers[1]["charter"]["text"], "Kept?");
+    assert!(server.child.try_wait().unwrap().is_none());
+    assert_eq!(
+        std::fs::read(home.join("server.json")).unwrap(),
+        published
+    );
+    drop(socket);
+    server.signal(libc::SIGTERM);
+    assert_eq!(server.exit().await, 0);
+    let mut log = String::new();
+    server
+        .child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut log)
+        .unwrap();
+    // The fault is the caught panic's, not some other failure's.
+    assert!(
+        log.contains(
+            "the handler panicked: the fault point edit_document \
+             panics"
+        ),
+        "{log}"
+    );
+}
+
+/// Sends `requests` on `socket` and returns the answer to each, in
+/// the order they came.
+async fn answers(
+    socket: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    requests: &[&Value],
+) -> Vec<Value> {
+    for request in requests {
+        socket
+            .send(Message::Text(request.to_string().into()))
+            .await
+            .unwrap();
+    }
+    let mut answers = Vec::new();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while answers.len() < requests.len() {
+            let frame = socket.next().await.unwrap().unwrap();
+            let message = serde_json::from_str::<Value>(
+                frame.to_text().unwrap(),
+            )
+            .unwrap();
+            if requests.iter().any(|r| r["id"] == message["to"]) {
+                answers.push(message);
+            }
+        }
+    })
+    .await
+    .unwrap();
+    answers
 }
 
 #[tokio::test]

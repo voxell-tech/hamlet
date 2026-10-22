@@ -9,6 +9,7 @@
 
 pub(crate) mod answers;
 mod bindings;
+mod calls;
 mod credentials;
 mod mark;
 mod process;
@@ -989,31 +990,21 @@ impl Harnesses {
         message: RuntimeMessage,
         credentials: &Credentials,
     ) -> Result<Vec<Notice>> {
-        let phase = self.runtimes[index].phase;
+        if let Some(words) =
+            out_of_order(self.runtimes[index].phase, &message)
+        {
+            self.error(
+                index,
+                Some(id_of(&message)),
+                runtime::ErrorCode::Malformed,
+                words,
+            )
+            .await;
+            return Ok(Vec::new());
+        }
         match message {
             RuntimeMessage::Hello(hello) => {
-                if phase != Phase::Starting {
-                    self.error(
-                        index,
-                        Some(hello.id),
-                        runtime::ErrorCode::Malformed,
-                        "A runtime says hello once.",
-                    )
-                    .await;
-                    return Ok(Vec::new());
-                }
                 self.hello(store, index, hello).await
-            }
-            message if phase != Phase::Ready => {
-                let re = id_of(&message);
-                self.error(
-                    index,
-                    Some(re),
-                    runtime::ErrorCode::Malformed,
-                    "A runtime says hello first.",
-                )
-                .await;
-                Ok(Vec::new())
             }
             RuntimeMessage::Created(created) => {
                 self.created(store, index, created).await
@@ -1041,81 +1032,26 @@ impl Harnesses {
             }
             RuntimeMessage::Statuses(_) => Ok(Vec::new()),
             RuntimeMessage::ProviderResult(result) => {
-                self.credentials.finish(index, &result.re);
-                Ok(vec![Notice::Provider(result)])
+                Ok(self.provider_result(index, result))
             }
             RuntimeMessage::ProviderEvent(event) => {
-                Ok(if self.credentials.owns(index, &event.scope) {
-                    vec![Notice::ProviderEvent(event)]
-                } else {
-                    Vec::new()
-                })
+                Ok(self.provider_event(index, event))
             }
             RuntimeMessage::CredentialRequest(request) => {
                 self.credentials.request(index, request);
                 Ok(Vec::new())
             }
             RuntimeMessage::Allow(allow) => {
-                let call = Call::Allow {
-                    key: allow.key,
-                    input: allow.input,
-                    tool: allow.tool,
-                    arguments: allow.arguments,
-                };
-                self.call(
-                    store,
-                    index,
-                    &allow.conversation,
-                    allow.id,
-                    call,
-                )
-                .await
+                self.allow(store, index, allow).await
             }
             RuntimeMessage::Operation(operation) => {
-                let call = Call::Operation {
-                    key: operation.key,
-                    input: operation.input,
-                    tool: operation.tool,
-                    arguments: operation.arguments,
-                };
-                self.call(
-                    store,
-                    index,
-                    &operation.conversation,
-                    operation.id,
-                    call,
-                )
-                .await
+                self.operation(store, index, operation).await
             }
             RuntimeMessage::Prompt(prompt) => {
-                let call = Call::Prompt {
-                    input: prompt.input,
-                };
-                self.call(
-                    store,
-                    index,
-                    &prompt.conversation,
-                    prompt.id,
-                    call,
-                )
-                .await
+                self.prompt(store, index, prompt).await
             }
             RuntimeMessage::Yield(answer) => {
-                let call = Call::Yield {
-                    input: answer.input,
-                    answer: answer.answer,
-                    history: answer.history.unwrap_or(false),
-                    retried: answer.retried.unwrap_or(false),
-                    summary_failure: answer.summary_failure,
-                };
-                self.call(
-                    store,
-                    index,
-                    &answer.conversation,
-                    answer.id,
-                    call,
-                )
-                .await
+                self.yield_answer(store, index, answer).await
             }
             RuntimeMessage::Attempt(attempt) => {
                 self.allow_attempt(store, index, attempt, credentials)
@@ -1124,28 +1060,12 @@ impl Harnesses {
             RuntimeMessage::Usage(report) => {
                 self.charge_usage(store, index, report).await
             }
-            RuntimeMessage::Scrub(mut request) => {
-                crate::scrub::scrub_value(
-                    &credentials.secrets(),
-                    &mut request.value,
-                );
-                self.send(index, |v, id| {
-                    ServerMessage::Scrubbed(runtime::Scrubbed {
-                        v,
-                        id,
-                        re: request.id,
-                        value: request.value,
-                    })
-                })
-                .await;
+            RuntimeMessage::Scrub(request) => {
+                self.scrub(index, request, credentials).await;
                 Ok(Vec::new())
             }
             RuntimeMessage::Error(error) => {
-                // What the request was for is no longer in flight.
-                if let Some(re) = &error.re {
-                    self.session.reply(re);
-                }
-                Ok(vec![self.fault(index, error.message)])
+                Ok(self.protocol_error(index, error))
             }
         }
     }
@@ -1220,6 +1140,60 @@ impl Harnesses {
         Ok(vec![Notice::Ready { runtime: id }])
     }
 
+    fn provider_result(
+        &mut self,
+        index: usize,
+        result: runtime::ProviderResult,
+    ) -> Vec<Notice> {
+        self.credentials.finish(index, &result.re);
+        vec![Notice::Provider(result)]
+    }
+
+    fn provider_event(
+        &self,
+        index: usize,
+        event: runtime::ProviderEvent,
+    ) -> Vec<Notice> {
+        if self.credentials.owns(index, &event.scope) {
+            vec![Notice::ProviderEvent(event)]
+        } else {
+            Vec::new()
+        }
+    }
+
+    async fn scrub(
+        &mut self,
+        index: usize,
+        mut request: runtime::Scrub,
+        credentials: &Credentials,
+    ) {
+        crate::scrub::scrub_value(
+            &credentials.secrets(),
+            &mut request.value,
+        );
+        self.send(index, |v, id| {
+            ServerMessage::Scrubbed(runtime::Scrubbed {
+                v,
+                id,
+                re: request.id,
+                value: request.value,
+            })
+        })
+        .await;
+    }
+
+    fn protocol_error(
+        &mut self,
+        index: usize,
+        error: runtime::ProtocolError,
+    ) -> Vec<Notice> {
+        // What the request was for is no longer in flight.
+        if let Some(re) = &error.re {
+            self.session.reply(re);
+        }
+        vec![self.fault(index, error.message)]
+    }
+
     /// The binding of the conversation a runtime names, or an error
     /// sent back to it.
     async fn conversation(
@@ -1243,43 +1217,6 @@ impl Harnesses {
             .await;
         }
         Ok(bound)
-    }
-
-    /// A call of the conversation `conversation`, for the host to
-    /// answer.
-    async fn call(
-        &mut self,
-        store: &Store,
-        index: usize,
-        conversation: &str,
-        id: String,
-        call: Call,
-    ) -> Result<Vec<Notice>> {
-        let Some(binding) = self
-            .conversation(store, index, conversation, &id)
-            .await?
-        else {
-            return Ok(Vec::new());
-        };
-        let wake = match &call {
-            Call::Allow { key, .. } | Call::Operation { key, .. } => {
-                Wake::Operation(key.clone())
-            }
-            Call::Prompt { .. } | Call::Yield { .. } => {
-                Wake::Turn(binding.id)
-            }
-        };
-        let re = Re {
-            index,
-            generation: self.runtimes[index].generation,
-            id,
-            wake,
-        };
-        Ok(vec![Notice::Call {
-            binding: binding.id,
-            re,
-            call,
-        }])
     }
 
     fn fault(&self, index: usize, words: String) -> Notice {
@@ -1355,6 +1292,24 @@ fn refusal(
         ));
     }
     None
+}
+
+/// Why `message` is out of order from a runtime in `phase`: a
+/// runtime says hello once, and first.
+fn out_of_order(
+    phase: Phase,
+    message: &RuntimeMessage,
+) -> Option<&'static str> {
+    match (phase, message) {
+        (Phase::Starting, RuntimeMessage::Hello(_)) => None,
+        (_, RuntimeMessage::Hello(_)) => {
+            Some("A runtime says hello once.")
+        }
+        (Phase::Ready, _) => None,
+        (Phase::Down | Phase::Starting | Phase::Refused, _) => {
+            Some("A runtime says hello first.")
+        }
+    }
 }
 
 /// Puts `runtime` down to start again after its backoff; returns the

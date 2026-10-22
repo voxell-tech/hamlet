@@ -17,7 +17,8 @@ Window / terminal -- client protocol --> hamlet-server -- runtime protocol --> p
                                         houses, sandbox                  conversations
 ```
 
-A typed line reaches `chats::converse` through `runtime::serve`. Commands
+A typed line reaches `chats::converse` through `requests.rs`, whose one
+match names the owner that answers each client message. Commands
 change server-owned records or documents; ordinary words become a durable
 harness input. Pi asks the server for its prompt, tool permissions and
 model budget. The server checks calls again when executing them, including
@@ -35,7 +36,7 @@ Rust crates live under `crates/`. The root package `hamlet` supplies
 | `hamlet_cli` | `hamlet`: process lifecycle, terminal chat, editors and login, without Bevy |
 | `hamlet_server` | `hamlet-server`: realm, permissions, tools, records, credentials and harness supervision |
 | `harnesses/pi/` | Node pi-durable/pi-ai runtime; conversations, provider calls, compaction and forks |
-| `hamlet_protocol` | Both protocols' types: `client` and `runtime`; recorded frames and the schema pi reads |
+| `hamlet_protocol` | Both protocols' types: `client` and `runtime`; `State::apply` for a client's changes; recorded frames, the schema pi reads and the client schema's fingerprint |
 | `hamlet_acceptance` | Real-process protocol and CLI scenarios on scratch homes |
 | `hamlet_client` | Connection, outbox, realm, waits and watched chats as Bevy entities |
 | `hamlet_desktop` | File/link openers, editor files, dialogs, wake locks and window icon |
@@ -66,19 +67,24 @@ the public test boundary is the client protocol or the process command line.
 | Module | Responsibility and interface |
 |---|---|
 | `home.rs`, `claim.rs` | `Home::open` claims a path, opens its `Store` and checks the `realm.id` pair. `Layout` names storage, credentials and harness directories |
-| `store.rs`, `schema.sql` | The schema and the `realm.sqlite` connection, with WAL, FULL sync and foreign keys; a store of another version is refused |
+| `store.rs` | The schema, composed from `spend.sql` and the `schema.sql` in `record/`, `harness/`, `chats/` and `society/`, and the `realm.sqlite` connection, with WAL, FULL sync and foreign keys; a store of another version is refused |
 | `operation.rs` | `OperationId` identifies runtime plus call key. Owns every marker: `Store::run` commits an operation's result marker with its record effects; `Store::once` and `once` mark any outcome with its request digest, alone or in the caller's transaction, and refuse a changed request under a used key |
-| `service.rs` | `Service` owns the claimed home, credentials, houses, models, chats and uploads; `handle` routes chief requests |
-| `runtime.rs` | `serve` probes the sandbox, starts the harness, publishes `server.json`, authenticates connections and closes in order |
+| `service.rs` | `Service` owns the claimed home, credentials, houses, models, chats and uploads; `edit_document` and `read` answer the chief's documents |
+| `serve.rs` | `serve` from start to stop: claims the home, probes the sandbox, starts the harness and model providers, publishes `server.json`, and closes in order |
+| `connection.rs` | The WebSocket connections: accepting, each one's read and write task, its queue of waiting messages, and the close codes |
+| `requests.rs` | The hello, then one match over `ClientMessage` naming the owner that answers each request; a handler that errs or panics ends only its request, with a `fault` |
+| `runtime.rs` | `Serving`, the serve loop's state: its events, settle, refresh, and recovering from a failed event |
 | `protocol.rs` | `Protocol::parse` validates client input against the client protocol's schema; reply and fault rendering |
 | `record.rs`, `record/` | Agent identity, membership, names, roads, office, models, constraints and typed refusals. `RecordOperation` is a transactional change, and every change to a hamlet's record is one of its `Change`s |
 | `documents.rs`, `settings.rs`, `limits.rs` | Chief edits and reads. `Service` reads each document once into a typed `Work`, `Settings` (stored settings plus process overrides) or `Limits`. A hamlet's limits live only in its record, with the schema's defaults filled in; `Limits::model_of` picks each agent's model |
 | `chats.rs`, `chats/` | Chief and peer watches, durable inputs, follow-up work, reflection, stop, retry, resume and rewind. `Chats::next` yields each tool call or preparation as it ends, a panicked one as a failed outcome |
 | `chats/calls.rs`, `chats/calls/` | The one tool gate: `decide.rs` admits a call by its request digest and keeps the gate's decision, `ask.rs` raises a question, `answer.rs` validates a chief's answer and makes all its writes in one transaction, `tasks.rs` runs the calls. Marked outcomes survive replay; changed requests are refused |
 | `gate.rs`, `oversight.rs`, `oversight/held.rs` | Approval rules on typed limits, typed dangers, wait kinds and rulings. `held.rs` alone stores a held call and its wait, with typed transitions; `oversight::stop` and `rewind` are the policies that end waits |
-| `harness.rs` | Start/watch runtime processes, bind conversations and dispatch each runtime protocol message. Tool calls go to the chats' gate |
+| `harness.rs` | Start/watch runtime processes, bind conversations and send each runtime protocol message to its own method. Tool calls go to the chats' gate |
 | `harness/session.rs`, `harness/sync.rs` | The runtime protocol's ids and requests in flight; what each conversation is owed (creates, cancels, tools, inputs) and what its runtime reports back |
 | `harness/answers.rs`, `harness/credentials.rs` | Admit and charge model attempts with the typed model selection; credential leases for provider work |
+| `harness/calls.rs` | The calls a runtime asks of the host (allow, operation, prompt, yield), each turned into a `Notice::Call` that `Harnesses::answer` answers |
+| `harness/tools.rs` | The tools a runtime offers its conversations, run in this server as operations |
 | `harness/process.rs`, `harness/bindings.rs` | The pi launch profile and processes; runtimes, bindings and inputs with their `InputStatus` in `realm.sqlite` |
 | `harness/mark.rs` | `InputMark`, the typed kind and data of each input (chief line, retry, reflection, notice, mail, errand), converted to a protocol `Mark` at the edge |
 | `chats/driver.rs`, `bin/hamlet-harness-driver.rs` | With the `harness` feature: the test driver's reach into the chats' gate, waits and stop, for the real-process suite in `tests/harness` |
@@ -146,7 +152,7 @@ ordinary tools.
 | A model connection, login or price | `hamlet_server/src/models.rs`, `credentials.rs`; provider implementation in pi |
 | Folder, mode or tool reach | `hamlet_server/src/documents.rs`, `tools.rs`, `sandbox/`; [`sandbox.md`](sandbox.md) |
 | CLI process discovery | `hamlet_cli/src/process.rs`; [`cli.md`](cli.md) |
-| Client protocol | `hamlet_protocol/src/client/`; [`protocol.md`](protocol.md) |
+| Client protocol | `hamlet_protocol/src/client/`, then `V` and `cargo test -p hamlet_protocol` for `client_schema.fingerprint`; [`protocol.md`](protocol.md) |
 | Runtime protocol | `hamlet_protocol/src/runtime/`, then `cargo test -p hamlet_protocol`; [`harness.md`](harness.md) |
 | Received entities | `hamlet_client/src/connection.rs`, `realm.rs`, `waits.rs`, `chats.rs` |
 | A panel or right-click menu | `hamlet_ui/src/screens/`, `world_menu/items.rs` |

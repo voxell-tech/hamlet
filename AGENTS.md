@@ -130,7 +130,10 @@ by the Rust types in `hamlet_protocol::client`, one module per area. Their
 `#[schemars(...)]` attributes carry the limits serde cannot check, such as
 a request id's UUID format; the server checks every client message against
 the schema derived from them. Update `docs/protocol.md` when the protocol
-changes.
+changes. Move `V` in `hamlet_protocol::client` when a message's shape
+changes: `cargo test -p hamlet_protocol` fails until it moves, then
+rewrites `crates/hamlet_protocol/client_schema.fingerprint` and fails
+once, so commit the rewritten file.
 
 The client tests replay the faux sessions in `crates/hamlet_protocol/frames/`.
 See `docs/protocol.md` for their recording workflow.

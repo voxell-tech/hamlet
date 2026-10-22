@@ -793,3 +793,46 @@ fn an_unanswered_input_is_dropped_and_never_resent() {
         Some(InputStatus::Unanswered)
     );
 }
+
+#[tokio::test]
+async fn a_runtime_says_hello_once_and_before_anything_else() {
+    use super::{Event, Inner, Notice, Phase, Received};
+
+    let scratch = Scratch::new("out-of-order");
+    let home = crate::Home::open(&scratch.join("layout")).unwrap();
+    let (mut store, binding) = bound(&scratch, 0);
+    let credentials =
+        crate::credentials::Credentials::open(home.layout().root())
+            .unwrap();
+    let mut harnesses = idle(&home);
+    let index = harnesses.add(binding.runtime.clone());
+    let error = json!({"v":1,"type":"error","id":"r1","code":"failed","message":"boom"});
+    let hello = json!({"v":1,"type":"hello","id":"r2","adapter":"pi","harness":"pi-durable 1.2.0","runtime":binding.runtime.as_str(),"store":"opened","versions":[1],"capabilities":[]});
+    let mut send = async |phase, line: &Value| {
+        harnesses.runtimes[index].phase = phase;
+        let event = Event(Inner::Received(Received {
+            runtime: index,
+            generation: 0,
+            line: Some(line.to_string()),
+        }));
+        let notices = harnesses
+            .handle(&mut store, event, &credentials)
+            .await
+            .unwrap();
+        (notices, harnesses.runtimes[index].phase)
+    };
+    let (notices, phase) = send(Phase::Starting, &error).await;
+    assert!(
+        notices.is_empty() && phase == Phase::Starting,
+        "{notices:?}"
+    );
+    let (notices, phase) = send(Phase::Ready, &hello).await;
+    assert!(
+        notices.is_empty() && phase == Phase::Ready,
+        "{notices:?}"
+    );
+    let (notices, _) = send(Phase::Ready, &error).await;
+    assert!(
+        matches!(notices.as_slice(), [Notice::Fault { words, .. }] if words == "boom")
+    );
+}

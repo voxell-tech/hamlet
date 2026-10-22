@@ -46,6 +46,8 @@ pub struct Bar {
     pub model: String,
     pub link: String,
     pub link_tone: Tone,
+    /// The connection's words, under the pointer on the link.
+    pub connection: String,
     /// Tokens and cost (or model time) of the current session.
     pub usage: String,
     /// The hamlet's spend against its budget.
@@ -102,6 +104,7 @@ pub(crate) fn update_status(
             }
             _ => Tone::Dim,
         },
+        connection: connection.words.clone(),
         usage: session.map(|(_, u)| u.summary()).unwrap_or_default(),
         budget: home.map(|t| t.0.summary.clone()).unwrap_or_default(),
     };
@@ -213,7 +216,13 @@ pub fn status_bar() -> AnyView {
                             .tone(resource::<Bar, _>(|bar| {
                                 bar.link_tone
                             })),
-                    ),
+                    )
+                    .tooltip(|| {
+                        label(resource::<Bar, _>(|bar| {
+                            bar.connection.clone()
+                        }))
+                        .size(12.0)
+                    }),
                     fact(
                         Glyph::Coins,
                         |bar| bar.usage.clone(),
@@ -384,9 +393,11 @@ mod tests {
             .init_resource::<Queue>()
             .init_resource::<Aimed>()
             .add_systems(Update, update_status);
+        let connected = "Connected to ws://127.0.0.1:4100, which \
+                         speaks protocol version 0.";
         app.insert_resource(Connection {
             state: State::Connected,
-            words: "Connected to the realm.".into(),
+            words: connected.into(),
         });
         bevy_fynix::mount::<crate::theme::HamletTheme>(
             app.world_mut(),
@@ -412,6 +423,10 @@ mod tests {
         for _ in 0..3 {
             app.update();
         }
+        assert_eq!(
+            app.world().resource::<Bar>().connection,
+            connected
+        );
         let shown = words(&mut app);
         assert!(shown.iter().any(|text| text == "server::orchard"));
         assert!(

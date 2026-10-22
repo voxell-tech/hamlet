@@ -30,6 +30,59 @@ pub struct State {
     pub waits: Vec<Wait>,
 }
 
+impl State {
+    /// Applies one change, as a client does between whole states.
+    ///
+    /// A hamlet, an agent or a wait replaces the one with its id in
+    /// its place, or is added at the end when it is new. `AgentGone`
+    /// and `WaitClosed` remove theirs. Grants, settings and providers
+    /// replace the whole value. The epoch and the revision are the
+    /// caller's to keep.
+    pub fn apply(&mut self, update: &Update) {
+        match update {
+            Update::Hamlet { hamlet } => {
+                put(&mut self.hamlets, hamlet, |h| h.id == hamlet.id);
+            }
+            Update::Agent { agent } => {
+                put(&mut self.agents, agent, |a| {
+                    a.ref_ == agent.ref_
+                });
+            }
+            Update::AgentGone { ref_ } => {
+                self.agents.retain(|a| a.ref_ != *ref_);
+            }
+            Update::Wait { wait } => {
+                put(&mut self.waits, wait, |w| w.id == wait.id);
+            }
+            Update::WaitClosed { id, .. } => {
+                self.waits.retain(|w| w.id != *id);
+            }
+            Update::Grants { grants } => {
+                self.grants.clone_from(grants);
+            }
+            Update::Settings { settings } => {
+                self.settings.clone_from(settings);
+            }
+            Update::Providers { providers } => {
+                self.providers.clone_from(providers);
+            }
+        }
+    }
+}
+
+/// Replaces the item of `items` that `same` finds with `item`, or
+/// adds `item` at the end.
+fn put<T: Clone>(
+    items: &mut Vec<T>,
+    item: &T,
+    same: impl Fn(&T) -> bool,
+) {
+    match items.iter_mut().find(|old| same(old)) {
+        Some(old) => old.clone_from(item),
+        None => items.push(item.clone()),
+    }
+}
+
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
@@ -449,4 +502,143 @@ pub struct UsageView {
     pub reasoning: u64,
     pub summary: String,
     pub unreported: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_testing::realm;
+    use serde::de::DeserializeOwned;
+
+    use super::*;
+    use crate::client::{GrantSource, Permission};
+
+    /// `value`, a fixture of the protocol crate `hamlet_testing`
+    /// builds on, as this build's type.
+    fn ours<T: DeserializeOwned>(value: impl Serialize) -> T {
+        serde_json::from_value(serde_json::to_value(value).unwrap())
+            .unwrap()
+    }
+
+    fn state() -> State {
+        let mut state = ours::<State>(realm::state());
+        state.hamlets.push(ours(realm::hamlet("orchard")));
+        state.agents.push(ours(realm::agent("home", 1, "scout")));
+        state.waits =
+            vec![ours(realm::wait("a")), ours(realm::wait("b"))];
+        state
+    }
+
+    #[test]
+    fn a_changed_hamlet_keeps_its_place_and_a_new_one_comes_last() {
+        let mut state = state();
+        let mut home = state.hamlets[0].clone();
+        home.name = "Home".into();
+        state.apply(&Update::Hamlet {
+            hamlet: home.clone(),
+        });
+        let far = ours::<Hamlet>(realm::hamlet("far"));
+        state.apply(&Update::Hamlet {
+            hamlet: far.clone(),
+        });
+        let orchard = ours(realm::hamlet("orchard"));
+        assert_eq!(state.hamlets, [home, orchard, far]);
+    }
+
+    #[test]
+    fn a_changed_agent_keeps_its_place_and_a_new_one_comes_last() {
+        let mut state = state();
+        let mut founder = state.agents[0].clone();
+        founder.busy = true;
+        state.apply(&Update::Agent {
+            agent: founder.clone(),
+        });
+        let guest =
+            ours::<Agent>(realm::agent("orchard", 0, "guest"));
+        state.apply(&Update::Agent {
+            agent: guest.clone(),
+        });
+        let scout = ours(realm::agent("home", 1, "scout"));
+        assert_eq!(state.agents, [founder, scout, guest]);
+    }
+
+    #[test]
+    fn a_gone_agent_leaves_the_others_in_order() {
+        let mut state = state();
+        state.agents.push(ours(realm::agent("home", 2, "smith")));
+        state.apply(&Update::AgentGone {
+            ref_: ours(realm::reference("home", 1)),
+        });
+        let names = state
+            .agents
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["founder", "smith"]);
+    }
+
+    #[test]
+    fn a_changed_wait_keeps_its_place_and_a_new_one_comes_last() {
+        let mut state = state();
+        let mut a = state.waits[0].clone();
+        a.about = "ls".into();
+        state.apply(&Update::Wait { wait: a.clone() });
+        let c = ours::<Wait>(realm::wait("c"));
+        state.apply(&Update::Wait { wait: c.clone() });
+        assert_eq!(state.waits, [a, ours(realm::wait("b")), c]);
+    }
+
+    #[test]
+    fn a_closed_wait_leaves_the_others() {
+        let mut state = state();
+        state.apply(&Update::WaitClosed {
+            how: "allowed".into(),
+            id: "a".into(),
+        });
+        assert_eq!(state.waits, [ours::<Wait>(realm::wait("b"))]);
+    }
+
+    #[test]
+    fn grants_replace_every_grant() {
+        let mut state = state();
+        let grant = |name: &str| Grant {
+            agent: None,
+            by: None,
+            name: name.into(),
+            permission: Permission::Network,
+            source: GrantSource::Grant,
+        };
+        state.grants = vec![grant("old")];
+        state.apply(&Update::Grants {
+            grants: vec![grant("new")],
+        });
+        assert_eq!(state.grants, [grant("new")]);
+    }
+
+    #[test]
+    fn settings_replace_the_settings() {
+        let mut state = state();
+        let mut settings = state.settings.clone();
+        settings.model = "faux::faux-2".into();
+        state.apply(&Update::Settings {
+            settings: settings.clone(),
+        });
+        assert_eq!(state.settings, settings);
+    }
+
+    #[test]
+    fn providers_replace_every_provider() {
+        let mut state = state();
+        let provider = |id: &str| ProviderView {
+            configured: false,
+            id: id.into(),
+            label: id.into(),
+            methods: Vec::new(),
+            name: id.into(),
+        };
+        state.providers = vec![provider("old")];
+        state.apply(&Update::Providers {
+            providers: vec![provider("new")],
+        });
+        assert_eq!(state.providers, [provider("new")]);
+    }
 }

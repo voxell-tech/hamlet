@@ -286,7 +286,7 @@ impl Session {
             ServerMessage::State(next) => self.state = next.clone(),
             ServerMessage::Change(changes) => {
                 for change in &changes.changes {
-                    apply(&mut self.state, change);
+                    self.state.apply(change);
                 }
             }
             ServerMessage::Transcript(transcript) => {
@@ -310,24 +310,6 @@ impl Session {
             _ => {}
         }
         Ok(())
-    }
-}
-
-/// Applies one change to the agents and hamlets of `state`.
-fn apply(state: &mut State, change: &Update) {
-    match change {
-        Update::Hamlet { hamlet } => {
-            state.hamlets.retain(|h| h.id != hamlet.id);
-            state.hamlets.push(hamlet.clone());
-        }
-        Update::Agent { agent } => {
-            state.agents.retain(|a| a.ref_ != agent.ref_);
-            state.agents.push(agent.clone());
-        }
-        Update::AgentGone { ref_ } => {
-            state.agents.retain(|a| a.ref_ != *ref_);
-        }
-        _ => {}
     }
 }
 
