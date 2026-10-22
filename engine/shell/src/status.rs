@@ -20,7 +20,7 @@ use hamlet_engine_core::{Log, LogLevel};
 use crate::icons::{Glyph, glyph};
 use crate::style::note;
 use crate::workspace::Workspaces;
-use crate::{AnyView, Cx};
+use crate::{AnyView, Cx, StartRank};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<StatusLine>()
@@ -57,9 +57,10 @@ impl StatusItem {
     }
 }
 
-/// On a status item: when it came, among all of them.
-#[derive(Component, Clone, Copy)]
-struct Order(u64);
+/// On a status item: its plugin's rank, and when it came among all
+/// of them.
+#[derive(Component, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct Order(Option<StartRank>, u64);
 
 /// How many status items have come.
 #[derive(Resource, Default)]
@@ -209,11 +210,13 @@ fn item(
 
 fn place(
     added: On<Add, StatusItem>,
+    ranks: Query<&StartRank>,
     mut placed: ResMut<Placed>,
     mut commands: Commands,
 ) {
     placed.0 += 1;
-    commands.entity(added.entity).insert(Order(placed.0));
+    let rank = ranks.get(added.entity).ok().cloned();
+    commands.entity(added.entity).insert(Order(rank, placed.0));
 }
 
 /// Gathers what the status line shows when an item, the workspaces
@@ -240,7 +243,7 @@ fn follow(
         .iter()
         .filter(|(item, _)| item.grow || !item.text.trim().is_empty())
         .collect::<Vec<_>>();
-    shown.sort_by_key(|(_, order)| order.0);
+    shown.sort_by_cached_key(|(_, order)| (*order).clone());
     let now = StatusLine {
         items: shown
             .into_iter()

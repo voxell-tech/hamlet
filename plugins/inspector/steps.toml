@@ -1,8 +1,13 @@
-# The Inspector on its own. The harness runs no agents service, so
-# the overview is shown with no hamlets.
+# The Inspector with the chat it needs. The harness runs no agents
+# service, so the overview is shown with no hamlets.
 #
 #   scripts/build_plugins.sh
 #   cargo run -p hamlet_engine_harness --bin plugin_check -- plugins/dist/hamlet.inspector --steps plugins/inspector/steps.toml
+
+with = ["../dist/hamlet.chat"]
+
+[[step]]
+allow = "hamlet.chat"
 
 [[step]]
 allow = "hamlet.inspector"

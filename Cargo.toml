@@ -90,6 +90,7 @@ regex = "1"
 rfd = "0.17"
 ring = "0.17"
 ron = "0.12"
+semver = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1"

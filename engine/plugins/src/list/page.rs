@@ -29,7 +29,8 @@ use hamlet_engine_shell::{
 use crate::PluginKind;
 use crate::list::limits::memory_view;
 use crate::list::{
-    ListWorldExt, Row, Rows, Shown, Uninstall, bound, plugin_switch,
+    ListWorldExt, Question, Row, Rows, Shown, Uninstall, and_list,
+    bound, plugin_switch,
 };
 
 /// A section of every plugin's page, under what it adds, as another
@@ -87,6 +88,8 @@ struct Page {
     refused: Option<String>,
     /// Its UNINSTALL was pressed, and waits to be confirmed.
     uninstalling: bool,
+    /// Its switch was pressed, and waits to be confirmed.
+    asked: Option<Question>,
 }
 
 impl Kind {
@@ -139,6 +142,7 @@ impl Page {
                 .filter(|(at, _)| *at == row.plugin)
                 .map(|(_, why)| why.clone()),
             uninstalling: rows.uninstalling == Some(row.plugin),
+            asked: rows.asked(row.plugin),
             row,
         })
     }
@@ -274,13 +278,18 @@ fn body(page: &Page) -> AnyView {
             row_of.on,
         )
     });
+    let asked =
+        page.asked.map(|question| confirmation(row_of, question));
     let adds = adds(row_of);
+    let needs = needs(row_of);
+    let needed_by = needed_by(row_of);
     let uninstall = (row_of.kind == PluginKind::Installed)
         .then(|| uninstall(row_of, page.uninstalling));
     AnyView::new(move |cx: &mut Cx| {
         let gap = cx.theme().space.panel;
-        let mut parts = memory.into_iter().collect::<Vec<_>>();
-        parts.push(adds);
+        let mut parts = asked.into_iter().collect::<Vec<_>>();
+        parts.extend(memory);
+        parts.extend([adds, needs, needed_by]);
         parts.extend(sections(cx.world, plugin));
         parts.extend(uninstall);
         cx.build(column(parts).gap(gap))
@@ -350,6 +359,141 @@ fn adds(row_of: &Row) -> AnyView {
     })
 }
 
+/// NEEDS over each plugin it needs with the versions that fit, and
+/// whether it is there.
+fn needs(row_of: &Row) -> AnyView {
+    let listed = if row_of.needs.is_empty() {
+        note("Nothing.")
+    } else {
+        list(
+            row_of
+                .needs
+                .iter()
+                .map(|(needed, unmet)| {
+                    let (state, tone) = match unmet {
+                        Some(unmet) => (unmet.clone(), Tone::Accent),
+                        None => ("Met".into(), Tone::Dim),
+                    };
+                    fact_row(needed.clone(), state, tone)
+                })
+                .collect(),
+        )
+    };
+    titled("NEEDS", listed)
+}
+
+/// NEEDED BY over the plugins that need it.
+fn needed_by(row_of: &Row) -> AnyView {
+    let listed = if row_of.needed_by.is_empty() {
+        note("Nothing.")
+    } else {
+        list(
+            row_of
+                .needed_by
+                .iter()
+                .map(|name| label(name.clone()).boxed())
+                .collect(),
+        )
+    };
+    titled("NEEDED BY", listed)
+}
+
+/// `name` with `state` at its end in `tone`.
+fn fact_row(name: String, state: String, tone: Tone) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let theme = cx.theme();
+        let (gap, size) = (theme.space.gap, theme.text.small);
+        cx.build(
+            row((
+                label(name).grown(1.0),
+                label(state).size(size).tone(tone).wrap(false),
+            ))
+            .gap(gap)
+            .align(AlignItems::Center),
+        )
+    })
+}
+
+/// `title` as a section's head over `content`.
+fn titled(title: &'static str, content: AnyView) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let gap = cx.theme().space.gap / 2.0;
+        cx.build(column((section(title), content)).gap(gap))
+    })
+}
+
+/// What a switch of the plugin of `row_of` moves besides it, with
+/// the buttons that go on or not.
+pub(super) fn confirmation(
+    row_of: &Row,
+    question: Question,
+) -> AnyView {
+    let (plugin, id) = (row_of.plugin, row_of.id.clone());
+    let (said, mut sure) = match question {
+        Question::Off => (
+            format!(
+                "Switching off {} also stops {}.",
+                row_of.name,
+                and_list(&row_of.stops)
+            ),
+            vec![
+                action(ButtonStyle::Critical, "SWITCH OFF")
+                    .on_activate(move |world| {
+                        world.switch(plugin, &id, false);
+                    })
+                    .boxed(),
+            ],
+        ),
+        Question::On => {
+            let names = row_of
+                .wakes
+                .iter()
+                .map(|(.., name)| name.clone())
+                .collect::<Vec<_>>();
+            let (which, them) = if names.len() == 1 {
+                ("is", "it")
+            } else {
+                ("are", "them")
+            };
+            let wakes = row_of.wakes.clone();
+            let alone = id.clone();
+            (
+                format!(
+                    "{} needs {}, which {which} off. Switch {them} \
+                     on too?",
+                    row_of.name,
+                    and_list(&names)
+                ),
+                vec![
+                    action(ButtonStyle::Primary, "SWITCH ON ALL")
+                        .on_activate(move |world| {
+                            for (at, id, _) in &wakes {
+                                world.switch(*at, id, true);
+                            }
+                            world.switch(plugin, &id, true);
+                        })
+                        .boxed(),
+                    action(ButtonStyle::Plain, "ONLY THIS ONE")
+                        .on_activate(move |world| {
+                            world.switch(plugin, &alone, true);
+                        })
+                        .boxed(),
+                ],
+            )
+        }
+    };
+    sure.push(
+        action(ButtonStyle::Quiet, "CANCEL")
+            .on_activate(|world| world.confirm_switch(None))
+            .boxed(),
+    );
+    let (said, sure) = (note(said), buttons(sure));
+    AnyView::new(move |cx: &mut Cx| {
+        let gap = cx.theme().space.gap;
+        cx.build(column((said, sure)).gap(gap))
+    })
+}
+
 /// The [`PluginPageSection`]s for `plugin`, in the order they came.
 fn sections(world: &World, plugin: Entity) -> Vec<AnyView> {
     let mut found = world
@@ -385,10 +529,17 @@ fn uninstall(row_of: &Row, asked: bool) -> AnyView {
                 .boxed(),
         ]);
     }
-    let said = note(format!(
+    let mut said = format!(
         "Uninstall {}? Its files go, and what you answered for it.",
         row_of.name
-    ));
+    );
+    if !row_of.stops.is_empty() {
+        said.push_str(&format!(
+            " Uninstalling it also stops {}.",
+            and_list(&row_of.stops)
+        ));
+    }
+    let said = note(said);
     let sure = buttons(vec![
         icon_button(ButtonStyle::Critical, Glyph::Bin, "UNINSTALL")
             .on_activate(move |world| {

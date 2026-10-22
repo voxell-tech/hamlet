@@ -26,6 +26,11 @@ reason = "Draws the roads' grooves and their light, and the rings and runes on t
 [events]
 hears = [{ event = "hamlet.inspector/carry", payload = "realm.carry" }]
 
+# It takes a town in hand as the Inspector carries it, and brings the
+# Inspector forward on a click.
+[dependencies]
+"hamlet.inspector" = "^0.1"
+
 # Its ground, hamlets and roads hold more memory than the engine gives a
 # plugin, 128 MB in all.
 [limits]

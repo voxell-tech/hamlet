@@ -10,4 +10,5 @@ workspace = true
 
 [dependencies]
 postcard.workspace = true
+semver.workspace = true
 serde.workspace = true

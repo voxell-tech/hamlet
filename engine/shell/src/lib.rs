@@ -11,6 +11,7 @@ pub mod icons;
 mod menu;
 pub mod message;
 pub mod overlay;
+mod rank;
 mod section;
 pub mod settings;
 mod status;
@@ -39,6 +40,7 @@ pub use crate::command::{
 pub use crate::dock::Panel;
 use crate::menu::{MenuBar, OpenMenu};
 pub use crate::overlay::{Overlay, OverlayShown};
+pub use crate::rank::StartRank;
 pub use crate::section::{PanelSection, section_content};
 use crate::settings::{Pages, SETTINGS};
 pub use crate::settings::{SettingsFooter, SettingsPage};

@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use bevy::app::{App, TaskPoolPlugin};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::ChildOf;
-use bevy::ecs::query::{With, Without};
+use bevy::ecs::query::{Or, With, Without};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::picking::hover::Hovered as PickingHovered;
@@ -37,7 +37,7 @@ use hamlet_engine_grants::{
 };
 use hamlet_engine_net::NetWorldExt;
 use hamlet_engine_plugins::{
-    ContributedBy, Enabled, PluginInfo, Stopped,
+    Blocked, ContributedBy, Enabled, PluginInfo, Starting, Stopped,
 };
 use hamlet_engine_shell::style::Switch;
 use hamlet_engine_shell::{
@@ -204,11 +204,15 @@ impl Harness {
         done(self)
     }
 
-    /// Whether a plugin's component is being compiled.
+    /// Whether a plugin's component is being compiled, or a plugin
+    /// waits for its turn to start.
     fn compiling(&mut self) -> bool {
         let world = self.app.world_mut();
         world
-            .query_filtered::<(), With<Compiling>>()
+            .query_filtered::<(), Or<(
+                With<Compiling>,
+                (With<Starting>, Without<Blocked>),
+            )>>()
             .iter(world)
             .next()
             .is_some()

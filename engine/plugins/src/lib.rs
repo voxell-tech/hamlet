@@ -6,19 +6,22 @@ mod entry;
 mod limits;
 mod list;
 mod mail;
+mod needs;
 mod switch;
 mod switched_off;
 
 use bevy::app::App;
 use bevy::ecs::component::Component;
 use hamlet_engine_api::{
-    Ask, AssetTypes, Events, Limits, Manifest, PluginId, Services,
+    Ask, AssetTypes, Dependency, Events, Limits, Manifest, PluginId,
+    Services,
 };
 
 pub use crate::entry::{Entry, EntryPoint};
 pub use crate::limits::ChosenLimits;
 pub use crate::list::{AddPlugin, PluginPageSection, Uninstall};
 pub use crate::mail::{Asked, Deliver};
+pub use crate::needs::{Blocked, StartOrder, Starting, resolve};
 pub use crate::switch::{
     ContributedBy, Contributions, Disable, Enable, Enabled,
     PluginCommandsExt, Stopped,
@@ -30,6 +33,7 @@ pub fn plugin(app: &mut App) {
         switched_off::plugin,
         limits::plugin,
         switch::plugin,
+        needs::plugin,
         list::plugin,
         mail::plugin,
     ));
@@ -51,6 +55,8 @@ pub struct PluginInfo {
     /// The limits of its instance it asks for in place of the
     /// engine's.
     pub limits: Limits,
+    /// The plugins it needs, by id.
+    pub dependencies: Vec<Dependency>,
 }
 
 /// Where a plugin comes from.
@@ -68,6 +74,7 @@ impl PluginInfo {
     /// The plugin `manifest` describes.
     pub fn of(manifest: Manifest, kind: PluginKind) -> Self {
         Self {
+            dependencies: manifest.needs(),
             id: manifest.id,
             name: manifest.name,
             version: manifest.version,

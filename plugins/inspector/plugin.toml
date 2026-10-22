@@ -25,3 +25,8 @@ reason = "Opens a web link of an agent's notes, character or past sessions in yo
 
 [events]
 sends = [{ name = "carry", payload = "realm.carry" }]
+
+# It brings the chat to the front to talk to an agent or read a
+# session resumed.
+[dependencies]
+"hamlet.chat" = "^0.1"

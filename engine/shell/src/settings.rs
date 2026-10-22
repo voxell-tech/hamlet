@@ -22,7 +22,7 @@ use crate::icons::Glyph;
 use crate::style::{
     StyleExt, link_row, link_rows, note, page_head, scroll_area,
 };
-use crate::{AnyView, Cx};
+use crate::{AnyView, Cx, StartRank};
 
 /// The name of the Settings panel.
 pub const SETTINGS: &str = "settings";
@@ -57,9 +57,10 @@ pub struct SettingsFooter {
     pub content: fn(Entity) -> AnyView,
 }
 
-/// On a settings page or footer: when it came, among all of them.
-#[derive(Component, Clone, Copy)]
-struct Order(u64);
+/// On a settings page or footer: its plugin's rank, and when it came
+/// among all of them.
+#[derive(Component, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct Order(Option<StartRank>, u64);
 
 /// How many settings pages and footers have come.
 #[derive(Resource, Default)]
@@ -195,11 +196,13 @@ fn content_of(at: Entity) -> AnyView {
 
 fn place(
     added: On<Add, (SettingsPage, SettingsFooter)>,
+    ranks: Query<&StartRank>,
     mut placed: ResMut<Placed>,
     mut commands: Commands,
 ) {
     placed.0 += 1;
-    commands.entity(added.entity).insert(Order(placed.0));
+    let rank = ranks.get(added.entity).ok().cloned();
+    commands.entity(added.entity).insert(Order(rank, placed.0));
 }
 
 /// Lists the pages and footers again when one comes, changes or
@@ -224,7 +227,7 @@ fn follow(
         return;
     }
     let mut list = all.iter().collect::<Vec<_>>();
-    list.sort_by_key(|(.., order)| order.0);
+    list.sort_by_cached_key(|(.., order)| (*order).clone());
     let list = list
         .into_iter()
         .map(|(page, settings, _)| Listed {
@@ -235,7 +238,7 @@ fn follow(
         })
         .collect::<Vec<_>>();
     let mut below = footers.iter().collect::<Vec<_>>();
-    below.sort_by_key(|(_, order)| order.0);
+    below.sort_by_cached_key(|(_, order)| (*order).clone());
     let chosen = pages.chosen.filter(|chosen| {
         list.iter().any(|listed| listed.page == *chosen)
     });

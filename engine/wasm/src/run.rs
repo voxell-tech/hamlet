@@ -19,8 +19,8 @@ use hamlet_engine_api::Contribution;
 use hamlet_engine_core::{Budgets, LogLine, PluginBudgets};
 use hamlet_engine_grants::Admitted;
 use hamlet_engine_plugins::{
-    Asked, ContributedBy, Disable, Enable, Enabled, Entry,
-    PluginCommandsExt, PluginInfo,
+    Asked, Blocked, ContributedBy, Disable, Enable, Enabled, Entry,
+    PluginCommandsExt, PluginInfo, StartOrder, Starting, resolve,
 };
 use hamlet_engine_shell::Command;
 use hamlet_engine_shell::icons::Glyph;
@@ -34,14 +34,11 @@ use crate::reload::{Declared, Reloading};
 use crate::{PluginPathExt, retained};
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_observer(enable)
-        .add_observer(disable)
-        .add_systems(Update, (begin, compiled, start).chain());
+    app.add_observer(enable).add_observer(disable).add_systems(
+        Update,
+        (begin, compiled, start).chain().after(resolve),
+    );
 }
-
-/// On a plugin to be started once its component is built.
-#[derive(Component)]
-pub(crate) struct Starting;
 
 /// On a plugin whose component is being compiled off the frame.
 #[derive(Component)]
@@ -248,13 +245,12 @@ fn compiled(
     }
 }
 
-/// Instantiates each plugin to be started whose component is built,
-/// and adds what it declares.
+/// Instantiates each plugin whose turn it is to start, its component
+/// built, and adds what it declares.
 fn start(
-    plugins: Query<
-        (Entity, &PluginInfo, &PluginBudgets, &Built),
-        With<Starting>,
-    >,
+    plugins: Query<(&PluginInfo, &PluginBudgets, &Built)>,
+    waiting: Query<(), (With<Starting>, Without<Blocked>)>,
+    order: Res<StartOrder>,
     host: Option<Res<Host>>,
     budgets: Res<Budgets>,
     tuning: Res<WasmTuning>,
@@ -266,7 +262,14 @@ fn start(
     let Some(host) = host else {
         return;
     };
-    for (plugin, info, limits, built) in &plugins {
+    let ready = order.ready(
+        |plugin| waiting.contains(plugin),
+        |plugin| plugins.contains(plugin),
+    );
+    for plugin in ready {
+        let Ok((info, limits, built)) = plugins.get(plugin) else {
+            continue;
+        };
         let caps = Caps::of(limits, &budgets, &tuning);
         commands.entity(plugin).remove::<Starting>();
         let mut instance =
@@ -293,6 +296,7 @@ fn start(
                 commands.switch_on(
                     plugin,
                     info,
+                    &order.rank(plugin, info),
                     entry(contributions.clone()),
                     &budgets,
                 );

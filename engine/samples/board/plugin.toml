@@ -22,3 +22,6 @@ imports = [{ service = "hamlet.notes/words", argument = "notes.text", result = "
 [events]
 sends = [{ name = "seen", payload = "board.seen" }]
 hears = [{ event = "hamlet.notes/saved", payload = "notes.saved" }]
+
+[dependencies]
+"hamlet.notes" = "^0.1"

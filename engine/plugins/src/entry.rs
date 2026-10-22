@@ -15,8 +15,8 @@ use hamlet_engine_shell::dock::{PanelIcon, PanelInset};
 use hamlet_engine_shell::icons::Glyph;
 use hamlet_engine_shell::{
     AnyView, Command, MenuEntry, Overlay, Panel, PanelSection,
-    RunCommand, SettingsFooter, SettingsPage, Shortcut, StatusItem,
-    SuggestedWorkspace,
+    RunCommand, SettingsFooter, SettingsPage, Shortcut, StartRank,
+    StatusItem, SuggestedWorkspace,
 };
 
 use crate::switch::ContributedBy;
@@ -278,17 +278,19 @@ impl Entry {
     }
 
     /// Adds what was declared, linked to `plugin`, whose id is
-    /// `owner`, within `budgets`. Why each thing not added was not.
+    /// `owner`, at its `rank`, within `budgets`. Why each thing not
+    /// added was not.
     pub(crate) fn spawn(
         self,
         plugin: Entity,
         owner: &PluginId,
+        rank: &StartRank,
         budgets: &Budgets,
         commands: &mut Commands,
     ) -> Vec<String> {
         let mut problems = Vec::new();
         let (mut added, mut panels) = (0, 0);
-        let link = ContributedBy(plugin);
+        let link = || (ContributedBy(plugin), rank.clone());
         let owner = owner.as_str();
         for declared in self.declared {
             if added == budgets.contributions {
@@ -324,7 +326,7 @@ impl Entry {
                     panels += 1;
                     PanelId::new(owner, &name).map(|id| {
                         let panel = Panel { id, title, content };
-                        let mut spawned = commands.spawn(link);
+                        let mut spawned = commands.spawn(link());
                         if let Some(icon) = icon {
                             spawned.insert(PanelIcon(icon));
                         }
@@ -338,7 +340,7 @@ impl Entry {
                 }
                 Declared::Command { name, label, run } => {
                     CommandId::new(owner, &name).map(|id| {
-                        commands.spawn((Command { id, label }, link)).observe(
+                        commands.spawn((Command { id, label }, link())).observe(
                             move |event: On<RunCommand>, mut later: Commands| {
                                 let command = event.entity;
                                 later.queue(move |world: &mut World| {
@@ -350,7 +352,7 @@ impl Entry {
                 }
                 Declared::MenuEntry { menu, command } => {
                     command_id(owner, &command).map(|command| {
-                        commands.spawn((MenuEntry { menu, command }, link));
+                        commands.spawn((MenuEntry { menu, command }, link()));
                     })
                 }
                 Declared::Shortcut { keys, command } => {
@@ -359,7 +361,7 @@ impl Entry {
                         continue;
                     };
                     command_id(owner, &command).map(|command| {
-                        commands.spawn((Shortcut { chord, command }, link));
+                        commands.spawn((Shortcut { chord, command }, link()));
                     })
                 }
                 Declared::SettingsPage {
@@ -377,12 +379,12 @@ impl Entry {
                             icon,
                             content,
                         },
-                        link,
+                        link(),
                     ));
                 }),
                 Declared::SettingsFooter { name, content } => {
                     PanelId::new(owner, &name).map(|id| {
-                        commands.spawn((SettingsFooter { id, content }, link));
+                        commands.spawn((SettingsFooter { id, content }, link()));
                     })
                 }
                 Declared::Workspace {
@@ -397,19 +399,19 @@ impl Entry {
                                 name: title,
                                 layout,
                             },
-                            link,
+                            link(),
                         ));
                     },
                 ),
                 Declared::StatusItem { name, grow } => {
                     PanelId::new(owner, &name).map(|id| {
                         commands
-                            .spawn((StatusItem::new(id, grow), link));
+                            .spawn((StatusItem::new(id, grow), link()));
                     })
                 }
                 Declared::Overlay { name, content } => {
                     PanelId::new(owner, &name).map(|id| {
-                        commands.spawn((Overlay { id, content }, link));
+                        commands.spawn((Overlay { id, content }, link()));
                     })
                 }
                 Declared::PanelSection {
@@ -438,7 +440,7 @@ impl Entry {
                                 holds: 0,
                                 content,
                             },
-                            link,
+                            link(),
                         ));
                     })
                 }

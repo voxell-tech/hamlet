@@ -14,10 +14,10 @@ use bevy_fynix::dock::{
 use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_api::{CommandId, PanelId, PanelPadding};
 
-use crate::command::{RunCommand, ShellCommandsExt};
+use crate::command::{MenuEntry, RunCommand, ShellCommandsExt};
 use crate::icons::Glyph;
 use crate::workspace::DockTreeExt;
-use crate::{AnyView, EngineTheme};
+use crate::{AnyView, EngineTheme, StartRank};
 
 /// The name of the engine's plugin list, which the plugins module
 /// adds.
@@ -54,13 +54,13 @@ pub struct PanelInset(pub PanelPadding);
 /// to the View menu.
 fn offer(
     added: On<Add, Panel>,
-    panels: Query<(&Panel, Option<&PanelIcon>)>,
+    panels: Query<(&Panel, Option<&PanelIcon>, Option<&StartRank>)>,
     theme: Res<EngineTheme>,
     mut registry: ResMut<DockRegistry<EngineTheme>>,
     mut commands: Commands,
 ) {
     let entity = added.entity;
-    let Ok((panel, icon)) = panels.get(entity) else {
+    let Ok((panel, icon, rank)) = panels.get(entity) else {
         return;
     };
     let content = panel.content;
@@ -80,9 +80,21 @@ fn offer(
     ) else {
         return;
     };
+    let entry = MenuEntry {
+        menu: "View".into(),
+        command: command.clone(),
+    };
+    let rank = rank.cloned();
     commands
-        .spawn_command(command, &panel.title, Some("View"), &[])
+        .spawn_command(command, &panel.title, None, &[])
         .insert(ChildOf(entity))
+        .with_children(|kids| {
+            // In one bundle, as the bar reads the rank as it comes.
+            match rank {
+                Some(rank) => kids.spawn((entry, rank)),
+                None => kids.spawn(entry),
+            };
+        })
         .observe(
             move |_: On<RunCommand>, mut tree: ResMut<DockTree>| {
                 tree.open_panel(id.as_str());

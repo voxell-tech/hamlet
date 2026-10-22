@@ -12,7 +12,7 @@ use hamlet_engine_api::CommandId;
 
 use crate::command::{Command, MenuEntry, Shortcut};
 use crate::style::{BottomLight, title_button};
-use crate::{AnyView, Cx, ShellWorldExt};
+use crate::{AnyView, Cx, ShellWorldExt, StartRank};
 
 /// The engine's own menus, first and in this order.
 const OWN: [&str; 3] = ["Hamlet", "Workspace", "View"];
@@ -43,9 +43,10 @@ struct Item {
     command: CommandId,
 }
 
-/// On a menu entry: when it came, among all of them.
-#[derive(Component, Clone, Copy)]
-struct Order(u64);
+/// On a menu entry: its plugin's rank, and when it came among all
+/// of them.
+#[derive(Component, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct Order(Option<StartRank>, u64);
 
 /// How many menu entries have come.
 #[derive(Resource, Default)]
@@ -189,11 +190,13 @@ fn highlight(
 
 fn place(
     added: On<Add, MenuEntry>,
+    ranks: Query<&StartRank>,
     mut placed: ResMut<Placed>,
     mut commands: Commands,
 ) {
     placed.0 += 1;
-    commands.entity(added.entity).insert(Order(placed.0));
+    let rank = ranks.get(added.entity).ok().cloned();
+    commands.entity(added.entity).insert(Order(rank, placed.0));
 }
 
 /// Gathers the menus again when an entry, a command or a key comes,
@@ -224,7 +227,7 @@ fn gather(
         return;
     }
     let mut placed = entries.iter().collect::<Vec<_>>();
-    placed.sort_by_key(|(_, order)| order.0);
+    placed.sort_by_cached_key(|(_, order)| (*order).clone());
     let mut menus = Vec::<Menu>::new();
     for (entry, _) in placed {
         let Some(command) =

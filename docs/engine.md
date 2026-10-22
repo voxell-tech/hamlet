@@ -72,13 +72,16 @@ same types.
   was built against (`API_VERSION`, 0.1.0), its asks, and what it shares:
   `[assets]` the types it `makes` and `uses`, `[services]` the services
   it `exports` and `imports`, `[events]` the events it `sends` and
-  `hears`, and `[limits]` the memory its instance needs in place of
-  the engine's (see [Limits](#limits)). `check` refuses one built
-  against another API, with an empty or unreadable text, asking for
-  the same thing twice, naming a type, service or event twice, using a
-  type or importing a service it does not ask for, or asking for a
-  memory of zero. One that names anything but `memory` in `[limits]`
-  cannot be read, and says which name.
+  `hears`, `[limits]` the memory its instance needs in place of
+  the engine's (see [Limits](#limits)), and `[dependencies]` the
+  plugins it needs (see [Dependencies](#dependencies)). `check`
+  refuses one built against another API, with an empty or unreadable
+  text, asking for the same thing twice, naming a type, service or
+  event twice, using a type or importing a service it does not ask
+  for, asking for a memory of zero, naming a dependency that is not a
+  plugin id with a semver requirement, or needing itself. One that
+  names anything but `memory` in `[limits]` cannot be read, and says
+  which name.
 - **Capabilities.** An ask names a capability, its target and a reason in
   the plugin's words: `net.fetch` a host, `assets.read` a type name,
   `services.call` another plugin's service, and `agents.read`,
@@ -395,7 +398,7 @@ version. Board uses `notes.note`, holds the note by reference and
 shows each version as it is saved in a list, calls `words` for its
 count, and sends `seen` with the version it shows, which Notes hears
 and shows. Board asks for `assets.read notes.note` and
-`services.call hamlet.notes/words`.
+`services.call hamlet.notes/words`, and needs `hamlet.notes ^0.1`.
 
 ## Testing a plugin
 
@@ -407,10 +410,12 @@ widgets (`click`, `write`, `toggle`, `hover`), runs commands, reads a
 panel as a
 text outline (`outline`), reads assets, replies to fetches (`reply`),
 and reads the log. What it waits for it waits `[harness] patience`
-frames at most, `pause` milliseconds apart.
+frames at most, `pause` milliseconds apart, not counting the frames
+while a plugin compiles or waits its turn to start.
 
 A plugin's `steps.toml` is a script for it: `with` lists other built
-plugins it needs, from its folder, and each `[[step]]` does one thing:
+plugins it needs, from its folder, its dependencies among them, and
+each `[[step]]` does one thing:
 `allow`, `admit` (with an answer for every ask), `answer` (a first
 use), `frames`, `expect` and `lacks` (text in a panel's outline),
 `click`, `write`, `toggle`, `run`, `expect_asset`, `expect_log`,
@@ -507,7 +512,9 @@ samples) runs the scripts of hello, notes and board.
 - **Settings pages** are entities with a `SettingsPage`, as plugins add
   them: a title, an icon and a line on what it holds. The Settings
   panel (`engine/settings`, opened from the View menu) shows a link
-  row to each in the order they came, and under them each
+  row to each in the order of their plugins (see
+  [the order of what plugins add](#commands-menus-and-the-status-line)),
+  and under them each
   `SettingsFooter`'s content; the page gone through is shown under a
   head whose SETTINGS leads back. `world.open_settings_page(page)`
   (`ShellWorldExt`) shows one and brings Settings to the front.
@@ -664,7 +671,7 @@ person has one or more, and one is shown at a time.
 - **A menu entry** is an entity with a `MenuEntry`: the title of its
   menu and the id of its command. The bar gathers the entries into
   menus, the engine's own first (Hamlet, Workspace, View) and then the
-  others in the order they came. A menu's title, in capitals, opens it
+  others in the order of their entries. A menu's title, in capitals, opens it
   under itself and stays lit while it is open; a press on another title
   opens that one instead. An entry shows its command's label and first
   key. An entry whose command is not there is left out.
@@ -672,8 +679,14 @@ person has one or more, and one is shown at a time.
   Ctrl+Q off macOS) in the Hamlet menu, the workspace commands, and for each panel a command in
   the View menu that brings it to the front, or opens it in the first
   area (`world.open_panel(id)`).
+- **The order of what plugins add.** What a plugin adds carries its
+  `StartRank`, its plugin's place in the order plugins start (see
+  [Dependencies](#dependencies)), and so does the View menu's entry of
+  its panel. Menu entries, status items and settings pages and footers
+  are listed the engine's own first, then by their plugin's rank, then
+  in the order they came, so they are the same at each start.
 - **The status line** at the bottom of the window shows the
-  `StatusItem`s plugins add, in the order they came, each an icon and
+  `StatusItem`s plugins add, in that order, each an icon and
   words in a tone with words under the pointer, hidden while it has no
   words; one that grows takes the room left, words or none, and clips
   its words. An item is built again only as it changes, the others
@@ -706,10 +719,11 @@ person has one or more, and one is shown at a time.
   it (`linked_spawn`). `[budgets] panels` and `contributions` cap how
   much one plugin adds; what is past them, or not well named, is left
   out and told in the log.
-- **On and off.** Triggering `Enable` on a plugin runs its entry point
-  and adds what it declares, and marks it `Enabled`. `Disable` despawns
-  everything it added. Its panels leave the dock but stay in the
-  workspaces, and come back when it is switched on again.
+- **On and off.** Triggering `Enable` on a plugin marks it `Starting`;
+  at its turn (see [Dependencies](#dependencies)) its entry point runs,
+  what it declares is added, and it is marked `Enabled`. `Disable`
+  despawns everything it added. Its panels leave the dock but stay in
+  the workspaces, and come back when it is switched on again.
 - **Stopped.** A plugin the engine stopped while it was on carries
   `Stopped` with why; what it added stays until it is switched off.
 - **Built in.** `commands.add_builtin(manifest, entry)`
@@ -721,8 +735,10 @@ person has one or more, and one is shown at a time.
   `list.rs` says, and goes back to the list when the plugin of the
   page shown goes.
 - **The list** shows each plugin's name, with its id and version,
-  whether it is on and how much it adds, or why it was stopped, under
-  it, and the switch that turns it on or off at its top right; a
+  whether it is on and how much it adds, starting, or why it was
+  stopped or cannot run, under it, and the switch that turns it on or
+  off at its top right, on while it is switched on even when it
+  cannot run; a
   bundled one says it comes with Hamlet. A plugin that is off is shown
   in the theme's dim tone, all of it but its switch. A row follows its
   plugin in place, so a switch glides as it is pressed and the other
@@ -742,11 +758,19 @@ person has one or more, and one is shown at a time.
   installed) and its state, with its switch at the right; MEMORY (see
   [Limits](#limits)); WHAT IT ADDS, each panel, settings page and
   footer, command, menu entry, shortcut, status item, overlay, section
-  and workspace it added, nothing while it is off; then each
+  and workspace it added, nothing while it is off; NEEDS, each plugin
+  it needs with its requirement, "Met" or why not; NEEDED BY, the
+  plugins that need it; then each
   `PluginPageSection` another crate adds, given the plugin's entity,
   in the order they came; and for an installed one UNINSTALL..., which
-  says what goes and asks again, UNINSTALL triggering `Uninstall` and
-  showing the list, CANCEL not.
+  says what goes and which plugins on stop with it and asks again,
+  UNINSTALL triggering `Uninstall` and showing the list, CANCEL not.
+- **Switches that move others.** Switching off a plugin that plugins
+  on need, however indirectly, asks first under its row and on its
+  page: "Switching off X also stops Y and Z.", with SWITCH OFF and
+  CANCEL. Switching on one that needs plugins that are off offers to
+  switch them on too: SWITCH ON ALL, ONLY THIS ONE (it waits, blocked,
+  until they come) or CANCEL.
 - **Kept off.** `SwitchedOff` holds the ids the person switched off in
   the Plugins panel, kept in `switched_off.toml` in the home
   (`plugins = ["hamlet.demo"]`). Only the switches there change it;
@@ -758,13 +782,53 @@ person has one or more, and one is shown at a time.
   adds a panel, Hello; a command, Say hello, in a Demo menu and on
   Primary+Shift+H, which writes to the log; and a workspace to take,
   Hello with the console.
-- **`commands.switch_on(..)`** adds what an `Entry` declares and marks
-  the plugin on.
+- **`commands.switch_on(..)`** adds what an `Entry` declares, at the
+  plugin's `StartRank`, and marks the plugin on.
   A built-in plugin's entry point runs through it, and so does a WASM
   plugin once it has said what it adds.
 - **A command's function** is given the world and the command's
   entity, whose `Command` and `ContributedBy` say which it is and
   whose.
+
+### Dependencies
+
+- **Declared.** A manifest's `[dependencies]` maps the id of each
+  plugin it needs to a semver requirement of its version:
+
+  ```toml
+  [dependencies]
+  "hamlet.inspector" = "^0.1"
+  ```
+
+  `^0.1` takes any 0.1.x, so 0.1.0 fits. `Manifest::needs` gives them
+  as `Dependency`s, and `PluginInfo` holds them. The engine holds one
+  copy of each plugin, so a dependency is one plugin of one version.
+- **Resolved** (`needs.rs`, the system `resolve`) as plugins come, go,
+  start, stop or are switched. A plugin switched on (`Enabled`,
+  `Starting` or `Blocked`) runs only while each plugin it needs is
+  there, of a version that fits, switched on, not stopped and able to
+  run itself. Else it is `Blocked` with why, the first unmet in id
+  order: "Needs hamlet.inspector ^0.1, which is switched off", "...,
+  which is 0.2.0", "..., which isn't installed", "..., which isn't
+  running", "..., which was stopped" or "..., which cannot start". A
+  plugin running when it becomes blocked is stopped (`Disable`, its
+  switch left on), and so, in the same frame, is each that needs it,
+  however indirectly. Plugins that need one another, however
+  indirectly, are each blocked with "In a cycle of dependencies:" and
+  the id of each plugin of the cycle.
+- **Back on its own.** When what it needs is there again, switched on,
+  installed, restarted or reloaded to a version that fits, a blocked
+  plugin is started again (`Enable`). The log says when a plugin
+  cannot run and when it has what it needs.
+- **The start order** (`StartOrder`) is every plugin by its depth, 0
+  for one that needs no plugin there, else one more than the deepest
+  it needs, and then by id. Its place is its `StartRank`. A plugin
+  `Starting` and not blocked is on its way; plugins on their way start
+  (a built-in plugin's entry point runs, a WASM plugin is instantiated
+  and declares what it adds) in that order, each only once every one
+  before it is not on its way any more. Components still compile in
+  parallel: one compiled early waits its turn. So plugins start in the
+  same order at every start, and what they add comes in that order.
 
 ### Limits
 
@@ -923,8 +987,10 @@ written here by their names in `[budgets]`.
 - **Switched on**, only when it is `Admitted`, a plugin's component is
   compiled off the frame, on
   the async compute pool, and kept, so switching it on again needs no
-  compile. It is then instantiated in a store of its own and asked what
-  it adds. A plugin that imports anything but the host's interface and
+  compile. At its turn in the start order (see
+  [Dependencies](#dependencies)) it is then instantiated in a store of
+  its own and asked what it adds. A plugin that imports anything but
+  the host's interface and
   the system's (`wasi:`) is not loaded, and one built against another
   version of the interface is told so.
 - **The system** (`wasi.rs`) is WASI 0.2 from wasmtime, with a context
@@ -1229,7 +1295,9 @@ view. Where its camera is stays across a reload. Its `steps.toml`
 counts the scene and its decal, and clicks a shape and a cube.
 
 `plugins/realm` (`hamlet.realm`, asking `agents.read`, `agents.chief`,
-`render.scene` and `render.shader`) is the realm, drawn in its panel,
+`render.scene` and `render.shader`, and needing `hamlet.inspector`,
+whose `carry` it hears and whose panel it brings forward) is the
+realm, drawn in its panel,
 Realm (`hamlet.realm/realm`, with the globe icon), from the agents
 service's roster, as `crates/hamlet_realm` draws it: the endless land of [`endless-world.md`](endless-world.md) in
 tiles about the camera with its rivers and trees, a town for every
@@ -1328,7 +1396,8 @@ with a chevron at its end, a divider between each and the next.
   comes to the front when the open conversation moves to another, or
   a session resumed is read again.
 - **`plugins/inspector`** (`hamlet.inspector`, asking `agents.read`,
-  `agents.chief`, `agents.settings` and `desktop.open https`) shows
+  `agents.chief`, `agents.settings` and `desktop.open https`, and
+  needing `hamlet.chat`, whose panel it brings to the front) shows
   what is selected. A page under another is headed by a breadcrumb
   of the pages above it, each pressed to go back to it, fixed over
   what scrolls; names are as stored and a tab is not part of it:
@@ -1379,7 +1448,8 @@ with a chevron at its end, a divider between each and the next.
   `agents_ui`'s `whole` and `setting`, and set a yes or a no with a
   `switch` named beside it.
 - **`plugins/skills`** (`hamlet.skills`, asking `agents.read` and
-  `agents.chief`) is the agent's own skills over the library's, each
+  `agents.chief`, and needing `hamlet.chat`) is the agent's own skills
+  over the library's, each
   with TAKE OUT, and OPEN CHAT, which brings the chat to the front,
   while the library is empty.
 - **`plugins/petitions`** (`hamlet.petitions`, asking `agents.read`
@@ -1391,7 +1461,7 @@ with a chevron at its end, a divider between each and the next.
   more wait. The plugins' petitions under it stay the engine's own.
 
 Each has a `steps.toml` checking what shows before the agents
-answer.
+answer; those of the Inspector and Skills bring the chat `with` them.
 
 ## Assets
 

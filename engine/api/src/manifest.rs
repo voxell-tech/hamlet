@@ -1,7 +1,9 @@
 //! A plugin's manifest: who it is and what it asks for.
 
 use core::fmt;
+use std::collections::BTreeMap;
 
+use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 
 use crate::API_VERSION;
@@ -37,11 +39,30 @@ pub struct Manifest {
     /// engine's.
     #[serde(default)]
     pub limits: Limits,
+    /// The plugins it needs: each id with a semver requirement of
+    /// its version, `"^0.1"`.
+    #[serde(default)]
+    pub dependencies: BTreeMap<String, String>,
+}
+
+/// A plugin another needs, and the versions of it that fit.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Dependency {
+    pub id: PluginId,
+    pub requirement: VersionReq,
+}
+
+impl Dependency {
+    /// Whether `version` fits. One that is not semver never does.
+    pub fn fits(&self, version: &str) -> bool {
+        Version::parse(version)
+            .is_ok_and(|version| self.requirement.matches(&version))
+    }
 }
 
 impl Manifest {
     /// A manifest of `id`, `name` and `version` against this API that
-    /// asks for and shares nothing.
+    /// asks for, shares and needs nothing.
     pub fn new(id: PluginId, name: &str, version: &str) -> Self {
         Self {
             id,
@@ -53,7 +74,23 @@ impl Manifest {
             services: Services::default(),
             events: Events::default(),
             limits: Limits::default(),
+            dependencies: BTreeMap::new(),
         }
+    }
+
+    /// Its dependencies, by id, leaving out each that
+    /// [`check`](Self::check) refuses.
+    pub fn needs(&self) -> Vec<Dependency> {
+        self.dependencies
+            .iter()
+            .filter_map(|(id, requirement)| {
+                Some(Dependency {
+                    id: PluginId::try_from(id.as_str()).ok()?,
+                    requirement: VersionReq::parse(requirement)
+                        .ok()?,
+                })
+            })
+            .collect()
     }
 }
 
@@ -79,6 +116,11 @@ pub enum ManifestError {
     Shared(String),
     /// A limit asked for that is zero: which.
     Limit(&'static str),
+    /// A dependency whose id is not a plugin's or whose requirement
+    /// is not semver: the two.
+    Dependency(String, String),
+    /// It names itself among its dependencies.
+    OnItself,
 }
 
 impl fmt::Display for ManifestError {
@@ -114,6 +156,12 @@ impl fmt::Display for ManifestError {
             Self::Limit(limit) => {
                 write!(f, "the limit {limit} is not above zero")
             }
+            Self::Dependency(id, requirement) => write!(
+                f,
+                "the dependency {id:?} = {requirement:?} is not a \
+                 plugin id with a version requirement"
+            ),
+            Self::OnItself => write!(f, "it depends on itself"),
         }
     }
 }
@@ -220,6 +268,19 @@ impl Manifest {
             .map(|heard| heard.event.as_str());
         once_each(sends, is_name)?;
         once_each(hears, |_| true)?;
+        for (id, requirement) in &self.dependencies {
+            if PluginId::try_from(id.as_str()).is_err()
+                || VersionReq::parse(requirement).is_err()
+            {
+                return Err(ManifestError::Dependency(
+                    id.clone(),
+                    requirement.clone(),
+                ));
+            }
+            if id == self.id.as_str() {
+                return Err(ManifestError::OnItself);
+            }
+        }
         self.limits.check().map_err(ManifestError::Limit)
     }
 

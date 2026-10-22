@@ -17,7 +17,7 @@ use bevy::ecs::relationship::RelationshipTarget;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, px};
+use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row,
@@ -37,7 +37,10 @@ use hamlet_engine_shell::{AnyView, Cx, Panel, StyleExt};
 use crate::limits::ChosenLimits;
 use crate::list::limits::{MemoryLine, memory_line};
 pub use crate::list::page::PluginPageSection;
-use crate::list::page::{Added, Things, added, page_view};
+use crate::list::page::{
+    Added, Things, added, confirmation, page_view,
+};
+use crate::needs::{Blocked, Graph, Starting, State};
 use crate::switch::{
     Contributions, Disable, Enable, Enabled, Stopped,
 };
@@ -62,6 +65,9 @@ struct Rows {
     /// The plugin whose UNINSTALL was pressed, waiting to be
     /// confirmed.
     uninstalling: Option<Entity>,
+    /// The plugin whose switch was pressed, waiting to be confirmed
+    /// as it moves others too.
+    confirming: Option<(Entity, Question)>,
     /// Words a plugin's name or id holds, of any case, to be shown.
     search: String,
     filter: Filter,
@@ -74,6 +80,15 @@ enum Shown {
     List,
     /// The page of the plugin of this id.
     Plugin(PluginId),
+}
+
+/// A switch that moves other plugins too, asked about first.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Question {
+    /// Off, stopping the plugins on that need it.
+    Off,
+    /// On, with the plugins off it needs, or alone.
+    On,
 }
 
 /// Which plugins the list shows.
@@ -133,6 +148,18 @@ impl Rows {
     fn find(&self, id: &PluginId) -> Option<&Row> {
         self.plugins.iter().find(|row| row.id == *id)
     }
+
+    /// The row of `plugin`.
+    fn of(&self, plugin: Entity) -> Option<&Row> {
+        self.plugins.iter().find(|row| row.plugin == plugin)
+    }
+
+    /// The question waiting on `plugin`'s switch.
+    fn asked(&self, plugin: Entity) -> Option<Question> {
+        self.confirming
+            .filter(|(at, _)| *at == plugin)
+            .map(|(_, question)| question)
+    }
 }
 
 #[derive(Clone, PartialEq)]
@@ -142,29 +169,58 @@ struct Row {
     name: String,
     /// Its id and version.
     about: String,
+    /// Switched on: running, on its way or blocked.
     on: bool,
+    /// Switched on, and not running yet.
+    starting: bool,
     /// How many things it adds.
     adds: usize,
     /// What it adds, as its page lists it.
     added: Vec<Added>,
     /// Why the engine stopped it.
     stopped: Option<String>,
+    /// Why it cannot run.
+    blocked: Option<String>,
     kind: PluginKind,
     memory: Option<MemoryLine>,
+    /// Each plugin it needs with the versions that fit, and why it
+    /// is not there if it is not.
+    needs: Vec<(String, Option<String>)>,
+    /// The names of the plugins that need it.
+    needed_by: Vec<String>,
+    /// The names of the plugins on that stop with it.
+    stops: Vec<String>,
+    /// The plugins off that it needs, however indirectly.
+    wakes: Vec<(Entity, PluginId, String)>,
 }
 
 impl Row {
-    /// Whether it is on and how much it adds, or why it was stopped,
-    /// in its tone.
+    /// Whether it is on and how much it adds, or why it was stopped
+    /// or cannot run, in its tone.
     fn state(&self) -> (String, Tone) {
-        match (&self.stopped, self.on) {
-            (Some(why), _) => {
-                (format!("Stopped: {why}"), Tone::Critical)
-            }
-            (None, true) => {
+        if let Some(why) = &self.stopped {
+            return (format!("Stopped: {why}"), Tone::Critical);
+        }
+        if let Some(why) = &self.blocked {
+            return (why.clone(), Tone::Accent);
+        }
+        match (self.on, self.starting) {
+            (true, true) => ("Starting".into(), Tone::Dim),
+            (true, false) => {
                 (format!("On, adds {}", self.adds), Tone::Dim)
             }
-            (None, false) => ("Off".into(), Tone::Dim),
+            (false, _) => ("Off".into(), Tone::Dim),
+        }
+    }
+}
+
+/// `names` joined as words: "A", "A and B", "A, B and C".
+fn and_list(names: &[String]) -> String {
+    match names {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => {
+            format!("{} and {last}", rest.join(", "))
         }
     }
 }
@@ -183,18 +239,24 @@ fn bound<T: Default + 'static>(
     })
 }
 
-/// The switch that turns `plugin`, of the id `id`, on or off.
+/// The switch that turns `plugin`, of the id `id`, on or off. It
+/// asks first when that moves other plugins too.
 fn plugin_switch(plugin: Entity, id: PluginId) -> AnyView {
     switch(bound(plugin, |row| row.on), move |world, on| {
-        // Only the person's own switch is kept for the next start.
-        let kept = world.resource_mut::<SwitchedOff>().set(&id, !on);
-        if let Err(why) = kept {
-            world.write_message(LogLine::error("plugins", why));
-        }
-        if on {
-            world.trigger(Enable { entity: plugin });
+        let rows = world.resource::<Rows>();
+        let asks = rows.of(plugin).is_some_and(|row| {
+            if on {
+                !row.wakes.is_empty()
+            } else {
+                !row.stops.is_empty()
+            }
+        });
+        if asks {
+            let question =
+                if on { Question::On } else { Question::Off };
+            world.confirm_switch(Some((plugin, question)));
         } else {
-            world.trigger(Disable { entity: plugin });
+            world.switch(plugin, &id, on);
         }
     })
 }
@@ -396,7 +458,24 @@ fn row_view(plugin: Entity, id: PluginId, bundled: bool) -> AnyView {
             }),
         )
     });
-    divided_row(content, divided)
+    let asked = keyed(
+        resource::<Rows, _>(move |rows| {
+            Some((rows.asked(plugin)?, rows.of(plugin)?.clone()))
+        }),
+        |asked| {
+            let Some((question, row_of)) = asked else {
+                return column(()).boxed();
+            };
+            let asked = confirmation(row_of, *question);
+            AnyView::new(move |cx: &mut Cx| {
+                let gap = cx.theme().space.gap;
+                cx.build(
+                    column((asked,)).padding(UiRect::bottom(px(gap))),
+                )
+            })
+        },
+    );
+    divided_row(column((content, asked)).gap(0.0), divided)
 }
 
 /// The Plugins panel's methods on [`World`].
@@ -421,11 +500,20 @@ trait ListWorldExt {
     /// Asks to confirm uninstalling `plugin`, or asks no more for
     /// `None`.
     fn confirm_uninstall(&mut self, plugin: Option<Entity>);
+
+    /// Asks to confirm a switch of a plugin, or asks no more for
+    /// `None`.
+    fn confirm_switch(&mut self, asked: Option<(Entity, Question)>);
+
+    /// Switches `plugin`, of the id `id`, on or off as the person
+    /// did, kept for the next start.
+    fn switch(&mut self, plugin: Entity, id: &PluginId, on: bool);
 }
 
 impl ListWorldExt for World {
     fn show(&mut self, page: Shown) {
         self.confirm_uninstall(None);
+        self.confirm_switch(None);
         let mut shown = self.resource_mut::<Shown>();
         if *shown != page {
             *shown = page;
@@ -463,6 +551,30 @@ impl ListWorldExt for World {
             rows.uninstalling = plugin;
         }
     }
+
+    fn confirm_switch(&mut self, asked: Option<(Entity, Question)>) {
+        let mut rows = self.resource_mut::<Rows>();
+        if rows.confirming != asked {
+            rows.confirming = asked;
+        }
+    }
+
+    fn switch(&mut self, plugin: Entity, id: &PluginId, on: bool) {
+        self.confirm_switch(None);
+        // Only the person's own switch is kept for the next start.
+        let kept = self.resource_mut::<SwitchedOff>().set(id, !on);
+        if let Err(why) = kept {
+            self.write_message(LogLine::error("plugins", why));
+        }
+        if on {
+            self.trigger(Enable { entity: plugin });
+        } else {
+            if let Ok(mut entity) = self.get_entity_mut(plugin) {
+                entity.remove::<Blocked>();
+            }
+            self.trigger(Disable { entity: plugin });
+        }
+    }
 }
 
 /// Gathers the rows again when a plugin comes, goes, is switched or
@@ -476,6 +588,8 @@ fn follow(
             Changed<Enabled>,
             Changed<Contributions>,
             Changed<Stopped>,
+            Changed<Starting>,
+            Changed<Blocked>,
             Changed<PluginBudgets>,
         )>,
     >,
@@ -483,6 +597,8 @@ fn follow(
     mut off: RemovedComponents<Enabled>,
     mut empty: RemovedComponents<Contributions>,
     mut restarted: RemovedComponents<Stopped>,
+    mut started: RemovedComponents<Starting>,
+    mut unblocked: RemovedComponents<Blocked>,
     plugins: Query<(
         Entity,
         &PluginInfo,
@@ -491,39 +607,88 @@ fn follow(
         Option<&Stopped>,
         Option<&PluginBudgets>,
     )>,
+    states: Query<State>,
     things: Query<Things>,
     chosen: Res<ChosenLimits>,
+    switched_off: Res<SwitchedOff>,
     mut rows: ResMut<Rows>,
     mut shown: ResMut<Shown>,
 ) {
     let went = gone.read().count()
         + off.read().count()
         + empty.read().count()
-        + restarted.read().count();
-    if changed.is_empty() && went == 0 && !chosen.is_changed() {
+        + restarted.read().count()
+        + started.read().count()
+        + unblocked.read().count();
+    if changed.is_empty()
+        && went == 0
+        && !chosen.is_changed()
+        && !switched_off.is_changed()
+    {
         return;
     }
+    let graph = Graph::read(states.iter(), &switched_off);
+    let names = |found: Vec<&PluginInfo>| {
+        found
+            .into_iter()
+            .map(|info| info.name.clone())
+            .collect::<Vec<_>>()
+    };
     let mut now = plugins
         .iter()
-        .map(|(plugin, info, on, adds, stopped, budgets)| Row {
-            plugin,
-            id: info.id.clone(),
-            name: info.name.clone(),
-            about: format!("{}  {}", info.id, info.version),
-            on,
-            adds: adds.map_or(0, |adds| adds.len()),
-            added: adds.map_or_else(Vec::new, |adds| {
-                added(adds.iter(), &things)
-            }),
-            stopped: stopped.map(|stopped| stopped.0.clone()),
-            kind: info.kind,
-            memory: budgets.map(|budgets| {
-                memory_line(
-                    budgets,
-                    &info.limits,
-                    chosen.get(&info.id),
-                )
-            }),
+        .map(|(plugin, info, enabled, adds, stopped, budgets)| {
+            let (starting, blocked) = states
+                .get(plugin)
+                .map(|(_, _, _, starting, blocked, _)| {
+                    (starting, blocked.map(|why| why.0.clone()))
+                })
+                .unwrap_or_default();
+            Row {
+                plugin,
+                id: info.id.clone(),
+                name: info.name.clone(),
+                about: format!("{}  {}", info.id, info.version),
+                on: enabled || starting || blocked.is_some(),
+                starting: !enabled && starting,
+                adds: adds.map_or(0, |adds| adds.len()),
+                added: adds.map_or_else(Vec::new, |adds| {
+                    added(adds.iter(), &things)
+                }),
+                stopped: stopped.map(|stopped| stopped.0.clone()),
+                blocked,
+                kind: info.kind,
+                memory: budgets.map(|budgets| {
+                    memory_line(
+                        budgets,
+                        &info.limits,
+                        chosen.get(&info.id),
+                    )
+                }),
+                needs: info
+                    .dependencies
+                    .iter()
+                    .map(|needed| {
+                        (
+                            format!(
+                                "{} {}",
+                                needed.id, needed.requirement
+                            ),
+                            graph
+                                .unmet(needed)
+                                .map(|unmet| unmet.short()),
+                        )
+                    })
+                    .collect(),
+                needed_by: names(graph.needed_by(plugin)),
+                stops: names(graph.stops(plugin)),
+                wakes: graph
+                    .wakes(plugin)
+                    .into_iter()
+                    .map(|(at, info)| {
+                        (at, info.id.clone(), info.name.clone())
+                    })
+                    .collect(),
+            }
         })
         .collect::<Vec<_>>();
     now.sort_by(|a, b| a.name.cmp(&b.name));
@@ -532,6 +697,7 @@ fn follow(
     {
         *shown = Shown::List;
         rows.uninstalling = None;
+        rows.confirming = None;
     }
     if rows.plugins != now {
         rows.plugins = now;
@@ -550,11 +716,17 @@ mod tests {
             name: name.into(),
             about: String::new(),
             on,
+            starting: false,
             adds: 0,
             added: Vec::new(),
             stopped: None,
+            blocked: None,
             kind,
             memory: None,
+            needs: Vec::new(),
+            needed_by: Vec::new(),
+            stops: Vec::new(),
+            wakes: Vec::new(),
         };
         let mut rows = Rows {
             plugins: vec![

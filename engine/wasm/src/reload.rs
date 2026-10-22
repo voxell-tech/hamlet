@@ -24,7 +24,7 @@ use hamlet_engine_core::tuning::Tuning;
 use hamlet_engine_core::{Budgets, LogLine, PluginBudgets};
 use hamlet_engine_plugins::{
     Asked, ContributedBy, Contributions, PluginCommandsExt,
-    PluginInfo,
+    PluginInfo, StartOrder,
 };
 use wasmtime::Engine;
 
@@ -179,6 +179,7 @@ fn swap(
         Option<&Holders>,
     )>,
     roots: Query<(Entity, &UiRoot, &ContributedBy)>,
+    order: Res<StartOrder>,
     host: Option<Res<Host>>,
     budgets: Res<Budgets>,
     tuning: Res<WasmTuning>,
@@ -241,6 +242,7 @@ fn swap(
                     commands.switch_on(
                         plugin,
                         info,
+                        &order.rank(plugin, info),
                         entry(contributions_now.clone()),
                         &budgets,
                     );

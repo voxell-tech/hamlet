@@ -38,6 +38,7 @@ use hamlet_engine_api::{Ask, Capability, PanelId, PluginId};
 use hamlet_engine_core::{Budgets, LogLine};
 use hamlet_engine_plugins::{
     ContributedBy, Enable, PluginInfo, PluginKind, SwitchedOff,
+    resolve,
 };
 use hamlet_engine_shell::dock::PanelIcon;
 use hamlet_engine_shell::icons::Glyph;
@@ -71,7 +72,9 @@ pub(crate) fn plugin(app: &mut App) {
         .add_systems(Startup, open)
         .add_systems(
             Update,
-            (admit, first_use, follow, gather).chain(),
+            // Plugins let in together are blocked or not together.
+            (admit.before(resolve), first_use, follow, gather)
+                .chain(),
         );
 }
 

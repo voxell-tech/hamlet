@@ -9,12 +9,14 @@ use bevy::ecs::lifecycle::Add;
 use bevy::ecs::message::MessageWriter;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::{Has, With};
-use bevy::ecs::system::{Commands, Query, Res};
+use bevy::ecs::system::{Commands, Query};
 use bevy::ecs::world::World;
 use hamlet_engine_api::Manifest;
 use hamlet_engine_core::{Budgets, LogLine};
+use hamlet_engine_shell::StartRank;
 
 use crate::entry::{Entry, EntryPoint};
+use crate::needs::Starting;
 use crate::switched_off::SwitchedOff;
 use crate::{PluginInfo, PluginKind};
 
@@ -82,23 +84,15 @@ fn one_of_each(
     }
 }
 
-/// Runs the entry point of a plugin built in.
+/// Has a plugin built in start at its turn.
 fn enable(
     event: On<Enable>,
-    plugins: Query<(&PluginInfo, &EntryPoint, Has<Enabled>)>,
-    budgets: Res<Budgets>,
+    plugins: Query<Has<Enabled>, With<EntryPoint>>,
     mut commands: Commands,
 ) {
-    let plugin = event.entity;
-    let Ok((info, point, on)) = plugins.get(plugin) else {
-        return;
-    };
-    if on {
-        return;
+    if plugins.get(event.entity) == Ok(false) {
+        commands.entity(event.entity).insert(Starting);
     }
-    let mut entry = Entry::default();
-    (point.0)(&mut entry);
-    commands.switch_on(plugin, info, entry, &budgets);
 }
 
 /// The plugins' methods on [`Commands`].
@@ -113,13 +107,14 @@ pub trait PluginCommandsExt {
         entry: fn(&mut Entry),
     ) -> Option<Entity>;
 
-    /// Adds what `entry` declares, linked to `plugin`, within
-    /// `budgets`, and marks the plugin [`Enabled`]. What is left out
-    /// is told in the log.
+    /// Adds what `entry` declares, linked to `plugin` at its `rank`,
+    /// within `budgets`, and marks the plugin [`Enabled`]. What is
+    /// left out is told in the log.
     fn switch_on(
         &mut self,
         plugin: Entity,
         info: &PluginInfo,
+        rank: &StartRank,
         entry: Entry,
         budgets: &Budgets,
     );
@@ -163,10 +158,12 @@ impl PluginCommandsExt for Commands<'_, '_> {
         &mut self,
         plugin: Entity,
         info: &PluginInfo,
+        rank: &StartRank,
         entry: Entry,
         budgets: &Budgets,
     ) {
-        for why in entry.spawn(plugin, &info.id, budgets, self) {
+        for why in entry.spawn(plugin, &info.id, rank, budgets, self)
+        {
             self.write_message(LogLine::warn(info.id.as_str(), why));
         }
         self.entity(plugin).insert(Enabled);
@@ -184,6 +181,7 @@ fn disable(
     mut commands: Commands,
 ) {
     let plugin = event.entity;
+    commands.entity(plugin).try_remove::<Starting>();
     let Ok(info) = plugins.get(plugin) else {
         return;
     };
