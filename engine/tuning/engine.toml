@@ -2,8 +2,10 @@
 # its field says otherwise. What each value means is written beside its
 # field, in the module that reads its section: [tuning] in
 # engine/core/src/tuning.rs, [log] in log.rs, [budgets] in budget.rs,
-# [limits] in engine/api/src/limits.rs,
+# [limits] in engine/api/src/limits.rs, [sound] in
+# engine/audio/src/settings.rs,
 # [window] in engine/shell/src/window.rs, [workspaces] in workspace.rs,
+# [interface_sounds] in sounds.rs,
 # [wasm] in engine/wasm/src/host.rs, [render] in
 # engine/render/src/viewport.rs, [harness] in
 # engine/harness/src/lib.rs.
@@ -55,11 +57,32 @@ gpu_objects = 256
 shader_bytes = 65_536
 workgroups_per_frame = 65_536
 gpu_time_per_second = 200.0
+clip_bytes = 16_777_216
+sounds_playing = 32
+plays_per_second = 30
 
 # Each plugin's instance, unless its manifest's [limits] or the
 # person gives another value.
 [limits]
 memory = 67_108_864
+
+[sound]
+master = 0.6
+interface = 0.35
+world = 1.0
+music = 0.4
+voices = 0.5
+reach = 14.0
+ears = 6.0
+save_after = 0.5
+
+[interface_sounds]
+most = 4
+gap = 0.04
+vary = 0.07
+vary_tuned = 0.004
+sway = 0.12
+drag_quiet = 0.4
 
 [window]
 title = "Hamlet"

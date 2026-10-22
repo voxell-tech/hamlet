@@ -558,6 +558,7 @@ mod tests {
         app.insert_resource(Home::at(&root)).add_plugins((
             TimePlugin,
             hamlet_engine_core::plugin,
+            hamlet_engine_audio::plugin,
             crate::plugin,
         ));
         let added = plugins

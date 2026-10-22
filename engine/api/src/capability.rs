@@ -63,6 +63,10 @@ pub enum Capability {
     /// [`GPU`].
     #[serde(rename = "render.compute")]
     RenderCompute,
+    /// Playing sounds through the engine's audio output, on
+    /// [`OUTPUT`](crate::audio::OUTPUT).
+    #[serde(rename = "audio.play")]
+    AudioPlay,
 }
 
 /// The target of the render capabilities: the GPU the engine draws
@@ -85,6 +89,7 @@ impl Capability {
             Self::RenderScene => "render.scene",
             Self::RenderShader => "render.shader",
             Self::RenderCompute => "render.compute",
+            Self::AudioPlay => "audio.play",
         }
     }
 }

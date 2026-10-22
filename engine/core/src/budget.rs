@@ -103,6 +103,13 @@ pub struct Budgets {
     /// in one second, where the GPU can time them; past them
     /// they are held back until the plugin starts again.
     pub gpu_time_per_second: f32,
+    /// Bytes of the samples of the clips a plugin holds, four a
+    /// sample; past them a make fails.
+    pub clip_bytes: u64,
+    /// Sounds a plugin plays at once; past them a play fails.
+    pub sounds_playing: usize,
+    /// Sounds a plugin starts in one second; past them a play fails.
+    pub plays_per_second: u32,
 }
 
 impl Tuning for Budgets {

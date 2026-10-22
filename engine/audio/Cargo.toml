@@ -1,0 +1,16 @@
+[package]
+name = "hamlet_engine_audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The audio service: clips handed over as samples, played unplaced or placed, by category, scaled by the person's settings and held to the budgets"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_engine_api.workspace = true
+hamlet_engine_core.workspace = true
+bevy.workspace = true
+serde.workspace = true
+toml.workspace = true

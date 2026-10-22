@@ -4,8 +4,8 @@
 //! a field of cubes drawn as copies of one, lifted in waves by
 //! compute. Dragging turns the camera about the middle, the wheel
 //! brings it nearer, the shape under the pointer lights up and a
-//! click names what it hit. Where the camera is stays across a
-//! reload.
+//! click names what it hit, with a chime where it hit. Where the
+//! camera is stays across a reload.
 
 use std::f32::consts::{FRAC_PI_2, TAU};
 
@@ -37,6 +37,12 @@ const SIDE: u32 = 20;
 const WORKGROUP: u32 = 64;
 /// Pixels along each side of the pool of light's picture.
 const POOL_SIDE: u32 = 64;
+/// Samples a second of the chime.
+const RATE: u32 = 32_000;
+/// The chime's note, a D, and the steps of the pentatonic scale it is
+/// moved by, by what is clicked.
+const CHIME: f32 = 587.33;
+const STEPS: [f32; 5] = [0.0, 2.0, 4.0, 7.0, 9.0];
 
 const SKY: Rgba = (0.02, 0.025, 0.04, 1.0);
 const SOIL: Rgba = (0.08, 0.1, 0.09, 1.0);
@@ -97,6 +103,10 @@ struct Looks {
     _waves: Handle<Compute>,
 }
 
+/// The chime a click plays.
+#[derive(Resource)]
+struct Chime(Handle<Sound>);
+
 impl Default for Orbit {
     fn default() -> Self {
         Self {
@@ -140,9 +150,16 @@ fn panel(camera: Query<Entity, With<SceneCamera>>) -> AnyView {
 fn setup(
     mut commands: Commands,
     mut assets: ResMut<SceneAssets>,
+    mut sounds: ResMut<SoundAssets>,
     orbit: Res<Orbit>,
     mut said: ResMut<Said>,
 ) {
+    match Sound::new(&chime(), 1, RATE) {
+        Ok(chime) => {
+            commands.insert_resource(Chime(sounds.add(chime)))
+        }
+        Err(why) => hamlet_engine_bevy::error(&why),
+    }
     said.0 = match build(&mut commands, &mut assets, *orbit) {
         Ok(()) => "Drag to turn, wheel to zoom".to_owned(),
         Err(why) => {
@@ -350,10 +367,22 @@ fn name_clicks(
     mut clicks: MessageReader<SceneClick>,
     lit: Query<&Lit>,
     field: Query<(), With<Field>>,
+    chime: Option<Res<Chime>>,
     mut said: ResMut<Said>,
+    mut commands: Commands,
 ) {
     for click in clicks.read() {
         let hit = click.0;
+        if let Some(chime) = &chime {
+            let step = STEPS[hit.index as usize % STEPS.len()];
+            commands.spawn((
+                AudioPlayer(chime.0.clone()),
+                PlaybackSettings::DESPAWN
+                    .with_spatial(true)
+                    .with_speed(2f32.powf(step / 12.0)),
+                Transform::from_translation(hit.point),
+            ));
+        }
         said.0 = if field.contains(hit.entity) {
             format!("Clicked cube {}", hit.index)
         } else {
@@ -483,6 +512,23 @@ fn pool_pixels() -> Vec<u8> {
             let out = ((x * x + y * y).sqrt() / half).min(1.0);
             let alpha = (1.0 - out).powi(2) * 255.0;
             [255, 255, 255, alpha as u8]
+        })
+        .collect()
+}
+
+/// A plucked note with an overtone that dies sooner, at [`RATE`].
+fn chime() -> Vec<f32> {
+    let long = 0.6;
+    (0..(long * RATE as f32) as usize)
+        .map(|at| {
+            let t = at as f32 / RATE as f32;
+            let rise = 1.0 - (-t / 0.002).exp();
+            let fall = (-t / 0.2).exp() * (1.0 - t / long);
+            let note = (TAU * CHIME * t).sin()
+                + 0.3
+                    * (TAU * 2.0 * CHIME * t).sin()
+                    * (-t / 0.06).exp();
+            0.4 * rise * fall * note
         })
         .collect()
 }

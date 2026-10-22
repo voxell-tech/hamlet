@@ -29,6 +29,7 @@ use bevy_ecs::prelude::*;
 use bevy_math::Vec3;
 use bevy_transform::components::Transform;
 
+use crate::audio::SoundsEnding;
 pub use crate::bindings::exports::hamlet::engine::scene_guest::MouseButton;
 use crate::bindings::exports::hamlet::engine::scene_guest::{
     Hit as WitHit, SceneInput,
@@ -82,12 +83,17 @@ pub(crate) fn plugin(app: &mut App) {
                     watch,
                     make_cameras,
                 ),
-                (set_passes, make_instances, show_viewports, animate),
+                (set_passes, make_instances, show_viewports),
             )
-                .chain(),
+                .chain()
+                .in_set(SceneSync),
         )
         .add_systems(Last, free_unused);
 }
+
+/// The systems that send the scene's changes, in [`PostUpdate`].
+#[derive(SystemSet, Clone, PartialEq, Eq, Hash, Debug)]
+pub struct SceneSync;
 
 /// A handle of a scene asset of the type `T`, kept in
 /// [`SceneAssets`] while any clone of it is held.
@@ -162,7 +168,7 @@ impl<T> Default for Store<T> {
 }
 
 impl<T> Store<T> {
-    fn add(&mut self, asset: T) -> Handle<T> {
+    pub(crate) fn add(&mut self, asset: T) -> Handle<T> {
         let user = Arc::new(());
         let slot = Some(Slot {
             asset,
@@ -185,13 +191,13 @@ impl<T> Store<T> {
         }
     }
 
-    fn get(&self, handle: &Handle<T>) -> Option<&T> {
+    pub(crate) fn get(&self, handle: &Handle<T>) -> Option<&T> {
         let slot = self.slots.get(handle.index as usize)?.as_ref()?;
         Some(&slot.asset)
     }
 
     /// Lets go of each asset no handle holds any more.
-    fn free_unused(&mut self) {
+    pub(crate) fn free_unused(&mut self) {
         for (index, slot) in self.slots.iter_mut().enumerate() {
             if slot
                 .as_ref()
@@ -547,8 +553,8 @@ pub fn viewport(camera: Entity) -> AnyView {
 
 /// The engine's entity of an entity.
 #[derive(Component)]
-struct HostEntity {
-    entity: HostHandle,
+pub(crate) struct HostEntity {
+    pub(crate) entity: HostHandle,
     key: u32,
 }
 
@@ -945,9 +951,16 @@ fn show_viewports(
     }
 }
 
-fn animate(animate: Res<Animate>) {
-    if animate.is_changed() {
-        wit::animate(animate.0);
+/// Asks for a tick each frame while the plugin animates, or a sound
+/// plays toward its end.
+pub(crate) fn animate(
+    animate: Res<Animate>,
+    ending: Res<SoundsEnding>,
+    mut asked: Local<Option<bool>>,
+) {
+    let want = animate.0 || ending.0;
+    if asked.replace(want) != Some(want) {
+        wit::animate(want);
     }
 }
 

@@ -3,6 +3,7 @@
 
 pub mod agents;
 pub mod asset;
+pub mod audio;
 pub mod capability;
 pub mod contribution;
 pub mod desktop;

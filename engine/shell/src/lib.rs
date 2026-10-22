@@ -15,11 +15,13 @@ pub mod pointer;
 mod rank;
 mod section;
 pub mod settings;
+pub mod sounds;
 mod status;
 pub mod stick;
 pub mod style;
 mod switcher;
 pub mod theme;
+mod volumes;
 pub mod window;
 pub mod workspace;
 
@@ -75,7 +77,13 @@ pub fn plugin(app: &mut App) {
         menu::plugin,
         (message::plugin, stick::plugin, fade::plugin),
         status::plugin,
-        (overlay::plugin, backdrop::plugin, pointer::plugin),
+        (
+            overlay::plugin,
+            backdrop::plugin,
+            pointer::plugin,
+            sounds::plugin,
+            volumes::plugin,
+        ),
     ));
 }
 

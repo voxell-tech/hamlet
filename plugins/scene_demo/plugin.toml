@@ -17,3 +17,8 @@ reason = "Colours a ring and the field with shaders of its own, and darkens the 
 capability = "render.compute"
 target = "gpu"
 reason = "Moves the field of cubes in waves on the GPU"
+
+[[asks]]
+capability = "audio.play"
+target = "output"
+reason = "Chimes where a shape or a cube is clicked"

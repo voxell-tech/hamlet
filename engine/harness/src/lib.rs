@@ -94,6 +94,7 @@ impl Harness {
                 TaskPoolPlugin::default(),
                 TimePlugin,
                 hamlet_engine_core::plugin,
+                hamlet_engine_audio::plugin,
                 TuningPlugin::<HarnessTuning>::default(),
                 hamlet_engine_plugins::plugin,
                 hamlet_engine_grants::plugin,

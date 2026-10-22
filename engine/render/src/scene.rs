@@ -271,7 +271,8 @@ impl Scene {
         self.cameras.get(&id).copied()
     }
 
-    fn entity(&self, id: u32) -> Option<Entity> {
+    /// The entity of the number `id`.
+    pub fn entity(&self, id: u32) -> Option<Entity> {
         self.entities.get(&id).copied()
     }
 

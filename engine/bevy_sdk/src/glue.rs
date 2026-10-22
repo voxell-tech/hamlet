@@ -44,6 +44,7 @@ impl Guest {
             crate::host::plugin,
             crate::ui::plugin,
             crate::scene::plugin,
+            crate::audio::plugin,
         ));
         app.add_plugins(P::default());
         app.finish();

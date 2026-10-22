@@ -18,10 +18,12 @@ use hamlet_engine_api::{
     AgentsRequest, AssetId, Contribution, DesktopRequest,
     FetchRequest, PluginLimits, Request, Ticket, decode,
 };
+use hamlet_engine_audio::{AudioCaps, Ledger};
 use hamlet_engine_core::{Budgets, LogLevel};
 use wasmtime::component::{Component as Compiled, HasSelf, Linker};
 use wasmtime::{Engine, ResourceLimiter, Store, Trap};
 
+use crate::audio::{AUDIO, audio_bindings};
 use crate::host::WasmTuning;
 use crate::nodes::{NodeChange, NodeError, Nodes};
 use crate::scene::scene_bindings::exports::hamlet::engine::scene_guest::SceneInput;
@@ -88,6 +90,7 @@ pub struct Caps {
     /// How deep a node may sit under its panel's root.
     pub node_depth: usize,
     pub scene: SceneCaps,
+    pub audio: AudioCaps,
 }
 
 impl Caps {
@@ -116,6 +119,7 @@ impl Caps {
             nodes: budgets.nodes,
             node_depth: budgets.node_depth,
             scene: SceneCaps::of(budgets),
+            audio: AudioCaps::of(budgets),
         }
     }
 }
@@ -215,7 +219,7 @@ pub fn link(engine: &Engine, bytes: &[u8]) -> Result<Linked, String> {
     let ty = component.component_type();
     for (name, _) in ty.imports(engine) {
         if name.starts_with("wasi:")
-            || [HOST, UI, SCENE, GPU].contains(&name)
+            || [HOST, UI, SCENE, GPU, AUDIO].contains(&name)
         {
             continue;
         }
@@ -252,6 +256,12 @@ pub fn link(engine: &Engine, bytes: &[u8]) -> Result<Linked, String> {
             HasSelf<State>,
         >(&mut linker, |state| state)
     })
+    .and_then(|()| {
+        audio_bindings::hamlet::engine::audio::add_to_linker::<
+            State,
+            HasSelf<State>,
+        >(&mut linker, |state| state)
+    })
     .and_then(|()| wasi::add_to_linker(&mut linker))
     .and_then(|()| linker.instantiate_pre(&component))
     .map_err(|e| format!("{e:#}"))?;
@@ -279,6 +289,7 @@ pub struct State {
     pub(crate) nodes: Nodes,
     pub(crate) surfaces: Vec<SurfaceChange>,
     pub(crate) scene: SceneState,
+    pub(crate) audio: Ledger,
 }
 
 impl State {
@@ -294,6 +305,7 @@ impl State {
             nodes: Nodes::default(),
             surfaces: Vec::new(),
             scene: SceneState::new(caps.scene),
+            audio: Ledger::new(caps.audio),
         }
     }
 
@@ -734,6 +746,11 @@ impl Instance {
         &mut self.store.data_mut().scene
     }
 
+    /// The plugin's clips and sounds, as its host holds them.
+    pub(crate) fn audio(&mut self) -> &mut Ledger {
+        &mut self.store.data_mut().audio
+    }
+
     /// Hands over what the person did in its scenes' views.
     pub fn scene_input(
         &mut self,
@@ -812,6 +829,7 @@ impl WasmStoreExt for Store<State> {
         state.nodes.calls = 0;
         state.scene.spent = 0;
         state.scene.caps = caps.scene;
+        state.audio.caps = caps.audio;
     }
 
     fn take_written(&mut self) {

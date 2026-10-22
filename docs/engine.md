@@ -22,6 +22,7 @@ Each depends only on those above it, and each adds one Bevy plugin,
 |---|---|---|
 | `engine/api` | `hamlet_engine_api` | The names the engine and plugins share. serde only, no Bevy |
 | `engine/core` | `hamlet_engine_core` | The tuning files, the home, the bundle's folder, the log, the budgets |
+| `engine/audio` | `hamlet_engine_audio` | Sound on Bevy's audio: clips handed over as samples, played unplaced or placed, by category, scaled by the person's volumes, a plugin's held to the budgets |
 | `engine/shell` | `hamlet_engine_shell` | The window, its theme, the dock and its panels, workspaces, commands, shortcuts, the menu bar and the status line |
 | `engine/plugins` | `hamlet_engine_plugins` | Plugins as entities, what they add, switching them on and off, the Plugins panel, and the mail between plugins and services |
 | `engine/grants` | `hamlet_engine_grants` | What the person lets plugins do: petitions, the grants file, the Permissions page |
@@ -88,9 +89,10 @@ same types.
   `agents.chief`, `agents.settings` and `agents.keys` the target `local`
   (see [The agents](#the-agents)), `desktop.open` the target `https` or
   a folder, and `desktop.settings` the target `local` (see
-  [The desktop](#the-desktop)), and `render.scene`, `render.shader`
+  [The desktop](#the-desktop)), `render.scene`, `render.shader`
   and `render.compute` the target `gpu` (see
-  [Scenes and GPU work](#scenes-and-gpu-work)). Powers that are never
+  [Scenes and GPU work](#scenes-and-gpu-work)), and `audio.play` the
+  target `output` (see [Sound](#sound)). Powers that are never
   granted have no name, so no manifest can ask for them.
 - **Assets.** An `AssetId` the store gives, a `TypeName` such as
   `weather.forecast` with a version (`AssetType`), and an `AssetInfo`:
@@ -214,6 +216,9 @@ types, so the WIT names nothing twice.
   for each height of what it holds (`reached-top`), and an item of a
   node's menu chosen (`chose`, by its place), and the folder chosen
   in the dialog a button opened (`chosen`, by its path).
+- **Scenes and sounds** are the worlds `scene-view` (see
+  [Scenes and GPU work](#scenes-and-gpu-work)) and `sounds` (see
+  [Sound](#sound)), which `render-plugin` includes with `ui-plugin`.
 
 ## Writing a plugin
 
@@ -310,6 +315,17 @@ hamlet_engine_bevy::export!(Hello);
   `SceneClick`, `ScenePointer`, `ScenePress`, `SceneWheel` and
   `SceneResize`, and `viewport(camera)` shows a camera in a panel
   (see [Scenes and GPU work](#scenes-and-gpu-work)).
+- **Sounds** are Bevy's audio as the SDK has it
+  (`hamlet_engine_bevy::audio`): `Sound::new(samples, channels,
+  rate)` makes a clip in the engine, kept in `SoundAssets` while a
+  clone of its `Handle` is held, and `AudioPlayer` plays one as its
+  `PlaybackSettings` say (`ONCE`, `LOOP`, `DESPAWN` or `REMOVE`, with
+  a volume, a speed, a `Category` and whether it is spatial), in
+  `PostUpdate`. A spatial one plays at its entity, an entity of the
+  scene, following its `Transform`, heard from the
+  `SpatialListener`, else from the first `SceneCamera`. Changing its
+  settings changes its volume and speed; taking its player away or
+  despawning it stops it (see [Sound](#sound)).
 - **Views** are written with fynix (`hamlet_engine_bevy::ui`) over the
   plugin's Bevy `World`. `Hamlet` is fynix's backend: a node is made
   in the engine as fynix spawns it, of the kind of its element, and a
@@ -473,7 +489,7 @@ samples) runs the scripts of hello, notes and board.
   unset, it is `~/.hamlet_engine`. Both names are constants in
   `home.rs` and nowhere else. Tests put in a `Home` of their own. It
   holds `workspaces.ron`, `grants.toml`, `switched_off.toml`,
-  `plugin_limits.toml`, `desktop.toml`, the installed plugins in
+  `plugin_limits.toml`, `desktop.toml`, `sound.toml`, the installed plugins in
   `plugins/` and the asset store in `assets/`, and is the agents' home
   too: their settings, records, sessions and the chief's
   `limits.toml`. The engine's files are named so none is one of
@@ -491,7 +507,7 @@ samples) runs the scripts of hello, notes and board.
   plugin and not asked for by any: the frame's share, the strikes, a
   call's time, the chain's depth and every cap of a call, a second,
   the services, the assets, the network, the panels, the log, the
-  petitions, the nodes, the scenes and the GPU. `[limits]`, as
+  petitions, the nodes, the scenes, the GPU and the sounds. `[limits]`, as
   `DefaultLimits`, holds the memory of one plugin's instance as the
   engine has it; each plugin's own is `PluginBudgets` on its entity
   (see [Limits](#limits)). A file with a memory of zero, or a
@@ -525,7 +541,10 @@ samples) runs the scripts of hello, notes and board.
   and under them each
   `SettingsFooter`'s content; the page gone through is shown under a
   head whose SETTINGS leads back. `world.open_settings_page(page)`
-  (`ShellWorldExt`) shows one and brings Settings to the front.
+  (`ShellWorldExt`) shows one and brings Settings to the front. The
+  shell's own is Sound (see [Sound](#sound)).
+- **Interface sounds** (`sounds.rs`) are the shell's own (see
+  [Sound](#sound)).
 - **Overlays** (`overlay.rs`) are entities with an `Overlay`, as
   plugins add them: a card over the dock, at most
   `[space] overlay_width` wide, on a filled backdrop that takes every
@@ -824,8 +843,9 @@ person has one or more, and one is shown at a time.
   and workspace it added, nothing while it is off; NEEDS, each plugin
   it needs with its requirement, "Met" or why not; NEEDED BY, the
   plugins that need it; then each
-  `PluginPageSection` another crate adds, given the plugin's entity,
-  in the order they came; and for an installed one UNINSTALL..., which
+  `PluginPageSection` another part adds, given the plugin's entity,
+  in the order they came, SOUND among them (`mute.rs`, a switch that
+  mutes its sounds); and for an installed one UNINSTALL..., which
   says what goes and which plugins on stop with it and asks again,
   UNINSTALL triggering `Uninstall` and showing the list, CANCEL not.
 - **Switches that move others.** Switching off a plugin that plugins
@@ -1343,7 +1363,7 @@ service, so they check the pages and the card's steps on their own.
 The status items are not read by the harness.
 
 `plugins/scene_demo` (`hamlet.scene_demo`, asking `render.scene`,
-`render.shader` and `render.compute`) is the panel Scene, which has
+`render.shader`, `render.compute` and `audio.play`) is the panel Scene, which has
 no padding: a line of its own padding over a viewport that reaches
 the panel's edges, of a lit scene, under a sun with shadows, of a ground, a sphere
 on a pool of light laid as a decal of its own picture, a
@@ -1354,7 +1374,9 @@ through the material that draws them (`field.wgsl`), with a pass that
 darkens the view's edges (`edges.wgsl`). Dragging turns the camera
 about the middle and the wheel brings it nearer; the shape or cube
 under the pointer lights up, and a click names what it hit over the
-view. Where its camera is stays across a reload. Its `steps.toml`
+view and plays a chime of its own samples where it hit, a spatial
+sound on a note of the scale by what it hit. Where its camera is
+stays across a reload. Its `steps.toml`
 counts the scene and its decal, and clicks a shape and a cube.
 
 `plugins/realm` (`hamlet.realm`, asking `agents.read`, `agents.chief`,
@@ -1981,6 +2003,107 @@ none of them imports none of them.
 - **Skinned and animated meshes** of glTF are not offered: a plugin
   moves its entities' transforms itself, with `tick`.
 
+## Sound
+
+`hamlet_engine_audio` plays sound on Bevy's audio, for the shell and
+for plugins. With no audio output, as in the harness, sounds are kept
+and come to their end all the same, and nothing is heard.
+
+- **A clip** (`Clip`) is samples handed over as they are to be heard:
+  floats from -1 to 1, interleaved, one channel or two with the left
+  first, at a rate of 8,000 to 96,000 frames a second. A sample past
+  -1 or 1 is held to it; one that is not finite, a count that is not
+  whole frames, another number of channels or another rate is
+  refused. No file is decoded.
+- **A sound** is a clip playing, an entity with a `Sounding` and
+  Bevy's player: unplaced, heard the same wherever the listener is,
+  or placed at a point or at an entity, following it. Its volume (0
+  to 1) and speed (1/4 to 4, its pitch moving with it) can change as
+  it plays; it plays once or loops, and stops when it is stopped or
+  taken away. One that does not loop is taken away at its end, by
+  the time it played at its speeds.
+- **Heard from a listener.** A plugin names the entity of its scene
+  its placed sounds are heard from; without one, its scene's origin.
+  Bevy hears every sound from one listener, so each placed sound is
+  moved, each frame before Bevy reads it, to where it is from its
+  owner's listener: two plugins with cameras in different places
+  each hear their own as `main`'s `Ears` do. Within `[sound] reach`
+  of the listener a sound is at its full volume, and beyond it falls
+  with the square of the distance; the ears are `[sound] ears`
+  apart.
+- **Categories** (`Category`): interface, world, music and voices. A
+  sound's volume is its own, times the engine's volume of its
+  category and the master's (`[sound]`), times the person's.
+- **The person's volumes** (`SoundSettings`): a switch and a level
+  for the master and for each category, and the plugins muted, kept
+  in `sound.toml` in the home, written whole once they stayed still
+  for `[sound] save_after` seconds, and as the engine closes. A file
+  that cannot be read is left as it is, the log says so, and the
+  volumes are kept only until the engine closes.
+- **The Sound page** of Settings (`engine/shell/src/volumes.rs`, the
+  speaker icon) shows Master, then Interface, World, Music and
+  Voices, each its name over a switch and a slider, dim while it is
+  off.
+- **Muting a plugin.** SOUND on each plugin's page in the Plugins
+  panel has a switch, "Mute its sounds", kept by the plugin's id in
+  `sound.toml`; a muted plugin's entity carries `Muted`, and its
+  sounds play silent. Uninstalling a plugin forgets it.
+- **The capability** `audio.play`, on the target `output`, makes
+  clips and plays them. A bundled plugin that asks for it has it;
+  an installed one asks the person, and a make or play answered Ask
+  next time fails saying it waits, and the person is asked once.
+- **The guards**, each in `[budgets]` and the same for every plugin:
+  `clip_bytes`, the bytes of the samples of the clips a plugin holds
+  (four a sample; a clip let go of while a sound plays it stays
+  counted until none does), `sounds_playing`, the sounds it plays at
+  once, and `plays_per_second`, the sounds it starts in a second. A
+  make or play past one fails, saying why. The samples of one clip
+  come in one call, so a clip is at most `bytes_per_call`.
+- **The interface** `audio` in the WIT, in the world `sounds`, which
+  `render-plugin` includes: the resource `clip` (`make` with the
+  samples, the channels and the rate), the resource `sound` (`play`,
+  `play-at` a point and `play-on` an entity of the plugin's scene,
+  each with a `playback`: its category, volume, speed and whether it
+  loops; `set` its volume and speed; `stop`; dropping it stops it)
+  and `listen` at an entity of its scene or none. A number that is
+  not finite fails the call. The host keeps each plugin's clips and
+  sounds in a `Ledger`, held to the budgets as it calls, and makes
+  them in the world as the call ends (`engine/wasm/src/audio.rs`);
+  each frame the ledger hears which sounds came to their end, and a
+  plugin numbering anew, after a reload, has its sounds stopped.
+
+### The interface's sounds
+
+The shell plays the interface's own sounds (`engine/shell/src/
+sounds.rs`), of the category interface, each made in code at start
+(`sounds/synth.rs`) from sines and filtered noise, in D major, as
+`main` makes them. Each is written as a `Cue` and played no more than
+`[interface_sounds] most` at once and not again within `gap`, its
+pitch moved a little each time (to another note of the scale for one
+with a note) and its volume by `sway`.
+
+| Sound | When |
+|---|---|
+| Tick, one small high tick | The pointer comes onto a plain, primary, critical or quiet button, or a row |
+| Tap, a soft knock | A button, a switch, a row, a tab, a menu's title or item, or a field goes down |
+| Confirm, two bell notes | A primary button does its work |
+| Deny, two dull notes going down | A critical button does its work |
+| Pop open and pop close, air up and down | A menu, a context menu, a dropdown's list or another popup opens or closes, not one taking another's place |
+| Tab, a hollow click | A dock tab is brought to the front by hand, not one a tab set down brings with it within `drag_quiet` |
+| Grab and dock, wood | A dock tab is taken hold of, and set down |
+| Fold, paper | A fold opens or shuts |
+| Send, air and two tines | A message field sends what is typed |
+| Sash, the window's frame and glass | The window is hidden to run in the background, or shown again |
+| Error, two muted notes of a bar | An error reaches the log |
+
+### Not yet
+
+The realm's world sounds and its music (`main`'s `Cue`s of the
+world, the ambience and the breaths of music) come once the realm is
+a Bevy plugin: it plays its clips through `audio`, placed at its
+entities and heard from its listener between the camera and the
+ground.
+
 ## Where the budgets are
 
 A cap the engine holds every plugin to alike is a field of `Budgets`,
@@ -1989,5 +2112,6 @@ field in `engine/core/src/budget.rs`. The one limit of a plugin's own,
 its memory, is a field of `PluginLimits`, its meaning beside it in
 `engine/api/src/limits.rs`, and the engine's value of it is in
 `[limits]`. The host's set-up is
-`[wasm]`, how scenes are shown `[render]`, and the harness's waiting
+`[wasm]`, how scenes are shown `[render]`, how sounds are heard
+`[sound]` and `[interface_sounds]`, and the harness's waiting
 `[harness]`.

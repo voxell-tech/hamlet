@@ -3,6 +3,7 @@
 //! budgets. The only engine crate that knows wasmtime.
 
 mod add;
+mod audio;
 mod budget;
 mod dialog;
 mod folder;
@@ -65,6 +66,7 @@ pub fn plugin(app: &mut App) {
         retained::plugin,
         reload::plugin,
         scene::plugin,
+        audio::plugin,
     ));
 }
 

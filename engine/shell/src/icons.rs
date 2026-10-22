@@ -68,6 +68,8 @@ pub enum Glyph {
     Moon,
     Bolt,
     Bell,
+    /// A speaker with waves from it.
+    Speaker,
     Shield,
     Chip,
     /// Waves from a point.
@@ -130,7 +132,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon, in order.
-    pub const ALL: [Glyph; 44] = [
+    pub const ALL: [Glyph; 45] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -151,6 +153,7 @@ impl Glyph {
         Glyph::Moon,
         Glyph::Bolt,
         Glyph::Bell,
+        Glyph::Speaker,
         Glyph::Shield,
         Glyph::Chip,
         Glyph::Signal,
@@ -200,6 +203,7 @@ impl Glyph {
             Glyph::Moon => "moon",
             Glyph::Bolt => "bolt",
             Glyph::Bell => "bell",
+            Glyph::Speaker => "speaker",
             Glyph::Shield => "shield",
             Glyph::Chip => "chip",
             Glyph::Signal => "signal",
@@ -413,6 +417,18 @@ impl Glyph {
                 Line(2.0, 9.5, 4.5, 9.5),
                 Line(11.5, 6.5, 14.0, 6.5),
                 Line(11.5, 9.5, 14.0, 9.5),
+            ],
+            Glyph::Speaker => &[
+                Loop(&[
+                    [2.25, 6.25],
+                    [4.75, 6.25],
+                    [8.0, 3.25],
+                    [8.0, 12.75],
+                    [4.75, 9.75],
+                    [2.25, 9.75],
+                ]),
+                Arc(8.5, 8.0, 2.75, -50.0, 50.0),
+                Arc(8.5, 8.0, 5.25, -50.0, 50.0),
             ],
             Glyph::Signal => &[
                 Dot(8.0, 11.75, 1.25),

@@ -35,6 +35,7 @@ hamlet_testing = { version = "0.1.0", path = "engine/testing" }
 # the engine
 hamlet_engine_api = { version = "0.1.0", path = "engine/api" }
 hamlet_engine_core = { version = "0.1.0", path = "engine/core" }
+hamlet_engine_audio = { version = "0.1.0", path = "engine/audio" }
 hamlet_engine_shell = { version = "0.1.0", path = "engine/shell" }
 hamlet_engine_plugins = { version = "0.1.0", path = "engine/plugins" }
 hamlet_engine_grants = { version = "0.1.0", path = "engine/grants" }

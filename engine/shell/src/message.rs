@@ -22,6 +22,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{Prop, ScopedExt};
 
 use crate::pointer::{NodePointer, PointerMode};
+use crate::sounds::{Cue, InterfaceSound};
 use crate::style::{Placeholder, field_rules};
 use crate::{AnyView, Cx};
 
@@ -237,8 +238,14 @@ where
             }
             editable.editor_mut().set_text("");
             let send = send.clone();
-            commands
-                .queue(move |world: &mut World| send(world, text));
+            commands.queue(move |world: &mut World| {
+                send(world, text);
+                if let Some(mut cues) =
+                    world.get_resource_mut::<Messages<Cue>>()
+                {
+                    cues.write(Cue(InterfaceSound::Send));
+                }
+            });
         }
         // Leaving the field hands what is typed to `keep`.
         Key::Escape => {

@@ -22,8 +22,8 @@ use wasmtime::component::Resource;
 
 use crate::instance::State;
 use crate::nodes::UiNode;
-pub(crate) use crate::scene::serve::plugin;
 pub use crate::scene::serve::{SceneInbox, ShowsCamera};
+pub(crate) use crate::scene::serve::{apply as apply_scenes, plugin};
 
 pub(crate) mod scene_bindings {
     wasmtime::component::bindgen!({
@@ -547,6 +547,11 @@ impl SceneState {
         self.counts.vertices += vertices;
         self.counts.gpu_bytes += bytes;
         Ok(())
+    }
+
+    /// Whether `id` names an entity it holds.
+    pub(crate) fn holds_entity(&self, id: u32) -> bool {
+        self.held.get(&id).is_some_and(entity)
     }
 
     /// Whether the entity `id` is a light.

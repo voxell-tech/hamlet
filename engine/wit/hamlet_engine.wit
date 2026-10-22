@@ -890,8 +890,72 @@ world scene-view {
     export scene-guest;
 }
 
-/// A plugin with panels and scenes.
+/// Sounds a plugin plays through the engine's audio output, each of
+/// a category the person's settings scale. A make or a play fails,
+/// saying why, past a budget or without `audio.play`.
+interface audio {
+    use scene.{vec3, entity};
+
+    /// What a sound is for.
+    enum category {
+        /// The panels, menus and controls.
+        %interface,
+        /// What happens in a scene.
+        %world,
+        music,
+        /// Speech and the sounds of those who speak.
+        voices,
+    }
+
+    record playback {
+        category: category,
+        /// 0 to 1, of the clip as made.
+        volume: f32,
+        /// How fast it plays, from 1/4 to 4, 1 as made; its pitch
+        /// moves with it.
+        speed: f32,
+        looped: bool,
+    }
+
+    /// Samples as floats from -1 to 1, interleaved: `channels` (1, or
+    /// 2 with the left first) a frame, `rate` frames a second, from
+    /// 8,000 to 96,000. Held to the plugin's bytes of clips, four a
+    /// sample.
+    resource clip {
+        make: static func(samples: list<f32>, channels: u8, rate: u32) -> result<clip, string>;
+    }
+
+    /// A clip playing. Dropping it stops it; one that is not looped
+    /// stops at its end.
+    resource sound {
+        /// Heard the same wherever the listener is.
+        play: static func(clip: borrow<clip>, playback: playback) -> result<sound, string>;
+
+        /// At `point` of the plugin's scene, heard from its listener.
+        play-at: static func(clip: borrow<clip>, playback: playback, point: vec3) -> result<sound, string>;
+
+        /// At `at`, an entity of the plugin's scene, following it.
+        play-on: static func(clip: borrow<clip>, playback: playback, at: borrow<entity>) -> result<sound, string>;
+
+        /// Its volume and speed from now on.
+        set: func(volume: f32, speed: f32);
+
+        stop: func();
+    }
+
+    /// Hears the plugin's placed sounds from `at`, an entity of its
+    /// scene, or from its scene's origin.
+    listen: func(at: option<borrow<entity>>);
+}
+
+/// The engine's side of a plugin's sounds, apart from `plugin`.
+world sounds {
+    import audio;
+}
+
+/// A plugin with panels, scenes and sounds.
 world render-plugin {
     include ui-plugin;
     include scene-view;
+    include sounds;
 }

@@ -6,6 +6,7 @@ mod entry;
 mod limits;
 mod list;
 mod mail;
+mod mute;
 mod needs;
 mod switch;
 mod switched_off;
@@ -36,6 +37,7 @@ pub fn plugin(app: &mut App) {
         needs::plugin,
         list::plugin,
         mail::plugin,
+        mute::plugin,
     ));
 }
 
@@ -135,6 +137,7 @@ mod tests {
         app.insert_resource(Home::at(&root)).add_plugins((
             TimePlugin,
             hamlet_engine_core::plugin,
+            hamlet_engine_audio::plugin,
             plugin,
         ));
         let manifest = Manifest::new(

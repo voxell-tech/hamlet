@@ -16,6 +16,7 @@ hamlet_engine_plugins.workspace = true
 hamlet_engine_grants.workspace = true
 hamlet_engine_bus.workspace = true
 hamlet_engine_render.workspace = true
+hamlet_engine_audio.workspace = true
 bevy.workspace = true
 bevy_fynix.workspace = true
 bytes.workspace = true

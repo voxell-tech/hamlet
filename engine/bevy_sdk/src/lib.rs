@@ -30,6 +30,7 @@
 //! ```
 
 mod app;
+pub mod audio;
 #[doc(hidden)]
 pub mod glue;
 mod host;
@@ -81,6 +82,10 @@ pub mod prelude {
     pub use bevy_time::Time;
     pub use bevy_transform::components::Transform;
 
+    pub use crate::audio::{
+        AudioPlayer, PlaybackMode, PlaybackSettings, Sound,
+        SoundAssets, SpatialListener,
+    };
     pub use crate::scene::{
         Animate, ForwardDecal, Handle, Instances, Mesh3d,
         MeshMaterial3d, Pickable, PostPass, SceneAssets, SceneCamera,

@@ -11,6 +11,7 @@ workspace = true
 [dependencies]
 hamlet_engine_api.workspace = true
 hamlet_engine_core.workspace = true
+hamlet_engine_audio.workspace = true
 hamlet_engine_shell.workspace = true
 bevy.workspace = true
 bevy_fynix.workspace = true

@@ -279,7 +279,7 @@ impl Instance {
 /// Makes what each plugin changed in its scenes, and shows its
 /// cameras in the frames it named. A plugin numbering anew, as after
 /// a reload, has its scene made afresh.
-fn apply(
+pub(crate) fn apply(
     mut plugins: Query<(Entity, &mut Instance)>,
     mut applied: Local<HashMap<Entity, Instant>>,
     mut commands: Commands,
