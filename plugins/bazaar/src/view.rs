@@ -3,6 +3,7 @@
 //! its listings, with a page of its own for one of them, out of the
 //! [`parts`](crate::view::parts) Hamlet's own panels are made of.
 
+mod covers;
 mod desk;
 mod diorama;
 mod hamlets;
@@ -28,7 +29,7 @@ use crate::samples::agents::Hireling;
 use crate::samples::hamlets::Template;
 use crate::samples::plugins::Contraption;
 use crate::skills::skills_sh::Scroll;
-pub(crate) use crate::view::desk::plugin;
+pub(crate) use crate::view::desk::{Desk, Page as DeskPage, plugin};
 pub(crate) use crate::view::shelf::Shown;
 use crate::{BazaarWorldExt, Stall, StallShown};
 

@@ -226,4 +226,5 @@ real verification with a test secret.
 - Workers Free allows 10 ms of CPU per request. Checking a large package
   upload takes more, so use the Workers Paid plan for real traffic.
 - A package is at most `MAX_PACKAGE_BYTES` (10 MB) as sent; a cover at
-  most 2 MB.
+  most 400 KiB and 2048 pixels a side, so that Hamlet's plugins can fetch
+  and show it.

@@ -305,7 +305,11 @@ listing is visible as above; `404` if it has none.
 needs payouts enabled (`403 payouts_required`) when the listing is `listed`.
 
 `PUT /v1/listings/:id/cover` **auth**, seller only. Raw body, `Content-Type`
-one of `image/png`, `image/jpeg`, `image/webp`; at most 2 MB -> `204`.
+one of `image/png`, `image/jpeg`, `image/webp` -> `204`. `400` when the bytes
+are not a picture of that type whose size its header gives; `413 too_large`
+past 400 KiB or 2048 pixels a side. Hamlet's plugins fetch a cover in one
+answer of at most 512 KiB, and show it within a call of at most 1 MiB with
+another beside it.
 
 `DELETE /v1/listings/:id/cover` **auth**, seller only -> `204`.
 

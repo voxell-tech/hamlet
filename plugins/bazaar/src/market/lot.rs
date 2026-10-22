@@ -73,8 +73,8 @@ pub(crate) struct Lot {
     pub price_cents: u32,
     pub status: Status,
     pub seller: Maker,
-    /// Its picture, relative to the server, if it has one. Kept to
-    /// be drawn once plugins' views can show a picture.
+    /// Its picture, relative to the server, if it has one; its query
+    /// changes with each new cover.
     #[serde(default)]
     pub cover_url: Option<String>,
     /// Its newest version, `None` until one is uploaded.

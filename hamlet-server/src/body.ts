@@ -1,4 +1,5 @@
 import express, { type RequestHandler } from "express";
+import { tooLarge } from "./errors.ts";
 import type { Config } from "./services.ts";
 
 declare global {
@@ -12,7 +13,12 @@ declare global {
 }
 
 export const COVER_TYPES = ["image/png", "image/jpeg", "image/webp"];
-export const MAX_COVER_BYTES = 2 * 1024 * 1024;
+/**
+ * A cover fits in one answer of the engine's fetch (512 KiB) and leaves room
+ * in a plugin's call for another beside it (1 MiB a call).
+ */
+export const MAX_COVER_BYTES = 400 * 1024;
+export const MAX_COVER_SIDE = 2048;
 // Room for `version` and `changes` around a package at the size limit.
 const UPLOAD_ENVELOPE_BYTES = 64 * 1024;
 const SMALL_JSON_LIMIT = "100kb";
@@ -36,4 +42,16 @@ export function jsonBody(config: Config): RequestHandler {
 /** The webhook signature is over the exact bytes, so they stay raw. */
 export const webhookBody = express.raw({ type: () => true, limit: "1mb" });
 
-export const coverBody = express.raw({ type: COVER_TYPES, limit: MAX_COVER_BYTES });
+const rawCover = express.raw({ type: COVER_TYPES, limit: MAX_COVER_BYTES });
+
+/** A cover's raw bytes, and a 413 that says the limit when there are too many. */
+export const coverBody: RequestHandler = (req, res, next) => {
+  rawCover(req, res, (err?: unknown) => {
+    const type = typeof err === "object" && err !== null ? (err as { type?: unknown }).type : null;
+    if (type === "entity.too.large") {
+      next(tooLarge(`a cover is at most ${MAX_COVER_BYTES / 1024} KiB`));
+      return;
+    }
+    next(err);
+  });
+};

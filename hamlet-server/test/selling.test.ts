@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sha256Hex } from "../src/ids.ts";
 import { createListing, uploadVersion } from "./support/flows.ts";
 import { type Harness, auth, createHarness } from "./support/harness.ts";
+import { jpeg, png, webp } from "./support/pictures.ts";
 import {
   agent,
   agentPackage,
@@ -385,7 +386,7 @@ describe("publishing", () => {
 });
 
 describe("covers", () => {
-  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+  const cover = png(640, 360);
 
   it("uploads, serves, replaces and deletes a cover", async () => {
     const listing = await createListing(h, seller);
@@ -393,7 +394,7 @@ describe("covers", () => {
       .put(`/v1/listings/${listing.id}/cover`)
       .set(auth(seller))
       .set("Content-Type", "image/png")
-      .send(png)
+      .send(cover)
       .expect(204);
     const detail = await request(h.app)
       .get(`/v1/listings/${listing.id}`)
@@ -401,12 +402,12 @@ describe("covers", () => {
       .expect(200);
     expect(detail.body.listing.coverUrl).toBe(`/v1/listings/${listing.id}/cover?v=1`);
 
-    const cover = await request(h.app)
+    const served = await request(h.app)
       .get(`/v1/listings/${listing.id}/cover`)
       .set(auth(seller))
       .expect(200);
-    expect(cover.headers["content-type"]).toBe("image/png");
-    expect(Buffer.compare(cover.body as Buffer, png)).toBe(0);
+    expect(served.headers["content-type"]).toBe("image/png");
+    expect(Buffer.compare(served.body as Buffer, cover)).toBe(0);
     // A draft's cover is as hidden as the draft.
     await request(h.app).get(`/v1/listings/${listing.id}/cover`).expect(404);
 
@@ -414,7 +415,7 @@ describe("covers", () => {
       .put(`/v1/listings/${listing.id}/cover`)
       .set(auth(seller))
       .set("Content-Type", "image/webp")
-      .send(Buffer.from("RIFFwebp"))
+      .send(webp(1024, 1024))
       .expect(204);
     const again = await request(h.app)
       .get(`/v1/listings/${listing.id}`)
@@ -431,15 +432,22 @@ describe("covers", () => {
     expect(gone.body.listing.coverUrl).toBeNull();
   });
 
-  it("rejects other types, empty bodies and covers over 2 MB", async () => {
+  it("rejects other types, empty bodies, unreadable pictures and covers too large", async () => {
     const listing = await createListing(h, seller);
     const put = () => request(h.app).put(`/v1/listings/${listing.id}/cover`).set(auth(seller));
     await put().set("Content-Type", "image/gif").send(Buffer.from("GIF89a")).expect(400);
     await put().set("Content-Type", "image/png").send(Buffer.alloc(0)).expect(400);
+    await put().set("Content-Type", "image/png").send(Buffer.from("not a picture")).expect(400);
+    await put().set("Content-Type", "image/png").send(jpeg(64, 64)).expect(400);
+    await put().set("Content-Type", "image/jpeg").send(jpeg(2048, 1152)).expect(204);
+    const wide = await put().set("Content-Type", "image/jpeg").send(jpeg(2049, 64)).expect(413);
+    expect(wide.body.error.message).toBe(
+      "a cover is at most 2048 pixels a side, this one is 2049 by 64",
+    );
     const big = await put()
-      .set("Content-Type", "image/jpeg")
-      .send(Buffer.alloc(2 * 1024 * 1024 + 1))
+      .set("Content-Type", "image/png")
+      .send(Buffer.concat([png(64, 64), Buffer.alloc(400 * 1024)]))
       .expect(413);
-    expect(big.body.error.code).toBe("too_large");
+    expect(big.body.error).toEqual({ code: "too_large", message: "a cover is at most 400 KiB" });
   });
 });

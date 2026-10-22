@@ -101,3 +101,46 @@ click = { panel = "hamlet.bazaar/bazaar", widget = "BACK" }
 
 [[step]]
 expect = { panel = "hamlet.bazaar/bazaar", text = "PR Reviewer" }
+
+# The bazaar's server answers with a listing that has a cover. The
+# cover is fetched as its page opens, and one that is not a picture is
+# not shown.
+
+[[step]]
+reply = { url = "http://localhost:8787/v1/listings?limit=100&offset=0", body = '{"items": [{"id": "l_1", "kind": "agent", "title": "Wick Lantern", "summary": "Keeps a light.", "category": "Writing", "priceCents": 0, "status": "listed", "seller": {"login": "maker"}, "coverUrl": "/v1/listings/l_1/cover?v=1"}], "total": 1}' }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "Wick Lantern" }
+
+[[step]]
+click = { panel = "hamlet.bazaar/bazaar", widget = "Wick Lantern" }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "0 own it" }
+
+[[step]]
+reply = { url = "http://localhost:8787/v1/listings/l_1", body = '{"listing": {"id": "l_1", "kind": "agent", "title": "Wick Lantern", "summary": "Keeps a light.", "category": "Writing", "priceCents": 0, "status": "listed", "seller": {"login": "maker"}, "coverUrl": "/v1/listings/l_1/cover?v=1"}, "reviews": [], "owned": false}' }
+
+[[step]]
+reply = { url = "http://localhost:8787/v1/listings/l_1/cover?v=1", body = "not a picture" }
+
+[[step]]
+expect_log = "is not shown: It is not a PNG, JPEG or WebP that can be read."
+
+# A cover is chosen at the desk by the address of a picture, fetched
+# and checked before it is shown.
+
+[[step]]
+run = "hamlet.bazaar/sell"
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "there is none to choose" }
+
+[[step]]
+write = { panel = "hamlet.bazaar/bazaar", widget = "Address of a picture", text = "https://raw.githubusercontent.com/maker/wick/main/cover.gif" }
+
+[[step]]
+reply = { url = "https://raw.githubusercontent.com/maker/wick/main/cover.gif", body = "GIF89a" }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "It is not a PNG, JPEG or WebP that can be read." }

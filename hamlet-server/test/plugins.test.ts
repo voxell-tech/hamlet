@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createListing, listedListing } from "./support/flows.ts";
 import { type Harness, auth, createHarness } from "./support/harness.ts";
 import { agentPackage } from "./support/packages.ts";
+import { png } from "./support/pictures.ts";
 
 // Hamlet's plugins send GET and POST only, set no headers but the body's
 // type, and take at most about half a megabyte in one answer.
@@ -83,7 +84,7 @@ describe("a method named in the query", () => {
       .post(`/v1/listings/${listing.id}/cover`)
       .query({ _method: "put", token: seller })
       .set("Content-Type", "image/png")
-      .send(Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+      .send(png(640, 360))
       .expect(204);
   });
 

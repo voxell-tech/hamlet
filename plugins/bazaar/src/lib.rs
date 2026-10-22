@@ -5,12 +5,14 @@
 //! those stalls show samples, and hamlets are founded from their
 //! templates.
 
+mod covers;
 mod diorama;
 mod errand;
 mod hamlets;
 mod listings;
 mod market;
 mod models;
+mod picture;
 mod samples;
 mod shelf;
 mod skills;
@@ -66,6 +68,7 @@ impl Plugin for Bazaar {
             samples::plugin,
             hamlets::plugin,
             market::plugin,
+            covers::plugin,
             view::plugin,
         ))
         .init_saved_resource::<StallShown>()

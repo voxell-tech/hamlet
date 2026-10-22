@@ -174,6 +174,8 @@ pub(crate) enum Call {
     Account(account::Call),
     Deal(deal::Call),
     Sell(sell::Call),
+    /// A listing's cover, at its address on the server.
+    Picture(String),
 }
 
 /// The fetches of the bazaar's server waiting to be sent, and how
@@ -254,6 +256,7 @@ pub(crate) fn answered(
         Call::Account(call) => account::answered(world, call, reply),
         Call::Deal(call) => deal::answered(world, call, reply),
         Call::Sell(call) => sell::answered(world, call, reply),
+        Call::Picture(url) => crate::covers::came(world, url, reply),
     }
     pump(world);
 }

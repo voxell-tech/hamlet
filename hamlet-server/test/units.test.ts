@@ -1,8 +1,11 @@
+import { Buffer } from "node:buffer";
 import { describe, expect, it } from "vitest";
 import { isValidPrice, platformFeeCents } from "../src/money.ts";
 import { rawMemberBytes } from "../src/package/rawMember.ts";
 import { pathProblem } from "../src/package/paths.ts";
+import { pictureSize } from "../src/picture.ts";
 import { compareVersions, parseVersion } from "../src/versionNumber.ts";
+import { jpeg, png, webp } from "./support/pictures.ts";
 
 describe("platform fee", () => {
   it("is round(price * percent / 100)", () => {
@@ -51,5 +54,33 @@ describe("raw member bytes", () => {
       new TextEncoder().encode("12"),
     );
     expect(rawMemberBytes(new TextEncoder().encode('{"other": 1}'), "package")).toBeUndefined();
+  });
+});
+
+describe("picture sizes", () => {
+  it("reads a PNG's, a JPEG's and a WebP's from their headers", () => {
+    expect(pictureSize(png(640, 360))).toEqual({ type: "image/png", width: 640, height: 360 });
+    expect(pictureSize(jpeg(1200, 630))).toEqual({ type: "image/jpeg", width: 1200, height: 630 });
+    expect(pictureSize(webp(3000, 2))).toEqual({ type: "image/webp", width: 3000, height: 2 });
+    const lossy = Buffer.alloc(30);
+    lossy.write("RIFF", 0, "ascii");
+    lossy.write("WEBPVP8 ", 8, "ascii");
+    Buffer.from([0, 0, 0, 0x9d, 0x01, 0x2a]).copy(lossy, 20);
+    lossy.writeUInt16LE(320, 26);
+    lossy.writeUInt16LE(240, 28);
+    expect(pictureSize(lossy)).toEqual({ type: "image/webp", width: 320, height: 240 });
+    const lossless = Buffer.alloc(30);
+    lossless.write("RIFF", 0, "ascii");
+    lossless.write("WEBPVP8L", 8, "ascii");
+    lossless[20] = 0x2f;
+    lossless.writeUInt32LE(99 | (49 << 14), 21);
+    expect(pictureSize(lossless)).toEqual({ type: "image/webp", width: 100, height: 50 });
+  });
+
+  it("reads nothing of what is cut short or not a picture", () => {
+    expect(pictureSize(png(640, 360).subarray(0, 20))).toBeNull();
+    expect(pictureSize(jpeg(64, 64).subarray(0, 24))).toBeNull();
+    expect(pictureSize(png(0, 360))).toBeNull();
+    expect(pictureSize(Buffer.from("GIF89a"))).toBeNull();
   });
 });

@@ -221,6 +221,23 @@ impl Server {
         self.as_method("PATCH", &path, Some(json!(draft)))
     }
 
+    /// The picture at `path`, an address on the server that may hold
+    /// a query of its own.
+    pub fn picture(&self, path: &str) -> FetchRequest {
+        let mut url = format!("{}{path}", self.base);
+        if let Some(token) = &self.token {
+            url.push(if path.contains('?') { '&' } else { '?' });
+            url.push_str("token=");
+            url.push_str(&escaped(token));
+        }
+        FetchRequest {
+            method: Method::Get,
+            url,
+            content_type: None,
+            body: Vec::new(),
+        }
+    }
+
     /// Sets a listing's cover, `bytes` of a picture of `kind`.
     pub fn cover(
         &self,

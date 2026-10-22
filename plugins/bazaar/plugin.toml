@@ -19,6 +19,11 @@ target = "$HAMLET_BAZAAR_URL"
 reason = "Signs you in with GitHub at the bazaar's server, shows what chiefs sell there, and buys, downloads and sells agents, hamlets and tools"
 
 [[asks]]
+capability = "net.fetch"
+target = "raw.githubusercontent.com"
+reason = "Fetches a picture you give the address of, in a GitHub repository, as the cover of a listing you sell"
+
+[[asks]]
 capability = "agents.read"
 target = "local"
 reason = "Knows your endpoints, the models you have, the library's skills, your hamlets and what you bought, to show what is already yours, and the tools you could sell"

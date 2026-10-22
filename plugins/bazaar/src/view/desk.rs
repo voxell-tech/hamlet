@@ -1,8 +1,7 @@
 //! The seller's desk: a form to put an agent, a hamlet or tools up
-//! for sale, or to change a listing and upload a new version of it,
-//! and the page of what the chief sells and has bought. A cover is
-//! not chosen here yet: a plugin reads no files, and its views show
-//! no picture.
+//! for sale, or to change a listing, its cover and upload a new
+//! version of it, and the page of what the chief sells and has
+//! bought.
 
 use agents_ui::{Rostered, either, moved, name, note};
 use hamlet_engine_bevy::api::agents::{HousedTool, Packing};
@@ -14,6 +13,7 @@ use hamlet_engine_bevy::ui::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::covers::{PICTURE_HOST, Pick, Picked, pick};
 use crate::listings::SELLERS_SHARE;
 use crate::market::lot::{
     Draft, Kind, Lot, Payouts, Status, next_version, price_words,
@@ -24,8 +24,10 @@ use crate::market::{
     self, Housed, Market, Offer, Selling, ask_account, ask_tools,
     set_up_payouts,
 };
+use crate::picture::{MOST_BYTES, MOST_SIDE};
 use crate::samples::agents::Craft;
 use crate::samples::plugins::Kind as Shelf;
+use crate::view::covers::{chosen, now_of};
 use crate::view::parts::section as part;
 use crate::view::trade;
 
@@ -183,6 +185,7 @@ pub(crate) fn open_form(
     desk.form = form;
     desk.page = Some(Page::Form);
     world.resource_mut::<Selling>().0 = None;
+    *world.resource_mut::<Pick>() = Pick::default();
     if kind == Kind::Plugin {
         ask_tools(world);
     }
@@ -447,7 +450,28 @@ fn send(world: &mut World, publish: bool) {
         .is_some_and(|user| user.paid());
     let form = world.resource::<Desk>().form.clone();
     let choices = choices_now(world, form.kind);
-    match offer(&form, &choices, paid, publish) {
+    let cover = match &world.resource::<Pick>().state {
+        Picked::Nothing => Ok::<_, String>(None),
+        Picked::Got(picture) => Ok(Some((
+            picture.bytes.to_vec(),
+            picture.header.format.media().to_string(),
+        ))),
+        Picked::Fetching => Err("Wait for the cover to come, or \
+                                 clear its address."
+            .into()),
+        Picked::Failed(_) => Err("The cover could not be had: \
+                                  clear its address, or give \
+                                  another."
+            .into()),
+    };
+    let offered =
+        offer(&form, &choices, paid, publish).and_then(|offer| {
+            Ok(Offer {
+                cover: cover?,
+                ..offer
+            })
+        });
+    match offered {
         Ok(offer) => {
             world.resource_mut::<Desk>().form.problem = None;
             market::sell(world, offer);
@@ -586,6 +610,7 @@ fn form() -> AnyView {
             Field::Tags,
             "Words it is found by, separated by commas.",
         ),
+        cover(),
         price(),
         send_box(),
     )),))
@@ -729,6 +754,84 @@ fn sold() -> AnyView {
         column(parts).space(Space::Half).boxed()
     })
     .boxed()
+}
+
+/// What the desk shows of the cover.
+#[derive(Clone, PartialEq, Debug)]
+enum Covering {
+    None,
+    /// The listing changed keeps the cover it has.
+    Kept,
+    Fetching,
+    /// A picture came, of this size.
+    Got(String),
+    Failed(String),
+}
+
+/// The cover chosen by the address of a picture, shown as it will be.
+fn cover() -> AnyView {
+    let address = field(resource::<Pick, _>(|pick| pick.url.clone()))
+        .placeholder("Address of a picture")
+        .on_commit(pick);
+    let hint = format!(
+        "A PNG, JPEG or WebP of at most {} KB and {MOST_SIDE} \
+         pixels a side, at an address on {PICTURE_HOST} or the \
+         bazaar's server. 640 by 360 pixels shows best. A plugin \
+         cannot read your files, so there is none to choose: give \
+         the address of the picture.",
+        MOST_BYTES / 1024
+    );
+    let now = derived(|world: &World| {
+        match &world.resource::<Pick>().state {
+            Picked::Nothing if now_of(world).is_some() => {
+                Covering::Kept
+            }
+            Picked::Nothing => Covering::None,
+            Picked::Fetching => Covering::Fetching,
+            Picked::Got(picture) => Covering::Got(format!(
+                "{} by {} pixels, {} KB.",
+                picture.header.width,
+                picture.header.height,
+                picture.bytes.len().div_ceil(1024)
+            )),
+            Picked::Failed(why) => Covering::Failed(why.clone()),
+        }
+    })
+    .when(either(
+        either(moved::<Pick>(), moved::<Desk>()),
+        moved::<Market>(),
+    ));
+    let state = keyed(now, |now| match now {
+        Covering::None => column(()).boxed(),
+        Covering::Kept => column((
+            chosen(),
+            note("Its cover now. Give an address to change it."),
+        ))
+        .space(Space::Half)
+        .boxed(),
+        Covering::Fetching => description("Fetching it...").boxed(),
+        Covering::Got(size) => column((
+            chosen(),
+            row((
+                note(size.clone()),
+                icon_button("cross", "CLEAR")
+                    .style(ButtonStyle::Quiet)
+                    .on_click(|world| pick(world, String::new())),
+            ))
+            .space(Space::Half),
+        ))
+        .space(Space::Half)
+        .boxed(),
+        Covering::Failed(why) => {
+            label(why.clone()).tone(Tone::Critical).boxed()
+        }
+    });
+    part(
+        "COVER",
+        column((address, description(hint), state))
+            .space(Space::Half)
+            .boxed(),
+    )
 }
 
 /// The choice of the shelf it sits on, or the kind of hamlet it is.

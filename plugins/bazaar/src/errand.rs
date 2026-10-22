@@ -10,6 +10,7 @@ use hamlet_engine_bevy::{
     Failure, FetchReply, FetchRequest, Reply, Ticket,
 };
 
+use crate::covers::{self, Reveal};
 use crate::market::{self, Call};
 use crate::models;
 use crate::skills::{self, SkillId};
@@ -39,6 +40,8 @@ pub(crate) enum Errand {
     /// A call of the bazaar's server, with the fetch that made it, to
     /// be sent again when the engine held it back.
     Market(Box<(Call, FetchRequest)>),
+    /// The picture at this address, chosen as a cover at the desk.
+    Picture(String),
 }
 
 /// The fetches made and not yet answered, by their tickets.
@@ -83,6 +86,9 @@ impl ErrandWorldExt for World {
         request: &FetchRequest,
         errand: Errand,
     ) -> bool {
+        if let Some(reveal) = self.get_resource::<Reveal>() {
+            reveal.spend(request.url.len() + request.body.len());
+        }
         let ticket = self.fetch(request);
         if ticket == 0 {
             return false;
@@ -145,6 +151,7 @@ fn answered(
                 let (call, request) = *sent;
                 market::answered(world, call, request, reply)
             }
+            Errand::Picture(url) => covers::picked(world, url, reply),
         }
     }
 }

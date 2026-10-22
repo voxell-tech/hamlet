@@ -2,8 +2,8 @@ import { Buffer } from "node:buffer";
 import { Router } from "express";
 import { z } from "zod";
 import { currentUser, requireAuth } from "../auth.ts";
-import { COVER_TYPES, coverBody } from "../body.ts";
-import { badRequest, conflict, payoutsRequired } from "../errors.ts";
+import { COVER_TYPES, MAX_COVER_SIDE, coverBody } from "../body.ts";
+import { badRequest, conflict, payoutsRequired, tooLarge } from "../errors.ts";
 import { newId, sha256Hex } from "../ids.ts";
 import { createListingSchema, updateListingSchema } from "../listingInput.ts";
 import { LISTING_INCLUDE, assertNotRemoved, sellersListing, setStatus } from "../listings.ts";
@@ -13,6 +13,7 @@ import type { Services } from "../services.ts";
 import { compareVersions, parseVersion } from "../versionNumber.ts";
 import { type ListingRow, listingJson, versionJson } from "../views.ts";
 import { param } from "../params.ts";
+import { pictureSize } from "../picture.ts";
 import { assembleUpload, dropUpload } from "./uploads.ts";
 
 const uploadSchema = z.object({
@@ -72,6 +73,15 @@ export function sellRoutes(services: Services): Router {
     const contentType = req.is(COVER_TYPES);
     if (!contentType || !Buffer.isBuffer(req.body) || req.body.length === 0) {
       throw badRequest(`send the image bytes with Content-Type ${COVER_TYPES.join(", ")}`);
+    }
+    const size = pictureSize(req.body);
+    if (size?.type !== contentType) {
+      throw badRequest(`the cover is not a ${contentType} whose size can be read`);
+    }
+    if (Math.max(size.width, size.height) > MAX_COVER_SIDE) {
+      throw tooLarge(
+        `a cover is at most ${MAX_COVER_SIDE} pixels a side, this one is ${size.width} by ${size.height}`,
+      );
     }
     const coverKey = `covers/${listing.id}`;
     await services.blobs.put(coverKey, req.body, { httpMetadata: { contentType } });

@@ -1633,9 +1633,10 @@ Each has a `steps.toml` checking what shows before the agents
 answer; those of the Inspector and Skills bring the chat `with` them.
 
 `plugins/bazaar` (`hamlet.bazaar`, asking `net.fetch` on
-`openrouter.ai`, `skills.sh` and `$HAMLET_BAZAAR_URL`, `agents.read`,
-`agents.settings`, `agents.chief`, `desktop.open https`,
-`services.call` on `hamlet.realm/diorama` and `render.scene`, making
+`openrouter.ai`, `skills.sh`, `$HAMLET_BAZAAR_URL` and
+`raw.githubusercontent.com`, `agents.read`, `agents.settings`,
+`agents.chief`, `desktop.open https`, `services.call` on
+`hamlet.realm/diorama` and `render.scene`, making
 the asset type `bazaar.session`, and reading `HAMLET_BAZAAR_URL`,
 `http://localhost:8787` unless the environment says) is the panel
 Agent Bazaar (`hamlet.bazaar/bazaar`, with the coins icon), with Open
@@ -1709,6 +1710,18 @@ shown is kept across a reload.
   listings, of every kind, are asked for the first time one of these
   stalls is shown, 100 at a time; a listing's page asks for its
   reviews and whether it is owned.
+- **Covers** (`covers.rs`, drawn by `view/covers.rs`): a listing's
+  cover is shown on its page, under its head, fetched from the server
+  as the page opens, one at a time, 15 a minute at most, through the
+  market's line. They are kept by
+  their address, whose `?v=` changes with each new cover, 24 at most
+  and 24 MiB at most shown, and let go of when nothing shows them.
+  Before it is shown, a cover's header is read (`picture.rs`, a PNG's,
+  a JPEG's or a WebP's) and one that cannot be read, or is past 400
+  KiB or 2048 pixels a side, is not. Pictures, and the bodies of
+  fetches and packages, are handed over 400 KiB an update at most,
+  so a call stays within `bytes_per_call`; one that waits for room is
+  shown in the next.
 - **Samples.** Until the server's listings come, and where it cannot
   be reached, these stalls show made-up listings (`samples/`) under
   SAMPLES, which says why, with ASK THE BAZAAR AGAIN. Agents and
@@ -1778,8 +1791,11 @@ shown is kept across a reload.
   needs payouts: SET UP PAYOUTS opens Stripe's page and CHECK AGAIN
   asks the server how it stands. YOURS lists what the chief sells,
   with EDIT, LIST and UNLIST, and what they bought, with the box it is
-  installed from. A cover is kept in the listing as the server says
-  it, and shown, and chosen, once a plugin's views can show a picture.
+  installed from. COVER takes the address of a picture, which a
+  plugin fetches as it cannot read files: on
+  `raw.githubusercontent.com` or the bazaar's server, checked as a
+  listing's cover is and shown as it will be, then uploaded after the
+  listing is saved.
 - **Events.** It hears the realm's `stall` (payload type
   `bazaar.stall`, the stall's name: `models`, `community`, `plugins`,
   `skills` or `hamlets`), shows that stall and brings its panel to
@@ -1790,10 +1806,14 @@ Its `steps.toml` answers OpenRouter with one model, opens it, and
 shows each stall offline: skills.sh asking, the samples on theirs,
 said to be samples, with the sign-in, and a hamlet's page saying the
 realm is not running; then the seller's desk, which says what its
-form lacks. The parsing of OpenRouter's, skills.sh's and the bazaar's
-server's answers, the shelf, the paths of a skill's files, a deal's
-steps part by part, the desk's form and a package's parts have tests
-of their own (`cargo test -p bazaar` in `plugins/`).
+form lacks; then the bazaar's server answering with a listing whose
+cover is fetched and, not being a picture, not shown, and a cover
+chosen at the desk that is not one either. The parsing of
+OpenRouter's, skills.sh's and the bazaar's server's answers, the
+shelf, the paths of a skill's files, a deal's steps part by part, the
+desk's form, a package's parts, the headers of pictures, the covers
+kept and the room for them in an update have tests of their own
+(`cargo test -p bazaar` in `plugins/`).
 
 ## Assets
 

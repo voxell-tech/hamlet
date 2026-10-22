@@ -1,8 +1,6 @@
-//! The bazaar's own listings drawn: a listing's card with how it
-//! stands with the chief, and its page with its maker, what it holds,
-//! what owners say and the box it is had from. Covers and avatars are
-//! kept in what the server says, and drawn once a plugin's view can
-//! show a picture.
+//! The bazaar's own listings drawn: a listing's row with how it
+//! stands with the chief, and its page with its cover, its maker,
+//! what it holds, what owners say and the box it is had from.
 
 use agents_ui::{moved, name, note};
 use hamlet_engine_bevy::prelude::*;
@@ -16,6 +14,7 @@ use crate::market::lot::{
     AgentMeta, HamletMeta, Kind, Lot, PluginMeta, Said, price_words,
 };
 use crate::market::{self, Market};
+use crate::view::covers::{PAGE, cover};
 use crate::view::parts::{
     Line, page_head, section as part, sections, top,
 };
@@ -100,15 +99,19 @@ impl<K: Shows> Shown for Wares<K> {
             ),
             Some(trade::mark(lot.id.clone())),
         );
-        let mut parts = vec![top(vec![
-            head,
-            trade::deal(
-                lot.kind,
-                lot.id.clone(),
-                lot.price_cents,
-                lot.seller.shown().to_string(),
-            ),
-        ])];
+        let mut top_parts = vec![head];
+        top_parts.extend(
+            lot.cover_url
+                .as_ref()
+                .map(|url| cover(url.clone(), PAGE)),
+        );
+        top_parts.push(trade::deal(
+            lot.kind,
+            lot.id.clone(),
+            lot.price_cents,
+            lot.seller.shown().to_string(),
+        ));
+        let mut parts = vec![top(top_parts)];
         if !lot.description.trim().is_empty() {
             parts.push(description(lot.description.clone()).boxed());
         }

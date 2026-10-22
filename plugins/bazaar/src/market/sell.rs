@@ -38,9 +38,7 @@ pub(crate) struct Offer {
     pub wares: Option<Packing>,
     pub version: String,
     pub changes: String,
-    /// A picture for its cover and its type. Nothing chooses one
-    /// yet: a plugin reads no files, and its views show no
-    /// picture.
+    /// A picture for its cover and its media type.
     pub cover: Option<(Vec<u8>, String)>,
     /// Put on the shelves once done.
     pub publish: bool,

@@ -14,6 +14,7 @@ use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::{Failure, Reply};
 
 use crate::BazaarWorldExt;
+use crate::covers::Reveal;
 use crate::hamlets::{self, full};
 use crate::market::account::{Asking, browse};
 use crate::market::client::{Refusal, bytes, read};
@@ -509,6 +510,9 @@ fn step(world: &mut World, event: Event) {
         }
         Some(Act::Open(url)) => browse(world, &url),
         Some(Act::Settle { part, parts, bytes }) => {
+            if let Some(reveal) = world.get_resource::<Reveal>() {
+                reveal.spend(bytes.len());
+            }
             world.ask(AgentsRequest::Settle(Delivery {
                 listing: order.id.clone(),
                 title: order.title.clone(),
