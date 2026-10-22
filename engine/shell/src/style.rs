@@ -24,6 +24,7 @@ use bevy_fynix::{
 };
 use fynix::{Patch, element};
 
+use crate::fade::{FadeSurface, ScrollFade};
 use crate::fonts::DisplayText;
 use crate::icons::{Glyph, glyph};
 use crate::theme::EngineTheme;
@@ -820,8 +821,17 @@ pub fn list_row(
 
 /// `children` in a column that scrolls, taking the height left. Glows
 /// reach past its sides, but what scrolls is cut at its top and
-/// bottom, so it never shows over what is above or below it.
+/// bottom, so it never shows over what is above or below it. Its
+/// edges fade into the panel's background while more lies past them.
 pub fn scroll_area<C>(children: C) -> AnyView
+where
+    C: bevy_fynix::ViewSeq<bevy_fynix::Bevy, EngineTheme> + 'static,
+{
+    scroll_area_on(FadeSurface::Background, children)
+}
+
+/// A [`scroll_area`] on `surface`, its edges fading into it.
+pub fn scroll_area_on<C>(surface: FadeSurface, children: C) -> AnyView
 where
     C: bevy_fynix::ViewSeq<bevy_fynix::Bevy, EngineTheme> + 'static,
 {
@@ -832,7 +842,8 @@ where
                 .gap(gap)
                 .grow(1.0)
                 .min_height(px(0.0))
-                .tagged(GlowMargin),))
+                .tagged(GlowMargin)
+                .tagged(ScrollFade { surface }),))
             .gap(0.0)
             .grow(1.0)
             .min_height(px(0.0))
@@ -1100,7 +1111,7 @@ fn choice_rules(
 }
 
 /// Moves `value` toward `to` at `rate` per second.
-fn ease(value: f32, to: f32, rate: f32, dt: f32) -> f32 {
+pub(crate) fn ease(value: f32, to: f32, rate: f32, dt: f32) -> f32 {
     let next = to + (value - to) * (-rate * dt).exp();
     if (next - to).abs() < 0.002 { to } else { next }
 }

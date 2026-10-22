@@ -53,7 +53,7 @@ fn reach(node: &ComputedNode) -> (f32, f32) {
     (((node.content_size().y - seen) * scale).max(0.0), tall)
 }
 
-fn stick(
+pub(crate) fn stick(
     mut areas: Query<(
         Entity,
         &ComputedNode,

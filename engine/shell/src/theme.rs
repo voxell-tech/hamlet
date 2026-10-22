@@ -224,6 +224,9 @@ pub struct Spacing {
     pub switch_width: f32,
     pub switch_height: f32,
     pub switch_inset: f32,
+    /// How far into a scroll area the fade over an edge with more
+    /// past it reaches.
+    pub scroll_fade: f32,
 }
 
 /// The shadow under what floats.

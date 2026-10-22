@@ -5,6 +5,7 @@ mod backdrop;
 pub mod command;
 mod console;
 pub mod dock;
+pub mod fade;
 pub mod fonts;
 pub mod icons;
 mod menu;
@@ -66,7 +67,7 @@ pub fn plugin(app: &mut App) {
         switcher::plugin,
         command::plugin,
         menu::plugin,
-        (message::plugin, stick::plugin),
+        (message::plugin, stick::plugin, fade::plugin),
         status::plugin,
         (overlay::plugin, backdrop::plugin),
     ));

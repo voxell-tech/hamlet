@@ -16,7 +16,8 @@ use bevy_fynix::views::{
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_engine_api::PanelId;
 
-use crate::style::scroll_area;
+use crate::fade::FadeSurface;
+use crate::style::scroll_area_on;
 use crate::{AnyView, Cx};
 
 pub(crate) fn plugin(app: &mut App) {
@@ -70,9 +71,12 @@ pub fn view() -> AnyView {
                 *theme.colors.shadow,
                 theme.drop_shadow(),
             );
-            let card = column((scroll_area((column((body,))
-                .gap(0.0)
-                .padding(UiRect::all(px(padding))),)),))
+            let card = column((scroll_area_on(
+                FadeSurface::Surface,
+                (column((body,))
+                    .gap(0.0)
+                    .padding(UiRect::all(px(padding))),),
+            ),))
             .width(percent(100.0))
             .max_width(px(width))
             .max_height(percent(100.0))

@@ -468,6 +468,16 @@ buttons, cards, headings, notes, icons and chrome. Dark only.
   glow reaches (`GlowMargin`), and a panel cuts at the outer edge of
   its padding, so a glow at the edge shows whole. What floats has
   `drop_shadow`.
+- **Scroll fades** (`fade.rs`): a `ScrollFade` scroll node fades
+  each edge with more past it into the surface under it, easing in
+  and out as it scrolls. Each fade is a `BackgroundGradient` node over
+  its edge, out of the layout, under the scroll bars and passing the
+  pointer through, `scroll_fade` deep. Its colour is the theme role
+  `FadeSurface` names: `Background`, shaded as the `BottomGradient`
+  panel it is on, or `Surface` for a card. Every `scroll_area` has
+  one on the panel's background, `scroll_area_on(surface, ..)` on
+  another surface, so plugin scrolls have it too; a stuck scroll at
+  its end shows no fade at its bottom.
 - **Plugin panels** and settings pages are built node by node from
   the same widgets and styles.
 - **Icons** (`icons.rs`) are one family of line drawings made in code
