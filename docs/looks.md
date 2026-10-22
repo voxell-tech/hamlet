@@ -16,6 +16,7 @@ LOOKS, and are made by the Hamlet team.
 | What a robot wears | `plugins/realm/src/folk/keeper/wear.rs`, put on in `rig.rs` |
 | What a hamlet's houses wear | `plugins/realm/src/places/town/attire.rs`, built in `places/house.rs` (`dressed`) and `places/town/build.rs` |
 | How the realm reads, plays and moves them | `plugins/realm/assets/looks.toml` |
+| The official assets, defined in code, and their preview pictures | `hamlet-server/assets-src/` (`hamlet_assets_src`), below |
 
 ## How the realm finds what is worn
 
@@ -258,6 +259,39 @@ bounds, the leader's.
 | `pole` | the crook's own, 0.42 over its foot; the right hand holds it along Y | (-0.03, -0.42, -0.03) to (0.03, 1.2, 0.21) |
 | `lamp` | the hook, (0, 1.14, 0.2) in the crook | (-0.1, -0.37, -0.1) to (0.1, 0, 0.1) |
 | `lamp_glass` | (0, -0.26, 0) in the lamp | (-0.07, -0.08, -0.07) to (0.07, 0.08, 0.07) |
+
+## Baking the official assets
+
+The official assets are defined in code in `hamlet-server/assets-src/`:
+the catalogue in `catalog.rs`, the skins in `skins.rs`, the emotes in
+`emotes.rs`, and the meshes of agents and hamlets in `agents.rs` and
+`hamlets.rs`, built with the realm's own mesh builder and written as
+`.glb` by `glb.rs`. Raise `catalog::VERSION` when a file changes, so
+owners are sent the new one.
+
+```sh
+cargo run --release -p hamlet_assets_src -- [--out DIR] [--only ID,ID] [--no-previews]
+```
+
+It writes into `DIR`, by default `hamlet-server/assets-src/out/`, which
+git ignores: `files/<id>.json` or `files/<id>.glb`, `previews/<id>/<n>.png`
+and `catalog.json`, the catalogue hamlet-server publishes, which lists how
+many pictures each asset has.
+
+Each asset has 24 pictures, PNGs of 512 by 512, each under the server's
+400 KiB. A picture is the asset worn by the realm's own robot or house on
+a plinth, made by the realm plugin's code: `plugins/realm/src/bake.rs`
+gathers the builders that make meshes and looks without the engine, and
+the baker puts them together as the realm does (`Rig::make` and
+`Rig::dress` for a robot, `Built::of` and `Emotes::stir` for a house) and
+draws them offscreen with Bevy as the engine would, lit by the realm's
+sky. The realm's source is built natively by
+`hamlet-server/assets-src/realm/Cargo.toml`, as the plugin itself is a
+`cdylib` for wasm32-wasip2.
+
+A skin or a mesh is seen turning about it. An emote is seen at moments
+of it as the view turns a little: a clip over its length, and a hamlet's
+from before its front, its lanterns and fireflies after dark.
 
 ## The costumier
 

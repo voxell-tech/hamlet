@@ -163,6 +163,7 @@ Paths are under the crate's folder in the table above.
 | The engine's realm in its Realm panel: land, towns, roads, robots, the Hearth, its camera and pointer | `plugins/realm/`, as `hamlet_realm` draws it; [`engine.md`](engine.md#bundled-plugins) |
 | The Agent Bazaar in the realm: its pavilion, its six stalls, their keepers and what moves about them | `plugins/realm/src/places/bazaar.rs` and `bazaar/`, each stall in `bazaar/build/stall/`, the tinker's cogs in `stall/gear.rs` |
 | What agents and hamlets wear: the formats, reading them from the store, a robot's skin, mesh and clip, a town's skin, mesh and emote | `plugins/looks/`; `plugins/realm/src/wardrobe/`, `folk/keeper/wear.rs`, `places/town/attire.rs`, tuned in `plugins/realm/assets/looks.toml`; [`looks.md`](looks.md) |
+| The official assets sold at the costumier, and their preview pictures | `hamlet-server/assets-src/`, drawn with the realm's own builders (`plugins/realm/src/bake.rs`); [`looks.md`](looks.md#baking-the-official-assets) |
 | The first workspace of a new home, "Main" | `Workspaces::default` in `engine/shell/src/workspace.rs` |
 | What an engine plugin adds outside its panels: settings pages, status items, overlays, panel sections | `engine/api/src/contribution.rs`; the shell's `settings.rs`, `status.rs`, `overlay.rs` and `section.rs` in `engine/shell/src/`; what a plugin changes on them in `engine/wasm/src/surfaces.rs` |
 
@@ -194,6 +195,7 @@ These draw to files and open nothing:
 | `cargo run --example cursor_sheet` | Every cursor |
 | `cargo run --release --example sound_sheet` | Every sound and the music, as WAV files |
 | `cargo run -p hamlet_engine --example plugin_stills -- --out <dir>` | The engine with its bundled plugins, after `scripts/build_plugins.sh`; `--run` a command, `--open` a panel, `--online` to send fetches |
+| `cargo run --release -p hamlet_assets_src -- --out <dir>` | The official assets' files and their preview pictures, each worn by the realm's robot or house; `--only <id>,<id>` |
 
 `style_test` (one fixed scene and the robots' motions) and `town_gen` (the
 generated world, grown from the keyboard) open a window.
