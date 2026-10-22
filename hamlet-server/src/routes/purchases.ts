@@ -9,6 +9,7 @@ import { refreshPayouts } from "../payouts.ts";
 import type { Services } from "../services.ts";
 import type { ListingRow } from "../views.ts";
 import { param } from "../params.ts";
+import { settleFromStripe, settlePurchase } from "../settle.ts";
 
 export function purchaseRoutes(services: Services): Router {
   const router = Router();
@@ -28,8 +29,15 @@ export function purchaseRoutes(services: Services): Router {
   });
 
   router.get("/purchases/:id", requireAuth, async (req, res) => {
-    const purchase = await services.prisma.purchase.findUnique({ where: { id: param(req, "id") } });
+    const id = param(req, "id");
+    let purchase = await services.prisma.purchase.findUnique({ where: { id } });
     if (!purchase || purchase.buyerId !== currentUser(res).id) throw notFound("no such purchase");
+    const pending = purchase;
+    const settled = await settleFromStripe(services, pending, (outcome) =>
+      settlePurchase(services, pending, outcome),
+    );
+    if (settled)
+      purchase = (await services.prisma.purchase.findUnique({ where: { id } })) ?? purchase;
     res.json({ id: purchase.id, listingId: purchase.listingId, status: purchase.status });
   });
 

@@ -184,6 +184,20 @@ describe("paid assets", () => {
     await download("agent-skin-sakura", buyer).expect(403);
   });
 
+  it("are owned once Stripe says paid when the buyer asks, with no webhook", async () => {
+    const buyer = await newBuyer();
+    const { body, checkout } = await buyPaid("agent-skin-sakura", buyer);
+    const asked = () =>
+      request(h.app).get(`/v1/asset-purchases/${body.purchaseId}`).set(auth(buyer)).expect(200);
+    expect((await asked()).body.status).toBe("pending");
+    h.payments.outcomes.set(checkout.sessionId, "paid");
+    expect((await asked()).body.status).toBe("paid");
+    await download("agent-skin-sakura", buyer).expect(200);
+    // A checkout Stripe calls expired is not undone once paid.
+    h.payments.outcomes.set(checkout.sessionId, "failed");
+    expect((await asked()).body.status).toBe("paid");
+  });
+
   it("are owned once the webhook says paid, and only then downloadable", async () => {
     const buyer = await newBuyer();
     const stranger = await newBuyer();

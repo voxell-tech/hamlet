@@ -2,9 +2,8 @@ import { Buffer } from "node:buffer";
 import { Router } from "express";
 import { webhookBody } from "../body.ts";
 import { HttpError, badRequest } from "../errors.ts";
-import type { AssetPurchase, Purchase } from "../generated/prisma/client.ts";
-import { refreshListingStats } from "../listings.ts";
 import type { PaymentEvent, Services } from "../services.ts";
+import { settleAssetPurchase, settlePurchase } from "../settle.ts";
 
 export function webhookRoutes(services: Services): Router {
   const router = Router();
@@ -51,51 +50,6 @@ async function handleEvent(services: Services, event: PaymentEvent): Promise<voi
     case "ignored":
       return;
   }
-}
-
-type CheckoutOutcome = "checkout_paid" | "checkout_failed";
-
-async function settlePurchase(
-  services: Services,
-  purchase: Purchase,
-  outcome: CheckoutOutcome,
-): Promise<void> {
-  const { prisma } = services;
-  if (outcome === "checkout_failed") {
-    await prisma.purchase.updateMany({
-      where: { id: purchase.id, status: "pending" },
-      data: { status: "expired", updatedAt: services.now() },
-    });
-    return;
-  }
-  if (purchase.status === "paid") return;
-  const now = services.now();
-  await prisma.purchase.update({
-    where: { id: purchase.id },
-    data: { status: "paid", paidAt: now, updatedAt: now },
-  });
-  await refreshListingStats(prisma, purchase.listingId);
-}
-
-async function settleAssetPurchase(
-  services: Services,
-  purchase: AssetPurchase,
-  outcome: CheckoutOutcome,
-): Promise<void> {
-  const { assetPurchase } = services.prisma;
-  if (outcome === "checkout_failed") {
-    await assetPurchase.updateMany({
-      where: { id: purchase.id, status: "pending" },
-      data: { status: "expired", updatedAt: services.now() },
-    });
-    return;
-  }
-  if (purchase.status === "paid") return;
-  const now = services.now();
-  await assetPurchase.update({
-    where: { id: purchase.id },
-    data: { status: "paid", paidAt: now, updatedAt: now },
-  });
 }
 
 async function findPurchase(services: Services, purchaseId: string | null, sessionId: string) {

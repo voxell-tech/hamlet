@@ -72,7 +72,7 @@ frame out of range.
 - `409 conflict` when already owned. `404` when not listed.
 
 `GET /v1/asset-purchases/:id` **auth**, buyer only ->
-`200 { "id", "assetId", "status": "pending" | "paid" | "expired" }`.
+`200 { "id", "assetId", "status": "pending" | "paid" | "expired" }`. Settled from Stripe while pending, as `GET /v1/purchases/:id` is.
 
 `GET /v1/me/assets` **auth** -> `200 { "items": [Asset] }`, every asset the
 user owns, with `owned: true`, including ones no longer listed.

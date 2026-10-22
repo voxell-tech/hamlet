@@ -67,6 +67,14 @@ export function createStripePayments(secrets: StripeSecrets): Payments {
     },
 
     verifyWebhookEvent: verify,
+
+    async checkoutOutcome(sessionId) {
+      const session = await stripe().checkout.sessions.retrieve(sessionId);
+      if (session.payment_status === "paid" || session.payment_status === "no_payment_required") {
+        return "paid";
+      }
+      return session.status === "expired" ? "failed" : "open";
+    },
   };
 }
 
