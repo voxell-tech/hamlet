@@ -18,7 +18,7 @@ use hamlet_engine_api::PanelId;
 use hamlet_engine_core::{Log, LogLevel};
 
 use crate::icons::{Glyph, glyph};
-use crate::style::note;
+use crate::style::{note, raised};
 use crate::workspace::Workspaces;
 use crate::{AnyView, Cx, StartRank};
 
@@ -199,7 +199,7 @@ fn item(
         let words = label(text).size(size).tone(tone).wrap(false);
         match which {
             Some(which) => cx.build(
-                row((glyph(which, side).tone(tone), words))
+                row((raised(glyph(which, side).tone(tone)), words))
                     .gap(gap)
                     .align(AlignItems::Center),
             ),
