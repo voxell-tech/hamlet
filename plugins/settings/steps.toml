@@ -34,3 +34,7 @@ expect = { panel = "hamlet.settings/agents", text = "Reflection is every 0 to 10
 
 [[step]]
 expect = { panel = "hamlet.settings/again", text = "SET UP AGAIN" }
+
+# The switch is found by the words beside it.
+[[step]]
+toggle = { panel = "hamlet.settings/realm", widget = "Ballots hidden until it closes", on = true }

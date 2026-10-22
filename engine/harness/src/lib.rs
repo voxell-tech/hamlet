@@ -25,9 +25,7 @@ use bevy::ecs::world::World;
 use bevy::picking::hover::Hovered as PickingHovered;
 use bevy::time::TimePlugin;
 use bevy::ui::widget::Text;
-use bevy::ui_widgets::{
-    Activate, Button as ButtonBehavior, Checkbox as CheckboxBehavior,
-};
+use bevy::ui_widgets::{Activate, Button as ButtonBehavior};
 use hamlet_engine_api::{
     Asset, AssetId, AssetInfo, CommandId, Failure, FetchReply,
     FetchRequest, PanelId, PluginId, TypeName,
@@ -41,6 +39,7 @@ use hamlet_engine_net::NetWorldExt;
 use hamlet_engine_plugins::{
     ContributedBy, Enabled, PluginInfo, Stopped,
 };
+use hamlet_engine_shell::style::Switch;
 use hamlet_engine_shell::{
     EngineTheme, Overlay, Panel, SettingsFooter, SettingsPage,
     ShellWorldExt,
@@ -424,7 +423,7 @@ impl Harness {
         Ok(())
     }
 
-    /// Switches the toggle of `panel` nearest the text `widget` to
+    /// Switches the switch of `panel` nearest the text `widget` to
     /// `on`.
     pub fn toggle(
         &mut self,
@@ -432,13 +431,12 @@ impl Harness {
         widget: &str,
         on: bool,
     ) -> Result<(), String> {
-        let toggle =
+        let switch =
             self.by_text(panel, widget, |world, at, root| {
-                let toggle =
-                    world.nearest::<CheckboxBehavior>(at, root)?;
-                world.holder::<NodeOf>(toggle, root)
+                let switch = world.nearest::<Switch>(at, root)?;
+                world.holder::<NodeOf>(switch, root)
             })?;
-        self.tell(toggle, NodeInput::Toggle(on));
+        self.tell(switch, NodeInput::Toggle(on));
         Ok(())
     }
 

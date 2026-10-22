@@ -133,7 +133,11 @@ impl Kind {
         match value {
             Property::Text(_) => matches!(
                 self,
-                Self::Label | Self::Button | Self::Icon | Self::Field
+                Self::Label
+                    | Self::Button
+                    | Self::Icon
+                    | Self::Toggle
+                    | Self::Field
             ),
             Property::Tone(_) => {
                 matches!(self, Self::Label | Self::Icon)

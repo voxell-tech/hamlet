@@ -61,7 +61,7 @@ pub enum Step {
         widget: String,
         text: String,
     },
-    /// Switches the toggle nearest the text `widget`.
+    /// Switches the switch nearest the text `widget`.
     Toggle {
         panel: String,
         widget: String,

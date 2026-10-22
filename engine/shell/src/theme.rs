@@ -219,6 +219,11 @@ pub struct Spacing {
     /// The share of a panel's height its background keeps before it
     /// shades to `background_bottom`.
     pub bottom_start: f32,
+    /// The width and height of a switch's track, and the space
+    /// between its frame and its knob.
+    pub switch_width: f32,
+    pub switch_height: f32,
+    pub switch_inset: f32,
 }
 
 /// The shadow under what floats.

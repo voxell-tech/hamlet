@@ -37,8 +37,8 @@ use hamlet_engine_shell::fonts::DisplayText;
 use hamlet_engine_shell::icons::{Glyph, glyph, side};
 use hamlet_engine_shell::style::{
     BottomGradient, ButtonStyle, Wraps, action, card, choices,
-    divider, field, heading, icon_button, link_row, link_rows, list,
-    note, page_head, section, title_button, toggle,
+    divider, field, heading, icon_button, labelled_switch, link_row,
+    link_rows, list, note, page_head, section, switch, title_button,
 };
 use hamlet_engine_shell::{
     AnyView, Cx, DockTreeExt, EngineTheme, StyleExt,
@@ -505,8 +505,8 @@ fn the_rest() -> AnyView {
         .gap(8.0)
         .width(px(160.0)),
         column((
-            label("TOGGLES").size(11.0).tone(Tone::Dim),
-            row((toggle(false, |_, _| {}), toggle(true, |_, _| {})))
+            label("SWITCHES").size(11.0).tone(Tone::Dim),
+            row((switch(false, |_, _| {}), switch(true, |_, _| {})))
                 .gap(8.0),
             label("WORDS").size(11.0).tone(Tone::Dim),
             heading("A heading"),
@@ -665,12 +665,7 @@ fn orchard(_: Entity) -> AnyView {
                     label("Apples").boxed(),
                 ]),
                 field(String::new(), "A new row".into(), |_, _| {}),
-                row((
-                    toggle(true, |_, _| {}),
-                    label("Warn of frost"),
-                ))
-                .gap(gap)
-                .align(AlignItems::Center),
+                labelled_switch("Warn of frost", true, |_, _| {}),
                 row((
                     side(Glyph::Bell, Tone::Faint),
                     action(ButtonStyle::Plain, "Add a row"),

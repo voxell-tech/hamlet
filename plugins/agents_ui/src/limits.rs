@@ -1,14 +1,13 @@
 //! The words of a settings page and the controls a limit is set
 //! with, as the realm's page and a hamlet's bylaws show them: its
-//! name over a field or a switch, each read from a resource and
-//! handing what is typed on.
+//! name over a field, read from a resource and handing what is typed
+//! on.
 
 use std::any::Any;
 
 use hamlet_engine_sdk::ui::{
     AnyView, Face, FrameProps, Label, Prop, Size, Space, Tone, UiExt,
     ViewExt, World, column, field, icon, label, resource, row,
-    toggle,
 };
 
 /// Small words that stand back.
@@ -69,17 +68,5 @@ pub fn whole<R: Any + Send + Sync>(
         }
     })
     .boxed();
-    setting(what, control, None)
-}
-
-/// A yes or a no, named `what`, as `read` takes it from the resource
-/// `R`, handing the state asked for to `write`.
-pub fn switch<R: Any + Send + Sync>(
-    what: &'static str,
-    read: impl Fn(&R) -> bool + Send + Sync + 'static,
-    write: impl Fn(&mut World, bool) + Send + Sync + 'static,
-) -> AnyView {
-    let control =
-        toggle(resource::<R, _>(read)).on_toggle(write).boxed();
     setting(what, control, None)
 }

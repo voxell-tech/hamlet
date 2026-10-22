@@ -81,6 +81,9 @@ overlay_padding = 24.0
 tab_height = 30.0
 underline = 2.0
 bottom_start = 0.35
+switch_width = 36.0
+switch_height = 20.0
+switch_inset = 2.0
 
 [shadow]
 drop = 6.0

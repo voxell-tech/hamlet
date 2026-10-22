@@ -13,6 +13,8 @@ hamlet_engine_api.workspace = true
 hamlet_engine_core.workspace = true
 bevy.workspace = true
 bevy_fynix.workspace = true
+fynix.workspace = true
+lenz.workspace = true
 ron.workspace = true
 serde.workspace = true
 

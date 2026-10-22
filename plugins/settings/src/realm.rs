@@ -4,7 +4,7 @@
 use hamlet_engine_sdk::api::agents::RealmLimits;
 use hamlet_engine_sdk::ui::{
     AnyView, FrameProps, Size, Space, Tone, UiExt, ViewExt, column,
-    field, keyed, label, resource, row,
+    field, keyed, label, resource, row, switch,
 };
 
 use crate::parts::{note, part, problem, setting};
@@ -16,7 +16,7 @@ pub(crate) fn page() -> AnyView {
         whole("Most hamlets", ("hamlets", "most"), 1000, |l| {
             l.most_hamlets
         }),
-        switch(
+        yes(
             "Agents of different hamlets may have roads",
             ("hamlets", "roads_between"),
             |l| l.roads_between,
@@ -47,12 +47,12 @@ pub(crate) fn page() -> AnyView {
             100,
             |l| l.least_voters,
         ),
-        switch(
+        yes(
             "Ballots hidden until it closes",
             ("votes", "sealed"),
             |l| l.sealed,
         ),
-        switch(
+        yes(
             "A yes needs grounds in its house",
             ("votes", "grounded_only"),
             |l| l.grounded_only,
@@ -120,18 +120,21 @@ fn whole(
 }
 
 /// A yes or a no of the limits, at `key` of its section.
-fn switch(
+fn yes(
     what: &'static str,
     (section, key): (&'static str, &'static str),
     get: fn(&RealmLimits) -> bool,
 ) -> AnyView {
-    agents_ui::switch::<Known>(
+    switch(
         what,
-        move |known| known.limits.as_ref().is_some_and(get),
-        move |world, on| {
-            world.set_limit(section, key, on.to_string())
-        },
+        resource::<Known, _>(move |known| {
+            known.limits.as_ref().is_some_and(get)
+        }),
     )
+    .on_toggle(move |world, on| {
+        world.set_limit(section, key, on.to_string())
+    })
+    .boxed()
 }
 
 /// The share of yes a vote passes with: yes of so many, each from 1

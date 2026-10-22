@@ -1,5 +1,5 @@
 //! The styles of the shell's widgets, built from the theme: buttons
-//! of each kind, tabs, fields, toggles, choices, headings, notes,
+//! of each kind, tabs, fields, switches, choices, headings, notes,
 //! cards, lists, link rows, dividers, scroll areas and a panel's
 //! content, and how a control glows and gives under the hand.
 
@@ -7,18 +7,22 @@ use std::fmt::Debug;
 
 use bevy::prelude::*;
 use bevy::text::EditableText;
-use bevy::ui::InteractionDisabled;
+use bevy::ui::{Checked, InteractionDisabled};
 use bevy::ui_widgets::{
     Activate, ActivateOnPress, Button as ButtonBehavior,
 };
+use bevy::window::SystemCursorIcon;
 use bevy_fynix::tokens::{Motion, Tone};
+use bevy_fynix::transition::blend_f32;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, checkbox, column,
-    dropdown as choose, frame, label, row, scroll, text_field,
+    BehaviorExt, FrameProps, button, column, dropdown as choose,
+    frame, label, row, scroll, text_field,
 };
 use bevy_fynix::{
-    Focused, Hovered, Pressed, Prop, ScopedExt, Style, ViewExt, style,
+    Bevy, EntityCursor, Focused, Hovered, Pressed, Prop, ScopedExt,
+    Style, ViewExt, component, style,
 };
+use fynix::{Patch, element};
 
 use crate::fonts::DisplayText;
 use crate::icons::{Glyph, glyph};
@@ -80,6 +84,8 @@ pub enum Glow {
     Critical,
     /// A field, lit while it is typed in.
     Field,
+    /// About a switch's track, which is lit inside under the pointer.
+    Switch,
 }
 
 /// On the tab that is shown.
@@ -134,6 +140,29 @@ pub struct GlowState {
     shake: f32,
     glow: f32,
     reach: f32,
+}
+
+/// On the root node of a [`switch`].
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Switch;
+
+/// A node moved across from where it is laid out, by `by` logical
+/// pixels.
+#[element(backend = Bevy)]
+pub struct Slide {
+    #[elem(patch = PatchSlide, blend = blend_f32)]
+    pub by: Prop<f32>,
+}
+
+/// Writes how far a [`Slide`] is moved to its node.
+pub struct PatchSlide;
+
+impl Patch<Bevy, f32> for PatchSlide {
+    fn patch(world: &mut World, node: Entity, by: &f32) {
+        if let Some(mut laid) = world.get_mut::<Node>(node) {
+            laid.left = px(*by);
+        }
+    }
 }
 
 /// On a button under a primary press: the node inside it the press
@@ -523,22 +552,133 @@ pub fn field_rules() -> impl FnOnce(&mut Cx) + Send + Sync + 'static {
         .bundle()
 }
 
-/// A toggle showing `on`, as large as a button is tall, handing the
-/// state asked for to `change`.
+/// A [`switch`] showing `on`, handing the state asked for to
+/// `change`.
 pub fn toggle(
     on: impl Into<Prop<bool>>,
     change: impl Fn(&mut World, bool) + Send + Sync + 'static,
 ) -> AnyView {
-    let on = on.into();
+    switch(on, change)
+}
+
+/// A switch showing `on`: a track with its knob at the start while
+/// off and at the end while on, handing the state asked for to
+/// `change` when it is pressed. It never flips itself, so a bound
+/// `on` follows what `change` writes.
+pub fn switch(
+    on: impl Into<Prop<bool>>,
+    change: impl Fn(&mut World, bool) + Send + Sync + 'static,
+) -> AnyView {
+    switch_of(on.into(), None, change)
+}
+
+/// A [`switch`] with `text` beside it, pressed as one with it.
+pub fn labelled_switch(
+    text: impl Into<Prop<String>>,
+    on: impl Into<Prop<bool>>,
+    change: impl Fn(&mut World, bool) + Send + Sync + 'static,
+) -> AnyView {
+    switch_of(on.into(), Some(text.into()), change)
+}
+
+fn switch_of(
+    on: Prop<bool>,
+    text: Option<Prop<String>>,
+    change: impl Fn(&mut World, bool) + Send + Sync + 'static,
+) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
-        let side = cx.theme().space.row;
-        cx.build(
-            checkbox(on)
-                .width(px(side))
-                .height(px(side))
-                .on_change(change),
-        )
+        let theme = cx.theme();
+        let (space, colors) = (&theme.space, &theme.colors);
+        let (width, height, inset, border, gap) = (
+            space.switch_width,
+            space.switch_height,
+            space.switch_inset,
+            space.border,
+            space.gap,
+        );
+        let knob = height - 2.0 * (border + inset);
+        let travel = width - height;
+        let tracks = (*colors.accent, *colors.fill);
+        let frames = (*colors.accent_soft, *colors.border_strong);
+        let knobs = (*colors.text, *colors.text_muted);
+        cx.scope(|cx| {
+            style::<EngineTheme>()
+                .tone(Tone::Faint)
+                .hovered(|s| s.tone(Tone::Body))
+                .pressed(|s| s.tone(Tone::Dim))
+                .transition(Motion::Interact)
+                .apply(cx);
+            let root =
+                cx.build(row(()).gap(gap).align(AlignItems::Center));
+            cx.world.entity_mut(root).insert((
+                ButtonBehavior,
+                EntityCursor(SystemCursorIcon::Pointer),
+                Switch,
+                Glow::Switch,
+            ));
+            cx.effect(root, on, |world, node, &on| {
+                let Ok(mut entity) = world.get_entity_mut(node)
+                else {
+                    return;
+                };
+                if !on {
+                    entity.remove::<Checked>();
+                } else if !entity.contains::<Checked>() {
+                    entity.insert(Checked);
+                }
+            });
+            let by_state = move |(on, off): (Color, Color)| {
+                component::<Checked, _>(root, move |checked| {
+                    if checked.is_some() { on } else { off }
+                })
+            };
+            cx.under(root, |cx| {
+                let track = cx.build(
+                    frame()
+                        .width(px(width))
+                        .height(px(height))
+                        .shrink(0.0)
+                        .radius(height / 2.0)
+                        .border(border)
+                        .border_color(by_state(frames))
+                        .fill(by_state(tracks))
+                        .padding(UiRect::all(px(inset)))
+                        .align(AlignItems::Center),
+                );
+                cx.under(track, |cx| {
+                    let by = component::<Checked, _>(
+                        root,
+                        move |checked| {
+                            if checked.is_some() {
+                                travel
+                            } else {
+                                0.0
+                            }
+                        },
+                    );
+                    let slide = cx.build(Slide { by: by.into() });
+                    cx.under(slide, |cx| {
+                        cx.build(
+                            frame()
+                                .width(px(knob))
+                                .height(px(knob))
+                                .radius(knob / 2.0)
+                                .fill(by_state(knobs)),
+                        )
+                    });
+                });
+                if let Some(text) = text {
+                    cx.build(label(text));
+                }
+            });
+            root
+        })
     })
+    .on_activate_with(move |world, node| {
+        let on = world.get::<Checked>(node).is_some();
+        change(world, !on);
+    })
+    .boxed()
 }
 
 /// One of `options`, the one at `selected`, which opens a list of
@@ -1000,7 +1140,7 @@ fn animate(
         let (rest, near, done) = match glow {
             Glow::None => (0.0, 0.0, 0.0),
             Glow::Field => (0.0, set.field, 0.0),
-            Glow::Plain | Glow::Text => {
+            Glow::Plain | Glow::Text | Glow::Switch => {
                 (0.0, set.plain, set.done_gain * pulse)
             }
             Glow::Primary => (set.primary_rest, set.primary, pulse),
@@ -1047,9 +1187,9 @@ fn animate(
 }
 
 /// Draws each control's glow as shadows of its colours just below it,
-/// or below its text where it has no background, and lights the
-/// inside of the primary action and a field being typed in from the
-/// bottom.
+/// or below its text or its track where it has no background, and
+/// lights the inside of the primary action, a field being typed in
+/// and a switch's track from the bottom.
 fn apply_glow(
     theme: Res<EngineTheme>,
     controls: Query<(Entity, &GlowState, &Glow, Option<&Children>)>,
@@ -1059,13 +1199,26 @@ fn apply_glow(
 ) {
     let (set, colors) = (&theme.glow, &theme.colors);
     for (control, state, glow, within) in &controls {
-        if matches!(glow, Glow::Primary | Glow::Field) {
+        let target = match glow {
+            Glow::None => continue,
+            Glow::Text | Glow::Switch => {
+                let Some(first) =
+                    within.and_then(|within| within.first())
+                else {
+                    continue;
+                };
+                *first
+            }
+            _ => control,
+        };
+        if matches!(glow, Glow::Primary | Glow::Field | Glow::Switch)
+        {
             let inner = set.inner * state.glow;
-            let now = gradients.get(control).ok();
+            let now = gradients.get(target).ok();
             if inner <= 0.0 {
                 if now.is_some() {
                     commands
-                        .entity(control)
+                        .entity(target)
                         .try_remove::<BackgroundGradient>();
                 }
             } else {
@@ -1080,22 +1233,10 @@ fn apply_glow(
                     ]),
                 );
                 if now != Some(&want) {
-                    commands.entity(control).try_insert(want);
+                    commands.entity(target).try_insert(want);
                 }
             }
         }
-        let target = match glow {
-            Glow::None => continue,
-            Glow::Text => {
-                let Some(first) =
-                    within.and_then(|within| within.first())
-                else {
-                    continue;
-                };
-                *first
-            }
-            _ => control,
-        };
         let (hue, core) = match glow {
             Glow::Critical => {
                 (*colors.critical_glow, *colors.critical_strong)
@@ -1325,6 +1466,7 @@ mod tests {
     use bevy::camera::NormalizedRenderTarget;
     use bevy::picking::backend::HitData;
     use bevy::picking::pointer::{Location, PointerId};
+    use bevy::time::TimePlugin;
 
     use super::*;
 
@@ -1415,5 +1557,35 @@ mod tests {
         send(&mut world, label, end);
         release(&mut world, icon);
         assert_eq!(activated(&world), 1);
+    }
+
+    #[derive(Resource)]
+    struct Lit(bool);
+
+    #[test]
+    fn a_switch_asks_for_the_state_it_is_not_in() {
+        let mut app = App::new();
+        app.add_plugins((
+            TaskPoolPlugin::default(),
+            TimePlugin,
+            crate::views_plugin,
+        ))
+        .insert_resource(Lit(false));
+        let root = bevy_fynix::mount::<EngineTheme>(
+            app.world_mut(),
+            switch(
+                bevy_fynix::resource::<Lit, _>(|lit| lit.0),
+                |world, on| world.resource_mut::<Lit>().0 = on,
+            ),
+        );
+        for want in [true, false] {
+            app.world_mut().trigger(Activate { entity: root });
+            app.update();
+            assert_eq!(app.world().resource::<Lit>().0, want);
+            assert_eq!(
+                app.world().get::<Checked>(root).is_some(),
+                want
+            );
+        }
     }
 }

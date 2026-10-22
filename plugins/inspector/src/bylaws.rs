@@ -2,16 +2,14 @@
 //! writing one key of it through the agents service, which refuses
 //! the realm's.
 
-use agents_ui::{
-    AgentsWorldExt, Heard, note, part, setting, switch, whole,
-};
+use agents_ui::{AgentsWorldExt, Heard, note, part, setting, whole};
 use hamlet_engine_sdk::api::agents::{
     AgentsReply, AgentsRequest, Bylaws, CatalogueModel, Priced,
 };
 use hamlet_engine_sdk::ui::{
     AnyView, FrameProps, Size, Space, Tone, UiExt, ViewExt, World,
     column, dropdown, field, icon_button, keyed, label, resource,
-    row, toggle,
+    row, switch, toggle,
 };
 
 use crate::agent::{Models, offered};
@@ -161,13 +159,11 @@ fn yes(
     (section, key): (&'static str, &'static str),
     get: fn(&Bylaws) -> bool,
 ) -> AnyView {
-    switch::<Laws>(
-        what,
-        move |laws| get(&laws.bylaws),
-        move |world, on| {
+    switch(what, resource::<Laws, _>(move |laws| get(&laws.bylaws)))
+        .on_toggle(move |world, on| {
             set(world, section, key, Some(on.to_string()))
-        },
-    )
+        })
+        .boxed()
 }
 
 /// A sum in dollars of the bylaws, at `key` of `section`, from 0 to

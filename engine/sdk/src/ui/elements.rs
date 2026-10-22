@@ -82,11 +82,13 @@ pub struct Icon {
     pub offset: Prop<World, (f32, f32)>,
 }
 
-/// A switch showing `on`.
+/// A switch showing `on`, and `text` beside it unless it is empty.
 #[element(backend = Hamlet)]
 pub struct Toggle {
     #[elem(patch = SetOn)]
     pub on: Prop<World, bool>,
+    #[elem(patch = SetText)]
+    pub text: Prop<World, String>,
     #[elem(default = 1.0, patch = SetOpacity, blend = blend)]
     pub opacity: Prop<World, f32>,
     #[elem(default = (0.0, 0.0), patch = SetOffset, blend = shift)]
@@ -206,13 +208,21 @@ pub fn icon(name: impl Into<Prop<World, String>>) -> Icon {
     }
 }
 
-/// A toggle showing `on`; [`on_toggle`](UiExt::on_toggle) runs as the
+/// A switch showing `on`; [`on_toggle`](UiExt::on_toggle) runs as the
 /// person switches it.
 pub fn toggle(on: impl Into<Prop<World, bool>>) -> Toggle {
     Toggle {
         on: on.into(),
         ..Toggle::unset()
     }
+}
+
+/// A [`toggle`] with `text` beside it, pressed as one with it.
+pub fn switch(
+    text: impl Into<Prop<World, String>>,
+    on: impl Into<Prop<World, bool>>,
+) -> Toggle {
+    toggle(on).text(text)
 }
 
 /// A field showing `text`; [`on_commit`](UiExt::on_commit) runs with

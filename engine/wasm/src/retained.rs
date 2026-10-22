@@ -64,7 +64,8 @@ use hamlet_engine_shell::message::message_field;
 use hamlet_engine_shell::stick::{ReachedTop, StickToEnd};
 use hamlet_engine_shell::style::{
     ButtonStyle, action, content_button, divider, dropdown, field,
-    icon_row, list_row, note, raised, scroll_area, toggle,
+    icon_row, labelled_switch, list_row, note, raised, scroll_area,
+    switch,
 };
 use hamlet_engine_shell::{
     AnyView, Cx, EngineTheme, Overlay, OverlayShown, Panel,
@@ -470,6 +471,10 @@ enum Shape {
         name: String,
         tinted: bool,
     },
+    Toggle {
+        /// It has words beside it.
+        labelled: bool,
+    },
     Field {
         placeholder: String,
         lines: u32,
@@ -498,6 +503,9 @@ impl Shape {
             Kind::Icon => Self::Icon {
                 name: props.text.clone(),
                 tinted: props.has(TONE),
+            },
+            Kind::Toggle => Self::Toggle {
+                labelled: !props.text.is_empty(),
             },
             Kind::Field => Self::Field {
                 placeholder: props.placeholder.clone(),
@@ -767,16 +775,25 @@ fn widget(
                 beside_words(icon, parent)
             }
         }
-        (Kind::Toggle, _) => toggle(
-            read(holder, |props| props.on),
-            move |world, on| {
+        (Kind::Toggle, &Shape::Toggle { labelled }) => {
+            let on = read(holder, |props| props.on);
+            let change = move |world: &mut World, on| {
                 world.write_message(NodeAction {
                     plugin,
                     key,
                     input: NodeInput::Toggle(on),
                 });
-            },
-        ),
+            };
+            if labelled {
+                labelled_switch(
+                    read(holder, |props| props.text.clone()),
+                    on,
+                    change,
+                )
+            } else {
+                switch(on, change)
+            }
+        }
         (Kind::Field, Shape::Field { placeholder, lines }) => {
             let tell = move |input: fn(String) -> NodeInput| {
                 move |world: &mut World, text: String| {

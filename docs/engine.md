@@ -153,11 +153,13 @@ types, so the WIT names nothing twice.
 - **The kinds of node**: `frame` (a column or a row), `label`,
   `button` (showing its text, or holding an icon and a label as an
   icon button does), `icon` (one of the engine's set, by name),
-  `toggle`, `field` (text to edit), `list` (rows with a divider
+  `toggle` (a switch, with its text beside it), `field` (text to
+  edit), `list` (rows with a divider
   between each), `scroll` (a column that scrolls), `divider` and
   `dropdown` (one of its options shown, opening a list to pick
   another). A frame, a button, a list and a scroll hold nodes.
-- **The properties**, each of the kinds it names: `text`, `tone`,
+- **The properties**, each of the kinds it names: `text` (a
+  label's, a button's, an icon's, a toggle's and a field's), `tone`,
   `size`, `bold`, `face` (the body's or the display face), `opacity`,
   `offset`, `tip` and `menu` (of every kind; a tip is words shown
   near the pointer while it rests on the node, and a menu its items,
@@ -220,7 +222,8 @@ the engine the SDK comes with.
   it, of the kind of its element, and a property still at its first
   value is not sent. The elements are `label` (and `heading`),
   `button`, `icon_button` (an icon and a label in a button), `icon`,
-  `toggle`, `field`, `dropdown`, `divider`, and the holders `column`,
+  `toggle` (and `switch`, one with words beside it), `field`,
+  `dropdown`, `divider`, and the holders `column`,
   `row`, `list` and `scroll`; `keyed` builds a view again when its
   key changes, and `each` a view per item of a list. `on_click`,
   `on_toggle`, `on_commit`, `on_submit`, `on_pick` and `on_top` run a
@@ -326,7 +329,7 @@ it is shown or not. Its outline is a line for each node, `#` and its
 key, indented under the node that holds it, and a line for each text
 it shows. A widget is named by text it shows: `click` presses the
 button whose text it is, `write` leaves text in the field whose
-placeholder it is, `toggle` switches the toggle nearest it, and
+placeholder it is, `toggle` switches the switch nearest it, and
 `hover` puts the pointer over a watched node by its text.
 
 The test `the_samples_pass_their_steps` (ignored, as it builds the
@@ -429,8 +432,10 @@ buttons, cards, headings, notes, icons and chrome. Dark only.
   face, `icon_button` after an icon; `content_button` is a button
   padded as `icon_button` is, showing any view, and `icon_row` and
   `raised` set out an icon and its text as `icon_button` does.
-  Besides: `field`, `toggle`, `dropdown`, `choices`, `heading`,
-  `section`,
+  Besides: `field`, `switch` (a track whose knob glides to its end
+  while on, in the accent, flipping on a press as a button does,
+  `labelled_switch` with words beside it, and `toggle` the same as
+  `switch`), `dropdown`, `choices`, `heading`, `section`,
   `caption`, `note`, `card`, `list` (its rows each a `list_row`),
   `link_row` and `link_rows`, `page_head`, `divider`, `buttons` (a row
   that wraps), `scroll_area` and `title_button`. `StyleExt` wraps any
@@ -868,7 +873,8 @@ their names in `[limits]`.
   label, a `content_button` setting them out as `icon_button` does; an
   icon one of the engine's set by its name (`plus`, `check`, `bell`,
   ... as `Glyph::name` has them), a name the set does not have shown
-  as it is; a toggle `toggle`, a field `field`, or `message_field`
+  as it is; a toggle a `switch`, or a `labelled_switch` when it has
+  text, a field `field`, or `message_field`
   with more than one line (`message.rs`), a list `list_row`s, a
   scroll `scroll_area`, with `StickToEnd` when it sticks
   (`stick.rs`), a divider `divider`, and a dropdown
@@ -969,7 +975,8 @@ holds a key: a key typed in Welcome goes to the service with
   PLACE FOR MODELS, which begins a setup that adds one. Models: the
   default model as a dropdown of the model run now and those allowed,
   LIST MODELS, FIND, what each endpoint answered, and the first 40
-  models found, each with its allowed toggle, its prices in and out
+  models found, each with a switch to allow it beside its name, its
+  prices in and out
   (a field where the price is unknown or the person's own), where
   its price comes from and what it holds. Agents: reflect every N
   turns (0 to 1000), the tools' network access, Keep awake (from the
@@ -1121,12 +1128,13 @@ verb beside CANCEL with a warning for agents it cuts short.
   (`bylaws.rs`: its own limits as `main`'s rules panel sets them, on
   one page: the budget's period and cap with START IT AGAIN NOW, a
   task's cost and messages, a road's price, the models it may run,
-  each a toggle beside its card line (its name, its prices, what it
+  each a switch beside its card line (its name, its prices, what it
   holds and its note), and its default, what its mayor may do
   without asking, and its
   most agents and roads, each written with `SetBylaw`) and RECORD.
   The realm's page and the bylaws share the controls of a limit,
-  `agents_ui`'s `whole`, `switch` and `setting`.
+  `agents_ui`'s `whole` and `setting`, and set a yes or a no with a
+  `switch` named beside it.
 - **`plugins/skills`** (`hamlet.skills`, asking `agents.read` and
   `agents.chief`) is the agent's own skills over the library's, each
   with TAKE OUT, and OPEN CHAT, which brings the chat to the front,

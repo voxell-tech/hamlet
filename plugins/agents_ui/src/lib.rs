@@ -24,7 +24,7 @@ pub use self::client::{
 pub use self::confirm::{CONFIRM, Confirm, Confirming, confirmation};
 pub use self::entry::entry_view;
 pub use self::library::library_list;
-pub use self::limits::{name, note, part, setting, switch, whole};
+pub use self::limits::{name, note, part, setting, whole};
 pub use self::markdown::markdown;
 pub use self::questions::card;
 pub use self::signals::{either, moved};

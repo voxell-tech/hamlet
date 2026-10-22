@@ -7,7 +7,7 @@ use hamlet_engine_sdk::api::agents::{
 };
 use hamlet_engine_sdk::ui::{
     AnyView, FrameProps, Size, Space, Tone, UiExt, ViewExt, button,
-    column, dropdown, field, keyed, label, resource, row, toggle,
+    column, dropdown, field, keyed, label, resource, row, switch,
 };
 
 use crate::parts::{name, note, problem};
@@ -158,8 +158,8 @@ fn entry(model: &CatalogueModel) -> AnyView {
         None => source.to_string(),
     };
     column((
-        row((
-            toggle(allowed).on_toggle(move |world, on| {
+        switch(model.name.clone(), allowed).on_toggle(
+            move |world, on| {
                 world.ask(
                     Page::Models,
                     AgentsRequest::AllowModel {
@@ -167,9 +167,8 @@ fn entry(model: &CatalogueModel) -> AnyView {
                         allowed: on,
                     },
                 );
-            }),
-            label(model.name.clone()),
-        )),
+            },
+        ),
         row((
             small("IN"),
             price(model, true),

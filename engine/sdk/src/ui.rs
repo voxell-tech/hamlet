@@ -40,7 +40,7 @@ pub use self::elements::{
     Menued, OnInput, Scroll, ScrollProps, Stack, Tipped, Toggle,
     ToggleProps, UiExt, button, column, divider, dropdown, field,
     heading, icon, icon_button, label, list, menu_item, pressable,
-    row, scroll, toggle,
+    row, scroll, switch, toggle,
 };
 pub use self::nodes::{Key, States};
 pub use self::world::{World, resource};

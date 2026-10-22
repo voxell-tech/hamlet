@@ -100,8 +100,8 @@ interface ui {
         button,
         /// An icon of the engine's set, named by its `text`.
         icon,
-        /// A switch showing `on`. The person switching it is a
-        /// `toggled`.
+        /// A switch showing `on`, and its `text` beside it if any.
+        /// The person switching it is a `toggled`.
         toggle,
         /// Text to edit, showing `text`, and `placeholder` while it
         /// is empty. What the person leaves in it is a `committed`.
@@ -214,7 +214,7 @@ interface ui {
     /// role is filled in from the engine's theme as it is now, again
     /// whenever the theme changes.
     variant property {
-        /// Of a label, a button, an icon and a field.
+        /// Of a label, a button, an icon, a toggle and a field.
         text(string),
         /// Of a label and an icon.
         tone(tone),

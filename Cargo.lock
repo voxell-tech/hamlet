@@ -3823,8 +3823,10 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_fynix",
+ "fynix",
  "hamlet_engine_api",
  "hamlet_engine_core",
+ "lenz",
  "ron",
  "serde",
  "toml",
