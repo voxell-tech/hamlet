@@ -166,7 +166,8 @@ types, so the WIT names nothing twice.
   near the pointer while it rests on the node, and a menu its items,
   opened at the pointer on a right-click and, when it says so, on a
   click, an item with a `group` under a row of that name that opens
-  them beside it), `style` and `folder` (a button's; a button with a
+  them beside it), `style` and `folder` (a button's: plain, primary,
+  critical, quiet or row, a row of a list; a button with a
   folder's title opens the system's dialog to choose a folder when
   it is pressed, in place of a click),
   `direction`, `align` (its children at its start or its end),
@@ -926,7 +927,9 @@ written here by their names in `[budgets]`.
   a `label` (`DisplayText`, not wrapping, in the display face), its
   tone, size and boldness left to the rules it is under unless set; a
   button `action` in its `ButtonStyle`, or, holding an icon and a
-  label, a `content_button` setting them out as `icon_button` does; an
+  label, a `content_button` setting them out as `icon_button` does,
+  or, a row holding nodes, them in a `ButtonStyle::Row` as `link_row`
+  sets out its own, the last at its end; an
   icon one of the engine's set by its name (`plus`, `check`, `bell`,
   ... as `Glyph::name` has them), a name the set does not have shown
   as it is; a toggle a `switch`, or a `labelled_switch` when it has
@@ -1121,9 +1124,14 @@ focus, the roster, the needs and the library's skills as resources),
 a message, a change, the card of an agent's questions, Markdown as
 labels can set it (headings, paragraphs, items, quotes, code and
 rules; a link is its words, and each `https` link is a button under
-the text that opens it and leads to its address), and a confirmation
+the text that opens it and leads to its address), a confirmation
 on an overlay, the
-verb beside CANCEL with a warning for agents it cuts short.
+verb beside CANCEL with a warning for agents it cuts short,
+`breadcrumb`, the shell's breadcrumb made of the SDK's nodes: a quiet
+button for each page above, a dim `/` after each, and the page shown
+in the display face and the tone of a head, and `link_row` and
+`link_rows`, the rows of a list as the Plugins list's: a row button
+with a chevron at its end, a divider between each and the next.
 
 - **`plugins/chat`** (`hamlet.chat`, asking `agents.read`,
   `agents.chief` and `desktop.open https`) is the panel Chat, apart from the Inspector. Its
@@ -1151,8 +1159,15 @@ verb beside CANCEL with a warning for agents it cuts short.
   a session resumed is read again.
 - **`plugins/inspector`** (`hamlet.inspector`, asking `agents.read`,
   `agents.chief`, `agents.settings` and `desktop.open https`) shows
-  what is selected. An agent: its hamlet as
-  a way back, its state, STOP while it works, More (`more.rs`: a
+  what is selected. A page under another is headed by a breadcrumb
+  of the pages above it, each pressed to go back to it, fixed over
+  what scrolls; names are as stored and a tab is not part of it:
+  HAMLETS / the hamlet, HAMLETS / the hamlet / the agent, the same
+  with PROMPT after the agent on its prompt, HAMLETS / THE LIBRARY,
+  and ARCHIVE / the session in the reader of the ARCHIVE tab. Its
+  lists of hamlets, of a hamlet's agents, of past sessions and of the
+  hamlets closed down are `link_rows`. An agent: its
+  state, STOP while it works, More (`more.rs`: a
   menu naming agents as they are named, of talking to it, its prompt,
   stopping it, Build a road to each agent of its hamlet it has no
   road to yet, Give a skill... with each skill another has or a
@@ -1167,10 +1182,11 @@ verb beside CANCEL with a warning for agents it cuts short.
   lists the past sessions with a search and counts, each read on a
   click, and read, resumed (bringing the chat to the front) or
   deleted from its menu, and reads one
-  forty messages at a time. One that is gone, with RESTORE, DELETE FOR
-  GOOD and ITS HAMLET. The library, with OPEN CHAT while it is empty,
-  which brings the chat to the front. Every hamlet, searched, each with
-  Close Down in its menu, with FOUND A HAMLET, those closed down, and
+  forty messages at a time. One that is gone, under its hamlet, with
+  RESTORE and DELETE FOR GOOD. The library, with OPEN CHAT while it is empty,
+  which brings the chat to the front. Every hamlet, FOUND A HAMLET
+  over the search as ADD PLUGIN... is over the Plugins list's, each
+  with Close Down in its menu, those closed down, and
   YOUR HEARTH, which selects the chief's place for the realm to bring
   into view.
   FOUND A HAMLET, and Found a Hamlet... in the Hamlet menu, show the

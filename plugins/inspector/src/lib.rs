@@ -32,6 +32,10 @@ use crate::overview::Search;
 /// The characters of a purpose shown.
 pub(crate) const PURPOSE: usize = 96;
 
+/// The name of the page of every hamlet, at the start of each
+/// breadcrumb.
+pub(crate) const HAMLETS: &str = "HAMLETS";
+
 /// What is typed in the Inspector's fields, kept across a reload:
 /// the founding form, the search of the hamlets and a rename.
 type Kept = (

@@ -1,10 +1,11 @@
 //! What the agents' panels share: the agents service as they read it
 //! (the window's focus, the roster, what waits for the chief, the
 //! library), and the views of a message, a change, a card of
-//! questions, a confirmation, Markdown and the controls of a limit.
-//! It is a library the panels' plugins are built with, not a plugin
-//! of its own.
+//! questions, a confirmation, Markdown, the controls of a limit, a
+//! breadcrumb and the rows of a list. It is a library the panels'
+//! plugins are built with, not a plugin of its own.
 
+mod breadcrumb;
 mod change;
 mod client;
 mod confirm;
@@ -13,9 +14,11 @@ mod library;
 mod limits;
 mod markdown;
 mod questions;
+mod rows;
 mod signals;
 mod words;
 
+pub use self::breadcrumb::breadcrumb;
 pub use self::change::{Changes, change_view};
 pub use self::client::{
     AgentsWorldExt, Asked, Focused, Heard, Shelves, Waits, show_chat,
@@ -27,6 +30,7 @@ pub use self::library::library_list;
 pub use self::limits::{name, note, part, setting, whole};
 pub use self::markdown::markdown;
 pub use self::questions::card;
+pub use self::rows::{link_row, link_rows};
 pub use self::signals::{either, moved};
 pub use self::words::{
     FailureExt, clip, hour, narrowed, short, since, tag_of, tail,

@@ -3,21 +3,23 @@
 //! reader of one.
 
 use agents_ui::{
-    AgentsWorldExt, Focused, Heard, clip, entry_view, name,
-    show_chat, since,
+    AgentsWorldExt, Focused, Heard, breadcrumb, clip, entry_view,
+    link_row, link_rows, name, show_chat, since,
 };
 use hamlet_engine_sdk::api::agents::{
     AgentsReply, AgentsRequest, Past, Pasts, SessionMessage,
 };
 use hamlet_engine_sdk::ui::{
     AnyView, ButtonProps, ButtonStyle, Cx, FrameProps, Size, Space,
-    Tone, UiExt, ViewExt, World, button, column, divider, each,
-    field, icon_button, keyed, label, menu_item, pressable, resource,
-    row, scroll,
+    Tone, UiExt, ViewExt, World, button, column, divider, field,
+    icon_button, keyed, label, menu_item, resource, row, scroll,
 };
 
 /// Characters of a title a row shows.
 const TITLE_SHOWN: usize = 90;
+
+/// Characters of a title the reader's breadcrumb shows, on one line.
+const CRUMB_SHOWN: usize = 40;
 
 /// Messages of a session built at a time.
 const PAGE: usize = 40;
@@ -223,20 +225,27 @@ fn row_view(past: &Past) -> AnyView {
             .critical(),
         );
     }
-    pressable((column((
-        label(clip(&past.title, TITLE_SHOWN))
-            .bold(true)
-            .tone(if live { Tone::Accent } else { Tone::Body }),
-        label(detail(past)).size(Size::Small).tone(Tone::Dim),
-    ))
-    .space(Space::None),))
+    link_row(
+        column((
+            label(clip(&past.title, TITLE_SHOWN))
+                .bold(true)
+                .tone(if live { Tone::Accent } else { Tone::Body }),
+            label(detail(past)).size(Size::Small).tone(Tone::Dim),
+        ))
+        .space(Space::Half)
+        .boxed(),
+    )
     .on_click(move |world| open(world, &read))
     .menu(items)
     .boxed()
 }
 
+/// The list, under whose it is.
 fn list_view() -> AnyView {
-    column((
+    let whose = name(resource::<Focused, _>(|focused| {
+        format!("{}: ARCHIVE", focused.whose())
+    }));
+    let list = column((
         field(resource::<Archive, _>(|archive| {
             archive.query.clone()
         }))
@@ -263,17 +272,15 @@ fn list_view() -> AnyView {
             archive.failed.clone().unwrap_or_default()
         }))
         .tone(Tone::Critical),
-        scroll((each(
+        scroll((keyed(
             resource::<Archive, _>(|archive| {
                 archive.pasts.found.clone()
             }),
-            |past: &Past| past.clone(),
-            row_view,
-        )
-        .within(column(()).space(Space::Gap)),)),
+            |found| link_rows(found.iter().map(row_view).collect()),
+        ),)),
     ))
-    .space(Space::Half)
-    .boxed()
+    .space(Space::Half);
+    column((whose, list)).space(Space::Gap).boxed()
 }
 
 /// The buttons for the session being read.
@@ -300,12 +307,7 @@ fn actions(past: &Past) -> AnyView {
                 .space(Space::Half)
                 .boxed();
             }
-            let mut buttons = vec![
-                icon_button("back", "BACK")
-                    .style(ButtonStyle::Quiet)
-                    .on_click(close)
-                    .boxed(),
-            ];
+            let mut buttons = Vec::new();
             if past.ours {
                 let resumed = past.clone();
                 buttons.push(
@@ -375,7 +377,12 @@ fn reader(reading: &Reading, speaker: String) -> AnyView {
         )
     }));
     column((
-        label(clip(&past.title, TITLE_SHOWN)).bold(true),
+        breadcrumb(
+            vec!["ARCHIVE".into()],
+            clip(&past.title, CRUMB_SHOWN),
+            |world, _| close(world),
+        )
+        .tip(clip(&past.title, TITLE_SHOWN)),
         label(detail(past)).size(Size::Small).tone(Tone::Dim),
         actions(past),
         label(hint).size(Size::Small).tone(Tone::Dim),
@@ -386,13 +393,10 @@ fn reader(reading: &Reading, speaker: String) -> AnyView {
     .boxed()
 }
 
-/// The ARCHIVE tab: the list, or the reader of one session, under
-/// whose it is.
+/// The ARCHIVE tab: the list under whose it is, or the reader of one
+/// session.
 pub(crate) fn screen() -> AnyView {
-    let whose = name(resource::<Focused, _>(|focused| {
-        format!("{}: ARCHIVE", focused.whose())
-    }));
-    let shown = keyed(
+    keyed(
         resource::<Archive, _>(|archive| archive.reading.clone()),
         |reading| match reading {
             Some(reading) => {
@@ -408,6 +412,6 @@ pub(crate) fn screen() -> AnyView {
             }
             None => list_view(),
         },
-    );
-    column((whose, shown)).space(Space::Gap).boxed()
+    )
+    .boxed()
 }

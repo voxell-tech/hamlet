@@ -14,6 +14,12 @@ expect = { panel = "hamlet.inspector/inspector", text = "HAMLETS" }
 expect = { panel = "hamlet.inspector/inspector", text = "No hamlet by that name." }
 
 [[step]]
+write = { panel = "hamlet.inspector/inspector", widget = "Search hamlets", text = "home" }
+
+[[step]]
+expect = { panel = "hamlet.inspector/inspector", text = "No hamlet by that name." }
+
+[[step]]
 click = { panel = "hamlet.inspector/inspector", widget = "FOUND A HAMLET" }
 
 [[step]]

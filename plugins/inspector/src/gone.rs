@@ -1,29 +1,43 @@
 //! The page of an agent that is gone, and of the library.
 
 use agents_ui::{
-    AgentsWorldExt, Confirm, library_list, moved, short,
+    AgentsWorldExt, Confirm, breadcrumb, library_list, moved, short,
 };
 use hamlet_engine_sdk::api::agents::{
     AgentsRequest, Roster, RosterAgent, Selected,
 };
 use hamlet_engine_sdk::ui::{
     AnyView, ButtonProps, ButtonStyle, FrameProps, Space, Tone,
-    UiExt, ViewExt, World, column, derived, heading, icon,
-    icon_button, keyed, label, row, scroll,
+    UiExt, ViewExt, World, column, derived, icon, icon_button, keyed,
+    label, row, scroll,
 };
 
-use crate::{PURPOSE, agent_named, select};
+use crate::{HAMLETS, PURPOSE, agent_named, select};
 
-fn page(agent: &RosterAgent) -> AnyView {
+/// The page of the agent `agent`, which is gone, from the hamlet
+/// titled `of` if that is still there.
+fn page((agent, of): &(RosterAgent, Option<String>)) -> AnyView {
     let fate = match &agent.merged_into {
         Some(host) => format!("Merged into {host}"),
         None => "Removed".to_string(),
     };
     let (restored, erased, hamlet) =
         (agent.clone(), agent.clone(), agent.hamlet.clone());
+    let mut trail = vec![HAMLETS.to_string()];
+    trail.extend(of.clone());
     column((
         row((
-            heading(agent.name.to_uppercase()),
+            breadcrumb(
+                trail,
+                agent.name.clone(),
+                move |world, at| {
+                    let to = match at {
+                        0 => Selected::Nothing,
+                        _ => Selected::Hamlet(hamlet.clone()),
+                    };
+                    select(world, to);
+                },
+            ),
             icon("struck").tone(Tone::Critical),
             label(fate).tone(Tone::Critical),
         ))
@@ -67,11 +81,6 @@ fn page(agent: &RosterAgent) -> AnyView {
                         }],
                     });
                 }),
-            icon_button("house", "ITS HAMLET").on_click(
-                move |world| {
-                    select(world, Selected::Hamlet(hamlet.clone()))
-                },
-            ),
         ))
         .space(Space::Half),
     ))
@@ -83,7 +92,14 @@ fn page(agent: &RosterAgent) -> AnyView {
 pub(crate) fn gone(name: String) -> AnyView {
     keyed(
         derived(move |world: &World| {
-            agent_named(world, &name).cloned()
+            let agent = agent_named(world, &name)?.clone();
+            let of = world
+                .resource::<Roster>()
+                .hamlets
+                .iter()
+                .find(|hamlet| hamlet.id == agent.hamlet)
+                .map(|hamlet| hamlet.title.clone());
+            Some((agent, of))
         })
         .when(moved::<Roster>()),
         |agent| match agent {
@@ -97,10 +113,11 @@ pub(crate) fn gone(name: String) -> AnyView {
 /// The library: what it is, and its shelves.
 pub(crate) fn library() -> AnyView {
     column((
-        heading("THE LIBRARY"),
-        row((icon_button("back", "ALL HAMLETS")
-            .style(ButtonStyle::Quiet)
-            .on_click(|world| select(world, Selected::Nothing)),)),
+        breadcrumb(
+            vec![HAMLETS.into()],
+            "THE LIBRARY",
+            |world, _| select(world, Selected::Nothing),
+        ),
         label(
             "Every agent shares these skills. An agent offers one \
              and the librarian decides whether to keep it.",

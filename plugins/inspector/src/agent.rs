@@ -3,20 +3,20 @@
 //! conversation, which selecting an agent opens.
 
 use agents_ui::{
-    AgentsWorldExt, Focused, Heard, either, markdown, moved, short,
+    AgentsWorldExt, Focused, Heard, breadcrumb, either, markdown,
+    moved, short,
 };
 use hamlet_engine_sdk::api::agents::{
     AgentsEvent, AgentsReply, AgentsRequest, CatalogueModel, Papers,
     Recipient, Roster, Selected,
 };
 use hamlet_engine_sdk::ui::{
-    AnyView, ButtonProps, ButtonStyle, Face, FrameProps, Size, Space,
-    Tone, UiExt, ViewExt, World, button, column, derived, divider,
-    dropdown, heading, icon, icon_button, keyed, label, resource,
-    row, scroll,
+    AnyView, ButtonProps, ButtonStyle, FrameProps, Size, Space, Tone,
+    UiExt, ViewExt, World, button, column, derived, divider,
+    dropdown, icon, icon_button, keyed, label, resource, row, scroll,
 };
 
-use crate::{PURPOSE, agent_named, archive, more, select};
+use crate::{HAMLETS, PURPOSE, agent_named, archive, more, select};
 
 /// The part of the agent the page shows.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -258,25 +258,52 @@ fn model_choice(name: String, now: String) -> AnyView {
     .boxed()
 }
 
+/// Where the page of the agent `title` is: under every hamlet and its
+/// own, `hamlet`, and over its prompt while that is shown.
+fn crumb(hamlet: Option<(String, String)>, title: String) -> AnyView {
+    keyed(
+        resource::<Shown, _>(|shown| shown.tab == Tab::Prompt),
+        move |prompt| {
+            let mut trail = vec![HAMLETS.to_string()];
+            trail.extend(hamlet.as_ref().map(|(_, of)| of.clone()));
+            let current = if *prompt {
+                trail.push(title.clone());
+                "PROMPT".to_string()
+            } else {
+                title.clone()
+            };
+            let id = hamlet.as_ref().map(|(id, _)| id.clone());
+            breadcrumb(trail, current, move |world, at| {
+                match (at, &id) {
+                    (0, _) => select(world, Selected::Nothing),
+                    (1, Some(id)) => {
+                        select(world, Selected::Hamlet(id.clone()))
+                    }
+                    _ => {
+                        let back = world.resource::<Shown>().back;
+                        show(world, back);
+                    }
+                }
+            })
+        },
+    )
+    .boxed()
+}
+
 fn header(head: &Head) -> AnyView {
     let mut parts = Vec::new();
-    if let Some((id, title)) = head.hamlet.clone() {
-        parts.push(
-            icon_button("back", title.to_uppercase())
-                .style(ButtonStyle::Quiet)
-                .on_click(move |world| {
-                    select(world, Selected::Hamlet(id.clone()))
-                })
-                .boxed(),
-        );
-    }
-    let (title, purpose) = if head.mayor {
-        ("THE MAYOR".to_string(), "Runs this hamlet.".to_string())
+    let title = if head.name.is_empty() && head.mayor {
+        "THE MAYOR".to_string()
     } else {
-        (head.name.to_uppercase(), short(&head.purpose, PURPOSE))
+        head.name.clone()
+    };
+    let purpose = if head.mayor {
+        "Runs this hamlet.".to_string()
+    } else {
+        short(&head.purpose, PURPOSE)
     };
     let mut top = vec![
-        heading(title).boxed(),
+        crumb(head.hamlet.clone(), title),
         icon(if head.busy { "bolt" } else { "moon" })
             .tone(Tone::Accent)
             .boxed(),
@@ -372,21 +399,6 @@ fn character() -> AnyView {
 
 fn prompt() -> AnyView {
     column((
-        keyed(resource::<Shown, _>(|shown| shown.back), |back| {
-            let words = TABS
-                .iter()
-                .find(|(tab, _)| tab == back)
-                .map_or("BACK", |(_, words)| words);
-            let back = *back;
-            row((
-                icon_button("back", words)
-                    .style(ButtonStyle::Quiet)
-                    .on_click(move |world| show(world, back)),
-                label("PROMPT").bold(true).face(Face::Display),
-            ))
-            .space(Space::Gap)
-            .boxed()
-        }),
         label("What this agent is told at the start of a turn.")
             .size(Size::Small)
             .tone(Tone::Dim),

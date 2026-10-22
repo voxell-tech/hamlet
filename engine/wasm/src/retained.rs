@@ -46,7 +46,7 @@ use bevy_fynix::tokens::{
 use bevy_fynix::transition::blend_color;
 use bevy_fynix::views::{
     BehaviorExt, ContextMenuExt, FrameProps, TooltipExt, column,
-    label, menu_item, submenu,
+    label, menu_item, row, submenu,
 };
 use bevy_fynix::{
     Bevy, Each, Keyed, ReducedMotion, Signal, ViewExt, component,
@@ -309,6 +309,7 @@ impl Props {
                         ButtonStyle::Critical
                     }
                     wit::ButtonStyle::Quiet => ButtonStyle::Quiet,
+                    wit::ButtonStyle::Row => ButtonStyle::Row,
                 };
             }
             Property::Direction(direction) => {
@@ -750,7 +751,9 @@ fn widget(
                     });
                 }
             };
-            if holds {
+            if holds && style == ButtonStyle::Row {
+                row_button(holder, plugin, click)
+            } else if holds {
                 content_button(
                     style,
                     kids(holder, plugin, Place::Button)
@@ -919,6 +922,31 @@ fn icon(name: &str) -> AnyView {
 
 /// The frame of the node of `holder`, a node of `plugin`, drawn on
 /// `fill`, its colours from the theme.
+/// A button of the style `Row` holding what the node of `holder`
+/// holds, set out as a row of a list is: from its start, its last at
+/// its end. A press runs `click`.
+fn row_button(
+    holder: Entity,
+    plugin: Entity,
+    click: impl Fn(&mut World) + Send + Sync + 'static,
+) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let section = cx.theme().space.section;
+        cx.build(
+            kids(holder, plugin, Place::Frame)
+                .within(
+                    row(())
+                        .gap(section)
+                        .grow(1.0)
+                        .align(AlignItems::Center)
+                        .justify(JustifyContent::SpaceBetween),
+                )
+                .styled(ButtonStyle::Row)
+                .on_activate(click),
+        )
+    })
+}
+
 fn frame(holder: Entity, plugin: Entity, fill: wit::Fill) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let frame = column(())

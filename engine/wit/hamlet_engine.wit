@@ -199,6 +199,9 @@ interface ui {
         primary,
         critical,
         quiet,
+        /// A row of a list that leads somewhere, its last child at
+        /// its end.
+        row,
     }
 
     /// A movement the engine animates a value over, by its theme.

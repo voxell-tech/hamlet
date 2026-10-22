@@ -2,7 +2,8 @@
 //! works on, and its agents, bylaws and record as tabs.
 
 use agents_ui::{
-    AgentsWorldExt, Confirm, Focused, Heard, either, moved, part,
+    AgentsWorldExt, Confirm, Focused, Heard, breadcrumb, either,
+    link_rows, moved, part,
 };
 use hamlet_engine_sdk::api::agents::{
     AgentsReply, AgentsRequest, Papers, Record, Roster, RosterAgent,
@@ -11,14 +12,14 @@ use hamlet_engine_sdk::api::agents::{
 use hamlet_engine_sdk::ui::{
     AnyView, ButtonProps, ButtonStyle, Cx, Face, FrameProps, Size,
     Space, Tone, UiExt, ViewExt, World, button, column, derived,
-    field, heading, icon, icon_button, keyed, label, list, menu_item,
-    resource, row, scroll,
+    field, icon, icon_button, keyed, label, menu_item, resource, row,
+    scroll,
 };
 use hamlet_engine_sdk::{emit, encode, warn};
 
 use crate::more::About;
-use crate::overview::{pressed_card, standing};
-use crate::{PURPOSE, bylaws, select};
+use crate::overview::{pressed_row, standing};
+use crate::{HAMLETS, PURPOSE, bylaws, select};
 
 /// The first hamlet, which is the home itself and stays.
 pub(crate) const HOME: &str = "home";
@@ -291,10 +292,6 @@ fn head(hamlet: &RosterHamlet) -> AnyView {
         format!("Kept on disk as {}", hamlet.id)
     };
     let mut actions = vec![
-        icon_button("back", "ALL HAMLETS")
-            .style(ButtonStyle::Quiet)
-            .on_click(|world| select(world, Selected::Nothing))
-            .boxed(),
         icon_button("pencil", "RENAME")
             .on_click({
                 let id = id.clone();
@@ -324,7 +321,11 @@ fn head(hamlet: &RosterHamlet) -> AnyView {
     }
     column((
         row((
-            heading(hamlet.title.to_uppercase()),
+            breadcrumb(
+                vec![HAMLETS.into()],
+                hamlet.title.clone(),
+                |world, _| select(world, Selected::Nothing),
+            ),
             icon(mark).tone(tone),
             label(hamlet.state.clone()).tone(tone),
         ))
@@ -341,9 +342,9 @@ fn head(hamlet: &RosterHamlet) -> AnyView {
     .boxed()
 }
 
-/// A card of an agent of the hamlet, pressed to talk to it, or to see
+/// A row of an agent of the hamlet, pressed to talk to it, or to see
 /// one that is gone, with its menu.
-fn agent_card(
+fn agent_row(
     (agent, about): &(RosterAgent, Option<About>),
 ) -> AnyView {
     let title = if agent.mayor {
@@ -370,7 +371,7 @@ fn agent_card(
         }
     };
     let name = agent.name.clone();
-    pressed_card(
+    pressed_row(
         title,
         beside,
         vec![
@@ -401,19 +402,19 @@ fn agents(agents: &[(RosterAgent, Option<About>)]) -> AnyView {
     let living = agents
         .iter()
         .filter(|(agent, _)| !agent.gone)
-        .map(agent_card)
+        .map(agent_row)
         .collect::<Vec<_>>();
     let gone = agents
         .iter()
         .filter(|(agent, _)| agent.gone)
-        .map(agent_card)
+        .map(agent_row)
         .collect::<Vec<_>>();
     let mut parts = vec![
         label(format!("AGENTS ({})", living.len()))
             .bold(true)
             .face(Face::Display)
             .boxed(),
-        list(living).boxed(),
+        link_rows(living),
     ];
     if !gone.is_empty() {
         parts.push(
@@ -422,7 +423,7 @@ fn agents(agents: &[(RosterAgent, Option<About>)]) -> AnyView {
                 .face(Face::Display)
                 .boxed(),
         );
-        parts.push(list(gone).boxed());
+        parts.push(link_rows(gone));
     }
     column(parts).space(Space::Half).boxed()
 }

@@ -1,19 +1,22 @@
 //! Every hamlet, with a search over them, the way to found one, and
 //! those closed down.
 
-use agents_ui::{AgentsWorldExt, Confirm, Focused, either, moved};
+use agents_ui::{
+    AgentsWorldExt, Confirm, Focused, either, link_row, link_rows,
+    moved,
+};
 use hamlet_engine_sdk::api::agents::{
     AgentsRequest, ClosedHamlet, Roster, RosterHamlet, Selected,
 };
 use hamlet_engine_sdk::ui::{
     AnyView, ButtonProps, ButtonStyle, Face, FrameProps, Size, Space,
     Tone, UiExt, ViewExt, World, column, derived, field, heading,
-    icon, icon_button, keyed, label, list, menu_item, pressable,
-    resource, row, scroll,
+    icon, icon_button, keyed, label, menu_item, pressable, resource,
+    row, scroll,
 };
 
 use crate::hamlet::{HOME, close_down};
-use crate::{founding, select};
+use crate::{HAMLETS, founding, select};
 
 /// The words typed to search the hamlets.
 #[derive(Default)]
@@ -34,9 +37,9 @@ pub(crate) fn standing(
     }
 }
 
-/// A row that can be pressed: a title with its state beside it, over
-/// dim lines.
-pub(crate) fn pressed_card(
+/// A row of a list that leads somewhere: a title with its state
+/// beside it, over dim lines.
+pub(crate) fn pressed_row(
     title: String,
     beside: (&'static str, String, Tone),
     lines: Vec<String>,
@@ -49,21 +52,24 @@ pub(crate) fn pressed_card(
             label(line).size(Size::Small).tone(Tone::Dim).boxed()
         })
         .collect::<Vec<_>>();
-    pressable((column((
-        row((
-            label(title).bold(true).face(Face::Display),
-            icon(beside.0).tone(beside.2),
-            label(beside.1).size(Size::Small).tone(beside.2),
+    link_row(
+        column((
+            row((
+                label(title).bold(true).face(Face::Display),
+                icon(beside.0).tone(beside.2),
+                label(beside.1).size(Size::Small).tone(beside.2),
+            ))
+            .space(Space::Half),
+            column(lines).space(Space::None),
         ))
-        .space(Space::Half),
-        column(lines).space(Space::None),
-    ))
-    .space(Space::Half),))
+        .space(Space::Half)
+        .boxed(),
+    )
     .on_click(act)
     .boxed()
 }
 
-fn hamlet_card(hamlet: &RosterHamlet) -> AnyView {
+fn hamlet_row(hamlet: &RosterHamlet) -> AnyView {
     let (mark, tone) = standing(hamlet);
     let mut lines = vec![
         format!("Mayor: {}", hamlet.mayor),
@@ -84,7 +90,7 @@ fn hamlet_card(hamlet: &RosterHamlet) -> AnyView {
             .critical(),
         );
     }
-    pressed_card(
+    pressed_row(
         hamlet.title.to_uppercase(),
         (mark, hamlet.state.clone(), tone),
         lines,
@@ -123,24 +129,35 @@ fn closed(names: &[ClosedHamlet]) -> AnyView {
             .tone(Tone::Faint)
             .boxed(),
     ];
-    parts.extend(names.iter().map(|closed| {
-        let (back, gone) = (closed.name.clone(), closed.name.clone());
-        row((
-            label(closed.title.to_uppercase())
-                .bold(true)
-                .face(Face::Display),
-            icon_button("restore", "RESTORE")
-                .style(ButtonStyle::Primary)
-                .on_click(move |world| {
-                    world.tell(format!("/restore-hamlet {back}"))
-                }),
-            icon_button("bin", "DELETE")
-                .style(ButtonStyle::Critical)
-                .on_click(move |world| erase(world, &gone)),
-        ))
-        .space(Space::Gap)
-        .boxed()
-    }));
+    let rows = names
+        .iter()
+        .map(|closed| {
+            let (back, gone) =
+                (closed.name.clone(), closed.name.clone());
+            // A row as the others are, its buttons at its end.
+            pressable((
+                label(closed.title.to_uppercase())
+                    .bold(true)
+                    .face(Face::Display),
+                row((
+                    icon_button("restore", "RESTORE")
+                        .style(ButtonStyle::Primary)
+                        .on_click(move |world| {
+                            world.tell(format!(
+                                "/restore-hamlet {back}"
+                            ))
+                        }),
+                    icon_button("bin", "DELETE")
+                        .style(ButtonStyle::Critical)
+                        .on_click(move |world| erase(world, &gone)),
+                ))
+                .space(Space::Half),
+            ))
+            .style(ButtonStyle::Row)
+            .boxed()
+        })
+        .collect::<Vec<_>>();
+    parts.push(link_rows(rows));
     column(parts).space(Space::Half).boxed()
 }
 
@@ -175,8 +192,7 @@ pub(crate) fn overview() -> AnyView {
                     .tone(Tone::Dim)
                     .boxed();
             }
-            list(hamlets.iter().map(hamlet_card).collect::<Vec<_>>())
-                .boxed()
+            link_rows(hamlets.iter().map(hamlet_row).collect())
         },
     );
     let gone = keyed(
@@ -185,20 +201,18 @@ pub(crate) fn overview() -> AnyView {
     );
     column((
         row((
-            heading("HAMLETS"),
+            heading(HAMLETS),
             label("Click a hamlet to see who lives there.")
                 .tone(Tone::Dim),
         ))
         .space(Space::Gap),
-        row((
-            field(resource::<Search, _>(|search| search.0.clone()))
-                .on_commit(|world, text| {
-                    world.resource_mut::<Search>().0 = text
-                }),
-            icon_button("plus", "FOUND A HAMLET")
-                .on_click(|_| founding::open()),
-        ))
-        .space(Space::Half),
+        row((icon_button("plus", "FOUND A HAMLET")
+            .on_click(|_| founding::open()),)),
+        field(resource::<Search, _>(|search| search.0.clone()))
+            .placeholder("Search hamlets")
+            .on_commit(|world, text| {
+                world.resource_mut::<Search>().0 = text
+            }),
         label("Search by a hamlet's name or its mayor's.")
             .size(Size::Small)
             .tone(Tone::Dim),
