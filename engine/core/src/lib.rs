@@ -11,12 +11,13 @@ pub mod log;
 pub mod tuning;
 
 use bevy::app::App;
-pub use budget::{Budgets, DefaultLimits, PluginBudgets};
-pub use bundle::Bundle;
-pub use file::write_whole;
-pub use home::Home;
-pub use log::{Log, LogLevel, LogLine};
-pub use tuning::{Tuning, TuningFile, TuningPlugin};
+
+pub use crate::budget::{Budgets, DefaultLimits, PluginBudgets};
+pub use crate::bundle::Bundle;
+pub use crate::file::write_whole;
+pub use crate::home::Home;
+pub use crate::log::{Log, LogLevel, LogLine};
+pub use crate::tuning::{Tuning, TuningFile, TuningPlugin};
 
 pub fn plugin(app: &mut App) {
     app.add_plugins((

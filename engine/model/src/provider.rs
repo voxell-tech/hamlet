@@ -7,10 +7,11 @@ mod stream;
 
 use anyhow::Result;
 use futures::future::BoxFuture;
-pub use openai::{Endpoints, OpenAiCompat};
-pub use replay::Replay;
-pub use responses::ChatGpt;
 use serde_json::Value;
+
+pub use crate::provider::openai::{Endpoints, OpenAiCompat};
+pub use crate::provider::replay::Replay;
+pub use crate::provider::responses::ChatGpt;
 
 /// A piece of streamed output.
 pub enum Delta<'a> {

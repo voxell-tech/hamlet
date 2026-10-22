@@ -7,7 +7,7 @@ use std::f32::consts::TAU;
 
 use glam::Vec2;
 
-use super::{Cell, HEX_DIRS, HOLD_CLEAR, LandData, hex_ring};
+use crate::land::{Cell, HEX_DIRS, HOLD_CLEAR, LandData, hex_ring};
 use crate::mesh::smoothstep;
 use crate::noise::perlin;
 

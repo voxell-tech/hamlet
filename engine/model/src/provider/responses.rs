@@ -10,12 +10,12 @@ use anyhow::{Context, Result, anyhow, bail};
 use futures::StreamExt;
 use serde_json::{Value, json};
 
-use super::openai::{
+use crate::config::host;
+use crate::provider::openai::{
     CONNECT_TIMEOUT, ERROR_SHOWN, Failed, RETRY_LONGEST, RETRY_WAITS,
 };
-use super::stream::LineSplitter;
-use super::{CallRecord, Completion, Delta};
-use crate::config::host;
+use crate::provider::stream::LineSplitter;
+use crate::provider::{CallRecord, Completion, Delta};
 
 /// The namespace the tools are offered in, which the plan asks for.
 const NAMESPACE: &str = "hamlet";

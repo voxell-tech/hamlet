@@ -16,24 +16,26 @@ pub mod net;
 pub mod service;
 pub mod wire;
 
-pub use agents::{AgentsEvent, AgentsReply, AgentsRequest};
-pub use asset::{
+pub use crate::agents::{AgentsEvent, AgentsReply, AgentsRequest};
+pub use crate::asset::{
     Asset, AssetId, AssetInfo, AssetType, AssetTypes, TypeName,
 };
-pub use capability::{Ask, Capability};
-pub use contribution::Contribution;
-pub use desktop::{DesktopEvent, DesktopReply, DesktopRequest};
-pub use event::{EventHeard, EventSent, Events};
-pub use id::{
+pub use crate::capability::{Ask, Capability};
+pub use crate::contribution::Contribution;
+pub use crate::desktop::{
+    DesktopEvent, DesktopReply, DesktopRequest,
+};
+pub use crate::event::{EventHeard, EventSent, Events};
+pub use crate::id::{
     CommandId, EventId, IdError, PanelId, PluginId, ServiceId,
 };
-pub use layout::{Axis, Layout};
-pub use limits::{Limits, PluginLimits};
-pub use mail::{Failure, Message, Reply, Request, Ticket};
-pub use manifest::{Manifest, ManifestError};
-pub use net::{FetchReply, FetchRequest, Method};
-pub use service::{ServiceExport, ServiceImport, Services};
-pub use wire::{WireError, decode, encode};
+pub use crate::layout::{Axis, Layout};
+pub use crate::limits::{Limits, PluginLimits};
+pub use crate::mail::{Failure, Message, Reply, Request, Ticket};
+pub use crate::manifest::{Manifest, ManifestError};
+pub use crate::net::{FetchReply, FetchRequest, Method};
+pub use crate::service::{ServiceExport, ServiceImport, Services};
+pub use crate::wire::{WireError, decode, encode};
 
 /// The version of this API. A plugin's manifest names the one it was
 /// built against.

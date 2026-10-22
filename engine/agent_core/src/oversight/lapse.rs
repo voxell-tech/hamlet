@@ -8,11 +8,11 @@ use bevy_ecs::prelude::*;
 use hamlet_model::log;
 use hamlet_rules::chief::rulings::Choice;
 
-use super::grants::Grants;
-use super::instruction::Chain;
-use super::ledger::{self, Ledger};
-use super::queue::{Kind, Needs, Waiting, close, raise};
 use crate::agents::{Citizen, Left};
+use crate::oversight::grants::Grants;
+use crate::oversight::instruction::Chain;
+use crate::oversight::ledger::{self, Ledger};
+use crate::oversight::queue::{Kind, Needs, Waiting, close, raise};
 use crate::session::{Seat, SessionKey, Status, Stop};
 
 /// A chief stops what an agent is doing now, or everything (rule

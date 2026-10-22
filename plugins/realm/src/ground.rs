@@ -17,11 +17,11 @@ use hamlet_engine_sdk::scene::{
     Entity, Instances, Material, Mesh, Pbr, Shape, copies,
 };
 
-use self::grove::{Grove, GroveJob};
-use self::layer::{Layer, Lift};
-use self::sod::{Recipe, Sod, SodJob};
 use crate::flora::{self, Tree};
 use crate::frame::Frame;
+use crate::ground::grove::{Grove, GroveJob};
+use crate::ground::layer::{Layer, Lift};
+use crate::ground::sod::{Recipe, Sod, SodJob};
 use crate::land::{Land, LandData};
 use crate::palette::Palette;
 use crate::realm::Ctx;

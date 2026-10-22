@@ -5,14 +5,14 @@ use bevy_ecs::name::Name;
 use bevy_ecs::prelude::*;
 use hamlet_rules::hamlet::{HOME, Hamlet, MAYOR};
 
-use super::deliver::deliver;
-use super::{
-    MAIL, Reply, SessionKey, Transcript, UserMessage, ensure, find,
-    hamlet_of,
-};
 use crate::agent::Event as AgentEvent;
 use crate::agents::{self, Citizen, Left, Mayor};
 use crate::core::HomeDir;
+use crate::session::deliver::deliver;
+use crate::session::{
+    MAIL, Reply, SessionKey, Transcript, UserMessage, ensure, find,
+    hamlet_of,
+};
 
 /// The reply address and the task of a message between agents.
 #[derive(Clone)]

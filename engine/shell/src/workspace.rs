@@ -24,9 +24,9 @@ use hamlet_engine_core::TuningPlugin;
 use hamlet_engine_core::tuning::{ENGINE, Tuning, TuningFile};
 use serde::{Deserialize, Serialize};
 
-pub use self::arrange::DockTreeExt;
 use crate::command::{RunCommand, ShellCommandsExt};
 use crate::dock::PLUGIN_LIST;
+pub use crate::workspace::arrange::DockTreeExt;
 use crate::{EngineTheme, console};
 
 /// The name of the first workspace of a new home.

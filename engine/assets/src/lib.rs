@@ -17,10 +17,10 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::Res;
 use hamlet_engine_core::{Home, LogLine};
 
-pub use self::answer::{Outcome, Rules};
-pub use self::hold::Holding;
-pub use self::registry::TypeRegistry;
-pub use self::store::{AssetStore, FOLDER, INDEX};
+pub use crate::answer::{Outcome, Rules};
+pub use crate::hold::Holding;
+pub use crate::registry::TypeRegistry;
+pub use crate::store::{AssetStore, FOLDER, INDEX};
 
 pub fn plugin(app: &mut App) {
     let home = app.world().resource::<Home>().clone();

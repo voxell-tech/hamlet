@@ -19,10 +19,10 @@ use hamlet_engine_core::Budgets;
 use hamlet_engine_render::{GpuInfo, SceneChange, ShaderKind};
 use wasmtime::component::Resource;
 
-pub(crate) use self::serve::plugin;
-pub use self::serve::{SceneInbox, ShowsCamera};
 use crate::instance::State;
 use crate::nodes::UiNode;
+pub(crate) use crate::scene::serve::plugin;
+pub use crate::scene::serve::{SceneInbox, ShowsCamera};
 
 pub(crate) mod scene_bindings {
     wasmtime::component::bindgen!({
@@ -44,7 +44,7 @@ pub(crate) mod scene_bindings {
     });
 }
 
-use self::scene_bindings::hamlet::engine::scene::{
+use crate::scene::scene_bindings::hamlet::engine::scene::{
     CameraSettings, Host, HostCamera, HostEntity, HostInstances,
     HostMaterial, HostMesh, Light, MeshData, Pbr, Shape, Target,
     Transform,

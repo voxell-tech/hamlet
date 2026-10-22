@@ -8,12 +8,12 @@ use std::collections::HashMap;
 
 use fynix::{Cx, Mounted, Tick, View};
 
-use super::{Hamlet, Key, States, Theme, World};
 use crate::Plugin;
 use crate::bindings::exports::hamlet::engine::ui_guest::{
     Action, Motions, UiEvent,
 };
 use crate::bindings::hamlet::engine::ui::Node;
+use crate::ui::{Hamlet, Key, States, Theme, World};
 
 std::thread_local! {
     static UI: RefCell<Panels> = RefCell::new(Panels::default());

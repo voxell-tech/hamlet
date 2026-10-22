@@ -12,8 +12,9 @@ pub mod starters;
 use std::path::PathBuf;
 
 use anyhow::Result;
-pub use prompt::Project;
-pub use skill::{Skill, parse_skill, skills_in};
+
+pub use crate::prompt::Project;
+pub use crate::skill::{Skill, parse_skill, skills_in};
 
 /// A home's folder and the workspace its agent writes in.
 #[derive(Clone)]

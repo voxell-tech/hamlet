@@ -9,10 +9,10 @@ use std::f32::consts::{PI, TAU};
 
 use glam::{Vec2, Vec3};
 
-pub use self::parts::{parts, wick};
-pub use self::rig::Rig;
-use super::look::Hat;
-use super::wickstep::Phase;
+use crate::chief::look::Hat;
+pub use crate::chief::mascot::parts::{parts, wick};
+pub use crate::chief::mascot::rig::Rig;
+use crate::chief::wickstep::Phase;
 use crate::mesh::{hump, lerp, smoothstep};
 
 /// Height of the middle of the head over the feet.

@@ -12,8 +12,8 @@ mod tests;
 
 use bevy::app::App;
 
-pub use self::address::{public, reach};
-pub use self::fetch::{Fetch, NetWorldExt, Offline};
+pub use crate::address::{public, reach};
+pub use crate::fetch::{Fetch, NetWorldExt, Offline};
 
 pub fn plugin(app: &mut App) {
     app.add_plugins(fetch::plugin);

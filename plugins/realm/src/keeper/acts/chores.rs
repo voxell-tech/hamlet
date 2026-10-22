@@ -4,8 +4,10 @@ use std::f32::consts::TAU;
 
 use glam::{Vec2, Vec3};
 
-use super::parts::{arm_high, arm_l, arm_r, blink, breathe, current};
-use super::{CRANK_RATE, Ctx};
+use crate::keeper::acts::parts::{
+    arm_high, arm_l, arm_r, blink, breathe, current,
+};
+use crate::keeper::acts::{CRANK_RATE, Ctx};
 use crate::keeper::kit::KITE;
 use crate::keeper::pose::{
     EMBER, LIT, POLE_FOOT, Pose, Prop, arc, back_out, candle, dice,

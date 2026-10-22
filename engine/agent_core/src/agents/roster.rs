@@ -5,7 +5,7 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::system::{SystemParam, SystemState};
 use hamlet_rules::hamlet::{HOME, MAYOR};
 
-use super::{Citizen, Left, LivesIn, Mayor, Settlement};
+use crate::agents::{Citizen, Left, LivesIn, Mayor, Settlement};
 
 /// The name of `entity`, empty if it has none.
 pub fn name_of(world: &World, entity: Entity) -> String {

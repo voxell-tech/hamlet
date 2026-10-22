@@ -43,8 +43,8 @@ use hamlet_engine_sdk::{
     subscribe, warn,
 };
 
-use self::realm::Realm;
-use self::sky::Hour;
+use crate::realm::Realm;
+use crate::sky::Hour;
 
 /// The name of the panel the realm is drawn in.
 const PANEL: &str = "realm";

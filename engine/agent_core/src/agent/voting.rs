@@ -9,7 +9,7 @@ use hamlet_rules::civic::Civic;
 use hamlet_rules::hamlet::Hamlet;
 use hamlet_rules::vote::{self, Choice, Motion, Standing};
 
-use super::{Agent, Event, Listener};
+use crate::agent::{Agent, Event, Listener};
 
 /// A ballot being asked of an agent.
 pub(super) struct Polling {

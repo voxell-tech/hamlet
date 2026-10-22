@@ -7,8 +7,8 @@ mod decree;
 pub mod rulings;
 
 use anyhow::{Result, bail};
-pub use decree::Decree;
 
+pub use crate::chief::decree::Decree;
 use crate::commands::{self, Handler, OnRealm, Switch};
 use crate::realm::{Origin, Realm};
 use crate::vote;

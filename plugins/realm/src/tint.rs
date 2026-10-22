@@ -77,7 +77,7 @@ pub fn deserialize<'de, D: Deserializer<'de>>(
 
 /// A colour whose numbers are linear.
 pub mod linear {
-    use super::*;
+    use crate::tint::*;
 
     pub fn deserialize<'de, D: Deserializer<'de>>(
         from: D,
@@ -88,7 +88,7 @@ pub mod linear {
 
 /// A list of colours whose numbers are linear.
 pub mod linear_list {
-    use super::*;
+    use crate::tint::*;
 
     pub fn deserialize<'de, D: Deserializer<'de>, const N: usize>(
         from: D,

@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{Recipient, Session};
+use crate::agents::{Recipient, Session};
 
 /// What the window looks at: the conversation open and the thing
 /// selected. Every panel follows the same focus.

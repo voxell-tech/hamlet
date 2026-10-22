@@ -27,20 +27,22 @@ use hamlet_rules::hamlet::{HOME, Hamlet};
 use hamlet_rules::realm::Realm;
 use tokio::sync::mpsc::unbounded_channel;
 
-use self::deliver::deliver;
-pub(crate) use self::gate::{ToolStarting, rule};
-pub use self::key::{ASKED, MAIL, Seat, SessionKey};
-use self::mail::{Letter, Mail, post, reply_head};
-pub use self::mail::{gather, reply_in};
-use self::output::output;
-pub use self::rewind::{Rewind, Rewound};
-pub use self::told::prompt_of;
-pub use self::transcript::{Began, Entry, Item, Transcript};
-pub use self::usage::Usage;
-use self::worker::{Inbox, Jobs, Msg, Workers};
 use crate::agent::Event as AgentEvent;
 use crate::agents::{self, Roster, Synced};
 use crate::core::{self, HomeDir};
+use crate::session::deliver::deliver;
+pub(crate) use crate::session::gate::{ToolStarting, rule};
+pub use crate::session::key::{ASKED, MAIL, Seat, SessionKey};
+use crate::session::mail::{Letter, Mail, post, reply_head};
+pub use crate::session::mail::{gather, reply_in};
+use crate::session::output::output;
+pub use crate::session::rewind::{Rewind, Rewound};
+pub use crate::session::told::prompt_of;
+pub use crate::session::transcript::{
+    Began, Entry, Item, Transcript,
+};
+pub use crate::session::usage::Usage;
+use crate::session::worker::{Inbox, Jobs, Msg, Workers};
 
 /// Sessions, their workers and the letters between agents.
 pub struct SessionPlugin;

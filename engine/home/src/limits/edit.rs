@@ -5,7 +5,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use super::{Limits, path};
+use crate::limits::{Limits, path};
 
 /// The file a home with no limits is given, so a chief can find it.
 const TEMPLATE: &str = include_str!("template.toml");

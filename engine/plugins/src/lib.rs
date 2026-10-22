@@ -15,15 +15,15 @@ use hamlet_engine_api::{
     Ask, AssetTypes, Events, Limits, Manifest, PluginId, Services,
 };
 
-pub use self::entry::{Entry, EntryPoint};
-pub use self::limits::ChosenLimits;
-pub use self::list::{AddPlugin, PluginPageSection, Uninstall};
-pub use self::mail::{Asked, Deliver};
-pub use self::switch::{
+pub use crate::entry::{Entry, EntryPoint};
+pub use crate::limits::ChosenLimits;
+pub use crate::list::{AddPlugin, PluginPageSection, Uninstall};
+pub use crate::mail::{Asked, Deliver};
+pub use crate::switch::{
     ContributedBy, Contributions, Disable, Enable, Enabled,
     PluginCommandsExt, Stopped,
 };
-pub use self::switched_off::SwitchedOff;
+pub use crate::switched_off::SwitchedOff;
 
 pub fn plugin(app: &mut App) {
     app.add_plugins((

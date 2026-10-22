@@ -7,11 +7,13 @@ use hamlet_engine_sdk::scene::{
     Entity, Material, Mesh, MeshData, Pbr, Shape,
 };
 
-use super::ChiefSettings;
-use super::look::Look;
-use super::mascot::{Rig, parts, wick};
-use super::place::{self, Built};
-use super::wickstep::{Charm, Mascot, Phase, Whereabouts, shapes};
+use crate::chief::ChiefSettings;
+use crate::chief::look::Look;
+use crate::chief::mascot::{Rig, parts, wick};
+use crate::chief::place::{self, Built};
+use crate::chief::wickstep::{
+    Charm, Mascot, Phase, Whereabouts, shapes,
+};
 use crate::flora;
 use crate::frame::Frame;
 use crate::land::Land;

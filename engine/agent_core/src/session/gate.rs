@@ -5,9 +5,9 @@ use bevy_ecs::prelude::*;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot;
 
-use super::worker::Msg;
 use crate::agent::{Gate, Ruling};
 use crate::core::Settings;
+use crate::session::worker::Msg;
 use crate::tools::{Leave, Reach};
 
 /// A tool call is about to run. An observer sets `deny` to block it

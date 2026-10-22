@@ -2,7 +2,7 @@
 
 use glam::{Quat, Vec3};
 
-use super::Piece;
+use crate::keeper::kit::Piece;
 use crate::keeper::who::Hat;
 use crate::mesh::Mb;
 use crate::palette::Palette;

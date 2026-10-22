@@ -26,11 +26,11 @@ use hamlet_engine_shell::{
     SuggestedWorkspace,
 };
 
-use super::limits::memory_view;
-use super::{
+use crate::PluginKind;
+use crate::list::limits::memory_view;
+use crate::list::{
     ListWorldExt, Row, Rows, Shown, Uninstall, bound, plugin_switch,
 };
-use crate::PluginKind;
 
 /// A section of every plugin's page, under what it adds, as another
 /// part of the engine adds one.

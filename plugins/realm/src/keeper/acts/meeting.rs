@@ -1,7 +1,7 @@
 //! Listening at its door for another's answer.
 
-use super::Ctx;
-use super::parts::{
+use crate::keeper::acts::Ctx;
+use crate::keeper::acts::parts::{
     blink, breathe, crook_out, current, shift_weight,
 };
 use crate::keeper::pose::{LIT, Pose, rx, rz};

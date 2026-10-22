@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{Change, SessionName};
+use crate::agents::{Change, SessionName};
 
 /// Something that waits for the chief, oldest first.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]

@@ -23,10 +23,10 @@ use hamlet_engine_sdk::{
     Entry, Message, Plugin, World, decode, encode,
 };
 
-use self::bar::{Draft, Replying, message_bar};
-use self::reply::Answers;
-use self::talk::{Talk, follow, heard};
-use self::timeline::{Lines, Reach, Unfolded, refresh};
+use crate::bar::{Draft, Replying, message_bar};
+use crate::reply::Answers;
+use crate::talk::{Talk, follow, heard};
+use crate::timeline::{Lines, Reach, Unfolded, refresh};
 
 /// The name of the chat's panel.
 const CHAT: &str = "chat";

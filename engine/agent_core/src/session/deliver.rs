@@ -10,16 +10,16 @@ use hamlet_rules::commands::{
     self, Command, Handler, InSession, OnHamlet, OnRealm, Ruling,
 };
 
-use super::mail::Mail;
-use super::output::{output, tell_chiefs};
-use super::worker::{Brief, Job, Jobs, Turn, start_worker};
-use super::{
+use crate::agents;
+use crate::core::Settings;
+use crate::session::mail::Mail;
+use crate::session::output::{output, tell_chiefs};
+use crate::session::worker::{Brief, Job, Jobs, Turn, start_worker};
+use crate::session::{
     Entry, Instructed, JobFinished, Reply, Seat, SessionKey, Status,
     Transcript, TurnDropped, Typed, UserMessage, ensure, hamlet_of,
     place, realm, reopen, reseat,
 };
-use crate::agents;
-use crate::core::Settings;
 
 /// Shows `reply` in `session` as all there is to say to a line.
 fn answer(world: &mut World, session: Entity, reply: Reply) {

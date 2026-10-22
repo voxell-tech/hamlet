@@ -7,7 +7,7 @@ use hamlet_model::provider::CallRecord;
 use hamlet_rules::budget;
 use serde_json::{Value, json};
 
-use super::{Agent, Event, Listener};
+use crate::agent::{Agent, Event, Listener};
 
 /// The share of a model's window a conversation may fill before it is
 /// summarised.

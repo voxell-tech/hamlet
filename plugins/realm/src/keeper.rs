@@ -16,15 +16,15 @@ use std::collections::HashMap;
 
 use glam::{Quat, Vec3};
 
-use self::acts::Act;
-use self::kit::Kit;
-use self::lot::Lot;
-use self::rig::Rig;
-use self::robot::{Passage, Robot};
-use self::who::Who;
 use crate::bridge::Moment;
 use crate::frame::Frame;
 use crate::house::yard_of;
+use crate::keeper::acts::Act;
+use crate::keeper::kit::Kit;
+use crate::keeper::lot::Lot;
+use crate::keeper::rig::Rig;
+use crate::keeper::robot::{Passage, Robot};
+use crate::keeper::who::Who;
 use crate::layout::{HALL_PLOT, plot};
 use crate::palette::Palette;
 use crate::pick::Thing;

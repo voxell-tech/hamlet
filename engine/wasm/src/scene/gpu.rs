@@ -8,15 +8,15 @@ use hamlet_engine_render::{
 };
 use wasmtime::component::Resource;
 
-use super::scene_bindings::hamlet::engine::gpu::{
+use crate::instance::State;
+use crate::scene::scene_bindings::hamlet::engine::gpu::{
     Host, HostBuffer, HostCompute, HostShader, HostTexture, Shaded,
     ShaderKind as Kind,
 };
-use super::{
+use crate::scene::{
     CameraHandle, Held, MaterialHandle, Powers, SceneError,
     SceneState, convert, trap,
 };
-use crate::instance::State;
 
 pub struct ShaderHandle;
 pub struct BufferHandle;

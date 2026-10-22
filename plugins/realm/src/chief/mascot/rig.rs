@@ -5,7 +5,7 @@ use hamlet_engine_sdk::scene::{
     Entity, Light, Material, Mesh, PointLight,
 };
 
-use super::{HEAD, Pose};
+use crate::chief::mascot::{HEAD, Pose};
 use crate::frame::Frame;
 
 /// The parts a pose places, in the order of [`Rig::placed`].

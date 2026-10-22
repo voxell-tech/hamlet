@@ -34,10 +34,10 @@ use hamlet_engine_shell::style::{
 };
 use hamlet_engine_shell::{AnyView, Cx, Panel, StyleExt};
 
-use self::limits::{MemoryLine, memory_line};
-pub use self::page::PluginPageSection;
-use self::page::{Added, Things, added, page_view};
 use crate::limits::ChosenLimits;
+use crate::list::limits::{MemoryLine, memory_line};
+pub use crate::list::page::PluginPageSection;
+use crate::list::page::{Added, Things, added, page_view};
 use crate::switch::{
     Contributions, Disable, Enable, Enabled, Stopped,
 };

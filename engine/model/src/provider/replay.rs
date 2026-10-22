@@ -7,7 +7,7 @@ use anyhow::{Result, anyhow};
 use futures::future::BoxFuture;
 use serde_json::Value;
 
-use super::{CallRecord, Completion, Delta, Provider};
+use crate::provider::{CallRecord, Completion, Delta, Provider};
 
 /// Returns canned responses in order.
 pub struct Replay {

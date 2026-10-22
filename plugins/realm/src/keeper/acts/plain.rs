@@ -4,8 +4,8 @@ use std::f32::consts::PI;
 
 use glam::{Quat, Vec2};
 
-use super::Ctx;
-use super::parts::{
+use crate::keeper::acts::Ctx;
+use crate::keeper::acts::parts::{
     arm_high, arm_l, blink, breathe, current, flicker, look_about,
     shift_weight, signal,
 };

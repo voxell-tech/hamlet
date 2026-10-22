@@ -7,12 +7,12 @@ use std::f32::consts::{PI, TAU};
 
 use glam::{Vec2, Vec3, Vec3Swizzles};
 
-use self::charm::chance;
-pub use self::charm::{Charm, shapes};
-use super::ChiefSettings;
-use super::homing::Walking;
-use super::mascot::{Doing, Pose};
-use super::place::{self, Pastime};
+use crate::chief::ChiefSettings;
+use crate::chief::homing::Walking;
+use crate::chief::mascot::{Doing, Pose};
+use crate::chief::place::{self, Pastime};
+use crate::chief::wickstep::charm::chance;
+pub use crate::chief::wickstep::charm::{Charm, shapes};
 use crate::frame::Frame;
 use crate::land::Land;
 use crate::mesh::smoothstep;

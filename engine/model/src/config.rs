@@ -7,9 +7,10 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-pub use keys::use_keychain_service;
-use keys::{load_key, save_key};
 use serde::{Deserialize, Serialize};
+
+pub use crate::config::keys::use_keychain_service;
+use crate::config::keys::{load_key, save_key};
 
 /// The wait for the model nobody chose to answer a first word. One on
 /// this machine may first have to be loaded.

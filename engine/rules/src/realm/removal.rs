@@ -7,8 +7,8 @@ use anyhow::{Result, bail};
 use hamlet_model::log;
 use serde_json::json;
 
-use super::Realm;
 use crate::hamlet::{HOME, Hamlet};
+use crate::realm::Realm;
 use crate::record::text;
 
 /// The ones who have asked for a hamlet's removal (H19).

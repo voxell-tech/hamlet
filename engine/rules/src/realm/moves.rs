@@ -5,8 +5,8 @@ use anyhow::{Result, bail};
 use hamlet_model::log;
 use serde_json::{Value, json};
 
-use super::{Realm, names};
 use crate::hamlet::MAYOR;
+use crate::realm::{Realm, names};
 use crate::record::text;
 
 /// An agent that changed hamlet.

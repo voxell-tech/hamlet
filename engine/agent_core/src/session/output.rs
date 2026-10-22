@@ -7,14 +7,14 @@ use bevy_ecs::name::Name;
 use bevy_ecs::prelude::*;
 use hamlet_rules::civic::Civic;
 
-use super::mail::{Letter, mirror};
-use super::{
-    Reply, SessionKey, SessionOutput, Status, TalksTo, Transcript,
-    Usage, reopen,
-};
 use crate::agent::Event as AgentEvent;
 use crate::agents::{
     self, Activity, Busy, Citizen, Left, Mayor, Saying,
+};
+use crate::session::mail::{Letter, mirror};
+use crate::session::{
+    Reply, SessionKey, SessionOutput, Status, TalksTo, Transcript,
+    Usage, reopen,
 };
 
 /// Tells every other session a chief has open what happened.

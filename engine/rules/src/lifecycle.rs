@@ -9,13 +9,13 @@ mod notes;
 
 use anyhow::{Result, anyhow, bail};
 use hamlet_model::log;
-use notes::{accept, join, substance};
 use serde_json::{Value, json};
 
 use crate::files::size_of;
 use crate::hamlet::{
     Alone, Archived, Census, Hamlet, MAYOR, Resident, check_name,
 };
+use crate::lifecycle::notes::{accept, join, substance};
 use crate::realm::Realm;
 use crate::record::when;
 

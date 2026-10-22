@@ -33,7 +33,11 @@ pub use fynix::{
     View, ViewExt, derived,
 };
 
-pub use self::elements::{
+pub use crate::bindings::hamlet::engine::ui::{
+    Align, ButtonStyle, Direction, Face, Fill, Size, Space,
+    StatusItem, Tone,
+};
+pub use crate::ui::elements::{
     Button, ButtonProps, Divider, DividerProps, Dropdown,
     DropdownProps, Field, FieldProps, Frame, FrameProps, Icon,
     IconProps, Label, LabelProps, Leads, List, ListProps, MenuItem,
@@ -42,12 +46,8 @@ pub use self::elements::{
     heading, icon, icon_button, label, list, menu_item, pressable,
     row, scroll, switch, toggle,
 };
-pub use self::nodes::{Key, States};
-pub use self::world::{World, resource};
-pub use crate::bindings::hamlet::engine::ui::{
-    Align, ButtonStyle, Direction, Face, Fill, Size, Space,
-    StatusItem, Tone,
-};
+pub use crate::ui::nodes::{Key, States};
+pub use crate::ui::world::{World, resource};
 
 /// The engine, as a backend of fynix.
 pub struct Hamlet;

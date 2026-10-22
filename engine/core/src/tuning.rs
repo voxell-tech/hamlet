@@ -157,8 +157,8 @@ mod watch {
     use bevy::ecs::schedule::SystemSet;
     use bevy::ecs::system::{Commands, Res, ResMut};
 
-    use super::{Tuning, TuningFile, pick};
     use crate::log::LogLine;
+    use crate::tuning::{Tuning, TuningFile, pick};
 
     /// The systems that look at the files.
     #[derive(SystemSet, Clone, Copy, PartialEq, Eq, Hash, Debug)]

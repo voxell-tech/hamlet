@@ -4,7 +4,7 @@ use std::f32::consts::TAU;
 
 use glam::{Vec2, Vec3};
 
-use super::{HOLD_EASE, LandData, Unfit};
+use crate::land::{HOLD_EASE, LandData, Unfit};
 use crate::mesh::{lerp, smoothstep};
 use crate::noise::{fbm, key, perlin, ridged};
 

@@ -9,9 +9,9 @@ use hamlet_rules::chief::asking::Questions;
 use hamlet_rules::chief::rulings::{Choice, Party};
 use hamlet_rules::words::clip;
 
-use super::danger::Danger;
-use super::ledger::Ledger;
 use crate::agents::{self, Citizen};
+use crate::oversight::danger::Danger;
+use crate::oversight::ledger::Ledger;
 
 /// The kind of thing that waits for a chief.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -18,12 +18,12 @@ use hamlet_engine_api::Capability;
 use hamlet_engine_core::{Home, LogLine};
 use hamlet_engine_plugins::{PluginInfo, PluginKind, Uninstall};
 
-pub use self::file::{Answer, Answered, FILE, Grants, Record};
-pub use self::petition::{
+pub use crate::file::{Answer, Answered, FILE, Grants, Record};
+pub use crate::petition::{
     Decided, FirstUse, GrantsCommandsExt, GrantsWorldExt, PETITIONS,
     Petition, Question,
 };
-pub use self::waiting::Waiting;
+pub use crate::waiting::Waiting;
 
 pub fn plugin(app: &mut App) {
     let home = app.world().resource::<Home>().clone();

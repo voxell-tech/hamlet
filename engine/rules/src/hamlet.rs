@@ -9,14 +9,14 @@ mod roads;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, bail};
-pub(crate) use census::by_whom;
-pub use census::{Archived, Census, Merge, Task};
 use hamlet_home::Home;
 use hamlet_home::limits::Limits;
 use hamlet_model::log;
-pub use roads::{Road, RoadUse, ends};
 use serde_json::{Value, json};
 
+pub(crate) use crate::hamlet::census::by_whom;
+pub use crate::hamlet::census::{Archived, Census, Merge, Task};
+pub use crate::hamlet::roads::{Road, RoadUse, ends};
 use crate::realm::Realm;
 use crate::{lifecycle, record};
 

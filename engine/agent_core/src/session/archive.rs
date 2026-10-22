@@ -7,7 +7,7 @@ use std::time::SystemTime;
 use hamlet_model::log;
 use hamlet_rules::vote::BALLOTS;
 
-use super::{Transcript, Usage};
+use crate::session::{Transcript, Usage};
 
 /// A session kept in a log.
 #[derive(Clone, PartialEq, Debug)]

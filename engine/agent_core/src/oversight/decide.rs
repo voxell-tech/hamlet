@@ -9,14 +9,18 @@ use hamlet_rules::hamlet::{Hamlet, MAYOR};
 use serde_json::Value;
 use tokio::sync::oneshot;
 
-use super::danger::{self, Danger, Refused, Standing, Verdict};
-use super::grants::{self, Grants};
-use super::instruction::{About, Carrying, Instruction, objections};
-use super::queue::{Asks, Kind, Waiting, raise};
-use super::{Rules, limits};
 use crate::agent::Ruling;
 use crate::agents::{self, Citizen};
 use crate::core::{HomeDir, Sandboxing, Settings};
+use crate::oversight::danger::{
+    self, Danger, Refused, Standing, Verdict,
+};
+use crate::oversight::grants::{self, Grants};
+use crate::oversight::instruction::{
+    About, Carrying, Instruction, objections,
+};
+use crate::oversight::queue::{Asks, Kind, Waiting, raise};
+use crate::oversight::{Rules, limits};
 use crate::session::{Began, ToolStarting};
 use crate::tools::Reach;
 

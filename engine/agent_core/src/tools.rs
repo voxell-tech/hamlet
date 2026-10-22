@@ -14,11 +14,11 @@ use hamlet_rules::library::Library;
 use hamlet_sandbox::{self, Policy, Sandbox};
 use serde_json::{Value, json};
 
-pub use self::change::Change;
-use self::custom::{CustomTool, reserved};
-use self::edit::edit;
-use self::reading::Sight;
-use self::shell::Shell;
+pub use crate::tools::change::Change;
+use crate::tools::custom::{CustomTool, reserved};
+use crate::tools::edit::edit;
+use crate::tools::reading::Sight;
+use crate::tools::shell::Shell;
 
 /// A tool call as the model made it.
 pub(crate) struct Call {

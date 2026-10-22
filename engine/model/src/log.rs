@@ -11,7 +11,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
-use template::args_template;
+
+use crate::log::template::args_template;
 
 const SCHEMA_VERSION: u32 = 1;
 

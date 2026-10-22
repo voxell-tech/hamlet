@@ -12,15 +12,15 @@ use std::collections::{HashMap, HashSet};
 use glam::{Vec2, Vec3Swizzles};
 use hamlet_engine_sdk::scene::{Entity, Mesh};
 
-use self::build::{Build, Built};
-use self::groove::Grooves;
-use self::mesh::Span;
 use crate::frame::Frame;
 use crate::land::Land;
 use crate::layout::{End, Route};
 use crate::noise;
 use crate::palette::Palette;
 use crate::realm::Ctx;
+use crate::road::build::{Build, Built};
+use crate::road::groove::Grooves;
+use crate::road::mesh::Span;
 use crate::society::{AgentId, Pair, RoadLevel, Society};
 use crate::upload::Upload;
 

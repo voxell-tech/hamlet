@@ -16,11 +16,11 @@ use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
 };
 
-use super::gate::{ToolStarting, gate};
-use super::mail::Mail;
-use super::{Overseen, Reply, SessionKey, place};
 use crate::agent::{Agent, Event as AgentEvent, Objection};
 use crate::core::{HomeDir, Model, Sandboxing, Settings, Tokio};
+use crate::session::gate::{ToolStarting, gate};
+use crate::session::mail::Mail;
+use crate::session::{Overseen, Reply, SessionKey, place};
 use crate::tools::Tools;
 
 /// The settings a worker is handed with a job, as they stood when

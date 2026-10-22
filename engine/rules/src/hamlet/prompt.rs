@@ -3,7 +3,7 @@
 
 use serde_json::{Value, json};
 
-use super::{Hamlet, Resident};
+use crate::hamlet::{Hamlet, Resident};
 use crate::vote;
 
 /// Number of the latest direct instructions the mayor is shown.

@@ -31,10 +31,10 @@ use hamlet_engine_render::{
     CameraSetup, Hit as Met, PointerButton, SceneEvent, SceneLight,
 };
 
-use super::scene_bindings::exports::hamlet::engine::scene_guest::{
+use crate::scene::scene_bindings::exports::hamlet::engine::scene_guest::{
     Hit, MouseButton, Pointer, Press, SceneInput, Wheel,
 };
-use super::scene_bindings::hamlet::engine::scene::{
+use crate::scene::scene_bindings::hamlet::engine::scene::{
     AlphaMode, CameraSettings, FogFalloff, Light, MeshData, Pbr,
     Projection, Rgba, Shape, Tonemapping, Transform,
 };

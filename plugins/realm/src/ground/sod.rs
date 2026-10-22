@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use glam::{Vec2, Vec3};
 use hamlet_engine_sdk::scene::MeshData;
 
-use super::{DetailSettings, Tile, watered};
+use crate::ground::{DetailSettings, Tile, watered};
 use crate::land::Land;
 use crate::mesh::{Mb, smoothstep};
 

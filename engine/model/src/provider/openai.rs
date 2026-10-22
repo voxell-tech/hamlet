@@ -10,10 +10,10 @@ use futures::future::BoxFuture;
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
-use super::responses::ChatGpt;
-use super::stream::{LineSplitter, StreamAcc};
-use super::{CallRecord, Completion, Delta, Provider};
 use crate::config::{Config, host};
+use crate::provider::responses::ChatGpt;
+use crate::provider::stream::{LineSplitter, StreamAcc};
+use crate::provider::{CallRecord, Completion, Delta, Provider};
 
 /// The wait for a server to take the connection.
 pub(super) const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);

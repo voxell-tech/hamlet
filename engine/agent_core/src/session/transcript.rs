@@ -8,8 +8,8 @@ use hamlet_model::log;
 use hamlet_rules::chief::{asking, rulings};
 use serde_json::Value;
 
-use super::Reply;
 use crate::agent::{Event as AgentEvent, SUMMARY_CHARS};
+use crate::session::Reply;
 use crate::tools::Change;
 use crate::tools::change::failure;
 

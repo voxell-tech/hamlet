@@ -41,7 +41,7 @@ pub fn review_definition() -> Value {
 // becomes an extension that hands the whole `asking::Questions` to
 // Hamlet's queue, and not a chain of Pi dialogs.
 pub fn ask_chief_definition() -> Value {
-    use super::asking::{MOST_OPTIONS, MOST_QUESTIONS};
+    use crate::chief::asking::{MOST_OPTIONS, MOST_QUESTIONS};
     json!({"type": "function", "function": {
         "name": ASK_CHIEF,
         "description": "Ask the chief questions you cannot go on without. You wait until the \

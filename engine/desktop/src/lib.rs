@@ -15,9 +15,9 @@ mod tests;
 
 use bevy::app::App;
 
-pub use self::awake::KeepAwake;
-pub use self::launch::{Launches, claim};
-pub use self::open::{Opening, opening};
+pub use crate::awake::KeepAwake;
+pub use crate::launch::{Launches, claim};
+pub use crate::open::{Opening, opening};
 
 pub fn plugin(app: &mut App) {
     app.add_plugins((

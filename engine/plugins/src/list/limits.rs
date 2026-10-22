@@ -17,7 +17,7 @@ use hamlet_engine_shell::style::{
 };
 use hamlet_engine_shell::{AnyView, Cx};
 
-use super::ListWorldExt;
+use crate::list::ListWorldExt;
 
 /// A plugin's memory as its page shows it.
 #[derive(Clone, Copy, PartialEq)]

@@ -16,9 +16,6 @@ use glam::{Quat, Vec2, Vec3};
 use hamlet_engine_sdk::api::agents::Doing;
 use hamlet_engine_sdk::scene::{Entity, Mesh};
 
-use self::build::{Built, FlagSettings, Recipe};
-use self::kit::{Kit, Part as KitPart};
-use self::lights::Lamps;
 use crate::frame::Frame;
 use crate::house::{self, TownStyle};
 use crate::keeper::KState;
@@ -30,6 +27,9 @@ use crate::pick::Thing;
 use crate::realm::Ctx;
 use crate::shift::{Part, Shift, Way};
 use crate::society::{Agent, AgentId, Society, Town, TownId};
+use crate::town::build::{Built, FlagSettings, Recipe};
+use crate::town::kit::{Kit, Part as KitPart};
+use crate::town::lights::Lamps;
 use crate::upload::{Unsent, Upload};
 use crate::yard::Yard;
 

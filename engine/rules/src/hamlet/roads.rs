@@ -5,7 +5,7 @@ use anyhow::{Result, bail};
 use hamlet_model::log;
 use serde_json::json;
 
-use super::{Hamlet, MAYOR};
+use crate::hamlet::{Hamlet, MAYOR};
 
 /// The messages a road has carried when it is shown paved.
 const PAVED_FROM: u32 = 3;

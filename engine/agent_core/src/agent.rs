@@ -24,11 +24,13 @@ use hamlet_rules::realm::{Realm, Rules};
 use hamlet_rules::{budget, vote};
 use serde_json::{Value, json};
 
-pub(crate) use self::event::SUMMARY_CHARS;
-pub use self::event::{Event, Listener};
-pub(crate) use self::gate::{Gate, Objection, Request, Ruling};
-pub(crate) use self::told::Told;
-use self::voting::Polling;
+pub(crate) use crate::agent::event::SUMMARY_CHARS;
+pub use crate::agent::event::{Event, Listener};
+pub(crate) use crate::agent::gate::{
+    Gate, Objection, Request, Ruling,
+};
+pub(crate) use crate::agent::told::Told;
+use crate::agent::voting::Polling;
 use crate::tools::change::failure;
 use crate::tools::{Call, Change, Leave, Outcome, Tools};
 

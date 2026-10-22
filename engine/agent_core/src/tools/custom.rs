@@ -10,7 +10,7 @@ use hamlet_rules::vote;
 use hamlet_sandbox::{Limits, Policy};
 use serde_json::{Value, json};
 
-use super::reading;
+use crate::tools::reading;
 
 /// A program plus `manifest.json` in its own folder under `tools/`.
 pub(super) struct CustomTool {

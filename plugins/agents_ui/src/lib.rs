@@ -18,21 +18,23 @@ mod rows;
 mod signals;
 mod words;
 
-pub use self::breadcrumb::breadcrumb;
-pub use self::change::{Changes, change_view};
-pub use self::client::{
+pub use crate::breadcrumb::breadcrumb;
+pub use crate::change::{Changes, change_view};
+pub use crate::client::{
     AgentsWorldExt, Asked, Focused, Heard, Shelves, Waits, show_chat,
     start,
 };
-pub use self::confirm::{CONFIRM, Confirm, Confirming, confirmation};
-pub use self::entry::entry_view;
-pub use self::library::library_list;
-pub use self::limits::{name, note, part, setting, whole};
-pub use self::markdown::markdown;
-pub use self::questions::card;
-pub use self::rows::{link_row, link_rows};
-pub use self::signals::{either, moved};
-pub use self::words::{
+pub use crate::confirm::{
+    CONFIRM, Confirm, Confirming, confirmation,
+};
+pub use crate::entry::entry_view;
+pub use crate::library::library_list;
+pub use crate::limits::{name, note, part, setting, whole};
+pub use crate::markdown::markdown;
+pub use crate::questions::card;
+pub use crate::rows::{link_row, link_rows};
+pub use crate::signals::{either, moved};
+pub use crate::words::{
     FailureExt, clip, hour, narrowed, short, since, tag_of, tail,
     titled,
 };

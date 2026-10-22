@@ -21,7 +21,6 @@ pub mod theme;
 pub mod window;
 pub mod workspace;
 
-pub use backdrop::Backdrop;
 use bevy::app::App;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
@@ -30,25 +29,26 @@ use bevy::prelude::ClearColor;
 use bevy::ui::{ComputedNode, UiGlobalTransform};
 use bevy_fynix::dock::DockTree;
 use bevy_fynix::{Bevy, FynixPlugin, Theme};
-pub use command::{
-    Command, MenuEntry, RunCommand, ShellCommandsExt, Shortcut,
-};
-pub use dock::Panel;
 use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_api::{CommandId, PanelId};
-pub use overlay::{Overlay, OverlayShown};
-pub use section::{PanelSection, section_content};
-use settings::{Pages, SETTINGS};
-pub use settings::{SettingsFooter, SettingsPage};
-pub use status::StatusItem;
-pub use style::{ButtonStyle, StyleExt};
-pub use theme::EngineTheme;
-pub use window::{ShowWindow, window_plugin};
-pub use workspace::{DockTreeExt, SuggestedWorkspace};
 
+pub use crate::backdrop::Backdrop;
+pub use crate::command::{
+    Command, MenuEntry, RunCommand, ShellCommandsExt, Shortcut,
+};
+pub use crate::dock::Panel;
 use crate::menu::{MenuBar, OpenMenu};
+pub use crate::overlay::{Overlay, OverlayShown};
+pub use crate::section::{PanelSection, section_content};
+use crate::settings::{Pages, SETTINGS};
+pub use crate::settings::{SettingsFooter, SettingsPage};
+pub use crate::status::StatusItem;
+pub use crate::style::{ButtonStyle, StyleExt};
 use crate::switcher::{Renaming, WorkspaceTab};
+pub use crate::theme::EngineTheme;
+pub use crate::window::{ShowWindow, window_plugin};
 use crate::workspace::Workspaces;
+pub use crate::workspace::{DockTreeExt, SuggestedWorkspace};
 
 /// A view built with the engine's theme.
 pub type AnyView = bevy_fynix::AnyView<Bevy, EngineTheme>;

@@ -13,8 +13,8 @@ use hamlet_rules::budget::{self, Ledger};
 use hamlet_rules::hamlet::{self, HOME, MAYOR};
 use hamlet_rules::realm::{self, Realm};
 
-use super::roster::settlements;
-use super::{
+use crate::agents::roster::settlements;
+use crate::agents::{
     Account, Activity, Busy, Carried, Charter, Citizen, First, Left,
     Lived, LivesIn, Mayor, MergedInto, Purpose, Road, Settlement,
     Spot, Synced, Traffic, Treasury, Works,

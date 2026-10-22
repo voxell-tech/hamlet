@@ -3,9 +3,9 @@
 
 use hamlet_engine_sdk::api::agents::{Doing, Paper};
 
-use super::acts::Act;
-use super::pose::dice;
-use super::trip::Stride;
+use crate::keeper::acts::Act;
+use crate::keeper::pose::dice;
+use crate::keeper::trip::Stride;
 use crate::yard::{BEAT, Station};
 
 /// One thing a robot does about its own house.

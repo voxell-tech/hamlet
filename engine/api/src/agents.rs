@@ -10,15 +10,15 @@ mod roster;
 
 use serde::{Deserialize, Serialize};
 
-pub use self::conversation::{
+pub use crate::agents::conversation::{
     Change, ChangeLine, Focus, Gift, Mark, Papers, Part, Past, Pasts,
     Related, Selected, Skill,
 };
-pub use self::needs::{
+pub use crate::agents::needs::{
     Choice, Danger, Need, NeedKind, Offer, Pick, Question, Questions,
     Sheet,
 };
-pub use self::roster::{
+pub use crate::agents::roster::{
     Bylaws, ClosedHamlet, Doing, Paper, Record, RoadUse, Roster,
     RosterAgent, RosterHamlet, RosterRoad, Vote,
 };

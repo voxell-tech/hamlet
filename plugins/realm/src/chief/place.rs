@@ -6,8 +6,8 @@ use std::f32::consts::{FRAC_PI_4, TAU};
 
 use glam::{Quat, Vec2, Vec3};
 
-use super::look::Look;
 use crate::chief::ChiefSettings;
+use crate::chief::look::Look;
 use crate::land::Land;
 use crate::lantern::lantern_cage;
 use crate::mesh::{Mb, Rng};

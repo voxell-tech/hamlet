@@ -8,13 +8,13 @@ use std::f32::consts::PI;
 use glam::{EulerRot, Quat, Vec3, Vec3Swizzles};
 use hamlet_engine_sdk::api::agents::Doing;
 
-use super::acts::Act;
-use super::lot::{Lot, footing};
-use super::rig::Rig;
-use super::trip::{Stride, Trip};
-use super::work::{Chore, routine};
-use super::{KState, Motion};
 use crate::frame::Frame;
+use crate::keeper::acts::Act;
+use crate::keeper::lot::{Lot, footing};
+use crate::keeper::rig::Rig;
+use crate::keeper::trip::{Stride, Trip};
+use crate::keeper::work::{Chore, routine};
+use crate::keeper::{KState, Motion};
 use crate::land::Land;
 use crate::yard::Station;
 

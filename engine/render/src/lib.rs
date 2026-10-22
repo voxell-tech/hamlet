@@ -25,18 +25,18 @@ use bevy::pbr::StandardMaterial;
 use bevy::render::storage::ShaderBuffer;
 use bevy::shader::Shader;
 
-pub use self::change::{CameraSetup, SceneChange, SceneLight};
-pub use self::guard::{GpuInfo, GpuLost, Throttled};
-pub use self::material::ShadedMaterial;
-pub use self::pass::ScenePass;
-pub use self::pick::{Hit, PointerButton, SceneEvent, SceneInput};
-pub use self::scene::{
+pub use crate::change::{CameraSetup, SceneChange, SceneLight};
+pub use crate::guard::{GpuInfo, GpuLost, Throttled};
+pub use crate::material::ShadedMaterial;
+pub use crate::pass::ScenePass;
+pub use crate::pick::{Hit, PointerButton, SceneEvent, SceneInput};
+pub use crate::scene::{
     Scene, SceneCamera, SceneOf, ScenePart, SceneWorldExt, Scenes,
 };
-pub use self::shader::{
+pub use crate::shader::{
     CheckedShader, PARAMS, ShaderKind, ShaderRules, check,
 };
-pub use self::viewport::{RenderTuning, Viewport};
+pub use crate::viewport::{RenderTuning, Viewport};
 
 pub fn plugin(app: &mut App) {
     // Without Bevy's assets, as in the harness, a scene is kept all

@@ -10,11 +10,11 @@ use hamlet_engine_sdk::scene::gpu::{
 };
 use hamlet_engine_sdk::scene::{AlphaMode, Entity, Material};
 
-use super::Drawn;
 use crate::frame::Frame;
 use crate::keeper::KState;
 use crate::palette::Palette;
 use crate::realm::Ctx;
+use crate::road::Drawn;
 use crate::society::Pair;
 use crate::tint::to_linear;
 

@@ -61,9 +61,9 @@ pub use hamlet_engine_api::{
     PanelId, Reply, Ticket, decode, encode,
 };
 
-use self::bindings::hamlet::engine::host::{self, Level};
-pub use self::entry::Entry;
-pub use self::ui::World;
+use crate::bindings::hamlet::engine::host::{self, Level};
+pub use crate::entry::Entry;
+pub use crate::ui::World;
 
 /// The version of the engine this SDK comes with.
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");

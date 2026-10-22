@@ -20,21 +20,27 @@ use hamlet_home::limits::{Limits, Permission, Review};
 use hamlet_rules::chief::rulings::Hearing;
 use hamlet_rules::hamlet::Hamlet;
 
-pub use self::answer::{Answer, Answered};
-use self::answer::{settle, settle_picks};
-use self::danger::Words;
-use self::decide::{Asked, decide};
-use self::grants::Grants;
-use self::instruction::{Carrying, Instruction, follow, over};
-pub use self::lapse::Veto;
-use self::lapse::{departed, forget, lapse, recall, stop};
-use self::ledger::Ledger;
-use self::queue::Raised;
-pub use self::queue::{Asks, Kind, Need, Needs, RaisedBy, Waiting};
-pub(crate) use self::typed::strip;
 use crate::agent::Event as AgentEvent;
 use crate::agents::{self, Citizen, Left};
 use crate::core::HomeDir;
+pub use crate::oversight::answer::{Answer, Answered};
+use crate::oversight::answer::{settle, settle_picks};
+use crate::oversight::danger::Words;
+use crate::oversight::decide::{Asked, decide};
+use crate::oversight::grants::Grants;
+use crate::oversight::instruction::{
+    Carrying, Instruction, follow, over,
+};
+pub use crate::oversight::lapse::Veto;
+use crate::oversight::lapse::{
+    departed, forget, lapse, recall, stop,
+};
+use crate::oversight::ledger::Ledger;
+use crate::oversight::queue::Raised;
+pub use crate::oversight::queue::{
+    Asks, Kind, Need, Needs, RaisedBy, Waiting,
+};
+pub(crate) use crate::oversight::typed::strip;
 use crate::session::{
     Closing, Instructed, Overseen, Reply, Rewound, SessionOutput,
     ToolStarting, TurnDropped, TurnStarted,

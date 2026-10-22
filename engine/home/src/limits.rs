@@ -7,8 +7,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-pub use edit::{set, write_template};
 use serde::Deserialize;
+
+pub use crate::limits::edit::{set, write_template};
 
 /// Caps on the three meters of spend. `None` leaves a meter uncapped.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]

@@ -14,9 +14,9 @@ use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
 };
 
-use super::hamlet;
-use super::instruction::{Instruction, mayor_objects};
 use crate::core::{HomeDir, Model, Settings, Tokio};
+use crate::oversight::hamlet;
+use crate::oversight::instruction::{Instruction, mayor_objects};
 
 struct Reviewed {
     instruction: Entity,

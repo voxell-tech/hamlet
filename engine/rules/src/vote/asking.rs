@@ -5,10 +5,10 @@ use anyhow::{Result, bail};
 use hamlet_home::Home;
 use serde_json::{Value, json};
 
-use super::{Ballot, Choice, Motion, Vote};
 use crate::hamlet::check_name;
 use crate::realm::Rules;
 use crate::record;
+use crate::vote::{Ballot, Choice, Motion, Vote};
 
 /// The message that asks the mayor for its answer to a motion to
 /// replace it.

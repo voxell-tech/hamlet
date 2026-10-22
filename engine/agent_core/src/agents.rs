@@ -18,14 +18,14 @@ use hamlet_rules::library::Library;
 use hamlet_rules::realm::Realm;
 use hamlet_rules::work::Work;
 
-pub use self::activity::{Activity, Doing, Paper, Saying};
-pub(crate) use self::roster::ask;
-pub use self::roster::{
+pub use crate::agents::activity::{Activity, Doing, Paper, Saying};
+pub(crate) use crate::agents::roster::ask;
+pub use crate::agents::roster::{
     Roster, hamlet_of, mayor, mayor_of, name_of, named,
 };
-use self::sync::found;
-pub(crate) use self::sync::watch;
-pub use self::sync::{Seen, WatchEvery, account, sync};
+use crate::agents::sync::found;
+pub(crate) use crate::agents::sync::watch;
+pub use crate::agents::sync::{Seen, WatchEvery, account, sync};
 use crate::core::HomeDir;
 
 /// Brings the hamlets of `home` up as entities and keeps them in

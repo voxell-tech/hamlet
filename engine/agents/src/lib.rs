@@ -38,8 +38,8 @@ use hamlet_model::config::{Config, use_keychain_service};
 use hamlet_rules::hamlet::HOME;
 use tokio::runtime::Runtime;
 
-pub use self::answer::AgentsWorldExt;
-pub use self::setup::AgentsConfigExt;
+pub use crate::answer::AgentsWorldExt;
+pub use crate::setup::AgentsConfigExt;
 
 /// The channel the chief's sessions are kept under.
 const CHANNEL: &str = "app";

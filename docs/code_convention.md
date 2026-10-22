@@ -93,3 +93,12 @@ type: `commands.add_builtin(..)`, not `add_builtin(&mut commands, ..)`.
 ## No mod.rs
 
 Use the filename instead of `mod.rs` in a folder.
+
+## Our own code through `crate::`
+
+Import anything of the same crate by its path from the crate root,
+`use crate::store::AssetStore;`, a file's own modules and a root's
+re-exports included: `pub use crate::store::AssetStore;`. `super::*`
+is for a test module only, and `self::` is not used. `rustfmt` groups
+imports by their first word, so a bare `store::..` would sort among
+the other crates.

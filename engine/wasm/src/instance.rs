@@ -46,13 +46,13 @@ pub(crate) mod ui_bindings {
     });
 }
 
-use self::bindings::exports::hamlet::engine::guest::Guest;
-use self::bindings::hamlet::engine::host::{self, Level};
-use self::bindings::{Plugin, PluginPre};
-use self::ui_bindings::exports::hamlet::engine::ui_guest::{
+use crate::instance::bindings::exports::hamlet::engine::guest::Guest;
+use crate::instance::bindings::hamlet::engine::host::{self, Level};
+use crate::instance::bindings::{Plugin, PluginPre};
+use crate::instance::ui_bindings::exports::hamlet::engine::ui_guest::{
     Action, Motions, UiEvent,
 };
-use self::ui_bindings::{UiPanels, UiPanelsIndices};
+use crate::instance::ui_bindings::{UiPanels, UiPanelsIndices};
 
 /// The interfaces of the host a plugin may import, besides the
 /// system's (`wasi:`).
@@ -718,7 +718,7 @@ impl Instance {
         &mut self,
         caps: &Caps,
         call: impl FnOnce(
-            &self::ui_bindings::exports::hamlet::engine::ui_guest::Guest,
+            &crate::instance::ui_bindings::exports::hamlet::engine::ui_guest::Guest,
             &mut Store<State>,
         ) -> wasmtime::Result<bool>,
     ) -> (Result<bool, Fault>, Spent) {

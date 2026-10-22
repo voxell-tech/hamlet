@@ -9,7 +9,7 @@ use hamlet_home::limits::{Permission, Permissions};
 use hamlet_model::log;
 use serde_json::{Value, json};
 
-use super::danger::Danger;
+use crate::oversight::danger::Danger;
 
 /// The permission that would let a call with `danger` run. `None` for
 /// a danger that is asked about every time, or allowed for a session

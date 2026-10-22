@@ -35,24 +35,24 @@ use hamlet_engine_plugins::{
     ContributedBy, PluginInfo, PluginKind, Stopped,
 };
 
-pub use self::add::AddFrom;
-use self::budget::Spending;
-pub(crate) use self::folder::PluginPathExt;
-pub use self::folder::{MANIFEST, Package, WASM};
-pub use self::host::{Host, WasmTuning};
-pub use self::instance::{Caps, Fault, Instance, NodeInput, Spent};
-use self::nodes::NodeChange;
-pub use self::nodes::NodeError;
-pub use self::panel::Surface;
-use self::panel::{Inbox, Moving};
-use self::reload::{Loaded, Reloading};
-use self::retained::{Holders, Kids, WasmWorldExt};
-pub use self::retained::{NodeAction, NodeOf, NodeStats, UiRoot};
-pub use self::run::Compiling;
-pub use self::scene::{
+pub use crate::add::AddFrom;
+use crate::budget::Spending;
+pub(crate) use crate::folder::PluginPathExt;
+pub use crate::folder::{MANIFEST, Package, WASM};
+pub use crate::host::{Host, WasmTuning};
+pub use crate::instance::{Caps, Fault, Instance, NodeInput, Spent};
+use crate::nodes::NodeChange;
+pub use crate::nodes::NodeError;
+pub use crate::panel::Surface;
+use crate::panel::{Inbox, Moving};
+use crate::reload::{Loaded, Reloading};
+use crate::retained::{Holders, Kids, WasmWorldExt};
+pub use crate::retained::{NodeAction, NodeOf, NodeStats, UiRoot};
+pub use crate::run::Compiling;
+pub use crate::scene::{
     Powers, SceneCaps, SceneError, SceneInbox, ShowsCamera,
 };
-use self::surfaces::SurfaceChange;
+use crate::surfaces::SurfaceChange;
 
 pub fn plugin(app: &mut App) {
     app.add_plugins((

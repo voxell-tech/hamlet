@@ -6,8 +6,8 @@ use std::ops::RangeInclusive;
 use glam::Vec2;
 use hamlet_engine_sdk::scene::MeshData;
 
-use super::{DetailSettings, Tile};
 use crate::flora::{self, Tree};
+use crate::ground::{DetailSettings, Tile};
 use crate::land::Land;
 
 /// The drawing of a tile's trees.

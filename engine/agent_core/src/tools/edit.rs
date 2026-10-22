@@ -5,7 +5,7 @@ use std::path::{Component, Path};
 
 use serde_json::Value;
 
-use super::Outcome;
+use crate::tools::Outcome;
 
 /// The most of a file shown when `old` is not in it.
 const SHOWN: usize = 1200;

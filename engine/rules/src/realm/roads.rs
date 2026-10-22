@@ -5,8 +5,8 @@ use anyhow::{Result, bail};
 use hamlet_model::log;
 use serde_json::{Value, json};
 
-use super::{Realm, office};
 use crate::hamlet::{MAYOR, Road};
+use crate::realm::{Realm, office};
 use crate::record::text;
 
 impl Realm {

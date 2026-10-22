@@ -4,7 +4,7 @@ use anyhow::{Result, bail};
 use hamlet_model::log;
 use hamlet_rules::hamlet::Hamlet;
 
-use super::{Agent, Event, Listener};
+use crate::agent::{Agent, Event, Listener};
 
 impl Agent {
     /// Carries `message` along the road to `to`, runs the other

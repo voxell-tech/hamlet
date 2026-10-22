@@ -11,8 +11,8 @@ mod tests;
 
 use bevy::app::App;
 
-pub use self::event::Subscriptions;
-pub use self::service::{
+pub use crate::event::Subscriptions;
+pub use crate::service::{
     Admitted, Call, Calls, Second, Serve, Served,
 };
 

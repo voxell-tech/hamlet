@@ -5,11 +5,11 @@
 use glam::Vec3Swizzles;
 use hamlet_engine_sdk::scene::{Mesh, MeshData};
 
-use super::mesh::{self, Rows, Span, Stretch};
 use crate::land::Search;
 use crate::layout::{End, Route};
 use crate::mesh::Line;
 use crate::realm::Ctx;
+use crate::road::mesh::{self, Rows, Span, Stretch};
 use crate::society::RoadLevel;
 use crate::upload::{Unsent, Upload};
 

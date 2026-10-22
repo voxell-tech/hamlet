@@ -5,15 +5,15 @@
 use bevy_ecs::prelude::*;
 use hamlet_model::log;
 
-use super::deliver::{queue, staffed};
-use super::output::output;
-use super::usage::carried;
-use super::worker::Job;
-use super::{
+use crate::core::Settings;
+use crate::session::deliver::{queue, staffed};
+use crate::session::output::output;
+use crate::session::usage::carried;
+use crate::session::worker::Job;
+use crate::session::{
     Entry, Item, Reply, Seat, SessionKey, Status, Transcript, Usage,
     place, reseat,
 };
-use crate::core::Settings;
 
 /// Takes a conversation back to just before the message `entry` of
 /// its transcript. Nothing happens while a turn runs in it.

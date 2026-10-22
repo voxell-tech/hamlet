@@ -2,7 +2,7 @@
 
 use glam::{Quat, Vec2, Vec3};
 
-use super::Piece;
+use crate::keeper::kit::Piece;
 use crate::keeper::pose::{FACE, HOOK, NECK, POLE_FOOT, WHEEL};
 use crate::keeper::who::Emblem;
 use crate::lantern;

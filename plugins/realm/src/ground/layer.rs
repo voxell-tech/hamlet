@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 
 use glam::Vec2;
 
-use super::{DetailSettings, Lies, Sight, Tile};
+use crate::ground::{DetailSettings, Lies, Sight, Tile};
 use crate::land::Land;
 
 /// What is drawn of a tile, which can be lowered under the tiles

@@ -10,7 +10,7 @@ use hamlet_home::limits::Period;
 use hamlet_model::log;
 use serde_json::{Value, json};
 
-use super::{Amount, first_day};
+use crate::budget::{Amount, first_day};
 use crate::record;
 
 /// A new task's id. It opens with the time, which says where in the

@@ -24,13 +24,13 @@ use hamlet_engine_render::{
 };
 use hamlet_engine_shell::Backdrop;
 
-use super::{Powers, convert};
 use crate::WasmCommandsExt;
 use crate::budget::Spending;
 use crate::host::WasmTuning;
 use crate::instance::{Caps, Fault, Instance, Spent};
 use crate::panel::{Moving, serve};
 use crate::retained::{Holders, NodeOf};
+use crate::scene::{Powers, convert};
 
 pub(crate) fn plugin(app: &mut App) {
     // The render crate's messages, for an engine that runs without

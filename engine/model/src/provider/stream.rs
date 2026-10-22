@@ -5,7 +5,7 @@ use std::time::Instant;
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
 
-use super::Delta;
+use crate::provider::Delta;
 
 /// Splits a byte stream into lines. Buffers bytes so a line (or a
 /// UTF-8 character) split across chunks is reassembled before

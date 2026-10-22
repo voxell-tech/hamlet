@@ -3,8 +3,10 @@
 
 use glam::{Vec2, Vec3};
 
-use super::parts::{arm_high, arm_l, blink, breathe, crook_out};
-use super::{Ctx, MERGE_GAP};
+use crate::keeper::acts::parts::{
+    arm_high, arm_l, blink, breathe, crook_out,
+};
+use crate::keeper::acts::{Ctx, MERGE_GAP};
 use crate::keeper::pose::{
     EMBER, LIT, Pose, arc, back_out, candle, pulse, ramp, ring, rx,
     ry, rz,

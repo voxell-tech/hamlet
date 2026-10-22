@@ -1,6 +1,6 @@
 //! The looks that tell one robot from another.
 
-use super::pose::dice;
+use crate::keeper::pose::dice;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Hat {

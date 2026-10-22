@@ -8,9 +8,9 @@ use std::collections::HashMap;
 use fynix::Signal;
 use hamlet_engine_api::DesktopRequest;
 
-use super::Key;
-use super::nodes::Nodes;
 use crate::bindings::exports::hamlet::engine::ui_guest::Action;
+use crate::ui::Key;
+use crate::ui::nodes::Nodes;
 
 /// What runs, with the whole world, when the person acts on a node.
 pub(crate) enum Handler {

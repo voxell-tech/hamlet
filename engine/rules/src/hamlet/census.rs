@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-use super::roads::{Road, ends};
-use super::{FOUNDER, Hamlet, MAYOR, Resident};
+use crate::hamlet::roads::{Road, ends};
+use crate::hamlet::{FOUNDER, Hamlet, MAYOR, Resident};
 use crate::record::text;
 
 /// A road an absorbed agent passed to the agent it was merged into.

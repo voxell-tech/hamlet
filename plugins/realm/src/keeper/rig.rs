@@ -7,18 +7,18 @@ use std::f32::consts::TAU;
 use glam::Vec3;
 use hamlet_engine_sdk::scene::{Entity, Material, Mesh, Pbr};
 
-use super::acts::{self, Act, Quirk};
-use super::kit::Kit;
-use super::kit::body::{KEY_AT, LAMP_DROP};
-use super::kit::hats::SPIRE;
-use super::pose::{
+use crate::frame::Frame;
+use crate::keeper::acts::{self, Act, Quirk};
+use crate::keeper::kit::Kit;
+use crate::keeper::kit::body::{KEY_AT, LAMP_DROP};
+use crate::keeper::kit::hats::SPIRE;
+use crate::keeper::pose::{
     self, FACE, HAT_AT, HIP, HOOK, NECK, Pose, Prop, SHOULDER, arc,
     ramp, rx, ry, rz,
 };
-use super::trip::Stride;
-use super::who::Who;
-use super::{KState, Motion};
-use crate::frame::Frame;
+use crate::keeper::trip::Stride;
+use crate::keeper::who::Who;
+use crate::keeper::{KState, Motion};
 use crate::stock::{Stock, rgba};
 use crate::tint::to_linear;
 

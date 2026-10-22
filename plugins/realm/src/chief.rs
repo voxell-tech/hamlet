@@ -12,8 +12,8 @@ mod wickstep;
 
 use glam::Vec3;
 
-use self::hearth::Hearth;
-use self::look::Look;
+use crate::chief::hearth::Hearth;
+use crate::chief::look::Look;
 use crate::land::Land;
 use crate::palette::Palette;
 use crate::realm::Ctx;

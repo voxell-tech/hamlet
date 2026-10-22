@@ -1,7 +1,7 @@
 //! The places a model can come from: the providers a key is of, and
 //! the servers looked for on this computer.
 
-use super::Endpoint;
+use crate::config::Endpoint;
 
 /// A place that serves models.
 pub struct Provider {

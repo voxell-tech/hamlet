@@ -7,15 +7,17 @@ mod meeting;
 mod parts;
 mod plain;
 
-use self::chores::{
+use crate::keeper::KState;
+use crate::keeper::acts::chores::{
     celebrate, crank, done, hammer, kite, read, recall, stow, tend,
     think, write,
 };
-use self::lives::{appear, leave, merge_host, merge_into};
-use self::meeting::listen;
-use self::plain::{Gait, idle, reflect, wait, walk};
-use super::KState;
-use super::pose::{Pose, dice};
+use crate::keeper::acts::lives::{
+    appear, leave, merge_host, merge_into,
+};
+use crate::keeper::acts::meeting::listen;
+use crate::keeper::acts::plain::{Gait, idle, reflect, wait, walk};
+use crate::keeper::pose::{Pose, dice};
 
 /// One motion a robot can play.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

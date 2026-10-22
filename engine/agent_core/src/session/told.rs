@@ -7,10 +7,10 @@ use hamlet_rules::hamlet::{Hamlet, MAYOR};
 use hamlet_rules::library::Library;
 use hamlet_rules::realm::Rules;
 
-use super::worker::Brief;
-use super::{Seat, house_of};
 use crate::agent::Told;
 use crate::core::{HomeDir, Sandboxing};
+use crate::session::worker::Brief;
+use crate::session::{Seat, house_of};
 use crate::tools::Tools;
 
 /// The system prompt the agent at `seat` would begin a turn with

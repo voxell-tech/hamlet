@@ -6,9 +6,9 @@ use bevy_ecs::prelude::*;
 use hamlet_home::limits::{Limits, Permission};
 use hamlet_rules::chief::rulings::{self, Choice, Command};
 
-use super::grants::Grants;
-use super::{Answer, Kind, Revoke, Veto, Waiting};
 use crate::agents;
+use crate::oversight::grants::Grants;
+use crate::oversight::{Answer, Kind, Revoke, Veto, Waiting};
 use crate::session::{SessionKey, Typed, UserMessage};
 
 /// The most of what waits that the head of its strip quotes, in

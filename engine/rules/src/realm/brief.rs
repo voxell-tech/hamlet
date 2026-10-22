@@ -3,8 +3,8 @@
 
 use serde_json::{Value, json};
 
-use super::Realm;
 use crate::hamlet::Hamlet;
+use crate::realm::Realm;
 use crate::record::text;
 
 impl Realm {

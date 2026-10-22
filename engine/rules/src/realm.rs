@@ -12,14 +12,14 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Result, bail};
 use hamlet_model::log;
-pub use moves::Moved;
-pub use removal::Removal;
-pub use rules::Rules;
 use serde_json::{Value, json};
 
 use crate::hamlet::{
     FOUNDER, HOME, Hamlet, MAYOR, Resident, check_name,
 };
+pub use crate::realm::moves::Moved;
+pub use crate::realm::removal::Removal;
+pub use crate::realm::rules::Rules;
 use crate::record::{self, text};
 
 /// The most letters of what a chief calls a hamlet.

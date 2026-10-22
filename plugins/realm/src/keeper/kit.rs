@@ -8,15 +8,15 @@ mod props;
 use glam::Vec3;
 use hamlet_engine_sdk::scene::{Material, Mesh, MeshData, Pbr};
 
-use self::body::{
+use crate::keeper::kit::body::{
     arm, emblem, eye, head, key, lamp, leg, mantle, pennant, pole,
     torso, wheels,
 };
-use self::hats::hat;
-pub(super) use self::props::KITE;
-use self::props::{glint, prop};
-use super::pose::Prop;
-use super::who::{Emblem, Hat, Paint};
+use crate::keeper::kit::hats::hat;
+pub(super) use crate::keeper::kit::props::KITE;
+use crate::keeper::kit::props::{glint, prop};
+use crate::keeper::pose::Prop;
+use crate::keeper::who::{Emblem, Hat, Paint};
 use crate::lantern;
 use crate::mesh::Mb;
 use crate::palette::Palette;

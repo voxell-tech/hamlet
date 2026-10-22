@@ -6,11 +6,11 @@ use hamlet_home::limits::Review;
 use hamlet_rules::chief::rulings::{Choice, Hearing, Party};
 use hamlet_rules::hamlet::MAYOR;
 
-use super::decide::{Asked, Held, Parked};
-use super::queue::{Kind, Waiting, raise};
-use super::{Unreviewed, limits, review};
 use crate::agent::Event as AgentEvent;
 use crate::core::Settings;
+use crate::oversight::decide::{Asked, Held, Parked};
+use crate::oversight::queue::{Kind, Waiting, raise};
+use crate::oversight::{Unreviewed, limits, review};
 use crate::session::Reply;
 
 /// The instruction an objection is about.

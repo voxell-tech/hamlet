@@ -4,13 +4,15 @@ use bevy_ecs::prelude::*;
 use hamlet_rules::chief::asking::{ANSWERS, Pick};
 use hamlet_rules::chief::rulings::Choice;
 
-use super::danger::{Danger, Refused};
-use super::decide::{Asked, Held, Parked, Trusted, standing};
-use super::grants::{self, Grants};
-use super::instruction::{About, Instruction, objections};
-use super::limits;
-use super::queue::{Asks, Kind, Waiting, close, raiser};
 use crate::agent::Ruling;
+use crate::oversight::danger::{Danger, Refused};
+use crate::oversight::decide::{
+    Asked, Held, Parked, Trusted, standing,
+};
+use crate::oversight::grants::{self, Grants};
+use crate::oversight::instruction::{About, Instruction, objections};
+use crate::oversight::limits;
+use crate::oversight::queue::{Asks, Kind, Waiting, close, raiser};
 use crate::session::{self, Began, Stop};
 use crate::tools::Leave;
 

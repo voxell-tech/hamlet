@@ -50,9 +50,9 @@ use hamlet_engine_wasm::{
 };
 use serde::Deserialize;
 
-pub use self::outline::HarnessWorldExt;
-pub use self::scene::SceneCounts;
-pub use self::steps::{Step, Steps};
+pub use crate::outline::HarnessWorldExt;
+pub use crate::scene::SceneCounts;
+pub use crate::steps::{Step, Steps};
 
 /// Where cargo puts a plugin crate's release build, in its folder.
 pub const BUILT: &str = "target/wasm32-wasip2/release/plugin.wasm";

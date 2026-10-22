@@ -11,7 +11,7 @@ use bevy_fynix::dock::DockIcons;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{Icon, icon};
 
-use self::Shape::{
+use crate::icons::Shape::{
     Arc, Curve, Dot, Fill, Line, Loop, Path, Ring, Round,
 };
 use crate::{AnyView, Cx};

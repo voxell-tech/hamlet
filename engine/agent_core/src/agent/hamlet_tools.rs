@@ -9,8 +9,8 @@ use hamlet_rules::realm::{self, Realm};
 use hamlet_rules::{budget, standing, vote};
 use serde_json::Value;
 
-use super::message::no_road;
-use super::{Agent, Event, Listener};
+use crate::agent::message::no_road;
+use crate::agent::{Agent, Event, Listener};
 use crate::tools::{Call, Leave, Outcome};
 
 /// The tools only a mayor has.

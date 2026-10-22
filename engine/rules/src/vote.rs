@@ -5,16 +5,16 @@
 mod asking;
 
 use anyhow::{Result, bail};
-pub use asking::{
-    BALLOTS, PAYER, answer_text, ballot_definition, ballot_text,
-    call_definition, grounded, history, motion_of,
-};
 use hamlet_model::log;
 use serde_json::{Value, json};
 
 use crate::hamlet::Hamlet;
 use crate::realm::{Origin, Realm, Rules};
 use crate::record::text;
+pub use crate::vote::asking::{
+    BALLOTS, PAYER, answer_text, ballot_definition, ballot_text,
+    call_definition, grounded, history, motion_of,
+};
 use crate::words::clip;
 
 /// The matter a vote decides.

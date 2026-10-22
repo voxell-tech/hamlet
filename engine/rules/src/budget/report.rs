@@ -2,7 +2,7 @@
 
 use hamlet_home::limits::Limits;
 
-use super::{
+use crate::budget::{
     Amount, Books, Standing, format_cost, gone, period_words,
 };
 

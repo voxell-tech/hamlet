@@ -12,7 +12,7 @@ use bevy::time::{Real, Time};
 use hamlet_engine_core::{Home, LogLine, write_whole};
 use ron::ser::PrettyConfig;
 
-use super::{WorkspaceTuning, Workspaces};
+use crate::workspace::{WorkspaceTuning, Workspaces};
 
 /// The file's name in the home.
 pub const FILE: &str = "workspaces.ron";

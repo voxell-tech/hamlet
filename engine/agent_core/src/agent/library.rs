@@ -8,7 +8,7 @@ use hamlet_model::log;
 use hamlet_rules::hamlet::Hamlet;
 use hamlet_rules::library::{self, LIBRARIAN, Library};
 
-use super::{Agent, Event, Listener};
+use crate::agent::{Agent, Event, Listener};
 
 impl Agent {
     /// Offers the skill `skill` of this agent's house to the library,

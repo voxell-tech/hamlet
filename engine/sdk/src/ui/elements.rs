@@ -5,13 +5,13 @@ use core::any::TypeId;
 
 use fynix::{Cx, Patch, Prop, Styled, View, ViewSeq, element};
 
-use super::world::{Handler, World};
-use super::{Hamlet, Key, States};
 use crate::bindings::hamlet::engine::ui::{
     Align, ButtonStyle, Direction, Face, Fill, Kind, Menu,
     MenuItem as Item, Motion as Movement, Property, Size, Space,
     Tone,
 };
+use crate::ui::world::{Handler, World};
+use crate::ui::{Hamlet, Key, States};
 
 /// A run of text.
 #[element(backend = Hamlet)]

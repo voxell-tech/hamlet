@@ -5,7 +5,7 @@ use std::f32::consts::TAU;
 
 use glam::Vec3;
 
-use super::Motion;
+use crate::keeper::Motion;
 
 /// The ground a robot that is moved has covered, and its speed.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
