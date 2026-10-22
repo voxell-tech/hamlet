@@ -17,6 +17,39 @@ pub struct TownStyle {
     pub banner: Vec3,
 }
 
+/// The colours of one of the bazaar's stalls.
+#[derive(
+    Clone, Copy, PartialEq, Debug, Default, serde::Deserialize,
+)]
+#[serde(deny_unknown_fields)]
+pub struct StallStyle {
+    /// Its cloth, striped with `whitewash`, and the face of its
+    /// sign.
+    #[serde(with = "tint::linear")]
+    pub cloth: Vec3,
+    /// What its sign and its edges are picked out in.
+    #[serde(with = "tint::linear")]
+    pub trim: Vec3,
+    /// The light of what it sells.
+    #[serde(with = "tint::linear")]
+    pub glow: Vec3,
+}
+
+/// The bazaar's own colours, which `plugins/realm/assets/bazaar.toml`
+/// keeps beside the realm's palette.
+#[derive(Clone, PartialEq, Debug, Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BazaarColours {
+    /// The cloth of its awnings, each striped with `whitewash`.
+    #[serde(with = "tint::linear_list")]
+    pub awnings: [Vec3; 4],
+    /// The bulbs of its fairy lights, in their turn along a string.
+    #[serde(with = "tint::linear_list")]
+    pub fairy: [Vec3; 6],
+    /// Its stalls, in the order of `bazaar::Stall::ALL`.
+    pub stalls: [StallStyle; 5],
+}
+
 /// Every colour of the world. Those baked into meshes are linear
 /// RGB.
 #[derive(Clone, PartialEq, Debug, serde::Deserialize)]
@@ -182,4 +215,6 @@ pub struct Palette {
     pub place_fits: Vec3,
     #[serde(with = "tint::linear")]
     pub place_unfit: Vec3,
+    #[serde(skip)]
+    pub bazaar: BazaarColours,
 }

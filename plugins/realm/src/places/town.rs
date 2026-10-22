@@ -5,7 +5,7 @@
 //! from does. Houses are built a few a frame; one that replaces
 //! another stands up as the other goes.
 
-mod build;
+pub mod build;
 mod common;
 mod kit;
 mod lights;

@@ -1379,8 +1379,10 @@ tiles about the camera with its rivers and trees, a town for every
 hamlet with a house, a yard and a robot for every agent, the roads
 between agents with their bridges and lit grooves, and the chief's
 Hearth with its mascot, which goes by a Wickstep to the agent the
-chief talks to. The sky follows the chief's clock (`Focus::offset`).
-Its tuning is `assets/world.toml` and `assets/palette.toml`, built in.
+chief talks to, and the Agent Bazaar beside it. The sky follows the
+chief's clock (`Focus::offset`). Its tuning is `assets/world.toml`,
+`assets/palette.toml` and the bazaar's own
+`plugins/realm/assets/bazaar.toml`, built in.
 - **The source** is grouped by what it is: `world/` the land and its
   look, `places/` what stands on it, `folk/` the robots and the chief,
   `view/` the camera, the pointer and the signs, and `build/` the
@@ -1407,21 +1409,38 @@ Its tuning is `assets/world.toml` and `assets/palette.toml`, built in.
 - **The camera** (`view/camera.rs`) frames every hamlet; the left button
   slides the ground, the right turns and tilts it, and the wheel comes
   nearer. Reset Camera, Focus on Selection (F), Follow Selection
-  (Shift+F) and the sky held to day or night are in the View menu.
-- **The pointer.** A robot, a house, a common, the Hearth or the
-  mascot under it has a ring of light, as the one selected has, each
+  (Shift+F), the sky held to day or night and Go to the Bazaar are in
+  the View menu.
+- **The pointer.** A robot, a house, a common, the Hearth, the
+  mascot, the bazaar or one of its stalls under it has a ring of light, as the one selected has, each
   a decal of the realm's own shader (`build/mark.rs` and `mark.wgsl`,
   as are the runes of a Wickstep). Its line is worked out for each
   pixel, its edges soft over one pixel, and is `[pick] ring_width`
   wide whatever the size of what it is about. It falls only on the
-  ground: the heights of the land and the yards about it are in its
-  buffer, and a wall, a robot or a barrel standing higher is left
+  ground: the heights of the land, the yards and the bazaar's paving
+  about it are in its buffer, and a wall, a robot or a barrel standing higher is left
   alone. A click selects its agent,
   hamlet or the Hearth in the window's focus and brings the Inspector
-  forward; a click on the bare ground selects nothing. A hamlet or the
-  Hearth selected elsewhere is brought into view. Houses, commons and
-  the Hearth have signs while the camera is near, and a robot or the
-  mascot a tag under the pointer.
+  forward; a click on the bare ground, the bazaar or a stall selects
+  nothing. A hamlet or the Hearth selected elsewhere is brought into
+  view. Houses, commons, the Hearth, the bazaar and its stalls have
+  signs while the camera is near, and a robot or the mascot a tag
+  under the pointer.
+- **The Agent Bazaar** (`places/bazaar.rs`) is pitched as the realm is
+  made, after the Hearth, on a site beside the first town: its ground
+  is claimed, so towns keep off it and the roads go round it, and held
+  level and clear of trees. A striped pavilion with its merchant, five
+  stalls in a ring (AI Models, Community Agents, Plugins, Skills and
+  Hamlet Templates) each with its keeper, shoppers going round them,
+  lanterns and fairy lights that burn after dark, are built a step at
+  a time within the budgets, the stall nearest the camera first, and
+  are a few plain shapes from far. Its people and what turns move
+  only while the camera is near. A click on a stall sends `stall`
+  (`bazaar.stall`, the stall's short name as a `String`: `models`,
+  `community`, `plugins`, `skills` or `hamlets`) and has its keeper
+  turn and wave. It hears `traded` of `hamlet.bazaar`, of the same
+  payload: the stall's keeper and the merchant cheer, its light flares
+  and embers rise over its counter.
 - **Moving a town.** It hears the Inspector's `carry`: the town is in
   hand, its footprint follows the pointer over the ground, gold where
   it fits and red where it does not, a click sends `/move-hamlet` to

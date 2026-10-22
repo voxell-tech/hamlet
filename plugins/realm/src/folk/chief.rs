@@ -5,8 +5,8 @@
 
 mod hearth;
 mod homing;
-mod look;
-mod mascot;
+pub mod look;
+pub mod mascot;
 mod place;
 mod wickstep;
 
@@ -16,6 +16,7 @@ use hamlet_engine_sdk::scene::gpu::Shader;
 use crate::build::upload::Upload;
 use crate::folk::chief::hearth::Hearth;
 use crate::folk::chief::look::Look;
+pub use crate::folk::chief::place::stand;
 use crate::realm::Ctx;
 use crate::society::Society;
 use crate::tuning::WorldTuning;

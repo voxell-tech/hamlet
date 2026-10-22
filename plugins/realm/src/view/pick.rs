@@ -11,6 +11,7 @@ use crate::bridge::Bridge;
 use crate::build::mark::{Mark, Shape};
 use crate::build::upload::Upload;
 use crate::folk::keeper::Floor;
+use crate::places::bazaar::Stall;
 use crate::society::{AgentId, Society, TownId};
 
 /// The colour of a ring's light, and how bright the ring under the
@@ -59,6 +60,10 @@ pub enum Thing {
     Mascot,
     /// The chief's place, the Hearth.
     Hearth,
+    /// The Agent Bazaar's pavilion and its ground.
+    Bazaar,
+    /// A stall of the bazaar.
+    Stall(Stall),
 }
 
 /// The bits of a key that say which kind of thing it is.
@@ -73,6 +78,8 @@ impl Thing {
             Self::Common(town) => (3, town.0),
             Self::Mascot => (4, 0),
             Self::Hearth => (5, 0),
+            Self::Bazaar => (6, 0),
+            Self::Stall(stall) => (7, stall as u32),
         };
         (kind << KIND) | (id & ((1 << KIND) - 1))
     }
@@ -86,13 +93,16 @@ impl Thing {
             3 => Self::Common(TownId(id)),
             4 => Self::Mascot,
             5 => Self::Hearth,
+            6 => Self::Bazaar,
+            7 => Self::Stall(Stall::ALL.get(id as usize).copied()?),
             _ => return None,
         })
     }
 
     /// What the window's focus selects for it: an agent for its robot
-    /// or house, a hamlet for its common, and the Hearth for the
-    /// chief's place and mascot.
+    /// or house, a hamlet for its common, the Hearth for the chief's
+    /// place and mascot, and nothing for the bazaar, which is no
+    /// one's.
     pub fn selects(
         self,
         society: &Society,
@@ -109,6 +119,7 @@ impl Thing {
                     .map(|hamlet| Selected::Hamlet(hamlet.to_owned()))
             }
             Self::Mascot | Self::Hearth => Some(Selected::Hearth),
+            Self::Bazaar | Self::Stall(_) => Some(Selected::Nothing),
         }
     }
 
@@ -223,6 +234,10 @@ impl Picking {
     pub fn take_choice(&mut self) -> Option<Option<Thing>> {
         if std::mem::take(&mut self.loose) {
             self.chosen = Some(None);
+            // The focus may hold nothing already, as it does while
+            // the bazaar is chosen, and then says nothing
+            // new.
+            self.selected = None;
         }
         self.chosen.take()
     }
@@ -277,10 +292,14 @@ impl Picking {
     ) -> Option<Thing> {
         let now = Thing::selected(&focus.selected, bridge);
         // A house or a robot stands for the same agent, and the
-        // mascot for the chief's place.
+        // mascot for the chief's place. The bazaar, chosen here, is
+        // nothing to the focus.
         let same = match (self.selected, now) {
             (Some(Thing::House(a)), Some(Thing::Robot(b))) => a == b,
             (Some(Thing::Mascot), Some(Thing::Hearth)) => true,
+            (Some(Thing::Bazaar | Thing::Stall(_)), None) => {
+                focus.selected == Selected::Nothing
+            }
             (was, now) => was == now,
         };
         if same {

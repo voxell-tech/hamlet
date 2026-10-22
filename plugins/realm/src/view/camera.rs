@@ -21,6 +21,11 @@ pub const VIEW: u32 = 1;
 /// tells it.
 const SIZE: Vec2 = Vec2::new(1280.0, 800.0);
 
+/// How many times its reach the camera stands from what it frames
+/// whole, with the field of view at 25 degrees and some room about
+/// it.
+const WHOLE: f32 = 5.0;
+
 /// The camera moved by hand, on top of the framing of the hamlets.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Orbit {
@@ -375,6 +380,21 @@ impl Camera {
     pub fn reset(&mut self) {
         self.orbit = Orbit::default();
         self.following = None;
+    }
+
+    /// Brings `at` to the middle of the view, as far off as shows
+    /// `reach` about it whole.
+    pub fn frame_round(
+        &mut self,
+        camera: &CameraSettings,
+        at: Vec2,
+        reach: f32,
+    ) {
+        self.focus_on(camera, at, false);
+        if let Some((_, _, base)) = self.framed {
+            self.orbit.zoom = (reach * WHOLE / base)
+                .clamp(camera.zoom.0, camera.zoom.1);
+        }
     }
 
     /// Answers what the person did over the view.

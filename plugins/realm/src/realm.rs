@@ -19,6 +19,7 @@ use crate::build::stock::Stock;
 use crate::build::upload::{Pace, Upload};
 use crate::folk::chief::Chief;
 use crate::folk::keeper::{Floor, Robots};
+use crate::places::bazaar::{Bazaar, Stall};
 use crate::places::house::Remains;
 use crate::places::moving::{Carry, Footprint};
 use crate::places::road::Roads;
@@ -84,6 +85,10 @@ pub struct Realm {
     roads: Roads,
     robots: Robots,
     chief: Chief,
+    /// The Agent Bazaar, unless the land had no room for it, and the
+    /// stall chosen, until it is told.
+    bazaar: Option<Bazaar>,
+    stall: Option<Stall>,
     pub pick: Picking,
     /// The thing the camera stays on.
     following: Option<Thing>,
@@ -130,6 +135,9 @@ impl Realm {
             &mut land,
             &mut society,
         )?;
+        // The bazaar takes its ground after the chief.
+        let bazaar =
+            Bazaar::pitch(&tuning, &pal, &mut land, &mut society)?;
         let ground = Ground::make(&pal)?;
         let towns = Towns::make(&pal)?;
         let roads = Roads::make(&pal)?;
@@ -155,6 +163,8 @@ impl Realm {
             roads,
             robots,
             chief,
+            bazaar,
+            stall: None,
             pick: Picking::make(&marks)?,
             following: None,
             carrying: None,
@@ -178,7 +188,31 @@ impl Realm {
     pub fn choice(&mut self) -> Option<Selected> {
         match self.pick.take_choice()? {
             None => Some(Selected::Nothing),
-            Some(thing) => thing.selects(&self.society, &self.bridge),
+            Some(thing) => {
+                if let Thing::Stall(stall) = thing {
+                    self.stall = Some(stall);
+                }
+                thing.selects(&self.society, &self.bridge)
+            }
+        }
+    }
+
+    /// The stall of the bazaar chosen since it was last asked.
+    pub fn take_stall(&mut self) -> Option<Stall> {
+        self.stall.take()
+    }
+
+    /// The chief bought something at the stall named `short`: the
+    /// bazaar shows the sale there.
+    pub fn trade(&mut self, short: &str) {
+        let Some(stall) = Stall::named(short) else {
+            hamlet_engine_sdk::warn(&format!(
+                "no stall is named {short}"
+            ));
+            return;
+        };
+        if let Some(bazaar) = &mut self.bazaar {
+            bazaar.trade(stall, self.clock);
         }
     }
 
@@ -332,7 +366,10 @@ impl Realm {
             dt,
         );
         let mut upload = Upload::new(&self.pace);
-        let floor = self.robots.floor(&self.land);
+        let mut floor = self.robots.floor(&self.land);
+        if let Some(bazaar) = &self.bazaar {
+            floor = floor.with_pad(bazaar.paving());
+        }
         let beside = self
             .with
             .as_ref()
@@ -364,6 +401,9 @@ impl Realm {
         self.roads.update(&ctx, &mut upload);
         self.robots.update(&ctx, dt, &mut upload);
         self.chief.update(&ctx, dt, &mut upload);
+        if let Some(bazaar) = &mut self.bazaar {
+            bazaar.update(&ctx, self.pick.selected(), &mut upload);
+        }
         let rings = [self.pick.hovered(), self.pick.selected()]
             .map(|thing| thing.and_then(|thing| self.ring(thing)));
         self.pick.lay(
@@ -461,6 +501,9 @@ impl Realm {
             let at = at + Vec3::Y * chief.house.1;
             signs.push((Thing::Hearth, Words { at, says }));
         }
+        if let Some(bazaar) = &self.bazaar {
+            signs.extend(bazaar.signs());
+        }
         signs
     }
 
@@ -485,7 +528,11 @@ impl Realm {
                 self.chief.mascot()? + Vec3::Y * chief.mascot_box.y,
                 format!("{}, Chief", self.chief_name),
             ),
-            Thing::House(_) | Thing::Common(_) | Thing::Hearth => {
+            Thing::House(_)
+            | Thing::Common(_)
+            | Thing::Hearth
+            | Thing::Bazaar
+            | Thing::Stall(_) => {
                 return None;
             }
         };
@@ -506,6 +553,9 @@ impl Realm {
                 chief.mascot_box.x.max(chief.mascot_box.z) * 0.62
             }
             Thing::Hearth => chief.house.0,
+            Thing::Bazaar | Thing::Stall(_) => {
+                self.bazaar.as_ref()?.ring(thing)?.1
+            }
         };
         let ground =
             self.land.on_ground(at) + Vec3::Y * pick.ring_lift;
@@ -532,6 +582,11 @@ impl Realm {
                 .map(|town| self.land.sites[town.site].at),
             Thing::Mascot => self.chief.mascot().map(|at| at.xz()),
             Thing::Hearth => self.chief.hearth().map(|at| at.xz()),
+            Thing::Bazaar | Thing::Stall(_) => self
+                .bazaar
+                .as_ref()?
+                .ring(thing)
+                .map(|(at, _)| at.xz()),
         }
     }
 
@@ -544,6 +599,19 @@ impl Realm {
         if let Some(at) = self.place(thing) {
             self.camera.focus_on(&self.tuning.camera, at, stay);
             self.following = stay.then_some(thing);
+        }
+    }
+
+    /// Brings the bazaar to the middle of the view.
+    pub fn go_to_bazaar(&mut self) {
+        if let Some(bazaar) = &self.bazaar {
+            let at = bazaar.middle().xz();
+            self.camera.frame_round(
+                &self.tuning.camera,
+                at,
+                bazaar.paving().radius,
+            );
+            self.following = None;
         }
     }
 

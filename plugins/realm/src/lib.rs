@@ -2,7 +2,10 @@
 //! every hamlet with a house and a robot for every agent, the roads
 //! between them, and the chief's Hearth, drawn from the agents
 //! service's roster. Clicking a robot, a house or a common selects it
-//! in the window's focus and brings the Inspector forward.
+//! in the window's focus and brings the Inspector forward. Clicking a
+//! stall of the Agent Bazaar sends `stall` with the stall's short
+//! name, and a `traded` of `hamlet.bazaar` with one has the stall
+//! show the sale.
 
 mod bridge;
 mod build;
@@ -23,8 +26,8 @@ use hamlet_engine_sdk::ui::{
     open, resource,
 };
 use hamlet_engine_sdk::{
-    Entry, Message, Plugin, Reply, World, agents, decode, error,
-    subscribe, warn,
+    Entry, Message, Plugin, Reply, World, agents, decode, emit,
+    encode, error, subscribe, warn,
 };
 
 use crate::realm::Realm;
@@ -39,6 +42,14 @@ const INSPECTOR: &str = "hamlet.inspector/inspector";
 /// The Inspector's event that has the realm take a hamlet's town in
 /// hand, its payload the hamlet's name on disk.
 const CARRY: &str = "hamlet.inspector/carry";
+
+/// The realm's event that a stall of the bazaar was clicked, its
+/// payload the stall's short name.
+const STALL: &str = "stall";
+
+/// The bazaar's event that the chief bought something at a stall, its
+/// payload the stall's short name.
+const TRADED: &str = "hamlet.bazaar/traded";
 
 /// The longest frame the realm moves by, in seconds, so a frame that
 /// came late does not throw things far.
@@ -62,6 +73,7 @@ impl Plugin for RealmPlugin {
             ("sky_clock", "Sky Follows the Clock", "View", None),
             ("sky_day", "Sky at Day", "View", None),
             ("sky_night", "Sky at Night", "View", None),
+            ("bazaar", "Go to the Bazaar", "View", None),
         ];
         for (name, label, menu, keys) in commands {
             entry.command(name, label).menu_entry(menu, name);
@@ -77,6 +89,7 @@ impl Plugin for RealmPlugin {
             agents(&request);
         }
         subscribe(CARRY);
+        subscribe(TRADED);
     }
 
     fn mount(&mut self, _: &str, world: &mut World) -> AnyView {
@@ -104,6 +117,7 @@ impl Plugin for RealmPlugin {
             "sky_clock" => realm.set_hour(Hour::Clock),
             "sky_day" => realm.set_hour(Hour::Day),
             "sky_night" => realm.set_hour(Hour::Night),
+            "bazaar" => realm.go_to_bazaar(),
             _ => {}
         }
     }
@@ -111,14 +125,18 @@ impl Plugin for RealmPlugin {
     fn receive(&mut self, message: Message, world: &mut World) {
         let reply = match message {
             Message::Reply { reply, .. } => reply,
-            Message::Event { payload, .. } => {
+            Message::Event { event, payload, .. } => {
+                let event = event.as_str();
                 match decode::<String>(&payload) {
-                    Ok(hamlet) => {
+                    Ok(said) => {
                         if let Some(realm) = self.realm(world) {
-                            realm.carry(&hamlet);
+                            match event {
+                                TRADED => realm.trade(&said),
+                                _ => realm.carry(&said),
+                            }
                         }
                     }
-                    Err(why) => warn(&format!("carry: {why}")),
+                    Err(why) => warn(&format!("{event}: {why}")),
                 }
                 return;
             }
@@ -166,6 +184,14 @@ impl Plugin for RealmPlugin {
             agents(&AgentsRequest::Select(selected));
             if something {
                 open(INSPECTOR);
+            }
+        }
+        if let Some(stall) = realm.take_stall() {
+            match encode(&stall.short().to_owned()) {
+                Ok(payload) => {
+                    emit(STALL, &payload);
+                }
+                Err(why) => warn(&format!("{STALL}: {why}")),
             }
         }
         if let Some((hamlet, text)) = realm.set_down() {

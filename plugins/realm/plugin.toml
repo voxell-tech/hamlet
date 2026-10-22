@@ -23,8 +23,14 @@ capability = "render.shader"
 target = "gpu"
 reason = "Draws the roads' grooves and their light, and the rings and runes on the ground, with shaders of its own"
 
+# It tells of a stall of the Agent Bazaar clicked, and shows a sale
+# there when the bazaar says one was made.
 [events]
-hears = [{ event = "hamlet.inspector/carry", payload = "realm.carry" }]
+sends = [{ name = "stall", payload = "bazaar.stall" }]
+hears = [
+    { event = "hamlet.inspector/carry", payload = "realm.carry" },
+    { event = "hamlet.bazaar/traded", payload = "bazaar.stall" },
+]
 
 # It takes a town in hand as the Inspector carries it, and brings the
 # Inspector forward on a click.

@@ -14,6 +14,8 @@ pub enum Place {
     Town(TownId),
     /// The chief's own place.
     Chief,
+    /// The Agent Bazaar, where the home's wares are bought.
+    Bazaar,
 }
 
 /// The ground held by a place that is not a town.

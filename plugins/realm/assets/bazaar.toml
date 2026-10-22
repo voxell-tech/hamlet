@@ -1,0 +1,60 @@
+# The Agent Bazaar the realm draws beside the chief's Hearth: its lights,
+# its people and what moves about it, and its colours beside the realm's
+# palette. What each value means is beside its field in
+# src/places/bazaar.rs and src/world/palette.rs.
+
+[bazaar]
+lamp = 80000.0
+lamp_reach = 8.0
+glass = [1.2, 16.0]
+flash = 9.0
+gleam = [1.1, 2.6]
+bulb = [2.0, 14.0, 10.0]
+chase = [0.8, 3.0]
+glow = 120000.0
+glow_reach = 9.0
+glow_holds = 1.6
+flare = 700000.0
+flare_reach = 18.0
+cheers = 5.0
+waves = 3.2
+blend = 0.35
+turn = 5.0
+pace = 0.85
+shopper_turn = 0.45
+grown = 0.82
+sparks = [16, 0.55, 0.03, 9.0]
+shimmer = [12, 2.6, 0.035, 5.0]
+steam = [6, 3.2, 0.11, 0.35]
+embers = [18, 2.4, 0.05, 6.0]
+
+[palette]
+awnings = ["#b8433a", "#e0a23a", "#3b5583", "#3f7f7a"]
+fairy = ["#ff2f4a", "#ff9a1a", "#ffe53a", "#3dff6a", "#2f8cff", "#d84bff"]
+
+# In the order of `bazaar::Stall::ALL`: the models, the community
+# agents, the plugins, the skills and the hamlets.
+[[palette.stalls]]
+cloth = "#3b3f86"
+trim = "#e0a23a"
+glow = "#8fd0ff"
+
+[[palette.stalls]]
+cloth = "#3f7f7a"
+trim = "#e7c27a"
+glow = "#ffc46a"
+
+[[palette.stalls]]
+cloth = "#4a5560"
+trim = "#c9893a"
+glow = "#ff9a3c"
+
+[[palette.stalls]]
+cloth = "#6b4a7a"
+trim = "#efe2c0"
+glow = "#9ff0d8"
+
+[[palette.stalls]]
+cloth = "#8a3b45"
+trim = "#d9b45a"
+glow = "#ffe08a"

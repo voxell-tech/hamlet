@@ -1,5 +1,6 @@
 //! The ground a house stands on, as its robot walks it, and the floor
-//! of the land and every yard that marks of light are laid on.
+//! of the land, every yard and every pad that marks of light are laid
+//! on.
 
 use glam::{Quat, Vec2, Vec3, Vec3Swizzles};
 
@@ -18,17 +19,29 @@ pub(super) struct Lot {
     pub(super) porch: Vec3,
 }
 
-/// The ground as it is drawn: the land, the paving of a common and
-/// the paving of every yard.
+/// The ground as it is drawn: the land, the paving of a common, the
+/// paving of every yard and the pads laid on it.
 pub struct Floor<'a> {
     land: &'a Land,
     lots: Vec<Lot>,
+    pads: Vec<Pad>,
 }
 
-/// The floor about one place, with the yards within its reach.
+/// A round of paving laid on the ground: its middle, its radius and
+/// the height of its top.
+#[derive(Clone, Copy, Debug)]
+pub struct Pad {
+    pub at: Vec2,
+    pub radius: f32,
+    pub top: f32,
+}
+
+/// The floor about one place, with the yards and pads within its
+/// reach.
 pub struct NearFloor<'a> {
     land: &'a Land,
     lots: Vec<Lot>,
+    pads: Vec<Pad>,
     surfaces: Surfaces<'a>,
 }
 
@@ -54,7 +67,17 @@ fn footing_on(
 
 impl<'a> Floor<'a> {
     pub(super) fn new(land: &'a Land, lots: Vec<Lot>) -> Self {
-        Self { land, lots }
+        Self {
+            land,
+            lots,
+            pads: Vec::new(),
+        }
+    }
+
+    /// The floor with `pad` laid on it.
+    pub fn with_pad(mut self, pad: Pad) -> Self {
+        self.pads.push(pad);
+        self
     }
 
     /// The floor as far as `half` from `middle` each way.
@@ -67,9 +90,18 @@ impl<'a> Floor<'a> {
             })
             .copied()
             .collect();
+        let pads = self
+            .pads
+            .iter()
+            .filter(|pad| {
+                pad.at.distance(middle) < half * 1.5 + pad.radius
+            })
+            .copied()
+            .collect();
         NearFloor {
             land: self.land,
             lots,
+            pads,
             surfaces: Surfaces::new(self.land),
         }
     }
@@ -80,9 +112,15 @@ impl NearFloor<'_> {
     pub fn at(&mut self, p: Vec2) -> f32 {
         let surfaces = &mut self.surfaces;
         let ground = footing_on(self.land, p, |p| surfaces.at(p));
+        let pads = self
+            .pads
+            .iter()
+            .filter(|pad| pad.at.distance(p) < pad.radius)
+            .map(|pad| pad.top);
         self.lots
             .iter()
             .filter_map(|lot| lot.paved(p))
+            .chain(pads)
             .fold(ground, f32::max)
     }
 }

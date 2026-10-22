@@ -48,6 +48,8 @@ pub enum Doing {
     Gaze,
     /// Stands by an agent and listens to it.
     Attend,
+    /// Waves a hand over its head.
+    Wave,
 }
 
 /// The place of every part of the rig at one moment.
@@ -247,6 +249,14 @@ impl Pose {
                     says,
                 );
                 p.item = -0.3 * says;
+            }
+            Doing::Wave => {
+                let wag = (t * 9.0).sin();
+                p.hands[0] =
+                    Vec3::new(-0.44 + 0.09 * wag, 1.02, 0.12);
+                p.head.z = -0.14;
+                p.lift = 0.04 * (t * 4.5).sin().abs();
+                p.hat.y = 0.08 * wag;
             }
         }
         p
