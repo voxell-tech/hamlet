@@ -11,6 +11,9 @@ export type AssetCategory = (typeof ASSET_CATEGORIES)[number];
 
 export const ASSET_ID_PATTERN = /^[a-z0-9-]{1,64}$/;
 export const MAX_FRAMES = 72;
+/** A preview frame fits in one fetch of a Hamlet plugin and can be shown by it, as a cover. */
+export const MAX_PREVIEW_BYTES = 400 * 1024;
+export const MAX_PREVIEW_SIDE = 2048;
 
 export type AssetStatus = "listed" | "unlisted";
 

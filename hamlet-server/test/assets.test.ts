@@ -147,6 +147,41 @@ describe("free assets", () => {
   });
 });
 
+describe("an asset's file downloaded in parts", () => {
+  const path = "/v1/assets/hamlet-mesh-well/file";
+  const part = (token: string, query: Record<string, unknown>) =>
+    request(h.app)
+      .get(path)
+      .query({ token, ...query })
+      .buffer(true)
+      .parse((res, done) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => done(null, Buffer.concat(chunks)));
+      });
+
+  it("comes back whole, a part at a time, to an owner", async () => {
+    const owner = await newBuyer();
+    await part(owner, { offset: 0, limit: 5 }).expect(403);
+    await purchase("hamlet-mesh-well", owner).expect(200);
+    const whole = fixtureFile("hamlet-mesh-well.glb");
+    const got: Buffer[] = [];
+    for (let offset = 0; offset < whole.length; offset += 5) {
+      const response = await part(owner, { offset, limit: 5 }).expect(206);
+      expect(response.headers["content-range"]).toBe(
+        `bytes ${offset}-${Math.min(offset + 5, whole.length) - 1}/${whole.length}`,
+      );
+      expect(response.headers["x-asset-version"]).toBe("1.0.0");
+      got.push(response.body as Buffer);
+    }
+    expect(Buffer.concat(got)).toEqual(whole);
+    const end = await part(owner, { offset: whole.length, limit: 5 }).expect(206);
+    expect(end.body).toHaveLength(0);
+    await part(owner, { offset: whole.length + 1, limit: 5 }).expect(400);
+    await part(owner, { offset: 0, limit: 0 }).expect(400);
+  });
+});
+
 describe("paid assets", () => {
   it("open a Checkout Session on the platform's own account", async () => {
     const buyer = await newBuyer();

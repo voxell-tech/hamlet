@@ -6,12 +6,14 @@ import {
   bucketName,
   missingFiles,
   parseCatalog,
+  previewProblems,
   publishSql,
   uploadsFor,
 } from "../scripts/assetCatalog.ts";
 import { ROOT, sqlStatements } from "../scripts/migrationFiles.ts";
 import { ASSET_FIXTURE_DIR, fixtureCatalog } from "./support/assets.ts";
 import { applyMigrations, startMiniflareD1 } from "./support/harness.ts";
+import { jpeg, png } from "./support/pictures.ts";
 
 const raw = () =>
   JSON.parse(readFileSync(join(ASSET_FIXTURE_DIR, "catalog.json"), "utf8")) as Record<
@@ -88,6 +90,25 @@ describe("the catalog", () => {
     const tooMany = fixtureCatalog().map((entry) => ({ ...entry, frames: entry.frames + 1 }));
     expect(missingFiles(uploadsFor("/out", tooMany), (path) => !path.endsWith("/2.png"))).toEqual([
       "/out/previews/agent-skin-sakura/2.png",
+    ]);
+  });
+
+  it("finds previews Hamlet cannot show", () => {
+    const uploads = uploadsFor(ASSET_FIXTURE_DIR, fixtureCatalog());
+    expect(previewProblems(uploads)).toEqual([]);
+    const pictures: Record<string, Uint8Array> = {
+      "0.png": jpeg(10, 10),
+      "1.png": png(2049, 10),
+    };
+    const sakura = uploads.filter((upload) => upload.path.includes("agent-skin-sakura/"));
+    const read = (path: string) => pictures[path.slice(-5)] ?? png(10, 10);
+    expect(previewProblems(sakura, read)).toEqual([
+      `${sakura[0]!.path}: not a PNG`,
+      `${sakura[1]!.path}: 2049 by 10 pixels, past 2048 a side`,
+    ]);
+    const big = Buffer.concat([png(10, 10), Buffer.alloc(400 * 1024)]);
+    expect(previewProblems([sakura[1]!], () => big)).toEqual([
+      `${sakura[1]!.path}: ${big.length} bytes, past ${400 * 1024}`,
     ]);
   });
 

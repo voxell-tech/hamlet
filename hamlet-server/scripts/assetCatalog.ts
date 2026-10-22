@@ -3,7 +3,7 @@
  * naming what goes to R2 and writing the SQL that upserts D1. Nothing here
  * runs Wrangler, so the tests can use all of it.
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import { z } from "zod";
 import {
@@ -11,10 +11,13 @@ import {
   ASSET_ID_PATTERN,
   ASSET_TARGETS,
   MAX_FRAMES,
+  MAX_PREVIEW_BYTES,
+  MAX_PREVIEW_SIDE,
   assetFileKey,
   assetPreviewKey,
 } from "../src/assetKeys.ts";
 import { describeZodError } from "../src/errors.ts";
+import { pictureSize } from "../src/picture.ts";
 import { MAX_PRICE_CENTS, MIN_PAID_CENTS, isValidPrice } from "../src/money.ts";
 import { parseVersion } from "../src/versionNumber.ts";
 
@@ -107,6 +110,32 @@ export function missingFiles(
   exists: (path: string) => boolean = existsSync,
 ): string[] {
   return uploads.filter((upload) => !exists(upload.path)).map((upload) => upload.path);
+}
+
+/**
+ * What is wrong with each preview frame among `uploads`: one that is not a
+ * PNG, or is past 400 KiB or 2048 pixels a side, cannot be shown by Hamlet.
+ */
+export function previewProblems(
+  uploads: Upload[],
+  read: (path: string) => Uint8Array = readFileSync,
+): string[] {
+  return uploads
+    .filter((upload) => upload.contentType === "image/png")
+    .flatMap((upload) => {
+      const bytes = read(upload.path);
+      const size = pictureSize(bytes);
+      if (size?.type !== "image/png") return [`${upload.path}: not a PNG`];
+      if (bytes.length > MAX_PREVIEW_BYTES) {
+        return [`${upload.path}: ${bytes.length} bytes, past ${MAX_PREVIEW_BYTES}`];
+      }
+      if (size.width > MAX_PREVIEW_SIDE || size.height > MAX_PREVIEW_SIDE) {
+        return [
+          `${upload.path}: ${size.width} by ${size.height} pixels, past ${MAX_PREVIEW_SIDE} a side`,
+        ];
+      }
+      return [];
+    });
 }
 
 const ASSET_COLUMNS = [

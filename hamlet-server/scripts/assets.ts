@@ -9,7 +9,14 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { bucketName, missingFiles, parseCatalog, publishSql, uploadsFor } from "./assetCatalog.ts";
+import {
+  bucketName,
+  missingFiles,
+  parseCatalog,
+  previewProblems,
+  publishSql,
+  uploadsFor,
+} from "./assetCatalog.ts";
 import { ROOT } from "./migrationFiles.ts";
 
 const DATABASE = "DB";
@@ -31,6 +38,8 @@ function main(): void {
   const uploads = uploadsFor(dir, entries);
   const missing = missingFiles(uploads);
   if (missing.length > 0) fail(`missing files:\n  ${missing.join("\n  ")}`);
+  const problems = previewProblems(uploads);
+  if (problems.length > 0) fail(`previews Hamlet cannot show:\n  ${problems.join("\n  ")}`);
 
   const bucket = bucketName(readFileSync(join(ROOT, "wrangler.jsonc"), "utf8"));
   for (const upload of uploads) {

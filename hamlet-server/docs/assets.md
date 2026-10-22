@@ -59,7 +59,9 @@ target, then category, then price, then title. Optional query `target`,
 
 `GET /v1/assets/:id/preview/:frame` -> `image/png`, public, cacheable
 (`Cache-Control: public, max-age=86400`). `404` for an unknown asset or a
-frame out of range.
+frame out of range. A frame is at most 400 KiB and 2048 pixels a side
+(`pnpm assets:publish` refuses others), so a Hamlet plugin fetches it in
+one answer of at most 512 KiB and shows it as it shows a cover.
 
 `POST /v1/assets/:id/purchase` **auth**
 
@@ -82,6 +84,16 @@ asset's file, byte for byte as published, with its content type
 (`model/gltf-binary` for `.glb`, `application/json` for JSON) and headers
 `Cache-Control: private, no-store` and `X-Asset-Version: <version>`. An
 owner keeps access to an asset that is later unlisted.
+
+With `offset` and `limit` (whole numbers, `limit` at least 1) it answers
+`206` with only those bytes of the file, as `application/octet-stream`
+with a `Content-Range` header, as a package download does, for a client
+that cannot take the whole in one answer (a Hamlet plugin takes 512 KiB
+at most). An `offset` at the end gives no bytes, one past it `400`; a
+part shorter than `limit` is the last.
+
+A client that cannot set headers, as Hamlet's plugins cannot, sends the
+token as the `token` query parameter (see [`api.md`](api.md)).
 
 ## Webhook
 

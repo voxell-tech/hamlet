@@ -380,6 +380,18 @@ leave it pending.
 `{ "stars": 1..5, "words": 0..1000 chars }` -> `200 Review`. One per user per
 listing; posting again replaces it.
 
+### Official assets
+
+Specified in [`assets.md`](assets.md); in short:
+
+- `GET /v1/assets`, `GET /v1/assets/:id`: the catalogue, no auth needed.
+- `GET /v1/assets/:id/preview/:frame`: a public PNG, at most 400 KiB
+  and 2048 pixels a side.
+- `POST /v1/assets/:id/purchase` **auth**, `GET /v1/asset-purchases/:id`
+  **auth**, `GET /v1/me/assets` **auth**.
+- `GET /v1/assets/:id/file` **auth**, owners only, whole or a part at a
+  time with `offset` and `limit` as a package is.
+
 ### Stripe webhook
 
 `POST /v1/stripe/webhook`. Raw body, verified with `STRIPE_WEBHOOK_SECRET`

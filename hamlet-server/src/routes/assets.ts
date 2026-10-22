@@ -4,6 +4,7 @@ import { z } from "zod";
 import { ASSET_CATEGORIES, ASSET_TARGETS, assetPreviewKey } from "../assetKeys.ts";
 import { ASSET_ORDER, assetJson, ownedAssetIds, ownsAsset } from "../assets.ts";
 import { currentUser, maybeUser, requireAuth } from "../auth.ts";
+import { byteRange, sendRange } from "../byteRange.ts";
 import { conflict, forbidden, notFound } from "../errors.ts";
 import type { Asset, User } from "../generated/prisma/client.ts";
 import { newId } from "../ids.ts";
@@ -91,15 +92,21 @@ export function assetRoutes(services: Services): Router {
     if (!(await ownsAsset(prisma, asset.id, currentUser(res).id))) {
       throw forbidden("get this asset to download it");
     }
+    res.set("Cache-Control", "private, no-store").set("X-Asset-Version", asset.version);
+    if (req.query.offset !== undefined || req.query.limit !== undefined) {
+      const head = await services.blobs.head(asset.fileKey);
+      if (!head) throw notFound("this asset's file is missing");
+      const range = byteRange(req.query.offset, req.query.limit, head.size)!;
+      if (!(await sendRange(res, services.blobs, asset.fileKey, range, head.size))) {
+        throw notFound("this asset's file is missing");
+      }
+      return;
+    }
     const blob = await services.blobs.get(asset.fileKey);
     if (!blob) throw notFound("this asset's file is missing");
     // Set directly, so Express does not add a charset to the published type.
     res.setHeader("Content-Type", asset.contentType);
-    res
-      .status(200)
-      .set("Cache-Control", "private, no-store")
-      .set("X-Asset-Version", asset.version)
-      .send(Buffer.from(await blob.arrayBuffer()));
+    res.status(200).send(Buffer.from(await blob.arrayBuffer()));
   });
 
   return router;

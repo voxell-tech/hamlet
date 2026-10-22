@@ -6,6 +6,7 @@ export interface BlobStore {
     key: string,
     options?: { range?: { offset: number; length: number } },
   ): Promise<{ arrayBuffer(): Promise<ArrayBuffer> } | null>;
+  head(key: string): Promise<{ size: number } | null>;
   put(
     key: string,
     value: ArrayBuffer | Uint8Array,
