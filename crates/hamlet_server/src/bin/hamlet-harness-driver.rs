@@ -18,7 +18,9 @@ use hamlet_server::harness::{
 };
 use hamlet_server::record::AgentRef;
 use hamlet_server::service::Service;
-use hamlet_server::{Credentials, Home, RuntimeInstance, Store};
+use hamlet_server::{
+    Credentials, Home, Overrides, RuntimeInstance, Store,
+};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
@@ -62,10 +64,11 @@ struct Driver {
 )]
 async fn drive(dir: PathBuf, faux: Option<PathBuf>) -> Result<()> {
     let mut credentials = Credentials::open(&dir)?;
+    let overrides = Overrides::from_env(faux.is_some())?;
     let mut service =
-        Service::new(Home::open(&dir)?, faux.is_some())?;
+        Service::new(Home::open(&dir)?, overrides.clone())?;
     let layout = service.home.layout().clone();
-    let mut config = Config::from_env(faux)?;
+    let mut config = Config::from_env(faux, overrides)?;
     for tool in &mut config.tools {
         if listed("HAMLET_UNSAFE_TOOLS", &tool.name) {
             tool.replay = ToolSpecReplay::Unsafe;

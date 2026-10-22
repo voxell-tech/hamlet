@@ -59,11 +59,10 @@ The suite runs the command with these arguments added:
   a loopback endpoint with `HAMLET_MODEL` and `HAMLET_BASE_URL`, on the
   `local` endpoint the default settings list.
 
-Its environment is the suite's own with ambient `HAMLET_SERVER`,
-`HAMLET_TOKEN`, `HAMLET_MODEL`, `HAMLET_BASE_URL`, `HAMLET_API_KEY`,
-`HAMLET_NET`, `HAMLET_REFLECT_EVERY`, `HAMLET_WORKSPACE_URL` and
-`HAMLET_WORKSPACE_TOKEN` removed. These overrides must not connect a test
-to the chief's server or remote workspace. The suite then sets:
+Its environment is the suite's own with the ambient overrides named by
+`hamlet_testing::OVERRIDES` removed: a shell's `HAMLET_MODEL`,
+`HAMLET_WORKSPACE_URL`, `HAMLET_FAULT` and the like must not reach a
+test server. The suite then sets:
 
 - `HAMLET_HOME`: the home, a fresh scratch folder, or the folder a
   previous server of the same scenario used.

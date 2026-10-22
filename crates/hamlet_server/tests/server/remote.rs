@@ -889,14 +889,16 @@ async fn remote_startup_signal_releases_the_home_before_manager_ok() {
     let script = home.join("faux.json");
     Script::new().write(&script);
     let mut server = Server {
-        child: Command::new(env!("CARGO_BIN_EXE_hamlet-server"))
-            .args(["--port", "0", "--faux"])
-            .arg(script)
-            .env("HAMLET_HOME", home.as_os_str())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap(),
+        child: strip_overrides(&mut Command::new(env!(
+            "CARGO_BIN_EXE_hamlet-server"
+        )))
+        .args(["--port", "0", "--faux"])
+        .arg(script)
+        .env("HAMLET_HOME", home.as_os_str())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap(),
         url: String::new(),
         token: String::new(),
     };

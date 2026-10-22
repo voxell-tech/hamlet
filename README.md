@@ -55,8 +55,8 @@ cargo xtask install
 hamlet
 ```
 
-`cargo xtask install` fetches the vendored fynix, installs pi's packages and puts
-`hamlet`, `hamlet-server` and `hamlet-app` in `~/.cargo/bin`. This source
+`cargo xtask install` installs pi's packages and puts `hamlet`,
+`hamlet-server` and `hamlet-app` in `~/.cargo/bin`. This source
 installation uses the checkout's `harnesses/pi/`, so keep the checkout and
 run `cargo xtask install` again after pulling. Linux/macOS release archives contain
 all three binaries and a `pi/` package with production dependencies; they
@@ -117,14 +117,16 @@ and right-click anything for what can be done to it.
 
 ```sh
 npm ci --prefix harnesses/pi
-cargo +nightly fmt
+cargo +$(cat rust-nightly) fmt
 cargo build --all-targets
 cargo clippy --all-targets
 cargo test
 (cd harnesses/pi && npm run check && npm test)
 ```
 
-`cargo xtask check` also runs the real-process harness and acceptance suites.
+`rust-toolchain.toml` pins stable; `rust-nightly` names the dated nightly
+that formats. `cargo xtask check` also runs the real-process harness and
+acceptance suites.
 `cargo xtask help` lists every task.
 
 [`docs/tour.md`](docs/tour.md) is the map of the code,

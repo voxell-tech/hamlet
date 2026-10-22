@@ -527,7 +527,8 @@ mod tests {
     /// bound to a runtime.
     fn served(scratch: &Scratch) -> (Service, BindingId, String) {
         let home = crate::Home::open(&scratch.join("home")).unwrap();
-        let mut service = Service::new(home, true).unwrap();
+        let mut service =
+            Service::new(home, crate::Overrides::none(true)).unwrap();
         let agent = AgentRef {
             hamlet: "home".into(),
             number: 0,
@@ -662,7 +663,7 @@ mod tests {
         service.home.close().unwrap();
         let mut service = Service::new(
             crate::Home::open(&scratch.join("home")).unwrap(),
-            true,
+            crate::Overrides::none(true),
         )
         .unwrap();
         let marker = OperationId {

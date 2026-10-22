@@ -12,7 +12,7 @@ use hamlet_server::record::{
     RecordOperation, RoadBudget,
 };
 use hamlet_server::{OperationId, Reply, RuntimeInstance, Store};
-use hamlet_testing::Scratch;
+use hamlet_testing::{Scratch, strip_overrides};
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{Value, json};
 
@@ -384,11 +384,8 @@ impl Driver {
         if let Some(faux) = faux {
             command.arg("--faux").arg(faux);
         }
-        command
+        strip_overrides(&mut command)
             .env("HAMLET_FAULT_DIR", realm.faults())
-            .env_remove("HAMLET_MODEL")
-            .env_remove("HAMLET_BASE_URL")
-            .env_remove("HAMLET_API_KEY")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(

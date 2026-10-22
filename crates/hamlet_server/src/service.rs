@@ -35,10 +35,9 @@ pub struct Service {
 impl Service {
     /// Opens the chief's documents and the first hamlet, retaining
     /// the recorded chief on restart.
-    pub fn new(mut home: Home, faux: bool) -> Result<Self> {
+    pub fn new(mut home: Home, overrides: Overrides) -> Result<Self> {
         let root = home.layout().root().to_owned();
         let credentials = Credentials::open(&root)?;
-        let overrides = Overrides::from_env(faux)?;
         overrides.apply(crate::settings::stored(
             home.store().connection(),
         )?)?;
@@ -131,8 +130,11 @@ impl Service {
             credentials,
             houses,
             limits: Rules::new()?,
+            models: crate::models::Models::open(
+                &root,
+                overrides.faux,
+            )?,
             overrides,
-            models: crate::models::Models::open(&root, faux)?,
             chats: crate::chats::Chats::new(
                 crate::sandbox::Sandbox::platform(),
             ),

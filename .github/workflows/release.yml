@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -41,12 +41,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # vendor/fynix is a submodule.
-          submodules: recursive
+          persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+      # A tag publishes the version Cargo.toml names, and no other.
+      - name: Check the tag is the version
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          set -eu
+          version=$(sed -n '/^version = "/{s/^version = "\([^"]*\)".*/\1/p;q;}' Cargo.toml)
+          if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+            echo "The tag $GITHUB_REF_NAME is not v$version, the version in Cargo.toml." >&2
+            exit 1
+          fi
+
+      # The stable toolchain rust-toolchain.toml names.
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install
+          rustup target add "${{ matrix.target }}"
 
       - uses: actions/setup-node@v4
         if: runner.os != 'Windows'
@@ -88,6 +102,8 @@ jobs:
     if: github.ref_type == 'tag'
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:

@@ -151,7 +151,8 @@ mod tests {
     {
         let scratch = Scratch::new("stopped-objection");
         let home = crate::Home::open(&scratch).unwrap();
-        let mut service = Service::new(home, true).unwrap();
+        let mut service =
+            Service::new(home, crate::Overrides::none(true)).unwrap();
         let store = service.home.store();
         let runtime = store.runtime_for("pi").unwrap();
         let id = store

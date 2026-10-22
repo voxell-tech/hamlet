@@ -59,12 +59,14 @@ window ends only its process; agents keep working on the server. Stop
 
 ## Checks
 
-All four must be clean before a commit. Formatting needs nightly, because
-`rustfmt.toml` uses unstable options. `cargo xtask check` runs these and the
-feature-gated and Node checks below. `cargo xtask fmt` formats Rust and pi.
+All four must be clean before a commit. `rust-toolchain.toml` pins the
+stable toolchain plain `cargo` runs. Formatting needs a nightly, because
+`rustfmt.toml` uses unstable options: the dated one named in `rust-nightly`,
+which CI uses too. `cargo xtask check` runs these and the feature-gated and
+Node checks below. `cargo xtask fmt` formats Rust and pi.
 
 ```sh
-cargo +nightly fmt
+cargo +$(cat rust-nightly) fmt
 cargo build --all-targets
 cargo clippy --all-targets
 cargo test
@@ -103,8 +105,10 @@ same Node, with the same two checks run in that folder. The server's
 tests that start it as a real process, crashes included, are compiled only
 with the `harness` feature, so plain `cargo test` needs no Node. They need
 `npm ci --prefix harnesses/pi`, never contact a model server or the
-internet, and must be clean before a commit too. `cargo xtask check` runs them;
-by hand, at the root:
+internet, and must be clean before a commit too. They build the server
+with fault points, so run them after the acceptance suite, which needs the
+plain one, as a command of their own. `cargo xtask check` runs them; by
+hand, at the root:
 
 ```sh
 cargo clippy -p hamlet_server --all-targets --features harness

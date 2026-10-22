@@ -1,8 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
-# The vendored fynix and xtask are workspaces of their own.
-exclude = ["vendor", "xtask"]
+# xtask is a workspace of its own.
+exclude = ["xtask"]
 # `cargo build`, `cargo test` and `cargo clippy` at the root cover every
 # crate, so the checks in AGENTS.md need no flags.
 default-members = [".", "crates/*"]
@@ -11,6 +11,8 @@ default-members = [".", "crates/*"]
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
+rust-version = "1.99"
+publish = false
 repository = "https://github.com/voxell-tech/hamlet"
 
 [workspace.dependencies]
@@ -23,10 +25,12 @@ hamlet_vfx = { version = "0.1.0", path = "crates/hamlet_vfx" }
 hamlet_realm = { version = "0.1.0", path = "crates/hamlet_realm" }
 hamlet_ui = { version = "0.1.0", path = "crates/hamlet_ui" }
 hamlet_testing = { version = "0.1.0", path = "crates/hamlet_testing" }
+hamlet_acceptance = { version = "0.1.0", path = "crates/hamlet_acceptance" }
 hamlet_workspace_wire = { version = "0.1.0", path = "crates/hamlet_workspace_wire" }
 
-# fynix
-bevy_fynix = { path = "vendor/fynix/crates/bevy_fynix" }
+# fynix, a git dependency pinned to a commit of its
+# nixon/wait-for-theme branch until that is merged and released.
+bevy_fynix = { git = "https://github.com/voxell-tech/fynix", rev = "22eae386a96dac9f70e4478e9d315b9daad327eb" }
 
 # bevy
 bevy_app = { version = "0.19", default-features = false, features = ["std"] }
@@ -59,6 +63,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 schemars = "1.2.3"
 serde_json = "1"
 sha2 = "0.10"
+thiserror = "2"
 uuid = { version = "1", features = ["v4"] }
 tokio-tungstenite = "0.28"
 tokio = { version = "1", features = ["full"] }
@@ -115,6 +120,8 @@ name = "hamlet"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
 description = "The Hamlet window client and the examples that draw the world and the panels"
 
 [[bin]]
@@ -138,7 +145,6 @@ bevy_app.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
-hamlet_protocol.workspace = true
 hamlet_testing.workspace = true
 hamlet_vfx.workspace = true
 bevy_fynix.workspace = true

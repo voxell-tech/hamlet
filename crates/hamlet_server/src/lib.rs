@@ -45,4 +45,5 @@ pub use home::{Home, Layout};
 pub use operation::{
     Operation, OperationId, Outcome, Reply, RuntimeInstance,
 };
+pub use settings::Overrides;
 pub use store::Store;

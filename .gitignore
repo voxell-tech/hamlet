@@ -9,3 +9,6 @@
 
 # The stills an example draws, wherever the examples live.
 **/examples/*/out/
+
+# A stray npm install, outside any package.
+crates/hamlet_protocol/schema/node_modules/

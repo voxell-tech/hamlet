@@ -103,7 +103,7 @@ right at that code, not hoisted into the function's doc comment. If a
 comment only makes sense once you're looking at the line it explains,
 that's where it lives.
 
-## Let cargo +nightly fmt do the formatting
+## Let the pinned nightly's cargo fmt do the formatting
 
 Write comments in a single line (unless separating into paragraphs).
 `rustfmt` will fix the rest.

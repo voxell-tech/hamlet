@@ -7,8 +7,6 @@
 !examples/**
 !crates/
 !crates/**
-!vendor/
-!vendor/**
 **/target/
 **/.git
 **/node_modules/

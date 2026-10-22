@@ -111,8 +111,11 @@ fn change(service: &mut Service, change: Change) {
 fn setup() -> (Scratch, Service) {
     let dir =
         Scratch::new(&format!("gifts-{}", uuid::Uuid::new_v4()));
-    let mut service =
-        Service::new(Home::open(&dir).unwrap(), true).unwrap();
+    let mut service = Service::new(
+        Home::open(&dir).unwrap(),
+        crate::Overrides::none(true),
+    )
+    .unwrap();
     change(
         &mut service,
         Change::Admit(Admit {
@@ -199,8 +202,11 @@ async fn copies_whole_skills_records_the_giver_and_keeps_modes_across_restart()
     assert!(target.join("scripts/empty").is_dir());
     assert!(source.join("scripts/run").is_file());
     drop(service);
-    let mut service =
-        Service::new(Home::open(&dir).unwrap(), true).unwrap();
+    let mut service = Service::new(
+        Home::open(&dir).unwrap(),
+        crate::Overrides::none(true),
+    )
+    .unwrap();
     let record =
         service.home.store().record("home").unwrap().unwrap();
     assert!(

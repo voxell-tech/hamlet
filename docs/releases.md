@@ -73,9 +73,10 @@ installed pi entry. `cargo xtask uninstall` removes the three binaries, not home
 
 The release workflow runs only for pushed `v*` tags or an explicit manual
 run. A manual run uploads three workflow artifacts and publishes no release.
-A tag run creates the GitHub release or replaces matching assets on an
-existing release. Pushing a tag is therefore a publishing action, not a
-local packaging check.
+A tag run first checks that the tag, less its leading `v`, is the version
+in `Cargo.toml`'s `[workspace.package]`, then creates the GitHub release or
+replaces matching assets on an existing release. Pushing a tag is
+therefore a publishing action, not a local packaging check.
 
 Validate an extracted archive from outside the checkout on a fresh
 `HAMLET_HOME`: start the server, complete a faux chat, stop it and check

@@ -3,6 +3,8 @@ name = "hamlet_workspace"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
 description = "Authenticated remote file and process execution for Hamlet"
 
 [[bin]]

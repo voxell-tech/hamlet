@@ -399,7 +399,7 @@ mod tests {
     use super::*;
     use crate::me::tests::{panel_app, press, words};
 
-    /// The vendored fynix layout tests use this same headless camera;
+    /// fynix's own layout tests use this same headless camera;
     /// text is measured here too, including an empty notice label.
     fn conversation_panel(lines: usize) -> (App, Entity) {
         use bevy::asset::{AssetApp, AssetPlugin, Assets};

@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use futures::{SinkExt, StreamExt};
 use hamlet_server::{Held, Home};
-use hamlet_testing::Scratch;
+use hamlet_testing::{Scratch, strip_overrides};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
 
@@ -27,14 +27,15 @@ mod remote;
 #[test]
 fn the_server_holds_its_home_until_terminated() {
     let dir = Scratch::new("server-binary");
-    let mut server =
-        Command::new(env!("CARGO_BIN_EXE_hamlet-server"))
-            .args(["--home".as_ref(), dir.as_os_str()])
-            .args(["--port", "0"])
-            .env_remove("HAMLET_HOME")
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
+    let mut server = strip_overrides(&mut Command::new(env!(
+        "CARGO_BIN_EXE_hamlet-server"
+    )))
+    .args(["--home".as_ref(), dir.as_os_str()])
+    .args(["--port", "0"])
+    .env_remove("HAMLET_HOME")
+    .stderr(Stdio::piped())
+    .spawn()
+    .unwrap();
     let mut line = String::new();
     BufReader::new(server.stderr.take().unwrap())
         .read_line(&mut line)
@@ -84,15 +85,7 @@ impl Server {
         if let Some(script) = script {
             command.arg("--faux").arg(script);
         }
-        for key in [
-            "HAMLET_MODEL",
-            "HAMLET_BASE_URL",
-            "HAMLET_API_KEY",
-            "HAMLET_REFLECT_EVERY",
-            "HAMLET_NET",
-        ] {
-            command.env_remove(key);
-        }
+        strip_overrides(&mut command);
         let mut child = command
             .args(["--port", "0"])
             .env("HAMLET_HOME", home.as_os_str())
@@ -215,6 +208,56 @@ async fn requests_sent_before_close_are_kept_in_order() {
 }
 
 #[tokio::test]
+async fn a_request_whose_handler_fails_is_faulted_and_the_next_answered()
+ {
+    let home = Scratch::new("server-handler-fails");
+    let mut server = Server::start(&home, &[]);
+    let (mut socket, _) = server.connect().await;
+    // The founder's house becomes a file, so opening it fails.
+    let house = home.join("houses/home/0");
+    std::fs::rename(&house, home.join("house-moved-away")).unwrap();
+    std::fs::write(&house, "not a folder").unwrap();
+    let edit = uuid::Uuid::new_v4().to_string();
+    let read = uuid::Uuid::new_v4().to_string();
+    for request in [
+        json!({"type": "edit", "doc": "notes", "id": edit,
+            "agent": {"hamlet": "home", "agent": "founder"},
+            "text": "Kept?"}),
+        json!({"type": "read", "what": "charter", "id": read}),
+    ] {
+        socket
+            .send(Message::Text(request.to_string().into()))
+            .await
+            .unwrap();
+    }
+    let mut answers = Vec::new();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while answers.len() < 2 {
+            let frame = socket.next().await.unwrap().unwrap();
+            let message = serde_json::from_str::<Value>(
+                frame.to_text().unwrap(),
+            )
+            .unwrap();
+            if message["to"] == edit || message["to"] == read {
+                answers.push(message);
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(answers[0]["type"], "fault", "{answers:?}");
+    assert_eq!(answers[0]["to"], edit);
+    assert_eq!(
+        answers[0]["text"],
+        "The server could not complete this request."
+    );
+    assert_eq!(answers[1]["type"], "read", "{answers:?}");
+    drop(socket);
+    server.signal(libc::SIGTERM);
+    assert_eq!(server.exit().await, 0);
+}
+
+#[tokio::test]
 async fn overrides_and_secrets_stay_in_memory_but_the_chief_is_retained()
  {
     let home = Scratch::new("protocol-overrides");
@@ -292,16 +335,16 @@ fn a_missing_pi_harness_is_refused() {
 /// The words `hamlet-server` gives on standard error as it refuses to
 /// start on `home` with `env`.
 fn refusal(home: &Scratch, env: &[(&str, &str)]) -> String {
-    let output = Command::new(env!("CARGO_BIN_EXE_hamlet-server"))
-        .args(["--home".as_ref(), home.as_os_str()])
-        .args(["--port", "0"])
-        .env_remove("HAMLET_HOME")
-        .env_remove("HAMLET_MODEL")
-        .env_remove("HAMLET_BASE_URL")
-        .env("HAMLET_USER", "chief")
-        .envs(env.iter().copied())
-        .output()
-        .unwrap();
+    let output = strip_overrides(&mut Command::new(env!(
+        "CARGO_BIN_EXE_hamlet-server"
+    )))
+    .args(["--home".as_ref(), home.as_os_str()])
+    .args(["--port", "0"])
+    .env_remove("HAMLET_HOME")
+    .env("HAMLET_USER", "chief")
+    .envs(env.iter().copied())
+    .output()
+    .unwrap();
     assert!(!output.status.success());
     String::from_utf8(output.stderr).unwrap()
 }
@@ -356,14 +399,16 @@ fn a_home_record_without_a_chief_is_refused() {
 #[test]
 fn a_new_home_without_a_chief_name_is_refused() {
     let home = Scratch::new("server-no-chief");
-    let output = Command::new(env!("CARGO_BIN_EXE_hamlet-server"))
-        .args(["--home".as_ref(), home.as_os_str()])
-        .args(["--port", "0"])
-        .env_remove("HAMLET_HOME")
-        .env_remove("HAMLET_USER")
-        .env_remove("USER")
-        .output()
-        .unwrap();
+    let output = strip_overrides(&mut Command::new(env!(
+        "CARGO_BIN_EXE_hamlet-server"
+    )))
+    .args(["--home".as_ref(), home.as_os_str()])
+    .args(["--port", "0"])
+    .env_remove("HAMLET_HOME")
+    .env_remove("HAMLET_USER")
+    .env_remove("USER")
+    .output()
+    .unwrap();
     assert!(!output.status.success());
     let words = String::from_utf8(output.stderr).unwrap();
     assert!(

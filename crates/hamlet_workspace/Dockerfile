@@ -25,7 +25,6 @@ COPY Cargo.toml Cargo.lock ./
 COPY src src
 COPY examples examples
 COPY crates crates
-COPY vendor vendor
 RUN cargo build --locked --release -p hamlet_workspace \
         --bin hamlet-workspace \
     && install -D -m 0755 target/release/hamlet-workspace \

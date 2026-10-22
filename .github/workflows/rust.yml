@@ -15,82 +15,49 @@ env:
   CARGO_PROFILE_TEST_DEBUG: 0
   CARGO_INCREMENTAL: 0
 
+# Stable is the toolchain rust-toolchain.toml names, which a bare
+# `rustup toolchain install` installs. Formatting uses the nightly
+# named in rust-nightly.
 jobs:
   format:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: rustfmt
-      - run: cargo +nightly fmt --all -- --check
-      - run: cargo +nightly fmt --manifest-path xtask/Cargo.toml -- --check
-
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ci
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
-      - run: cargo check --workspace --all-features --all-targets
-
-  check-no-defaults:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ci
-          save-if: false
-      - run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
-      - run: cargo check --workspace --no-default-features
+      - run: rustup toolchain install "$(cat rust-nightly)" --profile minimal --component rustfmt
+      - run: cargo "+$(cat rust-nightly)" fmt --all -- --check
+      - run: cargo "+$(cat rust-nightly)" fmt --manifest-path xtask/Cargo.toml -- --check
 
   clippy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ci
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
-      - run: rustup component add clippy
-      - run: cargo clippy --workspace --all-features --all-targets -- -D warnings
+      - run: cargo clippy --locked --workspace --all-features --all-targets -- -D warnings
       # xtask is a workspace of its own, outside the one above.
-      - run: cargo clippy --manifest-path xtask/Cargo.toml -- -D warnings
+      - run: cargo clippy --locked --manifest-path xtask/Cargo.toml -- -D warnings
 
   doc:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ci
           save-if: false
       - run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
-      - run: cargo doc --workspace --all-features --no-deps --document-private-items
+      - run: cargo doc --locked --workspace --all-features --no-deps --document-private-items
         env:
           RUSTDOCFLAGS: -D warnings
 
@@ -100,9 +67,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: test
@@ -114,22 +80,60 @@ jobs:
       - run: npm ci --prefix harnesses/pi
       - run: npm run check --prefix harnesses/pi
       - run: npm test --prefix harnesses/pi
+      # Faux and loopback providers only. The acceptance suite runs the
+      # plain binaries; the harness tests rebuild the server with fault
+      # points, so they come last.
       - run: cargo build --locked -p hamlet_cli -p hamlet_server
-      # Faux and loopback providers only, including real harness processes.
-      - run: cargo test --workspace --all-targets --features hamlet_server/harness,hamlet_acceptance/acceptance
+      - run: cargo test --locked --workspace --all-targets --features hamlet_acceptance/acceptance
+      - run: cargo test --locked -p hamlet_server --all-targets --features harness
 
-  # Note: cargo test --all-targets disables doc tests, so we have to add this to test docs
+  # The test job's steps on macOS, where tools run under Seatbelt.
+  test-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: test
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: harnesses/pi/.nvmrc
+      - run: npm ci --prefix harnesses/pi
+      - run: npm run check --prefix harnesses/pi
+      - run: npm test --prefix harnesses/pi
+      - run: cargo build --locked -p hamlet_cli -p hamlet_server
+      - run: cargo test --locked --workspace --all-targets --features hamlet_acceptance/acceptance
+      - run: cargo test --locked -p hamlet_server --all-targets --features harness
+
+  # Windows runs only the window, as a remote client.
+  clippy-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo clippy --locked -p hamlet --all-targets -- -D warnings
+
+  # cargo test --all-targets leaves out doc tests.
   doctest:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: test
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
-      - run: cargo test --workspace --doc
+      - run: cargo test --locked --workspace --doc

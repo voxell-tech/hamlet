@@ -533,10 +533,14 @@ fn every_attempt_uses_the_current_pin_then_hamlet_then_home_model() {
     )
     .unwrap();
     let chosen = |store: &Store| {
-        crate::models::Choices::read(store, &scratch, false)
-            .unwrap()
-            .select(store, &binding.agent)
-            .unwrap()
+        crate::models::Choices::read(
+            store,
+            &scratch,
+            &crate::Overrides::none(false),
+        )
+        .unwrap()
+        .select(store, &binding.agent)
+        .unwrap()
     };
     let pinned = chosen(&store);
     assert_eq!(pinned.model.id, "pinned");
@@ -620,6 +624,7 @@ fn idle(home: &crate::Home) -> super::Harnesses {
                 faux: None,
             },
             tools: vec![],
+            overrides: crate::Overrides::none(false),
         },
         hand_tools: vec![],
         layout: home.layout().clone(),
@@ -632,6 +637,35 @@ fn idle(home: &crate::Home) -> super::Harnesses {
         credentials: Default::default(),
         closing: false,
     }
+}
+
+#[test]
+fn a_start_whose_folder_cannot_be_made_is_down_with_a_retry_scheduled()
+ {
+    let scratch = Scratch::new("launch-folder");
+    let home = crate::Home::open(&scratch.join("layout")).unwrap();
+    let (store, binding) = bound(&scratch, 1);
+    // A file where the harnesses folder goes, so no runtime's folder
+    // can be made under it.
+    let folder = home.layout().harness(&binding.runtime);
+    std::fs::write(folder.parent().unwrap(), b"").unwrap();
+    let mut harnesses = idle(&home);
+    let index = harnesses.add(binding.runtime.clone());
+    let notices = harnesses.launch(&store, index).unwrap();
+    let [
+        super::Notice::Exited {
+            status,
+            restart_in: Some(_),
+            ..
+        },
+    ] = notices.as_slice()
+    else {
+        panic!("{notices:?}");
+    };
+    assert!(status.contains("creating"), "{status}");
+    let runtime = &harnesses.runtimes[index];
+    assert!(runtime.phase == super::Phase::Down);
+    assert!(runtime.restart_at.is_some());
 }
 
 #[tokio::test]
@@ -659,8 +693,7 @@ async fn a_new_conversation_runs_the_model_chosen_for_its_agent() {
 }
 
 #[tokio::test]
-async fn a_bad_created_reply_stops_only_its_runtime_and_refuses_new_bindings()
- {
+async fn a_bad_created_reply_is_answered_and_its_runtime_goes_on() {
     use super::{Event, Inner, Notice, Pending, Phase, Received};
 
     let scratch = Scratch::new("bad-created");
@@ -677,10 +710,7 @@ async fn a_bad_created_reply_stops_only_its_runtime_and_refuses_new_bindings()
         .unwrap();
     let mut harnesses = idle(&home);
     let bad = harnesses.add(binding.runtime.clone());
-    let good =
-        harnesses.add(RuntimeInstance::new("unaffected").unwrap());
     harnesses.runtimes[bad].phase = Phase::Ready;
-    harnesses.runtimes[good].phase = Phase::Ready;
     harnesses
         .session
         .expect("create", bad, Pending::Create(other));
@@ -691,15 +721,11 @@ async fn a_bad_created_reply_stops_only_its_runtime_and_refuses_new_bindings()
         runtime: bad, generation: 0,
         line: Some(json!({"v":1,"type":"created","id":"r1","re":"create","conversation":"1"}).to_string()),
     })), &credentials).await.unwrap();
-    assert!(notices.iter().any(|n| matches!(n, Notice::Refused { runtime, .. } if *runtime == binding.runtime)));
-    assert!(harnesses.runtimes[good].phase == Phase::Ready);
+    assert!(notices.iter().any(|n| matches!(n, Notice::Fault { runtime, .. } if *runtime == binding.runtime)));
     assert!(
-        harnesses
-            .bind(&mut store, &binding.agent, false)
-            .await
-            .is_err()
+        !notices.iter().any(|n| matches!(n, Notice::Refused { .. }))
     );
-    assert_eq!(store.bindings_of(&binding.runtime).unwrap().len(), 2);
+    assert!(harnesses.runtimes[bad].phase == Phase::Ready);
     assert!(
         store
             .binding(other)

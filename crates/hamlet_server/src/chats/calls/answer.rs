@@ -251,7 +251,8 @@ mod tests {
     fn an_answer_that_fails_to_settle_grants_nothing() {
         let scratch = Scratch::new("answer-atomic");
         let home = crate::Home::open(&scratch.join("home")).unwrap();
-        let mut service = Service::new(home, true).unwrap();
+        let mut service =
+            Service::new(home, crate::Overrides::none(true)).unwrap();
         let agent = AgentRef {
             hamlet: "home".into(),
             number: 0,

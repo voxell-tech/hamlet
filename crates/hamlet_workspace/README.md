@@ -50,8 +50,7 @@ deployed actor; the real-worker acceptance below covers local confinement.
 The build stage copies the whole Cargo workspace, because Cargo needs
 every member to load it, then compiles only this crate with
 `cargo build --locked --release -p hamlet_workspace`. It fails if
-`Cargo.lock` would change. The vendored fynix submodule must be checked
-out (`git submodule update --init --recursive`).
+`Cargo.lock` would change.
 
 The runtime image is Debian 12 slim with:
 

@@ -10,7 +10,7 @@ use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::mpsc;
 
 use crate::client::PATIENCE;
-use crate::server::{OVERRIDES, cli};
+use crate::server::cli;
 
 /// Which stream a piece of output came on.
 #[derive(Clone, Copy)]
@@ -36,9 +36,7 @@ impl Cli {
         env: &[(&str, &str)],
     ) -> Self {
         let mut command = Command::new(cli());
-        for name in OVERRIDES {
-            command.env_remove(name);
-        }
+        hamlet_testing::strip_overrides(command.as_std_mut());
         let mut child = command
             .args(args)
             .env("HAMLET_HOME", home)

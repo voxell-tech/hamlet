@@ -874,6 +874,7 @@ dependencies = [
 [[package]]
 name = "bevy_fynix"
 version = "0.0.2"
+source = "git+https://github.com/voxell-tech/fynix?rev=22eae386a96dac9f70e4478e9d315b9daad327eb#22eae386a96dac9f70e4478e9d315b9daad327eb"
 dependencies = [
  "bevy",
  "fynix",
@@ -2992,6 +2993,7 @@ dependencies = [
 [[package]]
 name = "fynix"
 version = "0.0.2"
+source = "git+https://github.com/voxell-tech/fynix?rev=22eae386a96dac9f70e4478e9d315b9daad327eb#22eae386a96dac9f70e4478e9d315b9daad327eb"
 dependencies = [
  "fynix_macros",
  "hashbrown 0.17.1",
@@ -3003,6 +3005,7 @@ dependencies = [
 [[package]]
 name = "fynix_macros"
 version = "0.0.2"
+source = "git+https://github.com/voxell-tech/fynix?rev=22eae386a96dac9f70e4478e9d315b9daad327eb#22eae386a96dac9f70e4478e9d315b9daad327eb"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -3304,6 +3307,7 @@ dependencies = [
  "base64 0.22.1",
  "futures",
  "hamlet_protocol",
+ "hamlet_testing",
  "libc",
  "serde",
  "serde_json",
@@ -3419,6 +3423,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-tungstenite",
  "unicode-normalization",

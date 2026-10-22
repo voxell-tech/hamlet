@@ -151,9 +151,9 @@ tree matches the layout in the convention.
 
 1. Order the frame drain. `ClientSystems::Receive` in `PreUpdate` and
    `Send` in `Last`. The drain runs only for a waiting frame or a
-   non-empty outbox. Make fynix's system set public in the vendored
-   crate. As proof, the 67 settle loops in UI tests become single
-   updates.
+   non-empty outbox. Make fynix's system set public upstream and move
+   the pinned rev to it. As proof, the 67 settle loops in UI tests
+   become single updates.
 2. Wake on frames. The connect task gets a waker that pokes the reactive
    event loop after each frame. This is the one place a boxed closure is
    needed, justified in its PR.

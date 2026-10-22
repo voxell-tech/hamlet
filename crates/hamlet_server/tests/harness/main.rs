@@ -1,7 +1,7 @@
 //! The server and real pi harness runtimes as processes: a
 //! conversation end to end, crashes at each commit point, the gate's
-//! waits across restarts, admitting inputs once, cancelling and the
-//! handshake's refusals.
+//! waits across restarts, admitting inputs once, cancelling, the
+//! handshake's refusals and a line whose handling fails.
 
 #![cfg(unix)]
 
@@ -964,4 +964,52 @@ fn cutoff_recovery_survives_crashes_before_abort_and_after_summary() {
         assert!(tasks[2..].iter().all(|task| task == &tasks[2]));
         assert_eq!(realm.look().usage, 5);
     }
+}
+
+#[test]
+fn a_runtime_line_whose_handling_fails_is_answered_and_the_runtime_goes_on()
+ {
+    let realm = Realm::new("line-fails");
+    let faux = realm.script(
+        "faux.json",
+        json!({"agents": {"home:0": ["answered"]}}),
+    );
+    let mut driver = Driver::start(&realm, &faux, &[]);
+    let (binding, _) = driver.bind(0);
+    // The store refuses to keep a model call's attempt.
+    let db =
+        rusqlite::Connection::open(realm.home.join("realm.sqlite"))
+            .unwrap();
+    db.execute_batch(
+        "CREATE TRIGGER no_attempt BEFORE INSERT ON harness_attempt \
+         BEGIN SELECT RAISE(ABORT, 'no attempt kept'); END;",
+    )
+    .unwrap();
+    driver.submit(binding, "chief:1", "Hello.");
+    let fault = driver.until(|n| n["kind"] == "fault");
+    let words = fault["words"].as_str().unwrap();
+    assert!(words.contains("no attempt kept"), "{words}");
+    // pi was answered, and ended the turn with the server's words.
+    driver.until(|n| {
+        n["kind"] == "kept"
+            && n["binding"] == binding
+            && n["item"]["failure"]
+                .as_str()
+                .is_some_and(|failure| failure.contains(words))
+    });
+    db.execute_batch("DROP TRIGGER no_attempt;").unwrap();
+    driver.submit(binding, "chief:2", "Hello again.");
+    driver.answer(binding, "answered");
+    let kinds = driver
+        .notices
+        .iter()
+        .map(|n| n["kind"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert!(!kinds.contains(&"refused"), "{kinds:?}");
+    assert_eq!(
+        kinds.iter().filter(|kind| **kind == "started").count(),
+        1,
+        "{kinds:?}"
+    );
+    driver.stop();
 }

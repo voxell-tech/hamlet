@@ -3,6 +3,8 @@ name = "hamlet_server"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
 description = "The Hamlet server: a claimed home, its realm database and the markers of operations"
 
 [[bin]]
@@ -17,6 +19,7 @@ required-features = ["harness"]
 [lints]
 workspace = true
 
+# Both features are for tests only, never for a release build.
 [features]
 # Points where a test stops the server, to kill it there.
 faults = []
@@ -41,6 +44,7 @@ schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
 unicode-normalization = "0.1"
@@ -51,10 +55,9 @@ uuid.workspace = true
 rustix = { version = "1", features = ["fs", "process"] }
 
 [dev-dependencies]
-hamlet_acceptance = { path = "../hamlet_acceptance" }
+hamlet_acceptance.workspace = true
 hamlet_testing.workspace = true
 libc.workspace = true
-rusqlite.workspace = true
 
 [[test]]
 name = "harness"

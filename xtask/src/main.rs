@@ -1,8 +1,8 @@
 //! `cargo xtask`: builds, installs and checks Hamlet with Cargo
 //! alone.
 //!
-//! It is a workspace of its own, so it runs before the vendored fynix
-//! that the main workspace needs has been fetched.
+//! It is a workspace of its own, so it builds before the main
+//! workspace's dependencies are fetched.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -20,18 +20,21 @@ Usage: cargo xtask <task> [args]
   dev              try this checkout on a scratch home (HAMLET_HOME \
                      picks it)
   check            every check a commit needs
-  fmt              format Rust and pi
+  fmt              format Rust, with the nightly named in \
+                     rust-nightly, and pi
   workspace-image  build the remote workspace image; args go to \
                      docker build
 
-Every task first fetches the vendored fynix and installs pi's \
-                     packages
-when they are missing or stale. The installed server finds pi in this
-checkout, so keep it where it was installed from, and run
-`cargo xtask install` again after pulling.";
+Every task first installs pi's packages when they are missing or
+stale. The installed server finds pi in this checkout, so keep it
+where it was installed from, and run `cargo xtask install` again
+after pulling.";
 
 /// This crate's manifest, outside the main workspace.
 const XTASK: &str = "xtask/Cargo.toml";
+
+/// The file naming the nightly that formats Rust, which CI reads too.
+const NIGHTLY: &str = "rust-nightly";
 
 /// The binaries a chief runs, with the packages that hold them.
 const BINARIES: [(&str, &str); 3] = [
@@ -118,23 +121,21 @@ fn run(task: &str, rest: &[String]) -> Result<(), String> {
         }
         "check" => {
             prepare(&root)?;
-            check()
+            check(&root)
         }
         "fmt" => {
             prepare(&root)?;
-            status(&mut cargo(&["+nightly", "fmt"]))?;
+            let nightly = nightly(&root)?;
+            status(&mut cargo(&[&nightly, "fmt"]))?;
             status(&mut cargo(&[
-                "+nightly",
+                &nightly,
                 "fmt",
                 "--manifest-path",
                 XTASK,
             ]))?;
             status(&mut npm(&["run", "format"]))
         }
-        "workspace-image" => {
-            fynix(&root)?;
-            workspace_image(rest)
-        }
+        "workspace-image" => workspace_image(rest),
         "" | "help" | "-h" | "--help" => {
             println!("{USAGE}");
             Ok(())
@@ -143,10 +144,11 @@ fn run(task: &str, rest: &[String]) -> Result<(), String> {
     }
 }
 
-fn check() -> Result<(), String> {
+fn check(root: &Path) -> Result<(), String> {
+    let nightly = nightly(root)?;
     let steps: [&[&str]; 10] = [
-        &["+nightly", "fmt", "--check"],
-        &["+nightly", "fmt", "--check", "--manifest-path", XTASK],
+        &[&nightly, "fmt", "--check"],
+        &[&nightly, "fmt", "--check", "--manifest-path", XTASK],
         &["clippy", "--manifest-path", XTASK, "--", "-D", "warnings"],
         &["build", "--all-targets"],
         &["clippy", "--all-targets", "--", "-D", "warnings"],
@@ -210,9 +212,8 @@ fn workspace_image(rest: &[String]) -> Result<(), String> {
     status(build.args(rest).arg("."))
 }
 
-/// Fetches fynix and installs pi's packages, each only when needed.
+/// Installs pi's packages when they are missing or stale.
 fn prepare(root: &Path) -> Result<(), String> {
-    fynix(root)?;
     let pi = root.join("harnesses/pi");
     // npm ci rewrites this file, so it is newer than the lockfile it
     // installed from.
@@ -228,16 +229,11 @@ fn prepare(root: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn fynix(root: &Path) -> Result<(), String> {
-    if root.join("vendor/fynix/Cargo.toml").exists() {
-        return Ok(());
-    }
-    status(Command::new("git").args([
-        "submodule",
-        "update",
-        "--init",
-        "vendor/fynix",
-    ]))
+/// `+` and the toolchain [`NIGHTLY`] names, for `cargo fmt`.
+fn nightly(root: &Path) -> Result<String, String> {
+    let name = fs::read_to_string(root.join(NIGHTLY))
+        .map_err(|error| format!("{NIGHTLY}: {error}"))?;
+    Ok(format!("+{}", name.trim()))
 }
 
 fn modified(path: &Path) -> Option<std::time::SystemTime> {
@@ -245,7 +241,7 @@ fn modified(path: &Path) -> Option<std::time::SystemTime> {
 }
 
 /// Cargo through rustup's proxy on `PATH`, not the toolchain's own
-/// binary in `CARGO`, so that `+nightly` works.
+/// binary in `CARGO`, so that a `+toolchain` argument works.
 fn cargo(args: &[&str]) -> Command {
     let mut command = Command::new("cargo");
     command.args(args);

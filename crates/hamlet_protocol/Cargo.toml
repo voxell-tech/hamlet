@@ -3,6 +3,8 @@ name = "hamlet_protocol"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
 description = "The messages of Hamlet's client protocol"
 
 [lints]

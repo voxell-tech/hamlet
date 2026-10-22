@@ -80,15 +80,40 @@ pub(crate) fn keep(
     save(db, "settings", "home", &serde_json::to_value(settings)?)
 }
 
-pub(crate) struct Overrides {
+/// The model a faux home runs, whatever its settings say.
+const FAUX_MODEL: &str = "faux::faux-1";
+
+/// What the process puts over the saved settings: the environment's
+/// variables, read once when the server starts, and the faux model
+/// in place of the home's when its models are faux.
+#[derive(Clone)]
+pub struct Overrides {
+    /// Whether the home's models are faux.
+    pub(crate) faux: bool,
     model: Option<String>,
     base_url: Option<String>,
     reflect_every: Option<u64>,
     allow_net: Option<bool>,
-    pub workspace: Option<Workspace>,
+    pub(crate) workspace: Option<Workspace>,
 }
 
 impl Overrides {
+    /// None from the environment, so a test's server is the same
+    /// whatever its shell carries. `faux` still puts the faux model
+    /// over the settings' one.
+    pub fn none(faux: bool) -> Self {
+        Self {
+            faux,
+            model: faux.then(|| FAUX_MODEL.into()),
+            base_url: None,
+            reflect_every: None,
+            allow_net: None,
+            workspace: None,
+        }
+    }
+
+    /// The overrides the environment gives, with the faux model over
+    /// `HAMLET_MODEL` when `faux`.
     pub fn from_env(faux: bool) -> Result<Self> {
         let get =
             |key| std::env::var(key).ok().filter(|v| !v.is_empty());
@@ -111,11 +136,8 @@ impl Overrides {
             bail!("HAMLET_MODEL is `endpoint::id`, not `{name}`");
         }
         Ok(Self {
-            model: if faux {
-                Some("faux::faux-1".into())
-            } else {
-                model
-            },
+            faux,
+            model: faux.then(|| FAUX_MODEL.into()).or(model),
             base_url: get("HAMLET_BASE_URL"),
             reflect_every,
             allow_net: get("HAMLET_NET").map(|v| v == "1"),
@@ -141,7 +163,10 @@ impl Overrides {
 
     /// `settings` with the overrides, refused when `HAMLET_BASE_URL`
     /// is for an endpoint they do not list.
-    pub fn apply(&self, mut settings: Settings) -> Result<Settings> {
+    pub(crate) fn apply(
+        &self,
+        mut settings: Settings,
+    ) -> Result<Settings> {
         if let Some(model) = &self.model {
             settings.model.clone_from(model);
         }

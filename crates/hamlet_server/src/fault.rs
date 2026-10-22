@@ -1,6 +1,12 @@
 //! Points where a test stops this server, so it can be killed there.
 //! They do nothing unless the `faults` feature is on.
 
+#[cfg(all(feature = "faults", not(debug_assertions)))]
+compile_error!(
+    "The `faults` feature is for tests: it stops the server at \
+     fault points. A release build must not carry it."
+);
+
 /// Stops for good at `point` when `HAMLET_FAULT` names it, once per
 /// `HAMLET_FAULT_DIR`: the stop writes `server-paused` there, and a
 /// server started after it passes the point.

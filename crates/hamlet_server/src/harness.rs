@@ -42,7 +42,7 @@ use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::credentials::Credentials;
 use crate::record::AgentRef;
-use crate::{Layout, RuntimeInstance, Store};
+use crate::{Layout, Overrides, RuntimeInstance, Store};
 
 /// What a runtime must be able to do to be given Hamlet's work (S24).
 const NEEDED: &[Capability] = &[
@@ -66,19 +66,26 @@ const STOP_GRACE: Duration = Duration::from_secs(5);
 const SYNC_PAGE: u64 = 200;
 
 /// How this server starts runtimes and what it gives them.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Config {
     pub pi: Pi,
     pub tools: Vec<ToolSpec>,
+    /// What model calls are chosen with over the saved settings.
+    pub overrides: Overrides,
 }
 
 impl Config {
     /// The configuration the environment gives: the pi harness's,
-    /// with `faux` in place of real models when given.
-    pub fn from_env(faux: Option<PathBuf>) -> Result<Self> {
+    /// with `faux` in place of real models when given, and the
+    /// server's `overrides`.
+    pub fn from_env(
+        faux: Option<PathBuf>,
+        overrides: Overrides,
+    ) -> Result<Self> {
         let pi = Pi::from_env(faux)?;
         Ok(Self {
             pi,
+            overrides,
             tools: crate::tools::specs()
                 .into_iter()
                 .chain(crate::chats::specs())
@@ -515,43 +522,50 @@ impl Harnesses {
                 self.launch(store, index)
             }
             Inner::Received(received) => {
-                let runtime = &self.runtimes[received.runtime];
-                if received.generation != runtime.generation {
+                let index = received.runtime;
+                if received.generation
+                    != self.runtimes[index].generation
+                {
                     return Ok(Vec::new());
                 }
-                match received.line {
-                    Some(line) => {
-                        match self
-                            .received(
-                                store,
-                                received.runtime,
-                                &line,
-                                credentials,
-                            )
-                            .await
-                        {
-                            Ok(notices) => Ok(notices),
-                            Err(error) => {
-                                let index = received.runtime;
-                                self.runtimes[index].phase =
-                                    Phase::Refused;
-                                let mut notices =
-                                    vec![Notice::Refused {
-                                        runtime: self.runtimes[index]
-                                            .id
-                                            .clone(),
-                                        words: format!(
-                                            "The runtime could not \
-                                             be handled: {error:#}"
-                                        ),
-                                    }];
-                                notices
-                                    .extend(self.closed(index).await);
-                                Ok(notices)
-                            }
-                        }
+                let Some(line) = received.line else {
+                    return Ok(self.closed(index).await);
+                };
+                let message = match parse(&line) {
+                    Ok(message) => message,
+                    Err((words, re)) => {
+                        self.error(
+                            index,
+                            re,
+                            runtime::ErrorCode::Malformed,
+                            &words,
+                        )
+                        .await;
+                        return Ok(vec![self.fault(index, words)]);
                     }
-                    None => Ok(self.closed(received.runtime).await),
+                };
+                let re = id_of(&message);
+                match self
+                    .received(store, index, message, credentials)
+                    .await
+                {
+                    Ok(notices) => Ok(notices),
+                    // Only the line is answered: the runtime goes on
+                    // in the phase it had.
+                    Err(error) => {
+                        let words = credentials.scrub_text(&format!(
+                            "The server could not handle this \
+                             message: {error:#}"
+                        ));
+                        self.error(
+                            index,
+                            Some(re),
+                            runtime::ErrorCode::Failed,
+                            &words,
+                        )
+                        .await;
+                        Ok(vec![self.fault(index, words)])
+                    }
                 }
             }
         }
@@ -887,30 +901,34 @@ impl Harnesses {
             .with_context(|| format!("no conversation {}", binding.0))
     }
 
+    /// Starts runtime `index`'s process. A start that fails, at its
+    /// row, its folder or the process, leaves the runtime down with a
+    /// retry scheduled, as a crash does.
     fn launch(
         &mut self,
         store: &Store,
         index: usize,
     ) -> Result<Vec<Notice>> {
-        let row = store.runtime(&self.runtimes[index].id)?;
-        let folder = self.layout.harness(&row.id);
-        std::fs::create_dir_all(&folder).with_context(|| {
-            format!("creating {}", folder.display())
-        })?;
         let runtime = &mut self.runtimes[index];
         runtime.generation += 1;
-        let process = Process::start(
-            &Launch {
-                pi: &self.config.pi,
-                id: &runtime.id,
-                store: &Pi::store(&folder),
-                fresh: !row.begun,
-            },
-            index,
-            runtime.generation,
-            self.sender.clone(),
-        );
-        let process = match process {
+        let started = store.runtime(&runtime.id).and_then(|row| {
+            let folder = self.layout.harness(&row.id);
+            std::fs::create_dir_all(&folder).with_context(|| {
+                format!("creating {}", folder.display())
+            })?;
+            Process::start(
+                &Launch {
+                    pi: &self.config.pi,
+                    id: &runtime.id,
+                    store: &Pi::store(&folder),
+                    fresh: !row.begun,
+                },
+                index,
+                runtime.generation,
+                self.sender.clone(),
+            )
+        });
+        let process = match started {
             Ok(process) => process,
             Err(error) => {
                 runtime.phase = Phase::Down;
@@ -968,22 +986,9 @@ impl Harnesses {
         &mut self,
         store: &mut Store,
         index: usize,
-        line: &str,
+        message: RuntimeMessage,
         credentials: &Credentials,
     ) -> Result<Vec<Notice>> {
-        let message = match parse(line) {
-            Ok(message) => message,
-            Err((words, re)) => {
-                self.error(
-                    index,
-                    re,
-                    runtime::ErrorCode::Malformed,
-                    &words,
-                )
-                .await;
-                return Ok(vec![self.fault(index, words)]);
-            }
-        };
         let phase = self.runtimes[index].phase;
         match message {
             RuntimeMessage::Hello(hello) => {

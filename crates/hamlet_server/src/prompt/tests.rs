@@ -82,8 +82,11 @@ fn admit(service: &mut Service, name: &str, purpose: &str) {
 #[tokio::test]
 async fn tells_a_fresh_mayor_its_prompt() {
     let dir = Scratch::new("prompt-fresh");
-    let mut service =
-        Service::new(Home::open(&dir).unwrap(), true).unwrap();
+    let mut service = Service::new(
+        Home::open(&dir).unwrap(),
+        crate::Overrides::none(true),
+    )
+    .unwrap();
     let root = service.home.layout().root().to_owned();
     stock(&root.join("library"));
     let prompt = told(&mut service, &subject(0, &[])).await;
@@ -136,8 +139,11 @@ async fn tells_a_fresh_mayor_its_prompt() {
 #[tokio::test]
 async fn tells_the_mayor_its_agents_and_an_agent_its_place() {
     let dir = Scratch::new("prompt-place");
-    let mut service =
-        Service::new(Home::open(&dir).unwrap(), true).unwrap();
+    let mut service = Service::new(
+        Home::open(&dir).unwrap(),
+        crate::Overrides::none(true),
+    )
+    .unwrap();
     admit(&mut service, "scout", "Finds things");
     admit(&mut service, "smith", "Builds things");
     let given = [Instruction {
@@ -193,8 +199,11 @@ async fn tells_the_mayor_its_agents_and_an_agent_its_place() {
 #[tokio::test]
 async fn cuts_the_notes_and_lists_the_house_skills() {
     let dir = Scratch::new("prompt-shelf");
-    let mut service =
-        Service::new(Home::open(&dir).unwrap(), true).unwrap();
+    let mut service = Service::new(
+        Home::open(&dir).unwrap(),
+        crate::Overrides::none(true),
+    )
+    .unwrap();
     let house = service.home.layout().root().join("houses/home/0");
     let skills = house.join("skills");
     std::fs::create_dir_all(skills.join("forecast")).unwrap();

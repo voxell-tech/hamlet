@@ -25,7 +25,7 @@ use crate::credentials::write_whole;
 use crate::harness::{self, Harnesses, InputStatus, Notice};
 use crate::protocol::{Protocol, Refusable, Refusal, fault, reply};
 use crate::service::Service;
-use crate::{Home, chats};
+use crate::{Home, Overrides, chats};
 
 const LARGEST: usize = 1_048_576;
 const BEGIN: &str =
@@ -111,13 +111,58 @@ impl Drop for Published {
     }
 }
 
+/// An error that ends the server: the home's claim, its store or the
+/// client protocol's schema failed.
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+struct Fatal(anyhow::Error);
+
+/// The request of connection `client` a failed handler was
+/// answering, attached to its error as context.
+#[derive(Debug)]
+struct Asked {
+    client: u64,
+    request: Option<String>,
+}
+
+impl Asked {
+    /// The request `text` of connection `client`, read only for its
+    /// id.
+    fn of(client: u64, text: &str) -> Self {
+        let request = serde_json::from_str::<serde_json::Value>(text)
+            .ok()
+            .and_then(|value| {
+                value["id"].as_str().map(str::to_owned)
+            });
+        Self { client, request }
+    }
+}
+
+impl std::fmt::Display for Asked {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        match &self.request {
+            Some(request) => write!(
+                f,
+                "answering request {request} of connection {}",
+                self.client
+            ),
+            None => write!(f, "answering connection {}", self.client),
+        }
+    }
+}
+
 /// Serves until SIGTERM or Ctrl-C, closing every client before
 /// releasing the home.
 #[expect(clippy::print_stderr, reason = "stderr is the server's log")]
 pub async fn serve(options: Options) -> Result<()> {
     let mut signals = Signals::new()?;
-    let home = Home::open(&options.home)?;
-    let mut service = Service::new(home, options.faux.is_some())?;
+    let overrides = Overrides::from_env(options.faux.is_some())?;
+    let home = Home::open(&options.home).map_err(Fatal)?;
+    let mut service =
+        Service::new(home, overrides.clone()).map_err(Fatal)?;
     service.houses.probe(service.chats.sandbox)?;
     tokio::select! {
         _ = signals.next() => return service.home.close(),
@@ -129,7 +174,7 @@ pub async fn serve(options: Options) -> Result<()> {
     let (mut harnesses, notices) = Harnesses::start(
         &layout,
         service.home.store(),
-        harness::Config::from_env(options.faux.clone())?,
+        harness::Config::from_env(options.faux.clone(), overrides)?,
     )?;
     for notice in notices {
         tokio::select! {
@@ -195,7 +240,7 @@ pub async fn serve(options: Options) -> Result<()> {
             result?;
         }
     }
-    let protocol = Protocol::new()?;
+    let protocol = Protocol::new().map_err(Fatal)?;
     let listener = TcpListener::bind((
         std::net::Ipv4Addr::LOCALHOST,
         options.port,
@@ -238,55 +283,73 @@ pub async fn serve(options: Options) -> Result<()> {
     let mut tick = tokio::time::interval(Duration::from_millis(50));
     let result = async {
         loop {
-            tokio::select! {
+            // False when the event was dealt with in full, with
+            // nothing to settle after it.
+            let mut settles = true;
+            let handled = tokio::select! {
                 biased;
                 _ = signals.next() => break,
                 accepted = listener.accept() => {
                     serving.on_accept(accepted?.0);
+                    Ok(())
                 }
                 Some(event) = next_event(
                     &mut serving.ready,
                     &mut incoming,
                 ) => {
-                    if !serving.on_event(event).await? {
-                        continue;
-                    }
+                    serving
+                        .on_event(event)
+                        .await
+                        .map(|then| settles = then)
                 }
-                _ = tick.tick() => serving.on_tick().await?,
+                _ = tick.tick() => serving.on_tick().await,
                 event = serving.harnesses.next() => {
-                    serving.on_harness(event).await?;
-                    serving.refresh()?;
+                    serving
+                        .on_harness(event)
+                        .await
+                        .and_then(|()| serving.refresh())
                 }
                 finished = serving.service.chats.next() => {
-                    serving.on_finished(finished).await?;
-                    serving.refresh()?;
+                    serving
+                        .on_finished(finished)
+                        .await
+                        .and_then(|()| serving.refresh())
                 }
                 Some(work) = serving.service.house_work.next() => {
-                    serving.on_work(work).await?;
-                    serving.refresh()?;
+                    serving
+                        .on_work(work)
+                        .await
+                        .and_then(|()| serving.refresh())
                 }
                 Some(merged) =
                     serving.service.merges.tasks.join_next() => {
-                    serving.on_merged(merged).await?;
-                    serving.refresh()?;
+                    serving
+                        .on_merged(merged)
+                        .await
+                        .and_then(|()| serving.refresh())
                 }
                 Some(moved) =
                     serving.service.moving.tasks.join_next() => {
-                    serving.on_moved(moved)?;
+                    serving.on_moved(moved)
                 }
                 Some(read) = serving.reads.join_next() => {
-                    serving.on_read(read)?;
+                    serving.on_read(read)
                 }
                 Some(written) = serving.writes.join_next() => {
-                    serving.on_written(written)?;
+                    serving.on_written(written)
                 }
                 Some(given) =
                     serving.service.gifts.tasks.join_next() => {
-                    serving.on_given(given).await?;
+                    serving.on_given(given).await
                 }
-                Some(_) = serving.tasks.join_next() => {}
+                Some(_) = serving.tasks.join_next() => Ok(()),
+            };
+            let settled = handled.and_then(|()| {
+                if settles { serving.settle() } else { Ok(()) }
+            });
+            if let Err(error) = settled {
+                serving.recover(&error);
             }
-            serving.settle()?;
         }
         Ok::<_, anyhow::Error>(())
     }
@@ -424,10 +487,9 @@ impl Serving {
         self.service.merges.gone(id);
         self.clients.remove(&id);
         self.service.models.disconnect(id);
-        flush_models(&mut self.service, &mut self.harnesses).await?;
         self.service.chats.gone(id);
         self.service.gifts.gone(id);
-        Ok(())
+        flush_models(&mut self.service, &mut self.harnesses).await
     }
 
     /// Takes one message of connection `id`: held while the
@@ -439,7 +501,6 @@ impl Serving {
         id: u64,
         text: String,
     ) -> Result<bool> {
-        self.refresh()?;
         let Some(client) =
             self.clients.get_mut(&id).filter(|c| !c.refused)
         else {
@@ -476,6 +537,21 @@ impl Serving {
                 return Ok(false);
             }
         };
+        let taken = self.take(id, message).await;
+        taken.with_context(|| Asked::of(id, &text))
+    }
+
+    /// Takes a message of connection `id` that parsed: its hello, or
+    /// a request once welcomed.
+    async fn take(
+        &mut self,
+        id: u64,
+        message: ClientMessage,
+    ) -> Result<bool> {
+        self.refresh()?;
+        let Some(client) = self.clients.get_mut(&id) else {
+            return Ok(false);
+        };
         if client.welcomed {
             return self.answer(id, message).await;
         }
@@ -505,46 +581,23 @@ impl Serving {
         id: u64,
         message: ClientMessage,
     ) -> Result<bool> {
-        let request = serde_json::to_value(&message)?;
         let handled = chats::converse(
             &mut self.service,
             &mut self.harnesses,
             id,
             &message,
         )
-        .await;
-        match handled {
-            Ok(chats::Handled::NotMine) => {}
-            Ok(handled) => {
-                let busy = self.service.merges.busy(id)
-                    || self
-                        .service
-                        .gifts
-                        .working
-                        .iter()
-                        .any(|(owner, _)| *owner == id);
-                if busy
-                    && let Some(client) = self.clients.get_mut(&id)
-                {
-                    client.busy = true;
-                }
-                if let chats::Handled::Reply(answer) = handled {
-                    self.send_to(id, *answer)?;
-                }
-                self.deliver()?;
-                self.refresh()?;
-                return Ok(false);
+        .await?;
+        if !matches!(handled, chats::Handled::NotMine) {
+            if self.working(id) {
+                self.busy(id);
             }
-            Err(error) => {
-                failed(&self.service, &error);
-                self.send_to(
-                    id,
-                    fault(request["id"].as_str(), FAILED),
-                )?;
-                self.deliver()?;
-                self.refresh()?;
-                return Ok(false);
+            if let chats::Handled::Reply(answer) = handled {
+                self.send_to(id, *answer)?;
             }
+            self.deliver()?;
+            self.refresh()?;
+            return Ok(false);
         }
         if let Some(answers) =
             self.service.model_request(id, &message)?
@@ -586,14 +639,7 @@ impl Serving {
             }
             _ => {}
         }
-        let answer = match self.service.handle(message).await {
-            Ok(answer) => answer,
-            Err(error) => {
-                failed(&self.service, &error);
-                Some(fault(request["id"].as_str(), FAILED))
-            }
-        };
-        if let Some(answer) = answer {
+        if let Some(answer) = self.service.handle(message).await? {
             self.send_to(id, answer)?;
         }
         self.refresh()?;
@@ -674,6 +720,29 @@ impl Serving {
         if let Some(client) = self.clients.get_mut(&id) {
             client.busy = true;
         }
+    }
+
+    /// Lets connection `id` take the messages it held back while
+    /// busy. False when it is gone.
+    fn free(&mut self, id: u64) -> bool {
+        let Some(client) = self.clients.get_mut(&id) else {
+            return false;
+        };
+        client.busy = false;
+        self.ready
+            .extend(client.waiting.drain(..).map(|text| (id, text)));
+        true
+    }
+
+    /// Whether a merge or a gift of connection `id` is under way.
+    fn working(&self, id: u64) -> bool {
+        self.service.merges.busy(id)
+            || self
+                .service
+                .gifts
+                .working
+                .iter()
+                .any(|(owner, _)| *owner == id)
     }
 
     async fn on_tick(&mut self) -> Result<()> {
@@ -777,18 +846,18 @@ impl Serving {
             return Ok(());
         };
         self.reading.remove(&(read.owner, read.request.clone()));
-        let Some(client) = self.clients.get_mut(&read.owner) else {
+        if !self.free(read.owner) {
             return Ok(());
-        };
-        client.busy = false;
-        self.ready.extend(
-            client.waiting.drain(..).map(|text| (read.owner, text)),
-        );
+        }
         // A read refused when prepared keeps its refusal.
         let allowed = read.number.is_none()
             || self
                 .service
-                .agent(&read.address, "read or edit papers")?
+                .agent(&read.address, "read or edit papers")
+                .with_context(|| Asked {
+                    client: read.owner,
+                    request: Some(read.request.clone()),
+                })?
                 .ok()
                 .is_some_and(|agent| {
                     Some(agent.number) == read.number
@@ -804,7 +873,7 @@ impl Serving {
                 fault(Some(&read.request), FAILED)
             }
         };
-        send(client, &self.service, answer)
+        self.send_to(read.owner, answer)
     }
 
     fn on_written(
@@ -814,14 +883,9 @@ impl Serving {
         let Ok(written) = written else {
             return Ok(());
         };
-        let owner = written.owner;
-        let Some(client) = self.clients.get_mut(&owner) else {
+        if !self.free(written.owner) {
             return Ok(());
-        };
-        client.busy = false;
-        self.ready.extend(
-            client.waiting.drain(..).map(|text| (owner, text)),
-        );
+        }
         let result =
             written.result.map(|()| "Saved.".into()).map_err(|_| {
                 Refusal::Invalid(
@@ -830,27 +894,36 @@ impl Serving {
                         .into(),
                 )
             });
-        send(client, &self.service, reply(&written.request, result))
+        self.send_to(written.owner, reply(&written.request, result))
     }
 
     async fn on_given(
         &mut self,
         given: Result<crate::gifts::Completed, JoinError>,
     ) -> Result<()> {
-        if let Ok(given) = given
-            && let Some((owner, answer)) = crate::gifts::complete(
-                &mut self.service,
-                &mut self.harnesses,
-                given,
-            )
-            .await?
-            && let Some(client) = self.clients.get_mut(&owner)
+        use crate::gifts::Completed;
+        let Ok(given) = given else {
+            return self.refresh();
+        };
+        let (Completed::Began { owner, id, .. }
+        | Completed::Files { owner, id, .. }
+        | Completed::Prepared { owner, id, .. }
+        | Completed::Delivered { owner, id, .. }) = &given;
+        let asked = Asked {
+            client: *owner,
+            request: Some(id.clone()),
+        };
+        let completed = crate::gifts::complete(
+            &mut self.service,
+            &mut self.harnesses,
+            given,
+        )
+        .await
+        .context(asked)?;
+        if let Some((owner, answer)) = completed
+            && self.free(owner)
         {
-            client.busy = false;
-            self.ready.extend(
-                client.waiting.drain(..).map(|text| (owner, text)),
-            );
-            send(client, &self.service, answer)?;
+            self.send_to(owner, answer)?;
         }
         self.refresh()
     }
@@ -860,17 +933,49 @@ impl Serving {
     fn settle(&mut self) -> Result<()> {
         for owner in std::mem::take(&mut self.service.merges.finished)
         {
-            if let Some(client) = self.clients.get_mut(&owner) {
-                client.busy = false;
-                self.ready.extend(
-                    client
-                        .waiting
-                        .drain(..)
-                        .map(|text| (owner, text)),
-                );
-            }
+            self.free(owner);
         }
         self.deliver()
+    }
+
+    /// Logs `error`, which ended the handling of one event, and
+    /// leaves the loop as handling it in full would. The request it
+    /// was answering gets a fault and no longer holds its connection.
+    fn recover(&mut self, error: &anyhow::Error) {
+        failed(&self.service, error);
+        if let Some(asked) = error.downcast_ref::<Asked>() {
+            let client = asked.client;
+            if let Some(request) = &asked.request {
+                self.service
+                    .gifts
+                    .working
+                    .remove(&(client, request.clone()));
+            }
+            let faulted = match self.clients.get_mut(&client) {
+                // Its connection is gone: dropped, not faulted.
+                Some(connection) if connection.send.is_closed() => {
+                    connection.refused = true;
+                    Ok(())
+                }
+                Some(connection) => send(
+                    connection,
+                    &self.service,
+                    fault(asked.request.as_deref(), FAILED),
+                ),
+                None => Ok(()),
+            };
+            if let Err(error) = faulted {
+                failed(&self.service, &error);
+            }
+            if !self.working(client) {
+                self.free(client);
+            }
+        }
+        for done in [self.refresh(), self.settle()] {
+            if let Err(error) = done {
+                failed(&self.service, &error);
+            }
+        }
     }
 
     /// Sends `message` to connection `id`, if it is still open.
@@ -1079,7 +1184,7 @@ async fn flush_models(
 
 #[expect(clippy::print_stderr, reason = "stderr is the server's log")]
 fn failed(service: &Service, error: &anyhow::Error) {
-    let mut diagnostic = json!(format!("Request failed: {error:#}"));
+    let mut diagnostic = json!(format!("hamlet-server: {error:#}"));
     service.credentials.scrub(&mut diagnostic);
     eprintln!("{diagnostic}");
 }

@@ -24,7 +24,7 @@ use crate::credentials::write_whole;
 use crate::protocol::{Refusable, Refusal, reply};
 use crate::record::AgentRef;
 use crate::service::{Service, document, save};
-use crate::settings::Settings;
+use crate::settings::{Overrides, Settings};
 
 /// The price in dollars per million tokens of a model nothing prices.
 const RATE: f64 = 1.0;
@@ -868,9 +868,9 @@ impl Choices {
     pub fn read(
         store: &Store,
         root: &Path,
-        faux: bool,
+        overrides: &Overrides,
     ) -> Result<Self> {
-        let settings = crate::settings::Overrides::from_env(faux)?
+        let settings = overrides
             .apply(crate::settings::stored(store.connection())?)?;
         let lists = match std::fs::read(root.join("models.json")) {
             Ok(bytes) => serde_json::from_slice::<Value>(&bytes)?,

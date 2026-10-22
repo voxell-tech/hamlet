@@ -8,7 +8,7 @@ use hamlet_server::record::{
 };
 use hamlet_server::service::Service;
 use hamlet_server::{
-    Home, OperationId, Outcome, Reply, RuntimeInstance,
+    Home, OperationId, Outcome, Overrides, Reply, RuntimeInstance,
 };
 use hamlet_testing::Scratch;
 use schemars::generate::SchemaSettings;
@@ -31,7 +31,8 @@ fn request(service: &mut Service, mut value: Value) -> Value {
 }
 
 fn open(dir: &Scratch) -> Service {
-    Service::new(Home::open(dir).unwrap(), true).unwrap()
+    Service::new(Home::open(dir).unwrap(), Overrides::none(true))
+        .unwrap()
 }
 
 fn mayor() -> Value {
