@@ -43,6 +43,10 @@ pub struct Manifest {
     /// its version, `"^0.1"`.
     #[serde(default)]
     pub dependencies: BTreeMap<String, String>,
+    /// The environment variables it reads, each with the value it
+    /// has where the engine's environment does not set it.
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
 }
 
 /// A plugin another needs, and the versions of it that fit.
@@ -75,6 +79,7 @@ impl Manifest {
             events: Events::default(),
             limits: Limits::default(),
             dependencies: BTreeMap::new(),
+            env: BTreeMap::new(),
         }
     }
 

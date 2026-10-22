@@ -16,7 +16,9 @@ pub use crate::agents::conversation::{
     Related, Selected, Skill,
 };
 pub use crate::agents::market::{
-    ListedModel, Settler, SettlerSkill, SkillFile, Template,
+    Bought, Delivery, Destination, HousedTool, ListedModel,
+    PACKAGE_PART, PackageKind, Packing, Settler, SettlerSkill,
+    SkillFile, Template,
 };
 pub use crate::agents::needs::{
     Choice, Danger, Need, NeedKind, Offer, Pick, Question, Questions,
@@ -263,6 +265,29 @@ pub enum AgentsRequest {
     /// Founds a hamlet from `Template` and moves in its mayor and
     /// agents. Everything is checked before anything is written.
     FoundFrom(Template),
+
+    /// Writes a version of a listing bought into the home, where it
+    /// says, and records it, a part at a time: [`AgentsReply::Done`]
+    /// for each part but the last, then [`AgentsReply::Settled`] with
+    /// what came of it in words.
+    Settle(Delivery),
+    /// What was bought and written into the home, by listing:
+    /// [`AgentsReply::Bought`].
+    Bought,
+    /// The tools of every agent's house that can be packed:
+    /// [`AgentsReply::Tools`].
+    Tools,
+    /// Packs an agent, a hamlet or tools from the home for sale and
+    /// holds it: [`AgentsReply::Packed`], to be read with
+    /// `PackedPart`.
+    Pack(Packing),
+    /// [`PACKAGE_PART`] bytes at most of a package held, from
+    /// `offset`: [`AgentsReply::Part`]. A package held is let go once
+    /// its last byte is read, or ten minutes after it was packed.
+    PackedPart {
+        id: u64,
+        offset: u64,
+    },
 }
 
 impl AgentsRequest {
@@ -317,7 +342,10 @@ impl AgentsRequest {
             | Self::Submit(_)
             | Self::RunModel { .. }
             | Self::TakeSkill { .. }
-            | Self::FoundFrom(_) => Capability::AgentsChief,
+            | Self::FoundFrom(_)
+            | Self::Settle(_)
+            | Self::Pack(_)
+            | Self::PackedPart { .. } => Capability::AgentsChief,
             Self::Focus
             | Self::Select(_)
             | Self::Related
@@ -329,7 +357,9 @@ impl AgentsRequest {
             | Self::Roster
             | Self::Record(_)
             | Self::Bylaws(_)
-            | Self::Needs => Capability::AgentsRead,
+            | Self::Needs
+            | Self::Bought
+            | Self::Tools => Capability::AgentsRead,
         }
     }
 }
@@ -363,6 +393,18 @@ pub enum AgentsReply {
     Needs(Vec<Need>),
     /// The name a model added goes by, `endpoint::id`.
     Added(String),
+    /// What came of a package settled, in words.
+    Settled(String),
+    /// What was bought, by listing.
+    Bought(std::collections::BTreeMap<String, Bought>),
+    Tools(Vec<HousedTool>),
+    /// A package packed and held, by its id, and its size in bytes.
+    Packed {
+        id: u64,
+        size: u64,
+    },
+    /// Bytes of a package held, as the bazaar's server takes them.
+    Part(Vec<u8>),
 }
 
 /// A change, sent to each plugin that watches.

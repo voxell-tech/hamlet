@@ -612,6 +612,15 @@ impl AgentsWorldExt for World {
             AgentsRequest::FoundFrom(template) => {
                 self.found_from(template).and(done)
             }
+            AgentsRequest::Settle(_)
+            | AgentsRequest::Bought
+            | AgentsRequest::Tools
+            | AgentsRequest::Pack(_)
+            | AgentsRequest::PackedPart { .. } => {
+                Err(Failure::Failed(
+                    "the agents service cannot do this yet".into(),
+                ))
+            }
         }
     }
 
