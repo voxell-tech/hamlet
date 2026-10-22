@@ -173,8 +173,6 @@ struct Row {
     on: bool,
     /// Switched on, and not running yet.
     starting: bool,
-    /// How many things it adds.
-    adds: usize,
     /// What it adds, as its page lists it.
     added: Vec<Added>,
     /// Why the engine stopped it.
@@ -195,8 +193,9 @@ struct Row {
 }
 
 impl Row {
-    /// Whether it is on and how much it adds, or why it was stopped
-    /// or cannot run, in its tone.
+    /// Why it was stopped or cannot run, or that it is starting, in
+    /// its tone; nothing while it runs or is off, as its switch says
+    /// that.
     fn state(&self) -> (String, Tone) {
         if let Some(why) = &self.stopped {
             return (format!("Stopped: {why}"), Tone::Critical);
@@ -204,13 +203,10 @@ impl Row {
         if let Some(why) = &self.blocked {
             return (why.clone(), Tone::Accent);
         }
-        match (self.on, self.starting) {
-            (true, true) => ("Starting".into(), Tone::Dim),
-            (true, false) => {
-                (format!("On, adds {}", self.adds), Tone::Dim)
-            }
-            (false, _) => ("Off".into(), Tone::Dim),
+        if self.on && self.starting {
+            return ("Starting".into(), Tone::Dim);
         }
+        (String::new(), Tone::Dim)
     }
 }
 
@@ -648,10 +644,9 @@ fn follow(
                 plugin,
                 id: info.id.clone(),
                 name: info.name.clone(),
-                about: format!("{}  {}", info.id, info.version),
+                about: format!("{}  v{}", info.id, info.version),
                 on: enabled || starting || blocked.is_some(),
                 starting: !enabled && starting,
-                adds: adds.map_or(0, |adds| adds.len()),
                 added: adds.map_or_else(Vec::new, |adds| {
                     added(adds.iter(), &things)
                 }),

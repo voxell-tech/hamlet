@@ -434,14 +434,14 @@ fn follow(
                 Question::Install { more: false, .. } => (
                     "TO ADD",
                     format!(
-                        "{} {} wants to be added.",
+                        "{} v{} wants to be added.",
                         info.name, info.version
                     ),
                 ),
                 Question::Install { more: true, .. } => (
                     "TO UPDATE",
                     format!(
-                        "{} {} asks for more.",
+                        "{} v{} asks for more.",
                         info.name, info.version
                     ),
                 ),
