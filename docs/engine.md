@@ -34,7 +34,7 @@ Each depends only on those above it, and each adds one Bevy plugin,
 | `engine/render` | `hamlet_engine_render` | What plugins draw: scenes kept entity by entity, their views in a viewport or behind the dock, picking, and plugins' own WGSL checked with naga, their compute and passes, held to their GPU time |
 | `engine/wasm` | `hamlet_engine_wasm` | The host of WASM plugins: wasmtime, a store per plugin, its budgets, and the glue from the WIT to the services. The only crate that knows wasmtime |
 | `engine/harness` | `hamlet_engine_harness` | The engine without a window, for tests, and `plugin_check` |
-| `engine/app` | `hamlet_engine` | The binary, and a demo plugin built into it |
+| `engine/app` | `hamlet_engine` | The binary |
 | `engine/bevy_sdk` | `hamlet_engine_bevy` | What a plugin is written with, as a Bevy plugin, built for `wasm32-wasip2` |
 | `engine/sdk` | `hamlet_engine_sdk` | The first SDK, its own `Plugin` trait, kept for the realm for now |
 
@@ -861,10 +861,6 @@ person has one or more, and one is shown at a time.
   start a plugin on it is left off, of any kind. Letting an install
   in, and uninstalling, take its id off. A file that cannot be
   read is left as it is: the log says so, and no plugin is kept off.
-- **The demo** in `engine/app/src/demo.rs` is built into the binary. It
-  adds a panel, Hello; a command, Say hello, in a Demo menu and on
-  Primary+Shift+H, which writes to the log; and a workspace to take,
-  Hello with the console.
 - **`commands.switch_on(..)`** adds what an `Entry` declares, at the
   plugin's `StartRank`, and marks the plugin on.
   A built-in plugin's entry point runs through it, and so does a WASM
@@ -1266,7 +1262,7 @@ written here by their names in `[budgets]`.
 
 Hamlet's own features are WASM plugins that come with the engine. They
 are a kind of their own, apart from the plugins built into the binary
-in Rust, such as the demo, and from those the person installs.
+in Rust and from those the person installs.
 
 - **The folder.** `plugins/` at the repository root is a cargo
   workspace of its own, left out of the root's, with one release

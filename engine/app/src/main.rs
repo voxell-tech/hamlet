@@ -1,7 +1,5 @@
 //! The engine: its modules, composed. `cargo run -p hamlet_engine`.
 
-mod demo;
-
 use bevy::DefaultPlugins;
 use bevy::app::{App, AppExit, PluginGroup};
 use hamlet_engine_core::{Bundle, Home};
@@ -43,7 +41,6 @@ fn main() -> AppExit {
             hamlet_engine_desktop::plugin,
             hamlet_engine_render::plugin,
             hamlet_engine_wasm::plugin,
-            demo::plugin,
         ))
         .run()
 }
