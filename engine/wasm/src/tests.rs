@@ -2,6 +2,7 @@
 //! against the WIT file, so no test needs a WASM toolchain.
 
 use std::fs;
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -21,6 +22,7 @@ use hamlet_engine_grants::{
 use hamlet_engine_plugins::{
     PluginInfo, PluginKind, Stopped, Uninstall,
 };
+use image::ImageFormat;
 use wasmtime::component::Resource;
 use wasmtime_wasi::cli::WasiCliView;
 use wasmtime_wasi::p2::bindings::cli::environment;
@@ -35,7 +37,7 @@ use crate::instance::ui_bindings::hamlet::engine::ui::{
     HostNode, Kind, Property,
 };
 use crate::instance::{Caps, Fault, Instance, State, link};
-use crate::nodes::NodeError;
+use crate::nodes::{NodeChange, NodeError};
 use crate::panel::{Inbox, Work};
 
 /// What `run` does in a test plugin that counts its runs.
@@ -252,6 +254,85 @@ fn a_call_hands_over_its_bytes_in_all() {
     };
     assert!(set().is_ok());
     assert_eq!(Fault::of(set().unwrap_err()), Fault::Bytes);
+}
+
+#[test]
+fn pictures_are_held_to_their_budgets() {
+    let png = |side: u32| {
+        let mut bytes = Vec::new();
+        image::RgbaImage::new(side, side)
+            .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
+            .unwrap();
+        bytes
+    };
+    let caps = Caps {
+        picture_bytes: 512,
+        picture_side: 8,
+        picture_memory: (8 * 8 + 4 * 4) * 4,
+        bytes: usize::MAX,
+        ..Caps::of(&LIMITS, &budgets(), &WasmTuning::designed())
+    };
+    let mut state = State::new(&caps, &[]);
+    let root = state.nodes.root().rep();
+    let make = |state: &mut State, kind| {
+        HostNode::new(state, kind, Resource::new_borrow(root), 0)
+            .unwrap()
+            .rep()
+    };
+    let show = |state: &mut State, node: u32, bytes: Vec<u8>| {
+        HostNode::set(
+            state,
+            Resource::new_borrow(node),
+            Property::Picture(bytes),
+            None,
+        )
+        .map_err(|error| match Fault::of(error) {
+            Fault::Node(why) => why,
+            fault => panic!("{fault}"),
+        })
+    };
+
+    let first = make(&mut state, Kind::Image);
+    let second = make(&mut state, Kind::Image);
+    let label = make(&mut state, Kind::Label);
+    assert_eq!(
+        show(&mut state, label, png(8)),
+        Err(NodeError::Property)
+    );
+    assert_eq!(
+        show(&mut state, first, vec![0; 513]),
+        Err(NodeError::PictureBytes)
+    );
+    assert_eq!(
+        show(&mut state, first, png(9)),
+        Err(NodeError::PictureSide)
+    );
+    assert_eq!(show(&mut state, first, png(8)), Ok(()));
+    assert_eq!(
+        show(&mut state, second, png(8)),
+        Err(NodeError::PictureMemory)
+    );
+    // A picture replaced, or its node dropped, no longer counts.
+    assert_eq!(show(&mut state, first, png(4)), Ok(()));
+    assert_eq!(show(&mut state, second, png(8)), Ok(()));
+    HostNode::drop(&mut state, Resource::new_own(second)).unwrap();
+    let third = make(&mut state, Kind::Image);
+    assert_eq!(show(&mut state, third, png(8)), Ok(()));
+
+    // The same picture again is not handed on, and one that cannot be
+    // read shows none.
+    let sent = state.nodes.changes.len();
+    assert_eq!(show(&mut state, third, png(8)), Ok(()));
+    assert_eq!(state.nodes.changes.len(), sent);
+    assert_eq!(
+        show(&mut state, first, b"no picture".to_vec()),
+        Ok(())
+    );
+    assert!(matches!(
+        state.nodes.changes.last(),
+        Some(NodeChange::Set { value: Property::Picture(bytes), .. })
+            if bytes.is_empty()
+    ));
 }
 
 #[test]

@@ -2,6 +2,7 @@
 //! engine's of one kind, and what is built out of them.
 
 use core::any::TypeId;
+use std::sync::Arc;
 
 use bevy_ecs::world::World;
 use fynix::{
@@ -9,7 +10,7 @@ use fynix::{
 };
 
 use crate::bindings::hamlet::engine::ui::{
-    Align, ButtonStyle, Direction, Face, Fill, Kind, Menu,
+    Align, ButtonStyle, Direction, Face, Fill, Fit, Kind, Menu,
     MenuItem as Item, Motion as Movement, NodePointer, PointerMode,
     Property, Size, Space, Tone,
 };
@@ -165,6 +166,28 @@ pub struct Dropdown {
     pub offset: Prop<World, (f32, f32)>,
 }
 
+/// A picture, a PNG, JPEG or WebP, laid in its `extent` by its
+/// `fit`. Pictures that compare equal are sent once.
+#[element(backend = Hamlet)]
+pub struct Image {
+    #[elem(patch = SetPicture)]
+    pub picture: Prop<World, Arc<[u8]>>,
+    /// Its width and height in the interface's pixels. One at 0 is
+    /// taken from the other by the picture's proportion; both at 0,
+    /// the picture's own size in pixels.
+    #[elem(default = (0.0, 0.0), patch = SetExtent)]
+    pub extent: Prop<World, (f32, f32)>,
+    #[elem(default = Fit::Contain, patch = SetFit)]
+    pub fit: Prop<World, Fit>,
+    /// Its corners rounded by the theme's radius.
+    #[elem(patch = SetRounded)]
+    pub rounded: Prop<World, bool>,
+    #[elem(default = 1.0, patch = SetOpacity, blend = blend)]
+    pub opacity: Prop<World, f32>,
+    #[elem(default = (0.0, 0.0), patch = SetOffset, blend = shift)]
+    pub offset: Prop<World, (f32, f32)>,
+}
+
 /// A line across.
 #[element(backend = Hamlet)]
 pub struct Divider {
@@ -265,6 +288,14 @@ pub fn field(text: impl Into<Prop<World, String>>) -> Field {
     Field {
         text: text.into(),
         ..Field::unset()
+    }
+}
+
+/// The picture `picture`, a PNG, JPEG or WebP, or none if empty.
+pub fn image(picture: impl Into<Prop<World, Arc<[u8]>>>) -> Image {
+    Image {
+        picture: picture.into(),
+        ..Image::unset()
     }
 }
 
@@ -698,6 +729,7 @@ pub(super) fn kind(element: Option<TypeId>) -> Kind {
         (TypeId::of::<Scroll>(), Kind::Scroll),
         (TypeId::of::<Divider>(), Kind::Divider),
         (TypeId::of::<Dropdown>(), Kind::Dropdown),
+        (TypeId::of::<Image>(), Kind::Image),
     ]
     .into_iter()
     .find_map(|(id, kind)| (id == element).then_some(kind))
@@ -832,3 +864,13 @@ patch!(SetHeight, f32, |height: &f32| Property::Height(*height));
 patch!(SetFolder, String, |title: &String| {
     Property::Folder(title.clone())
 });
+patch!(SetPicture, Arc<[u8]>, |picture: &Arc<[u8]>| {
+    Property::Picture(picture.to_vec())
+});
+patch!(SetExtent, (f32, f32), |extent: &(f32, f32)| {
+    Property::Extent(*extent)
+});
+patch!(SetFit, Fit, |fit: &Fit| Property::Fit(*fit));
+patch!(SetRounded, bool, |rounded: &bool| Property::Rounded(
+    *rounded
+));

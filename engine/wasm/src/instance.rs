@@ -87,6 +87,11 @@ pub struct Caps {
     pub nodes: usize,
     /// How deep a node may sit under its panel's root.
     pub node_depth: usize,
+    /// Bytes of one picture, pixels of its longer side, and bytes of
+    /// all those shown at once.
+    pub picture_bytes: usize,
+    pub picture_side: u32,
+    pub picture_memory: usize,
     pub scene: SceneCaps,
 }
 
@@ -115,6 +120,11 @@ impl Caps {
             node_changes: budgets.node_changes_per_call,
             nodes: budgets.nodes,
             node_depth: budgets.node_depth,
+            picture_bytes: usize::try_from(budgets.picture_bytes)
+                .unwrap_or(usize::MAX),
+            picture_side: budgets.picture_side,
+            picture_memory: usize::try_from(budgets.picture_memory)
+                .unwrap_or(usize::MAX),
             scene: SceneCaps::of(budgets),
         }
     }
@@ -310,6 +320,11 @@ impl State {
             .checked_sub(size)
             .ok_or_else(|| wasmtime::Error::new(OverBudget::Bytes))?;
         Ok(())
+    }
+
+    /// Keeps a line of the plugin's log, as its own are kept.
+    pub(crate) fn log_line(&mut self, level: LogLevel, text: String) {
+        keep(&mut self.logs, &self.caps, level, text);
     }
 
     /// Takes `request` of `size` bytes, within the call's caps: its

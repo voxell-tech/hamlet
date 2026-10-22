@@ -18,6 +18,7 @@ hamlet_engine_bus.workspace = true
 hamlet_engine_render.workspace = true
 bevy.workspace = true
 bevy_fynix.workspace = true
+image.workspace = true
 bytes.workspace = true
 fynix.workspace = true
 rfd.workspace = true

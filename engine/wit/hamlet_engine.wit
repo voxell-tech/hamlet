@@ -119,6 +119,8 @@ interface ui {
         /// list of them to pick another from. The person picking one
         /// is a `picked`.
         dropdown,
+        /// A `picture`, in its `extent` by its `fit`.
+        image,
     }
 
     enum direction {
@@ -240,6 +242,14 @@ interface ui {
         wait,
     }
 
+    /// How a picture is laid in its image's extent.
+    enum fit {
+        /// All of it shown, as large as the extent holds.
+        contain,
+        /// The extent filled, what is past it cut off.
+        cover,
+    }
+
     /// The pointer a node asks for.
     record node-pointer {
         mode: pointer-mode,
@@ -251,7 +261,7 @@ interface ui {
     /// each at its first value: empty, `body`, `body`, false, `body`,
     /// 1.0, `plain`, `column`, `gap`, empty, false, (0.0, 0.0),
     /// empty, 0, 1, false, empty, `start`, `none`, no items, empty,
-    /// `none`, 0, none. A
+    /// `none`, 0, none, empty, (0.0, 0.0), `contain`, false. A
     /// role is filled in from the engine's theme as it is now, again
     /// whenever the theme changes.
     variant property {
@@ -322,6 +332,19 @@ interface ui {
         /// what it holds is laid out in. At 0 it is as tall as what
         /// it holds and its share of the room left make it.
         height(f32),
+        /// Of an image: a PNG, JPEG or WebP, or none if empty. One of
+        /// more bytes or pixels a side than the engine allows, or past
+        /// what the plugin's pictures may hold, fails the call; one
+        /// that cannot be read shows nothing.
+        picture(list<u8>),
+        /// Of an image: its width and height in the interface's
+        /// pixels. One at 0 is taken from the other by the picture's
+        /// proportion; both at 0, the picture's own size in pixels.
+        extent(tuple<f32, f32>),
+        /// Of an image.
+        fit(fit),
+        /// Of an image: its corners rounded by the theme's radius.
+        rounded(bool),
     }
 
     /// What an item of the status line shows.

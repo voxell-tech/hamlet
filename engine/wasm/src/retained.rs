@@ -30,13 +30,15 @@ use bevy::ecs::schedule::common_conditions::{
 use bevy::ecs::system::{Commands, Query, Res};
 use bevy::ecs::world::World;
 use bevy::math::Vec2;
+use bevy::picking::Pickable;
 use bevy::picking::events::{Click, Pointer, Press, Release};
 use bevy::picking::hover::Hovered as PickingHovered;
 use bevy::picking::pointer::PointerButton;
 use bevy::time::Time;
+use bevy::ui::widget::ImageNode;
 use bevy::ui::{
-    AlignItems, FlexDirection, JustifyContent, Node, UiRect, Val,
-    percent, px,
+    AlignItems, BorderRadius, FlexDirection, JustifyContent, Node,
+    UiRect, Val, percent, px,
 };
 use bevy_fynix::patch::{PatchInk, PatchOpacity};
 use bevy_fynix::scroll::ScrollGoal;
@@ -84,6 +86,7 @@ use crate::instance::ui_bindings::hamlet::engine::ui::{
 use crate::instance::{Instance, NodeInput, Spent};
 use crate::nodes::NodeChange;
 use crate::panel::{Inbox, Surface, Work, serve, stopped};
+use crate::picture::{Decoding, Laid, Picture};
 use crate::surfaces::SurfaceChange;
 
 pub(crate) fn plugin(app: &mut App) {
@@ -224,6 +227,11 @@ struct Props {
     /// one.
     folder: String,
     pointer: Option<NodePointer>,
+    /// The width and height of an image, 0 for one taken from its
+    /// picture.
+    extent: Vec2,
+    fit: wit::Fit,
+    rounded: bool,
     /// The roles its ink, size and gap are filled in from.
     tone: wit::Tone,
     text_size: wit::Size,
@@ -273,6 +281,9 @@ impl Props {
             menu: Menu::default(),
             folder: String::new(),
             pointer: None,
+            extent: Vec2::ZERO,
+            fit: wit::Fit::Contain,
+            rounded: false,
             tone: wit::Tone::Body,
             text_size: wit::Size::Body,
             space: wit::Space::Gap,
@@ -363,7 +374,14 @@ impl Props {
             Property::Tone(tone) => self.tone = tone,
             Property::Size(size) => self.text_size = size,
             Property::Space(space) => self.space = space,
-            Property::Opacity(_) | Property::Offset(_) => {}
+            Property::Extent((width, height)) => {
+                self.extent = Vec2::new(width, height);
+            }
+            Property::Fit(fit) => self.fit = fit,
+            Property::Rounded(rounded) => self.rounded = rounded,
+            Property::Opacity(_)
+            | Property::Offset(_)
+            | Property::Picture(_) => {}
         }
     }
 }
@@ -407,6 +425,10 @@ impl Property {
             Property::Grow(_) => 22,
             Property::Pointer(_) => 23,
             Property::Height(_) => 24,
+            Property::Picture(_) => 25,
+            Property::Extent(_) => 26,
+            Property::Fit(_) => 27,
+            Property::Rounded(_) => 28,
         };
         1 << at
     }
@@ -543,6 +565,9 @@ enum Shape {
     Scroll {
         stick: bool,
     },
+    Image {
+        rounded: bool,
+    },
 }
 
 impl Shape {
@@ -573,6 +598,9 @@ impl Shape {
                 options: props.options.clone(),
             },
             Kind::Scroll => Self::Scroll { stick: props.stick },
+            Kind::Image => Self::Image {
+                rounded: props.rounded,
+            },
             Kind::Frame => Self::Frame {
                 fill: props.fill,
                 padding: props.padding,
@@ -942,6 +970,9 @@ fn widget(
             }
         }
         (Kind::Divider, _) => divider(),
+        (Kind::Image, &Shape::Image { rounded }) => {
+            image(holder, rounded)
+        }
         (Kind::Dropdown, Shape::Dropdown { options }) => dropdown(
             options.clone(),
             read(holder, |props| props.selected as usize),
@@ -982,6 +1013,67 @@ fn text(holder: Entity, set: u32, display: bool) -> AnyView {
     } else {
         text.boxed()
     }
+}
+
+/// The image of the node of `holder`: its picture laid in its extent
+/// by its fit, its corners rounded by the theme's radius if
+/// `rounded`.
+fn image(holder: Entity, rounded: bool) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let radius = if rounded {
+            cx.theme().space.radius
+        } else {
+            0.0
+        };
+        let frame = cx.build(
+            column(())
+                .gap(0.0)
+                .align(AlignItems::Center)
+                .justify(JustifyContent::Center),
+        );
+        let shown = cx
+            .world
+            .spawn((
+                Node {
+                    border_radius: BorderRadius::all(px(radius)),
+                    ..Node::default()
+                },
+                ImageNode::default(),
+                Pickable::IGNORE,
+                ChildOf(frame),
+            ))
+            .id();
+        let mut sources = [
+            component::<Props, _>(holder, |_| ()),
+            component::<Picture, _>(holder, |_| ()),
+        ];
+        let laid = Signal::new(
+            move |world: &World| {
+                let picture = world.get::<Picture>(holder).cloned();
+                let (extent, fit) =
+                    world.get::<Props>(holder).map_or(
+                        (Vec2::ZERO, wit::Fit::Contain),
+                        |props| (props.extent, props.fit),
+                    );
+                let size =
+                    picture.as_ref().map(|picture| picture.size);
+                (picture, Laid::of(size, extent, fit))
+            },
+            move |world: &World| {
+                sources.iter_mut().fold(false, |any, source| {
+                    source.changed(world) | any
+                })
+            },
+        );
+        cx.effect(
+            frame,
+            laid.into(),
+            move |world, frame, (picture, laid)| {
+                laid.draw(world, frame, shown, picture.as_ref());
+            },
+        );
+        frame
+    })
 }
 
 /// `icon`, raised as in a button when `parent` lays it in a row
@@ -1497,6 +1589,11 @@ pub(crate) trait WasmWorldExt {
         motion: Option<wit::Motion>,
     );
 
+    /// Shows `bytes`, a picture held to the budgets as the call
+    /// handed it over, in the image node of `holder` once it is
+    /// decoded off the frame, or none if empty.
+    fn show_picture(&mut self, holder: Entity, bytes: Vec<u8>);
+
     /// Builds the widget of the node of `holder` again if its shape
     /// changed.
     fn reshape(&mut self, holder: Entity);
@@ -1663,6 +1760,10 @@ impl WasmWorldExt for World {
         value: Property,
         motion: Option<wit::Motion>,
     ) {
+        if let Property::Picture(bytes) = value {
+            self.show_picture(holder, bytes);
+            return;
+        }
         let reduced = self
             .get_resource::<ReducedMotion>()
             .is_some_and(|reduced| reduced.0);
@@ -1700,6 +1801,20 @@ impl WasmWorldExt for World {
         }
         if !travels.0.is_empty() {
             holder.insert(travels);
+        }
+    }
+
+    fn show_picture(&mut self, holder: Entity, bytes: Vec<u8>) {
+        let side = self
+            .get_resource::<Budgets>()
+            .map_or(0, |budgets| budgets.picture_side);
+        let Ok(mut holder) = self.get_entity_mut(holder) else {
+            return;
+        };
+        if bytes.is_empty() {
+            holder.remove::<(Decoding, Picture)>();
+        } else {
+            holder.insert(Decoding::start(bytes, side));
         }
     }
 

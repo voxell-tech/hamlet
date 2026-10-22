@@ -11,6 +11,7 @@ mod instance;
 mod mail;
 mod nodes;
 mod panel;
+mod picture;
 mod reload;
 mod retained;
 mod run;
@@ -45,6 +46,7 @@ use crate::nodes::NodeChange;
 pub use crate::nodes::NodeError;
 pub use crate::panel::Surface;
 use crate::panel::{Inbox, Moving};
+pub use crate::picture::ShownPicture;
 use crate::reload::{Loaded, Reloading};
 use crate::retained::{Holders, Kids, WasmWorldExt};
 pub use crate::retained::{NodeAction, NodeOf, NodeStats, UiRoot};
@@ -63,6 +65,7 @@ pub fn plugin(app: &mut App) {
         run::plugin,
         panel::plugin,
         retained::plugin,
+        picture::plugin,
         reload::plugin,
         scene::plugin,
     ));

@@ -1,12 +1,12 @@
 //! A panel as text: a line for each node, its key after `#`,
-//! indented under the node that holds it, and a line for each text it
-//! shows.
+//! indented under the node that holds it, and a line for each text
+//! and picture it shows.
 //!
 //! ```text
 //! #3
 //!   "Board"
 //! #4
-//!   "Save"
+//!   picture 256x256
 //! ```
 
 use bevy::ecs::component::Component;
@@ -14,7 +14,7 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::world::World;
 use bevy::ui::widget::Text;
-use hamlet_engine_wasm::NodeOf;
+use hamlet_engine_wasm::{NodeOf, ShownPicture};
 
 /// The harness's methods on [`World`].
 pub trait HarnessWorldExt {
@@ -57,6 +57,14 @@ impl HarnessWorldExt for World {
                     "{}{:?}",
                     "  ".repeat(inner),
                     text.0
+                ));
+            }
+            if let Some(picture) = self.get::<ShownPicture>(entity) {
+                lines.push(format!(
+                    "{}picture {}x{}",
+                    "  ".repeat(inner),
+                    picture.0.x,
+                    picture.0.y
                 ));
             }
             let children =

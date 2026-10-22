@@ -3865,6 +3865,7 @@ dependencies = [
  "hamlet_engine_plugins",
  "hamlet_engine_render",
  "hamlet_engine_shell",
+ "image",
  "rfd",
  "serde",
  "tokio",

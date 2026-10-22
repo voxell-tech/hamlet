@@ -4,8 +4,8 @@
 use std::collections::HashMap;
 
 use crate::bindings::hamlet::engine::ui::{
-    Align, ButtonStyle, Direction, Face, Fill, Kind, Motion, Node,
-    Property, Size, Space, Tone,
+    Align, ButtonStyle, Direction, Face, Fill, Fit, Kind, Motion,
+    Node, Property, Size, Space, Tone,
 };
 
 /// A node of fynix's: the plugin's name for it, which the engine's
@@ -248,6 +248,10 @@ impl Property {
             Property::Grow(_) => 22,
             Property::Pointer(_) => 23,
             Property::Height(_) => 24,
+            Property::Picture(_) => 25,
+            Property::Extent(_) => 26,
+            Property::Fit(_) => 27,
+            Property::Rounded(_) => 28,
         };
         1 << at
     }
@@ -263,7 +267,8 @@ impl Property {
             Property::Size(size) => *size == Size::Body,
             Property::Bold(on)
             | Property::On(on)
-            | Property::Stick(on) => !on,
+            | Property::Stick(on)
+            | Property::Rounded(on) => !on,
             Property::Face(face) => *face == Face::Body,
             Property::Opacity(opacity) => *opacity == 1.0,
             Property::Style(style) => *style == ButtonStyle::Plain,
@@ -283,6 +288,9 @@ impl Property {
             Property::Options(options) => options.is_empty(),
             Property::Selected(at) => *at == 0,
             Property::Lines(lines) => *lines == 1,
+            Property::Picture(picture) => picture.is_empty(),
+            Property::Extent(extent) => *extent == (0.0, 0.0),
+            Property::Fit(fit) => *fit == Fit::Contain,
         }
     }
 }

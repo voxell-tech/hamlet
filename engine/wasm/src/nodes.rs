@@ -4,14 +4,18 @@
 //! and to what its kind may hold and be set to.
 
 use core::fmt;
+use core::hash::{Hash, Hasher};
 use std::collections::HashMap;
+use std::hash::DefaultHasher;
 
+use hamlet_engine_core::LogLevel;
 use wasmtime::component::Resource;
 
 use crate::instance::State;
 use crate::instance::ui_bindings::hamlet::engine::ui::{
     Host, HostNode, Kind, MenuItem, Motion, Property, StatusItem,
 };
+use crate::picture::measure;
 use crate::surfaces::SurfaceChange;
 
 /// The most pixels a node is moved from where it is laid out, either
@@ -61,12 +65,23 @@ struct Held {
     depth: usize,
 }
 
+/// The picture an image node shows: a hash of the bytes it was
+/// handed, and the bytes it takes decoded.
+#[derive(Clone, Copy, Debug)]
+struct Shown {
+    hash: u64,
+    memory: usize,
+}
+
 /// The nodes a plugin holds, and what it did to them in the call
 /// under way.
 #[derive(Default)]
 pub(crate) struct Nodes {
     next: u32,
     held: HashMap<u32, Held>,
+    pictures: HashMap<u32, Shown>,
+    /// Bytes of the pictures shown, decoded.
+    picture_memory: usize,
     pub(crate) changes: Vec<NodeChange>,
     /// Makes, sets and orders in the call.
     pub(crate) spent: usize,
@@ -112,6 +127,13 @@ impl Nodes {
         match self.kind(node)? {
             Kind::Frame => Ok(()),
             _ => Err(wasmtime::Error::new(NodeError::Property)),
+        }
+    }
+
+    /// Lets go of the picture `node` shows.
+    fn forget_picture(&mut self, node: u32) {
+        if let Some(shown) = self.pictures.remove(&node) {
+            self.picture_memory -= shown.memory;
         }
     }
 
@@ -172,6 +194,10 @@ impl Kind {
             Property::Options(_) | Property::Selected(_) => {
                 self == Self::Dropdown
             }
+            Property::Picture(_)
+            | Property::Extent(_)
+            | Property::Fit(_)
+            | Property::Rounded(_) => self == Self::Image,
         }
     }
 }
@@ -203,6 +229,10 @@ impl Property {
             Self::Height(height) => Self::Height(
                 within(height, 0.0, MOST_HEIGHT).max(0.0),
             ),
+            Self::Extent((width, height)) => Self::Extent((
+                within(width, 0.0, MOST_OFFSET).max(0.0),
+                within(height, 0.0, MOST_OFFSET).max(0.0),
+            )),
             other => other,
         }
     }
@@ -214,6 +244,7 @@ impl Property {
             | Self::Placeholder(text)
             | Self::Tip(text)
             | Self::Folder(text) => text.len(),
+            Self::Picture(bytes) => bytes.len(),
             Self::Options(options) => options
                 .iter()
                 .map(|option| size_of::<String>() + option.len())
@@ -244,6 +275,12 @@ pub enum NodeError {
     Property,
     /// A node it never held.
     Unknown,
+    /// A picture of more bytes than one may have.
+    PictureBytes,
+    /// A picture with more pixels a side than one may have.
+    PictureSide,
+    /// Pictures shown past what they may take.
+    PictureMemory,
 }
 
 impl fmt::Display for NodeError {
@@ -266,6 +303,18 @@ impl fmt::Display for NodeError {
             }
             Self::Unknown => {
                 write!(f, "it named a node it never made")
+            }
+            Self::PictureBytes => {
+                write!(
+                    f,
+                    "it gave a picture of more bytes than it may"
+                )
+            }
+            Self::PictureSide => {
+                write!(f, "it gave a picture larger than it may")
+            }
+            Self::PictureMemory => {
+                write!(f, "it showed more pictures than it may")
             }
         }
     }
@@ -364,6 +413,15 @@ impl HostNode for State {
             return Err(wasmtime::Error::new(NodeError::Property));
         }
         self.keep_bytes(value.bytes())?;
+        let value = match value {
+            Property::Picture(bytes) => {
+                match self.hold_picture(node.rep(), bytes)? {
+                    Some(bytes) => Property::Picture(bytes),
+                    None => return Ok(()),
+                }
+            }
+            value => value,
+        };
         self.nodes.changes.push(NodeChange::Set {
             node: node.rep(),
             value: value.bounded(),
@@ -406,9 +464,76 @@ impl HostNode for State {
         node: Resource<UiNode>,
     ) -> wasmtime::Result<()> {
         self.nodes.calls += 1;
+        self.nodes.forget_picture(node.rep());
         if self.nodes.held.remove(&node.rep()).is_some() {
             self.nodes.changes.push(NodeChange::Drop(node.rep()));
         }
         Ok(())
+    }
+}
+
+impl State {
+    /// Holds `bytes`, the picture of the image `node`, to the budgets
+    /// of pictures: the bytes to show, empty for none, or none when
+    /// it shows them already. One that cannot be read shows none,
+    /// and the plugin's log says why.
+    fn hold_picture(
+        &mut self,
+        node: u32,
+        bytes: Vec<u8>,
+    ) -> wasmtime::Result<Option<Vec<u8>>> {
+        if bytes.len() > self.caps.picture_bytes {
+            return Err(wasmtime::Error::new(
+                NodeError::PictureBytes,
+            ));
+        }
+        let mut hasher = DefaultHasher::new();
+        bytes.hash(&mut hasher);
+        let hash = hasher.finish();
+        if self
+            .nodes
+            .pictures
+            .get(&node)
+            .is_some_and(|shown| shown.hash == hash)
+        {
+            return Ok(None);
+        }
+        let (bytes, memory) = if bytes.is_empty() {
+            (bytes, 0)
+        } else {
+            match measure(&bytes) {
+                Ok((width, height)) => {
+                    if width.max(height) > self.caps.picture_side {
+                        return Err(wasmtime::Error::new(
+                            NodeError::PictureSide,
+                        ));
+                    }
+                    (bytes, width as usize * height as usize * 4)
+                }
+                Err(why) => {
+                    self.log_line(
+                        LogLevel::Warn,
+                        format!("a picture cannot be read: {why}"),
+                    );
+                    (Vec::new(), 0)
+                }
+            }
+        };
+        let before = self
+            .nodes
+            .pictures
+            .get(&node)
+            .map_or(0, |shown| shown.memory);
+        if self.nodes.picture_memory - before + memory
+            > self.caps.picture_memory
+        {
+            return Err(wasmtime::Error::new(
+                NodeError::PictureMemory,
+            ));
+        }
+        self.nodes.picture_memory += memory;
+        self.nodes.picture_memory -= before;
+        self.nodes.pictures.insert(node, Shown { hash, memory });
+        Ok(Some(bytes))
     }
 }

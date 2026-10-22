@@ -179,9 +179,10 @@ types, so the WIT names nothing twice.
   icon button does), `icon` (one of the engine's set, by name),
   `toggle` (a switch, with its text beside it), `field` (text to
   edit), `list` (rows with a divider
-  between each), `scroll` (a column that scrolls), `divider` and
+  between each), `scroll` (a column that scrolls), `divider`,
   `dropdown` (one of its options shown, opening a list to pick
-  another). A frame, a button, a list and a scroll hold nodes.
+  another) and `image` (a picture the plugin hands over as bytes).
+  A frame, a button, a list and a scroll hold nodes.
 - **The properties**, each of the kinds it names: `text` (a
   label's, a button's, an icon's, a toggle's and a field's), `tone`,
   `size`, `bold`, `face` (the body's or the display face), `opacity`,
@@ -206,7 +207,13 @@ types, so the WIT names nothing twice.
   not finite is taken as 0) and
   `space` (a frame's), `placeholder` and `lines` (a field's: the most
   lines it grows to, one to start with), `on` (a toggle's), and
-  `options` and `selected` (a dropdown's). A field of more than one
+  `options` and `selected` (a dropdown's), and `picture` (a PNG, JPEG
+  or WebP, or none if empty), `extent` (a width and height in the
+  interface's pixels, one at 0 taken from the other by the picture's
+  proportion, both at 0 the picture's own size), `fit` (`contain`,
+  all of it shown as large as the extent holds, or `cover`, the
+  extent filled and what is past it cut off) and `rounded` (corners
+  rounded by the theme's radius), an image's. A field of more than one
   line is for a message: Enter sends what is typed and empties it,
   Shift+Enter adds a line, and Escape keeps what is typed and leaves
   it. A scroll in a panel takes the height left there and scrolls
@@ -337,9 +344,12 @@ hamlet_engine_bevy::export!(Hello);
   ticks. The elements are `label` (and `heading`),
   `button`, `icon_button` (an icon and a label in a button), `icon`,
   `toggle` (and `switch`, one with words beside it), `field`,
-  `dropdown`, `divider`, and the holders `column`,
+  `dropdown`, `divider`, `image`, and the holders `column`,
   `row`, `list` and `scroll`; a column or row's `grow` has it take
   the room left, and its `height` makes it that many pixels tall;
+  `image` shows a picture given as an `Arc<[u8]>`, a value or a
+  signal, sent again only when it changes, laid out by
+  `extent((width, height))`, `fit(Fit::Cover)` and `rounded(true)`;
   `keyed` builds a view again when its
   key changes, and `each` a view per item of a list. `on_click`,
   `on_toggle`, `on_commit`, `on_submit`, `on_pick` and `on_top` run a
@@ -468,8 +478,9 @@ A panel, settings page, footer, overlay or panel section is built as
 the dock, Settings or the window builds it when it shows it, an
 overlay whether it is shown or not and a section whether it holds
 anything or not. Its outline is a line for each node, `#` and its
-key, indented under the node that holds it, and a line for each text
-it shows. A widget is named by text it shows: `click` presses the
+key, indented under the node that holds it, a line for each text
+it shows, and `picture 256x256` for a picture, by its size in pixels,
+once it is decoded. A widget is named by text it shows: `click` presses the
 button whose text it is, `write` leaves text in the field whose
 placeholder it is, `toggle` switches the switch nearest it, and
 `hover` puts the pointer over a watched node by its text.
@@ -1235,7 +1246,10 @@ written here by their names in `[budgets]`.
   with more than one line (`message.rs`), a list `list_row`s, a
   scroll `scroll_area`, with `StickToEnd` when it sticks
   (`stick.rs`), a divider `divider`, and a dropdown
-  `dropdown`. A node with a tip has fynix's tooltip, a `note` of it,
+  `dropdown`, and an image a column of its extent holding a Bevy
+  `ImageNode` (`picture.rs`), the picture scaled to fit in it or, to
+  cover it, cut to its proportion by the image's `rect`. A node with a
+  tip has fynix's tooltip, a `note` of it,
   and one with a menu fynix's context menu, a `submenu` for each
   group; a click opens it as a right-click does.
   A widget is built again when what it is built as changes, such as
@@ -1267,9 +1281,20 @@ written here by their names in `[budgets]`.
   and `node_changes_per_second` a second, past which the plugin waits.
   It holds `nodes` nodes at most, none deeper than `node_depth` under
   its root; a call that makes more, or deeper, fails.
-- **Bounded values.** An opacity is held from 0 to 1 and an offset to
-  100,000 pixels either way; one that is not finite is taken as its
-  first value, so the layout never meets it.
+- **Pictures.** As a call sets a picture, the engine reads its size
+  from its header; it is decoded off the frame, in the
+  `AsyncComputeTaskPool`, into a Bevy `Image` the image shows once it
+  is ready, the picture before it shown until then and let go after.
+  The same bytes set again do nothing, and a node dropped lets go of
+  its picture. A picture of more than `[budgets] picture_bytes`
+  bytes, or more than `picture_side` pixels a side, fails the call,
+  and so does one that takes the plugin's pictures past
+  `picture_memory` bytes, counted at four a pixel. One that cannot be
+  read shows nothing, and the plugin's log says why. A picture
+  crosses within `bytes_per_call` as any value does.
+- **Bounded values.** An opacity is held from 0 to 1, and an offset
+  and an image's extent to 100,000 pixels; one that is not finite is
+  taken as its first value, so the layout never meets it.
 - **Costs.** `NodeStats` counts the calls into plugins for their
   views, the calls they made on nodes, and the time of both.
 - **Stopped.** A plugin at fault is stopped: its store goes, it is
@@ -1323,7 +1348,8 @@ in Rust, such as the demo, and from those the person installs.
   running the script again while the engine runs reloads each plugin
   that changed and adds a new one.
 
-`plugins/about` is a panel, About, showing the engine's name and
+`plugins/about` is a panel, About, showing Hamlet's logo, a picture
+of its own folder given as bytes, the engine's name and
 version (`ENGINE_VERSION`) and the interface's. Built with the
 script, it is checked by its `steps.toml`:
 

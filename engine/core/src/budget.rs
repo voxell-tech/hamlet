@@ -74,6 +74,15 @@ pub struct Budgets {
     /// How deep a node of a retained panel may sit under its root;
     /// a call that makes one deeper fails.
     pub node_depth: usize,
+    /// Bytes of one picture handed over for an image node, which
+    /// crosses within `bytes_per_call` too; past them the call
+    /// fails.
+    pub picture_bytes: u64,
+    /// Pixels of a picture's longer side; past them the call fails.
+    pub picture_side: u32,
+    /// Bytes of a plugin's pictures shown at once, four a pixel;
+    /// past them the call fails.
+    pub picture_memory: u64,
     /// Entities of a plugin's scenes held at once, each copy of
     /// instances counted; past them a make fails.
     pub scene_entities: usize,
