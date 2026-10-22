@@ -82,7 +82,7 @@ pub fn demo(
         .map(|sink| format!("{:.2}", sink.volume().to_linear()))
         .collect::<Vec<_>>()
         .join(" ");
-    println!(
+    info!(
         "demo: {:>3} s  hearing {:?}  voices {}  loops at [{loops}]  \
          cues: {heard}",
         demo.told,

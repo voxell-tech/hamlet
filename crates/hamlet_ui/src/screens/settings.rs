@@ -54,7 +54,7 @@ pub fn plugin(app: &mut App) {
          pane: Res<Pane>,
          outbox: ResMut<Outbox>,
          requests: ResMut<CharterRequests>| {
-            read_charter(pane, outbox, requests)
+            read_charter(pane, outbox, requests);
         },
     )
     .add_systems(
@@ -201,8 +201,8 @@ fn agents() -> impl View {
                     resource::<Settings, _>(|s| s.0.reflect_every),
                     |world, turns| {
                         save(world, |set| {
-                            set.reflect_every = Some(turns)
-                        })
+                            set.reflect_every = Some(turns);
+                        });
                     },
                 )
                 .range(0i64, 1000i64)
@@ -217,7 +217,7 @@ fn agents() -> impl View {
                 switch(
                     resource::<Settings, _>(|s| s.0.allow_net),
                     |world, on| {
-                        save(world, |set| set.allow_net = Some(on))
+                        save(world, |set| set.allow_net = Some(on));
                     },
                 ),
                 note(resource::<Settings, _>(|s| {
@@ -380,10 +380,10 @@ fn charter_received(
         protocol::ServerMessage::Reply(reply)
             if reply.kind == protocol::ReplyKind::Error =>
         {
-            requests.error.clone_from(&reply.text)
+            requests.error.clone_from(&reply.text);
         }
         protocol::ServerMessage::Fault(fault) => {
-            requests.error.clone_from(&fault.text)
+            requests.error.clone_from(&fault.text);
         }
         protocol::ServerMessage::Reply(_) if editing => {
             requests.read = Some(outbox.send(|id| {
@@ -526,11 +526,11 @@ fn level(
 ) -> impl View {
     row((
         switch(resource::<SoundSettings, _>(on), move |world, to| {
-            turn(&mut world.resource_mut::<SoundSettings>(), to)
+            turn(&mut world.resource_mut::<SoundSettings>(), to);
         }),
         slider(resource::<SoundSettings, _>(at)).on_change(
             move |world, to| {
-                set(&mut world.resource_mut::<SoundSettings>(), to)
+                set(&mut world.resource_mut::<SoundSettings>(), to);
             },
         ),
     ))
@@ -903,7 +903,7 @@ mod tests {
     }
 
     #[derive(Resource, Default)]
-    struct Edits(Vec<hamlet_desktop::editor::Edit>);
+    struct Edits(Vec<Edit>);
 
     #[test]
     fn charter_edit_saves_and_confirmed_reset_go_to_the_server_and_refusals_stay_by_the_buttons()
@@ -936,7 +936,7 @@ mod tests {
         );
         app.init_resource::<Edits>().add_observer(
             |edit: On<Edit>, mut edits: ResMut<Edits>| {
-                edits.0.push(edit.event().clone())
+                edits.0.push(edit.event().clone());
             },
         );
         settle(&mut app);
@@ -992,10 +992,10 @@ mod tests {
                 .any(|text| text == "The charter was refused.")
         );
 
-        app.init_resource::<crate::world_menu::Open>();
+        app.init_resource::<world_menu::Open>();
         bevy_fynix::mount::<crate::theme::HamletTheme>(
             app.world_mut(),
-            crate::world_menu::view(),
+            world_menu::view(),
         );
         crate::me::tests::press(&mut app, "BACK TO THE DEFAULT");
         settle(&mut app);
@@ -1075,8 +1075,7 @@ mod tests {
      {
         let mut app = page(Pane::Charter);
         requests(&mut app);
-        app.world_mut()
-            .trigger(hamlet_client::messages::Reconnected);
+        app.world_mut().trigger(Reconnected);
         app.world_mut().flush();
         let sent = app
             .world()

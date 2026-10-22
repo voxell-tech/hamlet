@@ -349,6 +349,7 @@ pub(crate) async fn heard(
 
 /// Logs what a chief must hear of the runtimes until the client
 /// protocol shows it.
+#[expect(clippy::print_stderr, reason = "stderr is the server's log")]
 fn report(service: &Service, notice: &Notice) {
     if let Notice::Refused { runtime, words }
     | Notice::Fault { runtime, words } = notice
@@ -604,11 +605,11 @@ async fn refresh_watches(
         .map(|(at, watch)| (at, watch.chat.clone(), watch.binding))
         .collect::<Vec<_>>();
     for (at, chat, binding) in watches {
-        let now =
-            match watch::resolve(service, harnesses, &chat).await? {
-                Ok(now) => now,
-                Err(_) => continue,
-            };
+        let Ok(now) =
+            watch::resolve(service, harnesses, &chat).await?
+        else {
+            continue;
+        };
         if now == binding {
             continue;
         }

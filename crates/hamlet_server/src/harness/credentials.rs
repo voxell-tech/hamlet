@@ -97,7 +97,7 @@ impl Authority {
                     &mut answer,
                 ) {
                     Ok(false) => {
-                        self.waiting.push_back((at, request))
+                        self.waiting.push_back((at, request));
                     }
                     result => {
                         if let Err(error) = result {

@@ -22,6 +22,10 @@ pub struct Call {
     pub reply: oneshot::Sender<Reply>,
 }
 
+#[expect(
+    clippy::print_stdout,
+    reason = "it prints the address it listens on"
+)]
 pub async fn listen(address: &str) -> Result<mpsc::Receiver<Call>> {
     let listener = TcpListener::bind(address).await?;
     println!("LISTEN http://{}", listener.local_addr()?);

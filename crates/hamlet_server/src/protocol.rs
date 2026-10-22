@@ -209,10 +209,10 @@ fn whole_numbers(value: &mut Value) {
             }
         }
         Value::Array(values) => {
-            values.iter_mut().for_each(whole_numbers)
+            values.iter_mut().for_each(whole_numbers);
         }
         Value::Object(values) => {
-            values.values_mut().for_each(whole_numbers)
+            values.values_mut().for_each(whole_numbers);
         }
         _ => {}
     }

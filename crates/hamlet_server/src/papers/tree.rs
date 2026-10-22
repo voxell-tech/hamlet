@@ -200,8 +200,13 @@ fn listed(
         } else {
             (0, None)
         };
-        // macOS mode_t is u16; Linux mode_t is u32.
-        #[allow(clippy::useless_conversion)]
+        #[cfg_attr(
+            target_os = "linux",
+            expect(
+                clippy::useless_conversion,
+                reason = "Linux mode_t is u32; macOS's is u16"
+            )
+        )]
         let mode = u32::from(info.st_mode) & 0o777;
         entries.push(TreeEntry {
             path: path.clone(),

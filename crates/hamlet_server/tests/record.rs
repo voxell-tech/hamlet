@@ -648,7 +648,7 @@ fn restoring_keeps_identity_and_surviving_roads_not_namesakes_and_does_not_charg
             .contains(&format!("/restore {archive} as <new-name>"))
     );
     limits(&mut store, "road-cap", "home", |l| {
-        l.chief.most_roads = 0
+        l.chief.most_roads = 0;
     });
     let charges = store.road_charges("home").unwrap();
     let RecordResult::Restored { agent, text } = done(
@@ -740,7 +740,7 @@ fn road_budget_is_checked_with_the_charge_and_exhaustion_never_leaves_a_road()
             other: Amount::default(),
             cost: Some(14_000),
             ms: None,
-        })
+        });
     });
     done(
         &mut store,
@@ -760,7 +760,7 @@ fn road_budget_is_checked_with_the_charge_and_exhaustion_never_leaves_a_road()
     );
     assert_eq!(store.road_charges("home").unwrap().len(), 1);
     limits(&mut store, "exact", "home", |l| {
-        l.road_budget.as_mut().unwrap().cost = Some(20_000)
+        l.road_budget.as_mut().unwrap().cost = Some(20_000);
     });
     assert_eq!(
         refused(
@@ -855,7 +855,7 @@ fn current_vote_limits_and_chief_tasks_hold_effects_but_chiefs_can_overrule()
             .is_none()
     );
     limits(&mut store, "expire-vote", "home", |l| {
-        l.chief.votes.open_minutes = 0
+        l.chief.votes.open_minutes = 0;
     });
     call.reason = " ".into();
     assert_eq!(

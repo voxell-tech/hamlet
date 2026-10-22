@@ -395,6 +395,10 @@ mod tests {
     /// --nocapture`.
     #[test]
     #[ignore]
+    #[expect(
+        clippy::print_stdout,
+        reason = "it prints its measurements, read with --nocapture"
+    )]
     fn cost() {
         let land = testing::land(7);
         let roads = (1..30)

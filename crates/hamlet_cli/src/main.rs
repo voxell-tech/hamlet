@@ -1,5 +1,11 @@
 //! Hamlet's commands and process lifetimes.
 
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "a terminal program: printing is its job"
+)]
+
 mod chat;
 mod client;
 mod process;

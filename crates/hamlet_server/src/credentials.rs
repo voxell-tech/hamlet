@@ -105,7 +105,10 @@ impl Credentials {
         let a = Sha256::digest(token.as_bytes());
         let b =
             Sha256::digest(self.stored.connection.token.as_bytes());
-        #[allow(deprecated)]
+        #[expect(
+            deprecated,
+            reason = "ring's is the only constant-time compare here"
+        )]
         ring::constant_time::verify_slices_are_equal(&a, &b).is_ok()
     }
 
@@ -313,7 +316,7 @@ fn scrub_value(value: &mut Value, secrets: &[&str]) {
             *text = clean;
         }
         Value::Array(values) => {
-            values.iter_mut().for_each(|v| scrub_value(v, secrets))
+            values.iter_mut().for_each(|v| scrub_value(v, secrets));
         }
         Value::Object(values) => {
             let old = std::mem::take(values);

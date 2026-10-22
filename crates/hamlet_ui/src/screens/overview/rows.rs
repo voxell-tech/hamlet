@@ -185,7 +185,7 @@ pub(super) fn agent_rows(
                     busy,
                     gone,
                     account: account
-                        .map(|a| a.summary())
+                        .map(Account::summary)
                         .unwrap_or_default(),
                 }
             },

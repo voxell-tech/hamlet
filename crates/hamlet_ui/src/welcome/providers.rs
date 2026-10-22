@@ -217,7 +217,7 @@ pub(super) fn receive(
             }
         }
         protocol::LoginStep::Code { code } => {
-            world.resource_mut::<Login>().code = Some(code)
+            world.resource_mut::<Login>().code = Some(code);
         }
         protocol::LoginStep::Prompt { prompt, secret } => {
             let mut login = world.resource_mut::<Login>();
@@ -226,7 +226,7 @@ pub(super) fn receive(
             world.resource_mut::<Welcome>().asking = false;
         }
         protocol::LoginStep::Progress { progress } => {
-            world.resource_mut::<Login>().progress = progress
+            world.resource_mut::<Login>().progress = progress;
         }
         protocol::LoginStep::Done { .. } => {
             let provider = world.resource::<Login>().provider.clone();
@@ -283,7 +283,7 @@ fn prompt() -> AnyView {
             let answer =
                 resource::<Login, _>(|login| login.answer.clone());
             let answered = |world: &mut World, answer| {
-                world.resource_mut::<Login>().answer = answer
+                world.resource_mut::<Login>().answer = answer;
             };
             let field = if *secret {
                 secret_field(answer, answered).boxed()
@@ -324,7 +324,7 @@ pub(super) fn key_page() -> AnyView {
                         lettered(provider.name.clone())
                             .tagged(Mood::Plain)
                             .on_activate(move |world| {
-                                start(world, &id, true)
+                                start(world, &id, true);
                             }),
                         note(provider.label.clone()),
                     ))
@@ -376,7 +376,7 @@ pub(super) fn sign_in_page() -> AnyView {
         prompt(),
         news("Waiting for sign-in..."),
         row((good_action(Glyph::Gone, "CANCEL SIGN-IN", |world| {
-            go(world, Step::Choice)
+            go(world, Step::Choice);
         }),))
         .align(AlignItems::Center),
     ))

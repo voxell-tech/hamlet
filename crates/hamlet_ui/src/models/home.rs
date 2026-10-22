@@ -59,7 +59,7 @@ fn endpoint(endpoint: &protocol::SettingsViewEndpoints) -> AnyView {
                 .fills_width(),
             note(if endpoint.key { "Key set" } else { "No key" }),
             bad_action(Glyph::Gone, "REMOVE", move |world| {
-                remove(world, &gone)
+                remove(world, &gone);
             }),
         ))
         .gap(12.0)
@@ -215,7 +215,7 @@ fn entry(model: &protocol::Listed) -> AnyView {
                         price: None,
                         note: None,
                     },
-                )
+                );
             }),
             row((label(name.clone()),)).fills_width(),
         ))
@@ -240,7 +240,7 @@ fn entry(model: &protocol::Listed) -> AnyView {
                     allowed: None,
                     price: None,
                 },
-            )
+            );
         })
         .rules(well),
     ))
@@ -340,13 +340,13 @@ pub fn shelf() -> AnyView {
         ),
         row((
             action(Glyph::Restore, "LIST MODELS", |world| {
-                read_models(world, true)
+                read_models(world, true);
             }),
             small("FIND"),
             text_field(
                 resource::<Draft, _>(|draft| draft.narrow.clone()),
                 |world, text| {
-                    world.resource_mut::<Draft>().narrow = text
+                    world.resource_mut::<Draft>().narrow = text;
                 },
             )
             .grow(1.0)

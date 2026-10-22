@@ -76,7 +76,6 @@ fn busy(society: Option<&Society>, set: &SoundSettings) -> f32 {
 /// Keeps the music going while it is wanted: writes each breath a
 /// little ahead, has it played in the background, starts it when
 /// it is due, and answers the moments that matter.
-#[allow(clippy::too_many_arguments)]
 fn conduct(
     mut commands: Commands,
     time: Res<Time<Real>>,

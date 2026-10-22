@@ -190,7 +190,7 @@ async fn answer(
         match name.to_ascii_lowercase().as_str() {
             "content-length" => length = value.parse().ok()?,
             "authorization" => {
-                authorization = Some(value.to_string())
+                authorization = Some(value.to_string());
             }
             _ => {}
         }

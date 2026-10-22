@@ -95,7 +95,6 @@ struct Docked {
 
 /// A tab brought to the front, in the dock or in the selection, and
 /// a panel taken hold of and let go.
-#[allow(clippy::too_many_arguments)]
 fn tabs(
     time: Res<Time>,
     drag: Res<DockDrag>,

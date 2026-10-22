@@ -172,7 +172,7 @@ fn answered(response: On<Response>, mut commands: Commands) {
                 shelf.loaded = true;
             }
             (Asked::Edit, protocol::ServerMessage::Reply(_)) => {
-                read_models(world, false)
+                read_models(world, false);
             }
             (Asked::Default, protocol::ServerMessage::Reply(_)) => {
                 world.resource_mut::<Outbox>().send(|id| {
@@ -228,7 +228,7 @@ mod tests {
             assert!(shown.contains(text), "{shown}");
         }
     }
-    fn with_catalogue() -> bevy::app::App {
+    fn with_catalogue() -> App {
         let mut app = app();
         app.add_plugins((plugin, crate::roll::plugin));
         show(&mut app, false);
@@ -400,8 +400,7 @@ mod tests {
         let note = sent(&mut app).remove(0);
         assert_eq!(note["set"], json!({"note":"For everyday work."}));
         assert_eq!(note["model"], "far::small");
-        app.world_mut()
-            .trigger(hamlet_client::messages::Reconnected);
+        app.world_mut().trigger(Reconnected);
         for _ in 0..3 {
             app.update();
         }
@@ -414,8 +413,7 @@ mod tests {
         app.add_plugins(plugin);
         show(&mut app, false);
         let before = sent(&mut app).remove(0);
-        app.world_mut()
-            .trigger(hamlet_client::messages::Reconnected);
+        app.world_mut().trigger(Reconnected);
         for _ in 0..3 {
             app.update();
         }

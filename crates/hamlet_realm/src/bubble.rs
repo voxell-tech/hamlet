@@ -302,7 +302,6 @@ fn pop(t: f32) -> f32 {
 /// Keeps a balloon over every robot whose agent is saying or
 /// thinking something, and lets it go a while after the agent falls
 /// silent.
-#[allow(clippy::too_many_arguments)]
 fn bubbles(
     mut commands: Commands,
     time: Res<Time>,

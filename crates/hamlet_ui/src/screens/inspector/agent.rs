@@ -156,7 +156,7 @@ fn header(agent: Entity, with: Option<String>) -> AnyView {
         // There only while there is work to stop.
         let stop =
             row((bad_action(Glyph::Stop, "STOP", move |world| {
-                world_menu::stop(world, agent)
+                world_menu::stop(world, agent);
             }),))
             .display(rolled(move |world| {
                 if super::conversations::read_only(world) {
@@ -340,7 +340,7 @@ fn sections() -> impl View {
     keyed(resource::<Section, _>(|s| *s), |section| match section {
         Section::Conversation => {
             keyed(resource::<Me, _>(|m| m.session), |_| {
-                crate::with_cx(|cx| {
+                with_cx(|cx| {
                     let bar = if super::conversations::read_only(
                         cx.world,
                     ) {
@@ -420,7 +420,7 @@ mod tests {
         .init_asset::<bevy::image::Image>()
         .init_asset::<bevy::image::TextureAtlasLayout>()
         .add_plugins((TextPlugin, bevy::ui::UiPlugin))
-        .add_plugins((crate::chat::plugin, crate::inspector::plugin));
+        .add_plugins((chat::plugin, crate::inspector::plugin));
         app.world_mut()
             .resource_mut::<Assets<Font>>()
             .insert(
@@ -587,10 +587,7 @@ mod tests {
     #[test]
     fn the_header_shows_received_work_and_stops_only_a_busy_agent() {
         let mut app = panel_app();
-        app.add_plugins((
-            crate::chat::plugin,
-            crate::inspector::plugin,
-        ));
+        app.add_plugins((chat::plugin, crate::inspector::plugin));
         app.init_resource::<Bar>();
         let mut state = hamlet_testing::realm::state();
         state.agents[0].busy = true;
@@ -643,9 +640,7 @@ mod tests {
             hidden |= world
                 .get::<bevy::ui::Node>(at)
                 .is_some_and(|node| node.display == Display::None);
-            let Some(parent) =
-                world.get::<bevy::ecs::hierarchy::ChildOf>(at)
-            else {
+            let Some(parent) = world.get::<ChildOf>(at) else {
                 break;
             };
             at = parent.parent();
@@ -658,10 +653,7 @@ mod tests {
 
     fn inspector_app() -> App {
         let mut app = panel_app();
-        app.add_plugins((
-            crate::chat::plugin,
-            crate::inspector::plugin,
-        ));
+        app.add_plugins((chat::plugin, crate::inspector::plugin));
         app.init_resource::<Bar>();
         let agent = app.world().resource::<Me>().agent;
         app.insert_resource(hamlet_realm::pick::Selected(Some(
@@ -783,7 +775,7 @@ mod tests {
     fn a_prompt_reply_or_failure_is_shown_on_its_page() {
         use serde_json::json;
         let mut app = inspector_app();
-        crate::inspector::show_prompt(app.world_mut());
+        show_prompt(app.world_mut());
         let read = request(&app, "prompt");
         assert_eq!(read["agent"]["agent"], "founder");
         receive(
@@ -794,7 +786,7 @@ mod tests {
             app.world().resource::<Briefing>().text,
             "The received prompt"
         );
-        crate::inspector::show_prompt(app.world_mut());
+        show_prompt(app.world_mut());
         let read = request(&app, "prompt");
         receive(
             &mut app,
@@ -826,7 +818,7 @@ mod tests {
         let mut app = inspector_app();
         app.init_resource::<Edits>().add_observer(
             |edit: On<Edit>, mut edits: ResMut<Edits>| {
-                edits.0.push(edit.event().clone())
+                edits.0.push(edit.event().clone());
             },
         );
         press(&mut app, "CHARACTER");
@@ -929,7 +921,7 @@ mod tests {
         use serde_json::json;
         let mut app = inspector_app();
         let papers = request(&app, "papers");
-        crate::inspector::show_prompt(app.world_mut());
+        show_prompt(app.world_mut());
         let prompt = request(&app, "prompt");
         select_scout(&mut app);
         let scout = request(&app, "papers");
@@ -1014,12 +1006,15 @@ mod tests {
                 }}),
             );
             let world = app.world_mut();
-            assert_eq!(world.query_filtered::<Entity, bevy::ecs::query::With<crate::chat::ChatField>>().iter(world).count(), 0);
             assert_eq!(
                 world
-                    .query::<&crate::chat::Rewinds>()
+                    .query_filtered::<Entity, With<chat::ChatField>>()
                     .iter(world)
                     .count(),
+                0
+            );
+            assert_eq!(
+                world.query::<&chat::Rewinds>().iter(world).count(),
                 0
             );
             assert!(words(&mut app).contains(&"READ ONLY".into()));

@@ -301,7 +301,7 @@ pub(crate) async fn advance(
                             result: Finished::Prepared(Err(error)),
                         },
                     )
-                    .await?
+                    .await?;
                 }
                 Ok(prepared) => {
                     let held =

@@ -10,8 +10,10 @@
 //! N steps through the sets in `sets.rs`: small scenes of robots
 //! playing their motions.
 
-// Bevy systems take many parameters and long query types by nature.
-#![allow(clippy::too_many_arguments, clippy::type_complexity)]
+#![expect(
+    clippy::print_stdout,
+    reason = "it prints its keys and the set it shows"
+)]
 
 #[path = "../common/note.rs"]
 mod note;

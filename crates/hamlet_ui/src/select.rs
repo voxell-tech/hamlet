@@ -538,7 +538,6 @@ fn press(
     let area =
         chain.iter().rev().copied().find(|e| areas.contains(*e));
     let scope = match (control, area, text) {
-        (true, ..) => None,
         (false, Some(area), _) => Some(area),
         (false, None, Some(text)) if texts.selectable(text) => {
             Some(text)
@@ -683,7 +682,6 @@ fn forget(
 
 /// Lights what is selected, keeps its words for a copy or a quote,
 /// and puts the quote button at its end.
-#[allow(clippy::too_many_arguments)]
 fn light(
     mut commands: Commands,
     texts: Texts,

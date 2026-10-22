@@ -325,7 +325,7 @@ fn apply(state: &mut State, change: &Update) {
             state.agents.push(agent.clone());
         }
         Update::AgentGone { ref_ } => {
-            state.agents.retain(|a| a.ref_ != *ref_)
+            state.agents.retain(|a| a.ref_ != *ref_);
         }
         _ => {}
     }
@@ -474,13 +474,13 @@ impl Screen {
                 }
             }
             ItemKind::Notice => {
-                self.line(&format!("\n  ({})", item.text))?
+                self.line(&format!("\n  ({})", item.text))?;
             }
             ItemKind::Error => {
-                self.line(&format!("\nerror: {}", item.text))?
+                self.line(&format!("\nerror: {}", item.text))?;
             }
             ItemKind::Answered => {
-                self.line(&format!("\n  chief:\n{}", item.text))?
+                self.line(&format!("\n  chief:\n{}", item.text))?;
             }
             ItemKind::User => {}
         }
@@ -562,14 +562,14 @@ impl Screen {
                 }
             }
             ServerMessage::Fault(fault) => {
-                self.line(&format!("\nerror: {}", fault.text))?
+                self.line(&format!("\nerror: {}", fault.text))?;
             }
             ServerMessage::Reply(reply) if !reply.text.is_empty() => {
                 self.line(&if reply.kind == ReplyKind::Error {
                     format!("\nerror: {}", reply.text)
                 } else {
                     format!("\n  ({})", reply.text)
-                })?
+                })?;
             }
             ServerMessage::Transcript(t) => {
                 let mut items = t.items.clone();
@@ -659,7 +659,7 @@ impl Screen {
                             self.line(&format!("  [exit {exit}]"))?;
                         }
                         Op::Status { working: false, .. } => {
-                            self.end()?
+                            self.end()?;
                         }
                         _ => {}
                     }

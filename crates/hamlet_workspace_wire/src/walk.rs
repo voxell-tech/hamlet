@@ -54,10 +54,10 @@ pub fn walk<E>(
             };
             match entry {
                 Listed::Directory if !skip.contains(&name) => {
-                    todo.push(path)
+                    todo.push(path);
                 }
                 Listed::File(size) => {
-                    pending.push(Found { path, size })
+                    pending.push(Found { path, size });
                 }
                 _ => {}
             }

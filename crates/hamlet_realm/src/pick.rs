@@ -370,7 +370,6 @@ fn hover(
 
 /// The left button selects, or with Shift chooses a second thing.
 /// The right button asks what can be done with a thing.
-#[allow(clippy::too_many_arguments)]
 fn click(
     click: On<Pointer<Click>>,
     things: Query<&Thing>,
@@ -431,7 +430,6 @@ fn click(
 
 /// A click on the bare world clears the selection, and the right
 /// button there asks what can be done with the ground.
-#[allow(clippy::too_many_arguments)]
 fn click_surface(
     click: On<Pointer<Click>>,
     surfaces: Query<(), With<WorldSurface>>,

@@ -23,7 +23,7 @@ pub(super) fn plugin(app: &mut App) {
         .add_observer(answered)
         .add_observer(
             |_: On<Reconnected>, mut annals: ResMut<Annals>| {
-                annals.reconnect = true
+                annals.reconnect = true;
             },
         )
         .add_systems(Update, refresh);
@@ -277,11 +277,7 @@ mod tests {
         );
         let hamlet =
             hamlet_client::realm::mayor(app.world_mut()).unwrap();
-        let hamlet = app
-            .world()
-            .get::<hamlet_client::realm::LivesIn>(hamlet)
-            .unwrap()
-            .0;
+        let hamlet = app.world().get::<LivesIn>(hamlet).unwrap().0;
         bevy_fynix::mount::<crate::theme::HamletTheme>(
             app.world_mut(),
             record_of(hamlet),
@@ -397,8 +393,7 @@ mod tests {
             })
             .last()
             .unwrap();
-        app.world_mut()
-            .trigger(hamlet_client::messages::Reconnected);
+        app.world_mut().trigger(Reconnected);
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state.clone()),

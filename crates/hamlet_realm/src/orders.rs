@@ -28,7 +28,7 @@ pub(super) fn plugin(app: &mut App) {
             |response: On<Response>, mut commands: Commands| {
                 let response = response.event().clone();
                 commands.queue(move |world: &mut World| {
-                    answered(world, response)
+                    answered(world, response);
                 });
             },
         )
@@ -363,7 +363,7 @@ fn queue(
                 | protocol::Give::Skill { id, .. },
             ) => *id = request,
             protocol::ClientMessage::GivePart(part) => {
-                part.id = request
+                part.id = request;
             }
             _ => unreachable!(),
         }
@@ -395,13 +395,16 @@ fn open_gift(file: &GiftFile) -> std::io::Result<File> {
             if parts.peek().is_some() {
                 flags |= libc::O_DIRECTORY;
             }
+            // SAFETY: `part` is a C string that outlives the call,
+            // and `opened` holds an open descriptor.
             let fd = unsafe {
                 libc::openat(opened.as_raw_fd(), part.as_ptr(), flags)
             };
             if fd < 0 {
                 return Err(std::io::Error::last_os_error());
             }
-            // The successful openat hands this file a new descriptor.
+            // SAFETY: the successful openat returned a new descriptor
+            // that nothing else owns.
             opened = unsafe { File::from_raw_fd(fd) };
         }
         Ok(opened)
@@ -574,7 +577,7 @@ fn grant(
     }
     for (to, paths) in letters {
         commands.queue(move |world: &mut World| {
-            letter(world, to, &paths)
+            letter(world, to, &paths);
         });
     }
 }
@@ -595,11 +598,7 @@ mod tests {
             .add_message::<SetDown>()
             .add_plugins(plugin);
         let mut state = realm::state();
-        state.deeds = hamlet_testing::realm::deeds(&[
-            "give",
-            "road",
-            "move-hamlet",
-        ]);
+        state.deeds = realm::deeds(&["give", "road", "move-hamlet"]);
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
@@ -815,7 +814,7 @@ mod tests {
      {
         let (mut app, founder) = app();
         let mut state = realm::state();
-        state.deeds = hamlet_testing::realm::deeds(&["give"]);
+        state.deeds = realm::deeds(&["give"]);
         state.starters = vec![protocol::Skill {
             name: "research".into(),
             description: "Find sources".into(),

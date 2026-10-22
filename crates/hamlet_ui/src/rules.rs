@@ -192,7 +192,7 @@ fn whole(
                 book.limits.as_ref().map_or(0, get)
             }),
             move |world, value: i64| {
-                put(world, section, key, value.into())
+                put(world, section, key, value.into());
             },
         )
         .range(0, most)
@@ -220,7 +220,7 @@ fn cost(
                         (value > 0.0 || section == "road")
                             .then_some(value)
                     ),
-                )
+                );
             },
         )
         .range(0.0, 1_000_000.0)
@@ -242,7 +242,7 @@ fn switch(
             book.limits.as_ref().is_some_and(get)
         }))
         .on_change(move |world, on| {
-            put(world, section, key, on.into())
+            put(world, section, key, on.into());
         })
         .boxed()
     })
@@ -296,7 +296,7 @@ fn budget(hamlet: Entity) -> impl View {
                         world,
                         hamlet,
                         "/reset-budget".into(),
-                    )
+                    );
                 },
             ),
             note("What was spent stays in the record."),
@@ -514,7 +514,7 @@ pub fn panel(hamlet: Entity) -> AnyView {
                                 part.holds(),
                                 move |world| {
                                     *world.resource_mut::<Part>() =
-                                        part
+                                        part;
                                 },
                             )
                         })
@@ -541,7 +541,7 @@ pub fn panel(hamlet: Entity) -> AnyView {
                 page_head(
                     "BYLAWS",
                     |world| {
-                        *world.resource_mut::<Part>() = Part::Front
+                        *world.resource_mut::<Part>() = Part::Front;
                     },
                     part.glyph(),
                     part.title(),

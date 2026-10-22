@@ -152,21 +152,17 @@ pub(super) fn light_roads(
 fn lantern(state: KState, t: f32) -> (Vec3, f32) {
     match state {
         KState::Rest => (inlay::candle(), inlay::EMBER * 1.4),
-        KState::Working => (inlay::current(), inlay::LIT),
+        KState::Working => (inlay::current(), LIT),
         KState::Waiting => (
             inlay::signal(),
-            inlay::LIT
-                * (0.8 + 0.2 * (t * std::f32::consts::PI).sin()),
+            LIT * (0.8 + 0.2 * (t * std::f32::consts::PI).sin()),
         ),
         KState::Fault => {
             let tick = (t * 2.6).floor();
             let drop =
                 ((tick * 12.9898).sin() * 43758.547).fract().abs()
                     < 0.4;
-            (
-                inlay::fault(),
-                if drop { inlay::LIT * 0.08 } else { inlay::LIT },
-            )
+            (inlay::fault(), if drop { LIT * 0.08 } else { LIT })
         }
         KState::Failed => (Vec3::ZERO, 0.0),
     }

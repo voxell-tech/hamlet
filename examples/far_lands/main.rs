@@ -5,8 +5,10 @@
 //! Stills: `cargo run --release --example far_lands -- --out <dir>`
 //! Timing: `cargo run --release --example far_lands -- --bench`
 
-// Bevy systems take many parameters and long query types by nature.
-#![allow(clippy::too_many_arguments, clippy::type_complexity)]
+#![expect(
+    clippy::print_stdout,
+    reason = "it prints its usage and its measurements"
+)]
 
 #[path = "../common/offscreen.rs"]
 mod offscreen;

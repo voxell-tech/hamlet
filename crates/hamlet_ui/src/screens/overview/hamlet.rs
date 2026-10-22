@@ -230,7 +230,7 @@ pub fn hamlet(hamlet: Entity) -> AnyView {
         }
         if *carry {
             actions.push(action(Glyph::Move, "MOVE", move |world| {
-                orders::carry(world, hamlet)
+                orders::carry(world, hamlet);
             }));
         }
         if *close && facts.id != HOME {
@@ -238,7 +238,7 @@ pub fn hamlet(hamlet: Entity) -> AnyView {
                 Glyph::Gone,
                 "CLOSE DOWN",
                 move |world| {
-                    world_menu::ask(world, Deed::Close(id.clone()))
+                    world_menu::ask(world, Deed::Close(id.clone()));
                 },
             ));
         }

@@ -457,7 +457,7 @@ fn list() -> impl View {
         text_field(
             resource::<History, _>(|h| h.query.clone()),
             |world, text| {
-                world.resource_mut::<History>().query = text
+                world.resource_mut::<History>().query = text;
             },
         )
         .rules(well),
@@ -612,7 +612,7 @@ mod tests {
     fn history_reads_received_rows_searches_and_opens_a_numbered_chat()
      {
         let mut app = panel_app();
-        app.add_plugins((crate::inspector::plugin, plugin));
+        app.add_plugins((inspector::plugin, plugin));
         *app.world_mut().resource_mut::<inspector::Section>() =
             inspector::Section::History;
         app.update();
@@ -729,7 +729,7 @@ mod tests {
     fn opening_the_tab_and_finishing_its_chat_request_fresh_history()
     {
         let mut app = panel_app();
-        app.add_plugins((crate::inspector::plugin, plugin));
+        app.add_plugins((inspector::plugin, plugin));
         app.update();
         let reads = |app: &App| {
             app.world()

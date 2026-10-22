@@ -561,7 +561,7 @@ impl Wire {
                 }
                 Some(Ok(_)) => {}
                 Some(Err(_)) | None => {
-                    self.ended = Some(Ending::Dropped)
+                    self.ended = Some(Ending::Dropped);
                 }
             }
         }

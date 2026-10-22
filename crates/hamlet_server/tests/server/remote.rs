@@ -1351,6 +1351,10 @@ async fn remote_merge_failure_keeps_listener_record_and_plan_without_replay()
 }
 
 #[tokio::test]
+#[expect(
+    clippy::print_stderr,
+    reason = "it names the scenario a failure is in"
+)]
 async fn remote_domain_prompt_and_gate_waits_release_service_dispatch()
  {
     for scenario in [

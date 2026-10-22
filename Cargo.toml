@@ -68,11 +68,39 @@ objc2-foundation = { version = "0.2", default-features = false, features = ["std
 winit = { version = "0.30", default-features = false }
 toml = "1"
 
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+unused_qualifications = "warn"
+
 [workspace.lints.clippy]
 redundant_type_annotations = "warn"
 # Bevy systems take many parameters and long query types by nature.
 too_many_arguments = "allow"
 type_complexity = "allow"
+# Unsafe code says why it is sound.
+undocumented_unsafe_blocks = "warn"
+# A silenced lint says why, and is dropped once it no longer fires.
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+# A folder's module is named by its file, never mod.rs.
+mod_module_files = "warn"
+# Output goes through a log, or is silenced where printing is the job.
+print_stdout = "warn"
+print_stderr = "warn"
+# Plain, uniform control flow and calls.
+match_same_arms = "warn"
+manual_let_else = "warn"
+semicolon_if_nothing_returned = "warn"
+redundant_closure_for_method_calls = "warn"
+redundant_else = "warn"
+unwrap_or_default = "warn"
+nonstandard_macro_braces = "warn"
+# Many bools in a row read as an unlabelled list; take an enum.
+fn_params_excessive_bools = "warn"
+# Pointer casts say what they change.
+ptr_as_ptr = "warn"
+ptr_cast_constness = "warn"
+ref_as_ptr = "warn"
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]

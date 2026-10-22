@@ -222,7 +222,7 @@ async fn a_reconnection_keeps_the_realm_and_sends_offline_requests_after_hello()
     app.init_resource::<Reconnections>();
     app.add_observer(
         |_: On<Reconnected>, mut count: ResMut<Reconnections>| {
-            count.0 += 1
+            count.0 += 1;
         },
     );
     until(&mut app, |world| {
@@ -575,7 +575,7 @@ async fn a_socket_error_after_state_and_fault_reconnects_instead_of_refusing()
     app.init_resource::<Reconnections>();
     app.add_observer(
         |_: On<Reconnected>, mut count: ResMut<Reconnections>| {
-            count.0 += 1
+            count.0 += 1;
         },
     );
     until(&mut app, |world| world.resource::<Reconnections>().0 == 1)
@@ -715,7 +715,7 @@ async fn only_policy_after_an_unaddressed_fault_refuses() {
         });
         app.init_resource::<Reconnections>().add_observer(
             |_: On<Reconnected>, mut count: ResMut<Reconnections>| {
-                count.0 += 1
+                count.0 += 1;
             },
         );
         until(&mut app, |world| {
@@ -794,7 +794,7 @@ async fn a_request_fault_after_skipped_state_and_close_retries() {
     });
     app.init_resource::<Reconnections>().add_observer(
         |_: On<Reconnected>, mut count: ResMut<Reconnections>| {
-            count.0 += 1
+            count.0 += 1;
         },
     );
     until(&mut app, |world| world.contains_resource::<Seen>()).await;

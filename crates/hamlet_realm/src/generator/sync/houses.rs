@@ -10,7 +10,7 @@ use crate::generator::shift::{Folded, Prop, Way};
 use crate::generator::society::{Agent, AgentId, Town};
 use crate::generator::work::{Engine, Lot, Robot};
 use crate::generator::yard::Yard;
-use crate::generator::{House, house, state_index};
+use crate::generator::{House, Passage, house, state_index};
 use crate::keeper::{self, KState};
 
 impl Pass<'_, '_, '_> {
@@ -165,7 +165,7 @@ impl Pass<'_, '_, '_> {
         // A house that changed takes its robot along. One on its
         // way out goes when its bow is over.
         if let Some(robot) = self.drawn.robots.remove(&agent.id)
-            && !self.passing.get(robot).is_ok_and(|p| p.leaves())
+            && !self.passing.get(robot).is_ok_and(Passage::leaves)
         {
             self.commands.entity(robot).try_despawn();
         }
@@ -238,7 +238,7 @@ impl Pass<'_, '_, '_> {
         match (absent, self.drawn.robots.get(&agent.id), engine) {
             (true, Some(&robot), _) => {
                 // One on its way out goes when its bow is over.
-                if !self.passing.get(robot).is_ok_and(|p| p.leaves())
+                if !self.passing.get(robot).is_ok_and(Passage::leaves)
                 {
                     self.commands.entity(robot).try_despawn();
                 }

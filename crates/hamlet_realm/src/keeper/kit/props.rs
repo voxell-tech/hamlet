@@ -310,7 +310,7 @@ pub(super) fn glint(which: Prop) -> Mb {
     match which {
         Prop::Quill => spark(QUILL_NIB, 0.024),
         Prop::Scroll => {
-            spark(Vec3::new(0.0, -0.31, 0.012) + SCROLL * 0.5, 0.03)
+            spark(Vec3::new(0.0, -0.31, 0.012) + SCROLL * 0.5, 0.03);
         }
         // A bead of light on the string.
         Prop::Kite => spark(Vec3::Y * -0.3, 0.07),

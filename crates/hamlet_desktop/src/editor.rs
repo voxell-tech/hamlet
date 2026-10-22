@@ -374,7 +374,7 @@ mod tests {
         assert_eq!(file.file_name().unwrap(), "charter.md");
         assert!(file.starts_with(std::env::temp_dir()));
         assert_ne!(file.parent().unwrap(), std::env::temp_dir());
-        assert_eq!(std::fs::read_to_string(file).unwrap(), "abc");
+        assert_eq!(fs::read_to_string(file).unwrap(), "abc");
     }
 
     #[test]

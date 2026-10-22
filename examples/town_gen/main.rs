@@ -6,8 +6,7 @@
 //! Stills: `TOWN_SHOT=<dir> cargo run --example town_gen`
 //! Timing: `TOWN_BENCH=1 cargo run --release --example town_gen`
 
-// Bevy systems take many parameters and long query types by nature.
-#![allow(clippy::too_many_arguments, clippy::type_complexity)]
+#![expect(clippy::print_stdout, reason = "it prints its keys")]
 
 #[path = "../common/note.rs"]
 mod note;

@@ -56,6 +56,10 @@ struct Driver {
     told: HashSet<String>,
 }
 
+#[expect(
+    clippy::print_stdout,
+    reason = "the driver answers its test in JSON lines"
+)]
 async fn drive(dir: PathBuf, faux: Option<PathBuf>) -> Result<()> {
     let mut credentials = Credentials::open(&dir)?;
     let mut service =
@@ -101,6 +105,10 @@ async fn drive(dir: PathBuf, faux: Option<PathBuf>) -> Result<()> {
 impl Driver {
     /// Prints `notices`, answering each tool call through the gate
     /// and the rest as a host with no prompt of its own.
+    #[expect(
+        clippy::print_stdout,
+        reason = "the driver answers its test in JSON lines"
+    )]
     async fn answer(&mut self, notices: Vec<Notice>) -> Result<()> {
         print(&notices);
         for notice in notices {
@@ -291,6 +299,10 @@ fn prompt(store: &Store, binding: &Binding) -> Result<Vec<Section>> {
     }])
 }
 
+#[expect(
+    clippy::print_stdout,
+    reason = "the driver answers its test in JSON lines"
+)]
 fn print(notices: &[Notice]) {
     for notice in notices {
         println!("{}", json!({"notice": notice_json(notice)}));

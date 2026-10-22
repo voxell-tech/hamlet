@@ -34,7 +34,7 @@ pub const NOTHING_LOCAL: &str = "No model server answered on the \
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Welcome>()
         .init_resource::<Committing>()
-        .init_resource::<providers::Browser>()
+        .init_resource::<Browser>()
         .init_resource::<providers::Login>()
         .add_observer(answered)
         .add_observer(|_: On<Reconnected>, mut commands: Commands| {
@@ -277,7 +277,7 @@ fn answered(response: On<Response>, mut commands: Commands) {
                 }
             }
             (Asked::Pick, protocol::ServerMessage::Reply(_)) => {
-                check(world, true)
+                check(world, true);
             }
             (
                 Asked::Check(model),
@@ -406,9 +406,8 @@ pub(crate) mod server_tests {
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
-        app.world_mut()
-            .resource_mut::<hamlet_client::Connection>()
-            .state = hamlet_client::connection::State::Connected;
+        app.world_mut().resource_mut::<Connection>().state =
+            State::Connected;
         for _ in 0..3 {
             app.update();
         }
@@ -456,8 +455,8 @@ pub(crate) mod server_tests {
         assert!(words(&mut app).contains("WELCOME TO HAMLET"));
         show(&mut app, false);
         assert!(!words(&mut app).contains("WELCOME TO HAMLET"));
-        app.world_mut().insert_resource(hamlet_client::Connection {
-            state: hamlet_client::connection::State::Refused,
+        app.world_mut().insert_resource(Connection {
+            state: State::Refused,
             words: "The server refused this window: bad token."
                 .into(),
         });
@@ -560,11 +559,9 @@ pub(crate) mod server_tests {
      {
         let mut app = app();
         app.init_resource::<Opened>();
-        app.world_mut().insert_resource(providers::Browser(
-            |world, url| {
-                world.resource_mut::<Opened>().0.push(url.into())
-            },
-        ));
+        app.world_mut().insert_resource(Browser(|world, url| {
+            world.resource_mut::<Opened>().0.push(url.into());
+        }));
         show(&mut app, true);
         providers(&mut app);
         mount::<HamletTheme>(app.world_mut(), view());
@@ -612,11 +609,11 @@ pub(crate) mod server_tests {
     fn login_urls_open_only_https_or_loopback_http_and_always_show_the_steps_words()
      {
         let mut app = app();
-        app.init_resource::<Opened>().insert_resource(
-            providers::Browser(|world, url| {
+        app.init_resource::<Opened>().insert_resource(Browser(
+            |world, url| {
                 world.resource_mut::<Opened>().0.push(url.into());
-            }),
-        );
+            },
+        ));
         show(&mut app, true);
         providers(&mut app);
         mount::<HamletTheme>(app.world_mut(), view());
@@ -863,8 +860,7 @@ pub(crate) mod server_tests {
         mount::<HamletTheme>(app.world_mut(), view());
         press(&mut app, "CONTINUE WITH CHATGPT");
         sent(&mut app);
-        app.world_mut()
-            .trigger(hamlet_client::messages::Reconnected);
+        app.world_mut().trigger(Reconnected);
         for _ in 0..3 {
             app.update();
         }

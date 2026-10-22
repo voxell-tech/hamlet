@@ -70,6 +70,7 @@ pub(crate) struct Subject<'a> {
 
 /// Stocks the library at `root` with the starters it was not
 /// offered yet, telling stderr when it cannot.
+#[expect(clippy::print_stderr, reason = "stderr is the server's log")]
 pub(crate) fn stock(root: &Path) {
     if let Err(error) = crate::starters::install(root) {
         eprintln!("hamlet: could not open the library: {error}");
@@ -127,7 +128,7 @@ impl Prepared {
                 match section.name.as_str() {
                     "project" => {
                         section.text =
-                            project.clone().unwrap_or_default()
+                            project.clone().unwrap_or_default();
                     }
                     "skills" => {
                         section.text = shelf::skills_text(

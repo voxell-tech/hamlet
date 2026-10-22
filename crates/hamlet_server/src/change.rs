@@ -211,6 +211,10 @@ pub fn lines_of(text: &str) -> Vec<&str> {
 /// An excerpt of at most `most` characters. Unless `flat` is false,
 /// each run of white space is one space and the ends are trimmed;
 /// unless `dots` is false, a cut excerpt ends with `...`.
+#[expect(
+    clippy::fn_params_excessive_bools,
+    reason = "its bools are typed in Phase 5"
+)]
 pub fn clip(
     text: &str,
     most: usize,

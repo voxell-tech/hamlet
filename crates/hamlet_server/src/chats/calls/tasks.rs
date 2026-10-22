@@ -44,8 +44,10 @@ pub(crate) struct Prepared {
 }
 
 /// A task that ended.
-// Each is moved to its answer once, never kept.
-#[allow(clippy::large_enum_variant)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "each is moved to its answer once, never kept"
+)]
 pub(crate) enum Finished {
     /// A tool call ran, with the calls it answers.
     Ran {

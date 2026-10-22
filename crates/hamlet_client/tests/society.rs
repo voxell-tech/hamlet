@@ -185,13 +185,13 @@ fn society_views_reconcile_and_transition_effects_fire_once() {
         .init_resource::<Consultations>()
         .add_observer(
             |event: On<Voted>, mut ballots: ResMut<Ballots>| {
-                ballots.0.push(event.agent)
+                ballots.0.push(event.agent);
             },
         )
         .add_observer(
             |event: On<Consulted>,
              mut visits: ResMut<Consultations>| {
-                visits.0.push(event.agent)
+                visits.0.push(event.agent);
             },
         );
     let world = app.world_mut();

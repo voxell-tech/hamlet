@@ -309,9 +309,8 @@ impl Service {
             }
             Ok(stage)
         })();
-        let stage = match stage {
-            Ok(stage) => stage,
-            Err(_) => return Ok(Err(refused(STAGING))),
+        let Ok(stage) = stage else {
+            return Ok(Err(refused(STAGING)));
         };
         let roots = roots(files.iter().map(|f| f.path.as_str()));
         let token = uuid::Uuid::new_v4().to_string();
@@ -377,9 +376,8 @@ impl Service {
         else {
             return Ok(Err(refused(MISMATCH)));
         };
-        let bytes = match STANDARD.decode(&part.data) {
-            Ok(b) => b,
-            Err(_) => return Ok(Err(refused(MISMATCH))),
+        let Ok(bytes) = STANDARD.decode(&part.data) else {
+            return Ok(Err(refused(MISMATCH)));
         };
         if bytes.is_empty()
             || part.offset != *offset
@@ -722,7 +720,6 @@ pub(crate) async fn complete(
 
 /// The gift's next step after `completed`: its connection, its
 /// request and how it stands, unless the connection is gone.
-#[allow(clippy::type_complexity)]
 fn step(
     service: &mut Service,
     completed: Completed,

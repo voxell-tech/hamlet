@@ -447,6 +447,10 @@ fn crashed(tag: &str, pause: &str) -> (Scratch, Home) {
 
 #[test]
 #[ignore = "the process the crash tests kill"]
+#[expect(
+    clippy::print_stdout,
+    reason = "it shows the reply when the child is run by hand"
+)]
 fn child() {
     let Some(dir) = std::env::var_os(CHILD_HOME) else {
         return;

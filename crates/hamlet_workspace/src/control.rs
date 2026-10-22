@@ -13,10 +13,12 @@ use tonic::transport::{
     Certificate, Channel, ClientTlsConfig, Endpoint,
 };
 
-#[allow(
+#[expect(
+    unused_qualifications,
+    clippy::allow_attributes_without_reason,
     clippy::doc_lazy_continuation,
     rustdoc::invalid_html_tags,
-    reason = "generated from the pinned proto"
+    reason = "code generated from the pinned proto"
 )]
 pub mod proto {
     tonic::include_proto!("ateapi");

@@ -65,7 +65,6 @@ pub(super) fn tether(
 /// Points the camera at the middle of the hamlets, far enough to
 /// see them all, moved by hand through `Orbit`. A town that is set
 /// down somewhere else leaves the view where it is.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn aim(
     mut orbit: ResMut<Orbit>,
     mut glide: ResMut<Glide>,

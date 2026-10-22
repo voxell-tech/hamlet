@@ -66,7 +66,7 @@ impl Options {
                         .to_str()
                         .context("port must be a number")?
                         .parse()
-                        .context("port must be 0 to 65535")?
+                        .context("port must be 0 to 65535")?;
                 }
                 Some("--faux") => faux = Some(value.into()),
                 _ => bail!(
@@ -113,6 +113,7 @@ impl Drop for Published {
 
 /// Serves until SIGTERM or Ctrl-C, closing every client before
 /// releasing the home.
+#[expect(clippy::print_stderr, reason = "stderr is the server's log")]
 pub async fn serve(options: Options) -> Result<()> {
     let mut signals = Signals::new()?;
     let home = Home::open(&options.home)?;
@@ -166,7 +167,7 @@ pub async fn serve(options: Options) -> Result<()> {
                             &mut harnesses,
                             notice,
                         )
-                        .await?
+                        .await?;
                     }
                 }
             }
@@ -182,7 +183,7 @@ pub async fn serve(options: Options) -> Result<()> {
             return service.home.close();
         }
         result = started => {
-            result.context("starting model providers")??
+            result.context("starting model providers")??;
         }
     }
     tokio::select! {
@@ -191,7 +192,7 @@ pub async fn serve(options: Options) -> Result<()> {
             return service.home.close();
         }
         result = chats::start(&mut service, &mut harnesses) => {
-            result?
+            result?;
         }
     }
     let protocol = Protocol::new()?;
@@ -241,7 +242,7 @@ pub async fn serve(options: Options) -> Result<()> {
                 biased;
                 _ = signals.next() => break,
                 accepted = listener.accept() => {
-                    serving.on_accept(accepted?.0)
+                    serving.on_accept(accepted?.0);
                 }
                 Some(event) = next_event(
                     &mut serving.ready,
@@ -271,17 +272,17 @@ pub async fn serve(options: Options) -> Result<()> {
                 }
                 Some(moved) =
                     serving.service.moving.tasks.join_next() => {
-                    serving.on_moved(moved)?
+                    serving.on_moved(moved)?;
                 }
                 Some(read) = serving.reads.join_next() => {
-                    serving.on_read(read)?
+                    serving.on_read(read)?;
                 }
                 Some(written) = serving.writes.join_next() => {
-                    serving.on_written(written)?
+                    serving.on_written(written)?;
                 }
                 Some(given) =
                     serving.service.gifts.tasks.join_next() => {
-                    serving.on_given(given).await?
+                    serving.on_given(given).await?;
                 }
                 Some(_) = serving.tasks.join_next() => {}
             }
@@ -909,7 +910,7 @@ impl Serving {
                         &mut self.harnesses,
                         notice,
                     )
-                    .await?
+                    .await?;
                 }
             }
             self.deliver()?;
@@ -1043,13 +1044,13 @@ impl Serving {
         .await?;
         tokio::select! {
             event = self.harnesses.next() => {
-                self.on_harness(event).await?
+                self.on_harness(event).await?;
             }
             finished = self.service.chats.next() => {
-                self.on_finished(finished).await?
+                self.on_finished(finished).await?;
             }
             Some(work) = self.service.house_work.next() => {
-                self.on_work(work).await?
+                self.on_work(work).await?;
             }
             Some(merged) = self.service.merges.tasks.join_next() => {
                 self.on_merged(merged).await?;
@@ -1076,6 +1077,7 @@ async fn flush_models(
     Ok(())
 }
 
+#[expect(clippy::print_stderr, reason = "stderr is the server's log")]
 fn failed(service: &Service, error: &anyhow::Error) {
     let mut diagnostic = json!(format!("Request failed: {error:#}"));
     service.credentials.scrub(&mut diagnostic);

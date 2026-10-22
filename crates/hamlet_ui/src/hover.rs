@@ -367,7 +367,9 @@ impl Told<'_, '_> {
             purpose: purpose
                 .map(|p| short(&p.0, PURPOSE_SHOWN))
                 .unwrap_or_default(),
-            account: account.map(|a| a.summary()).unwrap_or_default(),
+            account: account
+                .map(Account::summary)
+                .unwrap_or_default(),
             hint: match (gone || ruin, followed) {
                 (true, _) => "Right-click to restore".to_string(),
                 (false, true) => "Followed. Esc lets go".to_string(),
@@ -420,7 +422,6 @@ pub(crate) struct Resting {
 /// Fills the card from what the pointer has rested on for a while,
 /// and again when that changed. There is no card while a menu is
 /// open over the world.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn describe(
     hovered: Res<Hovered>,
     time: Res<Time>,
@@ -473,7 +474,6 @@ pub(crate) fn describe(
 /// Fades the card in with a small growth when it has something to
 /// say and out again after, keeps it by the pointer and inside the
 /// window while it is shown, and out of the pointer's way.
-#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn place(
     mut commands: Commands,
     theme: Themed,

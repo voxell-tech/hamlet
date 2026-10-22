@@ -327,7 +327,11 @@ async fn call_prepared(
             input,
             answer,
             *history,
-            *retried,
+            if *retried {
+                Attempt::Retried
+            } else {
+                Attempt::First
+            },
             summary_failure.as_deref(),
         )?,
     };
@@ -435,7 +439,10 @@ enum Step {
 
 /// Carries out the call `key`: its marked result when it ran, else as
 /// the gate decides now.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the call's fields, as decide::admit takes them"
+)]
 fn operation(
     service: &mut Service,
     binding: BindingId,
@@ -692,6 +699,14 @@ fn prompt(
     Ok(prepared)
 }
 
+/// Whether a final answer comes after its turn was compacted and
+/// retried.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Attempt {
+    First,
+    Retried,
+}
+
 /// Whether a final answer stands: one with no words and no call
 /// fails, and its turn ends (C28).
 fn verdict(
@@ -700,7 +715,7 @@ fn verdict(
     input: Option<&str>,
     answer: &Item,
     history: bool,
-    retried: bool,
+    attempt: Attempt,
     summary_failure: Option<&str>,
 ) -> Result<Answer> {
     let stands =
@@ -727,7 +742,8 @@ fn verdict(
             .is_some_and(|usage| usage.output < 1024)
         && !reflection
         && tasked;
-    if cutoff && history && !retried && summary_failure.is_none() {
+    let first = attempt == Attempt::First;
+    if cutoff && history && first && summary_failure.is_none() {
         return Ok(Answer::Verdict {
             words: None,
             notice: None,
@@ -743,7 +759,7 @@ fn verdict(
         } else {
             NO_SUMMARY.into()
         }
-    } else if cutoff && !history && !retried {
+    } else if cutoff && !history && first {
         "the message is longer than the model can hold".into()
     } else if cutoff {
         NO_ROOM.into()

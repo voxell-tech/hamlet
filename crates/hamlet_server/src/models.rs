@@ -159,6 +159,10 @@ impl Service {
         Ok(())
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the fields of one provider request"
+    )]
     fn ask_provider(
         &mut self,
         client: Option<u64>,

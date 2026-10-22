@@ -470,7 +470,7 @@ impl Transcript {
                 self.shape += 1;
             }
             protocol::Op::Add { .. } | protocol::Op::Close { .. } => {
-                self.shape += 1
+                self.shape += 1;
             }
             _ => {}
         }

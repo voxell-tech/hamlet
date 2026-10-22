@@ -282,6 +282,10 @@ impl Service {
 
     /// Makes the live agents' houses where they are missing. A
     /// failure is told and does not stop the server.
+    #[expect(
+        clippy::print_stderr,
+        reason = "stderr is the server's log"
+    )]
     pub(crate) async fn initialize_houses(&mut self) -> Result<()> {
         let live =
             crate::realm::live(self.home.store().connection())?;

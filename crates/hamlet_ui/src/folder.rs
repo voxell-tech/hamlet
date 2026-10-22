@@ -67,7 +67,7 @@ fn switched(switched: On<Switched>, mut commands: Commands) {
 fn chosen(chosen: On<FolderChosen>, mut commands: Commands) {
     let FolderChosen { asker, folder } = chosen.event().clone();
     commands.queue(move |world: &mut World| {
-        work_on(world, asker, &folder)
+        work_on(world, asker, &folder);
     });
 }
 
@@ -116,7 +116,7 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
                                     world,
                                     hamlet,
                                     "/folder none".to_string(),
-                                )
+                                );
                             },
                         ),
                     ])
@@ -174,7 +174,11 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
                         .rules(brass)
                         .tagged(Mood::Plain)
                         .on_activate(move |world| {
-                            work_on(world, hamlet, Path::new(&folder))
+                            work_on(
+                                world,
+                                hamlet,
+                                Path::new(&folder),
+                            );
                         })
                         .boxed()
                 })

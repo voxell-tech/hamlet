@@ -237,7 +237,7 @@ pub fn send(world: &mut World, text: String) {
     }
     let me = world.resource::<Me>();
     if world
-        .get::<hamlet_client::chats::Chat>(me.session)
+        .get::<Chat>(me.session)
         .is_some_and(|chat| chat.0.past.is_some())
     {
         return;
@@ -261,7 +261,7 @@ pub(crate) fn decree(world: &mut World, hamlet: &str, text: String) {
 pub(crate) fn decreed(decree: On<Decree>, mut commands: Commands) {
     let Decree { hamlet, text } = decree.event().clone();
     commands.queue(move |world: &mut World| {
-        self::decree(world, &hamlet, text)
+        self::decree(world, &hamlet, text);
     });
 }
 
@@ -448,7 +448,7 @@ mod tests {
     use super::*;
 
     fn sounding_chat() -> App {
-        let mut app = crate::me::tests::panel_app();
+        let mut app = me::tests::panel_app();
         app.add_message::<Cue>()
             .init_resource::<crate::menu::OpenMenu>()
             .init_resource::<crate::world_menu::Open>()
@@ -579,7 +579,7 @@ mod tests {
             "Digital, please."
         );
         assert!(
-            crate::me::tests::words(&mut app)
+            me::tests::words(&mut app)
                 .iter()
                 .any(|text| text.starts_with("Replying to "))
         );
@@ -598,7 +598,7 @@ mod tests {
         );
         app.update();
         assert!(
-            crate::me::tests::words(&mut app).iter().any(|text| text
+            me::tests::words(&mut app).iter().any(|text| text
                 == "The server could not keep that change.")
         );
         assert_eq!(heard(&mut app), [Sound::Error]);
@@ -656,10 +656,8 @@ mod tests {
             hamlet_client::receive(app.world_mut(), message);
             app.update();
             assert!(
-                crate::me::tests::words(&mut app)
-                    .iter()
-                    .any(|text| text
-                        == "This conversation cannot do that.")
+                me::tests::words(&mut app).iter().any(|text| text
+                    == "This conversation cannot do that.")
             );
             assert_eq!(heard(&mut app), [Sound::Error]);
             app.update();
@@ -682,12 +680,8 @@ mod tests {
             }),
         );
         app.update();
-        assert!(
-            !crate::me::tests::words(&mut app)
-                .iter()
-                .any(|text| text
-                    == "Only the settings panel should show this.")
-        );
+        assert!(!me::tests::words(&mut app).iter().any(|text| text
+            == "Only the settings panel should show this."));
         assert_eq!(heard(&mut app), []);
     }
 
@@ -734,7 +728,7 @@ mod tests {
             for _ in 0..4 {
                 app.update();
             }
-            assert!(crate::me::tests::words(&mut app).iter().any(
+            assert!(me::tests::words(&mut app).iter().any(
                 |text| text
                     == "Commands are not typed here. Use the menus, \
                         or right-click an agent or a hamlet."
@@ -780,7 +774,7 @@ mod tests {
     fn a_chat_shorter_than_the_viewport_reads_earlier_pages_without_scrolling()
      {
         use hamlet_client::outbox::Outbox;
-        let mut app = crate::me::tests::panel_app();
+        let mut app = me::tests::panel_app();
         app.add_plugins(plugin);
         app.update();
         let pages = paging_pages();
@@ -830,7 +824,7 @@ mod tests {
         for _ in 0..10 {
             app.update();
         }
-        let shown = crate::me::tests::words(&mut app).join("\n");
+        let shown = me::tests::words(&mut app).join("\n");
         assert!(shown.contains("Line 1."), "{shown}");
         assert!(
             !shown.contains("Earlier lines. Scroll up to read them.")
@@ -1098,7 +1092,7 @@ mod tests {
         app.update();
         bevy_fynix::mount::<crate::theme::HamletTheme>(
             app.world_mut(),
-            bevy_fynix::views::column((
+            column((
                 transcript(),
                 message_bar(),
                 crate::world_menu::view(),
@@ -1155,7 +1149,7 @@ mod tests {
 
     #[test]
     fn the_chat_stays_at_its_end_until_it_is_read_back() {
-        let mut app = bevy::app::App::new();
+        let mut app = App::new();
         let world = app.world_mut();
         let nobody = world.spawn_empty().id();
         world.insert_resource(Me::of(nobody, nobody, "wren", None));
@@ -1168,18 +1162,17 @@ mod tests {
         let chat = world
             .spawn((ChatScroll, tall(1000.0), ScrollGoal::default()))
             .id();
-        app.add_systems(bevy::app::Update, stick_to_bottom);
-        let shown = |app: &mut bevy::app::App,
-                     content: f32,
-                     scrolled: Option<f32>| {
-            let mut node = app.world_mut().entity_mut(chat);
-            node.insert(tall(content));
-            if let Some(to) = scrolled {
-                node.get_mut::<ScrollPosition>().unwrap().y = to;
-            }
-            app.update();
-            app.world().get::<ScrollPosition>(chat).unwrap().y
-        };
+        app.add_systems(Update, stick_to_bottom);
+        let shown =
+            |app: &mut App, content: f32, scrolled: Option<f32>| {
+                let mut node = app.world_mut().entity_mut(chat);
+                node.insert(tall(content));
+                if let Some(to) = scrolled {
+                    node.get_mut::<ScrollPosition>().unwrap().y = to;
+                }
+                app.update();
+                app.world().get::<ScrollPosition>(chat).unwrap().y
+            };
         // At its end, and no further: the wheel starts from here.
         assert_eq!(shown(&mut app, 1000.0, None), 800.0);
         assert_eq!(shown(&mut app, 1200.0, None), 1000.0);

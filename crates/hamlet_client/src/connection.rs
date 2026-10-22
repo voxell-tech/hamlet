@@ -226,7 +226,7 @@ fn update(world: &mut World) {
                     });
                 }
                 Incoming::Frame(message) => {
-                    crate::receive(world, message)
+                    crate::receive(world, message);
                 }
             }
         }
@@ -321,6 +321,10 @@ fn wire(message: &protocol::ClientMessage) -> Message {
     Message::text(serde_json::to_string(message).unwrap())
 }
 
+#[expect(
+    clippy::print_stderr,
+    reason = "hamlet_client depends on no logger"
+)]
 async fn exchange(
     socket: &mut Socket,
     frames: &mpsc::Sender<Incoming>,

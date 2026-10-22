@@ -56,7 +56,7 @@ fn asks(
         text_field(
             resource::<Founding, _>(move |f| read(f).clone()),
             move |world, text| {
-                write(&mut world.resource_mut::<Founding>(), text)
+                write(&mut world.resource_mut::<Founding>(), text);
             },
         )
         .rules(well),
@@ -146,7 +146,7 @@ mod tests {
             .init_resource::<hamlet_realm::pick::Asked>()
             .init_resource::<hamlet_realm::pick::AskedGround>();
         let mut state = realm::state();
-        state.deeds = hamlet_testing::realm::deeds(&["found"]);
+        state.deeds = realm::deeds(&["found"]);
         state.agents.push(realm::agent("home", 1, "scout"));
         hamlet_client::receive(
             app.world_mut(),

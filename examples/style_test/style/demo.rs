@@ -22,8 +22,7 @@ impl View {
             Self::Default => Self::Wide,
             Self::Wide => Self::Keeper,
             Self::Keeper => Self::Stall,
-            Self::Stall => Self::Default,
-            Self::Lineup => Self::Default,
+            Self::Stall | Self::Lineup => Self::Default,
         }
     }
 }

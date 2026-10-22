@@ -29,6 +29,10 @@ fn main() -> anyhow::Result<()> {
 }
 
 #[cfg(not(target_os = "linux"))]
+#[expect(
+    clippy::print_stderr,
+    reason = "it says why it refuses to run"
+)]
 fn main() -> std::process::ExitCode {
     eprintln!("hamlet-workspace runs only on Linux.");
     std::process::ExitCode::FAILURE
@@ -63,6 +67,10 @@ mod cli {
                          CONFIG; delete CONFIG HOME WORKSPACE \
                          EXPECTED_UID; keygen NEW_KEY_FILE";
 
+    #[expect(
+        clippy::print_stdout,
+        reason = "a command reports what it did"
+    )]
     pub fn run() -> Result<()> {
         let args = std::env::args().collect::<Vec<_>>();
         match args.get(1).map(String::as_str) {
@@ -128,6 +136,10 @@ mod cli {
             .block_on(future)
     }
 
+    #[expect(
+        clippy::print_stdout,
+        reason = "the public key is the command's output"
+    )]
     fn keygen(path: &str) -> Result<()> {
         let key =
             Ed25519KeyPair::generate_pkcs8(&SystemRandom::new())

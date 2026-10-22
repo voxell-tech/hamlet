@@ -398,7 +398,6 @@ pub struct Whole {
 }
 
 /// The visible rows of the received chat.
-#[allow(clippy::too_many_arguments)]
 pub fn fold_lines(
     me: Res<Me>,
     unfolded: Res<Unfolded>,
@@ -453,7 +452,6 @@ pub struct Reading {
 
 /// The earlier rows built or requested at the top, with the current
 /// rows held in place.
-#[allow(clippy::too_many_arguments)]
 pub fn read_back(
     mut commands: Commands,
     me: Res<Me>,

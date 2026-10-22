@@ -544,7 +544,7 @@ fn commit(
                         merge.files.clashes.join("\n")
                     ));
                 }
-                let mut value = super::outcome(&text, false);
+                let mut value = outcome(&text, false);
                 value["archive"] = json!(archive);
                 Ok(value)
             }

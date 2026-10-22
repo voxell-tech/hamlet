@@ -9,7 +9,7 @@ pub fn fold(log: &[ServerMessage]) -> State {
     for message in log {
         match message {
             ServerMessage::State(state) => {
-                realm = Some(state.clone())
+                realm = Some(state.clone());
             }
             ServerMessage::Change(changes) => {
                 let state = realm

@@ -4,8 +4,6 @@
 //! - [`runtime`]: the server and a harness runtime, such as pi or a
 //!   harness written in Rust.
 
-#![allow(clippy::large_enum_variant)]
-
 pub mod client;
 pub mod runtime;
 

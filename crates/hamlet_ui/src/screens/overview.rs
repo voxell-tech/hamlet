@@ -281,7 +281,7 @@ fn closed() -> AnyView {
                         "DELETE FOR GOOD",
                         move |world| {
                             world.resource_mut::<Erasing>().0 =
-                                Some((id.clone(), at))
+                                Some((id.clone(), at));
                         },
                     ));
                 }
@@ -347,7 +347,7 @@ fn closed() -> AnyView {
                                     |world| {
                                         world
                                             .resource_mut::<Erasing>()
-                                            .0 = None
+                                            .0 = None;
                                     },
                                 ),
                             ]),

@@ -656,7 +656,7 @@ pub async fn develop(
                     return Ok(exit_code(status?));
                 }
                 _ = sleep(Duration::from_millis(50)) => {
-                    window_closed(&mut window, &home, &address)?
+                    window_closed(&mut window, &home, &address)?;
                 }
             }
         }

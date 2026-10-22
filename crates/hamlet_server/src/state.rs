@@ -153,7 +153,7 @@ pub(crate) fn state(
             });
             let mayor =
                 left.is_none() && agent.number == record.mayor;
-            let reference_of = crate::record::AgentRef {
+            let reference_of = record::AgentRef {
                 hamlet: record.id.clone(),
                 number: agent.number,
             };
@@ -275,7 +275,7 @@ pub(crate) fn state(
         let current = match &wait.chat {
             Some(chat) => crate::chats::records::current_number(
                 service.home.store().connection(),
-                &crate::record::AgentRef {
+                &record::AgentRef {
                     hamlet: chat.hamlet.clone(),
                     number: chat.number,
                 },

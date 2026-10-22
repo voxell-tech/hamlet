@@ -263,7 +263,6 @@ pub(crate) fn lend(
 /// Shows the cursor of the mode that holds. Fynix puts a cursor of
 /// the system on the window each frame it wants one, and that is read
 /// here as the panels' asking.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn dress(
     cursors: Res<Cursors>,
     time: Res<Time<Real>>,

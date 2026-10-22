@@ -133,8 +133,8 @@ impl Server {
     }
 
     fn signal(&self, signal: i32) {
-        // SAFETY: kill sends a signal to this child's PID.
         assert_eq!(
+            // SAFETY: kill sends a signal to this child's PID.
             unsafe { libc::kill(self.child.id() as i32, signal) },
             0
         );

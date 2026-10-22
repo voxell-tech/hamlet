@@ -99,7 +99,7 @@ pub fn scrub_value(secrets: &[String], value: &mut Value) {
 fn scrub(scrubber: &mut Scrubber, value: &mut Value) {
     match value {
         Value::String(text) => {
-            *text = scrubber.push(text) + &scrubber.flush()
+            *text = scrubber.push(text) + &scrubber.flush();
         }
         Value::Array(items) => {
             for item in items {
@@ -129,8 +129,10 @@ mod tests {
     use super::*;
 
     fn through(secrets: &[&str], chunks: &[&str]) -> Vec<String> {
-        let secrets =
-            secrets.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let secrets = secrets
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
         let mut scrubber = Scrubber::new(&secrets);
         let mut out = chunks
             .iter()

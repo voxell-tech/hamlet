@@ -193,7 +193,7 @@ pub(crate) fn tag_answered(
 /// is not missed.
 pub(crate) fn show_new(
     waiting: Query<(), With<Waiting>>,
-    mut seen: bevy::ecs::system::Local<usize>,
+    mut seen: Local<usize>,
     mut commands: Commands,
 ) {
     let now = waiting.iter().count();
@@ -238,7 +238,7 @@ fn button(need: &Need, at: usize) -> AnyView {
         .rules(rules)
         .tagged(mood)
         .on_activate(move |world| {
-            answer(world, entity, choice.clone())
+            answer(world, entity, choice.clone());
         })
         .boxed()
 }
@@ -525,16 +525,16 @@ mod tests {
     fn a_received_edits_change_is_shown_without_its_chat_transcript()
     {
         let mut app = panel_app();
-        app.add_plugins((crate::chat::plugin, plugin));
+        app.add_plugins((chat::plugin, plugin));
         let mut state = hamlet_testing::realm::state();
         let mut wait = hamlet_testing::realm::wait("edit");
-        wait.detail = protocol::WaitDetail::Approval {
-            danger: protocol::WaitDanger::Edit,
+        wait.detail = WaitDetail::Approval {
+            danger: WaitDanger::Edit,
             says: "wants to edit".into(),
-            always: Some(protocol::Lasting::Session),
+            always: Some(Lasting::Session),
         };
         wait.about = "orchard.md".into();
-        wait.change = Some(protocol::Change {
+        wait.change = Some(Change {
             path: "orchard.md".into(),
             created: true,
             lines: vec![],

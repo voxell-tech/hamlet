@@ -204,7 +204,6 @@ fn common_of(
 
 /// Moves each mascot: a Wickstep to whoever its chief talks to and
 /// home again, and on foot between.
-#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(super) fn step(
     mut commands: Commands,
     (clock, set, play, quality, pal, land, wand): (
@@ -330,7 +329,7 @@ pub(super) fn step(
                 // same town is: a Wickstep is for a long way.
                 let near = match wanted {
                     Stay::With(agent) => of(agent)
-                        .map(|them| them.xz())
+                        .map(Vec3Swizzles::xz)
                         .filter(|them| {
                             them.distance(here.xz()) <= set.afoot
                         }),

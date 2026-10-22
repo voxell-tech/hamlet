@@ -125,7 +125,7 @@ pub(super) fn traffic_cues(
                 cue(Sound::RoadGlow, at, trip.walker.0);
             }
             Some((false, _)) if trip.back => {
-                cue(Sound::Letter, at, trip.walker.0)
+                cue(Sound::Letter, at, trip.walker.0);
             }
             Some(_) => {}
         }
@@ -247,7 +247,7 @@ pub(super) fn life_cues(
         match lives.towns.insert(town.id, town.leader) {
             None => cue(Sound::Founded, Vec3::ZERO, town.id.0),
             Some(was) if was != town.leader => {
-                cue(Sound::Mayor, Vec3::ZERO, town.leader.0)
+                cue(Sound::Mayor, Vec3::ZERO, town.leader.0);
             }
             Some(_) => {}
         }
@@ -283,7 +283,6 @@ type Due = (f32, Sound, Vec3, u32);
 /// as it rises, a thump as it settles and the agent's own notes
 /// after; a rattle, a thud and embers as it falls; or its motes
 /// going over to the house it was merged into.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn house_cues(
     clock: Res<Clock>,
     motion: Res<HouseMotion>,

@@ -2,6 +2,9 @@
 //! realm database and the operations harnesses ask of it, each made
 //! once.
 
+// The workspace allows this for Bevy systems; the server has none.
+#![warn(clippy::too_many_arguments)]
+
 mod change;
 mod chats;
 mod claim;

@@ -77,7 +77,7 @@ fn choice(adding: bool) -> AnyView {
             "The quickest way. You sign in with your browser and \
              pay OpenRouter for what you use.",
             |world| {
-                super::providers::start(world, "openrouter", false)
+                super::providers::start(world, "openrouter", false);
             },
         ),
         door(
@@ -176,7 +176,7 @@ fn models() -> AnyView {
         text_field(
             resource::<Welcome, _>(|welcome| welcome.narrow.clone()),
             |world, text| {
-                world.resource_mut::<Welcome>().narrow = text
+                world.resource_mut::<Welcome>().narrow = text;
             },
         )
         .rules(well)

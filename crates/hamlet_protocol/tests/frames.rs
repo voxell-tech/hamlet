@@ -32,10 +32,10 @@ fn every_recorded_message_reads_and_writes_back_unchanged() {
             let frame = serde_json::from_str::<Value>(line).unwrap();
             match frame["from"].as_str() {
                 Some("client") => {
-                    round_trip::<ClientMessage>(&frame["message"])
+                    round_trip::<ClientMessage>(&frame["message"]);
                 }
                 Some("server") => {
-                    round_trip::<ServerMessage>(&frame["message"])
+                    round_trip::<ServerMessage>(&frame["message"]);
                 }
                 _ => panic!(
                     "{} has a frame from no side",

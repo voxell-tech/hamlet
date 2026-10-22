@@ -150,10 +150,10 @@ fn checked(response: On<Response>, mut test: ResMut<ConnectionTest>) {
     }
     match &response.message {
         protocol::ServerMessage::Reply(reply) => {
-            test.words.clone_from(&reply.text)
+            test.words.clone_from(&reply.text);
         }
         protocol::ServerMessage::Fault(fault) => {
-            test.words.clone_from(&fault.text)
+            test.words.clone_from(&fault.text);
         }
         _ => return,
     }
@@ -193,17 +193,17 @@ mod tests {
     fn the_full_layout_keeps_connection_controls_out_of_the_status_area()
      {
         let mut app = crate::me::tests::panel_app();
-        app.add_plugins(bevy_fynix::dock::DockPlugin::<crate::theme::HamletTheme>::default())
+        app.add_plugins(bevy_fynix::dock::DockPlugin::<HamletTheme>::default())
             .init_resource::<ConnectionTest>()
             .init_resource::<bevy::asset::Assets<bevy::image::Image>>()
-            .add_plugins(crate::chrome::plugin)
+            .add_plugins(chrome::plugin)
             .init_resource::<bevy::input::ButtonInput<bevy::input::mouse::MouseButton>>()
             .init_resource::<crate::links::Aimed>()
             .init_resource::<crate::petition::Queue>()
             .init_resource::<crate::status::Bar>()
-            .init_resource::<crate::welcome::Welcome>();
+            .init_resource::<welcome::Welcome>();
         app.update();
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
             AnyView::new(|cx: &mut Cx| {
                 let view = full(cx);
@@ -242,7 +242,7 @@ mod tests {
             .resource_mut::<Outbox>()
             .drain()
             .for_each(drop);
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
             crate::models::endpoints(),
         );

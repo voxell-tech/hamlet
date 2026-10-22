@@ -180,9 +180,8 @@ pub(super) fn resite(
             continue;
         }
         if let Err(why) = society.move_town(&mut land, sited.0, to) {
-            eprintln!(
-                "hamlet: the town of {} stays where it is: {to} is \
-                 {why:?}",
+            warn!(
+                "the town of {} stays where it is: {to} is {why:?}",
                 settlement.name
             );
         }

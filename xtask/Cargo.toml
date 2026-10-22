@@ -10,3 +10,34 @@ description = "cargo xtask: builds, installs and checks Hamlet"
 [workspace]
 
 [dependencies]
+
+# The root workspace's lints, less print_stdout and print_stderr
+# (printing is this tool's job) and the two Bevy allows (xtask has
+# no systems).
+[lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+unused_qualifications = "warn"
+
+[lints.clippy]
+redundant_type_annotations = "warn"
+# Unsafe code says why it is sound.
+undocumented_unsafe_blocks = "warn"
+# A silenced lint says why, and is dropped once it no longer fires.
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+# A folder's module is named by its file, never mod.rs.
+mod_module_files = "warn"
+# Plain, uniform control flow and calls.
+match_same_arms = "warn"
+manual_let_else = "warn"
+semicolon_if_nothing_returned = "warn"
+redundant_closure_for_method_calls = "warn"
+redundant_else = "warn"
+unwrap_or_default = "warn"
+nonstandard_macro_braces = "warn"
+# Many bools in a row read as an unlabelled list; take an enum.
+fn_params_excessive_bools = "warn"
+# Pointer casts say what they change.
+ptr_as_ptr = "warn"
+ptr_cast_constness = "warn"
+ref_as_ptr = "warn"

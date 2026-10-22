@@ -85,7 +85,6 @@ enum Showing {
 fn showing(world: &World) -> Showing {
     let selected = world.get_resource::<Selected>().and_then(|s| s.0);
     match selected {
-        None => Showing::Overview,
         Some(Thing::Library) => Showing::Library,
         Some(Thing::Common(hamlet))
             if world.get_entity(hamlet).is_ok() =>
@@ -103,7 +102,8 @@ fn showing(world: &World) -> Showing {
         {
             Showing::Chief(chief)
         }
-        Some(
+        None
+        | Some(
             Thing::Common(_)
             | Thing::Ruin(_)
             | Thing::Chief(_)

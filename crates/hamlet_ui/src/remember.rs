@@ -463,7 +463,6 @@ pub(crate) fn note_selected(
 }
 
 /// Writes the view once it has changed and then stood still.
-#[allow(clippy::too_many_arguments)]
 pub fn keep(
     time: Res<Time>,
     folder: Res<ViewDir>,

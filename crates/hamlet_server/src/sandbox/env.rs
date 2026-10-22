@@ -461,7 +461,7 @@ impl Env {
         };
         let ran = self
             .spawned(command, timeout, &mut |text| {
-                kept(&scrubber.push(text), &mut spill)
+                kept(&scrubber.push(text), &mut spill);
             })
             .await;
         kept(&scrubber.flush(), &mut spill);

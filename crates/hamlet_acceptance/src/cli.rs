@@ -89,8 +89,9 @@ impl Cli {
     /// Sends SIGINT, as Ctrl-C does, without waiting.
     pub fn interrupt(&mut self) {
         let pid = self.child.id().expect("the command is running");
-        // SAFETY: `pid` is our own child, which has not been reaped.
         assert_eq!(
+            // SAFETY: `pid` is our own child, which has not been
+            // reaped.
             unsafe { libc::kill(pid as i32, libc::SIGINT) },
             0
         );

@@ -1,9 +1,14 @@
 //! Frame times of the scene, and of a growing crowd of robots.
 
+#![expect(
+    clippy::print_stdout,
+    reason = "it prints its measurements"
+)]
+
 use std::time::Instant;
 
 use bevy::diagnostic::{
-    DiagnosticsStore, FrameTimeDiagnosticsPlugin,
+    Diagnostic, DiagnosticsStore, FrameTimeDiagnosticsPlugin,
 };
 use bevy::prelude::*;
 use hamlet_realm::Clock;
@@ -165,7 +170,7 @@ pub fn run_bench(
             / run.measured as f64;
         let bevy = diagnostics
             .get(&FrameTimeDiagnosticsPlugin::FRAME_TIME)
-            .and_then(|d| d.average())
+            .and_then(Diagnostic::average)
             .unwrap_or(0.0);
         println!(
             "bench: {name}: {ms:.2} ms per frame ({:.0} fps); \

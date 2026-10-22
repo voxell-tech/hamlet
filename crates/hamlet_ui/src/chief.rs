@@ -281,7 +281,7 @@ fn wardrobe(chief: Entity, facts: &Facts) -> impl View {
         .zip(facts.cloaks)
         .map(|(cloak, colour)| {
             swatch(colour, look.cloak == cloak, move |world| {
-                change(world, chief, |look| look.cloak = cloak)
+                change(world, chief, |look| look.cloak = cloak);
             })
             .boxed()
         })
@@ -291,7 +291,7 @@ fn wardrobe(chief: Entity, facts: &Facts) -> impl View {
         .zip(facts.lights)
         .map(|(light, colour)| {
             swatch(colour, look.light == light, move |world| {
-                change(world, chief, |look| look.light = light)
+                change(world, chief, |look| look.light = light);
             })
             .boxed()
         })
@@ -300,7 +300,7 @@ fn wardrobe(chief: Entity, facts: &Facts) -> impl View {
         .into_iter()
         .map(|hat| {
             word(hat.name(), look.hat == hat, move |world| {
-                change(world, chief, |look| look.hat = hat)
+                change(world, chief, |look| look.hat = hat);
             })
             .boxed()
         })
@@ -309,7 +309,7 @@ fn wardrobe(chief: Entity, facts: &Facts) -> impl View {
         .into_iter()
         .map(|holds| {
             word(holds.name(), look.holds == holds, move |world| {
-                change(world, chief, |look| look.holds = holds)
+                change(world, chief, |look| look.holds = holds);
             })
             .boxed()
         })

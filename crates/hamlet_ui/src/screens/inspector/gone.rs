@@ -55,14 +55,17 @@ pub(super) fn ruin(agent: Entity) -> AnyView {
                         Glyph::Restore,
                         "RESTORE",
                         move |world| {
-                            world_menu::restore(world, agent)
+                            world_menu::restore(world, agent);
                         },
                     ),
                     bad_action(
                         Glyph::Delete,
                         "DELETE FOR GOOD",
                         move |world| {
-                            world_menu::ask(world, Deed::Erase(agent))
+                            world_menu::ask(
+                                world,
+                                Deed::Erase(agent),
+                            );
                         },
                     ),
                     action(
@@ -97,14 +100,14 @@ pub(super) fn library() -> impl View {
         // is narrow.
         crate::looks::buttons(vec![
             crate::looks::back("ALL HAMLETS", |world| {
-                select(world, None)
+                select(world, None);
             })
             .boxed(),
             action(Glyph::Move, "MOVE", |world| {
                 hamlet_realm::moving::pick_up(
                     world,
                     hamlet_realm::generator::society::Place::Library,
-                )
+                );
             }),
         ]),
         dim("Every agent shares these skills. An agent offers one \

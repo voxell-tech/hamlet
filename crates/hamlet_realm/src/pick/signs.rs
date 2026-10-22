@@ -174,7 +174,7 @@ fn write_signs(
     let every = !renamed.is_empty();
     for (thing, signed, reads) in &named {
         let rewritten =
-            reads.as_ref().is_some_and(|reads| reads.is_changed());
+            reads.as_ref().is_some_and(DetectChanges::is_changed);
         if !every && !thing.is_changed() && !rewritten {
             continue;
         }

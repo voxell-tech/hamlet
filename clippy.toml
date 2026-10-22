@@ -1,0 +1,4 @@
+# More than one bool in a signature is an enum waiting to be named.
+max-fn-params-bools = 1
+# Lints such as undocumented_unsafe_blocks check private items too.
+check-private-items = true

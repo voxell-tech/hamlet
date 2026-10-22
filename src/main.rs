@@ -64,6 +64,7 @@ fn view_dir(
     })
 }
 
+#[expect(clippy::print_stdout, reason = "--help prints the usage")]
 fn main() -> Result<()> {
     if !parse(std::env::args().skip(1))? {
         println!("{USAGE}");

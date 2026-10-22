@@ -165,7 +165,7 @@ pub(crate) fn attach(world: &mut World) {
         .query_filtered::<&Window, With<PrimaryWindow>>()
         .iter(world)
         .next()
-        .map_or(1.0, |w| w.scale_factor());
+        .map_or(1.0, Window::scale_factor);
     let mut image = Image::new_uninit(
         Default::default(),
         TextureDimension::D2,
@@ -290,7 +290,6 @@ pub fn view() -> AnyView {
 
 /// Hangs every label placed in the camera's viewport off the panel
 /// that shows it.
-#[allow(clippy::type_complexity)]
 pub(crate) fn adopt_tags(
     mut commands: Commands,
     panel: Query<Entity, With<WorldPanel>>,
@@ -326,7 +325,6 @@ pub(crate) fn adopt_tags(
 }
 
 /// The sky's night state.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn drive(
     sky: Res<TimeOfDay>,
     sky_set: Res<SkySettings>,

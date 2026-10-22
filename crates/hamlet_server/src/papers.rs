@@ -540,7 +540,7 @@ fn swap(
         match tree::directory(stages, &backup, false) {
             Ok(_) => tree::erase(stages, &backup)?,
             Err(_) => {
-                unlinkat(stages, backup.as_str(), AtFlags::empty())?
+                unlinkat(stages, backup.as_str(), AtFlags::empty())?;
             }
         }
     }

@@ -229,7 +229,7 @@ pub(crate) fn diff_string(
             .is_some_and(|next| next.added || next.removed);
         match (last_was_change, next_is_change) {
             (true, true) if raw.len() <= CONTEXT * 2 => {
-                out.context(&raw)
+                out.context(&raw);
             }
             (true, true) => {
                 out.context(&raw[..CONTEXT]);

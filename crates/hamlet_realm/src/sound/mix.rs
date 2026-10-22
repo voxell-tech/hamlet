@@ -147,7 +147,6 @@ pub(super) fn admit(
 }
 
 /// Plays the cues that are near enough to hear.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn play(
     mut commands: Commands,
     time: Res<Time>,

@@ -219,10 +219,10 @@ fn scrub(value: &mut Value, secrets: &[String]) {
             }
         }
         Value::Array(items) => {
-            items.iter_mut().for_each(|v| scrub(v, secrets))
+            items.iter_mut().for_each(|v| scrub(v, secrets));
         }
         Value::Object(fields) => {
-            fields.values_mut().for_each(|v| scrub(v, secrets))
+            fields.values_mut().for_each(|v| scrub(v, secrets));
         }
         _ => {}
     }

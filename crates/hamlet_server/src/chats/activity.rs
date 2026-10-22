@@ -72,7 +72,7 @@ impl Activity {
             for block in last.blocks.iter().flatten() {
                 match block {
                     Block::Text { text } => {
-                        activity.speak(text, false)
+                        activity.speak(text, false);
                     }
                     Block::Thinking { thinking } => {
                         activity.speak(thinking, true);
@@ -187,7 +187,7 @@ impl Activity {
     fn tool(
         &mut self,
         name: &str,
-        arguments: &std::collections::BTreeMap<String, Value>,
+        arguments: &BTreeMap<String, Value>,
     ) {
         self.doing = doing_of(name, arguments);
         self.step += 1;
@@ -234,7 +234,7 @@ impl Activity {
 /// What a call of `name` with `arguments` has its agent doing.
 fn doing_of(
     name: &str,
-    arguments: &std::collections::BTreeMap<String, Value>,
+    arguments: &BTreeMap<String, Value>,
 ) -> Doing {
     let text = serde_json::to_string(arguments)
         .unwrap_or_default()

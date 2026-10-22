@@ -33,9 +33,10 @@ pub(super) enum Decision {
 }
 
 /// The gate's answer to a call.
-// Returned once per call and taken apart at once, so its size costs
-// nothing worth a box.
-#[allow(clippy::large_enum_variant)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "returned once per call and taken apart at once"
+)]
 pub(super) enum Gate {
     Decided(Decision),
     /// The decision waits for the file a write replaces.
@@ -44,7 +45,7 @@ pub(super) enum Gate {
 
 /// A file to read before a write's decision.
 pub(crate) struct Reading {
-    pub tools: crate::tools::Session,
+    pub tools: tools::Session,
     pub path: String,
     /// The work document it was read under.
     pub signature: Value,
@@ -574,7 +575,7 @@ mod tests {
 
         assert_eq!(
             before(&root.join("private.txt")).await.as_deref(),
-            Some(crate::tools::UNREADABLE)
+            Some(tools::UNREADABLE)
         );
         assert_eq!(
             before(&house.join("NOTES.md")).await.as_deref(),

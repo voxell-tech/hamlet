@@ -225,7 +225,7 @@ pub(crate) fn of_hamlet(hamlet: Entity) -> AnyView {
                                                 .models
                                                 .push(name.clone());
                                         }
-                                    })
+                                    });
                                 },
                             ),
                             row((note(model.name.clone()),))

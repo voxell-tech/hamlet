@@ -107,7 +107,7 @@ pub(super) fn dress_drag(
         );
         match grown {
             Some(mut grown) if grown.scale != size => {
-                grown.scale = size
+                grown.scale = size;
             }
             Some(_) => {}
             None => {

@@ -223,16 +223,16 @@ fn items(menu: Menu, found: bool) -> Vec<AnyView> {
         }
         Menu::View => vec![
             item(Glyph::Aim, "Reset Camera", |w| {
-                *w.resource_mut::<Orbit>() = Orbit::default()
+                *w.resource_mut::<Orbit>() = Orbit::default();
             }),
             item(Glyph::Clock, "Sky Follows the Clock", |w| {
-                *w.resource_mut::<TimeOfDay>() = TimeOfDay::Clock
+                *w.resource_mut::<TimeOfDay>() = TimeOfDay::Clock;
             }),
             item(Glyph::Sun, "Sky at Day", |w| {
-                *w.resource_mut::<TimeOfDay>() = TimeOfDay::Day
+                *w.resource_mut::<TimeOfDay>() = TimeOfDay::Day;
             }),
             item(Glyph::Moon, "Sky at Night", |w| {
-                *w.resource_mut::<TimeOfDay>() = TimeOfDay::Night
+                *w.resource_mut::<TimeOfDay>() = TimeOfDay::Night;
             }),
         ],
     }

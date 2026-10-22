@@ -38,7 +38,7 @@ fn every_sound_is_made_whole() {
 
 #[test]
 fn no_two_sounds_are_the_same_clip() {
-    let clips = Sound::ALL.map(|sound| sound.samples());
+    let clips = Sound::ALL.map(Sound::samples);
     for (i, clip) in clips.iter().enumerate() {
         for (k, other) in clips.iter().enumerate().skip(i + 1) {
             assert_ne!(

@@ -278,7 +278,7 @@ pub(crate) mod tests {
         ));
         crate::theme::insert_theme(
             app.world_mut(),
-            crate::theme::HamletTheme::designed(),
+            HamletTheme::designed(),
         );
         hamlet_client::receive(
             app.world_mut(),
@@ -372,7 +372,7 @@ pub(crate) mod tests {
         let first = app.world().resource::<Me>().session;
         *app.world_mut().resource_mut::<crate::world_menu::Open>() =
             crate::world_menu::Open::Menu(
-                hamlet_realm::pick::Thing::Resident(founder),
+                Thing::Resident(founder),
                 bevy::math::Vec2::ZERO,
             );
         bevy_fynix::mount::<crate::theme::HamletTheme>(

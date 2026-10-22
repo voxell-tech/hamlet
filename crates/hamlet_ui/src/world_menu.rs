@@ -126,9 +126,9 @@ pub(super) fn stop(world: &mut World, agent: Entity) {
 /// The place of the pointer in the window.
 fn pointer(world: &mut World) -> Vec2 {
     world
-        .query::<&bevy::window::Window>()
+        .query::<&Window>()
         .iter(world)
-        .find_map(bevy::window::Window::cursor_position)
+        .find_map(Window::cursor_position)
         .unwrap_or_default()
 }
 
@@ -317,7 +317,7 @@ mod tests {
     #[test]
     fn ground_and_town_offer_only_received_deeds() {
         let mut state = realm::state();
-        state.deeds = hamlet_testing::realm::deeds(&["new", "undo"]);
+        state.deeds = realm::deeds(&["new", "undo"]);
         let mut app = app(state.clone());
         app.world_mut().resource_mut::<AskedGround>().0 =
             Some(Vec2::ZERO);
@@ -338,8 +338,7 @@ mod tests {
                 .any(|text| text == "Move home...")
         );
 
-        state.deeds =
-            hamlet_testing::realm::deeds(&["found", "move-hamlet"]);
+        state.deeds = realm::deeds(&["found", "move-hamlet"]);
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
@@ -382,7 +381,7 @@ mod tests {
                 "unsupported: {absent}"
             );
         }
-        state.deeds = hamlet_testing::realm::deeds(&["road"]);
+        state.deeds = realm::deeds(&["road"]);
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
@@ -466,7 +465,7 @@ mod tests {
     fn the_founders_skill_menu_sends_a_received_starter_or_agents_skill()
      {
         let mut state = realm::state();
-        state.deeds = hamlet_testing::realm::deeds(&["give"]);
+        state.deeds = realm::deeds(&["give"]);
         state.starters = vec![protocol::Skill {
             name: "research".into(),
             description: "Find sources".into(),

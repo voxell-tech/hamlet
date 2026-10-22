@@ -286,7 +286,7 @@ fn options(
                 .rules(rules)
                 .tagged(mood)
                 .on_activate(move |world| {
-                    choose(world, card, count, at, then.clone())
+                    choose(world, card, count, at, then.clone());
                 })
                 .boxed()
         })
@@ -362,7 +362,7 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
             row((
                 label(name).size(12.0).wrap(false).tone(Tone::Dim),
                 text_field(typed, move |world, text| {
-                    write(world, card, count, at, text)
+                    write(world, card, count, at, text);
                 })
                 .fills_width()
                 .rules(well)
@@ -379,7 +379,7 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
             .rules(brass)
             .tagged(Mood::Plain)
             .on_activate(move |world| {
-                turn(world, card, count, at + 1)
+                turn(world, card, count, at + 1);
             })
             .boxed(),
         false => marked(Glyph::Check, "SUBMIT")
@@ -423,6 +423,10 @@ pub fn card(card: Entity, asked: Questions) -> AnyView {
     .within(bare());
     // The server checks the answers; its refusal stays until the
     // next.
+    #[expect(
+        clippy::redundant_closure_for_method_calls,
+        reason = "Option::cloned is not general over the lifetime"
+    )]
     let refused = keyed(
         component::<Refused, _>(card, |refused| refused.cloned()),
         |refused| match refused {
@@ -517,10 +521,7 @@ mod tests {
             protocol::ServerMessage::State(state),
         );
         app.update();
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
-            app.world_mut(),
-            in_chat(),
-        );
+        bevy_fynix::mount::<HamletTheme>(app.world_mut(), in_chat());
         app.update();
         let shown = words(&mut app);
         assert!(shown.iter().any(|text| text == "oldest"));
@@ -548,7 +549,7 @@ mod tests {
         app.world_mut()
             .trigger(bevy::input_focus::FocusLost { entity: field });
         app.update();
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
             crate::petition::screen(),
         );

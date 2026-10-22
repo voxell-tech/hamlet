@@ -90,8 +90,6 @@ impl Config {
 }
 
 /// Something that happened that the host may show or act on.
-// Each is moved to the host once, never kept in bulk.
-#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Notice {
     Provider(runtime::ProviderResult),
@@ -173,8 +171,10 @@ pub enum Notice {
 }
 
 /// What a runtime asks of the host for one of its conversations.
-// Each is moved to the host once, never kept in bulk.
-#[allow(clippy::large_enum_variant)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "each is moved to the host once, never kept in bulk"
+)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Call {
     /// Whether a tool call may run, asked before it is kept as begun.
@@ -465,7 +465,7 @@ impl Harnesses {
     pub async fn credentials(
         &mut self,
         store: &Store,
-        credentials: &mut crate::credentials::Credentials,
+        credentials: &mut Credentials,
     ) -> Result<()> {
         let serving = self.serving(store)?;
         for (index, mut answer) in

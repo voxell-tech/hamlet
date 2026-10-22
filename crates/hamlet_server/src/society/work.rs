@@ -180,6 +180,7 @@ impl Work {
     }
 }
 
+#[expect(clippy::print_stderr, reason = "stderr is the server's log")]
 pub(crate) async fn complete(
     service: &mut Service,
     harnesses: &mut Harnesses,

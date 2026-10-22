@@ -4,6 +4,11 @@
 //! `cargo run --example cursor_sheet`
 //! To another file: `cargo run --example cursor_sheet -- <file>`
 
+#![expect(
+    clippy::print_stdout,
+    reason = "it prints where it wrote the sheet"
+)]
+
 use std::path::PathBuf;
 
 use bevy::asset::RenderAssetUsages;

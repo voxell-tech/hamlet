@@ -29,7 +29,7 @@ pub(super) fn command(
 ) -> Confined {
     let mut args = Vec::<String>::new();
     let mut push = |parts: &[&str]| {
-        args.extend(parts.iter().map(|part| part.to_string()));
+        args.extend(parts.iter().map(ToString::to_string));
     };
     push(&["bwrap", "--unshare-all"]);
     if policy.net {
@@ -88,7 +88,7 @@ pub(super) fn command(
     let mut points = above_roots(policy, tmp);
     points.extend(fixed_roots(policy, tmp));
     points.retain(|path| seen.insert(path.clone()));
-    points.sort_by_key(|path| path.len());
+    points.sort_by_key(String::len);
     for path in &points {
         if Path::new(path).exists()
             && writes

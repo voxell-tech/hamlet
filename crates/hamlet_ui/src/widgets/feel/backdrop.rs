@@ -95,7 +95,6 @@ pub(super) fn tint(
 /// Lights a panel's lamp while something waits, turns it up for a
 /// moment as something new comes, and flashes a panel when the agent
 /// it shows changes.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn light(
     time: Res<Time>,
     set: Res<FeelSettings>,

@@ -92,7 +92,6 @@ fn unshared(
 /// place. Both are set in the monospace face, where a star is as wide
 /// as any letter, and the stars lie where the text lies and scroll
 /// with it, so the caret and the selection fall on them.
-#[allow(clippy::type_complexity)]
 fn mask(
     mono: Option<Res<Mono>>,
     fields: Query<(&Children, &ChildOf), With<Secret>>,

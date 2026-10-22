@@ -163,7 +163,7 @@ pub struct Fault {
 
 pub(crate) fn present<'de, D, T>(
     deserializer: D,
-) -> std::result::Result<Option<T>, D::Error>
+) -> Result<Option<T>, D::Error>
 where
     D: serde::Deserializer<'de>,
     T: Deserialize<'de>,

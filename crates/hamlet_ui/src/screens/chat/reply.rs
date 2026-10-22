@@ -265,7 +265,7 @@ fn shown(cx: &Cx, answers: &Answers) -> AnyView {
         .rules(retrace)
         .tagged(Mood::Ink)
         .on_activate(|world| {
-            world.resource_mut::<Replying>().0 = None
+            world.resource_mut::<Replying>().0 = None;
         });
     row((
         frame()

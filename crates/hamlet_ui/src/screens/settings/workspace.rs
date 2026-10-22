@@ -225,7 +225,7 @@ fn remote() -> AnyView {
                 text_field(
                     resource::<Draft, _>(|draft| draft.url.clone()),
                     |world, url| {
-                        world.resource_mut::<Draft>().url = url
+                        world.resource_mut::<Draft>().url = url;
                     },
                 )
                 .rules(well),
@@ -235,7 +235,7 @@ fn remote() -> AnyView {
                 secret_field(
                     resource::<Draft, _>(|draft| draft.token.clone()),
                     |world, token| {
-                        world.resource_mut::<Draft>().token = token
+                        world.resource_mut::<Draft>().token = token;
                     },
                 ),
             ),
@@ -258,7 +258,8 @@ pub(super) fn page() -> impl View {
                         usize::from(draft.remote)
                     }),
                     |world, at| {
-                        world.resource_mut::<Draft>().remote = at == 1
+                        world.resource_mut::<Draft>().remote =
+                            at == 1;
                     },
                 ),
                 note(resource::<Draft, _>(|draft| {

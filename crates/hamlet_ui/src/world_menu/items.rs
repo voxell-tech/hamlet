@@ -119,7 +119,7 @@ fn for_mayor(world: &World, at: Vec2) -> Vec<AnyView> {
             }
         }),
         item("Undo the Last Change".into(), |world| {
-            chat::decree(world, HOME, "/undo".into())
+            chat::decree(world, HOME, "/undo".into());
         }),
     ];
     if let Some(mut mayors) = world
@@ -154,7 +154,7 @@ fn for_resident(
     let name = |agent: Entity| agents::name_of(world, agent);
     let mut items =
         vec![item(format!("Talk to {}", name(agent)), move |w| {
-            talk_to(w, agent)
+            talk_to(w, agent);
         })];
     items.push(new_conversation(agent));
     items.extend(gifts(world, agent, at));
@@ -164,15 +164,15 @@ fn for_resident(
     }));
     items.push(focus(thing));
     items.push(item("Follow".into(), move |w| {
-        focus_on(w, thing, true)
+        focus_on(w, thing, true);
     }));
     if world.get::<Busy>(agent).is_some() {
         items.push(item(format!("Stop {}", name(agent)), move |w| {
-            stop(w, agent)
+            stop(w, agent);
         }));
     }
     items.push(item("Undo the Last Change".into(), move |world| {
-        orders::decree(world, agent, "/undo".into())
+        orders::decree(world, agent, "/undo".into());
     }));
     let Some((_, me)) = resident(world, thing) else {
         return items;
@@ -269,7 +269,7 @@ fn for_common(
         .unwrap_or_default();
     if has(world, "move-hamlet") {
         items.push(item(format!("Move {name}..."), move |w| {
-            orders::carry(w, hamlet)
+            orders::carry(w, hamlet);
         }));
     }
     if !id.is_empty() && id != HOME && has(world, "remove-hamlet") {
@@ -286,11 +286,11 @@ fn for_chief(thing: Thing, chief: Entity) -> Vec<AnyView> {
     let home = Thing::ChiefPlace(chief);
     vec![
         item("Change Your Look".into(), move |world| {
-            select(world, Some(home))
+            select(world, Some(home));
         }),
         focus(thing),
         item("Go to the Hearth".into(), move |w| {
-            focus_on(w, home, false)
+            focus_on(w, home, false);
         }),
         item("Move the Hearth...".into(), crate::chief::carry_home),
     ]
@@ -300,7 +300,7 @@ fn for_library(thing: Thing) -> Vec<AnyView> {
     vec![
         focus(thing),
         item("Move the Library...".into(), |w| {
-            moving::pick_up(w, Ground::Library)
+            moving::pick_up(w, Ground::Library);
         }),
     ]
 }

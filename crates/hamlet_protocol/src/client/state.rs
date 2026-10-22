@@ -44,6 +44,10 @@ pub struct Changes {
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(tag = "type", deny_unknown_fields)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "a wire type; a box would show in every pattern"
+)]
 pub enum Update {
     #[serde(rename = "hamlet")]
     Hamlet { hamlet: Hamlet },

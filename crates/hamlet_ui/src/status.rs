@@ -71,7 +71,7 @@ pub(crate) fn update_status(
         || session.as_ref().is_some_and(|(status, usage)| {
             status.is_changed() || usage.is_changed()
         })
-        || home.as_ref().is_some_and(|spent| spent.is_changed());
+        || home.as_ref().is_some_and(DetectChanges::is_changed);
     if !moved {
         return;
     }
@@ -286,13 +286,13 @@ mod tests {
         ));
         crate::theme::insert_theme(
             app.world_mut(),
-            crate::theme::HamletTheme::designed(),
+            HamletTheme::designed(),
         );
         app.init_resource::<Bar>()
             .init_resource::<Queue>()
-            .init_resource::<crate::links::Aimed>()
+            .init_resource::<Aimed>()
             .add_systems(Update, update_status);
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
             status_bar(),
         );
@@ -351,7 +351,7 @@ mod tests {
         let session = app.world().resource::<Me>().session;
         app.world_mut().entity_mut(session).insert(Usage(usage));
         app.init_resource::<Bar>()
-            .init_resource::<crate::links::Aimed>()
+            .init_resource::<Aimed>()
             .add_plugins(crate::petition::plugin)
             .add_systems(Update, update_status);
         app.update();
@@ -382,7 +382,7 @@ mod tests {
         let mut app = panel_app();
         app.init_resource::<Bar>()
             .init_resource::<Queue>()
-            .init_resource::<crate::links::Aimed>()
+            .init_resource::<Aimed>()
             .add_systems(Update, update_status);
         app.insert_resource(Connection {
             state: State::Connected,

@@ -18,15 +18,15 @@ fn replay(text: &str, mut inspect: impl FnMut(&mut World)) -> App {
         .init_resource::<SeenEvents>()
         .add_observer(
             |_: On<Carried>, mut seen: ResMut<SeenEvents>| {
-                seen.letters += 1
+                seen.letters += 1;
             },
         )
         .add_observer(|_: On<Voted>, mut seen: ResMut<SeenEvents>| {
-            seen.ballots += 1
+            seen.ballots += 1;
         })
         .add_observer(
             |_: On<Consulted>, mut seen: ResMut<SeenEvents>| {
-                seen.library += 1
+                seen.library += 1;
             },
         );
     for line in text.lines() {

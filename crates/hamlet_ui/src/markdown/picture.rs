@@ -146,7 +146,7 @@ fn card(
         _ => {
             let address = address.to_string();
             action(Glyph::Globe, "SHOW PICTURE", move |world| {
-                fetch(world, &address)
+                fetch(world, &address);
             })
         }
     });

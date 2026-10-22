@@ -45,7 +45,7 @@ fn empty_state<R: Resource>(
             column((
                 label(hint).tone(Tone::Dim),
                 action(Glyph::Talk, "OPEN CHAT", |w| {
-                    show_tab(w, "agent")
+                    show_tab(w, "agent");
                 }),
             ))
             .gap(12.0)
@@ -83,7 +83,7 @@ pub(crate) fn skills() -> impl View {
                         world_menu::ask(
                             world,
                             Deed::Unshelve(gone.clone()),
-                        )
+                        );
                     },
                 );
                 card(

@@ -202,6 +202,10 @@ fn a_frozen_clock_shows_the_settled_state() {
 /// --nocapture`.
 #[test]
 #[ignore]
+#[expect(
+    clippy::print_stdout,
+    reason = "it prints its measurements, read with --nocapture"
+)]
 fn cost() {
     const N: usize = 2_000_000;
     let started = Instant::now();

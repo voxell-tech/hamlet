@@ -77,7 +77,6 @@ pub(super) fn hold_ground(
 }
 
 /// Gives every chief the world has not met a place and a mascot.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn settle(
     mut commands: Commands,
     clock: Res<Clock>,

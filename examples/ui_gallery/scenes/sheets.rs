@@ -341,7 +341,6 @@ pub(super) fn hold_message(
 
 /// Keeps every held control in its state, and presses the ones shown
 /// as done when the [`Strike`] comes.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn hold(
     mut commands: Commands,
     scene: Res<Scene>,

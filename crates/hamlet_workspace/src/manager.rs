@@ -803,7 +803,7 @@ impl<A: Actors, R: Router> Manager<A, R> {
         self.workspaces
             .entry(key.to_owned())
             .and_modify(|workspace| {
-                workspace.binding = binding.clone()
+                workspace.binding = binding.clone();
             })
             .or_insert(Workspace { binding, last: now });
         Ok(())
@@ -982,6 +982,10 @@ impl<A: Actors, R: Router> Manager<A, R> {
         }
     }
 
+    #[expect(
+        clippy::print_stderr,
+        reason = "stderr is the manager's log"
+    )]
     async fn suspend(
         &mut self,
         key: &str,
@@ -1049,13 +1053,13 @@ fn settles(purpose: Purpose, reply: &Reply) -> bool {
         Reply::Error {
             uncertain, code, ..
         } => {
-            !uncertain
-                && !(purpose == Purpose::Status
-                    && matches!(
-                        code,
-                        wire::Code::PermissionDenied
-                            | wire::Code::Invalid
-                    ))
+            let rejected = purpose == Purpose::Status
+                && matches!(
+                    code,
+                    wire::Code::PermissionDenied
+                        | wire::Code::Invalid
+                );
+            !uncertain && !rejected
         }
         Reply::Ok { value } => !in_progress(value),
     }

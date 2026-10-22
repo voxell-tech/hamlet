@@ -135,6 +135,10 @@ impl Stage {
 }
 
 impl Drop for Stage {
+    #[expect(
+        clippy::print_stderr,
+        reason = "stderr is the server's log"
+    )]
     fn drop(&mut self) {
         if clear(&self.dir)
             .and_then(|()| {

@@ -410,7 +410,7 @@ impl Service {
 pub fn usage(
     db: &Connection,
     binding: BindingId,
-) -> Result<hamlet_protocol::client::UsageView> {
+) -> Result<UsageView> {
     usage_of(db, &[binding])
 }
 

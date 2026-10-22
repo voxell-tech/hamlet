@@ -133,7 +133,7 @@ async fn move_houses(
                         "{}/{}/{path}",
                         agent.hamlet, agent.number
                     )
-                }))
+                }));
             }
             Err(error) => {
                 let text = format!(

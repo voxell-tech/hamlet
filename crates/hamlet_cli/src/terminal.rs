@@ -242,7 +242,7 @@ async fn edit(
         client.request(&id, ClientMessage::Edit(message)).await?,
     )? {
         ServerMessage::Reply(reply) => {
-            eprintln!("  ({})", reply.text)
+            eprintln!("  ({})", reply.text);
         }
         _ => bail!("The server did not answer the edit."),
     }
@@ -447,7 +447,7 @@ async fn login(
             }
             LoginStep::Code { code } => eprintln!("Code: {code}"),
             LoginStep::Progress { progress } => {
-                eprintln!("{progress}")
+                eprintln!("{progress}");
             }
             LoginStep::Failed { failed } => bail!("{failed}"),
             LoginStep::Done { done } => {

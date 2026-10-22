@@ -119,7 +119,7 @@ pub(crate) fn screen() -> impl View {
                         note(format!("Recovery copies:\n{copies}")),
                         action(Glyph::Back, "KEEP OPEN", |world| {
                             world.resource_mut::<Saves>().closing =
-                                false
+                                false;
                         }),
                         bad_action(
                             Glyph::Power,

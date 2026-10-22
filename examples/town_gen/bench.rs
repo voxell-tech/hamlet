@@ -1,6 +1,11 @@
 //! Frame times for worlds of several sizes and for the lighting
 //! effects.
 
+#![expect(
+    clippy::print_stdout,
+    reason = "it prints its measurements"
+)]
+
 use std::time::{Duration, Instant};
 
 use bevy::prelude::*;

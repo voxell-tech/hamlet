@@ -50,7 +50,7 @@ Then read the page for the part you are about to touch.
 | Page | What it sets |
 |---|---|
 | [`bevy.md`](bevy.md) | What Bevy 0.19 offers, which tool fits which job, and the habits that keep a frame cheap |
-| [`code_convention.md`](code_convention.md) | How code is written here: ownership, plugins, tuning values, shaders |
+| [`code_convention.md`](code_convention.md) | How code is written here: the guidelines base, names, errors, ownership, lints, tests, plugins, tuning values, shaders |
 | [`comment_convention.md`](comment_convention.md) | How comments are written here |
 
 ## Adding a page

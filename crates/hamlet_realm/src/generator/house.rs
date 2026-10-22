@@ -648,14 +648,21 @@ fn mast(mb: &mut Mb, foot: Vec3, pal: &Palette) -> Vec3 {
     top - Vec3::Y * 0.08
 }
 
+/// Whether a house flies the leader's banner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Banner {
+    Flown,
+    None,
+}
+
 /// The house of `agent`, with its work yard. `wings` is the number
-/// of houses merged into it; `leader` adds the banner.
+/// of houses merged into it.
 pub fn house(
     land: &Land,
     agent: AgentId,
     style: &TownStyle,
     hall: bool,
-    leader: bool,
+    banner: Banner,
     wings: u8,
     yard: &Yard,
 ) -> HouseMesh {
@@ -992,7 +999,7 @@ pub fn house(
         tower(&mut b, &mut panes, &mut rng, &look, style, pal);
     }
     let mut flies = None;
-    if leader {
+    if banner == Banner::Flown {
         let foot = if hall {
             Vec3::new(-hx - 0.2, top + 3.0, -hz + 0.2)
         } else {

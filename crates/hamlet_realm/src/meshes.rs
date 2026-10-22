@@ -102,8 +102,7 @@ pub fn hump(x: f32, from: f32, to: f32) -> f32 {
     if x <= from || x >= to {
         return 0.0;
     }
-    0.5 - 0.5
-        * (std::f32::consts::TAU * (x - from) / (to - from)).cos()
+    0.5 - 0.5 * (TAU * (x - from) / (to - from)).cos()
 }
 
 pub fn smoothstep(a: f32, b: f32, x: f32) -> f32 {

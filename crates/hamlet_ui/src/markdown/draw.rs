@@ -43,8 +43,6 @@ fn words<'a>(
         Entry::Assistant(text) | Entry::Agent { text, .. } => {
             Some(text)
         }
-        // An agent's reply, carried back to whoever wrote it.
-        Entry::User { .. } => None,
         _ => None,
     }
 }

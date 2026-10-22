@@ -28,7 +28,6 @@ pub(super) fn lit(colour: Vec3, strength: f32) -> StandardMaterial {
 /// Builds the meshes that follow a chief's look, when it is new and
 /// when it changes: the mascot, and the roof and the letterbox at
 /// home.
-#[allow(clippy::type_complexity)]
 pub(super) fn dress(
     mut commands: Commands,
     land: Res<Land>,

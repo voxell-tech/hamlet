@@ -45,7 +45,7 @@ pub(crate) fn load(root: &Path) -> (Vec<Manifest>, Vec<String>) {
     };
     let mut entries =
         entries.filter_map(Result::ok).collect::<Vec<_>>();
-    entries.sort_by_key(|entry| entry.file_name());
+    entries.sort_by_key(std::fs::DirEntry::file_name);
     let reserved = crate::tools::specs()
         .into_iter()
         .chain(crate::harness::tools::specs())
@@ -86,7 +86,7 @@ pub(crate) fn load(root: &Path) -> (Vec<Manifest>, Vec<String>) {
         match loaded {
             Ok(manifest) => tools.push(manifest),
             Err(words) => {
-                faults.push(format!("{}: {words}", path.display()))
+                faults.push(format!("{}: {words}", path.display()));
             }
         }
     }

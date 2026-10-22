@@ -99,7 +99,7 @@ fn block(lines: &[Line]) -> AnyView {
         let text = format!("{lead}{}{end}", line.text);
         match runs.last_mut() {
             Some((mark, run)) if *mark == line.mark => {
-                run.push_str(&text)
+                run.push_str(&text);
             }
             _ => runs.push((line.mark.clone(), text)),
         }

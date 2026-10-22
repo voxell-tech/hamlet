@@ -43,7 +43,7 @@ fn shot_list(sets: &[sets::Set]) -> Vec<Shot> {
             demo,
             t,
             set: None,
-        })
+        });
     };
     for night in [false, true] {
         let when = if night { "night" } else { "day" };

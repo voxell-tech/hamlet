@@ -298,6 +298,10 @@ mod tests {
     /// --nocapture`.
     #[test]
     #[ignore]
+    #[expect(
+        clippy::print_stdout,
+        reason = "it prints its measurements, read with --nocapture"
+    )]
     fn cost() {
         let land =
             Land::new(7, GenSettings::default(), Palette::default());
@@ -356,7 +360,7 @@ mod tests {
             AgentId(0),
             &style,
             true,
-            true,
+            house::Banner::Flown,
             0,
             &yard,
         );

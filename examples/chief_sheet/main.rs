@@ -4,9 +4,6 @@
 //! Every still: `cargo run --example chief_sheet`
 //! Into a folder: `cargo run --example chief_sheet -- --out <dir>`
 
-// Bevy systems take many parameters and long query types by nature.
-#![allow(clippy::too_many_arguments, clippy::type_complexity)]
-
 #[path = "../common/offscreen.rs"]
 mod offscreen;
 
@@ -477,7 +474,7 @@ fn aim(
     let at = match on {
         On::Library => library.map(|at| at.translation),
         On::Librarian => {
-            librarians.iter().next().map(|at| at.translation())
+            librarians.iter().next().map(GlobalTransform::translation)
         }
         On::Hearth => Some(place.translation),
         On::Mascot => {

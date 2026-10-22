@@ -11,6 +11,8 @@
 //! the scene are written at the level they play at with the default
 //! settings, so the files can be compared by ear as they will sound.
 
+#![expect(clippy::print_stdout, reason = "the sheet is printed")]
+
 use std::path::{Path, PathBuf};
 
 use hamlet_realm::DayPart;

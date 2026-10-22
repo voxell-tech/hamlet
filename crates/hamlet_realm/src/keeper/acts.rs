@@ -221,6 +221,10 @@ impl Act {
 
     /// Seconds a motion takes when it plays once. None for one that
     /// repeats.
+    #[expect(
+        clippy::match_same_arms,
+        reason = "each motion's length is its own"
+    )]
     pub fn length(self) -> Option<f32> {
         match self {
             Self::HandOver => Some(1.9),

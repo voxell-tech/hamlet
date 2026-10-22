@@ -85,7 +85,11 @@ fn build_house(land: &Land, recipe: HouseRecipe) -> HouseBuilt {
         recipe.agent,
         &TownStyle::of(land, recipe.site),
         recipe.hall,
-        recipe.leader,
+        if recipe.leader {
+            house::Banner::Flown
+        } else {
+            house::Banner::None
+        },
         recipe.wings,
         &recipe.yard,
     );
