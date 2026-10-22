@@ -1422,7 +1422,8 @@ view. Where its camera is stays across a reload. Its `steps.toml`
 counts the scene and its decal, and clicks a shape and a cube.
 
 `plugins/realm` (`hamlet.realm`, asking `agents.read`, `agents.chief`,
-`render.scene` and `render.shader`, and needing `hamlet.inspector`,
+`render.scene`, `render.shader` and `assets.read` of `looks.worn` and
+`looks.file`, and needing `hamlet.inspector`,
 whose `carry` it hears and whose panel it brings forward) is the
 realm, drawn in its panel,
 Realm (`hamlet.realm/realm`, with the globe icon), from the agents
@@ -1433,8 +1434,9 @@ between agents with their bridges and lit grooves, and the chief's
 Hearth with its mascot, which goes by a Wickstep to the agent the
 chief talks to, and the Agent Bazaar beside it. The sky follows the
 chief's clock (`Focus::offset`). Its tuning is `assets/world.toml`,
-`assets/palette.toml`, and its own `plugins/realm/assets/bazaar.toml`
-and `diorama.toml`, built in. It exports the service `diorama`.
+`assets/palette.toml`, and its own `plugins/realm/assets/bazaar.toml`,
+`looks.toml` and `diorama.toml`, built in. It exports the service
+`diorama`.
 - **The source** is grouped by what it is: `world/` the land and its
   look, `places/` what stands on it, `folk/` the robots and the chief,
   `view/` the camera, the pointer and the signs, and `build/` the
@@ -1495,6 +1497,17 @@ and `diorama.toml`, built in. It exports the service `diorama`.
   turn and wave. It hears `traded` of `hamlet.bazaar`, of the same
   payload: the stall's keeper and the merchant cheer, its light flares
   and embers rise over its counter.
+- **Looks** ([`looks.md`](looks.md)). Agents and hamlets wear what the
+  bazaar keeps in the store: `looks.worn`, held so each change is told,
+  and the `looks.file` parts of each file it names, read a few requests
+  a call, each file once (`wardrobe/`). A robot wears a skin over its
+  materials, a `.glb` read in the plugin in place of its parts, and a
+  clip on top of its motion, now and then and at once on the bazaar's
+  `emote` (`folk/keeper/wear.rs`); a town's houses are built anew in a
+  skin's palette, a mesh in place of their walls, and its emote's
+  moving parts are copies moved on `tick` while it is near
+  (`places/town/attire.rs`). With nothing worn, or no plugin making the
+  types, the realm is drawn as ever.
 - **Moving a town.** It hears the Inspector's `carry`: the town is in
   hand, its footprint follows the pointer over the ground, gold where
   it fits and red where it does not, a click sends `/move-hamlet` to
