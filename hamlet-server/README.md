@@ -4,24 +4,27 @@ The marketplace behind Hamlet's Agent Bazaar: chiefs sign in with GitHub,
 sell agents, hamlets and plugins, and buy them through Stripe.
 
 - The HTTP API is specified in [`docs/api.md`](docs/api.md). That file is the
-  contract with the Hamlet client.
+  contract with the Hamlet client, with [`docs/assets.md`](docs/assets.md)
+  for the official assets.
 - Express 5 running on Cloudflare Workers, D1 (SQLite) through Prisma for
   data, R2 for package and cover files, Stripe Connect for payments.
 
 ## Layout
 
-| Path                              | What                                                                                                    |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `src/app.ts`                      | `createApp(services)`: the whole API, with no global state                                              |
-| `src/index.ts`                    | The Worker entry: builds the services from the environment                                              |
-| `src/routes/`                     | One file per area: auth, me, browse, sell, uploads, download, purchases, reviews, webhook, admin, pages |
-| `src/package/`                    | Package validation (`schema.ts`), meta derivation (`meta.ts`)                                           |
-| `src/money.ts`                    | Prices and the platform fee                                                                             |
-| `src/stripe.ts`, `src/github.ts`  | The real Stripe and GitHub clients                                                                      |
-| `prisma/schema.prisma`            | The database schema, source of truth                                                                    |
-| `migrations/`, `migrations-down/` | Each migration and its undo                                                                             |
-| `scripts/db.ts`                   | The `db:*` commands                                                                                     |
-| `test/`                           | Vitest tests, run in Node against Miniflare's local D1 and R2                                           |
+| Path                                           | What                                                                                                            |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `src/app.ts`                                   | `createApp(services)`: the whole API, with no global state                                                      |
+| `src/index.ts`                                 | The Worker entry: builds the services from the environment                                                      |
+| `src/routes/`                                  | One file per area: auth, me, browse, sell, uploads, download, purchases, reviews, assets, webhook, admin, pages |
+| `src/package/`                                 | Package validation (`schema.ts`), meta derivation (`meta.ts`)                                                   |
+| `src/assets.ts`, `src/assetKeys.ts`            | Official assets: their JSON and ownership, and their R2 keys                                                    |
+| `src/money.ts`                                 | Prices and the platform fee                                                                                     |
+| `src/stripe.ts`, `src/github.ts`               | The real Stripe and GitHub clients                                                                              |
+| `prisma/schema.prisma`                         | The database schema, source of truth                                                                            |
+| `migrations/`, `migrations-down/`              | Each migration and its undo: `0001_init`, `0002_add_assets`                                                     |
+| `scripts/db.ts`                                | The `db:*` commands                                                                                             |
+| `scripts/assets.ts`, `scripts/assetCatalog.ts` | `assets:publish`, and its catalog checks and SQL                                                                |
+| `test/`                                        | Vitest tests, run in Node against Miniflare's local D1 and R2                                                   |
 
 ## Setup guide
 
@@ -176,6 +179,31 @@ no keychain.
 
 To check the bundle without deploying: `pnpm bundle` (a `wrangler deploy
 --dry-run` into `dist/`).
+
+## Official assets
+
+The emotes, skins and meshes the Hamlet team sells at the Asset stall
+([`docs/assets.md`](docs/assets.md)). They are not listings: the platform
+sells them on its own Stripe account, and they are published from the
+command line, not through the API.
+
+```sh
+# from the repository root: bake the catalog, files and preview frames
+cargo run -p hamlet_assets_src --release -- --out hamlet-server/assets-src/out
+# then, in hamlet-server
+pnpm assets:publish --local     # into .wrangler/state, for pnpm dev
+pnpm assets:publish --remote    # into the real R2 bucket and D1
+```
+
+`assets:publish` reads `assets-src/out/` (another folder with `--dir`,
+relative to where pnpm runs), checks `catalog.json`, uploads every file and
+preview to the R2 bucket of `wrangler.jsonc`, and upserts each asset in D1
+as listed. An asset missing from the catalog is unlisted, never deleted, so
+its owners keep it. Running it again changes nothing. Preview frames are
+public; an asset's file is only ever sent to a signed-in owner.
+
+Paid assets use the same webhook destination (events from **your account**)
+as listings; no Connect account is involved.
 
 ## Migrations
 

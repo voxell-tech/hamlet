@@ -26,10 +26,29 @@ export interface CheckoutRequest {
   cancelUrl: string;
 }
 
-/** A verified Stripe webhook event, reduced to what the server acts on. */
+/** An official asset, paid to the platform's own account: no Connect. */
+export interface PlatformCheckoutRequest {
+  assetPurchaseId: string;
+  assetId: string;
+  buyerId: string;
+  title: string;
+  amountCents: number;
+  successUrl: string;
+  cancelUrl: string;
+}
+
+/**
+ * A verified Stripe webhook event, reduced to what the server acts on.
+ * A checkout carries `assetPurchaseId` for an official asset and
+ * `purchaseId` for a listing.
+ */
 export type PaymentEvent =
-  | { kind: "checkout_paid"; sessionId: string; purchaseId: string | null }
-  | { kind: "checkout_failed"; sessionId: string; purchaseId: string | null }
+  | {
+      kind: "checkout_paid" | "checkout_failed";
+      sessionId: string;
+      purchaseId: string | null;
+      assetPurchaseId: string | null;
+    }
   | { kind: "account_updated"; accountId: string; chargesEnabled: boolean }
   | { kind: "ignored"; type: string };
 
@@ -43,6 +62,9 @@ export interface Payments {
   }): Promise<{ url: string }>;
   retrieveAccount(accountId: string): Promise<{ id: string; chargesEnabled: boolean }>;
   createCheckoutSession(input: CheckoutRequest): Promise<{ id: string; url: string }>;
+  createPlatformCheckoutSession(
+    input: PlatformCheckoutRequest,
+  ): Promise<{ id: string; url: string }>;
   /** Throws when the signature does not match the body. */
   verifyWebhookEvent(rawBody: Uint8Array, signature: string): Promise<PaymentEvent>;
 }

@@ -81,8 +81,14 @@ describe("adaptForD1", () => {
   it("sets aside every table below a rebuilt root, nearest first", async () => {
     const up = adaptForD1(fixture("redefine_user_up.sql"), tablesAfter(initialSql()));
     const backups = [...up.matchAll(/CREATE TABLE "_d1_backup_(\w+)"/g)].map((m) => m[1]);
-    expect(backups.slice(0, 4).sort()).toEqual(["Listing", "Purchase", "Review", "Session"]);
-    expect(backups[4]).toBe("Version");
+    expect(backups.slice(0, 5).sort()).toEqual([
+      "AssetPurchase",
+      "Listing",
+      "Purchase",
+      "Review",
+      "Session",
+    ]);
+    expect(backups[5]).toBe("Version");
     await run(d1.db, up);
     expect(await counts(d1.db)).toEqual(SEEDED);
   });

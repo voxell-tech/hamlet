@@ -1,6 +1,11 @@
 import Stripe from "stripe";
 import { HttpError } from "./errors.ts";
-import type { CheckoutRequest, PaymentEvent, Payments } from "./services.ts";
+import type {
+  CheckoutRequest,
+  PaymentEvent,
+  Payments,
+  PlatformCheckoutRequest,
+} from "./services.ts";
 import { CURRENCY } from "./money.ts";
 
 export interface StripeSecrets {
@@ -53,6 +58,14 @@ export function createStripePayments(secrets: StripeSecrets): Payments {
       return { id: session.id, url: session.url };
     },
 
+    async createPlatformCheckoutSession(request) {
+      const session = await stripe().checkout.sessions.create(platformCheckoutParams(request), {
+        idempotencyKey: request.assetPurchaseId,
+      });
+      if (!session.url) throw new Error("Stripe returned a checkout session without a url");
+      return { id: session.id, url: session.url };
+    },
+
     verifyWebhookEvent: verify,
   };
 }
@@ -81,6 +94,35 @@ export function checkoutParams(request: CheckoutRequest): Stripe.Checkout.Sessio
       metadata,
     },
     client_reference_id: request.purchaseId,
+    metadata,
+    success_url: request.successUrl,
+    cancel_url: request.cancelUrl,
+  };
+}
+
+/** Like `checkoutParams`, but the whole amount stays with the platform. */
+export function platformCheckoutParams(
+  request: PlatformCheckoutRequest,
+): Stripe.Checkout.SessionCreateParams {
+  const metadata = {
+    assetPurchaseId: request.assetPurchaseId,
+    assetId: request.assetId,
+    buyerId: request.buyerId,
+  };
+  return {
+    mode: "payment",
+    line_items: [
+      {
+        quantity: 1,
+        price_data: {
+          currency: CURRENCY,
+          unit_amount: request.amountCents,
+          product_data: { name: request.title },
+        },
+      },
+    ],
+    payment_intent_data: { metadata },
+    client_reference_id: request.assetPurchaseId,
     metadata,
     success_url: request.successUrl,
     cancel_url: request.cancelUrl,
@@ -148,7 +190,12 @@ function checkoutEvent(
   kind: "checkout_paid" | "checkout_failed",
   session: Stripe.Checkout.Session,
 ): PaymentEvent {
-  return { kind, sessionId: session.id, purchaseId: session.metadata?.purchaseId ?? null };
+  return {
+    kind,
+    sessionId: session.id,
+    purchaseId: session.metadata?.purchaseId ?? null,
+    assetPurchaseId: session.metadata?.assetPurchaseId ?? null,
+  };
 }
 
 function missingSecret(name: string): HttpError {

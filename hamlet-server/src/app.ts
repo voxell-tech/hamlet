@@ -3,6 +3,7 @@ import { authenticate, methodOverride } from "./auth.ts";
 import { jsonBody } from "./body.ts";
 import { errorHandler, notFoundHandler } from "./errors.ts";
 import { adminRoutes } from "./routes/admin.ts";
+import { assetRoutes } from "./routes/assets.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { browseRoutes } from "./routes/browse.ts";
 import { downloadRoutes } from "./routes/download.ts";
@@ -40,6 +41,7 @@ export function createApp(services: Services): Express {
   app.use("/v1/listings", downloadRoutes(services));
   app.use("/v1/listings", reviewRoutes(services));
   app.use("/v1", purchaseRoutes(services));
+  app.use("/v1", assetRoutes(services));
   app.use("/v1/admin", adminRoutes(services));
 
   app.use(notFoundHandler);

@@ -1,0 +1,38 @@
+[
+  {
+    "id": "agent-skin-sakura",
+    "target": "agent",
+    "category": "skin",
+    "title": "Sakura",
+    "summary": "Soft cherry-blossom pinks for your agent.",
+    "priceCents": 99,
+    "version": "1.0.0",
+    "file": "agent-skin-sakura.json",
+    "contentType": "application/json",
+    "frames": 2
+  },
+  {
+    "id": "hamlet-mesh-well",
+    "target": "hamlet",
+    "category": "mesh",
+    "title": "Old Well",
+    "summary": "A stone well for the square.",
+    "priceCents": 0,
+    "version": "1.0.0",
+    "file": "files/hamlet-mesh-well.glb",
+    "contentType": "model/gltf-binary",
+    "frames": 1
+  },
+  {
+    "id": "agent-emote-wave",
+    "target": "agent",
+    "category": "emote",
+    "title": "Wave",
+    "summary": "A friendly wave.",
+    "priceCents": 0,
+    "version": "1.0.0",
+    "file": "agent-emote-wave.json",
+    "contentType": "application/json",
+    "frames": 0
+  }
+]

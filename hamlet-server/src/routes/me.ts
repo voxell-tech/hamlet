@@ -1,5 +1,6 @@
 import { Router } from "express";
 import type { PrismaClient, User } from "../generated/prisma/client.ts";
+import { ASSET_ORDER, assetJson } from "../assets.ts";
 import { currentUser, requireAuth } from "../auth.ts";
 import { LISTING_INCLUDE } from "../listings.ts";
 import { ensureStripeAccount, refreshPayouts } from "../payouts.ts";
@@ -37,6 +38,15 @@ export function meRoutes(services: Services): Router {
 
   router.get("/library", async (_req, res) => {
     res.json({ items: await library(services.prisma, currentUser(res)) });
+  });
+
+  // Owned assets, listed or not.
+  router.get("/assets", async (_req, res) => {
+    const assets = await services.prisma.asset.findMany({
+      where: { purchases: { some: { buyerId: currentUser(res).id, status: "paid" } } },
+      orderBy: ASSET_ORDER,
+    });
+    res.json({ items: assets.map((asset) => assetJson(asset, true)) });
   });
 
   return router;

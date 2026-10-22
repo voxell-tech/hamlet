@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createGitHub } from "../src/github.ts";
-import { checkoutParams, toPaymentEvent } from "../src/stripe.ts";
+import { checkoutParams, platformCheckoutParams, toPaymentEvent } from "../src/stripe.ts";
 
 type Call = { url: string; init: RequestInit | undefined };
 
@@ -107,6 +107,33 @@ describe("Stripe requests", () => {
     });
   });
 
+  it("builds an asset's Checkout Session on the platform's own account", () => {
+    const params = platformCheckoutParams({
+      assetPurchaseId: "ap_1",
+      assetId: "agent-skin-sakura",
+      buyerId: "u_1",
+      title: "Sakura",
+      amountCents: 99,
+      successUrl: "https://bazaar/checkout/success",
+      cancelUrl: "https://bazaar/checkout/cancel",
+    });
+    expect(params).toMatchObject({
+      mode: "payment",
+      line_items: [
+        {
+          quantity: 1,
+          price_data: { currency: "usd", unit_amount: 99, product_data: { name: "Sakura" } },
+        },
+      ],
+      metadata: { assetPurchaseId: "ap_1", assetId: "agent-skin-sakura" },
+      success_url: "https://bazaar/checkout/success",
+      cancel_url: "https://bazaar/checkout/cancel",
+    });
+    expect(params.payment_intent_data).not.toHaveProperty("transfer_data");
+    expect(params.payment_intent_data).not.toHaveProperty("application_fee_amount");
+    expect(params.metadata).not.toHaveProperty("purchaseId");
+  });
+
   it("reduces Stripe events to what the server acts on", () => {
     const session = (status: string) => ({
       id: "cs_1",
@@ -119,6 +146,18 @@ describe("Stripe requests", () => {
       kind: "checkout_paid",
       sessionId: "cs_1",
       purchaseId: "p_1",
+      assetPurchaseId: null,
+    });
+    expect(
+      event("checkout.session.async_payment_succeeded", {
+        id: "cs_2",
+        metadata: { assetPurchaseId: "ap_1" },
+      }),
+    ).toEqual({
+      kind: "checkout_paid",
+      sessionId: "cs_2",
+      purchaseId: null,
+      assetPurchaseId: "ap_1",
     });
     expect(event("checkout.session.completed", session("unpaid")).kind).toBe("ignored");
     expect(event("checkout.session.expired", session("unpaid")).kind).toBe("checkout_failed");

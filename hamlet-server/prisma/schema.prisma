@@ -12,20 +12,21 @@ datasource db {
 }
 
 model User {
-  id              String     @id
+  id              String          @id
   // A string, because GitHub ids may outgrow a 32 bit Int.
-  githubId        String     @unique
+  githubId        String          @unique
   login           String
   name            String
   avatarUrl       String
-  stripeAccountId String?    @unique
-  payoutsEnabled  Boolean    @default(false)
+  stripeAccountId String?         @unique
+  payoutsEnabled  Boolean         @default(false)
   createdAt       DateTime
   updatedAt       DateTime
   sessions        Session[]
   listings        Listing[]
   purchases       Purchase[]
   reviews         Review[]
+  assetPurchases  AssetPurchase[]
 
   @@index([login])
 }
@@ -124,4 +125,44 @@ model Review {
 
   @@unique([listingId, userId])
   @@index([listingId, createdAt])
+}
+
+// An official asset sold by the platform itself; see docs/assets.md. Rows
+// are written by `pnpm assets:publish`, never through the API.
+model Asset {
+  // A stable slug, e.g. agent-skin-sakura.
+  id          String          @id
+  target      String
+  category    String
+  title       String
+  summary     String
+  priceCents  Int
+  version     String
+  fileKey     String
+  contentType String
+  frames      Int
+  // listed or unlisted; an asset is never deleted, so owners keep it.
+  status      String
+  createdAt   DateTime
+  updatedAt   DateTime
+  purchases   AssetPurchase[]
+
+  @@index([status, target, category])
+}
+
+model AssetPurchase {
+  id              String    @id
+  assetId         String
+  asset           Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  buyerId         String
+  buyer           User      @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  status          String
+  amountCents     Int
+  stripeSessionId String?   @unique
+  paidAt          DateTime?
+  createdAt       DateTime
+  updatedAt       DateTime
+
+  @@index([assetId, buyerId, status])
+  @@index([buyerId, status])
 }
