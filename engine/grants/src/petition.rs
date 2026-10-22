@@ -126,6 +126,8 @@ struct Row {
     caption: String,
     title: String,
     question: Question,
+    /// The target of each of the question's asks, as shown.
+    shown: Vec<String>,
 }
 
 /// The sections plugins added to the Petitions panel that hold
@@ -450,6 +452,14 @@ fn follow(
                     format!("{} wants to use:", info.name),
                 ),
             };
+            let asks = match question {
+                Question::Install { asks, .. } => asks.as_slice(),
+                Question::Use(ask) => std::slice::from_ref(ask),
+            };
+            let shown = asks
+                .iter()
+                .map(|ask| info.shown(ask.capability, &ask.target))
+                .collect();
             Some(Row {
                 petition,
                 caption: format!(
@@ -458,6 +468,7 @@ fn follow(
                 ),
                 title,
                 question: question.clone(),
+                shown,
             })
         })
         .collect::<Vec<_>>();
@@ -636,14 +647,16 @@ fn row_view(row_of: &Row) -> AnyView {
             let asks = asks
                 .iter()
                 .zip(chosen)
+                .zip(&row_of.shown)
                 .enumerate()
-                .map(|(at, (ask, answer))| {
+                .map(|(at, ((ask, answer), shown))| {
                     let picked = Answer::ALL
                         .iter()
                         .position(|a| a == answer)
                         .unwrap_or(1);
                     ask_view(
                         ask,
+                        shown,
                         choices(
                             Answer::ALL
                                 .map(|answer| {
@@ -708,7 +721,12 @@ fn row_view(row_of: &Row) -> AnyView {
                     .boxed()
                 })
                 .collect::<Vec<_>>();
-            (vec![ask_view(ask, frame().boxed())], buttons(answers))
+            let shown =
+                row_of.shown.first().map_or("", String::as_str);
+            (
+                vec![ask_view(ask, shown, frame().boxed())],
+                buttons(answers),
+            )
         }
     };
     AnyView::new(move |cx: &mut Cx| {
@@ -723,10 +741,11 @@ fn row_view(row_of: &Row) -> AnyView {
     })
 }
 
-/// An ask, its reason in the plugin's words, and `answers` under it.
-fn ask_view(ask: &Ask, answers: AnyView) -> AnyView {
+/// An ask, its target as `shown`, its reason in the plugin's words,
+/// and `answers` under it.
+fn ask_view(ask: &Ask, shown: &str, answers: AnyView) -> AnyView {
     let (what, why) = (
-        format!("{} {}", ask.capability.name(), ask.target),
+        format!("{} {shown}", ask.capability.name()),
         ask.reason.clone(),
     );
     AnyView::new(move |cx: &mut Cx| {

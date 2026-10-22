@@ -222,8 +222,13 @@ fn swap(
                 continue;
             }
         };
-        let reloaded =
-            instance.reload(&host.0, &linked, &caps, &mut spending);
+        let reloaded = instance.reload(
+            &host.0,
+            &linked,
+            &caps,
+            &info.env,
+            &mut spending,
+        );
         instance.pass_logs(info, &mut spending, &budgets, &mut log);
         instance.pass_requests(plugin, 0, &mut asked);
         match reloaded {
@@ -283,18 +288,20 @@ fn swap(
 impl Instance {
     /// The plugin running here moved to its new version `linked`:
     /// this version's state is saved, and the new one
-    /// instantiated, given the state and asked what it adds.
+    /// instantiated with the environment `env`, given the state and
+    /// asked what it adds.
     pub(crate) fn reload(
         &mut self,
         engine: &Engine,
         linked: &Linked,
         caps: &Caps,
+        env: &[(String, String)],
         spending: &mut Spending,
     ) -> Result<(Instance, Vec<Contribution>), Failed> {
         let (state, spent) = self.save(caps);
         spending.charge(spent, false);
         let state = state.map_err(Failed::Old)?;
-        let mut fresh = Instance::new(engine, linked, caps)
+        let mut fresh = Instance::new(engine, linked, caps, env)
             .map_err(Failed::New)?;
         fresh.follow(self);
         let (restored, spent) = fresh.restore(caps, &state);

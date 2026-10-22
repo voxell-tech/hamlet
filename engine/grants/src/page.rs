@@ -65,7 +65,9 @@ struct Line {
     name: String,
     allowed: bool,
     bundled: bool,
-    answers: Vec<(Capability, String, Answer)>,
+    /// Each answer: its capability, its target and the target as
+    /// shown.
+    answers: Vec<(Capability, String, String, Answer)>,
 }
 
 impl Permissions {
@@ -111,7 +113,7 @@ impl Said {
                     format!(
                         "{} {}",
                         ask.capability.name(),
-                        ask.target
+                        info.shown(ask.capability, &ask.target)
                     ),
                     ask.reason.clone(),
                     answer,
@@ -290,9 +292,9 @@ fn by_plugin(plugins: &[Line]) -> AnyView {
             let answers = line
                 .answers
                 .iter()
-                .map(|(capability, target, answer)| {
+                .map(|(capability, target, shown, answer)| {
                     answer_view(
-                        format!("{} {target}", capability.name()),
+                        format!("{} {shown}", capability.name()),
                         line,
                         *capability,
                         target,
@@ -330,9 +332,9 @@ fn by_capability(plugins: &[Line]) -> AnyView {
                         .filter(move |(asked, ..)| {
                             *asked == capability
                         })
-                        .map(move |(_, target, answer)| {
+                        .map(move |(_, target, shown, answer)| {
                             answer_view(
-                                format!("{} {target}", line.name),
+                                format!("{} {shown}", line.name),
                                 line,
                                 capability,
                                 target,
@@ -410,28 +412,34 @@ fn follow(
             !record.bundled
                 || plugins.iter().any(|info| info.id == **id)
         })
-        .map(|(id, record)| Line {
-            id: id.clone(),
-            name: plugins
-                .iter()
-                .find(|info| info.id == *id)
-                .map_or_else(
+        .map(|(id, record)| {
+            let info = plugins.iter().find(|info| info.id == *id);
+            Line {
+                id: id.clone(),
+                name: info.map_or_else(
                     || id.to_string(),
                     |info| info.name.clone(),
                 ),
-            allowed: record.allowed,
-            bundled: record.bundled,
-            answers: record
-                .answers
-                .iter()
-                .map(|answered| {
-                    (
-                        answered.capability,
-                        answered.target.clone(),
-                        answered.answer,
-                    )
-                })
-                .collect(),
+                allowed: record.allowed,
+                bundled: record.bundled,
+                answers: record
+                    .answers
+                    .iter()
+                    .map(|answered| {
+                        let (capability, target) =
+                            (answered.capability, &answered.target);
+                        (
+                            capability,
+                            target.clone(),
+                            info.map_or_else(
+                                || target.clone(),
+                                |info| info.shown(capability, target),
+                            ),
+                            answered.answer,
+                        )
+                    })
+                    .collect(),
+            }
         })
         .collect::<Vec<_>>();
     if shown.plugins != lines {

@@ -21,7 +21,7 @@ fn entities_are_held_to_their_capability_and_budgets() {
         &budgets,
         &WasmTuning::designed(),
     );
-    let mut state = State::new(&caps);
+    let mut state = State::new(&caps, &[]);
     let make = |state: &mut State, parent: Option<u32>| {
         let parent = parent.map(Resource::new_borrow);
         HostEntity::make(state, parent, 0).expect("no trap")
@@ -57,7 +57,7 @@ fn a_dropped_mesh_is_counted_while_an_entity_draws_it() {
         &Budgets::designed(),
         &WasmTuning::designed(),
     );
-    let mut state = State::new(&caps);
+    let mut state = State::new(&caps, &[]);
     state.scene.powers = Powers::SCENE;
     let cube = |state: &mut State| {
         HostMesh::shape(state, Shape::Cuboid((1.0, 1.0, 1.0)))
@@ -110,7 +110,7 @@ fn a_decal_is_laid_only_with_a_decals_material() {
         &Budgets::designed(),
         &WasmTuning::designed(),
     );
-    let mut state = State::new(&caps);
+    let mut state = State::new(&caps, &[]);
     state.scene.powers = Powers::SCENE;
     let decal = Decal {
         base_color: (1.0, 1.0, 1.0, 1.0),

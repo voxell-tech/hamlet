@@ -17,6 +17,12 @@ use crate::service::Services;
 /// The longest a name, version, target or reason may be, in bytes.
 const LONGEST: usize = 256;
 
+/// The most environment variables a manifest may name.
+const VARIABLES: usize = 16;
+
+/// The longest an environment variable's name may be, in bytes.
+const VARIABLE: usize = 64;
+
 /// A plugin's `plugin.toml`.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -47,6 +53,16 @@ pub struct Manifest {
     /// has where the engine's environment does not set it.
     #[serde(default)]
     pub env: BTreeMap<String, String>,
+}
+
+/// Whether `name` can be an environment variable a manifest names:
+/// a capital letter, then capitals, digits and `_`, at most 64 bytes.
+pub fn is_variable(name: &str) -> bool {
+    name.len() <= VARIABLE
+        && name.starts_with(|c: char| c.is_ascii_uppercase())
+        && name.chars().all(|c| {
+            c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'
+        })
 }
 
 /// A plugin another needs, and the versions of it that fit.
@@ -97,6 +113,28 @@ impl Manifest {
             })
             .collect()
     }
+
+    /// Each environment variable it names, with its value as
+    /// `lookup` gives it when that is not empty, else the default.
+    pub fn environment(
+        &self,
+        lookup: impl Fn(&str) -> Option<String>,
+    ) -> Vec<(String, String)> {
+        self.env
+            .iter()
+            .map(|(name, default)| {
+                let value = lookup(name)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or_else(|| default.clone());
+                (name.clone(), value)
+            })
+            .collect()
+    }
+}
+
+/// The variable an ask's target `$NAME` stands for: `NAME`.
+pub fn variable_of(target: &str) -> Option<&str> {
+    target.strip_prefix('$')
 }
 
 /// Why a manifest is refused.
@@ -126,6 +164,14 @@ pub enum ManifestError {
     Dependency(String, String),
     /// It names itself among its dependencies.
     OnItself,
+    /// An environment variable that is not well named, or whose
+    /// default is not readable: which.
+    Variable(String),
+    /// More environment variables named than the most: how many.
+    Variables(usize),
+    /// An ask on a target `$NAME` that is not of `net.fetch`, or
+    /// whose variable it does not name: the capability and target.
+    Unnamed(Capability, String),
 }
 
 impl fmt::Display for ManifestError {
@@ -167,6 +213,24 @@ impl fmt::Display for ManifestError {
                  plugin id with a version requirement"
             ),
             Self::OnItself => write!(f, "it depends on itself"),
+            Self::Variable(name) => write!(
+                f,
+                "the environment variable {name:?} is not a capital \
+                 letter then capitals, digits and _ within \
+                 {VARIABLE} bytes, or its default is empty or not \
+                 readable"
+            ),
+            Self::Variables(count) => write!(
+                f,
+                "it names {count} environment variables, and \
+                 {VARIABLES} is the most"
+            ),
+            Self::Unnamed(capability, target) => write!(
+                f,
+                "{} for {target:?}: only net.fetch takes a \
+                 variable, and only one its [env] names",
+                capability.name()
+            ),
         }
     }
 }
@@ -208,6 +272,14 @@ impl Manifest {
         if self.api != API_VERSION {
             return Err(ManifestError::Api(self.api.clone()));
         }
+        if self.env.len() > VARIABLES {
+            return Err(ManifestError::Variables(self.env.len()));
+        }
+        for (name, default) in &self.env {
+            if !is_variable(name) || !readable(default) {
+                return Err(ManifestError::Variable(name.clone()));
+            }
+        }
         for (at, ask) in self.asks.iter().enumerate() {
             if !readable(&ask.reason) {
                 return Err(ManifestError::Text("reason"));
@@ -217,6 +289,15 @@ impl Manifest {
             }
             if ask.target.chars().any(char::is_whitespace) {
                 return Err(ManifestError::Target(
+                    ask.target.clone(),
+                ));
+            }
+            if let Some(name) = variable_of(&ask.target)
+                && (ask.capability != Capability::NetFetch
+                    || !self.env.contains_key(name))
+            {
+                return Err(ManifestError::Unnamed(
+                    ask.capability,
                     ask.target.clone(),
                 ));
             }
@@ -303,5 +384,125 @@ impl Manifest {
         } else {
             Err(ManifestError::Unasked(capability, target.into()))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn manifest() -> Manifest {
+        Manifest::new(
+            PluginId::try_from("test.bazaar").unwrap(),
+            "Bazaar",
+            "0.1.0",
+        )
+    }
+
+    fn fetch(target: &str) -> Ask {
+        Ask {
+            capability: Capability::NetFetch,
+            target: target.into(),
+            reason: "Reads the bazaar".into(),
+        }
+    }
+
+    #[test]
+    fn its_environment_is_named_well_and_not_too_long() {
+        let mut named = manifest();
+        named.env.insert(
+            "HAMLET_BAZAAR_URL".into(),
+            "http://localhost:8787".into(),
+        );
+        named.env.insert("X2_".into(), "on".into());
+        named
+            .env
+            .insert(format!("A{}", "B".repeat(63)), "on".into());
+        assert_eq!(named.check(), Ok(()));
+
+        let long = format!("A{}", "B".repeat(64));
+        for name in
+            ["", "lower", "2X", "_X", "A-B", "A B", "É", &long]
+        {
+            let mut badly = manifest();
+            badly.env.insert(name.into(), "on".into());
+            assert_eq!(
+                badly.check(),
+                Err(ManifestError::Variable(name.into())),
+                "{name:?} was taken"
+            );
+        }
+        for default in ["", " ", "a\nb"] {
+            let mut badly = manifest();
+            badly.env.insert("X".into(), default.into());
+            assert_eq!(
+                badly.check(),
+                Err(ManifestError::Variable("X".into()))
+            );
+        }
+
+        let mut many = manifest();
+        for at in 0..=VARIABLES {
+            many.env.insert(format!("X{at}"), "on".into());
+        }
+        assert_eq!(
+            many.check(),
+            Err(ManifestError::Variables(VARIABLES + 1))
+        );
+    }
+
+    #[test]
+    fn only_net_fetch_asks_for_a_variable_it_names() {
+        let mut asking = manifest();
+        asking.env.insert(
+            "HAMLET_BAZAAR_URL".into(),
+            "http://localhost:8787".into(),
+        );
+        asking.asks.push(fetch("$HAMLET_BAZAAR_URL"));
+        assert_eq!(asking.check(), Ok(()));
+
+        let mut unnamed = asking.clone();
+        unnamed.asks.push(fetch("$ELSEWHERE"));
+        assert_eq!(
+            unnamed.check(),
+            Err(ManifestError::Unnamed(
+                Capability::NetFetch,
+                "$ELSEWHERE".into()
+            ))
+        );
+
+        let mut other = asking.clone();
+        other.asks.push(Ask {
+            capability: Capability::ServiceCall,
+            ..fetch("$HAMLET_BAZAAR_URL")
+        });
+        assert_eq!(
+            other.check(),
+            Err(ManifestError::Unnamed(
+                Capability::ServiceCall,
+                "$HAMLET_BAZAAR_URL".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn a_variable_is_the_lookups_unless_empty_else_its_default() {
+        let mut named = manifest();
+        named.env.insert("SET".into(), "default".into());
+        named.env.insert("EMPTY".into(), "default".into());
+        named.env.insert("UNSET".into(), "default".into());
+        let lookup = |name: &str| match name {
+            "SET" => Some("set".to_owned()),
+            "EMPTY" => Some(String::new()),
+            _ => None,
+        };
+        assert_eq!(
+            named.environment(lookup),
+            [
+                ("EMPTY".to_owned(), "default".to_owned()),
+                ("SET".to_owned(), "set".to_owned()),
+                ("UNSET".to_owned(), "default".to_owned()),
+            ]
+        );
     }
 }

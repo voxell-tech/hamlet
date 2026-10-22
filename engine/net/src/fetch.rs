@@ -306,11 +306,11 @@ impl Fetch {
     }
 }
 
-/// Sends `fetch` to `url` at the public addresses its host is at, and
+/// Sends `fetch` to `url` at the addresses its host is at, and
 /// reads the answer, whatever its status. A redirect is not followed,
 /// no proxy is used, the whole takes no longer than `patience`, and
 /// an answer over `most` bytes is refused.
-async fn send(
+pub(crate) async fn send(
     url: Url,
     fetch: FetchRequest,
     patience: Duration,
@@ -318,7 +318,7 @@ async fn send(
 ) -> Result<FetchReply, Failure> {
     let failed = |why: String| Failure::Failed(why);
     let host = url.host_str().unwrap_or_default().to_owned();
-    let port = url.port_or_known_default().unwrap_or(443);
+    let port = url.port_or_known_default().unwrap_or_default();
     let addresses = reach(&host, port, patience).await?;
     let client = Client::builder()
         .redirect(Policy::none())

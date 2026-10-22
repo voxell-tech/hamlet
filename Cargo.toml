@@ -102,6 +102,9 @@ objc2-app-kit = { version = "0.2", default-features = false, features = ["std", 
 objc2-foundation = { version = "0.2", default-features = false, features = ["std", "NSData"] }
 winit = { version = "0.30", default-features = false }
 toml = "1"
+# The addresses a plugin's environment holds, read as the network
+# reads them.
+url = "2"
 # The guest side of the engine's WIT, for plugins.
 wit-bindgen = { version = "0.63", default-features = false, features = ["macros", "realloc", "std"] }
 # The WASM engine, pinned to a stable release. Only `hamlet_engine_wasm`

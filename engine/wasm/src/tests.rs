@@ -11,15 +11,19 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::query::With;
 use bevy::time::TimePlugin;
 use hamlet_engine_api::{
-    API_VERSION, Capability, PluginId, PluginLimits,
+    API_VERSION, Capability, Manifest, PluginId, PluginLimits,
 };
 use hamlet_engine_core::tuning::Tuning;
 use hamlet_engine_core::{Budgets, Bundle, Home, LogLevel};
 use hamlet_engine_grants::{
     Admitted, Answer, Grants, Petition, Record,
 };
-use hamlet_engine_plugins::{Stopped, Uninstall};
+use hamlet_engine_plugins::{
+    PluginInfo, PluginKind, Stopped, Uninstall,
+};
 use wasmtime::component::Resource;
+use wasmtime_wasi::cli::WasiCliView;
+use wasmtime_wasi::p2::bindings::cli::environment;
 use wit_component::{ComponentEncoder, StringEncoding};
 use wit_parser::Resolve;
 
@@ -180,7 +184,7 @@ fn start(
     let host = Host::new(&tuning).expect("the host starts");
     let linked = link(&host.0, component).expect("the plugin links");
     let caps = Caps::of(limits, budgets, &tuning);
-    let instance = Instance::new(&host.0, &linked, &caps)
+    let instance = Instance::new(&host.0, &linked, &caps, &[])
         .expect("the plugin starts");
     (instance, caps)
 }
@@ -197,7 +201,7 @@ fn nodes_are_held_to_their_budgets_and_kinds() {
         node_depth: 1,
         ..Caps::of(&LIMITS, &budgets(), &WasmTuning::designed())
     };
-    let mut state = State::new(&caps);
+    let mut state = State::new(&caps, &[]);
     let root = state.nodes.root().rep();
     let make = |state: &mut State, kind, parent: u32| {
         HostNode::new(state, kind, Resource::new_borrow(parent), 0)
@@ -228,7 +232,7 @@ fn nodes_are_held_to_their_budgets_and_kinds() {
 #[test]
 fn a_call_hands_over_its_bytes_in_all() {
     let caps = Caps::of(&LIMITS, &budgets(), &WasmTuning::designed());
-    let mut state = State::new(&caps);
+    let mut state = State::new(&caps, &[]);
     let root = state.nodes.root().rep();
     let label = HostNode::new(
         &mut state,
@@ -360,6 +364,46 @@ fn a_plugin_has_the_system_and_its_prints_are_cut() {
 }
 
 #[test]
+fn a_plugins_environment_holds_only_what_its_manifest_names() {
+    let mut manifest = Manifest::new(
+        PluginId::try_from("test.environment").unwrap(),
+        "Environment",
+        "0.1.0",
+    );
+    manifest.env.insert(
+        "HAMLET_BAZAAR_URL".into(),
+        "http://localhost:8787".into(),
+    );
+    manifest.env.insert("HAMLET_SET".into(), "default".into());
+    assert_eq!(manifest.check(), Ok(()));
+    // The engine's environment holds more than the plugin names.
+    let lookup = |name: &str| match name {
+        "HAMLET_SET" => Some("set".to_owned()),
+        "HOME" | "SECRET" => Some("not the plugin's".to_owned()),
+        _ => None,
+    };
+    let info = PluginInfo::looking_up(
+        manifest,
+        PluginKind::Installed,
+        lookup,
+    );
+    let caps = Caps::of(&LIMITS, &budgets(), &WasmTuning::designed());
+    let mut state = State::new(&caps, &info.env);
+    let seen = environment::Host::get_environment(&mut state.cli())
+        .expect("the environment is read");
+    assert_eq!(
+        seen,
+        [
+            (
+                "HAMLET_BAZAAR_URL".to_owned(),
+                "http://localhost:8787".to_owned()
+            ),
+            ("HAMLET_SET".to_owned(), "set".to_owned()),
+        ]
+    );
+}
+
+#[test]
 fn a_plugin_over_its_budgets_waits_then_is_stopped() {
     // It is asked to run each frame, past its calls of a second.
     let root = home("over");
@@ -415,14 +459,14 @@ fn a_reloaded_plugin_keeps_its_state() {
     let plugin = declaring("(i32.const 0)");
     let linked = link(&host.0, &plugin).expect("the plugin links");
     let caps = Caps::of(&LIMITS, &budgets, &tuning);
-    let mut old = Instance::new(&host.0, &linked, &caps)
+    let mut old = Instance::new(&host.0, &linked, &caps, &[])
         .expect("the plugin starts");
     for _ in 0..3 {
         assert_eq!(old.run(&caps, "count").0, Ok(()));
     }
     let mut spending = Spending::new(Duration::ZERO);
     let (mut fresh, declared) = old
-        .reload(&host.0, &linked, &caps, &mut spending)
+        .reload(&host.0, &linked, &caps, &[], &mut spending)
         .expect("it reloads");
     assert_eq!(declared, Vec::new());
     assert_eq!(fresh.save(&caps).0, Ok(3_u32.to_le_bytes().to_vec()));

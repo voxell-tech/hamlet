@@ -282,7 +282,9 @@ pub struct State {
 }
 
 impl State {
-    pub(crate) fn new(caps: &Caps) -> Self {
+    /// What the host keeps for a plugin held to `caps`, whose
+    /// environment is `env`.
+    pub(crate) fn new(caps: &Caps, env: &[(String, String)]) -> Self {
         Self {
             limiter: Limiter::new(caps.memory),
             caps: *caps,
@@ -290,7 +292,7 @@ impl State {
             requests: Vec::new(),
             ticket: 0,
             bytes: caps.bytes,
-            wasi: Wasi::new(caps),
+            wasi: Wasi::new(caps, env),
             nodes: Nodes::default(),
             surfaces: Vec::new(),
             scene: SceneState::new(caps.scene),
@@ -465,13 +467,15 @@ pub enum NodeInput {
 }
 
 impl Instance {
-    /// Instantiates `linked` in a store of its own, held to `caps`.
+    /// Instantiates `linked` in a store of its own, held to `caps`,
+    /// with the environment `env`.
     pub fn new(
         engine: &Engine,
         linked: &Linked,
         caps: &Caps,
+        env: &[(String, String)],
     ) -> Result<Self, Fault> {
-        let mut store = Store::new(engine, State::new(caps));
+        let mut store = Store::new(engine, State::new(caps, env));
         store.limiter(|state| &mut state.limiter);
         store.epoch_deadline_trap();
         store.arm(caps);

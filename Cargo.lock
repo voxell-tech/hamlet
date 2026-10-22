@@ -3811,6 +3811,7 @@ dependencies = [
  "hamlet_engine_shell",
  "serde",
  "toml",
+ "url",
 ]
 
 [[package]]

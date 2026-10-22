@@ -3,7 +3,7 @@ name = "hamlet_engine_net"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The network service: fetches to the hosts a plugin was granted, at public addresses only"
+description = "The network service: fetches over http or https to the hosts a plugin was granted, pinned to the addresses resolved"
 
 [lints]
 workspace = true

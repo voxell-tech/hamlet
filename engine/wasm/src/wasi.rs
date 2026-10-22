@@ -1,7 +1,8 @@
 //! The system interface a plugin is given, WASI 0.2, which grants
-//! nothing: no files, no environment or arguments, no sockets and no
-//! lookups. It has the clocks and randomness, an empty stdin, and its
-//! stdout and stderr go to its log.
+//! almost nothing: no files, no arguments, no sockets and no lookups,
+//! and of the environment only the variables its manifest names. It
+//! has the clocks and randomness, an empty stdin, and its stdout and
+//! stderr go to its log.
 
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::time::Instant;
@@ -58,9 +59,9 @@ pub(crate) struct Wasi {
 }
 
 impl Wasi {
-    /// A context that grants nothing, whose stdout and stderr go to
-    /// the log.
-    pub(crate) fn new(caps: &Caps) -> Self {
+    /// A context that grants nothing but the environment `env`,
+    /// whose stdout and stderr go to the log.
+    pub(crate) fn new(caps: &Caps, env: &[(String, String)]) -> Self {
         let (sender, written) = sync_channel(WRITES);
         let stdout = Output {
             level: LogLevel::Info,
@@ -70,7 +71,11 @@ impl Wasi {
             level: LogLevel::Warn,
             sender,
         };
-        let ctx = WasiCtx::builder()
+        let mut builder = WasiCtx::builder();
+        for (name, value) in env {
+            builder.env(name, value);
+        }
+        let ctx = builder
             .stdout(stdout)
             .stderr(stderr)
             .allow_tcp(false)

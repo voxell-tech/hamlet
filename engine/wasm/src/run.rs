@@ -272,20 +272,18 @@ fn start(
         };
         let caps = Caps::of(limits, &budgets, &tuning);
         commands.entity(plugin).remove::<Starting>();
-        let mut instance =
-            match Instance::new(&host.0, &built.0, &caps) {
-                Ok(instance) => instance,
-                Err(fault) => {
-                    log.write(LogLine::error(
-                        info.id.as_str(),
-                        format!(
-                            "{} cannot start: {fault}",
-                            info.name
-                        ),
-                    ));
-                    continue;
-                }
-            };
+        let mut instance = match Instance::new(
+            &host.0, &built.0, &caps, &info.env,
+        ) {
+            Ok(instance) => instance,
+            Err(fault) => {
+                log.write(LogLine::error(
+                    info.id.as_str(),
+                    format!("{} cannot start: {fault}", info.name),
+                ));
+                continue;
+            }
+        };
         let mut spending = Spending::new(time.elapsed());
         let (declared, spent) = instance.declare(&caps);
         instance.pass_requests(plugin, 0, &mut asked);

@@ -3,6 +3,7 @@
 //! switching it off despawns them.
 
 mod entry;
+mod env;
 mod limits;
 mod list;
 mod mail;
@@ -13,11 +14,12 @@ mod switched_off;
 use bevy::app::App;
 use bevy::ecs::component::Component;
 use hamlet_engine_api::{
-    Ask, AssetTypes, Dependency, Events, Limits, Manifest, PluginId,
-    Services,
+    Ask, AssetTypes, Capability, Dependency, Events, Limits,
+    Manifest, PluginId, Services,
 };
 
 pub use crate::entry::{Entry, EntryPoint};
+pub use crate::env::default_port;
 pub use crate::limits::ChosenLimits;
 pub use crate::list::{AddPlugin, PluginPageSection, Uninstall};
 pub use crate::mail::{Asked, Deliver};
@@ -47,8 +49,16 @@ pub struct PluginInfo {
     pub name: String,
     pub version: String,
     pub kind: PluginKind,
-    /// What it asks the person for, and why.
+    /// What it asks the person for, and why, each `net.fetch` on a
+    /// variable on the host the variable's address is on.
     pub asks: Vec<Ask>,
+    /// The targets of its `net.fetch` asks on a variable, each with
+    /// the variable's name.
+    pub variables: Vec<(String, String)>,
+    /// Its environment: each variable its manifest names, with the
+    /// engine's value when that is set and not empty, else the
+    /// manifest's.
+    pub env: Vec<(String, String)>,
     pub assets: AssetTypes,
     pub services: Services,
     pub events: Events,
@@ -71,19 +81,54 @@ pub enum PluginKind {
 }
 
 impl PluginInfo {
-    /// The plugin `manifest` describes.
+    /// The plugin `manifest` describes, in the engine's environment.
     pub fn of(manifest: Manifest, kind: PluginKind) -> Self {
+        Self::looking_up(manifest, kind, |name| {
+            std::env::var(name).ok()
+        })
+    }
+
+    /// The plugin `manifest` describes, with the value of each
+    /// variable of the environment as `lookup` gives it.
+    pub fn looking_up(
+        manifest: Manifest,
+        kind: PluginKind,
+        lookup: impl Fn(&str) -> Option<String>,
+    ) -> Self {
+        let env = manifest.environment(lookup);
+        let (asks, variables) = env::resolve(&manifest, &env);
         Self {
             dependencies: manifest.needs(),
             id: manifest.id,
             name: manifest.name,
             version: manifest.version,
             kind,
-            asks: manifest.asks,
+            asks,
+            variables,
+            env,
             assets: manifest.assets,
             services: manifest.services,
             events: manifest.events,
             limits: manifest.limits,
+        }
+    }
+
+    /// `target` as the person is shown it for `capability`: with the
+    /// name of the variable it was read from, as
+    /// `localhost:8787 (HAMLET_BAZAAR_URL)`.
+    pub fn shown(
+        &self,
+        capability: Capability,
+        target: &str,
+    ) -> String {
+        let named = self
+            .variables
+            .iter()
+            .find(|(resolved, _)| resolved == target)
+            .filter(|_| capability == Capability::NetFetch);
+        match named {
+            Some((_, name)) => format!("{target} ({name})"),
+            None => target.to_owned(),
         }
     }
 }

@@ -27,7 +27,7 @@ Each depends only on those above it, and each adds one Bevy plugin,
 | `engine/grants` | `hamlet_engine_grants` | What the person lets plugins do: petitions, the grants file, the Permissions page |
 | `engine/assets` | `hamlet_engine_assets` | The asset store, the type registry, references and change notification |
 | `engine/bus` | `hamlet_engine_bus` | Services and events between plugins, whatever host runs them |
-| `engine/net` | `hamlet_engine_net` | The network service: fetches to granted hosts at public addresses |
+| `engine/net` | `hamlet_engine_net` | The network service: fetches over `http` or `https` to granted hosts |
 | `engine/agents` | `hamlet_engine_agents` | The agents service: the agent core run in the engine, behind a protocol |
 | `engine/desktop` | `hamlet_engine_desktop` | The desktop service: the machine kept awake while an agent works, addresses and files opened for plugins, the address under the pointer, one engine per home |
 | `engine/render` | `hamlet_engine_render` | What plugins draw: scenes kept entity by entity, their views in a viewport or behind the dock, picking, and plugins' own WGSL checked with naga, their compute and passes, held to their GPU time |
@@ -73,17 +73,28 @@ same types.
   `[assets]` the types it `makes` and `uses`, `[services]` the services
   it `exports` and `imports`, `[events]` the events it `sends` and
   `hears`, `[limits]` the memory its instance needs in place of
-  the engine's (see [Limits](#limits)), and `[dependencies]` the
-  plugins it needs (see [Dependencies](#dependencies)). `check`
+  the engine's (see [Limits](#limits)), `[dependencies]` the
+  plugins it needs (see [Dependencies](#dependencies)), and `[env]`
+  the environment variables it reads, each with its default
+  (`HAMLET_BAZAAR_URL = "http://localhost:8787"`). `check`
   refuses one built against another API, with an empty or unreadable
   text, asking for the same thing twice, naming a type, service or
   event twice, using a type or importing a service it does not ask
   for, asking for a memory of zero, naming a dependency that is not a
-  plugin id with a semver requirement, or needing itself. One that
-  names anything but `memory` in `[limits]` cannot be read, and says
-  which name.
+  plugin id with a semver requirement, or needing itself; naming more
+  than 16 variables, one that is not a capital letter then capitals,
+  digits and `_` within 64 bytes, or one whose default is empty or
+  unreadable; or asking on a target `$NAME` (see Capabilities) with
+  any capability but `net.fetch`, or for a `NAME` its `[env]` does
+  not name. One that names anything but `memory` in `[limits]` cannot
+  be read, and says which name.
+- **The environment.** Each variable in `[env]` has the value the
+  engine's own environment gives it, when that is set and not empty,
+  else its default. A WASM plugin's environment holds those and
+  nothing else.
 - **Capabilities.** An ask names a capability, its target and a reason in
-  the plugin's words: `net.fetch` a host, `assets.read` a type name,
+  the plugin's words: `net.fetch` a host or `$NAME` (see
+  [The network](#the-network)), `assets.read` a type name,
   `services.call` another plugin's service, and `agents.read`,
   `agents.chief`, `agents.settings` and `agents.keys` the target `local`
   (see [The agents](#the-agents)), `desktop.open` the target `https` or
@@ -364,9 +375,11 @@ hamlet_engine_bevy::export!(Hello);
 - **The system.** A plugin is given WASI 0.2 that grants nothing but
   the wall and monotonic clocks and randomness, so the standard
   library's `Instant`, `SystemTime` and `HashMap` work. What it prints
-  goes to its log, stdout as info and stderr as warnings. It has no
-  folders, no environment or arguments, an empty stdin, and no sockets
-  or lookups; the network is `fetch`.
+  goes to its log, stdout as info and stderr as warnings. Its
+  environment holds the variables its manifest names in `[env]`, each
+  with the engine's value or else its default, and nothing else. It
+  has no folders or arguments, an empty stdin, and no sockets or
+  lookups; the network is `fetch`.
 - **A built plugin** is a folder with its `plugin.toml` and its
   component, `plugin.wasm`.
 
@@ -1775,16 +1788,31 @@ run.
 runtime of its own.
 
 - **Asked for by host.** A plugin asks for `net.fetch` on each host it
-  needs (`api.example.org`, or `host:port` for a port other than 443),
-  and the person answers for each. A fetch goes only to an `https`
-  address with no user on such a host, once allowed; the first use of
-  one answered Ask next time asks the person.
-- **Public addresses only.** The engine resolves the host, and the
-  fetch is pinned to the public addresses of the answer: loopback,
-  private, link-local, unique-local, shared, multicast, broadcast and
-  unspecified addresses are refused, as is a host that is one of them.
-  No redirect is followed and no proxy is used, so it cannot go
-  elsewhere.
+  needs, and the person answers for each. A target `api.example.org`
+  is that host at the scheme's port, 443 for `https` and 80 for
+  `http`; `localhost:8787` is that host at that port, over either. A
+  fetch goes only to an `http` or `https` address with no user on
+  such a host, once allowed; the first use of one answered Ask next
+  time asks the person.
+- **On a variable.** A target `$NAME`, for a variable of the
+  manifest's `[env]`, is the target of the address the variable holds
+  (see [The vocabulary](#the-vocabulary)), read as the plugin is: on
+  `$HAMLET_BAZAAR_URL`, holding `http://localhost:8787` by default,
+  it is `localhost:8787`, and with the variable set to
+  `https://bazaar.example.com` it is `bazaar.example.com`. The asks,
+  the grants file, the petitions and the Permissions page hold the
+  target so made, and show it with the variable's name:
+  `localhost:8787 (HAMLET_BAZAAR_URL)`. When the variable points
+  elsewhere, an installed plugin asks for the new target. One holding
+  no such address is left on `$NAME`, which no fetch is on.
+- **Any address but nowhere.** The engine resolves the host once, and
+  the fetch is pinned to the addresses of the answer, so a later
+  lookup cannot send it elsewhere. This computer (`localhost`,
+  `127.0.0.1`, `::1`) and private and local addresses (`10.0.0.0/8`,
+  `192.168.0.0/16` and the rest) may be reached, by every plugin;
+  multicast, broadcast and unspecified addresses (`0.0.0.0/8`, `::`)
+  are refused, as is a host that is only at them. No redirect is
+  followed and no proxy is used.
 - **Caps** (`[budgets]`): `fetches_per_minute`, `fetches_waiting` at
   once, `fetch_bytes` of an answer, `fetch_time` seconds for the whole.
 - **A fetch** is a `Fetch` on a child of its plugin, so it goes with

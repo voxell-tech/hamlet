@@ -32,7 +32,9 @@ pub use crate::id::{
 pub use crate::layout::{Axis, Layout};
 pub use crate::limits::{Limits, PluginLimits};
 pub use crate::mail::{Failure, Message, Reply, Request, Ticket};
-pub use crate::manifest::{Dependency, Manifest, ManifestError};
+pub use crate::manifest::{
+    Dependency, Manifest, ManifestError, is_variable, variable_of,
+};
 pub use crate::net::{FetchReply, FetchRequest, Method};
 pub use crate::service::{ServiceExport, ServiceImport, Services};
 pub use crate::wire::{WireError, decode, encode};
