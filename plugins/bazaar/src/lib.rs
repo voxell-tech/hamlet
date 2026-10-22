@@ -1,9 +1,10 @@
-//! The Agent Bazaar: five stalls, each a tab of its panel, where the
+//! The Agent Bazaar: six stalls, each a tab of its panel, where the
 //! chief adds models from OpenRouter and the endpoints, takes skills
-//! from skills.sh, and buys and sells agents, tools and hamlets at
-//! the bazaar's server, hamlet-server; where that cannot be reached,
-//! those stalls show samples, and hamlets are founded from their
-//! templates.
+//! from skills.sh, buys and sells agents, tools and hamlets at the
+//! bazaar's server, hamlet-server, and buys the official looks agents
+//! and hamlets wear there; where that cannot be reached, the stalls
+//! of what chiefs sell show samples, and hamlets are founded from
+//! their templates.
 
 mod covers;
 mod diorama;
@@ -17,6 +18,7 @@ mod samples;
 mod shelf;
 mod skills;
 mod view;
+mod wardrobe;
 
 use agents_ui::{Heard, start};
 use hamlet_engine_bevy::api::agents::AgentsRequest;
@@ -69,6 +71,7 @@ impl Plugin for Bazaar {
             hamlets::plugin,
             market::plugin,
             covers::plugin,
+            wardrobe::plugin,
             view::plugin,
         ))
         .init_saved_resource::<StallShown>()
@@ -92,6 +95,14 @@ impl Plugin for Bazaar {
             },
         )
         .add_command(
+            "looks",
+            "Browse the Looks",
+            |world: &mut World| {
+                world.resource_mut::<wardrobe::Fitting>().on = false;
+                world.show(Stall::Assets);
+            },
+        )
+        .add_command(
             "sell",
             "Sell at the Agent Bazaar",
             |world: &mut World| {
@@ -108,8 +119,10 @@ impl Plugin for Bazaar {
         .add_menu_entry("Hamlet", "open")
         .add_menu_entry("Hamlet", "models")
         .add_menu_entry("Hamlet", "hamlets")
+        .add_menu_entry("Hamlet", "looks")
         .add_menu_entry("Hamlet", "sell")
         .add_subscription(STALL_CLICKED)
+        .add_subscription(looks::DRESS)
         .add_systems(
             Declare,
             start(&[
@@ -142,15 +155,18 @@ pub(crate) enum Stall {
     Plugins,
     Skills,
     Hamlets,
+    /// The official looks agents and hamlets wear.
+    Assets,
 }
 
 impl Stall {
-    pub const ALL: [Stall; 5] = [
+    pub const ALL: [Stall; 6] = [
         Stall::Models,
         Stall::Community,
         Stall::Plugins,
         Stall::Skills,
         Stall::Hamlets,
+        Stall::Assets,
     ];
 
     /// Its name in the events about it.
@@ -161,6 +177,7 @@ impl Stall {
             Stall::Plugins => "plugins",
             Stall::Skills => "skills",
             Stall::Hamlets => "hamlets",
+            Stall::Assets => "assets",
         }
     }
 }
@@ -220,6 +237,7 @@ impl BazaarWorldExt for World {
                 reopen::<Template>(self);
                 reopen::<HamletWares>(self);
             }
+            Stall::Assets => wardrobe::stocked(self),
         }
     }
 
@@ -238,8 +256,8 @@ fn reopen<L: Shown>(world: &mut World) {
     }
 }
 
-/// Takes in what the agents service says, and the stalls clicked in
-/// the realm.
+/// Takes in what the agents service says, the stalls clicked in the
+/// realm, and the looks the Inspector asks to show.
 fn receive(
     world: &mut World,
     mut heard: Local<MessageCursor<Heard>>,
@@ -255,8 +273,21 @@ fn receive(
         hamlets::heard(world, &told);
         market::heard(world, &told);
     }
-    let clicked = events
+    let events = events
         .read(world.resource::<Messages<EventReceived>>())
+        .cloned()
+        .collect::<Vec<_>>();
+    for event in events
+        .iter()
+        .filter(|event| event.event.as_str() == looks::DRESS)
+    {
+        match decode::<looks::Dress>(&event.payload) {
+            Ok(dress) => wardrobe::dress(world, dress),
+            Err(why) => warn(&format!("looks to show: {why}")),
+        }
+    }
+    let clicked = events
+        .iter()
         .filter(|event| event.event.as_str() == STALL_CLICKED)
         .map(|event| decode::<String>(&event.payload))
         .collect::<Vec<_>>();

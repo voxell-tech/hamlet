@@ -29,8 +29,11 @@ pub(crate) use crate::market::account::{
     Account, ask_account, browse, set_up_payouts, sign_in, sign_out,
 };
 use crate::market::client::{Server, read};
+#[cfg(test)]
+pub(crate) use crate::market::deal::PAYMENT_POLL;
 pub(crate) use crate::market::deal::{
-    Deal, Dealing, Places, buy, install, targets, update,
+    Act, Deal, Dealing, Event, Paid, Places, buy, install, pay,
+    targets, update,
 };
 use crate::market::lot::{Detail, Kind, Lot, Page};
 pub(crate) use crate::market::sell::{
@@ -174,8 +177,11 @@ pub(crate) enum Call {
     Account(account::Call),
     Deal(deal::Call),
     Sell(sell::Call),
-    /// A listing's cover, at its address on the server.
+    /// A listing's cover, or an asset's picture, at its address on
+    /// the server.
     Picture(String),
+    /// A call of the Asset stall's.
+    Wardrobe(crate::wardrobe::Call),
 }
 
 /// The fetches of the bazaar's server waiting to be sent, and how
@@ -257,6 +263,9 @@ pub(crate) fn answered(
         Call::Deal(call) => deal::answered(world, call, reply),
         Call::Sell(call) => sell::answered(world, call, reply),
         Call::Picture(url) => crate::covers::came(world, url, reply),
+        Call::Wardrobe(call) => {
+            crate::wardrobe::answered(world, call, reply)
+        }
     }
     pump(world);
 }

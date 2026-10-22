@@ -17,12 +17,13 @@ use hamlet_engine_bevy::ui::{
     resource, row, scroll,
 };
 use hamlet_engine_bevy::{encode, warn};
+use looks::wardrobe::Target;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::AgentPapers;
 use crate::more::About;
 use crate::overview::{pressed_row, standing};
-use crate::{HAMLETS, PURPOSE, bylaws, select};
+use crate::{HAMLETS, PURPOSE, bylaws, dress, select};
 
 /// The first hamlet, which is the home itself and stays.
 pub(crate) const HOME: &str = "home";
@@ -313,9 +314,20 @@ fn head(hamlet: &RosterHamlet) -> AnyView {
             })
             .boxed(),
     ];
+    actions.push(
+        icon_button("crown", "LOOKS")
+            .on_click({
+                let id = id.clone();
+                move |world| dress(world, Target::Hamlet, &id)
+            })
+            .tip("What its houses wear, at the Agent Bazaar")
+            .boxed(),
+    );
+    // On a row of its own, as four are wider than a narrow panel.
+    let mut closing = Vec::new();
     if hamlet.id != HOME {
         let closed = id.clone();
-        actions.push(
+        closing.push(
             icon_button("struck", "CLOSE DOWN")
                 .style(ButtonStyle::Critical)
                 .on_click(move |world| close_down(world, &closed))
@@ -338,6 +350,7 @@ fn head(hamlet: &RosterHamlet) -> AnyView {
             .tone(Tone::Dim),
         label(known).size(Size::Small).tone(Tone::Dim),
         row(actions).space(Space::Half),
+        row(closing).space(Space::Half),
         naming(id),
         folder(hamlet),
     ))

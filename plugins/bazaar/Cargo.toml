@@ -3,7 +3,7 @@ name = "bazaar"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The Agent Bazaar: models from OpenRouter and the endpoints, skills from skills.sh, and agents, tools and hamlets bought and sold at hamlet-server"
+description = "The Agent Bazaar: models from OpenRouter and the endpoints, skills from skills.sh, agents, tools and hamlets bought and sold at hamlet-server, and the looks agents and hamlets wear"
 publish = false
 
 [lib]
@@ -13,5 +13,6 @@ crate-type = ["cdylib"]
 [dependencies]
 hamlet_engine_bevy.workspace = true
 agents_ui = { path = "../agents_ui" }
+looks = { path = "../looks" }
 serde.workspace = true
 serde_json = "1"

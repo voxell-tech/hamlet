@@ -96,6 +96,7 @@ version = "0.1.0"
 dependencies = [
  "agents_ui",
  "hamlet_engine_bevy",
+ "looks",
  "serde",
  "serde_json",
 ]
@@ -818,6 +819,7 @@ version = "0.1.0"
 dependencies = [
  "agents_ui",
  "hamlet_engine_bevy",
+ "looks",
  "serde",
 ]
 

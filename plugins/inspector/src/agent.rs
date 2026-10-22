@@ -16,8 +16,11 @@ use hamlet_engine_bevy::ui::{
     UiExt, ViewExt, button, column, derived, description, divider,
     dropdown, icon, icon_button, keyed, label, resource, row, scroll,
 };
+use looks::wardrobe::Target;
 
-use crate::{HAMLETS, PURPOSE, agent_named, archive, more, select};
+use crate::{
+    HAMLETS, PURPOSE, agent_named, archive, dress, more, select,
+};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Shown>()
@@ -354,6 +357,16 @@ fn header(head: &Head) -> AnyView {
             head.name.clone(),
             head.model.clone(),
         ));
+        let name = head.name.clone();
+        parts.push(
+            row((icon_button("crown", "LOOKS")
+                .style(ButtonStyle::Quiet)
+                .on_click(move |world| {
+                    dress(world, Target::Agent, &name)
+                })
+                .tip("What it wears, at the Agent Bazaar"),))
+            .boxed(),
+        );
     }
     column(parts).space(Space::Half).boxed()
 }

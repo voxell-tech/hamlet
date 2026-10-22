@@ -24,7 +24,10 @@ target = "https"
 reason = "Opens a web link of an agent's notes, character or past sessions in your browser when you click it"
 
 [events]
-sends = [{ name = "carry", payload = "realm.carry" }]
+sends = [
+    { name = "carry", payload = "realm.carry" },
+    { name = "dress", payload = "bazaar.dress" },
+]
 
 # It brings the chat to the front to talk to an agent or read a
 # session resumed.

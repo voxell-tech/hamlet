@@ -154,6 +154,7 @@ pub(crate) fn sign_out(world: &mut World) {
         ask(world, Call::SignOut);
     }
     forget(world);
+    crate::wardrobe::signed_out(world);
 }
 
 /// Forgets the one signed in, here and for the next run.

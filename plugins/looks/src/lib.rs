@@ -44,6 +44,20 @@ pub const FILE_PART: usize = 448 * 1024;
 pub const PLAY: &str = "hamlet.bazaar/emote";
 pub const PLAY_PAYLOAD: &str = "looks.emote";
 
+/// The event the Inspector sends to have the bazaar show what an
+/// agent or a hamlet wears, its payload a [`Dress`], and the
+/// payload's type.
+pub const DRESS: &str = "hamlet.inspector/dress";
+pub const DRESS_PAYLOAD: &str = "bazaar.dress";
+
+/// Whose looks to show: an agent by its name, or a hamlet by its
+/// name on disk.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct Dress {
+    pub target: wardrobe::Target,
+    pub name: String,
+}
+
 /// What each agent and hamlet wears.
 #[derive(
     Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize,

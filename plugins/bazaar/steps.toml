@@ -144,3 +144,87 @@ reply = { url = "https://raw.githubusercontent.com/maker/wick/main/cover.gif", b
 
 [[step]]
 expect = { panel = "hamlet.bazaar/bazaar", text = "It is not a PNG, JPEG or WebP that can be read." }
+
+# The Asset stall, its tab on the second row of tabs. The bazaar's
+# server answers its catalogue; an asset's page turns its pictures,
+# and one that is not a picture is not shown. Signed out, nothing is
+# bought, and the fitting has no one to dress. The closet tells the
+# realm that nothing is worn.
+
+[[step]]
+click = { panel = "hamlet.bazaar/bazaar", widget = "LOOKS" }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "Asking the bazaar..." }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "With GitHub, to buy, and to wear what you bought." }
+
+[[step]]
+reply = { url = "http://localhost:8787/v1/assets", body = '{"items": [{"id": "agent-skin-sakura", "target": "agent", "category": "skin", "title": "Sakura", "summary": "Soft pinks for your agent.", "priceCents": 99, "version": "1.0.0", "frames": 24, "previewUrl": "/v1/assets/agent-skin-sakura/preview/{frame}?v=1.0.0", "owned": false}, {"id": "hamlet-emote-smoke", "target": "hamlet", "category": "emote", "title": "Hearth Smoke", "summary": "Smoke from every chimney.", "priceCents": 0, "version": "1.0.0", "frames": 0, "previewUrl": "", "owned": false}]}' }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "2 looks from the bazaar" }
+
+[[step]]
+click = { panel = "hamlet.bazaar/bazaar", widget = "FOR HAMLETS" }
+
+[[step]]
+lacks = { panel = "hamlet.bazaar/bazaar", text = "Sakura" }
+
+[[step]]
+click = { panel = "hamlet.bazaar/bazaar", widget = "FOR AGENTS" }
+
+[[step]]
+lacks = { panel = "hamlet.bazaar/bazaar", text = "Hearth Smoke" }
+
+[[step]]
+click = { panel = "hamlet.bazaar/bazaar", widget = "Sakura" }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "Skin for agents, version 1.0.0" }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "1 of 24" }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "Sign in with GitHub to get it." }
+
+[[step]]
+reply = { url = "http://localhost:8787/v1/assets/agent-skin-sakura/preview/0?v=1.0.0", body = "not a picture" }
+
+[[step]]
+expect_log = "agent-skin-sakura/preview/0?v=1.0.0 is not shown"
+
+[[step]]
+click = { panel = "hamlet.bazaar/bazaar", widget = "RIGHT" }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "2 of 24" }
+
+[[step]]
+click = { panel = "hamlet.bazaar/bazaar", widget = "SPIN" }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "STOP" }
+
+[[step]]
+click = { panel = "hamlet.bazaar/bazaar", widget = "ALL LOOKS" }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "1 look from the bazaar" }
+
+[[step]]
+click = { panel = "hamlet.bazaar/bazaar", widget = "FITTING" }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "There are no agents or hamlets to dress yet." }
+
+[[step]]
+expect_asset = { type = "looks.worn", text = '"agents":{}' }
+
+[[step]]
+run = "hamlet.bazaar/looks"
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "Soft pinks for your agent." }

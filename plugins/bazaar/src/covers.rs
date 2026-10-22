@@ -1,8 +1,8 @@
-//! The covers of the bazaar's listings: fetched from its server for
-//! the listing whose page is open, one at a time, kept while it is
-//! shown, and handed to the views no more than a call has room for.
-//! And the cover chosen at the seller's desk, fetched from the
-//! address given.
+//! The covers of the bazaar's listings, and the preview pictures of
+//! the Asset stall's: fetched from its server for the page open, one
+//! at a time, kept while it is shown, and handed to the views no more
+//! than a call has room for. And the cover chosen at the seller's
+//! desk, fetched from the address given.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -283,12 +283,18 @@ fn want(world: &mut World) {
 
 /// The covers of the listings shown: that of the page open at the
 /// stall of the bazaar's shown, or of the listing changed at the
-/// desk.
+/// desk; at the Asset stall, the pictures of the asset open.
 fn shown(world: &World) -> Vec<String> {
     let at = match world.resource::<StallShown>().0 {
         Stall::Community => shown_at::<Agents>,
         Stall::Plugins => shown_at::<Tools>,
         Stall::Hamlets => shown_at::<Hamlets>,
+        Stall::Assets => {
+            return crate::wardrobe::turntable::shown(world)
+                .into_iter()
+                .filter(|url| url.starts_with('/'))
+                .collect();
+        }
         Stall::Models | Stall::Skills => return Vec::new(),
     };
     let market = world.resource::<Market>();

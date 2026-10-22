@@ -1,7 +1,8 @@
 //! The Inspector: whatever the window's focus has selected. An agent
 //! with its notes, character, archive and prompt; one that is gone;
 //! the library; a hamlet with its agents, bylaws and record; or every
-//! hamlet when nothing is selected.
+//! hamlet when nothing is selected. An agent's and a hamlet's LOOKS
+//! has the Agent Bazaar show what it wears.
 
 mod agent;
 mod archive;
@@ -22,6 +23,9 @@ use hamlet_engine_bevy::api::agents::{
 use hamlet_engine_bevy::bevy_ecs::message::MessageCursor;
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::ui::{AnyView, ViewExt, derived, keyed};
+use hamlet_engine_bevy::{encode, warn};
+use looks::Dress;
+use looks::wardrobe::Target;
 
 use crate::founding::FOUND;
 
@@ -31,6 +35,10 @@ pub(crate) const PURPOSE: usize = 96;
 /// The name of the page of every hamlet, at the start of each
 /// breadcrumb.
 pub(crate) const HAMLETS: &str = "HAMLETS";
+
+/// The event that has the Agent Bazaar show what an agent or a hamlet
+/// wears, by its short name: [`looks::DRESS`].
+const DRESS: &str = "dress";
 
 #[derive(Default)]
 struct Inspector;
@@ -134,6 +142,21 @@ pub(crate) fn agent_named<'a>(
         .agents
         .iter()
         .find(|agent| agent.name == name)
+}
+
+/// Has the Agent Bazaar show what `name` of `target` wears: an agent
+/// by its name, a hamlet by its name on disk.
+pub(crate) fn dress(world: &mut World, target: Target, name: &str) {
+    let dress = Dress {
+        target,
+        name: name.to_string(),
+    };
+    match encode(&dress) {
+        Ok(payload) => {
+            world.emit(DRESS, &payload);
+        }
+        Err(why) => warn(&format!("looks of {name}: {why}")),
+    }
 }
 
 fn inspector() -> AnyView {

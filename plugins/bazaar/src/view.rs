@@ -13,6 +13,7 @@ mod parts;
 mod shelf;
 mod skills;
 mod trade;
+mod wardrobe;
 mod wares;
 mod words;
 
@@ -33,10 +34,11 @@ pub(crate) use crate::view::desk::{Desk, Page as DeskPage, plugin};
 pub(crate) use crate::view::shelf::Shown;
 use crate::{BazaarWorldExt, Stall, StallShown};
 
-/// The tabs, a line each: what the agents use, then who works.
+/// The tabs, a line each: what the agents use, then who works and
+/// what they wear.
 const TABS: [&[Stall]; 2] = [
     &[Stall::Models, Stall::Skills, Stall::Plugins],
-    &[Stall::Community, Stall::Hamlets],
+    &[Stall::Community, Stall::Hamlets, Stall::Assets],
 ];
 
 impl Stall {
@@ -48,6 +50,7 @@ impl Stall {
             Stall::Plugins => ("bolt", "PLUGINS"),
             Stall::Skills => ("book", "SKILLS"),
             Stall::Hamlets => ("house", "HAMLETS"),
+            Stall::Assets => ("crown", "LOOKS"),
         }
     }
 }
@@ -117,5 +120,6 @@ fn wares(stall: Stall) -> AnyView {
         Stall::Plugins => trade::stall::<Tools, Contraption>(),
         Stall::Skills => shelf::stall::<Scroll>(),
         Stall::Hamlets => trade::stall::<Hamlets, Template>(),
+        Stall::Assets => wardrobe::stall(),
     }
 }

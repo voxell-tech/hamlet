@@ -16,7 +16,7 @@ reason = "Lists the skills skills.sh offers, searches it, and fetches a skill's 
 [[asks]]
 capability = "net.fetch"
 target = "$HAMLET_BAZAAR_URL"
-reason = "Signs you in with GitHub at the bazaar's server, shows what chiefs sell there, and buys, downloads and sells agents, hamlets and tools"
+reason = "Signs you in with GitHub at the bazaar's server, shows what chiefs sell there, buys, downloads and sells agents, hamlets and tools, and buys and downloads the looks agents and hamlets wear"
 
 [[asks]]
 capability = "net.fetch"
@@ -44,7 +44,12 @@ target = "https"
 reason = "Opens a skill's source or a link in it, GitHub's page to sign in, and Stripe's pages to pay and to be paid, in your browser"
 
 [assets]
-makes = [{ name = "bazaar.session", version = 1 }]
+makes = [
+    { name = "bazaar.session", version = 1 },
+    { name = "bazaar.wardrobe", version = 1 },
+    { name = "looks.worn", version = 1 },
+    { name = "looks.file", version = 1 },
+]
 
 [env]
 HAMLET_BAZAAR_URL = "http://localhost:8787"
@@ -65,5 +70,11 @@ reason = "Draws the town of a hamlet template turning on a plinth on its page"
 imports = [{ service = "hamlet.realm/diorama", argument = "realm.diorama_ask", result = "realm.diorama_part" }]
 
 [events]
-sends = [{ name = "traded", payload = "bazaar.stall" }]
-hears = [{ event = "hamlet.realm/stall", payload = "bazaar.stall" }]
+sends = [
+    { name = "traded", payload = "bazaar.stall" },
+    { name = "emote", payload = "looks.emote" },
+]
+hears = [
+    { event = "hamlet.realm/stall", payload = "bazaar.stall" },
+    { event = "hamlet.inspector/dress", payload = "bazaar.dress" },
+]
