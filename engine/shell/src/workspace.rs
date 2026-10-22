@@ -38,6 +38,7 @@ const REALM: &str = "hamlet.realm/realm";
 const PETITIONS: &str = "engine/petitions";
 const CHAT: &str = "hamlet.chat/chat";
 const INSPECTOR: &str = "hamlet.inspector/inspector";
+const BAZAAR: &str = "hamlet.bazaar/bazaar";
 
 /// The most characters a workspace's name may have.
 const LONGEST_NAME: usize = 40;
@@ -111,9 +112,9 @@ pub struct Workspaces {
 
 impl Default for Workspaces {
     /// One workspace: the realm in the middle, the petitions and the
-    /// plugin list on its left, and the chat and the Inspector over
-    /// the console on its right. The panel of a plugin that is not on
-    /// is left out of the dock until it is.
+    /// plugin list on its left, and the chat, the Inspector and the
+    /// Agent Bazaar over the console on its right. The panel of a
+    /// plugin that is not on is left out of the dock until it is.
     fn default() -> Self {
         let tabs =
             |panels: Vec<PanelId>| Layout::Tabs { panels, shown: 0 };
@@ -133,7 +134,11 @@ impl Default for Workspaces {
         let right = split(
             Axis::Vertical,
             0.65,
-            tabs(vec![bundled(CHAT), bundled(INSPECTOR)]),
+            tabs(vec![
+                bundled(CHAT),
+                bundled(INSPECTOR),
+                bundled(BAZAAR),
+            ]),
             tabs(vec![console::id()]),
         );
         Self {

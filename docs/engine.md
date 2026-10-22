@@ -705,8 +705,8 @@ person has one or more, and one is shown at a time.
   which RON writes as it is and TOML only as a table per level.
 - **Restored** at start. A new home starts with one workspace, "Main"
   (`Workspaces::default`): the Realm panel in the middle with most of
-  the room, Petitions and the plugin list as tabs on its left, and Chat and
-  the Inspector over the console on its right. A bundled plugin's
+  the room, Petitions and the plugin list as tabs on its left, and Chat,
+  the Inspector and the Agent Bazaar over the console on its right. A bundled plugin's
   panel that is not there is left out until it comes, so without
   bundled plugins "Main" is the plugin list and the console. A file that cannot be read is
   moved aside to `workspaces_broken.ron` (or `_2`, `_3`, never over an
