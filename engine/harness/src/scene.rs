@@ -17,6 +17,8 @@ pub struct SceneCounts {
     pub meshes: usize,
     pub materials: usize,
     pub cameras: usize,
+    /// Entities that lay a decal.
+    pub decals: usize,
 }
 
 impl Harness {
@@ -34,6 +36,7 @@ impl Harness {
             meshes: scene.meshes(),
             materials: scene.materials(),
             cameras: scene.cameras(),
+            decals: scene.decals(),
         })
     }
 

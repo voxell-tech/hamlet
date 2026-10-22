@@ -3,7 +3,7 @@ use hamlet_engine_core::{Budgets, DefaultLimits};
 use wasmtime::component::Resource;
 
 use super::scene_bindings::hamlet::engine::scene::{
-    AlphaMode, HostEntity, HostMaterial, HostMesh, Pbr, Shape,
+    AlphaMode, Decal, HostEntity, HostMaterial, HostMesh, Pbr, Shape,
 };
 use super::{Powers, SceneError};
 use crate::host::WasmTuning;
@@ -101,4 +101,66 @@ fn a_dropped_mesh_is_counted_while_an_entity_draws_it() {
         .expect("undrawn");
     assert!(cube(&mut state).is_ok());
     assert_eq!(state.scene.counts.materials, 0);
+}
+
+#[test]
+fn a_decal_is_laid_only_with_a_decals_material() {
+    let caps = Caps::of(
+        &DefaultLimits::designed(),
+        &Budgets::designed(),
+        &WasmTuning::designed(),
+    );
+    let mut state = State::new(&caps);
+    state.scene.powers = Powers::SCENE;
+    let decal = Decal {
+        base_color: (1.0, 1.0, 1.0, 1.0),
+        emissive: (0.0, 0.0, 0.0, 1.0),
+        unlit: true,
+        fog: false,
+        depth_fade: 0.5,
+    };
+    let material = HostMaterial::decal(&mut state, decal)
+        .expect("no trap")
+        .expect("room")
+        .rep();
+    let mesh = HostMesh::shape(&mut state, Shape::Sphere(1.0))
+        .expect("no trap")
+        .expect("room")
+        .rep();
+    let entity = HostEntity::make(&mut state, None, 0)
+        .expect("no trap")
+        .expect("room")
+        .rep();
+    let at = || Resource::new_borrow(entity);
+
+    let drawn = HostEntity::draw(
+        &mut state,
+        at(),
+        Resource::new_borrow(mesh),
+        Resource::new_borrow(material),
+    );
+    assert!(drawn.is_err());
+    HostEntity::draw_decal(
+        &mut state,
+        at(),
+        Resource::new_borrow(material),
+    )
+    .expect("laid");
+    let flat = Decal {
+        depth_fade: 0.0,
+        ..decal
+    };
+    let set = HostMaterial::set_decal(
+        &mut state,
+        Resource::new_borrow(material),
+        flat,
+    );
+    assert_eq!(
+        set.expect_err("no depth to fade over")
+            .downcast_ref::<SceneError>(),
+        Some(&SceneError::Invalid)
+    );
+    HostMaterial::drop(&mut state, Resource::new_own(material))
+        .expect("no trap");
+    assert_eq!(state.scene.counts.materials, 1);
 }

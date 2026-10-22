@@ -40,6 +40,11 @@ pub enum SceneChange {
         mesh: u32,
         material: u32,
     },
+    /// A decal of the material `material` laid at the entity `id`.
+    DrawDecal {
+        id: u32,
+        material: u32,
+    },
     Undraw(u32),
     Light {
         id: u32,
@@ -68,6 +73,14 @@ pub enum SceneChange {
     Material {
         id: u32,
         material: StandardMaterial,
+    },
+    /// A decal's material made with `texture`, or set keeping the
+    /// texture it was made with.
+    Decal {
+        id: u32,
+        material: StandardMaterial,
+        depth_fade: f32,
+        texture: Option<u32>,
     },
     Instances {
         id: u32,

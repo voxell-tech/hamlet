@@ -1,14 +1,15 @@
 //! The circle of runes and the motes at each end of a Wickstep,
 //! drawn by a few entities made once and shown while they play.
 
-use std::f32::consts::{FRAC_PI_4, PI, TAU};
+use std::f32::consts::{PI, TAU};
 
-use glam::{Quat, Vec3};
+use glam::Vec3;
 use hamlet_engine_sdk::scene::{Entity, Material, Mesh, Shape};
 
 use crate::build::frame::Frame;
-use crate::build::mesh::{Mb, smoothstep};
-use crate::build::stock::glow;
+use crate::build::mark::{self, Mark};
+use crate::build::mesh::smoothstep;
+use crate::build::upload::Upload;
 use crate::folk::chief::ChiefSettings;
 
 /// A number in 0..1 that follows from `n` and looks random.
@@ -20,37 +21,10 @@ pub fn chance(n: f32) -> f32 {
         .abs()
 }
 
-/// A flat band of radius 1 lying on the ground, its inner edge at
-/// `inner`, of `sides` straight sides turned by `turn`.
-fn band(inner: f32, sides: usize, turn: f32) -> Mb {
-    let mut mb = Mb::new();
-    let ring = (0..sides)
-        .map(|i| {
-            let about = Quat::from_rotation_y(
-                turn + i as f32 / sides as f32 * TAU,
-            );
-            (
-                mb.v(about * Vec3::X * inner, Vec3::Y, Vec3::ONE),
-                mb.v(about * Vec3::X, Vec3::Y, Vec3::ONE),
-            )
-        })
-        .collect::<Vec<_>>();
-    for i in 0..sides {
-        let (a, b) = (ring[i], ring[(i + 1) % sides]);
-        mb.quad(a.0, a.1, b.1, b.0);
-    }
-    mb
-}
-
-/// The two shapes of a circle of runes: a ring, and a diamond in it.
-pub fn shapes() -> [Mb; 2] {
-    [band(0.86, 48, 0.0), band(0.6, 4, FRAC_PI_4)]
-}
-
 /// One shape of a circle of runes as it plays.
 struct Rune {
-    entity: Entity,
-    material: Material,
+    mark: Mark,
+    shape: mark::Shape,
     /// Its turns over its life, and when it began, and for how long.
     turn: f32,
     playing: Option<RunePlay>,
@@ -96,17 +70,15 @@ impl Charm {
         set: &ChiefSettings,
         flame: &Material,
     ) -> Result<Self, String> {
-        let rune = |turn: f32| -> Result<Rune, String> {
-            let entity = Entity::make(None, 0)?;
-            entity.set_visible(false);
-            entity.set_shadows(false, false);
-            Ok(Rune {
-                entity,
-                material: Material::make(glow(Vec3::ZERO, 1.0))?,
-                turn,
-                playing: None,
-            })
-        };
+        let rune =
+            |shape: mark::Shape, turn: f32| -> Result<Rune, String> {
+                Ok(Rune {
+                    mark: Mark::make(0)?,
+                    shape,
+                    turn,
+                    playing: None,
+                })
+            };
         let mote = Mesh::shape(Shape::Sphere(1.0))?;
         let motes = (0..set.motes * 2)
             .map(|_| {
@@ -121,16 +93,34 @@ impl Charm {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(Self {
-            runes: [rune(1.2)?, rune(-2.0)?],
+            runes: [
+                rune(mark::Shape::RING, 1.2)?,
+                rune(mark::Shape::DIAMOND, -2.0)?,
+            ],
             motes,
             _mote: mote,
         })
     }
 
-    /// Gives the runes their shapes, once they are handed over.
-    pub fn shape(&self, shapes: &[&Mesh]) {
-        for (rune, shape) in self.runes.iter().zip(shapes) {
-            rune.entity.draw(shape, &rune.material);
+    /// Hands over the pictures of the runes the call has room for,
+    /// and draws each rune with its own.
+    pub fn shape(&mut self, upload: &mut Upload) {
+        for rune in &mut self.runes {
+            if rune.mark.drawn() {
+                continue;
+            }
+            let picture = match rune.shape.upload(upload) {
+                Ok(Some(picture)) => picture,
+                Ok(None) => return,
+                Err(why) => {
+                    hamlet_engine_sdk::warn(&format!("runes: {why}"));
+                    return;
+                }
+            };
+            // The engine keeps the picture while the rune draws it.
+            if let Err(why) = rune.mark.draw(&picture) {
+                hamlet_engine_sdk::warn(&format!("runes: {why}"));
+            }
         }
     }
 
@@ -158,7 +148,7 @@ impl Charm {
                 light: light * set.rune_light,
                 at,
             });
-            rune.entity.set_visible(true);
+            rune.mark.show(true);
         }
         let free =
             self.motes.iter_mut().filter(|m| m.playing.is_none());
@@ -198,7 +188,7 @@ impl Charm {
             let u = (now - play.began) / play.long;
             if u >= 1.0 {
                 rune.playing = None;
-                rune.entity.set_visible(false);
+                rune.mark.show(false);
                 continue;
             }
             let u = u.max(0.0);
@@ -214,18 +204,12 @@ impl Charm {
                     1.0 - smoothstep(0.8, 1.0, u),
                 )
             };
-            rune.entity.set_transform(
-                Frame::at(play.at)
-                    .with_turn(Quat::from_rotation_y(u * rune.turn))
-                    .with_size(Vec3::splat(
-                        (set.rune_radius * reach).max(1e-3),
-                    ))
-                    .scene(),
+            rune.mark.lay(
+                play.at,
+                (set.rune_radius * reach).max(1e-3),
+                u * rune.turn,
             );
-            rune.material.set(glow(
-                play.light * fade * (u * 8.0).min(1.0),
-                1.0,
-            ));
+            rune.mark.shine(play.light, fade * (u * 8.0).min(1.0));
         }
         for mote in &mut self.motes {
             let Some(play) = mote.playing else {

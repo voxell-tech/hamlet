@@ -10,12 +10,12 @@ use wasmtime::component::Resource;
 
 use crate::instance::State;
 use crate::scene::scene_bindings::hamlet::engine::gpu::{
-    Host, HostBuffer, HostCompute, HostShader, HostTexture, Shaded,
-    ShaderKind as Kind,
+    Decal, Host, HostBuffer, HostCompute, HostShader, HostTexture,
+    Shaded, ShaderKind as Kind,
 };
 use crate::scene::{
-    CameraHandle, Held, MaterialHandle, Powers, SceneError,
-    SceneState, convert, trap,
+    CameraHandle, Held, MaterialHandle, MaterialKind, Powers,
+    SceneError, SceneState, convert, trap,
 };
 
 pub struct ShaderHandle;
@@ -334,22 +334,13 @@ impl Host for State {
                 matches!(held, Held::Buffer { .. })
             })?;
         }
-        let most = scene.caps.materials;
         let kind =
             scene.shader(shader.rep(), ShaderKind::Material)?;
         let refused = scene
             .allowed(Powers::SHADER, "render.shader")
             .and(kind)
             .and_then(|()| params(&floats))
-            .and_then(|()| {
-                (scene.counts.materials < most)
-                    .then_some(())
-                    .ok_or_else(|| {
-                        format!(
-                            "a scene holds {most} materials at most"
-                        )
-                    })
-            });
+            .and_then(|()| scene.room_material());
         if let Err(why) = refused {
             return Ok(Err(why));
         }
@@ -358,7 +349,7 @@ impl Host for State {
         let texture = texture.map(|texture| texture.rep());
         let data = data.map(|data| data.rep());
         let id = scene.number(Held::Material {
-            shaded: true,
+            kind: MaterialKind::Shaded,
             uses: [Some(shader.rep()), texture, data],
         });
         scene.changes.push(SceneChange::Shaded {
@@ -382,7 +373,13 @@ impl Host for State {
         self.keep_bytes(size_of_val(floats.as_slice()))?;
         let id = material.rep();
         self.scene.held(id, |held| {
-            matches!(held, Held::Material { shaded: true, .. })
+            matches!(
+                held,
+                Held::Material {
+                    kind: MaterialKind::Shaded,
+                    ..
+                }
+            )
         })?;
         if let Err(why) = params(&floats) {
             return Ok(Err(why));
@@ -390,6 +387,21 @@ impl Host for State {
         self.scene
             .change(SceneChange::Params { id, params: floats })?;
         Ok(Ok(()))
+    }
+
+    fn decal_material(
+        &mut self,
+        decal: Decal,
+        texture: Resource<TextureHandle>,
+    ) -> wasmtime::Result<Result<Resource<MaterialHandle>, String>>
+    {
+        self.keep_bytes(size_of::<Decal>())?;
+        self.scene.held(texture.rep(), |held| {
+            matches!(held, Held::Texture { .. })
+        })?;
+        let made = convert::decal(decal)
+            .ok_or_else(|| trap(SceneError::Invalid))?;
+        self.scene.make_decal(made, Some(texture.rep()))
     }
 
     fn set_pass(

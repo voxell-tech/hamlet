@@ -13,6 +13,7 @@ use core::fmt;
 use std::collections::HashMap;
 use std::time::Instant;
 
+use bevy::pbr::StandardMaterial;
 use bevy::transform::components::Transform as Placed;
 use hamlet_engine_api::Capability;
 use hamlet_engine_core::Budgets;
@@ -45,9 +46,9 @@ pub(crate) mod scene_bindings {
 }
 
 use crate::scene::scene_bindings::hamlet::engine::scene::{
-    CameraSettings, Host, HostCamera, HostEntity, HostInstances,
-    HostMaterial, HostMesh, Light, MeshData, Pbr, Shape, Target,
-    Transform,
+    CameraSettings, Decal, Host, HostCamera, HostEntity,
+    HostInstances, HostMaterial, HostMesh, Light, MeshData, Pbr,
+    Shape, Target, Transform,
 };
 
 /// The interfaces of scenes and GPU work a plugin may import.
@@ -132,17 +133,16 @@ type Uses = [Option<u32>; 3];
 enum Held {
     Entity {
         light: bool,
-        /// The mesh and material it draws.
-        draws: Option<(u32, u32)>,
+        /// The mesh, none for a decal, and the material it draws.
+        draws: Option<(Option<u32>, u32)>,
     },
     Mesh {
         vertices: usize,
         bytes: u64,
     },
-    /// A material, of a plugin's shader when `shaded`, with the
-    /// shader, texture and buffer it uses.
+    /// A material, with the shader, texture and buffer it uses.
     Material {
-        shaded: bool,
+        kind: MaterialKind,
         uses: Uses,
     },
     Instances {
@@ -169,9 +169,35 @@ enum Held {
     },
 }
 
+/// What draws a material.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum MaterialKind {
+    Pbr,
+    /// A plugin's shader.
+    Shaded,
+    Decal,
+}
+
 impl Held {
+    /// Whether it is a material a mesh is drawn with.
     fn material(&self) -> bool {
-        matches!(self, Self::Material { .. })
+        matches!(
+            self,
+            Self::Material {
+                kind: MaterialKind::Pbr | MaterialKind::Shaded,
+                ..
+            }
+        )
+    }
+
+    fn decal(&self) -> bool {
+        matches!(
+            self,
+            Self::Material {
+                kind: MaterialKind::Decal,
+                ..
+            }
+        )
     }
 
     fn mesh(&self) -> bool {
@@ -188,8 +214,8 @@ impl Held {
             Self::Entity {
                 draws: Some((mesh, material)),
                 ..
-            }
-            | Self::Instances { mesh, material, .. } => {
+            } => [mesh, Some(material), None],
+            Self::Instances { mesh, material, .. } => {
                 [Some(mesh), Some(material), None]
             }
             Self::Material { uses, .. } | Self::Compute { uses } => {
@@ -452,6 +478,46 @@ impl SceneState {
         Ok(())
     }
 
+    /// Whether one more material fits; why not otherwise.
+    fn room_material(&self) -> Result<(), String> {
+        let most = self.caps.materials;
+        if self.counts.materials >= most {
+            return Err(format!(
+                "a scene holds {most} materials at most"
+            ));
+        }
+        Ok(())
+    }
+
+    /// Numbers a decal's material, `made` with `texture`, if the
+    /// plugin may make it; why not otherwise.
+    fn make_decal(
+        &mut self,
+        (material, depth_fade): (StandardMaterial, f32),
+        texture: Option<u32>,
+    ) -> wasmtime::Result<Result<Resource<MaterialHandle>, String>>
+    {
+        if let Err(why) = self
+            .allowed(Powers::SCENE, "render.scene")
+            .and_then(|()| self.room_material())
+        {
+            return Ok(Err(why));
+        }
+        self.spend(1)?;
+        self.counts.materials += 1;
+        let id = self.number(Held::Material {
+            kind: MaterialKind::Decal,
+            uses: [None, texture, None],
+        });
+        self.changes.push(SceneChange::Decal {
+            id,
+            material,
+            depth_fade,
+            texture,
+        });
+        Ok(Ok(Resource::new_own(id)))
+    }
+
     /// A mesh of `vertices` taking `bytes`, numbered, or why it does
     /// not fit.
     fn fit_mesh(
@@ -624,24 +690,32 @@ impl HostMaterial for State {
         {
             return Ok(Err(why));
         }
-        let most = self.scene.caps.materials;
-        if self.scene.counts.materials >= most {
-            return Ok(Err(format!(
-                "a scene holds {most} materials at most"
-            )));
+        if let Err(why) = self.scene.room_material() {
+            return Ok(Err(why));
         }
         let material = convert::pbr(pbr)
             .ok_or_else(|| trap(SceneError::Invalid))?;
         self.scene.spend(1)?;
         self.scene.counts.materials += 1;
         let id = self.scene.number(Held::Material {
-            shaded: false,
+            kind: MaterialKind::Pbr,
             uses: [None; 3],
         });
         self.scene
             .changes
             .push(SceneChange::Material { id, material });
         Ok(Ok(Resource::new_own(id)))
+    }
+
+    fn decal(
+        &mut self,
+        decal: Decal,
+    ) -> wasmtime::Result<Result<Resource<MaterialHandle>, String>>
+    {
+        self.keep_bytes(size_of::<Decal>())?;
+        let made = convert::decal(decal)
+            .ok_or_else(|| trap(SceneError::Invalid))?;
+        self.scene.make_decal(made, None)
     }
 
     fn set(
@@ -651,11 +725,35 @@ impl HostMaterial for State {
     ) -> wasmtime::Result<()> {
         let id = material.rep();
         self.scene.held(id, |held| {
-            matches!(held, Held::Material { shaded: false, .. })
+            matches!(
+                held,
+                Held::Material {
+                    kind: MaterialKind::Pbr,
+                    ..
+                }
+            )
         })?;
         let material = convert::pbr(pbr)
             .ok_or_else(|| trap(SceneError::Invalid))?;
         self.scene.change(SceneChange::Material { id, material })
+    }
+
+    fn set_decal(
+        &mut self,
+        material: Resource<MaterialHandle>,
+        decal: Decal,
+    ) -> wasmtime::Result<()> {
+        self.keep_bytes(size_of::<Decal>())?;
+        let id = material.rep();
+        self.scene.held(id, Held::decal)?;
+        let (material, depth_fade) = convert::decal(decal)
+            .ok_or_else(|| trap(SceneError::Invalid))?;
+        self.scene.change(SceneChange::Decal {
+            id,
+            material,
+            depth_fade,
+            texture: None,
+        })
     }
 
     fn drop(
@@ -748,7 +846,27 @@ impl HostEntity for State {
             id,
             Held::Entity {
                 light,
-                draws: Some((mesh, material)),
+                draws: Some((Some(mesh), material)),
+            },
+        );
+        Ok(())
+    }
+
+    fn draw_decal(
+        &mut self,
+        at: Resource<EntityHandle>,
+        material: Resource<MaterialHandle>,
+    ) -> wasmtime::Result<()> {
+        let id = at.rep();
+        let light = self.scene.light(id)?;
+        let material = material.rep();
+        self.scene.held(material, Held::decal)?;
+        self.scene.change(SceneChange::DrawDecal { id, material })?;
+        self.scene.keep(
+            id,
+            Held::Entity {
+                light,
+                draws: Some((None, material)),
             },
         );
         Ok(())

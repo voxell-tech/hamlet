@@ -2,19 +2,13 @@
 //! the entities that draw them, the one under it and the one chosen,
 //! each with a ring of light on the ground about it.
 
-use std::f32::consts::TAU;
-
-use glam::{Quat, Vec3};
+use glam::Vec3;
 use hamlet_engine_sdk::api::agents::{Focus, Selected};
-use hamlet_engine_sdk::scene::{
-    Entity, Material, MouseButton, SceneInput,
-};
+use hamlet_engine_sdk::scene::{MouseButton, SceneInput};
 
 use crate::bridge::Bridge;
-use crate::build::frame::Frame;
-use crate::build::mesh::Mb;
-use crate::build::stock::glow;
-use crate::build::upload::{Unsent, Upload};
+use crate::build::mark::{Mark, Shape};
+use crate::build::upload::Upload;
 use crate::society::{AgentId, Society, TownId};
 
 /// The colour of a ring's light, and how bright the ring under the
@@ -131,25 +125,18 @@ impl Thing {
     }
 }
 
-/// A ring of light lying on the ground.
+/// A ring of light laid on the ground.
 struct Ring {
-    entity: Entity,
+    mark: Mark,
     /// Where it lies and its radius, while it is shown.
     shown: Option<(Vec3, f32)>,
-    material: Material,
 }
 
 impl Ring {
     fn make(key: u32, glow_by: f32) -> Result<Self, String> {
-        let entity = Entity::make(None, key)?;
-        let material = Material::make(glow(CANDLE, glow_by))?;
-        entity.set_visible(false);
-        entity.set_shadows(false, false);
-        Ok(Self {
-            entity,
-            shown: None,
-            material,
-        })
+        let mut mark = Mark::make(key)?;
+        mark.shine(CANDLE * glow_by, 1.0);
+        Ok(Self { mark, shown: None })
     }
 
     /// Lays it at `at` with `radius`, or takes it away.
@@ -158,36 +145,13 @@ impl Ring {
             return;
         }
         if let Some((at, radius)) = at {
-            self.entity.set_transform(
-                Frame::at(at).with_size(Vec3::splat(radius)).scene(),
-            );
+            self.mark.lay(at, radius, 0.0);
         }
         if self.shown.is_some() != at.is_some() {
-            self.entity.set_visible(at.is_some());
+            self.mark.show(at.is_some());
         }
         self.shown = at;
     }
-}
-
-/// A flat band of radius 1, its inner edge at 0.86.
-fn band() -> Mb {
-    let mut mb = Mb::new();
-    let segs = 48;
-    let ring = (0..segs)
-        .map(|i| {
-            let turn =
-                Quat::from_rotation_y(i as f32 / segs as f32 * TAU);
-            (
-                mb.v(turn * Vec3::X * 0.86, Vec3::Y, Vec3::ONE),
-                mb.v(turn * Vec3::X, Vec3::Y, Vec3::ONE),
-            )
-        })
-        .collect::<Vec<_>>();
-    for i in 0..segs {
-        let (a, b) = (ring[i], ring[(i + 1) % segs]);
-        mb.quad(a.0, a.1, b.1, b.0);
-    }
-    mb
 }
 
 /// The thing under the pointer and the one chosen, and their rings.
@@ -204,8 +168,6 @@ pub struct Picking {
     /// or nothing for the bare ground.
     chosen: Option<Option<Thing>>,
     rings: [Ring; 2],
-    /// The band each ring draws, once it is made.
-    band: Option<hamlet_engine_sdk::scene::Mesh>,
 }
 
 impl Picking {
@@ -220,7 +182,6 @@ impl Picking {
                 Ring::make(HOVER_RING, HOVER_GLOW)?,
                 Ring::make(CHOSEN_RING, CHOSEN_GLOW)?,
             ],
-            band: None,
         })
     }
 
@@ -311,16 +272,20 @@ impl Picking {
         selected: Option<(Vec3, f32)>,
         upload: &mut Upload,
     ) {
-        if self.band.is_none() {
-            match band().upload(upload) {
-                Ok(mesh) => {
-                    for ring in &self.rings {
-                        ring.entity.draw(&mesh, &ring.material);
+        if !self.rings[0].mark.drawn() {
+            match Shape::BAND.upload(upload) {
+                // The engine keeps the band while a ring draws it.
+                Ok(Some(band)) => {
+                    for ring in &mut self.rings {
+                        if let Err(why) = ring.mark.draw(&band) {
+                            hamlet_engine_sdk::warn(&format!(
+                                "rings: {why}"
+                            ));
+                        }
                     }
-                    self.band = Some(mesh);
                 }
-                Err(Unsent::Full(_)) => return,
-                Err(Unsent::Refused(why)) => {
+                Ok(None) => return,
+                Err(why) => {
                     hamlet_engine_sdk::warn(&format!("rings: {why}"));
                     return;
                 }

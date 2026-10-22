@@ -488,6 +488,23 @@ interface scene {
         fog: bool,
     }
 
+    /// The look of a decal, as Bevy's forward decal draws it: a
+    /// standard material, always blended.
+    record decal {
+        /// Times its texture's, where it has one; the alpha is how
+        /// much of what it falls on it covers.
+        base-color: rgba,
+        /// Light it gives off; past 1 it blooms.
+        emissive: rgba,
+        /// Shown in its colour, not lit.
+        unlit: bool,
+        /// Covered by the camera's fog.
+        fog: bool,
+        /// How far from its square, in the world's units, what it
+        /// falls on may lie before it fades out.
+        depth-fade: f32,
+    }
+
     /// Light from far away along the entity's forward, -z, in lux.
     record directional-light {
         color: rgba,
@@ -600,7 +617,13 @@ interface scene {
     resource material {
         make: static func(pbr: pbr) -> result<material, string>;
 
+        /// A material of one colour for `draw-decal`.
+        decal: static func(decal: decal) -> result<material, string>;
+
         set: func(pbr: pbr);
+
+        /// Gives a decal's material `decal`, keeping its texture.
+        set-decal: func(decal: decal);
     }
 
     /// An entity, at the scene's root or under `parent`.
@@ -616,6 +639,12 @@ interface scene {
 
         /// Draws `mesh` with `material` at the entity.
         draw: func(mesh: borrow<mesh>, material: borrow<material>);
+
+        /// Lays a decal of `material`, a decal's, at the entity: a
+        /// square one unit wide on its x and z, laid on what lies
+        /// under and over it along its y. Its transform places, turns
+        /// and sizes it.
+        draw-decal: func(material: borrow<material>);
 
         undraw: func();
 
@@ -733,7 +762,7 @@ interface scene-guest {
 /// places, under fixed names. A make fails, saying why, past a
 /// budget or without its capability.
 interface gpu {
-    use scene.{alpha-mode, material, camera};
+    use scene.{alpha-mode, material, camera, decal};
 
     enum shader-kind {
         /// `fn shade(surface: Surface) -> vec4<f32>`, and optionally
@@ -782,6 +811,9 @@ interface gpu {
 
     /// Gives a material `shaded-material` made new `params`.
     set-params: func(material: borrow<material>, params: list<f32>) -> result<_, string>;
+
+    /// A material for `draw-decal`, its colour times `texture`'s.
+    decal-material: func(decal: decal, texture: borrow<texture>) -> result<material, string>;
 
     /// A `compute` shader over `data`, and `extra` when given.
     resource compute {

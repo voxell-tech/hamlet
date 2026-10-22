@@ -1,21 +1,22 @@
 //! A lit scene in a panel, to show what a plugin can draw: shapes
 //! under a sun, a mesh of its own with a colour at each vertex, a
-//! ring in a shader of its own, and a field of cubes drawn as copies
-//! of one, lifted in waves by compute. Dragging turns the camera
+//! ring in a shader of its own, a pool of light laid as a decal, and
+//! a field of cubes drawn as copies of one, lifted in waves by
+//! compute. Dragging turns the camera
 //! about the middle, the wheel brings it nearer, the shape under the
 //! pointer lights up and a click names what it hit.
 
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 use hamlet_engine_sdk::scene::gpu::{
-    Buffer, Compute, Shaded, Shader, ShaderKind, set_params,
-    set_pass, shaded_material,
+    Buffer, Compute, Shaded, Shader, ShaderKind, Texture,
+    decal_material, set_params, set_pass, shaded_material,
 };
 use hamlet_engine_sdk::scene::{
-    AlphaMode, Bloom, Camera, CameraSettings, DirectionalLight,
-    Entity, Fog, FogFalloff, Instances, Light, Material, Mesh,
-    MeshData, MouseButton, Pbr, Rgba, SceneInput, Shape, Target,
-    Transform, copies, viewport,
+    AlphaMode, Bloom, Camera, CameraSettings, Decal,
+    DirectionalLight, Entity, Fog, FogFalloff, Instances, Light,
+    Material, Mesh, MeshData, MouseButton, Pbr, Rgba, SceneInput,
+    Shape, Target, Transform, copies, viewport,
 };
 use hamlet_engine_sdk::ui::{
     AnyView, FrameProps, Space, Tone, ViewExt, World, column, label,
@@ -27,6 +28,7 @@ use hamlet_engine_sdk::{Entry, Plugin};
 const CAMERA: u32 = 1;
 const SUN: u32 = 2;
 const GROUND: u32 = 3;
+const POOL: u32 = 4;
 const SPHERE: u32 = 11;
 const RING: u32 = 12;
 const PYRAMID: u32 = 13;
@@ -36,6 +38,8 @@ const FIELD: u32 = 100;
 const SIDE: u32 = 20;
 /// Invocations of a workgroup of `waves.wgsl`.
 const WORKGROUP: u32 = 64;
+/// Pixels along each side of the pool of light's picture.
+const POOL_SIDE: u32 = 64;
 
 const SKY: Rgba = (0.02, 0.025, 0.04, 1.0);
 const SOIL: Rgba = (0.08, 0.1, 0.09, 1.0);
@@ -139,8 +143,17 @@ struct Demo {
 }
 
 /// What is kept only so it is not dropped: the sun, the ground, the
-/// field, the shaders, the field's lifts and their compute.
-type Held = (Entity, Entity, Instances, Vec<Shader>, Buffer, Compute);
+/// field, the shaders, the field's lifts and their compute, and the
+/// pool of light with its picture.
+type Held = (
+    Entity,
+    Entity,
+    Instances,
+    Vec<Shader>,
+    Buffer,
+    Compute,
+    (Entity, Texture),
+);
 
 impl Demo {
     fn build() -> Result<Self, String> {
@@ -214,6 +227,25 @@ impl Demo {
             ..Pbr::colored(GLOW)
         })?;
 
+        let pool = Entity::make(None, POOL)?;
+        pool.set_transform(Transform {
+            translation: (-3.0, 0.0, 0.0),
+            scale: (4.0, 1.0, 4.0),
+            ..Transform::default()
+        });
+        let pool_picture =
+            Texture::make(POOL_SIDE, POOL_SIDE, &pool_pixels())?;
+        pool.draw_decal(&decal_material(
+            Decal {
+                base_color: GLOW,
+                emissive: (0.0, 0.0, 0.0, 1.0),
+                unlit: true,
+                fog: false,
+                depth_fade: 1.0,
+            },
+            &pool_picture,
+        )?);
+
         let count = SIDE * SIDE;
         let lifts = Buffer::make(count * 16)?;
         let field_shader = Shader::compile(
@@ -274,6 +306,7 @@ impl Demo {
                 ],
                 lifts,
                 waves,
+                (pool, pool_picture),
             ),
         })
     }
@@ -439,6 +472,21 @@ fn pyramid() -> MeshData {
         colors,
         indices,
     }
+}
+
+/// The picture of the pool of light: white, fading from its middle to
+/// nothing at its edge.
+fn pool_pixels() -> Vec<u8> {
+    let half = POOL_SIDE as f32 / 2.0;
+    (0..POOL_SIDE * POOL_SIDE)
+        .flat_map(|at| {
+            let x = (at % POOL_SIDE) as f32 + 0.5 - half;
+            let y = (at / POOL_SIDE) as f32 + 0.5 - half;
+            let out = ((x * x + y * y).sqrt() / half).min(1.0);
+            let alpha = (1.0 - out).powi(2) * 255.0;
+            [255, 255, 255, alpha as u8]
+        })
+        .collect()
 }
 
 /// A full colour at `turn` of the way round the wheel.

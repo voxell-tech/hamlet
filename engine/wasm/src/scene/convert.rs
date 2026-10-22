@@ -35,8 +35,8 @@ use crate::scene::scene_bindings::exports::hamlet::engine::scene_guest::{
     Hit, MouseButton, Pointer, Press, SceneInput, Wheel,
 };
 use crate::scene::scene_bindings::hamlet::engine::scene::{
-    AlphaMode, CameraSettings, FogFalloff, Light, MeshData, Pbr,
-    Projection, Rgba, Shape, Tonemapping, Transform,
+    AlphaMode, CameraSettings, Decal, FogFalloff, Light, MeshData,
+    Pbr, Projection, Rgba, Shape, Tonemapping, Transform,
 };
 
 /// A mesh, and what it holds against the budgets.
@@ -249,6 +249,23 @@ pub(crate) fn pbr(pbr: Pbr) -> Option<StandardMaterial> {
         fog_enabled: pbr.fog,
         ..StandardMaterial::default()
     })
+}
+
+/// A decal's material, always blended, and how far from its square
+/// it fades out.
+pub(crate) fn decal(decal: Decal) -> Option<(StandardMaterial, f32)> {
+    if !positive(&[decal.depth_fade]) {
+        return None;
+    }
+    let material = StandardMaterial {
+        base_color: Color::LinearRgba(color(decal.base_color)?),
+        emissive: color(decal.emissive)?,
+        alpha_mode: Blend::Blend,
+        unlit: decal.unlit,
+        fog_enabled: decal.fog,
+        ..StandardMaterial::default()
+    };
+    Some((material, decal.depth_fade))
 }
 
 pub(crate) fn light(light: Light) -> Option<SceneLight> {

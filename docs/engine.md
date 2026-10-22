@@ -324,7 +324,7 @@ plugins it needs, from its folder, and each `[[step]]` does one thing:
 use), `frames`, `expect` and `lacks` (text in a panel's outline),
 `click`, `write`, `toggle`, `run`, `expect_asset`, `expect_log`,
 `reply` or `fail` for a fetch, `expect_scene` (how many entities,
-meshes, materials and cameras a plugin's scene holds) and `pick` (a
+meshes, materials, cameras and decals a plugin's scene holds) and `pick` (a
 click on the entity of a key, and the copy of instances). A step that
 expects waits for it; the script stops at the first that fails. The
 harness has no GPU: a scene is kept and counted, never drawn.
@@ -1123,7 +1123,8 @@ The status items are not read by the harness.
 `plugins/scene_demo` (`hamlet.scene_demo`, asking `render.scene`,
 `render.shader` and `render.compute`) is the panel Scene, which has
 no padding: a line of its own padding over a viewport that reaches
-the panel's edges, of a lit scene, under a sun with shadows, of a ground, a sphere, a
+the panel's edges, of a lit scene, under a sun with shadows, of a ground, a sphere
+on a pool of light laid as a decal of its own picture, a
 ring in a material of its own WGSL (`ring.wgsl`), a six-sided pyramid
 of its own mesh with a colour at each vertex, and a field of 400
 cubes as copies of one, lifted in waves by compute (`waves.wgsl`)
@@ -1131,7 +1132,8 @@ through the material that draws them (`field.wgsl`), with a pass that
 darkens the view's edges (`edges.wgsl`). Dragging turns the camera
 about the middle and the wheel brings it nearer; the shape or cube
 under the pointer lights up, and a click names what it hit over the
-view. Its `steps.toml` counts the scene and clicks a shape and a cube.
+view. Its `steps.toml` counts the scene and its decal, and clicks a
+shape and a cube.
 
 `plugins/realm` (`hamlet.realm`, asking `agents.read`, `agents.chief`,
 `render.scene` and `render.shader`) is the realm, drawn in its panel,
@@ -1171,7 +1173,9 @@ Its tuning is `assets/world.toml` and `assets/palette.toml`, built in.
   nearer. Reset Camera, Focus on Selection (F), Follow Selection
   (Shift+F) and the sky held to day or night are in the View menu.
 - **The pointer.** A robot, a house, a common, the Hearth or the
-  mascot under it has a ring of light, and a click selects its agent,
+  mascot under it has a ring of light, as the one selected has, each
+  a decal laid on the ground (`build/mark.rs`, as are the runes of a
+  Wickstep), and a click selects its agent,
   hamlet or the Hearth in the window's focus and brings the Inspector
   forward; a click on the bare ground selects nothing. A hamlet or the
   Hearth selected elsewhere is brought into view. Houses, commons and
@@ -1557,9 +1561,10 @@ none of them imports none of them.
   triangles, checked whole and uploaded once; `update` replaces it),
   `material` (`pbr`: base colour, emissive, roughness, metallic, alpha
   mode and cutoff, unlit, both faces, fog; a mesh's vertex colours
-  tint it), `entity` (under a parent or the scene's root, with a key
-  of the plugin's: its transform, visibility, parent, mesh and
-  material, light, shadows, words over it and what it watches),
+  tint it; or a decal's), `entity` (under a parent or the scene's
+  root, with a key of the plugin's: its transform, visibility,
+  parent, mesh and material or decal, light, shadows, words over it
+  and what it watches),
   `instances` (copies of one mesh in one material, ten floats a copy,
   copy `i` tagged `i` for a shader; Bevy draws them together) and
   `camera` (at an entity, along its forward). Dropping a handle takes
@@ -1568,6 +1573,18 @@ none of them imports none of them.
   stays, counted against the budgets, until nothing uses it.
 - **Lights** are directional (with shadows), point and spot, each a
   light of an entity; ambient light is a camera's.
+- **Decals** are Bevy's forward decals (`decal.rs`): `draw-decal`
+  lays a material made by `material.decal` (one colour) or
+  `gpu.decal-material` (its colour times a texture's) on what lies
+  under and over a square one unit wide on the entity's x and z,
+  placed, turned and sized by its transform. Its look is a standard
+  material, always blended: base colour and alpha, emissive, unlit
+  and fog, and `depth-fade`, how far from the square what it falls
+  on may lie before it fades out. `set-decal` changes it and keeps
+  its texture. Once a scene has a decal, each of its cameras has a
+  depth prepass, which the decal reads. A decal's material draws no
+  mesh, and a mesh's no decal; the call that tries fails. A decal is
+  counted as its entity and its material.
 - **A camera's settings**: a perspective or orthographic projection,
   what it clears to, high range, tonemapping, exposure, distance fog,
   bloom, ambient light and samples a pixel (MSAA), lowered to the most
@@ -1652,7 +1669,8 @@ none of them imports none of them.
 - **Passes** (`gpu.set-pass`) run over the image of one of the
   plugin's cameras in Bevy's 3D schedule, after it draws and before
   its tonemapping.
-- **Textures** (`gpu.texture`) are sRGB images a material samples.
+- **Textures** (`gpu.texture`) are sRGB images a material or a
+  decal samples.
 - **GPU time.** Where the device has timestamp queries, each compute
   and pass is timed (`[render] timed_slots` at once, shared by all
   plugins; one that finds every slot taken does not run until a slot
@@ -1677,8 +1695,8 @@ none of them imports none of them.
 
 ### Capabilities and budgets
 
-- `render.scene` makes meshes, materials, entities, instances and
-  cameras; `render.shader` compiles material and pass shaders, makes
+- `render.scene` makes meshes, materials (a decal's too), entities,
+  instances and cameras; `render.shader` compiles material and pass shaders, makes
   shaded materials and sets passes; `render.compute` compiles compute
   and dispatches it. A buffer or texture needs either of the last two.
   Each is asked for on the target `gpu`. A make without its capability

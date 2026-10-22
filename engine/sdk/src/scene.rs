@@ -1,5 +1,6 @@
 //! 3D scenes the engine draws, kept entity by entity: meshes,
-//! materials, entities with lights, instances and cameras. A camera
+//! materials, entities with lights or decals, instances and cameras.
+//! A camera
 //! draws into a [`viewport`] of a panel, or behind the dock. What the
 //! person does over a view comes to
 //! [`Plugin::scene`](crate::Plugin::scene), and while [`animate`] is
@@ -19,19 +20,20 @@ pub use crate::bindings::exports::hamlet::engine::scene_guest::{
     Hit, MouseButton, Pointer, Press, SceneInput, Wheel,
 };
 pub use crate::bindings::hamlet::engine::scene::{
-    AlphaMode, Bloom, Camera, CameraSettings, DirectionalLight,
-    Entity, Fog, FogFalloff, Instances, Light, Material, Mesh,
-    MeshData, Pbr, PointLight, Projection, Quat, Rgba, Shape,
-    SpotLight, Target, Tonemapping, Transform, Vec3,
+    AlphaMode, Bloom, Camera, CameraSettings, Decal,
+    DirectionalLight, Entity, Fog, FogFalloff, Instances, Light,
+    Material, Mesh, MeshData, Pbr, PointLight, Projection, Quat,
+    Rgba, Shape, SpotLight, Target, Tonemapping, Transform, Vec3,
 };
 /// A plugin's own GPU work in WGSL, checked by the engine before use:
 /// a material's `shade` and `displace`, a camera's `post` pass, and
 /// compute's `main`, over the engine's bindings. Each make fails,
-/// saying why, when the source is refused.
+/// saying why, when the source is refused. A texture also gives a
+/// decal its picture.
 pub mod gpu {
     pub use crate::bindings::hamlet::engine::gpu::{
         Buffer, Compute, Shaded, Shader, ShaderKind, Texture,
-        set_params, set_pass, shaded_material,
+        decal_material, set_params, set_pass, shaded_material,
     };
 }
 

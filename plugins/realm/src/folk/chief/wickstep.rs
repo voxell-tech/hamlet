@@ -13,8 +13,8 @@ use crate::folk::chief::ChiefSettings;
 use crate::folk::chief::homing::Walking;
 use crate::folk::chief::mascot::{Doing, Pose};
 use crate::folk::chief::place::{self, Pastime};
+pub use crate::folk::chief::wickstep::charm::Charm;
 use crate::folk::chief::wickstep::charm::chance;
-pub use crate::folk::chief::wickstep::charm::{Charm, shapes};
 use crate::society::AgentId;
 use crate::world::land::Land;
 

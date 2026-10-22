@@ -16,7 +16,7 @@ use crate::folk::chief::look::Look;
 use crate::folk::chief::mascot::{Rig, parts, wick};
 use crate::folk::chief::place::{self, Built};
 use crate::folk::chief::wickstep::{
-    Charm, Mascot, Phase, Whereabouts, shapes,
+    Charm, Mascot, Phase, Whereabouts,
 };
 use crate::places::lantern::lantern_glass;
 use crate::realm::Ctx;
@@ -69,8 +69,6 @@ enum Slot {
     /// A part of the mascot, in the order of `Parts::each`.
     Part(usize),
     Wick,
-    /// A shape of the circle of runes.
-    Rune(usize),
 }
 
 /// The meshes handed over, each kept so that it stays.
@@ -79,10 +77,8 @@ struct Meshes {
     place: Vec<Mesh>,
     parts: [Option<Mesh>; 8],
     wick: Option<Mesh>,
-    runes: [Option<Mesh>; 2],
-    /// True once the mascot has its meshes, and the runes theirs.
+    /// True once the mascot has its meshes.
     dressed: bool,
-    shaped: bool,
 }
 
 /// A chief's place and its mascot, as drawn.
@@ -305,8 +301,7 @@ impl Hearth {
 
     /// The meshes of step `step` of the place and the mascot, to hand
     /// over: the place, with its lights and trees set where they
-    /// stand, then the mascot, then its wick and runes. None past the
-    /// last.
+    /// stand, then the mascot, then its wick. None past the last.
     fn build(
         &self,
         step: usize,
@@ -323,14 +318,7 @@ impl Hearth {
                     .map(|(i, mb)| (Slot::Part(i), mb.data()))
                     .collect(),
             ),
-            2 => Some(
-                shapes()
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, mb)| (Slot::Rune(i), mb.data()))
-                    .chain([(Slot::Wick, wick().data())])
-                    .collect(),
-            ),
+            2 => Some(vec![(Slot::Wick, wick().data())]),
             _ => None,
         }
     }
@@ -434,15 +422,11 @@ impl Hearth {
                     self.meshes.wick = Some(mesh);
                     continue;
                 }
-                Slot::Rune(i) => {
-                    self.meshes.runes[i] = Some(mesh);
-                    continue;
-                }
             }
             self.meshes.place.push(mesh);
         }
-        // The mascot is dressed, and the runes shaped, once all of
-        // theirs are there.
+        self.charm.shape(upload);
+        // The mascot is dressed once all of its meshes are there.
         let meshes = &mut self.meshes;
         let parts = meshes.parts.iter().flatten().collect::<Vec<_>>();
         if !meshes.dressed
@@ -455,11 +439,6 @@ impl Hearth {
                 (wick, &self.flame),
             );
             meshes.dressed = true;
-        }
-        let runes = meshes.runes.iter().flatten().collect::<Vec<_>>();
-        if !meshes.shaped && runes.len() == meshes.runes.len() {
-            self.charm.shape(&runes);
-            meshes.shaped = true;
         }
     }
 }

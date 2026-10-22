@@ -5,10 +5,11 @@
 
 use std::time::{Duration, Instant};
 
+use hamlet_engine_sdk::scene::gpu::Texture;
 use hamlet_engine_sdk::scene::{Instances, Mesh, MeshData};
 
-/// Bytes of meshes and copies one call hands over, of the engine's
-/// `bytes_per_call`.
+/// Bytes of meshes, textures and copies one call hands over, of the
+/// engine's `bytes_per_call`.
 const CALL_BYTES: usize = 640 * 1024;
 
 /// Time one call may build for, far within the engine's `call_time`,
@@ -69,6 +70,21 @@ impl Upload {
         }
         self.bytes -= bytes;
         Mesh::build(&data).map_err(Unsent::Refused)
+    }
+
+    /// Hands the engine a texture `side` pixels a side, of the pixels
+    /// `pixels` makes: none while the call has no room left for it.
+    pub fn texture(
+        &mut self,
+        side: u32,
+        pixels: impl FnOnce() -> Vec<u8>,
+    ) -> Result<Option<Texture>, String> {
+        let bytes = (side * side * 4) as usize;
+        if bytes > self.bytes {
+            return Ok(None);
+        }
+        self.bytes -= bytes;
+        Texture::make(side, side, &pixels()).map(Some)
     }
 
     /// Gives `instances` the copies of `floats`, ten each. False when

@@ -12,6 +12,7 @@ use bevy::camera::visibility::{RenderLayers, Visibility};
 use bevy::camera::{
     Camera, Camera3d, Hdr, ImageRenderTarget, RenderTarget,
 };
+use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
@@ -27,7 +28,10 @@ use bevy::light::{
     SpotLight,
 };
 use bevy::mesh::{Mesh, Mesh3d, MeshTag};
-use bevy::pbr::{DistanceFog, MeshMaterial3d, StandardMaterial};
+use bevy::pbr::decal::{ForwardDecal, ForwardDecalMaterialExt};
+use bevy::pbr::{
+    DistanceFog, ExtendedMaterial, MeshMaterial3d, StandardMaterial,
+};
 use bevy::post_process::bloom::Bloom;
 use bevy::render::render_resource::{
     Extent3d, TextureDimension, TextureFormat,
@@ -41,6 +45,7 @@ use hamlet_engine_shell::Backdrop;
 
 use crate::change::{CameraSetup, SceneChange, SceneLight};
 use crate::compute::ComputeJob;
+use crate::decal::{DecalMaterial, DrawsDecals};
 use crate::guard::{GpuInfo, TimedSlots};
 use crate::label::WorldLabel;
 use crate::material::{self, ShadedMaterial};
@@ -77,6 +82,8 @@ pub struct Scene {
     computes: HashMap<u32, Entity>,
     /// The cameras with a pass.
     passes: HashSet<u32>,
+    /// The entities that lay a decal.
+    decals: HashSet<u32>,
     /// The buffers written in the changes being made.
     written: HashSet<u32>,
     /// The render layer of its entities, seen by its cameras alone.
@@ -110,12 +117,23 @@ fn give_layer(
     }
 }
 
-/// A material of a scene: Bevy's own, or one of the owner's shader.
+/// A material of a scene: Bevy's own, one of the owner's shader, or a
+/// decal's.
 #[derive(Clone, Debug)]
 enum Look {
     Standard(Handle<StandardMaterial>),
     Shaded(Handle<ShadedMaterial>),
+    Decal(Handle<DecalMaterial>),
 }
+
+/// What an entity draws with: a mesh and its material, or a decal.
+type Drawn = (
+    Mesh3d,
+    MeshMaterial3d<StandardMaterial>,
+    MeshMaterial3d<ShadedMaterial>,
+    MeshMaterial3d<DecalMaterial>,
+    ForwardDecal,
+);
 
 /// A buffer bound where an owner gave none.
 #[derive(Resource, Clone, Debug)]
@@ -182,6 +200,7 @@ impl Scene {
             textures: HashMap::new(),
             computes: HashMap::new(),
             passes: HashSet::new(),
+            decals: HashSet::new(),
             written: HashSet::new(),
         }
     }
@@ -233,6 +252,11 @@ impl Scene {
 
     pub fn cameras(&self) -> usize {
         self.cameras.len()
+    }
+
+    /// Entities that lay a decal.
+    pub fn decals(&self) -> usize {
+        self.decals.len()
     }
 
     /// The camera of the number `id`.
@@ -310,14 +334,25 @@ impl Scene {
                         world.get_entity_mut(entity)
                 {
                     entity.draw(mesh, look);
+                    self.decals.remove(&id);
+                }
+            }
+            SceneChange::DrawDecal { id, material } => {
+                let drawn = world.contains_resource::<DrawsDecals>();
+                if let Some(Look::Decal(material)) =
+                    self.materials.get(&material).cloned()
+                    && let Some(entity) = self.entity(id)
+                    && let Ok(mut entity) =
+                        world.get_entity_mut(entity)
+                {
+                    entity.draw_decal(material, drawn);
+                    self.decals.insert(id);
+                    self.prepass(world);
                 }
             }
             SceneChange::Undraw(id) => {
-                self.remove::<(
-                    Mesh3d,
-                    MeshMaterial3d<StandardMaterial>,
-                    MeshMaterial3d<ShadedMaterial>,
-                )>(world, id);
+                self.remove::<Drawn>(world, id);
+                self.decals.remove(&id);
             }
             SceneChange::Light { id, light } => {
                 self.remove::<(DirectionalLight, PointLight, SpotLight)>(
@@ -390,6 +425,42 @@ impl Scene {
                         let made = materials.add(material);
                         self.materials
                             .insert(id, Look::Standard(made));
+                    }
+                }
+            }
+            SceneChange::Decal {
+                id,
+                mut material,
+                depth_fade,
+                texture,
+            } => {
+                let extension = ForwardDecalMaterialExt {
+                    depth_fade_factor: depth_fade,
+                };
+                let mut materials =
+                    world.resource_mut::<Assets<DecalMaterial>>();
+                match self.materials.get(&id) {
+                    Some(Look::Decal(held)) => {
+                        if let Some(mut decal) =
+                            materials.get_mut(held.id())
+                        {
+                            material.base_color_texture =
+                                decal.base.base_color_texture.take();
+                            decal.base = material;
+                            decal.extension = extension;
+                        }
+                    }
+                    _ => {
+                        material.base_color_texture = texture
+                            .and_then(|texture| {
+                                self.textures.get(&texture)
+                            })
+                            .cloned();
+                        let made = materials.add(ExtendedMaterial {
+                            base: material,
+                            extension,
+                        });
+                        self.materials.insert(id, Look::Decal(made));
                     }
                 }
             }
@@ -646,6 +717,7 @@ impl Scene {
                 world.entity_mut(camera).insert(self.layers());
                 world.set_up(camera, setup);
                 self.cameras.insert(id, camera);
+                self.prepass(world);
             }
             SceneChange::Setup { id, setup } => {
                 if let Some(camera) = self.camera(id) {
@@ -658,6 +730,21 @@ impl Scene {
 
     fn layers(&self) -> RenderLayers {
         RenderLayers::layer(self.layer)
+    }
+
+    /// Gives each camera the depth prepass a decal reads, once the
+    /// scene has one.
+    fn prepass(&self, world: &mut World) {
+        if self.decals.is_empty() {
+            return;
+        }
+        for &camera in self.cameras.values() {
+            if let Ok(mut camera) = world.get_entity_mut(camera)
+                && !camera.contains::<DepthPrepass>()
+            {
+                camera.insert(DepthPrepass);
+            }
+        }
     }
 
     fn part(&self, key: u32, index: u32) -> ScenePart {
@@ -746,6 +833,7 @@ impl Scene {
     /// Takes away whatever has the number `id`.
     fn drop(&mut self, world: &mut World, id: u32) {
         let gone = if let Some(entity) = self.entities.remove(&id) {
+            self.decals.remove(&id);
             Some(entity)
         } else if let Some(copies) = self.instances.remove(&id) {
             Some(copies.root)
@@ -783,6 +871,8 @@ impl Scene {
         // What was under it went with it, so its numbers name
         // nothing.
         self.entities.retain(|_, entity| !under.contains(entity));
+        let entities = &self.entities;
+        self.decals.retain(|id| entities.contains_key(id));
         self.instances
             .retain(|_, copies| !under.contains(&copies.root));
         self.cameras.retain(|_, camera| !under.contains(camera));
@@ -1007,20 +1097,42 @@ impl SceneWorldExt for World {
 trait SceneEntityExt {
     /// Draws `mesh` in `look`, in place of what it drew.
     fn draw(&mut self, mesh: Handle<Mesh>, look: Look);
+
+    /// Lays a decal of `material` in place of what it drew, drawn
+    /// when `drawn`.
+    fn draw_decal(
+        &mut self,
+        material: Handle<DecalMaterial>,
+        drawn: bool,
+    );
 }
 
 impl SceneEntityExt for EntityWorldMut<'_> {
     fn draw(&mut self, mesh: Handle<Mesh>, look: Look) {
-        self.insert(Mesh3d(mesh));
         match look {
             Look::Standard(material) => {
-                self.remove::<MeshMaterial3d<ShadedMaterial>>()
-                    .insert(MeshMaterial3d(material));
+                self.remove::<Drawn>()
+                    .insert((Mesh3d(mesh), MeshMaterial3d(material)));
             }
             Look::Shaded(material) => {
-                self.remove::<MeshMaterial3d<StandardMaterial>>()
-                    .insert(MeshMaterial3d(material));
+                self.remove::<Drawn>()
+                    .insert((Mesh3d(mesh), MeshMaterial3d(material)));
             }
+            // A decal's material draws only a decal.
+            Look::Decal(_) => {}
+        }
+    }
+
+    fn draw_decal(
+        &mut self,
+        material: Handle<DecalMaterial>,
+        drawn: bool,
+    ) {
+        self.remove::<Drawn>().insert(MeshMaterial3d(material));
+        // Bevy gives a decal its square as it is added, so it is
+        // added anew each time.
+        if drawn {
+            self.insert(ForwardDecal);
         }
     }
 }

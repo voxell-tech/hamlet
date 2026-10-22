@@ -94,6 +94,7 @@ pub enum Step {
         meshes: Option<usize>,
         materials: Option<usize>,
         cameras: Option<usize>,
+        decals: Option<usize>,
     },
     /// Clicks the entity of the plugin's scene named `key`, the copy
     /// `index` of instances.
@@ -241,9 +242,11 @@ impl Step {
                 meshes,
                 materials,
                 cameras,
+                decals,
             } => {
-                let wanted =
-                    [*entities, *meshes, *materials, *cameras];
+                let wanted = [
+                    *entities, *meshes, *materials, *cameras, *decals,
+                ];
                 let mut last = None;
                 let met = harness.until(|harness| {
                     last = harness.scene(plugin);
@@ -253,6 +256,7 @@ impl Step {
                             held.meshes,
                             held.materials,
                             held.cameras,
+                            held.decals,
                         ];
                         wanted.iter().zip(had).all(|(want, has)| {
                             want.is_none_or(|want| want == has)

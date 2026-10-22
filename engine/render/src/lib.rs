@@ -8,6 +8,7 @@
 
 mod change;
 mod compute;
+mod decal;
 mod guard;
 mod label;
 mod material;
@@ -53,6 +54,7 @@ pub fn plugin(app: &mut App) {
         viewport::plugin,
         label::plugin,
         material::plugin,
+        decal::plugin,
         compute::plugin,
         pass::plugin,
         guard::plugin,
