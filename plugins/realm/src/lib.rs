@@ -5,33 +5,14 @@
 //! in the window's focus and brings the Inspector forward.
 
 mod bridge;
-mod camera;
-mod chief;
-mod flora;
-mod frame;
-mod ground;
-mod house;
-mod keeper;
-mod land;
-mod lantern;
-mod layout;
-mod mesh;
-mod moving;
-mod noise;
-mod palette;
-mod pick;
+mod build;
+mod folk;
+mod places;
 mod realm;
-mod road;
-mod shift;
-mod signs;
-mod sky;
 mod society;
-mod stock;
-mod tint;
-mod town;
 mod tuning;
-mod upload;
-mod yard;
+mod view;
+mod world;
 
 use hamlet_engine_sdk::api::agents::{
     AgentsEvent, AgentsReply, AgentsRequest, Selected,
@@ -46,7 +27,7 @@ use hamlet_engine_sdk::{
 };
 
 use crate::realm::Realm;
-use crate::sky::Hour;
+use crate::world::sky::Hour;
 
 /// The name of the panel the realm is drawn in.
 const PANEL: &str = "realm";

@@ -7,11 +7,11 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 
 use hamlet_engine_sdk::api::agents::Doing;
 
-use crate::house::{HouseSettings, Remains};
-use crate::keeper::KState;
-use crate::land::Land;
-use crate::layout::plot;
+use crate::folk::keeper::KState;
+use crate::places::house::{HouseSettings, Remains};
 pub use crate::society::places::{Claim, Place};
+use crate::world::land::Land;
+use crate::world::layout::plot;
 
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord,

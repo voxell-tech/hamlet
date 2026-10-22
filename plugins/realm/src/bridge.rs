@@ -7,9 +7,9 @@ use std::collections::{HashMap, HashSet};
 use glam::Vec2;
 use hamlet_engine_sdk::api::agents::{RoadUse, Roster, RosterAgent};
 
-use crate::keeper::KState;
-use crate::land::Land;
+use crate::folk::keeper::KState;
 use crate::society::{AgentId, Pair, RoadLevel, Society, TownId};
+use crate::world::land::Land;
 
 /// An agent as the roster names it: its hamlet and its number there.
 pub type Who = (String, u64);

@@ -13,24 +13,24 @@ use hamlet_engine_sdk::scene::{
 };
 
 use crate::bridge::Bridge;
-use crate::camera::Camera;
-use crate::chief::Chief;
-use crate::ground::Ground;
-use crate::house::Remains;
-use crate::keeper::Robots;
-use crate::land::{Land, Unfit};
-use crate::layout::plot;
-use crate::moving::{Carry, Footprint};
-use crate::palette::Palette;
-use crate::pick::{Picking, Thing};
-use crate::road::Roads;
-use crate::signs::{Signs, Words};
-use crate::sky::{Hour, Lights, Sky};
+use crate::build::stock::Stock;
+use crate::build::upload::{Pace, Upload};
+use crate::folk::chief::Chief;
+use crate::folk::keeper::Robots;
+use crate::places::house::Remains;
+use crate::places::moving::{Carry, Footprint};
+use crate::places::road::Roads;
+use crate::places::town::Towns;
 use crate::society::{AgentId, Society};
-use crate::stock::Stock;
-use crate::town::Towns;
 use crate::tuning::WorldTuning;
-use crate::upload::{Pace, Upload};
+use crate::view::camera::Camera;
+use crate::view::pick::{Picking, Thing};
+use crate::view::signs::{Signs, Words};
+use crate::world::ground::Ground;
+use crate::world::land::{Land, Unfit};
+use crate::world::layout::plot;
+use crate::world::palette::Palette;
+use crate::world::sky::{Hour, Lights, Sky};
 
 /// The land is grown from this seed, as the realm has always been.
 const SEED: u64 = 7;

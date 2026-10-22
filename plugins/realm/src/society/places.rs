@@ -3,9 +3,9 @@
 
 use glam::Vec2;
 
-use crate::land::{Land, Unfit};
-use crate::layout::{HALL_PLOT, plot};
 use crate::society::{Society, Town, TownId};
+use crate::world::land::{Land, Unfit};
+use crate::world::layout::{HALL_PLOT, plot};
 
 /// Something that stands on a round of ground of its own, and can
 /// be picked up and set down somewhere else.

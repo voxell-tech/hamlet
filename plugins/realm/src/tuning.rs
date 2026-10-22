@@ -2,19 +2,19 @@
 //! reads, and `assets/palette.toml`, built into the plugin. What each
 //! value means is beside its field, in the module it tunes.
 
-use crate::chief::ChiefSettings;
-use crate::ground::DetailSettings;
-use crate::house::HouseSettings;
-use crate::keeper::Motion;
-use crate::land::LandSettings;
-use crate::layout::TownSettings;
-use crate::moving::CarrySettings;
-use crate::palette::Palette;
-use crate::pick::PickSettings;
-use crate::road::RoadSettings;
-use crate::shift::HouseMotion;
-use crate::sky::{CameraSettings, Looks, SkySettings};
-use crate::yard::YardSettings;
+use crate::folk::chief::ChiefSettings;
+use crate::folk::keeper::Motion;
+use crate::places::house::HouseSettings;
+use crate::places::moving::CarrySettings;
+use crate::places::road::RoadSettings;
+use crate::places::shift::HouseMotion;
+use crate::places::yard::YardSettings;
+use crate::view::pick::PickSettings;
+use crate::world::ground::DetailSettings;
+use crate::world::land::LandSettings;
+use crate::world::layout::TownSettings;
+use crate::world::palette::Palette;
+use crate::world::sky::{CameraSettings, Looks, SkySettings};
 
 const WORLD: &str = include_str!("../../../assets/world.toml");
 const PALETTE: &str = include_str!("../../../assets/palette.toml");

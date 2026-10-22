@@ -1143,6 +1143,12 @@ between agents with their bridges and lit grooves, and the chief's
 Hearth with its mascot, which goes by a Wickstep to the agent the
 chief talks to. The sky follows the chief's clock (`Focus::offset`).
 Its tuning is `assets/world.toml` and `assets/palette.toml`, built in.
+- **The source** is grouped by what it is: `world/` the land and its
+  look, `places/` what stands on it, `folk/` the robots and the chief,
+  `view/` the camera, the pointer and the signs, and `build/` the
+  meshes, materials and transforms handed over within its budgets.
+  `realm.rs`, `bridge.rs`, `society.rs` and `tuning.rs` stand at the
+  root.
 - **The panel** has no padding, and is a viewport filling it to its
   edges, its camera's (`scene::viewport`), so it is docked, tabbed, split and closed as
   any panel is, and its signs and tags are words over that viewport.
@@ -1151,7 +1157,7 @@ Its tuning is `assets/world.toml` and `assets/palette.toml`, built in.
   panel is behind another tab or out of the dock, its camera does not
   draw.
 - **Within its budgets.** Everything is built a step at a time on
-  `tick`, nearest the camera first: `upload.rs` holds each call to a
+  `tick`, nearest the camera first: `build/upload.rs` holds each call to a
   share of the bytes it may hand over and to a few milliseconds a
   call and a second of its own, and a mesh with no room left waits for
   the next call. Its manifest asks for 128 MB of memory.
@@ -1160,7 +1166,7 @@ Its tuning is `assets/world.toml` and `assets/palette.toml`, built in.
   free site, its agents take their plots in the order they came, one
   that leaves is a ruin or a wing of the house it merged into, and the
   roads and what each agent does follow theirs.
-- **The camera** (`camera.rs`) frames every hamlet; the left button
+- **The camera** (`view/camera.rs`) frames every hamlet; the left button
   slides the ground, the right turns and tilts it, and the wheel comes
   nearer. Reset Camera, Focus on Selection (F), Follow Selection
   (Shift+F) and the sky held to day or night are in the View menu.
