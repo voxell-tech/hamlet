@@ -1,0 +1,14 @@
+# The Needs panel on its own. The harness runs no agents service, so
+# nothing waits.
+#
+#   scripts/build_plugins.sh
+#   cargo run -p hamlet_engine_harness --bin plugin_check -- plugins/dist/hamlet.needs --steps plugins/needs/steps.toml
+
+[[step]]
+allow = "hamlet.needs"
+
+[[step]]
+expect = { panel = "hamlet.needs/needs", text = "NOTHING NEEDS YOU" }
+
+[[step]]
+expect = { panel = "hamlet.needs/needs", text = "STOP ALL" }

@@ -96,7 +96,6 @@ dependencies = [
  "fynix",
  "hamlet_engine_api",
  "lenz",
- "serde",
  "wit-bindgen",
 ]
 

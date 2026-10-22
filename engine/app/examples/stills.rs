@@ -28,23 +28,20 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row,
 };
 use bevy_fynix::{Focused, Pressed, ViewExt};
-use hamlet_engine_api::{
-    Ask, Capability, Manifest, PluginId, Widget, WidgetId,
-    WidgetNode, WidgetTree,
-};
+use hamlet_engine_api::{Ask, Capability, Manifest, PluginId};
 use hamlet_engine_core::Home;
 use hamlet_engine_plugins::{
-    Entry, EntryPoint, PluginCommandsExt, PluginInfo,
+    Entry, EntryPoint, PluginCommandsExt, PluginInfo, PluginKind,
 };
 use hamlet_engine_shell::fonts::DisplayText;
-use hamlet_engine_shell::icons::{Glyph, glyph};
+use hamlet_engine_shell::icons::{Glyph, glyph, side};
 use hamlet_engine_shell::style::{
-    BottomGradient, ButtonStyle, Wraps, card, choices, divider,
-    field, heading, icon_button, link_row, link_rows, list, note,
-    page_head, section, title_button, toggle,
+    BottomGradient, ButtonStyle, Wraps, action, card, choices,
+    divider, field, heading, icon_button, link_row, link_rows, list,
+    note, page_head, section, title_button, toggle,
 };
 use hamlet_engine_shell::{
-    AnyView, Cx, DockTreeExt, EngineTheme, StyleExt, tree_view,
+    AnyView, Cx, DockTreeExt, EngineTheme, StyleExt,
 };
 
 /// One still: its name, its size in the interface's pixels and the
@@ -626,8 +623,8 @@ fn icon_sheet() -> AnyView {
     })
 }
 
-/// A plugin built into the stills, with a panel drawn from a widget
-/// tree, and one installed that asks for what it needs.
+/// A plugin built into the stills, with a panel of the shell's
+/// widgets, and one installed that asks for what it needs.
 fn add_plugins(mut commands: Commands) {
     let manifest = Manifest::new(
         PluginId::try_from("hamlet.orchard").expect("a valid id"),
@@ -646,7 +643,7 @@ fn add_plugins(mut commands: Commands) {
         reason: "Reads the frost dates for the orchard.".into(),
     }];
     commands.spawn((
-        PluginInfo::of(manifest, false),
+        PluginInfo::of(manifest, PluginKind::Installed),
         EntryPoint(|_: &mut Entry| {}),
     ));
 }
@@ -656,46 +653,35 @@ fn entry(entry: &mut Entry) {
 }
 
 fn orchard(_: Entity) -> AnyView {
-    let node = |id: &str, children: u32, widget: Widget| WidgetNode {
-        id: WidgetId(id.into()),
-        children,
-        widget,
-    };
-    let tree = WidgetTree {
-        nodes: vec![
-            node("root", 7, Widget::Column),
-            node("title", 0, Widget::Heading("The orchard".into())),
-            node(
-                "about",
-                0,
-                Widget::Text("Three rows, pruned in spring.".into()),
-            ),
-            node("rows", 2, Widget::List),
-            node("pears", 0, Widget::Text("Pears".into())),
-            node("apples", 0, Widget::Text("Apples".into())),
-            node(
-                "name",
-                0,
-                Widget::Field {
-                    value: String::new(),
-                    placeholder: "A new row".into(),
-                },
-            ),
-            node(
-                "frost",
-                0,
-                Widget::Toggle {
-                    label: "Warn of frost".into(),
-                    on: true,
-                },
-            ),
-            node("tools", 2, Widget::Row),
-            node("bell", 0, Widget::Icon("bell".into())),
-            node("add", 0, Widget::Button("Add a row".into())),
-            node("line", 0, Widget::Divider),
-        ],
-    };
-    tree_view(&tree, |_, _, _| {}).in_panel()
+    AnyView::new(|cx: &mut Cx| {
+        let gap = cx.theme().space.gap;
+        cx.build(
+            column((
+                heading("The orchard"),
+                label("Three rows, pruned in spring."),
+                list(vec![
+                    label("Pears").boxed(),
+                    label("Apples").boxed(),
+                ]),
+                field(String::new(), "A new row".into(), |_, _| {}),
+                row((
+                    toggle(true, |_, _| {}),
+                    label("Warn of frost"),
+                ))
+                .gap(gap)
+                .align(AlignItems::Center),
+                row((
+                    side(Glyph::Bell, Tone::Faint),
+                    action(ButtonStyle::Plain, "Add a row"),
+                ))
+                .gap(gap)
+                .align(AlignItems::Center),
+                divider(),
+            ))
+            .gap(gap),
+        )
+    })
+    .in_panel()
 }
 
 /// Sets out the panels of a still of the shell: the plugin's panel

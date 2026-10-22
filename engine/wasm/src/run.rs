@@ -23,12 +23,13 @@ use hamlet_engine_plugins::{
     PluginCommandsExt, PluginInfo,
 };
 use hamlet_engine_shell::Command;
+use hamlet_engine_shell::icons::Glyph;
 
 use crate::budget::Spending;
 use crate::folder::{Package, WASM, read_capped};
 use crate::host::{Host, WasmTuning};
 use crate::instance::{Caps, Instance, Linked, link};
-use crate::panel::{Inbox, Moving, Work, page, view};
+use crate::panel::{Inbox, Moving, Work};
 use crate::reload::{Declared, Reloading};
 use crate::retained;
 
@@ -91,19 +92,14 @@ fn disable(event: On<Disable>, mut commands: Commands) {
 }
 
 /// What `contributions` declare, as the [`Entry`] a built-in plugin
-/// fills: the plugin draws its panels and settings pages, or builds
-/// its panels when they are `retained`, and runs its commands.
-pub(crate) fn entry(
-    contributions: Vec<Contribution>,
-    retained: bool,
-) -> Entry {
+/// fills: the plugin builds its panels and settings pages, and runs
+/// its commands.
+pub(crate) fn entry(contributions: Vec<Contribution>) -> Entry {
     let mut entry = Entry::default();
     for contribution in contributions {
         match contribution {
             Contribution::Panel { name, title } => {
-                let content =
-                    if retained { retained::view } else { view };
-                entry.panel(&name, &title, content);
+                entry.panel(&name, &title, retained::view);
             }
             Contribution::Command { name, label } => {
                 entry.command(&name, &label, run_command);
@@ -114,8 +110,24 @@ pub(crate) fn entry(
             Contribution::Shortcut { keys, command } => {
                 entry.shortcut(&keys, &command);
             }
-            Contribution::SettingsPage { name, title } => {
-                entry.settings_page(&name, &title, page);
+            Contribution::SettingsPage {
+                name,
+                title,
+                about,
+                icon,
+            } => {
+                let icon =
+                    Glyph::named(&icon).unwrap_or(Glyph::Sliders);
+                entry.settings_page(
+                    &name,
+                    &title,
+                    &about,
+                    icon,
+                    retained::page,
+                );
+            }
+            Contribution::SettingsFooter { name } => {
+                entry.settings_footer(&name, retained::page);
             }
             Contribution::Workspace {
                 name,
@@ -123,6 +135,12 @@ pub(crate) fn entry(
                 layout,
             } => {
                 entry.workspace(&name, &title, layout);
+            }
+            Contribution::StatusItem { name, grow } => {
+                entry.status_item(&name, grow);
+            }
+            Contribution::Overlay { name } => {
+                entry.overlay(&name, retained::page);
             }
         }
     }
@@ -241,7 +259,7 @@ fn start(
                 commands.switch_on(
                     plugin,
                     info,
-                    entry(contributions.clone(), built.0.retained()),
+                    entry(contributions.clone()),
                     &budgets,
                 );
                 commands.entity(plugin).insert((

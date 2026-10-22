@@ -28,6 +28,30 @@ pub enum Capability {
     /// (`plugin.id/service`).
     #[serde(rename = "services.call")]
     ServiceCall,
+    /// Reading the agents' settings, status and sessions, on
+    /// [`LOCAL`](crate::agents::LOCAL).
+    #[serde(rename = "agents.read")]
+    AgentsRead,
+    /// Acting as the chief: sending to agents, stopping them and
+    /// taking permissions back.
+    #[serde(rename = "agents.chief")]
+    AgentsChief,
+    /// Changing the agents' settings, models, charter and limits.
+    #[serde(rename = "agents.settings")]
+    AgentsSettings,
+    /// Giving or forgetting a key, and signing in. A key is never
+    /// read back.
+    #[serde(rename = "agents.keys")]
+    AgentsKeys,
+    /// Opening an `https` address, the target
+    /// [`WEB`](crate::desktop::WEB), or a file under one folder, the
+    /// target.
+    #[serde(rename = "desktop.open")]
+    DesktopOpen,
+    /// Changing the desktop's settings, on
+    /// [`LOCAL`](crate::agents::LOCAL).
+    #[serde(rename = "desktop.settings")]
+    DesktopSettings,
 }
 
 impl Capability {
@@ -37,6 +61,12 @@ impl Capability {
             Self::NetFetch => "net.fetch",
             Self::AssetRead => "assets.read",
             Self::ServiceCall => "services.call",
+            Self::AgentsRead => "agents.read",
+            Self::AgentsChief => "agents.chief",
+            Self::AgentsSettings => "agents.settings",
+            Self::AgentsKeys => "agents.keys",
+            Self::DesktopOpen => "desktop.open",
+            Self::DesktopSettings => "desktop.settings",
         }
     }
 }

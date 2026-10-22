@@ -10,8 +10,8 @@ use hamlet_engine_api::{Contribution, Layout};
 pub struct Entry(Vec<Contribution>);
 
 impl Entry {
-    /// A panel for the dock, titled `title`, drawn by
-    /// [`Plugin::draw`](crate::Plugin::draw) with its name.
+    /// A panel for the dock, titled `title`, its view built by
+    /// [`Plugin::mount`](crate::Plugin::mount) with its name.
     pub fn panel(&mut self, name: &str, title: &str) -> &mut Self {
         self.add(Contribution::Panel {
             name: name.into(),
@@ -54,16 +54,28 @@ impl Entry {
         })
     }
 
-    /// A page of settings titled `title`, drawn as a panel is.
+    /// A page of settings titled `title`, built as a panel is. Its
+    /// link row in Settings shows the icon `icon`, as `Glyph::name`
+    /// has it, and what it holds, `about`.
     pub fn settings_page(
         &mut self,
         name: &str,
         title: &str,
+        about: &str,
+        icon: &str,
     ) -> &mut Self {
         self.add(Contribution::SettingsPage {
             name: name.into(),
             title: title.into(),
+            about: about.into(),
+            icon: icon.into(),
         })
+    }
+
+    /// What Settings shows under the link rows to its pages, built as
+    /// a panel is.
+    pub fn settings_footer(&mut self, name: &str) -> &mut Self {
+        self.add(Contribution::SettingsFooter { name: name.into() })
     }
 
     /// A workspace the person can take, titled `title`.
@@ -78,6 +90,33 @@ impl Entry {
             title: title.into(),
             layout,
         })
+    }
+
+    /// An item of the status line, after those that came before it,
+    /// hidden until [`ui::set_status`](crate::ui::set_status) gives
+    /// it words.
+    pub fn status_item(&mut self, name: &str) -> &mut Self {
+        self.add(Contribution::StatusItem {
+            name: name.into(),
+            grow: false,
+        })
+    }
+
+    /// An item of the status line that takes the room left on it,
+    /// words or none, and clips its words.
+    pub fn growing_status_item(&mut self, name: &str) -> &mut Self {
+        self.add(Contribution::StatusItem {
+            name: name.into(),
+            grow: true,
+        })
+    }
+
+    /// A card over the dock, on a backdrop that takes every press,
+    /// shown by [`ui::show_overlay`](crate::ui::show_overlay). Its
+    /// view is built by [`Plugin::mount`](crate::Plugin::mount) with
+    /// its name.
+    pub fn overlay(&mut self, name: &str) -> &mut Self {
+        self.add(Contribution::Overlay { name: name.into() })
     }
 
     pub(crate) fn finish(self) -> Vec<Contribution> {

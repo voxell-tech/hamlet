@@ -3641,15 +3641,37 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_fynix",
+ "hamlet_engine_agents",
  "hamlet_engine_api",
  "hamlet_engine_assets",
  "hamlet_engine_bus",
  "hamlet_engine_core",
+ "hamlet_engine_desktop",
  "hamlet_engine_grants",
  "hamlet_engine_net",
  "hamlet_engine_plugins",
  "hamlet_engine_shell",
  "hamlet_engine_wasm",
+]
+
+[[package]]
+name = "hamlet_engine_agents"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "chrono",
+ "hamlet_core",
+ "hamlet_engine_api",
+ "hamlet_engine_core",
+ "hamlet_engine_grants",
+ "hamlet_engine_plugins",
+ "hamlet_home",
+ "hamlet_model",
+ "hamlet_rules",
+ "hamlet_sandbox",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -3689,8 +3711,25 @@ name = "hamlet_engine_core"
 version = "0.1.0"
 dependencies = [
  "bevy",
- "hamlet_engine_api",
  "serde",
+ "toml",
+]
+
+[[package]]
+name = "hamlet_engine_desktop"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "hamlet_core",
+ "hamlet_engine_api",
+ "hamlet_engine_core",
+ "hamlet_engine_grants",
+ "hamlet_engine_plugins",
+ "hamlet_engine_shell",
+ "hamlet_home",
+ "hamlet_testing",
+ "serde",
+ "tokio",
  "toml",
 ]
 
@@ -3760,7 +3799,6 @@ dependencies = [
  "fynix",
  "hamlet_engine_api",
  "lenz",
- "serde",
  "wit-bindgen 0.63.0",
 ]
 

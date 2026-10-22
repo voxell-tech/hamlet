@@ -1,7 +1,6 @@
-//! A WASM plugin's panels and settings pages: drawn from the widget
-//! tree the plugin gives, with what the person does sent back to it.
-//! A panel is drawn when it comes, when the plugin asks, and after
-//! the plugin is given an event or runs a command.
+//! Serving WASM plugins: what is in each one's inbox handed to it,
+//! frame by frame, within its budgets, and its panels and settings
+//! pages marked as its, to be built node by node (`retained.rs`).
 
 use std::collections::VecDeque;
 use std::time::Duration;
@@ -10,20 +9,16 @@ use bevy::app::{App, Update};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::lifecycle::Add;
-use bevy::ecs::message::{Message, MessageReader, MessageWriter};
+use bevy::ecs::message::MessageWriter;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::{Changed, Has, With};
 use bevy::ecs::relationship::RelationshipTarget;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
-use bevy::ecs::world::World;
 use bevy::time::Time;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{FrameProps, column, label};
-use bevy_fynix::{ViewExt, component, keyed};
-use hamlet_engine_api::{
-    Action, Failure, WidgetEvent, WidgetId, WidgetTree,
-};
+use hamlet_engine_api::Failure;
 use hamlet_engine_bus::{Serve, Served};
 use hamlet_engine_core::{Budgets, LogLine};
 use hamlet_engine_plugins::{
@@ -31,8 +26,8 @@ use hamlet_engine_plugins::{
 };
 use hamlet_engine_shell::style::{caption, note};
 use hamlet_engine_shell::{
-    AnyView, Cx, EngineTheme, Panel, SettingsPage, StyleExt,
-    tree_view,
+    AnyView, Cx, EngineTheme, Overlay, Panel, SettingsFooter,
+    SettingsPage,
 };
 
 use crate::WasmCommandsExt;
@@ -44,103 +39,49 @@ use crate::mail::{batch, deliver};
 use crate::retained::NodeStats;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_message::<Input>()
-        .add_message::<Serve>()
+    app.add_message::<Serve>()
         .add_message::<Served>()
         .add_observer(adopt_panel)
         .add_observer(adopt_page)
+        .add_observer(adopt_footer)
+        .add_observer(adopt_overlay)
         .add_systems(
             Update,
-            (route, deliver, tally, serve, show_stopped).chain(),
+            (deliver, tally, serve, show_stopped).chain(),
         );
 }
 
-/// On a WASM plugin's panel or settings page: its name within the
-/// plugin, and what it shows.
+/// On a WASM plugin's panel, settings page or overlay: its name
+/// within the plugin, and why the plugin was stopped, if it was.
 #[derive(Component, Clone, PartialEq, Debug)]
-pub struct Drawn {
+pub struct Surface {
     pub name: String,
-    pub shows: Shows,
+    pub stopped: Option<String>,
 }
-
-#[derive(Clone, PartialEq, Debug)]
-pub enum Shows {
-    /// Not drawn yet.
-    Waiting,
-    Tree(WidgetTree),
-    /// The plugin was stopped: why.
-    Stopped(String),
-}
-
-/// On a panel or settings page to be drawn again.
-#[derive(Component)]
-pub(crate) struct Redraw;
 
 /// On a running WASM plugin: what it is to be given, oldest first.
 #[derive(Component, Default)]
 pub(crate) struct Inbox(pub(crate) VecDeque<Work>);
 
 pub(crate) enum Work {
-    Event(WidgetEvent),
     /// Its command of this name.
     Run(String),
     /// A message from the engine's services, at its depth in a chain.
     Mail(hamlet_engine_api::Message, u32),
     /// A call of one of its services.
     Serve(Serve),
-    /// Its retained panel `name` to build under `root`.
-    Mount {
-        root: Entity,
-        name: String,
-    },
-    /// Its retained panel of this name, whose nodes are gone.
+    /// Its panel or settings page `name` to build under the holder
+    /// `root`.
+    Mount { root: Entity, name: String },
+    /// Its panel or settings page of this name, whose nodes are gone.
     Unmount(String),
-    /// What the person did to the node of its retained panel it named
-    /// with this key.
+    /// What the person did to the node it named with this key.
     Node(u32, NodeInput),
 }
 
-/// On a plugin whose retained panels still move, given a frame each
-/// frame.
+/// On a plugin whose views still move, given a frame each frame.
 #[derive(Component)]
 pub(crate) struct Moving;
-
-/// What the person did to a widget of the panel or settings page
-/// `surface`.
-#[derive(Message, Clone, Debug)]
-pub struct Input {
-    pub surface: Entity,
-    pub widget: WidgetId,
-    pub action: Action,
-}
-
-/// The content of a WASM plugin's panel.
-pub(crate) fn view(surface: Entity) -> AnyView {
-    page(surface).in_panel()
-}
-
-/// The content of a WASM plugin's settings page, or of its panel
-/// inside the panel's padding.
-pub(crate) fn page(surface: Entity) -> AnyView {
-    let shows = component::<Drawn, _>(surface, |drawn| {
-        drawn.map(|drawn| drawn.shows.clone())
-    });
-    keyed(shows, move |shows| match shows {
-        Some(Shows::Tree(tree)) => tree_view(
-            tree,
-            move |world: &mut World, widget, action| {
-                world.write_message(Input {
-                    surface,
-                    widget,
-                    action,
-                });
-            },
-        ),
-        Some(Shows::Stopped(why)) => stopped(why.clone()),
-        _ => column(()).boxed(),
-    })
-    .boxed()
-}
 
 /// That a plugin was stopped, and why.
 pub(crate) fn stopped(why: String) -> AnyView {
@@ -157,7 +98,7 @@ pub(crate) fn stopped(why: String) -> AnyView {
     })
 }
 
-/// Draws a WASM plugin's new panel.
+/// Marks a WASM plugin's new panel as its.
 fn adopt_panel(
     added: On<Add, Panel>,
     panels: Query<(&Panel, &ContributedBy)>,
@@ -171,7 +112,7 @@ fn adopt_panel(
     }
 }
 
-/// Draws a WASM plugin's new settings page.
+/// Marks a WASM plugin's new settings page as its.
 fn adopt_page(
     added: On<Add, SettingsPage>,
     pages: Query<(&SettingsPage, &ContributedBy)>,
@@ -185,40 +126,39 @@ fn adopt_page(
     }
 }
 
-/// Hands what the person did to the plugin whose panel it was. An
-/// inbox holds a second's events at most; the rest are left out.
-fn route(
-    mut inputs: MessageReader<Input>,
-    surfaces: Query<(&Drawn, &ContributedBy)>,
-    mut inboxes: Query<(&mut Inbox, &mut Spending)>,
-    budgets: Res<Budgets>,
+/// Marks a WASM plugin's new settings footer as its.
+fn adopt_footer(
+    added: On<Add, SettingsFooter>,
+    footers: Query<(&SettingsFooter, &ContributedBy)>,
+    packages: Query<(), With<Package>>,
+    mut commands: Commands,
 ) {
-    for input in inputs.read() {
-        let Ok((drawn, by)) = surfaces.get(input.surface) else {
-            continue;
-        };
-        let Ok((mut inbox, mut spending)) = inboxes.get_mut(by.0)
-        else {
-            continue;
-        };
-        if inbox.0.len() >= budgets.events_per_second as usize {
-            spending.dropped_events += 1;
-            continue;
-        }
-        inbox.0.push_back(Work::Event(WidgetEvent {
-            panel: drawn.name.clone(),
-            widget: input.widget.clone(),
-            action: input.action.clone(),
-        }));
+    if let Ok((footer, by)) = footers.get(added.entity)
+        && packages.contains(by.0)
+    {
+        commands.adopt_surface(added.entity, &footer.id);
     }
 }
 
-/// Gives the running plugins what is in their inboxes, then draws
-/// their panels that are to be drawn again, within the frame's share
-/// and each plugin's budgets of the second. The plugin served longest
-/// ago goes first, and what is left waits for the next frame, but
-/// one panel is drawn each frame whatever the share. A plugin at
-/// fault is stopped.
+/// Marks a WASM plugin's new overlay as its.
+fn adopt_overlay(
+    added: On<Add, Overlay>,
+    overlays: Query<(&Overlay, &ContributedBy)>,
+    packages: Query<(), With<Package>>,
+    mut commands: Commands,
+) {
+    if let Ok((overlay, by)) = overlays.get(added.entity)
+        && packages.contains(by.0)
+    {
+        commands.adopt_surface(added.entity, &overlay.id);
+    }
+}
+
+/// Gives the running plugins what is in their inboxes, and a frame
+/// to those whose views still move, within the frame's share and
+/// each plugin's budgets of the second. The plugin served longest ago
+/// goes first, and what is left waits for the next frame. A plugin
+/// at fault is stopped.
 pub(crate) fn serve(
     mut plugins: Query<(
         Entity,
@@ -226,10 +166,8 @@ pub(crate) fn serve(
         &mut Instance,
         &mut Inbox,
         &mut Spending,
-        Option<&Contributions>,
         Has<Moving>,
     )>,
-    mut surfaces: Query<(&mut Drawn, Has<Redraw>, Has<Panel>)>,
     budgets: Res<Budgets>,
     tuning: Res<WasmTuning>,
     theme: Option<Res<EngineTheme>>,
@@ -243,17 +181,15 @@ pub(crate) fn serve(
 ) {
     *frame += 1;
     let caps = Caps::of(&budgets, &tuning);
-    let limits = budgets.tree_limits();
     let motions = theme.map_or([0.0; 2], |theme| {
         [theme.motion.interact, theme.motion.expand]
     });
     let micros = u32::try_from(time.delta().as_micros()).unwrap_or(0);
     let mut left =
         Duration::from_secs_f32(budgets.frame_share / 1000.0);
-    let mut drew = false;
     let mut order = plugins
         .iter()
-        .map(|(plugin, .., spending, _, _)| (spending.served, plugin))
+        .map(|(plugin, .., spending, _)| (spending.served, plugin))
         .collect::<Vec<_>>();
     order.sort();
     for (_, plugin) in order {
@@ -263,7 +199,6 @@ pub(crate) fn serve(
             mut instance,
             mut inbox,
             mut spending,
-            contributions,
             was_moving,
         )) = plugins.get_mut(plugin)
         else {
@@ -271,14 +206,10 @@ pub(crate) fn serve(
         };
         let mut fault = None;
         let mut served = false;
-        // After an event or a command, each of its panels is drawn
-        // again.
-        let mut all = false;
         let mut moving = was_moving;
         let mut moved = false;
         while let Some(work) = inbox.0.front() {
-            let event =
-                matches!(work, Work::Event(_) | Work::Node(..));
+            let event = matches!(work, Work::Node(..));
             if left.is_zero() || !spending.may_call(&budgets, event) {
                 break;
             }
@@ -287,11 +218,10 @@ pub(crate) fn serve(
             };
             // A service's caller pays for its call.
             let mut paid = false;
-            let mut retained = None;
+            // A call of its views, which says whether they still
+            // move.
+            let mut viewed = None;
             let ((done, spent), depth) = match work {
-                Work::Event(event) => {
-                    (instance.event(&caps, &event), 0)
-                }
                 Work::Run(name) => (instance.run(&caps, &name), 0),
                 Work::Mail(message, depth) => {
                     let (messages, depth) = batch(
@@ -313,32 +243,38 @@ pub(crate) fn serve(
                 Work::Mount { root, name } => {
                     let (done, spent, number) =
                         instance.mount(&caps, &name, motions);
-                    retained = Some((done, Some((number, root))));
+                    viewed = Some((done, Some((number, root))));
                     ((Ok(()), spent), 0)
                 }
                 Work::Unmount(name) => {
                     let (done, spent) =
                         instance.unmount(&caps, &name);
-                    retained = Some((done, None));
+                    viewed = Some((done, None));
                     ((Ok(()), spent), 0)
                 }
                 Work::Node(key, input) => {
                     let mut inputs = vec![(key, input)];
-                    while let Some(&Work::Node(key, input)) =
-                        inbox.0.front()
-                    {
-                        inbox.0.pop_front();
-                        inputs.push((key, input));
+                    while let Some(Work::Node(..)) = inbox.0.front() {
+                        if let Some(Work::Node(key, input)) =
+                            inbox.0.pop_front()
+                        {
+                            inputs.push((key, input));
+                        }
                     }
-                    let (done, spent) =
-                        instance.input(&caps, &inputs);
-                    retained = Some((done, None));
+                    let (done, spent) = instance.input(&caps, inputs);
+                    viewed = Some((done, None));
                     ((Ok(()), spent), 0)
                 }
             };
-            let done = match retained {
+            // Any call may change the plugin's nodes, and what it
+            // shows outside its panels.
+            let changes = instance.take_node_changes();
+            commands.apply_surface_changes(
+                plugin,
+                instance.take_surface_changes(),
+            );
+            let done = match viewed {
                 Some((done, root)) => {
-                    let changes = instance.take_node_changes();
                     commands
                         .apply_node_changes(plugin, root, changes);
                     stats.count(&spent);
@@ -346,7 +282,14 @@ pub(crate) fn serve(
                     done.map(|now| moving = now)
                 }
                 None => {
-                    all = true;
+                    if !changes.is_empty() {
+                        commands.apply_node_changes(
+                            plugin, None, changes,
+                        );
+                        // Its next frame says whether they still
+                        // move.
+                        moving = true;
+                    }
                     done
                 }
             };
@@ -373,6 +316,10 @@ pub(crate) fn serve(
             let (done, spent) = instance.frame(&caps, micros);
             let changes = instance.take_node_changes();
             commands.apply_node_changes(plugin, None, changes);
+            commands.apply_surface_changes(
+                plugin,
+                instance.take_surface_changes(),
+            );
             stats.count(&spent);
             spending.charge(spent, false);
             left = left.saturating_sub(spent.time);
@@ -387,54 +334,6 @@ pub(crate) fn serve(
                 commands.entity(plugin).insert(Moving);
             } else {
                 commands.entity(plugin).remove::<Moving>();
-            }
-        }
-        let redraws = instance.take_redraws();
-        for surface in
-            contributions.into_iter().flat_map(|c| c.iter())
-        {
-            if fault.is_some() {
-                break;
-            }
-            let Ok((mut drawn, redraw, is_panel)) =
-                surfaces.get_mut(surface)
-            else {
-                continue;
-            };
-            if is_panel && instance.retained() {
-                if redraw {
-                    commands.entity(surface).remove::<Redraw>();
-                }
-                continue;
-            }
-            if !(all || redraw || redraws.contains(&drawn.name)) {
-                continue;
-            }
-            let may = (!left.is_zero() || !drew)
-                && spending.may_call(&budgets, false);
-            if !may {
-                commands.entity(surface).insert(Redraw);
-                continue;
-            }
-            commands.entity(surface).remove::<Redraw>();
-            let (tree, spent) = instance.draw(&caps, &drawn.name);
-            instance.pass_requests(plugin, 0, &mut asked);
-            spending.charge(spent, false);
-            left = left.saturating_sub(spent.time);
-            (served, drew) = (true, true);
-            let tree = tree.and_then(|tree| {
-                tree.check(&limits)
-                    .map(|()| tree)
-                    .map_err(|why| Fault::Unreadable(why.to_string()))
-            });
-            match tree {
-                Ok(tree) => {
-                    let shows = Shows::Tree(tree);
-                    if drawn.shows != shows {
-                        drawn.shows = shows;
-                    }
-                }
-                Err(why) => fault = Some(why),
             }
         }
         instance.pass_logs(info, &mut spending, &budgets, &mut log);
@@ -484,15 +383,16 @@ impl Instance {
     }
 }
 
-/// Shows on a stopped plugin's panels why it was stopped.
+/// Shows on a stopped plugin's panels and settings pages why it was
+/// stopped.
 fn show_stopped(
     plugins: Query<(&Stopped, &Contributions), Changed<Stopped>>,
-    mut surfaces: Query<&mut Drawn>,
+    mut surfaces: Query<&mut Surface>,
 ) {
     for (stopped, contributions) in &plugins {
         for surface in contributions.iter() {
-            if let Ok(mut drawn) = surfaces.get_mut(surface) {
-                drawn.shows = Shows::Stopped(stopped.0.clone());
+            if let Ok(mut shown) = surfaces.get_mut(surface) {
+                shown.stopped = Some(stopped.0.clone());
             }
         }
     }

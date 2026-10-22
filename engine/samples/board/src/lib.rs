@@ -4,26 +4,32 @@
 //! has, and tells the notes plugin with its event `seen` which
 //! version it shows.
 
+use hamlet_engine_sdk::ui::{
+    AnyView, ViewExt, column, heading, label, list, resource,
+};
 use hamlet_engine_sdk::{
-    AssetId, Entry, Message, Plugin, Reply, Ui, assets, call, decode,
-    emit, encode, info, subscribe, warn,
+    AssetId, Entry, Message, Plugin, Reply, World, assets, call,
+    decode, emit, encode, info, subscribe, warn,
 };
 
 const NOTE: &str = "notes.note";
 
 #[derive(Default)]
-struct Board {
-    /// The note held.
-    note: Option<AssetId>,
+struct Board;
+
+/// The note held, as the board shows it.
+#[derive(Default)]
+struct Note {
+    id: Option<AssetId>,
     text: Option<String>,
     version: u64,
     words: Option<u32>,
 }
 
-impl Board {
+impl Note {
     fn hold(&mut self, id: AssetId) {
-        if self.note != Some(id) {
-            self.note = Some(id);
+        if self.id != Some(id) {
+            self.id = Some(id);
             assets::hold(id);
         }
     }
@@ -36,61 +42,69 @@ impl Plugin for Board {
         assets::list(NOTE);
     }
 
-    fn draw(&self, _: &str, ui: &mut Ui) {
-        ui.heading("title", "Board");
-        match &self.text {
-            Some(text) => {
-                let words = match self.words {
-                    Some(1) => "1 word".to_string(),
-                    Some(words) => format!("{words} words"),
-                    None => "Counting...".into(),
-                };
-                ui.text("note", text.clone())
-                    .text(
-                        "version",
-                        format!("Version {}", self.version),
-                    )
-                    .text("words", words);
-            }
-            None => {
-                ui.text("note", "No note yet.");
-            }
-        }
+    fn mount(&mut self, _: &str, world: &mut World) -> AnyView {
+        world.init_resource::<Note>();
+        column((
+            heading("Board"),
+            list((
+                label(resource::<Note, _>(|note| {
+                    note.text
+                        .clone()
+                        .unwrap_or_else(|| "No note yet.".into())
+                })),
+                label(resource::<Note, _>(|note| match note.text {
+                    Some(_) => format!("Version {}", note.version),
+                    None => String::new(),
+                })),
+                label(resource::<Note, _>(|note| {
+                    match (&note.text, note.words) {
+                        (None, _) => String::new(),
+                        (Some(_), Some(1)) => "1 word".into(),
+                        (Some(_), Some(words)) => {
+                            format!("{words} words")
+                        }
+                        (Some(_), None) => "Counting...".into(),
+                    }
+                })),
+            )),
+        ))
+        .boxed()
     }
 
-    fn receive(&mut self, message: Message) {
+    fn receive(&mut self, message: Message, world: &mut World) {
+        let note = world.resource_or_init::<Note>();
         match message {
             Message::Reply { reply, .. } => match reply {
                 Ok(Reply::Listed(found)) => {
-                    if let Some(note) = found.first() {
-                        self.hold(note.id);
+                    if let Some(found) = found.first() {
+                        note.hold(found.id);
                     }
                 }
                 Ok(Reply::Held(_)) => {
-                    if let Some(id) = self.note {
+                    if let Some(id) = note.id {
                         assets::read(id);
                     }
                 }
-                Ok(Reply::Read(note)) => {
-                    let text = String::from_utf8_lossy(&note.bytes)
+                Ok(Reply::Read(asset)) => {
+                    let text = String::from_utf8_lossy(&asset.bytes)
                         .into_owned();
-                    self.version = note.info.version;
+                    note.version = asset.info.version;
                     info(&format!(
                         "shows note {} at version {}",
-                        note.info.id.0, self.version
+                        asset.info.id.0, note.version
                     ));
                     if let Ok(argument) = encode(&text) {
                         call("hamlet.notes/words", &argument);
                     }
-                    if let Ok(payload) = encode(&self.version) {
+                    if let Ok(payload) = encode(&note.version) {
                         emit("seen", &payload);
                     }
-                    self.text = Some(text);
-                    self.words = None;
+                    note.text = Some(text);
+                    note.words = None;
                 }
                 Ok(Reply::Answered(result)) => {
-                    self.words = decode::<u32>(&result).ok();
-                    if let Some(words) = self.words {
+                    note.words = decode::<u32>(&result).ok();
+                    if let Some(words) = note.words {
                         info(&format!("the note has {words} words"));
                     }
                 }
@@ -104,7 +118,7 @@ impl Plugin for Board {
                 ));
                 assets::read(asset);
             }
-            Message::Gone(_) => *self = Self::default(),
+            Message::Gone(_) => *note = Note::default(),
             Message::Event { from, payload, .. } => {
                 if let Ok((id, version)) =
                     decode::<(u64, u64)>(&payload)
@@ -112,7 +126,7 @@ impl Plugin for Board {
                     info(&format!(
                         "{from} saved note {id} at version {version}"
                     ));
-                    self.hold(AssetId(id));
+                    note.hold(AssetId(id));
                 }
             }
         }

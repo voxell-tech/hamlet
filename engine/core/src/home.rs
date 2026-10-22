@@ -17,6 +17,9 @@ pub const HOME_VARIABLE: &str = "HAMLET_ENGINE_HOME";
 /// The home's folder under the person's own, when the variable is
 /// not set.
 pub const HOME_FOLDER: &str = ".hamlet_engine";
+/// The OS keychain service the engine keeps its secrets under, apart
+/// from the app's, so neither reads or deletes the other's keys.
+pub const KEYCHAIN_SERVICE: &str = "hamlet_engine";
 
 /// Takes the home from [`HOME_VARIABLE`], unless the app put one in
 /// already, and makes its folder.

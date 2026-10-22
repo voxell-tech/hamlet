@@ -1,0 +1,14 @@
+[package]
+name = "about"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The About panel: the engine's name and version"
+publish = false
+
+[lib]
+# The build is `target/wasm32-wasip2/release/about.wasm`.
+crate-type = ["cdylib"]
+
+[dependencies]
+hamlet_engine_sdk.workspace = true

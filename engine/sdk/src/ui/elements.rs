@@ -6,10 +6,11 @@ use core::any::TypeId;
 use fynix::{Cx, Patch, Prop, Styled, View, ViewSeq, element};
 
 use super::world::{Handler, World};
-use super::{Hamlet, Key};
+use super::{Hamlet, Key, States};
 use crate::bindings::hamlet::engine::ui::{
-    ButtonStyle, Direction, Kind, Motion as Movement, Property, Size,
-    Space, Tone,
+    Align, ButtonStyle, Direction, Face, Fill, Kind, Menu,
+    MenuItem as Item, Motion as Movement, Property, Size, Space,
+    Tone,
 };
 
 /// A run of text.
@@ -23,27 +24,139 @@ pub struct Label {
     pub size: Prop<World, Size>,
     #[elem(patch = SetBold)]
     pub bold: Prop<World, bool>,
+    #[elem(default = Face::Body, patch = SetFace)]
+    pub face: Prop<World, Face>,
     /// 1.0, fully opaque, when unset.
     #[elem(default = 1.0, patch = SetOpacity, blend = blend)]
     pub opacity: Prop<World, f32>,
+    #[elem(default = (0.0, 0.0), patch = SetOffset, blend = shift)]
+    pub offset: Prop<World, (f32, f32)>,
 }
 
-/// A button showing `text`, in the engine's style `style`.
+/// A button in the engine's style `style`: showing `text`, or holding
+/// an icon and a label.
 #[element(backend = Hamlet)]
 pub struct Button {
     #[elem(patch = SetText)]
     pub text: Prop<World, String>,
     #[elem(default = ButtonStyle::Plain, patch = SetStyle)]
     pub style: Prop<World, ButtonStyle>,
+    /// The title of the system's dialog a press opens to choose a
+    /// folder in ([`on_folder`](UiExt::on_folder)), none if empty.
+    #[elem(patch = SetFolder)]
+    pub folder: Prop<World, String>,
+    #[elem(default = 1.0, patch = SetOpacity, blend = blend)]
+    pub opacity: Prop<World, f32>,
+    #[elem(default = (0.0, 0.0), patch = SetOffset, blend = shift)]
+    pub offset: Prop<World, (f32, f32)>,
 }
 
-/// A column or a row, holding no views of its own.
+/// A column or a row, holding no views of its own: its children at
+/// its start or its end, drawn on its `fill`.
 #[element(backend = Hamlet)]
 pub struct Frame {
     #[elem(default = Direction::Column, patch = SetDirection)]
     pub direction: Prop<World, Direction>,
     #[elem(default = Space::Gap, patch = SetSpace, blend = jump)]
     pub space: Prop<World, Space>,
+    #[elem(default = Align::Start, patch = SetAlign)]
+    pub align: Prop<World, Align>,
+    #[elem(default = Fill::None, patch = SetFill)]
+    pub fill: Prop<World, Fill>,
+    #[elem(default = 1.0, patch = SetOpacity, blend = blend)]
+    pub opacity: Prop<World, f32>,
+    #[elem(default = (0.0, 0.0), patch = SetOffset, blend = shift)]
+    pub offset: Prop<World, (f32, f32)>,
+}
+
+/// An icon of the engine's set, by its name.
+#[element(backend = Hamlet)]
+pub struct Icon {
+    #[elem(patch = SetText)]
+    pub name: Prop<World, String>,
+    #[elem(default = Tone::Body, patch = SetTone, blend = jump)]
+    pub tone: Prop<World, Tone>,
+    #[elem(default = 1.0, patch = SetOpacity, blend = blend)]
+    pub opacity: Prop<World, f32>,
+    #[elem(default = (0.0, 0.0), patch = SetOffset, blend = shift)]
+    pub offset: Prop<World, (f32, f32)>,
+}
+
+/// A switch showing `on`.
+#[element(backend = Hamlet)]
+pub struct Toggle {
+    #[elem(patch = SetOn)]
+    pub on: Prop<World, bool>,
+    #[elem(default = 1.0, patch = SetOpacity, blend = blend)]
+    pub opacity: Prop<World, f32>,
+    #[elem(default = (0.0, 0.0), patch = SetOffset, blend = shift)]
+    pub offset: Prop<World, (f32, f32)>,
+}
+
+/// Text to edit, showing `placeholder` while it is empty. With more
+/// than one of `lines`, it grows to them as it is typed in, Enter
+/// sends what is typed ([`on_submit`](UiExt::on_submit)) and
+/// Shift+Enter adds a line.
+#[element(backend = Hamlet)]
+pub struct Field {
+    #[elem(patch = SetText)]
+    pub text: Prop<World, String>,
+    #[elem(patch = SetPlaceholder)]
+    pub placeholder: Prop<World, String>,
+    /// 1 when unset.
+    #[elem(default = 1, patch = SetLines)]
+    pub lines: Prop<World, u32>,
+    #[elem(default = 1.0, patch = SetOpacity, blend = blend)]
+    pub opacity: Prop<World, f32>,
+    #[elem(default = (0.0, 0.0), patch = SetOffset, blend = shift)]
+    pub offset: Prop<World, (f32, f32)>,
+}
+
+/// The rows of a list, a divider between each, holding no views of
+/// its own.
+#[element(backend = Hamlet)]
+pub struct List {
+    #[elem(default = 1.0, patch = SetOpacity, blend = blend)]
+    pub opacity: Prop<World, f32>,
+    #[elem(default = (0.0, 0.0), patch = SetOffset, blend = shift)]
+    pub offset: Prop<World, (f32, f32)>,
+}
+
+/// A column that scrolls, holding no views of its own. One that
+/// `stick`s keeps to its end as it grows, until the person scrolls
+/// up, and tells when it reaches its top
+/// ([`on_top`](UiExt::on_top)).
+#[element(backend = Hamlet)]
+pub struct Scroll {
+    #[elem(patch = SetStick)]
+    pub stick: Prop<World, bool>,
+    #[elem(default = 1.0, patch = SetOpacity, blend = blend)]
+    pub opacity: Prop<World, f32>,
+    #[elem(default = (0.0, 0.0), patch = SetOffset, blend = shift)]
+    pub offset: Prop<World, (f32, f32)>,
+}
+
+/// One of `options` shown, the one at `selected`, which opens a list
+/// of them to pick another from.
+#[element(backend = Hamlet)]
+pub struct Dropdown {
+    #[elem(patch = SetOptions)]
+    pub options: Prop<World, Vec<String>>,
+    #[elem(patch = SetSelected)]
+    pub selected: Prop<World, u32>,
+    #[elem(default = 1.0, patch = SetOpacity, blend = blend)]
+    pub opacity: Prop<World, f32>,
+    #[elem(default = (0.0, 0.0), patch = SetOffset, blend = shift)]
+    pub offset: Prop<World, (f32, f32)>,
+}
+
+/// A line across.
+#[element(backend = Hamlet)]
+pub struct Divider {
+    #[elem(default = 1.0, patch = SetOpacity, blend = blend)]
+    pub opacity: Prop<World, f32>,
+    #[elem(default = (0.0, 0.0), patch = SetOffset, blend = shift)]
+    pub offset: Prop<World, (f32, f32)>,
 }
 
 pub fn label(text: impl Into<Prop<World, String>>) -> Label {
@@ -55,7 +168,7 @@ pub fn label(text: impl Into<Prop<World, String>>) -> Label {
 
 /// The name at the head of a panel.
 pub fn heading(text: impl Into<Prop<World, String>>) -> Label {
-    label(text).size(Size::Title).bold(true)
+    label(text).size(Size::Title).bold(true).face(Face::Display)
 }
 
 pub fn button(text: impl Into<Prop<World, String>>) -> Button {
@@ -65,64 +178,399 @@ pub fn button(text: impl Into<Prop<World, String>>) -> Button {
     }
 }
 
-/// A [`Frame`] with `children` built under it, in order.
-pub struct Stack<C> {
-    pub frame: Frame,
+/// A button with the icon `name` before `text`.
+pub fn icon_button(
+    name: impl Into<Prop<World, String>>,
+    text: impl Into<Prop<World, String>>,
+) -> Stack<Button, (Icon, Label)> {
+    Stack {
+        element: Button::unset(),
+        children: (icon(name), label(text).face(Face::Display)),
+    }
+}
+
+/// A button holding `children`, such as a card that leads somewhere.
+pub fn pressable<C>(children: C) -> Stack<Button, C> {
+    Stack {
+        element: Button::unset(),
+        children,
+    }
+}
+
+/// The icon of the engine's set named `name`, as `Glyph::name` has
+/// it.
+pub fn icon(name: impl Into<Prop<World, String>>) -> Icon {
+    Icon {
+        name: name.into(),
+        ..Icon::unset()
+    }
+}
+
+/// A toggle showing `on`; [`on_toggle`](UiExt::on_toggle) runs as the
+/// person switches it.
+pub fn toggle(on: impl Into<Prop<World, bool>>) -> Toggle {
+    Toggle {
+        on: on.into(),
+        ..Toggle::unset()
+    }
+}
+
+/// A field showing `text`; [`on_commit`](UiExt::on_commit) runs with
+/// what the person leaves in it.
+pub fn field(text: impl Into<Prop<World, String>>) -> Field {
+    Field {
+        text: text.into(),
+        ..Field::unset()
+    }
+}
+
+pub fn divider() -> Divider {
+    Divider::unset()
+}
+
+/// A dropdown offering `options`, showing the one at `selected`;
+/// [`on_pick`](UiExt::on_pick) runs with the place of the one the
+/// person picks.
+pub fn dropdown(
+    options: impl Into<Prop<World, Vec<String>>>,
+    selected: impl Into<Prop<World, u32>>,
+) -> Dropdown {
+    Dropdown {
+        options: options.into(),
+        selected: selected.into(),
+        ..Dropdown::unset()
+    }
+}
+
+/// An element with `children` built under it, in order.
+pub struct Stack<E, C> {
+    pub element: E,
     pub children: C,
 }
 
-pub fn column<C>(children: C) -> Stack<C> {
+pub fn column<C>(children: C) -> Stack<Frame, C> {
     Stack {
-        frame: Frame::unset().direction(Direction::Column),
+        element: Frame::unset().direction(Direction::Column),
         children,
     }
 }
 
-pub fn row<C>(children: C) -> Stack<C> {
+pub fn row<C>(children: C) -> Stack<Frame, C> {
     Stack {
-        frame: Frame::unset().direction(Direction::Row),
+        element: Frame::unset().direction(Direction::Row),
         children,
     }
 }
 
-impl<C> FrameProps for Stack<C> {
+/// `children` as the rows of a list.
+pub fn list<C>(children: C) -> Stack<List, C> {
+    Stack {
+        element: List::unset(),
+        children,
+    }
+}
+
+/// `children` in a column that scrolls.
+pub fn scroll<C>(children: C) -> Stack<Scroll, C> {
+    Stack {
+        element: Scroll::unset(),
+        children,
+    }
+}
+
+impl<C> FrameProps for Stack<Frame, C> {
     fn frame_mut(&mut self) -> &mut Frame {
-        &mut self.frame
+        &mut self.element
     }
 }
 
-impl<T: 'static, C: ViewSeq<Hamlet, T>> View<Hamlet, T> for Stack<C> {
+impl<C> ButtonProps for Stack<Button, C> {
+    fn button_mut(&mut self) -> &mut Button {
+        &mut self.element
+    }
+}
+
+impl<C> ListProps for Stack<List, C> {
+    fn list_mut(&mut self) -> &mut List {
+        &mut self.element
+    }
+}
+
+impl<C> ScrollProps for Stack<Scroll, C> {
+    fn scroll_mut(&mut self) -> &mut Scroll {
+        &mut self.element
+    }
+}
+
+impl<T, E, C> View<Hamlet, T> for Stack<E, C>
+where
+    T: 'static,
+    E: View<Hamlet, T>,
+    C: ViewSeq<Hamlet, T>,
+{
     fn build(self, cx: &mut Cx<'_, Hamlet, T>) -> Key {
-        let node = cx.build(self.frame);
+        let node = cx.build(self.element);
         cx.under(node, |cx| self.children.build_each(cx));
         node
     }
 }
 
-/// A view whose root node runs a handler when it is clicked.
-pub struct OnClick<V> {
+/// A view whose root node runs a handler on what the person does to
+/// it.
+pub struct OnInput<V> {
     inner: V,
     handler: Handler,
 }
 
-impl<T, V: View<Hamlet, T>> View<Hamlet, T> for OnClick<V> {
+impl<T, V: View<Hamlet, T>> View<Hamlet, T> for OnInput<V> {
     fn build(self, cx: &mut Cx<'_, Hamlet, T>) -> Key {
         let node = self.inner.build(cx);
-        cx.world.clicks.insert(node, self.handler);
+        cx.world
+            .handlers
+            .entry(node)
+            .or_default()
+            .push(self.handler);
+        node
+    }
+}
+
+/// A view whose root node leads to an address, told to the desktop
+/// service while the pointer is over it.
+pub struct Leads<V> {
+    inner: V,
+    address: String,
+}
+
+impl<T, V: View<Hamlet, T>> View<Hamlet, T> for Leads<V> {
+    fn build(self, cx: &mut Cx<'_, Hamlet, T>) -> Key {
+        let node = self.inner.build(cx);
+        cx.world.addresses.insert(node, self.address);
+        cx.world.nodes.watch(node, States::HOVER);
+        node
+    }
+}
+
+/// A view whose root node shows words near the pointer while it
+/// rests on it.
+pub struct Tipped<V> {
+    inner: V,
+    tip: Prop<World, String>,
+}
+
+impl<T: 'static, V: View<Hamlet, T>> View<Hamlet, T> for Tipped<V> {
+    fn build(self, cx: &mut Cx<'_, Hamlet, T>) -> Key {
+        let node = self.inner.build(cx);
+        cx.effect(node, self.tip, |world, node, tip: &String| {
+            world.nodes.set(node, Property::Tip(tip.clone()), None);
+        });
+        node
+    }
+}
+
+/// One item of a node's menu, and what choosing it does.
+pub struct MenuItem {
+    text: String,
+    group: String,
+    critical: bool,
+    run: Box<dyn Fn(&mut World) + Send + Sync>,
+}
+
+/// An item of a menu showing `text`, running `run` when it is
+/// chosen.
+pub fn menu_item(
+    text: impl Into<String>,
+    run: impl Fn(&mut World) + Send + Sync + 'static,
+) -> MenuItem {
+    MenuItem {
+        text: text.into(),
+        group: String::new(),
+        critical: false,
+        run: Box::new(run),
+    }
+}
+
+impl MenuItem {
+    /// This item, under the item `group`, which opens the items
+    /// under it beside the menu.
+    pub fn under(mut self, group: impl Into<String>) -> Self {
+        self.group = group.into();
+        self
+    }
+
+    /// This item, as one that refuses, stops or throws away.
+    pub fn critical(mut self) -> Self {
+        self.critical = true;
+        self
+    }
+}
+
+/// A view whose root node opens a menu.
+pub struct Menued<V> {
+    inner: V,
+    items: Vec<MenuItem>,
+    click: bool,
+}
+
+impl<T, V: View<Hamlet, T>> View<Hamlet, T> for Menued<V> {
+    fn build(self, cx: &mut Cx<'_, Hamlet, T>) -> Key {
+        let node = self.inner.build(cx);
+        let mut runs = Vec::with_capacity(self.items.len());
+        let items = self
+            .items
+            .into_iter()
+            .map(|item| {
+                runs.push(item.run);
+                Item {
+                    text: item.text,
+                    group: item.group,
+                    critical: item.critical,
+                }
+            })
+            .collect();
+        let menu = Menu {
+            items,
+            click: self.click,
+        };
+        cx.world.nodes.set(node, Property::Menu(menu), None);
+        let chose = move |world: &mut World, at: u32| {
+            if let Some(run) = runs.get(at as usize) {
+                run(world);
+            }
+        };
+        cx.world
+            .handlers
+            .entry(node)
+            .or_default()
+            .push(Handler::Chose(Box::new(chose)));
         node
     }
 }
 
 /// What any view of a panel can be given.
 pub trait UiExt: Sized {
-    /// This view, running `handler` when its root node is clicked.
+    /// This view, opening a menu of `items` at the pointer on a
+    /// right-click on its root node.
+    fn menu(self, items: Vec<MenuItem>) -> Menued<Self> {
+        Menued {
+            inner: self,
+            items,
+            click: false,
+        }
+    }
+
+    /// This view, opening a menu of `items` at the pointer on a
+    /// click or a right-click on its root node.
+    fn menu_on_click(self, items: Vec<MenuItem>) -> Menued<Self> {
+        Menued {
+            inner: self,
+            items,
+            click: true,
+        }
+    }
+
+    /// This view, showing `tip` near the pointer while it rests on
+    /// its root node.
+    fn tip(
+        self,
+        tip: impl Into<Prop<World, String>>,
+    ) -> Tipped<Self> {
+        Tipped {
+            inner: self,
+            tip: tip.into(),
+        }
+    }
+
+    /// This view, its root node leading to `address`: the status
+    /// line shows it while the pointer is over the node.
+    fn leads_to(self, address: impl Into<String>) -> Leads<Self> {
+        Leads {
+            inner: self,
+            address: address.into(),
+        }
+    }
+
+    /// This view, running `handler` when its root node, a button, is
+    /// clicked.
     fn on_click(
         self,
         handler: impl Fn(&mut World) + Send + Sync + 'static,
-    ) -> OnClick<Self> {
-        OnClick {
+    ) -> OnInput<Self> {
+        OnInput {
             inner: self,
-            handler: Box::new(handler),
+            handler: Handler::Click(Box::new(handler)),
+        }
+    }
+
+    /// This view, running `handler` with the state asked for when its
+    /// root node, a toggle, is switched.
+    fn on_toggle(
+        self,
+        handler: impl Fn(&mut World, bool) + Send + Sync + 'static,
+    ) -> OnInput<Self> {
+        OnInput {
+            inner: self,
+            handler: Handler::Toggle(Box::new(handler)),
+        }
+    }
+
+    /// This view, running `handler` with the text the person left in
+    /// its root node, a field.
+    fn on_commit(
+        self,
+        handler: impl Fn(&mut World, String) + Send + Sync + 'static,
+    ) -> OnInput<Self> {
+        OnInput {
+            inner: self,
+            handler: Handler::Commit(Box::new(handler)),
+        }
+    }
+
+    /// This view, running `handler` with what Enter sent from its
+    /// root node, a field of several lines.
+    fn on_submit(
+        self,
+        handler: impl Fn(&mut World, String) + Send + Sync + 'static,
+    ) -> OnInput<Self> {
+        OnInput {
+            inner: self,
+            handler: Handler::Submit(Box::new(handler)),
+        }
+    }
+
+    /// This view, running `handler` with the path of the folder the
+    /// person chose in the dialog its root node, a button with a
+    /// `folder`, opened.
+    fn on_folder(
+        self,
+        handler: impl Fn(&mut World, String) + Send + Sync + 'static,
+    ) -> OnInput<Self> {
+        OnInput {
+            inner: self,
+            handler: Handler::Folder(Box::new(handler)),
+        }
+    }
+
+    /// This view, running `handler` when its root node, a scroll that
+    /// sticks, reaches its top.
+    fn on_top(
+        self,
+        handler: impl Fn(&mut World) + Send + Sync + 'static,
+    ) -> OnInput<Self> {
+        OnInput {
+            inner: self,
+            handler: Handler::Top(Box::new(handler)),
+        }
+    }
+
+    /// This view, running `handler` with the place of the option the
+    /// person picks in its root node, a dropdown.
+    fn on_pick(
+        self,
+        handler: impl Fn(&mut World, u32) + Send + Sync + 'static,
+    ) -> OnInput<Self> {
+        OnInput {
+            inner: self,
+            handler: Handler::Pick(Box::new(handler)),
         }
     }
 }
@@ -132,15 +580,31 @@ impl<V> UiExt for V {}
 /// The kind of node the element of the type `element` is. A node no
 /// element is written on is a frame.
 pub(super) fn kind(element: Option<TypeId>) -> Kind {
-    match element {
-        Some(id) if id == TypeId::of::<Label>() => Kind::Label,
-        Some(id) if id == TypeId::of::<Button>() => Kind::Button,
-        _ => Kind::Frame,
-    }
+    let Some(element) = element else {
+        return Kind::Frame;
+    };
+    [
+        (TypeId::of::<Label>(), Kind::Label),
+        (TypeId::of::<Button>(), Kind::Button),
+        (TypeId::of::<Icon>(), Kind::Icon),
+        (TypeId::of::<Toggle>(), Kind::Toggle),
+        (TypeId::of::<Field>(), Kind::Field),
+        (TypeId::of::<List>(), Kind::List),
+        (TypeId::of::<Scroll>(), Kind::Scroll),
+        (TypeId::of::<Divider>(), Kind::Divider),
+        (TypeId::of::<Dropdown>(), Kind::Dropdown),
+    ]
+    .into_iter()
+    .find_map(|(id, kind)| (id == element).then_some(kind))
+    .unwrap_or(Kind::Frame)
 }
 
 fn blend(from: &f32, to: &f32, t: f32) -> f32 {
     from + (to - from) * t
+}
+
+fn shift(from: &(f32, f32), to: &(f32, f32), t: f32) -> (f32, f32) {
+    (blend(&from.0, &to.0, t), blend(&from.1, &to.1, t))
 }
 
 /// A value the engine moves, and the plugin sets straight to its
@@ -182,6 +646,7 @@ patch!(SetText, String, |text: &String| Property::Text(
 patch!(SetTone, Tone, |tone: &Tone| Property::Tone(*tone));
 patch!(SetSize, Size, |size: &Size| Property::Size(*size));
 patch!(SetBold, bool, |bold: &bool| Property::Bold(*bold));
+patch!(SetFace, Face, |face: &Face| Property::Face(*face));
 patch!(SetOpacity, f32, |opacity: &f32| Property::Opacity(*opacity));
 patch!(SetStyle, ButtonStyle, |style: &ButtonStyle| {
     Property::Style(*style)
@@ -190,3 +655,21 @@ patch!(SetDirection, Direction, |direction: &Direction| {
     Property::Direction(*direction)
 });
 patch!(SetSpace, Space, |space: &Space| Property::Space(*space));
+patch!(SetPlaceholder, String, |text: &String| {
+    Property::Placeholder(text.clone())
+});
+patch!(SetOn, bool, |on: &bool| Property::On(*on));
+patch!(SetOffset, (f32, f32), |offset: &(f32, f32)| {
+    Property::Offset(*offset)
+});
+patch!(SetOptions, Vec<String>, |options: &Vec<String>| {
+    Property::Options(options.clone())
+});
+patch!(SetSelected, u32, |at: &u32| Property::Selected(*at));
+patch!(SetLines, u32, |lines: &u32| Property::Lines(*lines));
+patch!(SetStick, bool, |stick: &bool| Property::Stick(*stick));
+patch!(SetAlign, Align, |align: &Align| Property::Align(*align));
+patch!(SetFill, Fill, |fill: &Fill| Property::Fill(*fill));
+patch!(SetFolder, String, |title: &String| {
+    Property::Folder(title.clone())
+});

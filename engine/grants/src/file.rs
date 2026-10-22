@@ -1,5 +1,6 @@
 //! The grants file, `grants.toml` in the home: the person's answers
-//! for each installed plugin. It is written whole or not at all, and
+//! for each installed plugin, and what each plugin that comes with
+//! Hamlet is allowed. It is written whole or not at all, and
 //! a file that cannot be read is never written over.
 
 use std::collections::BTreeMap;
@@ -7,7 +8,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use bevy::ecs::resource::Resource;
-use hamlet_engine_api::{Capability, PluginId};
+use hamlet_engine_api::{Ask, Capability, PluginId};
 use hamlet_engine_core::{Home, write_whole};
 use serde::{Deserialize, Serialize};
 
@@ -59,11 +60,33 @@ pub struct Record {
     pub allowed: bool,
     /// The version it was answered for.
     pub version: String,
+    /// Comes with Hamlet, so all it asks is allowed and the person
+    /// is not asked.
+    #[serde(default)]
+    pub bundled: bool,
     #[serde(default)]
     pub answers: Vec<Answered>,
 }
 
 impl Record {
+    /// The record of a plugin that comes with Hamlet, at `version`:
+    /// each of `asks` allowed.
+    pub fn bundled(version: &str, asks: &[Ask]) -> Self {
+        Self {
+            allowed: true,
+            version: version.into(),
+            bundled: true,
+            answers: asks
+                .iter()
+                .map(|ask| Answered {
+                    capability: ask.capability,
+                    target: ask.target.clone(),
+                    answer: Answer::Allow,
+                })
+                .collect(),
+        }
+    }
+
     /// The answer to `capability` on `target`, if it was asked.
     pub fn answer(
         &self,
@@ -206,6 +229,7 @@ mod tests {
         let mut record = Record {
             allowed: true,
             version: "0.1.0".into(),
+            bundled: false,
             answers: Vec::new(),
         };
         record.set(

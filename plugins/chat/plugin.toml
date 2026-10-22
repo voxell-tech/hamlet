@@ -1,0 +1,19 @@
+id = "hamlet.chat"
+name = "Chat"
+version = "0.1.0"
+api = "0.1.0"
+
+[[asks]]
+capability = "agents.read"
+target = "local"
+reason = "Shows the conversation of the window's focus as it is said"
+
+[[asks]]
+capability = "agents.chief"
+target = "local"
+reason = "Sends your messages, starts a new session, rewinds and answers the agent's questions"
+
+[[asks]]
+capability = "desktop.open"
+target = "https"
+reason = "Opens a web link of the conversation in your browser when you click it"

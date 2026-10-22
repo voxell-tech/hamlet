@@ -3,19 +3,13 @@ name = "hamlet_engine_sdk"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "What a plugin for the engine is written with, built for wasm32-wasip2: the bindings, the entry point and the widget tree"
+description = "What a plugin for the engine is written with, built for wasm32-wasip2: the bindings, the entry point and its views, written with fynix"
 
 [lints]
 workspace = true
 
 [dependencies]
 hamlet_engine_api.workspace = true
-serde.workspace = true
 wit-bindgen.workspace = true
-fynix = { workspace = true, optional = true }
-lenz = { workspace = true, optional = true }
-
-[features]
-# Retained panels written with fynix (`hamlet_engine_sdk::ui`), in place
-# of the widget tree a panel is drawn with.
-ui = ["dep:fynix", "dep:lenz"]
+fynix.workspace = true
+lenz.workspace = true

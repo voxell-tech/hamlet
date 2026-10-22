@@ -8,8 +8,8 @@ use bevy::text::EditableText;
 use bevy::ui_widgets::{Activate, Button as ButtonBehavior};
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, checkbox, column, frame, label,
-    row, scroll, text_field,
+    BehaviorExt, FrameProps, button, checkbox, column,
+    dropdown as choose, frame, label, row, scroll, text_field,
 };
 use bevy_fynix::{
     Focused, Hovered, Pressed, Prop, ScopedExt, Style, ViewExt, style,
@@ -305,26 +305,11 @@ pub trait StyleExt: View + Sized {
         button(self).rules(kind.rules()).tagged(kind.glow())
     }
 
-    /// The icon `which` before this view, set a little high to sit on
-    /// the middle of the display face's capitals.
+    /// The icon `which` before this view.
     fn with_icon(self, which: Glyph) -> AnyView {
         AnyView::new(move |cx: &mut Cx| {
-            let theme = cx.theme();
-            let (size, gap, offset) = (
-                theme.space.icon,
-                theme.space.icon_gap,
-                theme.space.icon_offset,
-            );
-            cx.build(
-                row((
-                    row((glyph(which, size),))
-                        .gap(0.0)
-                        .padding(UiRect::bottom(px(offset))),
-                    self,
-                ))
-                .gap(gap)
-                .align(AlignItems::Center),
-            )
+            let size = cx.theme().space.icon;
+            cx.build(icon_row((raised(glyph(which, size)), self)))
         })
     }
 
@@ -401,25 +386,57 @@ pub fn icon_button(
     which: Glyph,
     text: impl Into<Prop<String>>,
 ) -> impl View {
-    button(
+    content_button(
+        kind,
         label(text).wrap(false).tagged(DisplayText).with_icon(which),
     )
-    .rules(
-        style::<EngineTheme>()
-            .frame(|f, t| {
-                // Less on the icon's side, which has air of its
-                // own.
-                f.padding(UiRect::new(
-                    px(t.space.pad_start),
-                    px(t.space.pad_end),
-                    px(0.0),
-                    px(0.0),
-                ))
-            })
-            .bundle(),
-    )
-    .rules(kind.rules())
-    .tagged(kind.glow())
+}
+
+/// `children` in a row as an icon and its text are set out.
+pub fn icon_row<C>(children: C) -> AnyView
+where
+    C: bevy_fynix::ViewSeq<bevy_fynix::Bevy, EngineTheme> + 'static,
+{
+    AnyView::new(move |cx: &mut Cx| {
+        let gap = cx.theme().space.icon_gap;
+        cx.build(row(children).gap(gap).align(AlignItems::Center))
+    })
+}
+
+/// `icon` set a little high to sit on the middle of the display
+/// face's capitals.
+pub fn raised(icon: impl View) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let offset = cx.theme().space.icon_offset;
+        cx.build(
+            row((icon,)).gap(0.0).padding(UiRect::bottom(px(offset))),
+        )
+    })
+}
+
+/// A button of the style `kind` showing `content`, padded as one with
+/// an icon before its text is.
+pub fn content_button(
+    kind: ButtonStyle,
+    content: impl View,
+) -> impl View {
+    button(content)
+        .rules(
+            style::<EngineTheme>()
+                .frame(|f, t| {
+                    // Less on the icon's side, which has air of its
+                    // own.
+                    f.padding(UiRect::new(
+                        px(t.space.pad_start),
+                        px(t.space.pad_end),
+                        px(0.0),
+                        px(0.0),
+                    ))
+                })
+                .bundle(),
+        )
+        .rules(kind.rules())
+        .tagged(kind.glow())
 }
 
 /// A menu's title, `text`, lit from below while `held`.
@@ -510,6 +527,30 @@ pub fn toggle(
     })
 }
 
+/// One of `options`, the one at `selected`, which opens a list of
+/// them to pick another from, as wide as it is given. `pick` is
+/// handed the place of the one picked.
+pub fn dropdown(
+    options: Vec<String>,
+    selected: impl Into<Prop<usize>>,
+    pick: impl Fn(&mut World, usize) + Send + Sync + 'static,
+) -> AnyView {
+    let selected = selected.into();
+    AnyView::new(move |cx: &mut Cx| {
+        let size = cx.theme().space.icon;
+        cx.build(
+            choose(
+                options,
+                selected,
+                Glyph::ChevronUp.image(size),
+                pick,
+            )
+            .width(percent(100.0))
+            .max_width(percent(100.0)),
+        )
+    })
+}
+
 /// The name at the head of a page.
 pub fn heading(text: impl Into<Prop<String>>) -> AnyView {
     let text = text.into();
@@ -579,32 +620,53 @@ where
 
 /// A line across, between two parts.
 pub fn divider() -> AnyView {
-    AnyView::new(|cx: &mut Cx| {
+    line(true.into())
+}
+
+/// A divider, taking no room while not `shown`.
+fn line(shown: Prop<bool>) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
         let theme = cx.theme();
         let (line, colour) =
             (theme.space.divider, *theme.colors.border);
-        cx.build(frame().height(px(line)).fill(colour))
+        let display = shown.map(|shown| {
+            if shown { Display::Flex } else { Display::None }
+        });
+        cx.build(
+            frame().height(px(line)).fill(colour).display(display),
+        )
     })
 }
 
 /// `rows` as one list, each padded, a divider between each and the
 /// next.
 pub fn list(rows: Vec<AnyView>) -> AnyView {
+    let rows = rows
+        .into_iter()
+        .enumerate()
+        .map(|(at, one)| list_row(one, at > 0))
+        .collect::<Vec<_>>();
+    column(rows).gap(0.0).boxed()
+}
+
+/// A row of a [`list`]: `content` padded, under a divider while
+/// `divided`.
+pub fn list_row(
+    content: impl View,
+    divided: impl Into<Prop<bool>>,
+) -> AnyView {
+    let divided = divided.into();
     AnyView::new(move |cx: &mut Cx| {
         let pad = cx.theme().space.row_padding;
-        let mut parts = Vec::new();
-        for one in rows {
-            if !parts.is_empty() {
-                parts.push(divider());
-            }
-            parts.push(
-                column((one,))
+        cx.build(
+            column((
+                line(divided),
+                column((content,))
                     .gap(0.0)
-                    .padding(UiRect::vertical(px(pad)))
-                    .boxed(),
-            );
-        }
-        cx.build(column(parts).gap(0.0))
+                    .padding(UiRect::vertical(px(pad))),
+            ))
+            .gap(0.0),
+        )
     })
 }
 

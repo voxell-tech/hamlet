@@ -31,10 +31,10 @@ expect = { panel = "hamlet.notes/notes", text = "The board saw version 1." }
 
 # Saved with new text, the note changes on the board.
 [[step]]
-write = { panel = "hamlet.notes/notes", widget = "text", text = "One two three four five" }
+write = { panel = "hamlet.notes/notes", widget = "The note", text = "One two three four five" }
 
 [[step]]
-click = { panel = "hamlet.notes/notes", widget = "save" }
+click = { panel = "hamlet.notes/notes", widget = "Save" }
 
 [[step]]
 expect = { panel = "hamlet.board/board", text = "One two three four five" }

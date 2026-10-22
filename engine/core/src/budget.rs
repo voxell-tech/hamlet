@@ -2,7 +2,6 @@
 //! `engine/tuning/engine.toml`.
 
 use bevy::ecs::resource::Resource;
-use hamlet_engine_api::TreeLimits;
 use serde::Deserialize;
 
 use crate::tuning::{ENGINE, Tuning, TuningFile};
@@ -71,12 +70,6 @@ pub struct Budgets {
     /// Bytes of one line of the log; a longer line is cut.
     pub log_line_bytes: usize,
     pub petitions_per_minute: u32,
-    /// Widgets in one panel's tree.
-    pub widgets: usize,
-    /// How deep a panel's widgets may nest.
-    pub widget_depth: usize,
-    /// Bytes of text in one widget.
-    pub widget_text: usize,
     /// Nodes of retained panels made, set or put in order in one
     /// call; past them the call fails.
     pub node_changes_per_call: usize,
@@ -85,20 +78,12 @@ pub struct Budgets {
     /// Nodes of retained panels it holds at once; past them the call
     /// fails.
     pub nodes: usize,
+    /// How deep a node of a retained panel may sit under its root;
+    /// a call that makes one deeper fails.
+    pub node_depth: usize,
 }
 
 impl Tuning for Budgets {
     const FILE: TuningFile = ENGINE;
     const SECTION: Option<&'static str> = Some("budgets");
-}
-
-impl Budgets {
-    /// The most one panel's widget tree may hold.
-    pub fn tree_limits(&self) -> TreeLimits {
-        TreeLimits {
-            nodes: self.widgets,
-            depth: self.widget_depth,
-            text: self.widget_text,
-        }
-    }
 }

@@ -2,9 +2,10 @@
 resolver = "3"
 members = ["crates/*", "engine/*"]
 # The vendored fynix workspace is its own workspace. The engine's
-# tuning files and its WIT are files, not crates, and each sample
-# plugin is a workspace of its own, built for wasm32-wasip2.
-exclude = ["vendor", "engine/tuning", "engine/wit", "engine/samples"]
+# tuning files and its WIT are files, not crates, each sample plugin
+# is a workspace of its own, and the plugins that come with Hamlet are
+# one, all built for wasm32-wasip2.
+exclude = ["vendor", "engine/tuning", "engine/wit", "engine/samples", "plugins"]
 # `cargo build`, `cargo test` and `cargo clippy` at the root cover every
 # crate, so the checks in AGENTS.md need no flags.
 default-members = [".", "crates/*", "engine/*"]
@@ -17,17 +18,19 @@ repository = "https://github.com/voxell-tech/hamlet"
 
 [workspace.dependencies]
 # hamlet
-hamlet_sandbox = { version = "0.1.0", path = "crates/hamlet_sandbox" }
-hamlet_model = { version = "0.1.0", path = "crates/hamlet_model" }
-hamlet_home = { version = "0.1.0", path = "crates/hamlet_home" }
-hamlet_rules = { version = "0.1.0", path = "crates/hamlet_rules" }
-hamlet_core = { version = "0.1.0", path = "crates/hamlet_core" }
 hamlet_desktop = { version = "0.1.0", path = "crates/hamlet_desktop" }
 hamlet_assets = { version = "0.1.0", path = "crates/hamlet_assets" }
 hamlet_vfx = { version = "0.1.0", path = "crates/hamlet_vfx" }
 hamlet_realm = { version = "0.1.0", path = "crates/hamlet_realm" }
 hamlet_ui = { version = "0.1.0", path = "crates/hamlet_ui" }
-hamlet_testing = { version = "0.1.0", path = "crates/hamlet_testing" }
+
+# the agent core, in the engine
+hamlet_sandbox = { version = "0.1.0", path = "engine/sandbox" }
+hamlet_model = { version = "0.1.0", path = "engine/model" }
+hamlet_home = { version = "0.1.0", path = "engine/home" }
+hamlet_rules = { version = "0.1.0", path = "engine/rules" }
+hamlet_core = { version = "0.1.0", path = "engine/agent_core" }
+hamlet_testing = { version = "0.1.0", path = "engine/testing" }
 
 # the engine
 hamlet_engine_api = { version = "0.1.0", path = "engine/api" }
@@ -38,6 +41,8 @@ hamlet_engine_grants = { version = "0.1.0", path = "engine/grants" }
 hamlet_engine_assets = { version = "0.1.0", path = "engine/assets" }
 hamlet_engine_bus = { version = "0.1.0", path = "engine/bus" }
 hamlet_engine_net = { version = "0.1.0", path = "engine/net" }
+hamlet_engine_agents = { version = "0.1.0", path = "engine/agents" }
+hamlet_engine_desktop = { version = "0.1.0", path = "engine/desktop" }
 hamlet_engine_wasm = { version = "0.1.0", path = "engine/wasm" }
 hamlet_engine_harness = { version = "0.1.0", path = "engine/harness" }
 hamlet_engine_sdk = { version = "0.1.0", path = "engine/sdk" }

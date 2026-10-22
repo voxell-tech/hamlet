@@ -1,0 +1,17 @@
+# The Skills panel on its own. The harness runs no agents service,
+# so the library is empty.
+#
+#   scripts/build_plugins.sh
+#   cargo run -p hamlet_engine_harness --bin plugin_check -- plugins/dist/hamlet.skills --steps plugins/skills/steps.toml
+
+[[step]]
+allow = "hamlet.skills"
+
+[[step]]
+expect = { panel = "hamlet.skills/skills", text = "THE LIBRARY, SHARED BY ALL" }
+
+[[step]]
+expect = { panel = "hamlet.skills/skills", text = "The library is empty. Agents offer skills and the librarian decides which to keep." }
+
+[[step]]
+expect = { panel = "hamlet.skills/skills", text = "None of its own yet." }

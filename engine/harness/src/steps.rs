@@ -14,7 +14,7 @@
 //! expect = { panel = "sample.board/board", text = "First note" }
 //!
 //! [[step]]
-//! click = { panel = "sample.notes/notes", widget = "save" }
+//! click = { panel = "sample.notes/notes", widget = "Save" }
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -44,36 +44,24 @@ pub enum Step {
     /// Lets this plugin in once it asks, each ask allowed.
     Allow(String),
     /// Lets the plugin in once it asks, each ask answered `answer`.
-    Admit {
-        plugin: String,
-        answer: Answer,
-    },
+    Admit { plugin: String, answer: Answer },
     /// Answers the next use the plugin asks about.
-    Answer {
-        plugin: String,
-        answer: Answer,
-    },
+    Answer { plugin: String, answer: Answer },
     /// Runs this many frames.
     Frames(usize),
     /// Waits for the panel's outline to hold the text.
-    Expect {
-        panel: String,
-        text: String,
-    },
+    Expect { panel: String, text: String },
     /// Waits for the panel's outline to stop holding the text.
-    Lacks {
-        panel: String,
-        text: String,
-    },
-    Click {
-        panel: String,
-        widget: String,
-    },
+    Lacks { panel: String, text: String },
+    /// Presses the button whose text is `widget`.
+    Click { panel: String, widget: String },
+    /// Leaves the text in the field whose placeholder is `widget`.
     Write {
         panel: String,
         widget: String,
         text: String,
     },
+    /// Switches the toggle nearest the text `widget`.
     Toggle {
         panel: String,
         widget: String,
@@ -98,10 +86,7 @@ pub enum Step {
         body: String,
     },
     /// Fails the fetch of the address once it is made.
-    Fail {
-        url: String,
-        why: String,
-    },
+    Fail { url: String, why: String },
 }
 
 fn ok() -> u16 {

@@ -12,15 +12,16 @@ use std::time::{Duration, Instant};
 
 use bevy::ecs::component::Component;
 use hamlet_engine_api::{
-    AssetId, Contribution, FetchRequest, Request, Ticket,
-    WidgetEvent, WidgetTree, decode, encode,
+    AgentsRequest, AssetId, Contribution, DesktopRequest,
+    FetchRequest, Request, Ticket, decode,
 };
 use hamlet_engine_core::{Budgets, LogLevel};
 use wasmtime::component::{Component as Compiled, HasSelf, Linker};
 use wasmtime::{Engine, ResourceLimiter, Store, Trap};
 
 use crate::host::WasmTuning;
-use crate::nodes::{NodeChange, Nodes, Over};
+use crate::nodes::{NodeChange, NodeError, Nodes};
+use crate::surfaces::SurfaceChange;
 use crate::wasi::{self, Wasi};
 
 mod bindings {
@@ -69,8 +70,6 @@ pub struct Caps {
     /// Lines logged, and the bytes of one.
     pub lines: usize,
     pub line_bytes: usize,
-    /// Panels asked to be drawn again.
-    pub redraws: usize,
     /// Requests made of the engine's services.
     pub requests: usize,
     /// Bytes of all the plugin's memories.
@@ -81,6 +80,8 @@ pub struct Caps {
     pub node_changes: usize,
     /// Nodes of retained panels held at once.
     pub nodes: usize,
+    /// How deep a node may sit under its panel's root.
+    pub node_depth: usize,
 }
 
 impl Caps {
@@ -92,12 +93,12 @@ impl Caps {
             bytes: budgets.bytes_per_call as usize,
             lines: budgets.log_lines_per_second as usize,
             line_bytes: budgets.log_line_bytes,
-            redraws: budgets.contributions,
             requests: budgets.requests_per_call,
             memory: budgets.memory as usize,
             resources: budgets.wasi_resources,
             node_changes: budgets.node_changes_per_call,
             nodes: budgets.nodes,
+            node_depth: budgets.node_depth,
         }
     }
 }
@@ -116,10 +117,9 @@ pub enum Fault {
     Memory,
     /// It handed over more bytes than one call may.
     Bytes,
-    /// It changed more nodes of its panels than one call may.
-    Changes,
-    /// It held more nodes of its panels than it may.
-    Nodes,
+    /// It went past a budget of the nodes of its panels, or misused
+    /// one.
+    Node(NodeError),
     /// It trapped: why.
     Trap(String),
     /// It gave what cannot be read: why.
@@ -148,8 +148,7 @@ impl fmt::Display for Fault {
                     "it handed over more bytes than one call may"
                 )
             }
-            Self::Changes => write!(f, "{}", Over::Changes),
-            Self::Nodes => write!(f, "{}", Over::Nodes),
+            Self::Node(error) => write!(f, "{error}"),
             Self::Trap(why) => write!(f, "it failed: {why}"),
             Self::Unreadable(why) => {
                 write!(f, "it gave what cannot be read: {why}")
@@ -163,10 +162,8 @@ impl Fault {
         if error.is::<OverMemory>() {
             return Self::Memory;
         }
-        match error.downcast_ref::<Over>() {
-            Some(Over::Changes) => return Self::Changes,
-            Some(Over::Nodes) => return Self::Nodes,
-            None => {}
+        if let Some(&error) = error.downcast_ref::<NodeError>() {
+            return Self::Node(error);
         }
         match error.downcast_ref::<Trap>() {
             Some(Trap::OutOfFuel) => Self::Fuel,
@@ -191,18 +188,11 @@ pub struct Spent {
 }
 
 /// A plugin's component, compiled and linked, ready to be
-/// instantiated, and whether its panels are retained.
+/// instantiated, with its views' exports if it has them.
 #[derive(Clone)]
 pub struct Linked {
     plugin: PluginPre<State>,
     panels: Option<UiPanelsIndices>,
-}
-
-impl Linked {
-    /// Whether its panels are retained: built node by node, and kept.
-    pub fn retained(&self) -> bool {
-        self.panels.is_some()
-    }
 }
 
 /// Compiles and links the component in `bytes`.
@@ -248,12 +238,12 @@ pub struct State {
     limiter: Limiter,
     pub(crate) caps: Caps,
     logs: Vec<(LogLevel, String)>,
-    redraws: Vec<String>,
     requests: Vec<(Ticket, Request)>,
     /// The ticket the last request was given.
     ticket: Ticket,
     pub(crate) wasi: Wasi,
     pub(crate) nodes: Nodes,
+    pub(crate) surfaces: Vec<SurfaceChange>,
 }
 
 impl State {
@@ -262,11 +252,11 @@ impl State {
             limiter: Limiter::new(caps.memory),
             caps: *caps,
             logs: Vec::new(),
-            redraws: Vec::new(),
             requests: Vec::new(),
             ticket: 0,
             wasi: Wasi::new(caps),
             nodes: Nodes::default(),
+            surfaces: Vec::new(),
         }
     }
 
@@ -338,6 +328,22 @@ impl host::Host for State {
         }
     }
 
+    /// A request that cannot be read is not taken.
+    fn agents(&mut self, request: Vec<u8>) -> Ticket {
+        match decode::<AgentsRequest>(&request) {
+            Ok(request) => self.ask(Request::Agents(request)),
+            Err(_) => 0,
+        }
+    }
+
+    /// A request that cannot be read is not taken.
+    fn desktop(&mut self, request: Vec<u8>) -> Ticket {
+        match decode::<DesktopRequest>(&request) {
+            Ok(request) => self.ask(Request::Desktop(request)),
+            Err(_) => 0,
+        }
+    }
+
     fn log(&mut self, level: Level, text: String) {
         let level = match level {
             Level::Info => LogLevel::Info,
@@ -345,14 +351,6 @@ impl host::Host for State {
             Level::Error => LogLevel::Error,
         };
         keep(&mut self.logs, &self.caps, level, text);
-    }
-
-    fn redraw(&mut self, name: String) {
-        if self.redraws.len() < self.caps.redraws
-            && !self.redraws.contains(&name)
-        {
-            self.redraws.push(name);
-        }
     }
 }
 
@@ -379,11 +377,25 @@ pub struct Instance {
 }
 
 /// What the person did to a node of a retained panel.
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum NodeInput {
     Click,
     Hover(bool),
     Press(bool),
+    /// A toggle switched, to this.
+    Toggle(bool),
+    /// A field's text, as the person left it.
+    Commit(String),
+    /// A dropdown's option picked, by its place.
+    Pick(u32),
+    /// What was typed in a field of several lines as Enter sent it.
+    Submit(String),
+    /// A scroll that sticks reached its top.
+    Top,
+    /// An item of a node's menu chosen, by its place.
+    Chose(u32),
+    /// The folder chosen in the dialog a button opened.
+    Chosen(String),
 }
 
 impl Instance {
@@ -419,14 +431,15 @@ impl Instance {
         })
     }
 
-    /// Whether its panels are retained.
-    pub fn retained(&self) -> bool {
+    /// Whether it builds panels and settings pages: it exports
+    /// `ui-guest`.
+    pub fn has_views(&self) -> bool {
         self.panels.is_some()
     }
 
-    /// Builds the retained panel `name` under a root the host holds
-    /// as `root`, its movements taking the seconds `motions` gives:
-    /// whether something still moves.
+    /// Builds the panel or settings page `name` under a root the host
+    /// holds as `root`, its movements taking the seconds `motions`
+    /// gives: whether something still moves.
     pub fn mount(
         &mut self,
         caps: &Caps,
@@ -458,20 +471,43 @@ impl Instance {
 
     /// Hands over what the person did to nodes of its retained
     /// panels, each by the plugin's key: whether something still
-    /// moves.
+    /// moves. The texts of fields together are cut to the bytes one
+    /// call may hand over.
     pub fn input(
         &mut self,
         caps: &Caps,
-        inputs: &[(u32, NodeInput)],
+        inputs: Vec<(u32, NodeInput)>,
     ) -> (Result<bool, Fault>, Spent) {
+        let mut left = caps.bytes;
         let events = inputs
-            .iter()
-            .map(|&(key, input)| UiEvent {
+            .into_iter()
+            .map(|(key, input)| UiEvent {
                 key,
                 action: match input {
                     NodeInput::Click => Action::Click,
                     NodeInput::Hover(on) => Action::Hover(on),
                     NodeInput::Press(on) => Action::Press(on),
+                    NodeInput::Toggle(on) => Action::Toggled(on),
+                    NodeInput::Commit(mut text) => {
+                        text.truncate(text.floor_char_boundary(left));
+                        left -= text.len();
+                        Action::Committed(text)
+                    }
+                    NodeInput::Submit(mut text) => {
+                        text.truncate(text.floor_char_boundary(left));
+                        left -= text.len();
+                        Action::Submitted(text)
+                    }
+                    NodeInput::Pick(at) => Action::Picked(at),
+                    NodeInput::Top => Action::ReachedTop,
+                    NodeInput::Chose(at) => Action::Chose(at),
+                    NodeInput::Chosen(mut folder) => {
+                        folder.truncate(
+                            folder.floor_char_boundary(left),
+                        );
+                        left -= folder.len();
+                        Action::Chosen(folder)
+                    }
                 },
             })
             .collect::<Vec<_>>();
@@ -497,6 +533,12 @@ impl Instance {
         std::mem::take(&mut self.store.data_mut().nodes.changes)
     }
 
+    /// The changes to what it shows outside its panels since this was
+    /// last asked.
+    pub fn take_surface_changes(&mut self) -> Vec<SurfaceChange> {
+        std::mem::take(&mut self.store.data_mut().surfaces)
+    }
+
     /// What the plugin adds.
     pub fn declare(
         &mut self,
@@ -505,32 +547,6 @@ impl Instance {
         let (bytes, spent) =
             self.call(caps, |guest, store| guest.call_declare(store));
         (bytes.and_then(|bytes| read(&bytes)), spent)
-    }
-
-    /// The widget tree of the panel or settings page `name`, not yet
-    /// checked against the budgets.
-    pub fn draw(
-        &mut self,
-        caps: &Caps,
-        name: &str,
-    ) -> (Result<WidgetTree, Fault>, Spent) {
-        let (bytes, spent) = self
-            .call(caps, |guest, store| guest.call_draw(store, name));
-        (bytes.and_then(|bytes| read(&bytes)), spent)
-    }
-
-    pub fn event(
-        &mut self,
-        caps: &Caps,
-        event: &WidgetEvent,
-    ) -> (Result<(), Fault>, Spent) {
-        let bytes = match encode(event) {
-            Ok(bytes) if bytes.len() <= caps.bytes => bytes,
-            _ => return (Err(Fault::Bytes), Spent::default()),
-        };
-        self.call(caps, |guest, store| {
-            guest.call_event(store, &bytes)
-        })
     }
 
     /// Runs the plugin's command `name`.
@@ -610,12 +626,6 @@ impl Instance {
     /// version before this one, left off.
     pub fn follow(&mut self, earlier: &Instance) {
         self.store.data_mut().ticket = earlier.store.data().ticket;
-    }
-
-    /// Panels the plugin asked to be drawn again since this was last
-    /// asked.
-    pub fn take_redraws(&mut self) -> Vec<String> {
-        std::mem::take(&mut self.store.data_mut().redraws)
     }
 
     fn call<T>(

@@ -1,0 +1,14 @@
+[package]
+name = "welcome"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The first-run card: setting up a place for models, by a key, a sign-in or a model on this computer, and picking a model of it"
+publish = false
+
+[lib]
+# The build is `target/wasm32-wasip2/release/welcome.wasm`.
+crate-type = ["cdylib"]
+
+[dependencies]
+hamlet_engine_sdk.workspace = true

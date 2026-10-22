@@ -2,12 +2,17 @@
 //! and a command that sets the count back to nought. The count is
 //! kept when the plugin is reloaded.
 
-use hamlet_engine_sdk::{Action, Entry, Plugin, Ui, WidgetEvent};
+use hamlet_engine_sdk::ui::{
+    AnyView, UiExt, ViewExt, button, column, heading, label, resource,
+};
+use hamlet_engine_sdk::{Entry, Plugin, World};
 
 #[derive(Default)]
-struct Hello {
-    count: u32,
-}
+struct Hello;
+
+/// The presses counted.
+#[derive(Default)]
+struct Count(u32);
 
 impl Plugin for Hello {
     fn declare(&self, entry: &mut Entry) {
@@ -18,36 +23,38 @@ impl Plugin for Hello {
             .shortcut("Primary+Shift+R", "reset");
     }
 
-    fn draw(&self, _: &str, ui: &mut Ui) {
-        let times = match self.count {
-            1 => "once".to_string(),
-            count => format!("{count} times"),
-        };
-        ui.heading("title", "Hello")
-            .text("count", format!("Pressed {times}."))
-            .button("press", "Press");
+    fn mount(&mut self, _: &str, world: &mut World) -> AnyView {
+        world.init_resource::<Count>();
+        column((
+            heading("Hello"),
+            label(resource::<Count, _>(|count| {
+                let times = match count.0 {
+                    1 => "once".to_string(),
+                    count => format!("{count} times"),
+                };
+                format!("Pressed {times}.")
+            })),
+            button("Press").on_click(|world| {
+                world.resource_mut::<Count>().0 += 1;
+            }),
+        ))
+        .boxed()
     }
 
-    fn event(&mut self, event: WidgetEvent) {
-        if event.widget.0 == "press" && event.action == Action::Click
-        {
-            self.count += 1;
-        }
-    }
-
-    fn run(&mut self, name: &str) {
+    fn run(&mut self, name: &str, world: &mut World) {
         if name == "reset" {
-            self.count = 0;
+            world.insert(Count(0));
         }
     }
 
-    fn save(&self) -> Vec<u8> {
-        self.count.to_le_bytes().to_vec()
+    fn save(&self, world: &World) -> Vec<u8> {
+        let count = world.get::<Count>().map_or(0, |count| count.0);
+        count.to_le_bytes().to_vec()
     }
 
-    fn restore(&mut self, state: &[u8]) {
+    fn restore(&mut self, state: &[u8], world: &mut World) {
         if let Ok(bytes) = state.try_into() {
-            self.count = u32::from_le_bytes(bytes);
+            world.insert(Count(u32::from_le_bytes(bytes)));
         }
     }
 }

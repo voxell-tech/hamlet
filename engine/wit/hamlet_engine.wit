@@ -13,9 +13,6 @@ interface host {
     /// Writes a line to the engine's log.
     log: func(level: level, text: string);
 
-    /// Asks for the panel or settings page `name` to be drawn again.
-    redraw: func(name: string);
-
     // Each request below gives a ticket, and its `Reply` comes in a
     // later `receive` with that ticket. A ticket of 0 means the
     // request was not taken: one call made too many.
@@ -57,18 +54,18 @@ interface host {
     /// Fetches a `FetchRequest` from a host the plugin asked for:
     /// `Fetched`.
     fetch: func(request: list<u8>) -> u64;
+
+    /// Asks the agents service an `AgentsRequest`: `Agents`.
+    agents: func(request: list<u8>) -> u64;
+
+    /// Asks the desktop service a `DesktopRequest`: `Desktop`.
+    desktop: func(request: list<u8>) -> u64;
 }
 
 /// What a plugin gives the engine.
 interface guest {
     /// What the plugin adds: a `Vec<Contribution>`.
     declare: func() -> list<u8>;
-
-    /// The panel or settings page `name`: a `WidgetTree`.
-    draw: func(name: string) -> list<u8>;
-
-    /// A `WidgetEvent` on one of its panels or settings pages.
-    event: func(event: list<u8>);
 
     /// Runs the plugin's command `name`.
     run: func(name: string);
@@ -90,11 +87,37 @@ interface guest {
 /// Panels a plugin builds and keeps node by node, as fynix's backend
 /// does: the engine builds its own widgets from them, in its styles.
 interface ui {
+    /// What a node is. A frame, a button, a list and a scroll hold
+    /// nodes; the others hold none.
     enum kind {
         /// A column or a row, by its `direction`.
         frame,
         label,
+        /// A button in its `style`. Holding nothing, it shows its
+        /// `text`; holding an icon and a label, it sets them out as
+        /// the engine's icon buttons do.
         button,
+        /// An icon of the engine's set, named by its `text`.
+        icon,
+        /// A switch showing `on`. The person switching it is a
+        /// `toggled`.
+        toggle,
+        /// Text to edit, showing `text`, and `placeholder` while it
+        /// is empty. What the person leaves in it is a `committed`.
+        /// With more than one of `lines`, Enter sends what is typed
+        /// as a `submitted` and empties it.
+        field,
+        /// The rows of a list, a divider between each.
+        %list,
+        /// A column that scrolls. One that sticks is a `reached-top`
+        /// each time it is scrolled to its top.
+        scroll,
+        /// A line across.
+        divider,
+        /// One of its `options` shown, the one `selected`, opening a
+        /// list of them to pick another from. The person picking one
+        /// is a `picked`.
+        dropdown,
     }
 
     enum direction {
@@ -108,6 +131,42 @@ interface ui {
         half,
         gap,
         double,
+    }
+
+    /// Where the children of a frame sit along it.
+    enum align {
+        start,
+        end,
+    }
+
+    /// What a frame is drawn on, by role.
+    enum fill {
+        /// Nothing.
+        none,
+        /// A card: a shade above the panel, in a frame.
+        card,
+        /// The accent's, as what the chief said is.
+        accent,
+        /// A round one, as about a speaker's picture.
+        disc,
+    }
+
+    /// One item of a node's menu.
+    record menu-item {
+        /// Its words.
+        text: string,
+        /// The words of the item it is under, which opens a menu of
+        /// those under it beside the menu, or none if empty.
+        group: string,
+        /// It refuses, stops or throws away.
+        critical: bool,
+    }
+
+    /// A menu a node opens at the pointer on a right-click.
+    record menu {
+        items: list<menu-item>,
+        /// It opens on a click too.
+        click: bool,
     }
 
     /// The colour of text, by role.
@@ -127,6 +186,13 @@ interface ui {
         title,
     }
 
+    /// The face of text: the body's, or the display face of titles
+    /// and buttons, which does not wrap.
+    enum face {
+        body,
+        display,
+    }
+
     enum button-style {
         plain,
         primary,
@@ -140,30 +206,107 @@ interface ui {
         expand,
     }
 
-    /// One property of a node. A node starts with each at its first
-    /// value: empty, `body`, `body`, false, 1.0, `plain`, `column`,
-    /// `gap`.
+    /// One property of a node, of the kinds named. A node starts with
+    /// each at its first value: empty, `body`, `body`, false, `body`,
+    /// 1.0, `plain`, `column`, `gap`, empty, false, (0.0, 0.0),
+    /// empty, 0, 1, false, empty, `start`, `none`, no items, empty. A
+    /// role is filled in from the engine's theme as it is now, again
+    /// whenever the theme changes.
     variant property {
+        /// Of a label, a button, an icon and a field.
         text(string),
+        /// Of a label and an icon.
         tone(tone),
+        /// Of a label.
         size(size),
+        /// Of a label.
         bold(bool),
+        /// Of a label.
+        face(face),
+        /// Of every kind: how opaque the node itself is.
         opacity(f32),
+        /// Of a button.
         style(button-style),
+        /// Of a frame.
         direction(direction),
+        /// Of a frame.
         space(space),
+        /// Of a field.
+        placeholder(string),
+        /// Of a toggle.
+        on(bool),
+        /// Of every kind: how far the node is moved, across and down,
+        /// from where it is laid out, in the interface's pixels.
+        offset(tuple<f32, f32>),
+        /// Of a dropdown: what it offers.
+        options(list<string>),
+        /// Of a dropdown: the place of the option shown.
+        selected(u32),
+        /// Of a field: the most lines it grows to as it is typed in.
+        /// With more than one, Enter sends, Shift+Enter adds a line
+        /// and Escape keeps what is typed and leaves it.
+        lines(u32),
+        /// Of a scroll: it keeps to its end as what it holds grows,
+        /// until the person scrolls up, and again once they are back
+        /// at its end. What is put above it after a `reached-top`
+        /// leaves what was shown where it was.
+        stick(bool),
+        /// Of every kind: words shown near the pointer while it rests
+        /// on the node, or none if empty.
+        tip(string),
+        /// Of a frame.
+        align(align),
+        /// Of a frame: what it is drawn on. A frame with a fill is
+        /// padded and no wider than what holds it.
+        fill(fill),
+        /// Of every kind: the menu it opens, or none with no items.
+        /// The person choosing an item is a `chose`.
+        menu(menu),
+        /// Of a button: the title of the system's dialog a folder is
+        /// chosen in, which a press opens in place of a `click`, or
+        /// none if empty. The folder chosen is a `chosen`.
+        folder(string),
     }
+
+    /// What an item of the status line shows.
+    record status-item {
+        /// An icon of the engine's set, by its name, or none if
+        /// empty.
+        icon: string,
+        /// Its words; an item with none is hidden.
+        text: string,
+        /// The colour of its icon and words.
+        tone: tone,
+        /// Words shown while the pointer rests on it, or none if
+        /// empty.
+        tip: string,
+    }
+
+    /// Shows `item` in the plugin's status item `name`.
+    set-status: func(name: string, item: status-item);
+
+    /// Shows the plugin's overlay `name` over the dock, or hides it.
+    /// Its view is mounted as a panel's is while it is shown.
+    show-overlay: func(name: string, shown: bool);
+
+    /// Brings the plugin's panel `name` to the front, or shows its
+    /// settings page `name` in Settings and brings Settings to the
+    /// front. A full id, `plugin.id/name`, brings the panel of that
+    /// id to the front, of any plugin, if there is one.
+    open: func(name: string);
 
     /// A node of a panel. Dropping it takes it away, and every node
     /// under it.
     resource node {
-        /// A node of `kind`, last under `parent`. `key` is the
-        /// plugin's name for it in the events it is given.
+        /// A node of `kind`, last under `parent`, a node that holds
+        /// others. `key` is the plugin's name for it in the events it
+        /// is given.
         constructor(kind: kind, parent: borrow<node>, key: u32);
 
-        /// Sets `value` at once, or moves it over the engine's curve
-        /// for `motion`. A tone, size, opacity or space can move; the
-        /// rest are set at once.
+        /// Sets `value`, a property of the node's kind, at once, or
+        /// moves it from where it is shown over the engine's curve for
+        /// `motion`. A tone, size, opacity, space or offset can move;
+        /// the rest are set at once.
         set: func(value: property, motion: option<motion>);
 
         /// Puts the children in the order `children` lists them all.
@@ -184,6 +327,23 @@ interface ui-guest {
         click,
         hover(bool),
         press(bool),
+        /// A toggle switched, to this.
+        toggled(bool),
+        /// A field's text, as the person left it.
+        committed(string),
+        /// A dropdown's option picked, by its place.
+        picked(u32),
+        /// What was typed in a field of several lines as Enter sent
+        /// it.
+        submitted(string),
+        /// A scroll that sticks was scrolled to its top, or holds too
+        /// little to scroll: once for each height of what it holds.
+        reached-top,
+        /// An item of a node's menu chosen, by its place.
+        chose(u32),
+        /// The folder chosen in the dialog a button opened, by its
+        /// path.
+        chosen(string),
     }
 
     /// What the person did to the node the plugin named `key`.
@@ -201,10 +361,11 @@ interface ui-guest {
     // Each call answers whether something still moves, so the engine
     // calls `frame` on the next frame.
 
-    /// Builds the panel `name` under `root`.
+    /// Builds the panel or settings page `name` under `root`.
     mount: func(name: string, root: node, motions: motions) -> bool;
 
-    /// Lets go of the panel `name`, whose nodes are gone.
+    /// Lets go of the panel or settings page `name`, whose nodes are
+    /// gone.
     unmount: func(name: string);
 
     input: func(events: list<ui-event>) -> bool;
@@ -218,13 +379,14 @@ world plugin {
     export guest;
 }
 
-/// The engine's side of retained panels, apart from `plugin`.
+/// The engine's side of a plugin's panels and settings pages, apart
+/// from `plugin`.
 world ui-panels {
     import ui;
     export ui-guest;
 }
 
-/// A plugin whose panels are retained.
+/// A plugin with panels or settings pages.
 world ui-plugin {
     include plugin;
     include ui-panels;

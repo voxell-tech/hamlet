@@ -10,9 +10,11 @@ use hamlet_engine_api::{
 };
 use hamlet_engine_core::Budgets;
 use hamlet_engine_shell::command::parse_chord;
+use hamlet_engine_shell::icons::Glyph;
 use hamlet_engine_shell::{
-    AnyView, Command, MenuEntry, Panel, RunCommand, SettingsPage,
-    Shortcut, SuggestedWorkspace,
+    AnyView, Command, MenuEntry, Overlay, Panel, RunCommand,
+    SettingsFooter, SettingsPage, Shortcut, StatusItem,
+    SuggestedWorkspace,
 };
 
 use crate::switch::ContributedBy;
@@ -57,12 +59,26 @@ enum Declared {
     SettingsPage {
         name: String,
         title: String,
+        about: String,
+        icon: Glyph,
+        content: fn(Entity) -> AnyView,
+    },
+    SettingsFooter {
+        name: String,
         content: fn(Entity) -> AnyView,
     },
     Workspace {
         name: String,
         title: String,
         layout: Layout,
+    },
+    StatusItem {
+        name: String,
+        grow: bool,
+    },
+    Overlay {
+        name: String,
+        content: fn(Entity) -> AnyView,
     },
 }
 
@@ -125,16 +141,34 @@ impl Entry {
         self
     }
 
-    /// A page of settings titled `title`.
+    /// A page of settings titled `title`, its link row showing `icon`
+    /// and what it holds, `about`.
     pub fn settings_page(
         &mut self,
         name: &str,
         title: &str,
+        about: &str,
+        icon: Glyph,
         content: fn(Entity) -> AnyView,
     ) -> &mut Self {
         self.declared.push(Declared::SettingsPage {
             name: name.into(),
             title: title.into(),
+            about: about.into(),
+            icon,
+            content,
+        });
+        self
+    }
+
+    /// What Settings shows under the link rows to its pages.
+    pub fn settings_footer(
+        &mut self,
+        name: &str,
+        content: fn(Entity) -> AnyView,
+    ) -> &mut Self {
+        self.declared.push(Declared::SettingsFooter {
+            name: name.into(),
             content,
         });
         self
@@ -151,6 +185,34 @@ impl Entry {
             name: name.into(),
             title: title.into(),
             layout,
+        });
+        self
+    }
+
+    /// An item of the status line, hidden until it is given words, or
+    /// taking the room left on the line when it grows.
+    pub fn status_item(
+        &mut self,
+        name: &str,
+        grow: bool,
+    ) -> &mut Self {
+        self.declared.push(Declared::StatusItem {
+            name: name.into(),
+            grow,
+        });
+        self
+    }
+
+    /// A card over the dock, shown while it is
+    /// [`OverlayShown`](hamlet_engine_shell::OverlayShown).
+    pub fn overlay(
+        &mut self,
+        name: &str,
+        content: fn(Entity) -> AnyView,
+    ) -> &mut Self {
+        self.declared.push(Declared::Overlay {
+            name: name.into(),
+            content,
         });
         self
     }
@@ -223,10 +285,26 @@ impl Entry {
                 Declared::SettingsPage {
                     name,
                     title,
+                    about,
+                    icon,
                     content,
                 } => PanelId::new(owner, &name).map(|id| {
-                    commands.spawn((SettingsPage { id, title, content }, link));
+                    commands.spawn((
+                        SettingsPage {
+                            id,
+                            title,
+                            about,
+                            icon,
+                            content,
+                        },
+                        link,
+                    ));
                 }),
+                Declared::SettingsFooter { name, content } => {
+                    PanelId::new(owner, &name).map(|id| {
+                        commands.spawn((SettingsFooter { id, content }, link));
+                    })
+                }
                 Declared::Workspace {
                     name,
                     title,
@@ -243,6 +321,17 @@ impl Entry {
                         ));
                     },
                 ),
+                Declared::StatusItem { name, grow } => {
+                    PanelId::new(owner, &name).map(|id| {
+                        commands
+                            .spawn((StatusItem::new(id, grow), link));
+                    })
+                }
+                Declared::Overlay { name, content } => {
+                    PanelId::new(owner, &name).map(|id| {
+                        commands.spawn((Overlay { id, content }, link));
+                    })
+                }
             };
             match done {
                 Ok(()) => added += 1,

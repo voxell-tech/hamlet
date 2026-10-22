@@ -1,0 +1,36 @@
+# Settings on its own: each page and the footer show their words. The
+# harness runs no agents service, so nothing the agents would say
+# shows.
+#
+#   scripts/build_plugins.sh
+#   cargo run -p hamlet_engine_harness --bin plugin_check -- plugins/dist/hamlet.settings --steps plugins/settings/steps.toml
+
+[[step]]
+allow = "hamlet.settings"
+
+[[step]]
+expect = { panel = "hamlet.settings/endpoints", text = "ADD A PLACE FOR MODELS" }
+
+[[step]]
+expect = { panel = "hamlet.settings/models", text = "LIST MODELS" }
+
+[[step]]
+expect = { panel = "hamlet.settings/models", text = "No models yet. Choose List Models to ask the endpoints." }
+
+[[step]]
+expect = { panel = "hamlet.settings/agents", text = "None yet. Choosing Always Allow on a petition adds one." }
+
+[[step]]
+expect = { panel = "hamlet.settings/charter", text = "Every agent reads this at the start of each turn." }
+
+[[step]]
+expect = { panel = "hamlet.settings/realm", text = "These apply to every hamlet." }
+
+[[step]]
+write = { panel = "hamlet.settings/agents", widget = "0 to 1000", text = "5000" }
+
+[[step]]
+expect = { panel = "hamlet.settings/agents", text = "Reflection is every 0 to 1000 turns." }
+
+[[step]]
+expect = { panel = "hamlet.settings/again", text = "SET UP AGAIN" }

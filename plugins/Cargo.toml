@@ -1,0 +1,22 @@
+# The plugins that come with Hamlet, each a crate of this workspace
+# built for wasm32-wasip2. `scripts/build_plugins.sh` builds them all
+# into `dist/`, where the engine finds them.
+[workspace]
+resolver = "3"
+members = ["*"]
+exclude = ["dist", "target"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+hamlet_engine_sdk = { path = "../engine/sdk" }
+
+# Small builds: a plugin is loaded and compiled at start.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
