@@ -8,13 +8,16 @@ use hamlet_engine_bevy::prelude::World;
 use hamlet_engine_bevy::ui::{
     AnyView, ButtonProps, ButtonStyle, Face, FrameProps, Size, Space,
     Tone, UiExt, ViewExt, button, column, description, field, icon,
-    icon_button, keyed, label, resource, row,
+    icon_button, keyed, label, open, resource, row,
 };
 
 use crate::{Step, Welcome, WelcomeWorldExt};
 
 /// The most models the card lists at once.
 const SHOWN: usize = 40;
+
+/// The Agent Bazaar's panel, of the plugin `hamlet.bazaar`.
+const BAZAAR: &str = "hamlet.bazaar/bazaar";
 
 /// The card's page for the step the person is at.
 pub(crate) fn card() -> AnyView {
@@ -158,6 +161,7 @@ fn choice(adding: bool) -> AnyView {
                 world.ask(AgentsRequest::FindLocal);
             },
         ),
+        browse(adding),
         row((
             icon_button("clock", leave)
                 .style(ButtonStyle::Quiet)
@@ -167,6 +171,24 @@ fn choice(adding: bool) -> AnyView {
     ))
     .space(Space::Double)
     .boxed()
+}
+
+/// The way to the Agent Bazaar while a place is added, which leaves
+/// the setup.
+fn browse(adding: bool) -> AnyView {
+    if !adding {
+        return column(()).boxed();
+    }
+    door(
+        "coins",
+        "BROWSE THE BAZAAR",
+        "See every model OpenRouter offers first, with its price, \
+         in the Agent Bazaar.",
+        |world| {
+            world.ask(AgentsRequest::EndSetup);
+            open(BAZAAR);
+        },
+    )
 }
 
 fn key() -> AnyView {

@@ -1,0 +1,38 @@
+id = "hamlet.bazaar"
+name = "Agent Bazaar"
+version = "0.1.0"
+api = "0.1.0"
+
+[[asks]]
+capability = "net.fetch"
+target = "openrouter.ai"
+reason = "Lists the models OpenRouter offers, and who serves each, so you can add them"
+
+[[asks]]
+capability = "net.fetch"
+target = "skills.sh"
+reason = "Lists the skills skills.sh offers, searches it, and fetches a skill's files to show it and add it to the library"
+
+[[asks]]
+capability = "agents.read"
+target = "local"
+reason = "Knows your endpoints, the models you have, the library's skills and your hamlets, to show what is already yours"
+
+[[asks]]
+capability = "agents.settings"
+target = "local"
+reason = "Adds the models you choose, makes one the default when you say so, and begins setting up OpenRouter"
+
+[[asks]]
+capability = "agents.chief"
+target = "local"
+reason = "Puts a skill you take into the library, and founds a hamlet from a template you choose"
+
+[[asks]]
+capability = "desktop.open"
+target = "https"
+reason = "Opens a skill's source, or a link in it, in your browser when you click it"
+
+[events]
+sends = [{ name = "traded", payload = "bazaar.stall" }]
+hears = [{ event = "hamlet.realm/stall", payload = "bazaar.stall" }]

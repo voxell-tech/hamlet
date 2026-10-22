@@ -1,0 +1,51 @@
+# The Agent Bazaar on its own. The harness sends no fetch and runs no
+# agents service: OpenRouter is answered here with one model, skills.sh
+# is left asking, and the samples show.
+#
+#   scripts/build_plugins.sh
+#   cargo run -p hamlet_engine_harness --bin plugin_check -- plugins/dist/hamlet.bazaar --steps plugins/bazaar/steps.toml
+
+[[step]]
+allow = "hamlet.bazaar"
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "Asking OpenRouter..." }
+
+[[step]]
+reply = { url = "https://openrouter.ai/api/v1/models?offset=0&limit=100", body = '{"data": [{"id": "maker/wick", "name": "Maker: Wick", "pricing": {"prompt": "0.000001", "completion": "0.000002"}, "supported_parameters": ["tools"]}]}' }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "Maker: Wick" }
+
+[[step]]
+click = { panel = "hamlet.bazaar/bazaar", widget = "Maker: Wick" }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "MAKE DEFAULT" }
+
+[[step]]
+click = { panel = "hamlet.bazaar/bazaar", widget = "SKILLS" }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "Asking skills.sh..." }
+
+[[step]]
+click = { panel = "hamlet.bazaar/bazaar", widget = "AGENTS" }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "PR Reviewer" }
+
+[[step]]
+click = { panel = "hamlet.bazaar/bazaar", widget = "PLUGINS" }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "Excalidraw Whiteboard" }
+
+[[step]]
+click = { panel = "hamlet.bazaar/bazaar", widget = "HAMLETS" }
+
+[[step]]
+click = { panel = "hamlet.bazaar/bazaar", widget = "Indie SaaS Launch Team" }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "FOUND IT" }

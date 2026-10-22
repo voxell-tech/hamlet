@@ -7,12 +7,15 @@ use hamlet_engine_bevy::api::agents::{
 };
 use hamlet_engine_bevy::ui::{
     AnyView, FrameProps, Size, Space, Tone, UiExt, ViewExt, button,
-    column, description, dropdown, field, keyed, label, resource,
-    row, switch,
+    column, description, dropdown, field, icon_button, keyed, label,
+    open, resource, row, switch,
 };
 
 use crate::parts::{name, problem};
 use crate::{Known, Page, SHOWN, SettingsWorldExt};
+
+/// The Agent Bazaar's panel, of the plugin `hamlet.bazaar`.
+const BAZAAR: &str = "hamlet.bazaar/bazaar";
 
 pub(crate) fn page() -> AnyView {
     column((
@@ -30,6 +33,14 @@ pub(crate) fn page() -> AnyView {
              million tokens in and out, used when the endpoint does \
              not bill a call.",
         ),
+        row((
+            icon_button("coins", "BROWSE THE BAZAAR")
+                .on_click(|_| open(BAZAAR)),
+            description(
+                "Every model OpenRouter offers, with its price and \
+                 what it can do, to add here.",
+            ),
+        )),
         row((
             button("LIST MODELS").on_click(|world| {
                 world.ask(Page::Models, AgentsRequest::ListModels);

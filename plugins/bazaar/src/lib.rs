@@ -1,0 +1,217 @@
+//! The Agent Bazaar: five stalls, each a tab of its panel, where the
+//! chief adds models from OpenRouter and the endpoints, takes skills
+//! from skills.sh, founds hamlets from templates, and looks at agents
+//! to hire and plugins to install, which come with the marketplace.
+
+mod errand;
+mod hamlets;
+mod models;
+mod samples;
+mod shelf;
+mod skills;
+mod view;
+
+use agents_ui::{Heard, start};
+use hamlet_engine_bevy::api::agents::AgentsRequest;
+use hamlet_engine_bevy::bevy_ecs::message::MessageCursor;
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::ui::open;
+use hamlet_engine_bevy::{decode, encode, warn};
+use serde::{Deserialize, Serialize};
+
+use crate::models::Ware;
+use crate::samples::agents::Hireling;
+use crate::samples::hamlets::Template;
+use crate::samples::plugins::Contraption;
+use crate::shelf::{Shelf, Stock};
+use crate::skills::skills_sh::Scroll;
+use crate::view::Shown;
+
+/// The bazaar's panel.
+const PANEL: &str = "bazaar";
+
+/// The event the realm sends when a stall of its market is clicked,
+/// with the stall's name.
+const STALL_CLICKED: &str = "hamlet.realm/stall";
+
+/// The event sent after a purchase, with the stall's name.
+const TRADED: &str = "traded";
+
+#[derive(Default)]
+struct Bazaar;
+
+impl Plugin for Bazaar {
+    fn build(&self, app: &mut App) {
+        app.add_plugins((
+            agents_ui::plugin,
+            errand::plugin,
+            models::plugin,
+            skills::plugin,
+            samples::plugin,
+            hamlets::plugin,
+        ))
+        .init_saved_resource::<StallShown>()
+        .add_panel(PANEL, "Agent Bazaar", view::bazaar)
+        .panel_icon("coins")
+        .add_command(
+            "open",
+            "Open the Agent Bazaar",
+            |world: &mut World| {
+                open(PANEL);
+                let stall = world.resource::<StallShown>().0;
+                world.stocked(stall);
+            },
+        )
+        .add_command(
+            "models",
+            "Browse the Models",
+            |world: &mut World| {
+                models::browse(world);
+                world.show(Stall::Models);
+            },
+        )
+        .add_menu_entry("Hamlet", "open")
+        .add_menu_entry("Hamlet", "models")
+        .add_subscription(STALL_CLICKED)
+        .add_systems(
+            Declare,
+            start(&[
+                AgentsRequest::Settings,
+                AgentsRequest::Catalogue,
+                AgentsRequest::Skills,
+                AgentsRequest::Roster,
+                AgentsRequest::Limits,
+            ]),
+        )
+        .add_systems(Update, receive);
+    }
+}
+
+hamlet_engine_bevy::export!(Bazaar);
+
+/// A stall of the bazaar.
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize,
+)]
+pub(crate) enum Stall {
+    #[default]
+    Models,
+    Community,
+    Plugins,
+    Skills,
+    Hamlets,
+}
+
+impl Stall {
+    pub const ALL: [Stall; 5] = [
+        Stall::Models,
+        Stall::Community,
+        Stall::Plugins,
+        Stall::Skills,
+        Stall::Hamlets,
+    ];
+
+    /// Its name in the events about it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Stall::Models => "models",
+            Stall::Community => "community",
+            Stall::Plugins => "plugins",
+            Stall::Skills => "skills",
+            Stall::Hamlets => "hamlets",
+        }
+    }
+}
+
+/// The stall the panel shows, kept across a reload.
+#[derive(Resource, Default, Serialize, Deserialize)]
+pub(crate) struct StallShown(pub Stall);
+
+/// The bazaar's methods on [`World`].
+pub(crate) trait BazaarWorldExt {
+    /// Shows `stall` in the panel and brings the panel to the front.
+    fn show(&mut self, stall: Stall);
+
+    /// Asks for what `stall` sells the first time it is shown, and
+    /// for the page open there what that page shows.
+    fn stocked(&mut self, stall: Stall);
+
+    /// Tells whoever listens that something was bought at `stall`.
+    fn traded(&mut self, stall: Stall);
+}
+
+impl BazaarWorldExt for World {
+    fn show(&mut self, stall: Stall) {
+        if self.resource::<StallShown>().0 != stall {
+            self.resource_mut::<StallShown>().0 = stall;
+        }
+        self.stocked(stall);
+        open(PANEL);
+    }
+
+    fn stocked(&mut self, stall: Stall) {
+        match stall {
+            Stall::Models => {
+                if !self.resource::<Stock<Ware>>().asked {
+                    models::fetch_wares(self);
+                }
+                reopen::<Ware>(self);
+            }
+            Stall::Skills => {
+                if !self.resource::<Stock<Scroll>>().asked {
+                    skills::fetch_board(self);
+                }
+                reopen::<Scroll>(self);
+            }
+            Stall::Community => reopen::<Hireling>(self),
+            Stall::Plugins => reopen::<Contraption>(self),
+            Stall::Hamlets => reopen::<Template>(self),
+        }
+    }
+
+    fn traded(&mut self, stall: Stall) {
+        if let Ok(payload) = encode(&stall.name().to_string()) {
+            self.emit(TRADED, &payload);
+        }
+    }
+}
+
+/// Asks again for what the page open at the stall of `L` shows, as
+/// after a reload.
+fn reopen<L: Shown>(world: &mut World) {
+    if let Some(id) = world.resource::<Shelf<L>>().open.clone() {
+        L::opened(world, &id);
+    }
+}
+
+/// Takes in what the agents service says, and the stalls clicked in
+/// the realm.
+fn receive(
+    world: &mut World,
+    mut heard: Local<MessageCursor<Heard>>,
+    mut events: Local<MessageCursor<EventReceived>>,
+) {
+    let told = heard
+        .read(world.resource::<Messages<Heard>>())
+        .cloned()
+        .collect::<Vec<_>>();
+    for told in told {
+        models::heard(world, &told);
+        skills::heard(world, &told);
+        hamlets::heard(world, &told);
+    }
+    let clicked = events
+        .read(world.resource::<Messages<EventReceived>>())
+        .filter(|event| event.event.as_str() == STALL_CLICKED)
+        .map(|event| decode::<String>(&event.payload))
+        .collect::<Vec<_>>();
+    for name in clicked {
+        let stall = name.ok().and_then(|name| {
+            Stall::ALL.into_iter().find(|stall| stall.name() == name)
+        });
+        match stall {
+            Some(stall) => world.show(stall),
+            None => warn("a stall of no name the bazaar knows"),
+        }
+    }
+}

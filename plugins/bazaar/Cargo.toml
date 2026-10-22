@@ -1,0 +1,17 @@
+[package]
+name = "bazaar"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Agent Bazaar: models from OpenRouter and the endpoints, skills from skills.sh, hamlets from templates, and agents and plugins to come"
+publish = false
+
+[lib]
+# The build is `target/wasm32-wasip2/release/bazaar.wasm`.
+crate-type = ["cdylib"]
+
+[dependencies]
+hamlet_engine_bevy.workspace = true
+agents_ui = { path = "../agents_ui" }
+serde.workspace = true
+serde_json = "1"
