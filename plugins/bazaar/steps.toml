@@ -1,7 +1,8 @@
 # The Agent Bazaar on its own. The harness sends no fetch and runs no
 # agents service: OpenRouter is answered here with one model, skills.sh
-# is left asking, and the samples show. Without the realm, a hamlet's
-# page says its town cannot be shown.
+# is left unanswered, and the bazaar's server too until the samples
+# show. Without the realm, a hamlet's page says its town cannot be
+# shown.
 #
 #   scripts/build_plugins.sh
 #   cargo run -p hamlet_engine_harness --bin plugin_check -- plugins/dist/hamlet.bazaar --steps plugins/bazaar/steps.toml
@@ -53,3 +54,50 @@ expect = { panel = "hamlet.bazaar/bazaar", text = "FOUND THIS HAMLET" }
 
 [[step]]
 expect = { panel = "hamlet.bazaar/bazaar", text = "The realm is not running, so its town cannot be shown." }
+
+# The bazaar's server is not reached here: the stalls of what chiefs
+# make say their listings are samples, and offer the sign-in.
+
+[[step]]
+click = { panel = "hamlet.bazaar/bazaar", widget = "AGENTS" }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "SAMPLES" }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "http://localhost:8787" }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "SIGN IN WITH GITHUB" }
+
+# The seller's desk opens signed out, and says what the form lacks.
+
+[[step]]
+run = "hamlet.bazaar/sell"
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "SELL AN AGENT" }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "The realm has no agents to sell." }
+
+[[step]]
+write = { panel = "hamlet.bazaar/bazaar", widget = "Title", text = "Wick" }
+
+[[step]]
+click = { panel = "hamlet.bazaar/bazaar", widget = "PUT UP FOR SALE" }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "A summary is 1 to 140 letters." }
+
+[[step]]
+click = { panel = "hamlet.bazaar/bazaar", widget = "TOOLS" }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "SELL TOOLS" }
+
+[[step]]
+click = { panel = "hamlet.bazaar/bazaar", widget = "BACK" }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "PR Reviewer" }

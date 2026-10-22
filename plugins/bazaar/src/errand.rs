@@ -10,6 +10,7 @@ use hamlet_engine_bevy::{
     Failure, FetchReply, FetchRequest, Reply, Ticket,
 };
 
+use crate::market::{self, Call};
 use crate::models;
 use crate::skills::{self, SkillId};
 
@@ -35,6 +36,9 @@ pub(crate) enum Errand {
     Search(String),
     /// The files of this skill.
     Files(SkillId),
+    /// A call of the bazaar's server, with the fetch that made it, to
+    /// be sent again when the engine held it back.
+    Market(Box<(Call, FetchRequest)>),
 }
 
 /// The fetches made and not yet answered, by their tickets.
@@ -53,16 +57,33 @@ pub(crate) trait ErrandWorldExt {
     /// Fetches `url` for `errand`; false when the fetch was not
     /// taken.
     fn send(&mut self, url: String, errand: Errand) -> bool;
+
+    /// Fetches `request` for `errand`; false when the fetch was not
+    /// taken.
+    fn send_request(
+        &mut self,
+        request: &FetchRequest,
+        errand: Errand,
+    ) -> bool;
 }
 
 impl ErrandWorldExt for World {
     fn send(&mut self, url: String, errand: Errand) -> bool {
-        let ticket = self.fetch(&FetchRequest {
+        let request = FetchRequest {
             method: Method::Get,
             url,
             content_type: None,
             body: Vec::new(),
-        });
+        };
+        self.send_request(&request, errand)
+    }
+
+    fn send_request(
+        &mut self,
+        request: &FetchRequest,
+        errand: Errand,
+    ) -> bool {
+        let ticket = self.fetch(request);
         if ticket == 0 {
             return false;
         }
@@ -120,6 +141,10 @@ fn answered(
                 skills::found(world, words, reply)
             }
             Errand::Files(id) => skills::unrolled(world, id, reply),
+            Errand::Market(sent) => {
+                let (call, request) = *sent;
+                market::answered(world, call, request, reply)
+            }
         }
     }
 }

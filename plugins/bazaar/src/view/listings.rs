@@ -1,20 +1,23 @@
-//! The Agents and Plugins stalls drawn: a listing's row, the kinds
-//! it is narrowed to, and its page with its maker, what it does and
-//! what chiefs say of it. Hiring and installing come with the
-//! marketplace, so its page says so and nothing is had.
+//! The samples of the Agents and Plugins stalls drawn, where the
+//! bazaar's server cannot be reached: a listing's row, the kinds it
+//! is narrowed to, and its page with its maker, what it does and what
+//! chiefs say of it. They are made up, so its page says so and
+//! nothing is had.
 
 use agents_ui::markdown;
 use hamlet_engine_bevy::ui::{
     AnyView, Tone, ViewExt, description, label,
 };
 
+use crate::listings::SELLERS_SHARE;
 use crate::samples::agents::{Craft, Hireling};
 use crate::samples::plugins::{Addition, Contraption, Kind};
-use crate::samples::{Price, SELLERS_SHARE, Seller, Standing};
+use crate::samples::{Price, Seller, Standing};
 use crate::view::parts::{
     Line, deal, fact, page_head, rows, section, sections, told, top,
 };
 use crate::view::shelf::{Shown, kinds};
+use crate::view::trade::samples_notice;
 use crate::view::words::{count, grouped};
 
 impl Shown for Hireling {
@@ -22,6 +25,10 @@ impl Shown for Hireling {
     const ABOUT: &'static str = "Agents other chiefs made, to hire.";
     const NOUN: &'static str = "agents";
     const FIND: &'static str = "Search agents";
+
+    fn notice() -> AnyView {
+        samples_notice()
+    }
 
     fn controls() -> Vec<AnyView> {
         vec![kinds::<Hireling, _>(
@@ -66,8 +73,9 @@ impl Shown for Hireling {
                 later(
                     self.price,
                     &self.maker,
-                    "Hiring comes with the marketplace. Nobody \
-                     moves in yet, and nothing is paid.",
+                    "A sample: nobody moves in, and nothing is \
+                     paid. Agents for hire come from the bazaar's \
+                     server.",
                 ),
             ]),
             section(
@@ -113,6 +121,10 @@ impl Shown for Contraption {
     const NOUN: &'static str = "plugins";
     const FIND: &'static str = "Search plugins";
 
+    fn notice() -> AnyView {
+        samples_notice()
+    }
+
     fn controls() -> Vec<AnyView> {
         vec![kinds::<Contraption, _>(
             "All kinds",
@@ -157,8 +169,8 @@ impl Shown for Contraption {
                 later(
                     self.price,
                     &self.publisher,
-                    "Installing comes with the marketplace. Hamlet \
-                     gains nothing yet, and nothing is paid.",
+                    "A sample: nothing is installed or paid. Tools \
+                     for your agents come from the bazaar's server.",
                 ),
             ]),
             section("ABOUT", markdown(self.description, Tone::Body)),

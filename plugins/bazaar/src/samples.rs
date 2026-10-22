@@ -1,6 +1,7 @@
-//! The listings of the stalls that have no market behind them yet:
-//! agents other chiefs made, plugins and whole hamlets. Made up, to
-//! show the stalls as they will be.
+//! The samples: agents other chiefs made, plugins and whole hamlets,
+//! made up, shown on their stalls where the bazaar's server cannot be
+//! reached, and said to be samples there. A sample hamlet can still
+//! be founded from its template, for nothing.
 
 pub(crate) mod agents;
 pub(crate) mod hamlets;
@@ -15,9 +16,6 @@ use crate::samples::agents::{HIRELINGS, Hireling};
 use crate::samples::hamlets::{FOR_SALE, Template};
 use crate::samples::plugins::{CONTRAPTIONS, Contraption};
 use crate::shelf::{self, Stock};
-
-/// The part of each sale that goes to its seller, in percent.
-pub(crate) const SELLERS_SHARE: u32 = 80;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_plugins((

@@ -3,7 +3,7 @@ name = "bazaar"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The Agent Bazaar: models from OpenRouter and the endpoints, skills from skills.sh, hamlets from templates, and agents and plugins to come"
+description = "The Agent Bazaar: models from OpenRouter and the endpoints, skills from skills.sh, and agents, tools and hamlets bought and sold at hamlet-server"
 publish = false
 
 [lib]

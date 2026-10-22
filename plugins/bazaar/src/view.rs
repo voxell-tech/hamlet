@@ -3,6 +3,7 @@
 //! its listings, with a page of its own for one of them, out of the
 //! [`parts`](crate::view::parts) Hamlet's own panels are made of.
 
+mod desk;
 mod diorama;
 mod hamlets;
 mod listings;
@@ -10,6 +11,8 @@ mod models;
 mod parts;
 mod shelf;
 mod skills;
+mod trade;
+mod wares;
 mod words;
 
 use hamlet_engine_bevy::prelude::*;
@@ -18,11 +21,14 @@ use hamlet_engine_bevy::ui::{
     ViewExt, column, icon_button, keyed, resource, row,
 };
 
+use crate::listings::{Agents, Hamlets, Tools};
+use crate::market::lot::Kind;
 use crate::models::Ware;
 use crate::samples::agents::Hireling;
 use crate::samples::hamlets::Template;
 use crate::samples::plugins::Contraption;
 use crate::skills::skills_sh::Scroll;
+pub(crate) use crate::view::desk::plugin;
 pub(crate) use crate::view::shelf::Shown;
 use crate::{BazaarWorldExt, Stall, StallShown};
 
@@ -88,13 +94,23 @@ fn tabs() -> AnyView {
     .boxed()
 }
 
+/// Opens the seller's desk at `stall`, to sell what it sells.
+pub(crate) fn sell(world: &mut World, stall: Stall) {
+    let kind = match stall {
+        Stall::Plugins => Kind::Plugin,
+        Stall::Hamlets => Kind::Hamlet,
+        _ => Kind::Agent,
+    };
+    desk::open_form(world, kind, None);
+}
+
 /// The shelf of `stall`.
 fn wares(stall: Stall) -> AnyView {
     match stall {
         Stall::Models => shelf::stall::<Ware>(),
-        Stall::Community => shelf::stall::<Hireling>(),
-        Stall::Plugins => shelf::stall::<Contraption>(),
+        Stall::Community => trade::stall::<Agents, Hireling>(),
+        Stall::Plugins => trade::stall::<Tools, Contraption>(),
         Stall::Skills => shelf::stall::<Scroll>(),
-        Stall::Hamlets => shelf::stall::<Template>(),
+        Stall::Hamlets => trade::stall::<Hamlets, Template>(),
     }
 }

@@ -1,11 +1,15 @@
 //! The Agent Bazaar: five stalls, each a tab of its panel, where the
 //! chief adds models from OpenRouter and the endpoints, takes skills
-//! from skills.sh, founds hamlets from templates, and looks at agents
-//! to hire and plugins to install, which come with the marketplace.
+//! from skills.sh, and buys and sells agents, tools and hamlets at
+//! the bazaar's server, hamlet-server; where that cannot be reached,
+//! those stalls show samples, and hamlets are founded from their
+//! templates.
 
 mod diorama;
 mod errand;
 mod hamlets;
+mod listings;
+mod market;
 mod models;
 mod samples;
 mod shelf;
@@ -20,6 +24,7 @@ use hamlet_engine_bevy::ui::open;
 use hamlet_engine_bevy::{decode, encode, warn};
 use serde::{Deserialize, Serialize};
 
+use crate::listings::{AgentWares, HamletWares, ToolWares};
 use crate::models::Ware;
 use crate::samples::agents::Hireling;
 use crate::samples::hamlets::Template;
@@ -60,6 +65,8 @@ impl Plugin for Bazaar {
             skills::plugin,
             samples::plugin,
             hamlets::plugin,
+            market::plugin,
+            view::plugin,
         ))
         .init_saved_resource::<StallShown>()
         .add_panel(PANEL, "Agent Bazaar", view::bazaar)
@@ -81,9 +88,24 @@ impl Plugin for Bazaar {
                 world.show(Stall::Models);
             },
         )
+        .add_command(
+            "sell",
+            "Sell at the Agent Bazaar",
+            |world: &mut World| {
+                let stall = match world.resource::<StallShown>().0 {
+                    stall @ (Stall::Community
+                    | Stall::Plugins
+                    | Stall::Hamlets) => stall,
+                    _ => Stall::Community,
+                };
+                world.show(stall);
+                view::sell(world, stall);
+            },
+        )
         .add_menu_entry("Hamlet", "open")
         .add_menu_entry("Hamlet", "models")
         .add_menu_entry("Hamlet", "hamlets")
+        .add_menu_entry("Hamlet", "sell")
         .add_subscription(STALL_CLICKED)
         .add_systems(
             Declare,
@@ -180,9 +202,21 @@ impl BazaarWorldExt for World {
                 }
                 reopen::<Scroll>(self);
             }
-            Stall::Community => reopen::<Hireling>(self),
-            Stall::Plugins => reopen::<Contraption>(self),
-            Stall::Hamlets => reopen::<Template>(self),
+            Stall::Community => {
+                market::stocked(self);
+                reopen::<Hireling>(self);
+                reopen::<AgentWares>(self);
+            }
+            Stall::Plugins => {
+                market::stocked(self);
+                reopen::<Contraption>(self);
+                reopen::<ToolWares>(self);
+            }
+            Stall::Hamlets => {
+                market::stocked(self);
+                reopen::<Template>(self);
+                reopen::<HamletWares>(self);
+            }
         }
     }
 
@@ -216,6 +250,7 @@ fn receive(
         models::heard(world, &told);
         skills::heard(world, &told);
         hamlets::heard(world, &told);
+        market::heard(world, &told);
     }
     let clicked = events
         .read(world.resource::<Messages<EventReceived>>())

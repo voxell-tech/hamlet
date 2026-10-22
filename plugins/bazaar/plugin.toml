@@ -14,9 +14,14 @@ target = "skills.sh"
 reason = "Lists the skills skills.sh offers, searches it, and fetches a skill's files to show it and add it to the library"
 
 [[asks]]
+capability = "net.fetch"
+target = "$HAMLET_BAZAAR_URL"
+reason = "Signs you in with GitHub at the bazaar's server, shows what chiefs sell there, and buys, downloads and sells agents, hamlets and tools"
+
+[[asks]]
 capability = "agents.read"
 target = "local"
-reason = "Knows your endpoints, the models you have, the library's skills and your hamlets, to show what is already yours"
+reason = "Knows your endpoints, the models you have, the library's skills, your hamlets and what you bought, to show what is already yours, and the tools you could sell"
 
 [[asks]]
 capability = "agents.settings"
@@ -26,12 +31,18 @@ reason = "Adds the models you choose, makes one the default when you say so, and
 [[asks]]
 capability = "agents.chief"
 target = "local"
-reason = "Puts a skill you take into the library, and founds a hamlet from a template you choose"
+reason = "Puts a skill you take into the library, founds a hamlet from a template you choose, writes what you buy into your realm, and packs what you sell"
 
 [[asks]]
 capability = "desktop.open"
 target = "https"
-reason = "Opens a skill's source, or a link in it, in your browser when you click it"
+reason = "Opens a skill's source or a link in it, GitHub's page to sign in, and Stripe's pages to pay and to be paid, in your browser"
+
+[assets]
+makes = [{ name = "bazaar.session", version = 1 }]
+
+[env]
+HAMLET_BAZAAR_URL = "http://localhost:8787"
 
 [[asks]]
 capability = "services.call"

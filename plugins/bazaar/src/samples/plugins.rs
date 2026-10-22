@@ -38,17 +38,26 @@ pub(crate) struct Contraption {
 pub(crate) enum Kind {
     Drawing,
     Planning,
+    Data,
+    Language,
     Maps,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 3] =
-        [Kind::Drawing, Kind::Planning, Kind::Maps];
+    pub const ALL: [Kind; 5] = [
+        Kind::Drawing,
+        Kind::Planning,
+        Kind::Data,
+        Kind::Language,
+        Kind::Maps,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
             Kind::Drawing => "Diagrams",
             Kind::Planning => "Productivity",
+            Kind::Data => "Data",
+            Kind::Language => "Language",
             Kind::Maps => "Integrations",
         }
     }

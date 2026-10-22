@@ -9,15 +9,17 @@ use hamlet_engine_bevy::ui::{
 };
 
 use crate::hamlets::{self, Founding, Most, full, owns};
+use crate::listings::SELLERS_SHARE;
 use crate::samples::Price;
 use crate::samples::hamlets::{Settler, Template};
 use crate::view::diorama;
-use crate::view::listings::{rating, seller_words, share};
+use crate::view::listings::{rating, seller_words};
 use crate::view::parts::{
     Line, deal, fact, mark, page_head, problem, rows, section,
     sections, told, top,
 };
 use crate::view::shelf::{Shown, said};
+use crate::view::trade::samples_notice;
 use crate::view::words::grouped;
 
 impl Shown for Template {
@@ -27,13 +29,7 @@ impl Shown for Template {
     const FIND: &'static str = "Search hamlets";
 
     fn notice() -> AnyView {
-        let full = derived(full)
-            .when(either(moved::<Rostered>(), moved::<Most>()));
-        keyed(full, |full| match full {
-            Some(why) => problem(why.clone()),
-            None => column(()).boxed(),
-        })
-        .boxed()
+        column((samples_notice(), full_notice())).boxed()
     }
 
     fn title(&self) -> String {
@@ -79,6 +75,17 @@ impl Shown for Template {
             section("COMES WITH", rows(team)),
         ])
     }
+}
+
+/// Why no more hamlets can be founded, when the realm is full.
+fn full_notice() -> AnyView {
+    let full = derived(full)
+        .when(either(moved::<Rostered>(), moved::<Most>()));
+    keyed(full, |full| match full {
+        Some(why) => problem(why.clone()),
+        None => column(()).boxed(),
+    })
+    .boxed()
 }
 
 /// The accent line of a hamlet in the realm.
@@ -149,9 +156,10 @@ fn founding(template: &Template) -> AnyView {
             if price != Price::Free {
                 notes.push(
                     description(format!(
-                        "Paying comes with the marketplace, where \
-                         {} Until then it is founded for nothing.",
-                        share(&seller)
+                        "A sample, founded for nothing. At the \
+                         bazaar's server {} would receive \
+                         {SELLERS_SHARE}% of each sale.",
+                        seller.name
                     ))
                     .boxed(),
                 );
