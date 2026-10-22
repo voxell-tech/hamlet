@@ -1,14 +1,14 @@
 //! The pages of the card, one for each step.
 
-use agents_ui::{name, narrowed, note};
+use agents_ui::{name, narrowed};
 use hamlet_engine_bevy::api::agents::{
     AgentsRequest, Provider, SignInTo,
 };
 use hamlet_engine_bevy::prelude::World;
 use hamlet_engine_bevy::ui::{
     AnyView, ButtonProps, ButtonStyle, Face, FrameProps, Size, Space,
-    Tone, UiExt, ViewExt, button, column, field, icon, icon_button,
-    keyed, label, resource, row,
+    Tone, UiExt, ViewExt, button, column, description, field, icon,
+    icon_button, keyed, label, resource, row,
 };
 
 use crate::{Step, Welcome, WelcomeWorldExt};
@@ -81,7 +81,7 @@ fn door(
     column((
         row((icon_button(which.to_string(), text.to_string())
             .on_click(open),)),
-        note(means),
+        description(means),
     ))
     .space(Space::Half)
     .boxed()
@@ -162,7 +162,7 @@ fn choice(adding: bool) -> AnyView {
             icon_button("clock", leave)
                 .style(ButtonStyle::Quiet)
                 .on_click(|world| world.ask(AgentsRequest::EndSetup)),
-            note(after),
+            description(after),
         )),
     ))
     .space(Space::Double)
@@ -234,7 +234,7 @@ fn key_form(chosen: usize, providers: &[Provider]) -> AnyView {
                 .on_commit(|world, text| {
                     world.resource_mut::<Welcome>().url = text;
                 }),
-                note(
+                description(
                     "The web address your provider gave you. It \
                      usually ends in /v1.",
                 ),
@@ -254,7 +254,7 @@ fn key_form(chosen: usize, providers: &[Provider]) -> AnyView {
             .on_commit(|world, text| {
                 world.resource_mut::<Welcome>().key = text;
             }),
-            note(help),
+            description(help),
         ))
         .space(Space::Half)
         .boxed(),
@@ -293,7 +293,7 @@ fn signing_in(to: SignInTo) -> AnyView {
         head("signal", "SIGN IN"),
         said(asked),
         news("Asking for its models..."),
-        note(
+        description(
             "Nothing opened? Go back and choose I Have a Key \
              instead.",
         ),

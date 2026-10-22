@@ -11,9 +11,9 @@ use hamlet_engine_bevy::api::agents::{
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::ui::{
     AnyView, ButtonProps, ButtonStyle, Face, FrameProps, Size, Space,
-    Tone, UiExt, ViewExt, column, derived, field, heading, icon,
-    icon_button, keyed, label, menu_item, pressable, resource, row,
-    scroll,
+    Tone, UiExt, ViewExt, column, derived, description, field,
+    heading, icon, icon_button, keyed, label, menu_item, pressable,
+    resource, row, scroll,
 };
 use serde::{Deserialize, Serialize};
 
@@ -206,8 +206,7 @@ pub(crate) fn overview() -> AnyView {
     column((
         row((
             heading(HAMLETS),
-            label("Click a hamlet to see who lives there.")
-                .tone(Tone::Dim),
+            description("Click a hamlet to see who lives there."),
         ))
         .space(Space::Gap),
         row((icon_button("plus", "FOUND A HAMLET")
@@ -217,15 +216,12 @@ pub(crate) fn overview() -> AnyView {
             .on_commit(|world, text| {
                 world.resource_mut::<Search>().0 = text
             }),
-        label("Search by a hamlet's name or its mayor's.")
-            .size(Size::Small)
-            .tone(Tone::Dim),
+        description("Search by a hamlet's name or its mayor's."),
         scroll((shown, gone)),
         row((
             icon_button("flame", "YOUR HEARTH")
                 .on_click(|world| select(world, Selected::Hearth)),
-            label("Where you live, and how you look.")
-                .tone(Tone::Dim),
+            description("Where you live, and how you look."),
         ))
         .space(Space::Gap),
     ))

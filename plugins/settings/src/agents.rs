@@ -6,10 +6,11 @@ use hamlet_engine_bevy::DesktopRequest;
 use hamlet_engine_bevy::api::agents::{AgentsRequest, Grant};
 use hamlet_engine_bevy::ui::{
     AnyView, ButtonStyle, FrameProps, Size, Space, UiExt, ViewExt,
-    button, column, field, keyed, label, resource, row, toggle,
+    button, column, description, field, keyed, label, resource, row,
+    toggle,
 };
 
-use crate::parts::{note, problem, setting};
+use crate::parts::{problem, setting};
 use crate::{Known, Page, SettingsWorldExt};
 
 /// The most turns between two reflections.
@@ -53,7 +54,7 @@ pub(crate) fn page() -> AnyView {
                 );
             },
         ),
-        note(resource::<Known, _>(|known| {
+        description(resource::<Known, _>(|known| {
             if allows_net(known) {
                 "Agents' commands can reach the internet.".to_string()
             } else {
@@ -75,7 +76,7 @@ pub(crate) fn page() -> AnyView {
                 DesktopRequest::SetKeepAwake(on),
             );
         }),
-        note("The computer stays awake while an agent works."),
+        description("The computer stays awake while an agent works."),
     ))
     .space(Space::Half)
     .boxed();
@@ -108,7 +109,7 @@ fn allows_net(known: &Known) -> bool {
 /// The permissions agents were given for good, each to take back.
 fn permissions(grants: &[Grant]) -> AnyView {
     if grants.is_empty() {
-        return note(
+        return description(
             "None yet. Choosing Always Allow on a petition adds one.",
         )
         .boxed();

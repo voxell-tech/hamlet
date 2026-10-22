@@ -23,8 +23,8 @@ use hamlet_engine_plugins::{
 };
 use hamlet_engine_shell::icons::Glyph;
 use hamlet_engine_shell::style::{
-    ButtonStyle, Wraps, action, buttons, choices, icon_button, list,
-    note, section,
+    ButtonStyle, Wraps, action, buttons, choices, description,
+    icon_button, list, note, section,
 };
 use hamlet_engine_shell::{AnyView, Cx, SettingsPage};
 
@@ -125,7 +125,7 @@ impl Said {
     /// reason.
     fn view(&self) -> AnyView {
         if self.asks.is_empty() {
-            return note(format!(
+            return description(format!(
                 "{}. It asks for nothing.",
                 self.state
             ));
@@ -135,7 +135,7 @@ impl Said {
             .iter()
             .map(|(what, reason, answer)| {
                 let (what, answer) = (what.clone(), *answer);
-                let reason = note(reason.clone());
+                let reason = description(reason.clone());
                 AnyView::new(move |cx: &mut Cx| {
                     let gap = cx.theme().space.gap;
                     cx.build(
@@ -155,7 +155,7 @@ impl Said {
                 })
             })
             .collect::<Vec<_>>();
-        let state = note(format!("{}.", self.state));
+        let state = description(format!("{}.", self.state));
         AnyView::new(move |cx: &mut Cx| {
             let gap = cx.theme().space.gap / 2.0;
             cx.build(column((state, list(asks))).gap(gap))
@@ -259,7 +259,7 @@ fn group(
     said: Option<&str>,
     answers: Vec<AnyView>,
 ) -> AnyView {
-    let said = said.map_or_else(|| frame().boxed(), note);
+    let said = said.map_or_else(|| frame().boxed(), description);
     AnyView::new(move |cx: &mut Cx| {
         let gap = cx.theme().space.gap / 2.0;
         cx.build(

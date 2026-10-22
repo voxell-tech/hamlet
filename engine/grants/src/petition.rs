@@ -43,8 +43,8 @@ use hamlet_engine_plugins::{
 use hamlet_engine_shell::dock::PanelIcon;
 use hamlet_engine_shell::icons::Glyph;
 use hamlet_engine_shell::style::{
-    ButtonStyle, buttons, caption, card, choices, heading,
-    icon_button, note, scroll_area, section,
+    ButtonStyle, buttons, caption, card, choices, description,
+    heading, icon_button, scroll_area, section,
 };
 use hamlet_engine_shell::{
     AnyView, Cx, DockTreeExt, Panel, PanelSection, SettingsPage,
@@ -560,7 +560,7 @@ fn view(_: Entity) -> AnyView {
         resource::<Waiting, _>(|waiting| waiting.0 == 0),
         |&none| {
             if none {
-                note(EMPTY)
+                description(EMPTY)
             } else {
                 column(()).boxed()
             }
@@ -731,7 +731,9 @@ fn ask_view(ask: &Ask, answers: AnyView) -> AnyView {
     );
     AnyView::new(move |cx: &mut Cx| {
         let gap = cx.theme().space.gap / 2.0;
-        cx.build(column((label(what), note(why), answers)).gap(gap))
+        cx.build(
+            column((label(what), description(why), answers)).gap(gap),
+        )
     })
 }
 

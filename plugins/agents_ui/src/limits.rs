@@ -6,10 +6,11 @@
 use hamlet_engine_bevy::prelude::{Resource, World};
 use hamlet_engine_bevy::ui::{
     AnyView, Face, FrameProps, Label, Prop, Size, Space, Tone, UiExt,
-    ViewExt, column, field, icon, label, resource, row,
+    ViewExt, column, description, field, icon, label, resource, row,
 };
 
-/// Small words that stand back.
+/// Small words that stand back, too short to be a description: a
+/// value, or a word between controls.
 pub fn note(text: impl Into<Prop<World, String>>) -> Label {
     label(text).size(Size::Small).tone(Tone::Dim)
 }
@@ -38,7 +39,7 @@ pub fn setting(
 ) -> AnyView {
     let mut parts = vec![name(text).boxed(), control];
     if let Some(help) = help {
-        parts.push(note(help.to_string()).boxed());
+        parts.push(description(help.to_string()).boxed());
     }
     column(parts).space(Space::Half).boxed()
 }

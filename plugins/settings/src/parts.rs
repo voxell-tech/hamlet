@@ -5,7 +5,7 @@ pub(crate) use agents_ui::{name, note, part, setting};
 use hamlet_engine_bevy::api::agents::AgentsRequest;
 use hamlet_engine_bevy::ui::{
     AnyView, FrameProps, Size, Space, Tone, UiExt, ViewExt, column,
-    icon_button, keyed, label, resource, row,
+    description, icon_button, keyed, label, resource, row,
 };
 
 use crate::{Known, Page, SettingsWorldExt};
@@ -32,7 +32,7 @@ pub(crate) fn problem(page: Page) -> AnyView {
 /// pages.
 pub(crate) fn again() -> AnyView {
     column((
-        note("Choose again where your model comes from."),
+        description("Choose again where your model comes from."),
         row((icon_button("restore", "SET UP AGAIN").on_click(
             |world| {
                 world.ask(

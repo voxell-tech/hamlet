@@ -5,11 +5,11 @@ use agents_ui::markdown;
 use hamlet_engine_bevy::api::agents::AgentsRequest;
 use hamlet_engine_bevy::ui::{
     AnyView, ButtonStyle, Face, FrameProps, Space, Tone, UiExt,
-    ViewExt, button, column, divider, icon_button, keyed, label,
-    resource, row,
+    ViewExt, button, column, description, divider, icon_button,
+    keyed, label, resource, row,
 };
 
-use crate::parts::{note, problem};
+use crate::parts::problem;
 use crate::{Known, Page, SettingsWorldExt};
 
 pub(crate) fn page() -> AnyView {
@@ -61,7 +61,9 @@ pub(crate) fn page() -> AnyView {
         |text| markdown(text, Tone::Body),
     );
     column((
-        note("Every agent reads this at the start of each turn."),
+        description(
+            "Every agent reads this at the start of each turn.",
+        ),
         actions,
         problem(Page::Charter),
         divider(),
@@ -76,7 +78,7 @@ fn confirm() -> AnyView {
         label("GO BACK TO THE DEFAULT CHARTER?")
             .bold(true)
             .face(Face::Display),
-        note(
+        description(
             "Your own charter is deleted from disk. This cannot be \
              undone.",
         ),

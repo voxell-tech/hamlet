@@ -4,7 +4,7 @@
 use hamlet_engine_bevy::api::agents::RealmLimits;
 use hamlet_engine_bevy::ui::{
     AnyView, FrameProps, Size, Space, Tone, UiExt, ViewExt, column,
-    field, keyed, label, resource, row, switch,
+    description, field, keyed, label, resource, row, switch,
 };
 
 use crate::parts::{note, part, problem, setting};
@@ -36,7 +36,7 @@ pub(crate) fn page() -> AnyView {
     ));
     let votes = column((
         part("ballot", "VOTES"),
-        note(
+        description(
             "Agents may vote to replace their mayor or found a \
              hamlet. You can overturn any vote.",
         ),
@@ -92,7 +92,7 @@ pub(crate) fn page() -> AnyView {
         },
     );
     column((
-        note("These apply to every hamlet."),
+        description("These apply to every hamlet."),
         unreadable,
         problem(Page::Realm),
         hamlets.space(Space::Gap),

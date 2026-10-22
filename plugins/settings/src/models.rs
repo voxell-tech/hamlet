@@ -7,10 +7,11 @@ use hamlet_engine_bevy::api::agents::{
 };
 use hamlet_engine_bevy::ui::{
     AnyView, FrameProps, Size, Space, Tone, UiExt, ViewExt, button,
-    column, dropdown, field, keyed, label, resource, row, switch,
+    column, description, dropdown, field, keyed, label, resource,
+    row, switch,
 };
 
-use crate::parts::{name, note, problem};
+use crate::parts::{name, problem};
 use crate::{Known, Page, SHOWN, SettingsWorldExt};
 
 pub(crate) fn page() -> AnyView {
@@ -18,13 +19,13 @@ pub(crate) fn page() -> AnyView {
         column((
             name("DEFAULT MODEL"),
             default_model(),
-            note(
+            description(
                 "Used wherever nobody chose a model. It is always \
                  allowed.",
             ),
         ))
         .space(Space::Half),
-        note(
+        description(
             "Tick a model to allow it. Prices are dollars per \
              million tokens in and out, used when the endpoint does \
              not bill a call.",
@@ -40,7 +41,7 @@ pub(crate) fn page() -> AnyView {
                     world.resource_mut::<Known>().narrow = text;
                 }),
         )),
-        note(resource::<Known, _>(|known| {
+        description(resource::<Known, _>(|known| {
             known
                 .settings
                 .as_ref()
@@ -124,7 +125,7 @@ fn said(listing: &Listing) -> String {
 /// The models listed, and how many more there are.
 fn shelf(models: &[CatalogueModel], more: usize) -> AnyView {
     if models.is_empty() && more == 0 {
-        return note(
+        return description(
             "No models yet. Choose List Models to ask the endpoints.",
         )
         .boxed();
@@ -132,7 +133,7 @@ fn shelf(models: &[CatalogueModel], more: usize) -> AnyView {
     let mut rows = models.iter().map(entry).collect::<Vec<_>>();
     if more > 0 {
         rows.push(
-            note(format!(
+            description(format!(
                 "{more} more. Type part of a name to narrow them."
             ))
             .boxed(),

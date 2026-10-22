@@ -37,9 +37,9 @@ use hamlet_engine_shell::fonts::DisplayText;
 use hamlet_engine_shell::icons::{Glyph, glyph, side};
 use hamlet_engine_shell::style::{
     BottomGradient, ButtonStyle, Wraps, action, breadcrumb, card,
-    choices, divider, field, heading, icon_button, labelled_switch,
-    link_row, link_rows, list, note, page_head, section, switch,
-    title_button,
+    choices, description, divider, field, heading, icon_button,
+    labelled_switch, link_row, link_rows, list, note, page_head,
+    section, switch, title_button,
 };
 use hamlet_engine_shell::{
     AnyView, Cx, DockTreeExt, EngineTheme, StyleExt,
@@ -473,7 +473,7 @@ fn the_rest() -> AnyView {
             label("A CARD").size(11.0).tone(Tone::Dim),
             card((
                 section("ORCHARD"),
-                note("Prune, graft and keep the press."),
+                description("Prune, graft and keep the press."),
             )),
             label("LINK ROWS").size(11.0).tone(Tone::Dim),
             link_rows(vec![
@@ -517,6 +517,7 @@ fn the_rest() -> AnyView {
             label("WORDS").size(11.0).tone(Tone::Dim),
             heading("A heading"),
             note("A note"),
+            description("A description, which wraps."),
             divider(),
         ))
         .gap(8.0)

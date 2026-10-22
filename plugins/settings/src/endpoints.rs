@@ -4,8 +4,8 @@
 use hamlet_engine_bevy::api::agents::{AgentsRequest, Endpoint};
 use hamlet_engine_bevy::ui::{
     AnyView, ButtonProps, ButtonStyle, FrameProps, Space, UiExt,
-    ViewExt, button, column, icon_button, keyed, label, resource,
-    row,
+    ViewExt, button, column, description, icon_button, keyed, label,
+    resource, row,
 };
 
 use crate::parts::{note, problem};
@@ -26,7 +26,7 @@ pub(crate) fn page() -> AnyView {
         },
     );
     column((
-        note(
+        description(
             "Any server that speaks the OpenAI chat protocol works. \
              A model is named `endpoint::model`.",
         ),

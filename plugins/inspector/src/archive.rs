@@ -12,8 +12,9 @@ use hamlet_engine_bevy::api::agents::{
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::ui::{
     AnyView, ButtonProps, ButtonStyle, Cx, FrameProps, Size, Space,
-    Tone, UiExt, ViewExt, button, column, divider, field,
-    icon_button, keyed, label, menu_item, resource, row, scroll,
+    Tone, UiExt, ViewExt, button, column, description, divider,
+    field, icon_button, keyed, label, menu_item, resource, row,
+    scroll,
 };
 
 /// Characters of a title a row shows.
@@ -386,7 +387,7 @@ fn reader(reading: &Reading, speaker: String) -> AnyView {
         .tip(clip(&past.title, TITLE_SHOWN)),
         label(detail(past)).size(Size::Small).tone(Tone::Dim),
         actions(past),
-        label(hint).size(Size::Small).tone(Tone::Dim),
+        description(hint),
         divider(),
         scroll((column(shown).space(Space::Gap),)),
     ))

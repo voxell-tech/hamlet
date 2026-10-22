@@ -4,8 +4,8 @@ use agents_ui::AgentsWorldExt;
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::ui::{
     AnyView, ButtonStyle, Face, FrameProps, Size, Space, Tone, UiExt,
-    ViewExt, button, column, field, label, resource, row,
-    show_overlay,
+    ViewExt, button, column, description, field, label, resource,
+    row, show_overlay,
 };
 use serde::{Deserialize, Serialize};
 
@@ -75,12 +75,10 @@ fn asks(
 pub(crate) fn founding() -> AnyView {
     column((
         label("FOUND A HAMLET").bold(true).face(Face::Display),
-        label(
+        description(
             "It is built on the next free ground and gets its own \
              mayor.",
-        )
-        .size(Size::Small)
-        .tone(Tone::Dim),
+        ),
         asks("Its name", |f| &f.name, |f, text| f.name = text),
         asks(
             "Its mayor's name",
@@ -92,16 +90,14 @@ pub(crate) fn founding() -> AnyView {
             |f| &f.purpose,
             |f, text| f.purpose = text,
         ),
-        label(resource::<Founding, _>(|founding| {
-            match founding.command() {
+        description(resource::<Founding, _>(
+            |founding| match founding.command() {
                 Some(_) => "Names are kept as lowercase letters and \
                             hyphens."
                     .to_string(),
                 None => "All three are needed.".to_string(),
-            }
-        }))
-        .size(Size::Small)
-        .tone(Tone::Dim),
+            },
+        )),
         row((
             button("FOUND").style(ButtonStyle::Primary).on_click(
                 |world| {

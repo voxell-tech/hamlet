@@ -1,7 +1,8 @@
 //! The styles of the shell's widgets, built from the theme: buttons
 //! of each kind, tabs, fields, switches, choices, headings, notes,
-//! cards, lists, link rows, breadcrumbs, dividers, scroll areas and a
-//! panel's content, and how a control glows and gives under the hand.
+//! descriptions, cards, lists, link rows, breadcrumbs, dividers,
+//! scroll areas and a panel's content, and how a control glows and
+//! gives under the hand.
 
 use std::fmt::Debug;
 
@@ -735,13 +736,32 @@ pub fn section(text: impl Into<Prop<String>>) -> AnyView {
     })
 }
 
-/// Small words that stand back.
+/// Small words that stand back, too short to be a description: a
+/// value, or what an empty list says.
 pub fn note(text: impl Into<Prop<String>>) -> AnyView {
     let text = text.into();
     AnyView::new(move |cx: &mut Cx| {
         let size = cx.theme().text.small;
         cx.build(label(text).size(size).tone(Tone::Dim))
     })
+}
+
+/// The rules of a long description, for [`ScopedExt::rules`]: every
+/// label in the view small, not bold, in the dim tone, and wrapping.
+pub fn description_rules(cx: &mut Cx) {
+    style::<EngineTheme>()
+        .label(|l, t| {
+            l.size(t.text.small)
+                .bold(false)
+                .tone(Tone::Dim)
+                .wrap(true)
+        })
+        .apply(cx);
+}
+
+/// `text` as a long description, in [`description_rules`].
+pub fn description(text: impl Into<Prop<String>>) -> AnyView {
+    label(text).rules(description_rules).boxed()
 }
 
 /// `content` in a card: a shade above the panel, in a frame.
@@ -888,8 +908,8 @@ pub fn buttons(buttons: Vec<AnyView>) -> AnyView {
 }
 
 /// The way into a part of something, as a row of a list: its `title`
-/// under `which`, what it `holds` if anything, and a mark that it
-/// opens.
+/// under `which`, a description of what it `holds` if any, and a
+/// mark that it opens.
 pub fn link_row(
     which: Glyph,
     title: impl Into<Prop<String>>,
@@ -898,12 +918,8 @@ pub fn link_row(
     let title = title.into();
     AnyView::new(move |cx: &mut Cx| {
         let theme = cx.theme();
-        let (gap, icon, small, section) = (
-            theme.space.gap,
-            theme.space.icon,
-            theme.text.small,
-            theme.space.section,
-        );
+        let (gap, icon, section) =
+            (theme.space.gap, theme.space.icon, theme.space.section);
         let mut lines = vec![
             label(title)
                 .bold(true)
@@ -912,13 +928,7 @@ pub fn link_row(
                 .with_icon(which),
         ];
         if let Some(holds) = holds {
-            lines.push(
-                label(holds)
-                    .size(small)
-                    .bold(false)
-                    .tone(Tone::Dim)
-                    .boxed(),
-            );
+            lines.push(description(holds));
         }
         cx.build(
             row((

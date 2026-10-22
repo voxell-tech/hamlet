@@ -12,8 +12,8 @@ use hamlet_engine_bevy::api::agents::{
 use hamlet_engine_bevy::bevy_ecs::message::MessageCursor;
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::ui::{
-    AnyView, Face, FrameProps, Size, Space, Tone, ViewExt, column,
-    keyed, label, list, resource, scroll,
+    AnyView, Face, FrameProps, Space, Tone, ViewExt, column,
+    description, keyed, label, list, resource, scroll,
 };
 
 #[derive(Default)]
@@ -73,9 +73,7 @@ fn own() -> AnyView {
                     .map(|skill| {
                         column((
                             label(skill.name.clone()).bold(true),
-                            label(skill.description.clone())
-                                .size(Size::Small)
-                                .tone(Tone::Dim),
+                            description(skill.description.clone()),
                         ))
                         .space(Space::None)
                         .boxed()

@@ -8,8 +8,8 @@ use hamlet_engine_bevy::AgentsRequest;
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::ui::{
     AnyView, ButtonStyle, Face, FrameProps, Space, Tone, UiExt,
-    ViewExt, button, column, keyed, label, resource, row,
-    show_overlay,
+    ViewExt, button, column, description, keyed, label, resource,
+    row, show_overlay,
 };
 
 use crate::client::AgentsWorldExt;
@@ -51,7 +51,7 @@ pub fn confirmation() -> AnyView {
                     .bold(true)
                     .face(Face::Display)
                     .boxed(),
-                label(asked.outcome.clone()).tone(Tone::Dim).boxed(),
+                description(asked.outcome.clone()).boxed(),
             ];
             if !asked.working.is_empty() {
                 let names = asked.working.join(" and ");

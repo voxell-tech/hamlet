@@ -12,8 +12,8 @@ use hamlet_engine_bevy::bevy_ecs::message::MessageCursor;
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::ui::{
     AnyView, ButtonProps, ButtonStyle, Face, Fill, FrameProps, Size,
-    Space, Tone, UiExt, ViewExt, column, each, field, icon_button,
-    label, resource, row, set_section,
+    Space, Tone, UiExt, ViewExt, column, description, each, field,
+    icon_button, label, resource, row, set_section,
 };
 use serde::{Deserialize, Serialize};
 
@@ -132,10 +132,7 @@ fn strip(need: &Need) -> AnyView {
                     None,
                 ),
                 // The exact text, which the line may cut.
-                None => label(need.about.clone())
-                    .size(Size::Small)
-                    .tone(Tone::Dim)
-                    .boxed(),
+                None => description(need.about.clone()).boxed(),
             });
             let answers = need
                 .answers

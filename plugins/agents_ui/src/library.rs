@@ -5,9 +5,9 @@ use hamlet_engine_bevy::AgentsRequest;
 use hamlet_engine_bevy::api::agents::Skill;
 use hamlet_engine_bevy::prelude::World;
 use hamlet_engine_bevy::ui::{
-    AnyView, ButtonStyle, FrameProps, Size, Space, Tone, UiExt,
-    ViewExt, button, column, icon_button, keyed, label, list,
-    resource, row,
+    AnyView, ButtonStyle, FrameProps, Space, UiExt, ViewExt, button,
+    column, description, icon_button, keyed, label, list, resource,
+    row,
 };
 
 use crate::client::{AgentsWorldExt, Focused, Shelves, show_chat};
@@ -44,9 +44,7 @@ fn card(skill: &Skill) -> AnyView {
     row((
         column((
             label(skill.name.clone()).bold(true),
-            label(skill.description.clone())
-                .size(Size::Small)
-                .tone(Tone::Dim),
+            description(skill.description.clone()),
         ))
         .space(Space::None),
         button("TAKE OUT")
@@ -65,7 +63,7 @@ pub fn library_list() -> AnyView {
         |skills| {
             if skills.is_empty() {
                 return column((
-                    label(EMPTY).tone(Tone::Dim),
+                    description(EMPTY),
                     row((icon_button("speech", "OPEN CHAT")
                         .on_click(|_| show_chat()),)),
                 ))

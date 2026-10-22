@@ -11,8 +11,9 @@ use hamlet_engine_bevy::prelude::World;
 use hamlet_engine_bevy::ui::{
     Align, AnyView, Button, ButtonProps, ButtonStyle, Cx, Face, Fill,
     FrameProps, Hovered, ScopedExt, ScrollProps, Size, Space,
-    StateExt, Tone, UiExt, ViewExt, button, column, divider, each,
-    icon, keyed, label, pressable, resource, row, scroll,
+    StateExt, Tone, UiExt, ViewExt, button, column, description,
+    divider, each, icon, keyed, label, pressable, resource, row,
+    scroll,
 };
 
 use crate::bar::reply_to;
@@ -375,10 +376,7 @@ fn line_view(
             session, message, ..
         } => said(line, session, message, to),
         Row::Fold(fold) => fold_view(fold, owner, to),
-        Row::Notice(text) => label(text.clone())
-            .size(Size::Small)
-            .tone(Tone::Dim)
-            .boxed(),
+        Row::Notice(text) => description(text.clone()).boxed(),
     }
 }
 
@@ -436,13 +434,11 @@ fn earlier() -> AnyView {
     keyed(
         resource::<Lines, _>(|lines| (lines.empty, lines.earlier)),
         |(empty, earlier)| match (*empty, *earlier) {
-            (true, _) => label(EMPTY).tone(Tone::Dim).boxed(),
+            (true, _) => description(EMPTY).boxed(),
             (false, 0) => column(()).boxed(),
-            (false, n) => label(format!(
+            (false, n) => description(format!(
                 "{n} earlier lines. Scroll up to read them."
             ))
-            .size(Size::Small)
-            .tone(Tone::Dim)
             .boxed(),
         },
     )

@@ -13,12 +13,13 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row,
 };
-use bevy_fynix::{ModifierExt, ViewExt, keyed, resource};
+use bevy_fynix::{ModifierExt, ScopedExt, ViewExt, keyed, resource};
 use hamlet_engine_api::{CommandId, PluginId};
 use hamlet_engine_shell::icons::Glyph;
 use hamlet_engine_shell::style::{
-    ButtonStyle, Wraps, action, breadcrumb, buttons, heading,
-    icon_button, list, note, scroll_area, section,
+    ButtonStyle, Wraps, action, breadcrumb, buttons, description,
+    description_rules, heading, icon_button, list, note, scroll_area,
+    section,
 };
 use hamlet_engine_shell::{
     AnyView, Command, Cx, MenuEntry, Overlay, Panel, PanelSection,
@@ -296,9 +297,9 @@ fn body(page: &Page) -> AnyView {
     })
 }
 
-/// The name of `plugin`, of the id `id` and the kind `kind`, over its
-/// id and version, where it comes from and its state, with its switch
-/// beside them. It follows the plugin in place.
+/// The name of `plugin`, of the id `id` and the kind `kind`, over
+/// what it is about, where it comes from and its state, with its
+/// switch beside them. It follows the plugin in place.
 fn head(plugin: Entity, id: PluginId, kind: PluginKind) -> AnyView {
     let switch = plugin_switch(plugin, id);
     let from = match kind {
@@ -317,22 +318,20 @@ fn head(plugin: Entity, id: PluginId, kind: PluginKind) -> AnyView {
         let theme = cx.theme();
         let (gap, size, section) =
             (theme.space.gap, theme.text.small, theme.space.section);
+        let about =
+            description(bound(plugin, |row| row.about.clone()));
         let facts = row((
-            label(bound(plugin, |row| row.about.clone()))
-                .size(size)
-                .tone(Tone::Dim)
-                .wrap(false),
             label(from).size(size).tone(from_tone).wrap(false),
             label(bound(plugin, |row| row.state().0))
-                .size(size)
-                .tone(bound(plugin, |row| row.state().1)),
+                .tone(bound(plugin, |row| row.state().1))
+                .rules(description_rules),
         ))
         .gap(gap)
         .tagged(Wraps);
         let name = heading(bound(plugin, |row| row.name.clone()));
         cx.build(
             row((
-                column((name, facts))
+                column((name, about, facts))
                     .gap(gap / 2.0)
                     .grow(1.0)
                     .min_width(px(0.0)),
@@ -401,12 +400,14 @@ fn needed_by(row_of: &Row) -> AnyView {
 /// `name` with `state` at its end in `tone`.
 fn fact_row(name: String, state: String, tone: Tone) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
-        let theme = cx.theme();
-        let (gap, size) = (theme.space.gap, theme.text.small);
+        let gap = cx.theme().space.gap;
         cx.build(
             row((
                 label(name).grown(1.0),
-                label(state).size(size).tone(tone).wrap(false),
+                label(state)
+                    .tone(tone)
+                    .wrap(false)
+                    .rules(description_rules),
             ))
             .gap(gap)
             .align(AlignItems::Center),
@@ -487,7 +488,7 @@ pub(super) fn confirmation(
             .on_activate(|world| world.confirm_switch(None))
             .boxed(),
     );
-    let (said, sure) = (note(said), buttons(sure));
+    let (said, sure) = (description(said), buttons(sure));
     AnyView::new(move |cx: &mut Cx| {
         let gap = cx.theme().space.gap;
         cx.build(column((said, sure)).gap(gap))
@@ -539,7 +540,7 @@ fn uninstall(row_of: &Row, asked: bool) -> AnyView {
             and_list(&row_of.stops)
         ));
     }
-    let said = note(said);
+    let said = description(said);
     let sure = buttons(vec![
         icon_button(ButtonStyle::Critical, Glyph::Bin, "UNINSTALL")
             .on_activate(move |world| {

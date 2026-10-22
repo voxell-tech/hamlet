@@ -88,7 +88,9 @@ pub mod prelude {
         SceneOver, ScenePointer, ScenePress, SceneResize, SceneWheel,
         Shadows,
     };
-    pub use crate::ui::{AnyView, ViewExt};
+    pub use crate::ui::{
+        AnyView, ScopedExt, ViewExt, description, description_rules,
+    };
     pub use crate::{
         AgentsEventReceived, AssetChanged, AssetGone, Declare,
         DesktopEventReceived, EventReceived, HamletAppExt, HostExt,

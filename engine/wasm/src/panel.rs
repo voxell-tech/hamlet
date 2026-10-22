@@ -24,7 +24,7 @@ use hamlet_engine_core::{Budgets, LogLine, PluginBudgets};
 use hamlet_engine_plugins::{
     Asked, ContributedBy, Contributions, PluginInfo, Stopped,
 };
-use hamlet_engine_shell::style::{caption, note};
+use hamlet_engine_shell::style::{caption, description};
 use hamlet_engine_shell::{
     AnyView, Cx, EngineTheme, Overlay, Panel, PanelSection,
     SettingsFooter, SettingsPage,
@@ -92,7 +92,7 @@ pub(crate) fn stopped(why: String) -> AnyView {
             column((
                 caption("STOPPED", Tone::Critical),
                 label("The plugin was stopped."),
-                note(why),
+                description(why),
             ))
             .gap(gap),
         )

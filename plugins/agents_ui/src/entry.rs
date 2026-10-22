@@ -8,7 +8,7 @@ use hamlet_engine_bevy::api::agents::{
 };
 use hamlet_engine_bevy::ui::{
     AnyView, ButtonStyle, Face, FrameProps, Size, Space, Tone, UiExt,
-    ViewExt, button, column, label, row,
+    ViewExt, button, column, description, label, row,
 };
 
 use crate::change::{change_view, state};
@@ -109,10 +109,7 @@ pub fn entry_view(
         ))
         .space(Space::None)
         .boxed(),
-        Entry::Notice(text) => label(text.clone())
-            .size(Size::Small)
-            .tone(Tone::Dim)
-            .boxed(),
+        Entry::Notice(text) => description(text.clone()).boxed(),
         Entry::Answered(text) => column((
             head("Your answer".into(), Tone::Faint),
             label(text.clone()),

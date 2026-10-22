@@ -8,8 +8,8 @@ use hamlet_engine_bevy::AgentsRequest;
 use hamlet_engine_bevy::api::agents::{Choice, Need, Pick};
 use hamlet_engine_bevy::ui::{
     AnyView, ButtonProps, ButtonStyle, FrameProps, Size, Space, Tone,
-    UiExt, ViewExt, button, column, field, icon, label, pressable,
-    row,
+    UiExt, ViewExt, button, column, description, field, icon, label,
+    pressable, row,
 };
 
 use crate::client::AgentsWorldExt;
@@ -41,9 +41,7 @@ pub fn card(need: &Need) -> AnyView {
     }
     parts.push(row(top).space(Space::Gap).boxed());
     if !one.description.is_empty() {
-        parts.push(
-            label(one.description.clone()).tone(Tone::Dim).boxed(),
-        );
+        parts.push(description(one.description.clone()).boxed());
     }
     let options = one
         .options
@@ -63,10 +61,7 @@ pub fn card(need: &Need) -> AnyView {
                     .tone(tone)
                     .boxed(),
                 label(offer.title.clone()).boxed(),
-                label(offer.description.clone())
-                    .size(Size::Small)
-                    .tone(Tone::Dim)
-                    .boxed(),
+                description(offer.description.clone()).boxed(),
             ];
             if chosen {
                 line.push(icon("check").tone(Tone::Accent).boxed());

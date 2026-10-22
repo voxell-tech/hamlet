@@ -13,8 +13,8 @@ use hamlet_engine_bevy::api::agents::{
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::ui::{
     AnyView, ButtonProps, ButtonStyle, FrameProps, Size, Space, Tone,
-    UiExt, ViewExt, button, column, derived, divider, dropdown, icon,
-    icon_button, keyed, label, resource, row, scroll,
+    UiExt, ViewExt, button, column, derived, description, divider,
+    dropdown, icon, icon_button, keyed, label, resource, row, scroll,
 };
 
 use crate::{HAMLETS, PURPOSE, agent_named, archive, more, select};
@@ -334,7 +334,7 @@ fn header(head: &Head) -> AnyView {
     } else {
         head.purpose.clone()
     };
-    parts.push(label(purpose).tone(Tone::Dim).tip(whole).boxed());
+    parts.push(description(purpose).tip(whole).boxed());
     parts.push(
         label(format!("{}  This chat: {}", head.model, head.usage))
             .size(Size::Small)
@@ -390,11 +390,10 @@ fn character() -> AnyView {
             }),
             |character| {
                 if character.is_empty() {
-                    label(
+                    description(
                         "Write here how this agent behaves and \
                          speaks.",
                     )
-                    .tone(Tone::Dim)
                     .boxed()
                 } else {
                     markdown(character, Tone::Body)
@@ -408,9 +407,9 @@ fn character() -> AnyView {
 
 fn prompt() -> AnyView {
     column((
-        label("What this agent is told at the start of a turn.")
-            .size(Size::Small)
-            .tone(Tone::Dim),
+        description(
+            "What this agent is told at the start of a turn.",
+        ),
         divider(),
         scroll((label(resource::<Briefing, _>(|briefing| {
             briefing.0.clone()

@@ -10,8 +10,8 @@ use hamlet_engine_bevy::api::agents::{
 use hamlet_engine_bevy::prelude::World;
 use hamlet_engine_bevy::ui::{
     AnyView, ButtonProps, ButtonStyle, FrameProps, Space, Tone,
-    UiExt, ViewExt, column, derived, icon, icon_button, keyed, label,
-    row, scroll,
+    UiExt, ViewExt, column, derived, description, icon, icon_button,
+    keyed, label, row, scroll,
 };
 
 use crate::{HAMLETS, PURPOSE, agent_named, select};
@@ -44,14 +44,12 @@ fn page((agent, of): &(RosterAgent, Option<String>)) -> AnyView {
             label(fate).tone(Tone::Critical),
         ))
         .space(Space::Gap),
-        label(short(&agent.purpose, PURPOSE))
-            .tone(Tone::Dim)
+        description(short(&agent.purpose, PURPOSE))
             .tip(agent.purpose.clone()),
-        label(
+        description(
             "Its house is kept in the archive. Deleting it frees \
              the space on disk.",
-        )
-        .tone(Tone::Dim),
+        ),
         row((
             icon_button("restore", "RESTORE")
                 .style(ButtonStyle::Primary)
@@ -121,11 +119,10 @@ pub(crate) fn library() -> AnyView {
             "THE LIBRARY",
             |world, _| select(world, Selected::Nothing),
         ),
-        label(
+        description(
             "Every agent shares these skills. An agent offers one \
              and the librarian decides whether to keep it.",
-        )
-        .tone(Tone::Dim),
+        ),
         scroll((library_list(),)),
     ))
     .space(Space::Gap)

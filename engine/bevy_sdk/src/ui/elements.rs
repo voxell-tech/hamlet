@@ -4,14 +4,16 @@
 use core::any::TypeId;
 
 use bevy_ecs::world::World;
-use fynix::{Cx, Patch, Prop, Styled, View, ViewSeq, element};
+use fynix::{
+    Cx, Patch, Prop, Rules, ScopedExt, Styled, View, ViewSeq, element,
+};
 
 use crate::bindings::hamlet::engine::ui::{
     Align, ButtonStyle, Direction, Face, Fill, Kind, Menu,
     MenuItem as Item, Motion as Movement, NodePointer, PointerMode,
     Property, Size, Space, Tone,
 };
-use crate::ui::{Hamlet, Handler, Key, States, Ui};
+use crate::ui::{Hamlet, Handler, Key, States, Theme, Ui};
 
 /// A run of text.
 #[element(backend = Hamlet)]
@@ -177,6 +179,27 @@ pub fn label(text: impl Into<Prop<World, String>>) -> Label {
 /// The name at the head of a panel.
 pub fn heading(text: impl Into<Prop<World, String>>) -> Label {
     label(text).size(Size::Title).bold(true).face(Face::Display)
+}
+
+/// The rules of a long description, for
+/// [`ScopedExt::rules`](fynix::ScopedExt::rules): every label in the
+/// view in the small size, not bold, in the dim tone and the body
+/// face, which wraps.
+pub fn description_rules(cx: &mut Cx<'_, Hamlet, Theme>) {
+    cx.set::<Label>(|label, _| {
+        label
+            .size(Size::Small)
+            .bold(false)
+            .tone(Tone::Dim)
+            .face(Face::Body)
+    });
+}
+
+/// `text` as a long description, in [`description_rules`].
+pub fn description(
+    text: impl Into<Prop<World, String>>,
+) -> Rules<Label, fn(&mut Cx<'_, Hamlet, Theme>)> {
+    label(text).rules(description_rules)
 }
 
 pub fn button(text: impl Into<Prop<World, String>>) -> Button {

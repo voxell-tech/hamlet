@@ -22,15 +22,15 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row,
 };
-use bevy_fynix::{Signal, ViewExt, each, keyed, resource};
+use bevy_fynix::{ScopedExt, Signal, ViewExt, each, keyed, resource};
 use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_api::{PanelId, PluginId};
 use hamlet_engine_core::{LogLine, PluginBudgets};
 use hamlet_engine_shell::dock::{PLUGIN_LIST, PanelIcon};
 use hamlet_engine_shell::icons::{Glyph, glyph};
 use hamlet_engine_shell::style::{
-    ButtonStyle, Wraps, buttons, divided_row, dropdown, field,
-    icon_button, note, scroll_area, switch,
+    ButtonStyle, Wraps, buttons, description_rules, divided_row,
+    dropdown, field, icon_button, note, scroll_area, switch,
 };
 use hamlet_engine_shell::{AnyView, Cx, Panel, StyleExt};
 
@@ -403,14 +403,14 @@ fn row_view(plugin: Entity, id: PluginId, bundled: bool) -> AnyView {
             theme.space.section,
         );
         let mut facts = vec![
+            // One line in a list.
             label(bound(plugin, |row| row.about.clone()))
-                .size(size)
-                .tone(Tone::Dim)
                 .wrap(false)
+                .rules(description_rules)
                 .boxed(),
             label(bound(plugin, |row| row.state().0))
-                .size(size)
                 .tone(bound(plugin, |row| row.state().1))
+                .rules(description_rules)
                 .boxed(),
         ];
         if bundled {
@@ -420,6 +420,7 @@ fn row_view(plugin: Entity, id: PluginId, bundled: bool) -> AnyView {
             facts.push(
                 label("Comes with Hamlet")
                     .size(size)
+                    .bold(false)
                     .tone(tone)
                     .boxed(),
             );

@@ -43,9 +43,10 @@ pub use crate::ui::elements::{
     DropdownProps, Field, FieldProps, Frame, FrameProps, Icon,
     IconProps, Label, LabelProps, Leads, List, ListProps, MenuItem,
     Menued, OnInput, Pointed, Scroll, ScrollProps, Stack, Tipped,
-    Toggle, ToggleProps, UiExt, button, column, divider, dropdown,
-    field, heading, icon, icon_button, label, list, menu_item,
-    pressable, row, scroll, switch, toggle,
+    Toggle, ToggleProps, UiExt, button, column, description,
+    description_rules, divider, dropdown, field, heading, icon,
+    icon_button, label, list, menu_item, pressable, row, scroll,
+    switch, toggle,
 };
 use crate::ui::nodes::Nodes;
 pub use crate::ui::nodes::{Key, States};

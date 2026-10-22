@@ -327,8 +327,12 @@ hamlet_engine_bevy::export!(Hello);
   handler with the whole world, so it can change resources, make
   requests or trigger observers; a node holds as many as it is given.
   `when::<Hovered, _>` and `when::<Pressed, _>` hold rules while the
-  engine says so. `tip` gives a view words shown near the
-  pointer while it rests on it, and `menu` (on a right-click) and
+  engine says so. `description(text)`, or
+  `.rules(description_rules)` on any view, is the description style
+  of the shell's, run in the plugin as a set rule on its labels: the
+  `Small` size, not bold, the `Dim` tone and the body face, which
+  wraps. A call site's value still wins over it. `tip` gives a view
+  words shown near the pointer while it rests on it, and `menu` (on a right-click) and
   `menu_on_click` (on a click too) a menu of `menu_item`s, each
   running a handler when it is chosen, `under` a group or `critical`.
   `pointer` has a view ask for a `NodePointer` of the engine's set,
@@ -562,7 +566,8 @@ buttons, cards, headings, notes, icons and chrome. Dark only.
   while on, in the accent, flipping on a press as a button does,
   `labelled_switch` with words beside it, and `toggle` the same as
   `switch`), `dropdown`, `choices`, `heading`, `section`,
-  `caption`, `note`, `card`, `list` (its rows each a `list_row`),
+  `caption`, `note` (a short aside: a value, or what an empty list
+  says), `description`, `card`, `list` (its rows each a `list_row`),
   `link_row` and `link_rows`, `page_head`, `breadcrumb`, `divider`,
   `buttons` (a row that wraps), `scroll_area` and `title_button`.
   `breadcrumb(trail, current, go)` shows where a page is within a
@@ -574,6 +579,18 @@ buttons, cards, headings, notes, icons and chrome. Dark only.
   `styled(kind)` as a button, `with_icon(glyph)`, `in_tab(shown)` and
   `in_panel()` or `in_panel_padded(pixels)`. A `BottomGradient`
   surface, as a panel or the bar, shades toward `background_bottom`.
+- **Descriptions.** Lengthy text that explains, such as what a plugin
+  is about, why it needs something or what a setting does, is in the
+  description style: `description(text)`, or
+  `label(text).rules(description_rules)`, which also reaches every
+  label in a view it wraps. It sets each label to the small size, not
+  bold, in the dim tone (`[text] small`, `text_muted`), and has it
+  wrap. It is a set rule scoped to the view, the innermost there is,
+  so of fynix's layers it sits after the theme's defaults and the set
+  rules around it, and before what a call site writes and the show
+  rules: a `.tone(..)` on the label still changes it, and a state
+  rule on a button around it, such as a row lit under the pointer,
+  wins too.
 - **Glows** are Bevy's `BoxShadow` and `BackgroundGradient` and
   nothing else: no shader of the shell's own. A control glows by what
   it is for (`Glow`): eased toward the pointer, a press or the caret,

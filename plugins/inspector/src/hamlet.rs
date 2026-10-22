@@ -12,9 +12,9 @@ use hamlet_engine_bevy::api::agents::{
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::ui::{
     AnyView, ButtonProps, ButtonStyle, Cx, Face, FrameProps, Size,
-    Space, Tone, UiExt, ViewExt, button, column, derived, field,
-    icon, icon_button, keyed, label, menu_item, resource, row,
-    scroll,
+    Space, Tone, UiExt, ViewExt, button, column, derived,
+    description, field, icon, icon_button, keyed, label, menu_item,
+    resource, row, scroll,
 };
 use hamlet_engine_bevy::{encode, warn};
 use serde::{Deserialize, Serialize};
@@ -248,12 +248,10 @@ fn folder(hamlet: &RosterHamlet) -> AnyView {
         }
         None => {
             parts.push(
-                label(
+                description(
                     "No folder. Its agents work in their own \
                      workspaces.",
                 )
-                .size(Size::Small)
-                .tone(Tone::Dim)
                 .boxed(),
             );
             parts.push(row((choose,)).boxed());

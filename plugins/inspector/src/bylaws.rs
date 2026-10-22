@@ -2,15 +2,15 @@
 //! writing one key of it through the agents service, which refuses
 //! the realm's.
 
-use agents_ui::{AgentsWorldExt, Heard, note, part, setting, whole};
+use agents_ui::{AgentsWorldExt, Heard, part, setting, whole};
 use hamlet_engine_bevy::api::agents::{
     AgentsReply, AgentsRequest, Bylaws, CatalogueModel, Priced,
 };
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::ui::{
     AnyView, FrameProps, Size, Space, Tone, UiExt, ViewExt, column,
-    dropdown, field, icon_button, keyed, label, resource, row,
-    switch, toggle,
+    description, dropdown, field, icon_button, keyed, label,
+    resource, row, switch, toggle,
 };
 
 use crate::agent::{Models, offered};
@@ -212,7 +212,7 @@ fn budget(id: String) -> AnyView {
     .boxed();
     column((
         part("meter", "THE BUDGET"),
-        note(
+        description(
             "The most model calls may cost in a period. 0 means no \
              limit.",
         ),
@@ -224,11 +224,11 @@ fn budget(id: String) -> AnyView {
             icon_button("restore", "START IT AGAIN NOW").on_click(
                 move |world| world.decree(&id, "/reset-budget"),
             ),
-            note("What was spent stays in the record."),
+            description("What was spent stays in the record."),
         ))
         .space(Space::Gap),
         part("coins", "ONE TASK"),
-        note("Counted across every agent the task touches."),
+        description("Counted across every agent the task touches."),
         dollars("May cost, in dollars", ("task", "cost"), |b| {
             b.task_cost
         }),
@@ -269,7 +269,7 @@ fn models() -> AnyView {
         resource::<Models, _>(|models| models.allowed.clone()),
         |allowed| {
             if allowed.is_empty() {
-                return note(
+                return description(
                     "The home allows no model besides its default \
                      yet. Allow some under Models in Settings.",
                 )
@@ -287,7 +287,7 @@ fn models() -> AnyView {
                         .on_toggle(
                             move |world, on| pick(world, &picked, on),
                         ),
-                        note(model.card()),
+                        description(model.card()),
                     ))
                     .space(Space::Gap)
                     .boxed()
@@ -340,13 +340,15 @@ fn models() -> AnyView {
     );
     column((
         part("chip", "MODELS THIS HAMLET MAY RUN"),
-        note(
+        description(
             "The mayor picks from the ticked models. The default \
              model is always allowed.",
         ),
         ticks,
         setting("Its default model", default.boxed(), None),
-        note("Used when neither you nor the mayor chose a model."),
+        description(
+            "Used when neither you nor the mayor chose a model.",
+        ),
     ))
     .space(Space::Half)
     .boxed()
@@ -408,7 +410,7 @@ pub(crate) fn bylaws(id: String) -> AnyView {
         },
     );
     column((
-        note(
+        description(
             "These apply to this hamlet only. Rules for every \
              hamlet are under Realm in Settings.",
         ),
