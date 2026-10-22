@@ -69,6 +69,12 @@ impl Watchers {
         !self.watching.is_empty()
     }
 
+    /// The changes not yet sent, taken.
+    #[cfg(test)]
+    pub(crate) fn told(&mut self) -> Vec<AgentsEvent> {
+        std::mem::take(&mut self.pending)
+    }
+
     /// Keeps `event` to send, joined to the one before when both are
     /// words of one kind of one session, so a reply streamed word by
     /// word goes in one event a frame.

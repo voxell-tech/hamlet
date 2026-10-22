@@ -1864,6 +1864,42 @@ says why and every request fails saying so.
   skills, each checked before anything is written, and brings them
   up in the world. Each is told to watchers as the change it makes:
   `Catalogue`, `Skills` or `Roster`.
+- **The bazaar's packages** (`market.rs`, on disk in
+  `engine/rules/src/market/`). A package is the JSON of the bazaar's
+  server (`engine/model/src/market/package.rs`): `format` 1, a `kind`
+  of `agent`, `hamlet` or `plugin` (an agent's tools) and the files
+  each holds, their bodies in base64, at most 10 MB. A call of a
+  plugin hands over 1 MB at most, so a package crosses in parts of
+  `PACKAGE_PART` (384 KB) at most. `Settle` takes the parts of one
+  listing and version in order, answering `Done` to each but the
+  last, and kept per plugin until the last comes; a part out of order,
+  a count that changes, a part too big or a package over 10 MB is
+  refused and what came is dropped, as it is ten minutes after its
+  last part or when the plugin is switched off. The last part settles
+  the package: refused when it is not whole, or a path or name would
+  leave its folder, and written where `to` says for the chief: an
+  agent moved into a hamlet (under another name, `name-ii`..., when
+  its own is taken, its reason "bought at the Agent Bazaar"), a
+  hamlet founded through `found_from`, or tools added to a house. A
+  listing settled again is brought up to the version: an agent's
+  character and skills are replaced and its notes kept, a hamlet's
+  agents are refreshed and new ones moved in, and only the tools the
+  listing put there are written over. It is recorded in
+  `bought.json`, the agents are brought up and the skills read again,
+  so watchers hear `Roster` and `Skills`, and it answers `Settled`
+  with what came of it in words. `Bought` gives that record by
+  listing. `Tools` lists the tools of every house that can be packed:
+  a folder of `tools/` named as the bazaar takes and holding a
+  `manifest.json`. `Pack` packs an agent with its character and
+  skills (its notes when asked), a hamlet whole or chosen tools, an
+  agent or hamlet with no purpose given one from its hamlet's title,
+  and holds the package for the plugin: `Packed` with its id and
+  size, `NotFound` when what is asked for is not there, refused when
+  it comes to over 10 MB. `PackedPart` reads `PACKAGE_PART` bytes at
+  most of it from an offset, nothing past its end; the pack is let go
+  once its last byte is read, ten minutes after it was packed or when
+  the plugin is switched off, and then is `NotFound`, as it is to
+  another plugin.
 - **Setting up a place for models**, as Welcome does: `Providers`,
   `BeginSetup` (adding or not), `Connect` with a provider or an address
   and a key, `SignIn` to OpenRouter or ChatGPT, `FindLocal`,

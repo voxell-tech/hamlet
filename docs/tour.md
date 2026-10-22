@@ -138,7 +138,7 @@ Paths are under the crate's folder in the table above.
 | The padding of an engine panel, or a plugin's panel without it | `in_panel` and `in_panel_padded` in `engine/shell/src/style.rs`; a plugin's `PanelPadding` in `engine/api/src/contribution.rs`, resolved in `view` in `engine/wasm/src/retained.rs` |
 | The breadcrumb over a page within a panel | `breadcrumb` in `engine/shell/src/style.rs`; a plugin's in `plugins/agents_ui/src/breadcrumb.rs` |
 | What engine plugins share | `engine/assets/` (assets), `engine/bus/` (services and events), `engine/net/` (fetches) |
-| What plugins may ask of the agents | `engine/api/src/agents.rs`, answered in `engine/agents/src/answer.rs`; the Agent Bazaar's requests in `market.rs` beside it, founding from a template in `engine/rules/src/realm/template.rs`; [`engine.md`](engine.md#the-agents) |
+| What plugins may ask of the agents | `engine/api/src/agents.rs`, answered in `engine/agents/src/answer.rs`; the Agent Bazaar's requests in `market.rs` beside it, founding from a template in `engine/rules/src/realm/template.rs`, the bazaar's packages in `engine/model/src/market/package.rs` and `engine/rules/src/market/`; [`engine.md`](engine.md#the-agents) |
 | What a plugin is told when the agents change | `engine/agents/src/watch.rs` |
 | Keeping the machine awake, opening an address or a file for a plugin, the address under the pointer, a second launch | `engine/desktop/`; what plugins may ask in `engine/api/src/desktop.rs`; [`engine.md`](engine.md#the-desktop) |
 | Run in Background and the window coming back | `engine/shell/src/window.rs`; the second launch in `engine/desktop/src/launch.rs` |

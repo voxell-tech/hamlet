@@ -3932,6 +3932,7 @@ dependencies = [
  "hamlet_home",
  "hamlet_model",
  "hamlet_testing",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
 ]

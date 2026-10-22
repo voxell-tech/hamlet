@@ -58,6 +58,7 @@ pub fn plugin(app: &mut App) {
                     conversation::plugin,
                     roster::plugin,
                     needs::plugin,
+                    market::plugin,
                 ))
                 .add_systems(Startup, first_test);
         }

@@ -612,15 +612,21 @@ impl AgentsWorldExt for World {
             AgentsRequest::FoundFrom(template) => {
                 self.found_from(template).and(done)
             }
-            AgentsRequest::Settle(_)
-            | AgentsRequest::Bought
-            | AgentsRequest::Tools
-            | AgentsRequest::Pack(_)
-            | AgentsRequest::PackedPart { .. } => {
-                Err(Failure::Failed(
-                    "the agents service cannot do this yet".into(),
-                ))
+            AgentsRequest::Settle(delivery) => {
+                self.settle_part(asked.plugin, delivery)
             }
+            AgentsRequest::Bought => {
+                Ok(AgentsReply::Bought(self.bought()))
+            }
+            AgentsRequest::Tools => {
+                Ok(AgentsReply::Tools(self.housed_tools()))
+            }
+            AgentsRequest::Pack(packing) => {
+                self.hold_pack(asked.plugin, packing)
+            }
+            AgentsRequest::PackedPart { id, offset } => self
+                .packed_part(asked.plugin, id, offset)
+                .map(AgentsReply::Part),
         }
     }
 
