@@ -4,12 +4,12 @@
 //! and its words kept. Each `https` link is a button under the text
 //! that opens it.
 
-use hamlet_engine_sdk::api::desktop::WEB;
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::api::desktop::WEB;
+use hamlet_engine_bevy::ui::{
     AnyView, ButtonStyle, FrameProps, Size, Space, Tone, UiExt,
     ViewExt, button, column, divider, label, row,
 };
-use hamlet_engine_sdk::{DesktopRequest, desktop};
+use hamlet_engine_bevy::{DesktopRequest, HostExt};
 
 /// One block of a text.
 #[derive(Clone, PartialEq, Debug)]
@@ -60,8 +60,9 @@ pub fn markdown(text: &str, tone: Tone) -> AnyView {
             let open = address.clone();
             button(words)
                 .style(ButtonStyle::Quiet)
-                .on_click(move |_| {
-                    desktop(&DesktopRequest::Open(open.clone()));
+                .on_click(move |world| {
+                    world
+                        .desktop(&DesktopRequest::Open(open.clone()));
                 })
                 .leads_to(address)
                 .boxed()

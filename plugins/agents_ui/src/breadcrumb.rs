@@ -1,9 +1,10 @@
 //! Where a page is within its panel, as the shell's breadcrumb shows
 //! it.
 
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::prelude::World;
+use hamlet_engine_bevy::ui::{
     AnyView, ButtonStyle, Face, FrameProps, Prop, Size, Space, Tone,
-    UiExt, ViewExt, World, button, label, row,
+    UiExt, ViewExt, button, label, row,
 };
 
 /// Where a page is within its panel: a quiet button for each of

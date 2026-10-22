@@ -5,14 +5,12 @@
 //! say is hidden. How many things wait for the chief is the engine's
 //! Petitions item.
 
-use hamlet_engine_sdk::api::agents::{
+use hamlet_engine_bevy::api::agents::{
     AgentsEvent, AgentsReply, AgentsRequest, Link, Status,
 };
-use hamlet_engine_sdk::ui::{StatusItem, Tone, set_status};
-use hamlet_engine_sdk::{
-    DesktopEvent, DesktopReply, DesktopRequest, Entry, Message,
-    Plugin, Reply, World, agents, desktop, warn,
-};
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::ui::{StatusItem, Tone, set_status};
+use hamlet_engine_bevy::{DesktopEvent, DesktopRequest, Reply, warn};
 
 /// The agents' status items, in the order the line shows them.
 const ITEMS: [&str; 6] =
@@ -25,40 +23,56 @@ const POINTED: &str = "pointed";
 struct StatusLine;
 
 impl Plugin for StatusLine {
-    fn declare(&self, entry: &mut Entry) {
+    fn build(&self, app: &mut App) {
         for name in ITEMS {
             if name == "work" {
-                entry.growing_status_item(POINTED);
+                app.add_growing_status_item(POINTED);
             }
-            entry.status_item(name);
+            app.add_status_item(name);
         }
-        agents(&AgentsRequest::Watch);
-        agents(&AgentsRequest::Status);
-        desktop(&DesktopRequest::Watch);
+        app.add_systems(Declare, watch).add_systems(Update, show);
     }
+}
 
-    fn receive(&mut self, message: Message, _: &mut World) {
-        let Message::Reply { reply, .. } = message else {
-            return;
-        };
-        match reply {
-            Ok(Reply::Agents(
-                AgentsReply::Status(status)
-                | AgentsReply::Event(AgentsEvent::Status(status)),
-            )) => status.show(),
-            Ok(Reply::Desktop(DesktopReply::Event(
-                DesktopEvent::Hovered(address),
-            ))) => set_status(
+hamlet_engine_bevy::export!(StatusLine);
+
+fn watch(mut commands: Commands) {
+    commands.agents(&AgentsRequest::Watch);
+    commands.agents(&AgentsRequest::Status);
+    commands.desktop(&DesktopRequest::Watch);
+}
+
+/// Shows what the agents and the desktop services tell.
+fn show(
+    mut replies: MessageReader<Replied>,
+    mut agents: MessageReader<AgentsEventReceived>,
+    mut desktop: MessageReader<DesktopEventReceived>,
+) {
+    for replied in replies.read() {
+        match &replied.reply {
+            Ok(Reply::Agents(AgentsReply::Status(status))) => {
+                status.show()
+            }
+            Ok(_) => {}
+            Err(why) => warn(&format!("the agents' status: {why}")),
+        }
+    }
+    for told in agents.read() {
+        if let AgentsEvent::Status(status) = &told.event {
+            status.show();
+        }
+    }
+    for told in desktop.read() {
+        if let DesktopEvent::Hovered(address) = &told.event {
+            set_status(
                 POINTED,
                 &StatusItem {
                     icon: String::new(),
-                    text: address.unwrap_or_default(),
+                    text: address.clone().unwrap_or_default(),
                     tone: Tone::Accent,
                     tip: String::new(),
                 },
-            ),
-            Ok(_) => {}
-            Err(why) => warn(&format!("the agents' status: {why}")),
+            );
         }
     }
 }
@@ -136,5 +150,3 @@ impl StatusExt for Status {
         }
     }
 }
-
-hamlet_engine_sdk::export!(StatusLine);

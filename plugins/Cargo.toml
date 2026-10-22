@@ -13,10 +13,14 @@ license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 hamlet_engine_sdk = { path = "../engine/sdk" }
+hamlet_engine_bevy = { path = "../engine/bevy_sdk" }
+serde = { version = "1.0.229", features = ["derive"] }
 
-# Small builds: a plugin is loaded and compiled at start.
+# Small builds: a plugin is loaded and compiled at start. "z" takes a
+# fifth off a plugin built with Bevy. One level for every crate, as
+# crates built at other levels grow a plugin a lot.
 [profile.release]
-opt-level = "s"
+opt-level = "z"
 lto = true
 codegen-units = 1
 strip = true

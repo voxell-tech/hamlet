@@ -3,7 +3,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use hamlet_engine_sdk::Failure;
+use hamlet_engine_bevy::Failure;
 
 /// The longest tag, in letters.
 const TAG: usize = 24;

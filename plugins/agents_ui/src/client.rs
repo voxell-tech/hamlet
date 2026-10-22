@@ -2,17 +2,17 @@
 //! by its ticket until its reply comes, and what every panel follows
 //! kept as resources of the plugin's world.
 
-use std::any::Any;
 use std::collections::BTreeMap;
 
-use hamlet_engine_sdk::api::Capability;
-use hamlet_engine_sdk::api::agents::{
+use hamlet_engine_bevy::api::Capability;
+use hamlet_engine_bevy::api::agents::{
     Focus, Need, Recipient, Roster, Skill,
 };
-use hamlet_engine_sdk::ui::show_overlay;
-use hamlet_engine_sdk::{
-    AgentsEvent, AgentsReply, AgentsRequest, Failure, Message, Reply,
-    Ticket, World, agents,
+use hamlet_engine_bevy::bevy_ecs::message::MessageCursor;
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::ui::show_overlay;
+use hamlet_engine_bevy::{
+    AgentsEvent, AgentsReply, AgentsRequest, Failure, Reply, Ticket,
 };
 
 use crate::change::Changes;
@@ -25,23 +25,42 @@ const CHAT: &str = "hamlet.chat/chat";
 /// never comes, so the oldest are forgotten past it.
 const REMEMBERED: usize = 256;
 
-/// Brings the chat to the front.
-pub fn show_chat() {
-    hamlet_engine_sdk::ui::open(CHAT);
+/// What the agents' panels share: the resources views read, and what
+/// the agents service says, heard in [`PreUpdate`] as [`Heard`].
+pub fn plugin(app: &mut App) {
+    app.init_resource::<Asked>()
+        .init_resource::<Focused>()
+        .init_resource::<Rostered>()
+        .init_resource::<Waits>()
+        .init_resource::<Shelves>()
+        .init_resource::<Changes>()
+        .init_resource::<Confirming>()
+        .add_message::<Heard>()
+        .add_systems(PreUpdate, hear);
 }
 
-/// Watches the agents service and asks for `first`, for a plugin
-/// that has no world at hand, as it declares what it adds. Their
-/// replies are known by what they hold.
-pub fn start(first: &[AgentsRequest]) {
-    agents(&AgentsRequest::Watch);
-    for request in first {
-        agents(request);
+/// Brings the chat to the front.
+pub fn show_chat() {
+    hamlet_engine_bevy::ui::open(CHAT);
+}
+
+/// A system for [`Declare`] that watches the agents service and asks
+/// for `first` as the plugin starts. Their replies are known by what
+/// they hold.
+pub fn start(
+    first: &[AgentsRequest],
+) -> impl FnMut(&mut World) + Send + Sync + 'static {
+    let first = first.to_vec();
+    move |world: &mut World| {
+        world.agents(&AgentsRequest::Watch);
+        for request in &first {
+            world.agents(request);
+        }
     }
 }
 
 /// The requests asked and not yet answered, by their tickets.
-#[derive(Default)]
+#[derive(Resource, Default)]
 pub struct Asked(BTreeMap<Ticket, AgentsRequest>);
 
 impl Asked {
@@ -52,7 +71,7 @@ impl Asked {
 }
 
 /// The window's focus, as last told.
-#[derive(Default, PartialEq)]
+#[derive(Resource, Default, PartialEq)]
 pub struct Focused(pub Option<Focus>);
 
 impl Focused {
@@ -76,15 +95,20 @@ impl Focused {
     }
 }
 
+/// The roster, as last told.
+#[derive(Resource, Default, PartialEq)]
+pub struct Rostered(pub Roster);
+
 /// What waits for the chief, oldest first.
-#[derive(Default, PartialEq)]
+#[derive(Resource, Default, PartialEq)]
 pub struct Waits(pub Vec<Need>);
 
 /// The library's skills.
-#[derive(Default, PartialEq)]
+#[derive(Resource, Default, PartialEq)]
 pub struct Shelves(pub Vec<Skill>);
 
 /// What a message from the agents service came to.
+#[derive(Message, Clone, Debug)]
 pub enum Heard {
     /// The reply to a request, with the request when it was asked
     /// through [`AgentsWorldExt::ask`].
@@ -95,23 +119,16 @@ pub enum Heard {
 
 /// The agents' methods on [`World`].
 pub trait AgentsWorldExt {
-    /// Puts in each resource this crate keeps, so views can read
-    /// them.
-    fn init_agents(&mut self);
+    /// What the agents service said since `cursor` last read, for a
+    /// system that takes the whole world.
+    fn heard(&self, cursor: &mut MessageCursor<Heard>) -> Vec<Heard>;
 
     /// Puts in `value` when it differs from the one there, so the
     /// views that read it are not looked at again for nothing.
-    fn keep<R: PartialEq + Any + Send + Sync>(&mut self, value: R);
+    fn keep<R: Resource + PartialEq>(&mut self, value: R);
 
     /// Asks the agents service `request`, remembered for its reply.
     fn ask(&mut self, request: AgentsRequest);
-
-    /// Takes in `message`: what it tells of the focus, the roster,
-    /// the needs and the library is kept, and what it came to is
-    /// given back for the plugin's own. The reply to a reading asked
-    /// again since is passed over, as the later one tells what is so
-    /// now.
-    fn hear(&mut self, message: Message) -> Option<Heard>;
 
     /// Sends `text` to the open conversation.
     fn tell(&mut self, text: impl Into<String>);
@@ -124,78 +141,33 @@ pub trait AgentsWorldExt {
 }
 
 impl AgentsWorldExt for World {
-    fn init_agents(&mut self) {
-        self.init_resource::<Asked>();
-        self.init_resource::<Focused>();
-        self.init_resource::<Roster>();
-        self.init_resource::<Waits>();
-        self.init_resource::<Shelves>();
-        self.init_resource::<Changes>();
-        self.init_resource::<Confirming>();
+    fn heard(&self, cursor: &mut MessageCursor<Heard>) -> Vec<Heard> {
+        cursor
+            .read(self.resource::<Messages<Heard>>())
+            .cloned()
+            .collect()
     }
 
-    fn keep<R: PartialEq + Any + Send + Sync>(&mut self, value: R) {
-        if self.get::<R>() != Some(&value) {
-            self.insert(value);
+    fn keep<R: Resource + PartialEq>(&mut self, value: R) {
+        if self.get_resource::<R>() != Some(&value) {
+            self.insert_resource(value);
         }
     }
 
     fn ask(&mut self, request: AgentsRequest) {
-        let ticket = agents(&request);
+        let ticket = self.agents(&request);
         if ticket == 0 {
             return;
         }
-        let asked = &mut self.resource_or_init::<Asked>().0;
-        asked.insert(ticket, request);
-        if asked.len() > REMEMBERED {
-            asked.pop_first();
+        let mut asked = self.get_resource_or_init::<Asked>();
+        asked.0.insert(ticket, request);
+        if asked.0.len() > REMEMBERED {
+            asked.0.pop_first();
         }
-    }
-
-    fn hear(&mut self, message: Message) -> Option<Heard> {
-        let Message::Reply { ticket, reply } = message else {
-            return None;
-        };
-        let asked =
-            self.resource_or_init::<Asked>().0.remove(&ticket);
-        if let (Some(request), Ok(_)) = (&asked, &reply)
-            && request.capability() == Capability::AgentsRead
-            && self.resource::<Asked>().again(request)
-        {
-            return None;
-        }
-        let heard = match reply {
-            Ok(Reply::Agents(AgentsReply::Event(event))) => {
-                Heard::Event(event)
-            }
-            Ok(Reply::Agents(reply)) => Heard::Reply(asked, reply),
-            Ok(_) => return None,
-            Err(why) => return Some(Heard::Failed(asked, why)),
-        };
-        match &heard {
-            Heard::Reply(_, AgentsReply::Focus(focus))
-            | Heard::Event(AgentsEvent::Focus(focus)) => {
-                self.keep(Focused(Some(focus.clone())));
-            }
-            Heard::Reply(_, AgentsReply::Roster(roster))
-            | Heard::Event(AgentsEvent::Roster(roster)) => {
-                self.keep(roster.clone());
-            }
-            Heard::Reply(_, AgentsReply::Needs(needs))
-            | Heard::Event(AgentsEvent::Needs(needs)) => {
-                self.keep(Waits(needs.clone()));
-            }
-            Heard::Reply(_, AgentsReply::Skills(skills))
-            | Heard::Event(AgentsEvent::Skills(skills)) => {
-                self.keep(Shelves(skills.clone()));
-            }
-            _ => {}
-        }
-        Some(heard)
     }
 
     fn tell(&mut self, text: impl Into<String>) {
-        if let Some(to) = self.resource_or_init::<Focused>().with() {
+        if let Some(to) = self.resource::<Focused>().with() {
             self.ask(AgentsRequest::Send {
                 to,
                 text: text.into(),
@@ -211,7 +183,86 @@ impl AgentsWorldExt for World {
     }
 
     fn confirm(&mut self, question: Confirm) {
-        self.resource_or_init::<Confirming>().0 = Some(question);
+        self.resource_mut::<Confirming>().0 = Some(question);
         show_overlay(CONFIRM, true);
+    }
+}
+
+/// Takes in each reply and event of the agents service: what it tells
+/// of the focus, the roster, the needs and the library is kept, and
+/// what it came to is written as [`Heard`]. The reply to a reading
+/// asked again since is passed over, as the later one tells what is
+/// so now.
+fn hear(
+    world: &mut World,
+    mut replies: Local<MessageCursor<Replied>>,
+    mut events: Local<MessageCursor<AgentsEventReceived>>,
+) {
+    let replied = replies
+        .read(world.resource::<Messages<Replied>>())
+        .cloned()
+        .collect::<Vec<_>>();
+    let told = events
+        .read(world.resource::<Messages<AgentsEventReceived>>())
+        .map(|told| told.event.clone())
+        .collect::<Vec<_>>();
+    for Replied { ticket, reply } in replied {
+        if let Some(heard) = Heard::reply(world, ticket, reply) {
+            heard.keep(world);
+            world.write_message(heard);
+        }
+    }
+    for event in told {
+        let heard = Heard::Event(event);
+        heard.keep(world);
+        world.write_message(heard);
+    }
+}
+
+impl Heard {
+    /// What the reply of `ticket` came to, if it is the agents'.
+    fn reply(
+        world: &mut World,
+        ticket: Ticket,
+        reply: Result<Reply, Failure>,
+    ) -> Option<Self> {
+        let asked = world.resource_mut::<Asked>().0.remove(&ticket);
+        if let (Some(request), Ok(_)) = (&asked, &reply)
+            && request.capability() == Capability::AgentsRead
+            && world.resource::<Asked>().again(request)
+        {
+            return None;
+        }
+        match reply {
+            Ok(Reply::Agents(reply)) => {
+                Some(Heard::Reply(asked, reply))
+            }
+            Ok(_) => None,
+            Err(why) => Some(Heard::Failed(asked, why)),
+        }
+    }
+
+    /// Keeps what this tells of the focus, the roster, the needs and
+    /// the library in `world`.
+    fn keep(&self, world: &mut World) {
+        match self {
+            Heard::Reply(_, AgentsReply::Focus(focus))
+            | Heard::Event(AgentsEvent::Focus(focus)) => {
+                world.keep(Focused(Some(focus.clone())));
+            }
+            Heard::Reply(_, AgentsReply::Roster(roster))
+            | Heard::Event(AgentsEvent::Roster(roster)) => {
+                world.keep(Rostered(roster.clone()));
+            }
+            Heard::Reply(_, AgentsReply::Needs(needs))
+            | Heard::Event(AgentsEvent::Needs(needs)) => {
+                world.keep(Waits(needs.clone()));
+            }
+            Heard::Reply(_, AgentsReply::Skills(skills))
+            | Heard::Event(AgentsEvent::Skills(skills)) => {
+                world.keep(Shelves(skills.clone()));
+            }
+            _ => {}
+        }
     }
 }

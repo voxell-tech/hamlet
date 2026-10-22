@@ -14,14 +14,16 @@ mod realm;
 use std::collections::{BTreeMap, HashMap};
 
 use agents_ui::FailureExt;
-use hamlet_engine_sdk::api::agents::{
+use hamlet_engine_bevy::api::agents::{
     AgentsEvent, AgentsReply, AgentsRequest, CatalogueModel, Charter,
     Grant, RealmLimits, Settings, Stage,
 };
-use hamlet_engine_sdk::ui::{AnyView, ViewExt, column, open};
-use hamlet_engine_sdk::{
-    DesktopEvent, DesktopReply, DesktopRequest, Entry, Message,
-    Plugin, Reply, Ticket, World, agents, desktop, warn,
+use hamlet_engine_bevy::api::desktop::DesktopSettings;
+use hamlet_engine_bevy::bevy_ecs::message::MessageCursor;
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::ui::open;
+use hamlet_engine_bevy::{
+    DesktopEvent, DesktopReply, DesktopRequest, Reply, Ticket, warn,
 };
 
 /// The most models the Models page lists at once.
@@ -34,99 +36,52 @@ const REMEMBERED: usize = 256;
 struct SettingsPages;
 
 impl Plugin for SettingsPages {
-    fn declare(&self, entry: &mut Entry) {
-        entry
-            .settings_page(
+    fn build(&self, app: &mut App) {
+        app.init_resource::<Known>()
+            .init_resource::<Asked>()
+            .add_settings_page(
                 "endpoints",
                 "Endpoints",
                 "Where models come from, and their keys.",
                 "globe",
+                endpoints::page,
             )
-            .settings_page(
+            .add_settings_page(
                 "models",
                 "Models",
                 "The default model, which models are allowed and \
                  their prices.",
                 "chip",
+                models::page,
             )
-            .settings_page(
+            .add_settings_page(
                 "agents",
                 "Agents",
                 "Reflection, network access and keeping awake.",
                 "robot",
+                agents::page,
             )
-            .settings_page(
+            .add_settings_page(
                 "charter",
                 "Charter",
                 "What every agent is told.",
                 "book",
+                charter::page,
             )
-            .settings_page(
+            .add_settings_page(
                 "realm",
                 "Realm",
                 "Rules that apply to every hamlet.",
                 "signpost",
+                realm::page,
             )
-            .settings_footer("again");
-        for request in [
-            AgentsRequest::Watch,
-            AgentsRequest::Settings,
-            AgentsRequest::Catalogue,
-            AgentsRequest::Charter,
-            AgentsRequest::Limits,
-            AgentsRequest::Grants,
-        ] {
-            agents(&request);
-        }
-        desktop(&DesktopRequest::Watch);
-        desktop(&DesktopRequest::Settings);
-    }
-
-    fn mount(&mut self, name: &str, world: &mut World) -> AnyView {
-        world.init_resource::<Known>();
-        world.init_resource::<Asked>();
-        match name {
-            "endpoints" => endpoints::page(),
-            "models" => models::page(),
-            "agents" => agents::page(),
-            "charter" => charter::page(),
-            "realm" => realm::page(),
-            "again" => parts::again(),
-            _ => column(()).boxed(),
-        }
-    }
-
-    fn receive(&mut self, message: Message, world: &mut World) {
-        let Message::Reply { ticket, reply } = message else {
-            return;
-        };
-        let page =
-            world.resource_or_init::<Asked>().0.remove(&ticket);
-        match (reply, page) {
-            (Ok(Reply::Agents(reply)), page) => {
-                world.hear(reply, page)
-            }
-            (
-                Ok(Reply::Desktop(
-                    DesktopReply::Settings(settings)
-                    | DesktopReply::Event(DesktopEvent::Settings(
-                        settings,
-                    )),
-                )),
-                page,
-            ) => {
-                let known = world.resource_or_init::<Known>();
-                known.keep_awake = Some(settings.keep_awake);
-                if let Some(page) = page {
-                    known.problems.remove(&page);
-                }
-            }
-            (Ok(_), _) => {}
-            (Err(why), Some(page)) => world.refuse(page, why.plain()),
-            (Err(why), None) => warn(&format!("the agents: {why}")),
-        }
+            .add_settings_footer("again", parts::again)
+            .add_systems(Declare, start)
+            .add_systems(Update, receive);
     }
 }
+
+hamlet_engine_bevy::export!(SettingsPages);
 
 /// A page of these settings, whose problem a failed request shows.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -139,7 +94,7 @@ enum Page {
 }
 
 /// What the pages know of the agents service.
-#[derive(Default)]
+#[derive(Resource, Default)]
 struct Known {
     settings: Option<Settings>,
     models: Vec<CatalogueModel>,
@@ -160,7 +115,7 @@ struct Known {
 
 /// The requests that wait for an answer, by ticket, with the page
 /// each was asked on.
-#[derive(Default)]
+#[derive(Resource, Default)]
 struct Asked(BTreeMap<Ticket, Page>);
 
 impl Asked {
@@ -174,6 +129,70 @@ impl Asked {
         self.0.insert(ticket, page);
         if self.0.len() > REMEMBERED {
             self.0.pop_first();
+        }
+    }
+}
+
+/// Watches the agents and desktop services and asks for what the
+/// pages show, as the plugin starts.
+fn start(world: &mut World) {
+    for request in [
+        AgentsRequest::Watch,
+        AgentsRequest::Settings,
+        AgentsRequest::Catalogue,
+        AgentsRequest::Charter,
+        AgentsRequest::Limits,
+        AgentsRequest::Grants,
+    ] {
+        world.agents(&request);
+    }
+    world.desktop(&DesktopRequest::Watch);
+    world.desktop(&DesktopRequest::Settings);
+}
+
+/// Takes in the replies and the events of the agents and desktop
+/// services.
+fn receive(
+    world: &mut World,
+    mut replies: Local<MessageCursor<Replied>>,
+    mut agents: Local<MessageCursor<AgentsEventReceived>>,
+    mut desktop: Local<MessageCursor<DesktopEventReceived>>,
+) {
+    let replied = replies
+        .read(world.resource::<Messages<Replied>>())
+        .cloned()
+        .collect::<Vec<_>>();
+    let agents = agents
+        .read(world.resource::<Messages<AgentsEventReceived>>())
+        .cloned()
+        .collect::<Vec<_>>();
+    let desktop = desktop
+        .read(world.resource::<Messages<DesktopEventReceived>>())
+        .cloned()
+        .collect::<Vec<_>>();
+    for Replied { ticket, reply } in replied {
+        let page = world.resource_mut::<Asked>().0.remove(&ticket);
+        match (reply, page) {
+            (Ok(Reply::Agents(reply)), page) => {
+                world.hear(reply, page)
+            }
+            (
+                Ok(Reply::Desktop(DesktopReply::Settings(settings))),
+                page,
+            ) => world.hear_desktop(settings, page),
+            (Ok(_), _) => {}
+            (Err(why), Some(page)) => world.refuse(page, why.plain()),
+            (Err(why), None) => warn(&format!("the agents: {why}")),
+        }
+    }
+    for AgentsEventReceived { ticket, event } in agents {
+        let page = world.resource_mut::<Asked>().0.remove(&ticket);
+        world.hear(AgentsReply::Event(event), page);
+    }
+    for DesktopEventReceived { ticket, event } in desktop {
+        let page = world.resource_mut::<Asked>().0.remove(&ticket);
+        if let DesktopEvent::Settings(settings) = event {
+            world.hear_desktop(settings, page);
         }
     }
 }
@@ -196,21 +215,29 @@ trait SettingsWorldExt {
 
     /// Takes in `reply`, to a request asked on `page` if any.
     fn hear(&mut self, reply: AgentsReply, page: Option<Page>);
+
+    /// Takes in the desktop service's `settings`, the reply to a
+    /// request asked on `page` if any.
+    fn hear_desktop(
+        &mut self,
+        settings: DesktopSettings,
+        page: Option<Page>,
+    );
 }
 
 impl SettingsWorldExt for World {
     fn ask(&mut self, page: Page, request: AgentsRequest) {
-        let ticket = agents(&request);
-        self.resource_or_init::<Asked>().keep(ticket, page);
+        let ticket = self.agents(&request);
+        self.resource_mut::<Asked>().keep(ticket, page);
     }
 
     fn ask_desktop(&mut self, page: Page, request: DesktopRequest) {
-        let ticket = desktop(&request);
-        self.resource_or_init::<Asked>().keep(ticket, page);
+        let ticket = self.desktop(&request);
+        self.resource_mut::<Asked>().keep(ticket, page);
     }
 
     fn refuse(&mut self, page: Page, why: String) {
-        self.resource_or_init::<Known>().problems.insert(page, why);
+        self.resource_mut::<Known>().problems.insert(page, why);
     }
 
     fn set_limit(&mut self, section: &str, key: &str, value: String) {
@@ -225,34 +252,39 @@ impl SettingsWorldExt for World {
     }
 
     fn hear(&mut self, reply: AgentsReply, page: Option<Page>) {
-        let known = self.resource_or_init::<Known>();
         match reply {
             AgentsReply::Done => {
                 if let Some(page) = page {
-                    known.problems.remove(&page);
+                    self.resource_mut::<Known>()
+                        .problems
+                        .remove(&page);
                 }
                 // The file is read again when the service reads it;
                 // the page shows it at once.
                 match page {
                     Some(Page::Realm) => {
-                        agents(&AgentsRequest::Limits);
+                        self.agents(&AgentsRequest::Limits);
                     }
                     Some(Page::Charter) => {
-                        agents(&AgentsRequest::Charter);
+                        self.agents(&AgentsRequest::Charter);
                     }
                     _ => {}
                 }
             }
             AgentsReply::Settings(settings)
             | AgentsReply::Event(AgentsEvent::Settings(settings)) => {
-                known.settings = Some(settings);
+                self.resource_mut::<Known>().settings =
+                    Some(settings);
             }
-            AgentsReply::Catalogue(models) => known.models = models,
+            AgentsReply::Catalogue(models) => {
+                self.resource_mut::<Known>().models = models;
+            }
             AgentsReply::Event(AgentsEvent::Catalogue) => {
-                agents(&AgentsRequest::Catalogue);
+                self.agents(&AgentsRequest::Catalogue);
             }
             AgentsReply::Charter(charter)
             | AgentsReply::Event(AgentsEvent::Charter(charter)) => {
+                let mut known = self.resource_mut::<Known>();
                 if !charter.own {
                     known.confirming = false;
                 }
@@ -260,11 +292,11 @@ impl SettingsWorldExt for World {
             }
             AgentsReply::Limits(limits)
             | AgentsReply::Event(AgentsEvent::Limits(limits)) => {
-                known.limits = Some(limits);
+                self.resource_mut::<Known>().limits = Some(limits);
             }
             AgentsReply::Grants(grants)
             | AgentsReply::Event(AgentsEvent::Grants(grants)) => {
-                known.grants = grants;
+                self.resource_mut::<Known>().grants = grants;
             }
             // A place for models was added: its models are for the
             // person to allow.
@@ -276,6 +308,16 @@ impl SettingsWorldExt for World {
             _ => {}
         }
     }
-}
 
-hamlet_engine_sdk::export!(SettingsPages);
+    fn hear_desktop(
+        &mut self,
+        settings: DesktopSettings,
+        page: Option<Page>,
+    ) {
+        let mut known = self.resource_mut::<Known>();
+        known.keep_awake = Some(settings.keep_awake);
+        if let Some(page) = page {
+            known.problems.remove(&page);
+        }
+    }
+}

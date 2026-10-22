@@ -2,29 +2,26 @@
 //! under a sun, a mesh of its own with a colour at each vertex, a
 //! ring in a shader of its own, a pool of light laid as a decal, and
 //! a field of cubes drawn as copies of one, lifted in waves by
-//! compute. Dragging turns the camera
-//! about the middle, the wheel brings it nearer, the shape under the
-//! pointer lights up and a click names what it hit.
+//! compute. Dragging turns the camera about the middle, the wheel
+//! brings it nearer, the shape under the pointer lights up and a
+//! click names what it hit. Where the camera is stays across a
+//! reload.
 
 use std::f32::consts::{FRAC_PI_2, TAU};
 
-use hamlet_engine_sdk::scene::gpu::{
-    Buffer, Compute, Shaded, Shader, ShaderKind, Texture,
-    decal_material, set_params, set_pass, shaded_material,
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::scene::{
+    AlphaMode, Bloom, Buffer, CameraSettings, Compute, Decal,
+    DirectionalLight, Fog, FogFalloff, Light, Material, Mesh,
+    MeshData, MouseButton, Pbr, Rgba, Shaded, Shader, ShaderKind,
+    Shape, Texture, viewport,
 };
-use hamlet_engine_sdk::scene::{
-    AlphaMode, Bloom, Camera, CameraSettings, Decal,
-    DirectionalLight, Entity, Fog, FogFalloff, Instances, Light,
-    Material, Mesh, MeshData, MouseButton, Pbr, Rgba, SceneInput,
-    Shape, Target, Transform, copies, viewport,
+use hamlet_engine_bevy::ui::{
+    FrameProps, Space, Tone, column, label, resource, row,
 };
-use hamlet_engine_sdk::ui::{
-    AnyView, FrameProps, Space, Tone, ViewExt, World, column, label,
-    resource, row,
-};
-use hamlet_engine_sdk::{Entry, Plugin};
+use serde::{Deserialize, Serialize};
 
-/// The keys of what the plugin watches and names.
+/// The keys of what the plugin names.
 const CAMERA: u32 = 1;
 const SUN: u32 = 2;
 const GROUND: u32 = 3;
@@ -55,62 +52,24 @@ const WHITE: Rgba = (1.0, 1.0, 1.0, 1.0);
 struct SceneDemo;
 
 impl Plugin for SceneDemo {
-    fn declare(&self, entry: &mut Entry) {
-        entry.panel("scene", "Scene").padding(Space::None);
-    }
-
-    fn mount(&mut self, _: &str, world: &mut World) -> AnyView {
-        if world.get::<Demo>().is_none() {
-            let said = match Demo::build() {
-                Ok(demo) => {
-                    world.insert(demo);
-                    "Drag to turn, wheel to zoom".to_owned()
-                }
-                Err(why) => {
-                    hamlet_engine_sdk::error(&why);
-                    format!("The scene cannot be drawn: {why}")
-                }
-            };
-            world.insert(Said(said));
-        }
-        column((
-            row((label(resource::<Said, _>(|said| said.0.clone()))
-                .tone(Tone::Dim),))
-            .padding(Space::Gap),
-            viewport::<Demo>(|demo| Some(&demo.camera)),
-        ))
-        .space(Space::None)
-        .boxed()
-    }
-
-    fn scene(&mut self, input: SceneInput, world: &mut World) {
-        if world.get::<Demo>().is_none() {
-            return;
-        }
-        if let Some(said) = world.resource_mut::<Demo>().answer(input)
-        {
-            world.resource_or_init::<Said>().0 = said;
-        }
+    fn build(&self, app: &mut App) {
+        app.init_resource::<Said>()
+            .init_saved_resource::<Orbit>()
+            .add_panel("scene", "Scene", panel)
+            .panel_padding(Space::None)
+            .add_systems(Startup, setup)
+            .add_systems(Update, (light_up, name_clicks, turn));
     }
 }
 
-hamlet_engine_sdk::export!(SceneDemo);
+hamlet_engine_bevy::export!(SceneDemo);
 
 /// The line over the view.
-#[derive(Default)]
+#[derive(Resource, Default)]
 struct Said(String);
 
-/// A shape the pointer can light up.
-struct Lit {
-    key: u32,
-    name: &'static str,
-    entity: Entity,
-    mesh: Mesh,
-    material: Material,
-}
-
 /// The camera's place about the middle.
-#[derive(Clone, Copy)]
+#[derive(Resource, Clone, Copy, Serialize, Deserialize)]
 struct Orbit {
     yaw: f32,
     pitch: f32,
@@ -118,124 +77,184 @@ struct Orbit {
     dragging: bool,
 }
 
-impl Orbit {
-    fn transform(self) -> Transform {
-        let (yaw_sin, yaw_cos) = self.yaw.sin_cos();
-        let (pitch_sin, pitch_cos) = self.pitch.sin_cos();
-        let eye = (
-            self.distance * pitch_cos * yaw_sin,
-            self.distance * pitch_sin,
-            self.distance * pitch_cos * yaw_cos,
-        );
-        Transform::looking_at(eye, (0.0, 0.0, 0.0))
-    }
+/// A shape the pointer can light up, and the material it has unlit.
+#[derive(Component)]
+struct Lit {
+    name: &'static str,
+    material: Handle<Material>,
 }
 
-/// Everything the scene holds, kept so it stays.
-struct Demo {
-    at: Entity,
-    camera: Camera,
-    orbit: Orbit,
-    lit: Vec<Lit>,
-    glowing: Material,
-    field_material: Material,
-    _held: Held,
+/// The field of cubes.
+#[derive(Component)]
+struct Field;
+
+/// The materials the pointer changes, and the compute that lifts the
+/// field, kept so it runs.
+#[derive(Resource)]
+struct Looks {
+    glowing: Handle<Material>,
+    field: Handle<Material>,
+    _waves: Handle<Compute>,
 }
 
-/// What is kept only so it is not dropped: the sun, the ground, the
-/// field, the shaders, the field's lifts and their compute, and the
-/// pool of light with its picture.
-type Held = (
-    Entity,
-    Entity,
-    Instances,
-    Vec<Shader>,
-    Buffer,
-    Compute,
-    (Entity, Texture),
-);
-
-impl Demo {
-    fn build() -> Result<Self, String> {
-        let orbit = Orbit {
+impl Default for Orbit {
+    fn default() -> Self {
+        Self {
             yaw: 0.6,
             pitch: 0.45,
             distance: 18.0,
             dragging: false,
-        };
-        let at = Entity::make(None, CAMERA)?;
-        at.set_transform(orbit.transform());
-        let camera = Camera::make(&at, settings(), Target::Viewport)?;
+        }
+    }
+}
 
-        let sun = Entity::make(None, SUN)?;
-        sun.set_transform(Transform::looking_at(
-            (4.0, 10.0, 6.0),
-            (0.0, 0.0, 0.0),
-        ));
-        sun.set_light(Some(Light::Directional(DirectionalLight {
+impl Orbit {
+    fn transform(self) -> Transform {
+        let (yaw_sin, yaw_cos) = self.yaw.sin_cos();
+        let (pitch_sin, pitch_cos) = self.pitch.sin_cos();
+        let eye = Vec3::new(
+            self.distance * pitch_cos * yaw_sin,
+            self.distance * pitch_sin,
+            self.distance * pitch_cos * yaw_cos,
+        );
+        Transform::from_translation(eye)
+            .looking_at(Vec3::ZERO, Vec3::Y)
+    }
+}
+
+/// The line over the view, padded on its own, over a view that
+/// reaches the panel's edges.
+fn panel(camera: Query<Entity, With<SceneCamera>>) -> AnyView {
+    let label =
+        row((label(resource::<Said, _>(|said| said.0.clone()))
+            .tone(Tone::Dim),))
+        .padding(Space::Gap);
+    match camera.single() {
+        Ok(camera) => column((label, viewport(camera)))
+            .space(Space::None)
+            .boxed(),
+        Err(_) => column((label,)).space(Space::None).boxed(),
+    }
+}
+
+fn setup(
+    mut commands: Commands,
+    mut assets: ResMut<SceneAssets>,
+    orbit: Res<Orbit>,
+    mut said: ResMut<Said>,
+) {
+    said.0 = match build(&mut commands, &mut assets, *orbit) {
+        Ok(()) => "Drag to turn, wheel to zoom".to_owned(),
+        Err(why) => {
+            hamlet_engine_bevy::error(&why);
+            format!("The scene cannot be drawn: {why}")
+        }
+    };
+}
+
+fn build(
+    commands: &mut Commands,
+    assets: &mut SceneAssets,
+    orbit: Orbit,
+) -> Result<(), String> {
+    let edges = assets.add(Shader::compile(
+        ShaderKind::Pass,
+        include_str!("edges.wgsl"),
+    )?);
+    commands.spawn((
+        SceneKey(CAMERA),
+        SceneCamera::viewport(settings()),
+        orbit.transform(),
+        PostPass {
+            shader: edges,
+            params: vec![0.35, 0.75, 0.5, 0.0],
+        },
+    ));
+    commands.spawn((
+        SceneKey(SUN),
+        Transform::from_xyz(4.0, 10.0, 6.0)
+            .looking_at(Vec3::ZERO, Vec3::Y),
+        SceneLight(Light::Directional(DirectionalLight {
             color: WHITE,
             illuminance: 8_000.0,
             shadows: true,
-        })))?;
+        })),
+    ));
+    commands.spawn((
+        SceneKey(GROUND),
+        Mesh3d(assets.add(Mesh::shape(Shape::Plane((40.0, 40.0)))?)),
+        MeshMaterial3d(
+            assets.add(Material::make(Pbr::colored(SOIL))?),
+        ),
+    ));
 
-        let ground = Entity::make(None, GROUND)?;
-        ground.draw(
-            &Mesh::shape(Shape::Plane((40.0, 40.0)))?,
-            &Material::make(Pbr::colored(SOIL))?,
-        );
-
-        let ring_shader = Shader::compile(
-            ShaderKind::Material,
-            include_str!("ring.wgsl"),
-        )?;
-        let ring_material = shaded_material(
-            &ring_shader,
-            Shaded {
-                alpha_mode: AlphaMode::Opaque,
-                double_sided: false,
-                lit: true,
+    let opaque = Shaded {
+        alpha_mode: AlphaMode::Opaque,
+        double_sided: false,
+        lit: true,
+    };
+    let ring_shader = assets.add(Shader::compile(
+        ShaderKind::Material,
+        include_str!("ring.wgsl"),
+    )?);
+    let shapes = [
+        (
+            SPHERE,
+            "the sphere",
+            Vec3::new(-3.0, 1.0, 0.0),
+            assets.add(Mesh::shape(Shape::Sphere(1.0))?),
+            assets.add(Material::make(Pbr::colored(SPHERE_COLOR))?),
+        ),
+        (
+            RING,
+            "the ring",
+            Vec3::new(0.0, 1.2, -3.0),
+            assets.add(Mesh::shape(Shape::Torus((0.3, 1.0)))?),
+            assets.add_shaded_material(
+                &ring_shader,
+                opaque,
+                &params(&[RING_LOW, RING_HIGH]),
+                None,
+                None,
+            )?,
+        ),
+        (
+            PYRAMID,
+            "the pyramid",
+            Vec3::new(3.0, 0.0, 0.0),
+            assets.add(Mesh::build(&pyramid())?),
+            assets.add(Material::make(Pbr::colored(WHITE))?),
+        ),
+    ];
+    for (key, name, at, mesh, material) in shapes {
+        commands.spawn((
+            SceneKey(key),
+            Transform::from_translation(at),
+            Mesh3d(mesh),
+            MeshMaterial3d(material.clone()),
+            Pickable {
+                hover: true,
+                click: true,
             },
-            &params(&[RING_LOW, RING_HIGH]),
-            None,
-            None,
-        )?;
-        let lit = vec![
-            Lit::make(
-                SPHERE,
-                "the sphere",
-                (-3.0, 1.0, 0.0),
-                Mesh::shape(Shape::Sphere(1.0))?,
-                Material::make(Pbr::colored(SPHERE_COLOR))?,
-            )?,
-            Lit::make(
-                RING,
-                "the ring",
-                (0.0, 1.2, -3.0),
-                Mesh::shape(Shape::Torus((0.3, 1.0)))?,
-                ring_material,
-            )?,
-            Lit::make(
-                PYRAMID,
-                "the pyramid",
-                (3.0, 0.0, 0.0),
-                Mesh::build(&pyramid())?,
-                Material::make(Pbr::colored(WHITE))?,
-            )?,
-        ];
-        let glowing = Material::make(Pbr {
-            emissive: (2.0, 1.6, 0.6, 1.0),
-            ..Pbr::colored(GLOW)
-        })?;
+            Lit { name, material },
+        ));
+    }
+    let glowing = assets.add(Material::make(Pbr {
+        emissive: (2.0, 1.6, 0.6, 1.0),
+        ..Pbr::colored(GLOW)
+    })?);
 
-        let pool = Entity::make(None, POOL)?;
-        pool.set_transform(Transform {
-            translation: (-3.0, 0.0, 0.0),
-            scale: (4.0, 1.0, 4.0),
-            ..Transform::default()
-        });
-        let pool_picture =
-            Texture::make(POOL_SIDE, POOL_SIDE, &pool_pixels())?;
-        pool.draw_decal(&decal_material(
+    let picture = assets.add(Texture::make(
+        POOL_SIDE,
+        POOL_SIDE,
+        &pool_pixels(),
+    )?);
+    commands.spawn((
+        SceneKey(POOL),
+        Transform::from_xyz(-3.0, 0.0, 0.0)
+            .with_scale(Vec3::new(4.0, 1.0, 4.0)),
+        ForwardDecal,
+        MeshMaterial3d(assets.add_decal_material(
             Decal {
                 base_color: GLOW,
                 emissive: (0.0, 0.0, 0.0, 1.0),
@@ -243,160 +262,139 @@ impl Demo {
                 fog: false,
                 depth_fade: 1.0,
             },
-            &pool_picture,
-        )?);
+            &picture,
+        )?),
+    ));
 
-        let count = SIDE * SIDE;
-        let lifts = Buffer::make(count * 16)?;
-        let field_shader = Shader::compile(
-            ShaderKind::Material,
-            include_str!("field.wgsl"),
-        )?;
-        let field_material = shaded_material(
-            &field_shader,
-            Shaded {
-                alpha_mode: AlphaMode::Opaque,
-                double_sided: false,
-                lit: true,
-            },
-            &field_params(None),
-            None,
-            Some(&lifts),
-        )?;
-        let cube = Mesh::shape(Shape::Cuboid((0.4, 0.4, 0.4)))?;
-        let field =
-            Instances::make(None, &cube, &field_material, FIELD)?;
-        field.set(&copies(&field_places()))?;
-        field.watch(true, true);
+    let count = SIDE * SIDE;
+    let lifts = assets.add(Buffer::make(count * 16)?);
+    let field_shader = assets.add(Shader::compile(
+        ShaderKind::Material,
+        include_str!("field.wgsl"),
+    )?);
+    let field = assets.add_shaded_material(
+        &field_shader,
+        opaque,
+        &field_params(None),
+        None,
+        Some(&lifts),
+    )?;
+    commands.spawn((
+        SceneKey(FIELD),
+        Instances {
+            mesh: assets
+                .add(Mesh::shape(Shape::Cuboid((0.4, 0.4, 0.4)))?),
+            material: field.clone(),
+            copies: field_places(),
+        },
+        Pickable {
+            hover: true,
+            click: true,
+        },
+        Field,
+    ));
 
-        let waves_shader = Shader::compile(
-            ShaderKind::Compute,
-            include_str!("waves.wgsl"),
-        )?;
-        let waves = Compute::make(&waves_shader, &lifts, None)?;
-        waves.set_params(&[count as f32, SIDE as f32, 0.4, 0.0])?;
-        waves.dispatch(count.div_ceil(WORKGROUP), 1, 1, true)?;
+    let waves_shader = assets.add(Shader::compile(
+        ShaderKind::Compute,
+        include_str!("waves.wgsl"),
+    )?);
+    let waves = assets.add_compute(&waves_shader, &lifts, None)?;
+    let run = assets.get(&waves).ok_or("the waves are gone")?;
+    run.set_params(&[count as f32, SIDE as f32, 0.4, 0.0])?;
+    run.dispatch(count.div_ceil(WORKGROUP), 1, 1, true)?;
 
-        let edges_shader = Shader::compile(
-            ShaderKind::Pass,
-            include_str!("edges.wgsl"),
-        )?;
-        set_pass(
-            &camera,
-            Some(&edges_shader),
-            &[0.35, 0.75, 0.5, 0.0],
-        )?;
+    commands.insert_resource(Looks {
+        glowing,
+        field,
+        _waves: waves,
+    });
+    Ok(())
+}
 
-        Ok(Self {
-            at,
-            camera,
-            orbit,
-            lit,
-            glowing,
-            field_material,
-            _held: (
-                sun,
-                ground,
-                field,
-                vec![
-                    ring_shader,
-                    field_shader,
-                    waves_shader,
-                    edges_shader,
-                ],
-                lifts,
-                waves,
-                (pool, pool_picture),
-            ),
-        })
-    }
-
-    /// Answers what the person did: what the line over the view says
-    /// now, if it changed.
-    fn answer(&mut self, input: SceneInput) -> Option<String> {
-        match input {
-            SceneInput::Over(hit) => {
-                self.light(hit.key, hit.index, true);
-                None
-            }
-            SceneInput::Out((key, index)) => {
-                self.light(key, index, false);
-                None
-            }
-            SceneInput::Click(hit) => Some(match hit.key {
-                FIELD => format!("Clicked cube {}", hit.index),
-                key => {
-                    let name = self
-                        .lit
-                        .iter()
-                        .find(|lit| lit.key == key)
-                        .map_or("something", |lit| lit.name);
-                    format!("Clicked {name}")
-                }
-            }),
-            SceneInput::Pressed(press) => {
-                if press.button == MouseButton::Primary {
-                    self.orbit.dragging = press.down;
-                }
-                None
-            }
-            SceneInput::Moved(pointer) if self.orbit.dragging => {
-                self.orbit.yaw =
-                    (self.orbit.yaw - pointer.dx * 0.01) % TAU;
-                self.orbit.pitch = (self.orbit.pitch
-                    + pointer.dy * 0.01)
-                    .clamp(0.05, FRAC_PI_2 - 0.05);
-                self.at.set_transform(self.orbit.transform());
-                None
-            }
-            SceneInput::Turned(wheel) => {
-                self.orbit.distance = (self.orbit.distance
-                    * (1.0 - wheel.y * 0.1))
-                    .clamp(4.0, 60.0);
-                self.at.set_transform(self.orbit.transform());
-                None
-            }
-            _ => None,
-        }
-    }
-
-    /// Lights the shape or cube of `key` and `index` up, or puts it
-    /// back.
-    fn light(&self, key: u32, index: u32, on: bool) {
-        if key == FIELD {
-            let at = on.then_some(index);
-            let _ =
-                set_params(&self.field_material, &field_params(at));
-            return;
-        }
-        if let Some(lit) = self.lit.iter().find(|lit| lit.key == key)
-        {
+/// Lights the shape or cube under the pointer up, and puts the one
+/// it left back.
+fn light_up(
+    mut commands: Commands,
+    mut over: MessageReader<SceneOver>,
+    mut out: MessageReader<SceneOut>,
+    lit: Query<&Lit>,
+    field: Query<(), With<Field>>,
+    looks: Option<Res<Looks>>,
+    assets: Res<SceneAssets>,
+) {
+    let Some(looks) = looks else {
+        return;
+    };
+    let changes =
+        out.read().map(|out| (out.entity, out.index, false)).chain(
+            over.read()
+                .map(|over| (over.0.entity, over.0.index, true)),
+        );
+    for (entity, index, on) in changes {
+        if field.contains(entity) {
+            let _ = assets.set_params(
+                &looks.field,
+                &field_params(on.then_some(index)),
+            );
+        } else if let Ok(lit) = lit.get(entity) {
             let material =
-                if on { &self.glowing } else { &lit.material };
-            lit.entity.draw(&lit.mesh, material);
+                if on { &looks.glowing } else { &lit.material };
+            commands
+                .entity(entity)
+                .insert(MeshMaterial3d(material.clone()));
         }
     }
 }
 
-impl Lit {
-    fn make(
-        key: u32,
-        name: &'static str,
-        at: (f32, f32, f32),
-        mesh: Mesh,
-        material: Material,
-    ) -> Result<Self, String> {
-        let entity = Entity::make(None, key)?;
-        entity.set_transform(Transform::at(at));
-        entity.draw(&mesh, &material);
-        entity.watch(true, true);
-        Ok(Self {
-            key,
-            name,
-            entity,
-            mesh,
-            material,
-        })
+fn name_clicks(
+    mut clicks: MessageReader<SceneClick>,
+    lit: Query<&Lit>,
+    field: Query<(), With<Field>>,
+    mut said: ResMut<Said>,
+) {
+    for click in clicks.read() {
+        let hit = click.0;
+        said.0 = if field.contains(hit.entity) {
+            format!("Clicked cube {}", hit.index)
+        } else {
+            let name = lit
+                .get(hit.entity)
+                .map_or("something", |lit| lit.name);
+            format!("Clicked {name}")
+        };
+    }
+}
+
+/// Turns the camera about the middle as the pointer drags, and brings
+/// it nearer as the wheel turns.
+fn turn(
+    mut presses: MessageReader<ScenePress>,
+    mut pointers: MessageReader<ScenePointer>,
+    mut wheels: MessageReader<SceneWheel>,
+    mut orbit: ResMut<Orbit>,
+    mut camera: Query<&mut Transform, With<SceneCamera>>,
+) {
+    let before = (orbit.yaw, orbit.pitch, orbit.distance);
+    for press in presses.read() {
+        if press.button == MouseButton::Primary {
+            orbit.dragging = press.down;
+        }
+    }
+    for pointer in pointers.read() {
+        if orbit.dragging {
+            orbit.yaw = (orbit.yaw - pointer.dx * 0.01) % TAU;
+            orbit.pitch = (orbit.pitch + pointer.dy * 0.01)
+                .clamp(0.05, FRAC_PI_2 - 0.05);
+        }
+    }
+    for wheel in wheels.read() {
+        orbit.distance =
+            (orbit.distance * (1.0 - wheel.y * 0.1)).clamp(4.0, 60.0);
+    }
+    if before != (orbit.yaw, orbit.pitch, orbit.distance)
+        && let Ok(mut camera) = camera.single_mut()
+    {
+        *camera = orbit.transform();
     }
 }
 
@@ -439,11 +437,11 @@ fn field_places() -> Vec<Transform> {
     (0..SIDE * SIDE)
         .map(|at| {
             let (x, z) = ((at % SIDE) as f32, (at / SIDE) as f32);
-            Transform::at((
+            Transform::from_xyz(
                 (x - middle) * 0.6,
                 0.2,
                 (z - middle) * 0.6 + 8.0,
-            ))
+            )
         })
         .collect()
 }

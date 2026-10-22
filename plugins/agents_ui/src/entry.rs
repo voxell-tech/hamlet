@@ -2,11 +2,11 @@
 //! steps, in the reader of a past session, and for a reply that
 //! failed, with Try again.
 
-use hamlet_engine_sdk::AgentsRequest;
-use hamlet_engine_sdk::api::agents::{
+use hamlet_engine_bevy::AgentsRequest;
+use hamlet_engine_bevy::api::agents::{
     Entry, Recipient, SessionMessage,
 };
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::ui::{
     AnyView, ButtonStyle, Face, FrameProps, Size, Space, Tone, UiExt,
     ViewExt, button, column, label, row,
 };

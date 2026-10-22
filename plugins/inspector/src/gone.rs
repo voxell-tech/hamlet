@@ -1,15 +1,17 @@
 //! The page of an agent that is gone, and of the library.
 
 use agents_ui::{
-    AgentsWorldExt, Confirm, breadcrumb, library_list, moved, short,
+    AgentsWorldExt, Confirm, Rostered, breadcrumb, library_list,
+    moved, short,
 };
-use hamlet_engine_sdk::api::agents::{
-    AgentsRequest, Roster, RosterAgent, Selected,
+use hamlet_engine_bevy::api::agents::{
+    AgentsRequest, RosterAgent, Selected,
 };
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::prelude::World;
+use hamlet_engine_bevy::ui::{
     AnyView, ButtonProps, ButtonStyle, FrameProps, Space, Tone,
-    UiExt, ViewExt, World, column, derived, icon, icon_button, keyed,
-    label, row, scroll,
+    UiExt, ViewExt, column, derived, icon, icon_button, keyed, label,
+    row, scroll,
 };
 
 use crate::{HAMLETS, PURPOSE, agent_named, select};
@@ -94,14 +96,15 @@ pub(crate) fn gone(name: String) -> AnyView {
         derived(move |world: &World| {
             let agent = agent_named(world, &name)?.clone();
             let of = world
-                .resource::<Roster>()
+                .resource::<Rostered>()
+                .0
                 .hamlets
                 .iter()
                 .find(|hamlet| hamlet.id == agent.hamlet)
                 .map(|hamlet| hamlet.title.clone());
             Some((agent, of))
         })
-        .when(moved::<Roster>()),
+        .when(moved::<Rostered>()),
         |agent| match agent {
             Some(agent) => page(agent),
             None => column(()).boxed(),

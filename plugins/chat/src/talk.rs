@@ -5,11 +5,11 @@
 use std::collections::HashMap;
 
 use agents_ui::{AgentsWorldExt, Focused, Heard};
-use hamlet_engine_sdk::World;
-use hamlet_engine_sdk::api::agents::{
+use hamlet_engine_bevy::api::agents::{
     AgentsEvent, AgentsReply, AgentsRequest, Related, SessionMessage,
     SessionName,
 };
+use hamlet_engine_bevy::prelude::*;
 
 use crate::bar::{Draft, Replying};
 use crate::timeline::{Reach, Unfolded};
@@ -18,7 +18,7 @@ use crate::timeline::{Reach, Unfolded};
 const MOST: u32 = 200;
 
 /// The chat's sessions and what was said in them.
-#[derive(Default)]
+#[derive(Resource, Default)]
 pub struct Talk {
     /// The open session the rest was asked for.
     pub open: Option<SessionName>,
@@ -76,15 +76,15 @@ pub fn follow(world: &mut World) {
     // Talking to someone else brings the chat to the front, and
     // what the next message replied to is let go.
     if was.is_some() {
-        hamlet_engine_sdk::ui::open(crate::CHAT);
+        hamlet_engine_bevy::ui::open(crate::CHAT);
         world.resource_mut::<Replying>().0 = None;
     }
-    world.insert(Talk {
+    world.insert_resource(Talk {
         open: open.clone(),
         ..Talk::default()
     });
-    world.insert(Reach::default());
-    world.insert(Unfolded::default());
+    world.insert_resource(Reach::default());
+    world.insert_resource(Unfolded::default());
     if open.is_some() {
         world.ask(AgentsRequest::Related);
     }
@@ -94,7 +94,7 @@ pub fn follow(world: &mut World) {
 pub fn heard(world: &mut World, heard: &Heard) {
     match heard {
         Heard::Reply(_, AgentsReply::Related(related)) => {
-            let talk = world.resource_mut::<Talk>();
+            let mut talk = world.resource_mut::<Talk>();
             talk.related.clone_from(related);
             talk.said.retain(|session, _| {
                 related.iter().any(|one| one.session.name == *session)
@@ -112,7 +112,7 @@ pub fn heard(world: &mut World, heard: &Heard) {
             Some(AgentsRequest::Messages { session, .. }),
             AgentsReply::Messages(said),
         ) => {
-            let talk = world.resource_mut::<Talk>();
+            let mut talk = world.resource_mut::<Talk>();
             if talk
                 .related
                 .iter()
@@ -147,11 +147,11 @@ pub fn heard(world: &mut World, heard: &Heard) {
                 if world.resource::<Talk>().open.as_ref()
                     == Some(session)
                 {
-                    hamlet_engine_sdk::ui::open(crate::CHAT);
+                    hamlet_engine_bevy::ui::open(crate::CHAT);
                 }
                 return world.ask(messages(session.clone()));
             }
-            let talk = world.resource_mut::<Talk>();
+            let mut talk = world.resource_mut::<Talk>();
             for message in said {
                 talk.take(session, message.clone());
             }

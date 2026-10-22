@@ -3,7 +3,8 @@
 //! library), and the views of a message, a change, a card of
 //! questions, a confirmation, Markdown, the controls of a limit, a
 //! breadcrumb and the rows of a list. It is a library the panels'
-//! plugins are built with, not a plugin of its own.
+//! plugins are built with, not a plugin of its own: each adds
+//! [`plugin`].
 
 mod breadcrumb;
 mod change;
@@ -21,8 +22,8 @@ mod words;
 pub use crate::breadcrumb::breadcrumb;
 pub use crate::change::{Changes, change_view};
 pub use crate::client::{
-    AgentsWorldExt, Asked, Focused, Heard, Shelves, Waits, show_chat,
-    start,
+    AgentsWorldExt, Asked, Focused, Heard, Rostered, Shelves, Waits,
+    plugin, show_chat, start,
 };
 pub use crate::confirm::{
     CONFIRM, Confirm, Confirming, confirmation,

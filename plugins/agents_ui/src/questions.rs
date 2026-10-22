@@ -4,9 +4,9 @@
 //! picked is kept by the agents service, so every panel showing the
 //! card shows the same.
 
-use hamlet_engine_sdk::AgentsRequest;
-use hamlet_engine_sdk::api::agents::{Choice, Need, Pick};
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::AgentsRequest;
+use hamlet_engine_bevy::api::agents::{Choice, Need, Pick};
+use hamlet_engine_bevy::ui::{
     AnyView, ButtonProps, ButtonStyle, FrameProps, Size, Space, Tone,
     UiExt, ViewExt, button, column, field, icon, label, pressable,
     row,

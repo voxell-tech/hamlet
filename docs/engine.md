@@ -34,7 +34,8 @@ Each depends only on those above it, and each adds one Bevy plugin,
 | `engine/wasm` | `hamlet_engine_wasm` | The host of WASM plugins: wasmtime, a store per plugin, its budgets, and the glue from the WIT to the services. The only crate that knows wasmtime |
 | `engine/harness` | `hamlet_engine_harness` | The engine without a window, for tests, and `plugin_check` |
 | `engine/app` | `hamlet_engine` | The binary, and a demo plugin built into it |
-| `engine/sdk` | `hamlet_engine_sdk` | What a plugin is written with, built for `wasm32-wasip2` |
+| `engine/bevy_sdk` | `hamlet_engine_bevy` | What a plugin is written with, as a Bevy plugin, built for `wasm32-wasip2` |
+| `engine/sdk` | `hamlet_engine_sdk` | The first SDK, its own `Plugin` trait, kept for the realm for now |
 
 The agent core is in `engine/` too, under its old crate names, so the
 engine runs it without reaching into `crates/`; the app in `crates/`
@@ -105,11 +106,11 @@ same types.
   mismatch, out of budget, failed). The other messages are `Changed`
   and `Gone` for an asset held, and `Event`.
 - **What a plugin adds** is a `Contribution` each: a panel (with an
-  icon for its tab or none, `panel_with_icon` in the SDK, and a
+  icon for its tab or none, `panel_icon` after it in the SDK, and a
   `PanelPadding` in place of the theme's, a role of the theme's
-  `Space` or pixels, `padding(Space::None)` or `padding_pixels(..)`
-  after it; the engine refuses a panel whose pixels are below zero or
-  not finite), a command,
+  `Space` or pixels, `panel_padding(Space::None)` or
+  `panel_padding_pixels(..)` after it; the engine refuses a panel
+  whose pixels are below zero or not finite), a command,
   a menu entry, a shortcut, a settings page (with its icon and a line
   on what it holds), a settings footer, a suggested workspace, a
   status item (one that grows or not), an overlay or a panel section
@@ -211,30 +212,105 @@ types, so the WIT names nothing twice.
 
 ## Writing a plugin
 
-`hamlet_engine_sdk` is the guest crate. A plugin is a type with
-`Default` that implements `Plugin`, exported with
-`hamlet_engine_sdk::export!`: `declare` fills an `Entry` with what it
-adds, `mount` gives the view of a panel or settings page, and `run`,
-`save`, `restore`, `receive` and `serve` have defaults that do
-nothing. Each is given the plugin's `World`, so a command, a message
-or a call served can change what its views show. `info`, `warn` and
-`error` reach the host; `assets::create`, `read`, `update`, `delete`,
-`list`, `hold` and `release`, `call`, `subscribe`, `emit`, `fetch`,
-`agents` and `desktop` make requests, and `encode` and `decode` turn the
-payloads it shares into bytes. `ENGINE_VERSION` is the version of
-the engine the SDK comes with.
+`hamlet_engine_bevy` (`engine/bevy_sdk`) is the guest crate, and a
+plugin depends on it alone. A plugin is an ordinary Bevy `Plugin`
+with `Default`, exported with `hamlet_engine_bevy::export!`. The
+macro runs one Bevy `App` in the plugin's sandbox, with `bevy_app`,
+`bevy_ecs`, `bevy_math`, `bevy_time` and `bevy_transform`, no
+rendering and the single-threaded executor, and drives it through the
+WIT. The prelude names `bevy_ecs` for the derives of `Component`,
+`Resource`, `Event` and `Message`, so a module that derives them uses
+`hamlet_engine_bevy::prelude::*`. `info`, `warn` and `error` reach the
+host, `encode` and `decode` turn the payloads it shares into bytes,
+and `ENGINE_VERSION` is the version of the engine the SDK comes with.
 
-- **Scenes** are `hamlet_engine_sdk::scene`: the handles of the
-  `scene` interface, `Transform::looking_at`, `Pbr::colored`, the
-  default `CameraSettings`, `copies` for instances, `animate`, the
-  view `viewport`, and `scene::gpu` for shaders, buffers, textures,
-  compute and passes. What the person does in a view comes to
-  `Plugin::scene`, and each frame while it animates to `Plugin::tick`
+```rust
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::ui::{button, column, label, resource, UiExt};
+
+#[derive(Default)]
+struct Hello;
+
+#[derive(Resource, Default, serde::Serialize, serde::Deserialize)]
+struct Count(u32);
+
+impl Plugin for Hello {
+    fn build(&self, app: &mut App) {
+        app.init_saved_resource::<Count>()
+            .add_panel("hello", "Hello", hello)
+            .panel_icon("star")
+            .add_command("reset", "Reset", |mut count: ResMut<Count>| {
+                count.0 = 0;
+            })
+            .add_menu_entry("Hello", "reset");
+    }
+}
+
+fn hello() -> AnyView {
+    column((
+        label(resource::<Count, _>(|count| count.0.to_string())),
+        button("Add one").on_click(|world| world.resource_mut::<Count>().0 += 1),
+    ))
+    .boxed()
+}
+
+hamlet_engine_bevy::export!(Hello);
+```
+
+- **The app** is built by `build` on the plugin's first call.
+  `Declare` is a schedule run once as the engine starts the plugin and
+  asks what it adds, before it is on: for the requests it makes as it
+  starts, such as a watch or a subscription. Its scenes cannot be
+  made there. `Startup` runs on the first call after it. Every call
+  then runs `app.update()` once: `run` after `RunCommand` is
+  triggered for the command and its system ran, `receive` after its
+  messages are written, `serve` after the service's system, the
+  panels' `input` after their handlers, and `mount` before and after
+  it builds a view. `tick` moves `Time` on by its micros, and so does
+  `frame` while the plugin does not `Animate`.
+- **What it adds** is declared on the `App` with `HamletAppExt`:
+  `add_panel` (then `panel_icon`, and `panel_padding` or
+  `panel_padding_pixels`, for that panel), `add_settings_page`,
+  `add_settings_footer`, `add_overlay` and `add_panel_section`, each
+  with a system that returns the view; `add_command` with the system
+  it runs; `add_menu_entry`, `add_shortcut`, `add_workspace`,
+  `add_status_item` and `add_growing_status_item` (one that takes the
+  room left on the line); `add_service` with a system given an
+  `In<ServiceCall>`; and `add_subscription` to an event of another
+  plugin as it starts. `declare` and `add_view` add any contribution.
+- **Requests** are made with `HostExt` on `Commands` or the `World`:
+  `create_asset`, `read_asset`, `update_asset`, `delete_asset`,
+  `list_assets`, `hold_asset` and `release_asset`, `call`,
+  `subscribe`, `emit`, `fetch`, `agents` and `desktop`, each giving a
+  ticket. What comes back is a message: `Replied` with the ticket,
+  `AgentsEventReceived` and `DesktopEventReceived` for a watch,
+  `AssetChanged`, `AssetGone` and `EventReceived`. Each kind is read
+  on its own, so what came in one call is not in the order it came
+  across kinds.
+- **Scenes** are components of the plugin's entities. An entity with
+  a `Transform` is an entity of the scene; `Mesh3d`,
+  `MeshMaterial3d`, `ForwardDecal` (laying its `MeshMaterial3d`, a
+  decal's, from `Material::decal` or `add_decal_material`),
+  `SceneLight`, `Shadows`, `SceneLabel`, `Pickable`, `SceneCamera`
+  and `PostPass` on it, `ChildOf` for its parent, and
+  `Instances` on an entity of its own are sent in `PostUpdate` as they
+  change, and only then. `SceneKey` names an entity for the engine.
+  Meshes, materials, shaders, buffers, textures and compute are made
+  with the WIT's own makes and kept in `SceneAssets` while a clone of
+  their `Handle` is held; after the last is dropped the asset is let
+  go in `Last`, and the engine takes it away once nothing draws with
+  it. Despawning an entity takes it away in the engine. What the
+  person does over a view comes as `SceneOver`, `SceneOut`,
+  `SceneClick`, `ScenePointer`, `ScenePress`, `SceneWheel` and
+  `SceneResize`, and `viewport(camera)` shows a camera in a panel
   (see [Scenes and GPU work](#scenes-and-gpu-work)).
-- **Views** are written with fynix (`hamlet_engine_sdk::ui`). `Hamlet`
-  is fynix's backend: a node is made in the engine as fynix spawns
-  it, of the kind of its element, and a property still at its first
-  value is not sent. The elements are `label` (and `heading`),
+- **Views** are written with fynix (`hamlet_engine_bevy::ui`) over the
+  plugin's Bevy `World`. `Hamlet` is fynix's backend: a node is made
+  in the engine as fynix spawns it, of the kind of its element, and a
+  property still at its first value is not sent. A view is built each
+  time its panel or page is shown, from the world as it is, and
+  `resource` and `component` signals read the world by Bevy's change
+  ticks. The elements are `label` (and `heading`),
   `button`, `icon_button` (an icon and a label in a button), `icon`,
   `toggle` (and `switch`, one with words beside it), `field`,
   `dropdown`, `divider`, and the holders `column`,
@@ -242,9 +318,10 @@ the engine the SDK comes with.
   the room left; `keyed` builds a view again when its
   key changes, and `each` a view per item of a list. `on_click`,
   `on_toggle`, `on_commit`, `on_submit`, `on_pick` and `on_top` run a
-  handler
-  with the world, a node holding as many as it is given, and `when::<Hovered, _>` and `when::<Pressed, _>` hold rules
-  while the engine says so. `tip` gives a view words shown near the
+  handler with the whole world, so it can change resources, make
+  requests or trigger observers; a node holds as many as it is given.
+  `when::<Hovered, _>` and `when::<Pressed, _>` hold rules while the
+  engine says so. `tip` gives a view words shown near the
   pointer while it rests on it, and `menu` (on a right-click) and
   `menu_on_click` (on a click too) a menu of `menu_item`s, each
   running a handler when it is chosen, `under` a group or `critical`.
@@ -252,19 +329,18 @@ the engine the SDK comes with.
   folder in the system's dialog. `leads_to` gives a view an address that
   the plugin tells the desktop service of (`Hover`) while the pointer
   is over it, so the status line shows it. `set_status`,
-  `show_overlay`, `set_section` and `open` change what the plugin added outside its
-  views; `Entry::growing_status_item` adds a status item that takes
-  the room left on the line, and `Entry::panel_section` a section of
-  an engine panel.
-  `transition` hands each change of a tone, size, opacity, space or
-  offset to the engine with its motion, once, and the engine moves it
-  over its own theme's curve; the plugin is not called each frame for
-  it.
-- **The `World`** holds the plugin's resources, which `resource`
-  signals read: `insert`, `init_resource`, `resource`,
-  `resource_mut`, `resource_or_init` and `get`. What a call changes
-  in it is shown once the call ends. `mount` builds a view each time
-  the panel or page is shown, from the world as it is.
+  `show_overlay`, `set_section` and `open` change what the plugin
+  added outside its views. `transition` hands each change of a tone,
+  size, opacity, space or offset to the engine with its motion, once,
+  and the engine moves it over its own theme's curve; the plugin is
+  not called each frame for it. What a call changes is shown once the
+  call ends.
+- **Saved across a reload**: each resource added with
+  `init_saved_resource`, a serde type, is saved by the running version
+  and restored into the next before its `Startup`. A plugin derives
+  serde's traits with serde as a dependency of its own, or with the
+  SDK's `hamlet_engine_bevy::serde` and
+  `#[serde(crate = "hamlet_engine_bevy::serde")]`.
 - **The system.** A plugin is given WASI 0.2 that grants nothing but
   the wall and monotonic clocks and randomness, so the standard
   library's `Instant`, `SystemTime` and `HashMap` work. What it prints
@@ -273,6 +349,20 @@ the engine the SDK comes with.
   or lookups; the network is `fetch`.
 - **A built plugin** is a folder with its `plugin.toml` and its
   component, `plugin.wasm`.
+
+### The first SDK
+
+`hamlet_engine_sdk` (`engine/sdk`) is kept only for the realm, for
+now, and goes once the realm is a Bevy plugin too. There a plugin is
+a type with `Default` that implements the SDK's own `Plugin` trait,
+exported with `hamlet_engine_sdk::export!`: `declare` fills an
+`Entry` with what it adds, `mount` gives the view of a panel or
+settings page, and `run`, `save`, `restore`, `receive`, `serve`,
+`scene` and `tick` have defaults that do nothing. Each is given a
+`World` of the plugin's resources, its views are the same fynix
+views, and its scenes are the WIT's handles, held by the plugin
+(`hamlet_engine_sdk::scene`). The samples under `engine/samples` are
+written with it.
 
 `engine/samples/hello` is a panel with a button and a count of its
 presses, a resource of its world, and a command in its own menu and
@@ -1030,9 +1120,11 @@ in Rust, such as the demo, and from those the person installs.
 
 - **The folder.** `plugins/` at the repository root is a cargo
   workspace of its own, left out of the root's, with one release
-  profile for small builds. Each plugin is a crate `plugins/<name>/`,
-  named as its folder, with its `plugin.toml`, depending on
-  `hamlet_engine_sdk` by path.
+  profile for small builds (`opt-level = "z"`, which takes a fifth off
+  a plugin built with Bevy). Each plugin
+  is a crate `plugins/<name>/`, named as its folder, with its
+  `plugin.toml`, depending on `hamlet_engine_bevy` by path, and the
+  realm on `hamlet_engine_sdk`.
 - **The script.** `scripts/build_plugins.sh` checks that the
   `wasm32-wasip2` target is installed, and says how to add it if not;
   builds the workspace with `cargo build --release --target
@@ -1132,8 +1224,8 @@ through the material that draws them (`field.wgsl`), with a pass that
 darkens the view's edges (`edges.wgsl`). Dragging turns the camera
 about the middle and the wheel brings it nearer; the shape or cube
 under the pointer lights up, and a click names what it hit over the
-view. Its `steps.toml` counts the scene and its decal, and clicks a
-shape and a cube.
+view. Where its camera is stays across a reload. Its `steps.toml`
+counts the scene and its decal, and clicks a shape and a cube.
 
 `plugins/realm` (`hamlet.realm`, asking `agents.read`, `agents.chief`,
 `render.scene` and `render.shader`) is the realm, drawn in its panel,
@@ -1188,9 +1280,11 @@ Its tuning is `assets/world.toml` and `assets/palette.toml`, built in.
 
 The agents' panels are four more, each following the focus the
 agents service keeps, so what one opens or selects the others show.
-They are built with `plugins/agents_ui`, a library and no plugin: the
-service as the panels read it (`start`, `ask` and `hear`, keeping the
-focus, the roster, the needs and the library's skills as resources),
+They are built with `plugins/agents_ui`, a library and no plugin of
+its own: the service as the panels read it (its `plugin`, which hears
+each reply and event in `PreUpdate`, keeps the focus, the roster, the
+needs and the library's skills as resources and writes what it heard
+as a `Heard` message; `start`, a system for `Declare`; and `ask`),
 a message, a change, the card of an agent's questions, Markdown as
 labels can set it (headings, paragraphs, items, quotes, code and
 rules; a link is its words, and each `https` link is a button under

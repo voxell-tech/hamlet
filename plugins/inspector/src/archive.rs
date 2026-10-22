@@ -6,12 +6,13 @@ use agents_ui::{
     AgentsWorldExt, Focused, Heard, breadcrumb, clip, entry_view,
     link_row, link_rows, name, show_chat, since,
 };
-use hamlet_engine_sdk::api::agents::{
+use hamlet_engine_bevy::api::agents::{
     AgentsReply, AgentsRequest, Past, Pasts, SessionMessage,
 };
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::ui::{
     AnyView, ButtonProps, ButtonStyle, Cx, FrameProps, Size, Space,
-    Tone, UiExt, ViewExt, World, button, column, divider, field,
+    Tone, UiExt, ViewExt, button, column, divider, field,
     icon_button, keyed, label, menu_item, resource, row, scroll,
 };
 
@@ -24,6 +25,10 @@ const CRUMB_SHOWN: usize = 40;
 /// Messages of a session built at a time.
 const PAGE: usize = 40;
 
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<Archive>();
+}
+
 /// The session open in the reader.
 #[derive(Clone, PartialEq, Debug)]
 struct Reading {
@@ -35,7 +40,7 @@ struct Reading {
 }
 
 /// The state of the archive.
-#[derive(Default)]
+#[derive(Resource, Default)]
 pub(crate) struct Archive {
     query: String,
     pasts: Pasts,
@@ -48,13 +53,9 @@ pub(crate) struct Archive {
     asked: bool,
 }
 
-pub(crate) fn prepare(world: &mut World) {
-    world.init_resource::<Archive>();
-}
-
 /// Lists the past sessions again, as the search has it.
 pub(crate) fn refresh(world: &mut World) {
-    let archive = world.resource_mut::<Archive>();
+    let mut archive = world.resource_mut::<Archive>();
     archive.asked = true;
     let query = archive.query.clone();
     world.ask(AgentsRequest::Pasts { query });
@@ -62,7 +63,7 @@ pub(crate) fn refresh(world: &mut World) {
 
 /// Starts afresh for another conversation.
 pub(crate) fn forget(world: &mut World) {
-    world.insert(Archive::default());
+    world.insert_resource(Archive::default());
 }
 
 pub(crate) fn heard(world: &mut World, heard: &Heard) {
@@ -75,7 +76,7 @@ pub(crate) fn heard(world: &mut World, heard: &Heard) {
         ) if world.resource::<Archive>().asked
             && *query == world.resource::<Archive>().query =>
         {
-            let archive = world.resource_mut::<Archive>();
+            let mut archive = world.resource_mut::<Archive>();
             archive.pasts = pasts.clone();
             // One that is gone is not read on.
             if let Some(reading) = &archive.reading
@@ -88,7 +89,7 @@ pub(crate) fn heard(world: &mut World, heard: &Heard) {
             }
         }
         Heard::Failed(Some(AgentsRequest::ReadPast(name)), why) => {
-            let archive = world.resource_mut::<Archive>();
+            let mut archive = world.resource_mut::<Archive>();
             if archive
                 .reading
                 .as_ref()
@@ -161,7 +162,7 @@ fn count(archive: &Archive) -> String {
 
 /// Opens `past` in the reader.
 fn open(world: &mut World, past: &Past) {
-    let archive = world.resource_mut::<Archive>();
+    let mut archive = world.resource_mut::<Archive>();
     archive.failed = None;
     archive.doomed = false;
     archive.reading = Some(Reading {
@@ -174,7 +175,7 @@ fn open(world: &mut World, past: &Past) {
 
 /// Closes the reader.
 fn close(world: &mut World) {
-    let archive = world.resource_mut::<Archive>();
+    let mut archive = world.resource_mut::<Archive>();
     archive.reading = None;
     archive.doomed = false;
 }

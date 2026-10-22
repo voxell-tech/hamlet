@@ -7,4 +7,4 @@ description = "What the agents' panels share: the agents service as they read it
 publish = false
 
 [dependencies]
-hamlet_engine_sdk.workspace = true
+hamlet_engine_bevy.workspace = true

@@ -1,18 +1,27 @@
 //! The form a hamlet is founded with, on a card over the dock.
 
 use agents_ui::AgentsWorldExt;
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::ui::{
     AnyView, ButtonStyle, Face, FrameProps, Size, Space, Tone, UiExt,
-    ViewExt, World, button, column, field, label, resource, row,
+    ViewExt, button, column, field, label, resource, row,
     show_overlay,
 };
+use serde::{Deserialize, Serialize};
 
 /// The name of the form's overlay, and of the command that shows it.
 pub(crate) const FOUND: &str = "found";
 
+/// What is typed in the form is kept across a reload.
+pub(crate) fn plugin(app: &mut App) {
+    app.init_saved_resource::<Founding>();
+}
+
 /// The name of a hamlet being founded, the name of its mayor, and its
 /// purpose.
-#[derive(Default, Clone, PartialEq)]
+#[derive(
+    Resource, Default, Clone, PartialEq, Serialize, Deserialize,
+)]
 pub(crate) struct Founding {
     pub(crate) name: String,
     pub(crate) mayor: String,
@@ -38,10 +47,6 @@ impl Founding {
     }
 }
 
-pub(crate) fn prepare(world: &mut World) {
-    world.init_resource::<Founding>();
-}
-
 /// Shows the form, with what was typed in it before.
 pub(crate) fn open() {
     show_overlay(FOUND, true);
@@ -59,7 +64,7 @@ fn asks(
             read(founding).clone()
         }))
         .on_commit(move |world, text| {
-            write(world.resource_mut::<Founding>(), text)
+            write(&mut world.resource_mut::<Founding>(), text)
         }),
     ))
     .space(Space::None)
@@ -106,7 +111,7 @@ pub(crate) fn founding() -> AnyView {
                         return;
                     };
                     show_overlay(FOUND, false);
-                    world.insert(Founding::default());
+                    world.insert_resource(Founding::default());
                     world.tell(command);
                 },
             ),

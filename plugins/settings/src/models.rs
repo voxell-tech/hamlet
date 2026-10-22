@@ -2,10 +2,10 @@
 //! serve, for the person to allow and to price.
 
 use agents_ui::narrowed;
-use hamlet_engine_sdk::api::agents::{
+use hamlet_engine_bevy::api::agents::{
     AgentsRequest, CatalogueModel, Listing, Priced,
 };
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::ui::{
     AnyView, FrameProps, Size, Space, Tone, UiExt, ViewExt, button,
     column, dropdown, field, keyed, label, resource, row, switch,
 };
@@ -218,8 +218,8 @@ fn price(model: &CatalogueModel, input: bool) -> AnyView {
             };
             // Kept at once, so an edit of the other price before the
             // catalogue is told again sends this one with it.
-            let Some(model) = world
-                .resource_mut::<Known>()
+            let mut known = world.resource_mut::<Known>();
+            let Some(model) = known
                 .models
                 .iter_mut()
                 .find(|model| model.name == name)

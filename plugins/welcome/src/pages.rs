@@ -1,8 +1,11 @@
 //! The pages of the card, one for each step.
 
 use agents_ui::{name, narrowed, note};
-use hamlet_engine_sdk::api::agents::{AgentsRequest, SignInTo};
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::api::agents::{
+    AgentsRequest, Provider, SignInTo,
+};
+use hamlet_engine_bevy::prelude::World;
+use hamlet_engine_bevy::ui::{
     AnyView, ButtonProps, ButtonStyle, Face, FrameProps, Size, Space,
     Tone, UiExt, ViewExt, button, column, field, icon, icon_button,
     keyed, label, resource, row,
@@ -73,7 +76,7 @@ fn door(
     which: &str,
     text: &str,
     means: &str,
-    open: impl Fn(&mut hamlet_engine_sdk::World) + Send + Sync + 'static,
+    open: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
     column((
         row((icon_button(which.to_string(), text.to_string())
@@ -182,10 +185,7 @@ fn key() -> AnyView {
 
 /// The provider's key, and for an address of the person's own, the
 /// address.
-fn key_form(
-    chosen: usize,
-    providers: &[hamlet_engine_sdk::api::agents::Provider],
-) -> AnyView {
+fn key_form(chosen: usize, providers: &[Provider]) -> AnyView {
     let names = providers
         .iter()
         .map(|provider| provider.name.to_uppercase())
@@ -200,7 +200,7 @@ fn key_form(
             button(name)
                 .style(style)
                 .on_click(move |world| {
-                    let welcome = world.resource_mut::<Welcome>();
+                    let mut welcome = world.resource_mut::<Welcome>();
                     welcome.provider = at;
                     welcome.forget_problem();
                 })
@@ -262,7 +262,7 @@ fn key_form(
         row((icon_button("check", "CONNECT")
             .style(ButtonStyle::Primary)
             .on_click(move |world| {
-                let welcome = world.resource_mut::<Welcome>();
+                let mut welcome = world.resource_mut::<Welcome>();
                 // The key goes to the service, which keeps it.
                 let key = std::mem::take(&mut welcome.key);
                 let url = welcome.url.clone();

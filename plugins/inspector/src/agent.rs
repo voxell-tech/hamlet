@@ -3,20 +3,28 @@
 //! conversation, which selecting an agent opens.
 
 use agents_ui::{
-    AgentsWorldExt, Focused, Heard, breadcrumb, either, markdown,
-    moved, short,
+    AgentsWorldExt, Focused, Heard, Rostered, breadcrumb, either,
+    markdown, moved, short,
 };
-use hamlet_engine_sdk::api::agents::{
+use hamlet_engine_bevy::api::agents::{
     AgentsEvent, AgentsReply, AgentsRequest, CatalogueModel, Papers,
-    Recipient, Roster, Selected,
+    Recipient, Selected,
 };
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::ui::{
     AnyView, ButtonProps, ButtonStyle, FrameProps, Size, Space, Tone,
-    UiExt, ViewExt, World, button, column, derived, divider,
-    dropdown, icon, icon_button, keyed, label, resource, row, scroll,
+    UiExt, ViewExt, button, column, derived, divider, dropdown, icon,
+    icon_button, keyed, label, resource, row, scroll,
 };
 
 use crate::{HAMLETS, PURPOSE, agent_named, archive, more, select};
+
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<Shown>()
+        .init_resource::<AgentPapers>()
+        .init_resource::<Briefing>()
+        .init_resource::<Models>();
+}
 
 /// The part of the agent the page shows.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -38,7 +46,7 @@ const TABS: [(Tab, &str); 3] = [
 ];
 
 /// The tab shown, and the one the prompt goes back to.
-#[derive(Default)]
+#[derive(Resource, Default)]
 pub(crate) struct Shown {
     pub tab: Tab,
     back: Tab,
@@ -46,23 +54,20 @@ pub(crate) struct Shown {
     agent: Option<String>,
 }
 
+/// The papers of the agent of the open conversation.
+#[derive(Resource, Default, PartialEq)]
+pub(crate) struct AgentPapers(pub(crate) Papers);
+
 /// The prompt of the agent, as it was last read.
-#[derive(Default)]
+#[derive(Resource, Default)]
 struct Briefing(String);
 
 /// The models an agent may be given: the home's default and those it
 /// allows.
-#[derive(Default)]
+#[derive(Resource, Default)]
 pub(crate) struct Models {
     pub(crate) default: String,
     pub(crate) allowed: Vec<CatalogueModel>,
-}
-
-pub(crate) fn prepare(world: &mut World) {
-    world.init_resource::<Shown>();
-    world.init_resource::<Papers>();
-    world.init_resource::<Briefing>();
-    world.init_resource::<Models>();
 }
 
 /// Reads the papers again for the agent of the open conversation,
@@ -89,8 +94,8 @@ pub(crate) fn follow(world: &mut World) {
 /// Forgets what was read for the agent shown before `agent`.
 fn leave(world: &mut World, agent: Option<String>) {
     archive::forget(world);
-    world.insert(Papers::default());
-    world.insert(Briefing::default());
+    world.insert_resource(AgentPapers::default());
+    world.insert_resource(Briefing::default());
     world.resource_mut::<Shown>().agent = agent;
 }
 
@@ -111,13 +116,13 @@ pub(crate) fn heard(world: &mut World, heard: &Heard) {
     let shown = world.resource::<Shown>().agent.is_some();
     match heard {
         Heard::Reply(_, AgentsReply::Papers(papers)) if shown => {
-            world.keep(papers.clone());
+            world.keep(AgentPapers(papers.clone()));
         }
         Heard::Reply(_, AgentsReply::Prompt(text)) if shown => {
-            world.insert(Briefing(text.clone()));
+            world.insert_resource(Briefing(text.clone()));
         }
         Heard::Failed(Some(AgentsRequest::Prompt), why) => {
-            world.insert(Briefing(format!(
+            world.insert_resource(Briefing(format!(
                 "The prompt could not be read: {why}"
             )));
         }
@@ -144,7 +149,7 @@ pub(crate) fn heard(world: &mut World, heard: &Heard) {
 
 /// Shows `tab`, reading again what it shows.
 pub(crate) fn show(world: &mut World, tab: Tab) {
-    let shown = world.resource_mut::<Shown>();
+    let mut shown = world.resource_mut::<Shown>();
     if tab == Tab::Prompt && shown.tab != Tab::Prompt {
         shown.back = shown.tab;
     }
@@ -179,7 +184,7 @@ fn head_of(world: &World) -> Head {
     };
     let name = focus.open.agent.clone().unwrap_or_default();
     let agent = agent_named(world, &name);
-    let roster = world.resource::<Roster>();
+    let roster = &world.resource::<Rostered>().0;
     let hamlet = agent.and_then(|agent| {
         roster
             .hamlets
@@ -358,7 +363,9 @@ fn notes() -> AnyView {
         row((icon_button("page", "REFLECT NOW")
             .on_click(|world| world.tell("/reflect")),)),
         scroll((keyed(
-            resource::<Papers, _>(|papers| papers.notes.clone()),
+            resource::<AgentPapers, _>(|papers| {
+                papers.0.notes.clone()
+            }),
             |notes| {
                 if notes.trim().is_empty() {
                     label("No notes yet.").boxed()
@@ -378,7 +385,9 @@ fn character() -> AnyView {
             .on_click(|world| world.ask(AgentsRequest::EditCharacter))
             .tip("Opens the file in your editor"),)),
         scroll((keyed(
-            resource::<Papers, _>(|papers| papers.character.clone()),
+            resource::<AgentPapers, _>(|papers| {
+                papers.0.character.clone()
+            }),
             |character| {
                 if character.is_empty() {
                     label(
@@ -453,8 +462,10 @@ fn section() -> AnyView {
 pub(crate) fn living() -> AnyView {
     column((
         keyed(
-            derived(head_of)
-                .when(either(moved::<Focused>(), moved::<Roster>())),
+            derived(head_of).when(either(
+                moved::<Focused>(),
+                moved::<Rostered>(),
+            )),
             header,
         ),
         tabs(),

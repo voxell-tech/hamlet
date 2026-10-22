@@ -4,12 +4,14 @@
 use agents_ui::{
     AgentsWorldExt, Focused, Waits, card, either, moved,
 };
-use hamlet_engine_sdk::api::agents::{AgentsRequest, Need};
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::api::agents::{AgentsRequest, Need};
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::ui::{
     AnyView, ButtonProps, ButtonStyle, FrameProps, Size, Space, Tone,
-    UiExt, ViewExt, World, column, derived, field, icon, keyed,
-    label, pressable, resource, row,
+    UiExt, ViewExt, column, derived, field, icon, keyed, label,
+    pressable, resource, row,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::reply::{Answers, REPLY_CHARS, replied};
 use crate::timeline::{notice, refresh};
@@ -23,11 +25,11 @@ const NO_COMMANDS: &str = "Commands are not typed here. Use the \
 const LINES: u32 = 8;
 
 /// What is typed in the field and not yet sent.
-#[derive(Default)]
+#[derive(Resource, Default, Serialize, Deserialize)]
 pub struct Draft(pub String);
 
 /// The message the next one sent answers.
-#[derive(Default)]
+#[derive(Resource, Default, Serialize, Deserialize)]
 pub struct Replying(pub Option<Answers>);
 
 /// Has the next message reply to `text`, said by `by`.

@@ -4,12 +4,14 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use agents_ui::{AgentsWorldExt, Focused, hour, tag_of, titled};
-use hamlet_engine_sdk::World;
-use hamlet_engine_sdk::api::agents::{
+use agents_ui::{
+    AgentsWorldExt, Focused, Rostered, hour, tag_of, titled,
+};
+use hamlet_engine_bevy::api::agents::{
     Entry, Focus, Part, Recipient, Roster, SessionMessage,
     SessionName,
 };
+use hamlet_engine_bevy::prelude::*;
 
 use crate::reply::answers_of;
 use crate::talk::{Kept, Talk};
@@ -24,11 +26,11 @@ const PAGE: usize = 24;
 const NOTICES: usize = 16;
 
 /// The folds that are open, by their session and first message.
-#[derive(Default)]
+#[derive(Resource, Default)]
 pub struct Unfolded(pub Vec<(SessionName, u64)>);
 
 /// The rows of the chat that are built.
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Resource, Clone, Copy, PartialEq, Debug)]
 pub struct Reach(pub usize);
 
 impl Default for Reach {
@@ -155,7 +157,7 @@ pub struct Line {
 
 /// The chat as it is built, with everyone who speaks in it, the
 /// agent it is with first.
-#[derive(Clone, PartialEq, Debug, Default)]
+#[derive(Resource, Clone, PartialEq, Debug, Default)]
 pub struct Lines {
     pub rows: Vec<Line>,
     /// The rows before these that are not built.
@@ -404,10 +406,10 @@ fn answers(
 pub fn lines(world: &World) -> Lines {
     let (Some(focus), Some(roster), Some(talk)) = (
         world
-            .get::<Focused>()
+            .get_resource::<Focused>()
             .and_then(|focused| focused.0.as_ref()),
-        world.get::<Roster>(),
-        world.get::<Talk>(),
+        world.get_resource::<Rostered>().map(|rostered| &rostered.0),
+        world.get_resource::<Talk>(),
     ) else {
         return Lines::default();
     };
@@ -630,7 +632,8 @@ pub fn refresh(world: &mut World) {
 /// Puts a notice of the chat's own in it, now.
 pub fn notice(world: &mut World, text: &str) {
     let at = now();
-    let notices = &mut world.resource_mut::<Talk>().notices;
+    let mut talk = world.resource_mut::<Talk>();
+    let notices = &mut talk.notices;
     notices.push((at, text.to_string()));
     let over = notices.len().saturating_sub(NOTICES);
     notices.drain(..over);

@@ -2,9 +2,9 @@
 //! the network, whether the computer stays awake while they work, and
 //! the permissions they were given for good.
 
-use hamlet_engine_sdk::DesktopRequest;
-use hamlet_engine_sdk::api::agents::{AgentsRequest, Grant};
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::DesktopRequest;
+use hamlet_engine_bevy::api::agents::{AgentsRequest, Grant};
+use hamlet_engine_bevy::ui::{
     AnyView, ButtonStyle, FrameProps, Size, Space, UiExt, ViewExt,
     button, column, field, keyed, label, resource, row, toggle,
 };

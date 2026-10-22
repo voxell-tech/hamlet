@@ -1,8 +1,8 @@
 //! The Endpoints page: each place models come from, whether it has a
 //! key, and the way to add another.
 
-use hamlet_engine_sdk::api::agents::{AgentsRequest, Endpoint};
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::api::agents::{AgentsRequest, Endpoint};
+use hamlet_engine_bevy::ui::{
     AnyView, ButtonProps, ButtonStyle, FrameProps, Space, UiExt,
     ViewExt, button, column, icon_button, keyed, label, resource,
     row,

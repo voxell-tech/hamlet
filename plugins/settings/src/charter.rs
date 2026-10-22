@@ -2,8 +2,8 @@
 //! way to edit them, and the way back to the ones built in.
 
 use agents_ui::markdown;
-use hamlet_engine_sdk::api::agents::AgentsRequest;
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::api::agents::AgentsRequest;
+use hamlet_engine_bevy::ui::{
     AnyView, ButtonStyle, Face, FrameProps, Space, Tone, UiExt,
     ViewExt, button, column, divider, icon_button, keyed, label,
     resource, row,

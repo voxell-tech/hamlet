@@ -13,78 +13,68 @@ mod timeline;
 use agents_ui::{
     AgentsWorldExt, CONFIRM, Focused, Heard, confirmation, start,
 };
-use hamlet_engine_sdk::api::agents::{
+use hamlet_engine_bevy::api::agents::{
     AgentsEvent, AgentsReply, AgentsRequest,
 };
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::bevy_ecs::message::MessageCursor;
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::ui::{
     AnyView, FrameProps, Space, ViewExt, column,
-};
-use hamlet_engine_sdk::{
-    Entry, Message, Plugin, World, decode, encode,
 };
 
 use crate::bar::{Draft, Replying, message_bar};
-use crate::reply::Answers;
 use crate::talk::{Talk, follow, heard};
 use crate::timeline::{Lines, Reach, Unfolded, refresh};
 
 /// The name of the chat's panel.
 const CHAT: &str = "chat";
 
-/// What is typed and not yet sent, kept across a reload: the draft,
-/// and the speaker and words it replies to.
-type Kept = (Option<String>, Option<(String, String)>);
-
 #[derive(Default)]
 struct Chat;
 
-/// Puts in what the chat's views read.
-fn prepare(world: &mut World) {
-    world.init_agents();
-    world.init_resource::<Talk>();
-    world.init_resource::<Draft>();
-    world.init_resource::<Replying>();
-    world.init_resource::<Unfolded>();
-    world.init_resource::<Reach>();
-    world.init_resource::<Lines>();
+impl Plugin for Chat {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(agents_ui::plugin)
+            .init_resource::<Talk>()
+            .init_saved_resource::<Draft>()
+            .init_saved_resource::<Replying>()
+            .init_resource::<Unfolded>()
+            .init_resource::<Reach>()
+            .init_resource::<Lines>()
+            .add_panel(CHAT, "Chat", chat)
+            .add_overlay(CONFIRM, confirmation)
+            .add_systems(
+                Declare,
+                start(&[
+                    AgentsRequest::Focus,
+                    AgentsRequest::Roster,
+                    AgentsRequest::Needs,
+                ]),
+            )
+            .add_systems(Update, receive);
+    }
 }
 
-impl Plugin for Chat {
-    fn declare(&self, entry: &mut Entry) {
-        entry.panel(CHAT, "Chat").overlay(CONFIRM);
-        start(&[
-            AgentsRequest::Focus,
-            AgentsRequest::Roster,
-            AgentsRequest::Needs,
-        ]);
-    }
+hamlet_engine_bevy::export!(Chat);
 
-    fn mount(&mut self, name: &str, world: &mut World) -> AnyView {
-        prepare(world);
-        if name == CONFIRM {
-            return confirmation();
-        }
-        follow(world);
-        refresh(world);
-        column((
-            bubble::header(),
-            bubble::transcript(),
-            message_bar(),
-        ))
+fn chat(world: &mut World) -> AnyView {
+    follow(world);
+    refresh(world);
+    column((bubble::header(), bubble::transcript(), message_bar()))
         .space(Space::Gap)
         .boxed()
-    }
+}
 
-    fn receive(&mut self, message: Message, world: &mut World) {
-        prepare(world);
-        let Some(told) = world.hear(message) else {
-            return;
-        };
+fn receive(
+    world: &mut World,
+    mut cursor: Local<MessageCursor<Heard>>,
+) {
+    for told in world.heard(&mut cursor) {
         match &told {
             Heard::Reply(_, AgentsReply::Focus(_))
             | Heard::Event(AgentsEvent::Focus(_)) => follow(world),
             Heard::Failed(Some(request), why) => {
-                hamlet_engine_sdk::warn(&format!(
+                hamlet_engine_bevy::warn(&format!(
                     "{request:?}: {why}"
                 ));
             }
@@ -95,25 +85,4 @@ impl Plugin for Chat {
             refresh(world);
         }
     }
-
-    fn save(&self, world: &World) -> Vec<u8> {
-        let draft = world.get::<Draft>().map(|draft| draft.0.clone());
-        let replying = world
-            .get::<Replying>()
-            .and_then(|replying| replying.0.clone())
-            .map(|answers| (answers.by, answers.text));
-        encode(&(draft, replying)).unwrap_or_default()
-    }
-
-    fn restore(&mut self, state: &[u8], world: &mut World) {
-        let Ok((draft, replying)) = decode::<Kept>(state) else {
-            return;
-        };
-        world.insert(Draft(draft.unwrap_or_default()));
-        world.insert(Replying(
-            replying.map(|(by, text)| Answers { by, text }),
-        ));
-    }
 }
-
-hamlet_engine_sdk::export!(Chat);

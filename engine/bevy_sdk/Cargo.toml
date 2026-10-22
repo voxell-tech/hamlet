@@ -1,0 +1,21 @@
+[package]
+name = "hamlet_engine_bevy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "A plugin for the engine written as a Bevy plugin, built for wasm32-wasip2: a Bevy app in the plugin's sandbox, driven through the WIT"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_engine_api.workspace = true
+wit-bindgen.workspace = true
+fynix.workspace = true
+lenz.workspace = true
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+bevy_math.workspace = true
+bevy_time.workspace = true
+bevy_transform.workspace = true
+serde.workspace = true

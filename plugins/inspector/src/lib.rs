@@ -13,21 +13,17 @@ mod more;
 mod overview;
 
 use agents_ui::{
-    AgentsWorldExt, CONFIRM, Focused, Heard, confirmation, either,
-    moved, start,
+    AgentsWorldExt, CONFIRM, Focused, Heard, Rostered, confirmation,
+    either, moved, start,
 };
-use hamlet_engine_sdk::api::agents::{
-    AgentsEvent, AgentsReply, AgentsRequest, Roster, RosterAgent,
-    Selected,
+use hamlet_engine_bevy::api::agents::{
+    AgentsEvent, AgentsReply, AgentsRequest, RosterAgent, Selected,
 };
-use hamlet_engine_sdk::ui::{
-    AnyView, ViewExt, World, derived, keyed,
-};
-use hamlet_engine_sdk::{Entry, Message, Plugin, decode, encode};
+use hamlet_engine_bevy::bevy_ecs::message::MessageCursor;
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::ui::{AnyView, ViewExt, derived, keyed};
 
-use crate::founding::{FOUND, Founding};
-use crate::hamlet::Naming;
-use crate::overview::Search;
+use crate::founding::FOUND;
 
 /// The characters of a purpose shown.
 pub(crate) const PURPOSE: usize = 96;
@@ -36,13 +32,40 @@ pub(crate) const PURPOSE: usize = 96;
 /// breadcrumb.
 pub(crate) const HAMLETS: &str = "HAMLETS";
 
-/// What is typed in the Inspector's fields, kept across a reload:
-/// the founding form, the search of the hamlets and a rename.
-type Kept = (
-    (String, String, String),
-    Option<String>,
-    Option<(String, String)>,
-);
+#[derive(Default)]
+struct Inspector;
+
+impl Plugin for Inspector {
+    fn build(&self, app: &mut App) {
+        app.add_plugins((
+            agents_ui::plugin,
+            agent::plugin,
+            archive::plugin,
+            overview::plugin,
+            founding::plugin,
+            hamlet::plugin,
+            bylaws::plugin,
+        ))
+        .add_panel("inspector", "Inspector", inspector)
+        .add_overlay(CONFIRM, confirmation)
+        .add_overlay(FOUND, founding::founding)
+        .add_command(FOUND, "Found a Hamlet...", founding::open)
+        .add_menu_entry("Hamlet", FOUND)
+        .add_systems(
+            Declare,
+            start(&[
+                AgentsRequest::Focus,
+                AgentsRequest::Roster,
+                AgentsRequest::Skills,
+                AgentsRequest::Settings,
+                AgentsRequest::Catalogue,
+            ]),
+        )
+        .add_systems(Update, receive);
+    }
+}
+
+hamlet_engine_bevy::export!(Inspector);
 
 /// The page the Inspector shows.
 #[derive(Clone, PartialEq, Debug)]
@@ -56,7 +79,7 @@ enum Page {
 
 /// The page for what the focus has selected.
 fn page(world: &World) -> Page {
-    let roster = world.resource::<Roster>();
+    let roster = &world.resource::<Rostered>().0;
     let selected = world
         .resource::<Focused>()
         .0
@@ -106,104 +129,36 @@ pub(crate) fn agent_named<'a>(
     name: &str,
 ) -> Option<&'a RosterAgent> {
     world
-        .resource::<Roster>()
+        .resource::<Rostered>()
+        .0
         .agents
         .iter()
         .find(|agent| agent.name == name)
 }
 
-#[derive(Default)]
-struct Inspector;
-
-/// Puts in what the Inspector's views read.
-fn prepare(world: &mut World) {
-    world.init_agents();
-    agent::prepare(world);
-    archive::prepare(world);
-    overview::prepare(world);
-    founding::prepare(world);
-    hamlet::prepare(world);
-    bylaws::prepare(world);
+fn inspector() -> AnyView {
+    keyed(
+        derived(page)
+            .when(either(moved::<Focused>(), moved::<Rostered>())),
+        |page| match page {
+            Page::Overview => overview::overview(),
+            Page::Library => gone::library(),
+            Page::Hamlet(id) => hamlet::hamlet(id.clone()),
+            Page::Gone(name) => gone::gone(name.clone()),
+            Page::Agent => agent::living(),
+        },
+    )
+    .boxed()
 }
 
-impl Plugin for Inspector {
-    fn declare(&self, entry: &mut Entry) {
-        entry
-            .panel("inspector", "Inspector")
-            .overlay(CONFIRM)
-            .overlay(FOUND)
-            .command(FOUND, "Found a Hamlet...")
-            .menu_entry("Hamlet", FOUND);
-        start(&[
-            AgentsRequest::Focus,
-            AgentsRequest::Roster,
-            AgentsRequest::Skills,
-            AgentsRequest::Settings,
-            AgentsRequest::Catalogue,
-        ]);
-    }
-
-    fn mount(&mut self, name: &str, world: &mut World) -> AnyView {
-        prepare(world);
-        match name {
-            CONFIRM => return confirmation(),
-            FOUND => return founding::founding(),
-            _ => {}
-        }
-        keyed(
-            derived(page)
-                .when(either(moved::<Focused>(), moved::<Roster>())),
-            |page| match page {
-                Page::Overview => overview::overview(),
-                Page::Library => gone::library(),
-                Page::Hamlet(id) => hamlet::hamlet(id.clone()),
-                Page::Gone(name) => gone::gone(name.clone()),
-                Page::Agent => agent::living(),
-            },
-        )
-        .boxed()
-    }
-
-    fn run(&mut self, name: &str, _: &mut World) {
-        if name == FOUND {
-            founding::open();
-        }
-    }
-
-    fn save(&self, world: &World) -> Vec<u8> {
-        let founding =
-            world.get::<Founding>().cloned().unwrap_or_default();
-        let kept: Kept = (
-            (founding.name, founding.mayor, founding.purpose),
-            world.get::<Search>().map(|search| search.0.clone()),
-            world.get::<Naming>().and_then(|naming| naming.0.clone()),
-        );
-        encode(&kept).unwrap_or_default()
-    }
-
-    fn restore(&mut self, state: &[u8], world: &mut World) {
-        let Ok(((name, mayor, purpose), search, naming)) =
-            decode::<Kept>(state)
-        else {
-            return;
-        };
-        world.insert(Founding {
-            name,
-            mayor,
-            purpose,
-        });
-        world.insert(Search(search.unwrap_or_default()));
-        world.insert(Naming(naming));
-    }
-
-    fn receive(&mut self, message: Message, world: &mut World) {
-        prepare(world);
-        let Some(told) = world.hear(message) else {
-            return;
-        };
+fn receive(
+    world: &mut World,
+    mut cursor: Local<MessageCursor<Heard>>,
+) {
+    for told in world.heard(&mut cursor) {
         match &told {
             Heard::Failed(Some(request), why) => {
-                hamlet_engine_sdk::warn(&format!("{request:?}: {why}"));
+                hamlet_engine_bevy::warn(&format!("{request:?}: {why}"));
             }
             Heard::Reply(_, AgentsReply::Focus(_))
             | Heard::Event(AgentsEvent::Focus(_))
@@ -228,5 +183,3 @@ impl Plugin for Inspector {
         bylaws::heard(world, &told);
     }
 }
-
-hamlet_engine_sdk::export!(Inspector);

@@ -2,7 +2,7 @@
 //! inside under the pointer, a thin divider between each and the
 //! next.
 
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::ui::{
     AnyView, ButtonProps, ButtonStyle, FrameProps, Space, Tone,
     ViewExt, column, divider, icon, pressable,
 };

@@ -4,10 +4,11 @@
 //! declares the overlay [`CONFIRM`] and mounts [`confirmation`] in
 //! it.
 
-use hamlet_engine_sdk::AgentsRequest;
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::AgentsRequest;
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::ui::{
     AnyView, ButtonStyle, Face, FrameProps, Space, Tone, UiExt,
-    ViewExt, World, button, column, keyed, label, resource, row,
+    ViewExt, button, column, keyed, label, resource, row,
     show_overlay,
 };
 
@@ -34,7 +35,7 @@ pub struct Confirm {
 }
 
 /// The question shown, if any.
-#[derive(Default)]
+#[derive(Resource, Default)]
 pub struct Confirming(pub Option<Confirm>);
 
 /// The question asked, where a panel shows it.

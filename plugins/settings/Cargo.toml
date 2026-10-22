@@ -12,4 +12,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 agents_ui = { path = "../agents_ui" }
-hamlet_engine_sdk.workspace = true
+hamlet_engine_bevy.workspace = true

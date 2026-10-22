@@ -2,21 +2,24 @@
 //! works on, and its agents, bylaws and record as tabs.
 
 use agents_ui::{
-    AgentsWorldExt, Confirm, Focused, Heard, breadcrumb, either,
-    link_rows, moved, part,
+    AgentsWorldExt, Confirm, Focused, Heard, Rostered, breadcrumb,
+    either, link_rows, moved, part,
 };
-use hamlet_engine_sdk::api::agents::{
-    AgentsReply, AgentsRequest, Papers, Record, Roster, RosterAgent,
-    RosterHamlet, Selected,
+use hamlet_engine_bevy::api::agents::{
+    AgentsReply, AgentsRequest, Record, RosterAgent, RosterHamlet,
+    Selected,
 };
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::ui::{
     AnyView, ButtonProps, ButtonStyle, Cx, Face, FrameProps, Size,
-    Space, Tone, UiExt, ViewExt, World, button, column, derived,
-    field, icon, icon_button, keyed, label, menu_item, resource, row,
+    Space, Tone, UiExt, ViewExt, button, column, derived, field,
+    icon, icon_button, keyed, label, menu_item, resource, row,
     scroll,
 };
-use hamlet_engine_sdk::{emit, encode, warn};
+use hamlet_engine_bevy::{encode, warn};
+use serde::{Deserialize, Serialize};
 
+use crate::agent::AgentPapers;
 use crate::more::About;
 use crate::overview::{pressed_row, standing};
 use crate::{HAMLETS, PURPOSE, bylaws, select};
@@ -27,6 +30,13 @@ pub(crate) const HOME: &str = "home";
 /// The event that has the realm take a hamlet's town in hand, its
 /// payload the hamlet's name on disk.
 const CARRY: &str = "carry";
+
+/// A rename under way is kept across a reload.
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<Shown>()
+        .init_saved_resource::<Naming>()
+        .init_resource::<Records>();
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 enum Tab {
@@ -43,25 +53,19 @@ const TABS: [(Tab, &str); 3] = [
 ];
 
 /// The tab shown.
-#[derive(Default)]
+#[derive(Resource, Default)]
 struct Shown(Tab);
 
 /// The hamlet being renamed, by its name on disk, and the name it is
 /// being given.
-#[derive(Default)]
+#[derive(Resource, Default, Serialize, Deserialize)]
 pub(crate) struct Naming(pub(crate) Option<(String, String)>);
 
 /// The record of the hamlet last asked for.
-#[derive(Default, PartialEq)]
+#[derive(Resource, Default, PartialEq)]
 struct Records {
     of: Option<String>,
     record: Record,
-}
-
-pub(crate) fn prepare(world: &mut World) {
-    world.init_resource::<Shown>();
-    world.init_resource::<Naming>();
-    world.init_resource::<Records>();
 }
 
 /// Reads the record again as the hamlets change.
@@ -88,7 +92,8 @@ pub(crate) fn heard(world: &mut World, heard: &Heard) {
 /// Asks before the hamlet `id` is closed down.
 pub(crate) fn close_down(world: &mut World, id: &str) {
     let working = world
-        .resource::<Roster>()
+        .resource::<Rostered>()
+        .0
         .agents
         .iter()
         .filter(|agent| {
@@ -115,10 +120,10 @@ pub(crate) fn close_down(world: &mut World, id: &str) {
 }
 
 /// Has the realm take the town of the hamlet `id` in hand.
-fn carry(id: &str) {
+fn carry(world: &mut World, id: &str) {
     match encode(&id.to_owned()) {
         Ok(payload) => {
-            emit(CARRY, &payload);
+            world.emit(CARRY, &payload);
         }
         Err(why) => warn(&format!("carry {id}: {why}")),
     }
@@ -306,7 +311,7 @@ fn head(hamlet: &RosterHamlet) -> AnyView {
         icon_button("move", "MOVE")
             .on_click({
                 let id = id.clone();
-                move |_| carry(&id)
+                move |world| carry(world, &id)
             })
             .boxed(),
     ];
@@ -390,7 +395,8 @@ fn residents(
     id: &str,
 ) -> Vec<(RosterAgent, Option<About>)> {
     world
-        .resource::<Roster>()
+        .resource::<Rostered>()
+        .0
         .agents
         .iter()
         .filter(|agent| agent.hamlet == id)
@@ -482,13 +488,13 @@ fn record(id: String) -> AnyView {
 /// let go, so it is not read again as the hamlets change.
 fn show(world: &mut World, id: &str, tab: Tab) {
     world.resource_mut::<Shown>().0 = tab;
-    let naming = &mut world.resource_mut::<Naming>().0;
-    if naming.as_ref().is_some_and(|(named, _)| named != id) {
-        *naming = None;
+    let mut naming = world.resource_mut::<Naming>();
+    if naming.0.as_ref().is_some_and(|(named, _)| named != id) {
+        naming.0 = None;
     }
     if tab == Tab::Record {
         if world.resource::<Records>().of.as_deref() != Some(id) {
-            world.insert(Records {
+            world.insert_resource(Records {
                 of: Some(id.to_string()),
                 record: Record::default(),
             });
@@ -536,13 +542,14 @@ pub(crate) fn hamlet(id: String) -> AnyView {
     let facts = keyed(
         derived(move |world: &World| {
             world
-                .resource::<Roster>()
+                .resource::<Rostered>()
+                .0
                 .hamlets
                 .iter()
                 .find(|hamlet| hamlet.id == of)
                 .cloned()
         })
-        .when(moved::<Roster>()),
+        .when(moved::<Rostered>()),
         |hamlet| match hamlet {
             Some(hamlet) => head(hamlet),
             None => column(()).boxed(),
@@ -559,10 +566,10 @@ pub(crate) fn hamlet(id: String) -> AnyView {
                             residents(world, &of)
                         })
                         .when(either(
-                            moved::<Roster>(),
+                            moved::<Rostered>(),
                             either(
                                 moved::<Focused>(),
-                                moved::<Papers>(),
+                                moved::<AgentPapers>(),
                             ),
                         )),
                         |all| agents(all),

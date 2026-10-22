@@ -1,7 +1,8 @@
 //! A message that answers another: a first line naming the message it
 //! answers, with its words as a JSON string, and the words after it.
 
-use hamlet_engine_sdk::api::agents::Entry;
+use hamlet_engine_bevy::api::agents::Entry;
+use serde::{Deserialize, Serialize};
 
 /// The head of a reply's first line.
 const HEAD: &str = "(Replying to ";
@@ -10,7 +11,7 @@ const HEAD: &str = "(Replying to ";
 pub const REPLY_CHARS: usize = 600;
 
 /// The message a reply answers: its speaker and its words.
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Answers {
     pub by: String,
     pub text: String,

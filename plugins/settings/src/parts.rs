@@ -2,8 +2,8 @@
 //! page, and the footer that sets up again.
 
 pub(crate) use agents_ui::{name, note, part, setting};
-use hamlet_engine_sdk::api::agents::AgentsRequest;
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::api::agents::AgentsRequest;
+use hamlet_engine_bevy::ui::{
     AnyView, FrameProps, Size, Space, Tone, UiExt, ViewExt, column,
     icon_button, keyed, label, resource, row,
 };

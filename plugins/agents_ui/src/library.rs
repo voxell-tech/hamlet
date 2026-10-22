@@ -1,11 +1,12 @@
 //! The library's skills, shared by every agent, each to be taken
 //! out.
 
-use hamlet_engine_sdk::AgentsRequest;
-use hamlet_engine_sdk::api::agents::Skill;
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::AgentsRequest;
+use hamlet_engine_bevy::api::agents::Skill;
+use hamlet_engine_bevy::prelude::World;
+use hamlet_engine_bevy::ui::{
     AnyView, ButtonStyle, FrameProps, Size, Space, Tone, UiExt,
-    ViewExt, World, button, column, icon_button, keyed, label, list,
+    ViewExt, button, column, icon_button, keyed, label, list,
     resource, row,
 };
 

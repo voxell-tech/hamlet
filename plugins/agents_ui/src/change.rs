@@ -2,18 +2,18 @@
 //! ended, over its lines taken out and put in, the first of them
 //! shown and the rest a press away.
 
-use hamlet_engine_sdk::api::agents::{Change, Mark};
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::api::agents::{Change, Mark};
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::ui::{
     AnyView, ButtonProps, ButtonStyle, FrameProps, Size, Space, Tone,
-    UiExt, ViewExt, World, column, keyed, label, pressable, resource,
-    row,
+    UiExt, ViewExt, column, keyed, label, pressable, resource, row,
 };
 
 /// The lines of a change shown before "more lines".
 const SHOWN: usize = 16;
 
 /// The changes shut and those shown whole, by their key.
-#[derive(Default)]
+#[derive(Resource, Default)]
 pub struct Changes {
     shut: Vec<String>,
     whole: Vec<String>,
@@ -83,10 +83,7 @@ pub fn change_view(
         .tone(Tone::Dim),))
         .style(ButtonStyle::Quiet)
         .on_click(move |world| {
-            flip(
-                &mut world.resource_or_init::<Changes>().shut,
-                &toggled,
-            );
+            flip(&mut world.resource_mut::<Changes>().shut, &toggled);
         });
     let head = row((
         fold,
@@ -165,7 +162,7 @@ fn lines(key: &str, change: &Change, extent: Extent) -> AnyView {
             .style(ButtonStyle::Quiet)
             .on_click(move |world: &mut World| {
                 flip(
-                    &mut world.resource_or_init::<Changes>().whole,
+                    &mut world.resource_mut::<Changes>().whole,
                     &key,
                 );
             })

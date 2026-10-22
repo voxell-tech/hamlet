@@ -5,15 +5,17 @@
 use agents_ui::{
     AgentsWorldExt, Heard, Waits, card, change_view, start,
 };
-use hamlet_engine_sdk::api::agents::{
+use hamlet_engine_bevy::api::agents::{
     AgentsEvent, AgentsReply, AgentsRequest, Choice, Need, NeedKind,
 };
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::bevy_ecs::message::MessageCursor;
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::ui::{
     AnyView, ButtonProps, ButtonStyle, Face, Fill, FrameProps, Size,
-    Space, Tone, UiExt, ViewExt, World, column, each, field,
-    icon_button, label, resource, row, set_section,
+    Space, Tone, UiExt, ViewExt, column, each, field, icon_button,
+    label, resource, row, set_section,
 };
-use hamlet_engine_sdk::{Entry, Message, Plugin, decode, encode};
+use serde::{Deserialize, Serialize};
 
 /// The engine's Petitions panel.
 const PETITIONS: &str = "engine/petitions";
@@ -24,19 +26,27 @@ const AGENTS: &str = "agents";
 #[derive(Default)]
 struct Petitions;
 
+impl Plugin for Petitions {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(agents_ui::plugin)
+            // What waited before a reload is not new.
+            .init_saved_resource::<Reason>()
+            .init_saved_resource::<Seen>()
+            .add_panel_section(PETITIONS, AGENTS, "Agents", section)
+            .add_systems(Declare, start(&[AgentsRequest::Needs]))
+            .add_systems(Update, receive);
+    }
+}
+
+hamlet_engine_bevy::export!(Petitions);
+
 /// The reason or reply the next answer carries.
-#[derive(Default)]
+#[derive(Resource, Default, Serialize, Deserialize)]
 struct Reason(String);
 
 /// How many waited when the panel last looked.
-#[derive(Default)]
+#[derive(Resource, Default, Serialize, Deserialize)]
 struct Seen(usize);
-
-fn prepare(world: &mut World) {
-    world.init_agents();
-    world.init_resource::<Reason>();
-    world.init_resource::<Seen>();
-}
 
 /// Sends the chief's answer to `need`, with the reason typed.
 fn answer(world: &mut World, need: u64, choice: Choice) {
@@ -139,67 +149,43 @@ fn strip(need: &Need) -> AnyView {
     column(parts).space(Space::Half).fill(Fill::Card).boxed()
 }
 
-impl Plugin for Petitions {
-    fn declare(&self, entry: &mut Entry) {
-        entry.panel_section(PETITIONS, AGENTS, "Agents");
-        start(&[AgentsRequest::Needs]);
-    }
-
-    // The panel scrolls, and says how many wait.
-    fn mount(&mut self, _: &str, world: &mut World) -> AnyView {
-        prepare(world);
-        column((
-            field(resource::<Reason, _>(|reason| reason.0.clone()))
-                .placeholder("Reason or reply")
-                .on_commit(|world, text| {
-                    world.resource_mut::<Reason>().0 = text
+// The panel scrolls, and says how many wait.
+fn section() -> AnyView {
+    column((
+        field(resource::<Reason, _>(|reason| reason.0.clone()))
+            .placeholder("Reason or reply")
+            .on_commit(|world, text| {
+                world.resource_mut::<Reason>().0 = text
+            }),
+        // The stop sits under the field, so a narrow panel never
+        // pushes it past its edge.
+        row((
+            label("Reason or reply, then answer")
+                .size(Size::Small)
+                .tone(Tone::Dim),
+            icon_button("stop", "STOP ALL")
+                .style(ButtonStyle::Critical)
+                .on_click(|world| {
+                    world.ask(AgentsRequest::Veto(None))
                 }),
-            // The stop sits under the field, so a narrow panel never
-            // pushes it past its edge.
-            row((
-                label("Reason or reply, then answer")
-                    .size(Size::Small)
-                    .tone(Tone::Dim),
-                icon_button("stop", "STOP ALL")
-                    .style(ButtonStyle::Critical)
-                    .on_click(|world| {
-                        world.ask(AgentsRequest::Veto(None))
-                    }),
-            ))
-            .space(Space::Gap),
-            each(
-                resource::<Waits, _>(|waits| waits.0.clone()),
-                |need: &Need| need.clone(),
-                strip,
-            )
-            .within(column(()).space(Space::Gap)),
         ))
-        .space(Space::Gap)
-        .boxed()
-    }
+        .space(Space::Gap),
+        each(
+            resource::<Waits, _>(|waits| waits.0.clone()),
+            |need: &Need| need.clone(),
+            strip,
+        )
+        .within(column(()).space(Space::Gap)),
+    ))
+    .space(Space::Gap)
+    .boxed()
+}
 
-    fn save(&self, world: &World) -> Vec<u8> {
-        let reason =
-            world.get::<Reason>().map(|reason| reason.0.clone());
-        let seen =
-            world.get::<Seen>().map_or(0, |seen| seen.0 as u64);
-        encode(&(reason.unwrap_or_default(), seen))
-            .unwrap_or_default()
-    }
-
-    // What waited before the reload is not new.
-    fn restore(&mut self, state: &[u8], world: &mut World) {
-        if let Ok((reason, seen)) = decode::<(String, u64)>(state) {
-            world.insert(Reason(reason));
-            world.insert(Seen(usize::try_from(seen).unwrap_or(0)));
-        }
-    }
-
-    fn receive(&mut self, message: Message, world: &mut World) {
-        prepare(world);
-        let Some(told) = world.hear(message) else {
-            return;
-        };
+fn receive(
+    world: &mut World,
+    mut cursor: Local<MessageCursor<Heard>>,
+) {
+    for told in world.heard(&mut cursor) {
         if let Heard::Reply(_, AgentsReply::Needs(_))
         | Heard::Event(AgentsEvent::Needs(_)) = &told
         {
@@ -211,14 +197,12 @@ impl Plugin for Petitions {
                 u32::try_from(now).unwrap_or(u32::MAX),
             );
             if now > world.resource::<Seen>().0 {
-                hamlet_engine_sdk::ui::open(PETITIONS);
+                hamlet_engine_bevy::ui::open(PETITIONS);
             }
             world.resource_mut::<Seen>().0 = now;
         }
         if let Heard::Failed(Some(request), why) = &told {
-            hamlet_engine_sdk::warn(&format!("{request:?}: {why}"));
+            hamlet_engine_bevy::warn(&format!("{request:?}: {why}"));
         }
     }
 }
-
-hamlet_engine_sdk::export!(Petitions);

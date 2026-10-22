@@ -3,11 +3,10 @@
 //! name over a field, read from a resource and handing what is typed
 //! on.
 
-use std::any::Any;
-
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::prelude::{Resource, World};
+use hamlet_engine_bevy::ui::{
     AnyView, Face, FrameProps, Label, Prop, Size, Space, Tone, UiExt,
-    ViewExt, World, column, field, icon, label, resource, row,
+    ViewExt, column, field, icon, label, resource, row,
 };
 
 /// Small words that stand back.
@@ -47,7 +46,7 @@ pub fn setting(
 /// A whole number from 0 to `most`, named `what`, as `read` takes it
 /// from the resource `R`. A number typed is handed to `write`, and
 /// anything else, with why, to `refuse`.
-pub fn whole<R: Any + Send + Sync>(
+pub fn whole<R: Resource>(
     what: &'static str,
     most: u64,
     read: impl Fn(&R) -> Option<u64> + Send + Sync + 'static,

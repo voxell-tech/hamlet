@@ -4,14 +4,15 @@
 use agents_ui::{
     AgentsWorldExt, Confirm, Focused, entry_view, markdown,
 };
-use hamlet_engine_sdk::api::agents::{
-    AgentsRequest, Entry, Recipient, SessionName,
+use hamlet_engine_bevy::api::agents::{
+    AgentsRequest, Entry, Recipient, SessionMessage, SessionName,
 };
-use hamlet_engine_sdk::ui::{
-    Align, AnyView, ButtonProps, ButtonStyle, Cx, Face, Fill,
+use hamlet_engine_bevy::prelude::World;
+use hamlet_engine_bevy::ui::{
+    Align, AnyView, Button, ButtonProps, ButtonStyle, Cx, Face, Fill,
     FrameProps, Hovered, ScopedExt, ScrollProps, Size, Space,
-    StateExt, Tone, UiExt, ViewExt, World, button, column, divider,
-    each, icon, keyed, label, pressable, resource, row, scroll,
+    StateExt, Tone, UiExt, ViewExt, button, column, divider, each,
+    icon, keyed, label, pressable, resource, row, scroll,
 };
 
 use crate::bar::reply_to;
@@ -198,7 +199,7 @@ fn change_key(session: &SessionName, id: u64) -> String {
 fn said(
     line: &Line,
     session: &SessionName,
-    message: &hamlet_engine_sdk::api::agents::SessionMessage,
+    message: &SessionMessage,
     to: Option<Recipient>,
 ) -> AnyView {
     let mine = line.by.kind == Kind::Me;
@@ -293,14 +294,10 @@ fn said(
             row(acts)
                 .space(Space::Half)
                 .when::<Hovered, _>(|cx: &mut Cx| {
-                    cx.set::<hamlet_engine_sdk::ui::Button>(
-                        |button, _| button.opacity(1.0),
-                    );
+                    cx.set::<Button>(|button, _| button.opacity(1.0));
                 })
                 .rules(|cx: &mut Cx| {
-                    cx.set::<hamlet_engine_sdk::ui::Button>(
-                        |button, _| button.opacity(0.0),
-                    );
+                    cx.set::<Button>(|button, _| button.opacity(0.0));
                 })
                 .boxed(),
         );
@@ -340,7 +337,8 @@ fn fold_view(
         .tone(tone),))
     .style(ButtonStyle::Quiet)
     .on_click(move |world| {
-        let open = &mut world.resource_mut::<Unfolded>().0;
+        let mut unfolded = world.resource_mut::<Unfolded>();
+        let open = &mut unfolded.0;
         match open.iter().position(|one| *one == toggled) {
             Some(at) => {
                 open.remove(at);

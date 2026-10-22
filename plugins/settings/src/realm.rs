@@ -1,8 +1,8 @@
 //! The Realm page: the limits that hold for every hamlet, each
 //! written to the home's limits as it is changed.
 
-use hamlet_engine_sdk::api::agents::RealmLimits;
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::api::agents::RealmLimits;
+use hamlet_engine_bevy::ui::{
     AnyView, FrameProps, Size, Space, Tone, UiExt, ViewExt, column,
     field, keyed, label, resource, row, switch,
 };

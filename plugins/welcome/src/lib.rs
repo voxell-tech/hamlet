@@ -8,15 +8,15 @@
 
 mod pages;
 
-use agents_ui::FailureExt;
-use hamlet_engine_sdk::api::agents::{
+use agents_ui::{AgentsWorldExt, FailureExt, Heard, start};
+use hamlet_engine_bevy::api::agents::{
     AgentsEvent, AgentsReply, AgentsRequest, Provider, Setup,
     SignInTo, Stage,
 };
-use hamlet_engine_sdk::ui::{AnyView, show_overlay};
-use hamlet_engine_sdk::{
-    Entry, Message, Plugin, Reply, World, agents, decode, encode,
-};
+use hamlet_engine_bevy::bevy_ecs::message::MessageCursor;
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::ui::show_overlay;
+use serde::{Deserialize, Serialize};
 
 /// The name of the card.
 const CARD: &str = "welcome";
@@ -28,103 +28,31 @@ const OPENROUTER: &str = "openrouter";
 struct WelcomeCard;
 
 impl Plugin for WelcomeCard {
-    fn declare(&self, entry: &mut Entry) {
-        entry.overlay(CARD);
-        for request in [
-            AgentsRequest::Watch,
-            AgentsRequest::Providers,
-            AgentsRequest::Setup,
-            AgentsRequest::Settings,
-        ] {
-            agents(&request);
-        }
-    }
-
-    fn mount(&mut self, _: &str, world: &mut World) -> AnyView {
-        world.init_resource::<Welcome>();
-        pages::card()
-    }
-
-    fn receive(&mut self, message: Message, world: &mut World) {
-        let Message::Reply { reply, .. } = message else {
-            return;
-        };
-        match reply {
-            Ok(Reply::Agents(reply)) => world.hear(reply),
-            Ok(_) => {}
-            // Shown on the card, as the service's own problems are.
-            Err(why) => {
-                world.resource_or_init::<Welcome>().problem =
-                    Some(why.plain());
-            }
-        }
-    }
-
-    fn save(&self, world: &World) -> Vec<u8> {
-        let Some(welcome) = world.get::<Welcome>() else {
-            return Vec::new();
-        };
-        let (step, to) = match welcome.step {
-            Step::Choice => (0, None),
-            Step::Key => (1, None),
-            Step::SignIn(to) => (2, Some(to)),
-            Step::Local => (3, None),
-            Step::Models => (4, None),
-        };
-        let kept: Kept = (
-            welcome.setup.clone(),
-            (step, to),
-            welcome.provider as u64,
-            welcome.url.clone(),
-            welcome.narrow.clone(),
-            welcome.looked,
-        );
-        encode(&kept).unwrap_or_default()
-    }
-
-    fn restore(&mut self, state: &[u8], world: &mut World) {
-        let Ok((setup, (step, to), provider, url, narrow, looked)) =
-            decode::<Kept>(state)
-        else {
-            return;
-        };
-        let step = match (step, to) {
-            (1, _) => Step::Key,
-            (2, Some(to)) => Step::SignIn(to),
-            (3, _) => Step::Local,
-            (4, _) => Step::Models,
-            _ => Step::Choice,
-        };
-        if setup.as_ref().is_some_and(|setup| setup.begun) {
-            show_overlay(CARD, true);
-        }
-        world.insert(Welcome {
-            setup,
-            step,
-            provider: usize::try_from(provider).unwrap_or_default(),
-            url,
-            narrow,
-            looked,
-            ..Welcome::default()
-        });
+    fn build(&self, app: &mut App) {
+        app.add_plugins(agents_ui::plugin)
+            .init_saved_resource::<Welcome>()
+            .add_overlay(CARD, pages::card)
+            .add_systems(
+                Declare,
+                (
+                    start(&[
+                        AgentsRequest::Providers,
+                        AgentsRequest::Setup,
+                        AgentsRequest::Settings,
+                    ]),
+                    reopen,
+                ),
+            )
+            .add_systems(Update, receive);
     }
 }
 
-/// What the card keeps across a reload, the key aside: the setup as
-/// last told, the step and the sign-in it is at, the provider chosen,
-/// the address and the words narrowing the models typed, and whether
-/// the settings were heard of.
-type Kept = (
-    Option<Setup>,
-    (u8, Option<SignInTo>),
-    u64,
-    String,
-    String,
-    bool,
-);
+hamlet_engine_bevy::export!(WelcomeCard);
 
 /// The step of the card the person is at.
-#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, Default, Debug, Serialize, Deserialize,
+)]
 enum Step {
     /// The ways in.
     #[default]
@@ -140,10 +68,12 @@ enum Step {
 }
 
 /// The card: the setup as the service tells it, and the person's
-/// choices and words on it.
-#[derive(Default)]
+/// choices and words on it. What is kept across a reload leaves out
+/// the key, the providers and the last problem.
+#[derive(Resource, Default, Serialize, Deserialize)]
 struct Welcome {
     setup: Option<Setup>,
+    #[serde(skip)]
     providers: Vec<Provider>,
     step: Step,
     /// The provider chosen, by its place in `providers`; past their
@@ -151,10 +81,12 @@ struct Welcome {
     provider: usize,
     url: String,
     /// The key typed, until it is handed to the service.
+    #[serde(skip)]
     key: String,
     /// The words the models listed must have.
     narrow: String,
     /// Why the last request failed, when the setup does not say.
+    #[serde(skip)]
     problem: Option<String>,
     /// The settings were heard of, as the card first looks.
     looked: bool,
@@ -251,15 +183,12 @@ trait WelcomeWorldExt {
 
 impl WelcomeWorldExt for World {
     fn hear(&mut self, reply: AgentsReply) {
-        let welcome = self.resource_or_init::<Welcome>();
+        let mut welcome = self.resource_mut::<Welcome>();
         match reply {
             AgentsReply::Providers(providers) => {
                 welcome.providers = providers;
             }
-            AgentsReply::Setup(setup)
-            | AgentsReply::Event(AgentsEvent::Setup(setup)) => {
-                welcome.follow(setup);
-            }
+            AgentsReply::Setup(setup) => welcome.follow(setup),
             // At start, a home where no model was chosen is set up.
             AgentsReply::Settings(settings) if !welcome.looked => {
                 welcome.looked = true;
@@ -268,7 +197,7 @@ impl WelcomeWorldExt for World {
                     .as_ref()
                     .is_some_and(|setup| setup.begun);
                 if !settings.chosen && !begun {
-                    agents(&AgentsRequest::BeginSetup {
+                    self.agents(&AgentsRequest::BeginSetup {
                         adding: false,
                     });
                 }
@@ -278,9 +207,34 @@ impl WelcomeWorldExt for World {
     }
 
     fn ask(&mut self, request: AgentsRequest) {
-        self.resource_or_init::<Welcome>().problem = None;
-        agents(&request);
+        self.resource_mut::<Welcome>().problem = None;
+        self.agents(&request);
     }
 }
 
-hamlet_engine_sdk::export!(WelcomeCard);
+/// Shows the card again after a reload while a setup is under way.
+fn reopen(welcome: Res<Welcome>) {
+    if welcome.setup.as_ref().is_some_and(|setup| setup.begun) {
+        show_overlay(CARD, true);
+    }
+}
+
+fn receive(
+    world: &mut World,
+    mut cursor: Local<MessageCursor<Heard>>,
+) {
+    for told in world.heard(&mut cursor) {
+        match told {
+            Heard::Reply(_, reply) => world.hear(reply),
+            Heard::Event(AgentsEvent::Setup(setup)) => {
+                world.resource_mut::<Welcome>().follow(setup);
+            }
+            // Shown on the card, as the service's own problems are.
+            Heard::Failed(_, why) => {
+                world.resource_mut::<Welcome>().problem =
+                    Some(why.plain());
+            }
+            Heard::Event(_) => {}
+        }
+    }
+}

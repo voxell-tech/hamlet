@@ -2,29 +2,32 @@
 //! those closed down.
 
 use agents_ui::{
-    AgentsWorldExt, Confirm, Focused, either, link_row, link_rows,
-    moved,
+    AgentsWorldExt, Confirm, Focused, Rostered, either, link_row,
+    link_rows, moved,
 };
-use hamlet_engine_sdk::api::agents::{
-    AgentsRequest, ClosedHamlet, Roster, RosterHamlet, Selected,
+use hamlet_engine_bevy::api::agents::{
+    AgentsRequest, ClosedHamlet, RosterHamlet, Selected,
 };
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::ui::{
     AnyView, ButtonProps, ButtonStyle, Face, FrameProps, Size, Space,
-    Tone, UiExt, ViewExt, World, column, derived, field, heading,
-    icon, icon_button, keyed, label, menu_item, pressable, resource,
-    row, scroll,
+    Tone, UiExt, ViewExt, column, derived, field, heading, icon,
+    icon_button, keyed, label, menu_item, pressable, resource, row,
+    scroll,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::hamlet::{HOME, close_down};
 use crate::{HAMLETS, founding, select};
 
-/// The words typed to search the hamlets.
-#[derive(Default)]
-pub(crate) struct Search(pub(crate) String);
-
-pub(crate) fn prepare(world: &mut World) {
-    world.init_resource::<Search>();
+/// The search is kept across a reload.
+pub(crate) fn plugin(app: &mut App) {
+    app.init_saved_resource::<Search>();
 }
+
+/// The words typed to search the hamlets.
+#[derive(Resource, Default, Serialize, Deserialize)]
+pub(crate) struct Search(pub(crate) String);
 
 /// The icon, the words and the tone of a hamlet's state.
 pub(crate) fn standing(
@@ -104,7 +107,8 @@ fn hamlet_row(hamlet: &RosterHamlet) -> AnyView {
 fn found(world: &World) -> Vec<RosterHamlet> {
     let search = world.resource::<Search>().0.trim().to_lowercase();
     world
-        .resource::<Roster>()
+        .resource::<Rostered>()
+        .0
         .hamlets
         .iter()
         .filter(|hamlet| {
@@ -185,7 +189,7 @@ fn erase(world: &mut World, name: &str) {
 pub(crate) fn overview() -> AnyView {
     let shown = keyed(
         derived(found)
-            .when(either(moved::<Roster>(), moved::<Search>())),
+            .when(either(moved::<Rostered>(), moved::<Search>())),
         |hamlets| {
             if hamlets.is_empty() {
                 return label("No hamlet by that name.")
@@ -196,7 +200,7 @@ pub(crate) fn overview() -> AnyView {
         },
     );
     let gone = keyed(
-        resource::<Roster, _>(|roster| roster.closed.clone()),
+        resource::<Rostered, _>(|roster| roster.0.closed.clone()),
         |names| closed(names),
     );
     column((

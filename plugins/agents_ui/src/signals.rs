@@ -1,11 +1,10 @@
 //! Change checks for views read from several resources at once.
 
-use std::any::Any;
-
-use hamlet_engine_sdk::ui::{World, resource};
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::ui::resource;
 
 /// A check that fires when the resource `R` changed.
-pub fn moved<R: Any + Send + Sync>()
+pub fn moved<R: Resource>()
 -> impl FnMut(&World) -> bool + Send + Sync + 'static {
     let mut seen = resource::<R, _>(|_| ());
     move |world: &World| seen.changed(world)

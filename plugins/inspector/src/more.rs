@@ -4,17 +4,19 @@
 //! opens it, and so does a card of a hamlet's agents.
 
 use agents_ui::{
-    AgentsWorldExt, Confirm, Focused, either, moved, show_chat,
+    AgentsWorldExt, Confirm, Focused, Rostered, either, moved,
+    show_chat,
 };
-use hamlet_engine_sdk::api::agents::{
-    AgentsRequest, Gift, Papers, Roster, Selected,
+use hamlet_engine_bevy::api::agents::{
+    AgentsRequest, Gift, Selected,
 };
-use hamlet_engine_sdk::ui::{
+use hamlet_engine_bevy::prelude::World;
+use hamlet_engine_bevy::ui::{
     AnyView, ButtonProps, ButtonStyle, MenuItem, UiExt, ViewExt,
-    World, column, derived, icon, keyed, menu_item, pressable,
+    column, derived, icon, keyed, menu_item, pressable,
 };
 
-use crate::agent::open_prompt;
+use crate::agent::{AgentPapers, open_prompt};
 use crate::select;
 
 /// What the menu of an agent offers.
@@ -38,7 +40,7 @@ pub(crate) struct About {
 impl About {
     /// What the menu of the living agent `name` offers.
     pub(crate) fn of(world: &World, name: &str) -> Option<Self> {
-        let roster = world.resource::<Roster>();
+        let roster = &world.resource::<Rostered>().0;
         let agent = roster
             .agents
             .iter()
@@ -83,7 +85,7 @@ impl About {
             .collect();
         let open = world.resource::<Focused>().agent();
         let gifts = if open.as_deref() == Some(name) {
-            world.resource::<Papers>().gifts.clone()
+            world.resource::<AgentPapers>().0.gifts.clone()
         } else {
             Vec::new()
         };
@@ -308,7 +310,7 @@ pub(crate) fn more() -> AnyView {
     keyed(
         derived(about).when(either(
             moved::<Focused>(),
-            either(moved::<Roster>(), moved::<Papers>()),
+            either(moved::<Rostered>(), moved::<AgentPapers>()),
         )),
         |about| match about {
             Some(about) => pressable((icon("more"),))

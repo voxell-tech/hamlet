@@ -47,6 +47,7 @@ hamlet_engine_render = { version = "0.1.0", path = "engine/render" }
 hamlet_engine_wasm = { version = "0.1.0", path = "engine/wasm" }
 hamlet_engine_harness = { version = "0.1.0", path = "engine/harness" }
 hamlet_engine_sdk = { version = "0.1.0", path = "engine/sdk" }
+hamlet_engine_bevy = { version = "0.1.0", path = "engine/bevy_sdk" }
 
 # fynix
 fynix = { path = "vendor/fynix/crates/fynix" }
@@ -57,6 +58,10 @@ lenz = "0.1.0"
 # bevy
 bevy_app = { version = "0.19", default-features = false, features = ["std"] }
 bevy_ecs = { version = "0.19", default-features = false, features = ["std"] }
+# For plugins built with `hamlet_engine_bevy`: no rendering, no threads.
+bevy_math = { version = "0.19", default-features = false, features = ["std"] }
+bevy_time = { version = "0.19", default-features = false }
+bevy_transform = { version = "0.19", default-features = false, features = ["std", "bevy-support"] }
 # `system_clipboard` has copy and paste in a text box use the system's
 # clipboard, not one inside the app.
 bevy = { version = "0.19", default-features = false, features = ["2d", "3d", "ui", "mesh_picking", "default_platform", "system_clipboard", "bevy_audio", "bevy_dev_tools", "debug", "serialize"] }

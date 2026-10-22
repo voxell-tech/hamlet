@@ -3,19 +3,24 @@
 //! the realm's.
 
 use agents_ui::{AgentsWorldExt, Heard, note, part, setting, whole};
-use hamlet_engine_sdk::api::agents::{
+use hamlet_engine_bevy::api::agents::{
     AgentsReply, AgentsRequest, Bylaws, CatalogueModel, Priced,
 };
-use hamlet_engine_sdk::ui::{
-    AnyView, FrameProps, Size, Space, Tone, UiExt, ViewExt, World,
-    column, dropdown, field, icon_button, keyed, label, resource,
-    row, switch, toggle,
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::ui::{
+    AnyView, FrameProps, Size, Space, Tone, UiExt, ViewExt, column,
+    dropdown, field, icon_button, keyed, label, resource, row,
+    switch, toggle,
 };
 
 use crate::agent::{Models, offered};
 
 /// The most a sum of dollars of the bylaws may be.
 const MOST_DOLLARS: f64 = 1_000_000.0;
+
+pub(crate) fn plugin(app: &mut App) {
+    app.init_resource::<Laws>();
+}
 
 /// The bylaws' methods on [`CatalogueModel`].
 trait CatalogueModelExt {
@@ -46,7 +51,7 @@ impl CatalogueModelExt for CatalogueModel {
 }
 
 /// The bylaws of the hamlet last asked for.
-#[derive(Default)]
+#[derive(Resource, Default)]
 pub(crate) struct Laws {
     of: Option<String>,
     bylaws: Bylaws,
@@ -54,15 +59,11 @@ pub(crate) struct Laws {
     problem: Option<String>,
 }
 
-pub(crate) fn prepare(world: &mut World) {
-    world.init_resource::<Laws>();
-}
-
 /// Reads the bylaws of the hamlet `id` again.
 pub(crate) fn read(world: &mut World, id: &str) {
     // Another hamlet's are not shown meanwhile.
     if world.resource::<Laws>().of.as_deref() != Some(id) {
-        world.insert(Laws {
+        world.insert_resource(Laws {
             of: Some(id.to_string()),
             ..Laws::default()
         });

@@ -11,4 +11,5 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-hamlet_engine_sdk.workspace = true
+hamlet_engine_bevy.workspace = true
+serde.workspace = true

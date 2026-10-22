@@ -143,16 +143,16 @@ Paths are under the crate's folder in the table above.
 | Keeping the machine awake, opening an address or a file for a plugin, the address under the pointer, a second launch | `engine/desktop/`; what plugins may ask in `engine/api/src/desktop.rs`; [`engine.md`](engine.md#the-desktop) |
 | Run in Background and the window coming back | `engine/shell/src/window.rs`; the second launch in `engine/desktop/src/launch.rs` |
 | What a plugin and the engine say to each other | `engine/wit/hamlet_engine.wit`, the types in `engine/api/` |
-| Writing or testing an engine plugin | `engine/sdk/`, `engine/samples/`, `engine/harness/` and `plugin_check`; [`engine.md`](engine.md) |
+| Writing or testing an engine plugin | `engine/bevy_sdk/`, `engine/samples/`, `engine/harness/` and `plugin_check`; [`engine.md`](engine.md) |
 | A plugin that comes with Hamlet | A crate in `plugins/`, built by `scripts/build_plugins.sh`; where the engine finds them in `engine/core/src/bundle.rs`; [`engine.md`](engine.md#bundled-plugins) |
 | The engine's Settings pages for the agents, Welcome, or the agents' facts on the status line | `plugins/settings/`, `plugins/welcome/`, `plugins/status/` |
 | The engine's chat, Inspector or Skills panels, or the agents' section of Petitions | `plugins/chat/`, `plugins/inspector/`, `plugins/skills/`, `plugins/petitions/`, sharing `plugins/agents_ui/` |
 | The Petitions panel: its heading, its parts and the plugins' petitions | `engine/grants/src/petition.rs`; a section's component in `engine/shell/src/section.rs` |
 | The window's focus: the open conversation and the thing selected | `engine/agents/src/focus.rs`; the chat's data in `conversation.rs`, `archive.rs`, `roster.rs` and `needs.rs` beside it |
-| A widget an engine plugin can show | Its kind and properties in `engine/wit/hamlet_engine.wit`, its element in `engine/sdk/src/ui/elements.rs`, its widget in `engine/wasm/src/retained.rs`, built from `engine/shell/src/style.rs` |
+| A widget an engine plugin can show | Its kind and properties in `engine/wit/hamlet_engine.wit`, its element in `engine/bevy_sdk/src/ui/elements.rs` (and `engine/sdk/src/ui/elements.rs` while the realm uses it), its widget in `engine/wasm/src/retained.rs`, built from `engine/shell/src/style.rs` |
 | The engine's switch, which every yes or no is set with | `switch` in `engine/shell/src/style.rs`, its sizes under `[space]` in `engine/tuning/theme.toml`; the `toggle` node draws it |
 | The fades at the edges of a scroll area | `ScrollFade` in `engine/shell/src/fade.rs`, its depth `scroll_fade` under `[space]` in `engine/tuning/theme.toml` |
-| A plugin's 3D scene, its viewport or the window behind the dock, its WGSL, compute and passes | The interfaces `scene` and `gpu` in `engine/wit/hamlet_engine.wit`; the host's side in `engine/wasm/src/scene.rs` and `scene/`; drawing, picking and the checks in `engine/render/`; the SDK's `engine/sdk/src/scene.rs`; [`engine.md`](engine.md#scenes-and-gpu-work) |
+| A plugin's 3D scene, its viewport or the window behind the dock, its WGSL, compute and passes | The interfaces `scene` and `gpu` in `engine/wit/hamlet_engine.wit`; the host's side in `engine/wasm/src/scene.rs` and `scene/`; drawing, picking and the checks in `engine/render/`; the SDK's `engine/bevy_sdk/src/scene.rs`; [`engine.md`](engine.md#scenes-and-gpu-work) |
 | The engine's realm in its Realm panel: land, towns, roads, robots, the Hearth, its camera and pointer | `plugins/realm/`, as `hamlet_realm` draws it; [`engine.md`](engine.md#bundled-plugins) |
 | The first workspace of a new home, "Main" | `Workspaces::default` in `engine/shell/src/workspace.rs` |
 | What an engine plugin adds outside its panels: settings pages, status items, overlays, panel sections | `engine/api/src/contribution.rs`; the shell's `settings.rs`, `status.rs`, `overlay.rs` and `section.rs` in `engine/shell/src/`; what a plugin changes on them in `engine/wasm/src/surfaces.rs` |

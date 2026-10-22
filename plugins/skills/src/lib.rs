@@ -6,35 +6,51 @@ use agents_ui::{
     AgentsWorldExt, CONFIRM, Focused, Heard, confirmation,
     library_list, start,
 };
-use hamlet_engine_sdk::api::agents::{
+use hamlet_engine_bevy::api::agents::{
     AgentsEvent, AgentsReply, AgentsRequest, Papers,
 };
-use hamlet_engine_sdk::ui::{
-    AnyView, Face, FrameProps, Size, Space, Tone, ViewExt, World,
-    column, keyed, label, list, resource, scroll,
+use hamlet_engine_bevy::bevy_ecs::message::MessageCursor;
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::ui::{
+    AnyView, Face, FrameProps, Size, Space, Tone, ViewExt, column,
+    keyed, label, list, resource, scroll,
 };
-use hamlet_engine_sdk::{Entry, Message, Plugin};
 
 #[derive(Default)]
 struct Skills;
 
-/// The open session the papers were read for.
-#[derive(Default)]
-struct Read(Option<String>);
-
-fn prepare(world: &mut World) {
-    world.init_agents();
-    world.init_resource::<Papers>();
-    world.init_resource::<Read>();
+impl Plugin for Skills {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(agents_ui::plugin)
+            .init_resource::<AgentPapers>()
+            .init_resource::<Read>()
+            .add_panel("skills", "Skills", skills)
+            .add_overlay(CONFIRM, confirmation)
+            .add_systems(
+                Declare,
+                start(&[AgentsRequest::Focus, AgentsRequest::Skills]),
+            )
+            .add_systems(Update, receive);
+    }
 }
+
+hamlet_engine_bevy::export!(Skills);
+
+/// The papers of the agent of the open conversation.
+#[derive(Resource, Default, PartialEq)]
+struct AgentPapers(Papers);
+
+/// The open session the papers were read for.
+#[derive(Resource, Default)]
+struct Read(Option<String>);
 
 /// Reads the papers of the agent of the open conversation again.
 fn follow(world: &mut World) {
     let agent = world.resource::<Focused>().agent();
     // Another's papers are not shown meanwhile.
     if world.resource::<Read>().0 != agent {
-        world.insert(Papers::default());
-        world.insert(Read(agent.clone()));
+        world.insert_resource(AgentPapers::default());
+        world.insert_resource(Read(agent.clone()));
     }
     if agent.is_some() {
         world.ask(AgentsRequest::Papers);
@@ -44,7 +60,7 @@ fn follow(world: &mut World) {
 /// The agent's own skills.
 fn own() -> AnyView {
     keyed(
-        resource::<Papers, _>(|papers| papers.skills.clone()),
+        resource::<AgentPapers, _>(|papers| papers.0.skills.clone()),
         |skills| {
             if skills.is_empty() {
                 return label("None of its own yet.")
@@ -72,46 +88,35 @@ fn own() -> AnyView {
     .boxed()
 }
 
-impl Plugin for Skills {
-    fn declare(&self, entry: &mut Entry) {
-        entry.panel("skills", "Skills").overlay(CONFIRM);
-        start(&[AgentsRequest::Focus, AgentsRequest::Skills]);
-    }
+fn skills(world: &mut World) -> AnyView {
+    follow(world);
+    let whose = agents_ui::name(resource::<Focused, _>(|focused| {
+        format!("{}: ITS OWN SKILLS", focused.whose())
+    }));
+    // One scroll for both lists, so that a long one of its own does
+    // not push the library out of reach.
+    scroll((
+        whose,
+        own(),
+        label("THE LIBRARY, SHARED BY ALL")
+            .bold(true)
+            .face(Face::Display)
+            .tone(Tone::Faint),
+        library_list(),
+    ))
+    .boxed()
+}
 
-    fn mount(&mut self, name: &str, world: &mut World) -> AnyView {
-        prepare(world);
-        if name == CONFIRM {
-            return confirmation();
-        }
-        follow(world);
-        let whose =
-            agents_ui::name(resource::<Focused, _>(|focused| {
-                format!("{}: ITS OWN SKILLS", focused.whose())
-            }));
-        // One scroll for both lists, so that a long one of its own
-        // does not push the library out of reach.
-        scroll((
-            whose,
-            own(),
-            label("THE LIBRARY, SHARED BY ALL")
-                .bold(true)
-                .face(Face::Display)
-                .tone(Tone::Faint),
-            library_list(),
-        ))
-        .boxed()
-    }
-
-    fn receive(&mut self, message: Message, world: &mut World) {
-        prepare(world);
-        let Some(told) = world.hear(message) else {
-            return;
-        };
+fn receive(
+    world: &mut World,
+    mut cursor: Local<MessageCursor<Heard>>,
+) {
+    for told in world.heard(&mut cursor) {
         match told {
             Heard::Reply(_, AgentsReply::Papers(papers))
                 if world.resource::<Read>().0.is_some() =>
             {
-                world.keep(papers);
+                world.keep(AgentPapers(papers));
             }
             Heard::Reply(_, AgentsReply::Focus(focus))
             | Heard::Event(AgentsEvent::Focus(focus))
@@ -127,7 +132,7 @@ impl Plugin for Skills {
                 follow(world);
             }
             Heard::Failed(Some(request), why) => {
-                hamlet_engine_sdk::warn(&format!(
+                hamlet_engine_bevy::warn(&format!(
                     "{request:?}: {why}"
                 ));
             }
@@ -135,5 +140,3 @@ impl Plugin for Skills {
         }
     }
 }
-
-hamlet_engine_sdk::export!(Skills);
