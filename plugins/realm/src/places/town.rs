@@ -5,6 +5,7 @@
 //! from does. Houses are built a few a frame; one that replaces
 //! another stands up as the other goes.
 
+pub mod attire;
 pub mod build;
 pub mod common;
 pub mod kit;
@@ -22,6 +23,7 @@ use crate::build::upload::{Unsent, Upload};
 use crate::folk::keeper::KState;
 use crate::places::house::{self, TownStyle};
 use crate::places::shift::{Part, Shift, Way};
+use crate::places::town::attire::{Attire, Emotes, Making, Perch};
 use crate::places::town::build::{Built, FlagSettings, Recipe};
 use crate::places::town::kit::{Kit, Part as KitPart};
 use crate::places::town::lights::Lamps;
@@ -29,6 +31,7 @@ use crate::places::yard::Yard;
 use crate::realm::Ctx;
 use crate::society::{Agent, AgentId, Society, Town, TownId};
 use crate::view::pick::Thing;
+use crate::wardrobe::HamletLook;
 use crate::world::land::{Land, LandData};
 use crate::world::layout::{HALL_PLOT, plot};
 use crate::world::palette::Palette;
@@ -51,6 +54,8 @@ struct HouseSig {
     cleared: bool,
     leader: bool,
     wings: u8,
+    /// The number of what its town wears; 0 for nothing.
+    attire: u64,
 }
 
 /// A thing that stands about a house, under it.
@@ -90,6 +95,8 @@ struct House {
     /// shows and where it hangs in the realm.
     panes: Option<Entity>,
     lamp: Option<(Entity, KState, Vec3)>,
+    /// Where an emote hangs about it, once it is drawn.
+    perch: Option<Perch>,
     props: Vec<Prop>,
     yard: Yard,
     engine: Option<Engine>,
@@ -142,6 +149,14 @@ pub struct Towns {
     /// The society's shape and the land's places when last brought
     /// in line.
     shape: Option<(u64, u64)>,
+    /// What each town wears with its number, the version of the
+    /// wardrobe followed and the last number given.
+    attires: HashMap<TownId, (u64, Attire)>,
+    dressed: u64,
+    made: u64,
+    /// Each town's emote, and those still being made.
+    emotes: HashMap<TownId, Emotes>,
+    making: HashMap<TownId, Making>,
 }
 
 /// The towns' methods on [`Entity`].
@@ -174,6 +189,11 @@ impl Towns {
             jobs: VecDeque::new(),
             stale: HashSet::new(),
             shape: None,
+            attires: HashMap::new(),
+            dressed: 0,
+            made: 0,
+            emotes: HashMap::new(),
+            making: HashMap::new(),
         })
     }
 
@@ -185,6 +205,7 @@ impl Towns {
         {
             return;
         }
+        self.dress(ctx);
         let shape = (ctx.society.shape(), ctx.land.places());
         if self.shape != Some(shape) {
             self.sync(ctx);
@@ -198,6 +219,113 @@ impl Towns {
         self.states(ctx);
         self.engines(ctx);
         self.spill(ctx);
+        self.emote(ctx, upload);
+    }
+
+    /// Puts on each town what its hamlet wears, once the wardrobe
+    /// changes. The houses of a town whose attire changed are built
+    /// anew in it.
+    fn dress(&mut self, ctx: &Ctx) {
+        let wardrobe = ctx.wardrobe;
+        if self.dressed == wardrobe.version {
+            return;
+        }
+        self.dressed = wardrobe.version;
+        let bare = HamletLook::default();
+        let mut changed = false;
+        let towns = &ctx.society.towns;
+        self.attires
+            .retain(|id, _| towns.iter().any(|town| town.id == *id));
+        for town in towns {
+            let look = wardrobe.of_town(town.id).unwrap_or(&bare);
+            let worn = self
+                .attires
+                .get(&town.id)
+                .map_or(&bare, |(_, attire)| &attire.look);
+            if worn == look {
+                continue;
+            }
+            changed = true;
+            self.emotes.remove(&town.id);
+            self.making.remove(&town.id);
+            if *look == bare {
+                self.attires.remove(&town.id);
+                continue;
+            }
+            self.made += 1;
+            let attire = Attire::of(look.clone(), wardrobe, ctx.pal);
+            if let Some(making) =
+                attire.look.emote.as_ref().and_then(|emote| {
+                    Making::of(emote, &ctx.tuning.attire)
+                })
+            {
+                self.making.insert(town.id, making);
+            }
+            self.attires.insert(town.id, (self.made, attire));
+        }
+        if changed {
+            self.shape = None;
+        }
+    }
+
+    /// Makes each town's emote once its meshes are handed over, and
+    /// moves those of the towns seen close.
+    fn emote(&mut self, ctx: &Ctx, upload: &mut Upload) {
+        let set = &ctx.tuning.attire;
+        let candle = ctx.sky.look.candle;
+        let (towns, emotes) = (&self.towns, &mut self.emotes);
+        emotes.retain(|id, _| towns.contains_key(id));
+        let attires = &self.attires;
+        self.making.retain(|id, making| {
+            // A town yet to be drawn has its emote made once it is.
+            let Some(group) = towns.get(id) else {
+                return attires.contains_key(id);
+            };
+            match making.hand(
+                &group.near,
+                (ctx.stock, set, candle),
+                upload,
+            ) {
+                None => true,
+                Some(Ok(made)) => {
+                    emotes.insert(*id, made);
+                    false
+                }
+                Some(Err(why)) => {
+                    hamlet_engine_sdk::warn(&format!(
+                        "a hamlet's emote: {why}"
+                    ));
+                    false
+                }
+            }
+        });
+        let land = ctx.land;
+        for (id, emote) in &mut self.emotes {
+            let Some(group) = self.towns.get(id) else {
+                continue;
+            };
+            let c = land.sites[group.site].at;
+            let away = ctx.eye.distance(Vec3::new(
+                c.x,
+                land.set.land.site_y,
+                c.y,
+            ));
+            let close = group.near_shown == Some(true)
+                && away < ctx.tuning.detail.robots_far;
+            emote.light(candle, set);
+            let mut houses = self
+                .houses
+                .values()
+                .filter(|house| house.town == *id && house.seen)
+                .filter_map(|house| Some((house.agent, house.perch?)))
+                .collect::<Vec<_>>();
+            houses.sort_by_key(|(agent, _)| agent.0);
+            let perches = houses
+                .into_iter()
+                .map(|(_, perch)| perch)
+                .collect::<Vec<_>>();
+            emote.stir(&perches, (ctx.clock, close), set, upload);
+        }
     }
 
     /// Takes out what the society no longer holds, and draws what is
@@ -232,6 +360,10 @@ impl Towns {
                 cleared: agent.cleared,
                 leader: town.leader == agent.id,
                 wings: agent.wings,
+                attire: self
+                    .attires
+                    .get(&town.id)
+                    .map_or(0, |(made, _)| *made),
             };
             if self.houses.get(&agent.id).map(|h| h.sig) == Some(sig)
             {
@@ -367,6 +499,7 @@ impl Towns {
             drawn: false,
             panes: None,
             lamp: None,
+            perch: None,
             props: Vec::new(),
             yard,
             engine: None,
@@ -468,8 +601,12 @@ impl Towns {
                 continue;
             };
             let recipe = house.recipe;
+            let attire = self
+                .attires
+                .get(&house.town)
+                .map(|(_, attire)| attire);
             let built = house.built.get_or_insert_with(|| {
-                Built::of(ctx.land, &self.flag, recipe)
+                Built::of(ctx.land, &self.flag, recipe, attire)
             });
             if !built.hand(upload) {
                 break;
@@ -508,7 +645,10 @@ impl Towns {
                 self.stale.remove(&id);
                 continue;
             };
-            let (mb, panes) = far_mesh(land, society, id, group.site);
+            let attire =
+                self.attires.get(&id).map(|(_, attire)| attire);
+            let (mb, panes) =
+                far_mesh((land, society), id, group.site, attire);
             let (body, panes) =
                 match (mb.upload(upload), panes.upload(upload)) {
                     (Ok(body), Ok(panes)) => (body, panes),
@@ -751,6 +891,13 @@ impl House {
             // An archived house answers only as a ruin.
             self.entity.watch(true, true);
         }
+        if let Some((chimney, eaves)) = built.perch {
+            self.perch = Some(Perch {
+                frame: self.frame,
+                chimney,
+                eaves,
+            });
+        }
         if let Some((panes, lamp)) = &built.fittings {
             if let Some(mesh) = panes.mesh()
                 && let Ok(entity) =
@@ -873,14 +1020,21 @@ impl LandData {
     }
 }
 
-/// The far mesh of the town `id` on `site`, and its window panes.
+/// The far mesh of the town `id` on `site`, wearing `attire`, and
+/// its window panes.
 fn far_mesh(
-    land: &Land,
-    society: &Society,
+    (land, society): (&Land, &Society),
     id: TownId,
     site: usize,
+    attire: Option<&Attire>,
 ) -> (Mb, Mb) {
-    let style = TownStyle::of(land, site);
+    let pal = attire
+        .and_then(|attire| attire.pal.as_ref())
+        .unwrap_or(&land.pal);
+    let worn = attire
+        .and_then(|attire| attire.shell.as_ref())
+        .map(|shell| &shell.bulk);
+    let style = TownStyle::dyed(land, pal, site);
     let (mut mb, mut panes) = (Mb::new(), Mb::new());
     mb.at(land.common_frame(site).affine());
     common::far(&mut mb, land);
@@ -891,14 +1045,13 @@ fn far_mesh(
             land.on_ground(spot.at),
         );
         house::far(
-            &mut mb,
-            &mut panes,
+            (&mut mb, &mut panes),
             xf,
-            land,
+            (land, pal),
             agent.id,
             &style,
-            agent.plot == HALL_PLOT,
-            agent.remains(&land.set.house),
+            (agent.plot == HALL_PLOT, agent.remains(&land.set.house)),
+            worn,
         );
     }
     (mb, panes)

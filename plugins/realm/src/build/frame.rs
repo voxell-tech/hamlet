@@ -71,6 +71,16 @@ impl Frame {
         self.at + self.turn * (self.size * point)
     }
 
+    /// `inner`, given in this frame, in the frame it stands in;
+    /// exact while this frame is the same size along each axis.
+    pub fn then(&self, inner: Frame) -> Self {
+        Self {
+            at: self.point(inner.at),
+            turn: self.turn * inner.turn,
+            size: self.size * inner.size,
+        }
+    }
+
     /// The transform the engine's scene takes.
     pub fn scene(&self) -> Transform {
         Transform {

@@ -16,6 +16,7 @@ use crate::folk::keeper::trip::{Stride, Trip};
 use crate::folk::keeper::work::{Chore, routine};
 use crate::folk::keeper::{KState, Motion};
 use crate::places::yard::Station;
+use crate::wardrobe::AgentLook;
 use crate::world::land::Land;
 
 /// One chore: the walk to its station, then the chore itself.
@@ -106,6 +107,9 @@ pub(super) struct Robot {
     /// the robot is made anew.
     pub sig: (usize, glam::Vec2, u32, u8, bool),
     pub passage: Option<Passage>,
+    /// What it wears, and whether all of it is on.
+    pub look: AgentLook,
+    pub fitted: bool,
     /// Its doing about its house. None before it has been placed.
     job: Option<Job>,
     /// The motion last asked of it, and the clock time it began.
@@ -137,6 +141,8 @@ impl Robot {
             work,
             sig,
             passage: None,
+            look: AgentLook::default(),
+            fitted: true,
             job: None,
             playing: None,
             step: 0,

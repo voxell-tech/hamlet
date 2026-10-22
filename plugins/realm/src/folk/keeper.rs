@@ -9,6 +9,7 @@ mod pose;
 mod rig;
 mod robot;
 mod trip;
+pub mod wear;
 mod who;
 mod work;
 
@@ -26,11 +27,13 @@ use crate::folk::keeper::lot::Lot;
 pub use crate::folk::keeper::lot::{Floor, Pad};
 use crate::folk::keeper::rig::Rig;
 use crate::folk::keeper::robot::{Passage, Robot};
+use crate::folk::keeper::wear::Wear;
 use crate::folk::keeper::who::Who;
 use crate::places::house::yard_of;
 use crate::realm::Ctx;
 use crate::society::{Agent, AgentId};
 use crate::view::pick::Thing;
+use crate::wardrobe::AgentLook;
 use crate::world::land::Land;
 use crate::world::layout::{HALL_PLOT, plot};
 use crate::world::palette::Palette;
@@ -49,6 +52,10 @@ pub struct Robots {
     /// True once the robots of the first society seen are made:
     /// those that come later are seen arriving.
     met: bool,
+    /// What the robots wear, and the version of the wardrobe it
+    /// follows.
+    wear: Wear,
+    dressed: u64,
 }
 
 impl Robots {
@@ -60,6 +67,8 @@ impl Robots {
             leaving: Vec::new(),
             asked: HashMap::new(),
             met: false,
+            wear: Wear::default(),
+            dressed: 0,
         })
     }
 
@@ -75,8 +84,32 @@ impl Robots {
             return;
         }
         let now = ctx.clock;
+        let wardrobe = ctx.wardrobe;
+        let mut redress = self.dressed != wardrobe.version;
+        if redress {
+            self.wear.follow(wardrobe, ctx.pal);
+            self.dressed = wardrobe.version;
+        }
+        redress |= self.wear.hand_over(upload);
         self.sync(ctx, now);
+        if redress {
+            for (agent, robot) in &mut self.robots {
+                let look = wardrobe
+                    .of_agent(*agent)
+                    .cloned()
+                    .unwrap_or_default();
+                if look != robot.look || !robot.fitted {
+                    Self::dress_in(
+                        &self.wear,
+                        (&self.kit, ctx),
+                        robot,
+                        look,
+                    );
+                }
+            }
+        }
         let (land, motion) = (ctx.land, &ctx.tuning.motion);
+        let moving = (motion, &ctx.tuning.wear);
         let far = ctx.tuning.detail.robots_far;
         let seen = |robot: &Robot| {
             robot.rig.at.at.distance(ctx.eye) < far
@@ -87,13 +120,13 @@ impl Robots {
             robot.work(land, motion, now, dt);
             let shown = seen(robot);
             robot.rig.show(shown);
-            robot.rig.pose(now, motion, &self.kit, ctx.stock, shown);
+            robot.rig.pose(now, moving, &self.kit, ctx.stock, shown);
         }
         self.leaving.retain_mut(|robot| {
             let gone = robot.pass(now) || robot.rig.gone(now);
             let shown = seen(robot);
             robot.rig.show(shown);
-            robot.rig.pose(now, motion, &self.kit, ctx.stock, shown);
+            robot.rig.pose(now, moving, &self.kit, ctx.stock, shown);
             !gone
         });
     }
@@ -131,6 +164,16 @@ impl Robots {
                 });
             match self.raise(ctx, agent, town.site, sig) {
                 Ok(mut robot) => {
+                    if let Some(look) =
+                        ctx.wardrobe.of_agent(agent.id)
+                    {
+                        Self::dress_in(
+                            &self.wear,
+                            (&self.kit, ctx),
+                            &mut robot,
+                            look.clone(),
+                        );
+                    }
                     if rises {
                         let after =
                             ctx.tuning.house_motion.props_after;
@@ -208,6 +251,31 @@ impl Robots {
             Thing::Robot(agent.id).key(),
         )?;
         Ok(Robot::new(rig, lot, agent.state, agent.work, sig))
+    }
+
+    /// Dresses `robot` in `look`.
+    fn dress_in(
+        wear: &Wear,
+        (kit, ctx): (&Kit, &Ctx),
+        robot: &mut Robot,
+        look: AgentLook,
+    ) {
+        robot.fitted = !wear.waits(&look);
+        robot.rig.dress(
+            kit,
+            ctx.stock,
+            wear.dress(&look),
+            look.clip.as_ref(),
+        );
+        robot.look = look;
+    }
+
+    /// Has the robot of `agent` play the clip it wears, at clock time
+    /// `now`.
+    pub fn gesture(&mut self, agent: AgentId, now: f32) {
+        if let Some(robot) = self.robots.get_mut(&agent) {
+            robot.rig.gesture(now);
+        }
     }
 
     /// Has each robot seen doing what befell its agent.

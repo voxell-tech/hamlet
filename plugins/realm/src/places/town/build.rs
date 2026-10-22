@@ -9,6 +9,7 @@ use hamlet_engine_sdk::scene::{Mesh, MeshData};
 use crate::build::mesh::Mb;
 use crate::build::upload::{Unsent, Upload};
 use crate::places::house::{self, Remains, TownStyle};
+use crate::places::town::attire::Attire;
 use crate::places::yard::Yard;
 use crate::society::AgentId;
 use crate::world::land::Land;
@@ -108,10 +109,12 @@ pub struct Recipe {
 
 /// A house's meshes as they are handed over: the body, and for a
 /// house that is lived in its window panes and where its door
-/// lantern hangs.
+/// lantern hangs, and the top of its chimney and the ends of its
+/// front eave, which an emote hangs about.
 pub struct Built {
     pub body: Handed,
     pub fittings: Option<(Handed, Vec3)>,
+    pub perch: Option<(Vec3, [Vec3; 2])>,
 }
 
 /// A mesh as it is handed over.
@@ -161,70 +164,79 @@ impl Handed {
 
 /// A house's meshes before they are handed over: the body, and for a
 /// house that is lived in its window panes and where its door lantern
-/// hangs.
+/// hangs, and the top of its chimney and the ends of its front eave.
 pub struct Made {
     pub body: Mb,
     pub fittings: Option<(Mb, Vec3)>,
+    pub perch: Option<(Vec3, [Vec3; 2])>,
 }
 
 impl Made {
-    /// The meshes of the house `recipe` makes.
+    /// The meshes of the house `recipe` makes, wearing `attire`.
     pub fn of(
         land: &Land,
         flag: &FlagSettings,
         recipe: Recipe,
+        attire: Option<&Attire>,
     ) -> Self {
+        let pal = attire
+            .and_then(|attire| attire.pal.as_ref())
+            .unwrap_or(&land.pal);
         if let Some(remains) = recipe.remains {
             let body = match remains {
                 Remains::Ruin => {
-                    house::ruin(land, recipe.agent, recipe.hall)
+                    house::ruin(land, pal, recipe.agent, recipe.hall)
                 }
                 Remains::Bare => Mb::new(),
             };
             return Self {
                 body,
                 fittings: None,
+                perch: None,
             };
         }
-        let built = house::house(
+        let built = house::dressed(
             land,
+            pal,
             recipe.agent,
-            &TownStyle::of(land, recipe.site),
-            recipe.hall,
-            recipe.leader,
-            recipe.wings,
+            &TownStyle::dyed(land, pal, recipe.site),
+            (recipe.hall, recipe.leader, recipe.wings),
             &recipe.yard,
+            attire.map(Attire::fit).unwrap_or_default(),
         );
         let mut body = built.body;
-        if let Some((at, colours)) = built.banner {
+        if let Some((at, colours, long)) = built.banner {
             flag.cloth(
                 &mut body,
                 at,
-                house::BANNER.x,
+                long,
                 house::BANNER.y,
                 &colours,
             );
         }
         Self {
             body,
-            fittings: Some((built.panes, built.lamp)),
+            fittings: Some((built.panes, built.spots.lamp)),
+            perch: Some((built.spots.chimney, built.eaves)),
         }
     }
 }
 
 impl Built {
-    /// The meshes of the house `recipe` makes.
+    /// The meshes of the house `recipe` makes, wearing `attire`.
     pub fn of(
         land: &Land,
         flag: &FlagSettings,
         recipe: Recipe,
+        attire: Option<&Attire>,
     ) -> Self {
-        let made = Made::of(land, flag, recipe);
+        let made = Made::of(land, flag, recipe, attire);
         Self {
             body: Handed::Waiting(made.body.data()),
             fittings: made.fittings.map(|(panes, lamp)| {
                 (Handed::Waiting(panes.data()), lamp)
             }),
+            perch: made.perch,
         }
     }
 

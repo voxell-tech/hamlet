@@ -5,7 +5,9 @@
 //! in the window's focus and brings the Inspector forward. Clicking a
 //! stall of the Agent Bazaar sends `stall` with the stall's short
 //! name, and a `traded` of `hamlet.bazaar` with one has the stall
-//! show the sale. Its service `diorama` hands over the town of a
+//! show the sale. Agents and hamlets wear the looks the bazaar keeps
+//! in the store (docs/looks.md), and its `emote` has an agent's robot
+//! play its clip. Its service `diorama` hands over the town of a
 //! hamlet template, for the Agent Bazaar to show on a plinth.
 
 mod bridge;
@@ -17,6 +19,7 @@ mod realm;
 mod society;
 mod tuning;
 mod view;
+mod wardrobe;
 mod world;
 
 use hamlet_engine_sdk::api::agents::{
@@ -28,12 +31,14 @@ use hamlet_engine_sdk::ui::{
     open, resource,
 };
 use hamlet_engine_sdk::{
-    Entry, Message, Plugin, Reply, World, agents, decode, emit,
-    encode, error, subscribe, warn,
+    Entry, Message, Plugin, Reply, World, agents, assets, decode,
+    emit, encode, error, subscribe, warn,
 };
+use looks::{FILE, PLAY, WORN};
 
 use crate::diorama::Dioramas;
 use crate::realm::Realm;
+use crate::wardrobe::closet::{Ask, Closet};
 use crate::world::sky::Hour;
 
 /// The name of the panel the realm is drawn in.
@@ -66,6 +71,9 @@ struct RealmPlugin {
     /// True once the realm could not be made.
     broken: bool,
     dioramas: Dioramas,
+    /// The reading of what is worn, and the seconds it has run.
+    closet: Closet,
+    clock: f32,
 }
 
 impl Plugin for RealmPlugin {
@@ -97,6 +105,7 @@ impl Plugin for RealmPlugin {
         }
         subscribe(CARRY);
         subscribe(TRADED);
+        subscribe(PLAY);
     }
 
     fn mount(&mut self, _: &str, world: &mut World) -> AnyView {
@@ -131,7 +140,21 @@ impl Plugin for RealmPlugin {
 
     fn receive(&mut self, message: Message, world: &mut World) {
         let reply = match message {
-            Message::Reply { reply, .. } => reply,
+            Message::Reply { ticket, reply } => {
+                if self.closet.owns(ticket) {
+                    self.closet.answer(ticket, reply);
+                    return;
+                }
+                reply
+            }
+            Message::Changed { asset, .. } => {
+                self.closet.changed(asset);
+                return;
+            }
+            Message::Gone(asset) => {
+                self.closet.gone(asset);
+                return;
+            }
             Message::Event { event, payload, .. } => {
                 let event = event.as_str();
                 match decode::<String>(&payload) {
@@ -139,6 +162,7 @@ impl Plugin for RealmPlugin {
                         if let Some(realm) = self.realm(world) {
                             match event {
                                 TRADED => realm.trade(&said),
+                                PLAY => realm.gesture(&said),
                                 _ => realm.carry(&said),
                             }
                         }
@@ -147,7 +171,6 @@ impl Plugin for RealmPlugin {
                 }
                 return;
             }
-            _ => return,
         };
         let reply = match reply {
             Ok(Reply::Agents(reply)) => reply,
@@ -198,6 +221,24 @@ impl Plugin for RealmPlugin {
         };
         let dt = (micros as f32 / 1_000_000.0).min(LONGEST_FRAME);
         realm.tick(dt);
+        self.clock += dt;
+        for ask in self.closet.asks(&realm.closet(), self.clock) {
+            let ticket = match &ask {
+                Ask::ListWorn => assets::list(WORN),
+                Ask::ListFiles => assets::list(FILE),
+                Ask::Hold(id) => assets::hold(*id),
+                Ask::ReadWorn(id) | Ask::ReadPart { id, .. } => {
+                    assets::read(*id)
+                }
+            };
+            self.closet.sent(ticket, ask);
+        }
+        for note in self.closet.notes() {
+            warn(&format!("looks: {note}"));
+        }
+        if let Some(delivery) = self.closet.take() {
+            realm.wear(delivery);
+        }
         if let Some(selected) = realm.choice() {
             // The bare ground only clears what was selected.
             let something = selected != Selected::Nothing;

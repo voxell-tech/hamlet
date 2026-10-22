@@ -29,6 +29,8 @@ use crate::tuning::WorldTuning;
 use crate::view::camera::Camera;
 use crate::view::pick::{Picking, Thing};
 use crate::view::signs::{Signs, Words};
+use crate::wardrobe::Wardrobe;
+use crate::wardrobe::closet::Delivery;
 use crate::world::ground::Ground;
 use crate::world::land::{Land, Unfit};
 use crate::world::layout::plot;
@@ -58,6 +60,8 @@ pub struct Ctx<'a> {
     pub sky: &'a Sky,
     /// Seconds since the realm began.
     pub clock: f32,
+    /// What agents and hamlets wear.
+    pub wardrobe: &'a Wardrobe,
     /// Where the camera stands.
     pub eye: Vec3,
     /// The agent the chief talks to, and where its robot stands.
@@ -102,6 +106,7 @@ pub struct Realm {
     chief_name: String,
     pace: Pace,
     clock: f32,
+    wardrobe: Wardrobe,
 }
 
 impl Realm {
@@ -174,6 +179,7 @@ impl Realm {
             chief_name: String::new(),
             pace,
             clock: 0.0,
+            wardrobe: Wardrobe::default(),
         })
     }
 
@@ -216,6 +222,24 @@ impl Realm {
         }
     }
 
+    /// Wears what `delivery` says each agent and hamlet wears.
+    pub fn wear(&mut self, delivery: Delivery) {
+        self.wardrobe.wear(delivery);
+        self.wardrobe.resolve(&self.bridge, &self.society);
+    }
+
+    /// Has the robot of the agent `name` play the clip it wears now.
+    pub fn gesture(&mut self, name: &str) {
+        if let Some(agent) = self.bridge.find(name) {
+            self.robots.gesture(agent, self.clock);
+        }
+    }
+
+    /// The tuning of how looks are read.
+    pub fn closet(&self) -> crate::wardrobe::closet::ClosetSettings {
+        self.tuning.closet
+    }
+
     /// Brings the society in line with the roster.
     pub fn follow(&mut self, roster: &Roster) {
         let moments = self.bridge.follow(
@@ -224,6 +248,7 @@ impl Realm {
             &mut self.society,
         );
         self.robots.moments(&moments);
+        self.wardrobe.resolve(&self.bridge, &self.society);
         self.camera.frame(
             &self.tuning.camera,
             &self.land,
@@ -384,6 +409,7 @@ impl Realm {
             stock: &self.stock,
             sky: &self.sky,
             clock: self.clock,
+            wardrobe: &self.wardrobe,
             eye: self.camera.eye(&self.land),
             beside,
         };

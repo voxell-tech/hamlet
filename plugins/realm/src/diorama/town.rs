@@ -147,6 +147,7 @@ impl Town {
                     wings: agent.wings,
                     yard,
                 },
+                None,
             );
             let at = local
                 * Frame::at(land.on_ground(spot.at))

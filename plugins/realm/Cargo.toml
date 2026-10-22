@@ -19,3 +19,7 @@ hamlet_engine_sdk.workspace = true
 glam = { version = "0.32", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 toml = "1"
+looks = { path = "../looks" }
+anyhow = "1"
+# Reads the meshes worn, `.glb` files, inside the plugin.
+gltf = { version = "1", default-features = false, features = ["utils", "names"] }

@@ -23,13 +23,33 @@ capability = "render.shader"
 target = "gpu"
 reason = "Draws the roads' grooves and their light, and the rings and runes on the ground, with shaders of its own"
 
-# It tells of a stall of the Agent Bazaar clicked, and shows a sale
-# there when the bazaar says one was made.
+[[asks]]
+capability = "assets.read"
+target = "looks.worn"
+reason = "Dresses each agent and hamlet in the looks bought at the Agent Bazaar"
+
+[[asks]]
+capability = "assets.read"
+target = "looks.file"
+reason = "Reads the files of the looks worn: skins, emotes and meshes"
+
+# What the bazaar says each agent and hamlet wears, and the files of
+# it (docs/looks.md).
+[assets]
+uses = [
+    { name = "looks.worn", version = 1 },
+    { name = "looks.file", version = 1 },
+]
+
+# It tells of a stall of the Agent Bazaar clicked, shows a sale there
+# when the bazaar says one was made, and has an agent's robot play
+# its emote when the bazaar asks.
 [events]
 sends = [{ name = "stall", payload = "bazaar.stall" }]
 hears = [
     { event = "hamlet.inspector/carry", payload = "realm.carry" },
     { event = "hamlet.bazaar/traded", payload = "bazaar.stall" },
+    { event = "hamlet.bazaar/emote", payload = "looks.emote" },
 ]
 
 # It hands over the town of a hamlet template, a part a call, for the

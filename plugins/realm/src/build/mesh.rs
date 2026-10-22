@@ -487,6 +487,16 @@ impl Mb {
         self.idx.extend(other.idx.iter().map(|i| i + first));
     }
 
+    /// Adds the triangles of `other`.
+    pub fn append(&mut self, other: Mb) {
+        let base = self.pos.len() as u32;
+        self.pos.extend(other.pos);
+        self.nor.extend(other.nor);
+        self.col.extend(other.col);
+        self.uv.extend(other.uv);
+        self.idx.extend(other.idx.into_iter().map(|i| i + base));
+    }
+
     /// The mesh as the engine takes it, without UVs if none were
     /// given.
     pub fn data(mut self) -> MeshData {

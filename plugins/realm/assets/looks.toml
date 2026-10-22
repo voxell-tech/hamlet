@@ -1,0 +1,44 @@
+# What agents and hamlets wear (docs/looks.md): how the realm reads it
+# from the engine's store, plays an agent's clip, and moves a hamlet's
+# emote about its houses.
+
+[closet]
+# Seconds between lists of the store while it holds nothing worn, or
+# a file's parts are not all listed.
+relist = 10.0
+# The most requests made in one call, and waiting at once.
+asks = 2
+in_flight = 4
+
+[wear]
+# Seconds a clip takes to ease in and out of the robot's own motion.
+emote_blend = 0.3
+# The share of a clip's `every` an idle robot may wait on top of it
+# before it plays the clip again.
+emote_spread = 0.5
+
+[attire]
+# Seconds a puff of smoke takes to rise and fade, and the most puffs
+# over one chimney.
+puff_life = 3.2
+puffs = 10
+# A paper lantern's radius and height, and the string it hangs from.
+lantern_radius = 0.11
+lantern_height = 0.24
+lantern_string = 0.14
+# The most lanterns on one house, their swings a second in radians,
+# and how brightly their light glows after dark.
+lanterns = 8
+sway_speed = 1.7
+lantern_glow = 2.5
+# The most petals falling about one house.
+petals = 14
+# The most fireflies about one house, how far past its eaves they
+# wander, and the share of their glow they keep by day.
+fireflies = 8
+firefly_reach = 0.7
+firefly_day = 0.35
+# The most pinwheels on one house, a pinwheel's radius and its stick.
+pinwheels = 3
+pinwheel_radius = 0.22
+pinwheel_stick = 0.42

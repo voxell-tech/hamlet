@@ -127,7 +127,7 @@ impl Statue {
 
     /// The look of a robot's lights as it stands at ease.
     pub fn lights_look() -> Pbr {
-        lights(Pose::stand().glow)
+        lights(Pose::stand().glow, None)
     }
 
     /// Adds `shape` at `at`: its paint or wood times `tint`, and its
