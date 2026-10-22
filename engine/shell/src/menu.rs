@@ -62,8 +62,16 @@ struct MenuTitle(String);
 
 /// The titles of the menus, for the bar.
 pub fn view() -> AnyView {
-    keyed(resource::<MenuBar, _>(Clone::clone), |bar| {
-        row(bar.0.iter().map(title).collect::<Vec<_>>())
+    // Built again only as a menu comes or goes; an open menu reads
+    // its entries as it opens.
+    let titles = resource::<MenuBar, _>(|bar| {
+        bar.0
+            .iter()
+            .map(|menu| menu.title.clone())
+            .collect::<Vec<_>>()
+    });
+    keyed(titles, |titles| {
+        row(titles.iter().map(|name| title(name)).collect::<Vec<_>>())
             .gap(0.0)
             .height(percent(100.0))
             .boxed()
@@ -71,12 +79,12 @@ pub fn view() -> AnyView {
     .boxed()
 }
 
-/// A menu's title. It sits over the backdrop of an open menu, so it
-/// still takes the pointer while one is open: a press opens its menu,
-/// or closes it if it is the one open.
-fn title(menu: &Menu) -> AnyView {
-    let name = menu.title.clone();
-    title_button(menu.title.to_uppercase(), false)
+/// The title of the menu `name`. It sits over the backdrop of an open
+/// menu, so it still takes the pointer while one is open: a press
+/// opens its menu, or closes it if it is the one open.
+fn title(name: &str) -> AnyView {
+    let name = name.to_owned();
+    title_button(name.to_uppercase(), false)
         .tagged(MenuTitle(name.clone()))
         .tagged(GlobalZIndex(MENU_Z))
         .on_activate_with(move |world, node| {

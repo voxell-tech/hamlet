@@ -455,6 +455,40 @@ mod tests {
     }
 
     #[test]
+    fn panels_coming_and_going_leave_the_other_areas_as_they_were() {
+        let saved = workspaces();
+        let layout = &saved.list()[0].layout;
+        let mut tree = DockTree::default();
+        let held = |tree: &DockTree, panel: &str| {
+            let leaf = tree.find_leaf_with_window(panel).unwrap();
+            let tab = tree
+                .leaf(leaf)
+                .and_then(|leaf| {
+                    leaf.tabs().find(|(window, _)| *window == panel)
+                })
+                .map(|(_, tab)| tab);
+            (leaf, tab)
+        };
+        let others = |tree: &DockTree| {
+            [
+                held(tree, "engine/plugins"),
+                held(tree, "engine/console"),
+            ]
+        };
+        tree.lay_out(layout, |_| true);
+        let (shape, kept) = (tree.shape(), others(&tree));
+        // A tab of an area that keeps another changes nothing else.
+        tree.lay_out(layout, |id| id != "hamlet.notes/page");
+        assert_eq!(tree.shape(), shape);
+        assert_eq!(others(&tree), kept);
+        // Nor does a whole area going and coming back.
+        tree.lay_out(layout, |id| !id.starts_with("hamlet.notes/"));
+        assert_eq!(others(&tree), kept);
+        tree.lay_out(layout, |_| true);
+        assert_eq!(others(&tree), kept);
+    }
+
+    #[test]
     fn a_broken_file_is_kept_and_never_written_over() {
         let home = home("broken");
         let path = home.path(FILE);

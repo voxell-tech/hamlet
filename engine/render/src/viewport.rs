@@ -166,9 +166,12 @@ fn size(
         let pixels = computed.size().round().as_uvec2();
         let (width, height) =
             (pixels.x.clamp(1, most), pixels.y.clamp(1, most));
+        // A viewport with no room, in a hidden tab or not laid out
+        // yet, keeps its image for when it has room again.
         if let Some(mut image) = camera
             .image
             .as_ref()
+            .filter(|_| !computed.is_empty())
             .and_then(|image| images.get_mut(image))
             && image.size() != bevy::math::UVec2::new(width, height)
         {

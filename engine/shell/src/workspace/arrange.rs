@@ -1,6 +1,10 @@
 //! The dock's tree: a panel brought to the front, and a workspace's
 //! layout put into it and read back out of it.
 
+use std::collections::HashSet;
+use std::mem;
+
+use bevy::platform::collections::HashMap;
 use bevy_fynix::dock::{
     DockAreaStyle, DockLeaf, DockNode, DockSplit, DockTree, NodeId,
     SplitAxis,
@@ -17,8 +21,10 @@ pub trait DockTreeExt {
     fn open_panel(&mut self, id: &str);
 
     /// Lays `layout` out, leaving out the panels not `known` and the
-    /// areas left with none. The tree's ids go on from those it gave
-    /// before, so no view of the old layout is taken for the new.
+    /// areas left with none. An area keeps its id while it holds a
+    /// panel it held, a panel its tab's id, and a split its id while
+    /// it splits the same two, so their views are kept; anything else
+    /// is given a new id.
     fn lay_out(
         &mut self,
         layout: &Layout,
@@ -58,23 +64,25 @@ impl DockTreeExt for DockTree {
         layout: &Layout,
         known: impl Fn(&str) -> bool,
     ) {
-        self.nodes.clear();
-        self.root = None;
-        let root = Arranging {
+        let old = mem::take(&mut self.nodes);
+        let old_root = self.root.take();
+        let mut arranging = Arranging {
             tree: self,
             known: &known,
             areas: 0,
-        }
-        .build(layout);
-        match root {
-            Some(root) => self.root = Some(root),
-            None => {
-                self.set_root_leaf(DockLeaf::new(
-                    "area_0",
-                    DockAreaStyle::TabBar,
-                ));
-            }
-        }
+            old: &old,
+            kept: HashSet::new(),
+        };
+        let root = arranging.build(layout).unwrap_or_else(|| {
+            let empty = old_root.filter(|root| {
+                old.get(root)
+                    .and_then(DockNode::as_leaf)
+                    .is_some_and(|leaf| leaf.windows.is_empty())
+            });
+            let leaf = DockLeaf::new("area_0", DockAreaStyle::TabBar);
+            arranging.place(DockNode::Leaf(leaf), empty)
+        });
+        self.root = Some(root);
     }
 
     fn layout(&self) -> Layout {
@@ -112,12 +120,15 @@ impl DockTreeExt for DockTree {
     }
 }
 
-/// A layout being put into `tree`, with the panels `known` and how
-/// many areas it has made.
+/// A layout being put into `tree`, with the panels `known`, how many
+/// areas it has made, the nodes the tree had before and those of them
+/// kept.
 struct Arranging<'a, F> {
     tree: &'a mut DockTree,
     known: &'a F,
     areas: usize,
+    old: &'a HashMap<NodeId, DockNode>,
+    kept: HashSet<NodeId>,
 }
 
 impl<F: Fn(&str) -> bool> Arranging<'_, F> {
@@ -140,13 +151,42 @@ impl<F: Fn(&str) -> bool> Arranging<'_, F> {
                         })
                     })
                     .unwrap_or(0);
-                let leaf = DockLeaf::new(
+                // The first area not yet kept that held one of these
+                // panels.
+                let was = self
+                    .old
+                    .iter()
+                    .filter(|(id, _)| !self.kept.contains(id))
+                    .filter_map(|(id, node)| {
+                        Some((*id, node.as_leaf()?))
+                    })
+                    .filter(|(_, leaf)| {
+                        windows
+                            .iter()
+                            .any(|window| leaf.has_window(window))
+                    })
+                    .min_by_key(|(id, _)| id.0);
+                let mut leaf = DockLeaf::new(
                     format!("area_{}", self.areas),
                     DockAreaStyle::TabBar,
                 )
                 .with_windows(windows);
+                if let Some((_, old)) = was {
+                    let mut left = old.windows.clone();
+                    for tab in &mut leaf.windows {
+                        let held = left.iter().position(|old| {
+                            old.window_id == tab.window_id
+                        });
+                        if let Some(at) = held {
+                            tab.id = left.remove(at).id;
+                        }
+                    }
+                }
                 self.areas += 1;
-                let id = self.tree.insert(DockNode::Leaf(leaf));
+                let id = self.place(
+                    DockNode::Leaf(leaf),
+                    was.map(|(id, _)| id),
+                );
                 if let Some(DockNode::Leaf(leaf)) =
                     self.tree.get_mut(id)
                 {
@@ -163,26 +203,50 @@ impl<F: Fn(&str) -> bool> Arranging<'_, F> {
             } => {
                 let a = self.build(first);
                 let b = self.build(second);
-                match (a, b) {
-                    (Some(a), Some(b)) => Some(self.tree.insert(
-                        DockNode::Split(DockSplit {
-                            axis: match axis {
-                                Axis::Horizontal => {
-                                    SplitAxis::Horizontal
-                                }
-                                Axis::Vertical => SplitAxis::Vertical,
-                            },
-                            fraction: share.clamp(
-                                LEAST_SHARE,
-                                1.0 - LEAST_SHARE,
-                            ),
-                            a,
-                            b,
-                        }),
-                    )),
-                    (one, other) => one.or(other),
-                }
+                let (Some(a), Some(b)) = (a, b) else {
+                    return a.or(b);
+                };
+                let axis = match axis {
+                    Axis::Horizontal => SplitAxis::Horizontal,
+                    Axis::Vertical => SplitAxis::Vertical,
+                };
+                let was = self
+                    .old
+                    .iter()
+                    .find(|(_, node)| {
+                        node.as_split().is_some_and(|split| {
+                            (split.axis, split.a, split.b)
+                                == (axis, a, b)
+                        })
+                    })
+                    .map(|(id, _)| *id);
+                let split = DockSplit {
+                    axis,
+                    fraction: share
+                        .clamp(LEAST_SHARE, 1.0 - LEAST_SHARE),
+                    a,
+                    b,
+                };
+                Some(self.place(DockNode::Split(split), was))
             }
         }
+    }
+
+    /// Puts `node` in the tree, under the id `was` had when given
+    /// one.
+    fn place(
+        &mut self,
+        node: DockNode,
+        was: Option<NodeId>,
+    ) -> NodeId {
+        let made = self.tree.insert(node);
+        let Some(was) = was else {
+            return made;
+        };
+        if let Some(node) = self.tree.nodes.remove(&made) {
+            self.tree.nodes.insert(was, node);
+        }
+        self.kept.insert(was);
+        was
     }
 }

@@ -101,7 +101,7 @@ pub struct Budgets {
     pub workgroups_per_frame: u32,
     /// Milliseconds of GPU time a plugin's compute and passes take
     /// in one second, where the GPU can time them; past them
-    /// they wait for the next second.
+    /// they are held back until the plugin starts again.
     pub gpu_time_per_second: f32,
 }
 

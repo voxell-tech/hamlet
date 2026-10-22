@@ -205,10 +205,12 @@ fn run(
         .slot
         .filter(|_| clock.buffer.is_some())
         .zip(clock.set.as_ref());
-    // Untimed, it would escape its owner's GPU time; it waits for a
-    // slot.
+    // Untimed, it would escape its owner's GPU time: it waits for a
+    // slot, then keeps it while it lives. With a slot it runs every
+    // frame, untimed only while the clock's buffer is not yet made on
+    // the device.
     if throttled.0.contains(&pass.owner)
-        || (clock.set.is_some() && timing.is_none())
+        || (clock.set.is_some() && pass.slot.is_none())
     {
         return;
     }

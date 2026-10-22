@@ -1,8 +1,8 @@
 //! What plugins' own GPU work may spend: the GPU's time of each
 //! plugin's compute and passes, timed with timestamp queries where
-//! the device has them, its work held back for the rest of a second
-//! once it is over; and a failing device rebuilt, with the plugins
-//! whose work was on it stopped.
+//! the device has them, its work held back as a whole once it is
+//! over, until its scene is made again; and a failing device rebuilt,
+//! with the plugins whose work was on it stopped.
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
@@ -40,7 +40,7 @@ use wgpu::{Backend, Limits};
 
 use crate::compute::ComputeJob;
 use crate::pass::ScenePass;
-use crate::scene::Scene;
+use crate::scene::{Scene, Scenes};
 use crate::viewport::RenderTuning;
 
 pub(crate) fn plugin(app: &mut App) {
@@ -187,15 +187,17 @@ impl TimedSlots {
     }
 }
 
-/// The owners whose GPU work waits for the next second.
+/// The owners whose compute and passes are held back.
 #[derive(Resource, ExtractResource, Clone, Default, Debug)]
 pub struct Throttled(pub HashSet<Entity>);
 
-/// Milliseconds of GPU time each owner's work took this second.
+/// Milliseconds of GPU time each owner's work took this second, and
+/// the root of the scene of each owner held back as it went over.
 #[derive(Resource, Default, Debug)]
 struct GpuSpend {
     since: Duration,
     spent: HashMap<Entity, f32>,
+    held: HashMap<Entity, Entity>,
 }
 
 /// When the device was last rebuilt, and the wait before rebuilding
@@ -314,36 +316,56 @@ fn read_clock(
     }
 }
 
-/// Holds back the work of each owner over its GPU time this second,
-/// and begins the next second when this one is over.
+/// Holds back the work of each owner over its GPU time this second
+/// until its scene is made again, and begins the next second when
+/// this one is over.
+///
+/// Work held back stays off as a whole: let run again each second, an
+/// owner near its time would have its passes and compute go off and
+/// on, and its view flicker.
 fn tally(
     mut spend: ResMut<GpuSpend>,
     mut throttled: ResMut<Throttled>,
+    scenes: Query<&Scenes>,
     budgets: Res<Budgets>,
     time: Res<Time<Real>>,
     mut log: MessageWriter<LogLine>,
 ) {
+    let spend = &mut *spend;
+    let root =
+        |owner: Entity| scenes.get(owner).ok().and_then(Scenes::root);
+    // Switched off and on, reloaded or stopped, the owner starts
+    // afresh.
+    let before = spend.held.len();
+    spend.held.retain(|&owner, held| root(owner) == Some(*held));
+    if spend.held.len() != before {
+        throttled.0 = spend.held.keys().copied().collect();
+    }
     let now = time.elapsed();
     if now.saturating_sub(spend.since) >= Duration::from_secs(1) {
         spend.since = now;
         spend.spent.clear();
-        if !throttled.0.is_empty() {
-            throttled.0.clear();
-        }
         return;
     }
     for (&owner, &millis) in &spend.spent {
-        if millis > budgets.gpu_time_per_second
-            && throttled.0.insert(owner)
+        if millis <= budgets.gpu_time_per_second
+            || spend.held.contains_key(&owner)
         {
-            log.write(LogLine::warn(
-                "render",
-                format!(
-                    "a plugin's GPU work took {millis:.1} ms this \
-                     second, and waits for the next"
-                ),
-            ));
+            continue;
         }
+        let Some(held) = root(owner) else {
+            continue;
+        };
+        spend.held.insert(owner, held);
+        throttled.0.insert(owner);
+        log.write(LogLine::warn(
+            "render",
+            format!(
+                "a plugin's GPU work took {millis:.1} ms this \
+                 second, so its compute and passes are held back \
+                 until it starts again"
+            ),
+        ));
     }
 }
 

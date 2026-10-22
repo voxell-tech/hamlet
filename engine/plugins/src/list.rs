@@ -22,15 +22,15 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row,
 };
-use bevy_fynix::{ViewExt, keyed, resource};
+use bevy_fynix::{Signal, ViewExt, each, keyed, resource};
 use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_api::{PanelId, PluginId};
 use hamlet_engine_core::{LogLine, PluginBudgets};
 use hamlet_engine_shell::dock::{PLUGIN_LIST, PanelIcon};
 use hamlet_engine_shell::icons::{Glyph, glyph};
 use hamlet_engine_shell::style::{
-    ButtonStyle, Wraps, buttons, dropdown, field, icon_button,
-    link_rows, note, scroll_area, switch,
+    ButtonStyle, Wraps, buttons, divided_row, dropdown, field,
+    icon_button, note, scroll_area, switch,
 };
 use hamlet_engine_shell::{AnyView, Cx, Panel, StyleExt};
 
@@ -167,25 +167,36 @@ impl Row {
             (None, false) => ("Off".into(), Tone::Dim),
         }
     }
+}
 
-    /// The switch that turns it on or off.
-    fn switch(&self) -> AnyView {
-        let (plugin, id) = (self.plugin, self.id.clone());
-        switch(self.on, move |world, on| {
-            // Only the person's own switch is kept for the next
-            // start.
-            let kept =
-                world.resource_mut::<SwitchedOff>().set(&id, !on);
-            if let Err(why) = kept {
-                world.write_message(LogLine::error("plugins", why));
-            }
-            if on {
-                world.trigger(Enable { entity: plugin });
-            } else {
-                world.trigger(Disable { entity: plugin });
-            }
-        })
-    }
+/// What `read` gives of the row of `plugin`, kept as the rows change.
+fn bound<T: Default + 'static>(
+    plugin: Entity,
+    read: impl Fn(&Row) -> T + Send + Sync + 'static,
+) -> Signal<T> {
+    resource::<Rows, _>(move |rows| {
+        rows.plugins
+            .iter()
+            .find(|row| row.plugin == plugin)
+            .map(&read)
+            .unwrap_or_default()
+    })
+}
+
+/// The switch that turns `plugin`, of the id `id`, on or off.
+fn plugin_switch(plugin: Entity, id: PluginId) -> AnyView {
+    switch(bound(plugin, |row| row.on), move |world, on| {
+        // Only the person's own switch is kept for the next start.
+        let kept = world.resource_mut::<SwitchedOff>().set(&id, !on);
+        if let Err(why) = kept {
+            world.write_message(LogLine::error("plugins", why));
+        }
+        if on {
+            world.trigger(Enable { entity: plugin });
+        } else {
+            world.trigger(Disable { entity: plugin });
+        }
+    })
 }
 
 /// Asks for a plugin to be added: a host offers the person a folder
@@ -254,16 +265,40 @@ fn list_view() -> AnyView {
             }
         },
     );
-    let rows = keyed(resource::<Rows, _>(Clone::clone), |rows| {
-        if rows.plugins.is_empty() {
-            return note("No plugins.");
-        }
-        let shown = rows.shown().map(row_view).collect::<Vec<_>>();
-        if shown.is_empty() {
-            return note("No plugin matches.");
-        }
-        link_rows(shown)
-    })
+    // Built again only as the list empties or fills; each row follows
+    // its plugin in place.
+    let rows = keyed(
+        resource::<Rows, _>(|rows| {
+            (rows.plugins.is_empty(), rows.shown().next().is_none())
+        }),
+        |&(none, unmatched)| {
+            if none {
+                return note("No plugins.");
+            }
+            if unmatched {
+                return note("No plugin matches.");
+            }
+            each(
+                resource::<Rows, _>(|rows| {
+                    rows.shown()
+                        .map(|row| {
+                            (
+                                row.plugin,
+                                row.id.clone(),
+                                row.kind == PluginKind::Bundled,
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                }),
+                |(plugin, ..)| *plugin,
+                |(plugin, id, bundled)| {
+                    row_view(*plugin, id.clone(), *bundled)
+                },
+            )
+            .within(column(()).gap(0.0))
+            .boxed()
+        },
+    )
     .within(column(()).gap(0.0));
     AnyView::new(move |cx: &mut Cx| {
         let theme = cx.theme();
@@ -288,16 +323,16 @@ fn list_view() -> AnyView {
     })
 }
 
-/// A plugin: its name over its id, version and state, which opens its
-/// page, with its switch beside them, all but the switch dim while it
-/// is off.
-fn row_view(row_of: &Row) -> AnyView {
-    let (id, on) = (row_of.id.clone(), row_of.on);
-    let (state, tone) = row_of.state();
-    let switch = row_of.switch();
-    let (name, about) = (row_of.name.clone(), row_of.about.clone());
-    let bundled = row_of.kind == PluginKind::Bundled;
-    AnyView::new(move |cx: &mut Cx| {
+/// The row of `plugin`, of the id `id`: its name over its id, version
+/// and state, which opens its page, with its switch beside them, all
+/// but the switch dim while it is off. It follows the plugin in
+/// place, under a divider unless it is the first shown.
+fn row_view(plugin: Entity, id: PluginId, bundled: bool) -> AnyView {
+    let switch = plugin_switch(plugin, id.clone());
+    let divided = resource::<Rows, _>(move |rows| {
+        rows.shown().next().is_some_and(|row| row.plugin != plugin)
+    });
+    let content = AnyView::new(move |cx: &mut Cx| {
         let theme = cx.theme();
         let (gap, size, icon, section) = (
             theme.space.gap,
@@ -306,15 +341,20 @@ fn row_view(row_of: &Row) -> AnyView {
             theme.space.section,
         );
         let mut facts = vec![
-            label(about)
+            label(bound(plugin, |row| row.about.clone()))
                 .size(size)
                 .tone(Tone::Dim)
                 .wrap(false)
                 .boxed(),
-            label(state).size(size).tone(tone).boxed(),
+            label(bound(plugin, |row| row.state().0))
+                .size(size)
+                .tone(bound(plugin, |row| row.state().1))
+                .boxed(),
         ];
         if bundled {
-            let tone = if on { Tone::Accent } else { Tone::Dim };
+            let tone = bound(plugin, |row| {
+                if row.on { Tone::Accent } else { Tone::Dim }
+            });
             facts.push(
                 label("Comes with Hamlet")
                     .size(size)
@@ -322,10 +362,18 @@ fn row_view(row_of: &Row) -> AnyView {
                     .boxed(),
             );
         }
-        let name = label(name).bold(true).wrap(false);
-        // Left in the row's tone, which lightens under the pointer,
-        // while it is on.
-        let name = if on { name } else { name.tone(Tone::Dim) };
+        let name = keyed(bound(plugin, |row| row.on), move |&on| {
+            let name = label(bound(plugin, |row| row.name.clone()))
+                .bold(true)
+                .wrap(false);
+            // Left in the row's tone, which lightens under the
+            // pointer, while it is on.
+            if on {
+                name.boxed()
+            } else {
+                name.tone(Tone::Dim).boxed()
+            }
+        });
         // The whole row opens the page; the switch, a button of its
         // own, keeps its presses.
         let head = row((name, column(()).grow(1.0), switch))
@@ -347,7 +395,8 @@ fn row_view(row_of: &Row) -> AnyView {
                 world.show(Shown::Plugin(id.clone()));
             }),
         )
-    })
+    });
+    divided_row(content, divided)
 }
 
 /// The Plugins panel's methods on [`World`].

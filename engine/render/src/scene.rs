@@ -912,8 +912,11 @@ impl SceneWorldExt for World {
                 handle: image.clone(),
                 scale_factor: 1.0,
             });
-            // Drawn once a viewport shows it.
-            (target, Some(image), 0, false)
+            // Drawn once a viewport shows it, and before the
+            // interface, which shows its image in the same frame;
+            // drawn after, a new or resized image would show empty
+            // for a frame.
+            (target, Some(image), -1, false)
         };
         let mut camera = self.spawn((
             Camera3d::default(),

@@ -943,6 +943,15 @@ pub fn link_rows(rows: Vec<AnyView>) -> AnyView {
     column(parts).gap(0.0).boxed()
 }
 
+/// A row of [`link_rows`] built on its own, as each row of an `each`
+/// is: `row` under a divider while `divided`.
+pub fn divided_row(
+    row: impl View + 'static,
+    divided: impl Into<Prop<bool>>,
+) -> AnyView {
+    column((line(divided.into()), row)).gap(0.0).boxed()
+}
+
 /// The head of a page reached through a link row: the way back to
 /// `front`, which `back` takes, and the page's `name` under `which`.
 pub fn page_head(

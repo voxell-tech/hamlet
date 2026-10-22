@@ -508,8 +508,11 @@ person has one or more, and one is shown at a time.
   (`workspace/arrange.rs`). Panels the dock does not have, such as those
   of a plugin that is off, are left out of the dock but kept in the
   workspace, and the dock is laid out again when panels come or go, so
-  they come back with their plugin. A workspace with no panels shows one
-  empty area, whose "+" adds one.
+  they come back with their plugin. An area that keeps a panel it held
+  keeps its id, and each panel left in it its tab's, so their views are
+  not built again; an area that comes or goes builds the dock's layout
+  again. A workspace with no panels shows one empty area, whose "+"
+  adds one.
 - **Kept.** What the person changes in the dock by hand (a tab moved,
   closed or added, a split dragged) is kept in the shown workspace.
 - **Saved** in `workspaces.ron` in the home, once the workspaces have
@@ -571,7 +574,8 @@ person has one or more, and one is shown at a time.
   `StatusItem`s plugins add, in the order they came, each an icon and
   words in a tone with words under the pointer, hidden while it has no
   words; one that grows takes the room left, words or none, and clips
-  its words. Then the workspace shown and the log's last line, each
+  its words. An item is built again only as it changes, the others
+  kept. Then the workspace shown and the log's last line, each
   behind an icon, a warning in the accent and an error in red.
 - **In the background.** Run in Background hides the window and the
   engine runs on, a frame every `[window] hidden_wait` seconds.
@@ -618,7 +622,9 @@ person has one or more, and one is shown at a time.
   whether it is on and how much it adds, or why it was stopped, under
   it, and the switch that turns it on or off at its top right; a
   bundled one says it comes with Hamlet. A plugin that is off is shown
-  in the theme's dim tone, all of it but its switch. A press on a
+  in the theme's dim tone, all of it but its switch. A row follows its
+  plugin in place, so a switch glides as it is pressed and the other
+  rows stay as they are. A press on a
   plugin, or its chevron, opens its page. ADD PLUGIN... above them
   triggers `AddPlugin`, for a host to answer. Under it, "Search
   plugins" keeps those whose name or id holds the words, of any case,
@@ -1553,7 +1559,9 @@ none of them imports none of them.
   draws into, sized to the room the layout gives it (the frames above
   it grow, `[render] grow_levels` at most), and the camera draws only
   while one shows it with room: a viewport in a tab behind another is
-  kept, laid out with none, and told so as `resized`. In the SDK,
+  kept, laid out with none, and told so as `resized`, its image kept
+  at its last size. The camera draws before the interface, so an image
+  made anew or resized is drawn before it is shown. In the SDK,
   `scene::viewport` is that frame.
 - **Behind the dock.** A camera of target `background` draws into the
   window under the interface. One plugin holds the window's background
@@ -1623,11 +1631,15 @@ none of them imports none of them.
 - **GPU time.** Where the device has timestamp queries, each compute
   and pass is timed (`[render] timed_slots` at once, shared by all
   plugins; one that finds every slot taken does not run until a slot
-  is let go), read back each frame, and its plugin's milliseconds
-  summed over a second; a plugin past `[budgets] gpu_time_per_second`
-  has its compute and passes wait for the next second, and the log
-  says so. A material is drawn inside Bevy's own passes, among every
-  other mesh, so it is not timed apart.
+  is let go, then keeps its slot while it lives and runs every frame,
+  untimed only while the clock is not yet made on the device), read
+  back each frame, and its plugin's milliseconds summed over a second;
+  a plugin past `[budgets] gpu_time_per_second` has its compute and
+  passes held back as a whole until its scene is made again, as it is
+  switched off and on, reloaded or stopped, and the log says so. Let
+  run again each second, a plugin near its time would have them go
+  off and on, and its view flicker. A material is drawn inside Bevy's
+  own passes, among every other mesh, so it is not timed apart.
 - **A failing device.** Bevy's `RenderErrorHandler` is the engine's:
   when the device is lost or wgpu reports an error, the plugins with
   GPU work of their own are stopped (`GpuLost`) and the renderer is

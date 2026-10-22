@@ -10,10 +10,10 @@ use bevy::ecs::observer::On;
 use bevy::ecs::query::Changed;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
-use bevy::ui::{AlignItems, Overflow, UiRect, px};
+use bevy::ui::{AlignItems, Display, Overflow, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{FrameProps, TooltipExt, label, row};
-use bevy_fynix::{ViewExt, keyed, resource};
+use bevy_fynix::{Prop, ViewExt, each, keyed, resource};
 use hamlet_engine_api::PanelId;
 use hamlet_engine_core::{Log, LogLevel};
 
@@ -84,86 +84,110 @@ pub fn view() -> AnyView {
             space.status_gap,
             *theme.colors.background,
         );
-        cx.build(
-            keyed(
-                resource::<StatusLine, _>(Clone::clone),
-                move |status| {
-                    let (which, tone, text) = match &status.last {
-                        Some((LogLevel::Error, text)) => (
-                            Glyph::Struck,
-                            Tone::Critical,
-                            text.clone(),
-                        ),
-                        Some((LogLevel::Warn, text)) => {
-                            (Glyph::Bell, Tone::Accent, text.clone())
-                        }
-                        Some((LogLevel::Info, text)) => {
-                            (Glyph::Page, Tone::Dim, text.clone())
-                        }
-                        None => {
-                            (Glyph::Moon, Tone::Dim, String::new())
-                        }
-                    };
-                    let mut items = status
-                        .items
-                        .iter()
-                        .map(|shown| {
-                            let tip = shown.tip.clone();
-                            let item = item(
-                                shown.icon,
-                                shown.text.clone(),
-                                shown.tone,
-                            );
-                            let item = if shown.grow {
-                                row((item,))
-                                    .grow(1.0)
-                                    .min_width(px(0.0))
-                                    .overflow(Overflow::clip())
-                                    .boxed()
-                            } else {
-                                item
-                            };
-                            if tip.is_empty() {
-                                return item;
-                            }
-                            item.tooltip(move || note(tip.clone()))
-                                .boxed()
-                        })
-                        .collect::<Vec<_>>();
-                    items.extend([
-                        item(
-                            Some(Glyph::Folder),
-                            status.workspace.clone(),
-                            Tone::Dim,
-                        ),
-                        item(Some(which), text, tone),
-                    ]);
-                    row(items)
-                        .gap(gap)
+        // Each part is built again only as what it is changes; words
+        // that change are set in place.
+        let items = each(
+            resource::<StatusLine, _>(|status| status.items.clone()),
+            Clone::clone,
+            |shown| {
+                let tip = shown.tip.clone();
+                let item = item(
+                    shown.icon,
+                    one_line(&shown.text),
+                    shown.tone,
+                );
+                let item = if shown.grow {
+                    row((item,))
                         .grow(1.0)
-                        .align(AlignItems::Center)
                         .min_width(px(0.0))
                         .overflow(Overflow::clip())
                         .boxed()
-                },
-            )
-            .within(
-                row(())
-                    .align(AlignItems::Center)
-                    .padding(UiRect::axes(
-                        px(padding_x),
-                        px(padding_y),
-                    ))
-                    .fill(fill),
-            ),
+                } else {
+                    item
+                };
+                if tip.is_empty() {
+                    return item;
+                }
+                item.tooltip(move || note(tip.clone())).boxed()
+            },
+        )
+        .within(
+            row(())
+                .gap(gap)
+                .align(AlignItems::Center)
+                .min_width(px(0.0))
+                .grow(resource::<StatusLine, _>(|status| {
+                    if status.items.iter().any(|item| item.grow) {
+                        1.0
+                    } else {
+                        0.0
+                    }
+                }))
+                .display(resource::<StatusLine, _>(|status| {
+                    if status.items.is_empty() {
+                        Display::None
+                    } else {
+                        Display::Flex
+                    }
+                })),
+        );
+        let workspace = item(
+            Some(Glyph::Folder),
+            resource::<StatusLine, _>(|status| {
+                one_line(&status.workspace)
+            }),
+            Tone::Dim,
+        );
+        let last = keyed(
+            resource::<StatusLine, _>(|status| {
+                match status.last.as_ref().map(|(level, _)| level) {
+                    Some(LogLevel::Error) => {
+                        (Glyph::Struck, Tone::Critical)
+                    }
+                    Some(LogLevel::Warn) => {
+                        (Glyph::Bell, Tone::Accent)
+                    }
+                    Some(LogLevel::Info) => (Glyph::Page, Tone::Dim),
+                    None => (Glyph::Moon, Tone::Dim),
+                }
+            }),
+            |&(which, tone)| {
+                let text = resource::<StatusLine, _>(|status| {
+                    status
+                        .last
+                        .as_ref()
+                        .map(|(_, text)| one_line(text))
+                        .unwrap_or_default()
+                });
+                item(Some(which), text, tone)
+            },
+        );
+        cx.build(
+            row((row((items, workspace, last))
+                .gap(gap)
+                .grow(1.0)
+                .align(AlignItems::Center)
+                .min_width(px(0.0))
+                .overflow(Overflow::clip()),))
+            .align(AlignItems::Center)
+            .padding(UiRect::axes(px(padding_x), px(padding_y)))
+            .fill(fill),
         )
     })
 }
 
-/// An icon, if any, and the words it stands before, both in `tone`,
-/// the words on one line however many lines they came in.
-fn item(which: Option<Glyph>, text: String, tone: Tone) -> AnyView {
-    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+/// `text` on one line however many lines it came in.
+fn one_line(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// An icon, if any, and the words it stands before, both in `tone`.
+fn item(
+    which: Option<Glyph>,
+    text: impl Into<Prop<String>>,
+    tone: Tone,
+) -> AnyView {
+    let text = text.into();
     AnyView::new(move |cx: &mut Cx| {
         let theme = cx.theme();
         let (side, gap, size) = (

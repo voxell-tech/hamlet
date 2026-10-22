@@ -27,7 +27,9 @@ use hamlet_engine_shell::{
 };
 
 use super::limits::memory_view;
-use super::{ListWorldExt, Row, Rows, Shown, Uninstall};
+use super::{
+    ListWorldExt, Row, Rows, Shown, Uninstall, bound, plugin_switch,
+};
 use crate::PluginKind;
 
 /// A section of every plugin's page, under what it adds, as another
@@ -219,11 +221,31 @@ pub(super) fn page_view(id: PluginId) -> AnyView {
         }),
         |world, _| world.show(Shown::List),
     );
+    let found = id.clone();
+    // The head, with its switch, is built once a plugin; the rest
+    // again as the plugin changes.
     let content = keyed(
-        resource::<Rows, _>(move |rows| Page::of(rows, &id)),
-        |page| match page {
-            Some(page) => body(page),
-            None => note("No such plugin."),
+        resource::<Rows, _>(move |rows| {
+            rows.find(&found).map(|row| (row.plugin, row.kind))
+        }),
+        move |found| {
+            let Some((plugin, kind)) = *found else {
+                return note("No such plugin.");
+            };
+            let head = head(plugin, id.clone(), kind);
+            let id = id.clone();
+            let rest = keyed(
+                resource::<Rows, _>(move |rows| Page::of(rows, &id)),
+                |page| match page {
+                    Some(page) => body(page),
+                    None => note("No such plugin."),
+                },
+            )
+            .within(column(()).gap(0.0));
+            AnyView::new(move |cx: &mut Cx| {
+                let gap = cx.theme().space.panel;
+                cx.build(column((head, rest)).gap(gap))
+            })
         },
     )
     .within(column(()).gap(0.0));
@@ -238,12 +260,11 @@ pub(super) fn page_view(id: PluginId) -> AnyView {
     })
 }
 
-/// The head, the memory, what it adds, the other sections and
-/// UNINSTALL, a part of a panel apart.
+/// The memory, what it adds, the other sections and UNINSTALL, a part
+/// of a panel apart.
 fn body(page: &Page) -> AnyView {
     let row_of = &page.row;
     let plugin = row_of.plugin;
-    let head = head(row_of);
     let memory = row_of.memory.map(|line| {
         memory_view(
             plugin,
@@ -258,8 +279,7 @@ fn body(page: &Page) -> AnyView {
         .then(|| uninstall(row_of, page.uninstalling));
     AnyView::new(move |cx: &mut Cx| {
         let gap = cx.theme().space.panel;
-        let mut parts = vec![head];
-        parts.extend(memory);
+        let mut parts = memory.into_iter().collect::<Vec<_>>();
         parts.push(adds);
         parts.extend(sections(cx.world, plugin));
         parts.extend(uninstall);
@@ -267,35 +287,43 @@ fn body(page: &Page) -> AnyView {
     })
 }
 
-/// Its name over its id and version, where it comes from and its
-/// state, with its switch beside them.
-fn head(row_of: &Row) -> AnyView {
-    let (state, tone) = row_of.state();
-    let switch = row_of.switch();
-    let (name, about, on) =
-        (row_of.name.clone(), row_of.about.clone(), row_of.on);
-    let (from, from_tone) = match row_of.kind {
-        PluginKind::BuiltIn => ("Built into the engine", Tone::Dim),
-        PluginKind::Bundled if on => {
-            ("Comes with Hamlet", Tone::Accent)
-        }
-        PluginKind::Bundled => ("Comes with Hamlet", Tone::Dim),
-        PluginKind::Installed => ("Installed", Tone::Dim),
+/// The name of `plugin`, of the id `id` and the kind `kind`, over its
+/// id and version, where it comes from and its state, with its switch
+/// beside them. It follows the plugin in place.
+fn head(plugin: Entity, id: PluginId, kind: PluginKind) -> AnyView {
+    let switch = plugin_switch(plugin, id);
+    let from = match kind {
+        PluginKind::BuiltIn => "Built into the engine",
+        PluginKind::Bundled => "Comes with Hamlet",
+        PluginKind::Installed => "Installed",
     };
+    let from_tone = bound(plugin, move |row| {
+        if kind == PluginKind::Bundled && row.on {
+            Tone::Accent
+        } else {
+            Tone::Dim
+        }
+    });
     AnyView::new(move |cx: &mut Cx| {
         let theme = cx.theme();
         let (gap, size, section) =
             (theme.space.gap, theme.text.small, theme.space.section);
         let facts = row((
-            label(about).size(size).tone(Tone::Dim).wrap(false),
+            label(bound(plugin, |row| row.about.clone()))
+                .size(size)
+                .tone(Tone::Dim)
+                .wrap(false),
             label(from).size(size).tone(from_tone).wrap(false),
-            label(state).size(size).tone(tone),
+            label(bound(plugin, |row| row.state().0))
+                .size(size)
+                .tone(bound(plugin, |row| row.state().1)),
         ))
         .gap(gap)
         .tagged(Wraps);
+        let name = heading(bound(plugin, |row| row.name.clone()));
         cx.build(
             row((
-                column((heading(name), facts))
+                column((name, facts))
                     .gap(gap / 2.0)
                     .grow(1.0)
                     .min_width(px(0.0)),
