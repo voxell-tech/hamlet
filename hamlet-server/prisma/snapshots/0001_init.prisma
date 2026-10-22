@@ -1,0 +1,127 @@
+// The source of truth for the database. After changing it, run
+// `pnpm db:new <name>` to write the up and down migrations.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+  runtime  = "cloudflare"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id              String     @id
+  // A string, because GitHub ids may outgrow a 32 bit Int.
+  githubId        String     @unique
+  login           String
+  name            String
+  avatarUrl       String
+  stripeAccountId String?    @unique
+  payoutsEnabled  Boolean    @default(false)
+  createdAt       DateTime
+  updatedAt       DateTime
+  sessions        Session[]
+  listings        Listing[]
+  purchases       Purchase[]
+  reviews         Review[]
+
+  @@index([login])
+}
+
+model Session {
+  id        String   @id
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime
+
+  @@index([userId])
+}
+
+model Listing {
+  id            String     @id
+  kind          String
+  title         String
+  summary       String
+  description   String
+  category      String
+  // A JSON array of strings.
+  tags          String
+  priceCents    Int
+  status        String
+  sellerId      String
+  seller        User       @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  coverKey      String?
+  coverType     String?
+  coverVersion  Int        @default(0)
+  removedReason String?
+  // Kept in step with purchases and reviews so browsing can sort in SQL.
+  ownersCount   Int        @default(0)
+  reviewsCount  Int        @default(0)
+  starsAvg      Float      @default(0)
+  createdAt     DateTime
+  // Set by hand: it moves only when text, price or versions change.
+  updatedAt     DateTime
+  versions      Version[]
+  purchases     Purchase[]
+  reviews       Review[]
+
+  @@index([status, kind])
+  @@index([sellerId, createdAt])
+}
+
+model Version {
+  id        String   @id
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  version   String
+  major     Int
+  minor     Int
+  patch     Int
+  changes   String
+  blobKey   String
+  size      Int
+  sha256    String
+  // The derived meta, as JSON.
+  meta      String
+  createdAt DateTime
+
+  @@unique([listingId, version])
+  @@index([listingId, major, minor, patch])
+}
+
+model Purchase {
+  id              String    @id
+  listingId       String
+  listing         Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  buyerId         String
+  buyer           User      @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  status          String
+  amountCents     Int
+  feeCents        Int
+  stripeSessionId String?   @unique
+  paidAt          DateTime?
+  createdAt       DateTime
+  updatedAt       DateTime
+
+  @@index([listingId, buyerId, status])
+  @@index([buyerId, status])
+}
+
+model Review {
+  id        String   @id
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stars     Int
+  words     String
+  createdAt DateTime
+  updatedAt DateTime
+
+  @@unique([listingId, userId])
+  @@index([listingId, createdAt])
+}

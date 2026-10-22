@@ -1,0 +1,19 @@
+# Copy to .dev.vars for `pnpm dev`. Never commit .dev.vars.
+# In production set each one with `pnpm exec wrangler secret put <NAME>`.
+
+# Stripe test mode secret key: Dashboard > Developers > API keys.
+STRIPE_SECRET_KEY=sk_test_REPLACE_ME
+
+# Signing secret of the webhook endpoint. Locally, the one printed by
+# `stripe listen --forward-to localhost:8787/v1/stripe/webhook`.
+# In production there are two endpoints (your account, connected accounts);
+# give both secrets separated by a comma: whsec_one,whsec_two
+STRIPE_WEBHOOK_SECRET=whsec_REPLACE_ME
+
+# Client ID of the GitHub OAuth App with "Enable Device Flow" checked.
+# Device flow needs no client secret.
+GITHUB_CLIENT_ID=Iv1.REPLACE_ME
+
+# Only once wrangler.jsonc has your production PUBLIC_URL: keep local
+# Stripe redirects pointing at the dev server.
+# PUBLIC_URL=http://localhost:8787

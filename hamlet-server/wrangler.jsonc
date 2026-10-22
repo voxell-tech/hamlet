@@ -1,0 +1,37 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hamlet-server",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "dev": {
+    "port": 8787,
+  },
+  "observability": {
+    "enabled": true,
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "hamlet-bazaar",
+      // From `wrangler d1 create hamlet-bazaar`. See README.md.
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BLOBS",
+      "bucket_name": "hamlet-bazaar-blobs",
+    },
+  ],
+  // Plain settings. Secrets (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
+  // GITHUB_CLIENT_ID) go in .dev.vars locally and `wrangler secret put`
+  // in production, never here.
+  "vars": {
+    "PLATFORM_FEE_PERCENT": "10",
+    "MAX_PACKAGE_BYTES": "10485760",
+    "PUBLIC_URL": "http://localhost:8787",
+    "ADMIN_GITHUB_LOGINS": "",
+  },
+}

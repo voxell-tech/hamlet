@@ -1,0 +1,51 @@
+{
+  "name": "hamlet-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The marketplace server behind Hamlet's Agent Bazaar.",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "postinstall": "prisma generate",
+    "dev": "wrangler dev",
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:generate": "prisma generate",
+    "db:new": "tsx scripts/db.ts new",
+    "db:up": "tsx scripts/db.ts up",
+    "db:down": "tsx scripts/db.ts down",
+    "db:status": "tsx scripts/db.ts status",
+    "cf-typegen": "wrangler types",
+    "bundle": "wrangler deploy --dry-run --outdir dist",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@prisma/adapter-d1": "7.10.1",
+    "@prisma/client": "7.10.1",
+    "express": "^5.3.0",
+    "stripe": "^23.0.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.19.2",
+    "@types/supertest": "^7.2.1",
+    "eslint": "^10.12.0",
+    "miniflare": "^4.20260730.0",
+    "prettier": "^3.9.10",
+    "prisma": "7.10.1",
+    "supertest": "^7.3.1",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.71.2",
+    "vitest": "^5.0.5",
+    "wrangler": "^4.151.0"
+  }
+}
