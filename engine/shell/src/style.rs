@@ -1,7 +1,7 @@
 //! The styles of the shell's widgets, built from the theme: buttons
 //! of each kind, tabs, fields, switches, choices, headings, notes,
-//! cards, lists, link rows, dividers, scroll areas and a panel's
-//! content, and how a control glows and gives under the hand.
+//! cards, lists, link rows, breadcrumbs, dividers, scroll areas and a
+//! panel's content, and how a control glows and gives under the hand.
 
 use std::fmt::Debug;
 
@@ -86,6 +86,8 @@ pub enum Glow {
     Field,
     /// About a switch's track, which is lit inside under the pointer.
     Switch,
+    /// Lit inside only, from its bottom, as a row of a list is.
+    Inner,
 }
 
 /// On the tab that is shown.
@@ -176,7 +178,8 @@ impl ButtonStyle {
     /// Its glow.
     pub fn glow(self) -> Glow {
         match self {
-            Self::Plain | Self::Row => Glow::Plain,
+            Self::Plain => Glow::Plain,
+            Self::Row => Glow::Inner,
             Self::Primary => Glow::Primary,
             Self::Critical => Glow::Critical,
             Self::Quiet => Glow::Text,
@@ -268,7 +271,7 @@ impl ButtonStyle {
             Self::Row => text_button_rules()
                 .frame(|f, t| {
                     f.fill(Color::NONE)
-                        .radius(t.space.radius)
+                        .radius(0.0)
                         .justify(JustifyContent::FlexStart)
                         .padding(UiRect::axes(
                             px(t.space.card_padding_x),
@@ -550,15 +553,6 @@ pub fn field_rules() -> impl FnOnce(&mut Cx) + Send + Sync + 'static {
         })
         .transition(Motion::Interact)
         .bundle()
-}
-
-/// A [`switch`] showing `on`, handing the state asked for to
-/// `change`.
-pub fn toggle(
-    on: impl Into<Prop<bool>>,
-    change: impl Fn(&mut World, bool) + Send + Sync + 'static,
-) -> AnyView {
-    switch(on, change)
 }
 
 /// A switch showing `on`: a track with its knob at the start while
@@ -966,6 +960,68 @@ pub fn page_head(
     })
 }
 
+/// Where a page is within its panel: a quiet button for each of
+/// `trail`, the pages above it from the top, each followed by a dim
+/// `/`, and then `current`, the page shown. A press hands the place
+/// in `trail` of its page to `go`.
+pub fn breadcrumb<F>(
+    trail: Vec<String>,
+    current: impl Into<Prop<String>>,
+    go: F,
+) -> AnyView
+where
+    F: Fn(&mut World, usize) + Clone + Send + Sync + 'static,
+{
+    let current = current.into();
+    AnyView::new(move |cx: &mut Cx| {
+        let theme = cx.theme();
+        let (gap, size) = (theme.space.gap, theme.text.small);
+        let mut parts = Vec::new();
+        for (at, text) in trail.into_iter().enumerate() {
+            let go = go.clone();
+            parts.push(
+                button(label(text).wrap(false).tagged(DisplayText))
+                    .rules(
+                        // Bare, so the trail starts at the panel's
+                        // edge and the parts sit evenly apart.
+                        style::<EngineTheme>()
+                            .frame(|f, _| {
+                                f.padding(UiRect::all(px(0.0)))
+                            })
+                            .bundle(),
+                    )
+                    .rules(ButtonStyle::Quiet.rules())
+                    .tagged(ButtonStyle::Quiet.glow())
+                    .on_activate(move |world| go(world, at))
+                    .boxed(),
+            );
+            parts.push(
+                label("/")
+                    .size(size)
+                    .tone(Tone::Dim)
+                    .wrap(false)
+                    .tagged(DisplayText)
+                    .boxed(),
+            );
+        }
+        parts.push(
+            label(current)
+                .size(size)
+                .bold(true)
+                .tone(Tone::Faint)
+                .wrap(false)
+                .tagged(DisplayText)
+                .boxed(),
+        );
+        cx.build(
+            row(parts)
+                .gap(gap)
+                .align(AlignItems::Center)
+                .tagged(Wraps),
+        )
+    })
+}
+
 /// One answer of several to pick from, each showing `labels`, the
 /// one at `picked` lit. A press hands the place of its answer to
 /// `pick`.
@@ -1140,7 +1196,7 @@ fn animate(
         let (rest, near, done) = match glow {
             Glow::None => (0.0, 0.0, 0.0),
             Glow::Field => (0.0, set.field, 0.0),
-            Glow::Plain | Glow::Text | Glow::Switch => {
+            Glow::Plain | Glow::Text | Glow::Switch | Glow::Inner => {
                 (0.0, set.plain, set.done_gain * pulse)
             }
             Glow::Primary => (set.primary_rest, set.primary, pulse),
@@ -1211,8 +1267,10 @@ fn apply_glow(
             }
             _ => control,
         };
-        if matches!(glow, Glow::Primary | Glow::Field | Glow::Switch)
-        {
+        if matches!(
+            glow,
+            Glow::Primary | Glow::Field | Glow::Switch | Glow::Inner
+        ) {
             let inner = set.inner * state.glow;
             let now = gradients.get(target).ok();
             if inner <= 0.0 {
@@ -1236,6 +1294,9 @@ fn apply_glow(
                     commands.entity(target).try_insert(want);
                 }
             }
+        }
+        if *glow == Glow::Inner {
+            continue;
         }
         let (hue, core) = match glow {
             Glow::Critical => {

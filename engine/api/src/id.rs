@@ -123,6 +123,11 @@ impl PanelId {
     pub fn new(owner: &str, name: &str) -> Result<Self, IdError> {
         Self::try_from(format!("{owner}/{name}"))
     }
+
+    /// Its name within its owner.
+    pub fn name(&self) -> &str {
+        self.0.split_once('/').map_or("", |(_, name)| name)
+    }
 }
 
 string_id!(

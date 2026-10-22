@@ -41,11 +41,13 @@ use hamlet_engine_shell::style::{
     scroll_area, section,
 };
 use hamlet_engine_shell::{
-    AnyView, Cx, DockTreeExt, Panel, StyleExt,
+    AnyView, Cx, DockTreeExt, Panel, SettingsPage, ShellWorldExt,
+    StyleExt,
 };
 
 use crate::Admitted;
 use crate::file::{Answer, Grants, Record};
+use crate::page::{PERMISSIONS, Permissions};
 
 /// The name of the Petitions panel.
 pub const PETITIONS: &str = "petitions";
@@ -606,6 +608,10 @@ pub trait GrantsWorldExt {
         &self,
         petition: Entity,
     ) -> Option<(Petition, Entity)>;
+
+    /// Shows the Permissions page in Settings with the answers of the
+    /// plugin `id` alone.
+    fn show_permissions(&mut self, id: &PluginId);
 }
 
 impl GrantsWorldExt for World {
@@ -753,5 +759,21 @@ impl GrantsWorldExt for World {
             entity.get::<Petition>()?.clone(),
             entity.get::<ChildOf>()?.parent(),
         ))
+    }
+
+    fn show_permissions(&mut self, id: &PluginId) {
+        self.resource_mut::<Permissions>().show_only(id);
+        let page = PanelId::new(ENGINE, PERMISSIONS).ok();
+        let found = self
+            .try_query::<(Entity, &SettingsPage)>()
+            .and_then(|mut pages| {
+                pages
+                    .iter(self)
+                    .find(|(_, at)| Some(&at.id) == page.as_ref())
+                    .map(|(entity, _)| entity)
+            });
+        if let Some(page) = found {
+            self.open_settings_page(page);
+        }
     }
 }

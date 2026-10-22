@@ -17,7 +17,7 @@ use hamlet_engine_api::{
 
 pub use self::entry::{Entry, EntryPoint};
 pub use self::limits::ChosenLimits;
-pub use self::list::{AddPlugin, Uninstall};
+pub use self::list::{AddPlugin, PluginPageSection, Uninstall};
 pub use self::mail::{Asked, Deliver};
 pub use self::switch::{
     ContributedBy, Contributions, Disable, Enable, Enabled,
@@ -171,7 +171,7 @@ mod tests {
                     .count(),
             ]
         };
-        // The plugin list is the engine's own panel.
+        // The Plugins panel is the engine's own.
         assert_eq!(count(&mut app), [2, 1, 1, 1, 1, 1]);
 
         app.world_mut().trigger(Disable { entity: notes });

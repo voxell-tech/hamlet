@@ -1,0 +1,369 @@
+//! A plugin's page in the Plugins panel: a breadcrumb back to the
+//! list, and under it, as it scrolls, the plugin's head with its
+//! switch, its memory, what it adds, the sections other parts of the
+//! engine add, and UNINSTALL for an installed one.
+
+use bevy::ecs::component::Component;
+use bevy::ecs::entity::Entity;
+use bevy::ecs::query::QueryData;
+use bevy::ecs::system::Query;
+use bevy::ecs::world::World;
+use bevy::ui::{AlignItems, px};
+use bevy_fynix::tokens::Tone;
+use bevy_fynix::views::{
+    BehaviorExt, FrameProps, column, label, row,
+};
+use bevy_fynix::{ModifierExt, ViewExt, keyed, resource};
+use hamlet_engine_api::{CommandId, PluginId};
+use hamlet_engine_shell::icons::Glyph;
+use hamlet_engine_shell::style::{
+    ButtonStyle, Wraps, action, breadcrumb, buttons, heading,
+    icon_button, list, note, scroll_area, section,
+};
+use hamlet_engine_shell::{
+    AnyView, Command, Cx, MenuEntry, Overlay, Panel, SettingsFooter,
+    SettingsPage, Shortcut, StatusItem, SuggestedWorkspace,
+};
+
+use super::limits::memory_view;
+use super::{ListWorldExt, Row, Rows, Shown, Uninstall};
+use crate::PluginKind;
+
+/// A section of every plugin's page, under what it adds, as another
+/// part of the engine adds one.
+#[derive(Component, Clone, Copy, Debug)]
+#[component(immutable)]
+pub struct PluginPageSection {
+    /// Builds its content, given the plugin's entity.
+    pub content: fn(Entity) -> AnyView,
+}
+
+/// A thing a plugin adds, of any kind its page lists.
+#[derive(QueryData)]
+pub(super) struct Things {
+    panel: Option<&'static Panel>,
+    page: Option<&'static SettingsPage>,
+    footer: Option<&'static SettingsFooter>,
+    command: Option<&'static Command>,
+    menu_entry: Option<&'static MenuEntry>,
+    shortcut: Option<&'static Shortcut>,
+    status_item: Option<&'static StatusItem>,
+    overlay: Option<&'static Overlay>,
+    workspace: Option<&'static SuggestedWorkspace>,
+}
+
+/// One thing a plugin adds, as its page lists it.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub(super) struct Added {
+    kind: Kind,
+    name: String,
+}
+
+/// What kind of thing a plugin adds, in the order its page lists
+/// them.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum Kind {
+    Panel,
+    SettingsPage,
+    SettingsFooter,
+    Command,
+    MenuEntry,
+    Shortcut,
+    StatusItem,
+    Overlay,
+    Workspace,
+}
+
+/// A plugin's page as it is shown.
+#[derive(Clone, PartialEq)]
+struct Page {
+    row: Row,
+    /// Why a value typed for its memory was refused.
+    refused: Option<String>,
+    /// Its UNINSTALL was pressed, and waits to be confirmed.
+    uninstalling: bool,
+}
+
+impl Kind {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Panel => "Panel",
+            Self::SettingsPage => "Settings page",
+            Self::SettingsFooter => "Settings footer",
+            Self::Command => "Command",
+            Self::MenuEntry => "Menu entry",
+            Self::Shortcut => "Shortcut",
+            Self::StatusItem => "Status item",
+            Self::Overlay => "Overlay",
+            Self::Workspace => "Workspace",
+        }
+    }
+}
+
+impl Added {
+    /// Its name, with what kind of thing it is beside it.
+    fn view(&self) -> AnyView {
+        let (kind, name) = (self.kind.name(), self.name.clone());
+        AnyView::new(move |cx: &mut Cx| {
+            let theme = cx.theme();
+            let (gap, size) = (theme.space.gap, theme.text.small);
+            cx.build(
+                row((
+                    label(name).grown(1.0),
+                    label(kind)
+                        .size(size)
+                        .tone(Tone::Dim)
+                        .wrap(false),
+                ))
+                .gap(gap)
+                .align(AlignItems::Center),
+            )
+        })
+    }
+}
+
+impl Page {
+    /// The page of the plugin `id` in `rows`.
+    fn of(rows: &Rows, id: &PluginId) -> Option<Self> {
+        let row = rows.find(id)?.clone();
+        Some(Self {
+            refused: rows
+                .refused
+                .as_ref()
+                .filter(|(at, _)| *at == row.plugin)
+                .map(|(_, why)| why.clone()),
+            uninstalling: rows.uninstalling == Some(row.plugin),
+            row,
+        })
+    }
+}
+
+/// What the things in `of` are, by kind and then by name.
+pub(super) fn added(
+    of: impl Iterator<Item = Entity>,
+    things: &Query<Things>,
+) -> Vec<Added> {
+    let found = of
+        .filter_map(|thing| things.get(thing).ok())
+        .collect::<Vec<_>>();
+    let label_of = |id: &CommandId| {
+        found
+            .iter()
+            .filter_map(|thing| thing.command)
+            .find(|command| command.id == *id)
+            .map_or_else(
+                || id.to_string(),
+                |command| command.label.clone(),
+            )
+    };
+    let mut all = Vec::new();
+    for thing in &found {
+        let named = [
+            thing.panel.map(|it| (Kind::Panel, it.title.clone())),
+            thing
+                .page
+                .map(|it| (Kind::SettingsPage, it.title.clone())),
+            thing.footer.map(|it| {
+                (Kind::SettingsFooter, it.id.name().to_owned())
+            }),
+            thing.command.map(|it| (Kind::Command, it.label.clone())),
+            thing.menu_entry.map(|it| {
+                let label = label_of(&it.command);
+                (Kind::MenuEntry, format!("{} > {label}", it.menu))
+            }),
+            thing.shortcut.map(|it| {
+                let label = label_of(&it.command);
+                (Kind::Shortcut, format!("{}: {label}", it.chord))
+            }),
+            thing.status_item.map(|it| {
+                (Kind::StatusItem, it.id.name().to_owned())
+            }),
+            thing
+                .overlay
+                .map(|it| (Kind::Overlay, it.id.name().to_owned())),
+            thing
+                .workspace
+                .map(|it| (Kind::Workspace, it.name.clone())),
+        ];
+        all.extend(
+            named
+                .into_iter()
+                .flatten()
+                .map(|(kind, name)| Added { kind, name }),
+        );
+    }
+    all.sort();
+    all
+}
+
+/// The page of the plugin `id`: the breadcrumb, and under it what
+/// scrolls.
+pub(super) fn page_view(id: PluginId) -> AnyView {
+    let named = id.clone();
+    let trail = breadcrumb(
+        vec!["PLUGINS".into()],
+        resource::<Rows, _>(move |rows| {
+            rows.find(&named)
+                .map(|row| row.name.to_uppercase())
+                .unwrap_or_default()
+        }),
+        |world, _| world.show(Shown::List),
+    );
+    let content = keyed(
+        resource::<Rows, _>(move |rows| Page::of(rows, &id)),
+        |page| match page {
+            Some(page) => body(page),
+            None => note("No such plugin."),
+        },
+    )
+    .within(column(()).gap(0.0));
+    AnyView::new(move |cx: &mut Cx| {
+        let section = cx.theme().space.section;
+        cx.build(
+            column((trail, scroll_area((content,))))
+                .gap(section)
+                .grow(1.0)
+                .min_height(px(0.0)),
+        )
+    })
+}
+
+/// The head, the memory, what it adds, the other sections and
+/// UNINSTALL, a part of a panel apart.
+fn body(page: &Page) -> AnyView {
+    let row_of = &page.row;
+    let plugin = row_of.plugin;
+    let head = head(row_of);
+    let memory = row_of.memory.map(|line| {
+        memory_view(
+            plugin,
+            &row_of.id,
+            line,
+            page.refused.clone(),
+            row_of.on,
+        )
+    });
+    let adds = adds(row_of);
+    let uninstall = (row_of.kind == PluginKind::Installed)
+        .then(|| uninstall(row_of, page.uninstalling));
+    AnyView::new(move |cx: &mut Cx| {
+        let gap = cx.theme().space.panel;
+        let mut parts = vec![head];
+        parts.extend(memory);
+        parts.push(adds);
+        parts.extend(sections(cx.world, plugin));
+        parts.extend(uninstall);
+        cx.build(column(parts).gap(gap))
+    })
+}
+
+/// Its name over its id and version, where it comes from and its
+/// state, with its switch beside them.
+fn head(row_of: &Row) -> AnyView {
+    let (state, tone) = row_of.state();
+    let switch = row_of.switch();
+    let (name, about, on) =
+        (row_of.name.clone(), row_of.about.clone(), row_of.on);
+    let (from, from_tone) = match row_of.kind {
+        PluginKind::BuiltIn => ("Built into the engine", Tone::Dim),
+        PluginKind::Bundled if on => {
+            ("Comes with Hamlet", Tone::Accent)
+        }
+        PluginKind::Bundled => ("Comes with Hamlet", Tone::Dim),
+        PluginKind::Installed => ("Installed", Tone::Dim),
+    };
+    AnyView::new(move |cx: &mut Cx| {
+        let theme = cx.theme();
+        let (gap, size, section) =
+            (theme.space.gap, theme.text.small, theme.space.section);
+        let facts = row((
+            label(about).size(size).tone(Tone::Dim).wrap(false),
+            label(from).size(size).tone(from_tone).wrap(false),
+            label(state).size(size).tone(tone),
+        ))
+        .gap(gap)
+        .tagged(Wraps);
+        cx.build(
+            row((
+                column((heading(name), facts))
+                    .gap(gap / 2.0)
+                    .grow(1.0)
+                    .min_width(px(0.0)),
+                switch,
+            ))
+            .gap(section)
+            .align(AlignItems::Start),
+        )
+    })
+}
+
+/// WHAT IT ADDS over a list of it, which is empty while it is off.
+fn adds(row_of: &Row) -> AnyView {
+    let listed = if !row_of.on {
+        note("Nothing while it is off.")
+    } else if row_of.added.is_empty() {
+        note("Nothing.")
+    } else {
+        list(row_of.added.iter().map(Added::view).collect())
+    };
+    AnyView::new(move |cx: &mut Cx| {
+        let gap = cx.theme().space.gap / 2.0;
+        cx.build(column((section("WHAT IT ADDS"), listed)).gap(gap))
+    })
+}
+
+/// The [`PluginPageSection`]s for `plugin`, in the order they came.
+fn sections(world: &World, plugin: Entity) -> Vec<AnyView> {
+    let mut found = world
+        .try_query::<(Entity, &PluginPageSection)>()
+        .map(|mut all| {
+            all.iter(world)
+                .map(|(at, section)| (at, section.content))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    found.sort_by_key(|(at, _)| *at);
+    found
+        .into_iter()
+        .map(|(_, content)| content(plugin))
+        .collect()
+}
+
+/// UNINSTALL..., or once it is pressed, what uninstalling takes away
+/// with UNINSTALL and CANCEL.
+fn uninstall(row_of: &Row, asked: bool) -> AnyView {
+    let plugin = row_of.plugin;
+    if !asked {
+        let style = if row_of.on {
+            ButtonStyle::Critical
+        } else {
+            ButtonStyle::Quiet
+        };
+        return buttons(vec![
+            icon_button(style, Glyph::Bin, "UNINSTALL...")
+                .on_activate(move |world| {
+                    world.confirm_uninstall(Some(plugin));
+                })
+                .boxed(),
+        ]);
+    }
+    let said = note(format!(
+        "Uninstall {}? Its files go, and what you answered for it.",
+        row_of.name
+    ));
+    let sure = buttons(vec![
+        icon_button(ButtonStyle::Critical, Glyph::Bin, "UNINSTALL")
+            .on_activate(move |world| {
+                world.trigger(Uninstall { entity: plugin });
+                world.show(Shown::List);
+            })
+            .boxed(),
+        action(ButtonStyle::Quiet, "CANCEL")
+            .on_activate(|world| world.confirm_uninstall(None))
+            .boxed(),
+    ]);
+    AnyView::new(move |cx: &mut Cx| {
+        let gap = cx.theme().space.gap;
+        cx.build(column((said, sure)).gap(gap))
+    })
+}

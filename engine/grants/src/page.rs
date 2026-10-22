@@ -1,6 +1,7 @@
 //! The Permissions page of Settings: each installed plugin's answers,
 //! by plugin or by capability, each changed in place, and what each
-//! plugin that comes with Hamlet is allowed.
+//! plugin that comes with Hamlet is allowed. On each plugin's page in
+//! the Plugins panel, what it may do.
 
 use bevy::app::{App, Startup, Update};
 use bevy::ecs::change_detection::DetectChanges;
@@ -17,13 +18,21 @@ use bevy_fynix::views::{
 use bevy_fynix::{ModifierExt, ViewExt, keyed, resource};
 use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_api::{Capability, PanelId, PluginId};
-use hamlet_engine_plugins::PluginInfo;
+use hamlet_engine_plugins::{
+    PluginInfo, PluginKind, PluginPageSection,
+};
 use hamlet_engine_shell::icons::Glyph;
-use hamlet_engine_shell::style::{Wraps, choices, note, section};
+use hamlet_engine_shell::style::{
+    ButtonStyle, Wraps, action, buttons, choices, icon_button, list,
+    note, section,
+};
 use hamlet_engine_shell::{AnyView, Cx, SettingsPage};
 
 use crate::GrantsWorldExt;
 use crate::file::{Answer, Grants};
+
+/// The name of the Permissions page.
+pub(crate) const PERMISSIONS: &str = "permissions";
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Permissions>()
@@ -33,9 +42,20 @@ pub(crate) fn plugin(app: &mut App) {
 
 /// The answers as the page shows them.
 #[derive(Resource, Clone, PartialEq, Default)]
-struct Permissions {
+pub(crate) struct Permissions {
     plugins: Vec<Line>,
     by_capability: bool,
+    /// The one plugin whose answers are shown, when not all are.
+    only: Option<PluginId>,
+}
+
+/// A plugin's asks and the person's answers, as its page in the
+/// Plugins panel shows them.
+#[derive(Clone, PartialEq)]
+struct Said {
+    state: &'static str,
+    /// Each ask, its reason and its answer.
+    asks: Vec<(String, String, &'static str)>,
 }
 
 /// A plugin and its answers.
@@ -48,14 +68,110 @@ struct Line {
     answers: Vec<(Capability, String, Answer)>,
 }
 
+impl Permissions {
+    /// Shows the answers of the plugin `id` alone, by plugin.
+    pub(crate) fn show_only(&mut self, id: &PluginId) {
+        self.by_capability = false;
+        self.only = Some(id.clone());
+    }
+}
+
+impl Said {
+    /// What the plugin `info` asks, answered as in `grants`.
+    fn of(grants: &Grants, info: &PluginInfo) -> Self {
+        let record = grants.record(&info.id);
+        let state = match (info.kind, record) {
+            (PluginKind::BuiltIn, _) => {
+                "Built into the engine, and not asked about"
+            }
+            (PluginKind::Bundled, _) => {
+                "Comes with Hamlet, and is allowed all it asks"
+            }
+            (PluginKind::Installed, None) => "Not answered yet",
+            (PluginKind::Installed, Some(record))
+                if !record.allowed =>
+            {
+                "Not allowed"
+            }
+            (PluginKind::Installed, Some(_)) => "Allowed",
+        };
+        let asks = info
+            .asks
+            .iter()
+            .map(|ask| {
+                let answer = match info.kind {
+                    PluginKind::BuiltIn => "Not asked",
+                    _ => record
+                        .and_then(|record| {
+                            record.answer(ask.capability, &ask.target)
+                        })
+                        .map_or("Not answered", Answer::label),
+                };
+                (
+                    format!(
+                        "{} {}",
+                        ask.capability.name(),
+                        ask.target
+                    ),
+                    ask.reason.clone(),
+                    answer,
+                )
+            })
+            .collect();
+        Self { state, asks }
+    }
+
+    /// Its state over each ask with its answer and, under them, its
+    /// reason.
+    fn view(&self) -> AnyView {
+        if self.asks.is_empty() {
+            return note(format!(
+                "{}. It asks for nothing.",
+                self.state
+            ));
+        }
+        let asks = self
+            .asks
+            .iter()
+            .map(|(what, reason, answer)| {
+                let (what, answer) = (what.clone(), *answer);
+                let reason = note(reason.clone());
+                AnyView::new(move |cx: &mut Cx| {
+                    let gap = cx.theme().space.gap;
+                    cx.build(
+                        column((
+                            row((
+                                label(what)
+                                    .tone(Tone::Dim)
+                                    .grown(1.0),
+                                label(answer).wrap(false),
+                            ))
+                            .gap(gap)
+                            .align(AlignItems::Center),
+                            reason,
+                        ))
+                        .gap(gap / 2.0),
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        let state = note(format!("{}.", self.state));
+        AnyView::new(move |cx: &mut Cx| {
+            let gap = cx.theme().space.gap / 2.0;
+            cx.build(column((state, list(asks))).gap(gap))
+        })
+    }
+}
+
 fn add(mut commands: Commands) {
     commands.spawn(SettingsPage {
-        id: PanelId::new(ENGINE, "permissions").expect("a valid id"),
+        id: PanelId::new(ENGINE, PERMISSIONS).expect("a valid id"),
         title: "Permissions".into(),
         about: "What each plugin may do.".into(),
         icon: Glyph::Shield,
         content: view,
     });
+    commands.spawn(PluginPageSection { content: may_do });
 }
 
 fn view(_: Entity) -> AnyView {
@@ -64,20 +180,69 @@ fn view(_: Entity) -> AnyView {
             vec!["By plugin".into(), "By capability".into()],
             usize::from(shown.by_capability),
             |world, picked| {
-                world.resource_mut::<Permissions>().by_capability =
-                    picked == 1;
+                let mut shown = world.resource_mut::<Permissions>();
+                shown.by_capability = picked == 1;
+                shown.only = None;
             },
         );
+        let only = shown.only.as_ref().and_then(|id| {
+            shown.plugins.iter().find(|line| line.id == *id)
+        });
         let body = if shown.plugins.is_empty() {
             note("No plugin is installed.")
         } else if shown.by_capability {
             by_capability(&shown.plugins)
+        } else if let Some(line) = only {
+            let all = action(ButtonStyle::Quiet, "ALL PLUGINS")
+                .on_activate(|world| {
+                    world.resource_mut::<Permissions>().only = None;
+                })
+                .boxed();
+            groups(vec![
+                by_plugin(std::slice::from_ref(line)),
+                buttons(vec![all]),
+            ])
         } else {
             by_plugin(&shown.plugins)
         };
         groups(vec![by, body])
     })
     .boxed()
+}
+
+/// WHAT IT MAY DO on the page of `plugin`: each of its asks and the
+/// person's answer, and for an installed one, a way to Permissions to
+/// change them.
+fn may_do(plugin: Entity) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let Some(info) = cx.world.get::<PluginInfo>(plugin).cloned()
+        else {
+            return cx.build(column(()));
+        };
+        let id = info.id.clone();
+        let installed = info.kind == PluginKind::Installed;
+        let said = keyed(
+            resource::<Grants, _>(move |grants| {
+                Said::of(grants, &info)
+            }),
+            Said::view,
+        )
+        .within(column(()).gap(0.0));
+        let mut parts = vec![section("WHAT IT MAY DO"), said.boxed()];
+        if installed {
+            parts.push(buttons(vec![
+                icon_button(
+                    ButtonStyle::Plain,
+                    Glyph::Shield,
+                    "CHANGE IN PERMISSIONS",
+                )
+                .on_activate(move |world| world.show_permissions(&id))
+                .boxed(),
+            ]));
+        }
+        let gap = cx.theme().space.gap / 2.0;
+        cx.build(column(parts).gap(gap))
+    })
 }
 
 /// `parts` one under another, a part of a panel apart.

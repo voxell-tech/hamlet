@@ -1,9 +1,8 @@
-//! A plugin's memory on the plugin list: the value in use and where
-//! it comes from, a number and a unit to set it, and a way back to
-//! what it would be without the person.
+//! A plugin's memory on its page: the value in use and where it comes
+//! from, a number and a unit to set it, and a way back to what it
+//! would be without the person.
 
 use bevy::ecs::entity::Entity;
-use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, px};
 use bevy_fynix::ViewExt;
 use bevy_fynix::tokens::Tone;
@@ -11,7 +10,6 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row,
 };
 use hamlet_engine_api::{Limits, PluginId, PluginLimits};
-use hamlet_engine_core::LogLine;
 use hamlet_engine_shell::fonts::DisplayText;
 use hamlet_engine_shell::icons::Glyph;
 use hamlet_engine_shell::style::{
@@ -19,10 +17,9 @@ use hamlet_engine_shell::style::{
 };
 use hamlet_engine_shell::{AnyView, Cx};
 
-use super::Rows;
-use crate::limits::ChosenLimits;
+use super::ListWorldExt;
 
-/// A plugin's memory as the list shows it.
+/// A plugin's memory as its page shows it.
 #[derive(Clone, Copy, PartialEq)]
 pub(super) struct MemoryLine {
     /// The bytes in use.
@@ -55,7 +52,7 @@ impl Source {
     }
 }
 
-/// A unit of memory the list shows and takes it in.
+/// A unit of memory the page shows and takes it in.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Unit {
     Kb,
@@ -131,12 +128,13 @@ pub(super) fn memory_line(
 
 /// MEMORY and where its value comes from, over the value as a number
 /// and a unit, with RESET when it is the person's, and why a value
-/// typed was `refused`.
+/// typed was `refused`, dim while the plugin is not `on`.
 pub(super) fn memory_view(
     plugin: Entity,
     id: &PluginId,
     line: MemoryLine,
     refused: Option<String>,
+    on: bool,
 ) -> AnyView {
     let MemoryLine { bytes, source } = line;
     let unit = Unit::of(bytes);
@@ -198,7 +196,7 @@ pub(super) fn memory_view(
             .tagged(DisplayText);
         let from = label(source.text())
             .size(size)
-            .tone(source.tone())
+            .tone(if on { source.tone() } else { Tone::Dim })
             .wrap(false);
         let mut control = vec![
             column((number,))
@@ -216,49 +214,6 @@ pub(super) fn memory_view(
         parts.extend(refused.map(|why| why.boxed()));
         cx.build(column(parts).gap(gap / 2.0))
     })
-}
-
-/// The plugin list's methods on [`World`].
-trait LimitsWorldExt {
-    /// Sets the memory of the plugin `id` to `bytes`, or back for
-    /// `None`, saying on the list why when it cannot be kept.
-    fn choose(
-        &mut self,
-        plugin: Entity,
-        id: &PluginId,
-        bytes: Option<u64>,
-    );
-
-    /// Shows `why` under the memory of `plugin`, or nothing for
-    /// `None`.
-    fn refuse(&mut self, plugin: Entity, why: Option<String>);
-}
-
-impl LimitsWorldExt for World {
-    fn choose(
-        &mut self,
-        plugin: Entity,
-        id: &PluginId,
-        bytes: Option<u64>,
-    ) {
-        let kept =
-            self.resource_mut::<ChosenLimits>().set_memory(id, bytes);
-        if let Err(why) = &kept {
-            self.write_message(LogLine::error(
-                "plugins",
-                why.clone(),
-            ));
-        }
-        self.refuse(plugin, kept.err());
-    }
-
-    fn refuse(&mut self, plugin: Entity, why: Option<String>) {
-        let refused = why.map(|why| (plugin, why));
-        let mut rows = self.resource_mut::<Rows>();
-        if rows.refused != refused {
-            rows.refused = refused;
-        }
-    }
 }
 
 #[cfg(test)]

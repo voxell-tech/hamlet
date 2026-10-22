@@ -36,9 +36,10 @@ use hamlet_engine_plugins::{
 use hamlet_engine_shell::fonts::DisplayText;
 use hamlet_engine_shell::icons::{Glyph, glyph, side};
 use hamlet_engine_shell::style::{
-    BottomGradient, ButtonStyle, Wraps, action, card, choices,
-    divider, field, heading, icon_button, labelled_switch, link_row,
-    link_rows, list, note, page_head, section, switch, title_button,
+    BottomGradient, ButtonStyle, Wraps, action, breadcrumb, card,
+    choices, divider, field, heading, icon_button, labelled_switch,
+    link_row, link_rows, list, note, page_head, section, switch,
+    title_button,
 };
 use hamlet_engine_shell::{
     AnyView, Cx, DockTreeExt, EngineTheme, StyleExt,
@@ -490,6 +491,11 @@ fn the_rest() -> AnyView {
                 |_| {},
                 Glyph::Sliders,
                 "PERMISSIONS",
+            ),
+            breadcrumb(
+                vec!["PLUGINS".into()],
+                "INSPECTOR",
+                |_, _| {},
             ),
         ))
         .gap(8.0)

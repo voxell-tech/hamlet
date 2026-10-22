@@ -23,7 +23,7 @@ Each depends only on those above it, and each adds one Bevy plugin,
 | `engine/api` | `hamlet_engine_api` | The names the engine and plugins share. serde only, no Bevy |
 | `engine/core` | `hamlet_engine_core` | The tuning files, the home, the bundle's folder, the log, the budgets |
 | `engine/shell` | `hamlet_engine_shell` | The window, its theme, the dock and its panels, workspaces, commands, shortcuts, the menu bar and the status line |
-| `engine/plugins` | `hamlet_engine_plugins` | Plugins as entities, what they add, switching them on and off, the plugin list, and the mail between plugins and services |
+| `engine/plugins` | `hamlet_engine_plugins` | Plugins as entities, what they add, switching them on and off, the Plugins panel, and the mail between plugins and services |
 | `engine/grants` | `hamlet_engine_grants` | What the person lets plugins do: petitions, the grants file, the Permissions page |
 | `engine/assets` | `hamlet_engine_assets` | The asset store, the type registry, references and change notification |
 | `engine/bus` | `hamlet_engine_bus` | Services and events between plugins, whatever host runs them |
@@ -443,8 +443,13 @@ buttons, cards, headings, notes, icons and chrome. Dark only.
   `labelled_switch` with words beside it, and `toggle` the same as
   `switch`), `dropdown`, `choices`, `heading`, `section`,
   `caption`, `note`, `card`, `list` (its rows each a `list_row`),
-  `link_row` and `link_rows`, `page_head`, `divider`, `buttons` (a row
-  that wraps), `scroll_area` and `title_button`. `StyleExt` wraps any
+  `link_row` and `link_rows`, `page_head`, `breadcrumb`, `divider`,
+  `buttons` (a row that wraps), `scroll_area` and `title_button`.
+  `breadcrumb(trail, current, go)` shows where a page is within a
+  panel that has pages under it: each page above it, from the top, as
+  a quiet button in the display face, a dim `/` after each, and the
+  page shown, not a button, in the tone of a head; a press hands `go`
+  the place in `trail` of its page. `StyleExt` wraps any
   view:
   `styled(kind)` as a button, `with_icon(glyph)`, `in_tab(shown)` and
   `in_panel()`. A `BottomGradient` surface, as a panel or the bar,
@@ -581,17 +586,38 @@ person has one or more, and one is shown at a time.
   (`PluginCommandsExt`) adds a plugin linked into the binary and
   switches it on, unless it is kept off. A manifest that `check`
   refuses is told in the log and not added.
-- **The plugin list** (`engine/plugins`) is the engine's own panel:
-  each plugin's name, with its id and version, whether it is on and
-  how much it adds, or why it was stopped, under it, and the switch
-  that turns it on or off at the right of its name; an installed one
-  has UNINSTALL too (`Uninstall`), and a bundled one says it comes
-  with Hamlet. MEMORY under it shows and sets its memory (see
-  [Limits](#limits)). ADD PLUGIN... above them triggers `AddPlugin`,
-  for a host to answer.
-- **Kept off.** `SwitchedOff` holds the ids the person switched off on
-  the plugin list, kept in `switched_off.toml` in the home
-  (`plugins = ["hamlet.demo"]`). Only the switch there changes it;
+- **The Plugins panel** (`engine/plugins`) is the engine's own. It
+  shows the list of plugins or one plugin's page, as `Shown` in
+  `list.rs` says, and goes back to the list when the plugin of the
+  page shown goes.
+- **The list** shows each plugin's name, with its id and version,
+  whether it is on and how much it adds, or why it was stopped, under
+  it, and the switch that turns it on or off at its top right; a
+  bundled one says it comes with Hamlet. A plugin that is off is shown
+  in the theme's dim tone, all of it but its switch. A press on a
+  plugin, or its chevron, opens its page. ADD PLUGIN... above them
+  triggers `AddPlugin`, for a host to answer. Under it, "Search
+  plugins" keeps those whose name or id holds the words, of any case,
+  once they are entered, and the dropdown beside it those that are on,
+  off, come with Hamlet or are installed; the two combine, an empty
+  search shows all, and when none is left the list says "No plugin
+  matches." Both are kept until the engine closes, above the list as
+  it scrolls.
+- **A plugin's page** (`list/page.rs`) is under the breadcrumb
+  "PLUGINS / its name", whose PLUGINS goes back to the list and which
+  stays as the rest scrolls: a head with its name, its id and version,
+  where it comes from (built into the engine, comes with Hamlet, or
+  installed) and its state, with its switch at the right; MEMORY (see
+  [Limits](#limits)); WHAT IT ADDS, each panel, settings page and
+  footer, command, menu entry, shortcut, status item, overlay and
+  workspace it added, nothing while it is off; then each
+  `PluginPageSection` another crate adds, given the plugin's entity,
+  in the order they came; and for an installed one UNINSTALL..., which
+  says what goes and asks again, UNINSTALL triggering `Uninstall` and
+  showing the list, CANCEL not.
+- **Kept off.** `SwitchedOff` holds the ids the person switched off in
+  the Plugins panel, kept in `switched_off.toml` in the home
+  (`plugins = ["hamlet.demo"]`). Only the switches there change it;
   the engine stopping a plugin, or a hot reload, does not. At
   start a plugin on it is left off, of any kind. Letting an install
   in, and uninstalling, take its id off. A file that cannot be
@@ -626,7 +652,7 @@ person has one or more, and one is shown at a time.
 
   What it asks is used as it is, for a bundled plugin and an
   installed one alike: nobody is asked about it.
-- **On the plugin list**, MEMORY under a plugin says where the value
+- **On a plugin's page**, MEMORY says where the value
   in use comes from (the engine's, asked for by the plugin, or yours)
   over the value as a number and a unit, KB, MB or GB of 1,024 of the
   one before, in the largest unit it holds one of: 64 MB, 1.5 GB. A
@@ -700,6 +726,13 @@ all they ask (see [Bundled plugins](#bundled-plugins)).
 - **The Permissions page** of Settings shows the answers by plugin or
   by capability, and each can be changed there, but for a bundled
   plugin's, which are shown as they are.
+- **On a plugin's page** in the Plugins panel, WHAT IT MAY DO is a
+  `PluginPageSection` of this crate: whether it was let in, each ask
+  with its reason and the person's answer, as they are. An installed
+  one has CHANGE IN PERMISSIONS (`world.show_permissions(id)`,
+  `GrantsWorldExt`), which shows the Permissions page with that
+  plugin's answers alone, until ALL PLUGINS or By capability is
+  pressed.
 
 ## The WASM host
 
