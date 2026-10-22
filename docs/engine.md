@@ -456,6 +456,18 @@ placeholder it is, `toggle` switches the switch nearest it, and
 The test `the_samples_pass_their_steps` (ignored, as it builds the
 samples) runs the scripts of hello, notes and board.
 
+To see the plugins drawn, `cargo run -p hamlet_engine --example
+plugin_stills -- --out <dir> --name <still>` runs the whole engine
+with the bundle and no window, on the home `<dir>/home` made empty
+first, with a model chosen that nothing serves so Welcome stays shut,
+and fetches never sent. Once every plugin is on and the scenes stop
+growing, it runs each `--run <plugin.id/command>`, brings each `--open
+<plugin.id/panel>` to the front, waits `--frames` frames (time goes on
+1/60 s a frame) and saves `<dir>/<still>.png`. `--size`, `--scale`,
+`--bundle`, and `--day` or `--night` for the realm's sky, are the
+rest. It fails if a plugin does not come on, a command or panel is
+not there, or the PNG is not written.
+
 ## The core
 
 - **Tuning.** `engine/tuning/engine.toml` holds the sizes, timings and
