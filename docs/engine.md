@@ -492,7 +492,10 @@ To see the plugins drawn, `cargo run -p hamlet_engine --example
 plugin_stills -- --out <dir> --name <still>` runs the whole engine
 with the bundle and no window, on the home `<dir>/home` made empty
 first, with a model chosen that nothing serves so Welcome stays shut,
-and fetches never sent. Once every plugin is on and the scenes stop
+and fetches never sent; with `--online` they are sent as in the app,
+to the hosts the bundled plugins ask for (a bundled plugin is
+allowed what it asks), for a still of a plugin talking to a server
+run beside it. Once every plugin is on and the scenes stop
 growing, it runs each `--run <plugin.id/command>`, brings each `--open
 <plugin.id/panel>` to the front, waits `--frames` frames (time goes on
 1/60 s a frame) and saves `<dir>/<still>.png`. `--size`, `--scale`,

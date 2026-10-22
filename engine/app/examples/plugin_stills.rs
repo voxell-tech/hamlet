@@ -5,15 +5,17 @@
 //! cargo run -p hamlet_engine --example plugin_stills -- --out <dir> \
 //!     [--name <still>] [--size 1600x1000] [--scale 2] [--frames <n>] \
 //!     [--run <plugin.id/command>]... [--open <plugin.id/panel>]... \
-//!     [--bundle <dir>] [--day | --night]
+//!     [--bundle <dir>] [--day | --night] [--online]
 //! ```
 //!
 //! The home is `<dir>/home`, made empty first, with a model chosen
 //! that nothing serves, so Welcome does not open. Fetches are never
-//! sent. Once every plugin is on and the scenes stop growing, each
-//! `--run` command runs and each `--open` panel comes to the front;
-//! `--frames` frames later, and once the scenes are still again, the
-//! still is saved as `<dir>/<name>.png` and its path printed.
+//! sent, unless `--online`: then they are sent as in the app, to the
+//! hosts the bundled plugins ask for. Once every plugin is on and the
+//! scenes stop growing, each `--run` command runs and each `--open`
+//! panel comes to the front; `--frames` frames later, and once the
+//! scenes are still again, the still is saved as `<dir>/<name>.png`
+//! and its path printed.
 
 #[path = "../src/demo.rs"]
 mod demo;
@@ -44,7 +46,7 @@ const USAGE: &str = "usage: plugin_stills --out <dir> [--name \
                      <still>] [--size 1600x1000] [--scale 2] \
                      [--frames <n>] [--run <plugin.id/command>]... \
                      [--open <plugin.id/panel>]... [--bundle <dir>] \
-                     [--day | --night]";
+                     [--day | --night] [--online]";
 
 /// The settings of a home whose model is served nowhere: chosen, so
 /// Welcome stays shut, and never reached.
@@ -77,6 +79,7 @@ struct Options {
     runs: Vec<CommandId>,
     opens: Vec<PanelId>,
     bundle: Option<PathBuf>,
+    online: bool,
 }
 
 impl Options {
@@ -91,11 +94,16 @@ impl Options {
             runs: Vec::new(),
             opens: Vec::new(),
             bundle: None,
+            online: false,
         };
         let mut hour = None;
         while let Some(arg) = args.next() {
             if arg == "--day" || arg == "--night" {
                 hour = Some(arg[2..].to_owned());
+                continue;
+            }
+            if arg == "--online" {
+                options.online = true;
                 continue;
             }
             let value = args
@@ -191,9 +199,11 @@ fn draw(options: Options) -> Result<AppExit, String> {
     let _ = std::fs::remove_file(&path);
 
     let mut app = App::new();
+    if !options.online {
+        app.insert_resource(hamlet_engine_net::Offline);
+    }
     app.insert_resource(Home::at(&home))
         .insert_resource(bundle)
-        .insert_resource(hamlet_engine_net::Offline)
         .add_plugins(
             DefaultPlugins
                 // A window entity with no winit behind it.

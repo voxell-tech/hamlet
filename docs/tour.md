@@ -193,7 +193,7 @@ These draw to files and open nothing:
 | `cargo run --example chief_sheet -- --out <dir>` | The wizard, its looks, a Wickstep, the library |
 | `cargo run --example cursor_sheet` | Every cursor |
 | `cargo run --release --example sound_sheet` | Every sound and the music, as WAV files |
-| `cargo run -p hamlet_engine --example plugin_stills -- --out <dir>` | The engine with its bundled plugins, after `scripts/build_plugins.sh`; `--run` a command, `--open` a panel |
+| `cargo run -p hamlet_engine --example plugin_stills -- --out <dir>` | The engine with its bundled plugins, after `scripts/build_plugins.sh`; `--run` a command, `--open` a panel, `--online` to send fetches |
 
 `style_test` (one fixed scene and the robots' motions) and `town_gen` (the
 generated world, grown from the keyboard) open a window.
