@@ -36,6 +36,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@mermaid-js/mermaid-cli": "^11.17.0",
     "@types/express": "^5.0.6",
     "@types/node": "^24.19.2",
     "@types/supertest": "^7.2.1",
@@ -43,6 +44,8 @@
     "miniflare": "^4.20260730.0",
     "prettier": "^3.9.10",
     "prisma": "7.10.1",
+    "prisma-erd-generator": "^3.2.1",
+    "puppeteer": "^25.14.0",
     "supertest": "^7.3.1",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3",
