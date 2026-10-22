@@ -404,6 +404,12 @@ fn follow(
     }
     let lines = grants
         .records()
+        // What a plugin that no longer comes with Hamlet was allowed
+        // answers for nothing.
+        .filter(|(id, record)| {
+            !record.bundled
+                || plugins.iter().any(|info| info.id == **id)
+        })
         .map(|(id, record)| Line {
             id: id.clone(),
             name: plugins

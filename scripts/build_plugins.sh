@@ -24,6 +24,7 @@ fi
 (cd "$plugins" && cargo build --release --target "$target")
 
 mkdir -p "$dist"
+laid=" "
 for manifest in "$plugins"/*/plugin.toml; do
     [ -f "$manifest" ] || continue
     folder=$(dirname "$manifest")
@@ -48,5 +49,20 @@ for manifest in "$plugins"/*/plugin.toml; do
     mv -f "$out/.plugin.toml.new" "$out/plugin.toml"
     cp "$wasm" "$out/.plugin.wasm.new"
     mv -f "$out/.plugin.wasm.new" "$out/plugin.wasm"
+    laid="$laid$id "
     echo "$id: $out"
+done
+
+# A plugin no longer in the workspace is taken out of dist/, so the
+# engine stops loading it.
+for out in "$dist"/*/; do
+    [ -d "$out" ] || continue
+    id=$(basename "$out")
+    case "$laid" in
+        *" $id "*) ;;
+        *)
+            rm -rf "$out"
+            echo "$id: removed"
+            ;;
+    esac
 done

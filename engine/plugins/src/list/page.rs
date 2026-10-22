@@ -21,8 +21,9 @@ use hamlet_engine_shell::style::{
     icon_button, list, note, scroll_area, section,
 };
 use hamlet_engine_shell::{
-    AnyView, Command, Cx, MenuEntry, Overlay, Panel, SettingsFooter,
-    SettingsPage, Shortcut, StatusItem, SuggestedWorkspace,
+    AnyView, Command, Cx, MenuEntry, Overlay, Panel, PanelSection,
+    SettingsFooter, SettingsPage, Shortcut, StatusItem,
+    SuggestedWorkspace,
 };
 
 use super::limits::memory_view;
@@ -49,6 +50,7 @@ pub(super) struct Things {
     shortcut: Option<&'static Shortcut>,
     status_item: Option<&'static StatusItem>,
     overlay: Option<&'static Overlay>,
+    section: Option<&'static PanelSection>,
     workspace: Option<&'static SuggestedWorkspace>,
 }
 
@@ -71,6 +73,7 @@ enum Kind {
     Shortcut,
     StatusItem,
     Overlay,
+    PanelSection,
     Workspace,
 }
 
@@ -95,6 +98,7 @@ impl Kind {
             Self::Shortcut => "Shortcut",
             Self::StatusItem => "Status item",
             Self::Overlay => "Overlay",
+            Self::PanelSection => "Section",
             Self::Workspace => "Workspace",
         }
     }
@@ -181,6 +185,12 @@ pub(super) fn added(
             thing
                 .overlay
                 .map(|it| (Kind::Overlay, it.id.name().to_owned())),
+            thing.section.map(|it| {
+                (
+                    Kind::PanelSection,
+                    format!("{} in {}", it.title, it.panel),
+                )
+            }),
             thing
                 .workspace
                 .map(|it| (Kind::Workspace, it.name.clone())),

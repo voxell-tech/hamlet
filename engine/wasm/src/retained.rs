@@ -69,7 +69,7 @@ use hamlet_engine_shell::style::{
 };
 use hamlet_engine_shell::{
     AnyView, Cx, EngineTheme, Overlay, OverlayShown, Panel,
-    SettingsPage, ShellWorldExt, StatusItem, StyleExt,
+    PanelSection, SettingsPage, ShellWorldExt, StatusItem, StyleExt,
 };
 
 use crate::WasmCommandsExt;
@@ -661,7 +661,8 @@ pub(crate) fn view(surface: Entity) -> AnyView {
         .in_panel()
 }
 
-/// The content of a WASM plugin's settings page.
+/// The content of a WASM plugin's settings page, footer, overlay or
+/// section.
 pub(crate) fn page(surface: Entity) -> AnyView {
     shown(surface).within(column(()).gap(0.0)).boxed()
 }
@@ -1565,6 +1566,21 @@ impl WasmWorldExt for World {
                         overlay.insert(OverlayShown);
                     } else {
                         overlay.remove::<OverlayShown>();
+                    }
+                }
+                SurfaceChange::Section { name, holds } => {
+                    let Some(at) = self.added_named::<PanelSection>(
+                        plugin,
+                        &name,
+                        |section| &section.id,
+                    ) else {
+                        continue;
+                    };
+                    if let Some(mut section) =
+                        self.get_mut::<PanelSection>(at)
+                        && section.holds != holds
+                    {
+                        section.holds = holds;
                     }
                 }
                 SurfaceChange::Open(name) => {

@@ -293,6 +293,10 @@ interface ui {
     /// Its view is mounted as a panel's is while it is shown.
     show-overlay: func(name: string, shown: bool);
 
+    /// Says how many things the plugin's panel section `name` holds.
+    /// One that holds none is hidden.
+    set-section: func(name: string, holds: u32);
+
     /// Brings the plugin's panel `name` to the front, or shows its
     /// settings page `name` in Settings and brings Settings to the
     /// front. A full id, `plugin.id/name`, brings the panel of that

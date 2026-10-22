@@ -41,8 +41,8 @@ use hamlet_engine_plugins::{
 };
 use hamlet_engine_shell::style::Switch;
 use hamlet_engine_shell::{
-    EngineTheme, Overlay, Panel, SettingsFooter, SettingsPage,
-    ShellWorldExt,
+    EngineTheme, Overlay, Panel, PanelSection, SettingsFooter,
+    SettingsPage, ShellWorldExt,
 };
 use hamlet_engine_wasm::{
     Compiling, Instance, MANIFEST, NodeAction, NodeInput, NodeOf,
@@ -278,10 +278,11 @@ impl Harness {
         Some(self.app.world().outline(root))
     }
 
-    /// The root of the panel, settings page, footer or overlay
-    /// `panel` (`plugin.id/name`), once its plugin has it. Its
-    /// content is built as the dock, Settings or the window builds it
-    /// when it shows it.
+    /// The root of the panel, settings page, footer, overlay or panel
+    /// section `panel` (`plugin.id/name`), once its plugin has it.
+    /// Its content is built as the dock, Settings or the window
+    /// builds it when it shows it, a section whether it holds
+    /// anything or not.
     pub fn root(&mut self, panel: &str) -> Option<Entity> {
         let id = PanelId::try_from(panel).ok()?;
         let world = self.app.world_mut();
@@ -293,30 +294,42 @@ impl Harness {
                     Option<&SettingsPage>,
                     Option<&SettingsFooter>,
                     Option<&Overlay>,
+                    Option<&PanelSection>,
                 ),
                 Option<&UiRoot>,
                 &ContributedBy,
             )>()
             .iter(world)
             .find_map(
-                |(surface, (found, page, footer, card), root, by)| {
-                    let content = match (found, page, footer, card) {
-                        (Some(found), ..) if found.id == id => {
-                            found.content
-                        }
-                        (_, Some(page), ..) if page.id == id => {
-                            page.content
-                        }
-                        (_, _, Some(footer), _)
-                            if footer.id == id =>
-                        {
-                            footer.content
-                        }
-                        (.., Some(card)) if card.id == id => {
-                            card.content
-                        }
-                        _ => return None,
-                    };
+                |(
+                    surface,
+                    (found, page, footer, card, part),
+                    root,
+                    by,
+                )| {
+                    let content =
+                        match (found, page, footer, card, part) {
+                            (Some(found), ..) if found.id == id => {
+                                found.content
+                            }
+                            (_, Some(page), ..) if page.id == id => {
+                                page.content
+                            }
+                            (_, _, Some(footer), ..)
+                                if footer.id == id =>
+                            {
+                                footer.content
+                            }
+                            (_, _, _, Some(card), _)
+                                if card.id == id =>
+                            {
+                                card.content
+                            }
+                            (.., Some(part)) if part.id == id => {
+                                part.content
+                            }
+                            _ => return None,
+                        };
                     Some((
                         surface,
                         content,

@@ -114,6 +114,13 @@ pub fn show_overlay(name: &str, shown: bool) {
     crate::bindings::hamlet::engine::ui::show_overlay(name, shown);
 }
 
+/// Says how many things the plugin's panel section `name`, declared
+/// with [`Entry::panel_section`](crate::Entry::panel_section), holds.
+/// One that holds none is hidden.
+pub fn set_section(name: &str, holds: u32) {
+    crate::bindings::hamlet::engine::ui::set_section(name, holds);
+}
+
 /// Brings the plugin's panel `name` to the front, or shows its
 /// settings page `name` in Settings and brings Settings to the front.
 /// A full id, `plugin.id/name`, brings the panel of that id to the

@@ -135,6 +135,25 @@ impl Entry {
         self.add(Contribution::Overlay { name: name.into() })
     }
 
+    /// A section titled `title` of the engine's panel `panel`
+    /// (`engine/name`), one that takes sections, shown while
+    /// [`ui::set_section`](crate::ui::set_section) says it holds
+    /// something. An installed plugin's is headed by its name too.
+    /// Its view is built by [`Plugin::mount`](crate::Plugin::mount)
+    /// with its name.
+    pub fn panel_section(
+        &mut self,
+        panel: &str,
+        name: &str,
+        title: &str,
+    ) -> &mut Self {
+        self.add(Contribution::PanelSection {
+            panel: panel.into(),
+            name: name.into(),
+            title: title.into(),
+        })
+    }
+
     pub(crate) fn finish(self) -> Vec<Contribution> {
         self.0
     }

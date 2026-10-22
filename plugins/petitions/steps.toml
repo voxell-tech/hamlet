@@ -1,0 +1,15 @@
+# The agents' section of the Petitions panel on its own, built as the
+# panel builds it once something waits. The harness runs no agents
+# service, so nothing waits.
+#
+#   scripts/build_plugins.sh
+#   cargo run -p hamlet_engine_harness --bin plugin_check -- plugins/dist/hamlet.petitions --steps plugins/petitions/steps.toml
+
+[[step]]
+allow = "hamlet.petitions"
+
+[[step]]
+expect = { panel = "hamlet.petitions/agents", text = "STOP ALL" }
+
+[[step]]
+expect = { panel = "hamlet.petitions/agents", text = "Reason or reply, then answer" }

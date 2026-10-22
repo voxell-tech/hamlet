@@ -108,7 +108,8 @@ same types.
   icon for its tab or none, `panel_with_icon` in the SDK), a command,
   a menu entry, a shortcut, a settings page (with its icon and a line
   on what it holds), a settings footer, a suggested workspace, a
-  status item (one that grows or not) or an overlay.
+  status item (one that grows or not), an overlay or a panel section
+  (a part of an engine panel that takes them, so far Petitions).
 - **The wire format** is postcard, through `encode` and `decode`.
   `decode` refuses bytes left over after the value.
 
@@ -133,20 +134,22 @@ types, so the WIT names nothing twice.
   call is passed to the services as the call ends, and their messages
   reach it in one `receive` on the next frame it is served. A plugin's
   stores never meet: the engine copies what passes between them.
-- **Panels, settings pages, settings footers and overlays** are the
+- **Panels, settings pages, settings footers, overlays and panel
+  sections** are the
   world `ui-plugin`: `plugin` with the interface `ui`, whose resource
   `node` the plugin makes,
   last under a parent that holds nodes, with a key of its own;
   `set`s a property of (at once, or over a `motion` where it can
   move); `reorder`s; `watch`es for hover and press; and drops to take
   it away with what is under it. And the export `ui-guest`: `mount` (a
-  panel, settings page, footer or overlay to build under a root node
+  panel, settings page, footer, overlay or section to build under a root node
   the engine gives), `unmount`, `input` (what the person did, by key)
   and `frame`, each answering whether something still moves.
 - **Besides the nodes**, `ui` has `set-status` (what one of the
   plugin's status items shows: an icon by name, words, a tone and
   words under the pointer), `show-overlay` (one of its overlays shown
-  or hidden) and `open` (one of its panels brought to the front, or
+  or hidden), `set-section` (how many things one of its panel sections
+  holds; one holding none is hidden) and `open` (one of its panels brought to the front, or
   one of its settings pages shown in Settings; or, by a full id
   `plugin.id/name`, a panel of any plugin brought to the front, which
   needs no capability since it changes only the dock). Each counts
@@ -240,9 +243,10 @@ the engine the SDK comes with.
   folder in the system's dialog. `leads_to` gives a view an address that
   the plugin tells the desktop service of (`Hover`) while the pointer
   is over it, so the status line shows it. `set_status`,
-  `show_overlay` and `open` change what the plugin added outside its
+  `show_overlay`, `set_section` and `open` change what the plugin added outside its
   views; `Entry::growing_status_item` adds a status item that takes
-  the room left on the line.
+  the room left on the line, and `Entry::panel_section` a section of
+  an engine panel.
   `transition` hands each change of a tone, size, opacity, space or
   offset to the engine with its motion, once, and the engine moves it
   over its own theme's curve; the plugin is not called each frame for
@@ -326,9 +330,10 @@ checks the built plugins in the folders (each a `plugin.toml` with its
 failure, the log. Without steps it lets each plugin in and prints its
 panels.
 
-A panel, settings page, footer or overlay is built as the dock,
-Settings or the window builds it when it shows it, an overlay whether
-it is shown or not. Its outline is a line for each node, `#` and its
+A panel, settings page, footer, overlay or panel section is built as
+the dock, Settings or the window builds it when it shows it, an
+overlay whether it is shown or not and a section whether it holds
+anything or not. Its outline is a line for each node, `#` and its
 key, indented under the node that holds it, and a line for each text
 it shows. A widget is named by text it shows: `click` presses the
 button whose text it is, `write` leaves text in the field whose
@@ -513,7 +518,7 @@ person has one or more, and one is shown at a time.
   which RON writes as it is and TOML only as a table per level.
 - **Restored** at start. A new home starts with one workspace, "Main"
   (`Workspaces::default`): the Realm panel in the middle with most of
-  the room, Needs and the plugin list as tabs on its left, and Chat and
+  the room, Petitions and the plugin list as tabs on its left, and Chat and
   the Inspector over the console on its right. A bundled plugin's
   panel that is not there is left out until it comes, so without
   bundled plugins "Main" is the plugin list and the console. A file that cannot be read is
@@ -584,7 +589,10 @@ person has one or more, and one is shown at a time.
   not kept: the second is turned away, and the log says so.
 - **The entry point** is one function, given an `Entry` to declare what
   the plugin adds: panels, commands, menu entries, shortcuts, settings
-  pages and footers, suggested workspaces, status items and overlays. It never reaches the app or the world.
+  pages and footers, suggested workspaces, status items, overlays and
+  panel sections. It never reaches the app or the world. A panel
+  section (`PanelSection`) names an engine panel (`engine/name`), and
+  one for a plugin's panel is left out.
   A name in it is the plugin's own; a command is named by its name, or
   by its full id for another's.
 - **What it adds** is an entity each, linked to the plugin by
@@ -625,8 +633,8 @@ person has one or more, and one is shown at a time.
   where it comes from (built into the engine, comes with Hamlet, or
   installed) and its state, with its switch at the right; MEMORY (see
   [Limits](#limits)); WHAT IT ADDS, each panel, settings page and
-  footer, command, menu entry, shortcut, status item, overlay and
-  workspace it added, nothing while it is off; then each
+  footer, command, menu entry, shortcut, status item, overlay, section
+  and workspace it added, nothing while it is off; then each
   `PluginPageSection` another crate adds, given the plugin's entity,
   in the order they came; and for an installed one UNINSTALL..., which
   says what goes and asks again, UNINSTALL triggering `Uninstall` and
@@ -714,9 +722,24 @@ all they ask (see [Bundled plugins](#bundled-plugins)).
   asking for one is read: `never_granted` names them by the first word
   of a capability.
 - **Petitions** are questions for the person, each a `Petition` on a
-  child of the plugin's entity, so they go with it. The Petitions panel
-  (`engine/petitions`) says how many wait over a card for each, and is
-  opened in the dock when one comes; the log says so too.
+  child of the plugin's entity, so they go with it. The log says when
+  one comes, and the Petitions panel is opened in the dock.
+- **The Petitions panel** (`engine/petitions`) holds everything that
+  waits on the person. Its heading counts it all, "NOTHING NEEDS YOU",
+  "1 THING NEEDS YOU" or "n THINGS NEED YOU", and under it each part
+  that holds something: first the sections plugins add, those of
+  plugins that come with Hamlet first, then PLUGINS, a card for each
+  petition. With nothing, it says "Nothing waits for you. Petitions,
+  objections, questions and faults come here, oldest first." A
+  section of an installed plugin is headed by its name too ("AGENTS
+  FROM ITS NAME"), so it never passes for the engine's, and only the
+  engine lists and answers the petitions. Its status item, a bell,
+  says how many wait.
+- **Old ids** answer for nothing. The Permissions page leaves out what
+  a plugin that no longer comes with Hamlet was allowed; ids in
+  `switched_off.toml` and `plugin_limits.toml` of no plugin are never
+  looked up; and a workspace's panel that no plugin adds is left out
+  of the dock, and out of the layout the next time it is kept.
 - **Installing.** A plugin that comes with no answers is asked about:
   its name and version, and each ask with its reason and a choice of
   the three answers, Ask next time to start with. Allow lets it in with
@@ -813,11 +836,11 @@ written here by their names in `[budgets]`.
 - **What it adds** comes back from `declare` as `Contribution`s and is
   made into the same `Entry` a built-in plugin fills, so it is added,
   capped and taken away as theirs is: its panels, settings pages,
-  footers and overlays are built node by node as it says, and its
+  footers, overlays and sections are built node by node as it says, and its
   commands put their name in its inbox, to run it on the next frame.
   Its menu entries, shortcuts, suggested workspaces and status items
-  are plain data. What a call sets with `set-status`, `show-overlay`
-  and `open` is made once the call ends (`surfaces.rs`), on what the
+  are plain data. What a call sets with `set-status`, `show-overlay`,
+  `set-section` and `open` is made once the call ends (`surfaces.rs`), on what the
   plugin added under that name.
 - **Switched off**, its store goes, and with it its state.
 - **The engine** is one for all plugins, with an epoch and a pool. A
@@ -1062,12 +1085,12 @@ holds a key: a key typed in Welcome goes to the service with
   of which the one picked is tried. The setup itself, its problems in
   plain words included, runs in the service.
 - **`plugins/status`** (`hamlet.status`, asking `agents.read`) adds
-  seven status items, from the service's `Status`: the sandbox, the
+  six status items, from the service's `Status`: the sandbox, the
   model, the link (red when not connected), what the open session
-  used, the first hamlet's spend, how many things wait for the chief,
-  and whether the open session works. Between the spend and what
-  waits, a growing item shows the address under the pointer in the
-  accent, as the desktop service tells its watchers.
+  used, the first hamlet's spend, and whether the open session works.
+  Between the spend and the work, a growing item shows the address
+  under the pointer in the accent, as the desktop service tells its
+  watchers. How many things wait is the Petitions panel's item.
 
 Settings and Welcome have a `steps.toml`; the harness runs no agents
 service, so they check the pages and the card's steps on their own.
@@ -1224,13 +1247,13 @@ with a chevron at its end, a divider between each and the next.
   `agents.chief`) is the agent's own skills over the library's, each
   with TAKE OUT, and OPEN CHAT, which brings the chat to the front,
   while the library is empty.
-- **`plugins/needs`** (`hamlet.needs`, asking `agents.read` and
-  `agents.chief`) is what the agents wait on the chief for, oldest
-  first, with the reason field, STOP ALL, and the answers each takes;
-  a question's card is the one the chat shows. It comes to the front
-  when more wait. It is apart from the engine's Petitions, which ask
-  what a plugin may do before it does it: those are the grants'
-  questions about plugins, these the agents' about their work.
+- **`plugins/petitions`** (`hamlet.petitions`, asking `agents.read`
+  and `agents.chief`) is the AGENTS section of the engine's Petitions
+  panel: the reason field, STOP ALL, and what the agents wait on the
+  chief for, oldest first, with the answers each takes; a question's
+  card is the one the chat shows. It tells the engine how many wait,
+  so it shows while any do, and brings the panel to the front when
+  more wait. The plugins' petitions under it stay the engine's own.
 
 Each has a `steps.toml` checking what shows before the agents
 answer.

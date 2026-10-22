@@ -5,6 +5,7 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
 use bevy::ecs::system::Commands;
 use bevy::ecs::world::World;
+use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_api::{
     CommandId, IdError, Layout, PanelId, PluginId,
 };
@@ -13,8 +14,8 @@ use hamlet_engine_shell::command::parse_chord;
 use hamlet_engine_shell::dock::PanelIcon;
 use hamlet_engine_shell::icons::Glyph;
 use hamlet_engine_shell::{
-    AnyView, Command, MenuEntry, Overlay, Panel, RunCommand,
-    SettingsFooter, SettingsPage, Shortcut, StatusItem,
+    AnyView, Command, MenuEntry, Overlay, Panel, PanelSection,
+    RunCommand, SettingsFooter, SettingsPage, Shortcut, StatusItem,
     SuggestedWorkspace,
 };
 
@@ -80,6 +81,12 @@ enum Declared {
     },
     Overlay {
         name: String,
+        content: fn(Entity) -> AnyView,
+    },
+    PanelSection {
+        panel: String,
+        name: String,
+        title: String,
         content: fn(Entity) -> AnyView,
     },
 }
@@ -237,6 +244,25 @@ impl Entry {
         self
     }
 
+    /// A section titled `title` of the engine's panel `panel`
+    /// (`engine/name`), shown while its [`PanelSection`] holds
+    /// something.
+    pub fn panel_section(
+        &mut self,
+        panel: &str,
+        name: &str,
+        title: &str,
+        content: fn(Entity) -> AnyView,
+    ) -> &mut Self {
+        self.declared.push(Declared::PanelSection {
+            panel: panel.into(),
+            name: name.into(),
+            title: title.into(),
+            content,
+        });
+        self
+    }
+
     /// Adds what was declared, linked to `plugin`, whose id is
     /// `owner`, within `budgets`. Why each thing not added was not.
     pub(crate) fn spawn(
@@ -358,6 +384,36 @@ impl Entry {
                 Declared::Overlay { name, content } => {
                     PanelId::new(owner, &name).map(|id| {
                         commands.spawn((Overlay { id, content }, link));
+                    })
+                }
+                Declared::PanelSection {
+                    panel,
+                    name,
+                    title,
+                    content,
+                } => {
+                    let Ok(panel) = PanelId::try_from(panel.as_str())
+                    else {
+                        problems.push(format!("{panel:?} is no panel"));
+                        continue;
+                    };
+                    if panel.owner() != ENGINE {
+                        problems.push(format!(
+                            "{name}: a section goes only in an engine panel"
+                        ));
+                        continue;
+                    }
+                    PanelId::new(owner, &name).map(|id| {
+                        commands.spawn((
+                            PanelSection {
+                                id,
+                                panel,
+                                title,
+                                holds: 0,
+                                content,
+                            },
+                            link,
+                        ));
                     })
                 }
             };

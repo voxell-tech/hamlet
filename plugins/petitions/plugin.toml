@@ -1,5 +1,5 @@
-id = "hamlet.needs"
-name = "Needs"
+id = "hamlet.petitions"
+name = "Petitions"
 version = "0.1.0"
 api = "0.1.0"
 

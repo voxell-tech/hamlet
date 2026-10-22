@@ -32,9 +32,10 @@ use crate::{EngineTheme, console};
 /// The name of the first workspace of a new home.
 const FIRST: &str = "Main";
 
-/// Panels of bundled plugins the first workspace holds.
+/// Panels the first workspace holds besides the plugin list and the
+/// console.
 const REALM: &str = "hamlet.realm/realm";
-const NEEDS: &str = "hamlet.needs/needs";
+const PETITIONS: &str = "engine/petitions";
 const CHAT: &str = "hamlet.chat/chat";
 const INSPECTOR: &str = "hamlet.inspector/inspector";
 
@@ -109,7 +110,7 @@ pub struct Workspaces {
 }
 
 impl Default for Workspaces {
-    /// One workspace: the realm in the middle, the needs and the
+    /// One workspace: the realm in the middle, the petitions and the
     /// plugin list on its left, and the chat and the Inspector over
     /// the console on its right. The panel of a plugin that is not on
     /// is left out of the dock until it is.
@@ -125,7 +126,7 @@ impl Default for Workspaces {
             second: Box::new(second),
         };
         let left = tabs(vec![
-            bundled(NEEDS),
+            bundled(PETITIONS),
             PanelId::new(ENGINE_OWNER, PLUGIN_LIST)
                 .expect("a valid id"),
         ]);

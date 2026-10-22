@@ -4,11 +4,16 @@
 //! answered for this version already, and a plugin that asks for
 //! more than it was answered for is asked again. A use of a
 //! capability answered Ask next time asks the person first.
+//!
+//! The panel holds everything that waits on the person: the sections
+//! plugins add to it first, then these questions under PLUGINS, each
+//! part shown while it holds something.
 
 use std::collections::HashMap;
 use std::time::Duration;
 
 use bevy::app::{App, Startup, Update};
+use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
@@ -21,7 +26,7 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::{Real, Time};
-use bevy::ui::px;
+use bevy::ui::{UiRect, px};
 use bevy_fynix::dock::DockTree;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
@@ -32,33 +37,42 @@ use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_api::{Ask, Capability, PanelId, PluginId};
 use hamlet_engine_core::{Budgets, LogLine};
 use hamlet_engine_plugins::{
-    Enable, PluginInfo, PluginKind, SwitchedOff,
+    ContributedBy, Enable, PluginInfo, PluginKind, SwitchedOff,
 };
 use hamlet_engine_shell::dock::PanelIcon;
 use hamlet_engine_shell::icons::Glyph;
 use hamlet_engine_shell::style::{
-    ButtonStyle, buttons, caption, card, choices, icon_button, note,
-    scroll_area, section,
+    ButtonStyle, buttons, caption, card, choices, heading,
+    icon_button, note, scroll_area, section,
 };
 use hamlet_engine_shell::{
-    AnyView, Cx, DockTreeExt, Panel, SettingsPage, ShellWorldExt,
-    StyleExt,
+    AnyView, Cx, DockTreeExt, Panel, PanelSection, SettingsPage,
+    ShellWorldExt, StatusItem, StyleExt, section_content,
 };
 
 use crate::Admitted;
 use crate::file::{Answer, Grants, Record};
 use crate::page::{PERMISSIONS, Permissions};
 
-/// The name of the Petitions panel.
+/// The name of the Petitions panel, and of its status item.
 pub const PETITIONS: &str = "petitions";
+
+/// What the Petitions panel says when nothing waits.
+const EMPTY: &str = "Nothing waits for you. Petitions, objections, \
+                     questions and faults come here, oldest first.";
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_message::<FirstUse>()
         .add_message::<Decided>()
         .init_resource::<Rows>()
+        .init_resource::<Parts>()
+        .init_resource::<Waiting>()
         .add_observer(ask_again)
         .add_systems(Startup, open)
-        .add_systems(Update, (admit, first_use, follow).chain());
+        .add_systems(
+            Update,
+            (admit, first_use, follow, gather).chain(),
+        );
 }
 
 /// A question for the person, on a child of the plugin it is about.
@@ -111,10 +125,28 @@ struct Row {
     question: Question,
 }
 
+/// The sections plugins added to the Petitions panel that hold
+/// something, in the order it shows them.
+#[derive(Resource, Clone, PartialEq, Default)]
+struct Parts(Vec<Part>);
+
+#[derive(Clone, PartialEq)]
+struct Part {
+    section: Entity,
+    head: String,
+}
+
+/// How many things wait on the person, in the sections and the
+/// petitions together.
+#[derive(Resource, Clone, Copy, PartialEq, Default)]
+struct Waiting(u32);
+
 fn open(mut commands: Commands) {
+    let id = PanelId::new(ENGINE, PETITIONS).expect("a valid id");
+    commands.spawn(StatusItem::new(id.clone(), false));
     commands.spawn((
         Panel {
-            id: PanelId::new(ENGINE, PETITIONS).expect("a valid id"),
+            id,
             title: "Petitions".into(),
             content: view,
         },
@@ -432,35 +464,162 @@ fn follow(
     }
 }
 
-/// How many petitions wait, over a card for each.
+/// Gathers the sections of the Petitions panel that hold something,
+/// those of plugins that come with Hamlet first, and counts what
+/// waits, for the panel and its status item. An installed plugin's
+/// section is headed by its name too, so it never passes for the
+/// engine's.
+fn gather(
+    changed: Query<(), Changed<PanelSection>>,
+    mut gone: RemovedComponents<PanelSection>,
+    sections: Query<(Entity, &PanelSection, &ContributedBy)>,
+    plugins: Query<&PluginInfo>,
+    rows: Res<Rows>,
+    mut parts: ResMut<Parts>,
+    mut waiting: ResMut<Waiting>,
+    mut items: Query<&mut StatusItem>,
+) {
+    if changed.is_empty()
+        && gone.read().count() == 0
+        && !rows.is_changed()
+    {
+        return;
+    }
+    let Ok(here) = PanelId::new(ENGINE, PETITIONS) else {
+        return;
+    };
+    let mut held = sections
+        .iter()
+        .filter(|(_, section, _)| {
+            section.panel == here && section.holds > 0
+        })
+        .filter_map(|(entity, section, by)| {
+            let info = plugins.get(by.0).ok()?;
+            let installed = info.kind == PluginKind::Installed;
+            let head = if installed {
+                format!("{} FROM {}", section.title, info.name)
+            } else {
+                section.title.clone()
+            };
+            Some((
+                (installed, info.id.clone(), entity),
+                section.holds,
+                head,
+            ))
+        })
+        .collect::<Vec<_>>();
+    held.sort_by(|(a, ..), (b, ..)| a.cmp(b));
+    let count = held
+        .iter()
+        .map(|(_, holds, _)| *holds)
+        .fold(0, u32::saturating_add)
+        .saturating_add(
+            u32::try_from(rows.0.len()).unwrap_or(u32::MAX),
+        );
+    let now = Parts(
+        held.into_iter()
+            .map(|((.., section), _, head)| Part {
+                section,
+                head: head.to_uppercase(),
+            })
+            .collect(),
+    );
+    if *parts != now {
+        *parts = now;
+    }
+    if waiting.0 == count {
+        return;
+    }
+    waiting.0 = count;
+    if let Some(mut item) =
+        items.iter_mut().find(|item| item.id == here)
+    {
+        item.icon = Some(Glyph::Bell);
+        item.tone = Tone::Accent;
+        item.tip = "Petitions".into();
+        item.text = match count {
+            0 => String::new(),
+            n => format!("{n} waiting for you"),
+        };
+    }
+}
+
+/// How many things wait, over each part that holds something: the
+/// sections plugins add, then the petitions under PLUGINS.
 fn view(_: Entity) -> AnyView {
     let count =
-        section(resource::<Rows, _>(|rows| match rows.0.len() {
-            0 => "NO PETITIONS".to_owned(),
-            1 => "1 PETITION".to_owned(),
-            n => format!("{n} PETITIONS"),
+        heading(resource::<Waiting, _>(|waiting| match waiting.0 {
+            0 => "NOTHING NEEDS YOU".to_owned(),
+            1 => "1 THING NEEDS YOU".to_owned(),
+            n => format!("{n} THINGS NEED YOU"),
         }));
-    let cards = keyed(resource::<Rows, _>(Clone::clone), |rows| {
-        if rows.0.is_empty() {
-            return note("What a plugin asks of you waits here.");
-        }
-        let cards = rows.0.iter().map(row_view).collect::<Vec<_>>();
-        AnyView::new(move |cx: &mut Cx| {
-            let gap = cx.theme().space.gap;
-            cx.build(column(cards).gap(gap))
-        })
-    })
+    let empty = keyed(
+        resource::<Waiting, _>(|waiting| waiting.0 == 0),
+        |&none| {
+            if none {
+                note(EMPTY)
+            } else {
+                column(()).boxed()
+            }
+        },
+    )
     .within(column(()).gap(0.0));
+    let sections =
+        keyed(resource::<Parts, _>(Clone::clone), |parts| {
+            let shown = parts
+                .0
+                .iter()
+                .map(|at| {
+                    part(at.head.clone(), section_content(at.section))
+                })
+                .collect::<Vec<_>>();
+            column(shown).gap(0.0).boxed()
+        })
+        .within(column(()).gap(0.0));
+    let petitions =
+        keyed(resource::<Rows, _>(Clone::clone), |rows| {
+            if rows.0.is_empty() {
+                return column(()).boxed();
+            }
+            let cards =
+                rows.0.iter().map(row_view).collect::<Vec<_>>();
+            part(
+                "PLUGINS".to_owned(),
+                AnyView::new(move |cx: &mut Cx| {
+                    let gap = cx.theme().space.gap;
+                    cx.build(column(cards).gap(gap))
+                }),
+            )
+        })
+        .within(column(()).gap(0.0));
     AnyView::new(move |cx: &mut Cx| {
         let gap = cx.theme().space.section;
         cx.build(
-            column((count, scroll_area((cards,))))
-                .gap(gap)
-                .grow(1.0)
-                .min_height(px(0.0)),
+            column((
+                count,
+                scroll_area((
+                    column((empty, sections, petitions)).gap(0.0),
+                )),
+            ))
+            .gap(gap)
+            .grow(1.0)
+            .min_height(px(0.0)),
         )
     })
     .in_panel()
+}
+
+/// A part of the Petitions panel: `content` under its `head`.
+fn part(head: String, content: AnyView) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let space = &cx.theme().space;
+        let (gap, below) = (space.gap, space.section);
+        cx.build(
+            column((section(head), content))
+                .gap(gap)
+                .padding(UiRect::bottom(px(below))),
+        )
+    })
 }
 
 /// A petition's card: what it is, about which plugin, what it asks

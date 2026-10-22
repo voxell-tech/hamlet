@@ -236,7 +236,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "needs"
+name = "petitions"
 version = "0.1.0"
 dependencies = [
  "agents_ui",

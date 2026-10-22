@@ -48,4 +48,13 @@ pub enum Contribution {
     /// shown while the plugin says so. Its view is built as a
     /// panel's is.
     Overlay { name: String },
+    /// A section of the engine's panel `panel` (`engine/name`), one
+    /// that takes sections, headed `title`, and an installed plugin's
+    /// under its name too. It is shown while the plugin says it holds
+    /// something, and its view is built as a panel's is.
+    PanelSection {
+        panel: String,
+        name: String,
+        title: String,
+    },
 }

@@ -1,6 +1,6 @@
-//! The Needs panel: everything the agents wait on the chief for,
-//! oldest first and in full, with the answers each takes. It is apart
-//! from the engine's Petitions, which ask about what a plugin may do.
+//! The agents' section of the engine's Petitions panel: everything
+//! the agents wait on the chief for, oldest first and in full, with
+//! the answers each takes, and STOP ALL.
 
 use agents_ui::{
     AgentsWorldExt, Heard, Waits, card, change_view, start,
@@ -11,18 +11,18 @@ use hamlet_engine_sdk::api::agents::{
 use hamlet_engine_sdk::ui::{
     AnyView, ButtonProps, ButtonStyle, Face, Fill, FrameProps, Size,
     Space, Tone, UiExt, ViewExt, World, column, each, field,
-    icon_button, label, resource, row, scroll,
+    icon_button, label, resource, row, set_section,
 };
 use hamlet_engine_sdk::{Entry, Message, Plugin, decode, encode};
 
-/// The name of the panel.
-const NEEDS: &str = "needs";
+/// The engine's Petitions panel.
+const PETITIONS: &str = "engine/petitions";
 
-const EMPTY: &str = "Nothing waits for you. Petitions, objections, \
-                     questions and faults come here, oldest first.";
+/// The name of the section.
+const AGENTS: &str = "agents";
 
 #[derive(Default)]
-struct Needs;
+struct Petitions;
 
 /// The reason or reply the next answer carries.
 #[derive(Default)]
@@ -139,26 +139,16 @@ fn strip(need: &Need) -> AnyView {
     column(parts).space(Space::Half).fill(Fill::Card).boxed()
 }
 
-impl Plugin for Needs {
+impl Plugin for Petitions {
     fn declare(&self, entry: &mut Entry) {
-        entry.panel(NEEDS, "Needs");
+        entry.panel_section(PETITIONS, AGENTS, "Agents");
         start(&[AgentsRequest::Needs]);
     }
 
+    // The panel scrolls, and says how many wait.
     fn mount(&mut self, _: &str, world: &mut World) -> AnyView {
         prepare(world);
         column((
-            label(resource::<Waits, _>(|waits| {
-                match waits.0.len() {
-                    0 => "NOTHING NEEDS YOU".to_string(),
-                    1 => "1 THING NEEDS YOU".to_string(),
-                    n => format!("{n} THINGS NEED YOU"),
-                }
-            }))
-            .size(Size::Small)
-            .bold(true)
-            .face(Face::Display)
-            .tone(Tone::Faint),
             field(resource::<Reason, _>(|reason| reason.0.clone()))
                 .placeholder("Reason or reply")
                 .on_commit(|world, text| {
@@ -177,20 +167,12 @@ impl Plugin for Needs {
                     }),
             ))
             .space(Space::Gap),
-            label(resource::<Waits, _>(|waits| {
-                if waits.0.is_empty() {
-                    EMPTY.to_string()
-                } else {
-                    String::new()
-                }
-            }))
-            .tone(Tone::Dim),
-            scroll((each(
+            each(
                 resource::<Waits, _>(|waits| waits.0.clone()),
                 |need: &Need| need.clone(),
                 strip,
             )
-            .within(column(()).space(Space::Gap)),)),
+            .within(column(()).space(Space::Gap)),
         ))
         .space(Space::Gap)
         .boxed()
@@ -224,8 +206,12 @@ impl Plugin for Needs {
             // Something new that waits brings the panel to the front,
             // so it is not missed.
             let now = world.resource::<Waits>().0.len();
+            set_section(
+                AGENTS,
+                u32::try_from(now).unwrap_or(u32::MAX),
+            );
             if now > world.resource::<Seen>().0 {
-                hamlet_engine_sdk::ui::open(NEEDS);
+                hamlet_engine_sdk::ui::open(PETITIONS);
             }
             world.resource_mut::<Seen>().0 = now;
         }
@@ -235,4 +221,4 @@ impl Plugin for Needs {
     }
 }
 
-hamlet_engine_sdk::export!(Needs);
+hamlet_engine_sdk::export!(Petitions);

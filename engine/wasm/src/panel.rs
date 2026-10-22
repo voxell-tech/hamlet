@@ -26,8 +26,8 @@ use hamlet_engine_plugins::{
 };
 use hamlet_engine_shell::style::{caption, note};
 use hamlet_engine_shell::{
-    AnyView, Cx, EngineTheme, Overlay, Panel, SettingsFooter,
-    SettingsPage,
+    AnyView, Cx, EngineTheme, Overlay, Panel, PanelSection,
+    SettingsFooter, SettingsPage,
 };
 
 use crate::WasmCommandsExt;
@@ -45,14 +45,15 @@ pub(crate) fn plugin(app: &mut App) {
         .add_observer(adopt_page)
         .add_observer(adopt_footer)
         .add_observer(adopt_overlay)
+        .add_observer(adopt_section)
         .add_systems(
             Update,
             (deliver, tally, serve, show_stopped).chain(),
         );
 }
 
-/// On a WASM plugin's panel, settings page or overlay: its name
-/// within the plugin, and why the plugin was stopped, if it was.
+/// On a WASM plugin's panel, settings page, overlay or section: its
+/// name within the plugin, and why the plugin was stopped, if it was.
 #[derive(Component, Clone, PartialEq, Debug)]
 pub struct Surface {
     pub name: String,
@@ -151,6 +152,20 @@ fn adopt_overlay(
         && packages.contains(by.0)
     {
         commands.adopt_surface(added.entity, &overlay.id);
+    }
+}
+
+/// Marks a WASM plugin's new panel section as its.
+fn adopt_section(
+    added: On<Add, PanelSection>,
+    sections: Query<(&PanelSection, &ContributedBy)>,
+    packages: Query<(), With<Package>>,
+    mut commands: Commands,
+) {
+    if let Ok((section, by)) = sections.get(added.entity)
+        && packages.contains(by.0)
+    {
+        commands.adopt_surface(added.entity, &section.id);
     }
 }
 

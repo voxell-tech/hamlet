@@ -124,6 +124,11 @@ impl PanelId {
         Self::try_from(format!("{owner}/{name}"))
     }
 
+    /// The plugin's id or [`ENGINE`].
+    pub fn owner(&self) -> &str {
+        self.0.split_once('/').map_or("", |(owner, _)| owner)
+    }
+
     /// Its name within its owner.
     pub fn name(&self) -> &str {
         self.0.split_once('/').map_or("", |(_, name)| name)

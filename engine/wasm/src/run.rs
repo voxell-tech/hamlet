@@ -152,6 +152,14 @@ pub(crate) fn entry(contributions: Vec<Contribution>) -> Entry {
             Contribution::Overlay { name } => {
                 entry.overlay(&name, retained::page);
             }
+            Contribution::PanelSection { panel, name, title } => {
+                entry.panel_section(
+                    &panel,
+                    &name,
+                    &title,
+                    retained::page,
+                );
+            }
         }
     }
     entry

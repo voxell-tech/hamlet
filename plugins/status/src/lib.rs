@@ -1,8 +1,9 @@
 //! The status line's facts about the agents, left to right: the
 //! sandbox, the model, the link, what the open session used, the
 //! first hamlet's spend, the address under the pointer in the room
-//! left, how many things wait for the chief, and whether the open
-//! session works. A fact with nothing to say is hidden.
+//! left, and whether the open session works. A fact with nothing to
+//! say is hidden. How many things wait for the chief is the engine's
+//! Petitions item.
 
 use hamlet_engine_sdk::api::agents::{
     AgentsEvent, AgentsReply, AgentsRequest, Link, Status,
@@ -14,12 +15,10 @@ use hamlet_engine_sdk::{
 };
 
 /// The agents' status items, in the order the line shows them.
-const ITEMS: [&str; 7] = [
-    "sandbox", "model", "link", "usage", "treasury", "waiting",
-    "work",
-];
+const ITEMS: [&str; 6] =
+    ["sandbox", "model", "link", "usage", "treasury", "work"];
 
-/// The item of the address under the pointer, before `waiting`.
+/// The item of the address under the pointer, before `work`.
 const POINTED: &str = "pointed";
 
 #[derive(Default)]
@@ -28,7 +27,7 @@ struct StatusLine;
 impl Plugin for StatusLine {
     fn declare(&self, entry: &mut Entry) {
         for name in ITEMS {
-            if name == "waiting" {
+            if name == "work" {
                 entry.growing_status_item(POINTED);
             }
             entry.status_item(name);
@@ -104,10 +103,6 @@ impl StatusExt for Status {
                 ("Not connected".into(), Tone::Critical, why.as_str())
             }
         };
-        let waiting = match self.waiting {
-            0 => String::new(),
-            n => format!("{n} waiting for you"),
-        };
         let work = if self.working {
             fact("bolt", "Working", Tone::Accent, "")
         } else {
@@ -134,7 +129,6 @@ impl StatusExt for Status {
                 Tone::Dim,
                 "Spent of the hamlet's budget",
             ),
-            fact("bell", &waiting, Tone::Accent, ""),
             work,
         ];
         for (name, fact) in ITEMS.into_iter().zip(&facts) {

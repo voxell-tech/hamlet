@@ -1,13 +1,13 @@
 [package]
-name = "needs"
+name = "petitions"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The Needs panel: what the agents wait on the chief for, with the answers each takes"
+description = "The agents' section of the Petitions panel: what they wait on the chief for, with the answers each takes"
 publish = false
 
 [lib]
-# The build is `target/wasm32-wasip2/release/needs.wasm`.
+# The build is `target/wasm32-wasip2/release/petitions.wasm`.
 crate-type = ["cdylib"]
 
 [dependencies]

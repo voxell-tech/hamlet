@@ -286,6 +286,17 @@ impl Host for State {
         Ok(())
     }
 
+    fn set_section(
+        &mut self,
+        name: String,
+        holds: u32,
+    ) -> wasmtime::Result<()> {
+        self.nodes.spend(self.caps.node_changes)?;
+        self.keep_bytes(name.len())?;
+        self.surfaces.push(SurfaceChange::Section { name, holds });
+        Ok(())
+    }
+
     fn open(&mut self, name: String) -> wasmtime::Result<()> {
         self.nodes.spend(self.caps.node_changes)?;
         self.keep_bytes(name.len())?;
