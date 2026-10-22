@@ -1607,16 +1607,19 @@ Each has a `steps.toml` checking what shows before the agents
 answer; those of the Inspector and Skills bring the chat `with` them.
 
 `plugins/bazaar` (`hamlet.bazaar`, asking `net.fetch` on
-`openrouter.ai` and `skills.sh`, `agents.read`, `agents.settings`,
-`agents.chief`, `desktop.open https`, `services.call` on
-`hamlet.realm/diorama` and `render.scene`) is the panel Agent Bazaar
-(`hamlet.bazaar/bazaar`, with the coins icon), with Open the Agent
-Bazaar, Browse the Models and Browse the Hamlets in the Hamlet menu,
-and Browse the Agents, the Plugins and the Skills as commands too
-(`agents`, `plugins`, `skills`). A tab for each of
-its five stalls is over the stall shown, on two lines so a narrow
-panel cuts none: MODELS, SKILLS and PLUGINS, what the agents use,
-then AGENTS and HAMLETS. The stall shown is kept across a reload.
+`openrouter.ai`, `skills.sh` and `$HAMLET_BAZAAR_URL`, `agents.read`,
+`agents.settings`, `agents.chief`, `desktop.open https`,
+`services.call` on `hamlet.realm/diorama` and `render.scene`, making
+the asset type `bazaar.session`, and reading `HAMLET_BAZAAR_URL`,
+`http://localhost:8787` unless the environment says) is the panel
+Agent Bazaar (`hamlet.bazaar/bazaar`, with the coins icon), with Open
+the Agent Bazaar, Browse the Models, Browse the Hamlets and Sell at
+the Agent Bazaar in the Hamlet menu, and Browse the Agents, the
+Plugins and the Skills as commands too (`agents`, `plugins`,
+`skills`). A tab for each of its five stalls is over the stall
+shown, on two lines so a narrow panel cuts none: MODELS, SKILLS and
+PLUGINS, what the agents use, then AGENTS and HAMLETS. The stall
+shown is kept across a reload.
 
 - **One shelf** (`shelf.rs`, drawn by `view/shelf.rs`) for every
   stall, over a `Listing` with a typed id, filter and order, laid out
@@ -1671,19 +1674,28 @@ then AGENTS and HAMLETS. The stall shown is kept across a reload.
   `TakeSkill`. A file whose path would leave the skill's folder fails
   it whole; one too large, or not text, is left out and named. One
   the library has is marked In your library.
-- **Agents and Plugins** (`samples/agents.rs`, `samples/plugins.rs`)
-  are made-up listings, narrowed by kind with a dropdown, with a
-  page each of what it does, its price, who is paid and what owners
-  say. Hiring and installing come with the marketplace, as the page
-  says; nothing is had or paid.
-- **Hamlets** (`hamlets.rs`, `samples/hamlets.rs`) are made-up
-  templates, each a mayor and agents with their characters, notes and
-  a skill. FOUND THIS HAMLET sends `FoundFrom`, unless the realm
-  already holds the most hamlets its limits allow, which the stall
-  says; a price is paid with the marketplace, so for now it is
-  founded for nothing. One founded is selected and the realm brought
-  to the front, and one the roster has is marked This hamlet is
-  yours, with GO TO THE HAMLET.
+- **Agents, Plugins and Hamlets** sell what chiefs made, from the
+  bazaar's server, hamlet-server (`hamlet-server/`, its routes in
+  `hamlet-server/docs/api.md`): agents, an agent's tools (the
+  server's `plugin` kind) and whole hamlets (`listings.rs`, drawn by
+  `view/wares.rs`). Over each, who is signed in, with SIGN IN WITH
+  GITHUB, or SELL, YOURS and SIGN OUT (`view/trade.rs`). The server's
+  listings, of every kind, are asked for the first time one of these
+  stalls is shown, 100 at a time; a listing's page asks for its
+  reviews and whether it is owned.
+- **Samples.** Until the server's listings come, and where it cannot
+  be reached, these stalls show made-up listings (`samples/`) under
+  SAMPLES, which says why, with ASK THE BAZAAR AGAIN. Agents and
+  plugins are narrowed by kind with a dropdown, with a page each of
+  what it does, its price, who would be paid and what owners say;
+  nothing there is had or paid. A sample hamlet is a template, a
+  mayor and agents with their characters, notes and a skill, and
+  FOUND THIS HAMLET still founds it from its template with
+  `FoundFrom` (`hamlets.rs`), for nothing, unless the realm already
+  holds the most hamlets its limits allow, which the stall says. One
+  founded is selected and the realm brought to the front, and one the
+  roster has is marked This hamlet is yours, with GO TO THE
+  HAMLET.
 - **A template's town** (`diorama.rs`, `view/diorama.rs`) is under
   the head of its page, turning on its plinth: the realm's `diorama` is asked for it
   a part at a time as the page is shown, and it is built in a scene of
@@ -1694,18 +1706,68 @@ then AGENTS and HAMLETS. The stall shown is kept across a reload.
   out the town..." is shown until the last part has come, and one
   line saying the realm is not running when it is not. All of it is
   let go when the page closes. The rows of the shelf have none.
+- **The market** (`market.rs`, `market/`) calls the server with
+  `fetch`, which sets no headers and sends GET and POST alone: the
+  session token is the `token` of the query, and a POST names the PUT,
+  PATCH or DELETE it stands for (`?_method=`). Its fetches wait in one
+  line, two under way at most, so the other stalls keep theirs; one
+  the engine holds back for its budget is sent again five seconds
+  later. Each is remembered by its ticket as the stalls' are.
+- **Signing in** (`market/account.rs`): the server begins GitHub's
+  device flow, the bazaar opens GitHub's page and shows the code to
+  enter, and asks the server each interval GitHub gives (five seconds
+  more when told to slow down) until it is approved, refused or runs
+  out. The token is kept in the plugin's asset store, an asset of
+  `bazaar.session` holding the server's address and the token, read
+  as the plugin starts and used only with that server: a plugin has
+  no keychain, and a saved resource lasts only across a reload. Once
+  signed in, it asks who the chief is (`/v1/me`), what they own and
+  what they sell. A token the server refuses signs out.
+- **Buying** (`market/deal.rs`), one deal at a time, each step sent
+  once the one before is answered: GET or BUY asks the server for the
+  purchase; a free one, or one owned already, is downloaded at once;
+  a paid one opens Stripe's page in the browser and asks after the
+  purchase every five seconds for half an hour. The package is
+  streamed a part (`PACKAGE_PART`, 384 KB) at a time: each part is
+  downloaded (`offset` and `limit`), within what one fetch may bring,
+  and handed to the agents service with `Settle` before the next is
+  asked for, so the plugin holds one part at most. The service
+  answers `Done` for each part but the last, and settles the whole
+  with the last: it founds a hamlet in the realm, moves an agent into
+  the hamlet chosen, or puts tools in the house of the agent chosen;
+  GOES chooses where. The agents service's `Bought` says what was
+  written, at which version: such a listing is marked INSTALLED, and
+  UPDATE settles its newest version where the last went. A package is
+  at most the server's 10 MB.
+- **Selling** (`market/sell.rs`, the desk in `view/desk.rs`): SELL
+  opens the form in place of the stall, for an agent or a hamlet of
+  the roster, with its notes or not, or tools of the agents' houses
+  (`Tools`), with a title, summary, description, category (a hamlet's
+  kind in its seller's words), tags, price and version. The agents
+  service packs it (`Pack`) and holds it; the listing is put up (or
+  changed); the package is streamed to the server a part at a time,
+  each read from the service (`PackedPart`) and uploaded before the
+  next is read, and the parts made a version; and PUT
+  UP FOR SALE puts it on the shelves, SAVE AS DRAFT does not. A price
+  needs payouts: SET UP PAYOUTS opens Stripe's page and CHECK AGAIN
+  asks the server how it stands. YOURS lists what the chief sells,
+  with EDIT, LIST and UNLIST, and what they bought, with the box it is
+  installed from. A cover is kept in the listing as the server says
+  it, and shown, and chosen, once a plugin's views can show a picture.
 - **Events.** It hears the realm's `stall` (payload type
   `bazaar.stall`, the stall's name: `models`, `community`, `plugins`,
   `skills` or `hamlets`), shows that stall and brings its panel to
   the front, and sends `traded` with the stall's name after a model
-  is added, a skill taken or a hamlet founded.
+  is added, a skill taken, a hamlet founded or a purchase settled.
 
 Its `steps.toml` answers OpenRouter with one model, opens it, and
 shows each stall offline: skills.sh asking, the samples on theirs,
-and a hamlet's page saying the realm is not running.
-The parsing of OpenRouter's and skills.sh's answers, the shelf and
-the paths of a skill's files have tests of their own (`cargo test -p
-bazaar` in `plugins/`).
+said to be samples, with the sign-in, and a hamlet's page saying the
+realm is not running; then the seller's desk, which says what its
+form lacks. The parsing of OpenRouter's, skills.sh's and the bazaar's
+server's answers, the shelf, the paths of a skill's files, a deal's
+steps part by part, the desk's form and a package's parts have tests
+of their own (`cargo test -p bazaar` in `plugins/`).
 
 ## Assets
 
