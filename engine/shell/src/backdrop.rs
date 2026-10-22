@@ -56,9 +56,13 @@ fn show(
             commands.entity(root.0).remove::<Pickable>();
         }
     }
+    // Behind a scene, the interface's own image is cleared to nothing
+    // rather than kept, or what it draws faintly, such as glows,
+    // would pile up frame on frame; Bevy then blends it over the
+    // scene's.
     for mut camera in &mut cameras {
         camera.clear_color = if behind {
-            ClearColorConfig::None
+            ClearColorConfig::Custom(Color::NONE)
         } else {
             ClearColorConfig::Default
         };

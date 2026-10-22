@@ -915,7 +915,7 @@ impl SceneWorldExt for World {
             // Drawn once a viewport shows it.
             (target, Some(image), 0, false)
         };
-        self.spawn((
+        let mut camera = self.spawn((
             Camera3d::default(),
             Camera {
                 order,
@@ -931,8 +931,11 @@ impl SceneWorldExt for World {
             },
             Transform::default(),
             ChildOf(at),
-        ))
-        .id()
+        ));
+        if background {
+            camera.insert(Hdr);
+        }
+        camera.id()
     }
 
     fn set_up(&mut self, camera: Entity, setup: CameraSetup) {
@@ -946,6 +949,12 @@ impl SceneWorldExt for World {
         if let Some(mut drawn) = camera.get_mut::<Camera>() {
             drawn.clear_color = setup.clear;
         }
+        // A camera behind the dock always draws in HDR, so its image
+        // is never the interface's, which is cleared to nothing each
+        // frame and blended over it.
+        let background = camera
+            .get::<SceneCamera>()
+            .is_some_and(|camera| camera.image.is_none());
         camera.insert((
             setup.projection,
             setup.tonemapping,
@@ -953,7 +962,7 @@ impl SceneWorldExt for World {
             setup.ambient,
             msaa,
         ));
-        if setup.hdr {
+        if setup.hdr || background {
             camera.insert(Hdr);
         } else {
             camera.remove::<Hdr>();
