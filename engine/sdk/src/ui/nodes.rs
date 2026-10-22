@@ -46,7 +46,7 @@ struct Entry {
     children: Vec<Key>,
     /// `None` for a node built outside a panel.
     node: Option<Node>,
-    /// The properties sent, one bit each by [`bit`].
+    /// The properties sent, one bit each by [`Property::bit`].
     sent: u8,
     watch: States,
     states: States,

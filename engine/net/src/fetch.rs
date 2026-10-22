@@ -53,7 +53,8 @@ pub(crate) fn plugin(app: &mut App) {
 }
 
 /// Put in before the plugin, fetches are not sent: each waits for a
-/// reply given with [`answer`], as a test gives one.
+/// reply given with [`NetWorldExt::answer_fetch`], as a test gives
+/// one.
 #[derive(Resource, Default, Debug)]
 pub struct Offline;
 
