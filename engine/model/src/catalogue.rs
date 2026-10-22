@@ -281,25 +281,7 @@ impl Catalogue {
                 });
             }
             let model = self.get_mut(&name).expect("it is there now");
-            if found.context.is_some() {
-                model.context = found.context;
-            }
-            if model.priced == Priced::Yours {
-                continue;
-            }
-            match found.price {
-                Some(price) => {
-                    model.input = price.input;
-                    model.output = price.output;
-                    model.priced = Priced::Listed;
-                }
-                None if local && model.priced == Priced::Unknown => {
-                    model.input = LOCAL_PRICE;
-                    model.output = LOCAL_PRICE;
-                    model.priced = Priced::Assigned;
-                }
-                None => {}
-            }
+            model.refresh(found, local);
         }
         self.models.retain(|model| {
             model.endpoint != endpoint
@@ -308,6 +290,59 @@ impl Catalogue {
         self.models.sort_by(|a, b| {
             (&a.endpoint, &a.id).cmp(&(&b.endpoint, &b.id))
         });
+    }
+
+    /// Adds the model `found` of `endpoint`, allowed, or allows it
+    /// again, with the price and size it is listed with. One with no
+    /// price that runs on this machine (`local`) is given
+    /// `LOCAL_PRICE`.
+    pub fn add(
+        &mut self,
+        endpoint: &str,
+        found: &Listed,
+        local: bool,
+    ) -> &mut Model {
+        let name = named(endpoint, &found.id);
+        if self.get(&name).is_none() {
+            self.models.push(Model {
+                endpoint: endpoint.to_string(),
+                id: found.id.clone(),
+                ..Model::default()
+            });
+            self.models.sort_by(|a, b| {
+                (&a.endpoint, &a.id).cmp(&(&b.endpoint, &b.id))
+            });
+        }
+        let model = self.get_mut(&name).expect("it is there now");
+        model.allowed = true;
+        model.refresh(found, local);
+        model
+    }
+}
+
+impl Model {
+    /// Takes the price and size `found` is listed with. A price the
+    /// chief wrote stays.
+    fn refresh(&mut self, found: &Listed, local: bool) {
+        if found.context.is_some() {
+            self.context = found.context;
+        }
+        if self.priced == Priced::Yours {
+            return;
+        }
+        match found.price {
+            Some(price) => {
+                self.input = price.input;
+                self.output = price.output;
+                self.priced = Priced::Listed;
+            }
+            None if local && self.priced == Priced::Unknown => {
+                self.input = LOCAL_PRICE;
+                self.output = LOCAL_PRICE;
+                self.priced = Priced::Assigned;
+            }
+            None => {}
+        }
     }
 }
 
@@ -391,6 +426,13 @@ mod tests {
         let small = all.get("near::small").unwrap();
         assert_eq!(small.priced, Priced::Assigned);
         assert_eq!(small.input, LOCAL_PRICE);
+        // One added is allowed at once, and a price the chief wrote
+        // stays.
+        let small = all.add("far", &listed(None)[1], false);
+        assert!(small.allowed);
+        assert_eq!(small.name(), "far::small");
+        let large = all.add("far", &listed(Some(cheap))[0], false);
+        assert_eq!(large.input, 9.0);
         // It comes back from its file as it was.
         let text = toml::to_string_pretty(&all).unwrap();
         assert_eq!(toml::from_str::<Catalogue>(&text).unwrap(), all);

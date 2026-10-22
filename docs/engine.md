@@ -1654,6 +1654,20 @@ says why and every request fails saying so.
 - **Models.** `TestConnection`, `ListModels`, `Catalogue`,
   `AllowModel`, `PriceModel` (only a model with no price, or the
   person's own) and `TryModel`.
+- **What the Agent Bazaar asks** (`market.rs`): `AddModel` puts a
+  model an endpoint of the settings lists into the catalogue,
+  allowed, with its price, size and note, and answers with the name
+  it goes by; a price the person wrote stays. `TakeSkill` writes a
+  skill's files into the library, as the chief's, refused when the
+  library has one of that name, its name is not 1 to 64 lowercase
+  letters, digits and hyphens, a path leaves its folder or there is
+  no `SKILL.md` with a name and a description; the files are
+  written aside and moved on whole, and the library is read again.
+  `FoundFrom` founds a hamlet from a template for the chief, its
+  title, its mayor and its agents with their characters, notes and
+  skills, each checked before anything is written, and brings them
+  up in the world. Each is told to watchers as the change it makes:
+  `Catalogue`, `Skills` or `Roster`.
 - **Setting up a place for models**, as Welcome does: `Providers`,
   `BeginSetup` (adding or not), `Connect` with a provider or an address
   and a key, `SignIn` to OpenRouter or ChatGPT, `FindLocal`,
@@ -1736,7 +1750,8 @@ says why and every request fails saying so.
   giving or forgetting a key, connecting and signing in, and
   `agents.chief` for sending, vetoing, revoking, rewinding, decrees,
   the model an agent runs (`RunModel`), the character, deleting a past
-  session and answering what waits. A use answered Ask next time asks
+  session, answering what waits, taking a skill and founding a hamlet
+  from a template. A use answered Ask next time asks
   the
   person first, as the other services do.
 - **Secrets stay in the service.** No reply holds a key, a ChatGPT

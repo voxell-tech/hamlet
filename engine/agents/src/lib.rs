@@ -9,6 +9,7 @@ mod answer;
 mod archive;
 mod conversation;
 mod focus;
+mod market;
 mod model_choice;
 mod needs;
 mod roster;

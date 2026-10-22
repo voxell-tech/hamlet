@@ -5,6 +5,7 @@
 //! comes out: no reply holds one.
 
 mod conversation;
+mod market;
 mod needs;
 mod roster;
 
@@ -13,6 +14,9 @@ use serde::{Deserialize, Serialize};
 pub use crate::agents::conversation::{
     Change, ChangeLine, Focus, Gift, Mark, Papers, Part, Past, Pasts,
     Related, Selected, Skill,
+};
+pub use crate::agents::market::{
+    ListedModel, Settler, SettlerSkill, SkillFile, Template,
 };
 pub use crate::agents::needs::{
     Choice, Danger, Need, NeedKind, Offer, Pick, Question, Questions,
@@ -242,6 +246,23 @@ pub enum AgentsRequest {
         agent: String,
         model: String,
     },
+
+    /// Adds `model`, listed by `endpoint`, to the catalogue, allowed:
+    /// [`AgentsReply::Added`] with the name it goes by,
+    /// `endpoint::id`.
+    AddModel {
+        endpoint: String,
+        model: ListedModel,
+    },
+    /// Takes the skill `name`, its files, into the library, refused
+    /// when the library has one of that name.
+    TakeSkill {
+        name: String,
+        files: Vec<SkillFile>,
+    },
+    /// Founds a hamlet from `Template` and moves in its mayor and
+    /// agents. Everything is checked before anything is written.
+    FoundFrom(Template),
 }
 
 impl AgentsRequest {
@@ -269,7 +290,8 @@ impl AgentsRequest {
             | Self::EditCharter
             | Self::ResetCharter
             | Self::SetLimit { .. }
-            | Self::SetBylaw { .. } => Capability::AgentsSettings,
+            | Self::SetBylaw { .. }
+            | Self::AddModel { .. } => Capability::AgentsSettings,
             Self::Revoke { .. }
             | Self::Send { .. }
             | Self::Veto(_) => Capability::AgentsChief,
@@ -293,7 +315,9 @@ impl AgentsRequest {
             | Self::Pick { .. }
             | Self::Turn { .. }
             | Self::Submit(_)
-            | Self::RunModel { .. } => Capability::AgentsChief,
+            | Self::RunModel { .. }
+            | Self::TakeSkill { .. }
+            | Self::FoundFrom(_) => Capability::AgentsChief,
             Self::Focus
             | Self::Select(_)
             | Self::Related
@@ -337,6 +361,8 @@ pub enum AgentsReply {
     Record(Record),
     Bylaws(Bylaws),
     Needs(Vec<Need>),
+    /// The name a model added goes by, `endpoint::id`.
+    Added(String),
 }
 
 /// A change, sent to each plugin that watches.

@@ -3671,6 +3671,7 @@ dependencies = [
  "hamlet_model",
  "hamlet_rules",
  "hamlet_sandbox",
+ "hamlet_testing",
  "serde_json",
  "tokio",
 ]

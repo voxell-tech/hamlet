@@ -7,6 +7,7 @@ mod moves;
 mod removal;
 mod roads;
 mod rules;
+mod template;
 
 use std::path::{Path, PathBuf};
 
@@ -20,6 +21,7 @@ use crate::hamlet::{
 pub use crate::realm::moves::Moved;
 pub use crate::realm::removal::Removal;
 pub use crate::realm::rules::Rules;
+pub use crate::realm::template::{Settler, SettlerSkill, Template};
 use crate::record::{self, text};
 
 /// The most letters of what a chief calls a hamlet.

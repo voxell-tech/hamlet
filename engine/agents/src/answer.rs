@@ -33,6 +33,7 @@ use hamlet_rules::hamlet::HOME;
 use crate::archive::ArchiveWorldExt;
 use crate::conversation::ConversationWorldExt;
 use crate::focus::FocusWorldExt;
+use crate::market::MarketWorldExt;
 use crate::model_choice::ModelChoiceWorldExt;
 use crate::needs::NeedsWorldExt;
 use crate::roster::RosterWorldExt;
@@ -42,7 +43,7 @@ use crate::{CHANNEL, Chief, Unavailable, views};
 
 /// The most a person's own price of a model may be, in dollars per
 /// million tokens.
-const MOST_PRICE: f64 = 10_000.0;
+pub(crate) const MOST_PRICE: f64 = 10_000.0;
 
 /// The most turns between two reflections.
 const MOST_REFLECT: u32 = 1000;
@@ -596,6 +597,20 @@ impl AgentsWorldExt for World {
             }
             AgentsRequest::RunModel { agent, model } => {
                 self.run_model(&agent, &model).and(done)
+            }
+            AgentsRequest::AddModel { endpoint, model } => self
+                .add_model(&endpoint, model)
+                .map(AgentsReply::Added),
+            AgentsRequest::TakeSkill { name, files } => {
+                let from = self
+                    .get::<PluginInfo>(asked.plugin)
+                    .map_or("a plugin".into(), |info| {
+                        format!("the plugin {}", info.name)
+                    });
+                self.take_skill(&name, files, &from).and(done)
+            }
+            AgentsRequest::FoundFrom(template) => {
+                self.found_from(template).and(done)
             }
         }
     }
