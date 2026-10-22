@@ -13,24 +13,23 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::time::{Duration, Instant};
 
 use glam::{Quat, Vec2, Vec3, Vec3Swizzles};
-use hamlet_engine_sdk::scene::{
-    Entity, Instances, Material, Mesh, Pbr, Shape, copies,
-};
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::scene::{Material, Mesh, Pbr, Shape};
 
 use crate::build::frame::Frame;
 use crate::build::stock::rgba;
-use crate::build::upload::{Unsent, Upload};
-use crate::realm::Ctx;
+use crate::build::upload::{Draw, Unsent};
+use crate::realm::{Ctx, Shared};
 use crate::world::flora::{self, Tree};
 use crate::world::ground::grove::{Grove, GroveJob};
-use crate::world::ground::layer::{Layer, Lift};
+use crate::world::ground::layer::{Layer, TileEntity};
 use crate::world::ground::sod::{Recipe, Sod, SodJob};
 use crate::world::land::{Land, LandData};
 use crate::world::palette::Palette;
 
 /// The most time the ground builds for in one frame, so that what
 /// comes after it in the frame has its share.
-const SHARE: Duration = Duration::from_micros(2_500);
+const SHARE: Duration = Duration::from_millis(5);
 
 /// The camera's sight of the ground.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -307,38 +306,34 @@ fn wanted(
     out
 }
 
-/// A tile's ground as it is drawn: its mesh, and the water where it
-/// dips under the water's level.
+/// A tile's ground as it is drawn: its mesh, and under it the water
+/// where it dips under the water's level.
 struct Turf {
     entity: Entity,
-    _mesh: Mesh,
-    _water: Option<Entity>,
 }
 
 /// A tile's trees as they are drawn: those that stand as themselves
-/// as copies of each kind's mesh, or all as one plain mesh.
+/// as copies of each kind's mesh under it, or all as one plain mesh.
 struct Wood {
     entity: Entity,
-    copies: Vec<Instances>,
-    /// Copies not yet given, by the place of their kind's instances
-    /// in `copies`.
-    waiting: Vec<(usize, Vec<f32>)>,
-    _canopy: Option<Mesh>,
+    /// Copies not yet given, with the mesh of their kind.
+    waiting: Vec<(Handle<Mesh>, Vec<Transform>)>,
 }
 
-impl Lift for Turf {
-    fn lift(&self, by: f32) {
-        self.entity.set_transform(Frame::at(Vec3::Y * by).scene());
+impl TileEntity for Turf {
+    fn entity(&self) -> Entity {
+        self.entity
     }
 }
 
-impl Lift for Wood {
-    fn lift(&self, by: f32) {
-        self.entity.set_transform(Frame::at(Vec3::Y * by).scene());
+impl TileEntity for Wood {
+    fn entity(&self) -> Entity {
+        self.entity
     }
 }
 
 /// The ground drawn about the camera.
+#[derive(Resource)]
 pub struct Ground {
     sods: Layer<Turf, SodJob>,
     woods: Layer<Wood, GroveJob>,
@@ -347,13 +342,12 @@ pub struct Ground {
     /// where it was last put.
     bed: Entity,
     bed_at: Option<Frame>,
-    _bed: (Mesh, Material),
     /// A square for a tile's water, and the water.
-    pond: Mesh,
-    water: Material,
+    pond: Handle<Mesh>,
+    water: Handle<Material>,
     /// The mesh of each kind of tree, as they are handed over; none
     /// for one the engine refused.
-    kinds: Vec<Option<Mesh>>,
+    kinds: Vec<Option<Handle<Mesh>>>,
     /// The views the tiles were last chosen for: the camera's, and
     /// the one it is being taken to.
     sight: Option<(Sight, Sight)>,
@@ -368,28 +362,34 @@ pub struct Ground {
 
 impl Ground {
     /// No tiles yet, only the plain ground under where they will be.
-    pub fn make(pal: &Palette) -> Result<Self, String> {
+    pub fn make(
+        pal: &Palette,
+        draw: &mut Draw,
+    ) -> Result<Self, String> {
         let plain = pal.grass_shade.lerp(pal.grass, 0.85);
-        let bed = Entity::make(None, 0)?;
-        let bed_mesh = Mesh::shape(Shape::Plane((2.0, 2.0)))?;
-        let bed_look = Material::make(Pbr {
+        let bed_mesh =
+            draw.assets.add(Mesh::shape(Shape::Plane((2.0, 2.0)))?);
+        let bed_look = draw.material(Pbr {
             roughness: 0.92,
             ..Pbr::colored(rgba(plain))
         })?;
-        bed.draw(&bed_mesh, &bed_look);
-        bed.set_shadows(false, true);
+        let pond =
+            draw.assets.add(Mesh::shape(Shape::Plane((1.0, 1.0)))?);
+        let water = draw.material(Pbr {
+            roughness: 0.22,
+            ..Pbr::colored(rgba(pal.river))
+        })?;
+        let bed = draw.spawn(None, 0);
+        draw.draw(bed, &bed_mesh, &bed_look);
+        draw.shadows(bed, false, true);
         Ok(Self {
             sods: Layer::default(),
             woods: Layer::default(),
             lies: Lies::default(),
             bed,
             bed_at: None,
-            _bed: (bed_mesh, bed_look),
-            pond: Mesh::shape(Shape::Plane((1.0, 1.0)))?,
-            water: Material::make(Pbr {
-                roughness: 0.22,
-                ..Pbr::colored(rgba(pal.river))
-            })?,
+            pond,
+            water,
             kinds: Vec::new(),
             sight: None,
             sites: Vec::new(),
@@ -400,13 +400,13 @@ impl Ground {
 
     /// Keeps the ground and the trees drawn about where the camera
     /// looks and where it is going: chooses the tiles `sights` call
-    /// for, builds those missing a step at a time within `upload`,
-    /// and takes out those the view has left behind.
+    /// for, builds those missing a step at a time within what the
+    /// call may spend, and takes out those the view has left behind.
     pub fn update(
         &mut self,
         ctx: &Ctx,
         sights: &[Sight],
-        upload: &mut Upload,
+        draw: &mut Draw,
     ) {
         let Some(sight) = sights.first().copied() else {
             return;
@@ -415,7 +415,7 @@ impl Ground {
         let (land, detail) = (ctx.land, &ctx.tuning.detail);
         let chunk = land.set.land.chunk;
         let until = Instant::now() + SHARE;
-        self.lay_bed(ctx, &sight);
+        self.lay_bed(ctx, &sight, draw);
         let changed = self.follow_land(land);
         let moved = |was: &Sight, now: &Sight| {
             was.eye.distance(now.eye) > 0.5
@@ -448,8 +448,8 @@ impl Ground {
             self.lies.keep_within(chunk, [&sight, &going]);
             self.sight = Some((sight, going));
         }
-        self.sods.retire(top, detail.stale_sink);
-        self.woods.retire(top, 0.0);
+        self.sods.retire(top, detail.stale_sink, draw);
+        self.woods.retire(top, 0.0, draw);
         self.sods.start(
             chunk,
             going.centre,
@@ -469,17 +469,17 @@ impl Ground {
         // True while the ground's share of the frame lasts.
         let left = || Instant::now() < until;
         if self.trees_first {
-            self.plant(ctx, upload, &left);
-            self.lay(ctx, upload, &left);
+            self.plant(ctx, draw, &left);
+            self.lay(ctx, draw, &left);
         } else {
-            self.lay(ctx, upload, &left);
-            self.plant(ctx, upload, &left);
+            self.lay(ctx, draw, &left);
+            self.plant(ctx, draw, &left);
         }
         self.trees_first = !self.trees_first;
     }
 
     /// Keeps the plain ground under where the camera looks.
-    fn lay_bed(&mut self, ctx: &Ctx, sight: &Sight) {
+    fn lay_bed(&mut self, ctx: &Ctx, sight: &Sight, draw: &mut Draw) {
         let land = ctx.land;
         let far = ctx.tuning.camera.far;
         let next = Frame::at(Vec3::new(
@@ -489,7 +489,7 @@ impl Ground {
         ))
         .with_size(Vec3::splat(far * 2.0));
         if self.bed_at != Some(next) {
-            self.bed.set_transform(next.scene());
+            draw.place(self.bed, next);
             self.bed_at = Some(next);
         }
     }
@@ -542,18 +542,18 @@ impl Ground {
     fn lay(
         &mut self,
         ctx: &Ctx,
-        upload: &mut Upload,
+        draw: &mut Draw,
         left: &impl Fn() -> bool,
     ) {
-        while left() && upload.left() {
+        while left() && draw.left() {
             let Some((tile, job)) = self.sods.next() else {
                 return;
             };
             let Some(sod) = job.step(ctx.land) else {
                 continue;
             };
-            match self.turf(ctx, tile, sod, upload) {
-                Ok(turf) => self.sods.finish(Some(turf)),
+            match self.turf(ctx, tile, sod, draw) {
+                Ok(turf) => self.sods.finish(Some(turf), draw),
                 Err(Unbuilt::Full(sod)) => {
                     if let Some((_, job)) = self.sods.next() {
                         job.wait(sod);
@@ -561,10 +561,10 @@ impl Ground {
                     return;
                 }
                 Err(Unbuilt::Refused(why)) => {
-                    hamlet_engine_sdk::warn(&format!(
+                    hamlet_engine_bevy::warn(&format!(
                         "ground: {why}"
                     ));
-                    self.sods.finish(None);
+                    self.sods.finish(None, draw);
                 }
             }
         }
@@ -576,47 +576,38 @@ impl Ground {
         ctx: &Ctx,
         tile: Tile,
         sod: Sod,
-        upload: &mut Upload,
+        draw: &mut Draw,
     ) -> Result<Turf, Unbuilt<Sod>> {
         let Sod { mesh, wet } = sod;
         let mesh =
-            upload.mesh(mesh).map_err(|unsent| match unsent {
+            draw.mesh(mesh).map_err(|unsent| match unsent {
                 Unsent::Full(mesh) => {
                     Unbuilt::Full(Sod { mesh, wet })
                 }
                 Unsent::Refused(why) => Unbuilt::Refused(why),
             })?;
-        let refused = Unbuilt::Refused;
-        let entity = Entity::make(None, 0).map_err(refused)?;
-        entity.draw(&mesh, &ctx.stock.matte);
-        entity.set_shadows(false, true);
+        let entity = draw.spawn(None, 0);
+        draw.draw(entity, &mesh, &ctx.stock.matte);
+        draw.shadows(entity, false, true);
         // Water lies only where the ground dips under it.
-        let water = if wet {
+        if wet {
             let land = ctx.land;
             let chunk = land.set.land.chunk;
             let (mid, side) = (tile.middle(chunk), tile.side(chunk));
-            let water =
-                Entity::make(Some(&entity), 0).map_err(refused)?;
-            water.set_transform(
+            let water = draw.spawn(Some(entity), 0);
+            draw.place(
+                water,
                 Frame::at(Vec3::new(
                     mid.x,
                     land.set.land.water_y,
                     mid.y,
                 ))
-                .with_size(Vec3::new(side, 1.0, side))
-                .scene(),
+                .with_size(Vec3::new(side, 1.0, side)),
             );
-            water.draw(&self.pond, &self.water);
-            water.set_shadows(false, true);
-            Some(water)
-        } else {
-            None
-        };
-        Ok(Turf {
-            entity,
-            _mesh: mesh,
-            _water: water,
-        })
+            draw.draw(water, &self.pond, &self.water);
+            draw.shadows(water, false, true);
+        }
+        Ok(Turf { entity })
     }
 
     /// Finds the trees of the nearest tiles missing them, a column at
@@ -625,20 +616,21 @@ impl Ground {
     fn plant(
         &mut self,
         ctx: &Ctx,
-        upload: &mut Upload,
+        draw: &mut Draw,
         left: &impl Fn() -> bool,
     ) {
         while self.kinds.len() < flora::KINDS {
-            if !left() || !upload.left() {
+            if !left() || !draw.left() {
                 return;
             }
-            match flora::mesh(ctx.pal, self.kinds.len())
-                .upload(upload)
+            match flora::mesh(ctx.pal, self.kinds.len()).upload(draw)
             {
                 Ok(mesh) => self.kinds.push(Some(mesh)),
                 Err(Unsent::Full(_)) => return,
                 Err(Unsent::Refused(why)) => {
-                    hamlet_engine_sdk::warn(&format!("trees: {why}"));
+                    hamlet_engine_bevy::warn(&format!(
+                        "trees: {why}"
+                    ));
                     self.kinds.push(None);
                 }
             }
@@ -646,18 +638,18 @@ impl Ground {
         let mut room = ctx.tuning.detail.trees_per_frame;
         for wood in self.woods.drawn_mut() {
             if !wood.waiting.is_empty() {
-                wood.give(upload, &mut room);
+                wood.give(ctx, draw, &mut room);
             }
         }
-        while left() && upload.left() && room > 0 {
+        while left() && draw.left() && room > 0 {
             let Some((_, job)) = self.woods.next() else {
                 return;
             };
             let Some(grove) = job.step(ctx.land) else {
                 continue;
             };
-            match self.wood(ctx, grove, upload, &mut room) {
-                Ok(wood) => self.woods.finish(Some(wood)),
+            match self.wood(ctx, grove, draw, &mut room) {
+                Ok(wood) => self.woods.finish(Some(wood), draw),
                 Err(Unbuilt::Full(grove)) => {
                     if let Some((_, job)) = self.woods.next() {
                         job.wait(grove);
@@ -665,8 +657,10 @@ impl Ground {
                     return;
                 }
                 Err(Unbuilt::Refused(why)) => {
-                    hamlet_engine_sdk::warn(&format!("trees: {why}"));
-                    self.woods.finish(None);
+                    hamlet_engine_bevy::warn(&format!(
+                        "trees: {why}"
+                    ));
+                    self.woods.finish(None, draw);
                 }
             }
         }
@@ -678,12 +672,12 @@ impl Ground {
         &self,
         ctx: &Ctx,
         grove: Grove,
-        upload: &mut Upload,
+        draw: &mut Draw,
         room: &mut usize,
     ) -> Result<Wood, Unbuilt<Grove>> {
         let Grove { trees, canopy } = grove;
         let canopy = match canopy {
-            Some(canopy) => match upload.mesh(canopy) {
+            Some(canopy) => match draw.mesh(canopy) {
                 Ok(mesh) => Some(mesh),
                 Err(Unsent::Full(canopy)) => {
                     return Err(Unbuilt::Full(Grove {
@@ -697,58 +691,66 @@ impl Ground {
             },
             None => None,
         };
-        let entity =
-            Entity::make(None, 0).map_err(Unbuilt::Refused)?;
+        let entity = draw.spawn(None, 0);
         if let Some(canopy) = &canopy {
-            entity.draw(canopy, &ctx.stock.matte);
+            draw.draw(entity, canopy, &ctx.stock.matte);
         }
-        // The copies of each kind, as the engine takes them.
+        // The copies of each kind.
         let mut kinds = vec![Vec::new(); flora::KINDS];
         for tree in &trees {
-            kinds[tree.kind].push(tree.frame().scene());
+            kinds[tree.kind].push(tree.frame().transform());
         }
         let mut wood = Wood {
             entity,
-            copies: Vec::new(),
             waiting: Vec::new(),
-            _canopy: canopy,
         };
-        for (kind, placed) in kinds.iter().enumerate() {
+        for (kind, placed) in kinds.into_iter().enumerate() {
             let Some(mesh) = &self.kinds[kind] else {
                 continue;
             };
             if placed.is_empty() {
                 continue;
             }
-            let instances = Instances::make(
-                Some(&wood.entity),
-                mesh,
-                &ctx.stock.matte,
-                0,
-            )
-            .map_err(Unbuilt::Refused)?;
-            wood.waiting.push((wood.copies.len(), copies(placed)));
-            wood.copies.push(instances);
+            wood.waiting.push((mesh.clone(), placed));
         }
-        wood.give(upload, room);
+        wood.give(ctx, draw, room);
         Ok(wood)
     }
 }
 
 impl Wood {
-    /// Gives each kind its copies while `upload` has room and the
+    /// Gives each kind its copies while the call has room and the
     /// frame has `room` trees left to plant, taking what it plants
     /// from `room`.
-    fn give(&mut self, upload: &mut Upload, room: &mut usize) {
-        let copies = &self.copies;
-        self.waiting.retain(|(at, floats)| {
-            if *room == 0 || !upload.copies(&copies[*at], floats) {
+    fn give(&mut self, ctx: &Ctx, draw: &mut Draw, room: &mut usize) {
+        let entity = self.entity;
+        self.waiting.retain_mut(|(mesh, copies)| {
+            if *room == 0 || !draw.copies(copies.len()) {
                 return true;
             }
-            *room = room.saturating_sub(floats.len() / 10);
+            *room = room.saturating_sub(copies.len());
+            draw.commands.spawn((
+                Instances {
+                    mesh: mesh.clone(),
+                    material: ctx.stock.matte.clone(),
+                    copies: std::mem::take(copies),
+                },
+                ChildOf(entity),
+            ));
             false
         });
     }
+}
+
+/// Keeps the ground and the trees drawn about where the camera looks.
+pub fn build_ground(
+    mut ground: ResMut<Ground>,
+    shared: Shared,
+    mut draw: Draw,
+) {
+    let floor = shared.floor();
+    let ctx = shared.ctx(&floor);
+    ground.update(&ctx, &shared.now.sights, &mut draw);
 }
 
 /// Something built that was not drawn.

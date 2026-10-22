@@ -5,12 +5,13 @@
 use std::collections::HashMap;
 
 use glam::Vec3;
-use hamlet_engine_sdk::scene::gpu::{
-    Shaded, Shader, ShaderKind, set_params, shaded_material,
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::scene::{
+    AlphaMode, Material, Shaded, Shader, ShaderKind,
 };
-use hamlet_engine_sdk::scene::{AlphaMode, Entity, Material};
 
 use crate::build::frame::Frame;
+use crate::build::upload::Draw;
 use crate::folk::keeper::KState;
 use crate::places::road::Drawn;
 use crate::realm::Ctx;
@@ -38,28 +39,31 @@ const FAULT: Vec3 = Vec3::new(1.0, 0.322, 0.278);
 struct Lit {
     /// The road it was made for, by the number it was laid with.
     laid: u64,
-    material: Material,
+    material: Handle<Material>,
     params: Vec<f32>,
-    /// Kept only so it is not dropped: the light's entity and a
-    /// piece under it for each piece of the groove.
-    _held: (Entity, Vec<Entity>),
+    /// The light's entity, with a piece under it for each piece of
+    /// the groove.
+    over: Entity,
 }
 
 /// The grooves' materials.
 pub(super) struct Grooves {
-    shader: Shader,
-    unlit: Material,
+    shader: Handle<Shader>,
+    unlit: Handle<Material>,
     /// The bed's colour and the strip's, the first params of each.
     stone: [f32; 8],
     lit: HashMap<Pair, Lit>,
 }
 
 impl Grooves {
-    pub(super) fn make(pal: &Palette) -> Result<Self, String> {
-        let shader = Shader::compile(
+    pub(super) fn make(
+        pal: &Palette,
+        draw: &mut Draw,
+    ) -> Result<Self, String> {
+        let shader = draw.assets.add(Shader::compile(
             ShaderKind::Material,
             include_str!("groove.wgsl"),
-        )?;
+        )?);
         let stone = [
             pal.bed.x,
             pal.bed.y,
@@ -70,7 +74,7 @@ impl Grooves {
             pal.pewter.z,
             1.0,
         ];
-        let unlit = shaded_material(
+        let unlit = draw.assets.add_shaded_material(
             &shader,
             Shaded {
                 alpha_mode: AlphaMode::Opaque,
@@ -90,7 +94,7 @@ impl Grooves {
     }
 
     /// The material of a groove with nothing to show.
-    pub(super) fn unlit(&self) -> &Material {
+    pub(super) fn unlit(&self) -> &Handle<Material> {
         &self.unlit
     }
 
@@ -100,6 +104,7 @@ impl Grooves {
         &mut self,
         ctx: &Ctx,
         drawn: &HashMap<Pair, Drawn>,
+        draw: &mut Draw,
     ) {
         let (society, looks) = (ctx.society, &ctx.tuning.looks);
         let gain = ctx.sky.look.inlay_gain;
@@ -146,8 +151,14 @@ impl Grooves {
             wanted.insert(pair, params);
         }
         self.lit.retain(|pair, lit| {
-            drawn.get(pair).is_some_and(|road| road.laid == lit.laid)
-                && wanted.contains_key(pair)
+            let kept = drawn
+                .get(pair)
+                .is_some_and(|road| road.laid == lit.laid)
+                && wanted.contains_key(pair);
+            if !kept {
+                draw.despawn(lit.over);
+            }
+            kept
         });
         for (pair, params) in wanted {
             let Some(road) = drawn.get(&pair) else {
@@ -156,16 +167,18 @@ impl Grooves {
             match self.lit.get_mut(&pair) {
                 Some(lit) => {
                     if lit.params != params {
-                        let _ = set_params(&lit.material, &params);
+                        let _ = draw
+                            .assets
+                            .set_params(&lit.material, &params);
                         lit.params = params;
                     }
                 }
-                None => match self.lit_over(road, params) {
+                None => match self.lit_over(road, params, draw) {
                     Ok(lit) => {
                         self.lit.insert(pair, lit);
                     }
                     Err(why) => {
-                        hamlet_engine_sdk::warn(&format!(
+                        hamlet_engine_bevy::warn(&format!(
                             "a groove's light: {why}"
                         ));
                     }
@@ -179,8 +192,9 @@ impl Grooves {
         &self,
         road: &Drawn,
         params: Vec<f32>,
+        draw: &mut Draw,
     ) -> Result<Lit, String> {
-        let material = shaded_material(
+        let material = draw.assets.add_shaded_material(
             &self.shader,
             Shaded {
                 alpha_mode: AlphaMode::Add,
@@ -191,20 +205,18 @@ impl Grooves {
             None,
             None,
         )?;
-        let over = Entity::make(Some(&road.entity), 0)?;
-        over.set_transform(Frame::at(Vec3::Y * OVER).scene());
-        let mut pieces = Vec::new();
+        let over = draw.spawn(Some(road.entity), 0);
+        draw.place(over, Frame::at(Vec3::Y * OVER));
         for mesh in &road.groove {
-            let piece = Entity::make(Some(&over), 0)?;
-            piece.draw(mesh, &material);
-            piece.set_shadows(false, false);
-            pieces.push(piece);
+            let piece = draw.spawn(Some(over), 0);
+            draw.draw(piece, mesh, &material);
+            draw.shadows(piece, false, false);
         }
         Ok(Lit {
             laid: road.laid,
             material,
             params,
-            _held: (over, pieces),
+            over,
         })
     }
 }

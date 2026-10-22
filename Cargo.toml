@@ -47,7 +47,6 @@ hamlet_engine_desktop = { version = "0.1.0", path = "engine/desktop" }
 hamlet_engine_render = { version = "0.1.0", path = "engine/render" }
 hamlet_engine_wasm = { version = "0.1.0", path = "engine/wasm" }
 hamlet_engine_harness = { version = "0.1.0", path = "engine/harness" }
-hamlet_engine_sdk = { version = "0.1.0", path = "engine/sdk" }
 hamlet_engine_bevy = { version = "0.1.0", path = "engine/bevy_sdk" }
 
 # fynix

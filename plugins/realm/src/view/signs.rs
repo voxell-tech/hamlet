@@ -5,9 +5,10 @@
 use std::collections::HashMap;
 
 use glam::Vec3;
-use hamlet_engine_sdk::scene::Entity;
+use hamlet_engine_bevy::prelude::*;
 
 use crate::build::frame::Frame;
+use crate::build::upload::Draw;
 use crate::view::pick::Thing;
 
 /// The key of the entities the words hang from.
@@ -29,48 +30,57 @@ struct Sign {
 }
 
 /// Every sign and the tag over the thing under the pointer.
+#[derive(Resource)]
 pub struct Signs {
     signs: HashMap<Thing, Sign>,
     tag: Entity,
     tagged: Option<Words>,
+    /// The signs are to be put up anew.
+    pub stale: bool,
 }
 
 impl Signs {
-    pub fn make() -> Result<Self, String> {
-        let tag = Entity::make(None, SIGN)?;
-        tag.set_visible(false);
-        Ok(Self {
+    pub fn make(draw: &mut Draw) -> Self {
+        let tag = draw.spawn(None, SIGN);
+        draw.show(tag, false);
+        Self {
             signs: HashMap::new(),
             tag,
             tagged: None,
-        })
+            stale: false,
+        }
     }
 
     /// Puts up a sign over each thing of `signs`, and takes down the
     /// others.
-    pub fn put_up(&mut self, signs: Vec<(Thing, Words)>) {
+    pub fn put_up(
+        &mut self,
+        signs: Vec<(Thing, Words)>,
+        draw: &mut Draw,
+    ) {
+        self.stale = false;
         let mut kept = HashMap::new();
         for (thing, words) in signs {
             let sign = match self.signs.remove(&thing) {
                 Some(mut sign) => {
                     if sign.words.at != words.at {
-                        sign.entity.set_transform(
-                            Frame::at(words.at).scene(),
-                        );
+                        draw.place(sign.entity, Frame::at(words.at));
                     }
                     if sign.words.says != words.says {
-                        sign.entity.set_label(Some(&words.says));
+                        draw.commands
+                            .entity(sign.entity)
+                            .insert(SceneLabel(words.says.clone()));
                     }
                     sign.words = words;
                     sign
                 }
                 None => {
-                    let Ok(entity) = Entity::make(None, SIGN) else {
-                        continue;
-                    };
-                    entity.set_transform(Frame::at(words.at).scene());
-                    entity.set_label(Some(&words.says));
-                    entity.set_visible(false);
+                    let entity = draw.spawn(None, SIGN);
+                    draw.place(entity, Frame::at(words.at));
+                    draw.commands
+                        .entity(entity)
+                        .insert(SceneLabel(words.says.clone()));
+                    draw.show(entity, false);
                     Sign {
                         entity,
                         words,
@@ -79,6 +89,9 @@ impl Signs {
                 }
             };
             kept.insert(thing, sign);
+        }
+        for sign in self.signs.values() {
+            draw.despawn(sign.entity);
         }
         self.signs = kept;
     }
@@ -90,11 +103,12 @@ impl Signs {
         eye: Vec3,
         far: f32,
         tagged: Option<Words>,
+        draw: &mut Draw,
     ) {
         for sign in self.signs.values_mut() {
             let near = eye.distance(sign.words.at) < far;
             if near != sign.near {
-                sign.entity.set_visible(near);
+                draw.show(sign.entity, near);
                 sign.near = near;
             }
         }
@@ -103,17 +117,19 @@ impl Signs {
         }
         match &tagged {
             Some(words) => {
-                self.tag.set_transform(Frame::at(words.at).scene());
+                draw.place(self.tag, Frame::at(words.at));
                 if self.tagged.as_ref().map(|was| &was.says)
                     != Some(&words.says)
                 {
-                    self.tag.set_label(Some(&words.says));
+                    draw.commands
+                        .entity(self.tag)
+                        .insert(SceneLabel(words.says.clone()));
                 }
                 if self.tagged.is_none() {
-                    self.tag.set_visible(true);
+                    draw.show(self.tag, true);
                 }
             }
-            None => self.tag.set_visible(false),
+            None => draw.show(self.tag, false),
         }
         self.tagged = tagged;
     }

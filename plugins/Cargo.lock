@@ -685,16 +685,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hamlet_engine_sdk"
-version = "0.1.0"
-dependencies = [
- "fynix",
- "hamlet_engine_api",
- "lenz",
- "wit-bindgen",
-]
-
-[[package]]
 name = "hash32"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1032,7 +1022,7 @@ name = "realm"
 version = "0.1.0"
 dependencies = [
  "glam",
- "hamlet_engine_sdk",
+ "hamlet_engine_bevy",
  "serde",
  "toml",
 ]

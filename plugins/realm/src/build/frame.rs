@@ -2,7 +2,7 @@
 //! engine's scene takes them.
 
 use glam::{Affine3A, Mat3, Quat, Vec3};
-use hamlet_engine_sdk::scene::Transform;
+use hamlet_engine_bevy::prelude::Transform;
 
 /// A place, turn and size, applied in the order size, turn, place.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -71,12 +71,11 @@ impl Frame {
         self.at + self.turn * (self.size * point)
     }
 
-    /// The transform the engine's scene takes.
-    pub fn scene(&self) -> Transform {
+    pub fn transform(&self) -> Transform {
         Transform {
-            translation: self.at.into(),
-            rotation: self.turn.into(),
-            scale: self.size.into(),
+            translation: self.at,
+            rotation: self.turn,
+            scale: self.size,
         }
     }
 }

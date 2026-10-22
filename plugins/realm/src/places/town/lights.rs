@@ -5,11 +5,12 @@
 use std::f32::consts::PI;
 
 use glam::Vec3;
-use hamlet_engine_sdk::scene::{
-    Entity, Light, Material, Pbr, PointLight,
-};
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::scene::{Light, Material, Pbr, PointLight};
 
+use crate::build::frame::Frame;
 use crate::build::stock::rgba;
+use crate::build::upload::Draw;
 use crate::folk::keeper::KState;
 use crate::world::palette::Palette;
 use crate::world::sky::Sky;
@@ -68,7 +69,7 @@ fn lantern(state: KState, t: f32) -> (Vec3, f32) {
 /// The glass of every lantern: one shared material per state,
 /// whatever the number of houses, and the lights the nearest throw.
 pub struct Lamps {
-    pub glass: [Material; 5],
+    pub glass: [Handle<Material>; 5],
     /// The glow each glass was last given.
     shown: [Vec3; 5],
     /// Each light, and how it shines while it does.
@@ -80,32 +81,45 @@ pub struct Lamps {
 type Spill = (Vec3, KState, f32);
 
 impl Lamps {
-    pub fn make(pal: &Palette) -> Result<Self, String> {
-        let glass = |_| {
-            Material::make(Pbr {
-                roughness: 0.4,
-                ..Pbr::colored(rgba(pal.glass_lit))
-            })
+    pub fn make(
+        pal: &Palette,
+        draw: &mut Draw,
+    ) -> Result<Self, String> {
+        let pbr = Pbr {
+            roughness: 0.4,
+            ..Pbr::colored(rgba(pal.glass_lit))
         };
-        let [a, b, c, d, e] = STATES.map(glass);
+        let glass = [
+            draw.material(pbr)?,
+            draw.material(pbr)?,
+            draw.material(pbr)?,
+            draw.material(pbr)?,
+            draw.material(pbr)?,
+        ];
         let spills = (0..SPILLS)
-            .map(|_| Entity::make(None, SPILL_KEY).map(|e| (e, None)))
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(|_| (draw.spawn(None, SPILL_KEY), None))
+            .collect();
         Ok(Self {
-            glass: [a?, b?, c?, d?, e?],
+            glass,
             shown: [Vec3::NAN; 5],
             spills,
         })
     }
 
     /// The material of a lantern of `state`.
-    pub fn of(&self, state: KState) -> &Material {
+    pub fn of(&self, state: KState) -> &Handle<Material> {
         &self.glass[state_index(state)]
     }
 
     /// Lights each glass as its state shows at clock time `t`. A
     /// lantern at rest is a candle: lit only after dark.
-    pub fn light(&mut self, pal: &Palette, sky: &Sky, t: f32) {
+    pub fn light(
+        &mut self,
+        pal: &Palette,
+        sky: &Sky,
+        t: f32,
+        draw: &Draw,
+    ) {
         for (i, state) in STATES.into_iter().enumerate() {
             let (hue, strength) = lantern(state, t);
             let strength = if state == KState::Rest {
@@ -116,11 +130,14 @@ impl Lamps {
             let glow = hue * strength;
             if self.shown[i] != glow {
                 self.shown[i] = glow;
-                self.glass[i].set(Pbr {
-                    emissive: rgba(glow),
-                    roughness: 0.4,
-                    ..Pbr::colored(rgba(pal.glass_lit))
-                });
+                draw.set_material(
+                    &self.glass[i],
+                    Pbr {
+                        emissive: rgba(glow),
+                        roughness: 0.4,
+                        ..Pbr::colored(rgba(pal.glass_lit))
+                    },
+                );
             }
         }
     }
@@ -133,6 +150,7 @@ impl Lamps {
         lit: &[(Vec3, KState)],
         lumens: f32,
         reach: f32,
+        draw: &mut Draw,
     ) {
         for (i, (entity, shown)) in self.spills.iter_mut().enumerate()
         {
@@ -144,23 +162,25 @@ impl Lamps {
                 continue;
             }
             *shown = want;
-            let light = want.map(|(at, state, _)| {
-                entity.set_transform(
-                    crate::build::frame::Frame::at(at).scene(),
-                );
-                let hue = lantern(state, 0.0).0;
-                Light::Point(PointLight {
-                    color: rgba(hue),
-                    intensity: lumens,
-                    range: reach,
-                    radius: 0.0,
-                    shadows: false,
-                })
-            });
-            if let Err(why) = entity.set_light(light) {
-                hamlet_engine_sdk::warn(&format!(
-                    "a lantern's light: {why}"
-                ));
+            match want {
+                Some((at, state, _)) => {
+                    draw.place(*entity, Frame::at(at));
+                    let hue = lantern(state, 0.0).0;
+                    draw.commands.entity(*entity).insert(SceneLight(
+                        Light::Point(PointLight {
+                            color: rgba(hue),
+                            intensity: lumens,
+                            range: reach,
+                            radius: 0.0,
+                            shadows: false,
+                        }),
+                    ));
+                }
+                None => {
+                    draw.commands
+                        .entity(*entity)
+                        .remove::<SceneLight>();
+                }
             }
         }
     }

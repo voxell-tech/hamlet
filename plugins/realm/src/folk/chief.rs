@@ -5,18 +5,19 @@
 
 mod hearth;
 mod homing;
-mod look;
-mod mascot;
-mod place;
+pub mod look;
+pub mod mascot;
+pub mod place;
 mod wickstep;
 
 use glam::Vec3;
-use hamlet_engine_sdk::scene::gpu::Shader;
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::scene::Shader;
 
-use crate::build::upload::Upload;
+use crate::build::upload::Draw;
 use crate::folk::chief::hearth::Hearth;
 use crate::folk::chief::look::Look;
-use crate::realm::Ctx;
+use crate::realm::{Ctx, Shared};
 use crate::society::Society;
 use crate::tuning::WorldTuning;
 use crate::world::land::Land;
@@ -24,6 +25,7 @@ use crate::world::palette::Palette;
 
 /// The chief's place and mascot. Nothing when the land had no room
 /// for a place.
+#[derive(Resource)]
 pub struct Chief {
     hearth: Option<Hearth>,
 }
@@ -34,9 +36,10 @@ impl Chief {
     pub fn make(
         tuning: &WorldTuning,
         pal: &Palette,
-        marks: &Shader,
+        marks: &Handle<Shader>,
         land: &mut Land,
         society: &mut Society,
+        draw: &mut Draw,
     ) -> Result<Self, String> {
         Ok(Self {
             hearth: Hearth::settle(
@@ -47,20 +50,16 @@ impl Chief {
                 marks,
                 land,
                 society,
+                draw,
             )?,
         })
     }
 
     /// Builds what is left to build, and moves the mascot a frame
     /// `dt` seconds further.
-    pub fn update(
-        &mut self,
-        ctx: &Ctx,
-        dt: f32,
-        upload: &mut Upload,
-    ) {
+    pub fn update(&mut self, ctx: &Ctx, dt: f32, draw: &mut Draw) {
         if let Some(hearth) = &mut self.hearth {
-            hearth.update(ctx, dt, upload);
+            hearth.update(ctx, dt, draw);
         }
     }
 
@@ -73,6 +72,17 @@ impl Chief {
     pub fn hearth(&self) -> Option<Vec3> {
         self.hearth.as_ref().map(Hearth::house)
     }
+}
+
+/// Builds what is left of the chief's place, and moves the mascot a
+/// frame further.
+pub fn move_chief(
+    mut chief: ResMut<Chief>,
+    shared: Shared,
+    mut draw: Draw,
+) {
+    let floor = shared.floor();
+    chief.update(&shared.ctx(&floor), shared.clock.dt, &mut draw);
 }
 
 /// A chief's place, its mascot and the Wickstep that carries it.

@@ -5,7 +5,8 @@
 use std::collections::{HashMap, HashSet};
 
 use glam::Vec2;
-use hamlet_engine_sdk::api::agents::{RoadUse, Roster, RosterAgent};
+use hamlet_engine_bevy::api::agents::{RoadUse, Roster, RosterAgent};
+use hamlet_engine_bevy::prelude::*;
 
 use crate::folk::keeper::KState;
 use crate::society::{AgentId, Pair, RoadLevel, Society, TownId};
@@ -27,7 +28,7 @@ pub enum Moment {
 }
 
 /// What the realm knows of the roster.
-#[derive(Default)]
+#[derive(Resource, Default)]
 pub struct Bridge {
     /// Each hamlet's town, by the hamlet's name on disk.
     towns: HashMap<String, TownId>,
@@ -232,7 +233,7 @@ impl Bridge {
                 continue;
             }
             if let Err(why) = society.move_town(land, town, to) {
-                hamlet_engine_sdk::warn(&format!(
+                hamlet_engine_bevy::warn(&format!(
                     "the town of {} stays where it is: {to} is \
                      {why:?}",
                     hamlet.id
@@ -388,7 +389,7 @@ impl Bridge {
                             );
                         }
                         None => {
-                            hamlet_engine_sdk::warn(&format!(
+                            hamlet_engine_bevy::warn(&format!(
                                 "no plot is left for {}, which has \
                                  no house until one is free",
                                 agent.name

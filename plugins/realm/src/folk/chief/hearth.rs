@@ -3,15 +3,15 @@
 //! and the mascot moved and lit.
 
 use glam::{Quat, Vec2, Vec3, Vec3Swizzles};
-use hamlet_engine_sdk::scene::gpu::Shader;
-use hamlet_engine_sdk::scene::{
-    Entity, Material, Mesh, MeshData, Pbr, Shape,
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::scene::{
+    Material, Mesh, MeshData, Pbr, Shader, Shape,
 };
 
 use crate::build::frame::Frame;
 use crate::build::mesh::{Mb, smoothstep};
 use crate::build::stock::{glow, rgba};
-use crate::build::upload::{Unsent, Upload};
+use crate::build::upload::{Draw, Unsent};
 use crate::folk::chief::ChiefSettings;
 use crate::folk::chief::look::Look;
 use crate::folk::chief::mascot::{Rig, parts, wick};
@@ -72,12 +72,11 @@ enum Slot {
     Wick,
 }
 
-/// The meshes handed over, each kept so that it stays.
+/// The meshes of the mascot handed over, until it is dressed.
 #[derive(Default)]
 struct Meshes {
-    place: Vec<Mesh>,
-    parts: [Option<Mesh>; 8],
-    wick: Option<Mesh>,
+    parts: [Option<Handle<Mesh>>; 8],
+    wick: Option<Handle<Mesh>>,
     /// True once the mascot has its meshes.
     dressed: bool,
 }
@@ -94,15 +93,13 @@ pub struct Hearth {
     /// The place's entity, which draws the house and the grounds.
     place: Entity,
     panes: Entity,
-    orb: Entity,
     ring: Entity,
     glass: Entity,
+    orb: Entity,
     trees: [Entity; 3],
-    ring_look: Material,
-    glass_look: Material,
-    flame: Material,
-    /// The orb's look and its mesh, kept so that they stay.
-    _orb: (Material, Mesh),
+    ring_look: Handle<Material>,
+    glass_look: Handle<Material>,
+    flame: Handle<Material>,
     /// The steps of [`Hearth::build`] taken, the meshes they built
     /// that are left to hand over, and those handed over.
     built: usize,
@@ -128,9 +125,10 @@ impl Hearth {
         pal: &Palette,
         look: Look,
         fastest: f32,
-        marks: &Shader,
+        marks: &Handle<Shader>,
         land: &mut Land,
         society: &mut Society,
+        draw: &mut Draw,
     ) -> Result<Option<Self>, String> {
         let taken = society
             .towns
@@ -165,40 +163,40 @@ impl Hearth {
             .with_turn(Quat::from_rotation_y(yaw));
 
         let light = look.light.colour(pal);
-        let place = Entity::make(None, Thing::Hearth.key())?;
-        place.set_transform(frame.scene());
-        place.watch(true, true);
-        let child = || Entity::make(Some(&place), 0);
-        let (panes, orb, ring, glass) =
-            (child()?, child()?, child()?, child()?);
-        for unshadowed in [&panes, &orb, &ring, &glass] {
-            unshadowed.set_shadows(false, true);
-        }
-        let trees = [child()?, child()?, child()?];
-        let orb_look = Material::make(lit(light, set.orb_light))?;
+        let orb_look = draw.material(lit(light, set.orb_light))?;
         let ring_look =
-            Material::make(glow(light, set.waystone_light))?;
-        let glass_look = Material::make(Pbr {
+            draw.material(glow(light, set.waystone_light))?;
+        let glass_look = draw.material(Pbr {
             roughness: 0.4,
             ..Pbr::colored(rgba(pal.glass_lit))
         })?;
-        let orb_mesh = Mesh::shape(Shape::Sphere(1.0))?;
-        orb.draw(&orb_mesh, &orb_look);
+        let orb_mesh =
+            draw.assets.add(Mesh::shape(Shape::Sphere(1.0))?);
+        let flame = draw.material(lit(light, set.wick_light))?;
+        let place = draw.spawn(None, Thing::Hearth.key());
+        draw.place(place, frame);
+        draw.watch(place);
+        let [panes, orb, ring, glass] =
+            [(); 4].map(|_| draw.spawn(Some(place), 0));
+        for unshadowed in [panes, orb, ring, glass] {
+            draw.shadows(unshadowed, false, true);
+        }
+        let trees = [(); 3].map(|_| draw.spawn(Some(place), 0));
+        draw.draw(orb, &orb_mesh, &orb_look);
 
         // The mascot, on the waystone and looking out of the gate.
         let stone = place::spots(set)[0].at;
         let stone =
             frame.point(Vec3::new(stone.x, 0.0, stone.y)).xz();
-        let flame = Material::make(lit(light, set.wick_light))?;
         let mascot = Mascot::new(
             land.on_ground(stone),
             yaw,
             0.0,
             set.linger.0,
         );
-        let rig = Rig::make(Thing::Mascot.key())?;
-        rig.light(light, 0.0, set.lamp_range);
-        let charm = Charm::make(set, &flame, marks)?;
+        let rig = Rig::make(Thing::Mascot.key(), draw);
+        rig.light(light, 0.0, set.lamp_range, draw);
+        let charm = Charm::make(set, &flame, marks, draw)?;
         Ok(Some(Self {
             set: set.clone(),
             look,
@@ -207,14 +205,13 @@ impl Hearth {
             frame,
             place,
             panes,
-            orb,
             ring,
             glass,
+            orb,
             trees,
             ring_look,
             glass_look,
             flame,
-            _orb: (orb_look, orb_mesh),
             built: 0,
             pending: Vec::new(),
             meshes: Meshes::default(),
@@ -239,23 +236,21 @@ impl Hearth {
     }
 
     /// Builds what is left to build, and moves and lights the mascot.
-    pub fn update(
-        &mut self,
-        ctx: &Ctx,
-        dt: f32,
-        upload: &mut Upload,
-    ) {
-        self.hand_over(ctx, upload);
+    pub fn update(&mut self, ctx: &Ctx, dt: f32, draw: &mut Draw) {
+        self.hand_over(ctx, draw);
         let now = ctx.clock;
         let candle = ctx.sky.look.candle;
         if self.candle != Some(candle) {
             let warm =
                 ctx.pal.wicks[0] * self.set.lantern_light * candle;
-            self.glass_look.set(Pbr {
-                emissive: rgba(warm),
-                roughness: 0.4,
-                ..Pbr::colored(rgba(ctx.pal.glass_lit))
-            });
+            draw.set_material(
+                &self.glass_look,
+                Pbr {
+                    emissive: rgba(warm),
+                    roughness: 0.4,
+                    ..Pbr::colored(rgba(ctx.pal.glass_lit))
+                },
+            );
             self.candle = Some(candle);
         }
         let about = Whereabouts {
@@ -273,17 +268,23 @@ impl Hearth {
                 ctx.floor,
                 now,
                 end.arrives,
+                draw,
             );
         }
         if self.charm.playing() {
-            self.charm.play(&self.set, now, upload);
+            self.charm.play(&self.set, now, draw);
         }
         let pose = self.mascot.pose(&self.set, now);
-        self.rig.place(&pose, self.set.size, self.look.hat.crest());
+        self.rig.place(
+            &pose,
+            self.set.size,
+            self.look.hat.crest(),
+            draw,
+        );
         let stood = Frame::at(self.mascot.at)
             .with_turn(Quat::from_rotation_y(self.mascot.yaw));
         if self.stood != Some(stood) {
-            self.rig.root.set_transform(stood.scene());
+            draw.place(self.rig.root, stood);
             self.stood = Some(stood);
         }
         // The lamp flares as the mascot arrives.
@@ -297,7 +298,12 @@ impl Hearth {
         };
         let lumens = self.set.lamp * (0.25 + 0.75 * candle) * flare;
         if self.lumens != Some(lumens) {
-            self.rig.light(self.light, lumens, self.set.lamp_range);
+            self.rig.light(
+                self.light,
+                lumens,
+                self.set.lamp_range,
+                draw,
+            );
             self.lumens = Some(lumens);
         }
     }
@@ -310,9 +316,10 @@ impl Hearth {
         step: usize,
         land: &Land,
         pal: &Palette,
+        draw: &mut Draw,
     ) -> Option<Vec<(Slot, MeshData)>> {
         match step {
-            0 => Some(self.build_place(land, pal)),
+            0 => Some(self.build_place(land, pal, draw)),
             1 => Some(
                 parts(pal, self.look)
                     .each()
@@ -332,6 +339,7 @@ impl Hearth {
         &self,
         land: &Land,
         pal: &Palette,
+        draw: &mut Draw,
     ) -> Vec<(Slot, MeshData)> {
         let floor = self.frame.at.y;
         let frame = self.frame;
@@ -345,18 +353,16 @@ impl Hearth {
             land.surface(at.xz()) - floor
         });
         let (orb_at, orb_size) = lights.orb;
-        self.orb.set_transform(
-            Frame::at(orb_at)
-                .with_size(Vec3::splat(orb_size))
-                .scene(),
+        draw.place(
+            self.orb,
+            Frame::at(orb_at).with_size(Vec3::splat(orb_size)),
         );
         let (ring_at, ring_size) = lights.ring;
-        self.ring.set_transform(
-            Frame::at(ring_at)
-                .with_size(Vec3::splat(ring_size))
-                .scene(),
+        draw.place(
+            self.ring,
+            Frame::at(ring_at).with_size(Vec3::splat(ring_size)),
         );
-        self.glass.set_transform(Frame::at(lights.lantern).scene());
+        draw.place(self.glass, Frame::at(lights.lantern));
         let mut out = vec![
             (Slot::Body, body.data()),
             (Slot::Panes, panes.data()),
@@ -364,10 +370,9 @@ impl Hearth {
             (Slot::Glass, lantern_glass(0.1, 0.24).data()),
         ];
         for (i, tree) in trees.iter().enumerate() {
-            self.trees[i].set_transform(
-                Frame::at(tree.at)
-                    .with_size(Vec3::splat(tree.scale))
-                    .scene(),
+            draw.place(
+                self.trees[i],
+                Frame::at(tree.at).with_size(Vec3::splat(tree.scale)),
             );
             out.push((
                 Slot::Tree(i),
@@ -379,11 +384,11 @@ impl Hearth {
 
     /// Builds what meshes the call has room for, a step at a time,
     /// hands them over, and draws each with what it is for.
-    fn hand_over(&mut self, ctx: &Ctx, upload: &mut Upload) {
-        while upload.left() {
+    fn hand_over(&mut self, ctx: &Ctx, draw: &mut Draw) {
+        while draw.left() {
             if self.pending.is_empty() {
                 let Some(built) =
-                    self.build(self.built, ctx.land, ctx.pal)
+                    self.build(self.built, ctx.land, ctx.pal, draw)
                 else {
                     break;
                 };
@@ -393,14 +398,14 @@ impl Hearth {
             }
             let pending = &mut self.pending;
             let (slot, data) = pending.remove(0);
-            let mesh = match upload.mesh(data) {
+            let mesh = match draw.mesh(data) {
                 Ok(mesh) => mesh,
                 Err(Unsent::Full(data)) => {
                     pending.insert(0, (slot, data));
                     break;
                 }
                 Err(Unsent::Refused(why)) => {
-                    hamlet_engine_sdk::warn(&format!(
+                    hamlet_engine_bevy::warn(&format!(
                         "the Hearth: {why}"
                     ));
                     continue;
@@ -408,25 +413,24 @@ impl Hearth {
             };
             let stock = ctx.stock;
             match slot {
-                Slot::Body => self.place.draw(&mesh, &stock.matte),
-                Slot::Panes => self.panes.draw(&mesh, &stock.windows),
-                Slot::Ring => self.ring.draw(&mesh, &self.ring_look),
+                Slot::Body => {
+                    draw.draw(self.place, &mesh, &stock.matte)
+                }
+                Slot::Panes => {
+                    draw.draw(self.panes, &mesh, &stock.windows)
+                }
+                Slot::Ring => {
+                    draw.draw(self.ring, &mesh, &self.ring_look)
+                }
                 Slot::Glass => {
-                    self.glass.draw(&mesh, &self.glass_look)
+                    draw.draw(self.glass, &mesh, &self.glass_look)
                 }
                 Slot::Tree(i) => {
-                    self.trees[i].draw(&mesh, &stock.matte)
+                    draw.draw(self.trees[i], &mesh, &stock.matte)
                 }
-                Slot::Part(i) => {
-                    self.meshes.parts[i] = Some(mesh);
-                    continue;
-                }
-                Slot::Wick => {
-                    self.meshes.wick = Some(mesh);
-                    continue;
-                }
+                Slot::Part(i) => self.meshes.parts[i] = Some(mesh),
+                Slot::Wick => self.meshes.wick = Some(mesh),
             }
-            self.meshes.place.push(mesh);
         }
         // The mascot is dressed once all of its meshes are there.
         let meshes = &mut self.meshes;
@@ -439,6 +443,7 @@ impl Hearth {
                 &parts,
                 &ctx.stock.matte,
                 (wick, &self.flame),
+                draw,
             );
             meshes.dressed = true;
         }

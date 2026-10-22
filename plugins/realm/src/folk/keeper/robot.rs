@@ -6,7 +6,7 @@
 use std::f32::consts::PI;
 
 use glam::{EulerRot, Quat, Vec3, Vec3Swizzles};
-use hamlet_engine_sdk::api::agents::Doing;
+use hamlet_engine_bevy::api::agents::Doing;
 
 use crate::build::frame::Frame;
 use crate::folk::keeper::acts::Act;

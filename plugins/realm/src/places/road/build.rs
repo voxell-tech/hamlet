@@ -3,10 +3,11 @@
 //! their pieces handed to the engine.
 
 use glam::Vec3Swizzles;
-use hamlet_engine_sdk::scene::{Mesh, MeshData};
+use hamlet_engine_bevy::prelude::Handle;
+use hamlet_engine_bevy::scene::{Mesh, MeshData};
 
 use crate::build::mesh::Line;
-use crate::build::upload::{Unsent, Upload};
+use crate::build::upload::{Draw, Unsent};
 use crate::places::road::mesh::{self, Rows, Span, Stretch};
 use crate::realm::Ctx;
 use crate::society::RoadLevel;
@@ -68,16 +69,16 @@ enum Stage {
         route: Route,
         span: Option<Span>,
         bridge: bool,
-        surface: (Vec<MeshData>, Vec<Mesh>),
-        groove: (Vec<MeshData>, Vec<Mesh>),
+        surface: (Vec<MeshData>, Vec<Handle<Mesh>>),
+        groove: (Vec<MeshData>, Vec<Handle<Mesh>>),
     },
 }
 
 /// A road whose meshes the engine holds.
 pub(super) struct Built {
     pub route: Route,
-    pub surface: Vec<Mesh>,
-    pub groove: Vec<Mesh>,
+    pub surface: Vec<Handle<Mesh>>,
+    pub groove: Vec<Handle<Mesh>>,
     /// Its bridges, for the roads that meet them.
     pub span: Option<Span>,
     /// True when any of it stands high enough to throw a shadow.
@@ -110,7 +111,7 @@ impl Build {
     pub(super) fn step(
         &mut self,
         ctx: &Ctx,
-        upload: &mut Upload,
+        draw: &mut Draw,
     ) -> Result<Option<Built>, String> {
         let land = ctx.land;
         let (a, b) = self.ends;
@@ -240,7 +241,7 @@ impl Build {
                     &mut surface
                 };
                 if let Some(data) = waiting.0.pop() {
-                    match upload.mesh(data) {
+                    match draw.mesh(data) {
                         Ok(made) => waiting.1.push(made),
                         Err(Unsent::Full(data)) => {
                             waiting.0.push(data)

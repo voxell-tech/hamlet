@@ -1,11 +1,11 @@
 //! The entities a wizard is drawn with, and how a pose places them.
 
 use glam::{Quat, Vec3};
-use hamlet_engine_sdk::scene::{
-    Entity, Light, Material, Mesh, PointLight,
-};
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::scene::{Light, Material, Mesh, PointLight};
 
 use crate::build::frame::Frame;
+use crate::build::upload::Draw;
 use crate::folk::chief::mascot::{HEAD, Pose};
 
 /// The parts a pose places, in the order of [`Rig::placed`].
@@ -36,20 +36,20 @@ pub struct Rig {
 impl Rig {
     /// The parts, with no meshes yet, each answering the pointer as
     /// `key`.
-    pub fn make(key: u32) -> Result<Self, String> {
-        let root = Entity::make(None, key)?;
-        let part = |parent: &Entity| Entity::make(Some(parent), key);
-        let figure = part(&root)?;
-        let cloak = part(&figure)?;
-        let head = part(&figure)?;
-        let (eyes, hat) = (part(&head)?, part(&head)?);
-        let hands = [part(&figure)?, part(&figure)?];
-        let feet = [part(&figure)?, part(&figure)?];
-        let item = part(&hands[1])?;
-        let letter = part(&figure)?;
-        let wick = part(&root)?;
-        wick.set_shadows(false, true);
-        let lamp = part(&root)?;
+    pub fn make(key: u32, draw: &mut Draw) -> Self {
+        let root = draw.spawn(None, key);
+        let mut part = |parent: Entity| draw.spawn(Some(parent), key);
+        let figure = part(root);
+        let cloak = part(figure);
+        let head = part(figure);
+        let (eyes, hat) = (part(head), part(head));
+        let hands = [part(figure), part(figure)];
+        let feet = [part(figure), part(figure)];
+        let item = part(hands[1]);
+        let letter = part(figure);
+        let wick = part(root);
+        let lamp = part(root);
+        draw.shadows(wick, false, true);
         let rig = Self {
             root,
             figure,
@@ -67,26 +67,35 @@ impl Rig {
             seen: true,
         };
         for (part, _) in rig.dressed() {
-            part.watch(true, true);
+            draw.watch(part);
         }
-        Ok(rig)
+        rig
+    }
+
+    /// The parent of the figure's parts, which takes its squash.
+    pub fn figure(&self) -> Entity {
+        self.figure
+    }
+
+    pub fn head(&self) -> Entity {
+        self.head
     }
 
     /// Each part that has a mesh of `Parts`, in the order of
     /// `Parts::each`. The two hands share one and the two feet
     /// another.
-    pub fn dressed(&self) -> [(&Entity, usize); 10] {
+    pub fn dressed(&self) -> [(Entity, usize); 10] {
         [
-            (&self.cloak, 0),
-            (&self.head, 1),
-            (&self.eyes, 2),
-            (&self.hat, 3),
-            (&self.hands[0], 4),
-            (&self.hands[1], 4),
-            (&self.feet[0], 5),
-            (&self.feet[1], 5),
-            (&self.item, 6),
-            (&self.letter, 7),
+            (self.cloak, 0),
+            (self.head, 1),
+            (self.eyes, 2),
+            (self.hat, 3),
+            (self.hands[0], 4),
+            (self.hands[1], 4),
+            (self.feet[0], 5),
+            (self.feet[1], 5),
+            (self.item, 6),
+            (self.letter, 7),
         ]
     }
 
@@ -94,54 +103,69 @@ impl Rig {
     /// `Parts::each`, and the wick its flame.
     pub fn dress(
         &self,
-        meshes: &[&Mesh],
-        matte: &Material,
-        flame: (&Mesh, &Material),
+        meshes: &[&Handle<Mesh>],
+        matte: &Handle<Material>,
+        flame: (&Handle<Mesh>, &Handle<Material>),
+        draw: &mut Draw,
     ) {
         for (part, which) in self.dressed() {
-            part.draw(meshes[which], matte);
+            draw.draw(part, meshes[which], matte);
         }
-        self.wick.draw(flame.0, flame.1);
+        draw.draw(self.wick, flame.0, flame.1);
     }
 
     /// Makes the lamp the light of the wick, of `colour`, `lumens`
     /// bright and reaching `range`.
-    pub fn light(&self, colour: Vec3, lumens: f32, range: f32) {
-        let _ = self.lamp.set_light(Some(Light::Point(PointLight {
-            color: (colour.x, colour.y, colour.z, 1.0),
-            intensity: lumens,
-            range,
-            radius: 0.05,
-            shadows: false,
-        })));
+    pub fn light(
+        &self,
+        colour: Vec3,
+        lumens: f32,
+        range: f32,
+        draw: &mut Draw,
+    ) {
+        draw.commands.entity(self.lamp).insert(SceneLight(
+            Light::Point(PointLight {
+                color: (colour.x, colour.y, colour.z, 1.0),
+                intensity: lumens,
+                range,
+                radius: 0.05,
+                shadows: false,
+            }),
+        ));
     }
 
     /// The parts a pose places, in the order of `placed`.
-    fn parts(&self) -> [&Entity; PLACED] {
+    fn parts(&self) -> [Entity; PLACED] {
         [
-            &self.figure,
-            &self.head,
-            &self.eyes,
-            &self.hat,
-            &self.hands[0],
-            &self.hands[1],
-            &self.feet[0],
-            &self.feet[1],
-            &self.item,
-            &self.letter,
-            &self.wick,
-            &self.lamp,
+            self.figure,
+            self.head,
+            self.eyes,
+            self.hat,
+            self.hands[0],
+            self.hands[1],
+            self.feet[0],
+            self.feet[1],
+            self.item,
+            self.letter,
+            self.wick,
+            self.lamp,
         ]
     }
 
     /// Puts every part where `pose` has it, at `size` times the
     /// size it is built at, with the wick over `crest`. A part is
     /// moved only when its frame changed.
-    pub fn place(&mut self, pose: &Pose, size: f32, crest: Vec3) {
+    pub fn place(
+        &mut self,
+        pose: &Pose,
+        size: f32,
+        crest: Vec3,
+        draw: &mut Draw,
+    ) {
         // A figure drawn up to nothing is not drawn at all.
         let seen = pose.girth >= 0.02;
         if seen != self.seen {
-            self.figure.set_visible(seen);
+            draw.show(self.figure, seen);
             self.seen = seen;
         }
         let girth = pose.girth.max(0.02);
@@ -188,9 +212,10 @@ impl Rig {
             // so that it falls on the face.
             Frame::at(Vec3::new(0.0, size, 0.55 * size)),
         ];
+        let parts = self.parts();
         for (i, frame) in frames.into_iter().enumerate() {
             if self.placed[i] != Some(frame) {
-                self.parts()[i].set_transform(frame.scene());
+                draw.place(parts[i], frame);
                 self.placed[i] = Some(frame);
             }
         }

@@ -4,10 +4,11 @@
 use std::f32::consts::TAU;
 
 use glam::{Affine3A, Vec3};
-use hamlet_engine_sdk::scene::{Mesh, MeshData};
+use hamlet_engine_bevy::prelude::Handle;
+use hamlet_engine_bevy::scene::{Mesh, MeshData};
 
 use crate::build::mesh::Mb;
-use crate::build::upload::{Unsent, Upload};
+use crate::build::upload::{Draw, Unsent};
 use crate::places::house::{self, Remains, TownStyle};
 use crate::places::yard::Yard;
 use crate::society::AgentId;
@@ -117,15 +118,15 @@ pub struct Built {
 /// A mesh as it is handed over.
 pub enum Handed {
     Waiting(MeshData),
-    There(Mesh),
+    There(Handle<Mesh>),
     /// The engine refused it: nothing is drawn.
     Refused,
 }
 
 impl Handed {
-    /// Hands the mesh over if it waits, within `upload`. True once
-    /// it is there or refused.
-    fn hand(&mut self, upload: &mut Upload) -> bool {
+    /// Hands the mesh over if it waits and the call has room. True
+    /// once it is there or refused.
+    fn hand(&mut self, draw: &mut Draw) -> bool {
         let Self::Waiting(_) = self else {
             return true;
         };
@@ -134,7 +135,7 @@ impl Handed {
         else {
             return true;
         };
-        match upload.mesh(data) {
+        match draw.mesh(data) {
             Ok(mesh) => {
                 *self = Self::There(mesh);
                 true
@@ -144,14 +145,14 @@ impl Handed {
                 false
             }
             Err(Unsent::Refused(why)) => {
-                hamlet_engine_sdk::warn(&format!("a house: {why}"));
+                hamlet_engine_bevy::warn(&format!("a house: {why}"));
                 true
             }
         }
     }
 
     /// The mesh, once it is there.
-    pub fn mesh(&self) -> Option<&Mesh> {
+    pub fn mesh(&self) -> Option<&Handle<Mesh>> {
         match self {
             Self::There(mesh) => Some(mesh),
             _ => None,
@@ -206,13 +207,13 @@ impl Built {
         }
     }
 
-    /// Hands over what waits, within `upload`. True once all of it
-    /// is there or refused.
-    pub fn hand(&mut self, upload: &mut Upload) -> bool {
-        self.body.hand(upload)
+    /// Hands over what waits, while the call has room. True once all
+    /// of it is there or refused.
+    pub fn hand(&mut self, draw: &mut Draw) -> bool {
+        self.body.hand(draw)
             && self
                 .fittings
                 .as_mut()
-                .is_none_or(|(panes, _)| panes.hand(upload))
+                .is_none_or(|(panes, _)| panes.hand(draw))
     }
 }

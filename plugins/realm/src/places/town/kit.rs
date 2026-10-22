@@ -2,10 +2,11 @@
 //! engine's wheel and its steam, the glass of a lantern and the trees
 //! of the gardens, each handed to the engine once.
 
-use hamlet_engine_sdk::scene::{Mesh, MeshData};
+use hamlet_engine_bevy::prelude::Handle;
+use hamlet_engine_bevy::scene::{Mesh, MeshData};
 
 use crate::build::mesh::Mb;
-use crate::build::upload::{Unsent, Upload};
+use crate::build::upload::{Draw, Unsent};
 use crate::places::lantern::lantern_glass;
 use crate::places::yard::{self, YardSettings};
 use crate::world::flora;
@@ -66,7 +67,7 @@ impl Part {
 /// The shared meshes, built and handed over a few at a time. A part
 /// the engine refused has none.
 pub struct Kit {
-    meshes: Vec<Option<Mesh>>,
+    meshes: Vec<Option<Handle<Mesh>>>,
     /// Parts built so far, and the last one built while it waits for
     /// room to be handed over.
     made: usize,
@@ -82,29 +83,29 @@ impl Kit {
         }
     }
 
-    /// Builds and hands over what is missing, within `upload`. True
-    /// once every part is done.
+    /// Builds and hands over what is missing, while the call has
+    /// room. True once every part is done.
     pub fn fill(
         &mut self,
         pal: &Palette,
         yard: &YardSettings,
-        upload: &mut Upload,
+        draw: &mut Draw,
     ) -> bool {
         while self.made < Part::ALL {
-            if !upload.left() {
+            if !draw.left() {
                 return false;
             }
             let data = self.waiting.take().unwrap_or_else(|| {
                 Part::of(self.made).build(pal, yard).data()
             });
-            match upload.mesh(data) {
+            match draw.mesh(data) {
                 Ok(mesh) => self.meshes[self.made] = Some(mesh),
                 Err(Unsent::Full(data)) => {
                     self.waiting = Some(data);
                     return false;
                 }
                 Err(Unsent::Refused(why)) => {
-                    hamlet_engine_sdk::warn(&format!(
+                    hamlet_engine_bevy::warn(&format!(
                         "a town's kit: {why}"
                     ));
                 }
@@ -115,7 +116,7 @@ impl Kit {
     }
 
     /// The mesh of `part`, once it is there.
-    pub fn get(&self, part: Part) -> Option<&Mesh> {
+    pub fn get(&self, part: Part) -> Option<&Handle<Mesh>> {
         self.meshes[part.index()].as_ref()
     }
 }

@@ -15,7 +15,7 @@ crate-type = ["cdylib"]
 too_many_arguments = "allow"
 
 [dependencies]
-hamlet_engine_sdk.workspace = true
+hamlet_engine_bevy.workspace = true
 glam = { version = "0.32", features = ["serde"] }
-serde = { version = "1", features = ["derive"] }
+serde.workspace = true
 toml = "1"

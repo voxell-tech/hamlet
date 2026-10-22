@@ -5,9 +5,10 @@
 use std::f32::consts::{PI, TAU};
 
 use glam::{Affine3A, EulerRot, Quat, Vec2, Vec3};
-use hamlet_engine_sdk::scene::{Mesh, MeshData};
+use hamlet_engine_bevy::prelude::Handle;
+use hamlet_engine_bevy::scene::{Mesh, MeshData};
 
-use crate::build::upload::{Unsent, Upload};
+use crate::build::upload::{Draw, Unsent};
 
 /// A deterministic generator seeded from a thing's stable name.
 pub struct Rng(u64);
@@ -496,9 +497,12 @@ impl Mb {
         }
     }
 
-    /// Hands the mesh to the engine within `upload`.
-    pub fn upload(self, upload: &mut Upload) -> Result<Mesh, Unsent> {
-        upload.mesh(self.data())
+    /// Hands the mesh to the engine within what the call may spend.
+    pub fn upload(
+        self,
+        draw: &mut Draw,
+    ) -> Result<Handle<Mesh>, Unsent> {
+        draw.mesh(self.data())
     }
 }
 

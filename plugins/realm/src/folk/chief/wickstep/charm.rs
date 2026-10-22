@@ -4,13 +4,13 @@
 use std::f32::consts::{PI, TAU};
 
 use glam::Vec3;
-use hamlet_engine_sdk::scene::gpu::Shader;
-use hamlet_engine_sdk::scene::{Entity, Material, Mesh, Shape};
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::scene::{Material, Mesh, Shader, Shape};
 
 use crate::build::frame::Frame;
 use crate::build::mark::{Mark, Shape as Outline};
 use crate::build::mesh::smoothstep;
-use crate::build::upload::Upload;
+use crate::build::upload::Draw;
 use crate::folk::chief::ChiefSettings;
 use crate::folk::keeper::Floor;
 
@@ -61,7 +61,6 @@ struct MotePlay {
 pub struct Charm {
     runes: [Rune; 2],
     motes: Vec<Mote>,
-    _mote: Mesh,
 }
 
 impl Charm {
@@ -69,38 +68,36 @@ impl Charm {
     /// a Wickstep take, drawn with `flame`, none shown.
     pub fn make(
         set: &ChiefSettings,
-        flame: &Material,
-        marks: &Shader,
+        flame: &Handle<Material>,
+        marks: &Handle<Shader>,
+        draw: &mut Draw,
     ) -> Result<Self, String> {
-        let rune =
+        let mut rune =
             |shape: Outline, turn: f32| -> Result<Rune, String> {
                 Ok(Rune {
-                    mark: Mark::make(0, marks, shape)?,
+                    mark: Mark::make(0, marks, shape, draw)?,
                     turn,
                     playing: None,
                 })
             };
-        let mote = Mesh::shape(Shape::Sphere(1.0))?;
+        let runes = [
+            rune(Outline::RING, 1.2)?,
+            rune(Outline::DIAMOND, -2.0)?,
+        ];
+        let mote = draw.assets.add(Mesh::shape(Shape::Sphere(1.0))?);
         let motes = (0..set.motes * 2)
             .map(|_| {
-                let entity = Entity::make(None, 0)?;
-                entity.set_visible(false);
-                entity.set_shadows(false, false);
-                entity.draw(&mote, flame);
-                Ok(Mote {
+                let entity = draw.spawn(None, 0);
+                draw.show(entity, false);
+                draw.shadows(entity, false, false);
+                draw.draw(entity, &mote, flame);
+                Mote {
                     entity,
                     playing: None,
-                })
+                }
             })
-            .collect::<Result<Vec<_>, String>>()?;
-        Ok(Self {
-            runes: [
-                rune(Outline::RING, 1.2)?,
-                rune(Outline::DIAMOND, -2.0)?,
-            ],
-            motes,
-            _mote: mote,
-        })
+            .collect();
+        Ok(Self { runes, motes })
     }
 
     /// The circle and the motes of one end of a Wickstep, at
@@ -113,6 +110,7 @@ impl Charm {
         floor: &Floor,
         now: f32,
         arrives: bool,
+        draw: &mut Draw,
     ) {
         let long = if arrives {
             set.in_time * 1.5
@@ -128,8 +126,8 @@ impl Charm {
                 light: light * set.rune_light,
                 at,
             });
-            rune.mark.settle(at, set.rune_radius * 1.1, floor);
-            rune.mark.show(true);
+            rune.mark.settle(at, set.rune_radius * 1.1, floor, draw);
+            rune.mark.show(true, draw);
         }
         let free =
             self.motes.iter_mut().filter(|m| m.playing.is_none());
@@ -147,10 +145,11 @@ impl Charm {
                 own,
                 bursts: arrives,
             });
-            mote.entity.set_transform(
-                Frame::at(from).with_size(Vec3::ZERO).scene(),
+            draw.place(
+                mote.entity,
+                Frame::at(from).with_size(Vec3::ZERO),
             );
-            mote.entity.set_visible(true);
+            draw.show(mote.entity, true);
         }
     }
 
@@ -161,22 +160,22 @@ impl Charm {
     }
 
     /// Plays the circles and the motes, and hides each at its end.
-    /// The ground under a circle is handed over within `upload`.
+    /// The ground under a circle is handed over as the call has room.
     pub fn play(
         &mut self,
         set: &ChiefSettings,
         now: f32,
-        upload: &mut Upload,
+        draw: &mut Draw,
     ) {
         for rune in &mut self.runes {
-            rune.mark.hand_over(upload);
+            rune.mark.hand_over(draw);
             let Some(play) = rune.playing else {
                 continue;
             };
             let u = (now - play.began) / play.long;
             if u >= 1.0 {
                 rune.playing = None;
-                rune.mark.show(false);
+                rune.mark.show(false, draw);
                 continue;
             }
             let u = u.max(0.0);
@@ -196,8 +195,13 @@ impl Charm {
                 play.at,
                 (set.rune_radius * reach).max(1e-3),
                 u * rune.turn,
+                draw,
             );
-            rune.mark.shine(play.light, fade * (u * 8.0).min(1.0));
+            rune.mark.shine(
+                play.light,
+                fade * (u * 8.0).min(1.0),
+                draw,
+            );
         }
         for mote in &mut self.motes {
             let Some(play) = mote.playing else {
@@ -209,7 +213,7 @@ impl Charm {
                 (now - play.began - wait) / (set.mote_time - wait);
             if u >= 1.0 {
                 mote.playing = None;
-                mote.entity.set_visible(false);
+                draw.show(mote.entity, false);
                 continue;
             }
             if u < 0.0 {
@@ -251,8 +255,9 @@ impl Charm {
                         * 0.8,
                 )
             };
-            mote.entity.set_transform(
-                Frame::at(at).with_size(Vec3::splat(size)).scene(),
+            draw.place(
+                mote.entity,
+                Frame::at(at).with_size(Vec3::splat(size)),
             );
         }
     }

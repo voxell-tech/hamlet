@@ -3,13 +3,13 @@
 //! it and never on what stands there.
 
 use glam::{Quat, Vec2, Vec3, Vec3Swizzles};
-use hamlet_engine_sdk::scene::gpu::{
-    Buffer, Shader, ShaderKind, set_params, shaded_decal,
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::scene::{
+    AlphaMode, Buffer, Material, Shader, ShaderKind,
 };
-use hamlet_engine_sdk::scene::{AlphaMode, Entity, Material};
 
 use crate::build::frame::Frame;
-use crate::build::upload::Upload;
+use crate::build::upload::Draw;
 use crate::folk::keeper::Floor;
 
 /// Points along each side of the heights a mark is laid with.
@@ -28,8 +28,12 @@ const TALL: f32 = 2.5;
 const BAND_OUTER: f32 = 0.985;
 
 /// The shader every mark is drawn by.
-pub fn shader() -> Result<Shader, String> {
-    Shader::compile(ShaderKind::Decal, include_str!("mark.wgsl"))
+pub fn shader(draw: &mut Draw) -> Result<Handle<Shader>, String> {
+    let shader = Shader::compile(
+        ShaderKind::Decal,
+        include_str!("mark.wgsl"),
+    )?;
+    Ok(draw.assets.add(shader))
 }
 
 /// The outline a mark draws.
@@ -68,8 +72,8 @@ impl Shape {
 /// heights of the ground it is laid on.
 pub struct Mark {
     entity: Entity,
-    material: Material,
-    heights: Buffer,
+    material: Handle<Material>,
+    heights: Handle<Buffer>,
     params: [f32; 16],
     /// The middle of the ground its heights are of, and how far they
     /// reach to each side.
@@ -86,23 +90,27 @@ impl Mark {
     /// `shader`, not shown.
     pub fn make(
         key: u32,
-        shader: &Shader,
+        shader: &Handle<Shader>,
         shape: Shape,
+        draw: &mut Draw,
     ) -> Result<Self, String> {
-        let entity = Entity::make(None, key)?;
-        entity.set_visible(false);
-        let heights = Buffer::make((SIDE * SIDE * 4) as u32)?;
+        let heights =
+            draw.assets.add(Buffer::make((SIDE * SIDE * 4) as u32)?);
         let mut params = [0.0; 16];
         params[12] = SIDE as f32;
         params[8..12].copy_from_slice(&shape_params(shape));
-        let material = shaded_decal(
+        let material = draw.assets.add_shaded_decal(
             shader,
             AlphaMode::Add,
             &params,
             None,
             Some(&heights),
         )?;
-        entity.draw_decal(&material);
+        let entity = draw.spawn(None, key);
+        draw.show(entity, false);
+        draw.commands
+            .entity(entity)
+            .insert((ForwardDecal, MeshMaterial3d(material.clone())));
         Ok(Self {
             entity,
             material,
@@ -117,32 +125,38 @@ impl Mark {
 
     /// Lays it at `at`, `radius` from its middle to the sides of its
     /// square, turned by `turn` about the upright.
-    pub fn lay(&self, at: Vec3, radius: f32, turn: f32) {
-        self.entity.set_transform(
+    pub fn lay(
+        &self,
+        at: Vec3,
+        radius: f32,
+        turn: f32,
+        draw: &mut Draw,
+    ) {
+        draw.place(
+            self.entity,
             Frame::at(at)
                 .with_turn(Quat::from_rotation_y(turn))
                 .with_size(Vec3::new(
                     radius * 2.0,
                     TALL + radius,
                     radius * 2.0,
-                ))
-                .scene(),
+                )),
         );
     }
 
     /// Has it draw `shape`.
-    pub fn shape(&mut self, shape: Shape) {
-        self.set(8, shape_params(shape));
+    pub fn shape(&mut self, shape: Shape, draw: &Draw) {
+        self.set(8, shape_params(shape), draw);
     }
 
     /// Has it shine `light`, in linear RGB, `strength` strong.
-    pub fn shine(&mut self, light: Vec3, strength: f32) {
-        self.set(0, light.extend(strength).to_array());
+    pub fn shine(&mut self, light: Vec3, strength: f32, draw: &Draw) {
+        self.set(0, light.extend(strength).to_array(), draw);
     }
 
-    pub fn show(&mut self, shown: bool) {
+    pub fn show(&mut self, shown: bool, draw: &mut Draw) {
         self.wanted = shown;
-        self.reveal();
+        self.reveal(draw);
     }
 
     /// True when the ground it has, or waits for, reaches `reach`
@@ -162,7 +176,13 @@ impl Mark {
     /// Looks up the ground about `at`, `half` to each side, on
     /// `floor`, to be handed over with [`Self::hand_over`]. Until it
     /// is, the mark is not shown.
-    pub fn settle(&mut self, at: Vec3, half: f32, floor: &Floor) {
+    pub fn settle(
+        &mut self,
+        at: Vec3,
+        half: f32,
+        floor: &Floor,
+        draw: &mut Draw,
+    ) {
         let middle = at.xz();
         let mut near = floor.near(middle, half);
         let mut bytes = Vec::with_capacity(SIDE * SIDE * 4);
@@ -179,48 +199,50 @@ impl Mark {
         }
         self.waiting =
             Some((bytes, [middle.x, middle.y, half, at.y]));
-        self.reveal();
+        self.reveal(draw);
     }
 
     /// Hands over the heights it waits for, if the call has room for
     /// them.
-    pub fn hand_over(&mut self, upload: &mut Upload) {
+    pub fn hand_over(&mut self, draw: &mut Draw) {
         let Some((bytes, field)) = &self.waiting else {
             return;
         };
-        match upload.write(&self.heights, bytes) {
+        match draw.write(&self.heights, bytes) {
             Ok(true) => {}
             Ok(false) => return,
             Err(why) => {
-                hamlet_engine_sdk::warn(&format!("a mark: {why}"));
+                hamlet_engine_bevy::warn(&format!("a mark: {why}"));
                 return;
             }
         }
         let field = *field;
         self.ground = Some((Vec2::new(field[0], field[1]), field[2]));
         self.waiting = None;
-        self.set(4, field);
-        self.reveal();
+        self.set(4, field, draw);
+        self.reveal(draw);
     }
 
     /// Sets the four params from `at`.
-    fn set(&mut self, at: usize, four: [f32; 4]) {
+    fn set(&mut self, at: usize, four: [f32; 4], draw: &Draw) {
         if self.params[at..at + 4] == four {
             return;
         }
         self.params[at..at + 4].copy_from_slice(&four);
-        if let Err(why) = set_params(&self.material, &self.params) {
-            hamlet_engine_sdk::warn(&format!("a mark: {why}"));
+        if let Err(why) =
+            draw.assets.set_params(&self.material, &self.params)
+        {
+            hamlet_engine_bevy::warn(&format!("a mark: {why}"));
         }
     }
 
     /// Shows it while it is wanted and has its ground.
-    fn reveal(&mut self) {
+    fn reveal(&mut self, draw: &mut Draw) {
         let shown = self.wanted
             && self.waiting.is_none()
             && self.ground.is_some();
         if shown != self.shown {
-            self.entity.set_visible(shown);
+            draw.show(self.entity, shown);
             self.shown = shown;
         }
     }

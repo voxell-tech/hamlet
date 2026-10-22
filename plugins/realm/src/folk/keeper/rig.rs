@@ -5,10 +5,12 @@
 use std::f32::consts::TAU;
 
 use glam::Vec3;
-use hamlet_engine_sdk::scene::{Entity, Material, Mesh, Pbr};
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::scene::{Material, Mesh, Pbr};
 
 use crate::build::frame::Frame;
 use crate::build::stock::{Stock, rgba};
+use crate::build::upload::Draw;
 use crate::folk::keeper::acts::{self, Act, Quirk};
 use crate::folk::keeper::kit::Kit;
 use crate::folk::keeper::kit::body::{KEY_AT, LAMP_DROP};
@@ -107,10 +109,8 @@ pub(super) struct Rig {
     /// Where it stands in the realm.
     pub at: Frame,
     parts: Parts,
-    /// Entities no pose moves, kept so that they stay.
-    _held: Vec<Entity>,
     /// The material of both lanterns and the ring.
-    lit: Material,
+    lit: Handle<Material>,
     lit_as: Vec3,
     /// The prop shown, and whether each part that shows or hides is
     /// shown.
@@ -124,51 +124,51 @@ pub(super) struct Rig {
 /// A pivot carrying a part's meshes. The first mesh rides on the
 /// pivot itself, the second on a child of it.
 fn part(
-    parent: &Entity,
+    parent: Entity,
     key: u32,
     at: Vec3,
-    meshes: [(Option<&Mesh>, &Material); 2],
-    held: &mut Vec<Entity>,
-) -> Result<Entity, String> {
-    let pivot = Entity::make(Some(parent), key)?;
-    pivot.set_transform(Frame::at(at).scene());
+    meshes: [(Option<&Handle<Mesh>>, &Handle<Material>); 2],
+    draw: &mut Draw,
+) -> Entity {
+    let pivot = draw.spawn(Some(parent), key);
+    draw.place(pivot, Frame::at(at));
     let mut on_pivot = false;
     for (mesh, material) in meshes {
         let Some(mesh) = mesh else { continue };
         if on_pivot {
-            let child = Entity::make(Some(&pivot), key)?;
-            child.draw(mesh, material);
-            child.watch(true, true);
-            held.push(child);
+            let child = draw.spawn(Some(pivot), key);
+            draw.draw(child, mesh, material);
+            draw.watch(child);
         } else {
-            pivot.draw(mesh, material);
-            pivot.watch(true, true);
+            draw.draw(pivot, mesh, material);
+            draw.watch(pivot);
             on_pivot = true;
         }
     }
-    Ok(pivot)
+    pivot
 }
 
 /// An entity drawing `mesh` under `parent` at `at`, which casts no
 /// shadow when `shadowless`.
 fn piece(
-    parent: &Entity,
+    parent: Entity,
     key: u32,
     at: Vec3,
-    mesh: Option<&Mesh>,
-    material: &Material,
+    mesh: Option<&Handle<Mesh>>,
+    material: &Handle<Material>,
     shadowless: bool,
-) -> Result<Entity, String> {
-    let entity = Entity::make(Some(parent), key)?;
-    entity.set_transform(Frame::at(at).scene());
+    draw: &mut Draw,
+) -> Entity {
+    let entity = draw.spawn(Some(parent), key);
+    draw.place(entity, Frame::at(at));
     if let Some(mesh) = mesh {
-        entity.draw(mesh, material);
-        entity.watch(true, true);
+        draw.draw(entity, mesh, material);
+        draw.watch(entity);
     }
     if shadowless {
-        entity.set_shadows(false, true);
+        draw.shadows(entity, false, true);
     }
-    Ok(entity)
+    entity
 }
 
 impl Rig {
@@ -181,171 +181,203 @@ impl Rig {
         at: Frame,
         state: KState,
         key: u32,
+        draw: &mut Draw,
     ) -> Result<Self, String> {
-        let mut held = Vec::new();
-        let mesh = |at: usize| kit.mesh(at);
-        let (matte, brass) = (&stock.matte, &stock.brass);
-        let root = Entity::make(None, key)?;
-        root.set_transform(at.scene());
-        let rig = Entity::make(Some(&root), key)?;
-        rig.set_transform(
-            Frame::IDENTITY.with_size(Vec3::splat(who.size)).scene(),
-        );
-        let paint = &kit.paints[who.paint as usize];
-        let body = part(
-            &rig,
-            key,
-            Vec3::Y * HIP,
-            [(mesh(kit.torso.0), paint), (mesh(kit.torso.1), brass)],
-            &mut held,
-        )?;
-        let mut legs = Vec::new();
-        for x in [-0.11, 0.11] {
-            legs.push(part(
-                &rig,
-                key,
-                Vec3::new(x, HIP, 0.0),
-                [(mesh(kit.leg.0), matte), (mesh(kit.leg.1), brass)],
-                &mut held,
-            )?);
-        }
-        let axle = Pose::stand().place(1.0).axle;
-        let wheel_l = piece(
-            &legs[0],
-            key,
-            axle,
-            mesh(kit.wheels),
-            brass,
-            false,
-        )?;
-        let wheel_r = piece(
-            &legs[1],
-            key,
-            axle,
-            mesh(kit.wheels),
-            brass,
-            false,
-        )?;
-        let mut arms = Vec::new();
-        for side in [-1.0, 1.0] {
-            arms.push(part(
-                &body,
-                key,
-                SHOULDER * Vec3::new(side, 1.0, 1.0),
-                [(mesh(kit.arm.0), matte), (mesh(kit.arm.1), brass)],
-                &mut held,
-            )?);
-        }
-        held.push(piece(
-            &body,
-            key,
-            Vec3::ZERO,
-            mesh(kit.emblems[who.emblem as usize]),
-            matte,
-            true,
-        )?);
-        let key_part =
-            piece(&body, key, KEY_AT, mesh(kit.key), brass, false)?;
-        if who.leader {
-            held.push(piece(
-                &body,
-                key,
-                Vec3::ZERO,
-                mesh(kit.mantle),
-                matte,
-                false,
-            )?);
-        }
-        let head = piece(
-            &body,
-            key,
-            Vec3::Y * NECK,
-            mesh(kit.head),
-            brass,
-            false,
-        )?;
         // One material for both lanterns and the ring, so they show
         // the same state.
-        let lit = Material::make(Pbr {
+        let lit = draw.material(Pbr {
             roughness: 0.4,
             ..Pbr::colored(rgba(to_linear(Vec3::new(
                 0.2, 0.19, 0.17,
             ))))
         })?;
-        held.push(piece(
-            &head,
+        let mesh = |at: usize| kit.mesh(at);
+        let (matte, brass) = (&stock.matte, &stock.brass);
+        let root = draw.spawn(None, key);
+        draw.place(root, at);
+        let rig = draw.spawn(Some(root), key);
+        draw.place(
+            rig,
+            Frame::IDENTITY.with_size(Vec3::splat(who.size)),
+        );
+        let paint = &kit.paints[who.paint as usize];
+        let body = part(
+            rig,
+            key,
+            Vec3::Y * HIP,
+            [(mesh(kit.torso.0), paint), (mesh(kit.torso.1), brass)],
+            draw,
+        );
+        let mut legs = Vec::new();
+        for x in [-0.11, 0.11] {
+            legs.push(part(
+                rig,
+                key,
+                Vec3::new(x, HIP, 0.0),
+                [(mesh(kit.leg.0), matte), (mesh(kit.leg.1), brass)],
+                draw,
+            ));
+        }
+        let axle = Pose::stand().place(1.0).axle;
+        let wheel_l = piece(
+            legs[0],
+            key,
+            axle,
+            mesh(kit.wheels),
+            brass,
+            false,
+            draw,
+        );
+        let wheel_r = piece(
+            legs[1],
+            key,
+            axle,
+            mesh(kit.wheels),
+            brass,
+            false,
+            draw,
+        );
+        let mut arms = Vec::new();
+        for side in [-1.0, 1.0] {
+            arms.push(part(
+                body,
+                key,
+                SHOULDER * Vec3::new(side, 1.0, 1.0),
+                [(mesh(kit.arm.0), matte), (mesh(kit.arm.1), brass)],
+                draw,
+            ));
+        }
+        piece(
+            body,
+            key,
+            Vec3::ZERO,
+            mesh(kit.emblems[who.emblem as usize]),
+            matte,
+            true,
+            draw,
+        );
+        let key_part = piece(
+            body,
+            key,
+            KEY_AT,
+            mesh(kit.key),
+            brass,
+            false,
+            draw,
+        );
+        if who.leader {
+            piece(
+                body,
+                key,
+                Vec3::ZERO,
+                mesh(kit.mantle),
+                matte,
+                false,
+                draw,
+            );
+        }
+        let head = piece(
+            body,
+            key,
+            Vec3::Y * NECK,
+            mesh(kit.head),
+            brass,
+            false,
+            draw,
+        );
+        piece(
+            head,
             key,
             Vec3::Y * FACE,
             mesh(kit.glass),
             &lit,
             true,
-        )?);
+            draw,
+        );
         let eye_l = piece(
-            &head,
+            head,
             key,
             Vec3::Y * FACE,
             mesh(kit.eye),
             matte,
             true,
-        )?;
+            draw,
+        );
         let eye_r = piece(
-            &head,
+            head,
             key,
             Vec3::Y * FACE,
             mesh(kit.eye),
             matte,
             true,
-        )?;
+            draw,
+        );
         let worn = kit.hats[who.hat as usize];
         let hat = part(
-            &head,
+            head,
             key,
             Vec3::Y * HAT_AT,
             [(mesh(worn.0), paint), (mesh(worn.1), brass)],
-            &mut held,
-        )?;
-        let flag = if who.leader {
-            Some(piece(
-                &hat,
+            draw,
+        );
+        let flag = who.leader.then(|| {
+            piece(
+                hat,
                 key,
                 Vec3::Y * (SPIRE - 0.02),
                 mesh(kit.pennant),
                 matte,
                 false,
-            )?)
-        } else {
-            None
-        };
+                draw,
+            )
+        });
         let pole = part(
-            &rig,
+            rig,
             key,
             Pose::stand().pole_at,
             [(mesh(kit.pole.0), matte), (mesh(kit.pole.1), brass)],
-            &mut held,
-        )?;
-        let lamp =
-            piece(&pole, key, HOOK, mesh(kit.lamp), brass, false)?;
-        held.push(piece(
-            &lamp,
+            draw,
+        );
+        let lamp = piece(
+            pole,
+            key,
+            HOOK,
+            mesh(kit.lamp),
+            brass,
+            false,
+            draw,
+        );
+        piece(
+            lamp,
             key,
             LAMP_DROP,
             mesh(kit.lamp_glass),
             &lit,
             true,
-        )?);
-        let ring =
-            piece(&lamp, key, LAMP_DROP, mesh(kit.ring), &lit, true)?;
-        ring.set_visible(false);
+            draw,
+        );
+        let ring = piece(
+            lamp,
+            key,
+            LAMP_DROP,
+            mesh(kit.ring),
+            &lit,
+            true,
+            draw,
+        );
+        draw.show(ring, false);
         let prop = piece(
-            &arms[0],
+            arms[0],
             key,
             Vec3::ZERO,
             mesh(kit.props[0]),
             matte,
             false,
-        )?;
-        prop.set_visible(false);
-        let glint = piece(&prop, key, Vec3::ZERO, None, &lit, true)?;
+            draw,
+        );
+        draw.show(prop, false);
+        let glint =
+            piece(prop, key, Vec3::ZERO, None, &lit, true, draw);
         let [leg_l, leg_r] = [legs.remove(0), legs.remove(0)];
         let [arm_l, arm_r] = [arms.remove(0), arms.remove(0)];
         Ok(Self {
@@ -384,7 +416,6 @@ impl Rig {
                 prop,
                 glint,
             },
-            _held: held,
             lit,
             lit_as: Vec3::splat(-1.0),
             shown_prop: Prop::None,
@@ -489,11 +520,16 @@ impl Rig {
     }
 
     /// Shows or hides the whole robot.
-    pub fn show(&mut self, visible: bool) {
+    pub fn show(&mut self, visible: bool, draw: &mut Draw) {
         if self.visible != visible {
             self.visible = visible;
-            self.parts.root.set_visible(visible);
+            draw.show(self.parts.root, visible);
         }
+    }
+
+    /// Takes the whole robot away.
+    pub fn despawn(&self, draw: &mut Draw) {
+        draw.despawn(self.parts.root);
     }
 
     /// Moves the robot a frame on to clock time `now`, and poses it
@@ -505,6 +541,7 @@ impl Rig {
         kit: &Kit,
         stock: &Stock,
         seen: bool,
+        draw: &mut Draw,
     ) {
         if self.state != self.synced {
             let act = Act::of(self.state);
@@ -554,80 +591,90 @@ impl Rig {
         let p = self.eval(now);
         let placed = p.place(self.who.size);
         let (parts, last) = (&self.parts, &mut self.last);
-        put(last, Slot::Root, &parts.root, self.at);
+        let mut put = |slot: Slot, entity: Entity, to: Frame| {
+            let was = &mut last[slot as usize];
+            if *was != Some(to) {
+                *was = Some(to);
+                draw.place(entity, to);
+            }
+        };
+        put(Slot::Root, parts.root, self.at);
         let posed = [
-            (Slot::Rig, &parts.rig, placed.rig),
-            (Slot::Body, &parts.body, placed.body),
-            (Slot::Head, &parts.head, placed.head),
-            (Slot::Hat, &parts.hat, placed.hat),
-            (Slot::EyeL, &parts.eye_l, placed.eye_l),
-            (Slot::EyeR, &parts.eye_r, placed.eye_r),
-            (Slot::LegL, &parts.leg_l, placed.leg_l),
-            (Slot::LegR, &parts.leg_r, placed.leg_r),
-            (Slot::Pole, &parts.pole, placed.pole),
+            (Slot::Rig, parts.rig, placed.rig),
+            (Slot::Body, parts.body, placed.body),
+            (Slot::Head, parts.head, placed.head),
+            (Slot::Hat, parts.hat, placed.hat),
+            (Slot::EyeL, parts.eye_l, placed.eye_l),
+            (Slot::EyeR, parts.eye_r, placed.eye_r),
+            (Slot::LegL, parts.leg_l, placed.leg_l),
+            (Slot::LegR, parts.leg_r, placed.leg_r),
+            (Slot::Pole, parts.pole, placed.pole),
             (
                 Slot::ArmL,
-                &parts.arm_l,
+                parts.arm_l,
                 Frame::at(SHOULDER * Vec3::new(-1.0, 1.0, 1.0))
                     .with_turn(p.arm_l),
             ),
             (
                 Slot::ArmR,
-                &parts.arm_r,
+                parts.arm_r,
                 Frame::at(SHOULDER).with_turn(p.arm_r),
             ),
             (
                 Slot::Lamp,
-                &parts.lamp,
+                parts.lamp,
                 Frame::at(HOOK).with_turn(placed.lamp),
             ),
             (
                 Slot::Key,
-                &parts.key,
+                parts.key,
                 Frame::at(KEY_AT).with_turn(rz(p.key)),
             ),
-            (Slot::Glint, &parts.glint, Frame::at(Vec3::Y * -p.bead)),
+            (Slot::Glint, parts.glint, Frame::at(Vec3::Y * -p.bead)),
         ];
         for (slot, entity, to) in posed {
-            put(last, slot, entity, to);
+            put(slot, entity, to);
         }
         // The wheels turn by the ground covered, so they never slip.
         let turned = walked.gone / (pose::WHEEL * self.who.size);
         for (slot, entity, ahead) in [
-            (Slot::WheelL, &parts.wheel_l, 0.0),
-            (Slot::WheelR, &parts.wheel_r, 0.9),
+            (Slot::WheelL, parts.wheel_l, 0.0),
+            (Slot::WheelR, parts.wheel_r, 0.9),
         ] {
             let to = Frame::at(placed.axle)
                 .with_turn(rx((turned + ahead) % TAU));
-            put(last, slot, entity, to);
+            put(slot, entity, to);
         }
-        if let Some(flag) = &parts.flag {
+        if let Some(flag) = parts.flag {
             // The pennant trails, and droops a little.
             let to = Frame::at(Vec3::Y * (SPIRE - 0.02))
                 .with_turn(ry(p.flag) * rx(-0.12));
-            put(last, Slot::Flag, flag, to);
+            put(Slot::Flag, flag, to);
         }
-        for (slot, which, entity, at, size) in [
-            (Slot::Ring, 0, &parts.ring, LAMP_DROP, p.ring),
-            (Slot::Prop, 1, &parts.prop, Vec3::ZERO, p.prop_size),
-        ] {
+        let sized = [
+            (Slot::Ring, 0, parts.ring, LAMP_DROP, p.ring),
+            (Slot::Prop, 1, parts.prop, Vec3::ZERO, p.prop_size),
+        ];
+        for (slot, _, entity, at, size) in sized {
+            let to =
+                Frame::at(at).with_size(Vec3::splat(size.max(0.02)));
+            put(slot, entity, to);
+        }
+        for (_, which, entity, _, size) in sized {
             let on = size > 0.02;
             if self.on[which] != on {
                 self.on[which] = on;
-                entity.set_visible(on);
+                draw.show(entity, on);
             }
-            let to =
-                Frame::at(at).with_size(Vec3::splat(size.max(0.02)));
-            put(last, slot, entity, to);
         }
         if p.prop != Prop::None && p.prop != self.shown_prop {
             let i = p.prop as usize - 1;
             if let Some(mesh) = kit.mesh(kit.props[i]) {
-                parts.prop.draw(mesh, &stock.matte);
+                draw.draw(parts.prop, mesh, &stock.matte);
             }
             match kit.mesh(kit.glints[i]) {
-                Some(mesh) => parts.glint.draw(mesh, &self.lit),
-                None => parts.glint.undraw(),
+                Some(mesh) => draw.draw(parts.glint, mesh, &self.lit),
+                None => draw.undraw(parts.glint),
             }
             self.shown_prop = p.prop;
         }
@@ -635,26 +682,14 @@ impl Rig {
             self.lit_as = p.glow;
             let lit = (p.glow.max_element() / 2.0).clamp(0.0, 1.0);
             let glass = to_linear(GLASS_OUT.lerp(GLASS_LIT, lit));
-            self.lit.set(Pbr {
-                emissive: rgba(p.glow),
-                roughness: 0.4,
-                ..Pbr::colored(rgba(glass))
-            });
+            draw.set_material(
+                &self.lit,
+                Pbr {
+                    emissive: rgba(p.glow),
+                    roughness: 0.4,
+                    ..Pbr::colored(rgba(glass))
+                },
+            );
         }
-    }
-}
-
-/// Sets the transform of `slot`'s `entity` to `to`, unless `last`
-/// says it has it.
-fn put(
-    last: &mut [Option<Frame>; SLOTS],
-    slot: Slot,
-    entity: &Entity,
-    to: Frame,
-) {
-    let was = &mut last[slot as usize];
-    if *was != Some(to) {
-        *was = Some(to);
-        entity.set_transform(to.scene());
     }
 }

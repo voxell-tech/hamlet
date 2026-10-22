@@ -3,13 +3,14 @@
 //! and tilts, and the wheel brings it nearer.
 
 use glam::{Vec2, Vec3};
-use hamlet_engine_sdk::scene::{
-    Camera as Lens, Entity, MouseButton, SceneInput, Target,
-};
-use hamlet_engine_sdk::ui::PointerMode;
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::scene::MouseButton;
+use hamlet_engine_bevy::ui::PointerMode;
 
 use crate::build::frame::Frame;
+use crate::build::upload::Draw;
 use crate::society::Society;
+use crate::view::pick::Thing;
 use crate::world::ground::{DetailSettings, Sight};
 use crate::world::land::Land;
 use crate::world::sky::{CameraSettings, Look};
@@ -170,10 +171,14 @@ enum Steer {
     Turn,
 }
 
+/// The thing the camera stays on.
+#[derive(Resource, Default)]
+pub struct Following(pub Option<Thing>);
+
 /// The camera, where it is asked to be and where it is shown.
+#[derive(Resource)]
 pub struct Camera {
     at: Entity,
-    lens: Lens,
     /// The orbit asked for, and the one shown, which follows it.
     orbit: Orbit,
     glide: Orbit,
@@ -207,16 +212,14 @@ impl Camera {
     pub fn make(
         settings: &CameraSettings,
         look: &Look,
-    ) -> Result<Self, String> {
-        let at = Entity::make(None, VIEW)?;
-        let lens = Lens::make(
-            &at,
+        draw: &mut Draw,
+    ) -> Self {
+        let at = draw.spawn(None, VIEW);
+        draw.commands.entity(at).insert(SceneCamera::viewport(
             settings.lens(look, settings.distance),
-            Target::Viewport,
-        )?;
-        Ok(Self {
+        ));
+        Self {
             at,
-            lens,
             orbit: Orbit::default(),
             glide: Orbit::default(),
             centre: Vec2::ZERO,
@@ -237,11 +240,12 @@ impl Camera {
             shown: Frame::IDENTITY,
             following: None,
             lit: None,
-        })
+        }
     }
 
-    pub fn lens(&self) -> &Lens {
-        &self.lens
+    /// The entity of its view.
+    pub fn view(&self) -> Entity {
+        self.at
     }
 
     /// The pointer of a drag that moves it, once the pointer moved
@@ -272,15 +276,19 @@ impl Camera {
         self.view.eye(level).0
     }
 
-    /// Number of hamlets with a town, the middle of them, and the
-    /// distance the camera stands back at to see them all.
+    /// Number of places, the towns of the hamlets and the chief's
+    /// Hearth among them, the middle of them, and the distance the
+    /// camera stands back at to see them all.
     fn framing(
         camera: &CameraSettings,
         land: &Land,
         society: &Society,
     ) -> Option<(usize, Vec2, f32)> {
         let sites = || {
-            society.towns.iter().map(|town| land.sites[town.site].at)
+            society
+                .places()
+                .filter_map(|place| society.stands(land, place))
+                .map(|(at, _)| at)
         };
         let count = sites().count();
         if count == 0 {
@@ -295,9 +303,9 @@ impl Camera {
         Some((count, middle, base))
     }
 
-    /// Frames the hamlets as they stand, and keeps a hand from taking
-    /// the camera away from every place. The same hamlets in other
-    /// places leave the view where it is.
+    /// Frames the places as they stand, and keeps a hand from taking
+    /// the camera away from every place. The same places elsewhere
+    /// leave the view where it is.
     pub fn frame(
         &mut self,
         camera: &CameraSettings,
@@ -384,7 +392,7 @@ impl Camera {
         input: &SceneInput,
     ) {
         match input {
-            SceneInput::Pressed(press) if press.view == VIEW => {
+            SceneInput::Press(press) if press.view == self.at => {
                 let steer = match press.button {
                     MouseButton::Primary => Steer::Slide,
                     MouseButton::Secondary => Steer::Turn,
@@ -399,7 +407,9 @@ impl Camera {
                     self.steer = Steer::Still;
                 }
             }
-            SceneInput::Moved(pointer) if pointer.view == VIEW => {
+            SceneInput::Pointer(pointer)
+                if pointer.view == self.at =>
+            {
                 self.pointer = Some(Vec2::new(pointer.x, pointer.y));
                 let delta = Vec2::new(pointer.dx, pointer.dy);
                 self.travel += delta.length();
@@ -414,16 +424,15 @@ impl Camera {
                     Steer::Still => {}
                 }
             }
-            SceneInput::Turned(wheel) if wheel.view == VIEW => {
+            SceneInput::Wheel(wheel) if wheel.view == self.at => {
                 let (least, most) = self.leash.zoom(camera);
                 self.orbit.zoom = (self.orbit.zoom
                     * (-wheel.y * camera.scroll_rate).exp())
                 .clamp(least, most.max(least));
             }
-            SceneInput::Resized((view, width, height))
-                if *view == VIEW =>
-            {
-                self.size = Vec2::new(*width, *height).max(Vec2::ONE);
+            SceneInput::Resize(resize) if resize.view == self.at => {
+                self.size = Vec2::new(resize.width, resize.height)
+                    .max(Vec2::ONE);
             }
             _ => {}
         }
@@ -459,6 +468,7 @@ impl Camera {
         land: &Land,
         look: &Look,
         dt: f32,
+        draw: &mut Draw,
     ) -> bool {
         if let Some(at) = self.following {
             self.orbit.pan = self.leash.held(
@@ -495,12 +505,14 @@ impl Camera {
         let lift = Vec3::Y * (eased - focus.y);
         let shown = Frame::looking_at(eye + lift, focus + lift);
         if shown != self.shown {
-            self.at.set_transform(shown.scene());
+            draw.place(self.at, shown);
             self.shown = shown;
         }
         let lit = (look.clone(), dist);
         if self.lit.as_ref() != Some(&lit) {
-            self.lens.set(camera.lens(look, dist));
+            draw.commands.entity(self.at).insert(
+                SceneCamera::viewport(camera.lens(look, dist)),
+            );
             self.lit = Some(lit);
         }
         !settled || self.orbit != self.glide

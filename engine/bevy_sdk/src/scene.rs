@@ -32,7 +32,7 @@ use bevy_transform::components::Transform;
 use crate::audio::SoundsEnding;
 pub use crate::bindings::exports::hamlet::engine::scene_guest::MouseButton;
 use crate::bindings::exports::hamlet::engine::scene_guest::{
-    Hit as WitHit, SceneInput,
+    Hit as WitHit, SceneInput as WitInput,
 };
 pub use crate::bindings::hamlet::engine::gpu::{
     Buffer, Compute, Shaded, Shader, ShaderKind, Texture,
@@ -66,6 +66,7 @@ pub(crate) fn plugin(app: &mut App) {
         .add_message::<ScenePress>()
         .add_message::<SceneWheel>()
         .add_message::<SceneResize>()
+        .add_message::<SceneInput>()
         .add_observer(forget_entity)
         .add_observer(forget_instances)
         .add_systems(
@@ -75,6 +76,7 @@ pub(crate) fn plugin(app: &mut App) {
                 (
                     parent,
                     place,
+                    show,
                     draw,
                     lay,
                     light,
@@ -386,7 +388,8 @@ impl Default for CameraSettings {
 }
 
 /// The plugin's name for an entity in what the engine tells it, in
-/// place of one made from the entity.
+/// place of one made from the entity. Entities may share one: a
+/// message names the last made that is still there.
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
 pub struct SceneKey(pub u32);
 
@@ -420,6 +423,15 @@ pub struct SceneLight(pub Light);
 pub struct Shadows {
     pub cast: bool,
     pub receive: bool,
+}
+
+/// Whether an entity is drawn. A hidden entity hides what is under
+/// it too.
+#[derive(Component, Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub enum Visibility {
+    #[default]
+    Inherited,
+    Hidden,
 }
 
 /// Words shown over an entity in each view of the scene.
@@ -537,6 +549,19 @@ pub struct SceneResize {
     pub height: f32,
 }
 
+/// Each of the scene's other messages again, in the order they came,
+/// for a plugin whose answer to one depends on those before it.
+#[derive(Message, Clone, Copy, Debug)]
+pub enum SceneInput {
+    Over(Hit),
+    Out(SceneOut),
+    Click(Hit),
+    Pointer(ScenePointer),
+    Press(ScenePress),
+    Wheel(SceneWheel),
+    Resize(SceneResize),
+}
+
 /// A frame of a panel showing the image of the [`SceneCamera`] of
 /// `camera`, filling the room the layout gives it.
 pub fn viewport(camera: Entity) -> AnyView {
@@ -576,9 +601,32 @@ struct HostInstances {
 #[derive(Component)]
 struct Refused;
 
-/// The entity of each key the engine tells of.
+/// The entities of each key the engine tells of.
 #[derive(Resource, Default)]
-struct SceneKeys(HashMap<u32, Entity>);
+struct SceneKeys(HashMap<u32, Vec<Entity>>);
+
+impl SceneKeys {
+    fn add(&mut self, key: u32, entity: Entity) {
+        let entities = self.0.entry(key).or_default();
+        if !entities.contains(&entity) {
+            entities.push(entity);
+        }
+    }
+
+    fn forget(&mut self, key: u32, entity: Entity) {
+        if let Some(entities) = self.0.get_mut(&key) {
+            entities.retain(|named| *named != entity);
+            if entities.is_empty() {
+                self.0.remove(&key);
+            }
+        }
+    }
+
+    /// The entity of `key` made last that is still there.
+    fn get(&self, key: u32) -> Option<Entity> {
+        self.0.get(&key)?.last().copied()
+    }
+}
 
 struct Viewport {
     node: Key,
@@ -619,7 +667,7 @@ fn make_entities(
         let key = key_of(entity, key);
         match HostHandle::make(None, key) {
             Ok(made) => {
-                keys.0.insert(key, entity);
+                keys.add(key, entity);
                 commands
                     .entity(entity)
                     .insert(HostEntity { entity: made, key });
@@ -664,6 +712,29 @@ fn place(
 ) {
     for (host, transform) in &placed {
         host.entity.set_transform(host_transform(transform));
+    }
+}
+
+fn show(
+    shown: Query<
+        (&HostEntity, Ref<Visibility>, Ref<HostEntity>),
+        Or<(Changed<Visibility>, Added<HostEntity>)>,
+    >,
+    hosts: Query<&HostEntity>,
+    mut unhidden: RemovedComponents<Visibility>,
+) {
+    for (host, visibility, made) in &shown {
+        // An entity is made shown.
+        if made.is_added() && *visibility == Visibility::Inherited {
+            continue;
+        }
+        host.entity
+            .set_visible(*visibility == Visibility::Inherited);
+    }
+    for entity in unhidden.read() {
+        if let Ok(host) = hosts.get(entity) {
+            host.entity.set_visible(true);
+        }
     }
 }
 
@@ -913,7 +984,7 @@ fn make_instances(
         match made {
             Ok(made) => {
                 made.watch(pickable.hover, pickable.click);
-                keys.0.insert(key, entity);
+                keys.add(key, entity);
                 commands.entity(entity).insert(HostInstances {
                     instances: made,
                     key,
@@ -973,10 +1044,8 @@ fn forget_entity(
     hosts: Query<&HostEntity>,
     mut keys: ResMut<SceneKeys>,
 ) {
-    if let Ok(host) = hosts.get(removed.entity)
-        && keys.0.get(&host.key) == Some(&removed.entity)
-    {
-        keys.0.remove(&host.key);
+    if let Ok(host) = hosts.get(removed.entity) {
+        keys.forget(host.key, removed.entity);
     }
 }
 
@@ -985,18 +1054,16 @@ fn forget_instances(
     hosts: Query<&HostInstances>,
     mut keys: ResMut<SceneKeys>,
 ) {
-    if let Ok(host) = hosts.get(removed.entity)
-        && keys.0.get(&host.key) == Some(&removed.entity)
-    {
-        keys.0.remove(&host.key);
+    if let Ok(host) = hosts.get(removed.entity) {
+        keys.forget(host.key, removed.entity);
     }
 }
 
 /// Writes `input` into the world as the message it is, for an entity
 /// or view still there.
-pub(crate) fn deliver(world: &mut World, input: SceneInput) {
+pub(crate) fn deliver(world: &mut World, input: WitInput) {
     let entity = |world: &World, key: u32| {
-        world.resource::<SceneKeys>().0.get(&key).copied()
+        world.resource::<SceneKeys>().get(key)
     };
     let hit = |world: &World, hit: WitHit| {
         Some(Hit {
@@ -1006,61 +1073,79 @@ pub(crate) fn deliver(world: &mut World, input: SceneInput) {
             normal: hit.normal.into(),
         })
     };
-    match input {
-        SceneInput::Over(at) => {
-            if let Some(at) = hit(world, at) {
-                world.write_message(SceneOver(at));
-            }
+    let input = match input {
+        WitInput::Over(at) => hit(world, at).map(SceneInput::Over),
+        WitInput::Out((key, index)) => {
+            entity(world, key).map(|entity| {
+                SceneInput::Out(SceneOut { entity, index })
+            })
         }
-        SceneInput::Out((key, index)) => {
-            if let Some(entity) = entity(world, key) {
-                world.write_message(SceneOut { entity, index });
-            }
-        }
-        SceneInput::Click(at) => {
-            if let Some(at) = hit(world, at) {
-                world.write_message(SceneClick(at));
-            }
-        }
-        SceneInput::Moved(pointer) => {
-            if let Some(view) = entity(world, pointer.view) {
-                world.write_message(ScenePointer {
+        WitInput::Click(at) => hit(world, at).map(SceneInput::Click),
+        WitInput::Moved(pointer) => {
+            entity(world, pointer.view).map(|view| {
+                SceneInput::Pointer(ScenePointer {
                     view,
                     x: pointer.x,
                     y: pointer.y,
                     dx: pointer.dx,
                     dy: pointer.dy,
-                });
-            }
+                })
+            })
         }
-        SceneInput::Pressed(press) => {
-            if let Some(view) = entity(world, press.view) {
-                world.write_message(ScenePress {
+        WitInput::Pressed(press) => {
+            entity(world, press.view).map(|view| {
+                SceneInput::Press(ScenePress {
                     view,
                     button: press.button,
                     down: press.down,
                     x: press.x,
                     y: press.y,
-                });
-            }
+                })
+            })
         }
-        SceneInput::Turned(wheel) => {
-            if let Some(view) = entity(world, wheel.view) {
-                world.write_message(SceneWheel {
+        WitInput::Turned(wheel) => {
+            entity(world, wheel.view).map(|view| {
+                SceneInput::Wheel(SceneWheel {
                     view,
                     x: wheel.x,
                     y: wheel.y,
-                });
-            }
+                })
+            })
         }
-        SceneInput::Resized((key, width, height)) => {
-            if let Some(view) = entity(world, key) {
-                world.write_message(SceneResize {
+        WitInput::Resized((key, width, height)) => entity(world, key)
+            .map(|view| {
+                SceneInput::Resize(SceneResize {
                     view,
                     width,
                     height,
-                });
-            }
+                })
+            }),
+    };
+    let Some(input) = input else {
+        return;
+    };
+    match input {
+        SceneInput::Over(at) => {
+            world.write_message(SceneOver(at));
+        }
+        SceneInput::Out(out) => {
+            world.write_message(out);
+        }
+        SceneInput::Click(at) => {
+            world.write_message(SceneClick(at));
+        }
+        SceneInput::Pointer(pointer) => {
+            world.write_message(pointer);
+        }
+        SceneInput::Press(press) => {
+            world.write_message(press);
+        }
+        SceneInput::Wheel(wheel) => {
+            world.write_message(wheel);
+        }
+        SceneInput::Resize(resize) => {
+            world.write_message(resize);
         }
     }
+    world.write_message(input);
 }

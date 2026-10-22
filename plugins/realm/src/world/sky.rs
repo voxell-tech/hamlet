@@ -4,13 +4,22 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use glam::{Mat3, Vec3};
-use hamlet_engine_sdk::scene::{
-    Bloom, CameraSettings as Lens, DirectionalLight, Entity, Fog,
-    FogFalloff, Light, Projection, Tonemapping,
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::scene::{
+    Bloom, CameraSettings as Lens, DirectionalLight, Fog, FogFalloff,
+    Light, Projection, Tonemapping,
 };
 
 use crate::build::frame::Frame;
+use crate::build::stock::Stock;
+use crate::build::upload::Draw;
+use crate::tuning::WorldTuning;
+use crate::world::palette::Palette;
 use crate::world::tint;
+
+/// Keys of the lights' entities.
+const SUN: u32 = 2;
+const FILL: u32 = 3;
 
 /// The exposure the realm is drawn at, in EV100, before the look's
 /// own.
@@ -330,7 +339,7 @@ impl CameraSettings {
 }
 
 /// The sky as it is now.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Resource, Clone, PartialEq, Debug)]
 pub struct Sky {
     /// Hour of the day, 0 to 24.
     pub hour: f32,
@@ -399,31 +408,39 @@ fn key_light(
 
 /// The key light, the sun by day and the moon by night, and the fill
 /// light opposite it.
+#[derive(Resource)]
 pub struct Lights {
     sun: Entity,
     fill: Entity,
 }
 
 impl Lights {
-    pub fn make(sun: Entity, fill: Entity) -> Self {
-        Self { sun, fill }
+    pub fn make(draw: &mut Draw) -> Self {
+        Self {
+            sun: draw.spawn(None, SUN),
+            fill: draw.spawn(None, FILL),
+        }
     }
 
     /// Lights the realm as `look` has it.
-    pub fn show(&self, look: &Look) {
+    pub fn show(&self, look: &Look, draw: &mut Draw) {
         let light = |color: Vec3, lux: f32, shadows: bool| {
-            Some(Light::Directional(DirectionalLight {
+            SceneLight(Light::Directional(DirectionalLight {
                 color: (color.x, color.y, color.z, 1.0),
                 illuminance: lux,
                 shadows,
             }))
         };
-        let _ =
-            self.sun.set_light(light(look.sun, look.sun_lux, true));
-        self.sun.set_transform(
-            Frame::looking_to(Vec3::ZERO, look.sun_dir).scene(),
+        draw.commands.entity(self.sun).insert(light(
+            look.sun,
+            look.sun_lux,
+            true,
+        ));
+        draw.place(
+            self.sun,
+            Frame::looking_to(Vec3::ZERO, look.sun_dir),
         );
-        let _ = self.fill.set_light(light(
+        draw.commands.entity(self.fill).insert(light(
             look.fill,
             look.fill_lux,
             false,
@@ -433,8 +450,36 @@ impl Lights {
             -0.5,
             -look.sun_dir.z * 0.4 - 0.5,
         );
-        self.fill.set_transform(
-            Frame::looking_to(Vec3::ZERO, dir).scene(),
-        );
+        draw.place(self.fill, Frame::looking_to(Vec3::ZERO, dir));
+    }
+}
+
+/// The hour the sky shows, and the chief's clock it is read on.
+#[derive(Resource, Default)]
+pub struct SkyClock {
+    pub hour: Hour,
+    /// The chief's clock, seconds east of UTC.
+    pub offset: i32,
+}
+
+/// Brings the sky to the hour, and lights the realm and its windows
+/// as it has them.
+pub fn light(
+    tuning: Res<WorldTuning>,
+    pal: Res<Palette>,
+    clock: Res<SkyClock>,
+    stock: Res<Stock>,
+    lights: Res<Lights>,
+    mut sky: ResMut<Sky>,
+    mut draw: Draw,
+) {
+    let hour = clock.hour.now(&tuning.sky, clock.offset);
+    let next = Sky::at(&tuning.looks, &tuning.sky, hour);
+    if next.look != sky.look {
+        lights.show(&next.look, &mut draw);
+        if next.look.candle != sky.look.candle {
+            stock.light_windows(&pal, next.look.candle, &draw);
+        }
+        *sky = next;
     }
 }

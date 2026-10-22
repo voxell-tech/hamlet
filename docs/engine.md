@@ -36,7 +36,6 @@ Each depends only on those above it, and each adds one Bevy plugin,
 | `engine/harness` | `hamlet_engine_harness` | The engine without a window, for tests, and `plugin_check` |
 | `engine/app` | `hamlet_engine` | The binary |
 | `engine/bevy_sdk` | `hamlet_engine_bevy` | What a plugin is written with, as a Bevy plugin, built for `wasm32-wasip2` |
-| `engine/sdk` | `hamlet_engine_sdk` | The first SDK, its own `Plugin` trait, kept for the realm for now |
 
 The agent core is in `engine/` too, under its old crate names, so the
 engine runs it without reaching into `crates/`; the app in `crates/`
@@ -223,7 +222,8 @@ types, so the WIT names nothing twice.
 ## Writing a plugin
 
 `hamlet_engine_bevy` (`engine/bevy_sdk`) is the guest crate, and a
-plugin depends on it alone. A plugin is an ordinary Bevy `Plugin`
+plugin depends on it alone; there is no other way to write one. A
+plugin is an ordinary Bevy `Plugin`
 with `Default`, exported with `hamlet_engine_bevy::export!`. The
 macro runs one Bevy `App` in the plugin's sandbox, with `bevy_app`,
 `bevy_ecs`, `bevy_math`, `bevy_time` and `bevy_transform`, no
@@ -302,10 +302,13 @@ hamlet_engine_bevy::export!(Hello);
   `MeshMaterial3d`, `ForwardDecal` (laying its `MeshMaterial3d`, a
   decal's, from `Material::decal`, `add_decal_material` or
   `add_shaded_decal`),
-  `SceneLight`, `Shadows`, `SceneLabel`, `Pickable`, `SceneCamera`
-  and `PostPass` on it, `ChildOf` for its parent, and
+  `SceneLight`, `Shadows`, `SceneLabel`, `Pickable`, `SceneCamera`,
+  `PostPass` and `Visibility` (hidden with what is under it) on it,
+  `ChildOf` for its parent, and
   `Instances` on an entity of its own are sent in `PostUpdate` as they
-  change, and only then. `SceneKey` names an entity for the engine.
+  change, and only then. `SceneKey` names an entity for the engine;
+  several may share one, and a message names the last made that is
+  still there.
   Meshes, materials, shaders, buffers, textures and compute are made
   with the WIT's own makes and kept in `SceneAssets` while a clone of
   their `Handle` is held; after the last is dropped the asset is let
@@ -313,7 +316,8 @@ hamlet_engine_bevy::export!(Hello);
   it. Despawning an entity takes it away in the engine. What the
   person does over a view comes as `SceneOver`, `SceneOut`,
   `SceneClick`, `ScenePointer`, `ScenePress`, `SceneWheel` and
-  `SceneResize`, and `viewport(camera)` shows a camera in a panel
+  `SceneResize`, and each again as a `SceneInput` in the order it
+  came, and `viewport(camera)` shows a camera in a panel
   (see [Scenes and GPU work](#scenes-and-gpu-work)).
 - **Sounds** are Bevy's audio as the SDK has it
   (`hamlet_engine_bevy::audio`): `Sound::new(samples, channels,
@@ -378,24 +382,15 @@ hamlet_engine_bevy::export!(Hello);
 - **A built plugin** is a folder with its `plugin.toml` and its
   component, `plugin.wasm`.
 
-### The first SDK
+### The samples
 
-`hamlet_engine_sdk` (`engine/sdk`) is kept only for the realm, for
-now, and goes once the realm is a Bevy plugin too. There a plugin is
-a type with `Default` that implements the SDK's own `Plugin` trait,
-exported with `hamlet_engine_sdk::export!`: `declare` fills an
-`Entry` with what it adds, `mount` gives the view of a panel or
-settings page, and `run`, `save`, `restore`, `receive`, `serve`,
-`scene` and `tick` have defaults that do nothing. Each is given a
-`World` of the plugin's resources, its views are the same fynix
-views, and its scenes are the WIT's handles, held by the plugin
-(`hamlet_engine_sdk::scene`). The samples under `engine/samples` are
-written with it.
+The samples under `engine/samples` are each a workspace of its own,
+written with `hamlet_engine_bevy` as the bundled plugins are.
 
 `engine/samples/hello` is a panel with a button and a count of its
 presses, a resource of its world, and a command in its own menu and
-on Primary+Shift+R that sets the count back. It keeps its count
-through `save` and `restore`. Its crate's library is named `plugin`,
+on Primary+Shift+R that sets the count back. Its count is a saved
+resource, kept across a reload. Its crate's library is named `plugin`,
 so in its folder
 
 ```sh
@@ -414,7 +409,7 @@ frame.
 
 `engine/samples/notes` and `engine/samples/board` share, each
 keeping what it shows as a resource of its world and changing it as
-messages come. Notes makes the type `notes.note` (its bytes are the
+messages come. Notes keeps its note across a reload. Notes makes the type `notes.note` (its bytes are the
 text) and keeps one note of it, edited in a field and saved with
 Save, an icon button; it exports the service `words`, which counts
 the words of a text, and sends `saved` with the note's id and
@@ -679,7 +674,7 @@ system cursor fynix gave it turned into a mode, or `Press` for a
 button (`Refuse` while it is disabled); else `Point`.
 
 A plugin asks with the node property `pointer` (`.pointer(..)` in
-both SDKs, a `NodePointer` or none, as a value or a signal), on any of
+the SDK, a `NodePointer` or none, as a value or a signal), on any of
 its nodes, the frame showing a viewport included. It chooses only from
 the modes, never a picture, so it cannot draw a pointer of its own.
 The realm asks over its viewport for `Carry`, faint, while a town is
@@ -1267,10 +1262,10 @@ in Rust and from those the person installs.
 - **The folder.** `plugins/` at the repository root is a cargo
   workspace of its own, left out of the root's, with one release
   profile for small builds (`opt-level = "z"`, which takes a fifth off
-  a plugin built with Bevy). Each plugin
+  a plugin built with Bevy), but for the realm's own crate, built at
+  `"s"` so that its meshes go up about twice as fast. Each plugin
   is a crate `plugins/<name>/`, named as its folder, with its
-  `plugin.toml`, depending on `hamlet_engine_bevy` by path, and the
-  realm on `hamlet_engine_sdk`.
+  `plugin.toml`, depending on `hamlet_engine_bevy` by path.
 - **The script.** `scripts/build_plugins.sh` checks that the
   `wasm32-wasip2` target is installed, and says how to add it if not;
   builds the workspace with `cargo build --release --target
@@ -1385,7 +1380,10 @@ tiles about the camera with its rivers and trees, a town for every
 hamlet with a house, a yard and a robot for every agent, the roads
 between agents with their bridges and lit grooves, and the chief's
 Hearth with its mascot, which goes by a Wickstep to the agent the
-chief talks to. The sky follows the chief's clock (`Focus::offset`).
+chief talks to, and the library (`places/library.rs`), a stone house
+under a dome on ground of its own beside the first town, with its
+librarian on the porch; a click on it selects the library. The sky
+follows the chief's clock (`Focus::offset`).
 Its tuning is `assets/world.toml` and `assets/palette.toml`, built in.
 - **The source** is grouped by what it is: `world/` the land and its
   look, `places/` what stands on it, `folk/` the robots and the chief,
@@ -1393,29 +1391,43 @@ Its tuning is `assets/world.toml` and `assets/palette.toml`, built in.
   meshes, materials and transforms handed over within its budgets.
   `realm.rs`, `bridge.rs`, `society.rs` and `tuning.rs` stand at the
   root.
+- **As a Bevy plugin.** The land, the society, the roster's bridge
+  and each part of the scene (the ground, the towns, the roads, the
+  robots, the chief, the camera, the rings and the signs) are
+  resources, and what they draw are entities with the SDK's scene
+  components. `realm.rs` adds the systems: those that hear the agents
+  service, the Inspector and the person over the view
+  (`SceneInput`, in the order it came), and a frame's, in one chain
+  run on each call that moves time on. `build/upload.rs`'s `Draw` is
+  what they change the scene with. Nothing is saved across a reload.
 - **The panel** has no padding, and is a viewport filling it to its
   edges, its camera's (`scene::viewport`), so it is docked, tabbed, split and closed as
   any panel is, and its signs and tags are words over that viewport.
-  The realm is made when the panel is first built or the agents
-  service first answers, and is kept in the plugin's world. While the
-  panel is behind another tab or out of the dock, its camera does not
-  draw.
-- **Within its budgets.** Everything is built a step at a time on
-  `tick`, nearest the camera first: `build/upload.rs` holds each call to a
-  share of the bytes it may hand over and to a few milliseconds a
-  call and a second of its own, and a mesh with no room left waits for
-  the next call. Its manifest asks for 128 MB of memory.
+  The realm is made at `Startup`, on the plugin's first call after it
+  declares what it adds. While the panel is behind another tab or out
+  of the dock, its camera does not draw.
+- **Within its budgets.** Everything is built a step at a time, a
+  frame at a time, nearest the camera first: `build/upload.rs` holds
+  each frame to most of the engine's `bytes_per_call` and to 8
+  milliseconds, so the view stays smooth, and a mesh with no room
+  left waits for the next frame. Its manifest asks for 128 MB of
+  memory.
 - **The roster** is followed in `bridge.rs` as `main` follows the
   core's entities: a hamlet founds its town at its spot or the first
   free site, its agents take their plots in the order they came, one
   that leaves is a ruin or a wing of the house it merged into, and the
   roads and what each agent does follow theirs.
-- **The camera** (`view/camera.rs`) frames every hamlet; the left button
+- **The camera** (`view/camera.rs`) frames every hamlet and the
+  chief's Hearth, which it shows from the start, before any town is
+  founded; the left button
   slides the ground, the right turns and tilts it, and the wheel comes
   nearer. Reset Camera, Focus on Selection (F), Follow Selection
   (Shift+F) and the sky held to day or night are in the View menu.
 - **The pointer.** A robot, a house, a common, the Hearth or the
-  mascot under it has a ring of light, as the one selected has, each
+  mascot under it has a ring of light, as the one selected has. A
+  robot is found by a box of `[pick] robot_box` about it, the nearest
+  the pointer's ray enters, through a house standing in front of it,
+  and a click there selects it. Each ring is
   a decal of the realm's own shader (`build/mark.rs` and `mark.wgsl`,
   as are the runes of a Wickstep). Its line is worked out for each
   pixel, its edges soft over one pixel, and is `[pick] ring_width`
@@ -1423,11 +1435,12 @@ Its tuning is `assets/world.toml` and `assets/palette.toml`, built in.
   ground: the heights of the land and the yards about it are in its
   buffer, and a wall, a robot or a barrel standing higher is left
   alone. A click selects its agent,
-  hamlet or the Hearth in the window's focus and brings the Inspector
-  forward; a click on the bare ground selects nothing. A hamlet or the
-  Hearth selected elsewhere is brought into view. Houses, commons and
-  the Hearth have signs while the camera is near, and a robot or the
-  mascot a tag under the pointer.
+  hamlet, the Hearth or the library in the window's focus and brings
+  the Inspector forward; a click on the bare ground selects nothing.
+  A hamlet, the Hearth or the library selected elsewhere is brought
+  into view. Houses, commons, the Hearth and the library have signs
+  while the camera is near, and a robot or the mascot a tag under the
+  pointer.
 - **Moving a town.** It hears the Inspector's `carry`: the town is in
   hand, its footprint follows the pointer over the ground, gold where
   it fits and red where it does not, a click sends `/move-hamlet` to

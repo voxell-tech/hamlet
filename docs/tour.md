@@ -149,7 +149,7 @@ Paths are under the crate's folder in the table above.
 | The engine's chat, Inspector or Skills panels, or the agents' section of Petitions | `plugins/chat/`, `plugins/inspector/`, `plugins/skills/`, `plugins/petitions/`, sharing `plugins/agents_ui/` |
 | The Petitions panel: its heading, its parts and the plugins' petitions | `engine/grants/src/petition.rs`; a section's component in `engine/shell/src/section.rs` |
 | The window's focus: the open conversation and the thing selected | `engine/agents/src/focus.rs`; the chat's data in `conversation.rs`, `archive.rs`, `roster.rs` and `needs.rs` beside it |
-| A widget an engine plugin can show | Its kind and properties in `engine/wit/hamlet_engine.wit`, its element in `engine/bevy_sdk/src/ui/elements.rs` (and `engine/sdk/src/ui/elements.rs` while the realm uses it), its widget in `engine/wasm/src/retained.rs`, built from `engine/shell/src/style.rs` |
+| A widget an engine plugin can show | Its kind and properties in `engine/wit/hamlet_engine.wit`, its element in `engine/bevy_sdk/src/ui/elements.rs`, its widget in `engine/wasm/src/retained.rs`, built from `engine/shell/src/style.rs` |
 | The engine's switch, which every yes or no is set with | `switch` in `engine/shell/src/style.rs`, its sizes under `[space]` in `engine/tuning/theme.toml`; the `toggle` node draws it |
 | The fades at the edges of a scroll area | `ScrollFade` in `engine/shell/src/fade.rs`, its depth `scroll_fade` under `[space]` in `engine/tuning/theme.toml` |
 | The engine's pointers, their pictures and which shows where | `engine/shell/src/pointer.rs` and `pointer/art.rs`; a plugin's `pointer` property in `engine/wit/hamlet_engine.wit`; [`engine.md`](engine.md#pointers) |

@@ -10,6 +10,7 @@ use std::f32::consts::TAU;
 use std::ops::Deref;
 
 use glam::Vec2;
+use hamlet_engine_bevy::prelude::{Resource, bevy_ecs};
 
 use crate::tuning::GenSettings;
 pub(crate) use crate::world::land::corridor::Search;
@@ -117,7 +118,7 @@ pub enum Unfit {
 }
 
 /// The lie of the land for one seed.
-#[derive(Clone)]
+#[derive(Resource, Clone)]
 pub struct Land(LandData);
 
 impl Land {

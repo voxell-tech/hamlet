@@ -4,7 +4,7 @@
 use std::ops::RangeInclusive;
 
 use glam::Vec2;
-use hamlet_engine_sdk::scene::MeshData;
+use hamlet_engine_bevy::scene::MeshData;
 
 use crate::world::flora::{self, Tree};
 use crate::world::ground::{DetailSettings, Tile};

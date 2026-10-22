@@ -3,15 +3,22 @@
 
 use std::collections::{HashMap, HashSet};
 
-use glam::Vec2;
+use glam::{Vec2, Vec3};
+use hamlet_engine_bevy::prelude::*;
 
+use crate::build::frame::Frame;
+use crate::build::upload::Draw;
 use crate::world::ground::{DetailSettings, Lies, Sight, Tile};
 use crate::world::land::Land;
 
-/// What is drawn of a tile, which can be lowered under the tiles
-/// that take its place.
-pub trait Lift {
-    fn lift(&self, by: f32);
+/// What is drawn of a tile, all under one entity, which can be
+/// lowered under the tiles that take its place.
+pub trait TileEntity {
+    fn entity(&self) -> Entity;
+
+    fn lift(&self, by: f32, draw: &mut Draw) {
+        draw.place(self.entity(), Frame::at(Vec3::Y * by));
+    }
 }
 
 /// One tile: what is drawn of it and what is being built.
@@ -69,7 +76,7 @@ impl<D, J> Default for Layer<D, J> {
     }
 }
 
-impl<D: Lift, J> Layer<D, J> {
+impl<D: TileEntity, J> Layer<D, J> {
     /// Forgets the job of `tile`, if it has one.
     fn stop(&mut self, tile: Tile) {
         if let Some(patch) = self.patches.get_mut(&tile)
@@ -187,7 +194,7 @@ impl<D: Lift, J> Layer<D, J> {
     /// Takes out the tiles the view has left, each once what takes
     /// its place is drawn. Until then one that finer tiles replace
     /// lies lower by `sink`, so that they show as they come.
-    pub fn retire(&mut self, top: u8, sink: f32) {
+    pub fn retire(&mut self, top: u8, sink: f32, draw: &mut Draw) {
         if !self.stirred {
             return;
         }
@@ -203,7 +210,7 @@ impl<D: Lift, J> Layer<D, J> {
             if wanted.contains(tile) {
                 if patch.sunk {
                     if let Some(drawn) = &patch.drawn {
-                        drawn.lift(0.0);
+                        drawn.lift(0.0, draw);
                     }
                     patch.sunk = false;
                 }
@@ -231,10 +238,11 @@ impl<D: Lift, J> Layer<D, J> {
                     .all(|w| ready.contains(w)),
             };
             if covered {
+                draw.despawn(drawn.entity());
                 return false;
             }
             if above.is_none() && !patch.sunk && sink > 0.0 {
-                drawn.lift(-sink);
+                drawn.lift(-sink, draw);
                 patch.sunk = true;
             }
             true
@@ -304,19 +312,28 @@ impl<D: Lift, J> Layer<D, J> {
     /// Draws `drawn` for the tile of the first job, which is done, in
     /// place of what it had; or, with none, marks the tile as one the
     /// engine refused.
-    pub fn finish(&mut self, drawn: Option<D>) {
-        if self.jobs.is_empty() {
+    pub fn finish(&mut self, drawn: Option<D>, draw: &mut Draw) {
+        let Some(tile) =
+            (!self.jobs.is_empty()).then(|| self.jobs.remove(0))
+        else {
+            if let Some(drawn) = drawn {
+                draw.despawn(drawn.entity());
+            }
             return;
-        }
-        let tile = self.jobs.remove(0);
+        };
         self.stirred = true;
         let Some(patch) = self.patches.get_mut(&tile) else {
+            if let Some(drawn) = drawn {
+                draw.despawn(drawn.entity());
+            }
             return;
         };
         patch.job = None;
         match drawn {
             Some(drawn) => {
-                patch.drawn = Some(drawn);
+                if let Some(was) = patch.drawn.replace(drawn) {
+                    draw.despawn(was.entity());
+                }
                 patch.old = false;
                 patch.sunk = false;
             }

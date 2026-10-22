@@ -5,7 +5,8 @@ mod places;
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use hamlet_engine_sdk::api::agents::Doing;
+use hamlet_engine_bevy::api::agents::Doing;
+use hamlet_engine_bevy::prelude::*;
 
 use crate::folk::keeper::KState;
 use crate::places::house::{HouseSettings, Remains};
@@ -105,7 +106,7 @@ pub struct Road {
 }
 
 /// Everything the world shows.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Resource, Clone, Debug, Default, PartialEq)]
 pub struct Society {
     pub towns: Vec<Town>,
     pub agents: Vec<Agent>,

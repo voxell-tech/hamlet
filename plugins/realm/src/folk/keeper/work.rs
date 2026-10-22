@@ -1,7 +1,7 @@
 //! A robot's chores while its agent works alone
 //! (docs/working-alone.md).
 
-use hamlet_engine_sdk::api::agents::{Doing, Paper};
+use hamlet_engine_bevy::api::agents::{Doing, Paper};
 
 use crate::folk::keeper::acts::Act;
 use crate::folk::keeper::pose::dice;

@@ -6,10 +6,12 @@
 use std::f32::consts::TAU;
 
 use glam::{Vec2, Vec3, Vec3Swizzles};
-use hamlet_engine_sdk::scene::{Entity, Material, Mesh, Pbr, Shape};
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::scene::{Material, Mesh, Pbr, Shape};
 
 use crate::build::frame::Frame;
 use crate::build::stock::rgba;
+use crate::build::upload::Draw;
 use crate::society::{Place, Society, TownId};
 use crate::world::land::{Land, Unfit};
 use crate::world::layout::plot;
@@ -65,15 +67,24 @@ enum Mark {
     House(u32),
 }
 
+/// The town in a chief's hand, and the command that set one down,
+/// until it is sent: the hamlet and the command.
+#[derive(Resource, Default)]
+pub struct Carrying {
+    pub carry: Option<Carry>,
+    pub set_down: Option<(String, String)>,
+}
+
 /// The footprint of a carried town, where it would stand.
+#[derive(Resource)]
 pub struct Footprint {
     root: Entity,
     /// Each part, the mesh it draws, and whether it is lit as
     /// fitting while it is shown.
     marks: Vec<(Mark, Entity, usize, Option<bool>)>,
-    meshes: [Mesh; 3],
-    fits: Material,
-    unfit: Material,
+    meshes: [Handle<Mesh>; 3],
+    fits: Handle<Material>,
+    unfit: Handle<Material>,
     shown: bool,
     said: Option<&'static str>,
 }
@@ -127,43 +138,44 @@ impl Footprint {
         land: &Land,
         pal: &Palette,
         set: &CarrySettings,
+        draw: &mut Draw,
     ) -> Result<Self, String> {
-        let light = |colour: Vec3| {
-            Material::make(Pbr {
-                emissive: rgba(colour * set.glow),
-                ..Pbr::colored((0.0, 0.0, 0.0, 1.0))
-            })
+        let light = |colour: Vec3| Pbr {
+            emissive: rgba(colour * set.glow),
+            ..Pbr::colored((0.0, 0.0, 0.0, 1.0))
         };
-        let (fits, unfit) =
-            (light(pal.place_fits)?, light(pal.place_unfit)?);
+        let fits = draw.material(light(pal.place_fits))?;
+        let unfit = draw.material(light(pal.place_unfit))?;
         let pad = Mesh::shape(Shape::Cylinder((1.0, set.pad)))?;
         let band = Mesh::shape(Shape::Torus((
             set.band * 0.5,
             1.0 - set.band * 0.5,
         )))?;
         let beam = Mesh::shape(Shape::Cylinder(set.beam))?;
-        let root = Entity::make(None, FOOTPRINT)?;
-        root.set_visible(false);
+        let meshes =
+            [pad, band, beam].map(|mesh| draw.assets.add(mesh));
+        let root = draw.spawn(None, FOOTPRINT);
+        draw.show(root, false);
         let marks = (0..set.beads)
             .map(Mark::Rim)
             .chain([Mark::Common, Mark::Beam])
             .chain((0..land.set.town.plots).map(Mark::House))
             .map(|mark| {
-                let entity = Entity::make(Some(&root), FOOTPRINT)?;
+                let entity = draw.spawn(Some(root), FOOTPRINT);
                 let mesh = match mark {
                     Mark::Rim(_) | Mark::House(_) => 0,
                     Mark::Common => 1,
                     Mark::Beam => 2,
                 };
-                entity.set_visible(false);
-                entity.set_shadows(false, false);
-                Ok((mark, entity, mesh, None))
+                draw.show(entity, false);
+                draw.shadows(entity, false, false);
+                (mark, entity, mesh, None)
             })
-            .collect::<Result<Vec<_>, String>>()?;
+            .collect::<Vec<_>>();
         Ok(Self {
             root,
             marks,
-            meshes: [pad, band, beam],
+            meshes,
             fits,
             unfit,
             shown: false,
@@ -181,6 +193,7 @@ impl Footprint {
         land: &Land,
         society: &Society,
         set: &CarrySettings,
+        draw: &mut Draw,
     ) {
         let shown = carry.and_then(|carry| {
             let (_, radius) =
@@ -190,20 +203,20 @@ impl Footprint {
         });
         let Some((carry, to, radius, town)) = shown else {
             if self.shown {
-                self.root.set_visible(false);
+                draw.show(self.root, false);
                 self.shown = false;
             }
             return;
         };
         if !self.shown {
-            self.root.set_visible(true);
+            draw.show(self.root, true);
             self.shown = true;
         }
         let level = land.set.land.site_y;
         // Over the ground as it lies now and as it would be levelled.
         let over = |p: Vec2| land.surface(p).max(level) + set.lift;
         let middle = Vec3::new(to.x, over(to), to.y);
-        self.root.set_transform(Frame::at(middle).scene());
+        draw.place(self.root, Frame::at(middle));
         // The plots as they would lie there.
         let mut there = land.clone();
         there.move_site(town.site, to);
@@ -256,21 +269,25 @@ impl Footprint {
             };
             match place {
                 Some(place) => {
-                    entity.set_transform(place.scene());
+                    draw.place(*entity, place);
                     if *lit != Some(good) {
                         let light = if good {
                             &self.fits
                         } else {
                             &self.unfit
                         };
-                        entity.set_visible(true);
-                        entity.draw(&self.meshes[*mesh], light);
+                        draw.show(*entity, true);
+                        draw.draw(
+                            *entity,
+                            &self.meshes[*mesh],
+                            light,
+                        );
                         *lit = Some(good);
                     }
                 }
                 None => {
                     if lit.is_some() {
-                        entity.set_visible(false);
+                        draw.show(*entity, false);
                         *lit = None;
                     }
                 }
@@ -288,7 +305,9 @@ impl Footprint {
                 .iter()
                 .find(|(mark, ..)| *mark == Mark::Beam)
             {
-                beam.set_label(Some(says));
+                draw.commands
+                    .entity(*beam)
+                    .insert(SceneLabel(says.to_owned()));
             }
             self.said = Some(says);
         }

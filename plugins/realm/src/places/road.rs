@@ -10,14 +10,14 @@ mod mesh;
 use std::collections::{HashMap, HashSet};
 
 use glam::{Vec2, Vec3Swizzles};
-use hamlet_engine_sdk::scene::{Entity, Mesh};
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::scene::Mesh;
 
-use crate::build::frame::Frame;
-use crate::build::upload::Upload;
+use crate::build::upload::Draw;
 use crate::places::road::build::{Build, Built};
 use crate::places::road::groove::Grooves;
 use crate::places::road::mesh::Span;
-use crate::realm::Ctx;
+use crate::realm::{Ctx, Shared};
 use crate::society::{AgentId, Pair, RoadLevel, Society};
 use crate::world::land::Land;
 use crate::world::layout::{End, Route};
@@ -104,10 +104,7 @@ struct Drawn {
     /// The road's entity, under which its surface and its groove
     /// hang, each in pieces.
     entity: Entity,
-    groove: Vec<Mesh>,
-    /// What is kept only so it is not dropped: the pieces' entities
-    /// and the surface's meshes.
-    _held: (Vec<Entity>, Vec<Mesh>),
+    groove: Vec<Handle<Mesh>>,
 }
 
 /// A road being laid.
@@ -129,6 +126,7 @@ impl Society {
 }
 
 /// The roads drawn.
+#[derive(Resource)]
 pub struct Roads {
     drawn: HashMap<Pair, Drawn>,
     jobs: HashMap<Pair, Job>,
@@ -146,7 +144,10 @@ pub struct Roads {
 
 impl Roads {
     /// No roads yet.
-    pub fn make(pal: &Palette) -> Result<Self, String> {
+    pub fn make(
+        pal: &Palette,
+        draw: &mut Draw,
+    ) -> Result<Self, String> {
         Ok(Self {
             drawn: HashMap::new(),
             jobs: HashMap::new(),
@@ -154,32 +155,43 @@ impl Roads {
             sites: Vec::new(),
             holds: Vec::new(),
             laid: 0,
-            grooves: Grooves::make(pal)?,
+            grooves: Grooves::make(pal, draw)?,
         })
     }
 
-    /// Brings what is drawn in line with the society, within
-    /// `upload`.
-    pub fn update(&mut self, ctx: &Ctx, upload: &mut Upload) {
+    /// Brings what is drawn in line with the society, while the call
+    /// has room.
+    pub fn update(&mut self, ctx: &Ctx, draw: &mut Draw) {
         let shape = (ctx.society.shape(), ctx.land.places());
         if self.shape != Some(shape) {
-            self.look_over(ctx.society, ctx.land);
+            self.look_over(ctx.society, ctx.land, draw);
             self.shape = Some(shape);
         }
-        self.work(ctx, upload);
-        self.grooves.light(ctx, &self.drawn);
+        self.work(ctx, draw);
+        self.grooves.light(ctx, &self.drawn, draw);
     }
 
     /// Takes out the roads the society no longer holds and sets about
     /// laying those that are new or changed.
-    fn look_over(&mut self, society: &Society, land: &Land) {
+    fn look_over(
+        &mut self,
+        society: &Society,
+        land: &Land,
+        draw: &mut Draw,
+    ) {
         let live = society
             .roads
             .iter()
             .map(|r| r.pair)
             .collect::<HashSet<_>>();
         self.jobs.retain(|pair, _| live.contains(pair));
-        self.drawn.retain(|pair, _| live.contains(pair));
+        self.drawn.retain(|pair, road| {
+            let kept = live.contains(pair);
+            if !kept {
+                draw.despawn(road.entity);
+            }
+            kept
+        });
         // The old or new place of a town: a road between towns that
         // passes near may have to find another way, or may have a
         // shorter one.
@@ -292,8 +304,8 @@ impl Roads {
 
     /// Takes the roads being laid a step further while the call has
     /// time, one road at a time, the roads nearest the camera first.
-    fn work(&mut self, ctx: &Ctx, upload: &mut Upload) {
-        while upload.left() {
+    fn work(&mut self, ctx: &Ctx, draw: &mut Draw) {
+        while draw.left() {
             let eye = ctx.eye.xz();
             let next = self
                 .jobs
@@ -312,15 +324,15 @@ impl Roads {
             let Some(job) = self.jobs.get_mut(&pair) else {
                 return;
             };
-            match job.build.step(ctx, upload) {
+            match job.build.step(ctx, draw) {
                 Ok(None) => {}
                 Ok(Some(built)) => {
                     if let Some(job) = self.jobs.remove(&pair) {
-                        self.place(ctx, pair, job, built);
+                        self.place(ctx, pair, job, built, draw);
                     }
                 }
                 Err(why) => {
-                    hamlet_engine_sdk::warn(&format!(
+                    hamlet_engine_bevy::warn(&format!(
                         "a road: {why}"
                     ));
                     self.jobs.remove(&pair);
@@ -337,30 +349,22 @@ impl Roads {
         pair: Pair,
         job: Job,
         built: Built,
+        draw: &mut Draw,
     ) {
         let mut spans = built.span.is_some();
         if let Some(old) = self.drawn.remove(&pair) {
             spans |= old.span.is_some();
+            draw.despawn(old.entity);
         }
         // The roads whose bridges meet its own are looked over again.
         if spans {
             self.shape = None;
         }
-        let entity = match Entity::make(None, 0) {
-            Ok(entity) => entity,
-            Err(why) => {
-                hamlet_engine_sdk::warn(&format!("a road: {why}"));
-                return;
-            }
-        };
-        entity.set_transform(Frame::IDENTITY.scene());
-        let mut parts = Vec::new();
-        let mut part = |mesh: &Mesh, material, cast| {
-            if let Ok(piece) = Entity::make(Some(&entity), 0) {
-                piece.draw(mesh, material);
-                piece.set_shadows(cast, true);
-                parts.push(piece);
-            }
+        let entity = draw.spawn(None, 0);
+        let mut part = |mesh: &Handle<Mesh>, material, cast| {
+            let piece = draw.spawn(Some(entity), 0);
+            draw.draw(piece, mesh, material);
+            draw.shadows(piece, cast, true);
         };
         for mesh in &built.surface {
             // Only a bridge stands high enough to throw a shadow.
@@ -382,8 +386,17 @@ impl Roads {
                 laid: self.laid,
                 entity,
                 groove: built.groove,
-                _held: (parts, built.surface),
             },
         );
     }
+}
+
+/// Brings the roads drawn in line with the society.
+pub fn build_roads(
+    mut roads: ResMut<Roads>,
+    shared: Shared,
+    mut draw: Draw,
+) {
+    let floor = shared.floor();
+    roads.update(&shared.ctx(&floor), &mut draw);
 }

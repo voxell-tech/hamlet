@@ -4,13 +4,13 @@
 //! the note's id and version each time it is saved. It hears the
 //! board's `seen`, and shows which version the board saw last.
 
-use hamlet_engine_sdk::ui::{
-    AnyView, UiExt, ViewExt, column, field, heading, icon_button,
-    label, resource,
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::serde::{Deserialize, Serialize};
+use hamlet_engine_bevy::ui::{
+    UiExt, column, field, heading, icon_button, label, resource,
 };
-use hamlet_engine_sdk::{
-    AssetId, Entry, Message, Plugin, Reply, World, assets, decode,
-    emit, encode, info, subscribe, warn,
+use hamlet_engine_bevy::{
+    AssetId, Reply, decode, encode, info, warn,
 };
 
 const NOTE: &str = "notes.note";
@@ -18,8 +18,21 @@ const NOTE: &str = "notes.note";
 #[derive(Default)]
 struct Notes;
 
+impl Plugin for Notes {
+    fn build(&self, app: &mut App) {
+        app.init_saved_resource::<Note>()
+            .add_panel("notes", "Notes", notes)
+            .add_service("words", words)
+            .add_systems(Declare, find)
+            .add_systems(Update, (keep, hear));
+    }
+}
+
+hamlet_engine_bevy::export!(Notes);
+
 /// The note, as the panel shows it.
-#[derive(Default)]
+#[derive(Resource, Default, Serialize, Deserialize)]
+#[serde(crate = "hamlet_engine_bevy::serde")]
 struct Note {
     id: Option<AssetId>,
     version: u64,
@@ -30,141 +43,124 @@ struct Note {
 }
 
 impl Note {
-    fn saved(&mut self, id: AssetId, version: u64) {
+    fn saved(
+        &mut self,
+        id: AssetId,
+        version: u64,
+        host: &mut impl HostExt,
+    ) {
         self.id = Some(id);
         self.version = version;
         info(&format!("saved note {} at version {version}", id.0));
         if let Ok(payload) = encode(&(id.0, version)) {
-            emit("saved", &payload);
+            host.emit("saved", &payload);
         }
     }
 
     /// Saves the draft: the note made, or changed.
-    fn save(&self) {
+    fn save(&self, host: &mut impl HostExt) {
         match self.id {
             Some(id) => {
-                assets::update(id, self.draft.as_bytes());
+                host.update_asset(id, self.draft.as_bytes());
             }
             None => {
-                assets::create(NOTE, "Note", self.draft.as_bytes());
+                host.create_asset(
+                    NOTE,
+                    "Note",
+                    self.draft.as_bytes(),
+                );
             }
         }
     }
 }
 
-impl Plugin for Notes {
-    fn declare(&self, entry: &mut Entry) {
-        entry.panel("notes", "Notes");
-        assets::list(NOTE);
-        subscribe("hamlet.board/seen");
-    }
-
-    fn mount(&mut self, _: &str, world: &mut World) -> AnyView {
-        world.init_resource::<Note>();
-        column((
-            heading("Notes"),
-            field(resource::<Note, _>(|note| note.draft.clone()))
-                .placeholder("The note")
-                .on_commit(|world, text| {
-                    world.resource_mut::<Note>().draft = text;
-                }),
-            icon_button("check", "Save").on_click(|world| {
-                world.resource::<Note>().save();
+fn notes() -> AnyView {
+    column((
+        heading("Notes"),
+        field(resource::<Note, _>(|note| note.draft.clone()))
+            .placeholder("The note")
+            .on_commit(|world, text| {
+                world.resource_mut::<Note>().draft = text;
             }),
-            label(resource::<Note, _>(|note| {
-                format!("Version {}", note.version)
-            })),
-            label(resource::<Note, _>(|note| match note.seen {
-                Some(version) => {
-                    format!("The board saw version {version}.")
-                }
-                None => "The board has not seen it yet.".into(),
-            })),
-        ))
-        .boxed()
-    }
+        icon_button("check", "Save").on_click(|world| {
+            world.resource_scope(|world, note: Mut<Note>| {
+                note.save(world);
+            });
+        }),
+        label(resource::<Note, _>(|note| {
+            format!("Version {}", note.version)
+        })),
+        label(resource::<Note, _>(|note| match note.seen {
+            Some(version) => {
+                format!("The board saw version {version}.")
+            }
+            None => "The board has not seen it yet.".into(),
+        })),
+    ))
+    .boxed()
+}
 
-    fn receive(&mut self, message: Message, world: &mut World) {
-        let note = world.resource_or_init::<Note>();
-        match message {
-            Message::Reply { reply, .. } => match reply {
-                Ok(Reply::Listed(found)) => match found.first() {
-                    Some(found) => {
-                        note.id = Some(found.id);
-                        note.version = found.version;
-                        assets::read(found.id);
-                    }
-                    None => {
-                        note.draft = "A first note".into();
-                        note.save();
-                    }
-                },
-                Ok(Reply::Read(asset)) => {
-                    note.draft =
-                        String::from_utf8_lossy(&asset.bytes)
-                            .into_owned();
-                    note.version = asset.info.version;
+/// Looks for the note made before, and hears the board.
+fn find(mut commands: Commands) {
+    commands.list_assets(NOTE);
+    commands.subscribe("hamlet.board/seen");
+}
+
+/// Keeps the note as the asset store answers.
+fn keep(
+    mut replies: MessageReader<Replied>,
+    mut note: ResMut<Note>,
+    mut commands: Commands,
+) {
+    for replied in replies.read() {
+        match &replied.reply {
+            Ok(Reply::Listed(found)) => match found.first() {
+                Some(found) => {
+                    note.id = Some(found.id);
+                    note.version = found.version;
+                    commands.read_asset(found.id);
                 }
-                Ok(Reply::Created(id)) => note.saved(id, 1),
-                Ok(Reply::Updated(version)) => {
-                    if let Some(id) = note.id {
-                        note.saved(id, version);
-                    }
+                None => {
+                    note.draft = "A first note".into();
+                    note.save(&mut commands);
                 }
-                Ok(_) => {}
-                Err(why) => warn(&why.to_string()),
             },
-            Message::Event { payload, .. } => {
-                if let Ok(version) = decode::<u64>(&payload) {
-                    note.seen = Some(version);
+            Ok(Reply::Read(asset)) => {
+                note.draft = String::from_utf8_lossy(&asset.bytes)
+                    .into_owned();
+                note.version = asset.info.version;
+            }
+            Ok(Reply::Created(id)) => {
+                note.saved(*id, 1, &mut commands)
+            }
+            Ok(Reply::Updated(version)) => {
+                if let Some(id) = note.id {
+                    note.saved(id, *version, &mut commands);
                 }
             }
-            _ => {}
-        }
-    }
-
-    fn serve(
-        &mut self,
-        service: &str,
-        caller: &str,
-        argument: &[u8],
-        _: &mut World,
-    ) -> Result<Vec<u8>, String> {
-        if service != "words" {
-            return Err(format!("there is no service {service}"));
-        }
-        let text = decode::<String>(argument)
-            .map_err(|why| why.to_string())?;
-        let words = text.split_whitespace().count() as u32;
-        info(&format!("counted {words} words for {caller}"));
-        encode(&words).map_err(|why| why.to_string())
-    }
-
-    fn save(&self, world: &World) -> Vec<u8> {
-        let Some(note) = world.get::<Note>() else {
-            return Vec::new();
-        };
-        let state = (
-            note.id.map(|id| id.0),
-            note.version,
-            &note.draft,
-            note.seen,
-        );
-        encode(&state).unwrap_or_default()
-    }
-
-    fn restore(&mut self, state: &[u8], world: &mut World) {
-        if let Ok((id, version, draft, seen)) =
-            decode::<(Option<u64>, u64, String, Option<u64>)>(state)
-        {
-            world.insert(Note {
-                id: id.map(AssetId),
-                version,
-                draft,
-                seen,
-            });
+            Ok(_) => {}
+            Err(why) => warn(&why.to_string()),
         }
     }
 }
 
-hamlet_engine_sdk::export!(Notes);
+/// Shows the version the board saw last.
+fn hear(
+    mut events: MessageReader<EventReceived>,
+    mut note: ResMut<Note>,
+) {
+    for event in events.read() {
+        if let Ok(version) = decode::<u64>(&event.payload) {
+            note.seen = Some(version);
+        }
+    }
+}
+
+/// Counts the words of a text.
+fn words(call: In<ServiceCall>) -> Result<Vec<u8>, String> {
+    let text = decode::<String>(&call.argument)
+        .map_err(|why| why.to_string())?;
+    let words = text.split_whitespace().count() as u32;
+    info(&format!("counted {words} words for {}", call.caller));
+    encode(&words).map_err(|why| why.to_string())
+}

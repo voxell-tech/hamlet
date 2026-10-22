@@ -14,6 +14,8 @@ pub enum Place {
     Town(TownId),
     /// The chief's own place.
     Chief,
+    /// The library, which is nobody's and everyone's.
+    Library,
 }
 
 /// The ground held by a place that is not a town.

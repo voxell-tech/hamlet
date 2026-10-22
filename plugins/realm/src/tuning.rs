@@ -2,6 +2,8 @@
 //! reads, and `assets/palette.toml`, built into the plugin. What each
 //! value means is beside its field, in the module it tunes.
 
+use hamlet_engine_bevy::prelude::{Resource, bevy_ecs};
+
 use crate::folk::chief::ChiefSettings;
 use crate::folk::keeper::Motion;
 use crate::places::house::HouseSettings;
@@ -21,7 +23,7 @@ const PALETTE: &str = include_str!("../../../assets/palette.toml");
 
 /// The sections of `assets/world.toml` the realm reads. Those of
 /// what it does not draw are left out.
-#[derive(Clone, Debug, serde::Deserialize)]
+#[derive(Resource, Clone, Debug, serde::Deserialize)]
 pub struct WorldTuning {
     pub looks: Looks,
     pub sky: SkySettings,

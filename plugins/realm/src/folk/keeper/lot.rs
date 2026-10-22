@@ -9,7 +9,7 @@ use crate::world::layout::Plot;
 
 /// The ground a house stands on, for placing its robot.
 #[derive(Clone, Copy, Debug)]
-pub(super) struct Lot {
+pub struct Lot {
     /// The house's middle.
     pub(super) origin: Vec3,
     pub(super) yaw: f32,
@@ -22,7 +22,7 @@ pub(super) struct Lot {
 /// the paving of every yard.
 pub struct Floor<'a> {
     land: &'a Land,
-    lots: Vec<Lot>,
+    lots: &'a [Lot],
 }
 
 /// The floor about one place, with the yards within its reach.
@@ -53,7 +53,7 @@ fn footing_on(
 }
 
 impl<'a> Floor<'a> {
-    pub(super) fn new(land: &'a Land, lots: Vec<Lot>) -> Self {
+    pub fn new(land: &'a Land, lots: &'a [Lot]) -> Self {
         Self { land, lots }
     }
 

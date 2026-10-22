@@ -13,12 +13,13 @@ mod lights;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use glam::{Quat, Vec2, Vec3};
-use hamlet_engine_sdk::api::agents::Doing;
-use hamlet_engine_sdk::scene::{Entity, Mesh};
+use hamlet_engine_bevy::api::agents::Doing;
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::scene::Mesh;
 
 use crate::build::frame::Frame;
 use crate::build::mesh::Mb;
-use crate::build::upload::{Unsent, Upload};
+use crate::build::upload::{Draw, Unsent};
 use crate::folk::keeper::KState;
 use crate::places::house::{self, TownStyle};
 use crate::places::shift::{Part, Shift, Way};
@@ -26,7 +27,7 @@ use crate::places::town::build::{Built, FlagSettings, Recipe};
 use crate::places::town::kit::{Kit, Part as KitPart};
 use crate::places::town::lights::Lamps;
 use crate::places::yard::Yard;
-use crate::realm::Ctx;
+use crate::realm::{Ctx, Shared};
 use crate::society::{Agent, AgentId, Society, Town, TownId};
 use crate::view::pick::Thing;
 use crate::world::land::{Land, LandData};
@@ -86,9 +87,8 @@ struct House {
     recipe: Recipe,
     built: Option<Built>,
     drawn: bool,
-    /// Its window panes, and its door lantern with the state it
-    /// shows and where it hangs in the realm.
-    panes: Option<Entity>,
+    /// Its door lantern, with the state it shows and where it hangs
+    /// in the realm.
     lamp: Option<(Entity, KState, Vec3)>,
     props: Vec<Prop>,
     yard: Yard,
@@ -111,18 +111,18 @@ struct TownDrawn {
     near: Entity,
     common: Entity,
     /// Its mesh once it is drawn; none for one the engine refused.
-    common_mesh: Option<Option<Mesh>>,
-    _lamp: Entity,
+    common_mesh: Option<Option<Handle<Mesh>>>,
+    lamp: Entity,
     /// The whole as one mesh, shown far, and its window panes.
     far: Entity,
     far_panes: Entity,
-    far_meshes: Option<(Mesh, Mesh)>,
     /// True while its houses are shown, false while its far mesh is,
     /// none until it is first shown.
     near_shown: Option<bool>,
 }
 
 /// The towns drawn.
+#[derive(Resource)]
 pub struct Towns {
     kit: Kit,
     lamps: Lamps,
@@ -144,28 +144,15 @@ pub struct Towns {
     shape: Option<(u64, u64)>,
 }
 
-/// The towns' methods on [`Entity`].
-trait EntityExt {
-    /// Shows it or hides it as `want` says, where `seen` says it is
-    /// not so already.
-    fn show_as(&self, seen: &mut bool, want: bool);
-}
-
-impl EntityExt for Entity {
-    fn show_as(&self, seen: &mut bool, want: bool) {
-        if *seen != want {
-            *seen = want;
-            self.set_visible(want);
-        }
-    }
-}
-
 impl Towns {
     /// No towns yet, their kit to be built as they update.
-    pub fn make(pal: &Palette) -> Result<Self, String> {
+    pub fn make(
+        pal: &Palette,
+        draw: &mut Draw,
+    ) -> Result<Self, String> {
         Ok(Self {
             kit: Kit::new(),
-            lamps: Lamps::make(pal)?,
+            lamps: Lamps::make(pal, draw)?,
             flag: FlagSettings::read()?,
             towns: HashMap::new(),
             houses: HashMap::new(),
@@ -177,46 +164,69 @@ impl Towns {
         })
     }
 
-    /// Brings what is drawn in line with the society, within
-    /// `upload`.
-    pub fn update(&mut self, ctx: &Ctx, upload: &mut Upload) {
-        self.lamps.light(ctx.pal, ctx.sky, ctx.clock);
-        if !self.kit.fill(ctx.pal, &ctx.tuning.generator.yard, upload)
-        {
+    /// Brings what is drawn in line with the society, while the call
+    /// has room.
+    pub fn update(&mut self, ctx: &Ctx, draw: &mut Draw) {
+        self.lamps.light(ctx.pal, ctx.sky, ctx.clock, draw);
+        if !self.kit.fill(ctx.pal, &ctx.tuning.generator.yard, draw) {
             return;
         }
         let shape = (ctx.society.shape(), ctx.land.places());
         if self.shape != Some(shape) {
-            self.sync(ctx);
+            self.sync(ctx, draw);
             self.shape = Some(shape);
         }
-        self.build(ctx, upload);
-        self.far(ctx, upload);
-        self.commons(ctx, upload);
-        self.shift(ctx);
-        self.detail(ctx);
-        self.states(ctx);
-        self.engines(ctx);
-        self.spill(ctx);
+        self.build(ctx, draw);
+        self.far(ctx, draw);
+        self.commons(ctx, draw);
+        self.shift(ctx, draw);
+        self.detail(ctx, draw);
+        self.states(ctx, draw);
+        self.engines(ctx, draw);
+        self.spill(ctx, draw);
     }
 
     /// Takes out what the society no longer holds, and draws what is
     /// new or changed.
-    fn sync(&mut self, ctx: &Ctx) {
+    fn sync(&mut self, ctx: &Ctx, draw: &mut Draw) {
         let (society, land) = (ctx.society, ctx.land);
         // Towns gone, or founded anew on another site.
         self.towns.retain(|id, group| {
-            society.town(*id).is_some_and(|t| t.site == group.site)
+            let kept = society
+                .town(*id)
+                .is_some_and(|t| t.site == group.site);
+            if !kept {
+                draw.despawn(group.near);
+                draw.despawn(group.far);
+            }
+            kept
         });
         let towns = &self.towns;
-        self.houses
-            .retain(|_, house| towns.contains_key(&house.town));
-        self.houses.retain(|id, _| society.agent(*id).is_some());
+        self.houses.retain(|id, house| {
+            let kept = towns.contains_key(&house.town)
+                && society.agent(*id).is_some();
+            if !kept {
+                draw.despawn(house.entity);
+            }
+            kept
+        });
         let houses = &self.houses;
-        self.replaced.retain(|id, _| houses.contains_key(id));
-        self.leaving.retain(|house| towns.contains_key(&house.town));
+        self.replaced.retain(|id, house| {
+            let kept = houses.contains_key(id);
+            if !kept {
+                draw.despawn(house.entity);
+            }
+            kept
+        });
+        self.leaving.retain(|house| {
+            let kept = towns.contains_key(&house.town);
+            if !kept {
+                draw.despawn(house.entity);
+            }
+            kept
+        });
         self.jobs.retain(|agent| houses.contains_key(agent));
-        let (founded, carried) = self.towns(ctx);
+        let (founded, carried) = self.towns(ctx, draw);
         for agent in &society.agents {
             let Some(town) = society.town(agent.town) else {
                 continue;
@@ -239,7 +249,7 @@ impl Towns {
             }
             let founded = founded.contains(&town.id);
             let carried = carried.contains(&town.id);
-            self.house(ctx, agent, town, sig, founded, carried);
+            self.house(ctx, agent, town, sig, founded, carried, draw);
         }
     }
 
@@ -249,6 +259,7 @@ impl Towns {
     fn towns(
         &mut self,
         ctx: &Ctx,
+        draw: &mut Draw,
     ) -> (HashSet<TownId>, HashSet<TownId>) {
         let land = ctx.land;
         let (mut founded, mut carried) =
@@ -258,26 +269,19 @@ impl Towns {
             if let Some(group) = self.towns.get_mut(&town.id) {
                 if group.at != centre {
                     group.at = centre;
-                    group.common.set_transform(
-                        land.common_frame(town.site).scene(),
+                    draw.place(
+                        group.common,
+                        land.common_frame(town.site),
                     );
                     self.stale.insert(town.id);
                     carried.insert(town.id);
                 }
                 continue;
             }
-            match TownDrawn::make(ctx, town) {
-                Ok(group) => {
-                    self.towns.insert(town.id, group);
-                    self.stale.insert(town.id);
-                    founded.insert(town.id);
-                }
-                Err(why) => {
-                    hamlet_engine_sdk::warn(&format!(
-                        "a town: {why}"
-                    ));
-                }
-            }
+            self.towns
+                .insert(town.id, TownDrawn::make(ctx, town, draw));
+            self.stale.insert(town.id);
+            founded.insert(town.id);
         }
         (founded, carried)
     }
@@ -292,6 +296,7 @@ impl Towns {
         sig: HouseSig,
         founded: bool,
         carried: bool,
+        draw: &mut Draw,
     ) {
         let (land, motion) = (ctx.land, &ctx.tuning.house_motion);
         let Some(group) = self.towns.get(&town.id) else {
@@ -335,19 +340,20 @@ impl Towns {
         if let Some(was) = was {
             self.stale.insert(was.town);
             if was.drawn {
-                self.replaced.insert(agent.id, was);
+                if let Some(old) = self.replaced.insert(agent.id, was)
+                {
+                    draw.despawn(old.entity);
+                }
+            } else {
+                draw.despawn(was.entity);
             }
         }
         let frame = Frame::at(land.on_ground(spot.at))
             .with_turn(Quat::from_rotation_y(spot.yaw));
-        let Ok(entity) = Entity::make(
-            Some(&group.near),
-            Thing::House(agent.id).key(),
-        ) else {
-            return;
-        };
-        entity.set_transform(frame.scene());
-        entity.set_visible(false);
+        let entity = draw
+            .spawn(Some(group.near), Thing::House(agent.id).key());
+        draw.place(entity, frame);
+        draw.show(entity, false);
         let mut made = House {
             agent: agent.id,
             town: town.id,
@@ -365,7 +371,6 @@ impl Towns {
             },
             built: None,
             drawn: false,
-            panes: None,
             lamp: None,
             props: Vec::new(),
             yard,
@@ -376,17 +381,17 @@ impl Towns {
             seen: false,
         };
         if !agent.archived {
-            self.furnish(ctx, &mut made, &yard);
+            self.furnish(ctx, &mut made, &yard, draw);
         }
         if let Some((at, kind, scale)) =
             house::garden_tree(land, agent.id, &yard)
             && !hall
             && let Some(mesh) = self.kit.get(KitPart::Tree(kind))
-            && let Ok(tree) = Entity::make(Some(&made.entity), PLAIN)
         {
+            let tree = draw.spawn(Some(made.entity), PLAIN);
             let rest = Frame::at(at).with_size(Vec3::splat(scale));
-            tree.set_transform(rest.scene());
-            tree.draw(mesh, &ctx.stock.matte);
+            draw.place(tree, rest);
+            draw.draw(tree, mesh, &ctx.stock.matte);
             made.props.push(Prop {
                 entity: tree,
                 rest,
@@ -399,38 +404,49 @@ impl Towns {
     }
 
     /// Stands the desk and the engine in the yard of `house`.
-    fn furnish(&self, ctx: &Ctx, house: &mut House, yard: &Yard) {
+    fn furnish(
+        &self,
+        ctx: &Ctx,
+        house: &mut House,
+        yard: &Yard,
+        draw: &mut Draw,
+    ) {
         let kit = &self.kit;
-        let stock = ctx.stock;
-        let part = |mesh: KitPart, rest: Frame, under: &Entity| {
-            let entity = Entity::make(Some(under), PLAIN).ok()?;
-            entity.set_transform(rest.scene());
-            entity.draw(kit.get(mesh)?, &stock.matte);
-            Some(entity)
-        };
-        let (Some(desk), Some(engine)) = (
-            part(KitPart::Desk, yard.desk_at(), &house.entity),
-            part(KitPart::Engine, yard.engine_at(), &house.entity),
-        ) else {
+        let (Some(desk_mesh), Some(engine_mesh)) =
+            (kit.get(KitPart::Desk), kit.get(KitPart::Engine))
+        else {
             return;
         };
-        let wheel = part(KitPart::Wheel, yard.wheel(0.0), &engine);
+        let mut part = |mesh, rest: Frame, under| {
+            let entity = draw.spawn(Some(under), PLAIN);
+            draw.place(entity, rest);
+            draw.draw(entity, mesh, &ctx.stock.matte);
+            entity
+        };
+        let desk = part(desk_mesh, yard.desk_at(), house.entity);
+        let engine =
+            part(engine_mesh, yard.engine_at(), house.entity);
+        let wheel = kit
+            .get(KitPart::Wheel)
+            .map(|mesh| part(mesh, yard.wheel(0.0), engine));
         // Steam shows the light of work.
-        let rings = [(); 2].map(|_| {
-            let ring =
-                Entity::make(Some(&house.entity), PLAIN).ok()?;
-            ring.draw(
-                kit.get(KitPart::Ring)?,
-                self.lamps.of(KState::Working),
-            );
-            ring.set_shadows(false, false);
-            ring.set_visible(false);
-            Some(ring)
-        });
-        if let (Some(wheel), [Some(a), Some(b)]) = (wheel, rings) {
+        if let (Some(wheel), Some(ring_mesh)) =
+            (wheel, kit.get(KitPart::Ring))
+        {
+            let rings = [(); 2].map(|_| {
+                let ring = draw.spawn(Some(house.entity), PLAIN);
+                draw.draw(
+                    ring,
+                    ring_mesh,
+                    self.lamps.of(KState::Working),
+                );
+                draw.shadows(ring, false, false);
+                draw.show(ring, false);
+                ring
+            });
             house.engine = Some(Engine {
                 wheel,
-                rings: [a, b],
+                rings,
                 turn: 0.0,
                 ran: None,
             });
@@ -448,7 +464,7 @@ impl Towns {
 
     /// Builds the houses waiting, one at a time and nearest the
     /// camera first, while the call has room.
-    fn build(&mut self, ctx: &Ctx, upload: &mut Upload) {
+    fn build(&mut self, ctx: &Ctx, draw: &mut Draw) {
         let eye = ctx.eye;
         let houses = &self.houses;
         self.jobs.make_contiguous().sort_by(|a, b| {
@@ -459,7 +475,7 @@ impl Towns {
             };
             away(a).total_cmp(&away(b))
         });
-        while upload.left() {
+        while draw.left() {
             let Some(&agent) = self.jobs.front() else {
                 break;
             };
@@ -471,7 +487,7 @@ impl Towns {
             let built = house.built.get_or_insert_with(|| {
                 Built::of(ctx.land, &self.flag, recipe)
             });
-            if !built.hand(upload) {
+            if !built.hand(draw) {
                 break;
             }
             self.jobs.pop_front();
@@ -486,22 +502,28 @@ impl Towns {
                 &self.lamps,
                 state,
                 old.is_some(),
+                draw,
             );
-            if let (Some(mut old), Some(way)) = (old, house.way) {
-                let (_, goes) = way.parts();
-                old.shift =
-                    Some(Shift::new(goes, true).after(house.wait.0));
-                self.leaving.push(old);
+            match (old, house.way) {
+                (Some(mut old), Some(way)) => {
+                    let (_, goes) = way.parts();
+                    old.shift = Some(
+                        Shift::new(goes, true).after(house.wait.0),
+                    );
+                    self.leaving.push(old);
+                }
+                (Some(old), None) => draw.despawn(old.entity),
+                (None, _) => {}
             }
         }
     }
 
     /// Builds the far mesh of each town that changed.
-    fn far(&mut self, ctx: &Ctx, upload: &mut Upload) {
+    fn far(&mut self, ctx: &Ctx, draw: &mut Draw) {
         let (land, society) = (ctx.land, ctx.society);
         let stale = self.stale.iter().copied().collect::<Vec<_>>();
         for id in stale {
-            if !upload.left() {
+            if !draw.left() {
                 return;
             }
             let Some(group) = self.towns.get_mut(&id) else {
@@ -510,11 +532,11 @@ impl Towns {
             };
             let (mb, panes) = far_mesh(land, society, id, group.site);
             let (body, panes) =
-                match (mb.upload(upload), panes.upload(upload)) {
+                match (mb.upload(draw), panes.upload(draw)) {
                     (Ok(body), Ok(panes)) => (body, panes),
                     (Err(Unsent::Refused(why)), _)
                     | (_, Err(Unsent::Refused(why))) => {
-                        hamlet_engine_sdk::warn(&format!(
+                        hamlet_engine_bevy::warn(&format!(
                             "a town from far: {why}"
                         ));
                         self.stale.remove(&id);
@@ -522,57 +544,66 @@ impl Towns {
                     }
                     _ => return,
                 };
-            group.far.draw(&body, &ctx.stock.matte);
-            group.far_panes.draw(&panes, &ctx.stock.windows);
-            group.far_meshes = Some((body, panes));
+            draw.draw(group.far, &body, &ctx.stock.matte);
+            draw.draw(group.far_panes, &panes, &ctx.stock.windows);
             self.stale.remove(&id);
         }
     }
 
     /// Builds the common of each town that has none yet.
-    fn commons(&mut self, ctx: &Ctx, upload: &mut Upload) {
+    fn commons(&mut self, ctx: &Ctx, draw: &mut Draw) {
         for group in self.towns.values_mut() {
             if group.common_mesh.is_some() {
                 continue;
             }
-            if !upload.left() {
+            if !draw.left() {
                 return;
             }
             let style = TownStyle::of(ctx.land, group.site);
             match common::mesh(ctx.land, group.site, &style)
-                .upload(upload)
+                .upload(draw)
             {
                 Ok(mesh) => {
-                    group.common.draw(&mesh, &ctx.stock.matte);
+                    draw.draw(group.common, &mesh, &ctx.stock.matte);
                     group.common_mesh = Some(Some(mesh));
                 }
                 Err(Unsent::Full(_)) => return,
                 Err(Unsent::Refused(why)) => {
-                    hamlet_engine_sdk::warn(&format!(
+                    hamlet_engine_bevy::warn(&format!(
                         "a common: {why}"
                     ));
                     group.common_mesh = Some(None);
                 }
             }
             if let Some(mesh) = self.kit.get(KitPart::Lamp) {
-                group._lamp.draw(mesh, self.lamps.of(KState::Rest));
+                draw.draw(
+                    group.lamp,
+                    mesh,
+                    self.lamps.of(KState::Rest),
+                );
             }
         }
     }
 
     /// Plays every house that is coming in or going out.
-    fn shift(&mut self, ctx: &Ctx) {
+    fn shift(&mut self, ctx: &Ctx, draw: &mut Draw) {
         let (set, now) = (&ctx.tuning.house_motion, ctx.clock);
         for house in self.houses.values_mut() {
-            house.play(set, now);
+            house.play(set, now, draw);
         }
-        self.leaving.retain_mut(|house| house.play(set, now));
+        self.leaving.retain_mut(|house| {
+            let playing = house.play(set, now, draw);
+            if !playing {
+                draw.despawn(house.entity);
+            }
+            playing
+        });
     }
 
     /// Shows each town's houses near the camera and its far mesh past
     /// `town_far`. A town keeps its far mesh until its common and
     /// every house it has are built.
-    fn detail(&mut self, ctx: &Ctx) {
+    fn detail(&mut self, ctx: &Ctx, draw: &mut Draw) {
         let land = ctx.land;
         for (id, group) in &mut self.towns {
             let c = land.sites[group.site].at;
@@ -591,14 +622,14 @@ impl Towns {
             let near = d < ctx.tuning.detail.town_far && built;
             if group.near_shown != Some(near) {
                 group.near_shown = Some(near);
-                group.near.set_visible(near);
-                group.far.set_visible(!near);
+                draw.show(group.near, near);
+                draw.show(group.far, !near);
             }
         }
     }
 
     /// Shows what each agent is doing in its door lantern.
-    fn states(&mut self, ctx: &Ctx) {
+    fn states(&mut self, ctx: &Ctx, draw: &mut Draw) {
         for house in self.houses.values_mut() {
             let Some((lamp, shown, _)) = &mut house.lamp else {
                 continue;
@@ -611,14 +642,14 @@ impl Towns {
                 && let Some(mesh) = self.kit.get(KitPart::Lamp)
             {
                 *shown = state;
-                lamp.draw(mesh, self.lamps.of(state));
+                draw.draw(*lamp, mesh, self.lamps.of(state));
             }
         }
     }
 
     /// Turns the wheel of each engine whose agent runs a command, and
     /// sends up its steam.
-    fn engines(&mut self, ctx: &Ctx) {
+    fn engines(&mut self, ctx: &Ctx, draw: &mut Draw) {
         let now = ctx.clock;
         for house in self.houses.values_mut() {
             let Some(engine) = &mut house.engine else {
@@ -633,8 +664,8 @@ impl Towns {
                 (true, None) => engine.ran = Some(now),
                 (false, Some(_)) => {
                     engine.ran = None;
-                    for ring in &engine.rings {
-                        ring.set_visible(false);
+                    for ring in engine.rings {
+                        draw.show(ring, false);
                     }
                 }
                 _ => {}
@@ -644,23 +675,21 @@ impl Towns {
             };
             let x = now - began;
             engine.turn = x * CRANK_RATE;
-            engine
-                .wheel
-                .set_transform(yard.wheel(engine.turn).scene());
-            for (i, ring) in engine.rings.iter().enumerate() {
+            draw.place(engine.wheel, yard.wheel(engine.turn));
+            for (i, ring) in engine.rings.into_iter().enumerate() {
                 match yard.ring(i, x) {
                     Some(at) => {
-                        ring.set_transform(at.scene());
-                        ring.set_visible(true);
+                        draw.place(ring, at);
+                        draw.show(ring, true);
                     }
-                    None => ring.set_visible(false),
+                    None => draw.show(ring, false),
                 }
             }
         }
     }
 
     /// Has the lanterns nearest the camera throw light after dark.
-    fn spill(&mut self, ctx: &Ctx) {
+    fn spill(&mut self, ctx: &Ctx, draw: &mut Draw) {
         let set = &ctx.tuning.sky;
         let lumens = set.door_lumens * ctx.sky.look.candle;
         let mut lit = self
@@ -693,40 +722,38 @@ impl Towns {
             a.0.distance_squared(eye)
                 .total_cmp(&b.0.distance_squared(eye))
         });
-        self.lamps.spill(&lit, lumens, set.door_reach);
+        self.lamps.spill(&lit, lumens, set.door_reach, draw);
     }
 }
 
 impl TownDrawn {
-    fn make(ctx: &Ctx, town: &Town) -> Result<Self, String> {
-        let near = Entity::make(None, PLAIN)?;
-        near.set_visible(false);
+    fn make(ctx: &Ctx, town: &Town, draw: &mut Draw) -> Self {
+        let near = draw.spawn(None, PLAIN);
+        draw.show(near, false);
         // From far, the whole town answers as its common.
-        let far = Entity::make(None, Thing::Common(town.id).key())?;
-        far.set_shadows(true, true);
-        far.watch(true, true);
-        let far_panes = Entity::make(Some(&far), PLAIN)?;
-        far_panes.set_shadows(false, true);
+        let far = draw.spawn(None, Thing::Common(town.id).key());
+        draw.shadows(far, true, true);
+        draw.watch(far);
+        let far_panes = draw.spawn(Some(far), PLAIN);
+        draw.shadows(far_panes, false, true);
         let common =
-            Entity::make(Some(&near), Thing::Common(town.id).key())?;
-        common
-            .set_transform(ctx.land.common_frame(town.site).scene());
-        common.watch(true, true);
-        let lamp = Entity::make(Some(&common), PLAIN)?;
-        lamp.set_transform(Frame::at(ctx.land.set.town.lamp).scene());
-        lamp.set_shadows(false, true);
-        Ok(Self {
+            draw.spawn(Some(near), Thing::Common(town.id).key());
+        draw.place(common, ctx.land.common_frame(town.site));
+        draw.watch(common);
+        let lamp = draw.spawn(Some(common), PLAIN);
+        draw.place(lamp, Frame::at(ctx.land.set.town.lamp));
+        draw.shadows(lamp, false, true);
+        Self {
             site: town.site,
             at: ctx.land.sites[town.site].at,
             near,
             common,
             common_mesh: None,
-            _lamp: lamp,
+            lamp,
             far,
             far_panes,
-            far_meshes: None,
             near_shown: None,
-        })
+        }
     }
 }
 
@@ -742,31 +769,27 @@ impl House {
         lamps: &Lamps,
         state: KState,
         replaces: bool,
+        draw: &mut Draw,
     ) {
         let Some(built) = &self.built else {
             return;
         };
         if let Some(body) = built.body.mesh() {
-            self.entity.draw(body, &ctx.stock.matte);
+            draw.draw(self.entity, body, &ctx.stock.matte);
             // An archived house answers only as a ruin.
-            self.entity.watch(true, true);
+            draw.watch(self.entity);
         }
         if let Some((panes, lamp)) = &built.fittings {
-            if let Some(mesh) = panes.mesh()
-                && let Ok(entity) =
-                    Entity::make(Some(&self.entity), PLAIN)
-            {
-                entity.draw(mesh, &ctx.stock.windows);
-                entity.set_shadows(false, true);
-                self.panes = Some(entity);
+            if let Some(mesh) = panes.mesh() {
+                let entity = draw.spawn(Some(self.entity), PLAIN);
+                draw.draw(entity, mesh, &ctx.stock.windows);
+                draw.shadows(entity, false, true);
             }
-            if let Some(mesh) = kit.get(KitPart::Lamp)
-                && let Ok(entity) =
-                    Entity::make(Some(&self.entity), PLAIN)
-            {
-                entity.set_transform(Frame::at(*lamp).scene());
-                entity.draw(mesh, lamps.of(state));
-                entity.set_shadows(false, true);
+            if let Some(mesh) = kit.get(KitPart::Lamp) {
+                let entity = draw.spawn(Some(self.entity), PLAIN);
+                draw.place(entity, Frame::at(*lamp));
+                draw.draw(entity, mesh, lamps.of(state));
+                draw.shadows(entity, false, true);
                 self.lamp =
                     Some((entity, state, self.frame.point(*lamp)));
             }
@@ -779,7 +802,15 @@ impl House {
                     Shift::new(comes, replaces).after(self.wait.1),
                 );
             }
-            None => self.entity.show_as(&mut self.seen, true),
+            None => self.reveal(draw),
+        }
+    }
+
+    /// Shows it, unless it is shown already.
+    fn reveal(&mut self, draw: &mut Draw) {
+        if !self.seen {
+            self.seen = true;
+            draw.show(self.entity, true);
         }
     }
 
@@ -789,6 +820,7 @@ impl House {
         &mut self,
         set: &crate::places::shift::HouseMotion,
         now: f32,
+        draw: &mut Draw,
     ) -> bool {
         let Some(shift) = &mut self.shift else {
             return true;
@@ -820,28 +852,28 @@ impl House {
         } else {
             part.pose(set, t, from)
         };
-        self.entity.set_transform(at.scene());
+        draw.place(self.entity, at);
         if over || t >= part.waits(set) {
-            self.entity.show_as(&mut self.seen, true);
+            self.reveal(draw);
         }
         let mut order = 0;
         for prop in &self.props {
             let rest = prop.rest;
             match (part.comes(), pops(prop)) {
                 // The one of the house that comes is in sight.
-                (false, false) => prop.entity.set_visible(false),
+                (false, false) => draw.show(prop.entity, false),
                 (false, true) => {}
                 // Held as it stands, whatever the house under it
                 // does.
                 (true, false) => {
                     let scale = at.size / from.size;
-                    prop.entity.set_transform(
+                    draw.place(
+                        prop.entity,
                         Frame {
                             at: rest.at / scale,
                             turn: rest.turn,
                             size: rest.size / scale,
-                        }
-                        .scene(),
+                        },
                     );
                 }
                 (true, true) => {
@@ -854,8 +886,7 @@ impl House {
                         rest.size * set.popped(t, order)
                     };
                     order += 1;
-                    prop.entity
-                        .set_transform(rest.with_size(size).scene());
+                    draw.place(prop.entity, rest.with_size(size));
                 }
             }
         }
@@ -902,4 +933,14 @@ fn far_mesh(
         );
     }
     (mb, panes)
+}
+
+/// Brings the towns drawn in line with the society.
+pub fn build_towns(
+    mut towns: ResMut<Towns>,
+    shared: Shared,
+    mut draw: Draw,
+) {
+    let floor = shared.floor();
+    towns.update(&shared.ctx(&floor), &mut draw);
 }

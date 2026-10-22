@@ -16,7 +16,7 @@ name = "plugin"
 crate-type = ["cdylib"]
 
 [dependencies]
-hamlet_engine_sdk = { path = "../../sdk" }
+hamlet_engine_bevy = { path = "../../bevy_sdk" }
 
 [profile.release]
 opt-level = "s"

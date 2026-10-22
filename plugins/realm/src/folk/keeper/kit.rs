@@ -6,11 +6,12 @@ pub(super) mod hats;
 mod props;
 
 use glam::Vec3;
-use hamlet_engine_sdk::scene::{Material, Mesh, MeshData, Pbr};
+use hamlet_engine_bevy::prelude::Handle;
+use hamlet_engine_bevy::scene::{Material, Mesh, MeshData, Pbr};
 
 use crate::build::mesh::Mb;
 use crate::build::stock::rgba;
-use crate::build::upload::{Unsent, Upload};
+use crate::build::upload::{Draw, Unsent};
 use crate::folk::keeper::kit::body::{
     arm, emblem, eye, head, key, lamp, leg, mantle, pennant, pole,
     torso, wheels,
@@ -103,7 +104,7 @@ impl Shape {
 /// and the paints. Robots share them, so a town of robots draws in a
 /// few batches. A place whose part has no mesh stays empty.
 pub(super) struct Kit {
-    pub paints: [Material; 7],
+    pub paints: [Handle<Material>; 7],
     pub torso: Pair,
     pub key: usize,
     pub arm: Pair,
@@ -124,7 +125,7 @@ pub(super) struct Kit {
     pub mantle: usize,
     pub pennant: usize,
     /// Every mesh, once it is handed over.
-    meshes: Vec<Option<Mesh>>,
+    meshes: Vec<Option<Handle<Mesh>>>,
     /// The parts yet to be built, the last first, each with the
     /// places of its meshes, and the meshes built but not yet handed
     /// over.
@@ -150,10 +151,13 @@ impl Plan {
 
 impl Kit {
     /// The paints, with every mesh still to build.
-    pub fn make(pal: &Palette) -> Result<Self, String> {
+    pub fn make(
+        pal: &Palette,
+        draw: &mut Draw,
+    ) -> Result<Self, String> {
         let mut plan = Plan::default();
         let paints = Paint::ALL
-            .map(|p| Material::make(matte(pal.paints[p as usize])));
+            .map(|p| draw.material(matte(pal.paints[p as usize])));
         let [a, b, c, d, e, f, g] = paints;
         let paints = [a?, b?, c?, d?, e?, f?, g?];
         let hats = [
@@ -219,14 +223,14 @@ impl Kit {
     }
 
     /// Builds the parts and hands over their meshes, as many as
-    /// `upload` allows. True once every one is handed over.
+    /// the call has room for. True once every one is handed over.
     pub fn hand_over(
         &mut self,
         pal: &Palette,
-        upload: &mut Upload,
+        draw: &mut Draw,
     ) -> bool {
         while !self.unbuilt.is_empty() || !self.waiting.is_empty() {
-            if !upload.left() {
+            if !draw.left() {
                 return false;
             }
             let Some((at, data)) = self.waiting.pop() else {
@@ -244,14 +248,14 @@ impl Kit {
                 }
                 continue;
             };
-            match upload.mesh(data) {
+            match draw.mesh(data) {
                 Ok(mesh) => self.meshes[at] = Some(mesh),
                 Err(Unsent::Full(data)) => {
                     self.waiting.push((at, data));
                     return false;
                 }
                 Err(Unsent::Refused(why)) => {
-                    hamlet_engine_sdk::warn(&format!(
+                    hamlet_engine_bevy::warn(&format!(
                         "a robot's part: {why}"
                     ));
                 }
@@ -261,7 +265,7 @@ impl Kit {
     }
 
     /// The mesh at `at`, once it is handed over.
-    pub fn mesh(&self, at: usize) -> Option<&Mesh> {
+    pub fn mesh(&self, at: usize) -> Option<&Handle<Mesh>> {
         self.meshes.get(at).and_then(Option::as_ref)
     }
 }

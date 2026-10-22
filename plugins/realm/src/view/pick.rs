@@ -3,13 +3,13 @@
 //! each with a ring of light on the ground about it.
 
 use glam::{Vec3, Vec3Swizzles};
-use hamlet_engine_sdk::api::agents::{Focus, Selected};
-use hamlet_engine_sdk::scene::gpu::Shader;
-use hamlet_engine_sdk::scene::{MouseButton, SceneInput};
+use hamlet_engine_bevy::api::agents::{Focus, Selected};
+use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::scene::{MouseButton, Shader};
 
 use crate::bridge::Bridge;
 use crate::build::mark::{Mark, Shape};
-use crate::build::upload::Upload;
+use crate::build::upload::Draw;
 use crate::folk::keeper::Floor;
 use crate::society::{AgentId, Society, TownId};
 
@@ -59,6 +59,8 @@ pub enum Thing {
     Mascot,
     /// The chief's place, the Hearth.
     Hearth,
+    /// The library every agent shares.
+    Library,
 }
 
 /// The bits of a key that say which kind of thing it is.
@@ -73,6 +75,7 @@ impl Thing {
             Self::Common(town) => (3, town.0),
             Self::Mascot => (4, 0),
             Self::Hearth => (5, 0),
+            Self::Library => (6, 0),
         };
         (kind << KIND) | (id & ((1 << KIND) - 1))
     }
@@ -86,13 +89,14 @@ impl Thing {
             3 => Self::Common(TownId(id)),
             4 => Self::Mascot,
             5 => Self::Hearth,
+            6 => Self::Library,
             _ => return None,
         })
     }
 
     /// What the window's focus selects for it: an agent for its robot
-    /// or house, a hamlet for its common, and the Hearth for the
-    /// chief's place and mascot.
+    /// or house, a hamlet for its common, the Hearth for the chief's
+    /// place and mascot, and the library for itself.
     pub fn selects(
         self,
         society: &Society,
@@ -109,6 +113,7 @@ impl Thing {
                     .map(|hamlet| Selected::Hamlet(hamlet.to_owned()))
             }
             Self::Mascot | Self::Hearth => Some(Selected::Hearth),
+            Self::Library => Some(Selected::Library),
         }
     }
 
@@ -125,7 +130,8 @@ impl Thing {
                 bridge.town(hamlet).map(Self::Common)
             }
             Selected::Hearth => Some(Self::Hearth),
-            Selected::Nothing | Selected::Library => None,
+            Selected::Library => Some(Self::Library),
+            Selected::Nothing => None,
         }
     }
 }
@@ -141,10 +147,11 @@ impl Ring {
     fn make(
         key: u32,
         glow_by: f32,
-        shader: &Shader,
+        shader: &Handle<Shader>,
+        draw: &mut Draw,
     ) -> Result<Self, String> {
-        let mut mark = Mark::make(key, shader, Shape::RING)?;
-        mark.shine(CANDLE * glow_by, 1.0);
+        let mut mark = Mark::make(key, shader, Shape::RING, draw)?;
+        mark.shine(CANDLE * glow_by, 1.0, draw);
         Ok(Self { mark, shown: None })
     }
 
@@ -154,7 +161,7 @@ impl Ring {
         at: Option<(Vec3, f32)>,
         floor: &Floor,
         set: &PickSettings,
-        upload: &mut Upload,
+        draw: &mut Draw,
     ) {
         if let Some((at, radius)) = at {
             let reach = radius * 1.1;
@@ -166,22 +173,26 @@ impl Ring {
                     of == radius && was != at
                 });
                 let slack = if moving { set.ring_slack } else { 0.0 };
-                self.mark.settle(at, reach + slack, floor);
+                self.mark.settle(at, reach + slack, floor, draw);
             }
             if self.shown != Some((at, radius)) {
-                self.mark.lay(at, radius, 0.0);
-                self.mark.shape(Shape::band(radius, set.ring_width));
+                self.mark.lay(at, radius, 0.0, draw);
+                self.mark
+                    .shape(Shape::band(radius, set.ring_width), draw);
             }
         }
-        self.mark.hand_over(upload);
-        self.mark.show(at.is_some());
+        self.mark.hand_over(draw);
+        self.mark.show(at.is_some(), draw);
         self.shown = at;
     }
 }
 
 /// The thing under the pointer and the one chosen, and their rings.
+#[derive(Resource)]
 pub struct Picking {
     hovered: Option<Thing>,
+    /// The robot whose box the pointer is over.
+    robot: Option<Thing>,
     selected: Option<Thing>,
     /// The left button let go over the view without moving, until a
     /// thing says it was clicked.
@@ -197,50 +208,78 @@ pub struct Picking {
 
 impl Picking {
     /// Nothing pointed at or chosen, its rings drawn by `shader`.
-    pub fn make(shader: &Shader) -> Result<Self, String> {
+    pub fn make(
+        shader: &Handle<Shader>,
+        draw: &mut Draw,
+    ) -> Result<Self, String> {
         Ok(Self {
             hovered: None,
+            robot: None,
             selected: None,
             loose: false,
             passed: false,
             chosen: None,
             rings: [
-                Ring::make(HOVER_RING, HOVER_GLOW, shader)?,
-                Ring::make(CHOSEN_RING, CHOSEN_GLOW, shader)?,
+                Ring::make(HOVER_RING, HOVER_GLOW, shader, draw)?,
+                Ring::make(CHOSEN_RING, CHOSEN_GLOW, shader, draw)?,
             ],
         })
     }
 
+    /// The thing under the pointer: a robot whose box the pointer is
+    /// over, whatever stands in front of it, or else the thing the
+    /// engine finds.
     pub fn hovered(&self) -> Option<Thing> {
-        self.hovered
+        self.robot.or(self.hovered)
     }
 
     pub fn selected(&self) -> Option<Thing> {
         self.selected
     }
 
+    /// The agent of the robot whose box the pointer is over.
+    pub fn hovered_robot(&self) -> Option<AgentId> {
+        match self.robot {
+            Some(Thing::Robot(agent)) => Some(agent),
+            _ => None,
+        }
+    }
+
+    /// Takes the robot of `agent` as the one under the pointer.
+    pub fn aim(&mut self, agent: Option<AgentId>) {
+        self.robot = agent.map(Thing::Robot);
+    }
+
     /// Takes what the person chose since it was last taken.
     pub fn take_choice(&mut self) -> Option<Option<Thing>> {
         if std::mem::take(&mut self.loose) {
-            self.chosen = Some(None);
+            // A click the engine found nothing under may still be on
+            // a robot's box.
+            if self.robot.is_some() {
+                self.selected = self.robot;
+            }
+            self.chosen = Some(self.robot);
         }
         self.chosen.take()
     }
 
     /// Answers the pointer over the view. `still` is true while the
     /// left button has not moved far enough since it went down to be
-    /// a drag.
-    pub fn input(&mut self, input: &SceneInput, still: bool) {
+    /// a drag. `thing` is the thing an entity draws.
+    pub fn input(
+        &mut self,
+        input: &SceneInput,
+        still: bool,
+        thing: impl Fn(Entity) -> Option<Thing>,
+    ) {
         match input {
-            SceneInput::Over(hit) => {
-                self.hovered = Thing::of(hit.key)
-            }
-            SceneInput::Out((key, _)) => {
-                if self.hovered == Thing::of(*key) {
+            SceneInput::Over(hit) => self.hovered = thing(hit.entity),
+            SceneInput::Out(out) => {
+                if self.hovered == thing(out.entity) {
                     self.hovered = None;
                 }
             }
-            SceneInput::Pressed(press)
+            SceneInput::Press(press)
                 if press.button == MouseButton::Primary =>
             {
                 if press.down {
@@ -254,7 +293,11 @@ impl Picking {
             }
             SceneInput::Click(hit) => {
                 self.loose = false;
-                if let Some(thing) = Thing::of(hit.key) {
+                // A robot behind what took the click is the one
+                // meant.
+                if let Some(thing) =
+                    self.robot.or_else(|| thing(hit.entity))
+                {
                     self.selected = Some(thing);
                     self.chosen = Some(Some(thing));
                 }
@@ -298,12 +341,12 @@ impl Picking {
         selected: Option<(Vec3, f32)>,
         floor: &Floor,
         set: &PickSettings,
-        upload: &mut Upload,
+        draw: &mut Draw,
     ) {
         let hovered =
-            hovered.filter(|_| self.hovered != self.selected);
+            hovered.filter(|_| self.hovered() != self.selected);
         let [hover, chosen] = &mut self.rings;
-        hover.lay(hovered, floor, set, upload);
-        chosen.lay(selected, floor, set, upload);
+        hover.lay(hovered, floor, set, draw);
+        chosen.lay(selected, floor, set, draw);
     }
 }

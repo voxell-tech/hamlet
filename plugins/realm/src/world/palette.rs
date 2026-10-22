@@ -2,6 +2,7 @@
 //! `assets/palette.toml`.
 
 use glam::Vec3;
+use hamlet_engine_bevy::prelude::{Resource, bevy_ecs};
 
 use crate::world::tint;
 
@@ -19,7 +20,7 @@ pub struct TownStyle {
 
 /// Every colour of the world. Those baked into meshes are linear
 /// RGB.
-#[derive(Clone, PartialEq, Debug, serde::Deserialize)]
+#[derive(Resource, Clone, PartialEq, Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Palette {
     #[serde(with = "tint::linear")]

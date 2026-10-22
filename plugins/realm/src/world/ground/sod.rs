@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use glam::{Vec2, Vec3};
-use hamlet_engine_sdk::scene::MeshData;
+use hamlet_engine_bevy::scene::MeshData;
 
 use crate::build::mesh::{Mb, smoothstep};
 use crate::world::ground::{DetailSettings, Tile, watered};
