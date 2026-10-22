@@ -267,3 +267,114 @@ robes, a dress form, bolts of cloth and pots of paint, a looking glass,
 and a little robot turning on a turntable. A click on it sends the
 realm's `stall` with `assets`, which the bazaar takes as its Asset stall,
 and a `traded` of `assets` cheers a sale there as at every stall.
+
+## Buying and wearing them
+
+| Part | Where |
+|---|---|
+| The catalogue, what is owned and worn, buying | `plugins/bazaar/src/wardrobe.rs` |
+| What is kept in the store for the bazaar and the realm | `plugins/bazaar/src/wardrobe/closet.rs` (`Closet`) |
+| An asset's turntable | `plugins/bazaar/src/wardrobe/turntable.rs` (`Turning`) |
+| The stall drawn: its shelf, an asset's page, the fitting | `plugins/bazaar/src/view/wardrobe.rs`, `view/wardrobe/turntable.rs`, `view/wardrobe/fitting.rs` |
+| The routes of the bazaar's server | `plugins/bazaar/src/market/client.rs`; `hamlet-server/docs/assets.md` |
+| An agent's and a hamlet's LOOKS | `plugins/inspector/src/agent.rs`, `hamlet.rs` |
+
+### The stall
+
+LOOKS has two modes, SHELF and FITTING, under who is signed in to the
+bazaar's server (SIGN IN WITH GITHUB, with what it is for under it).
+
+- **The shelf** is the shelf every stall shares, of the server's
+  catalogue (`GET /v1/assets`), asked for the first time the stall is
+  shown and again on LOOK AGAIN. Its chips narrow it by what wears an
+  asset (FOR AGENTS, FOR HAMLETS) and by its kind (EMOTES, SKINS,
+  MESHES), and it is put in order by kind or by price. A row shows an
+  asset's title, its price, OWNED or WORN, and what it is.
+- **An asset's page** shows its pictures on a turntable, what it is and
+  its version, its summary, the box it is bought from and, once it is
+  owned, WEAR IT.
+- **The turntable.** An asset has `frames` pictures turned evenly about
+  it, at `previewUrl` with `{frame}` filled in. The page shows one,
+  the first standing in while it comes; LEFT and RIGHT turn it a
+  picture by hand, and SPIN turns it by itself, a picture each eighth
+  of a second, skipping those not yet come. Pictures are fetched as
+  the listings' covers are (`covers.rs`): only those shown are wanted,
+  the one shown and the first, or all of them while it spins; checked
+  from their headers, 400 KiB and 2048 pixels a side at most; kept by
+  their address, 24 at most and 24 MiB shown; let go of when the page
+  closes or the turntable stops; and handed to the engine 400 KiB an
+  update at most. While it spins the plugin asks to be called each
+  frame (`Animate`).
+- **Buying.** BUY, or GET for one that is free, asks the server
+  (`POST /v1/assets/:id/purchase`): a free asset, or one owned already
+  (`409`), is the chief's at once; a paid one opens Stripe's page and
+  is asked after (`GET /v1/asset-purchases/:id`) every five seconds for
+  half an hour, the same steps as the market's deals (`pay` in
+  `market/deal.rs`). A purchase asked while another waits on Stripe
+  takes its place; signing out stops the wait. Once it is the chief's
+  it is marked owned at once, the realm cheers (`traded` with
+  `assets`), and what is owned is asked again.
+- **Wearing.** WEAR IT chooses an agent of the roster, or a hamlet,
+  among those that may wear it and puts it on with WEAR; each who
+  wears it is listed with TAKE OFF, and how its file stands: in the
+  realm, downloading, waiting, or not downloaded and asked again
+  shortly. Only an owned asset of the wearer's target and of the kind
+  of the slot is put on.
+- **The fitting** lists every living agent and every hamlet with what
+  each wears. One opened has a dropdown a kind, None and the owned
+  assets that fit, PLAY EMOTE for an agent wearing an emote, and SHOP,
+  which shows the shelf narrowed to what it wears. An emote put on an
+  agent is played.
+- **From the Inspector.** An agent's and a hamlet's LOOKS send the
+  Inspector's `dress` (payload `bazaar.dress`, a `looks::Dress` of its
+  target and name), and the bazaar brings its panel to the front on
+  the fitting of that agent or hamlet. The realm's costumier's booth
+  sends `stall` with `assets`, which shows the stall.
+
+### What is owned and worn
+
+The chief owns what the server says: `GET /v1/me/assets` once a chief
+is signed in, and each asset the catalogue marks `owned`. What is
+owned is kept as last said; signing out forgets it, so nothing of it is
+worn. What each agent (by its name) and hamlet (by its name on disk)
+wears is a `looks::Outfit` of asset ids, chosen whether owned or not;
+only the owned are worn.
+
+### What the bazaar keeps in the store
+
+The closet keeps three types of asset in the engine's store, and makes
+one write at a time, each once the one before is answered:
+
+- `bazaar.wardrobe`, one asset named `wardrobe`: what is owned and
+  what each wears, as JSON, written after each change. It is read as
+  the plugin starts, so both outlast a restart; a saved resource
+  outlasts only a reload. Which mode the stall shows and whose looks
+  the fitting shows are saved resources.
+- `looks.file`, the parts of the file of each asset worn and owned,
+  named `<id>@<version>#<part>`. A file is downloaded once
+  (`GET /v1/assets/:id/file` with `offset` and `limit`), one part of
+  `looks::FILE_PART` bytes a fetch, within the 512 KiB a fetch may
+  bring, through the market's line; each part is written before the
+  next is asked for, so one part at most is held. A part shorter than
+  asked for is the last; an empty one past the first says the one
+  before was; a server that answers the whole file at once has it cut
+  into parts. A file that cannot be downloaded is asked for again 30
+  seconds later, or at once when it is worn again. Files download one
+  at a time, while a chief is signed in.
+- `looks.worn`, one asset named `worn`: the `looks::Worn` the realm
+  reads, written once the files it names are whole in the store. It
+  names, for each agent and hamlet, the file of each owned asset worn
+  whose parts are all there, and how many parts each is in. It is
+  written after a file comes, and after each change of what is owned
+  or worn; nothing is written until the store was read as the plugin
+  starts.
+- **Then** the parts no `worn` names, such as those of an asset taken
+  off, no longer owned or of an older version, are deleted, a part at
+  a time. A file is whole at the start when the `worn` read names it
+  and all its parts are in the store; one whose parts were not all
+  written is deleted and downloaded again.
+
+An emote put on an agent, or PLAY EMOTE, sends the bazaar's `emote`
+(`looks::PLAY`, payload `looks.emote`, the agent's name) once the
+`worn` written names that emote for that agent, so the realm has it to
+play.

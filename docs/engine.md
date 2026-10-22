@@ -1599,7 +1599,8 @@ with a chevron at its end, a divider between each and the next.
   it, each a decree to its hamlet, asked about first where `main`
   asks; a mayor's has only talking, its prompt, stopping and
   undoing), its purpose, its
-  model and use, its spend, the Model dropdown (`RunModel`), and NOTES
+  model and use, its spend, the Model dropdown (`RunModel`), LOOKS
+  (below), and NOTES
   (REFLECT NOW), CHARACTER (EDIT), ARCHIVE and PROMPT. The archive
   lists the past sessions with a search and counts, each read on a
   click, and read, resumed (bringing the chat to the front) or
@@ -1616,8 +1617,8 @@ with a chevron at its end, a divider between each and the next.
   name, its mayor's and what it is for, all three needed, sent as
   `/found` to the open conversation; CANCEL keeps what was typed.
   A hamlet, with RENAME, MOVE (the event `carry`, with the hamlet's
-  name, for the realm to take its town in hand), CLOSE DOWN, the
-  folder it works on, CHOOSE
+  name, for the realm to take its town in hand), LOOKS, CLOSE DOWN on
+  a row of its own, the folder it works on, CHOOSE
   A FOLDER (or CHOOSE ANOTHER) in the system's dialog, which gives it
   `/folder` with the path, and its mode, and AGENTS, BYLAWS
   (`bylaws.rs`: its own limits as `main`'s rules panel sets them, on
@@ -1630,6 +1631,10 @@ with a chevron at its end, a divider between each and the next.
   The realm's page and the bylaws share the controls of a limit,
   `agents_ui`'s `whole` and `setting`, and set a yes or a no with a
   `switch` named beside it.
+  An agent's and a hamlet's LOOKS sends the event `dress` (payload
+  type `bazaar.dress`, a `looks::Dress`: the target, `agent` or
+  `hamlet`, and the agent's name or the hamlet's name on disk), which
+  the Agent Bazaar hears to show what it wears ([`looks.md`](looks.md)).
 - **`plugins/skills`** (`hamlet.skills`, asking `agents.read` and
   `agents.chief`, and needing `hamlet.chat`) is the agent's own skills
   over the library's, each
@@ -1650,16 +1655,17 @@ answer; those of the Inspector and Skills bring the chat `with` them.
 `openrouter.ai`, `skills.sh`, `$HAMLET_BAZAAR_URL` and
 `raw.githubusercontent.com`, `agents.read`, `agents.settings`,
 `agents.chief`, `desktop.open https`, `services.call` on
-`hamlet.realm/diorama` and `render.scene`, making
-the asset type `bazaar.session`, and reading `HAMLET_BAZAAR_URL`,
-`http://localhost:8787` unless the environment says) is the panel
-Agent Bazaar (`hamlet.bazaar/bazaar`, with the coins icon), with Open
-the Agent Bazaar, Browse the Models, Browse the Hamlets and Sell at
-the Agent Bazaar in the Hamlet menu, and Browse the Agents, the
-Plugins and the Skills as commands too (`agents`, `plugins`,
-`skills`). A tab for each of its five stalls is over the stall
-shown, on two lines so a narrow panel cuts none: MODELS, SKILLS and
-PLUGINS, what the agents use, then AGENTS and HAMLETS. The stall
+`hamlet.realm/diorama` and `render.scene`, making the asset types
+`bazaar.session`, `bazaar.wardrobe`, `looks.worn` and `looks.file`,
+and reading `HAMLET_BAZAAR_URL`, `http://localhost:8787` unless the
+environment says) is the panel Agent Bazaar (`hamlet.bazaar/bazaar`,
+with the coins icon), with Open the Agent Bazaar, Browse the Models,
+Browse the Hamlets, Browse the Looks and Sell at the Agent Bazaar in
+the Hamlet menu, and Browse the Agents, the Plugins and the Skills as
+commands too (`agents`, `plugins`, `skills`). A tab for each of its
+six stalls is over the stall shown, on two lines so a narrow panel
+cuts none: MODELS, SKILLS and PLUGINS, what the agents use, then
+AGENTS, HAMLETS and LOOKS, who works and what they wear. The stall
 shown is kept across a reload.
 
 - **One shelf** (`shelf.rs`, drawn by `view/shelf.rs`) for every
@@ -1741,10 +1747,16 @@ shown is kept across a reload.
   agent, WHAT IT ADDS and WHAT IT MAY DO of tools, COMES WITH of a
   hamlet), DETAILS (its kind, skills, tags, version and what changed
   in it, when it was updated) and WHAT OWNERS SAY.
+- **Looks** (`wardrobe.rs`, `wardrobe/`, drawn by `view/wardrobe.rs`
+  and `view/wardrobe/`): the official assets agents and hamlets wear,
+  bought, worn and taken off at LOOKS, and what is worn kept in the
+  asset store for the realm; see
+  [`looks.md`](looks.md#buying-and-wearing-them).
 - **Covers** (`covers.rs`, drawn by `view/covers.rs`): a listing's
-  cover is shown on its page, under its head, fetched from the server
-  as the page opens, one at a time, 15 a minute at most, through the
-  market's line. They are kept by
+  cover is shown on its page, under its head, and an asset's preview
+  pictures on its page, fetched from the server as the page opens,
+  one at a time, 15 a minute at most, through the market's line. They
+  are kept by
   their address, whose `?v=` changes with each new cover, 24 at most
   and 24 MiB at most shown, and let go of when nothing shows them.
   Before it is shown, a cover's header is read (`picture.rs`, a PNG's,
@@ -1806,7 +1818,8 @@ shown is kept across a reload.
   purchase (GET IT FOR FREE, or BUY FOR and its price); a free one, or
   one owned already (INSTALL), is downloaded at once;
   a paid one opens Stripe's page in the browser and asks after the
-  purchase every five seconds for half an hour. The package is
+  purchase every five seconds for half an hour. These steps up to
+  owning it (`pay`) are the Asset stall's too. The package is
   streamed a part (`PACKAGE_PART`, 384 KB) at a time: each part is
   downloaded (`offset` and `limit`), within what one fetch may bring,
   and handed to the agents service with `Settle` before the next is
@@ -1849,9 +1862,13 @@ shown is kept across a reload.
   listing is saved.
 - **Events.** It hears the realm's `stall` (payload type
   `bazaar.stall`, the stall's name: `models`, `community`, `plugins`,
-  `skills` or `hamlets`), shows that stall and brings its panel to
-  the front, and sends `traded` with the stall's name after a model
-  is added, a skill taken, a hamlet founded or a purchase settled.
+  `skills`, `hamlets` or `assets`), shows that stall and brings its
+  panel to the front, and sends `traded` with the stall's name after
+  a model is added, a skill taken, a hamlet founded, a purchase
+  settled or an asset bought. It hears the Inspector's `dress` and
+  shows the LOOKS fitting of that agent or hamlet, and sends `emote`
+  (payload type `looks.emote`, an agent's name) to have the realm play
+  the emote an agent is given or asked to play.
 
 Its `steps.toml` answers OpenRouter with one model, opens it, and
 shows each stall offline: skills.sh asking, the samples on theirs,
@@ -1860,11 +1877,17 @@ running; then the seller's desk, which says what its form lacks;
 then the bazaar's server answering with a listing, its shelf
 offering the sign-in, whose cover is fetched as its page opens and,
 not being a picture, not shown, and a cover
-chosen at the desk that is not one either. The parsing of
+chosen at the desk that is not one either; then LOOKS, its catalogue
+narrowed by what wears it, an asset's page whose first picture is
+not one, turned by hand and set spinning, the fitting with no one to
+dress, and the `worn` asset written with nothing worn. The parsing of
 OpenRouter's, skills.sh's and the bazaar's server's answers, the
 shelf, the paths of a skill's files, a deal's steps part by part, the
 desk's form, a package's parts, the headers of pictures, the covers
-kept and the room for them in an update have tests of their own
+kept and the room for them in an update, the Asset stall's catalogue
+and routes, buying an asset, what the realm is told is worn, a file's
+parts and those no `worn` names, and a turntable's pictures wanted and
+let go of have tests of their own
 (`cargo test -p bazaar` in `plugins/`).
 
 ## Assets
