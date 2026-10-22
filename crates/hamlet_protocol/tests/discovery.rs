@@ -1,6 +1,6 @@
 //! Finding the server a client connects to.
 
-use hamlet_protocol::discovery::ServerAddress;
+use hamlet_protocol::client::discovery::ServerAddress;
 use hamlet_testing::Scratch;
 
 #[test]

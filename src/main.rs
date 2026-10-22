@@ -9,7 +9,7 @@ use bevy_app::{App, AppExit};
 use hamlet_client::connection::LocalServer;
 use hamlet_client::{ClientPlugin, Connection, Tokio, ViewDir};
 use hamlet_desktop::DesktopPlugin;
-use hamlet_protocol::discovery::{self, Chosen};
+use hamlet_protocol::client::discovery::{self, Chosen};
 use hamlet_realm::RealmPlugin;
 use hamlet_realm::chief::Kept;
 use hamlet_ui::{Remembered, UiPlugin, window_plugin};

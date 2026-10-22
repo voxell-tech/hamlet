@@ -223,7 +223,7 @@ entry and content block (`<entryId>:<block>`); use them as opaque cursors. Tool 
 at most 240 characters, plus total and added/removed counts.
 
 `Op` is discriminated by `op`, not `type`. Clients apply ops with
-`hamlet_protocol::transcript::apply`.
+`hamlet_protocol::client::transcript::apply`.
 
 | `op` | Fields | Meaning |
 |---|---|---|

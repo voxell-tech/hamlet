@@ -4,6 +4,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+pub mod discovery;
+pub mod transcript;
+
 mod chat;
 mod documents;
 mod gifts;

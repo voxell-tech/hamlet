@@ -6,8 +6,7 @@ use std::collections::HashMap;
 use bevy_app::{App, PostUpdate};
 use bevy_ecs::name::Name;
 use bevy_ecs::prelude::*;
-use hamlet_protocol::client::{self as protocol};
-use hamlet_protocol::transcript;
+use hamlet_protocol::client::{self as protocol, transcript};
 
 use crate::messages::{
     JobFinished, Reconnected, Response, SessionOutput,

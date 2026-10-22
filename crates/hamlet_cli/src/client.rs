@@ -2,10 +2,10 @@
 
 use anyhow::{Context, Result, bail};
 use futures::{SinkExt, StreamExt};
+pub use hamlet_protocol::client::discovery::ServerAddress;
 use hamlet_protocol::client::{
     ClientMessage, Hello, ServerMessage, State, V,
 };
-pub use hamlet_protocol::discovery::ServerAddress;
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{

@@ -10,7 +10,7 @@ use bevy_app::{App, Update};
 use bevy_ecs::prelude::*;
 use futures::{SinkExt, StreamExt};
 use hamlet_protocol::client as protocol;
-use hamlet_protocol::discovery::ServerAddress;
+use hamlet_protocol::client::discovery::ServerAddress;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;

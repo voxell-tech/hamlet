@@ -13,7 +13,7 @@ use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::*;
 pub use connection::{Connection, Server};
 use hamlet_protocol::client as protocol;
-use hamlet_protocol::discovery::ServerAddress;
+use hamlet_protocol::client::discovery::ServerAddress;
 use tokio::runtime::Handle;
 
 /// The window's state, request routing and connection plugins.

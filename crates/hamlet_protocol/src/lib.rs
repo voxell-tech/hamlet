@@ -7,9 +7,7 @@
 #![allow(clippy::large_enum_variant)]
 
 pub mod client;
-pub mod discovery;
 pub mod runtime;
-pub mod transcript;
 
 /// The first hamlet's id.
 pub const HOME: &str = "home";

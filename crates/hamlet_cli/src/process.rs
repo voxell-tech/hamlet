@@ -13,7 +13,7 @@ use std::time::Duration;
 use std::{env, fs};
 
 use anyhow::{Context, Result, bail};
-use hamlet_protocol::discovery::{self, Chosen, Running};
+use hamlet_protocol::client::discovery::{self, Chosen, Running};
 use tokio::time::timeout;
 #[cfg(unix)]
 use tokio::{
