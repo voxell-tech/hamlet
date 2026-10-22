@@ -150,7 +150,8 @@ Paths are under the crate's folder in the table above.
 | The engine's switch, which every yes or no is set with | `switch` in `engine/shell/src/style.rs`, its sizes under `[space]` in `engine/tuning/theme.toml`; the `toggle` node draws it |
 | The fades at the edges of a scroll area | `ScrollFade` in `engine/shell/src/fade.rs`, its depth `scroll_fade` under `[space]` in `engine/tuning/theme.toml` |
 | A plugin's 3D scene, its viewport or the window behind the dock, its WGSL, compute and passes | The interfaces `scene` and `gpu` in `engine/wit/hamlet_engine.wit`; the host's side in `engine/wasm/src/scene.rs` and `scene/`; drawing, picking and the checks in `engine/render/`; the SDK's `engine/sdk/src/scene.rs`; [`engine.md`](engine.md#scenes-and-gpu-work) |
-| The engine's realm behind the dock: land, towns, roads, robots, the Hearth, its camera and pointer | `plugins/realm/`, as `hamlet_realm` draws it; [`engine.md`](engine.md#bundled-plugins) |
+| The engine's realm in its Realm panel: land, towns, roads, robots, the Hearth, its camera and pointer | `plugins/realm/`, as `hamlet_realm` draws it; [`engine.md`](engine.md#bundled-plugins) |
+| The first workspace of a new home, "Main" | `Workspaces::default` in `engine/shell/src/workspace.rs` |
 | What an engine plugin adds outside its panels: settings pages, status items, overlays | `engine/api/src/contribution.rs`; the shell's `settings.rs`, `status.rs` and `overlay.rs` in `engine/shell/src/`; what a plugin changes on them in `engine/wasm/src/surfaces.rs` |
 
 ## Tuning while the app runs

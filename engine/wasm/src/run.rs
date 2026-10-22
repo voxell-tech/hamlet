@@ -98,8 +98,18 @@ pub(crate) fn entry(contributions: Vec<Contribution>) -> Entry {
     let mut entry = Entry::default();
     for contribution in contributions {
         match contribution {
-            Contribution::Panel { name, title } => {
-                entry.panel(&name, &title, retained::view);
+            Contribution::Panel { name, title, icon } => {
+                match icon.as_deref().and_then(Glyph::named) {
+                    Some(icon) => entry.panel_with_icon(
+                        &name,
+                        &title,
+                        icon,
+                        retained::view,
+                    ),
+                    None => {
+                        entry.panel(&name, &title, retained::view)
+                    }
+                };
             }
             Contribution::Command { name, label } => {
                 entry.command(&name, &label, run_command);

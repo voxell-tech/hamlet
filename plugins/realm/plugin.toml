@@ -16,7 +16,7 @@ reason = "Sets a hamlet down where you carry it"
 [[asks]]
 capability = "render.scene"
 target = "gpu"
-reason = "Draws the realm behind the dock"
+reason = "Draws the realm in its panel"
 
 [[asks]]
 capability = "render.shader"

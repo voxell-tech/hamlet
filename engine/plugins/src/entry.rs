@@ -10,6 +10,7 @@ use hamlet_engine_api::{
 };
 use hamlet_engine_core::Budgets;
 use hamlet_engine_shell::command::parse_chord;
+use hamlet_engine_shell::dock::PanelIcon;
 use hamlet_engine_shell::icons::Glyph;
 use hamlet_engine_shell::{
     AnyView, Command, MenuEntry, Overlay, Panel, RunCommand,
@@ -41,6 +42,7 @@ enum Declared {
     Panel {
         name: String,
         title: String,
+        icon: Option<Glyph>,
         content: fn(Entity) -> AnyView,
     },
     Command {
@@ -93,6 +95,24 @@ impl Entry {
         self.declared.push(Declared::Panel {
             name: name.into(),
             title: title.into(),
+            icon: None,
+            content,
+        });
+        self
+    }
+
+    /// A panel as [`Entry::panel`] adds it, its tab showing `icon`.
+    pub fn panel_with_icon(
+        &mut self,
+        name: &str,
+        title: &str,
+        icon: Glyph,
+        content: fn(Entity) -> AnyView,
+    ) -> &mut Self {
+        self.declared.push(Declared::Panel {
+            name: name.into(),
+            title: title.into(),
+            icon: Some(icon),
             content,
         });
         self
@@ -242,6 +262,7 @@ impl Entry {
                 Declared::Panel {
                     name,
                     title,
+                    icon,
                     content,
                 } => {
                     if panels == budgets.panels {
@@ -253,7 +274,14 @@ impl Entry {
                     }
                     panels += 1;
                     PanelId::new(owner, &name).map(|id| {
-                        commands.spawn((Panel { id, title, content }, link));
+                        let panel = Panel { id, title, content };
+                        // With the panel, as the dock reads its icon
+                        // when the panel comes.
+                        match icon {
+                            Some(icon) => commands
+                                .spawn((panel, PanelIcon(icon), link)),
+                            None => commands.spawn((panel, link)),
+                        };
                     })
                 }
                 Declared::Command { name, label, run } => {

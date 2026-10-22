@@ -8,7 +8,9 @@ use glam::{Vec2, Vec3, Vec3Swizzles};
 use hamlet_engine_sdk::api::agents::{
     Focus, Recipient, Roster, Selected,
 };
-use hamlet_engine_sdk::scene::{Entity, MouseButton, SceneInput};
+use hamlet_engine_sdk::scene::{
+    Camera as Lens, Entity, MouseButton, SceneInput,
+};
 
 use crate::bridge::Bridge;
 use crate::camera::Camera;
@@ -94,7 +96,8 @@ pub struct Realm {
 }
 
 impl Realm {
-    /// The realm with no hamlets yet, its camera behind the dock.
+    /// The realm with no hamlets yet, its camera drawing into the
+    /// panel's viewport.
     /// Only what is cheap is made here: every mesh is built and
     /// handed over as the realm ticks, within each frame's share.
     pub fn make() -> Result<Self, String> {
@@ -151,6 +154,11 @@ impl Realm {
             pace,
             clock: 0.0,
         })
+    }
+
+    /// The camera the panel shows.
+    pub fn lens(&self) -> &Lens {
+        self.camera.lens()
     }
 
     /// What the person chose since it was last asked, as the window's

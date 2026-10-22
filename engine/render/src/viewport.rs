@@ -221,14 +221,18 @@ fn size_behind(
     }
 }
 
-/// Draws a camera into its image only while a viewport shows it.
+/// Draws a camera into its image only while a viewport shows it with
+/// room to draw in.
 fn activate(
-    viewports: Query<&Viewport>,
+    viewports: Query<(&Viewport, &ComputedNode)>,
     mut cameras: Query<(Entity, &SceneCamera, &mut Camera)>,
 ) {
+    // A viewport in a tab behind another is kept, laid out with no
+    // room.
     let shown = viewports
         .iter()
-        .map(|viewport| viewport.camera)
+        .filter(|(_, computed)| !computed.is_empty())
+        .map(|(viewport, _)| viewport.camera)
         .collect::<HashSet<_>>();
     for (entity, scene_camera, mut camera) in &mut cameras {
         if scene_camera.image.is_none() {

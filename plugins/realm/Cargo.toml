@@ -3,7 +3,7 @@ name = "realm"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The realm behind the dock: the endless land, every hamlet with its houses, roads and robots, the chief's Hearth, and the camera and pointer over them"
+description = "The realm in a panel of its own: the endless land, every hamlet with its houses, roads and robots, the chief's Hearth, and the camera and pointer over them"
 publish = false
 
 [lib]

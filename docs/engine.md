@@ -104,7 +104,8 @@ same types.
   ticket: a `Reply`, or a `Failure` (not found, no implementer, refused,
   mismatch, out of budget, failed). The other messages are `Changed`
   and `Gone` for an asset held, and `Event`.
-- **What a plugin adds** is a `Contribution` each: a panel, a command,
+- **What a plugin adds** is a `Contribution` each: a panel (with an
+  icon for its tab or none, `panel_with_icon` in the SDK), a command,
   a menu entry, a shortcut, a settings page (with its icon and a line
   on what it holds), a settings footer, a suggested workspace, a
   status item (one that grows or not) or an overlay.
@@ -510,8 +511,12 @@ person has one or more, and one is shown at a time.
   been still for `[workspaces] save_after` seconds, and as the engine
   closes, whole or not at all. RON, since a layout is a tree of enums,
   which RON writes as it is and TOML only as a table per level.
-- **Restored** at start. A new home starts with one workspace, "Main",
-  holding the plugin list and the console. A file that cannot be read is
+- **Restored** at start. A new home starts with one workspace, "Main"
+  (`Workspaces::default`): the Realm panel in the middle with most of
+  the room, Needs and the plugin list as tabs on its left, and Chat and
+  the Inspector over the console on its right. A bundled plugin's
+  panel that is not there is left out until it comes, so without
+  bundled plugins "Main" is the plugin list and the console. A file that cannot be read is
   moved aside to `workspaces_broken.ron` (or `_2`, `_3`, never over an
   earlier one), the console says so and where, and the workspaces start
   afresh. If it cannot even be moved, nothing is saved, so the file stays
@@ -1081,15 +1086,22 @@ under the pointer lights up, and a click names what it hit over the
 view. Its `steps.toml` counts the scene and clicks a shape and a cube.
 
 `plugins/realm` (`hamlet.realm`, asking `agents.read`, `agents.chief`,
-`render.scene` and `render.shader`) is the realm, drawn behind the
-dock from the agents service's roster, as `crates/hamlet_realm` draws
-it: the endless land of [`endless-world.md`](endless-world.md) in
+`render.scene` and `render.shader`) is the realm, drawn in its panel,
+Realm (`hamlet.realm/realm`, with the globe icon), from the agents
+service's roster, as `crates/hamlet_realm` draws it: the endless land of [`endless-world.md`](endless-world.md) in
 tiles about the camera with its rivers and trees, a town for every
 hamlet with a house, a yard and a robot for every agent, the roads
 between agents with their bridges and lit grooves, and the chief's
 Hearth with its mascot, which goes by a Wickstep to the agent the
 chief talks to. The sky follows the chief's clock (`Focus::offset`).
 Its tuning is `assets/world.toml` and `assets/palette.toml`, built in.
+- **The panel** is a viewport filling it, its camera's
+  (`scene::viewport`), so it is docked, tabbed, split and closed as
+  any panel is, and its signs and tags are words over that viewport.
+  The realm is made when the panel is first built or the agents
+  service first answers, and is kept in the plugin's world. While the
+  panel is behind another tab or out of the dock, its camera does not
+  draw.
 - **Within its budgets.** Everything is built a step at a time on
   `tick`, nearest the camera first: `upload.rs` holds each call to a
   share of the bytes it may hand over and to a few milliseconds a
@@ -1517,7 +1529,9 @@ none of them imports none of them.
   a camera of target `viewport`: its widget shows the image the camera
   draws into, sized to the room the layout gives it (the frames above
   it grow, `[render] grow_levels` at most), and the camera draws only
-  while one shows it. In the SDK, `scene::viewport` is that frame.
+  while one shows it with room: a viewport in a tab behind another is
+  kept, laid out with none, and told so as `resized`. In the SDK,
+  `scene::viewport` is that frame.
 - **Behind the dock.** A camera of target `background` draws into the
   window under the interface. One plugin holds the window's background
   at a time (the shell's `Backdrop`); another's make is refused. While

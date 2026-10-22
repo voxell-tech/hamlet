@@ -1,8 +1,8 @@
-//! The realm behind the dock: the endless land, a town for every
-//! hamlet with a house and a robot for every agent, the roads between
-//! them, and the chief's Hearth, drawn from the agents service's
-//! roster. Clicking a robot, a house or a common selects it in the
-//! window's focus and brings the Inspector forward.
+//! The realm in a panel of its own: the endless land, a town for
+//! every hamlet with a house and a robot for every agent, the roads
+//! between them, and the chief's Hearth, drawn from the agents
+//! service's roster. Clicking a robot, a house or a common selects it
+//! in the window's focus and brings the Inspector forward.
 
 mod bridge;
 mod camera;
@@ -36,8 +36,8 @@ mod yard;
 use hamlet_engine_sdk::api::agents::{
     AgentsEvent, AgentsReply, AgentsRequest, Selected,
 };
-use hamlet_engine_sdk::scene::{SceneInput, animate};
-use hamlet_engine_sdk::ui::open;
+use hamlet_engine_sdk::scene::{SceneInput, animate, viewport};
+use hamlet_engine_sdk::ui::{AnyView, Tone, ViewExt, label, open};
 use hamlet_engine_sdk::{
     Entry, Message, Plugin, Reply, World, agents, decode, error,
     subscribe, warn,
@@ -45,6 +45,9 @@ use hamlet_engine_sdk::{
 
 use self::realm::Realm;
 use self::sky::Hour;
+
+/// The name of the panel the realm is drawn in.
+const PANEL: &str = "realm";
 
 /// The Inspector, brought forward when something is chosen here.
 const INSPECTOR: &str = "hamlet.inspector/inspector";
@@ -59,14 +62,13 @@ const LONGEST_FRAME: f32 = 0.1;
 
 #[derive(Default)]
 struct RealmPlugin {
-    /// The realm, once the first answer of the agents service came.
-    realm: Option<Realm>,
-    /// Why the realm cannot be drawn, once it could not.
+    /// True once the realm could not be made.
     broken: bool,
 }
 
 impl Plugin for RealmPlugin {
     fn declare(&self, entry: &mut Entry) {
+        entry.panel_with_icon(PANEL, "Realm", "globe");
         let commands = [
             ("reset_camera", "Reset Camera", "View", None),
             ("focus", "Focus on Selection", "View", Some("F")),
@@ -91,8 +93,19 @@ impl Plugin for RealmPlugin {
         subscribe(CARRY);
     }
 
-    fn run(&mut self, name: &str, _: &mut World) {
-        let Some(realm) = &mut self.realm else {
+    fn mount(&mut self, _: &str, world: &mut World) -> AnyView {
+        if self.realm(world).is_none() {
+            return label(
+                "The realm cannot be drawn: the log says why",
+            )
+            .tone(Tone::Dim)
+            .boxed();
+        }
+        viewport::<Realm>(|realm| Some(realm.lens()))
+    }
+
+    fn run(&mut self, name: &str, world: &mut World) {
+        let Some(realm) = made(world) else {
             return;
         };
         match name {
@@ -106,13 +119,13 @@ impl Plugin for RealmPlugin {
         }
     }
 
-    fn receive(&mut self, message: Message, _: &mut World) {
+    fn receive(&mut self, message: Message, world: &mut World) {
         let reply = match message {
             Message::Reply { reply, .. } => reply,
             Message::Event { payload, .. } => {
                 match decode::<String>(&payload) {
                     Ok(hamlet) => {
-                        if let Some(realm) = self.realm() {
+                        if let Some(realm) = self.realm(world) {
                             realm.carry(&hamlet);
                         }
                     }
@@ -130,7 +143,7 @@ impl Plugin for RealmPlugin {
                 return;
             }
         };
-        let Some(realm) = self.realm() else {
+        let Some(realm) = self.realm(world) else {
             return;
         };
         match reply {
@@ -146,14 +159,14 @@ impl Plugin for RealmPlugin {
         }
     }
 
-    fn scene(&mut self, input: SceneInput, _: &mut World) {
-        if let Some(realm) = &mut self.realm {
+    fn scene(&mut self, input: SceneInput, world: &mut World) {
+        if let Some(realm) = made(world) {
             realm.input(&input);
         }
     }
 
-    fn tick(&mut self, micros: u32, _: &mut World) {
-        let Some(realm) = &mut self.realm else {
+    fn tick(&mut self, micros: u32, world: &mut World) {
+        let Some(realm) = made(world) else {
             return;
         };
         let dt = (micros as f32 / 1_000_000.0).min(LONGEST_FRAME);
@@ -174,11 +187,14 @@ impl Plugin for RealmPlugin {
 
 impl RealmPlugin {
     /// The realm, made the first time it is asked for.
-    fn realm(&mut self) -> Option<&mut Realm> {
-        if self.realm.is_none() && !self.broken {
+    fn realm<'a>(
+        &mut self,
+        world: &'a mut World,
+    ) -> Option<&'a mut Realm> {
+        if world.get::<Realm>().is_none() && !self.broken {
             match Realm::make() {
                 Ok(realm) => {
-                    self.realm = Some(realm);
+                    world.insert(realm);
                     animate(true);
                 }
                 Err(why) => {
@@ -189,8 +205,14 @@ impl RealmPlugin {
                 }
             }
         }
-        self.realm.as_mut()
+        made(world)
     }
+}
+
+/// The realm, once it is made.
+fn made(world: &mut World) -> Option<&mut Realm> {
+    world.get::<Realm>()?;
+    Some(world.resource_mut::<Realm>())
 }
 
 hamlet_engine_sdk::export!(RealmPlugin);

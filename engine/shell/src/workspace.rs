@@ -32,6 +32,12 @@ use crate::{EngineTheme, console};
 /// The name of the first workspace of a new home.
 const FIRST: &str = "Main";
 
+/// Panels of bundled plugins the first workspace holds.
+const REALM: &str = "hamlet.realm/realm";
+const NEEDS: &str = "hamlet.needs/needs";
+const CHAT: &str = "hamlet.chat/chat";
+const INSPECTOR: &str = "hamlet.inspector/inspector";
+
 /// The most characters a workspace's name may have.
 const LONGEST_NAME: usize = 40;
 
@@ -103,25 +109,47 @@ pub struct Workspaces {
 }
 
 impl Default for Workspaces {
-    /// One workspace with the engine's own panels.
+    /// One workspace: the realm in the middle, the needs and the
+    /// plugin list on its left, and the chat and the Inspector over
+    /// the console on its right. The panel of a plugin that is not on
+    /// is left out of the dock until it is.
     fn default() -> Self {
-        let tabs = |panel| Layout::Tabs {
-            panels: vec![panel],
-            shown: 0,
+        let tabs =
+            |panels: Vec<PanelId>| Layout::Tabs { panels, shown: 0 };
+        let bundled =
+            |id: &str| PanelId::try_from(id).expect("a valid id");
+        let split = |axis, share, first, second| Layout::Split {
+            axis,
+            share,
+            first: Box::new(first),
+            second: Box::new(second),
         };
+        let left = tabs(vec![
+            bundled(NEEDS),
+            PanelId::new(ENGINE_OWNER, PLUGIN_LIST)
+                .expect("a valid id"),
+        ]);
+        let right = split(
+            Axis::Vertical,
+            0.65,
+            tabs(vec![bundled(CHAT), bundled(INSPECTOR)]),
+            tabs(vec![console::id()]),
+        );
         Self {
             shown: 0,
             list: vec![Workspace {
                 name: FIRST.into(),
-                layout: Layout::Split {
-                    axis: Axis::Horizontal,
-                    share: 0.3,
-                    first: Box::new(tabs(
-                        PanelId::new(ENGINE_OWNER, PLUGIN_LIST)
-                            .expect("a valid id"),
-                    )),
-                    second: Box::new(tabs(console::id())),
-                },
+                layout: split(
+                    Axis::Horizontal,
+                    0.2,
+                    left,
+                    split(
+                        Axis::Horizontal,
+                        0.7,
+                        tabs(vec![bundled(REALM)]),
+                        right,
+                    ),
+                ),
             }],
         }
     }

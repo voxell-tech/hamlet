@@ -9,8 +9,13 @@ use crate::layout::Layout;
 /// name, for one of the plugin's own, or by its full id.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum Contribution {
-    /// A panel for the dock.
-    Panel { name: String, title: String },
+    /// A panel for the dock, its tab showing the icon `icon` by its
+    /// name, if it has one.
+    Panel {
+        name: String,
+        title: String,
+        icon: Option<String>,
+    },
     /// A command a menu calls `label`.
     Command { name: String, label: String },
     /// The command `command` in the bar's menu titled `menu`.

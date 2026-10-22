@@ -1,4 +1,4 @@
-//! The camera behind the dock: framing the hamlets, and moved by
+//! The camera of the Realm panel: framing the hamlets, and moved by
 //! hand. The left button slides the ground, the right button turns
 //! and tilts, and the wheel brings it nearer.
 
@@ -211,7 +211,7 @@ impl Camera {
         let lens = Lens::make(
             &at,
             settings.lens(look, settings.distance),
-            Target::Background,
+            Target::Viewport,
         )?;
         Ok(Self {
             at,
@@ -237,6 +237,10 @@ impl Camera {
             following: None,
             lit: None,
         })
+    }
+
+    pub fn lens(&self) -> &Lens {
+        &self.lens
     }
 
     /// The view shown, and the one it is going to while it glides.

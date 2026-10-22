@@ -16,6 +16,22 @@ impl Entry {
         self.add(Contribution::Panel {
             name: name.into(),
             title: title.into(),
+            icon: None,
+        })
+    }
+
+    /// A panel as [`Entry::panel`] adds it, its tab showing the icon
+    /// `icon`, as `Glyph::name` has it.
+    pub fn panel_with_icon(
+        &mut self,
+        name: &str,
+        title: &str,
+        icon: &str,
+    ) -> &mut Self {
+        self.add(Contribution::Panel {
+            name: name.into(),
+            title: title.into(),
+            icon: Some(icon.into()),
         })
     }
 
