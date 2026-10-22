@@ -1,0 +1,32 @@
+[package]
+name = "hamlet_engine_wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The host of WASM plugins: wasmtime with a store per plugin, held to its budgets"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_engine_api.workspace = true
+hamlet_engine_core.workspace = true
+hamlet_engine_shell.workspace = true
+hamlet_engine_plugins.workspace = true
+hamlet_engine_grants.workspace = true
+hamlet_engine_bus.workspace = true
+bevy.workspace = true
+bevy_fynix.workspace = true
+bytes.workspace = true
+fynix.workspace = true
+rfd.workspace = true
+serde.workspace = true
+tokio.workspace = true
+toml.workspace = true
+wasmtime.workspace = true
+wasmtime-wasi.workspace = true
+
+[dev-dependencies]
+wat.workspace = true
+wit-component.workspace = true
+wit-parser.workspace = true

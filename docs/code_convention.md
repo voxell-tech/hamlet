@@ -75,6 +75,21 @@ code, in a `Default` or anywhere else.
 Shaders are the exception to "assets are files under `assets/`": a shader
 stays beside the code that binds it and is embedded from there.
 
+## Methods, not free functions
+
+A free function whose first argument is one type is a method on that
+type: `commands.add_builtin(..)`, not `add_builtin(&mut commands, ..)`.
+
+- When the type is ours, the method goes in an `impl` of it.
+- When it is not (Bevy's `Commands`, `World`, `App`,
+  `EntityCommands`, fynix's `DockTree` or views), it goes in an `...Ext`
+  trait implemented on it, named for the type and the area
+  (`PluginCommandsExt`, `DockTreeExt`, `StyleExt`). Keep one such trait
+  per type per crate, and export it from the crate root.
+- A function that makes a new thing stays free, as fynix's `button(..)`
+  and `label(..)` do: `icon_button(kind, icon, text)`, `caption(..)`.
+- Bevy systems and observers stay free functions.
+
 ## No mod.rs
 
 Use the filename instead of `mod.rs` in a folder.

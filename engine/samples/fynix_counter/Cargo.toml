@@ -1,0 +1,23 @@
+[package]
+name = "fynix_counter"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "A sample plugin whose panel is retained and written with fynix"
+publish = false
+
+# A workspace of its own, built for wasm32-wasip2:
+# `cargo build --release --target wasm32-wasip2`.
+[workspace]
+
+[lib]
+# The build is `target/wasm32-wasip2/release/plugin.wasm`.
+name = "plugin"
+crate-type = ["cdylib"]
+
+[dependencies]
+hamlet_engine_sdk = { path = "../../sdk", features = ["ui"] }
+
+[profile.release]
+opt-level = "s"
+strip = true

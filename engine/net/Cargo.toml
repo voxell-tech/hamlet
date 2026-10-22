@@ -1,0 +1,18 @@
+[package]
+name = "hamlet_engine_net"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The network service: fetches to the hosts a plugin was granted, at public addresses only"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_engine_api.workspace = true
+hamlet_engine_core.workspace = true
+hamlet_engine_plugins.workspace = true
+hamlet_engine_grants.workspace = true
+bevy.workspace = true
+reqwest.workspace = true
+tokio.workspace = true

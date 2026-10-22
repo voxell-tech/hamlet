@@ -1,11 +1,13 @@
 [workspace]
 resolver = "3"
-members = ["crates/*"]
-# The vendored fynix workspace is its own workspace.
-exclude = ["vendor"]
+members = ["crates/*", "engine/*"]
+# The vendored fynix workspace is its own workspace. The engine's
+# tuning files and its WIT are files, not crates, and each sample
+# plugin is a workspace of its own, built for wasm32-wasip2.
+exclude = ["vendor", "engine/tuning", "engine/wit", "engine/samples"]
 # `cargo build`, `cargo test` and `cargo clippy` at the root cover every
 # crate, so the checks in AGENTS.md need no flags.
-default-members = [".", "crates/*"]
+default-members = [".", "crates/*", "engine/*"]
 
 [workspace.package]
 version = "0.1.0"
@@ -27,8 +29,24 @@ hamlet_realm = { version = "0.1.0", path = "crates/hamlet_realm" }
 hamlet_ui = { version = "0.1.0", path = "crates/hamlet_ui" }
 hamlet_testing = { version = "0.1.0", path = "crates/hamlet_testing" }
 
+# the engine
+hamlet_engine_api = { version = "0.1.0", path = "engine/api" }
+hamlet_engine_core = { version = "0.1.0", path = "engine/core" }
+hamlet_engine_shell = { version = "0.1.0", path = "engine/shell" }
+hamlet_engine_plugins = { version = "0.1.0", path = "engine/plugins" }
+hamlet_engine_grants = { version = "0.1.0", path = "engine/grants" }
+hamlet_engine_assets = { version = "0.1.0", path = "engine/assets" }
+hamlet_engine_bus = { version = "0.1.0", path = "engine/bus" }
+hamlet_engine_net = { version = "0.1.0", path = "engine/net" }
+hamlet_engine_wasm = { version = "0.1.0", path = "engine/wasm" }
+hamlet_engine_harness = { version = "0.1.0", path = "engine/harness" }
+hamlet_engine_sdk = { version = "0.1.0", path = "engine/sdk" }
+
 # fynix
+fynix = { path = "vendor/fynix/crates/fynix" }
 bevy_fynix = { path = "vendor/fynix/crates/bevy_fynix" }
+# `#[element]` derives `Lenz`, whose output names this crate.
+lenz = "0.1.0"
 
 # bevy
 bevy_app = { version = "0.19", default-features = false, features = ["std"] }
@@ -39,8 +57,9 @@ bevy = { version = "0.19", default-features = false, features = ["2d", "3d", "ui
 bevy_hanabi = { version = "0.19", default-features = false, features = ["3d"] }
 
 # other
-anyhow = "1"
+anyhow ="1"
 base64 = "0.22"
+bytes = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 futures = "0.3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
@@ -55,16 +74,30 @@ pulldown-cmark = { version = "0.13", default-features = false }
 regex = "1"
 rfd = "0.17"
 ring = "0.17"
+ron = "0.12"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 tokio = { version = "1", features = ["full"] }
+postcard = { version = "1", default-features = false, features = ["alloc"] }
 objc2 = "0.5"
 objc2-app-kit = { version = "0.2", default-features = false, features = ["std", "NSApplication", "NSImage", "NSResponder"] }
 objc2-foundation = { version = "0.2", default-features = false, features = ["std", "NSData"] }
 winit = { version = "0.30", default-features = false }
 toml = "1"
+# The guest side of the engine's WIT, for plugins.
+wit-bindgen = { version = "0.63", default-features = false, features = ["macros", "realloc", "std"] }
+# The WASM engine, pinned to a stable release. Only `hamlet_engine_wasm`
+# names it.
+wasmtime = { version = "=49.0.3", default-features = false, features = ["std", "runtime", "cranelift", "component-model", "pooling-allocator"] }
+# The system interface a plugin is given, held to wasmtime's version.
+wasmtime-wasi = { version = "=49.0.3", default-features = false, features = ["p2"] }
+# Test plugins: core modules in text, made into components against the
+# WIT file.
+wat = "1.262"
+wit-component = "0.262"
+wit-parser = "0.262"
 
 [workspace.lints.clippy]
 redundant_type_annotations = "warn"

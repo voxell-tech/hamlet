@@ -1,0 +1,231 @@
+/// The interface between the engine and a plugin. A `list<u8>` is
+/// postcard bytes of a type of `hamlet_engine_api`.
+package hamlet:engine@0.1.0;
+
+/// What the engine gives a plugin.
+interface host {
+    enum level {
+        info,
+        warn,
+        error,
+    }
+
+    /// Writes a line to the engine's log.
+    log: func(level: level, text: string);
+
+    /// Asks for the panel or settings page `name` to be drawn again.
+    redraw: func(name: string);
+
+    // Each request below gives a ticket, and its `Reply` comes in a
+    // later `receive` with that ticket. A ticket of 0 means the
+    // request was not taken: one call made too many.
+
+    /// Makes an asset of the type `kind`, one the plugin makes.
+    create-asset: func(kind: string, name: string, bytes: list<u8>) -> u64;
+
+    /// Reads the asset `id`: its `Asset`.
+    read-asset: func(id: u64) -> u64;
+
+    /// Gives one of the plugin's own assets new bytes.
+    update-asset: func(id: u64, bytes: list<u8>) -> u64;
+
+    /// Takes one of the plugin's own assets away.
+    delete-asset: func(id: u64) -> u64;
+
+    /// Lists the assets of the type `kind`: their `AssetInfo`s.
+    list-assets: func(kind: string) -> u64;
+
+    /// Holds a reference to the asset `id`: a `Changed` message comes
+    /// each time it is at a new version, and `Gone` when it goes.
+    hold-asset: func(id: u64) -> u64;
+
+    /// Lets go of the asset `id`.
+    release-asset: func(id: u64) -> u64;
+
+    /// Calls the service `service` (`plugin.id/name`) of another
+    /// plugin with `argument`: its result, `Answered`.
+    call: func(service: string, argument: list<u8>) -> u64;
+
+    /// Subscribes to the event `event` (`plugin.id/name`) of another
+    /// plugin: each comes as an `Event` message.
+    subscribe: func(event: string) -> u64;
+
+    /// Sends the plugin's event `event` with `payload` to its
+    /// subscribers. A reply comes only when it is refused.
+    emit: func(event: string, payload: list<u8>) -> u64;
+
+    /// Fetches a `FetchRequest` from a host the plugin asked for:
+    /// `Fetched`.
+    fetch: func(request: list<u8>) -> u64;
+}
+
+/// What a plugin gives the engine.
+interface guest {
+    /// What the plugin adds: a `Vec<Contribution>`.
+    declare: func() -> list<u8>;
+
+    /// The panel or settings page `name`: a `WidgetTree`.
+    draw: func(name: string) -> list<u8>;
+
+    /// A `WidgetEvent` on one of its panels or settings pages.
+    event: func(event: list<u8>);
+
+    /// Runs the plugin's command `name`.
+    run: func(name: string);
+
+    /// The plugin's state, handed to its next version on a reload.
+    save: func() -> list<u8>;
+
+    /// Takes the state an earlier version saved.
+    restore: func(state: list<u8>);
+
+    /// What the engine has for the plugin: a `Vec<Message>`.
+    receive: func(messages: list<u8>);
+
+    /// Serves a call of its service `service` by the plugin `caller`:
+    /// the result, or why it failed.
+    serve: func(service: string, caller: string, argument: list<u8>) -> result<list<u8>, string>;
+}
+
+/// Panels a plugin builds and keeps node by node, as fynix's backend
+/// does: the engine builds its own widgets from them, in its styles.
+interface ui {
+    enum kind {
+        /// A column or a row, by its `direction`.
+        frame,
+        label,
+        button,
+    }
+
+    enum direction {
+        column,
+        row,
+    }
+
+    /// Room between the children of a frame.
+    enum space {
+        none,
+        half,
+        gap,
+        double,
+    }
+
+    /// The colour of text, by role.
+    enum tone {
+        body,
+        dim,
+        faint,
+        accent,
+        critical,
+    }
+
+    /// The size of text, by role. A title is in the display face.
+    enum size {
+        small,
+        body,
+        heading,
+        title,
+    }
+
+    enum button-style {
+        plain,
+        primary,
+        critical,
+        quiet,
+    }
+
+    /// A movement the engine animates a value over, by its theme.
+    enum motion {
+        interact,
+        expand,
+    }
+
+    /// One property of a node. A node starts with each at its first
+    /// value: empty, `body`, `body`, false, 1.0, `plain`, `column`,
+    /// `gap`.
+    variant property {
+        text(string),
+        tone(tone),
+        size(size),
+        bold(bool),
+        opacity(f32),
+        style(button-style),
+        direction(direction),
+        space(space),
+    }
+
+    /// A node of a panel. Dropping it takes it away, and every node
+    /// under it.
+    resource node {
+        /// A node of `kind`, last under `parent`. `key` is the
+        /// plugin's name for it in the events it is given.
+        constructor(kind: kind, parent: borrow<node>, key: u32);
+
+        /// Sets `value` at once, or moves it over the engine's curve
+        /// for `motion`. A tone, size, opacity or space can move; the
+        /// rest are set at once.
+        set: func(value: property, motion: option<motion>);
+
+        /// Puts the children in the order `children` lists them all.
+        reorder: func(children: list<borrow<node>>);
+
+        /// Tells the plugin when the pointer comes over the node or
+        /// leaves it, if `hover`, and when a button goes down on it
+        /// or up, if `press`.
+        watch: func(hover: bool, press: bool);
+    }
+}
+
+/// What a plugin with retained panels gives the engine.
+interface ui-guest {
+    use ui.{node};
+
+    variant action {
+        click,
+        hover(bool),
+        press(bool),
+    }
+
+    /// What the person did to the node the plugin named `key`.
+    record ui-event {
+        key: u32,
+        action: action,
+    }
+
+    /// Seconds a movement of the theme takes.
+    record motions {
+        interact: f32,
+        expand: f32,
+    }
+
+    // Each call answers whether something still moves, so the engine
+    // calls `frame` on the next frame.
+
+    /// Builds the panel `name` under `root`.
+    mount: func(name: string, root: node, motions: motions) -> bool;
+
+    /// Lets go of the panel `name`, whose nodes are gone.
+    unmount: func(name: string);
+
+    input: func(events: list<ui-event>) -> bool;
+
+    /// A frame passed, `micros` after the last.
+    frame: func(micros: u32) -> bool;
+}
+
+world plugin {
+    import host;
+    export guest;
+}
+
+/// The engine's side of retained panels, apart from `plugin`.
+world ui-panels {
+    import ui;
+    export ui-guest;
+}
+
+/// A plugin whose panels are retained.
+world ui-plugin {
+    include plugin;
+    include ui-panels;
+}

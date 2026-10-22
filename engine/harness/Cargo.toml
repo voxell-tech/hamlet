@@ -1,0 +1,28 @@
+[package]
+name = "hamlet_engine_harness"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The engine without a window: load plugins, run frames, press their widgets, read their panels and assets"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_engine_api.workspace = true
+hamlet_engine_core.workspace = true
+hamlet_engine_shell.workspace = true
+hamlet_engine_plugins.workspace = true
+hamlet_engine_grants.workspace = true
+hamlet_engine_assets.workspace = true
+hamlet_engine_bus.workspace = true
+hamlet_engine_net.workspace = true
+hamlet_engine_wasm.workspace = true
+bevy.workspace = true
+bevy_fynix.workspace = true
+serde.workspace = true
+toml.workspace = true
+
+[[bin]]
+name = "plugin_check"
+path = "src/bin/plugin_check.rs"

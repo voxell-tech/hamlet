@@ -1,0 +1,16 @@
+[package]
+name = "hamlet_engine_bus"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Services and events between plugins, whatever host runs them"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_engine_api.workspace = true
+hamlet_engine_core.workspace = true
+hamlet_engine_plugins.workspace = true
+hamlet_engine_grants.workspace = true
+bevy.workspace = true

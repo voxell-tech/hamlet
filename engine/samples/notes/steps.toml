@@ -1,0 +1,28 @@
+# Notes on its own: its note is made, kept as an asset, and saved
+# again with new text.
+#
+#   cargo run -p hamlet_engine_harness --bin plugin_check -- engine/samples/notes
+
+[[step]]
+allow = "hamlet.notes"
+
+[[step]]
+expect = { panel = "hamlet.notes/notes", text = "Version 1" }
+
+[[step]]
+expect_asset = { type = "notes.note", text = "A first note" }
+
+[[step]]
+write = { panel = "hamlet.notes/notes", widget = "text", text = "Three small words" }
+
+[[step]]
+click = { panel = "hamlet.notes/notes", widget = "save" }
+
+[[step]]
+expect = { panel = "hamlet.notes/notes", text = "Version 2" }
+
+[[step]]
+expect_asset = { type = "notes.note", text = "Three small words" }
+
+[[step]]
+expect = { panel = "hamlet.notes/notes", text = "The board has not seen it yet." }
