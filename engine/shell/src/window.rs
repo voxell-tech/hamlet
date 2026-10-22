@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use bevy::app::{App, AppExit, First, Startup, Update};
+use bevy::app::{App, AppExit, First, Startup};
 use bevy::camera::Camera2d;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::event::Event;
@@ -17,8 +17,8 @@ use bevy::ecs::world::World;
 use bevy::input::keyboard::KeyCode;
 use bevy::ui::{AlignItems, IsDefaultUiCamera, UiRect, percent, px};
 use bevy::window::{
-    ExitCondition, PrimaryWindow, Window, WindowCloseRequested,
-    WindowPlugin, WindowResizeConstraints, WindowResolution,
+    ExitCondition, PrimaryWindow, Window, WindowPlugin,
+    WindowResizeConstraints, WindowResolution,
 };
 use bevy::winit::{UpdateMode, WinitSettings};
 use bevy_fynix::dock::dock;
@@ -44,10 +44,6 @@ pub(crate) fn plugin(app: &mut App) {
         .add_systems(
             First,
             rebuild.run_if(on_message::<ThemeChanged>),
-        )
-        .add_systems(
-            Update,
-            hide.run_if(on_message::<WindowCloseRequested>),
         );
 }
 
@@ -88,9 +84,10 @@ pub fn window_plugin() -> WindowPlugin {
             },
             ..Window::default()
         }),
-        // Closed, the window is hidden and the engine runs on.
-        exit_condition: ExitCondition::DontExit,
-        close_when_requested: false,
+        // Closing the window quits; Run in Background hides it
+        // instead.
+        exit_condition: ExitCondition::OnPrimaryClosed,
+        close_when_requested: true,
         ..WindowPlugin::default()
     }
 }

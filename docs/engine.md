@@ -562,10 +562,10 @@ person has one or more, and one is shown at a time.
   words; one that grows takes the room left, words or none, and clips
   its words. Then the workspace shown and the log's last line, each
   behind an icon, a warning in the accent and an error in red.
-- **In the background.** Run in Background, or the window's close
-  button, hides the window and the engine runs on, a frame every
-  `[window] hidden_wait` seconds. `ShowWindow` shows it again and
-  gives it the focus.
+- **In the background.** Run in Background hides the window and the
+  engine runs on, a frame every `[window] hidden_wait` seconds.
+  `ShowWindow` shows it again and gives it the focus. The window's
+  close button quits.
 
 ## Plugins
 
