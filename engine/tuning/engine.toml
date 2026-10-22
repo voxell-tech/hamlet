@@ -14,19 +14,12 @@ every = 0.5
 [log]
 keep = 500
 
+# The same for every plugin; no plugin can ask for more.
 [budgets]
 strikes = 3
 frame_share = 4.0
+call_time = 1_000.0
 chain_depth = 8
-
-# Each plugin's own, unless its manifest's [limits] or the person
-# gives another value.
-[limits]
-memory = 67_108_864
-fuel_per_call = 50_000_000
-call_time = 20.0
-time_per_second = 100.0
-fuel_per_second = 500_000_000
 bytes_per_call = 1_048_576
 calls_per_second = 600
 events_per_second = 300
@@ -34,8 +27,6 @@ requests_per_call = 64
 wasi_resources = 256
 asset_writes_per_second = 20
 service_calls_per_second = 60
-service_fuel_per_second = 200_000_000
-service_time_per_second = 50.0
 events_sent_per_second = 30
 fetches_per_minute = 30
 fetches_waiting = 4
@@ -64,6 +55,11 @@ gpu_objects = 256
 shader_bytes = 65_536
 workgroups_per_frame = 65_536
 gpu_time_per_second = 200.0
+
+# Each plugin's instance, unless its manifest's [limits] or the
+# person gives another value.
+[limits]
+memory = 67_108_864
 
 [window]
 title = "Hamlet"

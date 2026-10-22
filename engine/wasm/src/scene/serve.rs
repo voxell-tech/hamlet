@@ -151,20 +151,20 @@ fn lose(
 fn route(
     mut inputs: MessageReader<SceneInput>,
     mut plugins: Query<
-        (Option<&mut SceneInbox>, &mut Spending, &PluginBudgets),
+        (Option<&mut SceneInbox>, &mut Spending),
         With<Instance>,
     >,
+    budgets: Res<Budgets>,
     mut commands: Commands,
 ) {
+    let most = budgets.events_per_second as usize;
     // The inboxes of plugins told of something for the first time.
     let mut first = HashMap::<Entity, VecDeque<SceneEvent>>::new();
     for input in inputs.read() {
-        let Ok((inbox, mut spending, budgets)) =
-            plugins.get_mut(input.owner)
+        let Ok((inbox, mut spending)) = plugins.get_mut(input.owner)
         else {
             continue;
         };
-        let most = budgets.events_per_second as usize;
         let events = match inbox {
             Some(inbox) => &mut inbox.into_inner().0,
             None => first.entry(input.owner).or_default(),
@@ -181,7 +181,7 @@ fn route(
 }
 
 /// Hands each plugin what the person did in its views, and a tick
-/// while it animates, within the frame's share and its budgets of
+/// while it animates, within the frame's share and the budgets of
 /// the second. A plugin at fault is stopped.
 fn play(
     mut plugins: Query<(
@@ -205,11 +205,11 @@ fn play(
     for (plugin, info, limits, mut instance, mut spending, inbox) in
         &mut plugins
     {
-        let caps = Caps::of(limits, &tuning);
+        let caps = Caps::of(limits, &budgets, &tuning);
         let mut calls = Vec::new();
         if let Some(mut inbox) = inbox
             && !inbox.0.is_empty()
-            && spending.may_call(limits, true)
+            && spending.may_call(&budgets, true)
         {
             let inputs = inbox
                 .0
@@ -221,7 +221,7 @@ fn play(
         if calls.iter().all(|(_, (done, _))| done.is_ok())
             && instance.scene().animate
             && !left.is_zero()
-            && spending.may_call(limits, false)
+            && spending.may_call(&budgets, false)
         {
             calls.push((false, instance.scene_tick(&caps, micros)));
         }
@@ -235,7 +235,12 @@ fn play(
                 event,
                 &mut asked,
             );
-            instance.pass_logs(info, &mut spending, limits, &mut log);
+            instance.pass_logs(
+                info,
+                &mut spending,
+                &budgets,
+                &mut log,
+            );
             if let Err(fault) = done {
                 commands.stop_plugin(&mut log, plugin, info, &fault);
                 break;

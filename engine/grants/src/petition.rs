@@ -30,7 +30,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_api::{Ask, Capability, PanelId, PluginId};
-use hamlet_engine_core::{LogLine, PluginBudgets};
+use hamlet_engine_core::{Budgets, LogLine};
 use hamlet_engine_plugins::{
     Enable, PluginInfo, PluginKind, SwitchedOff,
 };
@@ -254,13 +254,14 @@ impl Question {
 }
 
 /// Asks about each use of a plugin answered Ask next time, as many a
-/// minute as its limits allow; the rest are refused. `raised` holds,
+/// minute as the budgets allow; the rest are refused. `raised` holds,
 /// for each plugin, when its minute began and how many it raised.
 fn first_use(
     mut uses: MessageReader<FirstUse>,
-    plugins: Query<(&PluginInfo, &PluginBudgets, Option<&Children>)>,
+    plugins: Query<(&PluginInfo, Option<&Children>)>,
     petitions: Query<&Petition>,
     mut raised: Local<HashMap<Entity, (Duration, u32)>>,
+    budgets: Res<Budgets>,
     time: Res<Time<Real>>,
     mut tree: Option<ResMut<DockTree>>,
     mut decided: MessageWriter<Decided>,
@@ -271,9 +272,7 @@ fn first_use(
     // The petitions raised here are not children until the end.
     let mut asking = Vec::new();
     for wanted in uses.read() {
-        let Ok((info, budgets, children)) =
-            plugins.get(wanted.plugin)
-        else {
+        let Ok((info, children)) = plugins.get(wanted.plugin) else {
             continue;
         };
         let Some(ask) = info

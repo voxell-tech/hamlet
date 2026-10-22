@@ -1,6 +1,6 @@
-//! A plugin's limits on the plugin list: each one's value in use and
-//! where it comes from, a field to set it and a way back to what it
-//! would be without the person.
+//! A plugin's memory on the plugin list: the value in use and where
+//! it comes from, a number and a unit to set it, and a way back to
+//! what it would be without the person.
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
@@ -10,24 +10,23 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row,
 };
-use hamlet_engine_api::{
-    Limit, LimitValue, Limits, PluginId, PluginLimits,
-};
+use hamlet_engine_api::{Limits, PluginId, PluginLimits};
 use hamlet_engine_core::LogLine;
 use hamlet_engine_shell::fonts::DisplayText;
 use hamlet_engine_shell::icons::Glyph;
-use hamlet_engine_shell::style::{ButtonStyle, field, icon_button};
+use hamlet_engine_shell::style::{
+    ButtonStyle, dropdown, field, icon_button,
+};
 use hamlet_engine_shell::{AnyView, Cx};
 
 use super::Rows;
 use crate::limits::ChosenLimits;
 
-/// One limit of a plugin as the list shows it.
+/// A plugin's memory as the list shows it.
 #[derive(Clone, Copy, PartialEq)]
-pub(super) struct LimitLine {
-    limit: Limit,
-    /// The value in use.
-    value: LimitValue,
+pub(super) struct MemoryLine {
+    /// The bytes in use.
+    bytes: u64,
     source: Source,
 }
 
@@ -56,110 +55,142 @@ impl Source {
     }
 }
 
-/// Every limit in `used`, each from the person's value in `chosen`,
-/// the plugin's in `asked`, or the engine's.
-pub(super) fn lines(
+/// A unit of memory the list shows and takes it in.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Unit {
+    Kb,
+    Mb,
+    Gb,
+}
+
+impl Unit {
+    const ALL: [Unit; 3] = [Unit::Kb, Unit::Mb, Unit::Gb];
+
+    fn bytes(self) -> u64 {
+        match self {
+            Self::Kb => 1 << 10,
+            Self::Mb => 1 << 20,
+            Self::Gb => 1 << 30,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Kb => "KB",
+            Self::Mb => "MB",
+            Self::Gb => "GB",
+        }
+    }
+
+    /// The largest unit `bytes` holds one of, KB at least.
+    fn of(bytes: u64) -> Self {
+        Self::ALL
+            .into_iter()
+            .rev()
+            .find(|unit| bytes >= unit.bytes())
+            .unwrap_or(Self::Kb)
+    }
+
+    /// `bytes` as a number of this unit, to two decimals at most.
+    fn amount(self, bytes: u64) -> String {
+        let text =
+            format!("{:.2}", bytes as f64 / self.bytes() as f64);
+        text.trim_end_matches('0').trim_end_matches('.').to_owned()
+    }
+
+    /// `text`, a number of this unit, in bytes, when it is above
+    /// zero. `_` between digits is passed over.
+    fn parse(self, text: &str) -> Option<u64> {
+        let number =
+            text.trim().replace('_', "").parse::<f64>().ok()?;
+        let bytes = (number * self.bytes() as f64).round();
+        // The cast saturates at u64::MAX.
+        (bytes.is_finite() && bytes >= 1.0).then_some(bytes as u64)
+    }
+}
+
+/// The memory in `used`, from the person's value in `chosen`, the
+/// plugin's in `asked`, or the engine's.
+pub(super) fn memory_line(
     used: &PluginLimits,
     asked: &Limits,
     chosen: Option<&Limits>,
-) -> Vec<LimitLine> {
-    Limit::ALL
-        .iter()
-        .map(|&limit| {
-            let source =
-                if chosen.and_then(|c| c.get(limit)).is_some() {
-                    Source::Person
-                } else if asked.get(limit).is_some() {
-                    Source::Plugin
-                } else {
-                    Source::Engine
-                };
-            LimitLine {
-                limit,
-                value: used.get(limit),
-                source,
-            }
-        })
-        .collect()
+) -> MemoryLine {
+    let source = if chosen.and_then(|c| c.memory).is_some() {
+        Source::Person
+    } else if asked.memory.is_some() {
+        Source::Plugin
+    } else {
+        Source::Engine
+    };
+    MemoryLine {
+        bytes: used.memory,
+        source,
+    }
 }
 
-/// The limits of the plugin `id`, entity `plugin`, one under
-/// another, with why a value typed was `refused`.
-pub(super) fn limits_view(
+/// MEMORY and where its value comes from, over the value as a number
+/// and a unit, with RESET when it is the person's, and why a value
+/// typed was `refused`.
+pub(super) fn memory_view(
     plugin: Entity,
     id: &PluginId,
-    lines: &[LimitLine],
+    line: MemoryLine,
     refused: Option<String>,
 ) -> AnyView {
-    let mut parts = lines
-        .iter()
-        .map(|line| line_view(plugin, id.clone(), *line))
-        .collect::<Vec<_>>();
-    if let Some(why) = refused {
-        parts.insert(0, label(why).tone(Tone::Critical).boxed());
-    }
-    AnyView::new(move |cx: &mut Cx| {
-        let gap = cx.theme().space.gap;
-        cx.build(column(parts).gap(gap))
-    })
-}
-
-/// A limit's name and where its value comes from, over a field
-/// with the value, and RESET when it is the person's.
-fn line_view(
-    plugin: Entity,
-    id: PluginId,
-    line: LimitLine,
-) -> AnyView {
-    let LimitLine {
-        limit,
-        value,
-        source,
-    } = line;
+    let MemoryLine { bytes, source } = line;
+    let unit = Unit::of(bytes);
+    let amount = unit.amount(bytes);
+    let shown = amount.clone();
     let typed_for = id.clone();
-    let value_field = field(
-        value.to_string(),
-        String::new(),
-        move |world, typed| {
-            match limit.parse(&typed) {
+    let number =
+        field(amount.clone(), String::new(), move |world, typed| {
+            match unit.parse(&typed) {
                 // Left as it was: not made the person's.
-                Some(typed) if typed == value => {
+                Some(typed) if unit.amount(typed) == amount => {
                     world.refuse(plugin, None);
                 }
                 Some(typed) => {
-                    world.choose(
-                        plugin,
-                        &typed_for,
-                        limit,
-                        Some(typed),
-                    );
+                    world.choose(plugin, &typed_for, Some(typed))
                 }
-                None => {
-                    let kind = if limit.whole() {
-                        "a whole number"
-                    } else {
-                        "a number"
-                    };
-                    let why = format!(
-                        "{}: {kind} above zero",
-                        limit.name()
-                    );
-                    world.refuse(plugin, Some(why));
-                }
+                None => world.refuse(
+                    plugin,
+                    Some("memory: a number above zero".into()),
+                ),
+            }
+        });
+    let picked_for = id.clone();
+    let units = dropdown(
+        Unit::ALL
+            .iter()
+            .map(|unit| unit.name().to_owned())
+            .collect(),
+        Unit::ALL.iter().position(|at| *at == unit).unwrap_or(0),
+        move |world, at| {
+            let Some(&picked) = Unit::ALL.get(at) else {
+                return;
+            };
+            if picked != unit
+                && let Some(bytes) = picked.parse(&shown)
+            {
+                world.choose(plugin, &picked_for, Some(bytes));
             }
         },
     );
+    let reset_for = id.clone();
     let reset = (source == Source::Person).then(|| {
         icon_button(ButtonStyle::Quiet, Glyph::Restore, "RESET")
             .on_activate(move |world| {
-                world.choose(plugin, &id, limit, None);
+                world.choose(plugin, &reset_for, None);
             })
             .boxed()
     });
+    let refused = refused.map(|why| label(why).tone(Tone::Critical));
     AnyView::new(move |cx: &mut Cx| {
         let theme = cx.theme();
-        let (gap, size) = (theme.space.gap, theme.text.small);
-        let name = label(limit.name())
+        let (gap, size, side) =
+            (theme.space.gap, theme.text.small, theme.space.row);
+        let name = label("MEMORY")
             .size(size)
             .bold(true)
             .tone(Tone::Faint)
@@ -170,36 +201,35 @@ fn line_view(
             .tone(source.tone())
             .wrap(false);
         let mut control = vec![
-            column((value_field,))
+            column((number,))
                 .gap(0.0)
                 .grow(1.0)
                 .min_width(px(0.0))
                 .boxed(),
+            column((units,)).gap(0.0).width(px(side * 3.0)).boxed(),
         ];
         control.extend(reset);
-        cx.build(
-            column((
-                row((name, from)).gap(gap),
-                row(control).gap(gap).align(AlignItems::Center),
-            ))
-            .gap(gap / 2.0),
-        )
+        let mut parts = vec![
+            row((name, from)).gap(gap).boxed(),
+            row(control).gap(gap).align(AlignItems::Center).boxed(),
+        ];
+        parts.extend(refused.map(|why| why.boxed()));
+        cx.build(column(parts).gap(gap / 2.0))
     })
 }
 
 /// The plugin list's methods on [`World`].
 trait LimitsWorldExt {
-    /// Sets `limit` of the plugin `id` to `value`, or back for
+    /// Sets the memory of the plugin `id` to `bytes`, or back for
     /// `None`, saying on the list why when it cannot be kept.
     fn choose(
         &mut self,
         plugin: Entity,
         id: &PluginId,
-        limit: Limit,
-        value: Option<LimitValue>,
+        bytes: Option<u64>,
     );
 
-    /// Shows `why` under the limits of `plugin`, or nothing for
+    /// Shows `why` under the memory of `plugin`, or nothing for
     /// `None`.
     fn refuse(&mut self, plugin: Entity, why: Option<String>);
 }
@@ -209,11 +239,10 @@ impl LimitsWorldExt for World {
         &mut self,
         plugin: Entity,
         id: &PluginId,
-        limit: Limit,
-        value: Option<LimitValue>,
+        bytes: Option<u64>,
     ) {
         let kept =
-            self.resource_mut::<ChosenLimits>().set(id, limit, value);
+            self.resource_mut::<ChosenLimits>().set_memory(id, bytes);
         if let Err(why) = &kept {
             self.write_message(LogLine::error(
                 "plugins",
@@ -229,5 +258,25 @@ impl LimitsWorldExt for World {
         if rows.refused != refused {
             rows.refused = refused;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn memory_is_shown_and_read_in_its_largest_unit() {
+        let shown = |bytes| {
+            let unit = Unit::of(bytes);
+            format!("{} {}", unit.amount(bytes), unit.name())
+        };
+        assert_eq!(shown(64 << 20), "64 MB");
+        assert_eq!(shown(3 << 29), "1.5 GB");
+        assert_eq!(shown(512), "0.5 KB");
+        assert_eq!(Unit::Gb.parse("1.5"), Some(3 << 29));
+        assert_eq!(Unit::Kb.parse("1_024"), Some(1 << 20));
+        assert_eq!(Unit::Mb.parse("0"), None);
+        assert_eq!(Unit::Mb.parse("-1"), None);
     }
 }

@@ -156,7 +156,7 @@ fn adopt_overlay(
 
 /// Gives the running plugins what is in their inboxes, and a frame
 /// to those whose views still move, within the frame's share and
-/// each plugin's limits of the second. The plugin served longest ago
+/// the budgets of the second. The plugin served longest ago
 /// goes first, and what is left waits for the next frame. A plugin
 /// at fault is stopped.
 pub(crate) fn serve(
@@ -205,14 +205,14 @@ pub(crate) fn serve(
         else {
             continue;
         };
-        let caps = Caps::of(limits, &tuning);
+        let caps = Caps::of(limits, &budgets, &tuning);
         let mut fault = None;
         let mut served = false;
         let mut moving = was_moving;
         let mut moved = false;
         while let Some(work) = inbox.0.front() {
             let event = matches!(work, Work::Node(..));
-            if left.is_zero() || !spending.may_call(limits, event) {
+            if left.is_zero() || !spending.may_call(&budgets, event) {
                 break;
             }
             let Some(work) = inbox.0.pop_front() else {
@@ -310,7 +310,7 @@ pub(crate) fn serve(
             && !moved
             && fault.is_none()
             && !left.is_zero()
-            && spending.may_call(limits, false)
+            && spending.may_call(&budgets, false)
         {
             let (done, spent) = instance.frame(&caps, micros);
             let changes = instance.take_node_changes();
@@ -335,7 +335,7 @@ pub(crate) fn serve(
                 commands.entity(plugin).remove::<Moving>();
             }
         }
-        instance.pass_logs(info, &mut spending, limits, &mut log);
+        instance.pass_logs(info, &mut spending, &budgets, &mut log);
         if served {
             spending.served = *frame;
         }
@@ -346,8 +346,8 @@ pub(crate) fn serve(
 }
 
 impl Instance {
-    /// Serves `call` and says what became of it. A plugin out of its
-    /// fuel or time for the call leaves the caller out of budget.
+    /// Serves `call` and says what became of it. A plugin past its
+    /// time for the call leaves the caller out of budget.
     fn serve_call(
         &mut self,
         caps: &Caps,
@@ -363,7 +363,7 @@ impl Instance {
         let (done, result) = match result {
             Ok(Ok(bytes)) => (Ok(()), Ok(bytes)),
             Ok(Err(why)) => (Ok(()), Err(Failure::Failed(why))),
-            Err(fault @ (Fault::Fuel | Fault::Time)) => {
+            Err(fault @ Fault::Time) => {
                 let why = Failure::OutOfBudget(fault.to_string());
                 (Err(fault), Err(why))
             }
@@ -375,8 +375,6 @@ impl Instance {
         served.write(Served {
             call: call.call,
             result,
-            fuel: spent.fuel,
-            time: spent.time,
         });
         (done, spent)
     }

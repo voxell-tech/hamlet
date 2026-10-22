@@ -1,8 +1,7 @@
 //! Services between plugins. A call is checked against the caller's
-//! manifest and grants, its depth in a chain and the caller's
-//! budgets of the second, and the signature both sides name; then it
-//! is handed to the plugin that serves it, and its result to the
-//! caller. What serving it spent is charged to the caller.
+//! manifest and grants, its depth in a chain and the caller's calls
+//! of the second, and the signature both sides name; then it is
+//! handed to the plugin that serves it, and its result to the caller.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -16,10 +15,9 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Local, Query, Res, ResMut};
 use bevy::time::{Real, Time};
 use hamlet_engine_api::{
-    Capability, Failure, PluginId, PluginLimits, Reply, Request,
-    ServiceId, Ticket,
+    Capability, Failure, PluginId, Reply, Request, ServiceId, Ticket,
 };
-use hamlet_engine_core::{Budgets, PluginBudgets};
+use hamlet_engine_core::Budgets;
 use hamlet_engine_grants::{
     Decided, FirstUse, Grants, Verdict, Waiting,
 };
@@ -46,17 +44,14 @@ pub struct Serve {
     pub depth: u32,
 }
 
-/// The call `call` served: its result, and the fuel and time serving
-/// it spent, which are charged to the caller.
+/// The call `call` served, and its result.
 #[derive(Message, Clone, Debug)]
 pub struct Served {
     pub call: u64,
     pub result: Result<Vec<u8>, Failure>,
-    pub fuel: u64,
-    pub time: Duration,
 }
 
-/// The calls being served, and what each caller's calls spent in its
+/// The calls being served, and how many each caller made in its
 /// current second.
 #[derive(Resource, Default, Debug)]
 pub struct Calls {
@@ -73,18 +68,16 @@ struct Open {
     callee: Entity,
 }
 
-/// What one caller's calls spent in a second.
+/// The calls one caller made in a second.
 #[derive(Clone, Copy, Default, PartialEq, Debug)]
 pub struct Second {
     /// When it began, on the real clock.
     pub since: Duration,
     pub calls: u32,
-    pub fuel: u64,
-    pub time: Duration,
 }
 
 impl Calls {
-    /// What `caller`'s calls spent in the second that holds `now`.
+    /// The calls `caller` made in the second that holds `now`.
     pub fn second(
         &mut self,
         caller: Entity,
@@ -101,21 +94,6 @@ impl Calls {
         *second
     }
 
-    /// Charges `caller` what a call it made spent.
-    pub fn charge(
-        &mut self,
-        caller: Entity,
-        now: Duration,
-        fuel: u64,
-        time: Duration,
-    ) {
-        self.second(caller, now);
-        if let Some(second) = self.seconds.get_mut(&caller) {
-            second.fuel = second.fuel.saturating_add(fuel);
-            second.time = second.time.saturating_add(time);
-        }
-    }
-
     fn open(&mut self, now: Duration, open: Open) -> u64 {
         self.second(open.caller, now);
         if let Some(second) = self.seconds.get_mut(&open.caller) {
@@ -130,11 +108,9 @@ impl Calls {
 /// What is known of a call before it is made.
 pub struct Call<'a> {
     pub caller: &'a PluginInfo,
-    /// The caller's limits.
-    pub limits: &'a PluginLimits,
     pub service: &'a str,
     pub depth: u32,
-    /// What the caller's calls spent this second.
+    /// The calls the caller made this second.
     pub spent: Second,
     /// Whether the person allowed this call just now.
     pub allowed: bool,
@@ -183,22 +159,11 @@ impl Call<'_> {
                 budgets.chain_depth
             )));
         }
-        let (spent, limits) = (self.spent, self.limits);
-        if spent.calls >= limits.service_calls_per_second {
+        if self.spent.calls >= budgets.service_calls_per_second {
             return Err(Failure::OutOfBudget(format!(
                 "{} calls a second, the most",
-                limits.service_calls_per_second
+                budgets.service_calls_per_second
             )));
-        }
-        if spent.fuel >= limits.service_fuel_per_second
-            || spent.time.as_secs_f32() * 1000.0
-                >= limits.service_time_per_second
-        {
-            return Err(Failure::OutOfBudget(
-                "the services it called spent its budget for this \
-                 second"
-                    .into(),
-            ));
         }
         if !self.allowed {
             match grants.verdict(
@@ -255,7 +220,6 @@ fn call(
     mut asked: MessageReader<Asked>,
     mut decided: MessageReader<Decided>,
     plugins: Query<(Entity, &PluginInfo, Has<Enabled>, Has<Stopped>)>,
-    limits: Query<&PluginBudgets>,
     grants: Res<Grants>,
     budgets: Res<Budgets>,
     time: Res<Time<Real>>,
@@ -287,14 +251,11 @@ fn call(
         else {
             continue;
         };
-        let (Ok((_, caller, ..)), Ok(limits)) =
-            (plugins.get(request.plugin), limits.get(request.plugin))
-        else {
+        let Ok((_, caller, ..)) = plugins.get(request.plugin) else {
             continue;
         };
         let check = Call {
             caller,
-            limits,
             service,
             depth: request.depth,
             spent: calls.second(request.plugin, now),
@@ -335,26 +296,17 @@ fn call(
     }
 }
 
-/// Gives each caller the result of its call, charging it what serving
-/// it spent. A call whose plugin stopped before it was served fails.
+/// Gives each caller the result of its call. A call whose plugin
+/// stopped before it was served fails.
 fn answer(
     mut served: MessageReader<Served>,
     plugins: Query<(Has<Enabled>, Has<Stopped>)>,
-    time: Res<Time<Real>>,
     mut calls: ResMut<Calls>,
     mut deliver: MessageWriter<Deliver>,
 ) {
-    let now = time.elapsed();
     let mut done = served
         .read()
-        .map(|served| {
-            (
-                served.call,
-                served.result.clone(),
-                served.fuel,
-                served.time,
-            )
-        })
+        .map(|served| (served.call, served.result.clone()))
         .collect::<Vec<_>>();
     let gone = calls
         .open
@@ -366,13 +318,12 @@ fn answer(
         .collect::<Vec<_>>();
     done.extend(gone.into_iter().map(|call| {
         let why = "the plugin that serves it stopped".to_string();
-        (call, Err(Failure::Failed(why)), 0, Duration::ZERO)
+        (call, Err(Failure::Failed(why)))
     }));
-    for (call, result, fuel, spent) in done {
+    for (call, result) in done {
         let Some(open) = calls.open.remove(&call) else {
             continue;
         };
-        calls.charge(open.caller, now, fuel, spent);
         deliver.write(Deliver {
             plugin: open.caller,
             message: hamlet_engine_api::Message::Reply {

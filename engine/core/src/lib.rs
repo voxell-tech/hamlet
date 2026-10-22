@@ -1,7 +1,7 @@
 //! What every engine module stands on: the tuning files under
 //! `engine/tuning/`, the home folder, the bundle of plugins that come
-//! with Hamlet, the engine's log, the budgets and limits plugins
-//! spend and writing a file whole.
+//! with Hamlet, the engine's log, the budgets plugins spend, the
+//! limits of their instances and writing a file whole.
 
 pub mod budget;
 pub mod bundle;

@@ -14,9 +14,7 @@ use hamlet_engine_api::{
     API_VERSION, Capability, PluginId, PluginLimits,
 };
 use hamlet_engine_core::tuning::Tuning;
-use hamlet_engine_core::{
-    Budgets, Bundle, DefaultLimits, Home, LogLevel,
-};
+use hamlet_engine_core::{Budgets, Bundle, Home, LogLevel};
 use hamlet_engine_grants::{
     Admitted, Answer, Grants, Petition, Record,
 };
@@ -157,20 +155,23 @@ fn component(text: &str, wasi: bool) -> Vec<u8> {
         .expect("the component encodes")
 }
 
-/// The limits of the tests: a plugin of four pages of memory that
-/// hands over a kilobyte a call.
-fn budgets() -> PluginLimits {
-    PluginLimits {
-        memory: 4 * 65_536,
+/// The limits of the tests: a plugin of four pages of memory.
+const LIMITS: PluginLimits = PluginLimits { memory: 4 * 65_536 };
+
+/// The budgets of the tests: a kilobyte handed over a call.
+fn budgets() -> Budgets {
+    Budgets {
         bytes_per_call: 1_024,
-        ..DefaultLimits::designed().0
+        ..Budgets::designed()
     }
 }
 
-/// The plugin `component`, started within `budgets`, with its caps.
+/// The plugin `component`, started within `limits` and `budgets`,
+/// with its caps.
 fn start(
     component: &[u8],
-    budgets: &PluginLimits,
+    limits: &PluginLimits,
+    budgets: &Budgets,
 ) -> (Instance, Caps) {
     let tuning = WasmTuning {
         plugins: 1,
@@ -178,7 +179,7 @@ fn start(
     };
     let host = Host::new(&tuning).expect("the host starts");
     let linked = link(&host.0, component).expect("the plugin links");
-    let caps = Caps::of(budgets, &tuning);
+    let caps = Caps::of(limits, budgets, &tuning);
     let instance = Instance::new(&host.0, &linked, &caps)
         .expect("the plugin starts");
     (instance, caps)
@@ -194,7 +195,7 @@ fn nodes_are_held_to_their_budgets_and_kinds() {
     let caps = Caps {
         node_changes: 6,
         node_depth: 1,
-        ..Caps::of(&budgets(), &WasmTuning::designed())
+        ..Caps::of(&LIMITS, &budgets(), &WasmTuning::designed())
     };
     let mut state = State::new(&caps);
     let root = state.nodes.root().rep();
@@ -226,7 +227,7 @@ fn nodes_are_held_to_their_budgets_and_kinds() {
 
 #[test]
 fn a_call_hands_over_its_bytes_in_all() {
-    let caps = Caps::of(&budgets(), &WasmTuning::designed());
+    let caps = Caps::of(&LIMITS, &budgets(), &WasmTuning::designed());
     let mut state = State::new(&caps);
     let root = state.nodes.root().rep();
     let label = HostNode::new(
@@ -252,11 +253,11 @@ fn a_call_hands_over_its_bytes_in_all() {
 #[test]
 fn hostile_plugins_are_held_to_their_budgets() {
     let (mut instance, caps) =
-        start(&declaring("(i32.const 0)"), &budgets());
+        start(&declaring("(i32.const 0)"), &LIMITS, &budgets());
     assert_eq!(instance.declare(&caps).0, Ok(Vec::new()));
 
     let endless = "(loop $again (br $again)) (i32.const 0)";
-    let cases: [(&str, fn(&mut PluginLimits), Fault); 5] = [
+    let cases: [(&str, fn(&mut Budgets), Fault); 4] = [
         // A list twice as long as a call may hand over.
         (
             "(i32.store (i32.const 4) (i32.const 2048)) (i32.const \
@@ -278,26 +279,13 @@ fn hostile_plugins_are_held_to_their_budgets() {
             |_| {},
             Fault::Memory,
         ),
-        (
-            endless,
-            |budgets| budgets.fuel_per_call = 100_000,
-            Fault::Fuel,
-        ),
-        // With fuel to spare, it runs out of time.
-        (
-            endless,
-            |budgets| {
-                budgets.fuel_per_call = u64::MAX / 2;
-                budgets.call_time = 1.0;
-            },
-            Fault::Time,
-        ),
+        (endless, |budgets| budgets.call_time = 1.0, Fault::Time),
     ];
     for (declare, adjust, fault) in cases {
         let mut budgets = budgets();
         adjust(&mut budgets);
         let (mut instance, caps) =
-            start(&declaring(declare), &budgets);
+            start(&declaring(declare), &LIMITS, &budgets);
         assert_eq!(
             instance.declare(&caps).0,
             Err(fault),
@@ -307,8 +295,9 @@ fn hostile_plugins_are_held_to_their_budgets() {
 }
 
 #[test]
-fn a_plugin_may_ask_for_the_largest_limits() {
-    let budgets = PluginLimits {
+fn the_largest_limits_and_budgets_are_taken() {
+    let limits = PluginLimits { memory: u64::MAX };
+    let budgets = Budgets {
         call_time: f32::MAX,
         log_lines_per_second: u32::MAX,
         bytes_per_call: u64::MAX,
@@ -316,7 +305,7 @@ fn a_plugin_may_ask_for_the_largest_limits() {
         ..budgets()
     };
     let (mut instance, caps) =
-        start(&declaring("(i32.const 0)"), &budgets);
+        start(&declaring("(i32.const 0)"), &limits, &budgets);
     assert_eq!(instance.declare(&caps).0, Ok(Vec::new()));
 }
 
@@ -348,8 +337,14 @@ fn a_plugin_has_the_system_and_its_prints_are_cut() {
     // Running, it sleeps for a thousand seconds.
     let run = "(call $block (call $sleep (i64.const 1000000000000)))";
     let text = module(declare, run).replacen("(module", imports, 1);
-    let (mut instance, caps) =
-        start(&component(&text, true), &DefaultLimits::designed());
+    let (mut instance, caps) = start(
+        &component(&text, true),
+        &LIMITS,
+        &Budgets {
+            call_time: 20.0,
+            ..Budgets::designed()
+        },
+    );
 
     assert_eq!(instance.declare(&caps).0, Ok(Vec::new()));
     let logs = instance.take_logs();
@@ -366,27 +361,20 @@ fn a_plugin_has_the_system_and_its_prints_are_cut() {
 
 #[test]
 fn a_plugin_over_its_budgets_waits_then_is_stopped() {
-    // Each run burns about half the fuel of a second, and it is run
-    // each frame.
-    let run = "(local $left i32)
-        (local.set $left (i32.const 100000))
-        (loop $again
-          (local.set $left (i32.sub (local.get $left) (i32.const 1)))
-          (br_if $again (local.get $left)))";
+    // It is asked to run each frame, past its calls of a second.
     let root = home("over");
     install(
         &root,
         &format!(
             "id = \"test.over\"\nname = \"Over\"\nversion = \
-             \"0.1.0\"\napi = \
-             \"{API_VERSION}\"\n[limits]\nfuel_per_second = \
-             1_000_000\n"
+             \"0.1.0\"\napi = \"{API_VERSION}\"\n"
         ),
-        &component(&module("(i32.const 32)", run), false),
+        &component(&module("(i32.const 32)", ""), false),
     );
     let mut app = engine(&root);
     app.insert_resource(Budgets {
         strikes: 1,
+        calls_per_second: 2,
         ..Budgets::designed()
     });
     let record = Record {
@@ -426,7 +414,7 @@ fn a_reloaded_plugin_keeps_its_state() {
     let host = Host::new(&tuning).expect("the host starts");
     let plugin = declaring("(i32.const 0)");
     let linked = link(&host.0, &plugin).expect("the plugin links");
-    let caps = Caps::of(&budgets, &tuning);
+    let caps = Caps::of(&LIMITS, &budgets, &tuning);
     let mut old = Instance::new(&host.0, &linked, &caps)
         .expect("the plugin starts");
     for _ in 0..3 {

@@ -132,7 +132,7 @@ Paths are under the crate's folder in the table above.
 | The wizard or the Hearth | `hamlet_realm/src/chief/`; [`chief.md`](chief.md) |
 | What is saved between launches | `hamlet_ui/src/remember.rs`; settings in `hamlet_model/src/config.rs` |
 | The engine, apart from the app | `engine/`; [`engine.md`](engine.md) |
-| A budget or limit of an engine plugin | `engine/tuning/engine.toml`; the caps on all plugins in `engine/core/src/budget.rs`, one plugin's limits in `engine/api/src/limits.rs`, resolved with its manifest's and the person's in `engine/plugins/src/limits.rs`; [`engine.md`](engine.md#limits) |
+| A budget or limit of an engine plugin | `engine/tuning/engine.toml`; the caps every plugin is held to alike in `engine/core/src/budget.rs`, a plugin's own memory in `engine/api/src/limits.rs`, resolved with its manifest's and the person's in `engine/plugins/src/limits.rs` and shown on the plugin list in `engine/plugins/src/list/limits.rs`; [`engine.md`](engine.md#limits) |
 | What engine plugins share | `engine/assets/` (assets), `engine/bus/` (services and events), `engine/net/` (fetches) |
 | What plugins may ask of the agents | `engine/api/src/agents.rs`, answered in `engine/agents/src/answer.rs`; [`engine.md`](engine.md#the-agents) |
 | What a plugin is told when the agents change | `engine/agents/src/watch.rs` |

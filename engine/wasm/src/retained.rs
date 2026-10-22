@@ -54,7 +54,7 @@ use bevy_fynix::{
 };
 use fynix::Patch;
 use hamlet_engine_api::PanelId;
-use hamlet_engine_core::PluginBudgets;
+use hamlet_engine_core::Budgets;
 use hamlet_engine_plugins::{
     ContributedBy, Contributions, PluginInfo,
 };
@@ -1630,19 +1630,18 @@ fn offer_roots(
         (&UiRoot, &Surface, &ContributedBy),
         Changed<UiRoot>,
     >,
-    mut inboxes: Query<(&mut Inbox, &mut Spending, &PluginBudgets)>,
+    mut inboxes: Query<(&mut Inbox, &mut Spending)>,
+    budgets: Res<Budgets>,
 ) {
     for (root, shown, by) in &roots {
-        if let Ok((mut inbox, mut spending, budgets)) =
-            inboxes.get_mut(by.0)
-        {
+        if let Ok((mut inbox, mut spending)) = inboxes.get_mut(by.0) {
             inbox.offer(
                 Work::Mount {
                     root: root.holder,
                     name: shown.name.clone(),
                 },
                 &mut spending,
-                budgets,
+                &budgets,
             );
         }
     }
@@ -1654,7 +1653,8 @@ fn offer_roots(
 fn lose_roots(
     roots: Query<(Entity, &UiRoot, &Surface, &ContributedBy)>,
     alive: Query<()>,
-    mut inboxes: Query<(&mut Inbox, &mut Spending, &PluginBudgets)>,
+    mut inboxes: Query<(&mut Inbox, &mut Spending)>,
+    budgets: Res<Budgets>,
     mut commands: Commands,
 ) {
     for (surface, root, shown, by) in &roots {
@@ -1663,13 +1663,11 @@ fn lose_roots(
         }
         commands.entity(root.holder).try_despawn();
         commands.entity(surface).remove::<UiRoot>();
-        if let Ok((mut inbox, mut spending, budgets)) =
-            inboxes.get_mut(by.0)
-        {
+        if let Ok((mut inbox, mut spending)) = inboxes.get_mut(by.0) {
             inbox.offer(
                 Work::Unmount(shown.name.clone()),
                 &mut spending,
-                budgets,
+                &budgets,
             );
         }
     }
@@ -1702,16 +1700,17 @@ fn hovers(
 /// to, a second's events at most.
 fn route(
     mut actions: MessageReader<NodeAction>,
-    mut inboxes: Query<(&mut Inbox, &mut Spending, &PluginBudgets)>,
+    mut inboxes: Query<(&mut Inbox, &mut Spending)>,
+    budgets: Res<Budgets>,
 ) {
     for action in actions.read() {
-        if let Ok((mut inbox, mut spending, budgets)) =
+        if let Ok((mut inbox, mut spending)) =
             inboxes.get_mut(action.plugin)
         {
             inbox.offer(
                 Work::Node(action.key, action.input.clone()),
                 &mut spending,
-                budgets,
+                &budgets,
             );
         }
     }

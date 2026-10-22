@@ -1,14 +1,12 @@
 //! What a WASM plugin asks of the engine's services, passed on, and
 //! what they send it, put in its inbox and handed over in batches.
 
-use std::time::Duration;
-
 use bevy::ecs::entity::Entity;
 use bevy::ecs::message::{MessageReader, MessageWriter};
-use bevy::ecs::system::Query;
+use bevy::ecs::system::{Query, Res};
 use hamlet_engine_api::{Failure, Message, encode};
 use hamlet_engine_bus::{Serve, Served};
-use hamlet_engine_core::PluginBudgets;
+use hamlet_engine_core::Budgets;
 use hamlet_engine_plugins::{Asked, Deliver};
 
 use crate::budget::Spending;
@@ -44,16 +42,17 @@ impl Instance {
 pub(crate) fn deliver(
     mut delivered: MessageReader<Deliver>,
     mut calls: MessageReader<Serve>,
-    mut inboxes: Query<(&mut Inbox, &mut Spending, &PluginBudgets)>,
+    mut inboxes: Query<(&mut Inbox, &mut Spending)>,
+    budgets: Res<Budgets>,
     mut served: MessageWriter<Served>,
 ) {
     for call in calls.read() {
         let taken = inboxes.get_mut(call.callee).is_ok_and(
-            |(mut inbox, mut spending, budgets)| {
+            |(mut inbox, mut spending)| {
                 inbox.offer(
                     Work::Serve(call.clone()),
                     &mut spending,
-                    budgets,
+                    &budgets,
                 )
             },
         );
@@ -63,8 +62,6 @@ pub(crate) fn deliver(
                 result: Err(Failure::OutOfBudget(
                     "the plugin that serves it is busy".into(),
                 )),
-                fuel: 0,
-                time: Duration::ZERO,
             });
         }
     }
@@ -74,13 +71,13 @@ pub(crate) fn deliver(
         depth,
     } in delivered.read()
     {
-        if let Ok((mut inbox, mut spending, budgets)) =
+        if let Ok((mut inbox, mut spending)) =
             inboxes.get_mut(*plugin)
         {
             inbox.offer(
                 Work::Mail(message.clone(), *depth),
                 &mut spending,
-                budgets,
+                &budgets,
             );
         }
     }
@@ -93,7 +90,7 @@ impl Inbox {
         &mut self,
         work: Work,
         spending: &mut Spending,
-        budgets: &PluginBudgets,
+        budgets: &Budgets,
     ) -> bool {
         if self.0.len() >= budgets.events_per_second as usize {
             spending.dropped_events += 1;

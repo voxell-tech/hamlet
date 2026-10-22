@@ -11,8 +11,8 @@ use hamlet_engine_sdk::scene::{Instances, Mesh, MeshData};
 /// `bytes_per_call`.
 const CALL_BYTES: usize = 640 * 1024;
 
-/// Time one call may build for, and a second's calls together, of
-/// the engine's `call_time` and `time_per_second`.
+/// Time one call may build for, far within the engine's `call_time`,
+/// and a second's calls together, so the frames stay smooth.
 const CALL_TIME: Duration = Duration::from_millis(4);
 const SECOND_TIME: Duration = Duration::from_millis(45);
 

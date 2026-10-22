@@ -6,8 +6,9 @@ use bevy::ecs::observer::On;
 use bevy::ecs::system::Commands;
 use bevy::ecs::world::World;
 use hamlet_engine_api::{
-    CommandId, IdError, Layout, PanelId, PluginId, PluginLimits,
+    CommandId, IdError, Layout, PanelId, PluginId,
 };
+use hamlet_engine_core::Budgets;
 use hamlet_engine_shell::command::parse_chord;
 use hamlet_engine_shell::icons::Glyph;
 use hamlet_engine_shell::{
@@ -222,7 +223,7 @@ impl Entry {
         self,
         plugin: Entity,
         owner: &PluginId,
-        budgets: &PluginLimits,
+        budgets: &Budgets,
         commands: &mut Commands,
     ) -> Vec<String> {
         let mut problems = Vec::new();

@@ -1,11 +1,11 @@
 use std::fs;
 
 use hamlet_engine_api::{
-    Ask, AssetType, Capability, Failure, Manifest, PluginId,
-    PluginLimits, Reply, Request, TypeName,
+    Ask, AssetType, Capability, Failure, Manifest, PluginId, Reply,
+    Request, TypeName,
 };
 use hamlet_engine_core::tuning::Tuning;
-use hamlet_engine_core::{DefaultLimits, Home};
+use hamlet_engine_core::{Budgets, Home};
 use hamlet_engine_grants::{Answer, Grants, Record};
 use hamlet_engine_plugins::{PluginInfo, PluginKind};
 
@@ -65,10 +65,10 @@ fn the_store_keeps_to_types_grants_and_caps() {
     let (registry, _) =
         TypeRegistry::of([&notes, &board, &old].into_iter());
     let mut grants = Grants::open(&home);
-    let budgets = PluginLimits {
+    let budgets = Budgets {
         asset_bytes: 8,
         assets: 1,
-        ..DefaultLimits::designed().0
+        ..Budgets::designed()
     };
     let mut store = AssetStore::open(&home);
     let create = |bytes: &[u8]| Request::CreateAsset {

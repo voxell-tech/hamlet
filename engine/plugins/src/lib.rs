@@ -48,7 +48,8 @@ pub struct PluginInfo {
     pub assets: AssetTypes,
     pub services: Services,
     pub events: Events,
-    /// The limits it asks for in place of the engine's.
+    /// The limits of its instance it asks for in place of the
+    /// engine's.
     pub limits: Limits,
 }
 

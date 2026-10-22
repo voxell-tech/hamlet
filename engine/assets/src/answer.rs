@@ -11,10 +11,9 @@ use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::ecs::system::{Local, Query, Res, ResMut};
 use bevy::time::{Real, Time};
 use hamlet_engine_api::{
-    AssetType, Capability, Failure, PluginLimits, Reply, Request,
-    TypeName,
+    AssetType, Capability, Failure, Reply, Request, TypeName,
 };
-use hamlet_engine_core::PluginBudgets;
+use hamlet_engine_core::Budgets;
 use hamlet_engine_grants::{
     Decided, FirstUse, Grants, Verdict, Waiting,
 };
@@ -40,8 +39,7 @@ pub enum Outcome {
 pub struct Rules<'a> {
     pub registry: &'a TypeRegistry,
     pub grants: &'a Grants,
-    /// The limits of the plugin asking.
-    pub budgets: &'a PluginLimits,
+    pub budgets: &'a Budgets,
 }
 
 impl Rules<'_> {
@@ -299,10 +297,10 @@ pub(crate) fn answer(
     mut asked: MessageReader<Asked>,
     mut decided: MessageReader<Decided>,
     mut plugins: Query<(Entity, &PluginInfo, &mut Holding)>,
-    limits: Query<&PluginBudgets>,
     mut store: ResMut<AssetStore>,
     registry: Res<TypeRegistry>,
     grants: Res<Grants>,
+    budgets: Res<Budgets>,
     time: Res<Time<Real>>,
     mut parked: Local<Waiting<Asked>>,
     mut written: Local<HashMap<Entity, (Duration, u32)>>,
@@ -324,19 +322,18 @@ pub(crate) fn answer(
             ))));
         }
     }
+    let rules = Rules {
+        registry: &registry,
+        grants: &grants,
+        budgets: &budgets,
+    };
     let fresh = asked.read().map(|asked| (asked.clone(), false));
     let mut changes = Vec::<Change>::new();
     for (request, allowed) in again.into_iter().chain(fresh) {
-        let (Ok((_, plugin, mut holding)), Ok(budgets)) = (
-            plugins.get_mut(request.plugin),
-            limits.get(request.plugin),
-        ) else {
+        let Ok((_, plugin, mut holding)) =
+            plugins.get_mut(request.plugin)
+        else {
             continue;
-        };
-        let rules = Rules {
-            registry: &registry,
-            grants: &grants,
-            budgets,
         };
         if request.request.writes() {
             let (since, count) = written

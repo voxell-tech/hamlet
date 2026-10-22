@@ -22,7 +22,7 @@ use hamlet_engine_api::{
     Capability, Failure, FetchReply, FetchRequest, Method, Reply,
     Request, Ticket,
 };
-use hamlet_engine_core::{LogLine, PluginBudgets};
+use hamlet_engine_core::{Budgets, LogLine};
 use hamlet_engine_grants::{
     Decided, FirstUse, Grants, Verdict, Waiting,
 };
@@ -87,9 +87,10 @@ impl Drop for Sent {
 fn start(
     mut asked: MessageReader<Asked>,
     mut decided: MessageReader<Decided>,
-    plugins: Query<(&PluginInfo, &PluginBudgets, Option<&Children>)>,
+    plugins: Query<(&PluginInfo, Option<&Children>)>,
     fetches: Query<(), With<Fetch>>,
     grants: Res<Grants>,
+    budgets: Res<Budgets>,
     time: Res<Time<Real>>,
     network: Option<Res<Network>>,
     offline: Option<Res<Offline>>,
@@ -124,8 +125,7 @@ fn start(
         let Request::Fetch(fetch) = &request.request else {
             continue;
         };
-        let Ok((plugin, budgets, children)) =
-            plugins.get(request.plugin)
+        let Ok((plugin, children)) = plugins.get(request.plugin)
         else {
             continue;
         };
@@ -216,7 +216,7 @@ fn start(
             ChildOf(request.plugin),
         ));
         if let Some(network) = &network {
-            // A limit has no ceiling, so one past what a duration
+            // A budget has no ceiling, so one past what a duration
             // holds is no limit.
             let patience =
                 Duration::try_from_secs_f32(budgets.fetch_time)

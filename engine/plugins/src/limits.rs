@@ -1,8 +1,8 @@
-//! The limits each plugin is held to, [`PluginBudgets`] on its
-//! entity: the person's value, else the plugin's ask, else the
-//! engine's. The person's values are kept in `limits.toml` in the
-//! home, written whole or not at all; a file that cannot be read is
-//! never written over.
+//! The limits each plugin's instance is held to, [`PluginBudgets`] on
+//! its entity: the person's value, else the plugin's ask, else the
+//! engine's. The person's values are kept in `plugin_limits.toml` in
+//! the home, written whole or not at all; a file that cannot be read
+//! is never written over.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -16,7 +16,7 @@ use bevy::ecs::message::MessageWriter;
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
-use hamlet_engine_api::{Limit, LimitValue, Limits, PluginId};
+use hamlet_engine_api::{Limits, PluginId};
 use hamlet_engine_core::{
     DefaultLimits, Home, LogLine, PluginBudgets, write_whole,
 };
@@ -25,8 +25,10 @@ use serde::{Deserialize, Serialize};
 use crate::list::Uninstall;
 use crate::{PluginInfo, PluginKind};
 
-/// The file's name in the home.
-pub(crate) const FILE: &str = "limits.toml";
+/// The file's name in the home. The home's root is the agents' home
+/// too, which keeps its own `limits.toml`, so the names must not
+/// clash.
+pub(crate) const FILE: &str = "plugin_limits.toml";
 
 pub(crate) fn plugin(app: &mut App) {
     let home = app.world().resource::<Home>().clone();
@@ -66,8 +68,7 @@ impl ChosenLimits {
                     for (id, limits) in &file.plugins {
                         limits.check().map_err(|limit| {
                             format!(
-                                "{} of {id} is not above zero",
-                                limit.name()
+                                "{limit} of {id} is not above zero"
                             )
                         })?;
                     }
@@ -98,24 +99,18 @@ impl ChosenLimits {
         self.plugins.get(id)
     }
 
-    /// Sets `limit` of the plugin `id` to `value`, or back to what
+    /// Sets the memory of the plugin `id` to `bytes`, or back to what
     /// it would be without the person for `None`, and writes the
-    /// file. A value that is not above zero is refused.
-    pub fn set(
+    /// file. Zero bytes are refused.
+    pub fn set_memory(
         &mut self,
         id: &PluginId,
-        limit: Limit,
-        value: Option<LimitValue>,
+        bytes: Option<u64>,
     ) -> Result<(), String> {
-        if value.is_some_and(|value| !value.positive()) {
-            return Err(format!(
-                "{} must be above zero",
-                limit.name()
-            ));
+        if bytes == Some(0) {
+            return Err("memory must be above zero".into());
         }
-        let mut limits =
-            self.plugins.get(id).cloned().unwrap_or_default();
-        limits.set(limit, value);
+        let limits = Limits { memory: bytes };
         if self.plugins.get(id).cloned().unwrap_or_default() == limits
         {
             return Ok(());
@@ -242,34 +237,32 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         let home = Home::at(&root);
         let id = PluginId::try_from("hamlet.realm").unwrap();
-        let fuel = Limit::FuelPerCall.parse("3_000_000_000");
 
         ChosenLimits::open(&home)
-            .set(&id, Limit::FuelPerCall, fuel)
+            .set_memory(&id, Some(3_000_000_000))
             .unwrap();
         let again = ChosenLimits::open(&home);
         assert_eq!(again.held(), None);
         assert_eq!(
-            again.get(&id).and_then(|l| l.get(Limit::FuelPerCall)),
-            fuel
+            again.get(&id).and_then(|l| l.memory),
+            Some(3_000_000_000)
         );
 
-        let broken = "[plugins.\"hamlet.realm\"]\nmemory = lots\n";
-        fs::write(home.path(FILE), broken).unwrap();
-        let mut chosen = ChosenLimits::open(&home);
-        assert!(chosen.held().is_some());
-        chosen.set(&id, Limit::Memory, fuel).unwrap();
-        chosen.forget(&id).unwrap();
-        assert_eq!(
-            fs::read_to_string(home.path(FILE)).unwrap(),
-            broken
-        );
-        fs::write(
-            home.path(FILE),
+        for broken in [
+            "[plugins.\"hamlet.realm\"]\nmemory = lots\n",
             "[plugins.\"hamlet.realm\"]\nmemory = 0\n",
-        )
-        .unwrap();
-        assert!(ChosenLimits::open(&home).held().is_some());
+            "[plugins.\"hamlet.realm\"]\ncall_time = 20.0\n",
+        ] {
+            fs::write(home.path(FILE), broken).unwrap();
+            let mut chosen = ChosenLimits::open(&home);
+            assert!(chosen.held().is_some(), "{broken}");
+            chosen.set_memory(&id, Some(1)).unwrap();
+            chosen.forget(&id).unwrap();
+            assert_eq!(
+                fs::read_to_string(home.path(FILE)).unwrap(),
+                broken
+            );
+        }
         let _ = fs::remove_dir_all(&root);
     }
 }

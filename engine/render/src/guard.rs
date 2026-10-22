@@ -35,7 +35,7 @@ use bevy::render::settings::{RenderCreation, WgpuSettings};
 use bevy::render::storage::ShaderBuffer;
 use bevy::render::view::Msaa;
 use bevy::time::{Real, Time};
-use hamlet_engine_core::{LogLine, PluginBudgets};
+use hamlet_engine_core::{Budgets, LogLine};
 use wgpu::{Backend, Limits};
 
 use crate::compute::ComputeJob;
@@ -319,7 +319,7 @@ fn read_clock(
 fn tally(
     mut spend: ResMut<GpuSpend>,
     mut throttled: ResMut<Throttled>,
-    owners: Query<&PluginBudgets>,
+    budgets: Res<Budgets>,
     time: Res<Time<Real>>,
     mut log: MessageWriter<LogLine>,
 ) {
@@ -333,9 +333,6 @@ fn tally(
         return;
     }
     for (&owner, &millis) in &spend.spent {
-        let Ok(budgets) = owners.get(owner) else {
-            continue;
-        };
         if millis > budgets.gpu_time_per_second
             && throttled.0.insert(owner)
         {

@@ -1,12 +1,14 @@
 //! A running plugin: its component instantiated in a store of its
-//! own, and each call into it held to the plugin's budgets.
+//! own, and each call into it held to the plugin's limits and the
+//! engine's budgets.
 //!
 //! Every value a plugin hands the host crosses as a string or a list
 //! of bytes. wasmtime checks its pointer and length against the
-//! plugin's memory, and against the store's hostcall fuel, before it
-//! copies a byte; the fuel is the plugin's `bytes_per_call`, given
-//! anew to each call of the host. What the host keeps of them is
-//! counted against the same bytes for the whole call into the plugin.
+//! plugin's memory, and against the store's cap on what one host call
+//! copies, before it copies a byte; the cap is `bytes_per_call`,
+//! given anew to each call of the host. What the host keeps of them
+//! is counted against the same bytes for the whole call into the
+//! plugin.
 
 use core::fmt;
 use std::time::{Duration, Instant};
@@ -16,7 +18,7 @@ use hamlet_engine_api::{
     AgentsRequest, AssetId, Contribution, DesktopRequest,
     FetchRequest, PluginLimits, Request, Ticket, decode,
 };
-use hamlet_engine_core::LogLevel;
+use hamlet_engine_core::{Budgets, LogLevel};
 use wasmtime::component::{Component as Compiled, HasSelf, Linker};
 use wasmtime::{Engine, ResourceLimiter, Store, Trap};
 
@@ -57,15 +59,14 @@ use self::ui_bindings::{UiPanels, UiPanelsIndices};
 const HOST: &str = "hamlet:engine/host@0.1.0";
 const UI: &str = "hamlet:engine/ui@0.1.0";
 
-/// The text wasmtime gives a call that copied more than the
-/// hostcall fuel allows. It names the error in its text only.
+/// The text wasmtime gives a host call that copied more than its cap
+/// allows. It names the error in its text only.
 const TOO_MUCH: &str =
     "fuel allocated for hostcalls has been exhausted";
 
 /// What one call may spend.
 #[derive(Clone, Copy, Debug)]
 pub struct Caps {
-    pub fuel: u64,
     /// Ticks of the epoch, and the time they stand for.
     pub ticks: u64,
     pub time: Duration,
@@ -90,19 +91,26 @@ pub struct Caps {
 }
 
 impl Caps {
-    pub fn of(budgets: &PluginLimits, tuning: &WasmTuning) -> Self {
+    /// The caps of a plugin held to `limits` and the engine's
+    /// `budgets`.
+    pub fn of(
+        limits: &PluginLimits,
+        budgets: &Budgets,
+        tuning: &WasmTuning,
+    ) -> Self {
         Self {
-            fuel: budgets.fuel_per_call,
             ticks: tuning.call_ticks(budgets),
             time: Duration::try_from_secs_f32(
                 budgets.call_time / 1000.0,
             )
             .unwrap_or(Duration::MAX),
-            bytes: budgets.bytes_per_call as usize,
+            bytes: usize::try_from(budgets.bytes_per_call)
+                .unwrap_or(usize::MAX),
             lines: budgets.log_lines_per_second as usize,
             line_bytes: budgets.log_line_bytes,
             requests: budgets.requests_per_call,
-            memory: budgets.memory as usize,
+            memory: usize::try_from(limits.memory)
+                .unwrap_or(usize::MAX),
             resources: budgets.wasi_resources,
             node_changes: budgets.node_changes_per_call,
             nodes: budgets.nodes,
@@ -118,9 +126,7 @@ impl Caps {
 pub enum Fault {
     /// It went past a budget of a second this many seconds in a row.
     Over(u32),
-    /// It used more than its fuel for one call.
-    Fuel,
-    /// It took longer than one call may.
+    /// A call ran past `[budgets] call_time`.
     Time,
     /// Its memories grew past its budget.
     Memory,
@@ -142,12 +148,7 @@ impl fmt::Display for Fault {
                 f,
                 "it went over its budgets {seconds} seconds in a row"
             ),
-            Self::Fuel => {
-                write!(f, "it used more than its fuel for one call")
-            }
-            Self::Time => {
-                write!(f, "it took longer than one call may")
-            }
+            Self::Time => write!(f, "the call ran past its time"),
             Self::Memory => {
                 write!(f, "its memory grew past its budget")
             }
@@ -177,7 +178,6 @@ impl Fault {
             return Self::Node(error);
         }
         match error.downcast_ref::<Trap>() {
-            Some(Trap::OutOfFuel) => Self::Fuel,
             Some(Trap::Interrupt) => Self::Time,
             _ if format!("{error:#}").contains(TOO_MUCH) => {
                 Self::Bytes
@@ -191,7 +191,6 @@ impl Fault {
 #[derive(Clone, Copy, Default, PartialEq, Debug)]
 pub struct Spent {
     pub time: Duration,
-    pub fuel: u64,
     /// Nodes of its panels made, set or ordered.
     pub changes: u32,
     /// Calls on nodes of its panels, of every kind.
@@ -475,7 +474,7 @@ impl Instance {
         let mut store = Store::new(engine, State::new(caps));
         store.limiter(|state| &mut state.limiter);
         store.epoch_deadline_trap();
-        store.arm(caps)?;
+        store.arm(caps);
         let made = linked
             .plugin
             .instance_pre()
@@ -774,7 +773,7 @@ trait WasmStoreExt {
     ) -> (Result<T, Fault>, Spent);
 
     /// Sets what the next call into the store may spend.
-    fn arm(&mut self, caps: &Caps) -> Result<(), Fault>;
+    fn arm(&mut self, caps: &Caps);
 
     /// Moves what the plugin wrote to stdout and stderr into its log.
     fn take_written(&mut self);
@@ -786,18 +785,13 @@ impl WasmStoreExt for Store<State> {
         caps: &Caps,
         call: impl FnOnce(&mut Self) -> wasmtime::Result<T>,
     ) -> (Result<T, Fault>, Spent) {
-        if let Err(fault) = self.arm(caps) {
-            return (Err(fault), Spent::default());
-        }
+        self.arm(caps);
         let started = Instant::now();
         let done = call(self);
         self.take_written();
         let nodes = &self.data().nodes;
         let spent = Spent {
             time: started.elapsed(),
-            fuel: caps
-                .fuel
-                .saturating_sub(self.get_fuel().unwrap_or(0)),
             changes: u32::try_from(nodes.spent).unwrap_or(u32::MAX),
             node_calls: nodes.calls,
             scene_changes: u32::try_from(self.data().scene.spent)
@@ -806,8 +800,7 @@ impl WasmStoreExt for Store<State> {
         (done.map_err(Fault::of), spent)
     }
 
-    fn arm(&mut self, caps: &Caps) -> Result<(), Fault> {
-        self.set_fuel(caps.fuel).map_err(Fault::of)?;
+    fn arm(&mut self, caps: &Caps) {
         self.set_epoch_deadline(caps.ticks);
         self.set_hostcall_fuel(caps.bytes);
         let state = self.data_mut();
@@ -819,7 +812,6 @@ impl WasmStoreExt for Store<State> {
         state.nodes.calls = 0;
         state.scene.spent = 0;
         state.scene.caps = caps.scene;
-        Ok(())
     }
 
     fn take_written(&mut self) {

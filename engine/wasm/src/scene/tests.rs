@@ -1,6 +1,5 @@
-use hamlet_engine_api::PluginLimits;
-use hamlet_engine_core::DefaultLimits;
 use hamlet_engine_core::tuning::Tuning;
+use hamlet_engine_core::{Budgets, DefaultLimits};
 use wasmtime::component::Resource;
 
 use super::scene_bindings::hamlet::engine::scene::{
@@ -12,12 +11,16 @@ use crate::instance::{Caps, State};
 
 #[test]
 fn entities_are_held_to_their_capability_and_budgets() {
-    let budgets = PluginLimits {
+    let budgets = Budgets {
         scene_entities: 2,
         scene_changes_per_call: 3,
-        ..DefaultLimits::designed().0
+        ..Budgets::designed()
     };
-    let caps = Caps::of(&budgets, &WasmTuning::designed());
+    let caps = Caps::of(
+        &DefaultLimits::designed(),
+        &budgets,
+        &WasmTuning::designed(),
+    );
     let mut state = State::new(&caps);
     let make = |state: &mut State, parent: Option<u32>| {
         let parent = parent.map(Resource::new_borrow);
@@ -50,7 +53,8 @@ fn entities_are_held_to_their_capability_and_budgets() {
 #[test]
 fn a_dropped_mesh_is_counted_while_an_entity_draws_it() {
     let caps = Caps::of(
-        &DefaultLimits::designed().0,
+        &DefaultLimits::designed(),
+        &Budgets::designed(),
         &WasmTuning::designed(),
     );
     let mut state = State::new(&caps);

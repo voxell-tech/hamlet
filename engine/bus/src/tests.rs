@@ -1,17 +1,15 @@
 use std::fs;
-use std::time::Duration;
 
-use bevy::ecs::entity::Entity;
 use hamlet_engine_api::{
     Ask, Capability, Failure, Manifest, PluginId, ServiceExport,
     ServiceId, ServiceImport, TypeName,
 };
 use hamlet_engine_core::tuning::Tuning;
-use hamlet_engine_core::{Budgets, DefaultLimits, Home};
+use hamlet_engine_core::{Budgets, Home};
 use hamlet_engine_grants::{Answer, Grants, Record};
 use hamlet_engine_plugins::{PluginInfo, PluginKind};
 
-use crate::{Admitted, Call, Calls};
+use crate::{Admitted, Call, Second};
 
 const WORDS: &str = "test.notes/words";
 
@@ -77,18 +75,11 @@ fn a_call_goes_through_only_within_its_rules() {
         grants.set(&info.id, record).unwrap();
     }
     let budgets = Budgets::designed();
-    let limits = DefaultLimits::designed();
     let deep = budgets.chain_depth + 1;
-    let now = Duration::from_secs(10);
-    let mut calls = Calls::default();
-    // The service ran out of its fuel serving the board, which pays.
-    let poor = Entity::from_raw_u32(7).unwrap();
-    calls.charge(
-        poor,
-        now,
-        limits.service_fuel_per_second,
-        Duration::ZERO,
-    );
+    let busy = Second {
+        calls: budgets.service_calls_per_second,
+        ..Second::default()
+    };
 
     let cases = [
         ("one that agrees", &board, 1, true, None, "to"),
@@ -111,25 +102,20 @@ fn a_call_goes_through_only_within_its_rules() {
             "no_implementer",
         ),
         (
-            "one of a caller its callee spent",
+            "one past the calls of a second",
             &board,
             1,
             true,
-            Some(poor),
+            Some(busy),
             "out_of_budget",
         ),
     ];
-    for (case, info, depth, running, payer, wanted) in cases {
-        let spent = match payer {
-            Some(payer) => calls.second(payer, now),
-            None => Default::default(),
-        };
+    for (case, info, depth, running, spent, wanted) in cases {
         let call = Call {
             caller: info,
-            limits: &limits,
             service: WORDS,
             depth,
-            spent,
+            spent: spent.unwrap_or_default(),
             allowed: false,
         };
         let plugins = [(0_usize, &notes, running), (1, info, true)];

@@ -26,13 +26,7 @@ reason = "Draws the roads' grooves and their light with shaders of its own"
 [events]
 hears = [{ event = "hamlet.inspector/carry", payload = "realm.carry" }]
 
-# It builds its meshes a few milliseconds a frame (`upload.rs`), but
-# one step, such as a house or a stretch of road, may run past the
-# engine's limit for a call, and its frames together past a second's.
-# Its ground, towns and roads also hold more memory than the engine's.
+# Its ground, hamlets and roads hold more memory than the engine gives a
+# plugin, 128 MB in all.
 [limits]
 memory = 134_217_728
-fuel_per_call = 200_000_000
-call_time = 100.0
-fuel_per_second = 1_500_000_000
-time_per_second = 250.0

@@ -1,11 +1,9 @@
 //! The plugin list: every plugin, whether it is on, a switch beside
 //! its name, and for an installed one a button to uninstall it; one
-//! that comes with Hamlet says so. Under each, its limits fold out.
-//! A button above asks for a plugin to be added.
+//! that comes with Hamlet says so. Under each, its memory. A button
+//! above asks for a plugin to be added.
 
 mod limits;
-
-use std::collections::BTreeSet;
 
 use bevy::app::{App, Startup, Update};
 use bevy::ecs::change_detection::DetectChanges;
@@ -33,7 +31,7 @@ use hamlet_engine_shell::style::{
 };
 use hamlet_engine_shell::{AnyView, Cx, Panel, StyleExt};
 
-use self::limits::{LimitLine, limits_view, lines};
+use self::limits::{MemoryLine, memory_line, memory_view};
 use crate::limits::ChosenLimits;
 use crate::switch::{
     Contributions, Disable, Enable, Enabled, Stopped,
@@ -51,10 +49,8 @@ pub(crate) fn plugin(app: &mut App) {
 #[derive(Resource, Clone, PartialEq, Default)]
 struct Rows {
     plugins: Vec<Row>,
-    /// The plugins whose limits are folded out.
-    unfolded: BTreeSet<Entity>,
-    /// A value typed for a limit of a plugin that was refused, and
-    /// why.
+    /// A value typed for the memory of a plugin that was refused,
+    /// and why.
     refused: Option<(Entity, String)>,
 }
 
@@ -71,7 +67,7 @@ struct Row {
     /// Why the engine stopped it.
     stopped: Option<String>,
     kind: PluginKind,
-    limits: Vec<LimitLine>,
+    memory: Option<MemoryLine>,
 }
 
 /// Asks for a plugin to be added: a host offers the person a folder
@@ -131,19 +127,17 @@ fn view(_: Entity) -> AnyView {
 }
 
 /// A plugin: its name over its id, version and state, with its
-/// switch beside them, its buttons, and its limits while `rows` has
-/// them folded out.
+/// switch beside them, its buttons and its memory.
 fn row_view(row_of: &Row, rows: &Rows) -> AnyView {
     let plugin = row_of.plugin;
     let id = row_of.id.clone();
-    let unfolded = rows.unfolded.contains(&plugin);
-    let shown_limits = unfolded.then(|| {
+    let memory = row_of.memory.map(|line| {
         let refused = rows
             .refused
             .as_ref()
             .filter(|(at, _)| *at == plugin)
             .map(|(_, why)| why.clone());
-        limits_view(plugin, &row_of.id, &row_of.limits, refused)
+        memory_view(plugin, &row_of.id, line, refused)
     });
     let (state, tone) = match (&row_of.stopped, row_of.on) {
         (Some(why), _) => (format!("Stopped: {why}"), Tone::Critical),
@@ -178,21 +172,6 @@ fn row_view(row_of: &Row, rows: &Rows) -> AnyView {
             .boxed(),
         );
     }
-    let fold = if unfolded {
-        Glyph::ChevronUp
-    } else {
-        Glyph::ChevronRight
-    };
-    actions.push(
-        icon_button(ButtonStyle::Quiet, fold, "LIMITS")
-            .on_activate(move |world| {
-                let mut rows = world.resource_mut::<Rows>();
-                if !rows.unfolded.remove(&plugin) {
-                    rows.unfolded.insert(plugin);
-                }
-            })
-            .boxed(),
-    );
     let (name, about) = (row_of.name.clone(), row_of.about.clone());
     let bundled = row_of.kind == PluginKind::Bundled;
     AnyView::new(move |cx: &mut Cx| {
@@ -227,8 +206,11 @@ fn row_view(row_of: &Row, rows: &Rows) -> AnyView {
         ))
         .gap(section)
         .align(AlignItems::Start);
-        let mut parts = vec![head.boxed(), buttons(actions)];
-        parts.extend(shown_limits);
+        let mut parts = vec![head.boxed()];
+        if !actions.is_empty() {
+            parts.push(buttons(actions));
+        }
+        parts.extend(memory);
         cx.build(column(parts).gap(gap / 2.0))
     })
 }
@@ -279,20 +261,17 @@ fn follow(
             adds: adds.map_or(0, |adds| adds.len()),
             stopped: stopped.map(|stopped| stopped.0.clone()),
             kind: info.kind,
-            limits: budgets.map_or_else(Vec::new, |budgets| {
-                lines(budgets, &info.limits, chosen.get(&info.id))
+            memory: budgets.map(|budgets| {
+                memory_line(
+                    budgets,
+                    &info.limits,
+                    chosen.get(&info.id),
+                )
             }),
         })
         .collect::<Vec<_>>();
     now.sort_by(|a, b| a.name.cmp(&b.name));
     if rows.plugins != now {
         rows.plugins = now;
-    }
-    if rows
-        .unfolded
-        .iter()
-        .any(|plugin| !plugins.contains(*plugin))
-    {
-        rows.unfolded.retain(|plugin| plugins.contains(*plugin));
     }
 }

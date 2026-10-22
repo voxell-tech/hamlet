@@ -8,9 +8,8 @@ use bevy::app::{App, Startup};
 use bevy::ecs::message::MessageWriter;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Res};
-use hamlet_engine_api::PluginLimits;
 use hamlet_engine_core::tuning::{ENGINE, Tuning, TuningFile};
-use hamlet_engine_core::{LogLine, TuningPlugin};
+use hamlet_engine_core::{Budgets, LogLine, TuningPlugin};
 use serde::Deserialize;
 use wasmtime::{
     Config, Engine, InstanceAllocationStrategy,
@@ -59,7 +58,7 @@ impl Tuning for WasmTuning {
 impl WasmTuning {
     /// Ticks of the epoch one call may last, at least one. wasmtime
     /// adds them to the epoch, so they stay far from `u64::MAX`.
-    pub(crate) fn call_ticks(&self, budgets: &PluginLimits) -> u64 {
+    pub(crate) fn call_ticks(&self, budgets: &Budgets) -> u64 {
         (budgets.call_time / self.tick)
             .ceil()
             .clamp(1.0, u32::MAX as f32) as u64
@@ -71,7 +70,7 @@ impl WasmTuning {
 pub struct Host(pub(crate) Engine);
 
 impl Host {
-    /// An engine for components with fuel and an epoch, and a pool
+    /// An engine for components with an epoch, and a pool
     /// in which each plugin's share is capped, so no plugin can take
     /// another's room. Its epoch is ticked for as long as it lives.
     pub fn new(tuning: &WasmTuning) -> wasmtime::Result<Self> {
@@ -93,7 +92,6 @@ impl Host {
         let mut config = Config::new();
         config
             .wasm_component_model(true)
-            .consume_fuel(true)
             .epoch_interruption(true)
             .allocation_strategy(
                 InstanceAllocationStrategy::Pooling(pool),

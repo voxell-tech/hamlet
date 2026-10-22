@@ -16,7 +16,7 @@ use bevy::tasks::futures::check_ready;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
 use bevy::time::{Real, Time};
 use hamlet_engine_api::Contribution;
-use hamlet_engine_core::{LogLine, PluginBudgets};
+use hamlet_engine_core::{Budgets, LogLine, PluginBudgets};
 use hamlet_engine_grants::Admitted;
 use hamlet_engine_plugins::{
     Asked, ContributedBy, Disable, Enable, Enabled, Entry,
@@ -163,12 +163,12 @@ fn run_command(world: &mut World, command: Entity) {
     else {
         return;
     };
-    let mut inboxes =
-        world.query::<(&mut Inbox, &mut Spending, &PluginBudgets)>();
-    if let Ok((mut inbox, mut spending, budgets)) =
+    let budgets = world.resource::<Budgets>().clone();
+    let mut inboxes = world.query::<(&mut Inbox, &mut Spending)>();
+    if let Ok((mut inbox, mut spending)) =
         inboxes.get_mut(world, plugin)
     {
-        inbox.offer(Work::Run(name), &mut spending, budgets);
+        inbox.offer(Work::Run(name), &mut spending, &budgets);
     }
 }
 
@@ -229,6 +229,7 @@ fn start(
         With<Starting>,
     >,
     host: Option<Res<Host>>,
+    budgets: Res<Budgets>,
     tuning: Res<WasmTuning>,
     time: Res<Time<Real>>,
     mut log: MessageWriter<LogLine>,
@@ -238,8 +239,8 @@ fn start(
     let Some(host) = host else {
         return;
     };
-    for (plugin, info, budgets, built) in &plugins {
-        let caps = Caps::of(budgets, &tuning);
+    for (plugin, info, limits, built) in &plugins {
+        let caps = Caps::of(limits, &budgets, &tuning);
         commands.entity(plugin).remove::<Starting>();
         let mut instance =
             match Instance::new(&host.0, &built.0, &caps) {
@@ -259,14 +260,14 @@ fn start(
         let (declared, spent) = instance.declare(&caps);
         instance.pass_requests(plugin, 0, &mut asked);
         spending.charge(spent, false);
-        instance.pass_logs(info, &mut spending, budgets, &mut log);
+        instance.pass_logs(info, &mut spending, &budgets, &mut log);
         match declared {
             Ok(contributions) => {
                 commands.switch_on(
                     plugin,
                     info,
                     entry(contributions.clone()),
-                    budgets,
+                    &budgets,
                 );
                 commands.entity(plugin).insert((
                     instance,
