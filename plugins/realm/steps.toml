@@ -1,9 +1,10 @@
 # The Realm with the Inspector it needs and the chat the Inspector
 # needs: its panel is drawn, the Agent Bazaar is built beside the
-# chief's Hearth, and a click on the stall of AI models is taken. The
-# harness runs no agents service, so there are no hamlets. The Agent
-# Bazaar's page of a hamlet template has the realm build the template's
-# town, which it sets on a plinth in a scene of its own.
+# chief's Hearth with its six stalls, and a click on the stall of AI
+# models and on the costumier's is taken. The harness runs no agents
+# service, so there are no hamlets. The Agent Bazaar's page of a hamlet
+# template has the realm build the template's town, which it sets on a
+# plinth in a scene of its own.
 #
 #   scripts/build_plugins.sh
 #   cargo run -p hamlet_engine_harness --bin plugin_check -- plugins/dist/hamlet.realm --steps plugins/realm/steps.toml
@@ -30,13 +31,17 @@ allow = "hamlet.bazaar"
 lacks = { panel = "hamlet.realm/realm", text = "cannot be drawn" }
 
 [[step]]
-expect_log = "the Agent Bazaar is built"
+expect_log = "the Agent Bazaar is built, with 6 stalls"
 
 # The stall of AI models, `Thing::Stall(Stall::Models).key()`: it sends
 # `hamlet.realm/stall`, which the bus would refuse with a warning were
 # it not declared.
 [[step]]
 pick = { plugin = "hamlet.realm", key = 1879048192 }
+
+# The costumier's, `Thing::Stall(Stall::Assets).key()`.
+[[step]]
+pick = { plugin = "hamlet.realm", key = 1879048197 }
 
 [[step]]
 frames = 30

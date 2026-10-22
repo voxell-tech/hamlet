@@ -47,7 +47,7 @@ pub struct BazaarColours {
     #[serde(with = "tint::linear_list")]
     pub fairy: [Vec3; 6],
     /// Its stalls, in the order of `bazaar::Stall::ALL`.
-    pub stalls: [StallStyle; 5],
+    pub stalls: [StallStyle; 6],
 }
 
 /// Every colour of the world. Those baked into meshes are linear

@@ -18,7 +18,7 @@ pub use crate::places::bazaar::keepers::dress::worn;
 use crate::places::bazaar::{BazaarSettings, Stall};
 
 /// Each keeper's dress, in the order of [`Stall::ALL`].
-pub const LOOKS: [Look; 5] = [
+pub const LOOKS: [Look; 6] = [
     Look {
         cloak: Cloak::Plum,
         light: Light::Rune,
@@ -48,6 +48,12 @@ pub const LOOKS: [Look; 5] = [
         light: Light::Rosy,
         hat: Hat::Bare,
         holds: Holds::Book,
+    },
+    Look {
+        cloak: Cloak::Mustard,
+        light: Light::Rune,
+        hat: Hat::Bare,
+        holds: Holds::Nothing,
     },
 ];
 
@@ -85,6 +91,9 @@ fn habit(stall: Stall, t: f32) -> (Doing, bool) {
         Stall::Skills => (16.0, 10.0, Doing::Read, Doing::Idle),
         // Talks up its land, then reads its ledger.
         Stall::Hamlets => (14.0, 7.0, Doing::Read, Doing::Attend),
+        // Fusses over the figure on its turntable, then cries its
+        // looks.
+        Stall::Assets => (15.0, 8.0, Doing::Tend, Doing::Attend),
     };
     if t.rem_euclid(long) < working {
         (work, true)

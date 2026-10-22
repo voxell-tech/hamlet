@@ -1,4 +1,4 @@
-//! The Agent Bazaar: a striped pavilion and a ring of five stalls on
+//! The Agent Bazaar: a striped pavilion and a ring of six stalls on
 //! ground of its own beside the first town, in no hamlet. It is built
 //! a step at a time within the realm's budgets, the stall nearest the
 //! camera first, and from far away it is a few plain shapes. Its
@@ -51,7 +51,7 @@ const STALL: (f32, f32, f32) = (2.3, 3.6, 0.25);
 
 /// The figures of the bazaar: the keepers, in the order of
 /// [`Stall::ALL`], the merchant and then the shoppers.
-const MERCHANT: usize = 5;
+const MERCHANT: usize = Stall::ALL.len();
 const FIGURES: usize = MERCHANT + 1 + shoppers::LOOKS.len();
 
 /// The bazaar's lights, its people and what moves about it.
@@ -120,15 +120,19 @@ pub enum Stall {
     Skills,
     /// Whole hamlets, mayor, agents and notes, ready to use.
     Hamlets,
+    /// The official looks for agents and hamlets to wear: skins,
+    /// emotes and meshes.
+    Assets,
 }
 
 impl Stall {
-    pub const ALL: [Stall; 5] = [
+    pub const ALL: [Stall; 6] = [
         Stall::Models,
         Stall::Community,
         Stall::Plugins,
         Stall::Skills,
         Stall::Hamlets,
+        Stall::Assets,
     ];
 
     /// The name over it.
@@ -139,6 +143,7 @@ impl Stall {
             Stall::Plugins => "Plugins",
             Stall::Skills => "Skills",
             Stall::Hamlets => "Hamlet Templates",
+            Stall::Assets => "Looks",
         }
     }
 
@@ -150,6 +155,7 @@ impl Stall {
             Stall::Plugins => "plugins",
             Stall::Skills => "skills",
             Stall::Hamlets => "hamlets",
+            Stall::Assets => "assets",
         }
     }
 
@@ -165,7 +171,7 @@ enum Slot {
     Far,
     Body,
     Props,
-    Strings,
+    Strings(usize),
     Booth(Stall),
     Glass,
     Gleam,
@@ -222,8 +228,8 @@ pub struct Bazaar {
     small: Entity,
     body: Entity,
     props: Entity,
-    strings: Entity,
-    booths: [Entity; 5],
+    strings: [Entity; 2],
+    booths: [Entity; Stall::ALL.len()],
     glass: Entity,
     gleam: Entity,
     bulbs: [Entity; FAIRY],
@@ -238,7 +244,7 @@ pub struct Bazaar {
     /// strings of lights are tied to each booth built.
     built: usize,
     left: Vec<Stall>,
-    ties: [Option<(Vec3, [Vec3; 2])>; 5],
+    ties: [Option<(Vec3, [Vec3; 2])>; Stall::ALL.len()],
     /// The glass of the lanterns and what glows among the wares, as
     /// each step adds to them.
     glass_mb: Mb,
@@ -290,9 +296,9 @@ impl Bazaar {
         let (body, props, strings) = (
             picked(Thing::Bazaar)?,
             picked(Thing::Bazaar)?,
-            picked(Thing::Bazaar)?,
+            [picked(Thing::Bazaar)?, picked(Thing::Bazaar)?],
         );
-        let [a, b, c, d, e] =
+        let [a, b, c, d, e, f] =
             Stall::ALL.map(|s| picked(Thing::Stall(s)));
         let unshadowed = || -> Result<Entity, String> {
             let entity = Entity::make(Some(&small), 0)?;
@@ -350,7 +356,7 @@ impl Bazaar {
             body,
             props,
             strings,
-            booths: [a?, b?, c?, d?, e?],
+            booths: [a?, b?, c?, d?, e?, f?],
             glass,
             gleam,
             bulbs: [ba?, bb?, bc?, bd?, be?, bf?],
@@ -363,7 +369,7 @@ impl Bazaar {
             },
             built: 0,
             left: Stall::ALL.to_vec(),
-            ties: [None; 5],
+            ties: [None; Stall::ALL.len()],
             glass_mb: Mb::new(),
             gleam_mb: Mb::new(),
             pending: Vec::new(),
@@ -531,7 +537,11 @@ impl Bazaar {
                     .copied()
                     .collect::<Vec<_>>();
                 let (strings, bulbs) = build::strings(pal, &ties);
-                let mut out = vec![(Slot::Strings, strings.data())];
+                let mut out = strings
+                    .into_iter()
+                    .enumerate()
+                    .map(|(k, mb)| (Slot::Strings(k), mb.data()))
+                    .collect::<Vec<_>>();
                 out.extend(
                     bulbs
                         .into_iter()
@@ -549,7 +559,10 @@ impl Bazaar {
             WICK => vec![(Slot::Wick, wick().data())],
             _ if step < DONE => self.dressing(pal, step - PEOPLE)?,
             DONE => {
-                hamlet_engine_sdk::info("the Agent Bazaar is built");
+                hamlet_engine_sdk::info(&format!(
+                    "the Agent Bazaar is built, with {} stalls",
+                    Stall::ALL.len() - self.left.len()
+                ));
                 Vec::new()
             }
             _ => return None,
@@ -670,7 +683,9 @@ impl Bazaar {
                 Slot::Far => self.far.draw(&mesh, matte),
                 Slot::Body => self.body.draw(&mesh, matte),
                 Slot::Props => self.props.draw(&mesh, matte),
-                Slot::Strings => self.strings.draw(&mesh, matte),
+                Slot::Strings(k) => {
+                    self.strings[k].draw(&mesh, matte)
+                }
                 Slot::Booth(stall) => {
                     self.booths[stall as usize].draw(&mesh, matte)
                 }

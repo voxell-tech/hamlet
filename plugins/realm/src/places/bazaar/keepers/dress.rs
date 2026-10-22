@@ -279,6 +279,72 @@ pub fn worn(pal: &Palette, stall: Stall) -> Worn {
                 );
             });
         }
+        Stall::Assets => {
+            // A turban of its stall's cloth with a brooch of its trim
+            // and pins stuck in it, and a pair of tailor's shears.
+            head.blob(
+                Vec3::new(0.0, 0.2, -0.02),
+                Vec3::new(0.28, 0.18, 0.28),
+                5,
+                0.06,
+                3.0,
+                |_| style.cloth,
+            );
+            head.blob(
+                Vec3::new(0.0, 0.24, 0.27),
+                Vec3::new(0.045, 0.055, 0.02),
+                3,
+                0.0,
+                0.0,
+                |_| style.trim,
+            );
+            for (k, way) in [
+                Vec3::new(-0.6, 0.7, 0.2),
+                Vec3::new(0.5, 0.8, -0.1),
+                Vec3::new(0.2, 0.9, -0.5),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let way = way.normalize();
+                let from = Vec3::new(0.0, 0.2, -0.02) + way * 0.2;
+                head.tube(
+                    from,
+                    from + way * 0.09,
+                    0.006,
+                    0.006,
+                    3,
+                    pal.steel_bright,
+                    false,
+                );
+                head.blob(
+                    from + way * 0.1,
+                    Vec3::splat(0.018),
+                    2,
+                    0.0,
+                    0.0,
+                    |_| pal.flowers[k],
+                );
+            }
+            for side in [-1.0f32, 1.0] {
+                held.rbox(
+                    Vec3::new(side * 0.012, 0.18, 0.0),
+                    Vec3::new(0.012, 0.13, 0.005),
+                    0.004,
+                    Quat::from_rotation_z(side * 0.12),
+                    pal.steel_bright,
+                    0.0,
+                );
+                held.torus(
+                    Vec3::new(side * 0.035, 0.0, 0.0),
+                    Vec3::Z,
+                    0.032,
+                    0.01,
+                    8,
+                    pal.brass,
+                );
+            }
+        }
     }
     Worn { head, held, glows }
 }

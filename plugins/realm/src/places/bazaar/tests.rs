@@ -38,7 +38,14 @@ fn a_stall_is_named_alike_by_its_key_and_its_events() {
     let shorts = Stall::ALL.map(Stall::short);
     assert_eq!(
         shorts,
-        ["models", "community", "plugins", "skills", "hamlets"]
+        [
+            "models",
+            "community",
+            "plugins",
+            "skills",
+            "hamlets",
+            "assets"
+        ]
     );
     for stall in Stall::ALL {
         assert_eq!(Stall::named(stall.short()), Some(stall));

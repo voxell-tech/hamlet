@@ -1,7 +1,7 @@
 //! What moves about the bazaar besides its people: the tinker's cogs
-//! and grindstone, the sparks off the stone, the shimmer over the
-//! scrolls, the steam off the tea and the embers of a sale, each kind
-//! of mote one set of copies.
+//! and grindstone, the costumier's turntable, the sparks off the
+//! stone, the shimmer over the scrolls, the steam off the tea and the
+//! embers of a sale, each kind of mote one set of copies.
 
 use std::f32::consts::{PI, TAU};
 

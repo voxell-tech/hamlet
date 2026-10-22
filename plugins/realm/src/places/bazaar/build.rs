@@ -1,5 +1,5 @@
 //! The bazaar as meshes, in its own frame whose +Z is the way its
-//! gate faces: a paved round, a pavilion, five stalls in a ring
+//! gate faces: a paved round, a pavilion, six stalls in a ring
 //! facing a promenade, and a gate, hung with lanterns, bunting and
 //! fairy lights. Each part is built on its own, so that it is handed
 //! over a step at a time.
@@ -55,7 +55,7 @@ const RING: f32 = 6.9;
 /// The room between two bulbs of a string of fairy lights.
 const BULB_SPACING: f32 = 0.3;
 
-/// Where `stall` stands and the way it turns: on the ring, a fifth
+/// Where `stall` stands and the way it turns: on the ring, a sixth
 /// of the way round from the next, its back to the pavilion and its
 /// front to the promenade. The gate is between the first and the
 /// last.
@@ -473,24 +473,26 @@ pub fn props(pal: &Palette) -> Mb {
 /// Bunting from the top of the pole to the gate, and fairy lights
 /// from it to every stall's sign, round the pavilion's rim, along
 /// each stall's front, from stall to stall round the ring, from the
-/// gate to the stalls beside it and under the gate's beam: their
-/// ropes and wires, and their bulbs a mesh to each colour. `ties` are
-/// each stall's, in the order of [`Stall::ALL`].
+/// gate to the stalls beside it and under the gate's beam: the
+/// bunting with the wires from the pole, and the other wires, each a
+/// mesh within what one call hands over,
+/// and their bulbs a mesh to each colour. `ties` are each stall's, in
+/// the order of [`Stall::ALL`].
 pub fn strings(
     pal: &Palette,
     ties: &[(Vec3, [Vec3; 2])],
-) -> (Mb, [Mb; FAIRY]) {
-    let mut mb = Mb::new();
+) -> ([Mb; 2], [Mb; FAIRY]) {
+    let (mut bunted, mut mb) = (Mb::new(), Mb::new());
     let mut fairy = Fairy::new();
     let (wide, z, tall) = GATE;
     let top = PAVILION + Vec3::Y * (POLE - 0.3);
     let gates = [-1.0f32, 1.0]
         .map(|side| Vec3::new(side * wide, tall - 0.08, z));
     for (k, gate) in gates.into_iter().enumerate() {
-        bunting(&mut mb, pal, (top, gate), 0.45, k);
+        bunting(&mut bunted, pal, (top, gate), 0.45, k);
     }
     for (crest, front) in ties {
-        fairy.string(&mut mb, pal, (top, *crest), 0.55);
+        fairy.string(&mut bunted, pal, (top, *crest), 0.55);
         fairy.string(&mut mb, pal, (front[0], front[1]), 0.1);
     }
     for s in 0..STRIPES {
@@ -525,5 +527,5 @@ pub fn strings(
         ),
         0.22,
     );
-    (mb, fairy.bulbs)
+    ([bunted, mb], fairy.bulbs)
 }

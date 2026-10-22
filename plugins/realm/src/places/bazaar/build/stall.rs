@@ -1,6 +1,7 @@
 //! A stall of the bazaar: what every stall is built of, and each
 //! stall itself in a file of its own.
 
+mod costumier;
 mod gear;
 mod land;
 mod minds;
@@ -78,6 +79,7 @@ pub fn stall(
         Stall::Plugins => tinker::build(&mut s),
         Stall::Skills => scrolls::build(&mut s),
         Stall::Hamlets => land::build(&mut s),
+        Stall::Assets => costumier::build(&mut s),
     }
 }
 

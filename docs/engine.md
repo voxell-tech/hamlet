@@ -1482,15 +1482,16 @@ and `diorama.toml`, built in. It exports the service `diorama`.
 - **The Agent Bazaar** (`places/bazaar.rs`) is pitched as the realm is
   made, after the Hearth, on a site beside the first town: its ground
   is claimed, so towns keep off it and the roads go round it, and held
-  level and clear of trees. A striped pavilion with its merchant, five
-  stalls in a ring (AI Models, Community Agents, Plugins, Skills and
-  Hamlet Templates) each with its keeper, shoppers going round them,
+  level and clear of trees. A striped pavilion with its merchant, six
+  stalls in a ring (AI Models, Community Agents, Plugins, Skills,
+  Hamlet Templates and Looks, the costumier's booth with a robot on
+  its turntable) each with its keeper, shoppers going round them,
   lanterns and fairy lights that burn after dark, are built a step at
   a time within the budgets, the stall nearest the camera first, and
   are a few plain shapes from far. Its people and what turns move
   only while the camera is near. A click on a stall sends `stall`
   (`bazaar.stall`, the stall's short name as a `String`: `models`,
-  `community`, `plugins`, `skills` or `hamlets`) and has its keeper
+  `community`, `plugins`, `skills`, `hamlets` or `assets`) and has its keeper
   turn and wave. It hears `traded` of `hamlet.bazaar`, of the same
   payload: the stall's keeper and the merchant cheer, its light flares
   and embers rise over its counter.

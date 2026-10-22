@@ -33,7 +33,7 @@ awnings = ["#b8433a", "#e0a23a", "#3b5583", "#3f7f7a"]
 fairy = ["#ff2f4a", "#ff9a1a", "#ffe53a", "#3dff6a", "#2f8cff", "#d84bff"]
 
 # In the order of `bazaar::Stall::ALL`: the models, the community
-# agents, the plugins, the skills and the hamlets.
+# agents, the plugins, the skills, the hamlets and the looks.
 [[palette.stalls]]
 cloth = "#3b3f86"
 trim = "#e0a23a"
@@ -58,3 +58,8 @@ glow = "#9ff0d8"
 cloth = "#8a3b45"
 trim = "#d9b45a"
 glow = "#ffe08a"
+
+[[palette.stalls]]
+cloth = "#a9506f"
+trim = "#f2d39a"
+glow = "#ffa6d6"
