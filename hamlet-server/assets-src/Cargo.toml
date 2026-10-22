@@ -1,0 +1,22 @@
+[package]
+name = "hamlet_assets_src"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The official assets sold at the bazaar's costumier, defined in code and baked for hamlet-server, their previews drawn with the realm plugin's own meshes"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+# The realm plugin and the formats of what is worn, built natively:
+# the previews are drawn with the meshes and looks the realm makes.
+realm_native = { path = "realm" }
+looks = { path = "../../plugins/looks" }
+hamlet_engine_sdk.workspace = true
+anyhow.workspace = true
+bevy.workspace = true
+image.workspace = true
+serde.workspace = true
+serde_json.workspace = true

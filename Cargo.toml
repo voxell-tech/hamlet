@@ -1,14 +1,15 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "engine/*"]
+members = ["crates/*", "engine/*", "hamlet-server/assets-src"]
 # The vendored fynix workspace is its own workspace. The engine's
 # tuning files and its WIT are files, not crates, each sample plugin
 # is a workspace of its own, and the plugins that come with Hamlet are
-# one, all built for wasm32-wasip2.
-exclude = ["vendor", "engine/tuning", "engine/wit", "engine/samples", "plugins"]
+# one, all built for wasm32-wasip2. The asset baker builds the realm
+# plugin's source natively, linted and tested with the plugins.
+exclude = ["vendor", "engine/tuning", "engine/wit", "engine/samples", "plugins", "hamlet-server/assets-src/realm"]
 # `cargo build`, `cargo test` and `cargo clippy` at the root cover every
 # crate, so the checks in AGENTS.md need no flags.
-default-members = [".", "crates/*", "engine/*"]
+default-members = [".", "crates/*", "engine/*", "hamlet-server/assets-src"]
 
 [workspace.package]
 version = "0.1.0"

@@ -1,0 +1,32 @@
+# The realm plugin's own source, `plugins/realm`, built as a Rust
+# library for the baker. The plugin is a `cdylib` for wasm32-wasip2,
+# which a native build cannot link: its exports are named for the
+# engine's WIT. Its dependencies are the plugin's own.
+[package]
+name = "realm_native"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[lib]
+name = "realm"
+path = "../../../plugins/realm/src/lib.rs"
+test = false
+doctest = false
+
+[dependencies]
+hamlet_engine_sdk = { path = "../../../engine/sdk" }
+glam = { version = "0.32", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+toml = "1"
+looks = { path = "../../../plugins/looks" }
+anyhow = "1"
+gltf = { version = "1", default-features = false, features = ["utils", "names"] }
+
+# The plugin is linted with the plugins, for wasm32-wasip2.
+[lints.clippy]
+# As the plugin's own: the mesh builders take each measure of a shape.
+too_many_arguments = "allow"
+# Pointers are twice as wide natively, which makes some errors large.
+result_large_err = "allow"

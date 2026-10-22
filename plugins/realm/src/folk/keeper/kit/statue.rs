@@ -13,7 +13,7 @@ use crate::folk::keeper::lot::footing;
 use crate::folk::keeper::pose::{
     FACE, HOOK, Pose, SHOULDER, rx, ry, rz,
 };
-use crate::folk::keeper::rig::lights;
+use crate::folk::keeper::rig::lit;
 use crate::folk::keeper::who::Who;
 use crate::society::AgentId;
 use crate::world::land::Land;
@@ -127,7 +127,7 @@ impl Statue {
 
     /// The look of a robot's lights as it stands at ease.
     pub fn lights_look() -> Pbr {
-        lights(Pose::stand().glow, None)
+        lit(Pose::stand().glow, None)
     }
 
     /// Adds `shape` at `at`: its paint or wood times `tint`, and its

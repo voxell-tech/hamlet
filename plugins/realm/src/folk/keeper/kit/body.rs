@@ -67,8 +67,7 @@ pub(super) fn key(pal: &Palette) -> Mb {
     mb
 }
 
-pub(in crate::folk::keeper) const KEY_AT: Vec3 =
-    Vec3::new(0.0, 0.25, 0.0);
+pub const KEY_AT: Vec3 = Vec3::new(0.0, 0.25, 0.0);
 
 pub(super) fn emblem(which: Emblem, pal: &Palette) -> Mb {
     let mut mb = Mb::new();
@@ -260,8 +259,7 @@ pub(super) fn pole(pal: &Palette) -> Piece {
 }
 
 /// The carried lantern's centre below the hook.
-pub(in crate::folk::keeper) const LAMP_DROP: Vec3 =
-    Vec3::new(0.0, -0.26, 0.0);
+pub const LAMP_DROP: Vec3 = Vec3::new(0.0, -0.26, 0.0);
 
 /// The carried lantern's frame and chain, hanging from the origin.
 pub(super) fn lamp(pal: &Palette) -> Mb {

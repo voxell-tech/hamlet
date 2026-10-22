@@ -194,7 +194,7 @@ pub struct Perch {
 
 /// A kind of moving part of an emote.
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum Kind {
+pub enum Kind {
     Puff,
     Lantern,
     /// The petals of one of the two colours.
@@ -220,7 +220,7 @@ const FIREFLY: f32 = 0.07;
 
 /// Where each part of kind `kind` of `emote` is about one house at
 /// clock time `t`, in the house's frame.
-fn parts(
+pub fn parts(
     emote: &Emote,
     kind: Kind,
     perch: &Perch,
@@ -412,28 +412,9 @@ impl Making {
     /// Begins to make what `emote` hangs about its houses. None for
     /// banners, which are built with the houses.
     pub fn of(emote: &Emote, set: &AttireSettings) -> Option<Self> {
-        let meshes = match emote {
-            Emote::Smoke(_) | Emote::Fireflies(_) => Vec::new(),
-            Emote::Lanterns(_) => vec![(Kind::Lantern, lantern(set))],
-            Emote::Petals(_) => vec![(Kind::Petal(0), petal_mesh())],
-            Emote::Pinwheels(pinwheels) => vec![
-                (
-                    Kind::Pinwheel,
-                    pinwheel(
-                        set,
-                        pinwheels
-                            .colours
-                            .each_ref()
-                            .map(|c| linear(c)),
-                    ),
-                ),
-                (Kind::Stick, stick(set)),
-            ],
-            Emote::Banners(_) | Emote::Clip(_) => return None,
-        };
         Some(Self {
             emote: emote.clone(),
-            meshes: meshes
+            meshes: meshes(emote, set)?
                 .into_iter()
                 .map(|(kind, mb)| (kind, mb.data()))
                 .collect(),
@@ -468,6 +449,124 @@ impl Making {
     }
 }
 
+/// The meshes of the kinds of moving part `emote` hangs about its
+/// houses, besides the mote, which is a sphere of radius 1. None for
+/// banners, which are built with the houses.
+pub fn meshes(
+    emote: &Emote,
+    set: &AttireSettings,
+) -> Option<Vec<(Kind, Mb)>> {
+    Some(match emote {
+        Emote::Smoke(_) | Emote::Fireflies(_) => Vec::new(),
+        Emote::Lanterns(_) => vec![(Kind::Lantern, lantern(set))],
+        Emote::Petals(_) => vec![(Kind::Petal(0), petal_mesh())],
+        Emote::Pinwheels(pinwheels) => vec![
+            (
+                Kind::Pinwheel,
+                pinwheel(
+                    set,
+                    pinwheels.colours.each_ref().map(|c| linear(c)),
+                ),
+            ),
+            (Kind::Stick, stick(set)),
+        ],
+        Emote::Banners(_) | Emote::Clip(_) => return None,
+    })
+}
+
+impl Kind {
+    /// The kind whose mesh of [`meshes`] this kind is drawn with, or
+    /// none for the mote.
+    pub fn mesh(self) -> Option<Kind> {
+        match self {
+            Kind::Puff | Kind::Firefly => None,
+            Kind::Petal(_) => Some(Kind::Petal(0)),
+            kind => Some(kind),
+        }
+    }
+}
+
+/// Each kind of moving part `emote` draws, with the look of a
+/// material of its own and the colour it glows after dark at its
+/// strongest, or none for the shared matte.
+pub fn looks(
+    emote: &Emote,
+    set: &AttireSettings,
+) -> Vec<(Kind, Option<(Pbr, Vec3)>)> {
+    match emote {
+        Emote::Smoke(smoke) => {
+            let mut colour = rgba(linear(&smoke.colour));
+            colour.3 = 0.6;
+            vec![(
+                Kind::Puff,
+                Some((
+                    Pbr {
+                        alpha_mode: AlphaMode::Blend,
+                        roughness: 1.0,
+                        ..Pbr::colored(colour)
+                    },
+                    Vec3::ZERO,
+                )),
+            )]
+        }
+        Emote::Lanterns(lanterns) => vec![(
+            Kind::Lantern,
+            Some((
+                Pbr {
+                    roughness: 0.8,
+                    ..Pbr::colored(rgba(linear(&lanterns.paper)))
+                },
+                linear(&lanterns.light) * set.lantern_glow,
+            )),
+        )],
+        Emote::Petals(petals) => petals
+            .colours
+            .iter()
+            .enumerate()
+            .map(|(k, colour)| {
+                (
+                    Kind::Petal(k),
+                    Some((
+                        Pbr {
+                            roughness: 0.9,
+                            double_sided: true,
+                            ..Pbr::colored(rgba(linear(colour)))
+                        },
+                        Vec3::ZERO,
+                    )),
+                )
+            })
+            .collect(),
+        Emote::Fireflies(fireflies) => {
+            let colour = linear(&fireflies.colour);
+            vec![(
+                Kind::Firefly,
+                Some((
+                    Pbr::colored(rgba(colour)),
+                    colour * fireflies.glow,
+                )),
+            )]
+        }
+        Emote::Pinwheels(_) => {
+            vec![(Kind::Pinwheel, None), (Kind::Stick, None)]
+        }
+        Emote::Banners(_) | Emote::Clip(_) => Vec::new(),
+    }
+}
+
+/// How strongly what `emote` hangs about its houses glows, with
+/// candles burning `candle` strong: fireflies a little by day too.
+pub fn strength(
+    emote: &Emote,
+    candle: f32,
+    set: &AttireSettings,
+) -> f32 {
+    match emote {
+        Emote::Fireflies(_) => candle.max(set.firefly_day),
+        _ => candle,
+    }
+}
+
 impl Emotes {
     fn make(
         parent: &Entity,
@@ -484,82 +583,14 @@ impl Emotes {
         // Each kind with its mesh and either a material of its own,
         // with the colour it glows after dark, or the shared matte.
         let mut kinds: Vec<Drawn> = Vec::new();
-        match emote {
-            Emote::Smoke(smoke) => {
-                let mut colour = rgba(linear(&smoke.colour));
-                colour.3 = 0.6;
-                kinds.push((
-                    Kind::Puff,
-                    &mote,
-                    Some((
-                        Pbr {
-                            alpha_mode: AlphaMode::Blend,
-                            roughness: 1.0,
-                            ..Pbr::colored(colour)
-                        },
-                        Vec3::ZERO,
-                    )),
-                ));
+        for (kind, own) in looks(emote, set) {
+            let mesh = match kind.mesh() {
+                Some(made) => mesh_of(made),
+                None => Some(&mote),
+            };
+            if let Some(mesh) = mesh {
+                kinds.push((kind, mesh, own));
             }
-            Emote::Lanterns(lanterns) => {
-                if let Some(mesh) = mesh_of(Kind::Lantern) {
-                    kinds.push((
-                        Kind::Lantern,
-                        mesh,
-                        Some((
-                            Pbr {
-                                roughness: 0.8,
-                                ..Pbr::colored(rgba(linear(
-                                    &lanterns.paper,
-                                )))
-                            },
-                            linear(&lanterns.light)
-                                * set.lantern_glow,
-                        )),
-                    ));
-                }
-            }
-            Emote::Petals(petals) => {
-                if let Some(mesh) = mesh_of(Kind::Petal(0)) {
-                    for (k, colour) in
-                        petals.colours.iter().enumerate()
-                    {
-                        kinds.push((
-                            Kind::Petal(k),
-                            mesh,
-                            Some((
-                                Pbr {
-                                    roughness: 0.9,
-                                    double_sided: true,
-                                    ..Pbr::colored(rgba(linear(
-                                        colour,
-                                    )))
-                                },
-                                Vec3::ZERO,
-                            )),
-                        ));
-                    }
-                }
-            }
-            Emote::Fireflies(fireflies) => {
-                let colour = linear(&fireflies.colour);
-                kinds.push((
-                    Kind::Firefly,
-                    &mote,
-                    Some((
-                        Pbr::colored(rgba(colour)),
-                        colour * fireflies.glow,
-                    )),
-                ));
-            }
-            Emote::Pinwheels(_) => {
-                for kind in [Kind::Pinwheel, Kind::Stick] {
-                    if let Some(mesh) = mesh_of(kind) {
-                        kinds.push((kind, mesh, None));
-                    }
-                }
-            }
-            Emote::Banners(_) | Emote::Clip(_) => {}
         }
         let mut looks = Vec::new();
         let mut sets = Vec::new();
@@ -611,11 +642,7 @@ impl Emotes {
             return;
         }
         self.candle = candle;
-        let fireflies = matches!(self.emote, Emote::Fireflies(_));
-        let strength = match fireflies {
-            true => candle.max(set.firefly_day),
-            false => candle,
-        };
+        let strength = strength(&self.emote, candle, set);
         for (material, pbr, glows) in &self.looks {
             if *glows != Vec3::ZERO {
                 material.set(Pbr {

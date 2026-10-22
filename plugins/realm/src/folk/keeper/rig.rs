@@ -878,14 +878,14 @@ impl Rig {
         let glow = relight(p.glow, self.lamp);
         if (glow - self.lit_as).abs().max_element() > 2e-3 {
             self.lit_as = glow;
-            self.lit.set(lights(glow, self.glass));
+            self.lit.set(lit(glow, self.glass));
         }
     }
 }
 
-/// The look of a robot's lights, both lanterns and the ring, giving
-/// off `glow`, their glass a skin's `glass` colour if it has one.
-pub(super) fn lights(glow: Vec3, glass: Option<Vec3>) -> Pbr {
+/// The look of a robot's lanterns and ring glowing `glow`, their
+/// glass of `glass` in sRGB as a skin sets it.
+pub fn lit(glow: Vec3, glass: Option<Vec3>) -> Pbr {
     let lit = (glow.max_element() / 2.0).clamp(0.0, 1.0);
     // A skin's glass pales toward white as it is lit.
     let (out, bright) = match glass {

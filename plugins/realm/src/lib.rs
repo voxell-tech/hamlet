@@ -10,6 +10,7 @@
 //! play its clip. Its service `diorama` hands over the town of a
 //! hamlet template, for the Agent Bazaar to show on a plinth.
 
+pub mod bake;
 mod bridge;
 mod build;
 mod diorama;

@@ -1,8 +1,8 @@
 //! The robot's parts as meshes and materials, shared by every robot,
 //! each built and handed to the engine once, a few a frame.
 
-pub(super) mod body;
-pub(super) mod hats;
+pub(crate) mod body;
+pub(crate) mod hats;
 mod props;
 pub(super) mod statue;
 
@@ -26,9 +26,9 @@ use crate::world::palette::Palette;
 
 /// A part made of up to two meshes: paint or wood, and brass.
 #[derive(Default)]
-struct Piece {
-    wood: Mb,
-    brass: Mb,
+pub struct Piece {
+    pub wood: Mb,
+    pub brass: Mb,
 }
 
 /// The places in the kit of a part's two meshes: paint or wood, and
@@ -37,7 +37,7 @@ pub(super) type Pair = (usize, usize);
 
 /// A part of the kit, built as it is handed over.
 #[derive(Clone, Copy)]
-enum Shape {
+pub enum Shape {
     Hat(Hat),
     Torso,
     Arm,
@@ -59,7 +59,7 @@ enum Shape {
 }
 
 impl Shape {
-    fn build(self, pal: &Palette) -> Piece {
+    pub fn build(self, pal: &Palette) -> Piece {
         let one = |wood: Mb| Piece {
             wood,
             brass: Mb::new(),
@@ -267,7 +267,8 @@ impl Kit {
     }
 }
 
-fn matte(colour: Vec3) -> Pbr {
+/// A robot's paint of `colour`.
+pub fn matte(colour: Vec3) -> Pbr {
     Pbr {
         roughness: 0.92,
         ..Pbr::colored(rgba(colour))

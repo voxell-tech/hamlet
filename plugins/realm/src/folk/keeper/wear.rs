@@ -139,23 +139,24 @@ pub enum Mat {
     Lit,
 }
 
-/// The materials a skin makes for every robot that wears it, and the
-/// colours of its glass and lamp.
-pub struct Swatches {
+/// The materials a skin makes for every robot that wears it, or their
+/// looks, and the colours of its glass and lamp.
+pub struct Swatches<M = Material> {
     /// One for each of the robots' paints, or one for all when the
     /// skin sets the paint.
-    paint: Vec<Material>,
-    brass: Option<Material>,
-    steel: Option<Material>,
+    paint: Vec<M>,
+    brass: Option<M>,
+    steel: Option<M>,
     /// In sRGB, as the skin gives it.
     pub glass: Option<Vec3>,
     /// In linear RGB.
     pub lamp: Option<Vec3>,
 }
 
-impl Swatches {
-    /// The materials `skin` makes, its colours over `pal`'s.
-    pub fn make(skin: &Skin, pal: &Palette) -> Result<Self, String> {
+impl Swatches<Pbr> {
+    /// The looks of the materials `skin` makes, its colours over
+    /// `pal`'s.
+    pub fn of(skin: &Skin, pal: &Palette) -> Self {
         let colour = |slot: &str| skin.colour(slot).map(Vec3::from);
         let linear = |slot: &str| colour(slot).map(to_linear);
         // The meshes are made in the palette's colours, which the
@@ -166,45 +167,50 @@ impl Swatches {
         };
         let paint = match (linear("paint"), skin.finish) {
             (None, None) => Vec::new(),
-            (Some(colour), finish) => {
-                vec![Material::make(painted(colour, finish))?]
-            }
+            (Some(colour), finish) => vec![painted(colour, finish)],
             (None, finish) => Paint::ALL
                 .iter()
-                .map(|p| {
-                    Material::make(painted(
-                        pal.paints[*p as usize],
-                        finish,
-                    ))
-                })
-                .collect::<Result<Vec<_>, _>>()?,
+                .map(|p| painted(pal.paints[*p as usize], finish))
+                .collect(),
         };
-        let brass = linear("brass")
-            .map(|want| {
-                Material::make(Pbr {
-                    metallic: 0.75,
-                    roughness: 0.42,
-                    ..Pbr::colored(rgba(tint(want, pal.brass)))
-                })
-            })
-            .transpose()?;
-        let steel = linear("steel")
-            .map(|want| {
-                Material::make(Pbr {
-                    roughness: 0.92,
-                    ..Pbr::colored(rgba(tint(want, pal.timber)))
-                })
-            })
-            .transpose()?;
-        Ok(Self {
+        let brass = linear("brass").map(|want| Pbr {
+            metallic: 0.75,
+            roughness: 0.42,
+            ..Pbr::colored(rgba(tint(want, pal.brass)))
+        });
+        let steel = linear("steel").map(|want| Pbr {
+            roughness: 0.92,
+            ..Pbr::colored(rgba(tint(want, pal.timber)))
+        });
+        Self {
             paint,
             brass,
             steel,
             glass: colour("glass"),
             lamp: linear("lamp"),
+        }
+    }
+}
+
+impl Swatches {
+    /// The materials `skin` makes, its colours over `pal`'s.
+    pub fn make(skin: &Skin, pal: &Palette) -> Result<Self, String> {
+        let looks = Swatches::<Pbr>::of(skin, pal);
+        Ok(Self {
+            paint: looks
+                .paint
+                .into_iter()
+                .map(Material::make)
+                .collect::<Result<Vec<_>, _>>()?,
+            brass: looks.brass.map(Material::make).transpose()?,
+            steel: looks.steel.map(Material::make).transpose()?,
+            glass: looks.glass,
+            lamp: looks.lamp,
         })
     }
+}
 
+impl<M> Swatches<M> {
     /// The material for a mesh of `part` drawn by default with
     /// `mat`, on a robot of `paint`, when the skin sets it.
     pub fn material(
@@ -212,7 +218,7 @@ impl Swatches {
         part: Part,
         mat: Mat,
         paint: Paint,
-    ) -> Option<&Material> {
+    ) -> Option<&M> {
         match mat {
             Mat::Paint => self.paint.get(
                 (paint as usize).min(self.paint.len().max(1) - 1),

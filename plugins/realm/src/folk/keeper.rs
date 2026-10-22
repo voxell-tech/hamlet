@@ -3,14 +3,14 @@
 //! (docs/working-alone.md).
 
 mod acts;
-mod kit;
+pub(crate) mod kit;
 mod lot;
-mod pose;
-mod rig;
+pub(crate) mod pose;
+pub(crate) mod rig;
 mod robot;
 mod trip;
 pub mod wear;
-mod who;
+pub(crate) mod who;
 mod work;
 
 use std::collections::HashMap;

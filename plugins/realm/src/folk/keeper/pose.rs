@@ -9,8 +9,8 @@ use crate::build::frame::Frame;
 use crate::world::tint::to_linear;
 
 /// How bright a robot's lights burn at rest, and lit up.
-pub(super) const EMBER: f32 = 1.5;
-pub(super) const LIT: f32 = 4.0;
+pub const EMBER: f32 = 1.5;
+pub const LIT: f32 = 4.0;
 
 /// The colours a robot's lights show, in sRGB: a candle's flame, the
 /// current of work, a signal for the chief and the moon.
@@ -19,9 +19,9 @@ const CURRENT: Vec3 = Vec3::new(0.247, 0.847, 0.910);
 const SIGNAL: Vec3 = Vec3::new(1.0, 0.541, 0.122);
 const MOON: Vec3 = Vec3::new(0.788, 0.839, 1.0);
 
-pub(super) const HIP: f32 = 0.3;
-pub(super) const NECK: f32 = 0.44;
-pub(super) const SHOULDER: Vec3 = Vec3::new(0.27, 0.35, 0.0);
+pub const HIP: f32 = 0.3;
+pub const NECK: f32 = 0.44;
+pub const SHOULDER: Vec3 = Vec3::new(0.27, 0.35, 0.0);
 pub(super) const ARM: f32 = 0.3;
 /// Hip to sole.
 pub(super) const LEG: f32 = 0.3;
@@ -68,7 +68,7 @@ impl Prop {
 /// Angles in radians. The robot faces +Z; a positive pitch swings a
 /// hanging limb back and leans the body forward.
 #[derive(Clone, Copy, Debug)]
-pub(super) struct Pose {
+pub struct Pose {
     /// The whole figure, in its root's space.
     pub shift: Vec3,
     pub spin: Quat,
@@ -133,11 +133,11 @@ pub(super) fn ry(a: f32) -> Quat {
     Quat::from_rotation_y(a)
 }
 
-pub(super) fn rz(a: f32) -> Quat {
+pub fn rz(a: f32) -> Quat {
     Quat::from_rotation_z(a)
 }
 
-pub(super) fn candle(strength: f32) -> Vec3 {
+pub fn candle(strength: f32) -> Vec3 {
     to_linear(CANDLE) * strength
 }
 
@@ -245,7 +245,7 @@ impl Pose {
 }
 
 /// The place of each part for a pose, in its parent's space.
-pub(super) struct Placed {
+pub struct Placed {
     pub rig: Frame,
     pub body: Frame,
     pub head: Frame,
@@ -263,13 +263,13 @@ pub(super) struct Placed {
 /// Distance of a foot's axle ahead of the leg.
 const AXLE: f32 = 0.035;
 /// The centre of the head's glass above the neck.
-pub(super) const FACE: f32 = 0.17;
+pub const FACE: f32 = 0.17;
 /// The top of the head's glass, where a hat sits.
-pub(super) const HAT_AT: f32 = FACE + 0.11;
+pub const HAT_AT: f32 = FACE + 0.11;
 /// Half the angle between the eyes, seen from the head's axis.
 pub(super) const EYE_SPREAD: f32 = 0.39;
 /// The point the carried lantern's chain meets the crook at.
-pub(super) const HOOK: Vec3 = Vec3::new(0.0, 1.14, 0.2);
+pub const HOOK: Vec3 = Vec3::new(0.0, 1.14, 0.2);
 
 impl Pose {
     /// Works out the transforms. `size` is the robot's own scale.

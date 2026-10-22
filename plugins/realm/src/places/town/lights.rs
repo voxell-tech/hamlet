@@ -65,6 +65,26 @@ fn lantern(state: KState, t: f32) -> (Vec3, f32) {
     }
 }
 
+/// The glow of a door lantern of `state` at clock time `t`, with
+/// candles burning `candle` strong. A lantern at rest is a candle.
+pub fn glow(state: KState, t: f32, candle: f32) -> Vec3 {
+    let (hue, strength) = lantern(state, t);
+    let strength = if state == KState::Rest {
+        strength * candle
+    } else {
+        strength
+    };
+    hue * strength
+}
+
+/// The look of a lantern's glass glowing `glow`.
+pub fn glass(pal: &Palette, glow: Vec3) -> Pbr {
+    Pbr {
+        emissive: rgba(glow),
+        ..Lamps::glass(pal)
+    }
+}
+
 /// The glass of every lantern: one shared material per state,
 /// whatever the number of houses, and the lights the nearest throw.
 pub struct Lamps {
@@ -110,19 +130,10 @@ impl Lamps {
     /// lantern at rest is a candle: lit only after dark.
     pub fn light(&mut self, pal: &Palette, sky: &Sky, t: f32) {
         for (i, state) in STATES.into_iter().enumerate() {
-            let (hue, strength) = lantern(state, t);
-            let strength = if state == KState::Rest {
-                strength * sky.look.candle
-            } else {
-                strength
-            };
-            let glow = hue * strength;
+            let glow = glow(state, t, sky.look.candle);
             if self.shown[i] != glow {
                 self.shown[i] = glow;
-                self.glass[i].set(Pbr {
-                    emissive: rgba(glow),
-                    ..Self::glass(pal)
-                });
+                self.glass[i].set(glass(pal, glow));
             }
         }
     }

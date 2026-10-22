@@ -8,7 +8,7 @@ use crate::folk::keeper::who::Hat;
 use crate::world::palette::Palette;
 
 /// The top of the leader's spire, above the hat's base.
-pub(in crate::folk::keeper) const SPIRE: f32 = 0.44;
+pub const SPIRE: f32 = 0.44;
 
 /// A flat ring of brim from radius `a` out to `b`.
 fn brim(mb: &mut Mb, a: f32, b: f32, y: f32, col: Vec3) {
