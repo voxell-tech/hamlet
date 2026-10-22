@@ -148,7 +148,8 @@ impl Kind {
             Property::Opacity(_)
             | Property::Offset(_)
             | Property::Tip(_)
-            | Property::Menu(_) => true,
+            | Property::Menu(_)
+            | Property::Pointer(_) => true,
             Property::Style(_) | Property::Folder(_) => {
                 self == Self::Button
             }

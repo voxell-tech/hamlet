@@ -34,17 +34,17 @@ pub use fynix::{
 };
 
 pub use crate::bindings::hamlet::engine::ui::{
-    Align, ButtonStyle, Direction, Face, Fill, Size, Space,
-    StatusItem, Tone,
+    Align, ButtonStyle, Direction, Face, Fill, NodePointer,
+    PointerMode, Size, Space, StatusItem, Tone,
 };
 pub use crate::ui::elements::{
     Button, ButtonProps, Divider, DividerProps, Dropdown,
     DropdownProps, Field, FieldProps, Frame, FrameProps, Icon,
     IconProps, Label, LabelProps, Leads, List, ListProps, MenuItem,
-    Menued, OnInput, Scroll, ScrollProps, Stack, Tipped, Toggle,
-    ToggleProps, UiExt, button, column, divider, dropdown, field,
-    heading, icon, icon_button, label, list, menu_item, pressable,
-    row, scroll, switch, toggle,
+    Menued, OnInput, Pointed, Scroll, ScrollProps, Stack, Tipped,
+    Toggle, ToggleProps, UiExt, button, column, divider, dropdown,
+    field, heading, icon, icon_button, label, list, menu_item,
+    pressable, row, scroll, switch, toggle,
 };
 pub use crate::ui::nodes::{Key, States};
 pub use crate::ui::world::{World, resource};

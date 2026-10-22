@@ -15,13 +15,13 @@ use bevy::prelude::*;
 use bevy::text::{
     EditableText, FontSize, LineBreak, TextCursorStyle, TextEdit,
 };
-use bevy::window::SystemCursorIcon;
 use bevy_fynix::tokens::{TextTokens, Tone};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, label, row,
 };
-use bevy_fynix::{EntityCursor, Prop, ScopedExt};
+use bevy_fynix::{Prop, ScopedExt};
 
+use crate::pointer::{NodePointer, PointerMode};
 use crate::style::{Placeholder, field_rules};
 use crate::{AnyView, Cx};
 
@@ -94,7 +94,7 @@ pub fn message_field(
                         most: most.max(1),
                         given: String::new(),
                     },
-                    EntityCursor(SystemCursorIcon::Text),
+                    NodePointer::new(PointerMode::Write),
                     TabIndex(0),
                 ))
                 .observe(

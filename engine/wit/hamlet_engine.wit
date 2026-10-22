@@ -210,10 +210,48 @@ interface ui {
         expand,
     }
 
+    /// A pointer of the engine's set, by what it says can be done
+    /// where it is. The engine draws each.
+    enum pointer-mode {
+        point,
+        /// Over what can be pressed.
+        press,
+        /// Over a thing of a scene that can be selected.
+        pick,
+        /// Over what can be taken hold of.
+        grab,
+        /// Holding something.
+        carry,
+        /// Sliding the ground of a view.
+        slide,
+        /// Turning a view.
+        turn,
+        /// Over text that can be typed in.
+        write,
+        /// Resizing west to east, north to south, north-west to
+        /// south-east and south-west to north-east.
+        resize-across,
+        resize-upright,
+        resize-falling,
+        resize-rising,
+        /// What is asked is not allowed here.
+        refuse,
+        /// About to be busy.
+        wait,
+    }
+
+    /// The pointer a node asks for.
+    record node-pointer {
+        mode: pointer-mode,
+        /// Drawn faint, so what is under it is seen through it.
+        faint: bool,
+    }
+
     /// One property of a node, of the kinds named. A node starts with
     /// each at its first value: empty, `body`, `body`, false, `body`,
     /// 1.0, `plain`, `column`, `gap`, empty, false, (0.0, 0.0),
-    /// empty, 0, 1, false, empty, `start`, `none`, no items, empty. A
+    /// empty, 0, 1, false, empty, `start`, `none`, no items, empty,
+    /// `none`, 0, none. A
     /// role is filled in from the engine's theme as it is now, again
     /// whenever the theme changes.
     variant property {
@@ -276,6 +314,10 @@ interface ui {
         /// Of a frame: its share of the room left along what holds
         /// it, none at 0.
         grow(f32),
+        /// Of every kind: the pointer shown while it is over the node
+        /// or what it holds, unless what it holds asks for another,
+        /// or none to leave it to what holds the node.
+        pointer(option<node-pointer>),
     }
 
     /// What an item of the status line shows.

@@ -11,7 +11,6 @@ use bevy::ui::{Checked, InteractionDisabled};
 use bevy::ui_widgets::{
     Activate, ActivateOnPress, Button as ButtonBehavior,
 };
-use bevy::window::SystemCursorIcon;
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::transition::blend_f32;
 use bevy_fynix::views::{
@@ -19,8 +18,8 @@ use bevy_fynix::views::{
     frame, label, row, scroll, text_field,
 };
 use bevy_fynix::{
-    Bevy, EntityCursor, Focused, Hovered, Pressed, Prop, ScopedExt,
-    Style, ViewExt, component, style,
+    Bevy, Focused, Hovered, Pressed, Prop, ScopedExt, Style, ViewExt,
+    component, style,
 };
 use fynix::{Patch, element};
 
@@ -614,7 +613,6 @@ fn switch_of(
                 cx.build(row(()).gap(gap).align(AlignItems::Center));
             cx.world.entity_mut(root).insert((
                 ButtonBehavior,
-                EntityCursor(SystemCursorIcon::Pointer),
                 Switch,
                 Glow::Switch,
             ));

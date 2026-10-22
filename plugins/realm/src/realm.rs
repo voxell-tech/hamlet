@@ -11,6 +11,7 @@ use hamlet_engine_sdk::api::agents::{
 use hamlet_engine_sdk::scene::{
     Camera as Lens, Entity, MouseButton, SceneInput,
 };
+use hamlet_engine_sdk::ui::{NodePointer, PointerMode};
 
 use crate::bridge::Bridge;
 use crate::build::mark;
@@ -224,6 +225,27 @@ impl Realm {
             to: None,
             fits: Err(Unfit::Crowded),
         });
+    }
+
+    /// The pointer over the view: a town in hand, faint where it can
+    /// be set down and refused where it cannot, then a drag of the
+    /// camera, then a thing that can be picked.
+    pub fn pointer(&self) -> Option<NodePointer> {
+        if let Some(carry) = &self.carrying {
+            return Some(match carry.fits {
+                Ok(()) => {
+                    NodePointer::new(PointerMode::Carry).faint()
+                }
+                Err(_) => NodePointer::new(PointerMode::Refuse),
+            });
+        }
+        if let Some(mode) = self.camera.dragging(&self.tuning.camera)
+        {
+            return Some(NodePointer::new(mode));
+        }
+        self.pick
+            .hovered()
+            .map(|_| NodePointer::new(PointerMode::Pick))
     }
 
     /// The command that sets a carried town down, once it is set

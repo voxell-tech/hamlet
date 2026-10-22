@@ -19,7 +19,8 @@ use hamlet_engine_sdk::api::agents::{
 };
 use hamlet_engine_sdk::scene::{SceneInput, animate, viewport};
 use hamlet_engine_sdk::ui::{
-    AnyView, FrameProps, Space, Tone, ViewExt, column, label, open,
+    AnyView, FrameProps, Space, Tone, UiExt, ViewExt, column, label,
+    open, resource,
 };
 use hamlet_engine_sdk::{
     Entry, Message, Plugin, Reply, World, agents, decode, error,
@@ -88,6 +89,8 @@ impl Plugin for RealmPlugin {
             .boxed();
         }
         viewport::<Realm>(|realm| Some(realm.lens()))
+            .pointer(resource::<Realm, _>(Realm::pointer))
+            .boxed()
     }
 
     fn run(&mut self, name: &str, world: &mut World) {

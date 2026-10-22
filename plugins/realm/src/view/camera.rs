@@ -6,6 +6,7 @@ use glam::{Vec2, Vec3};
 use hamlet_engine_sdk::scene::{
     Camera as Lens, Entity, MouseButton, SceneInput, Target,
 };
+use hamlet_engine_sdk::ui::PointerMode;
 
 use crate::build::frame::Frame;
 use crate::society::Society;
@@ -241,6 +242,22 @@ impl Camera {
 
     pub fn lens(&self) -> &Lens {
         &self.lens
+    }
+
+    /// The pointer of a drag that moves it, once the pointer moved
+    /// too far for a click.
+    pub fn dragging(
+        &self,
+        camera: &CameraSettings,
+    ) -> Option<PointerMode> {
+        if self.travel <= camera.click_slop {
+            return None;
+        }
+        match self.steer {
+            Steer::Slide => Some(PointerMode::Slide),
+            Steer::Turn => Some(PointerMode::Turn),
+            Steer::Still => None,
+        }
     }
 
     /// The view shown, and the one it is going to while it glides.

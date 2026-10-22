@@ -11,6 +11,7 @@ pub mod icons;
 mod menu;
 pub mod message;
 pub mod overlay;
+pub mod pointer;
 mod rank;
 mod section;
 pub mod settings;
@@ -40,6 +41,7 @@ pub use crate::command::{
 pub use crate::dock::Panel;
 use crate::menu::{MenuBar, OpenMenu};
 pub use crate::overlay::{Overlay, OverlayShown};
+pub use crate::pointer::{NodePointer, PointerMode, ResizeAxis};
 pub use crate::rank::StartRank;
 pub use crate::section::{PanelSection, section_content};
 use crate::settings::{Pages, SETTINGS};
@@ -73,7 +75,7 @@ pub fn plugin(app: &mut App) {
         menu::plugin,
         (message::plugin, stick::plugin, fade::plugin),
         status::plugin,
-        (overlay::plugin, backdrop::plugin),
+        (overlay::plugin, backdrop::plugin, pointer::plugin),
     ));
 }
 

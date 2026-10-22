@@ -174,11 +174,13 @@ types, so the WIT names nothing twice.
 - **The properties**, each of the kinds it names: `text` (a
   label's, a button's, an icon's, a toggle's and a field's), `tone`,
   `size`, `bold`, `face` (the body's or the display face), `opacity`,
-  `offset`, `tip` and `menu` (of every kind; a tip is words shown
-  near the pointer while it rests on the node, and a menu its items,
-  opened at the pointer on a right-click and, when it says so, on a
-  click, an item with a `group` under a row of that name that opens
-  them beside it), `style` and `folder` (a button's: plain, primary,
+  `offset`, `tip`, `menu` and `pointer` (of every kind; a tip is
+  words shown near the pointer while it rests on the node, a menu its
+  items, opened at the pointer on a right-click and, when it says
+  so, on a click, an item with a `group` under a row of that name
+  that opens them beside it, and a pointer one of the engine's set
+  shown over the node, see [Pointers](#pointers)), `style` and
+  `folder` (a button's: plain, primary,
   critical, quiet or row, a row of a list; a button with a
   folder's title opens the system's dialog to choose a folder when
   it is pressed, in place of a click),
@@ -329,6 +331,8 @@ hamlet_engine_bevy::export!(Hello);
   pointer while it rests on it, and `menu` (on a right-click) and
   `menu_on_click` (on a click too) a menu of `menu_item`s, each
   running a handler when it is chosen, `under` a group or `critical`.
+  `pointer` has a view ask for a `NodePointer` of the engine's set,
+  a value or a signal (see [Pointers](#pointers)).
   A button's `folder` and `on_folder` have the person choose a
   folder in the system's dialog. `leads_to` gives a view an address that
   the plugin tells the desktop service of (`Hover`) while the pointer
@@ -600,10 +604,52 @@ buttons, cards, headings, notes, icons and chrome. Dark only.
   at start, so there is no file or font to load: a `Glyph` each, drawn
   at 12, 14, 16 and 20 pixels and tinted by a tone. A plugin names one
   by `Glyph::name`.
+- **Pointers** are drawn in code too: see [Pointers](#pointers).
 - **Stills.** `cargo run -p hamlet_engine --example stills -- --out
   <dir>` draws the widgets in each state, the icons, and the shell with
   a menu open or Settings shown, into PNGs with no window; `--scene
   <name>` draws one.
+
+### Pointers
+
+The pointer is the chief's taper, whose flame is the point, and the
+chief's glove for what is held (`pointer.rs`). Each mode is a picture
+of 32 pixels drawn in code in `pointer/art.rs`, with no file, in the
+theme's colours, again whenever the theme changes, and set on the
+window as Bevy's `CustomCursor::Image` with a hot spot of its own.
+Until the pictures are drawn, or in an app without images, the
+system's cursors fynix asks for are shown.
+
+| Mode | Picture | Where |
+|---|---|---|
+| `Point` | The lit taper | Where nothing else holds |
+| `Press` | The flame flares | A button, a switch, a row, a tab, a menu's item |
+| `Pick` | A glass on a brass handle | A thing of a scene that can be selected |
+| `Grab` | The open glove | A dock tab |
+| `Carry` | The closed glove | A dock tab being dragged |
+| `Slide` | Four arrowheads | The ground of a view being slid |
+| `Turn` | Two curved arrows | A view being turned |
+| `Write` | An upright bar | A field |
+| `Resize(axis)` | A two-headed arrow | A dock splitter, along its axis |
+| `Refuse` | A barred ring | A button that is disabled |
+| `Wait` | A flame with fireflies going round it, eight pictures | For a plugin to show |
+
+`NodePointer`, a mode and whether it is drawn faint (at 40% of its
+alpha, so what it holds is seen through it), on a UI node asks for its
+pointer. The pointer shown, in `PostUpdate`, is the one of a drag of
+the dock, a tab or a splitter; else that of the node under the mouse
+or the nearest node above it that asks for one: its `NodePointer`, a
+system cursor fynix gave it turned into a mode, or `Press` for a
+button (`Refuse` while it is disabled); else `Point`.
+
+A plugin asks with the node property `pointer` (`.pointer(..)` in
+both SDKs, a `NodePointer` or none, as a value or a signal), on any of
+its nodes, the frame showing a viewport included. It chooses only from
+the modes, never a picture, so it cannot draw a pointer of its own.
+The realm asks over its viewport for `Carry`, faint, while a town is
+in hand and `Refuse` where it cannot be set down, then `Slide` or
+`Turn` while a drag moves the camera, then `Pick` over a robot, a
+house, a common, the mascot or the Hearth.
 
 ## Workspaces
 

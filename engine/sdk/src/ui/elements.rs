@@ -7,8 +7,8 @@ use fynix::{Cx, Patch, Prop, Styled, View, ViewSeq, element};
 
 use crate::bindings::hamlet::engine::ui::{
     Align, ButtonStyle, Direction, Face, Fill, Kind, Menu,
-    MenuItem as Item, Motion as Movement, Property, Size, Space,
-    Tone,
+    MenuItem as Item, Motion as Movement, NodePointer, PointerMode,
+    Property, Size, Space, Tone,
 };
 use crate::ui::world::{Handler, World};
 use crate::ui::{Hamlet, Key, States};
@@ -383,6 +383,44 @@ impl<T: 'static, V: View<Hamlet, T>> View<Hamlet, T> for Tipped<V> {
     }
 }
 
+/// A view whose root node asks for a pointer of the engine's set
+/// while the pointer is over it.
+pub struct Pointed<V> {
+    inner: V,
+    pointer: Prop<World, Option<NodePointer>>,
+}
+
+impl<T: 'static, V: View<Hamlet, T>> View<Hamlet, T> for Pointed<V> {
+    fn build(self, cx: &mut Cx<'_, Hamlet, T>) -> Key {
+        let node = self.inner.build(cx);
+        cx.effect(node, self.pointer, |world, node, pointer| {
+            world.nodes.set(node, Property::Pointer(*pointer), None);
+        });
+        node
+    }
+}
+
+impl NodePointer {
+    /// The pointer `mode`, drawn whole.
+    pub fn new(mode: PointerMode) -> Self {
+        Self { mode, faint: false }
+    }
+
+    /// It drawn faint, so what is under it is seen through it.
+    pub fn faint(self) -> Self {
+        Self {
+            faint: true,
+            ..self
+        }
+    }
+}
+
+impl PartialEq for NodePointer {
+    fn eq(&self, other: &Self) -> bool {
+        self.mode == other.mode && self.faint == other.faint
+    }
+}
+
 /// One item of a node's menu, and what choosing it does.
 pub struct MenuItem {
     text: String,
@@ -493,6 +531,19 @@ pub trait UiExt: Sized {
         Tipped {
             inner: self,
             tip: tip.into(),
+        }
+    }
+
+    /// This view, showing `pointer` while the pointer is over its
+    /// root node, unless what the node holds asks for another; none
+    /// leaves it to what holds the node.
+    fn pointer(
+        self,
+        pointer: impl Into<Prop<World, Option<NodePointer>>>,
+    ) -> Pointed<Self> {
+        Pointed {
+            inner: self,
+            pointer: pointer.into(),
         }
     }
 

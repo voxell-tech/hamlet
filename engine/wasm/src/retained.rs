@@ -70,8 +70,9 @@ use hamlet_engine_shell::style::{
     switch,
 };
 use hamlet_engine_shell::{
-    AnyView, Cx, EngineTheme, Overlay, OverlayShown, Panel,
-    PanelSection, SettingsPage, ShellWorldExt, StatusItem, StyleExt,
+    AnyView, Cx, EngineTheme, NodePointer, Overlay, OverlayShown,
+    Panel, PanelSection, PointerMode, ResizeAxis, SettingsPage,
+    ShellWorldExt, StatusItem, StyleExt,
 };
 
 use crate::WasmCommandsExt;
@@ -220,6 +221,7 @@ struct Props {
     /// The title of the dialog a folder is chosen in, if it opens
     /// one.
     folder: String,
+    pointer: Option<NodePointer>,
     /// The roles its ink, size and gap are filled in from.
     tone: wit::Tone,
     text_size: wit::Size,
@@ -267,6 +269,7 @@ impl Props {
             grow: 0.0,
             menu: Menu::default(),
             folder: String::new(),
+            pointer: None,
             tone: wit::Tone::Body,
             text_size: wit::Size::Body,
             space: wit::Space::Gap,
@@ -345,6 +348,12 @@ impl Props {
             Property::Fill(fill) => self.fill = fill,
             Property::Padding(space) => self.padding = space,
             Property::Grow(grow) => self.grow = grow,
+            Property::Pointer(pointer) => {
+                self.pointer = pointer.map(|pointer| NodePointer {
+                    mode: pointer.mode.into(),
+                    faint: pointer.faint,
+                });
+            }
             Property::Menu(menu) => self.menu = menu.into(),
             Property::Folder(title) => self.folder = title,
             Property::Tone(tone) => self.tone = tone,
@@ -391,8 +400,31 @@ impl Property {
             Property::Folder(_) => 20,
             Property::Padding(_) => 21,
             Property::Grow(_) => 22,
+            Property::Pointer(_) => 23,
         };
         1 << at
+    }
+}
+
+impl From<wit::PointerMode> for PointerMode {
+    fn from(mode: wit::PointerMode) -> Self {
+        use wit::PointerMode as M;
+        match mode {
+            M::Point => Self::Point,
+            M::Press => Self::Press,
+            M::Pick => Self::Pick,
+            M::Grab => Self::Grab,
+            M::Carry => Self::Carry,
+            M::Slide => Self::Slide,
+            M::Turn => Self::Turn,
+            M::Write => Self::Write,
+            M::ResizeAcross => Self::Resize(ResizeAxis::Across),
+            M::ResizeUpright => Self::Resize(ResizeAxis::Upright),
+            M::ResizeFalling => Self::Resize(ResizeAxis::Falling),
+            M::ResizeRising => Self::Resize(ResizeAxis::Rising),
+            M::Refuse => Self::Refuse,
+            M::Wait => Self::Wait,
+        }
     }
 }
 
@@ -1355,6 +1387,24 @@ fn node(
                 {
                     laid.left = px(offset.x);
                     laid.top = px(offset.y);
+                }
+            },
+        );
+        cx.effect(
+            node,
+            read(holder, |props| props.pointer).into(),
+            |world, node, pointer| {
+                let Ok(mut entity) = world.get_entity_mut(node)
+                else {
+                    return;
+                };
+                match pointer {
+                    Some(pointer) => {
+                        entity.insert(*pointer);
+                    }
+                    None => {
+                        entity.remove::<NodePointer>();
+                    }
                 }
             },
         );
