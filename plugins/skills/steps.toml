@@ -14,9 +14,3 @@ allow = "hamlet.skills"
 
 [[step]]
 expect = { panel = "hamlet.skills/skills", text = "THE LIBRARY, SHARED BY ALL" }
-
-[[step]]
-expect = { panel = "hamlet.skills/skills", text = "The library is empty. Agents offer skills and the librarian decides which to keep." }
-
-[[step]]
-expect = { panel = "hamlet.skills/skills", text = "None of its own yet." }

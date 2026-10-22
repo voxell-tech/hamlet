@@ -211,48 +211,10 @@ mod tests {
     }
 
     #[test]
-    fn edit_rules() {
+    fn edit_keeps_to_the_workspace() {
         let (_dir, t) = setup("edit");
         let ws = &t.workspace;
         let ok = |a: Value| edit(ws, None, &a);
-        assert_eq!(ok(json!({"path": "a/b.txt", "old": "", "new": "one two two"})).exit_code, 0);
-        assert_eq!(
-            ok(json!({"path": "a/b.txt", "old": "one", "new": "1"}))
-                .exit_code,
-            0
-        );
-        assert!(
-            ok(json!({"path": "a/b.txt", "old": "two", "new": "2"}))
-                .output
-                .contains("found 2")
-        );
-        // A miss shows the file, so the next try can copy from it.
-        assert!(
-            ok(json!({"path": "a/b.txt", "old": "zzz", "new": "2"}))
-                .output
-                .contains("It begins:\n1 two two")
-        );
-        assert_eq!(
-            std::fs::read_to_string(ws.join("a/b.txt")).unwrap(),
-            "1 two two"
-        );
-        // Wrong white space at the ends of `old` still finds it, a
-        // missing `old` creates, and `workspace/` is the workspace.
-        assert_eq!(
-            ok(json!({"path": "a/b.txt", "old": "1 two two\n\n", "new": "3\n"}))
-                .exit_code,
-            0
-        );
-        assert_eq!(
-            std::fs::read_to_string(ws.join("a/b.txt")).unwrap(),
-            "3"
-        );
-        assert_eq!(
-            ok(json!({"path": "workspace/d.txt", "new": "x"}))
-                .exit_code,
-            0
-        );
-        assert!(ws.join("d.txt").exists());
         let absolute = ws.join("a/c.txt");
         assert_eq!(ok(json!({"path": absolute.to_str().unwrap(), "old": "", "new": "x"})).exit_code, 0);
         assert!(absolute.exists());

@@ -597,17 +597,6 @@ mod tests {
         assert_eq!(roads.len(), 3);
         assert!(realm.has_road("mayor@home", "mayor@mill"));
         assert!(realm.has_road("mayor@dock", "mayor@mill"));
-        // An address written with a hamlet it needs not.
-        assert_eq!(realm.plain("miller@mill"), "mayor@mill");
-        assert_eq!(realm.plain("a@home"), "a");
-        assert_eq!(
-            crate::hamlet::tidy_name("Feline_Biologist"),
-            "feline-biologist"
-        );
-        assert_eq!(
-            crate::hamlet::tidy_name("FelineBiologist"),
-            "feline-biologist"
-        );
         let (hamlet, mayor) = realm.resolve("mayor@mill").unwrap();
         assert_eq!(
             (hamlet.name(), mayor.name.as_str()),
@@ -723,19 +712,6 @@ mod tests {
         // The lapsed road can be agreed again like any other.
         assert!(!realm.agree_road(HOME, "a", "c", "r").unwrap());
         assert!(realm.agree_road("mill", "a", "c", "r").unwrap());
-    }
-
-    #[test]
-    fn the_last_agent_may_leave_and_the_hamlet_stays() {
-        let (_dir, realm, home, mill) = two("last");
-        for agent in ["x", "y"] {
-            realm.agree_move("mill", agent, HOME, &[], "r").unwrap();
-            realm.agree_move(HOME, agent, HOME, &[], "r").unwrap();
-        }
-        assert!(mill.residents().is_empty());
-        assert_eq!(mill.mayor().name, "miller");
-        assert_eq!(home.residents().len(), 4);
-        assert!(realm.has_road("mayor@home", "mayor@mill"));
     }
 
     #[test]

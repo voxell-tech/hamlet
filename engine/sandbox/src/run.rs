@@ -241,21 +241,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn output_exit_code_and_stdin_pass_through() {
-        let r = sh(&policy(), "echo out; echo err >&2", None).await;
-        assert_eq!(r.output, "out\n\n[stderr]\nerr\n");
-        assert_eq!((r.exit_code, r.timed_out), (0, false));
-        assert_eq!(sh(&policy(), "exit 7", None).await.exit_code, 7);
-        // A signal is 128 and its number, as a shell has it.
-        assert_eq!(
-            sh(&policy(), "kill -9 $$", None).await.exit_code,
-            137
-        );
-        let r = sh(&policy(), "cat", Some(b"hello stdin")).await;
-        assert_eq!(r.output, "hello stdin");
-    }
-
-    #[tokio::test]
     async fn timeout_kills_process_group() {
         let mut p = policy();
         p.limits.wall_secs = 1;

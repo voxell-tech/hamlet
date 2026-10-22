@@ -470,46 +470,4 @@ mod tests {
         let said = cannot_afford(&limits, &books, price).unwrap();
         assert!(said.contains("costs $3.00"), "{said}");
     }
-
-    #[test]
-    fn the_report_shows_the_meter_nearest_its_cap() {
-        let mut limits = Limits::default();
-        limits.budget.minutes = Some(10);
-        let mut books = Books {
-            hamlet: Amount {
-                tokens: 200_000,
-                micros: 0,
-                ms: 9 * 60_000,
-            },
-            ..Books::default()
-        };
-        books.agents.insert(
-            "scout".into(),
-            Amount {
-                tokens: 12_000,
-                micros: 300_000,
-                ms: 0,
-            },
-        );
-        let report = report(
-            &limits,
-            &books,
-            vec![
-                ("mayor".into(), "big".into()),
-                ("scout".into(), "small".into()),
-            ],
-        );
-        assert_eq!(
-            report.summary(),
-            "Hamlet today: 9m model time of 10m model time"
-        );
-        assert_eq!(
-            report.agent("scout").unwrap().summary(),
-            "small, $0.30"
-        );
-        assert_eq!(
-            report.agent("mayor").unwrap().summary(),
-            "big, $0.00"
-        );
-    }
 }

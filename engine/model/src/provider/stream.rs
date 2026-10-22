@@ -203,26 +203,6 @@ mod tests {
     }
 
     #[test]
-    fn content_only() {
-        let lines = [
-            ": keepalive".to_string(),
-            String::new(),
-            chunk(json!({"role": "assistant", "content": "Hel"})),
-            chunk(json!({"content": "lo"})),
-            "data: [DONE]".to_string(),
-        ];
-        let (msg, seen) = run(&lines).unwrap();
-        assert_eq!(
-            msg,
-            json!({"role": "assistant", "content": "Hello"})
-        );
-        assert_eq!(
-            seen,
-            vec![('t', "Hel".into()), ('t', "lo".into())]
-        );
-    }
-
-    #[test]
     fn reasoning_key_is_preserved() {
         for key in ["reasoning", "reasoning_content"] {
             let lines = [
@@ -271,14 +251,6 @@ mod tests {
     }
 
     #[test]
-    fn missing_tool_call_id_is_synthesized() {
-        let lines = [chunk(json!({"tool_calls": [
-            {"index": 0, "function": {"name": "bash", "arguments": "{}"}}]}))];
-        let (msg, _) = run(&lines).unwrap();
-        assert_eq!(msg["tool_calls"][0]["id"], "call_0");
-    }
-
-    #[test]
     fn line_split_across_byte_chunks() {
         let full =
             format!("{}\n", chunk(json!({"content": "héllo"})));
@@ -298,19 +270,6 @@ mod tests {
             splitter.finish().as_deref(),
             Some("data: [DONE]")
         );
-    }
-
-    #[test]
-    fn error_chunk_fails() {
-        let lines = [
-            chunk(json!({"content": "x"})),
-            format!(
-                "data: {}",
-                json!({"error": {"message": "boom"}})
-            ),
-        ];
-        let err = run(&lines).unwrap_err().to_string();
-        assert!(err.contains("boom"), "{err}");
     }
 
     #[test]

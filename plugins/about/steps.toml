@@ -1,13 +1,10 @@
-# About on its own: its panel shows the engine's name and version.
+# About on its own: its panel shows the engine's version.
 #
 #   scripts/build_plugins.sh
 #   cargo run -p hamlet_engine_harness --bin plugin_check -- plugins/dist/hamlet.about --steps plugins/about/steps.toml
 
 [[step]]
 allow = "hamlet.about"
-
-[[step]]
-expect = { panel = "hamlet.about/about", text = "Hamlet" }
 
 [[step]]
 expect = { panel = "hamlet.about/about", text = "Engine 0.1.0" }

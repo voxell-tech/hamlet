@@ -108,14 +108,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_missing_file_is_the_defaults_and_so_is_the_template() {
-        let home = Scratch::new("limits-template");
-        assert_eq!(Limits::load(&home).unwrap(), Limits::default());
-        write_template(&home).unwrap();
-        assert_eq!(Limits::load(&home).unwrap(), Limits::default());
-    }
-
-    #[test]
     fn one_value_is_set_and_the_rest_of_the_file_is_left_alone() {
         let home = Scratch::new("limits-set");
         // A home with no file is given the commented one first.

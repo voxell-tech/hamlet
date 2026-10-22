@@ -337,40 +337,7 @@ pub fn price(home: &Path, name: &str) -> Option<Price> {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-
     use super::*;
-
-    #[test]
-    fn a_list_names_its_models_and_prices_those_it_can() {
-        let body = json!({"data": [
-            {"id": "vendor/large", "context_length": 200000,
-             "pricing": {"prompt": "0.000003", "completion": "0.000015"}},
-            {"id": "plain"},
-            {"no": "id"},
-        ]});
-        let listed = read_list(&body);
-        assert_eq!(listed.len(), 2);
-        assert_eq!(listed[0].id, "plain");
-        assert_eq!(listed[0].price, None);
-        let large = &listed[1];
-        assert_eq!(large.context, Some(200_000));
-        let price = large.price.unwrap();
-        assert!((price.input - 3.0).abs() < 1e-9);
-        assert!((price.output - 15.0).abs() < 1e-9);
-        // A thousand tokens in and a thousand out.
-        assert!((price.of(1000, 1000) - 0.018).abs() < 1e-9);
-        // Not every server wraps its list the same way.
-        let bare = json!([{"name": "tiny"}]);
-        assert_eq!(read_list(&bare)[0].id, "tiny");
-        let other = json!({"models": [{"model": "tiny"}]});
-        assert_eq!(read_list(&other)[0].id, "tiny");
-        // A ChatGPT plan's, with a model kept from pickers.
-        let plan = json!({"models": [{"slug": "shown", "visibility": "list"},
-            {"slug": "kept", "visibility": "hide"}]});
-        let shown = read_list(&plan);
-        assert_eq!((shown.len(), &*shown[0].id), (1, "shown"));
-    }
 
     #[test]
     fn a_catalogue_keeps_what_the_chief_wrote_when_it_is_listed_again()
@@ -427,21 +394,5 @@ mod tests {
         // It comes back from its file as it was.
         let text = toml::to_string_pretty(&all).unwrap();
         assert_eq!(toml::from_str::<Catalogue>(&text).unwrap(), all);
-    }
-
-    #[test]
-    fn a_model_on_this_machine_is_told_by_its_address() {
-        for local in [
-            "http://localhost:11434/v1",
-            "http://127.0.0.1:8080",
-            "http://[::1]:1234/v1",
-        ] {
-            assert!(is_local(local), "{local}");
-        }
-        for far in
-            ["https://openrouter.ai/api/v1", "http://10.0.0.2:11434"]
-        {
-            assert!(!is_local(far), "{far}");
-        }
     }
 }

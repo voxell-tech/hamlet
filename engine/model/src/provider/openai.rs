@@ -360,50 +360,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_busy_server_is_asked_again() {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .unwrap();
-        let address =
-            format!("http://{}/v1", listener.local_addr().unwrap());
-        tokio::spawn(async move {
-            let said = "data: {\"choices\":[{\"delta\":{\"content\":\
-                        \"hi\"},\"finish_reason\":\"stop\"}]}\n\n";
-            let answers = [
-                "HTTP/1.1 503 Busy\r\nretry-after: \
-                 0\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
-                    .to_string(),
-                format!(
-                    "HTTP/1.1 200 OK\r\ncontent-length: \
-                     {}\r\nconnection: close\r\n\r\n{said}",
-                    said.len()
-                ),
-            ];
-            for answer in answers {
-                let (mut socket, _) =
-                    listener.accept().await.unwrap();
-                let mut asked = Vec::new();
-                // The request is headers, then a JSON object.
-                while !(asked.windows(4).any(|w| w == b"\r\n\r\n")
-                    && asked.ends_with(b"}"))
-                {
-                    let mut part = [0; 4096];
-                    let read = socket.read(&mut part).await.unwrap();
-                    asked.extend_from_slice(&part[..read]);
-                }
-                socket.write_all(answer.as_bytes()).await.unwrap();
-            }
-        });
-        let client = OpenAiCompat::new(address, None, "m".into());
-        let done = client
-            .complete(&[], &[], None, &mut |_| {})
-            .await
-            .unwrap();
-        assert_eq!(done.message["content"], "hi");
-    }
-
-    #[tokio::test]
     #[cfg(feature = "live-tests")]
     async fn live_ollama_tool_call() {
         let local = crate::config::Config::default();

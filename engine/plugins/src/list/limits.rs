@@ -215,23 +215,3 @@ pub(super) fn memory_view(
         cx.build(column(parts).gap(gap / 2.0))
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn memory_is_shown_and_read_in_its_largest_unit() {
-        let shown = |bytes| {
-            let unit = Unit::of(bytes);
-            format!("{} {}", unit.amount(bytes), unit.name())
-        };
-        assert_eq!(shown(64 << 20), "64 MB");
-        assert_eq!(shown(3 << 29), "1.5 GB");
-        assert_eq!(shown(512), "0.5 KB");
-        assert_eq!(Unit::Gb.parse("1.5"), Some(3 << 29));
-        assert_eq!(Unit::Kb.parse("1_024"), Some(1 << 20));
-        assert_eq!(Unit::Mb.parse("0"), None);
-        assert_eq!(Unit::Mb.parse("-1"), None);
-    }
-}

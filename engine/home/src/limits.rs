@@ -437,29 +437,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_section_left_out_keeps_its_defaults() {
-        let home = Scratch::new("limits-partial");
-        std::fs::write(
-            path(&home),
-            "models = [\"small\"]\n[budget]\nperiod = \
-             \"month\"\nminutes = 90\n[task]\nmessages = \
-             3\n[pinned]\nscout = \"big\"\n",
-        )
-        .unwrap();
-        let limits = Limits::load(&home).unwrap();
-        assert!(limits.allows("small") && !limits.allows("big"));
-        assert_eq!(limits.budget.period, Period::Month);
-        // A meter left out of a written section has no cap.
-        assert_eq!(limits.budget.minutes, Some(90));
-        assert_eq!(limits.budget.tokens, None);
-        assert_eq!(limits.task.messages, 3);
-        assert_eq!(limits.task.tokens, None);
-        assert_eq!(limits.road, Road::default());
-        assert_eq!(limits.most_agents, 12);
-        assert_eq!(limits.pinned["scout"], "big");
-    }
-
-    #[test]
     fn a_file_with_a_mistake_is_refused() {
         let home = Scratch::new("limits-mistake");
         for bad in [

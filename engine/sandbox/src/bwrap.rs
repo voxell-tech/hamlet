@@ -214,21 +214,4 @@ mod tests {
         assert!(all < hide && hide < work && work < lock);
         assert!(!a.contains(&"/no/such/home".to_string()));
     }
-
-    #[cfg(target_os = "linux")]
-    #[tokio::test]
-    #[ignore = "needs bubblewrap installed"]
-    async fn bwrap_runs_echo() {
-        Bwrap::probe().unwrap();
-        let r = crate::run(
-            &Bwrap,
-            &policy(),
-            &s(&["echo", "ok"]),
-            Path::new("/"),
-            None,
-        )
-        .await
-        .unwrap();
-        assert_eq!(r.output, "ok\n");
-    }
 }

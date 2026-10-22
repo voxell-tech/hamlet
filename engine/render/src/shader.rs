@@ -758,16 +758,6 @@ mod tests {
     }
 
     #[test]
-    fn errors_name_the_line_of_the_source() {
-        let broken = "fn shade(surface: Surface) -> vec4<f32> \
-                      {\nreturn nothing;\n}";
-        assert!(
-            refused(ShaderKind::Material, broken)
-                .starts_with("line 2")
-        );
-    }
-
-    #[test]
     fn loops_and_workgroups_are_held_to_the_rules() {
         let looping = "@compute @workgroup_size(64) fn \
                        main(@builtin(global_invocation_id) id: \

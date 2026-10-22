@@ -18,21 +18,24 @@ When a generic call's type needs pinning down, prefer turbofish on
 the call itself (`.collect::<Vec<_>>()`, `.parse::<i32>()`, and so on)
 over annotating the binding's type to steer inference.
 
-## Test our own code, and only what can break
+## Test what is critical, and nothing small
 
-A test covers logic written here. Bevy and the other crates we build
-on have their own tests: do not assert that a `clamp` clamps, that a
-reflected value survives a save, or that a component is where it was
-just inserted.
+A test guards a system whose break is serious and quiet: the sandbox
+and the limits on a plugin, grants and capabilities, a file never
+written over, state handed across a reload, what crosses the WASM
+boundary or goes to disk, the start and stop of plugins and their
+dependencies, the layering of the crates, and the decisions of the
+rules that keep agents in bounds.
 
-Skip a test that only restates the line it covers: a `match` written
-out again as a table of asserts, a flag set from `is_some()`, a
-one-line formula. If the test would change in step with every edit of
-the code and catch nothing else, it is not worth having.
+Do not test a single small function, a constant, a default, wording,
+a theme value, a layout or anything else a feature request would
+change as a matter of course. Bevy and the other crates we build on
+have their own tests: do not assert that a `clamp` clamps or that a
+component is where it was just inserted. If a test would change in
+step with every edit of the code and catch nothing else, it goes.
 
-Keep tests where a mistake is easy to make and hard to see in review:
-maths with a sign or a space to get wrong, a round trip through our
-own format, a behaviour a user asked for by name.
+A plugin's `steps.toml` is one smoke path: it loads, it shows, it
+does its one main thing.
 
 When it's a toss-up whether a test earns its place, leave it out.
 

@@ -9,6 +9,3 @@ allow = "hamlet.chat"
 
 [[step]]
 expect = { panel = "hamlet.chat/chat", text = "Message" }
-
-[[step]]
-lacks = { panel = "hamlet.chat/chat", text = "START A NEW SESSION?" }

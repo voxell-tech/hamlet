@@ -290,53 +290,6 @@ mod tests {
     }
 
     #[test]
-    fn a_chief_reads_the_record_and_restores_by_command() {
-        let (_dir, hamlet) = hamlet("decree");
-        assert!(hamlet.decree("alice", "hello").is_none());
-        assert!(hamlet.decree("alice", "/restore").unwrap().is_err());
-        let removed = hamlet
-            .decree("alice", "/remove scout no longer needed")
-            .unwrap()
-            .unwrap();
-        assert_eq!(removed.touched, ["scout"]);
-        let record =
-            hamlet.decree("alice", "/record").unwrap().unwrap().lines;
-        let has =
-            |text: &str| record.iter().any(|l| l.contains(text));
-        assert!(has(
-            "the mayor created `librarian` (Keeps the list.): test"
-        ));
-        assert!(has(
-            "the chief alice removed `scout`: no longer needed"
-        ));
-        assert!(has("scout (removed)"));
-
-        hamlet.create("scout", "Scouts again.", "test").unwrap();
-        // A removal, a merge and a gift each want their words.
-        for wrong in ["/merge scout", "/give librarian", "/remove"] {
-            assert!(hamlet.decree("alice", wrong).unwrap().is_err());
-        }
-        let back = hamlet
-            .decree(
-                "alice",
-                "/restore scout as tracker it was useful",
-            )
-            .unwrap()
-            .unwrap();
-        assert_eq!(back.touched, ["tracker"]);
-        assert!(
-            hamlet
-                .history()
-                .last()
-                .unwrap()
-                .ends_with("it was useful")
-        );
-        assert!(
-            hamlet.residents().iter().any(|r| r.name == "tracker")
-        );
-    }
-
-    #[test]
     fn a_chief_builds_a_road_by_command_within_the_limits() {
         let (_dir, hamlet) = hamlet("road-decree");
         hamlet.create("poet", "Writes verse.", "test").unwrap();

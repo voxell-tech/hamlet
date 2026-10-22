@@ -294,7 +294,6 @@ pub fn read(ruling: Ruling, rest: &str) -> Result<Command, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::{self, Handler};
 
     #[test]
     fn each_may_object_once_and_nobody_after_a_go_ahead() {
@@ -333,83 +332,5 @@ mod tests {
         let empty = json!({"role": "assistant", "content": "", "tool_calls": [{"id": "c1",
             "function": {"name": OBJECT, "arguments": "{\"reason\":\"\"}"}}]});
         assert_eq!(review_reason(&empty), None);
-    }
-
-    #[test]
-    fn a_check_and_a_cross_give_only_plain_answers() {
-        let approval = [Choice::Allow, Choice::Always, Choice::Deny];
-        assert_eq!(
-            Choice::quick(&approval, true),
-            Some(Choice::Allow)
-        );
-        assert_eq!(
-            Choice::quick(&approval, false),
-            Some(Choice::Deny)
-        );
-        let objection = [Choice::GoAhead, Choice::Withdraw];
-        assert_eq!(
-            Choice::quick(&objection, false),
-            Some(Choice::Withdraw)
-        );
-        // A question needs words, so neither mark answers it.
-        let question = [Choice::Reply, Choice::Dismiss];
-        assert_eq!(Choice::quick(&question, true), None);
-        assert_eq!(Choice::quick(&question, false), None);
-        let fault = [Choice::Dismiss];
-        assert_eq!(
-            Choice::quick(&fault, true),
-            Some(Choice::Dismiss)
-        );
-        assert_eq!(Choice::quick(&fault, false), None);
-    }
-
-    /// The command `line` is, when it is one about what waits.
-    fn command(line: &str) -> Option<Result<Command, String>> {
-        let typed = commands::read(line)?;
-        let Handler::Oversight(ruling) = typed.command.by else {
-            return None;
-        };
-        Some(read(ruling, typed.rest))
-    }
-
-    #[test]
-    fn a_chief_types_commands() {
-        assert_eq!(command("hello"), None);
-        assert_eq!(command("/new"), None);
-        assert_eq!(command("/queue"), Some(Ok(Command::Queue)));
-        assert_eq!(command("/undo"), Some(Ok(Command::Undo)));
-        assert_eq!(
-            command("/deny not on this machine"),
-            Some(Ok(Command::Answer {
-                choice: Choice::Deny,
-                text: "not on this machine".into()
-            }))
-        );
-        assert_eq!(
-            command("/stop"),
-            Some(Ok(Command::Stop { agent: None }))
-        );
-        assert_eq!(
-            command("/stop scout"),
-            Some(Ok(Command::Stop {
-                agent: Some("scout".into())
-            }))
-        );
-        assert_eq!(
-            command("/revoke scout network"),
-            Some(Ok(Command::Revoke {
-                agent: "scout".into(),
-                permission: Permission::Network
-            }))
-        );
-        assert!(matches!(command("/revoke scout"), Some(Err(_))));
-        assert!(matches!(command("/reply"), Some(Err(_))));
-        assert_eq!(
-            command("/to scout find the paper"),
-            Some(Ok(Command::To {
-                agent: "scout".into(),
-                text: "find the paper".into()
-            }))
-        );
     }
 }

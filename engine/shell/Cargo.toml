@@ -17,6 +17,3 @@ fynix.workspace = true
 lenz.workspace = true
 ron.workspace = true
 serde.workspace = true
-
-[dev-dependencies]
-toml.workspace = true

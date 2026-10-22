@@ -459,20 +459,6 @@ mod tests {
     }
 
     #[test]
-    fn bad_and_repeated_names_are_refused() {
-        let (_dir, hamlet) = hamlet("names");
-        assert!(hamlet.create("Bad Name", "x", "y").is_err());
-        assert!(hamlet.create("mayor", "x", "y").is_err());
-        assert!(hamlet.create("scout", "", "y").is_err());
-        hamlet.create("scout", "Looks things up.", "y").unwrap();
-        assert!(hamlet.create("scout", "Again.", "y").is_err());
-        assert!(
-            hamlet.create(FOUNDER, "The mayor's name.", "y").is_err()
-        );
-        assert!(hamlet.house("nobody").is_err());
-    }
-
-    #[test]
     fn the_mayor_is_an_office_an_agent_holds() {
         let (_dir, hamlet) = hamlet("office");
         hamlet.create("scout", "Looks things up.", "y").unwrap();

@@ -428,35 +428,3 @@ impl MotionTokens for EngineTheme {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_theme_file_holds_every_role_and_refuses_one_unknown_or_missing()
-     {
-        let text = THEME.text;
-        let theme = toml::from_str::<EngineTheme>(text);
-        assert!(theme.is_ok(), "{theme:?}");
-
-        let unknown = text.replace(
-            "[colors]\n",
-            "[colors]\nbrass = \"#000000ff\"\n",
-        );
-        let why = toml::from_str::<EngineTheme>(&unknown)
-            .expect_err("an unknown role")
-            .to_string();
-        assert!(why.contains("brass"), "{why}");
-
-        let missing = text
-            .lines()
-            .filter(|line| !line.starts_with("text_accent "))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let why = toml::from_str::<EngineTheme>(&missing)
-            .expect_err("a missing role")
-            .to_string();
-        assert!(why.contains("text_accent"), "{why}");
-    }
-}

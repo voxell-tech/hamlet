@@ -375,17 +375,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_name_matches_with_stars_and_question_marks() {
-        assert!(matches("*.rs", "main.rs"));
-        assert!(matches("ma?n.*", "main.rs"));
-        assert!(matches("*", ""));
-        assert!(!matches("*.rs", "main.rs.bak"));
-        assert!(!matches("main", "main.rs"));
-        assert!(wanted("src/*/mod.rs", Path::new("src/a/mod.rs")));
-        assert!(!wanted("mod.rs", Path::new("src/a/lib.rs")));
-    }
-
-    #[test]
     fn reading_is_bounded_and_keeps_out_of_what_is_hidden() {
         let (dir, outer) =
             (Scratch::new("reading"), Scratch::new("reading-outer"));

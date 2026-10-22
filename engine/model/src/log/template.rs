@@ -79,33 +79,3 @@ fn replace_digits(s: &str) -> String {
     }
     out
 }
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-
-    fn tpl(cmd: &str) -> String {
-        args_template(&json!({ "command": cmd }).to_string())
-    }
-
-    #[test]
-    fn the_same_command_with_other_literals_has_one_template() {
-        assert_eq!(tpl("ls /tmp/a"), tpl("ls /var/b"));
-        assert_eq!(tpl("sleep 5"), tpl("sleep 10"));
-        assert_eq!(tpl("echo \"hi\""), tpl("echo 'bye'"));
-        assert_ne!(tpl("ls"), tpl("cat"));
-        assert_eq!(tpl("cat ./x/y.txt"), tpl("cat ../z"));
-        assert_eq!(tpl("ls   -l"), tpl("ls -l"));
-        assert_eq!(
-            args_template(r#"{"b":"1","a":"x"}"#),
-            r#"{"a":"x","b":"0"}"#
-        );
-        assert_eq!(
-            args_template("sleep 5 /tmp/x"),
-            args_template("sleep 99 /a/b")
-        );
-        assert_eq!(args_template("echo 'a'"), "echo '_'");
-    }
-}

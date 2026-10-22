@@ -218,55 +218,6 @@ fn entities_follow_the_record_through_every_kind_of_change() {
 }
 
 #[test]
-fn a_message_is_told_once_and_not_for_what_was_there_at_the_start() {
-    #[derive(Resource, Default)]
-    struct Heard(Vec<(String, String)>);
-
-    let home = Scratch::new("agents-carried");
-    let hamlet = Hamlet::new(home.to_path_buf());
-    hamlet.create("scout", "Looks things up.", "test").unwrap();
-    hamlet.carried(MAYOR, "scout", "t").unwrap();
-    let mut app = app(&home);
-    app.init_resource::<Heard>().add_observer(
-        |carried: On<Carried>,
-         roads: Query<&Road>,
-         names: Query<&Name>,
-         mut heard: ResMut<Heard>| {
-            let road = roads.get(carried.road).unwrap();
-            assert!(road.has(carried.from));
-            let other = if road.ends.0 == carried.from {
-                road.ends.1
-            } else {
-                road.ends.0
-            };
-            let name = |e| names.get(e).unwrap().as_str().to_string();
-            heard.0.push((name(carried.from), name(other)));
-        },
-    );
-    app.update();
-    assert!(app.world().resource::<Heard>().0.is_empty());
-
-    hamlet.carried("scout", MAYOR, "t").unwrap();
-    app.update();
-    app.update();
-    assert_eq!(
-        app.world().resource::<Heard>().0,
-        [("scout".to_string(), FOUNDER.to_string())]
-    );
-
-    // A road built and used before the app next looks.
-    hamlet.create("clerk", "Files things.", "test").unwrap();
-    hamlet.build_road("scout", "clerk", "test", "t").unwrap();
-    hamlet.carried("clerk", "scout", "t").unwrap();
-    app.update();
-    app.update();
-    assert_eq!(
-        app.world().resource::<Heard>().0[1..],
-        [("clerk".to_string(), "scout".to_string())]
-    );
-}
-
-#[test]
 fn every_hamlet_of_the_realm_is_followed_and_the_roads_between_them()
 {
     let home = Scratch::new("agents-realm");

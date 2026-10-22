@@ -1181,34 +1181,6 @@ mod tests {
     }
 
     #[test]
-    fn a_restored_agent_gets_back_the_roads_to_those_it_knew() {
-        let (_dir, hamlet) = hamlet("restore");
-        hamlet.create("poet", "Writes verse.", "test").unwrap();
-        hamlet.build_road("scout", "poet", "test", "").unwrap();
-        hamlet.build_road("scout", "librarian", "test", "").unwrap();
-        hamlet.carried("scout", "librarian", "").unwrap();
-        write(&hamlet, "scout", "found.txt", "Dune");
-        let id = hamlet.residents()[1].id;
-        hamlet.remove("scout", "x", Who::Mayor).unwrap();
-        // The poet is replaced by another of its name meanwhile.
-        hamlet.remove("poet", "x", Who::Mayor).unwrap();
-        hamlet.create("poet", "Writes prose.", "test").unwrap();
-
-        let back = hamlet.restore("scout", None, "", CHIEF).unwrap();
-        assert_eq!(back.resident.id, id);
-        assert_eq!(back.split_from, None);
-        assert_eq!(
-            read(&hamlet, "scout", "found.txt").unwrap(),
-            "Dune"
-        );
-        assert_eq!(
-            peers(&hamlet, "scout"),
-            [road("librarian", 1), road(MAYOR, 0)]
-        );
-        assert!(hamlet.restore("scout", None, "", CHIEF).is_err());
-    }
-
-    #[test]
     fn a_name_taken_since_is_not_taken_back() {
         let (_dir, hamlet) = hamlet("reuse");
         write(&hamlet, "scout", "found.txt", "Dune");

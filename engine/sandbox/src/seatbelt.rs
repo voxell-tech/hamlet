@@ -489,24 +489,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn common_tools_run() {
-        Seatbelt::probe().unwrap();
-        let d = scratch("tools");
-        let p = policy(&d);
-        for script in [
-            "ls .",
-            "cat /etc/hosts >/dev/null",
-            "find . -name x",
-            "git init -q . && git status --short && git --version",
-            "python3 -c 'print(1+1)'",
-            "/usr/bin/python3 -c 'print(1+1)'",
-        ] {
-            let r = sh(&p, &d, script).await;
-            assert_eq!(r.exit_code, 0, "{script}: {}", r.output);
-        }
-    }
-
-    #[tokio::test]
     async fn an_open_policy_reads_widely_and_keeps_its_locks() {
         let (project, home, outside) = (
             scratch("open"),

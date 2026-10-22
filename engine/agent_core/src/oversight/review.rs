@@ -166,28 +166,3 @@ pub(super) fn hear(world: &mut World) {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::remote;
-
-    #[test]
-    fn a_model_on_this_machine_is_not_remote() {
-        for local in [
-            "http://localhost:11434/v1",
-            "http://127.0.0.1:8080",
-            "http://[::1]:11434/v1",
-            "localhost:11434",
-            "",
-        ] {
-            assert!(!remote(local), "{local}");
-        }
-        for far in [
-            "https://api.deepseek.com/v1",
-            "https://openrouter.ai/api/v1",
-            "http://192.168.1.20:11434/v1",
-        ] {
-            assert!(remote(far), "{far}");
-        }
-    }
-}

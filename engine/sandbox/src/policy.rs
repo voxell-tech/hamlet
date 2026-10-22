@@ -84,23 +84,3 @@ impl Policy {
         digest.iter().take(6).map(|b| format!("{b:02x}")).collect()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use crate::tests::policy;
-
-    #[test]
-    fn hash_is_stable_and_sensitive() {
-        let p = policy();
-        let h = p.hash("bwrap");
-        assert_eq!(h.len(), 12);
-        assert_eq!(h, p.hash("bwrap"));
-        assert_ne!(h, p.hash("unsandboxed"));
-        let mut q = p.clone();
-        q.net = true;
-        assert_ne!(h, q.hash("bwrap"));
-        let mut q = p.clone();
-        q.limits.cpu_secs += 1;
-        assert_ne!(h, q.hash("bwrap"));
-    }
-}

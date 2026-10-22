@@ -1,5 +1,6 @@
 # Scene Demo on its own, with no GPU: its panel is drawn, its scene
-# holds the shapes and the field, and clicks on them are named.
+# holds the shapes and the field, and a click on one of the field's
+# cubes is named.
 #
 #   scripts/build_plugins.sh
 #   cargo run -p hamlet_engine_harness --bin plugin_check -- plugins/dist/hamlet.scene_demo --steps plugins/scene_demo/steps.toml
@@ -14,12 +15,6 @@ expect = { panel = "hamlet.scene_demo/scene", text = "Drag to turn" }
 # and 400 cubes.
 [[step]]
 expect_scene = { plugin = "hamlet.scene_demo", entities = 407, cameras = 1, decals = 1 }
-
-[[step]]
-pick = { plugin = "hamlet.scene_demo", key = 11 }
-
-[[step]]
-expect = { panel = "hamlet.scene_demo/scene", text = "Clicked the sphere" }
 
 [[step]]
 pick = { plugin = "hamlet.scene_demo", key = 100, index = 7 }

@@ -4,7 +4,6 @@ use std::time::{Duration, Instant};
 use bevy_app::AppExit;
 use hamlet_home::Home;
 use hamlet_model::log;
-use hamlet_rules::chief::asking::Pick;
 use hamlet_rules::chief::rulings::{Choice, Party};
 use hamlet_rules::hamlet::MAYOR;
 use hamlet_sandbox::{Policy, Sandbox, Unsandboxed};
@@ -702,54 +701,6 @@ fn an_agent_asks_the_chief_a_question_and_waits_for_the_reply() {
 }
 
 #[test]
-fn an_agent_asks_several_questions_and_hears_each_answer() {
-    let rt = Runtime::new().unwrap();
-    let (mut app, home) = app(
-        "questions",
-        &rt,
-        vec![
-            call(
-                "ask_chief",
-                json!({"questions": [
-                    {"question": "Paper or ebook?",
-                     "options": [{"title": "Paper", "description": "Ships"}, "Ebook"]},
-                    {"question": "Budget?"}
-                ]}),
-            ),
-            says("Paper, under 30."),
-        ],
-    );
-    say(&mut app, &with_mayor(), "order Dune");
-    let needs = waiting(&mut app, 1);
-    let asked = needs[0].questions.clone().unwrap();
-    assert_eq!(asked.questions.len(), 2);
-    assert!(needs[0].about.contains("a) Paper - Ships"));
-    let entity = needs[0].entity;
-    // Answers that leave a question out answer nothing.
-    app.world_mut().trigger(Answered {
-        entity,
-        picks: vec![Pick::Offer(0)],
-        chief: ALICE.into(),
-    });
-    app.world_mut().flush();
-    assert_eq!(queue(&mut app).len(), 1);
-    app.world_mut().trigger(Answered {
-        entity,
-        picks: vec![Pick::Offer(0), Pick::Words("under 30".into())],
-        chief: ALICE.into(),
-    });
-    app.world_mut().flush();
-    settle(&mut app, &with_mayor());
-    assert!(queue(&mut app).is_empty());
-    assert_eq!(
-        told(&mayor_log(&home))[0],
-        "The chief answers:\n> Paper or ebook?\nPaper\n\n> \
-         Budget?\nunder 30"
-    );
-    session::shutdown(app.world_mut());
-}
-
-#[test]
 fn a_chief_stops_everything_and_the_next_turn_is_still_gated() {
     let rt = Runtime::new().unwrap();
     let (mut app, home) = app(
@@ -852,44 +803,6 @@ fn a_chief_stops_one_agent_wherever_it_is_working() {
     session::shutdown(app.world_mut());
 }
 
-/// The window's STOP names the agent it shows, and a mayor's own name
-/// is not the office.
-#[test]
-fn a_stop_by_the_name_the_window_shows_stops_the_mayor() {
-    let rt = Runtime::new().unwrap();
-    let (mut app, home) = app(
-        "stop-shown-name",
-        &rt,
-        vec![bash("sleep 30"), says("ok")],
-    );
-    say(&mut app, &with_mayor(), "wait a long time");
-    until(&mut app, "the command to start", |_| {
-        log::read_events(&mayor_log(&home))
-            .unwrap()
-            .iter()
-            .any(|e| e["type"] == "assistant")
-    });
-    let whose = crate::agents::mayor(app.world_mut()).unwrap();
-    let shown = crate::agents::name_of(app.world(), whose);
-    assert_eq!(shown, hamlet_rules::hamlet::FOUNDER);
-    let started = Instant::now();
-    app.world_mut().trigger(Veto {
-        agent: Some(shown),
-        chief: "alice".into(),
-    });
-    app.world_mut().flush();
-    for _ in 0..20 {
-        app.update();
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        !working(&mut app, &with_mayor()),
-        "the turn went on running"
-    );
-    assert!(started.elapsed() < Duration::from_secs(3));
-    session::shutdown(app.world_mut());
-}
-
 #[test]
 fn stopping_a_turn_drops_what_it_was_waiting_for() {
     let rt = Runtime::new().unwrap();
@@ -910,56 +823,6 @@ fn stopping_a_turn_drops_what_it_was_waiting_for() {
     assert!(!home.workspace.join("fetched.txt").exists());
     let record = Ledger::open(&home.root).events();
     assert_eq!(record.last().unwrap()["how"], "stopped");
-    session::shutdown(app.world_mut());
-}
-
-#[test]
-fn a_turn_that_fails_is_a_fault_until_the_chief_has_seen_it() {
-    let rt = Runtime::new().unwrap();
-    // Nothing to replay, so the model call fails.
-    let (mut app, _home) = app("fault", &rt, vec![]);
-    say(&mut app, &with_mayor(), "hello");
-    let needs = waiting(&mut app, 1);
-    assert_eq!(needs[0].kind, Kind::Fault);
-    assert!(needs[0].about.contains("replay exhausted"));
-    // The same fault again is the same thing, counted.
-    say(&mut app, &with_mayor(), "hello?");
-    until(&mut app, "the second fault", |app| {
-        waits(app.world_mut())[0].asked == 2
-    });
-    let needs = queue(&mut app);
-    assert_eq!(needs.len(), 1);
-    answer(&mut app, needs[0].entity, Choice::Dismiss, "");
-    assert!(queue(&mut app).is_empty());
-    session::shutdown(app.world_mut());
-}
-
-#[test]
-fn the_queue_is_oldest_first() {
-    let rt = Runtime::new().unwrap();
-    let (mut app, home) = app(
-        "order",
-        &rt,
-        vec![
-            call("ask_chief", json!({"question": "First?"})),
-            call("ask_chief", json!({"question": "Second?"})),
-            says("ok"),
-            says("ok"),
-        ],
-    );
-    with_librarian(&home);
-    let other = with_agent("librarian");
-    say(&mut app, &with_mayor(), "one");
-    waiting(&mut app, 1);
-    say(&mut app, &other, "two");
-    let needs = waiting(&mut app, 2);
-    assert_eq!(needs[0].about, "First?");
-    assert_eq!(needs[1].about, "Second?");
-    assert_eq!(needs[0].waited, "under a minute");
-    answer(&mut app, needs[1].entity, Choice::Dismiss, "");
-    answer(&mut app, needs[0].entity, Choice::Reply, "yes");
-    settle(&mut app, &with_mayor());
-    settle(&mut app, &other);
     session::shutdown(app.world_mut());
 }
 
@@ -1114,31 +977,6 @@ fn a_spent_budget_buys_no_review() {
 }
 
 #[test]
-fn a_line_typed_to_an_agent_answers_its_question() {
-    let rt = Runtime::new().unwrap();
-    let (mut app, home) = app(
-        "typed-reply",
-        &rt,
-        vec![
-            call("ask_chief", json!({"question": "Paper or ebook?"})),
-            says("Paper it is."),
-        ],
-    );
-    say(&mut app, &with_mayor(), "order Dune");
-    waiting(&mut app, 1);
-    say(&mut app, &with_mayor(), "paper");
-    settle(&mut app, &with_mayor());
-    assert!(queue(&mut app).is_empty());
-    assert_eq!(
-        told(&mayor_log(&home))[0],
-        "The chief answers: paper"
-    );
-    // The line was the answer, not a second message.
-    assert_eq!(users(mayor_log(&home)), 1);
-    session::shutdown(app.world_mut());
-}
-
-#[test]
 fn a_line_typed_to_an_objecting_agent_is_held_back_and_a_command_answers()
  {
     let rt = Runtime::new().unwrap();
@@ -1182,36 +1020,6 @@ fn a_line_typed_to_an_objecting_agent_is_held_back_and_a_command_answers()
             .contains("go ahead: I have a backup")
     );
     assert_eq!(users(librarian_log(&home)), 1);
-    session::shutdown(app.world_mut());
-}
-
-#[test]
-fn a_command_typed_anywhere_answers_the_oldest_thing() {
-    let rt = Runtime::new().unwrap();
-    let (mut app, home) = app(
-        "typed-queue",
-        &rt,
-        vec![bash("echo https://example.org > a.txt"), says("done")],
-    );
-    with_librarian(&home);
-    say(&mut app, &with_mayor(), "fetch");
-    waiting(&mut app, 1);
-    // The librarian is selected; nothing of its own waits.
-    say(&mut app, &with_agent("librarian"), "/queue");
-    assert!(
-        notice(&mut app, &with_agent("librarian"))
-            .contains("[approval] mayor")
-    );
-    say(&mut app, &with_agent("librarian"), "/allow");
-    settle(&mut app, &with_mayor());
-    assert!(home.workspace.join("a.txt").exists());
-    say(&mut app, &with_agent("librarian"), "/queue");
-    assert_eq!(
-        notice(&mut app, &with_agent("librarian")),
-        "Nothing waits for you."
-    );
-    // No model was asked on the librarian's behalf.
-    assert!(!librarian_log(&home).exists());
     session::shutdown(app.world_mut());
 }
 

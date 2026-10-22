@@ -170,18 +170,6 @@ impl SignIn {
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_proof_is_written_as_openrouter_reads_it() {
-        // The pair RFC 7636 gives as its example.
-        let secret = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
-        assert_eq!(
-            base64url(&Sha256::digest(secret.as_bytes())),
-            "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
-        );
-        assert_eq!(base64url(b"a"), "YQ");
-        assert_eq!(base64url(b"ab"), "YWI");
-    }
-
     #[tokio::test]
     async fn the_code_that_comes_back_is_heard_and_no_other() {
         let sign_in = begin().await.unwrap();

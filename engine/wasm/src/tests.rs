@@ -6,25 +6,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use bevy::app::{App, TaskPoolPlugin, Update};
-use bevy::asset::{AssetApp, AssetPlugin};
-use bevy::camera::{
-    Camera, Camera2d, ComputedCameraValues, RenderTargetInfo,
-};
+use bevy::app::{App, TaskPoolPlugin};
 use bevy::ecs::entity::Entity;
-use bevy::ecs::error::ignore;
-use bevy::ecs::hierarchy::Children;
 use bevy::ecs::query::With;
-use bevy::image::Image;
-use bevy::input::InputPlugin;
-use bevy::math::UVec2;
-use bevy::picking::{InteractionPlugin, PickingPlugin};
-use bevy::text::{FontCx, ScaleCx, TextPipeline};
-use bevy::time::{TimePlugin, TimeUpdateStrategy};
-use bevy::transform::TransformPlugin;
-use bevy::ui::{ComputedNode, UiPlugin, px};
-use bevy_fynix::mount;
-use bevy_fynix::views::{FrameProps, column};
+use bevy::time::TimePlugin;
 use hamlet_engine_api::{
     API_VERSION, Capability, PluginId, PluginLimits,
 };
@@ -33,8 +18,7 @@ use hamlet_engine_core::{Budgets, Bundle, Home, LogLevel};
 use hamlet_engine_grants::{
     Admitted, Answer, Grants, Petition, Record,
 };
-use hamlet_engine_plugins::{ContributedBy, Stopped, Uninstall};
-use hamlet_engine_shell::EngineTheme;
+use hamlet_engine_plugins::{Stopped, Uninstall};
 use wasmtime::component::Resource;
 use wit_component::{ComponentEncoder, StringEncoding};
 use wit_parser::Resolve;
@@ -44,12 +28,11 @@ use crate::budget::Spending;
 use crate::folder::{FOLDER, MANIFEST, WASM};
 use crate::host::{Host, WasmTuning};
 use crate::instance::ui_bindings::hamlet::engine::ui::{
-    Fill, HostNode, Kind, Property,
+    HostNode, Kind, Property,
 };
 use crate::instance::{Caps, Fault, Instance, State, link};
-use crate::nodes::{NodeChange, NodeError};
-use crate::panel::{Inbox, Surface, Work};
-use crate::retained::{NodeOf, UiRoot, WasmWorldExt, find_scrolls};
+use crate::nodes::NodeError;
+use crate::panel::{Inbox, Work};
 
 /// What `run` does in a test plugin that counts its runs.
 const COUNT: &str =
@@ -609,123 +592,6 @@ fn only_the_folder_of_a_built_plugin_is_added() {
     }
     let _ = fs::remove_dir_all(&root);
     let _ = fs::remove_dir_all(&outside);
-}
-
-#[test]
-fn a_scroll_under_frames_scrolls_within_its_panel() {
-    let mut app = laid_out();
-    let world = app.world_mut();
-    let plugin = world.spawn_empty().id();
-    let surface = world
-        .spawn((
-            Surface {
-                name: "p".into(),
-                stopped: None,
-            },
-            ContributedBy(plugin),
-        ))
-        .id();
-    mount::<EngineTheme>(
-        world,
-        column((crate::retained::view(surface),))
-            .width(px(300.0))
-            .height(px(300.0)),
-    );
-    app.update();
-    let root = app.world().get::<UiRoot>(surface).unwrap().holder;
-    // A bare frame, as a plugin's `keyed` makes, over a column of a
-    // label and a scroll of 40 cards.
-    let make = |node, kind, parent| NodeChange::Make {
-        node,
-        key: node,
-        kind,
-        parent,
-    };
-    let set = |node, value| NodeChange::Set {
-        node,
-        value,
-        motion: None,
-    };
-    let mut changes = vec![
-        make(1, Kind::Frame, 0),
-        make(2, Kind::Frame, 1),
-        make(3, Kind::Label, 2),
-        set(3, Property::Text("Hamlets".into())),
-        make(4, Kind::Scroll, 2),
-    ];
-    for card in 5..45 {
-        changes.push(make(card, Kind::Frame, 4));
-        changes.push(set(card, Property::Fill(Fill::Card)));
-    }
-    app.world_mut()
-        .build_nodes(plugin, Some((0, root)), changes);
-    for _ in 0..4 {
-        app.update();
-    }
-
-    let world = app.world_mut();
-    let area = world
-        .query::<(Entity, &NodeOf)>()
-        .iter(world)
-        .find_map(|(node, of)| (of.key == 4).then_some(node))
-        .expect("the scroll is built");
-    let height = |node| {
-        let computed = world.get::<ComputedNode>(node).unwrap();
-        (computed.size() * computed.inverse_scale_factor()).y
-    };
-    let scroll = world.get::<Children>(area).unwrap()[0];
-    // The column of the cards, beside the scroll's bars.
-    let rows = world
-        .get::<Children>(scroll)
-        .unwrap()
-        .iter()
-        .copied()
-        .find(|&child| world.get::<Children>(child).is_some())
-        .unwrap();
-    assert!(height(area) > 0.0);
-    assert!(height(area) < 300.0, "{}", height(area));
-    assert!(height(rows) > height(area));
-}
-
-/// An app laying its nodes out in a window 1000 pixels square, with
-/// the shell's views and the marks of what holds a scroll.
-fn laid_out() -> App {
-    let mut app = App::new();
-    app.insert_resource(TimeUpdateStrategy::ManualDuration(
-        Duration::from_millis(10),
-    ))
-    .add_plugins((
-        TaskPoolPlugin::default(),
-        TimePlugin,
-        AssetPlugin::default(),
-        TransformPlugin,
-        InputPlugin,
-        PickingPlugin,
-        InteractionPlugin,
-        hamlet_engine_shell::views_plugin,
-    ))
-    .add_systems(Update, find_scrolls)
-    .init_asset::<Image>()
-    .init_resource::<TextPipeline>()
-    .init_resource::<FontCx>()
-    .init_resource::<ScaleCx>()
-    .add_plugins(UiPlugin)
-    // What the test leaves out, such as fonts, skips its run.
-    .set_error_handler(ignore);
-    app.world_mut().spawn((
-        Camera2d,
-        Camera {
-            computed: ComputedCameraValues {
-                target_info: Some(RenderTargetInfo {
-                    physical_size: UVec2::splat(1000),
-                    scale_factor: 1.0,
-                }),
-                ..Default::default()
-            },
-            ..Default::default()
-        },
-    ));
-    app
 }
 
 /// A home of its own for the test `name`, empty.

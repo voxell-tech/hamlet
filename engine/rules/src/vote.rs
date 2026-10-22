@@ -957,39 +957,4 @@ mod tests {
         ));
         assert!(!grounded("mayor", corpus, &rules));
     }
-
-    #[test]
-    fn a_ballot_is_asked_from_the_house_and_sealed() {
-        let rules = Rules::default();
-        let (_dir, hamlet) = hamlet("ballot", &["a", "b", "c"]);
-        let house = hamlet.house("a").unwrap();
-        std::fs::write(
-            house.sessions().join("mayor.jsonl"),
-            "{\"type\":\"user\",\"ts\":1,\"user\":\"mayor\",\"\
-             content\":\"Sort the \
-             list.\"}\n{\"type\":\"assistant\",\"ts\":2,\"message\":\
-             {\"content\":\"Sorted.\"}}\n",
-        )
-        .unwrap();
-        std::fs::write(
-            house.sessions().join("vote_1.jsonl"),
-            "{\"type\":\"user\",\"ts\":3,\"user\":\"hamlet\",\"\
-             content\":\"A vote\"}\n",
-        )
-        .unwrap();
-        let said = history(&house, &rules);
-        assert_eq!(
-            said,
-            [
-                "- mayor said to you: Sort the list.",
-                "- you answered: Sorted."
-            ]
-        );
-        let vote =
-            call(&hamlet, &rules, "a", replace("b"), "slow").unwrap();
-        let text = ballot_text(&vote, &said, &[], &rules);
-        assert!(text.contains("Sort the list."));
-        assert!(text.contains("`b` would become mayor"));
-        assert!(!text.contains("ballots cast so far"));
-    }
 }

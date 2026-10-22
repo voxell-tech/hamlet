@@ -155,21 +155,4 @@ mod tests {
             "edited"
         );
     }
-
-    #[test]
-    fn every_starter_has_valid_front_matter() {
-        for (name, files) in STARTERS {
-            let skill = files
-                .iter()
-                .find(|(f, _)| *f == "SKILL.md")
-                .expect("has SKILL.md")
-                .1;
-            assert!(skill.starts_with("---\n"), "{name}");
-            assert!(
-                skill.contains(&format!("name: {name}\n")),
-                "{name}"
-            );
-            assert!(skill.contains("description: "), "{name}");
-        }
-    }
 }

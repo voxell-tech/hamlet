@@ -3846,7 +3846,6 @@ dependencies = [
  "lenz",
  "ron",
  "serde",
- "toml",
 ]
 
 [[package]]

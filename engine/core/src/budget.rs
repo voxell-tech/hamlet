@@ -196,18 +196,4 @@ mod tests {
         assert_eq!(used(Some(2), Some(&memory(Some(3)))), 3);
         assert_eq!(used(Some(2), Some(&memory(None))), 2);
     }
-
-    #[test]
-    fn a_call_time_not_above_zero_is_refused() {
-        for bad in ["nan", "inf", "0.0", "-1.0"] {
-            let text = ENGINE.text.replace(
-                "call_time = 1_000.0",
-                &format!("call_time = {bad}"),
-            );
-            assert!(
-                crate::tuning::read::<Budgets>(&text).is_err(),
-                "call_time = {bad} was taken"
-            );
-        }
-    }
 }

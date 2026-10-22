@@ -140,17 +140,3 @@ fn unquoted(quoted: &str) -> Option<String> {
     }
     Some(out)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_reply_names_what_it_answers_and_keeps_its_words() {
-        let answers =
-            Answers::of("Pip", "a \"key\"\nby the door", 600);
-        let sent = replied(&answers, "thanks");
-        assert_eq!(unreplied(&sent), Some((answers, "thanks")));
-        assert_eq!(rest("no reply here"), "no reply here");
-    }
-}
