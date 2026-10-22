@@ -147,6 +147,7 @@ Paths are under the crate's folder in the table above.
 | A plugin that comes with Hamlet | A crate in `plugins/`, built by `scripts/build_plugins.sh`; where the engine finds them in `engine/core/src/bundle.rs`; [`engine.md`](engine.md#bundled-plugins) |
 | The engine's Settings pages for the agents, Welcome, or the agents' facts on the status line | `plugins/settings/`, `plugins/welcome/`, `plugins/status/` |
 | The engine's chat, Inspector or Skills panels, or the agents' section of Petitions | `plugins/chat/`, `plugins/inspector/`, `plugins/skills/`, `plugins/petitions/`, sharing `plugins/agents_ui/` |
+| The Agent Bazaar: models from OpenRouter, skills from skills.sh, hamlets from templates, and the stalls to come | `plugins/bazaar/`: the shelf every stall shares in `shelf.rs` and `view/shelf.rs`, each stall's own beside them; [`engine.md`](engine.md#bundled-plugins) |
 | The Petitions panel: its heading, its parts and the plugins' petitions | `engine/grants/src/petition.rs`; a section's component in `engine/shell/src/section.rs` |
 | The window's focus: the open conversation and the thing selected | `engine/agents/src/focus.rs`; the chat's data in `conversation.rs`, `archive.rs`, `roster.rs` and `needs.rs` beside it |
 | A widget an engine plugin can show | Its kind and properties in `engine/wit/hamlet_engine.wit`, its element in `engine/bevy_sdk/src/ui/elements.rs` (and `engine/sdk/src/ui/elements.rs` while the realm uses it), its widget in `engine/wasm/src/retained.rs`, built from `engine/shell/src/style.rs` |
