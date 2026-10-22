@@ -17,7 +17,7 @@ use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::event::EntityEvent;
-use bevy::ecs::hierarchy::ChildOf;
+use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::message::{Message, MessageReader, MessageWriter};
 use bevy::ecs::observer::On;
 use bevy::ecs::query::{Changed, Without};
@@ -39,6 +39,7 @@ use bevy::ui::{
     px,
 };
 use bevy_fynix::patch::{PatchInk, PatchOpacity};
+use bevy_fynix::scroll::ScrollGoal;
 use bevy_fynix::tokens::{
     Motion as Movement, MotionTokens, TextTokens, Tone,
 };
@@ -807,12 +808,16 @@ fn widget(
             .within(column(()).gap(0.0))
             .boxed(),
         (Kind::Scroll, &Shape::Scroll { stick }) => {
-            let area = kids(holder, plugin, Place::Frame)
-                .within(scroll_area(()));
+            let area = AnyView::new(move |cx: &mut Cx| {
+                let gap = cx.theme().space.gap;
+                let rows = kids(holder, plugin, Place::Frame)
+                    .within(column(()).gap(gap));
+                cx.build(scroll_area((rows,)))
+            });
             if stick {
-                sticking(area.boxed(), plugin, key)
+                sticking(area, plugin, key)
             } else {
-                area.boxed()
+                area
             }
         }
         (Kind::Divider, _) => divider(),
@@ -1041,7 +1046,17 @@ fn open_on_click(click: On<Pointer<Click>>, mut commands: Commands) {
 fn sticking(area: AnyView, plugin: Entity, key: u32) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let node = cx.build(area);
-        cx.world.entity_mut(node).insert(StickToEnd::default()).observe(
+        // The scroll itself, under the column that cuts it.
+        let scroll = cx
+            .world
+            .get::<Children>(node)
+            .and_then(|children| {
+                children.iter().find(|&child| {
+                    cx.world.get::<ScrollGoal>(child).is_some()
+                })
+            })
+            .unwrap_or(node);
+        cx.world.entity_mut(scroll).insert(StickToEnd::default()).observe(
             move |_: On<ReachedTop>,
                   mut actions: MessageWriter<NodeAction>| {
                 actions.write(NodeAction {

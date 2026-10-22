@@ -21,6 +21,7 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::{Real, Time};
+use bevy::ui::px;
 use bevy_fynix::dock::DockTree;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
@@ -451,7 +452,12 @@ fn view(_: Entity) -> AnyView {
     .within(column(()).gap(0.0));
     AnyView::new(move |cx: &mut Cx| {
         let gap = cx.theme().space.section;
-        cx.build(column((count, scroll_area((cards,)))).gap(gap))
+        cx.build(
+            column((count, scroll_area((cards,))))
+                .gap(gap)
+                .grow(1.0)
+                .min_height(px(0.0)),
+        )
     })
     .in_panel()
 }

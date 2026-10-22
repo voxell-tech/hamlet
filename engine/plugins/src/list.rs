@@ -122,7 +122,9 @@ fn view(_: Entity) -> AnyView {
                 buttons(vec![add.boxed()]),
                 scroll_area((rows,)),
             ))
-            .gap(gap),
+            .gap(gap)
+            .grow(1.0)
+            .min_height(px(0.0)),
         )
     })
     .in_panel()

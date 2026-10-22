@@ -684,7 +684,9 @@ pub fn list_row(
     })
 }
 
-/// `children` in a column that scrolls, taking the height left.
+/// `children` in a column that scrolls, taking the height left. Glows
+/// reach past its sides, but what scrolls is cut at its top and
+/// bottom, so it never shows over what is above or below it.
 pub fn scroll_area<C>(children: C) -> AnyView
 where
     C: bevy_fynix::ViewSeq<bevy_fynix::Bevy, EngineTheme> + 'static,
@@ -692,11 +694,15 @@ where
     AnyView::new(move |cx: &mut Cx| {
         let gap = cx.theme().space.gap;
         cx.build(
-            scroll(children)
+            column((scroll(children)
                 .gap(gap)
                 .grow(1.0)
                 .min_height(px(0.0))
-                .tagged(GlowMargin),
+                .tagged(GlowMargin),))
+            .gap(0.0)
+            .grow(1.0)
+            .min_height(px(0.0))
+            .overflow(Overflow::clip_y()),
         )
     })
 }
