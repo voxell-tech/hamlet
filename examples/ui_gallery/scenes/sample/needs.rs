@@ -2,7 +2,7 @@
 
 use bevy::ecs::world::World;
 use hamlet_client::waits::Waiting;
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 use serde_json::json;
 
 use crate::scenes::Scene;

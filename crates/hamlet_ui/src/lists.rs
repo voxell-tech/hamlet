@@ -142,7 +142,7 @@ pub fn card(
 
 #[cfg(test)]
 mod tests {
-    use hamlet_protocol as protocol;
+    use hamlet_protocol::client as protocol;
     use hamlet_realm::pick::{Selected, Thing};
 
     use super::*;

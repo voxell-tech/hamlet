@@ -9,7 +9,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Providers, Settings};
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 
 use super::choice::{chooser, home_default};
 use super::{

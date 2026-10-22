@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use anyhow::Result;
-use hamlet_runtime_protocol::{ToolSpec, ToolSpecReplay};
+use hamlet_protocol::runtime::{ToolSpec, ToolSpecReplay};
 use serde::Deserialize;
 use serde_json::{Value, json};
 

@@ -11,7 +11,7 @@ use hamlet_client::messages::{JobFinished, Response};
 use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::address_of;
 use hamlet_desktop::editor::{Edit, Edited};
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 
 use super::agent::Briefing;
 use crate::me::Me;

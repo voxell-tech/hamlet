@@ -5,7 +5,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{Item, Mark, ModelRef, Partial, VERSION};
+use crate::runtime::{Item, Mark, ModelRef, Partial, VERSION};
 
 /// Creates a conversation once per `key`; asking again answers with
 /// the same conversation.
@@ -57,7 +57,7 @@ pub struct Submit {
     pub id: String,
     /// Hamlet's kind and data for the entry that places it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "Mark")]
     pub mark: Option<Mark>,
     #[schemars(length(min = 1))]
@@ -66,7 +66,7 @@ pub struct Submit {
     #[schemars(extend("const" = VERSION))]
     pub v: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "u64", range(min = 1))]
     pub window: Option<u64>,
 }
@@ -81,7 +81,7 @@ pub struct Write {
     /// Written at a boundary, so the inputs queued behind a run that
     /// ended without them are placed after it and run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "bool")]
     pub boundary: Option<bool>,
     #[schemars(length(min = 1))]
@@ -169,7 +169,7 @@ pub struct Fork {
 pub struct Admitted {
     /// What the harness said of an unanswered input.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "Value")]
     pub detail: Option<Value>,
     #[schemars(length(min = 1))]
@@ -178,7 +178,7 @@ pub struct Admitted {
     pub re: String,
     /// Why an unanswered input ended.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub reason: Option<String>,
     pub status: AdmittedStatus,
@@ -237,7 +237,7 @@ pub struct Cancelled {
 #[serde(deny_unknown_fields)]
 pub struct History {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub before: Option<String>,
     #[schemars(length(min = 1))]
@@ -329,7 +329,7 @@ pub struct Live {
     #[schemars(length(min = 1))]
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "Partial")]
     pub partial: Option<Partial>,
     pub pending: u64,
@@ -347,13 +347,13 @@ pub struct Settled {
     #[schemars(length(min = 1))]
     pub conversation: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "Value")]
     pub detail: Option<Value>,
     #[schemars(length(min = 1))]
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub reason: Option<String>,
     #[schemars(length(min = 1))]
@@ -399,7 +399,7 @@ pub struct Stopped {
     #[schemars(length(min = 1))]
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "Mark")]
     pub notice: Option<Mark>,
     #[schemars(length(min = 1))]
@@ -419,22 +419,22 @@ pub struct Yield {
     #[schemars(length(min = 1))]
     pub conversation: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "bool")]
     pub history: Option<bool>,
     #[schemars(length(min = 1))]
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub input: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "bool")]
     pub retried: Option<bool>,
     #[serde(rename = "summaryFailure")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub summary_failure: Option<String>,
     #[schemars(extend("const" = VERSION))]
@@ -449,13 +449,13 @@ pub struct Yield {
 #[serde(deny_unknown_fields)]
 pub struct Verdict {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "bool")]
     pub compact: Option<bool>,
     #[schemars(length(min = 1))]
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "Mark")]
     pub notice: Option<Mark>,
     #[schemars(length(min = 1))]
@@ -463,7 +463,7 @@ pub struct Verdict {
     #[schemars(extend("const" = VERSION))]
     pub v: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub words: Option<String>,
 }

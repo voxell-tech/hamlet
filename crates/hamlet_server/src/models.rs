@@ -6,17 +6,16 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use hamlet_protocol::{
+use hamlet_protocol::client::{
     Check, ClientMessage, EditCatalogueSet, Link, LinkState, Listed,
     ListedPriced, Login, LoginMethod, LoginProgress, LoginStep,
     Price as ListedPrice, ProviderView, Read, ReadResult,
     ServerMessage,
 };
-use hamlet_runtime_protocol::{
-    self as runtime, self, ModelRef, Price, ProviderControl,
-    ProviderEvent, ProviderRequest, ProviderRequestAction,
-    ProviderRequestMethod, ProviderResult, ProviderResultProviders,
-    Selection,
+use hamlet_protocol::runtime::{
+    self, ModelRef, Price, ProviderControl, ProviderEvent,
+    ProviderRequest, ProviderRequestAction, ProviderRequestMethod,
+    ProviderResult, ProviderResultProviders, Selection,
 };
 use serde_json::{Value, json};
 

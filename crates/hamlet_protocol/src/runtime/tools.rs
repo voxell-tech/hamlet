@@ -7,7 +7,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::VERSION;
+use crate::runtime::VERSION;
 
 /// Replaces the runtime's tool definitions before its next request.
 #[derive(
@@ -63,7 +63,7 @@ pub struct Allow {
     /// The runtime's submission id of the input whose turn makes the
     /// call.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub input: Option<String>,
     #[schemars(length(min = 1))]
@@ -151,7 +151,7 @@ pub struct Operation {
     /// The runtime's submission id of the input whose turn makes the
     /// call.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub input: Option<String>,
     #[schemars(length(min = 1))]
@@ -169,11 +169,11 @@ pub struct Operation {
 #[serde(deny_unknown_fields)]
 pub struct Result {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "BTreeMap<String, Value>")]
     pub details: Option<BTreeMap<String, Value>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "Vec<Diagnostic>")]
     pub diagnostics: Option<Vec<Diagnostic>>,
     pub error: bool,

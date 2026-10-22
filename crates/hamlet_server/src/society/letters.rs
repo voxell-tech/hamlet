@@ -3,10 +3,10 @@
 //! and its answer carried back.
 
 use anyhow::{Context, Result, bail};
-use hamlet_protocol::{
+use hamlet_protocol::client::{
     self as protocol, ConversationView, ConversationViewKind,
 };
-use hamlet_runtime_protocol::{Item, ItemKind};
+use hamlet_protocol::runtime::{Item, ItemKind};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -995,7 +995,7 @@ pub(super) fn answer_of(
                     .iter()
                     .flatten()
                     .filter_map(|block| match block {
-                        hamlet_runtime_protocol::Block::Text {
+                        hamlet_protocol::runtime::Block::Text {
                             text,
                         } => Some(text.as_str()),
                         _ => None,

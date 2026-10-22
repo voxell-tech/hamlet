@@ -3,7 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{
+use crate::client::{
     Address, Endpoint, Listed, Past, Price, RequestId, Skill,
 };
 
@@ -60,7 +60,7 @@ pub enum EditLimits {
         #[schemars(extend("format" = "uuid"))]
         id: RequestId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[serde(deserialize_with = "crate::present")]
+        #[serde(deserialize_with = "crate::client::present")]
         #[schemars(with = "String")]
         reason: Option<String>,
         set: EditLimitsSetSet,
@@ -70,7 +70,7 @@ pub enum EditLimits {
         #[schemars(extend("format" = "uuid"))]
         id: RequestId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[serde(deserialize_with = "crate::present")]
+        #[serde(deserialize_with = "crate::client::present")]
         #[schemars(with = "String")]
         reason: Option<String>,
         whole: std::collections::BTreeMap<String, serde_json::Value>,
@@ -94,24 +94,24 @@ pub struct EditLimitsSetSet {
 pub struct EditSettingsSet {
     #[serde(rename = "allowNet")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "bool")]
     pub allow_net: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "Vec<Endpoint>")]
     pub endpoints: Option<Vec<Endpoint>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "String")]
     pub model: Option<String>,
     #[serde(rename = "reflectEvery")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "i64")]
     pub reflect_every: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "Option<EditSettingsSetWorkspace>")]
     pub workspace: Option<Option<EditSettingsSetWorkspace>>,
 }
@@ -131,15 +131,15 @@ pub struct EditSettingsSetWorkspace {
 #[serde(deny_unknown_fields)]
 pub struct EditCatalogueSet {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "bool")]
     pub allowed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "String")]
     pub note: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "Option<Price>")]
     pub price: Option<Option<Price>>,
 }
@@ -166,7 +166,7 @@ pub enum Read {
         #[schemars(extend("format" = "uuid"))]
         id: RequestId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[serde(deserialize_with = "crate::present")]
+        #[serde(deserialize_with = "crate::client::present")]
         #[schemars(with = "bool")]
         refresh: Option<bool>,
     },
@@ -174,7 +174,7 @@ pub enum Read {
     Papers {
         agent: Address,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[serde(deserialize_with = "crate::present")]
+        #[serde(deserialize_with = "crate::client::present")]
         #[schemars(with = "bool")]
         full: Option<bool>,
         #[schemars(extend("format" = "uuid"))]

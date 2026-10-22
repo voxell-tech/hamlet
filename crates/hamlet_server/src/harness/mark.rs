@@ -3,7 +3,7 @@
 //! [`Mark`].
 
 use anyhow::{Context, Result};
-use hamlet_runtime_protocol::Mark;
+use hamlet_protocol::runtime::Mark;
 use serde::{Deserialize, Serialize};
 
 use crate::record::AgentRef;

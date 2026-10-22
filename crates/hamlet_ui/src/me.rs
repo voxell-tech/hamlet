@@ -12,7 +12,7 @@ use hamlet_client::chats::{Chat, Status, Transcript};
 use hamlet_client::realm::{
     self as agents, Chief, Citizen, HOME, MAYOR, Mayor,
 };
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Selected, Thing, select};
 
 use crate::dock::show_tab;

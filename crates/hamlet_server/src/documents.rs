@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use hamlet_protocol::{
+use hamlet_protocol::client::{
     Address, Edit, EditLimits, Papers, Read, ReadResult,
     ReadResultCharterCharter, ServerMessage,
 };
@@ -153,7 +153,7 @@ impl Service {
     /// The chief's edit of the home's settings and its workspace.
     fn edit_settings(
         &mut self,
-        set: hamlet_protocol::EditSettingsSet,
+        set: hamlet_protocol::client::EditSettingsSet,
     ) -> Result<Refusable<String>> {
         let previous = self.settings()?;
         let workspace = match crate::settings::validate(&set) {
@@ -179,13 +179,15 @@ impl Service {
             if let Some(endpoints) = &set.endpoints {
                 settings.endpoints = endpoints
                     .iter()
-                    .map(|endpoint| hamlet_protocol::Endpoint {
-                        name: self
-                            .credentials
-                            .scrub_text(&endpoint.name),
-                        base_url: self
-                            .credentials
-                            .scrub_text(&endpoint.base_url),
+                    .map(|endpoint| {
+                        hamlet_protocol::client::Endpoint {
+                            name: self
+                                .credentials
+                                .scrub_text(&endpoint.name),
+                            base_url: self
+                                .credentials
+                                .scrub_text(&endpoint.base_url),
+                        }
                     })
                     .collect();
             }
@@ -426,7 +428,7 @@ pub(crate) enum Mode {
     Auto,
 }
 
-impl From<Mode> for hamlet_protocol::HamletMode {
+impl From<Mode> for hamlet_protocol::client::HamletMode {
     fn from(mode: Mode) -> Self {
         match mode {
             Mode::Manual => Self::Manual,
@@ -594,7 +596,7 @@ pub(crate) fn prepare_read(
         conversation: None,
     };
     let mut prompt = crate::prompt::prepare(service, &subject)?;
-    prompt.sections.push(hamlet_runtime_protocol::Section {
+    prompt.sections.push(hamlet_protocol::runtime::Section {
         name: "budget".into(),
         text: crate::prompt::budget(service, &subject)?,
     });

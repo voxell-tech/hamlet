@@ -5,7 +5,7 @@ use hamlet_client::realm::{
     Traffic, Voted,
 };
 use hamlet_client::{ClientPlugin, receive};
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 use hamlet_testing::realm;
 
 use super::housing::{

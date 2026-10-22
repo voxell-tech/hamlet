@@ -17,7 +17,7 @@ mod watch;
 use std::collections::HashMap;
 
 use anyhow::{Context, Result};
-use hamlet_protocol::{
+use hamlet_protocol::client::{
     ChatRef, ClientMessage, Doing, Op, Read, ServerMessage, Turn,
     UsageView,
 };

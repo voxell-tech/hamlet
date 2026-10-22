@@ -492,7 +492,7 @@ mod tests {
     use bevy::prelude::*;
     use hamlet_client::ClientPlugin;
     use hamlet_client::realm::mayor;
-    use hamlet_protocol as protocol;
+    use hamlet_protocol::client as protocol;
     use hamlet_testing::realm;
 
     use super::{Bubble, plugin};

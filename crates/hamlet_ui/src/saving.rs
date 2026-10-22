@@ -8,7 +8,7 @@ use bevy_fynix::views::{FrameProps, column};
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_desktop::editor;
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 
 use crate::icons::Glyph;
 use crate::looks::{action, bad_action, note};
@@ -160,7 +160,7 @@ mod tests {
     use bevy::ecs::system::In;
     use hamlet_client::outbox::Outbox;
     use hamlet_desktop::editor::{Edit, Opener};
-    use hamlet_protocol as protocol;
+    use hamlet_protocol::client as protocol;
 
     #[derive(Resource, Default)]
     struct Opened(Vec<std::path::PathBuf>);

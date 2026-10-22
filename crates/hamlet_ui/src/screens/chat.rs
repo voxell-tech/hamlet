@@ -50,7 +50,7 @@ use hamlet_client::messages::{
 };
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::MAYOR;
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 use hamlet_realm::orders::{Decree, Tell};
 
 pub(crate) use self::change::change_view;

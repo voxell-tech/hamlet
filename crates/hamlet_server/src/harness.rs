@@ -29,9 +29,9 @@ pub use bindings::{
 pub(crate) use bindings::{
     ended, fork_of, input_runs, items, working_on,
 };
-use hamlet_runtime_protocol::{
-    self as runtime, Capability, Diagnostic, HelloStore, Item, Mark,
-    Partial, RuntimeMessage, Section, ServerMessage, ToolSpec,
+use hamlet_protocol::runtime::{
+    self, Capability, Diagnostic, HelloStore, Item, Mark, Partial,
+    RuntimeMessage, Section, ServerMessage, ToolSpec,
 };
 pub use mark::{InputMark, Mail};
 pub use process::Pi;

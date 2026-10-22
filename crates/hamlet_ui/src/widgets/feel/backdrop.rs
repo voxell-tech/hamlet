@@ -195,7 +195,7 @@ mod tests {
                 asked: 1,
                 answers: Vec::new(),
                 chat: None,
-                detail: hamlet_protocol::WaitDetail::Fault {},
+                detail: hamlet_protocol::client::WaitDetail::Fault {},
             })
             .id()
     }

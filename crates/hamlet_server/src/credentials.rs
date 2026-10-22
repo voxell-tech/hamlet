@@ -258,7 +258,7 @@ impl Credentials {
 
 pub(crate) fn pack(
     mut value: Value,
-) -> Result<hamlet_runtime_protocol::Credential> {
+) -> Result<hamlet_protocol::runtime::Credential> {
     if value["type"] == "oauth" {
         let mut extra =
             value.as_object().context("OAuth credential")?.clone();
@@ -277,7 +277,7 @@ pub(crate) fn pack(
 }
 
 pub(crate) fn unpack(
-    credential: hamlet_runtime_protocol::Credential,
+    credential: hamlet_protocol::runtime::Credential,
 ) -> Result<Value> {
     let mut value = serde_json::to_value(credential)?;
     if value["type"] == "oauth" {

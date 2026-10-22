@@ -191,7 +191,7 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
 mod tests {
     use hamlet_client::outbox::Outbox;
     use hamlet_client::realm::Settlement;
-    use hamlet_protocol as protocol;
+    use hamlet_protocol::client as protocol;
 
     use super::*;
     use crate::me::tests::{panel_app, press, words};

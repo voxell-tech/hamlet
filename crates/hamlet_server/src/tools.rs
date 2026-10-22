@@ -17,7 +17,7 @@ mod tests;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use hamlet_runtime_protocol::{
+use hamlet_protocol::runtime::{
     Diagnostic, DiagnosticSeverity, ToolSpec, ToolSpecReplay,
 };
 use serde::{Deserialize, Serialize};

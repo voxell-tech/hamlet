@@ -1,7 +1,7 @@
 //! Chief documents and record views through the server's protocol
 //! seam.
 
-use hamlet_protocol::{ReplyKind, ServerMessage};
+use hamlet_protocol::client::{ReplyKind, ServerMessage};
 use hamlet_server::protocol::Protocol;
 use hamlet_server::record::{
     Actor, Admit, Change, Departure, RecordOperation,

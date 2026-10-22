@@ -2,7 +2,7 @@
 //! the inputs owed to them, as the realm database keeps them.
 
 use anyhow::{Context, Result};
-use hamlet_runtime_protocol::{
+use hamlet_protocol::runtime::{
     AdmittedStatus, ConfigureTools, Item, Mark, ModelRef,
     SettledStatus,
 };

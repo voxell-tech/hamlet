@@ -3,7 +3,7 @@
 use bevy_ecs::name::Name;
 use bevy_ecs::prelude::*;
 use bevy_ecs::system::{SystemParam, SystemState};
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 pub use hamlet_protocol::{HOME, MAYOR};
 
 /// The server machine's houses folder, excluded from local chat

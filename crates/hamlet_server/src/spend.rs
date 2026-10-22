@@ -4,10 +4,10 @@ use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
 use chrono::{Datelike, Local, TimeZone, Timelike};
-use hamlet_protocol::{
+use hamlet_protocol::client::{
     self as protocol, Period, Report, ReportCaps, UsageView,
 };
-use hamlet_runtime_protocol::{Price, Usage};
+use hamlet_protocol::runtime::{Price, Usage};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -410,7 +410,7 @@ impl Service {
 pub fn usage(
     db: &Connection,
     binding: BindingId,
-) -> Result<hamlet_protocol::UsageView> {
+) -> Result<hamlet_protocol::client::UsageView> {
     usage_of(db, &[binding])
 }
 

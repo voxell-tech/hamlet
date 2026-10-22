@@ -1,7 +1,7 @@
 //! Requests waiting for the connection to send them.
 
 use bevy_ecs::prelude::*;
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 pub use protocol::RequestId;
 use uuid::Uuid;
 

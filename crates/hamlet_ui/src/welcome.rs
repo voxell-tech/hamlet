@@ -20,7 +20,7 @@ use hamlet_client::connection::State;
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Settings;
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 
 pub use self::pages::view;
 pub use self::providers::Browser;
@@ -375,7 +375,7 @@ pub(crate) mod server_tests {
     use bevy_fynix::{FynixPlugin, mount};
     use hamlet_assets::Tuning;
     use hamlet_client::{ClientPlugin, receive};
-    use hamlet_protocol as protocol;
+    use hamlet_protocol::client as protocol;
 
     use super::*;
     use crate::theme::{self, HamletTheme};

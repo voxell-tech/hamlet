@@ -6,7 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::VERSION;
+use crate::runtime::VERSION;
 
 /// Provider work requested by the server, with no provider state
 /// written by the runtime.
@@ -18,26 +18,26 @@ pub struct ProviderRequest {
     pub action: ProviderRequestAction,
     #[serde(rename = "baseUrl")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub base_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "Credential")]
     pub credential: Option<Credential>,
     #[schemars(length(min = 1))]
     pub id: String,
     #[serde(rename = "installationId")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub installation_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "ProviderRequestMethod")]
     pub method: Option<ProviderRequestMethod>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub model: Option<String>,
     pub models: Vec<BTreeMap<String, Value>>,
@@ -80,14 +80,14 @@ pub struct ProviderControl {
     #[schemars(length(min = 1))]
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub prompt: Option<String>,
     pub scope: String,
     #[schemars(extend("const" = VERSION))]
     pub v: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub value: Option<String>,
 }
@@ -101,7 +101,7 @@ pub struct ProviderEvent {
     #[schemars(length(min = 1))]
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub prompt: Option<String>,
     pub scope: String,
@@ -118,27 +118,27 @@ pub struct ProviderEvent {
 #[serde(deny_unknown_fields)]
 pub struct ProviderResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "Credential")]
     pub credential: Option<Credential>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub error: Option<String>,
     #[schemars(length(min = 1))]
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "Vec<BTreeMap<String, Value>>")]
     pub models: Option<Vec<BTreeMap<String, Value>>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "Vec<ProviderResultProviders>")]
     pub providers: Option<Vec<ProviderResultProviders>>,
     #[schemars(length(min = 1))]
     pub re: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub text: Option<String>,
     #[schemars(extend("const" = VERSION))]
@@ -167,11 +167,11 @@ pub enum Credential {
     #[serde(rename = "api_key")]
     ApiKey {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[serde(deserialize_with = "crate::present")]
+        #[serde(deserialize_with = "crate::runtime::present")]
         #[schemars(with = "BTreeMap<String, String>")]
         env: Option<BTreeMap<String, String>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[serde(deserialize_with = "crate::present")]
+        #[serde(deserialize_with = "crate::runtime::present")]
         #[schemars(with = "String")]
         key: Option<String>,
     },
@@ -193,13 +193,13 @@ pub enum Credential {
 pub struct CredentialRequest {
     pub action: CredentialRequestAction,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "Credential")]
     pub credential: Option<Credential>,
     #[schemars(length(min = 1))]
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub lease: Option<String>,
     pub scope: String,
@@ -231,17 +231,17 @@ pub enum CredentialRequestAction {
 #[serde(deny_unknown_fields)]
 pub struct CredentialResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "Credential")]
     pub credential: Option<Credential>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub error: Option<String>,
     #[schemars(length(min = 1))]
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub lease: Option<String>,
     #[schemars(length(min = 1))]

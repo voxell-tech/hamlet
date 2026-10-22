@@ -7,7 +7,7 @@ use hamlet_client::connection::{Connection, State};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Settlement;
 use hamlet_client::{ClientPlugin, Tokio};
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 use hamlet_protocol::discovery::ServerAddress;
 use hamlet_testing::realm;
 use tokio::net::{TcpListener, TcpStream};

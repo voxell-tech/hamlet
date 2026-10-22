@@ -3,7 +3,7 @@ use bevy_ecs::name::Name;
 use bevy_ecs::prelude::*;
 use hamlet_client::realm::*;
 use hamlet_client::{ClientPlugin, receive};
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 
 fn frames(text: &str) -> Vec<protocol::ServerMessage> {
     text.lines()

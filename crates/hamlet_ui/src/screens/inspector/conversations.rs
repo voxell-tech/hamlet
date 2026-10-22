@@ -9,7 +9,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
 use hamlet_client::chats::Chat;
 use hamlet_client::realm::{PeerChats, address_of, name_of};
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 
 use super::Section;
 use crate::icons::Glyph;

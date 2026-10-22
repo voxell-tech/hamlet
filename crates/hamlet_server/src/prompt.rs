@@ -9,7 +9,7 @@ mod tests;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use hamlet_runtime_protocol::Section;
+use hamlet_protocol::runtime::Section;
 use serde_json::Value;
 
 use crate::papers::{Reader, cut};

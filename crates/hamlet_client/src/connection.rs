@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use bevy_app::{App, Update};
 use bevy_ecs::prelude::*;
 use futures::{SinkExt, StreamExt};
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 use hamlet_protocol::discovery::ServerAddress;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;

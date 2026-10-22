@@ -11,7 +11,7 @@ mod tasks;
 use std::collections::BTreeMap;
 
 use anyhow::Result;
-use hamlet_runtime_protocol::{
+use hamlet_protocol::runtime::{
     Block, Item, Section, ToolSpec, ToolSpecReplay,
 };
 use serde_json::{Map, Value, json};

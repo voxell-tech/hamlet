@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use bevy::ecs::world::World;
 use hamlet_client::chats::{Chat, Status, Usage};
 use hamlet_client::{ViewDir, realm};
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Also, Selected, Thing};
 use hamlet_ui::Me;
 pub(super) use welcome::first_run;

@@ -4,7 +4,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{Address, AgentRef, RequestId, UsageView};
+use crate::client::{Address, AgentRef, RequestId, UsageView};
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
@@ -23,7 +23,7 @@ pub struct Say {
 #[serde(deny_unknown_fields)]
 pub struct Stop {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "Address")]
     pub agent: Option<Address>,
     #[schemars(extend("format" = "uuid"))]
@@ -78,7 +78,7 @@ pub struct Retry {
 #[serde(deny_unknown_fields)]
 pub struct Open {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "String")]
     pub before: Option<String>,
     pub chat: ChatRef,
@@ -100,15 +100,15 @@ pub struct Close {
 #[serde(deny_unknown_fields)]
 pub struct ChatRef {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "AgentRef")]
     pub from: Option<AgentRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "ChatRefKind")]
     pub kind: Option<ChatRefKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "i64")]
     pub past: Option<i64>,
     pub with: Address,
@@ -131,7 +131,7 @@ pub enum ChatRefKind {
 pub struct Turn {
     pub chat: ChatRef,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "i64")]
     pub number: Option<i64>,
     pub ops: Vec<Op>,
@@ -149,12 +149,12 @@ pub struct Transcript {
     #[serde(deserialize_with = "Option::deserialize")]
     pub last: Option<LastActivity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "i64")]
     pub number: Option<i64>,
     pub pending: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "RequestId", extend("format" = "uuid"))]
     pub to: Option<RequestId>,
     pub usage: UsageView,
@@ -170,7 +170,7 @@ pub enum Op {
     Add {
         item: Item,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[serde(deserialize_with = "crate::present")]
+        #[serde(deserialize_with = "crate::client::present")]
         #[schemars(with = "String")]
         replaces: Option<String>,
     },
@@ -179,7 +179,7 @@ pub enum Op {
     #[serde(rename = "close")]
     Close {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[serde(deserialize_with = "crate::present")]
+        #[serde(deserialize_with = "crate::client::present")]
         #[schemars(with = "Option<Change>")]
         change: Option<Option<Change>>,
         exit: i64,
@@ -209,22 +209,22 @@ pub enum Op {
 pub struct Item {
     pub at: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "String")]
     pub author: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "String")]
     pub chief: Option<String>,
     pub id: String,
     pub kind: ItemKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "bool")]
     pub rewindable: Option<bool>,
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "ItemTool")]
     pub tool: Option<ItemTool>,
 }

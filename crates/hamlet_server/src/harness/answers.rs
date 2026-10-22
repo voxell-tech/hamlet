@@ -3,8 +3,8 @@
 //! asked.
 
 use anyhow::Result;
-use hamlet_runtime_protocol::{
-    self as runtime, ModelRef, Price, ServerMessage, Usage,
+use hamlet_protocol::runtime::{
+    self, ModelRef, Price, ServerMessage, Usage,
 };
 use rusqlite::{OptionalExtension, params};
 

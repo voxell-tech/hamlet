@@ -318,7 +318,7 @@ pub(crate) fn question(deed: Deed, at: Vec2) -> AnyView {
 #[cfg(test)]
 mod tests {
     use hamlet_client::outbox::Outbox;
-    use hamlet_protocol as protocol;
+    use hamlet_protocol::client as protocol;
 
     use super::*;
 

@@ -275,7 +275,7 @@ fn gift_reports() -> AnyView {
 mod tests {
     use hamlet_client::outbox::Outbox;
     use hamlet_client::realm::{HOME, Settlement};
-    use hamlet_protocol as protocol;
+    use hamlet_protocol::client as protocol;
     use hamlet_realm::pick::{Also, Selected};
     use hamlet_testing::realm;
 

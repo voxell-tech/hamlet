@@ -28,5 +28,4 @@ message against.
 
 ## Consequences
 
-- No window crate depends on a crate that holds the rules;
-  `tests/window_is_a_client.rs` guards that.
+- No window crate depends on a crate that holds the rules.

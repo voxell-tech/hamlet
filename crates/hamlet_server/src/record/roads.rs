@@ -1,7 +1,7 @@
 //! Local roads, office roads and their atomic charges.
 
 use anyhow::{Result, ensure};
-use hamlet_protocol::RoadLevel;
+use hamlet_protocol::client::RoadLevel;
 use rusqlite::{Connection, params};
 
 use super::{

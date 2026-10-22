@@ -1,7 +1,7 @@
 //! An instruction's one objection, held until its chief answers.
 
 use anyhow::{Context, Result};
-use hamlet_protocol::Choice;
+use hamlet_protocol::client::Choice;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -139,7 +139,7 @@ pub(crate) fn object(
 
 #[cfg(test)]
 mod tests {
-    use hamlet_runtime_protocol::ModelRef;
+    use hamlet_protocol::runtime::ModelRef;
     use hamlet_testing::Scratch;
     use rusqlite::params;
 

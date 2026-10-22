@@ -2,7 +2,9 @@
 //! decisions.
 
 use anyhow::{Context, Result};
-use hamlet_protocol::{self as protocol, VoteView, Voter, VoterCast};
+use hamlet_protocol::client::{
+    self as protocol, VoteView, Voter, VoterCast,
+};
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};

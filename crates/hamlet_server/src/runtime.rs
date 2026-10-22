@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use futures::{SinkExt, StreamExt};
-use hamlet_protocol::{
+use hamlet_protocol::client::{
     Address, ClientMessage, Edit, MoveHouses, Read, ServerMessage,
     State,
 };

@@ -4,7 +4,7 @@ use hamlet_client::chats::{Chat, Entry, Item, Transcript};
 use hamlet_client::messages::Reconnected;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::{ClientPlugin, receive};
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 
 fn app() -> App {
     let mut app = App::new();

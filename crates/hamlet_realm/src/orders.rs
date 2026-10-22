@@ -12,7 +12,7 @@ use hamlet_client::ViewDir;
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::{self as agents, Deeds, HOME, Settlement};
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 
 use crate::chief::{Kept, Player, Stands};
 use crate::generator::society::Place;
@@ -583,7 +583,7 @@ fn grant(
 mod tests {
     use hamlet_client::ClientPlugin;
     use hamlet_client::outbox::Outbox;
-    use hamlet_protocol as protocol;
+    use hamlet_protocol::client as protocol;
     use hamlet_testing::{Scratch, realm};
 
     use super::*;

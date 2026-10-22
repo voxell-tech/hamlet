@@ -2,11 +2,11 @@
 //! pages, and the history of its sessions (C24, S5).
 
 use anyhow::Result;
-use hamlet_protocol::{
+use hamlet_protocol::client::{
     Address, ChatRef, ChatRefKind, Open, ReadResult, ServerMessage,
     Transcript,
 };
-use hamlet_runtime_protocol as runtime;
+use hamlet_protocol::runtime;
 
 use super::{Watch, records};
 use crate::harness::{BindingId, Harnesses, InputMark};
@@ -222,7 +222,7 @@ pub(super) async fn history(
 pub(super) fn pasts(
     service: &mut Service,
     agent: &crate::record::AgentRef,
-) -> Result<Vec<hamlet_protocol::Past>> {
+) -> Result<Vec<hamlet_protocol::client::Past>> {
     let chief = service.chief.clone();
     let db = service.home.store().connection();
     let current = records::current_number(db, agent, &chief)?;
@@ -267,7 +267,7 @@ pub(super) fn pasts(
             .max()
             .unwrap_or(session.began);
         let usage = super::usage(service, session.binding)?;
-        history.push(hamlet_protocol::Past {
+        history.push(hamlet_protocol::client::Past {
             began: session.began,
             by,
             current: Some(session.number) == current,

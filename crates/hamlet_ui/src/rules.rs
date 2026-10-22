@@ -19,7 +19,7 @@ use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Bylaws, HOME, Settlement};
-use hamlet_protocol::{self as protocol, Limits, Period};
+use hamlet_protocol::client::{self as protocol, Limits, Period};
 use serde_json::Value;
 
 use crate::icons::Glyph;
@@ -882,7 +882,7 @@ mod tests {
     }
     #[test]
     fn a_refused_edit_restores_the_received_value_beside_its_words() {
-        use hamlet_protocol as protocol;
+        use hamlet_protocol::client as protocol;
 
         use crate::me::tests::words;
         let (mut app, _) = page(Part::Budget);

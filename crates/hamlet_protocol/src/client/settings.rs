@@ -3,7 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::RequestId;
+use crate::client::RequestId;
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
@@ -39,7 +39,7 @@ pub struct SettingsViewEndpoints {
 pub struct SettingsViewWorkspace {
     #[serde(rename = "move")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "SettingsViewWorkspaceMove")]
     pub move_: Option<SettingsViewWorkspaceMove>,
     #[serde(deserialize_with = "Option::deserialize")]
@@ -167,7 +167,7 @@ pub enum Check {
         #[schemars(extend("format" = "uuid"))]
         id: RequestId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[serde(deserialize_with = "crate::present")]
+        #[serde(deserialize_with = "crate::client::present")]
         #[schemars(with = "String")]
         model: Option<String>,
     },
@@ -245,7 +245,7 @@ pub struct LoginProgress {
     pub login: String,
     pub step: LoginStep,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "RequestId", extend("format" = "uuid"))]
     pub to: Option<RequestId>,
 }
@@ -257,7 +257,7 @@ pub struct LoginProgress {
 pub enum LoginStep {
     Url {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[serde(deserialize_with = "crate::present")]
+        #[serde(deserialize_with = "crate::client::present")]
         #[schemars(with = "String")]
         instructions: Option<String>,
         url: String,

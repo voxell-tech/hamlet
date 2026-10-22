@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use hamlet_runtime_protocol::DiagnosticSeverity;
+use hamlet_protocol::runtime::DiagnosticSeverity;
 use hamlet_workspace_wire::Code;
 use serde_json::{Map, Value, json};
 

@@ -5,7 +5,8 @@ use std::time::{Duration, Instant};
 
 use base64::prelude::*;
 use futures::{SinkExt, StreamExt};
-use hamlet_protocol::{HOME, MAYOR, *};
+use hamlet_protocol::client::*;
+use hamlet_protocol::{HOME, MAYOR};
 use serde_json::Value;
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;

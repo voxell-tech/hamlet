@@ -1,7 +1,7 @@
 //! pi's `read`, `write` and `edit`, whose paths fall in the house or
 //! the folder as C20 says.
 
-use hamlet_runtime_protocol::DiagnosticSeverity;
+use hamlet_protocol::runtime::DiagnosticSeverity;
 use hamlet_workspace_wire::Code;
 use serde_json::{Map, Value, json};
 use unicode_normalization::UnicodeNormalization;

@@ -6,7 +6,8 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use anyhow::Result;
-use hamlet_protocol::{HOME, MAYOR, Permission};
+use hamlet_protocol::client::Permission;
+use hamlet_protocol::{HOME, MAYOR};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -495,7 +496,7 @@ pub(super) fn places(
 
 #[cfg(test)]
 mod tests {
-    use hamlet_runtime_protocol::ModelRef;
+    use hamlet_protocol::runtime::ModelRef;
     use hamlet_testing::Scratch;
 
     use super::*;

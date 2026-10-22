@@ -3,7 +3,9 @@
 //! and stopping.
 
 use anyhow::Result;
-use hamlet_protocol::{Address, ReplyKind, Rewind, ServerMessage};
+use hamlet_protocol::client::{
+    Address, ReplyKind, Rewind, ServerMessage,
+};
 
 use super::follow::{self, Mode};
 use super::records::{self, Place};
@@ -244,7 +246,7 @@ async fn carry_on(
     }
     let items = service.home.store().items(binding)?;
     let last = items.iter().rev().find(|item| {
-        use hamlet_runtime_protocol::ItemKind;
+        use hamlet_protocol::runtime::ItemKind;
         matches!(
             item.kind,
             ItemKind::User
@@ -254,7 +256,7 @@ async fn carry_on(
         )
     });
     let answered = last.is_none_or(|last| {
-        last.kind == hamlet_runtime_protocol::ItemKind::Assistant
+        last.kind == hamlet_protocol::runtime::ItemKind::Assistant
             && matches!(last.stop.as_deref(), Some("stop" | "length"))
     });
     if answered {
@@ -427,7 +429,7 @@ pub(super) async fn rewind(
         fork,
         crate::clock::now(),
     )?;
-    Ok(ServerMessage::Reply(hamlet_protocol::Reply {
+    Ok(ServerMessage::Reply(hamlet_protocol::client::Reply {
         kind: ReplyKind::Rewound,
         text,
         to: id.into(),

@@ -1,7 +1,7 @@
 //! Protocol requests composed from the home's owners.
 
 use anyhow::{Context, Result, ensure};
-use hamlet_protocol::{
+use hamlet_protocol::client::{
     Address, ClientMessage, Read, ServerMessage, State,
 };
 use rusqlite::{Connection, OptionalExtension, params};

@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use hamlet_protocol::{
+use hamlet_protocol::client::{
     self as protocol, Address, ClientMessage, Give, GiveFilesFiles,
     GivePart, GiveSkillSkill, ServerMessage,
 };

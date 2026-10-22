@@ -1,5 +1,5 @@
 // The runtime protocol between the Hamlet server and this runtime: its messages are the Rust types of
-// crates/hamlet_runtime_protocol, whose JSON Schema protocol-schema.ts holds.
+// hamlet_protocol::runtime, whose JSON Schema protocol-schema.ts holds.
 import type { Static } from "typebox";
 import Schema from "typebox/schema";
 import { schema } from "./protocol-schema.ts";

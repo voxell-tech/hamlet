@@ -803,7 +803,7 @@ mod tests {
     fn received_folders_and_absolute_local_files_link_but_house_paths_stay_text()
      {
         use hamlet_client::{ClientPlugin, receive};
-        use hamlet_protocol as protocol;
+        use hamlet_protocol::client as protocol;
         let scratch =
             hamlet_testing::Scratch::new("client-markdown-links");
         let first = scratch.join("first");

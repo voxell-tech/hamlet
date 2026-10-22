@@ -1,7 +1,7 @@
 //! Structured questions through a real server and its Pi process.
 
 use hamlet_acceptance::*;
-use hamlet_protocol::*;
+use hamlet_protocol::client::*;
 use serde_json::json;
 
 #[tokio::test]

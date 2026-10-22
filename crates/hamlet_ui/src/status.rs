@@ -19,7 +19,7 @@ use hamlet_client::connection::State as ConnectionState;
 use hamlet_client::realm::{
     HOME, Sandbox, Settings, Settlement, Treasury,
 };
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 
 use crate::icons::{Glyph, glyph};
 use crate::links::Aimed;

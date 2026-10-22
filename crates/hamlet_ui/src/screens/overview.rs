@@ -377,7 +377,7 @@ pub(crate) fn tell(world: &mut World, hamlet: Entity, text: String) {
 
 #[cfg(test)]
 mod tests {
-    use hamlet_protocol as protocol;
+    use hamlet_protocol::client as protocol;
 
     use super::*;
     use crate::me::tests::{panel_app, words};

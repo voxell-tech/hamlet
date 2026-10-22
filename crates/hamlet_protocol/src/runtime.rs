@@ -4,9 +4,7 @@
 //! A harness written in Rust uses these types directly. The pi
 //! harness validates messages against
 //! `harnesses/pi/src/protocol-schema.ts`, the JSON Schema of these
-//! types that `cargo test -p hamlet_runtime_protocol` writes.
-
-#![allow(clippy::large_enum_variant)]
+//! types that `cargo test -p hamlet_protocol` writes.
 
 mod conversations;
 mod handshake;
@@ -153,7 +151,7 @@ pub struct ProtocolError {
     pub id: String,
     pub message: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "present")]
     #[schemars(with = "String")]
     pub re: Option<String>,
     #[schemars(extend("const" = VERSION))]

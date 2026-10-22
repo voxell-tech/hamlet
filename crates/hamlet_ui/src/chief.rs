@@ -386,7 +386,7 @@ pub fn panel(chief: Entity) -> AnyView {
 #[cfg(test)]
 mod tests {
     use bevy::app::{App, Update};
-    use hamlet_protocol as protocol;
+    use hamlet_protocol::client as protocol;
 
     use super::*;
 

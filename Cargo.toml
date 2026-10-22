@@ -17,7 +17,6 @@ repository = "https://github.com/voxell-tech/hamlet"
 # hamlet
 hamlet_client = { version = "0.1.0", path = "crates/hamlet_client" }
 hamlet_protocol = { version = "0.1.0", path = "crates/hamlet_protocol" }
-hamlet_runtime_protocol = { version = "0.1.0", path = "crates/hamlet_runtime_protocol" }
 hamlet_desktop = { version = "0.1.0", path = "crates/hamlet_desktop" }
 hamlet_assets = { version = "0.1.0", path = "crates/hamlet_assets" }
 hamlet_vfx = { version = "0.1.0", path = "crates/hamlet_vfx" }
@@ -116,7 +115,6 @@ hamlet_testing.workspace = true
 hamlet_vfx.workspace = true
 bevy_fynix.workspace = true
 serde_json.workspace = true
-toml.workspace = true
 
 [features]
 # A saved change to a file under assets/ reaches the running app:

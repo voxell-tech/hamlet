@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::{env, fs};
 
 use anyhow::{Context, Result, bail};
-use hamlet_protocol::*;
+use hamlet_protocol::client::*;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use uuid::Uuid;
 

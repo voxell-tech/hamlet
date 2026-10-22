@@ -27,7 +27,7 @@ use bevy_fynix::{ScopedExt, ViewExt, each, resource};
 use hamlet_client::chats::{self, Entry, Transcript};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 
 use super::entry::entry_view;
 use super::timeline::{Line, People, Who, timeline};

@@ -4,7 +4,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{
+use crate::client::{
     Limits, Period, Permission, ProviderView, SettingsView, Wait,
 };
 
@@ -95,7 +95,7 @@ pub struct Agent {
     pub conversations: Vec<ConversationView>,
     pub faulted: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "Left")]
     pub left: Option<Left>,
     pub mayor: bool,

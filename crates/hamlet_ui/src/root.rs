@@ -19,7 +19,7 @@ use bevy_fynix::views::{
 };
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 
 use crate::icons::Glyph;
 use crate::looks::{Fills, action, hairline, note};
@@ -185,7 +185,7 @@ pub fn connection_test() -> AnyView {
 #[cfg(test)]
 mod tests {
     use hamlet_client::outbox::Outbox;
-    use hamlet_protocol as protocol;
+    use hamlet_protocol::client as protocol;
 
     use super::*;
 

@@ -5,10 +5,10 @@
 use std::collections::{BTreeMap, HashMap};
 
 use anyhow::{Context, Result};
-use hamlet_protocol::{
+use hamlet_protocol::client::{
     Change, Item, ItemKind, ItemTool, LastActivity, Op,
 };
-use hamlet_runtime_protocol::{self as runtime, Block};
+use hamlet_protocol::runtime::{self, Block};
 use serde_json::Value;
 
 use crate::harness::InputMark;

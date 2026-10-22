@@ -8,7 +8,7 @@ use bevy::picking::pointer::{Location, PointerId};
 use bevy::time::TimeUpdateStrategy;
 use hamlet_client::ClientPlugin;
 use hamlet_client::realm::{Busy, Road, Settlement};
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 use hamlet_testing::realm;
 
 use super::pool::gauge::shade;

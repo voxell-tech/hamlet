@@ -2,7 +2,7 @@
 
 use bevy::ecs::world::World;
 use hamlet_client::realm::Settings;
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 use hamlet_ui::settings;
 
 use crate::scenes::Scene;

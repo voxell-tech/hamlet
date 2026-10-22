@@ -1,6 +1,6 @@
 //! A watched chat's items, kept up to date by its live ops.
 
-use crate::{Change, Item, Op};
+use crate::client::{Change, Item, Op};
 
 /// An item of a chat as a client keeps it.
 pub trait Kept {

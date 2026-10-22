@@ -7,7 +7,7 @@ mod asking;
 use std::time::Duration;
 
 use hamlet_acceptance::*;
-use hamlet_protocol::*;
+use hamlet_protocol::client::*;
 use serde_json::json;
 
 /// An approval's words after its agent's name.

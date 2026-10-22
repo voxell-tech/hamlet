@@ -5,7 +5,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::VERSION;
+use crate::runtime::VERSION;
 
 /// Asks for a conversation's prompt sections before each model call.
 #[derive(
@@ -20,7 +20,7 @@ pub struct Prompt {
     /// The runtime's submission id of the input whose turn makes the
     /// call.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub input: Option<String>,
     #[schemars(extend("const" = VERSION))]

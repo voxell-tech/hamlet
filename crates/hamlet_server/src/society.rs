@@ -16,7 +16,7 @@ pub(crate) mod work;
 use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
-use hamlet_runtime_protocol::{
+use hamlet_protocol::runtime::{
     ConfigureTools, Diagnostic, DiagnosticSeverity, ToolSpec,
     ToolSpecReplay,
 };

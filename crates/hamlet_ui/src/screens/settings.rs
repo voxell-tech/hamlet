@@ -23,7 +23,7 @@ use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Grants, HOME, MAYOR, Settings};
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_desktop::editor::{Edit, Edited};
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 use hamlet_realm::sky::Quality;
 use hamlet_realm::sound::SoundSettings;
 
@@ -629,7 +629,7 @@ mod tests {
     use bevy::ui::Checked;
     use bevy::ui_widgets::{Checkbox, ValueChange};
     use hamlet_client::outbox::Outbox;
-    use hamlet_protocol as protocol;
+    use hamlet_protocol::client as protocol;
 
     use super::*;
     use crate::me::tests::panel_app;

@@ -7,7 +7,7 @@ use hamlet_client::realm::{
     Activity, Busy, Doing, Faulted, Left, Paper, Voted,
 };
 use hamlet_client::waits::{Needs, RaisedBy, Waiting};
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 
 use super::Housed;
 use crate::Clock;

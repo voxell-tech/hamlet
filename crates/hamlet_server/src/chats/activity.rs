@@ -3,8 +3,8 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use hamlet_protocol::Doing;
-use hamlet_runtime_protocol::{self as runtime, Block};
+use hamlet_protocol::client::Doing;
+use hamlet_protocol::runtime::{self, Block};
 use serde_json::Value;
 
 /// The most bytes of what an agent says that are shown.

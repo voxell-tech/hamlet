@@ -1,7 +1,7 @@
 //! Strict client protocol parsing and the chief's error envelopes.
 
 use anyhow::{Context, Result};
-use hamlet_protocol::{
+use hamlet_protocol::client::{
     ClientMessage, Fault, Reply, ReplyKind, ServerMessage,
 };
 use jsonschema::JsonType;

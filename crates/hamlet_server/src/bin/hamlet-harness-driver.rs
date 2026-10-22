@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
-use hamlet_runtime_protocol::{Section, ToolSpecReplay};
+use hamlet_protocol::runtime::{Section, ToolSpecReplay};
 use hamlet_server::harness::{
     Answer, Binding, BindingId, Call, Config, Harnesses, Input,
     Notice,
@@ -220,9 +220,9 @@ impl Driver {
                 let runtime = RuntimeInstance::new(text("runtime")?)?;
                 let choice =
                     if command["allow"].as_bool().context("allow")? {
-                        hamlet_protocol::Choice::Allow
+                        hamlet_protocol::client::Choice::Allow
                     } else {
-                        hamlet_protocol::Choice::Deny
+                        hamlet_protocol::client::Choice::Deny
                     };
                 let decided = match self
                     .service

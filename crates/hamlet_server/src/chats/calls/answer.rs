@@ -2,7 +2,7 @@
 //! makes in one transaction, then told to the calls it ruled on.
 
 use anyhow::Result;
-use hamlet_protocol::{Choice, Permission, Pick};
+use hamlet_protocol::client::{Choice, Permission, Pick};
 
 use super::super::{asking, records};
 use super::decide::standing;
@@ -239,7 +239,7 @@ fn rule(
 mod tests {
     use std::collections::BTreeMap;
 
-    use hamlet_runtime_protocol::ModelRef;
+    use hamlet_protocol::runtime::ModelRef;
     use hamlet_testing::Scratch;
     use serde_json::json;
 

@@ -6,7 +6,7 @@ use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{HOME, MAYOR, mayor};
 use hamlet_client::waits::{Choice, Waiting};
 use hamlet_client::{ClientPlugin, receive};
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 use hamlet_testing::realm::{state, wait};
 
 fn app() -> App {

@@ -2,7 +2,7 @@
 
 use bevy::ecs::world::World;
 use hamlet_client::chats::{Entry, Item, Transcript};
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 use hamlet_ui::links::Roots;
 
 use crate::scenes::Scene;

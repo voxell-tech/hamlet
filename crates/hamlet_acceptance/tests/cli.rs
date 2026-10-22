@@ -8,7 +8,7 @@ mod processes;
 use std::path::PathBuf;
 
 use hamlet_acceptance::*;
-use hamlet_protocol::*;
+use hamlet_protocol::client::*;
 use serde_json::json;
 
 /// An EDITOR that copies what it was given to `seen`, then runs

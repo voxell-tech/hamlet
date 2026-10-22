@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use bevy_app::App;
 use bevy_ecs::prelude::*;
 use bevy_ecs::world::DeferredWorld;
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 
 use crate::chats::Chat;
 use crate::outbox::{Outbox, RequestId};

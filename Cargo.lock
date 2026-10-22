@@ -3295,7 +3295,6 @@ dependencies = [
  "hamlet_vfx",
  "serde_json",
  "tokio",
- "toml",
 ]
 
 [[package]]
@@ -3397,15 +3396,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hamlet_runtime_protocol"
-version = "0.1.0"
-dependencies = [
- "schemars",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "hamlet_server"
 version = "0.1.0"
 dependencies = [
@@ -3415,7 +3405,6 @@ dependencies = [
  "futures",
  "hamlet_acceptance",
  "hamlet_protocol",
- "hamlet_runtime_protocol",
  "hamlet_testing",
  "hamlet_workspace_wire",
  "interprocess",

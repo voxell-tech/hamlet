@@ -318,7 +318,7 @@ mod tests {
         state["houses"] = serde_json::json!(houses);
         hamlet_client::receive(
             app.world_mut(),
-            hamlet_protocol::ServerMessage::State(
+            hamlet_protocol::client::ServerMessage::State(
                 serde_json::from_value(state).unwrap(),
             ),
         );

@@ -14,7 +14,7 @@ use hamlet_client::Connection;
 use hamlet_client::connection::State;
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 
 pub(crate) use self::choice::{of_agent, of_hamlet};
 pub(crate) use self::home::narrowed;

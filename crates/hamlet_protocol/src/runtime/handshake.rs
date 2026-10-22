@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{ToolSpec, VERSION};
+use crate::runtime::{ToolSpec, VERSION};
 
 /// The runtime's first message: the versions it speaks, what it is
 /// and what its store records.

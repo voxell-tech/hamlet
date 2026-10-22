@@ -12,7 +12,7 @@ use bevy::math::Vec3;
 use bevy::time::Time;
 use bevy_fynix::dock::{ActiveTab, DockDrag, DockTab};
 use hamlet_client::messages::{SessionOutput, UserMessage};
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 use hamlet_realm::sound::{Cue, Sound};
 
 use crate::chat::{ChatError, Unfolded};

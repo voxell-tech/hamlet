@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::*;
 pub use connection::{Connection, Server};
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 use hamlet_protocol::discovery::ServerAddress;
 use tokio::runtime::Handle;
 

@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use hamlet_protocol::*;
+use hamlet_protocol::client::*;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;

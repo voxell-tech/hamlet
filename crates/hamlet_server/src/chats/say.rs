@@ -2,7 +2,7 @@
 //! an answer to what waits, or words for the agent.
 
 use anyhow::Result;
-use hamlet_protocol::{
+use hamlet_protocol::client::{
     Address, Choice, Deed, Permission, ReplyKind, Say, ServerMessage,
 };
 use serde_json::Value;
@@ -1097,7 +1097,7 @@ fn sessions(
 }
 
 fn answer(id: &str, kind: ReplyKind, text: String) -> ServerMessage {
-    ServerMessage::Reply(hamlet_protocol::Reply {
+    ServerMessage::Reply(hamlet_protocol::client::Reply {
         kind,
         text,
         to: id.into(),

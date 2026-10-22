@@ -26,7 +26,7 @@ use hamlet_client::chats::{Chat, Entry, TalksTo, Transcript};
 use hamlet_client::messages::{JobFinished, Response, UserMessage};
 use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::address_of;
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 use protocol::Past;
 
 use crate::dock::show_tab;

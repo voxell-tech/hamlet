@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use hamlet_protocol::GiveFilesFiles;
+use hamlet_protocol::client::GiveFilesFiles;
 use unicode_normalization::UnicodeNormalization;
 
 pub(super) const MAX_BYTES: u64 = 32 * 1024 * 1024;

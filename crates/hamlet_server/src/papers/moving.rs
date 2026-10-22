@@ -2,7 +2,7 @@
 //! backend stays selected.
 
 use anyhow::{Context, Result};
-use hamlet_protocol::{
+use hamlet_protocol::client::{
     SettingsViewWorkspaceMove, SettingsViewWorkspaceMoveState,
 };
 use hamlet_workspace_wire::{TREE_BYTES, TREE_ENTRIES};

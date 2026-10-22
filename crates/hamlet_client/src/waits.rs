@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use bevy_ecs::prelude::*;
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 pub use protocol::Choice;
 
 /// The questions of a received ask_chief call.

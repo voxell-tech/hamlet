@@ -3,7 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{Credential, VERSION};
+use crate::runtime::{Credential, VERSION};
 
 /// A model by its provider and id, and the address it is served at
 /// when that is not the provider's own.
@@ -14,7 +14,7 @@ use crate::{Credential, VERSION};
 pub struct ModelRef {
     #[serde(rename = "baseUrl")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String", length(min = 1))]
     pub base_url: Option<String>,
     #[schemars(length(min = 1))]
@@ -50,12 +50,12 @@ pub struct Price {
 pub struct Selection {
     #[serde(rename = "contextWindow")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "u64", range(min = 1))]
     pub context_window: Option<u64>,
     #[serde(rename = "maxTokens")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "u64", range(min = 1))]
     pub max_tokens: Option<u64>,
     pub model: ModelRef,
@@ -69,7 +69,7 @@ pub struct Selection {
 #[serde(deny_unknown_fields)]
 pub struct Usage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "f64", range(min = 0))]
     pub billed: Option<f64>,
     #[serde(rename = "cacheRead")]
@@ -80,26 +80,26 @@ pub struct Usage {
     pub cost: f64,
     #[serde(rename = "estimatedTokens")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "u64")]
     pub estimated_tokens: Option<u64>,
     #[serde(rename = "firstTokenMs")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "u64")]
     pub first_token_ms: Option<u64>,
     pub input: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "u64")]
     pub ms: Option<u64>,
     pub output: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "u64")]
     pub reasoning: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub stop: Option<String>,
 }
@@ -118,7 +118,7 @@ pub struct Attempt {
     pub key: String,
     pub model: ModelRef,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub task: Option<String>,
     #[schemars(extend("const" = VERSION))]
@@ -133,7 +133,7 @@ pub struct Attempt {
 #[serde(deny_unknown_fields)]
 pub struct Allowance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "Credential")]
     pub credential: Option<Credential>,
     #[schemars(length(min = 1))]

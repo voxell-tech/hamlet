@@ -6,7 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::Usage;
+use crate::runtime::Usage;
 
 /// One kept entry of a conversation, as the server shows it.
 #[derive(
@@ -19,60 +19,60 @@ pub struct Item {
     pub at: u64,
     /// An assistant's answer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "Vec<Block>")]
     pub blocks: Option<Vec<Block>>,
     /// The call a tool result answers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub call: Option<String>,
     /// The server's account of the tool's run, such as its exit
     /// code.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "BTreeMap<String, Value>")]
     pub details: Option<BTreeMap<String, Value>>,
     #[schemars(length(min = 1))]
     pub entry: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "bool")]
     pub error: Option<bool>,
     /// The words an assistant's answer failed with.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub failure: Option<String>,
     pub kind: ItemKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "Mark")]
     pub mark: Option<Mark>,
     /// How long the tool ran.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "u64")]
     pub ms: Option<u64>,
     /// The request id of the input or write that placed the entry.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub request: Option<String>,
     /// Why an assistant's answer ended.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub stop: Option<String>,
     /// A user's or a tool result's words.
     pub text: String,
     /// The tool a tool result answers for.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub tool: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "Usage")]
     pub usage: Option<Usage>,
 }

@@ -22,7 +22,9 @@ use bevy_fynix::{ScopedExt, ViewExt, each, resource};
 use hamlet_client::chats::{Chat, Entry, Transcript};
 use hamlet_client::messages::{Answer, Veto};
 use hamlet_client::waits::{Choice, ChoiceExt, Waiting};
-use hamlet_protocol::{Change, Lasting, WaitDanger, WaitDetail};
+use hamlet_protocol::client::{
+    Change, Lasting, WaitDanger, WaitDetail,
+};
 use hamlet_realm::needs::{TagAnswered, TagOpened};
 
 use crate::dock::{PanelAppExt, lit_panel, show_tab};
@@ -91,7 +93,7 @@ struct Need {
     asked: u64,
     answers: Vec<Choice>,
     change: Option<Change>,
-    chat: Option<hamlet_protocol::ChatRef>,
+    chat: Option<hamlet_protocol::client::ChatRef>,
 }
 
 impl Need {
@@ -418,7 +420,7 @@ pub fn screen() -> impl View {
 #[cfg(test)]
 mod tests {
     use hamlet_client::outbox::Outbox;
-    use hamlet_protocol as protocol;
+    use hamlet_protocol::client as protocol;
 
     use super::*;
     use crate::me::tests::{panel_app, press, words};

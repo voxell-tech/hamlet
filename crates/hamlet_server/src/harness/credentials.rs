@@ -3,9 +3,9 @@
 use std::collections::{HashMap, VecDeque};
 
 use anyhow::{Result, bail, ensure};
-use hamlet_runtime_protocol::{
-    self as runtime, self, CredentialRequest,
-    CredentialRequestAction as Action, CredentialResult,
+use hamlet_protocol::runtime::{
+    self, CredentialRequest, CredentialRequestAction as Action,
+    CredentialResult,
 };
 
 use crate::credentials::{Credentials, pack, unpack};

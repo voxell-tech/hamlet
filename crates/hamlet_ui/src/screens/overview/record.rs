@@ -11,7 +11,7 @@ use hamlet_client::realm::{
     Bylaws, Citizen, Citizens, Deeds, Lived, LivesIn, Mayor, Seen,
     Settlement, Treasury, Votes, Works,
 };
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 
 use super::{heading, tell};
 use crate::AnyView;
@@ -235,7 +235,7 @@ pub(super) fn record_of(hamlet: Entity) -> AnyView {
 #[cfg(test)]
 mod tests {
     use hamlet_client::outbox::Outbox;
-    use hamlet_protocol as protocol;
+    use hamlet_protocol::client as protocol;
 
     use super::*;
     use crate::me::tests::{panel_app, press, words};

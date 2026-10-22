@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use bevy::ecs::world::World;
 use hamlet_client::chats::Chat;
-use hamlet_protocol::{self as protocol, Past};
+use hamlet_protocol::client::{self as protocol, Past};
 use hamlet_ui::history::{self, History, Reading};
 
 /// Sample sessions for the History page, one open if `reading`.

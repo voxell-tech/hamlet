@@ -3,8 +3,8 @@
 The window, `hamlet chat` and the CLI use one authenticated WebSocket to
 Hamlet's server. There is no HTTP API. The wire carries JSON messages.
 
-The contract is the Rust types of
-[`crates/hamlet_protocol`](../crates/hamlet_protocol/src/lib.rs), one
+The contract is the Rust types in
+[`hamlet_protocol::client`](../crates/hamlet_protocol/src/client.rs), one
 module per area: `state`, `chat`, `waits`, `gifts`, `documents`, `limits`
 and `settings`.
 The names below, such as `Hello` and `ClientMessage`, are their type names.
@@ -335,7 +335,7 @@ even when their cause is an ordinary access refusal.
 
 ## Changing the protocol
 
-1. Edit the types in `crates/hamlet_protocol/src/`, the authority for both
+1. Edit the types in `crates/hamlet_protocol/src/client/`, the authority for both
    directions. The crate has no server-domain dependencies. A limit serde
    cannot check, such as a request id's UUID format or a list's length,
    goes in a `#[schemars(...)]` attribute: the server checks every client

@@ -2,7 +2,7 @@
 
 use bevy::ecs::world::World;
 use hamlet_client::outbox::Outbox;
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 use hamlet_ui::{Me, inspector};
 
 use crate::scenes::Scene;

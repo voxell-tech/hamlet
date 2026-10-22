@@ -12,7 +12,7 @@ use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Providers;
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 
 use super::pages::{head, news, said};
 use super::{Step, Welcome, commit, go, read_models};

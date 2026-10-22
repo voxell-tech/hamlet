@@ -4,7 +4,7 @@
 pub(crate) mod held;
 
 use anyhow::{Context, Result, bail};
-use hamlet_protocol::{
+use hamlet_protocol::client::{
     self as protocol, Address, ChatRef, Choice, Lasting, Questions,
     WaitDanger, WaitDetail,
 };

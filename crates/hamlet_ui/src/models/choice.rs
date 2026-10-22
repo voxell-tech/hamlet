@@ -9,7 +9,7 @@ use bevy_fynix::{ViewExt, keyed};
 use hamlet_client::realm::{
     Account, Bylaws, LivesIn, MAYOR, Mayor, Settings, address_of,
 };
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 
 use super::{Shelf, edit};
 use crate::icons::Glyph;

@@ -17,7 +17,7 @@ use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Settings;
-use hamlet_protocol as protocol;
+use hamlet_protocol::client as protocol;
 
 use super::{Pane, field, told};
 use crate::icons::Glyph;
@@ -305,7 +305,7 @@ mod tests {
         EditableText, FontSize, FontSource, TextEdit, TextFont,
     };
     use hamlet_client::outbox::Outbox;
-    use hamlet_protocol as protocol;
+    use hamlet_protocol::client as protocol;
 
     use super::super::Pane;
     use super::super::tests::{

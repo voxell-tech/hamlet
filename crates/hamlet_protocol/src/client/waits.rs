@@ -3,7 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{AgentRef, Change, ChatRef, RequestId};
+use crate::client::{AgentRef, Change, ChatRef, RequestId};
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
@@ -83,11 +83,11 @@ pub struct Answer {
     #[schemars(extend("format" = "uuid"))]
     pub id: RequestId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "Vec<Pick>", length(min = 1))]
     pub picks: Option<Vec<Pick>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::present")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "String")]
     pub text: Option<String>,
     pub wait: String,

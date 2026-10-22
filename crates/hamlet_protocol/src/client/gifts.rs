@@ -3,7 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{Address, RequestId};
+use crate::client::{Address, RequestId};
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,

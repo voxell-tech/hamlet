@@ -4,9 +4,8 @@
 
 use std::collections::HashMap;
 
-use hamlet_runtime_protocol::{
-    self as runtime, self, ProtocolError, RuntimeMessage,
-    ServerMessage,
+use hamlet_protocol::runtime::{
+    self, ProtocolError, RuntimeMessage, ServerMessage,
 };
 use serde_json::Value;
 

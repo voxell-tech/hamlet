@@ -394,7 +394,7 @@ mod tests {
     use bevy::ecs::query::With;
     use bevy::ui::{ComputedNode, UiGlobalTransform};
     use hamlet_client::outbox::Outbox;
-    use hamlet_protocol as protocol;
+    use hamlet_protocol::client as protocol;
 
     use super::*;
     use crate::me::tests::{panel_app, press, words};

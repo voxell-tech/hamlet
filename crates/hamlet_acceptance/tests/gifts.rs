@@ -4,7 +4,7 @@
 use std::os::unix::fs::PermissionsExt;
 
 use hamlet_acceptance::*;
-use hamlet_protocol::*;
+use hamlet_protocol::client::*;
 use serde_json::json;
 
 fn kind_text(reply: &Reply) -> (&ReplyKind, &str) {
