@@ -593,6 +593,7 @@ impl Bazaar {
                 at: cog.at,
                 lies: cog.lies,
                 rate: cog.rate,
+                phase: cog.phase,
             };
             turning.turn(0.0);
             out.push((Slot::Cog(self.cogs.len()), cog.mesh.data()));

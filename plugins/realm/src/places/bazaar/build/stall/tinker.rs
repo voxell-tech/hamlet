@@ -9,7 +9,7 @@ use glam::{Affine3A, Quat, Vec2, Vec3};
 
 use crate::build::mesh::Mb;
 use crate::places::bazaar::build::stall::{
-    DEEP, Dressed, Stand, WIDE, WORK, cog, turning,
+    DEEP, Dressed, Gear, Stand, WIDE, WORK, cog, turning,
 };
 use crate::places::bazaar::build::{Cog, FLOOR, Shapes, within};
 
@@ -87,9 +87,11 @@ pub fn build(s: &mut Stand) -> Dressed {
     let crown = vault(0.0).y + 0.03;
     // The contraption on its top: two cogs on a frame, turning
     // together, a big one and a small one.
-    let big = (Vec3::new(0.3, crown + 0.72, 0.25), 0.5);
-    let small = (big.0 + Vec3::new(-0.72, -0.22, 0.0), 0.28);
-    for (at, _) in [big, small] {
+    let gear = Gear::sized(0.5, 12);
+    let pinion = gear.mate(7);
+    let big = Vec3::new(0.3, crown + 0.72, 0.25);
+    let small = gear.beside(pinion, big, Vec2::new(-0.72, -0.22));
+    for at in [big, small] {
         s.mb.tube(
             Vec3::new(at.x, crown - 0.05, 0.1),
             Vec3::new(at.x, at.y, 0.1),
@@ -108,15 +110,17 @@ pub fn build(s: &mut Stand) -> Dressed {
             true,
         );
     }
-    let teeth = (12, 7);
     let turns = 0.16;
     let mut cogs = vec![
-        turning(big.0, (big.1, teeth.0), pal.brass, turns),
+        turning(big, gear, pal.brass, (turns, 0.0)),
         turning(
-            small.0,
-            (small.1, teeth.1),
+            small,
+            pinion,
             style.trim,
-            -turns * teeth.0 as f32 / teeth.1 as f32,
+            (
+                gear.driven(pinion, turns),
+                gear.phase_of(pinion, (big, 0.0), small),
+            ),
         ),
     ];
     boiler(s, crown);
@@ -130,7 +134,7 @@ pub fn build(s: &mut Stand) -> Dressed {
     within(
         s.mb,
         Affine3A::from_translation(face + Vec3::Z * 0.02),
-        |mb| cog(mb, 0.15, 9, style.trim),
+        |mb| cog(mb, Gear::sized(0.15, 9), style.trim),
     );
     s.finish(
         (
@@ -306,9 +310,9 @@ fn gadgets(s: &mut Stand, cogs: &mut Vec<Cog>) {
     );
     cogs.push(turning(
         crank + Vec3::Z * 0.17,
-        (0.12, 8),
+        Gear::sized(0.12, 8),
         pal.brass,
-        -0.4,
+        (-0.4, 0.0),
     ));
     mb.rod(
         crank + Vec3::new(0.0, 0.12, 0.0),
@@ -375,5 +379,6 @@ fn grindstone(s: &mut Stand) -> Cog {
         at: stone,
         lies: Quat::IDENTITY,
         rate: 1.1,
+        phase: 0.0,
     }
 }

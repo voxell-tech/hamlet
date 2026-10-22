@@ -33,20 +33,23 @@ fn chance(n: f32) -> f32 {
         .abs()
 }
 
-/// A part that turns on its own, the way it lies at rest and its
-/// turns a second.
+/// A part that turns on its own, the way it lies at rest, its turns
+/// a second and the turn it starts at, in radians.
 pub struct Turning {
     pub entity: Entity,
     pub at: Vec3,
     pub lies: Quat,
     pub rate: f32,
+    pub phase: f32,
 }
 
 impl Turning {
     /// Turns it to clock time `now`.
     pub fn turn(&self, now: f32) {
         let turn = self.lies
-            * Quat::from_rotation_z(TAU * (self.rate * now).fract());
+            * Quat::from_rotation_z(
+                self.phase + TAU * (self.rate * now).fract(),
+            );
         self.entity.set_transform(
             Frame::at(self.at).with_turn(turn).scene(),
         );

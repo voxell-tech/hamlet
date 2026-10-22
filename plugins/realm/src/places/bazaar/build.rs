@@ -75,12 +75,14 @@ pub fn at_stall(stall: Stall, local: Vec3) -> Vec3 {
 }
 
 /// A part that turns on its own: its mesh about an axle along its
-/// Z, the axle's place and the way it lies, and its turns a second.
+/// Z, the axle's place and the way it lies, its turns a second and
+/// the turn it starts at.
 pub struct Cog {
     pub mesh: Mb,
     pub at: Vec3,
     pub lies: Quat,
     pub rate: f32,
+    pub phase: f32,
 }
 
 /// A stall built in the bazaar's frame: its cloth, timber, wares and
