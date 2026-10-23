@@ -33,9 +33,7 @@ use serde::Deserialize;
 use crate::command::{RunCommand, ShellCommandsExt, engine_id};
 use crate::style::BottomGradient;
 use crate::theme::{EngineTheme, ThemeChanged};
-use crate::{
-    Cx, View, float, menu, overlay, status, switcher, themed,
-};
+use crate::{Cx, View, float, menu, overlay, switcher, themed};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_plugins(TuningPlugin::<WindowTuning>::default())
@@ -199,19 +197,13 @@ fn show(
 fn root() -> impl View {
     themed(|cx| {
         let theme = cx.theme();
-        let (background, separator, line) = (
-            *theme.colors.background,
-            *theme.colors.separator,
-            theme.space.divider,
-        );
+        let background = *theme.colors.background;
         column((
             bar(cx),
             column((dock::<EngineTheme>(),))
                 .grow(1.0)
                 .min_height(px(0.0))
                 .gap(0.0),
-            frame().height(px(line)).fill(separator),
-            status::view(),
             float::view(),
             overlay::view(),
             menu::open_view(),

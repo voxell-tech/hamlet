@@ -27,7 +27,7 @@ use hamlet_engine_bevy::ui::{
 
 use crate::realm::{Pointer, focus_on_selected, reset_camera};
 use crate::view::camera::Camera;
-use crate::view::kept::{Kept, SkyChoice};
+use crate::view::settings::{SkyChoice, ViewSettings};
 
 /// The name of the panel the realm is drawn in.
 const PANEL: &str = "realm";
@@ -63,19 +63,25 @@ impl Plugin for RealmPlugin {
             .add_command(
                 "sky_clock",
                 "Sky Follows the Clock",
-                |mut kept: ResMut<Kept>| kept.sky = SkyChoice::Clock,
+                |mut settings: ResMut<ViewSettings>| {
+                    settings.sky = SkyChoice::Clock
+                },
             )
             .add_menu_entry("View", "sky_clock")
             .add_command(
                 "sky_day",
                 "Sky at Day",
-                |mut kept: ResMut<Kept>| kept.sky = SkyChoice::Day,
+                |mut settings: ResMut<ViewSettings>| {
+                    settings.sky = SkyChoice::Day
+                },
             )
             .add_menu_entry("View", "sky_day")
             .add_command(
                 "sky_night",
                 "Sky at Night",
-                |mut kept: ResMut<Kept>| kept.sky = SkyChoice::Night,
+                |mut settings: ResMut<ViewSettings>| {
+                    settings.sky = SkyChoice::Night
+                },
             )
             .add_menu_entry("View", "sky_night")
             .add_systems(Declare, watch)

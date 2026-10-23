@@ -4,20 +4,16 @@
 use bevy::app::App;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
-use bevy::ecs::hierarchy::ChildOf;
 use bevy::ecs::lifecycle::{Add, Remove};
 use bevy::ecs::observer::On;
-use bevy::ecs::system::{Commands, Query, Res, ResMut};
+use bevy::ecs::system::{Query, Res, ResMut};
 use bevy_fynix::dock::{
     DockPlugin, DockRegistry, DockTree, DockWindowKind,
 };
-use hamlet_engine_api::id::ENGINE;
-use hamlet_engine_api::{CommandId, PanelId, PanelPadding};
+use hamlet_engine_api::{PanelId, PanelPadding};
 
-use crate::command::{MenuEntry, RunCommand, ShellCommandsExt};
 use crate::icons::Glyph;
-use crate::workspace::DockTreeExt;
-use crate::{AnyView, EngineTheme, StartRank};
+use crate::{AnyView, EngineTheme};
 
 /// The name of the engine's plugin list, which the plugins module
 /// adds.
@@ -50,17 +46,16 @@ pub struct PanelIcon(pub Glyph);
 #[component(immutable)]
 pub struct PanelInset(pub PanelPadding);
 
-/// Lets the dock show a new panel, and adds a command that opens it
-/// to the View menu.
+/// Lets the dock show a new panel. A panel is opened from a tab
+/// bar's "+", not the View menu.
 fn offer(
     added: On<Add, Panel>,
-    panels: Query<(&Panel, Option<&PanelIcon>, Option<&StartRank>)>,
+    panels: Query<(&Panel, Option<&PanelIcon>)>,
     theme: Res<EngineTheme>,
     mut registry: ResMut<DockRegistry<EngineTheme>>,
-    mut commands: Commands,
 ) {
     let entity = added.entity;
-    let Ok((panel, icon, rank)) = panels.get(entity) else {
+    let Ok((panel, icon)) = panels.get(entity) else {
         return;
     };
     let content = panel.content;
@@ -72,34 +67,6 @@ fn offer(
         kind = kind.icon(which.image(theme.space.icon));
     }
     registry.register(panel.id.as_str(), kind);
-    let id = panel.id.clone();
-    // Past the longest name, a panel is opened from a tab bar's "+".
-    let Ok(command) = CommandId::new(
-        ENGINE,
-        &format!("show.{}", id.as_str().replace('/', ".")),
-    ) else {
-        return;
-    };
-    let entry = MenuEntry {
-        menu: "View".into(),
-        command: command.clone(),
-    };
-    let rank = rank.cloned();
-    commands
-        .spawn_command(command, &panel.title, None, &[])
-        .insert(ChildOf(entity))
-        .with_children(|kids| {
-            // In one bundle, as the bar reads the rank as it comes.
-            match rank {
-                Some(rank) => kids.spawn((entry, rank)),
-                None => kids.spawn(entry),
-            };
-        })
-        .observe(
-            move |_: On<RunCommand>, mut tree: ResMut<DockTree>| {
-                tree.open_panel(id.as_str());
-            },
-        );
 }
 
 /// Takes a panel that is going out of the dock.

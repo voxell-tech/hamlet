@@ -3,6 +3,6 @@
 //! between launches.
 
 pub mod camera;
-pub mod kept;
 pub mod pick;
+pub mod settings;
 pub mod signs;

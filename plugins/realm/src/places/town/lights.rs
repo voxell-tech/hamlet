@@ -29,10 +29,19 @@ const CANDLE: Vec3 = Vec3::new(1.0, 0.816, 0.541);
 const EMBER: f32 = 1.5;
 const LIT: f32 = 4.0;
 
-/// Lamps that throw light at once, the nearest the camera: the
-/// engine's 64 lights a scene, less 8 kept for the sun and its fill,
-/// the library and the chief.
+/// Lights that shine at once, the nearest the camera: the engine's 64
+/// lights a scene, less 8 kept for the sun and its fill, the library
+/// and the chief.
 const SPILLS: usize = 56;
+/// Of those, the lights kept for the glows of the towns, the Hearth
+/// and the library, which shine from any distance. The lamps have
+/// the rest.
+const TOWNS: usize = 20;
+/// How much more a glow is than a door lantern's light, in lumens,
+/// and how much further it reaches. Strong over a reach not much
+/// wider than the place, so that it lights it and does not wash it.
+const TOWN_LUMENS: f32 = 24.0;
+const TOWN_REACH: f32 = 2.5;
 /// Keys of the spills' entities.
 const SPILL_KEY: u32 = 6;
 
@@ -91,6 +100,19 @@ pub struct Glow {
 }
 
 impl Glow {
+    /// The glow of a town whose common's lantern hangs at `at`: a
+    /// candle's colour, as strong as door lanterns of `lumens` and
+    /// reaching `reach` give, but wider, so that a town lit from far
+    /// is not dark.
+    pub fn town(at: Vec3, lumens: f32, reach: f32) -> Self {
+        Self {
+            at,
+            colour: lantern(KState::Rest, 0.0).0,
+            lumens: lumens * TOWN_LUMENS,
+            reach: reach * TOWN_REACH,
+        }
+    }
+
     /// The light of a door lantern at `at` for the state of the agent
     /// inside, `lumens` strong and reaching `reach`.
     pub fn lantern(
@@ -172,23 +194,32 @@ impl Lamps {
         }
     }
 
-    /// Has the lamps of `lit` throw light on the ground, the nearest
-    /// `eye` first while there are lights to give. None that is dark
-    /// does.
+    /// Has the lamps of `lit` throw light on the ground, and the
+    /// towns of `towns` glow, the nearest `eye` first while there are
+    /// lights to give. None that is dark does.
     pub fn spill(
         &mut self,
-        mut lit: Vec<Glow>,
+        lit: Vec<Glow>,
+        towns: Vec<Glow>,
         eye: Vec3,
         draw: &mut Draw,
     ) {
-        lit.retain(|glow| glow.lumens > 0.0);
-        lit.sort_by(|a, b| {
-            a.at.distance_squared(eye)
-                .total_cmp(&b.at.distance_squared(eye))
-        });
+        let nearest = |mut glows: Vec<Glow>| {
+            glows.retain(|glow| glow.lumens > 0.0);
+            glows.sort_by(|a, b| {
+                a.at.distance_squared(eye)
+                    .total_cmp(&b.at.distance_squared(eye))
+            });
+            glows
+        };
+        let (lit, towns) = (nearest(lit), nearest(towns));
         for (i, (entity, shown)) in self.spills.iter_mut().enumerate()
         {
-            let want = lit.get(i).copied();
+            let want = match i.checked_sub(TOWNS) {
+                None => towns.get(i),
+                Some(at) => lit.get(at),
+            }
+            .copied();
             if *shown == want {
                 continue;
             }

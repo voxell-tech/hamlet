@@ -23,7 +23,7 @@ Each depends only on those above it, and each adds one Bevy plugin,
 | `engine/api` | `hamlet_engine_api` | The names the engine and plugins share. serde only, no Bevy |
 | `engine/core` | `hamlet_engine_core` | The tuning files, the home, the bundle's folder, the log, the guards and the limits a plugin is held to |
 | `engine/audio` | `hamlet_engine_audio` | Sound on Bevy's audio: clips handed over as samples, whole or in parts as they play, played unplaced or placed, by category, scaled by the person's volumes |
-| `engine/shell` | `hamlet_engine_shell` | The window, its theme, the dock and its panels, workspaces, commands, shortcuts, the menu bar and the status line |
+| `engine/shell` | `hamlet_engine_shell` | The window, its theme, the dock and its panels, workspaces, commands, shortcuts and the menu bar |
 | `engine/plugins` | `hamlet_engine_plugins` | Plugins as entities, what they add, switching them on and off, the Plugins panel, and the mail between plugins and services |
 | `engine/grants` | `hamlet_engine_grants` | What the person lets plugins do: petitions, the grants file, the Permissions page |
 | `engine/assets` | `hamlet_engine_assets` | The asset store, the type registry, references and change notification |
@@ -545,7 +545,7 @@ samples) runs the scripts of hello, notes and board.
 - **The console** (`engine/console`) lists the log, newest first.
 - **Settings pages** are entities with a `SettingsPage`, as plugins add
   them: a title, an icon and a line on what it holds. The Settings
-  panel (`engine/settings`, opened from the View menu) shows a link
+  panel (`engine/settings`, opened from a tab bar's "+") shows a link
   row to each in the order of their plugins (see
   [the order of what plugins add](#commands-menus-and-the-status-line)),
   and under them each
@@ -734,19 +734,12 @@ person has one or more, and one is shown at a time.
   earlier one), the console says so and where, and the workspaces start
   afresh. If it cannot even be moved, nothing is saved, so the file stays
   as it is.
-- **Icons.** Each workspace has an icon before its name, saved with it
-  as the icon's name. "Main" has the house. Another is given one as it
-  is added: one its name calls for (Writing a pencil, Research a lens),
-  or else the first of the picks no other workspace has. Renamed, an
-  icon that came with the old name follows the new one; an icon picked
-  by hand stays. A file without icons, or with one no longer drawn, is
-  given them as it is read.
 - **The switcher** (`switcher.rs`, its motion in `switcher/motion.rs`)
   is one control in the bar, set apart from the menus by a thin divider
   (`[space] track_divider` high) and `section` of space: a track sunk
   into the bar (`surface_sunken`, a `border` frame, `track_inset` from
   the bar's edges, `track_padding` inside, `track_radius` corners) with
-  a segment per workspace, its icon and its name in capitals in the
+  a segment per workspace, its name in capitals in the
   display face (`[text] heading`). The one shown sits on a raised
   segment (`fill`, lit inside from below by `active` at `[glow]
   bottom`) with an `underline` line in `accent` under it, glowing; the
@@ -755,17 +748,17 @@ person has one or more, and one is shown at a time.
   pointer with a row's inner light (`Glow::Inner`), ticking; a press
   taps, and so does showing another by a key.
   - A press shows the workspace; the tip under the pointer names its
-    key. Under the pointer an "x" in place of the icon closes it,
-    unless it is the last.
+    key. Under the pointer an "x" after the name asks whether to
+    close it, unless it is the last.
   - A double-click (two clicks within `[workspaces] double_click`
     seconds) renames it in place: a field over the tab, as wide.
     Enter keeps the name; Escape, a press outside or the keyboard
     going elsewhere leaves it. A name is trimmed, at most 40
     characters, and no other workspace's, whatever the case.
-  - A right-click offers Rename, Change Icon (a picker of the icons a
-    workspace may have, `workspace/icon.rs`), Duplicate (a copy after
-    it, numbered), Move Left, Move Right and Close, each where it
-    applies.
+  - A right-click offers Rename, Duplicate (a copy after it,
+    numbered), Move Left, Move Right and Close, each where it
+    applies. Close, the "x" and the Close workspace command all ask
+    first, in a popup under the tab with Close and Cancel.
   - Dragged past `[workspaces] drag_start` pixels, a tab follows the
     pointer and the others ease aside to leave a gap where it would
     land; let go, it moves there.
@@ -821,23 +814,18 @@ person has one or more, and one is shown at a time.
   opens that one instead. An entry shows its command's label and first
   key. An entry whose command is not there is left out.
 - **The engine's own.** Run in Background and Quit Hamlet (⌘Q,
-  Ctrl+Q off macOS) in the Hamlet menu, the workspace commands (see
-  [Workspaces](#workspaces)), and for each panel a command in
-  the View menu that brings it to the front, or opens it in the first
-  area (`world.open_panel(id)`).
+  Ctrl+Q off macOS) in the Hamlet menu and the workspace commands (see
+  [Workspaces](#workspaces)). A panel has no entry in the View menu: it
+  is opened from a tab bar's "+" (`world.open_panel(id)`).
 - **The order of what plugins add.** What a plugin adds carries its
   `StartRank`, its plugin's place in the order plugins start (see
-  [Dependencies](#dependencies)), and so does the View menu's entry of
-  its panel. Menu entries, status items and settings pages and footers
-  are listed the engine's own first, then by their plugin's rank, then
-  in the order they came, so they are the same at each start.
-- **The status line** at the bottom of the window shows the
-  `StatusItem`s plugins add, in that order, each an icon and
-  words in a tone with words under the pointer, hidden while it has no
-  words; one that grows takes the room left, words or none, and clips
-  its words. An item is built again only as it changes, the others
-  kept. Then the workspace shown and the log's last line, each
-  behind an icon, a warning in the accent and an error in red.
+  [Dependencies](#dependencies)). Menu entries, status items and
+  settings pages and footers are listed the engine's own first, then by
+  their plugin's rank, then in the order they came, so they are the same
+  at each start.
+- **No status line.** The window has none at the bottom: what it
+  showed is in the console. A plugin can still add a `StatusItem`
+  (`status.rs`), but nothing draws it.
 - **In the background.** Run in Background hides the window and the
   engine runs on, a frame every `[window] hidden_wait` seconds.
   `ShowWindow` shows it again and gives it the focus. The window's

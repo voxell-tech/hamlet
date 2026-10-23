@@ -15,7 +15,7 @@ use crate::world::sky::{Hour, Quality, SkyClock};
 pub const KIND: &str = "realm.view";
 
 pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<Kept>()
+    app.init_resource::<ViewSettings>()
         .init_resource::<Store>()
         .add_settings_page(
             "graphics",
@@ -33,8 +33,9 @@ pub(crate) fn plugin(app: &mut App) {
 
 /// The Graphics page: the quality the realm is drawn at.
 fn page() -> AnyView {
-    let choices =
-        keyed(resource::<Kept, _>(|kept| kept.quality), |now| {
+    let choices = keyed(
+        resource::<ViewSettings, _>(|settings| settings.quality),
+        |now| {
             let buttons = [
                 (Quality::Low, "LOW"),
                 (Quality::Medium, "MEDIUM"),
@@ -49,14 +50,16 @@ fn page() -> AnyView {
                         ButtonStyle::Plain
                     })
                     .on_click(move |world| {
-                        world.resource_mut::<Kept>().quality =
-                            quality;
+                        world
+                            .resource_mut::<ViewSettings>()
+                            .quality = quality;
                     })
                     .boxed()
             })
             .collect::<Vec<_>>();
             row(buttons).space(Space::Half).boxed()
-        });
+        },
+    );
     column((
         label("Quality"),
         choices,
@@ -101,21 +104,21 @@ pub enum SkyChoice {
     serde::Deserialize,
 )]
 #[serde(default)]
-pub struct Kept {
+pub struct ViewSettings {
     pub sky: SkyChoice,
     pub quality: Quality,
 }
 
-/// The asset [`Kept`] is in: the requests yet to be answered, and its
-/// id once it is found or made. Nothing is written until the store
-/// said whether there is one.
+/// The asset [`ViewSettings`] is in: the requests yet to be answered,
+/// and its id once it is found or made. Nothing is written until the
+/// store said whether there is one.
 #[derive(Resource, Default)]
 struct Store {
     asked: Vec<Ticket>,
     found: bool,
     id: Option<AssetId>,
     /// What was last written, or read.
-    written: Option<Kept>,
+    written: Option<ViewSettings>,
 }
 
 /// Looks for the asset made at an earlier launch.
@@ -130,7 +133,7 @@ fn answer(
     mut commands: Commands,
     mut replies: MessageReader<Replied>,
     mut store: ResMut<Store>,
-    mut kept: ResMut<Kept>,
+    mut settings: ResMut<ViewSettings>,
 ) {
     for replied in replies.read() {
         let Some(at) =
@@ -151,10 +154,10 @@ fn answer(
             Ok(Reply::Read(asset)) => {
                 store.found = true;
                 let text = String::from_utf8_lossy(&asset.bytes);
-                match toml::from_str::<Kept>(&text) {
+                match toml::from_str::<ViewSettings>(&text) {
                     Ok(read) => {
                         store.written = Some(read.clone());
-                        *kept = read;
+                        *settings = read;
                     }
                     Err(why) => hamlet_engine_bevy::warn(&format!(
                         "the realm's kept view: {why}"
@@ -175,8 +178,8 @@ fn answer(
 }
 
 /// Holds the sky at the hour chosen.
-fn hold_sky(kept: Res<Kept>, mut sky: ResMut<SkyClock>) {
-    let hour = match kept.sky {
+fn hold_sky(settings: Res<ViewSettings>, mut sky: ResMut<SkyClock>) {
+    let hour = match settings.sky {
         SkyChoice::Clock => Hour::Clock,
         SkyChoice::Day => Hour::Day,
         SkyChoice::Night => Hour::Night,
@@ -187,9 +190,12 @@ fn hold_sky(kept: Res<Kept>, mut sky: ResMut<SkyClock>) {
 }
 
 /// Draws the realm at the quality chosen.
-fn hold_quality(kept: Res<Kept>, mut quality: ResMut<Quality>) {
-    if *quality != kept.quality {
-        *quality = kept.quality;
+fn hold_quality(
+    settings: Res<ViewSettings>,
+    mut quality: ResMut<Quality>,
+) {
+    if *quality != settings.quality {
+        *quality = settings.quality;
     }
 }
 
@@ -197,16 +203,16 @@ fn hold_quality(kept: Res<Kept>, mut quality: ResMut<Quality>) {
 /// answered what was asked of it before.
 fn keep(
     mut commands: Commands,
-    kept: Res<Kept>,
+    settings: Res<ViewSettings>,
     mut store: ResMut<Store>,
 ) {
     if !store.found
         || !store.asked.is_empty()
-        || store.written.as_ref() == Some(&*kept)
+        || store.written.as_ref() == Some(&*settings)
     {
         return;
     }
-    let text = match toml::to_string(&*kept) {
+    let text = match toml::to_string(&*settings) {
         Ok(text) => text,
         Err(why) => {
             hamlet_engine_bevy::warn(&format!(
@@ -220,5 +226,5 @@ fn keep(
         None => commands.create_asset(KIND, "View", text.as_bytes()),
     };
     store.asked.push(ticket);
-    store.written = Some(kept.clone());
+    store.written = Some(settings.clone());
 }

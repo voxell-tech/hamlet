@@ -65,7 +65,7 @@ pub(crate) fn plugin(app: &mut App) {
         .add_message::<SetDown>()
         .add_plugins((
             crate::sound::plugin,
-            crate::view::kept::plugin,
+            crate::view::settings::plugin,
         ))
         .add_systems(Startup, make)
         // What is played is played in the call it is heard in, a

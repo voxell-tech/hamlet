@@ -23,9 +23,11 @@ use crate::bridge::Bridge;
 use crate::build::frame::Frame;
 use crate::build::mesh::Mb;
 use crate::build::upload::{Draw, Unsent};
+use crate::folk::chief::Chief;
 use crate::folk::keeper::{KState, Robot, Robots};
 use crate::fx::magic::Shifted;
 use crate::places::house::{self, TownStyle};
+use crate::places::library::Library;
 use crate::places::shift::{Part, Shift, Way};
 use crate::places::town::build::{Built, Recipe};
 use crate::places::town::flag::Flags;
@@ -47,6 +49,10 @@ const PLAIN: u32 = 0;
 
 /// Speed of a worked wheel, in radians a second.
 const CRANK_RATE: f32 = 5.2;
+
+/// How far above the common's lantern a town's glow hangs, so that
+/// it lights the roofs and not only the ground.
+const TOWN_GLOW_LIFT: f32 = 6.0;
 
 /// What a house is built from, besides its agent. A house is built
 /// again when it changes.
@@ -190,12 +196,15 @@ impl Towns {
 
     /// Brings what is drawn in line with the society and with how
     /// each hamlet works, while the call has room. `taking_leave`
-    /// says whether an agent's robot is taking its leave.
+    /// says whether an agent's robot is taking its leave. `landmarks`
+    /// are the places on the ground besides the towns, the Hearth and
+    /// the library, that glow after dark as the towns do.
     pub fn update(
         &mut self,
         ctx: &Ctx,
         robots: &Robots,
         bridge: &Bridge,
+        landmarks: &[Vec3],
         taking_leave: impl Fn(AgentId) -> bool,
         draw: &mut Draw,
     ) {
@@ -217,7 +226,7 @@ impl Towns {
         self.engines(robots, draw);
         self.benches(ctx, bridge, draw);
         self.wave(ctx, draw);
-        self.spill(ctx, draw);
+        self.spill(ctx, landmarks, draw);
     }
 
     /// Turns each banner down the wind, whichever way its house
@@ -779,7 +788,12 @@ impl Towns {
 
     /// Has every lantern of a town shown near throw light after dark,
     /// the nearest the camera first while there are lights to give.
-    fn spill(&mut self, ctx: &Ctx, draw: &mut Draw) {
+    fn spill(
+        &mut self,
+        ctx: &Ctx,
+        landmarks: &[Vec3],
+        draw: &mut Draw,
+    ) {
         let (set, land) = (&ctx.tuning.sky, ctx.land);
         let candle = ctx.sky.look.candle;
         let lumens = set.door_lumens * candle;
@@ -816,7 +830,24 @@ impl Towns {
             ));
         }
         let lit = doors.chain(commons).collect();
-        self.lamps.spill(lit, ctx.eye, draw);
+        // Every town, the Hearth and the library glow after dark,
+        // near or far.
+        let glow = towns
+            .values()
+            .map(|group| {
+                land.common_frame(group.site)
+                    .point(land.set.town.lamp)
+            })
+            .chain(landmarks.iter().copied())
+            .map(|at| {
+                Glow::town(
+                    at + Vec3::Y * TOWN_GLOW_LIFT,
+                    lumens,
+                    set.door_reach,
+                )
+            })
+            .collect();
+        self.lamps.spill(lit, glow, ctx.eye, draw);
     }
 
     /// Keeps each common's workbench as its hamlet works now, and its
@@ -1103,6 +1134,7 @@ fn far_mesh(
 pub fn build_towns(
     mut towns: ResMut<Towns>,
     robots: Res<Robots>,
+    (chief, library): (Res<Chief>, Res<Library>),
     shared: Shared,
     bridge: Res<Bridge>,
     mut clicks: MessageReader<SceneClick>,
@@ -1134,10 +1166,15 @@ pub fn build_towns(
         }
     }
     let floor = shared.floor();
+    let landmarks = [chief.hearth(), library.at()]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
     towns.update(
         &shared.ctx(&floor),
         &robots,
         &bridge,
+        &landmarks,
         |agent| robots.taking_leave(agent),
         &mut draw,
     );

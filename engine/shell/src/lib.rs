@@ -86,7 +86,6 @@ pub fn plugin(app: &mut App) {
         (command::plugin, keymap::plugin, shortcuts::plugin),
         menu::plugin,
         (message::plugin, stick::plugin, fade::plugin),
-        status::plugin,
         (
             overlay::plugin,
             float::plugin,

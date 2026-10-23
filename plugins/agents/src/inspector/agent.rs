@@ -338,7 +338,7 @@ fn header(head: &Head) -> AnyView {
     };
     parts.push(description(purpose).tip(whole).boxed());
     parts.push(
-        label(format!("{}  This chat: {}", head.model, head.usage))
+        label(format!("This chat: {}", head.usage))
             .size(Size::Small)
             .tone(Tone::Dim)
             .boxed(),

@@ -204,11 +204,7 @@ pub(crate) fn overview() -> AnyView {
         |names| closed(names),
     );
     column((
-        row((
-            heading(HAMLETS),
-            description("Click a hamlet to see who lives there."),
-        ))
-        .space(Space::Gap),
+        heading(HAMLETS),
         row((icon_button("plus", "FOUND A HAMLET")
             .on_click(|_| founding::open()),)),
         field(resource::<Search, _>(|search| search.0.clone()))
@@ -218,12 +214,8 @@ pub(crate) fn overview() -> AnyView {
             }),
         description("Search by a hamlet's name or its mayor's."),
         scroll((shown, gone)),
-        row((
-            icon_button("flame", "YOUR HEARTH")
-                .on_click(|world| select(world, Selected::Hearth)),
-            description("Where you live, and how you look."),
-        ))
-        .space(Space::Gap),
+        icon_button("flame", "YOUR HEARTH")
+            .on_click(|world| select(world, Selected::Hearth)),
     ))
     .space(Space::Gap)
     .boxed()

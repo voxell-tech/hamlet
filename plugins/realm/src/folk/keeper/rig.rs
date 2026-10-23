@@ -595,6 +595,11 @@ impl Rig {
         self.at = at;
     }
 
+    /// True while the whole robot is shown.
+    pub fn visible(&self) -> bool {
+        self.visible
+    }
+
     /// Shows or hides the whole robot.
     pub fn show(&mut self, visible: bool, draw: &mut Draw) {
         if self.visible != visible {

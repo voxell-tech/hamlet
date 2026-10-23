@@ -33,12 +33,11 @@ use crate::icons::{Glyph, glyph};
 use crate::keymap::Bindings;
 use crate::sounds::{Cue, InterfaceSound};
 use crate::style::{
-    Active, Glow, StyleExt, Wraps, field_rules, icon_row, note,
-    raised, section,
+    Active, ButtonStyle, Glow, action, description, field_rules,
+    note, section,
 };
 use crate::switcher::motion::TabDrag;
 use crate::theme::EngineTheme;
-use crate::workspace::icon::PICKS;
 use crate::workspace::{
     SuggestedWorkspace, WorkspaceTuning, Workspaces,
 };
@@ -57,9 +56,6 @@ const DIGITS: [KeyCode; 9] = [
     KeyCode::Digit8,
     KeyCode::Digit9,
 ];
-
-/// The icons the icon picker sets in a row.
-const PICKS_ACROSS: usize = 6;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_plugins(motion::plugin)
@@ -85,11 +81,11 @@ pub(crate) fn plugin(app: &mut App) {
         );
 }
 
-/// What the tabs are built from: each workspace's name and icon, the
-/// key that shows it, and the one being renamed.
+/// What the tabs are built from: each workspace's name and the key
+/// that shows it, and the one being renamed.
 #[derive(Resource, Clone, PartialEq, Default)]
 struct Tabs {
-    list: Vec<(String, Glyph, Option<String>)>,
+    list: Vec<(String, Option<String>)>,
     renaming: Option<usize>,
 }
 
@@ -110,8 +106,6 @@ pub(crate) struct Renaming(pub(crate) Option<(usize, String)>);
 enum Opened {
     #[default]
     Nothing,
-    /// The icons for the workspace at `at`.
-    Icons { at: usize, anchor: Rect },
     /// Every workspace.
     All { anchor: Rect },
     /// The ways to add a workspace.
@@ -147,10 +141,6 @@ pub(crate) struct MoreButton;
 /// On the "x" that closes the workspace at its index.
 #[derive(Component, Clone, Copy)]
 struct CloseMark(usize);
-
-/// On the icon of the tab of the workspace at its index.
-#[derive(Component, Clone, Copy)]
-struct TabIcon(usize);
 
 /// On the field a workspace is renamed in.
 #[derive(Component, Clone, Copy)]
@@ -222,15 +212,6 @@ pub fn popup_view() -> AnyView {
         AnyView::new(move |cx: &mut Cx| {
             let (anchor, content) = match opened {
                 Opened::Nothing => return cx.build(frame()),
-                Opened::Icons { at, anchor } => {
-                    let icon = cx
-                        .world
-                        .resource::<Tabs>()
-                        .list
-                        .get(at)
-                        .map(|(_, icon, _)| *icon);
-                    (anchor, icons_view(at, icon))
-                }
                 Opened::All { anchor } => {
                     let tabs = cx.world.resource::<Tabs>().clone();
                     let shown =
@@ -267,11 +248,11 @@ fn tabs_view(tabs: &Tabs) -> AnyView {
         let shown = cx.world.resource::<Workspaces>().shown();
         let count = tabs.list.len();
         let mut views = vec![indicator().boxed()];
-        for (at, (name, icon, keys)) in tabs.list.iter().enumerate() {
+        for (at, (name, keys)) in tabs.list.iter().enumerate() {
             views.push(if tabs.renaming == Some(at) {
-                renaming_tab(at, name, *icon).boxed()
+                renaming_tab(at, name).boxed()
             } else {
-                tab(at, name, *icon, keys.clone(), at == shown, count)
+                tab(at, name, keys.clone(), at == shown, count)
                     .boxed()
             });
         }
@@ -377,23 +358,22 @@ fn segment(content: impl crate::View, pad: f32) -> impl View {
 fn tab(
     at: usize,
     name: &str,
-    icon: Glyph,
     keys: Option<String>,
     shown: bool,
     count: usize,
 ) -> impl View {
     let name = name.to_uppercase();
     themed(move |cx| {
-        let (pad, size) =
-            (cx.theme().space.tab_padding, cx.theme().space.icon);
-        let content = icon_row((
-            raised(glyph(icon, size).tagged(TabIcon(at))),
-            label(name).wrap(false).tagged(DisplayText),
-        ));
+        let (pad, gap) =
+            (cx.theme().space.tab_padding, cx.theme().space.icon_gap);
+        let words = label(name).wrap(false).tagged(DisplayText);
         let content = if count > 1 {
-            row((content, close_mark(at))).boxed()
+            row((words, close_mark(at)))
+                .gap(gap)
+                .align(AlignItems::Center)
+                .boxed()
         } else {
-            content.boxed()
+            words.boxed()
         };
         let tab = segment(content, pad)
             .tagged(WorkspaceTab(at))
@@ -424,11 +404,6 @@ fn tab_items(at: usize, count: usize) -> Vec<AnyView> {
     };
     let mut items = vec![
         item("Rename", |world, at| world.start_rename(at)),
-        item("Change Icon", |world, at| {
-            let anchor = tab_rect(world, at).unwrap_or_default();
-            *world.resource_mut::<Opened>() =
-                Opened::Icons { at, anchor };
-        }),
         item("Duplicate", |world, at| {
             world.resource_mut::<Workspaces>().duplicate(at);
         }),
@@ -465,35 +440,38 @@ fn ask_close(world: &mut World, at: usize) {
 
 /// The question of closing the workspace at `at`, called `name`.
 fn close_view(at: usize) -> AnyView {
-    column((
-        note("Are you sure?"),
-        menu_item(label("Close").tone(Tone::Critical)).on_activate(
-            move |world| {
-                *world.resource_mut::<Opened>() = Opened::Nothing;
-                world.resource_mut::<Workspaces>().delete(at);
-            },
-        ),
-        menu_item(label("Cancel")).on_activate(|world| {
-            *world.resource_mut::<Opened>() = Opened::Nothing;
-        }),
-    ))
+    themed(move |cx| {
+        let gap = cx.theme().space.gap;
+        column((
+            description("Close this workspace?"),
+            row((
+                action(ButtonStyle::Critical, "CLOSE").on_activate(
+                    move |world| {
+                        *world.resource_mut::<Opened>() =
+                            Opened::Nothing;
+                        world.resource_mut::<Workspaces>().delete(at);
+                    },
+                ),
+                action(ButtonStyle::Quiet, "CANCEL").on_activate(
+                    |world| {
+                        *world.resource_mut::<Opened>() =
+                            Opened::Nothing;
+                    },
+                ),
+            )),
+        ))
+        .gap(gap)
+        .padding(UiRect::all(px(gap)))
+    })
     .boxed()
 }
 
-/// The "x" that closes a tab's workspace, shown in place of its icon
-/// while the pointer is on the tab.
+/// The "x" that closes a tab's workspace, after its name, shown while
+/// the pointer is on the tab.
 fn close_mark(at: usize) -> impl View {
     themed(move |cx| {
-        let space = &cx.theme().space;
-        let (size, offset) = (space.icon, space.icon_offset);
+        let size = cx.theme().space.icon;
         row((glyph(Glyph::Cross, size),))
-            .position(PositionType::Absolute)
-            .inset(UiRect {
-                left: px(0.0),
-                right: Val::Auto,
-                top: px(0.0),
-                bottom: px(offset),
-            })
             .align(AlignItems::Center)
             .rules(
                 style::<EngineTheme>()
@@ -509,7 +487,7 @@ fn close_mark(at: usize) -> impl View {
 
 /// The tab of the workspace at `at` while it is renamed: a field
 /// over it, the tab as wide as before under it.
-fn renaming_tab(at: usize, name: &str, icon: Glyph) -> impl View {
+fn renaming_tab(at: usize, name: &str) -> impl View {
     let (name, shown) = (name.to_owned(), name.to_uppercase());
     themed(move |cx| {
         let theme = cx.theme();
@@ -552,8 +530,7 @@ fn renaming_tab(at: usize, name: &str, icon: Glyph) -> impl View {
             .size(size)
             .bold(true)
             .wrap(false)
-            .tagged(DisplayText)
-            .with_icon(icon);
+            .tagged(DisplayText);
         row((
             row((room,)).tagged(Visibility::Hidden),
             row((field,))
@@ -673,7 +650,7 @@ fn all_view(tabs: &Tabs, shown: usize) -> AnyView {
         .list
         .iter()
         .enumerate()
-        .map(|(at, (name, icon, keys))| {
+        .map(|(at, (name, keys))| {
             let tone = if at == shown {
                 Tone::Accent
             } else {
@@ -681,14 +658,10 @@ fn all_view(tabs: &Tabs, shown: usize) -> AnyView {
             };
             let (name, keys) =
                 (name.clone(), keys.clone().unwrap_or_default());
-            let icon = *icon;
             themed(move |cx| {
-                let theme = cx.theme();
-                let (size, gap) =
-                    (theme.space.icon, theme.space.menu_gap);
+                let gap = cx.theme().space.menu_gap;
                 menu_item(
                     row((
-                        glyph(icon, size).tone(tone),
                         label(name).wrap(false).tone(tone).grown(1.0),
                         label(keys).wrap(false).tone(Tone::Dim),
                     ))
@@ -704,74 +677,6 @@ fn all_view(tabs: &Tabs, shown: usize) -> AnyView {
         })
         .collect::<Vec<_>>();
     column(rows).gap(0.0).boxed()
-}
-
-/// The icons the workspace at `at` may have, `current` lit.
-fn icons_view(at: usize, current: Option<Glyph>) -> AnyView {
-    let picks = PICKS
-        .into_iter()
-        .map(|pick| {
-            let lit = Some(pick) == current;
-            themed(move |cx| {
-                let size = cx.theme().space.icon;
-                button(glyph(pick, size))
-                    .rules(pick_rules(lit))
-                    .tagged(Glow::Inner)
-                    .on_activate(move |world| {
-                        *world.resource_mut::<Opened>() =
-                            Opened::Nothing;
-                        world
-                            .resource_mut::<Workspaces>()
-                            .set_icon(at, pick);
-                    })
-            })
-        })
-        .collect::<Vec<_>>();
-    themed(move |cx| {
-        let space = &cx.theme().space;
-        let (side, gap) = (space.row, space.gap / 2.0);
-        let across = PICKS_ACROSS as f32;
-        column((
-            section("ICON"),
-            row(picks)
-                .gap(gap)
-                .width(px(across * side + (across - 1.0) * gap))
-                .tagged(Wraps),
-        ))
-        .gap(space.gap)
-        .padding(UiRect::all(px(space.gap)))
-    })
-    .boxed()
-}
-
-/// The rules of an icon to pick: a square, the one `lit` framed in
-/// the accent.
-fn pick_rules(
-    lit: bool,
-) -> impl FnOnce(&mut Cx) + Send + Sync + 'static {
-    style::<EngineTheme>()
-        .frame(move |f, t| {
-            f.width(px(t.space.row))
-                .height(px(t.space.row))
-                .radius(t.space.radius)
-                .border(t.space.border)
-                .border_color(if lit {
-                    *t.colors.accent
-                } else {
-                    Color::NONE
-                })
-                .fill(if lit {
-                    *t.colors.active_low
-                } else {
-                    Color::NONE
-                })
-                .justify(JustifyContent::Center)
-                .align(AlignItems::Center)
-        })
-        .tone(if lit { Tone::Accent } else { Tone::Dim })
-        .hovered(|s| s.tone(Tone::Body))
-        .transition(Motion::Interact)
-        .bundle()
 }
 
 /// Adds a blank workspace and opens its name to be typed.
@@ -809,7 +714,6 @@ fn follow(
             .map(|(at, workspace)| {
                 (
                     workspace.name.clone(),
-                    workspace.icon.unwrap_or(Glyph::Page),
                     keys(&format!("workspace.show_{}", at + 1)),
                 )
             })
@@ -854,8 +758,7 @@ fn mark_active(
 fn show_close(
     dragged: Res<TabDrag>,
     tabs: Query<(&WorkspaceTab, Has<Hovered>)>,
-    mut marks: Query<(&CloseMark, &mut Visibility), Without<TabIcon>>,
-    mut icons: Query<(&TabIcon, &mut Visibility), Without<CloseMark>>,
+    mut marks: Query<(&CloseMark, &mut Visibility)>,
 ) {
     let over = |at: usize| {
         !dragged.moving()
@@ -863,21 +766,12 @@ fn show_close(
                 .iter()
                 .any(|(tab, hovered)| tab.0 == at && hovered)
     };
-    let closable =
-        marks.iter().map(|(mark, _)| mark.0).collect::<Vec<_>>();
-    let shown = |yes: bool| {
-        if yes {
+    for (mark, mut visibility) in &mut marks {
+        visibility.set_if_neq(if over(mark.0) {
             Visibility::Inherited
         } else {
             Visibility::Hidden
-        }
-    };
-    for (mark, mut visibility) in &mut marks {
-        visibility.set_if_neq(shown(over(mark.0)));
-    }
-    for (icon, mut visibility) in &mut icons {
-        let covered = closable.contains(&icon.0) && over(icon.0);
-        visibility.set_if_neq(shown(!covered));
+        });
     }
 }
 

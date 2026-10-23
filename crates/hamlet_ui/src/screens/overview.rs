@@ -31,7 +31,7 @@ use self::rows::{hamlet_rows, pressable};
 pub(crate) use self::rows::{stale, standing};
 use crate::icons::{Glyph, glyph};
 use crate::looks::{
-    Fills, ICON, action, bad_action, bare, good_action, note, raised,
+    Fills, ICON, action, bad_action, bare, good_action, raised,
     title, well,
 };
 use crate::platform::DisplayText;
@@ -213,12 +213,7 @@ pub fn overview() -> AnyView {
     })
     .within(bare());
     column((
-        row((
-            title("HAMLETS"),
-            note("Click a hamlet to see who lives there."),
-        ))
-        .gap(12.0)
-        .align(AlignItems::Center),
+        title("HAMLETS"),
         row((
             text_field(String::new(), |_, _| {})
                 .grow(1.0)
@@ -236,16 +231,7 @@ pub fn overview() -> AnyView {
             .size(11.0)
             .tone(Tone::Dim),
         scroll((list, closed())).fills_height(),
-        row((
-            action(
-                Glyph::Hearth,
-                "YOUR HEARTH",
-                crate::chief::go_home,
-            ),
-            note("Where you live, and how you look."),
-        ))
-        .gap(10.0)
-        .align(AlignItems::Center),
+        action(Glyph::Hearth, "YOUR HEARTH", crate::chief::go_home),
     ))
     .fills_height()
     .gap(8.0)

@@ -42,7 +42,7 @@ pub fn plugin(app: &mut App) {
         })
         .icon(Glyph::Lens.image(ICON)),
     )
-    // Closed until asked for from the View menu or a tab bar's plus.
+    // Closed until asked for from a tab bar's plus.
     .add_panel(
         "skills",
         DockWindowKind::new("SKILLS", || panel(skills_screen()))

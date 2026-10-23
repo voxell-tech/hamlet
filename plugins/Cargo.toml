@@ -15,9 +15,11 @@ license = "MIT OR Apache-2.0"
 hamlet_engine_bevy = { path = "../engine/bevy_sdk" }
 serde = { version = "1.0.229", features = ["derive"] }
 
-# Built for speed, every plugin and every crate in it alike.
+# Built for speed, every plugin and every crate in it alike. The
+# debug info goes but the function names stay, so that when a plugin
+# traps its backtrace in the log names where.
 [profile.release]
 opt-level = 3
 lto = true
 codegen-units = 1
-strip = true
+strip = "debuginfo"

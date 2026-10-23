@@ -365,7 +365,9 @@ impl Robots {
         let half = size * 0.5;
         self.robots
             .iter()
-            .filter(|(_, robot)| !robot.handled())
+            .filter(|(_, robot)| {
+                robot.rig.visible() && !robot.handled()
+            })
             .filter_map(|(agent, robot)| {
                 let at = robot.rig.at;
                 let back = at.turn.inverse();

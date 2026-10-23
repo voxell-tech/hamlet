@@ -4,7 +4,6 @@
 
 mod arrange;
 mod file;
-pub(crate) mod icon;
 
 use bevy::app::{App, AppExit, Last, Startup, Update};
 use bevy::ecs::change_detection::DetectChanges;
@@ -27,7 +26,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::command::{RunCommand, ShellCommandsExt};
 use crate::dock::PLUGIN_LIST;
-use crate::icons::Glyph;
 pub use crate::workspace::arrange::DockTreeExt;
 use crate::{EngineTheme, console};
 
@@ -93,10 +91,6 @@ impl Tuning for WorkspaceTuning {
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Workspace {
     pub name: String,
-    /// The icon before its name. A file without one is given one as
-    /// it is read.
-    #[serde(default, with = "icon")]
-    pub icon: Option<Glyph>,
     pub layout: Layout,
 }
 
@@ -152,7 +146,6 @@ impl Default for Workspaces {
             shown: 0,
             list: vec![Workspace {
                 name: FIRST.into(),
-                icon: Some(Glyph::House),
                 layout: split(
                     Axis::Horizontal,
                     0.2,
@@ -244,34 +237,16 @@ impl Workspaces {
         };
     }
 
-    /// Gives the workspace at `at` the icon `icon`.
-    pub fn set_icon(&mut self, at: usize, icon: Glyph) {
-        if let Some(workspace) = self.list.get_mut(at)
-            && workspace.icon != Some(icon)
-        {
-            workspace.icon = Some(icon);
-        }
-    }
-
     /// Names the workspace at `at` `name`, trimmed. Whether it was: a
-    /// name that is empty, too long or another's is refused. An icon
-    /// that came with the old name follows the new one.
+    /// name that is empty, too long or another's is refused.
     pub fn rename(&mut self, at: usize, name: &str) -> bool {
         let name = name.trim();
         let fits = !name.is_empty()
             && name.chars().count() <= LONGEST_NAME
             && !self.named(name, Some(at));
-        let taken = self.icons_besides(at);
         match self.list.get_mut(at) {
             Some(workspace) if fits => {
-                if workspace.name != name {
-                    let came = icon::suggest(&workspace.name, &taken);
-                    if workspace.icon == Some(came) {
-                        workspace.icon =
-                            Some(icon::suggest(name, &taken));
-                    }
-                    workspace.name = name.to_owned();
-                }
+                workspace.name = name.to_owned();
                 true
             }
             _ => false,
@@ -289,17 +264,15 @@ impl Workspaces {
         }
     }
 
-    /// Puts a workspace named `name` holding `layout` at `at`, with
-    /// the icon its name calls for, shows it and gives `at`.
+    /// Puts a workspace named `name` holding `layout` at `at`, shows
+    /// it and gives `at`.
     fn insert(
         &mut self,
         at: usize,
         name: String,
         layout: Layout,
     ) -> usize {
-        let taken = self.icons_besides(usize::MAX);
-        let icon = Some(icon::suggest(&name, &taken));
-        self.list.insert(at, Workspace { name, icon, layout });
+        self.list.insert(at, Workspace { name, layout });
         self.shown = at;
         at
     }
@@ -320,16 +293,6 @@ impl Workspaces {
             .unwrap_or_default()
     }
 
-    /// The icons of the workspaces but the one at `besides`.
-    fn icons_besides(&self, besides: usize) -> Vec<Glyph> {
-        self.list
-            .iter()
-            .enumerate()
-            .filter(|(at, _)| *at != besides)
-            .filter_map(|(_, workspace)| workspace.icon)
-            .collect()
-    }
-
     /// Whether a workspace other than the one at `besides` is called
     /// `name`.
     fn named(&self, name: &str, besides: Option<usize>) -> bool {
@@ -340,22 +303,16 @@ impl Workspaces {
     }
 
     /// These, with at least one workspace, one of them shown, every
-    /// one named and with an icon, and the panels of a bundled plugin
-    /// merged into another named as they are there.
+    /// one named, and the panels of a bundled plugin merged into
+    /// another named as they are there.
     fn cleaned(mut self) -> Self {
         if self.list.is_empty() {
             return Self::default();
         }
         self.shown = self.shown.min(self.list.len() - 1);
-        for at in 0..self.list.len() {
-            let taken = self.icons_besides(at);
-            let workspace = &mut self.list[at];
+        for (at, workspace) in self.list.iter_mut().enumerate() {
             if workspace.name.trim().is_empty() {
                 workspace.name = format!("Workspace {}", at + 1);
-            }
-            if workspace.icon.is_none() {
-                workspace.icon =
-                    Some(icon::suggest(&workspace.name, &taken));
             }
             workspace.layout.follow_merges();
         }
@@ -512,7 +469,6 @@ mod tests {
             vec![
                 Workspace {
                     name: "Writing".into(),
-                    icon: Some(Glyph::Moon),
                     layout: Layout::Split {
                         axis: Axis::Horizontal,
                         share: 0.25,
@@ -536,7 +492,6 @@ mod tests {
                 },
                 Workspace {
                     name: "Quiet".into(),
-                    icon: Some(Glyph::Bell),
                     layout: Layout::empty(),
                 },
             ],
@@ -574,22 +529,17 @@ mod tests {
     }
 
     #[test]
-    fn a_file_without_icons_is_read_and_given_them() {
-        let home = home("no_icons");
-        let text = "(shown: 1, list: [(name: \"Main\", layout: \
-                    Tabs(panels: [], shown: 0)), (name: \"Ledger\", \
-                    layout: Tabs(panels: [], shown: 0))])";
+    fn a_file_with_icons_is_still_read() {
+        let home = home("old_icons");
+        let text = "(shown: 1, list: [(name: \"Main\", icon: \
+                    \"house\", layout: Tabs(panels: [], shown: 0)), \
+                    (name: \"Ledger\", layout: Tabs(panels: [], \
+                    shown: 0))])";
         fs::write(home.path(FILE), text).unwrap();
         let Restored::Read(read) = Restored::read(&home) else {
             panic!("the file was not read");
         };
-        let icons = read
-            .list()
-            .iter()
-            .map(|workspace| workspace.icon)
-            .collect::<Vec<_>>();
-        assert_eq!(icons[0], Some(Glyph::House));
-        assert!(icons[1].is_some_and(|icon| icon != Glyph::House));
+        assert_eq!(read.list().len(), 2);
         assert_eq!(read.shown(), 1);
         let _ = fs::remove_dir_all(home.root());
     }
@@ -603,7 +553,6 @@ mod tests {
         };
         let workspace = |layout| Workspace {
             name: "Mine".into(),
-            icon: Some(Glyph::House),
             layout,
         };
         let saved = Workspaces {
