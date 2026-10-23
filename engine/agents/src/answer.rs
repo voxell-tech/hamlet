@@ -1,6 +1,8 @@
 //! The requests of plugins: each checked against what the person
 //! allowed, asked about on its first use, and answered.
 
+use std::path::Path;
+
 use bevy::app::{App, PostUpdate};
 use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::ecs::system::{Commands, Local, Query, Res};
@@ -21,7 +23,7 @@ use hamlet_engine_api::{Failure, Request};
 use hamlet_engine_grants::{
     Decided, FirstUse, Grants, Verdict, Waiting,
 };
-use hamlet_engine_plugins::{Asked, Deliver, PluginInfo};
+use hamlet_engine_plugins::{Asked, Deliver, PluginInfo, PluginKind};
 use hamlet_home::charter;
 use hamlet_home::limits::{self, Permission};
 use hamlet_model::catalogue::{self, Catalogue, Listed, Priced};
@@ -31,8 +33,10 @@ use hamlet_model::config::providers::{LOCAL as SERVERS, served};
 use hamlet_rules::hamlet::HOME;
 
 use crate::archive::ArchiveWorldExt;
+use crate::chief::{ChiefWorldExt, Kept};
 use crate::conversation::ConversationWorldExt;
 use crate::focus::FocusWorldExt;
+use crate::gifts::GiftsWorldExt;
 use crate::keys::KeyCardWorldExt;
 use crate::model_choice::ModelChoiceWorldExt;
 use crate::needs::NeedsWorldExt;
@@ -537,6 +541,40 @@ impl AgentsWorldExt for World {
             }
             AgentsRequest::RunModel { agent, model } => {
                 self.run_model(&agent, &model).and(done)
+            }
+            AgentsRequest::Offers(agent) => {
+                let (agent, ..) = self.receiver(&agent)?;
+                Ok(AgentsReply::Offers(self.offers_for(agent)))
+            }
+            AgentsRequest::Give { agent, skill, from } => {
+                self.give(&agent, &skill, from.as_deref()).and(done)
+            }
+            AgentsRequest::Hand { agent, path } => {
+                // It reads whatever the person can, so only Hamlet's
+                // own plugins hand a file over.
+                let own =
+                    self.get::<PluginInfo>(asked.plugin).is_some_and(
+                        |info| info.kind != PluginKind::Installed,
+                    );
+                if !own {
+                    return Err(Failure::Refused(
+                        "only Hamlet's own plugins hand a file over"
+                            .into(),
+                    ));
+                }
+                self.hand(&agent, Path::new(&path)).and(done)
+            }
+            AgentsRequest::Chief => Ok(AgentsReply::Chief(
+                self.resource::<Kept>().0.clone(),
+            )),
+            AgentsRequest::SetLook(look) => {
+                self.set_look(look).and(done)
+            }
+            AgentsRequest::SetHearth(at) => {
+                self.set_hearth(at).and(done)
+            }
+            AgentsRequest::SetLibrary(at) => {
+                self.set_library(at).and(done)
             }
         }
     }

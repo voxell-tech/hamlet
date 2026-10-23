@@ -5,12 +5,16 @@
 //! request carries a key and no reply holds one: a key is typed and a
 //! sign-in made on the engine's own card.
 
+mod chief;
 mod conversation;
 mod needs;
 mod roster;
 
 use serde::{Deserialize, Serialize};
 
+pub use crate::agents::chief::{
+    ChiefRecord, Cloak, Hat, Holds, Light, Look,
+};
 pub use crate::agents::conversation::{
     Change, ChangeLine, Focus, Gift, Mark, Papers, Part, Past, Pasts,
     Related, Selected, Skill,
@@ -20,8 +24,8 @@ pub use crate::agents::needs::{
     Sheet,
 };
 pub use crate::agents::roster::{
-    Bylaws, ClosedHamlet, Doing, Paper, Record, RoadUse, Roster,
-    RosterAgent, RosterHamlet, RosterRoad, Vote,
+    Budget, Bylaws, ClosedHamlet, Doing, Paper, Record, RoadUse,
+    Roster, RosterAgent, RosterHamlet, RosterRoad, Vote,
 };
 use crate::capability::Capability;
 
@@ -232,6 +236,32 @@ pub enum AgentsRequest {
         agent: String,
         model: String,
     },
+    /// The skills the living agent `agent` could be given:
+    /// [`AgentsReply::Offers`].
+    Offers(String),
+    /// Gives the living agent `agent` the skill `skill` of the agent
+    /// `from`, or of the starters with none, as the chief's `/give`.
+    /// Fails unless the skill arrived.
+    Give {
+        agent: String,
+        skill: String,
+        from: Option<String>,
+    },
+    /// Puts a copy of the file or folder at the absolute `path` in
+    /// the inbox of the living agent `agent`, and tells it so in the
+    /// chief's conversation with it. Only a plugin built in or
+    /// bundled may.
+    Hand {
+        agent: String,
+        path: String,
+    },
+    /// The chief at this window: [`AgentsReply::Chief`].
+    Chief,
+    SetLook(Look),
+    /// Keeps where the chief set its Hearth down, as x and z.
+    SetHearth((f32, f32)),
+    /// Keeps where the chief set the library down, as x and z.
+    SetLibrary((f32, f32)),
 }
 
 impl AgentsRequest {
@@ -280,7 +310,12 @@ impl AgentsRequest {
             | Self::Pick { .. }
             | Self::Turn { .. }
             | Self::Submit(_)
-            | Self::RunModel { .. } => Capability::AgentsChief,
+            | Self::RunModel { .. }
+            | Self::Give { .. }
+            | Self::Hand { .. }
+            | Self::SetLook(_)
+            | Self::SetHearth(_)
+            | Self::SetLibrary(_) => Capability::AgentsChief,
             Self::Focus
             | Self::Select(_)
             | Self::Related
@@ -292,7 +327,9 @@ impl AgentsRequest {
             | Self::Roster
             | Self::Record(_)
             | Self::Bylaws(_)
-            | Self::Needs => Capability::AgentsRead,
+            | Self::Needs
+            | Self::Offers(_)
+            | Self::Chief => Capability::AgentsRead,
         }
     }
 }
@@ -324,6 +361,8 @@ pub enum AgentsReply {
     Record(Record),
     Bylaws(Bylaws),
     Needs(Vec<Need>),
+    Offers(Vec<Gift>),
+    Chief(ChiefRecord),
 }
 
 /// A change, sent to each plugin that watches.
@@ -368,6 +407,38 @@ pub enum AgentsEvent {
     Skills(Vec<Skill>),
     Roster(Roster),
     Needs(Vec<Need>),
+    /// A message went along the road between `road`'s ends, sent by
+    /// `from`, each agent by its hamlet and number. It follows the
+    /// roster that has the road.
+    Carried {
+        road: [(String, u64); 2],
+        from: (String, u64),
+    },
+    /// An agent called on the librarian: `agent` when it is known.
+    Consulted {
+        agent: Option<(String, u64)>,
+    },
+    /// `agent` cast a ballot.
+    Voted {
+        agent: (String, u64),
+    },
+    /// What `agent` says or thinks as its turn goes, the end of its
+    /// words or the start of a thought; told as it changes.
+    Saying {
+        agent: (String, u64),
+        text: String,
+        thought: bool,
+    },
+    /// The chief answered the need `need`.
+    Answered {
+        need: u64,
+        choice: Choice,
+    },
+    /// The chief stopped an agent, or every agent with none.
+    Vetoed {
+        agent: Option<String>,
+    },
+    Chief(ChiefRecord),
 }
 
 /// The settings of the agents, with no key.

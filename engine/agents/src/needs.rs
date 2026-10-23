@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use bevy::app::{App, PostUpdate};
 use bevy::ecs::entity::Entity;
+use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
@@ -15,7 +16,7 @@ use bevy::ecs::system::{
 };
 use bevy::ecs::world::World;
 use hamlet_core::oversight::{
-    Answer, Answered, Asks, Kind, Need as Kept, Waiting, danger,
+    Answer, Answered, Asks, Kind, Need as Kept, Veto, Waiting, danger,
 };
 use hamlet_core::session::{Entry, SessionKey, Transcript};
 use hamlet_engine_api::Failure;
@@ -36,10 +37,32 @@ const TICK: Duration = Duration::from_secs(10);
 const LINE: usize = 80;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<Sheets>().add_systems(
-        PostUpdate,
-        (forget_sheets, tell_needs).chain().in_set(Gather),
-    );
+    app.init_resource::<Sheets>()
+        .add_observer(answered)
+        .add_observer(vetoed)
+        .add_systems(
+            PostUpdate,
+            (forget_sheets, tell_needs).chain().in_set(Gather),
+        );
+}
+
+/// Tells that the chief answered something that waited, whoever
+/// answered it.
+fn answered(answer: On<Answer>, mut watchers: ResMut<Watchers>) {
+    if watchers.watched() {
+        watchers.tell(AgentsEvent::Answered {
+            need: answer.entity.to_bits(),
+            choice: choice(answer.choice),
+        });
+    }
+}
+
+fn vetoed(veto: On<Veto>, mut watchers: ResMut<Watchers>) {
+    if watchers.watched() {
+        watchers.tell(AgentsEvent::Vetoed {
+            agent: veto.agent.clone(),
+        });
+    }
 }
 
 /// The answers picked so far for each card of questions.

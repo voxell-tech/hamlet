@@ -24,6 +24,11 @@ pub struct Roster {
 pub struct RosterRoad {
     pub ends: [(String, u64); 2],
     pub level: RoadUse,
+    /// The messages it has carried.
+    pub messages: u32,
+    /// The sender of the latest message along it, by its hamlet and
+    /// number.
+    pub last_from: Option<(String, u64)>,
 }
 
 /// How much a road is used.
@@ -97,6 +102,12 @@ pub struct RosterAgent {
     pub since: u64,
     pub until: Option<u64>,
     pub doing: Doing,
+    /// Model calls and tool calls begun since it took up its work.
+    pub step: u32,
+    /// Tool calls that ended in an error since then.
+    pub failures: u32,
+    /// The last turn of its conversations ended in an error.
+    pub fault: bool,
 }
 
 /// A hamlet.
@@ -126,6 +137,26 @@ pub struct RosterHamlet {
     /// Where its chief set it down in the realm, as x and z; none
     /// while it stands where the realm first put it.
     pub spot: Option<(f32, f32)>,
+    /// Its place in the order the realm's record founded the
+    /// hamlets, the first hamlet 0.
+    pub founded: u32,
+    pub budget: Budget,
+}
+
+/// A hamlet's budget as numbers.
+#[derive(
+    Clone, PartialEq, Debug, Default, Serialize, Deserialize,
+)]
+pub struct Budget {
+    /// The share left on the meter nearest its cap, from 0 to 1;
+    /// none when nothing is capped.
+    pub left: Option<f32>,
+    /// The rest on that meter as it is shown, as "$1.90".
+    pub remains: Option<String>,
+    /// "today" or "this month".
+    pub period: String,
+    /// The share of the period gone by, from 0 to 1.
+    pub gone: f32,
 }
 
 /// A hamlet closed down, to be restored or deleted.

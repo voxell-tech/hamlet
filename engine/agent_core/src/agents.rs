@@ -106,6 +106,11 @@ pub struct Works(pub Work);
 #[derive(Component, Clone, Copy, PartialEq, Debug, Default)]
 pub struct Spot(pub Option<(f32, f32)>);
 
+/// A hamlet's place in the order the realm's record founded the
+/// hamlets, the first hamlet 0.
+#[derive(Component, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Founded(pub u32);
+
 /// An agent, by its number in the hamlet's record. The number is
 /// kept for life; a later agent of the same name has another.
 #[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug)]

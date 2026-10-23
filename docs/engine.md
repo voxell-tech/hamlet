@@ -1828,7 +1828,9 @@ says why and every request fails saying so.
   hamlet, the library or the chief's Hearth). Selecting a living agent talks to it, and
   opening a conversation selects its agent. When the agent of the
   open conversation is gone, it falls back to the first mayor.
-  `Focus` reads it and each change is an `AgentsEvent::Focus`.
+  `Focus` reads it and each change is an `AgentsEvent::Focus`. The
+  selection is kept in the home's `selection.toml` and selected again
+  at the next launch if it is still there; the library is not kept.
 - **The chat** (`conversation.rs`): `Related` is the sessions an
   agent's chat shows beside the open one, each with its part (with
   the agent, or one it wrote to) and who writes in it. Each message
@@ -1850,31 +1852,57 @@ says why and every request fails saying so.
 - **The roster** (`roster.rs`): `Roster` is every agent and hamlet
   with its state in words, its account and spend, the hamlets closed
   down, and what the realm is drawn from: when each agent came and
-  left and the step it is on, the spot a hamlet's chief set it down
-  on, and the roads between agents, each end by its hamlet and
-  number, with their use; it is told again as `AgentsEvent::Roster` when it
-  changes. `Record` is a hamlet's budget, votes, comings and goings
+  left, the step it is on with its count of steps and failed tool
+  calls since it took up its work, and whether the last turn of its
+  conversations ended in an error (`fault`); the spot a hamlet's
+  chief set it down on, its place in the order the realm's record
+  founded the hamlets, and its budget as numbers (the share left,
+  the rest in words, the period and the share of it gone by); and
+  the roads between agents, each end by its hamlet and number, with
+  their use, the messages they carried and the latest sender; it is
+  told again as `AgentsEvent::Roster` when it changes. `Record` is a hamlet's budget, votes, comings and goings
   and limits file. `Bylaws` is what a hamlet's own limits file holds
   for it alone, and `SetBylaw` writes one key of that file, refusing
   a key of the realm's and failing with the problem when the file
   cannot take it. `RunModel` has an agent run a model from now on,
   written as the app does: the mayor's pinned in its hamlet's limits,
   another's chosen as its mayor would, its hamlet let run it.
+- **What befalls agents**, each agent by its hamlet and number:
+  `Carried` (a message went along a road, told after the roster
+  that has the road), `Consulted` (an agent called on the
+  librarian), `Voted` (an agent cast a ballot), and `Saying` (what
+  an agent says or thinks as its turn goes, an agent it delegated
+  to included, told as it changes).
 - **What waits for the chief** (`needs.rs`): `Needs`, told again as
   `AgentsEvent::Needs` when it changes and every ten seconds for the
   time waited. `Answer` gives a choice with a reason or a reply. The
   answers to an agent's questions are picked in the service (`Pick`,
   `Turn`, `Submit`), so a card shown in two panels shows the same
-  sheet.
+  sheet. Each answer, whoever gave it, is told as `Answered` with
+  its choice, and each veto as `Vetoed`.
+- **Gifts** (`gifts.rs`): `Offers` is the skills a living agent
+  could be given from another agent of its hamlet; `Give` gives one
+  as the chief's `/give` does, failing unless it arrived. `Hand` puts a copy of a file or folder at an absolute
+  path in an agent's inbox, with the app's checks (32 MB at most),
+  and tells the agent in the chief's conversation with it; it reads
+  what the person can, so only a plugin built in or bundled hands a
+  file over, and nothing of the home is handed.
+- **The chief's records** (`chief.rs`), in the app's files under
+  the home: `Chief` is the chief's name, look (`chiefs/<user>.toml`),
+  the spot its Hearth was set down on (`chiefs/<user>.place`) and
+  the library's (`library.place`); `SetLook`, `SetHearth` and
+  `SetLibrary` keep them, each told as `AgentsEvent::Chief`. Only
+  this window's chief is known: the core has no chiefs of its own
+  to arrive or leave.
 - **Capabilities**, each on the target `local`: `agents.read` for what
   is read and watched, and the focus, `agents.settings` for what
   changes the settings, the catalogue's models, the setup, the
   charter, the realm's limits and a hamlet's bylaws, and
   `agents.chief` for sending, vetoing, revoking, rewinding, decrees,
   the model an agent runs (`RunModel`), the character, deleting a past
-  session and answering what waits. A use answered Ask next time asks
-  the
-  person first, as the other services do.
+  session, answering what waits, gifts and the chief's records. A use
+  answered Ask next time asks the person first, as the other services
+  do.
 - **Secrets stay in the service.** No request carries a key and no
   reply holds one, a ChatGPT token or a sign-in. A manifest asking for
   `agents.keys`, or any capability with `keys` among its words, is

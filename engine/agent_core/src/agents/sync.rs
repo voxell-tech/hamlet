@@ -15,9 +15,9 @@ use hamlet_rules::realm::{self, Realm};
 
 use crate::agents::roster::settlements;
 use crate::agents::{
-    Account, Activity, Busy, Carried, Charter, Citizen, First, Left,
-    Lived, LivesIn, Mayor, MergedInto, Purpose, Road, Settlement,
-    Spot, Synced, Traffic, Treasury, Works,
+    Account, Activity, Busy, Carried, Charter, Citizen, First,
+    Founded, Left, Lived, LivesIn, Mayor, MergedInto, Purpose, Road,
+    Settlement, Spot, Synced, Traffic, Treasury, Works,
 };
 use crate::core::Settings;
 
@@ -137,12 +137,19 @@ fn settle(world: &mut World) {
     }
     // Each is shown by what its chief calls it.
     for (entity, settlement) in settlements(world) {
-        let Some(place) =
-            places.iter().find(|p| p.name == settlement.name)
+        let Some((order, place)) = places
+            .iter()
+            .enumerate()
+            .find(|(_, p)| p.name == settlement.name)
         else {
             continue;
         };
         let mut hamlet = world.entity_mut(entity);
+        let founded =
+            Founded(u32::try_from(order).unwrap_or(u32::MAX));
+        if hamlet.get::<Founded>() != Some(&founded) {
+            hamlet.insert(founded);
+        }
         if hamlet
             .get::<Name>()
             .is_none_or(|name| name.as_str() != place.shown())

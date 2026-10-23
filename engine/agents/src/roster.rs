@@ -7,23 +7,29 @@ use std::time::{Duration, Instant};
 use bevy::app::{App, PostUpdate};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::name::Name;
-use bevy::ecs::query::Has;
+use bevy::ecs::observer::On;
+use bevy::ecs::query::{Changed, Has};
+use bevy::ecs::relationship::RelationshipTarget;
+use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{
     Local, Query, Res, ResMut, SystemParam, SystemState,
 };
 use bevy::ecs::world::World;
 use hamlet_core::agents::{
-    Account, Activity, Busy, Citizen, Doing, Left, Lived, LivesIn,
-    Mayor, MergedInto, Paper, Purpose, Road, Settlement, Spot,
-    Traffic, Treasury, Works,
+    Account, Activity, Busy, Carried, Citizen, Consulted, Doing,
+    Founded, Left, Lived, LivesIn, Mayor, MergedInto, Paper, Purpose,
+    Road, Saying, Settlement, Spot, Traffic, Treasury, Voted, Works,
 };
 use hamlet_core::core::{HomeDir, Settings};
 use hamlet_core::oversight::Waiting;
+use hamlet_core::session::{
+    Conversations, Entry, Status as Work, Transcript,
+};
 use hamlet_engine_api::Failure;
 use hamlet_engine_api::agents::{
-    self as api, AgentsEvent, ClosedHamlet, Record, RoadUse, Roster,
-    RosterAgent, RosterHamlet, RosterRoad, Vote,
+    self as api, AgentsEvent, Budget, ClosedHamlet, Record, RoadUse,
+    Roster, RosterAgent, RosterHamlet, RosterRoad, Vote,
 };
 use hamlet_home::limits;
 use hamlet_rules::hamlet::{self as rules, HOME};
@@ -41,8 +47,20 @@ const CLOSED_EVERY: Duration = Duration::from_secs(2);
 const BEFORE: usize = 4;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_systems(PostUpdate, tell_roster.in_set(Gather));
+    app.init_resource::<Befell>()
+        .add_observer(carried)
+        .add_observer(consulted)
+        .add_observer(voted)
+        .add_systems(
+            PostUpdate,
+            (tell_roster, tell_sayings).chain().in_set(Gather),
+        );
 }
+
+/// What befell agents since the roster was last told, told after
+/// it, so a road is in the roster before what it carried.
+#[derive(Resource, Default)]
+struct Befell(Vec<AgentsEvent>);
 
 /// The roster's methods on [`World`].
 pub(crate) trait RosterWorldExt {
@@ -177,8 +195,30 @@ type Told<'a> = (
     Option<&'a Account>,
     Option<&'a MergedInto>,
     &'a Lived,
+    Option<&'a Conversations>,
     (Has<Busy>, Has<Mayor>, Has<Left>),
 );
+
+/// The agents by their hamlet and number.
+#[derive(SystemParam)]
+pub(crate) struct Ends<'w, 's> {
+    agents: Query<'w, 's, (&'static Citizen, &'static LivesIn)>,
+    hamlets: Query<'w, 's, &'static Settlement>,
+}
+
+impl Ends<'_, '_> {
+    /// `agent` by its hamlet and its number there.
+    fn who(&self, agent: Entity) -> Option<(String, u64)> {
+        let (citizen, lives) = self.agents.get(agent).ok()?;
+        let settlement = self.hamlets.get(lives.0).ok()?;
+        Some((settlement.name.clone(), citizen.0))
+    }
+
+    /// The ends of `road`, in the order the roster tells them.
+    fn of(&self, road: &Road) -> Option<[(String, u64); 2]> {
+        Some([self.who(road.ends.0)?, self.who(road.ends.1)?])
+    }
+}
 
 /// What the roster is made of.
 #[derive(SystemParam)]
@@ -193,11 +233,12 @@ pub(crate) struct RosterFacts<'w, 's> {
             &'static Name,
             Option<&'static Treasury>,
             Option<&'static Works>,
-            Option<&'static Spot>,
+            (Option<&'static Spot>, Option<&'static Founded>),
         ),
     >,
     roads: Query<'w, 's, (&'static Road, &'static Traffic)>,
-    ends: Query<'w, 's, (&'static Citizen, &'static LivesIn)>,
+    ends: Ends<'w, 's>,
+    sessions: Query<'w, 's, (&'static Transcript, &'static Work)>,
     waiting: Query<'w, 's, &'static Waiting>,
     names: Query<'w, 's, &'static Name>,
 }
@@ -233,6 +274,7 @@ impl RosterFacts<'_, '_> {
                     account,
                     into,
                     lived,
+                    talks,
                     (busy, mayor, gone),
                 )| {
                     let name = name.as_str().to_string();
@@ -282,6 +324,9 @@ impl RosterFacts<'_, '_> {
                         since: lived.since,
                         until: lived.until,
                         doing: activity.doing.told(),
+                        step: activity.step,
+                        failures: activity.failures,
+                        fault: self.fault(talks),
                     }
                 },
             )
@@ -293,60 +338,90 @@ impl RosterFacts<'_, '_> {
         let mut hamlets = self
             .hamlets
             .iter()
-            .map(|(_, settlement, title, treasury, works, spot)| {
-                let here = agents
-                    .iter()
-                    .filter(|agent| agent.hamlet == settlement.name)
-                    .collect::<Vec<_>>();
-                let living = here
-                    .iter()
-                    .filter(|agent| !agent.gone)
-                    .collect::<Vec<_>>();
-                let working =
-                    living.iter().filter(|agent| agent.busy).count();
-                let waiting = living
-                    .iter()
-                    .map(|agent| agent.waiting)
-                    .sum::<u32>();
-                let work = works.map(|works| &works.0);
-                RosterHamlet {
-                    id: settlement.name.clone(),
-                    title: title.as_str().to_string(),
-                    mayor: living
+            .map(
+                |(
+                    _,
+                    settlement,
+                    title,
+                    treasury,
+                    works,
+                    (spot, founded),
+                )| {
+                    let here = agents
                         .iter()
-                        .find(|agent| agent.mayor)
-                        .map(|agent| agent.name.clone())
-                        .unwrap_or_default(),
-                    living: wide(living.len()),
-                    working: wide(working),
-                    waiting,
-                    gone: wide(here.len() - living.len()),
-                    state: standing(living.len(), working, waiting),
-                    account: treasury
-                        .map(|treasury| treasury.0.summary())
-                        .unwrap_or_default(),
-                    folder: work
-                        .and_then(|work| work.folder.as_ref())
-                        .map(|folder| folder.display().to_string()),
-                    manual: work
-                        .is_none_or(|work| work.mode == Mode::Manual),
-                    mode: work
-                        .map(|work| work.mode.says().to_string())
-                        .unwrap_or_default(),
-                    before: work
-                        .map(|work| {
-                            work.before
-                                .iter()
-                                .take(BEFORE)
-                                .map(|folder| {
-                                    folder.display().to_string()
-                                })
-                                .collect()
+                        .filter(|agent| {
+                            agent.hamlet == settlement.name
                         })
-                        .unwrap_or_default(),
-                    spot: spot.and_then(|spot| spot.0),
-                }
-            })
+                        .collect::<Vec<_>>();
+                    let living = here
+                        .iter()
+                        .filter(|agent| !agent.gone)
+                        .collect::<Vec<_>>();
+                    let working = living
+                        .iter()
+                        .filter(|agent| agent.busy)
+                        .count();
+                    let waiting = living
+                        .iter()
+                        .map(|agent| agent.waiting)
+                        .sum::<u32>();
+                    let work = works.map(|works| &works.0);
+                    RosterHamlet {
+                        id: settlement.name.clone(),
+                        title: title.as_str().to_string(),
+                        mayor: living
+                            .iter()
+                            .find(|agent| agent.mayor)
+                            .map(|agent| agent.name.clone())
+                            .unwrap_or_default(),
+                        living: wide(living.len()),
+                        working: wide(working),
+                        waiting,
+                        gone: wide(here.len() - living.len()),
+                        state: standing(
+                            living.len(),
+                            working,
+                            waiting,
+                        ),
+                        account: treasury
+                            .map(|treasury| treasury.0.summary())
+                            .unwrap_or_default(),
+                        folder: work
+                            .and_then(|work| work.folder.as_ref())
+                            .map(|folder| {
+                                folder.display().to_string()
+                            }),
+                        manual: work.is_none_or(|work| {
+                            work.mode == Mode::Manual
+                        }),
+                        mode: work
+                            .map(|work| work.mode.says().to_string())
+                            .unwrap_or_default(),
+                        before: work
+                            .map(|work| {
+                                work.before
+                                    .iter()
+                                    .take(BEFORE)
+                                    .map(|folder| {
+                                        folder.display().to_string()
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                        spot: spot.and_then(|spot| spot.0),
+                        founded: founded
+                            .map_or(0, |founded| founded.0),
+                        budget: treasury
+                            .map(|treasury| Budget {
+                                left: treasury.0.hamlet.left(),
+                                remains: treasury.0.hamlet.remains(),
+                                period: treasury.0.period.clone(),
+                                gone: treasury.0.gone,
+                            })
+                            .unwrap_or_default(),
+                    }
+                },
+            )
             .collect::<Vec<_>>();
         // The first hamlet first, then by name.
         hamlets.sort_by_key(|hamlet| {
@@ -362,18 +437,12 @@ impl RosterFacts<'_, '_> {
 
     /// The roads between agents, each end by its hamlet and number.
     fn roads(&self) -> Vec<RosterRoad> {
-        let end = |agent: Entity| {
-            let (citizen, lives) = self.ends.get(agent).ok()?;
-            let (_, settlement, ..) =
-                self.hamlets.get(lives.0).ok()?;
-            Some((settlement.name.clone(), citizen.0))
-        };
         let mut roads = self
             .roads
             .iter()
             .filter_map(|(road, traffic)| {
                 Some(RosterRoad {
-                    ends: [end(road.ends.0)?, end(road.ends.1)?],
+                    ends: self.ends.of(road)?,
                     level: match traffic.level {
                         rules::RoadUse::Overgrown => {
                             RoadUse::Overgrown
@@ -382,11 +451,32 @@ impl RosterFacts<'_, '_> {
                         rules::RoadUse::Paved => RoadUse::Paved,
                         rules::RoadUse::Rail => RoadUse::Rail,
                     },
+                    messages: traffic.messages,
+                    last_from: traffic
+                        .last_from
+                        .and_then(|from| self.ends.who(from)),
                 })
             })
             .collect::<Vec<_>>();
         roads.sort_by(|a, b| a.ends.cmp(&b.ends));
         roads
+    }
+
+    /// The last turn among the conversations `talks` ended in an
+    /// error.
+    fn fault(&self, talks: Option<&Conversations>) -> bool {
+        talks
+            .into_iter()
+            .flat_map(|talks| talks.iter())
+            .filter_map(|session| self.sessions.get(session).ok())
+            .filter_map(|(said, work)| {
+                Some((said.items().last()?, work))
+            })
+            .max_by_key(|(last, _)| last.at)
+            .is_some_and(|(last, work)| {
+                !work.working()
+                    && matches!(last.entry, Entry::Error(_))
+            })
     }
 }
 
@@ -469,10 +559,12 @@ fn tell_roster(
     facts: RosterFacts,
     home: Res<HomeDir>,
     mut watchers: ResMut<Watchers>,
+    mut befell: ResMut<Befell>,
     mut shown: Local<Shown>,
 ) {
     if !watchers.watched() {
         *shown = Shown::default();
+        befell.0.clear();
         return;
     }
     let at = Instant::now();
@@ -484,5 +576,70 @@ fn tell_roster(
     if shown.roster.as_ref() != Some(&roster) {
         watchers.tell(AgentsEvent::Roster(roster.clone()));
         shown.roster = Some(roster);
+    }
+    for event in befell.0.drain(..) {
+        watchers.tell(event);
+    }
+}
+
+/// Tells what each agent says or thinks as it changes.
+fn tell_sayings(
+    sayings: Query<(Entity, &Saying), Changed<Saying>>,
+    ends: Ends,
+    mut watchers: ResMut<Watchers>,
+) {
+    if !watchers.watched() {
+        return;
+    }
+    for (agent, saying) in &sayings {
+        if let Some(agent) = ends.who(agent) {
+            watchers.tell(AgentsEvent::Saying {
+                agent,
+                text: saying.text.clone(),
+                thought: saying.thought,
+            });
+        }
+    }
+}
+
+fn carried(
+    carried: On<Carried>,
+    roads: Query<&Road>,
+    ends: Ends,
+    watchers: Res<Watchers>,
+    mut befell: ResMut<Befell>,
+) {
+    if !watchers.watched() {
+        return;
+    }
+    let road =
+        roads.get(carried.road).ok().and_then(|road| ends.of(road));
+    if let (Some(road), Some(from)) = (road, ends.who(carried.from)) {
+        befell.0.push(AgentsEvent::Carried { road, from });
+    }
+}
+
+fn consulted(
+    consulted: On<Consulted>,
+    ends: Ends,
+    watchers: Res<Watchers>,
+    mut befell: ResMut<Befell>,
+) {
+    if watchers.watched() {
+        let agent = consulted.agent.and_then(|agent| ends.who(agent));
+        befell.0.push(AgentsEvent::Consulted { agent });
+    }
+}
+
+fn voted(
+    voted: On<Voted>,
+    ends: Ends,
+    watchers: Res<Watchers>,
+    mut befell: ResMut<Befell>,
+) {
+    if watchers.watched()
+        && let Some(agent) = ends.who(voted.agent)
+    {
+        befell.0.push(AgentsEvent::Voted { agent });
     }
 }

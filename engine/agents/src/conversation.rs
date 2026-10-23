@@ -11,7 +11,7 @@ use bevy::ecs::observer::On;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
-use hamlet_core::agents::{self, LivesIn, Mayor, Settlement, papers};
+use hamlet_core::agents::{self, LivesIn, Mayor, papers};
 use hamlet_core::core::{self, HomeDir, Skills};
 use hamlet_core::session::{
     self, Entry, Item, Reply, Rewind, Rewound, Seat, SessionKey,
@@ -24,6 +24,7 @@ use hamlet_engine_api::agents::{
 use hamlet_home::Home;
 use hamlet_rules::hamlet::{HOME, MAYOR};
 
+use crate::gifts::GiftsWorldExt;
 use crate::roster::RosterWorldExt;
 use crate::watch::{Gather, Watchers};
 use crate::{CHANNEL, Chief, views};
@@ -253,19 +254,9 @@ impl ConversationWorldExt for World {
 
     fn gifts(&self) -> Vec<Gift> {
         let open = self.resource::<Chief>().session;
-        let offers = self.get::<TalksTo>(open).and_then(|to| {
-            let hamlet = self.get::<LivesIn>(to.0)?.0;
-            let place = self.get::<Settlement>(hamlet)?.record();
-            Some(place.offers(&agents::name_of(self, to.0)))
-        });
-        offers
+        self.get::<TalksTo>(open)
+            .map(|to| self.offers_for(to.0))
             .unwrap_or_default()
-            .into_iter()
-            .map(|offer| Gift {
-                skill: offer.skill,
-                from: offer.from,
-            })
-            .collect()
     }
 
     fn prompt(&self) -> Result<String, Failure> {

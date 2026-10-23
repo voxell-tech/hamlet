@@ -3693,8 +3693,10 @@ dependencies = [
  "hamlet_model",
  "hamlet_rules",
  "hamlet_sandbox",
+ "serde",
  "serde_json",
  "tokio",
+ "toml",
 ]
 
 [[package]]

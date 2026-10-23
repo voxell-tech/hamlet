@@ -8,8 +8,10 @@
 
 mod answer;
 mod archive;
+mod chief;
 mod conversation;
 mod focus;
+mod gifts;
 mod keys;
 mod model_choice;
 mod needs;
@@ -63,6 +65,7 @@ pub fn plugin(app: &mut App) {
                 conversation::plugin,
                 roster::plugin,
                 needs::plugin,
+                chief::plugin,
             ))
             .add_systems(Startup, first_test);
         }
