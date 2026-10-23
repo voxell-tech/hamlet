@@ -1,0 +1,59 @@
+{
+  "actor_template": {
+    "metadata": {
+      "atespace": "ate-demo-counter",
+      "name": "hamlet-workspace-trial"
+    },
+    "containers": [
+      {
+        "name": "workspace",
+        "image": "REPLACE_WITH_WORKER_IMAGE_AT_SHA256_DIGEST",
+        "args": ["worker", "/etc/hamlet-workspace/worker.json"],
+        "wakeup_probe": {
+          "http_get": {"path": "/v1", "port": 80},
+          "timeout_seconds": 60
+        },
+        "volume_mounts": [
+          {"name": "workspace", "mount_path": "/workspace"},
+          {"name": "configuration", "mount_path": "/etc/hamlet-workspace"},
+          {"name": "identity", "mount_path": "/run/ate"}
+        ],
+        "security_context": {
+          "capabilities": {
+            "drop": ["ALL"],
+            "add": ["AUDIT_WRITE", "KILL", "NET_BIND_SERVICE", "SETFCAP"]
+          }
+        }
+      }
+    ],
+    "volumes": [
+      {"name": "workspace", "durable_dir": {}},
+      {
+        "name": "configuration",
+        "image": {"reference": "REPLACE_WITH_PUBLIC_CONFIG_IMAGE_AT_SHA256_DIGEST"}
+      },
+      {
+        "name": "identity",
+        "system_info": {
+          "data_sources": [{"actor_metadata": {"items": [
+            {"field": "ACTOR_METADATA_FIELD_UID", "path": "actor-uid"}
+          ]}}]
+        }
+      }
+    ],
+    "snapshot_config": {
+      "on_commit": "SNAPSHOT_CONTENT_SCOPE_FULL",
+      "storage_location": "REPLACE_WITH_EXISTING_APPROVED_SNAPSHOT_URI"
+    },
+    "sandbox_config": {
+      "sandbox_class": "SANDBOX_CLASS_GVISOR",
+      "config_name": "REPLACE_WITH_EXISTING_GVISOR_CONFIG"
+    },
+    "resources": {
+      "limits": [
+        {"name": "cpu", "quantity": "1"},
+        {"name": "memory", "quantity": "512Mi"}
+      ]
+    }
+  }
+}

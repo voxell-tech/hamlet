@@ -1,0 +1,10 @@
+{
+  "rules": [
+    {
+      "tls_passthrough": {
+        "hostnames": ["*"],
+        "ports": {"numbers": [443]}
+      }
+    }
+  ]
+}

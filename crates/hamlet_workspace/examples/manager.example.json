@@ -1,0 +1,18 @@
+{
+  "listen": "127.0.0.1:7420",
+  "state": "/var/lib/hamlet-workspace",
+  "homes": {
+    "REPLACE_WITH_STABLE_HOME_NAME": "REPLACE_WITH_AT_LEAST_16_RANDOM_CHARACTERS"
+  },
+  "signing_key": "/run/secrets/hamlet-workspace/signing-key",
+  "control": "https://REPLACE_WITH_SUBSTRATE_CONTROL_HOST:443",
+  "control_token": null,
+  "control_tls": {
+    "ca": "/etc/hamlet-workspace/control-ca.pem",
+    "server_name": "api.ate-system.svc"
+  },
+  "router": "https://REPLACE_WITH_ATENET_ROUTER_HOST",
+  "atespace": "REPLACE_WITH_ATESPACE",
+  "template": "REPLACE_WITH_ACTOR_TEMPLATE",
+  "idle_seconds": 300
+}
