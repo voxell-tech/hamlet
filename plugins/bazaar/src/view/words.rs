@@ -11,20 +11,6 @@ pub(crate) fn dollars(price: f64) -> String {
     }
 }
 
-/// A price in and out, in a few words.
-pub(crate) fn price_words(
-    input: Option<f64>,
-    output: Option<f64>,
-) -> String {
-    match input.zip(output) {
-        None => "Price varies".into(),
-        Some((0.0, 0.0)) => "Free".into(),
-        Some((input, output)) => {
-            format!("{} in, {} out", dollars(input), dollars(output))
-        }
-    }
-}
-
 /// A count of tokens, short: `8k`, `1M`.
 pub(crate) fn tokens(count: u64) -> String {
     if count >= 1_000_000 && count.is_multiple_of(100_000) {

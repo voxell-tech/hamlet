@@ -15,13 +15,13 @@ expect = { panel = "hamlet.bazaar/bazaar", text = "Asking OpenRouter..." }
 reply = { url = "https://openrouter.ai/api/v1/models?offset=0&limit=100", body = '{"data": [{"id": "maker/wick", "name": "Maker: Wick", "pricing": {"prompt": "0.000001", "completion": "0.000002"}, "supported_parameters": ["tools"]}]}' }
 
 [[step]]
-expect = { panel = "hamlet.bazaar/bazaar", text = "Maker: Wick" }
+expect = { panel = "hamlet.bazaar/bazaar", text = "Wick" }
 
 [[step]]
-click = { panel = "hamlet.bazaar/bazaar", widget = "Maker: Wick" }
+click = { panel = "hamlet.bazaar/bazaar", widget = "Wick" }
 
 [[step]]
-expect = { panel = "hamlet.bazaar/bazaar", text = "MAKE DEFAULT" }
+expect = { panel = "hamlet.bazaar/bazaar", text = "MAKE IT THE DEFAULT" }
 
 [[step]]
 click = { panel = "hamlet.bazaar/bazaar", widget = "SKILLS" }
@@ -48,4 +48,4 @@ click = { panel = "hamlet.bazaar/bazaar", widget = "HAMLETS" }
 click = { panel = "hamlet.bazaar/bazaar", widget = "Indie SaaS Launch Team" }
 
 [[step]]
-expect = { panel = "hamlet.bazaar/bazaar", text = "FOUND IT" }
+expect = { panel = "hamlet.bazaar/bazaar", text = "FOUND THIS HAMLET" }

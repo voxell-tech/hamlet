@@ -1,12 +1,10 @@
-//! The Agents and Plugins stalls drawn: a listing's card, the chips
-//! of its shelves, and its page with its maker, what chiefs say of it
-//! and the box it is had from. Hiring and installing come with the
+//! The Agents and Plugins stalls drawn: a listing's row, the kinds
+//! it is narrowed to, and its page with its maker, what chiefs say of
+//! it and the box it is had from. Hiring and installing come with the
 //! marketplace, so the box says so and nothing is had.
 
-use agents_ui::{name, note};
 use hamlet_engine_bevy::ui::{
-    AnyView, Fill, FrameProps, Space, Tone, ViewExt, column,
-    description, icon, label, row,
+    AnyView, FrameProps, Space, Tone, ViewExt, column, icon, row,
 };
 
 use crate::samples::agents::{Craft, Hireling};
@@ -14,7 +12,11 @@ use crate::samples::plugins::{
     Addition, Contraption, Kind, Part, Permission,
 };
 use crate::samples::{Price, SELLERS_SHARE, Seller, Standing};
-use crate::view::shelf::{Shown, chips, part};
+use crate::view::shelf::{Shown, kinds};
+use crate::view::style::{
+    Cost, Line, action_box, aside, lines, meta, named, prose,
+    section, sections,
+};
 use crate::view::words::count;
 
 impl Shown for Hireling {
@@ -23,58 +25,68 @@ impl Shown for Hireling {
     const FIND: &'static str = "Search agents";
 
     fn controls() -> Vec<AnyView> {
-        vec![chips::<Hireling, _>(&Craft::ALL, Craft::name)]
+        vec![kinds::<Hireling, _>(
+            "All kinds",
+            &Craft::ALL,
+            Craft::name,
+        )]
     }
 
     fn title(&self) -> String {
         self.name.to_string()
     }
 
-    fn row(&self) -> AnyView {
-        card(
-            (self.name, self.price, self.purpose),
-            format!(
+    fn byline(&self) -> String {
+        format!(
+            "{}, by {}",
+            rating(self.standing),
+            seller_words(&self.maker)
+        )
+    }
+
+    fn row(&self) -> Line {
+        Line {
+            cover: craft_cover(self.craft),
+            name: self.name.to_string(),
+            purpose: self.purpose.to_string(),
+            meta: format!(
                 "{}, by {}",
                 rating(self.standing),
                 self.maker.name
             ),
-        )
+            cost: self.price.cost(),
+            mark: None,
+        }
     }
 
     fn page(&self) -> AnyView {
         let mut parts = vec![
-            note(format!(
-                "{}, by {}",
-                rating(self.standing),
-                seller_words(&self.maker)
-            ))
-            .boxed(),
-            label(self.purpose).boxed(),
             deal(
                 self.price,
                 &self.maker,
-                "Hiring comes with the marketplace: nobody moves in \
+                "Hiring comes with the marketplace. Nobody moves in \
                  yet, and nothing is paid.",
             ),
-            part("HOW IT WORKS", description(self.character).boxed()),
-            part("SKILLS", note(self.skills.join(", ")).boxed()),
-            part("TAGS", note(self.tags.join(", ")).boxed()),
+            prose(self.purpose).boxed(),
+            section("HOW IT WORKS", aside(self.character).boxed()),
+            section("SKILLS", aside(self.skills.join(", ")).boxed()),
+            section("TAGS", aside(self.tags.join(", ")).boxed()),
         ];
         if let Some(review) = self.reviews.first() {
-            parts.push(part(
+            parts.push(section(
                 "WHAT USERS SAY",
                 column((
-                    label(format!("\"{}\"", review.words)),
-                    note(format!(
-                        "{} of 5, {}",
+                    prose(format!("\"{}\"", review.words)),
+                    meta(format!(
+                        "{} of 5, from {}",
                         review.stars, review.by
                     )),
                 ))
-                .space(Space::None)
+                .space(Space::Half)
                 .boxed(),
             ));
         }
-        column(parts).boxed()
+        sections(parts)
     }
 }
 
@@ -84,101 +96,122 @@ impl Shown for Contraption {
     const FIND: &'static str = "Search plugins";
 
     fn controls() -> Vec<AnyView> {
-        vec![chips::<Contraption, _>(&Kind::ALL, Kind::name)]
+        vec![kinds::<Contraption, _>(
+            "All kinds",
+            &Kind::ALL,
+            Kind::name,
+        )]
     }
 
     fn title(&self) -> String {
         self.name.to_string()
     }
 
-    fn row(&self) -> AnyView {
-        card(
-            (self.name, self.price, self.summary),
-            format!(
+    fn byline(&self) -> String {
+        format!(
+            "{}, {} installs, by {}",
+            rating(self.standing),
+            count(self.standing.owners.into()),
+            seller_words(&self.publisher)
+        )
+    }
+
+    fn row(&self) -> Line {
+        Line {
+            cover: kind_cover(self.kind),
+            name: self.name.to_string(),
+            purpose: self.summary.to_string(),
+            meta: format!(
                 "{}, {} installs",
                 rating(self.standing),
                 count(self.standing.owners.into())
             ),
-        )
+            cost: self.price.cost(),
+            mark: None,
+        }
     }
 
     fn page(&self) -> AnyView {
         let mut parts = vec![
-            note(format!(
-                "{}, {} installs, by {}",
-                rating(self.standing),
-                count(self.standing.owners.into()),
-                seller_words(&self.publisher)
-            ))
-            .boxed(),
-            label(self.summary).boxed(),
             deal(
                 self.price,
                 &self.publisher,
-                "Installing comes with the marketplace: Hamlet \
+                "Installing comes with the marketplace. Hamlet \
                  gains nothing yet, and nothing is paid.",
             ),
-            description(self.description).boxed(),
-            part(
+            prose(self.summary).boxed(),
+            aside(self.description).boxed(),
+            section(
                 "ADDS",
-                column(
-                    self.adds
-                        .iter()
-                        .map(addition)
-                        .collect::<Vec<_>>(),
-                )
-                .space(Space::Half)
-                .boxed(),
+                lines(self.adds.iter().map(addition).collect()),
             ),
         ];
         if !self.asks.is_empty() {
             let asks = self.asks.iter().map(|asks| permission(*asks));
-            parts.push(part(
-                "PERMISSIONS",
-                column(asks.collect::<Vec<_>>())
-                    .space(Space::Half)
-                    .boxed(),
-            ));
+            parts.push(section("PERMISSIONS", lines(asks.collect())));
         }
         let (version, words) = self.latest;
-        parts.push(part(
+        parts.push(section(
             "LATEST VERSION",
-            description(format!("{version}: {words}")).boxed(),
+            aside(format!("{version}: {words}")).boxed(),
         ));
-        column(parts).boxed()
+        sections(parts)
     }
 }
 
-/// A listing's card: its name with its price, what it is for, and
-/// `foot`.
-fn card(
-    (name, price, purpose): (&'static str, Price, &'static str),
-    foot: String,
-) -> AnyView {
-    column((
-        row((label(name).bold(true), note(price.words())))
-            .space(Space::Half),
-        description(purpose),
-        note(foot),
-    ))
-    .space(Space::None)
-    .boxed()
+impl Price {
+    /// The price as a row or a page shows it.
+    pub(crate) fn cost(self) -> Cost {
+        match self {
+            Price::Free => Cost::free(),
+            Price::Once(dollars) => {
+                Cost::new(format!("${dollars:.2}"), "once")
+            }
+            Price::Monthly(dollars) => {
+                Cost::new(format!("${dollars:.2}"), "monthly")
+            }
+        }
+    }
+}
+
+fn craft_cover(craft: Craft) -> &'static str {
+    match craft {
+        Craft::Writing => "pencil",
+        Craft::Code => "page",
+        Craft::Research => "lens",
+        Craft::Trade => "coins",
+        Craft::Household => "clock",
+        Craft::Teaching => "book",
+    }
+}
+
+fn kind_cover(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Drawing => "pencil",
+        Kind::Planning => "check_all",
+        Kind::Maps => "signal",
+    }
 }
 
 /// Stars out of five and the reviews they come from.
-fn rating(standing: Standing) -> String {
+pub(crate) fn rating(standing: Standing) -> String {
     format!(
-        "{:.1} of 5 from {} reviews",
+        "{:.1} from {} reviews",
         standing.stars,
         count(standing.reviews.into())
     )
 }
 
-fn seller_words(seller: &Seller) -> String {
+pub(crate) fn seller_words(seller: &Seller) -> String {
     match seller.verified {
         true => format!("{}, verified seller", seller.name),
         false => format!("{}, not verified", seller.name),
     }
+}
+
+/// The share of each sale `seller` receives.
+pub(crate) fn share(seller: &Seller) -> String {
+    format!("{} receives {SELLERS_SHARE}% of each sale.", seller.name)
 }
 
 /// The box a listing is had from: its price, who is paid, and what
@@ -188,29 +221,11 @@ fn deal(
     seller: &Seller,
     later: &'static str,
 ) -> AnyView {
-    let (amount, per) = match price {
-        Price::Free => ("Free".to_string(), ""),
-        Price::Once(dollars) => (format!("${dollars:.2}"), "once"),
-        Price::Monthly(dollars) => {
-            (format!("${dollars:.2}"), "a month")
-        }
-    };
-    let mut parts = vec![
-        row((label(amount).bold(true), note(per)))
-            .space(Space::Half)
-            .boxed(),
-    ];
+    let mut notes = vec![meta(later).boxed()];
     if price != Price::Free {
-        parts.push(
-            note(format!(
-                "{} receives {SELLERS_SHARE}% of each sale.",
-                seller.name
-            ))
-            .boxed(),
-        );
+        notes.push(meta(share(seller)).boxed());
     }
-    parts.push(description(later).boxed());
-    column(parts).fill(Fill::Card).space(Space::Half).boxed()
+    action_box(Some(price.cost()), Vec::new(), notes)
 }
 
 /// One thing a plugin adds, behind the mark of its part.
@@ -223,17 +238,12 @@ fn addition(addition: &Addition) -> AnyView {
     };
     row((
         icon(mark).tone(Tone::Faint),
-        column((
-            row((
-                label(addition.name).bold(true),
-                name(addition.part.name()),
-            ))
-            .space(Space::Half),
-            description(addition.words),
-        ))
-        .space(Space::None),
+        named(
+            addition.name,
+            format!("{}: {}", addition.part.name(), addition.words),
+        ),
     ))
-    .space(Space::Half)
+    .space(Space::Gap)
     .boxed()
 }
 
@@ -245,7 +255,7 @@ fn permission(asks: Permission) -> AnyView {
     } else {
         Tone::Body
     };
-    row((icon("shield").tone(tone), label(asks.words()).tone(tone)))
-        .space(Space::Half)
+    row((icon("shield").tone(tone), prose(asks.words()).tone(tone)))
+        .space(Space::Gap)
         .boxed()
 }

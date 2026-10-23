@@ -2,13 +2,13 @@
 //! models come from and their price, and a ware's page with all that
 //! is told of it, who serves it and the ways to add it.
 
-use agents_ui::{AgentsWorldExt, either, moved, name, note};
+use agents_ui::{AgentsWorldExt, either, moved};
 use hamlet_engine_bevy::api::agents::AgentsRequest;
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::ui::{
-    AnyView, ButtonProps, ButtonStyle, Face, FrameProps, Size, Space,
-    Tone, UiExt, ViewExt, button, column, derived, description, icon,
-    icon_button, keyed, label, open, resource, row, switch,
+    AnyView, ButtonProps, ButtonStyle, Fill, FrameProps, Space, Tone,
+    UiExt, ViewExt, button, column, derived, icon_button, keyed,
+    open, resource, row, switch,
 };
 
 use crate::models::openrouter::Serving;
@@ -17,8 +17,12 @@ use crate::models::{
     Ware, WareId, acquire, added, endpoint_of, is_default,
 };
 use crate::shelf::{Arranged, Listing, Shelf, Stock};
-use crate::view::shelf::{Shown, browse, choice, part, summary};
-use crate::view::words::{dollars, price_words, tokens};
+use crate::view::shelf::{Shown, browse, choice, counted, summary};
+use crate::view::style::{
+    Cost, Line, action_box, aside, lines, meta, named, owned, prose,
+    section, sections,
+};
+use crate::view::words::{dollars, tokens};
 
 /// The engine's Settings panel.
 const SETTINGS: &str = "engine/settings";
@@ -52,17 +56,17 @@ impl Shown for Ware {
                 return column(()).boxed();
             }
             column((
-                label("You have no OpenRouter endpoint yet.")
+                prose("You have no OpenRouter endpoint yet.")
                     .tone(Tone::Critical),
-                description(
+                aside(
                     "OpenRouter's models run through an endpoint of \
                      your own, under Endpoints in Settings. Set one \
                      up, and the model is added once you have.",
                 ),
+                row((icon_button("signal", "SET UP OPENROUTER")
+                    .style(ButtonStyle::Primary)
+                    .on_click(models::set_up),)),
                 row((
-                    icon_button("signal", "SET UP OPENROUTER")
-                        .style(ButtonStyle::Primary)
-                        .on_click(models::set_up),
                     icon_button("sliders", "OPEN SETTINGS")
                         .on_click(|_| open(SETTINGS)),
                     button("CANCEL")
@@ -74,7 +78,8 @@ impl Shown for Ware {
                 ))
                 .space(Space::Half),
             ))
-            .space(Space::Half)
+            .fill(Fill::Card)
+            .space(Space::Gap)
             .boxed()
         })
         .boxed()
@@ -127,14 +132,17 @@ impl Shown for Ware {
             },
         );
         let tools = switch(
-            "Only those that use tools, as every agent does",
+            "Uses tools",
             resource::<Shelf<Ware>, _>(|shelf| shelf.filter.tools),
         )
         .on_toggle(|world, on| {
             browse::<Ware>(world, |shelf| shelf.filter.tools = on)
         })
-        .boxed();
-        vec![row((sources, price)).space(Space::Half).boxed(), tools]
+        .boxed()
+        .tip(
+            "Every agent calls tools, so only these can do its work.",
+        );
+        vec![sources, price.boxed(), tools.boxed()]
     }
 
     fn again(world: &mut World) {
@@ -165,61 +173,66 @@ impl Shown for Ware {
             .find(|listed| listed.endpoint == *name);
         match said.map(|listed| &listed.models) {
             Some(Err(why)) => {
-                format!("{name} could not be asked: {why}")
+                format!(
+                    "{name} could not be asked: {why} Check it in \
+                     Settings, then press Look again."
+                )
             }
             _ if !any && listing.asking > 0 => {
                 format!("Asking {name}...")
             }
             _ if !any => {
                 format!(
-                    "No models from {name} yet. Choose Look Again."
+                    "No models from {name} yet. Press Look again to \
+                     ask it."
                 )
             }
-            _ => format!("{found} models from {name}."),
+            _ => format!("{} from {name}.", counted::<Ware>(found)),
         }
     }
 
     fn title(&self) -> String {
-        self.title.clone()
+        made(&self.title).1.to_string()
     }
 
-    fn row(&self) -> AnyView {
-        column((
-            row((
-                label(self.title.clone()).bold(true),
-                badge(self.id()),
-                note(price_words(self.input, self.output)),
-            ))
-            .space(Space::Half),
-            description(facts(self)),
-        ))
-        .space(Space::None)
-        .boxed()
+    fn byline(&self) -> String {
+        match made(&self.title) {
+            (Some(maker), _) => format!("By {maker}, {}", self.id),
+            (None, name) if name != self.id => self.id.clone(),
+            (None, _) => String::new(),
+        }
+    }
+
+    fn row(&self) -> Line {
+        let (maker, name) = made(&self.title);
+        let mut told =
+            maker.map(str::to_string).into_iter().collect::<Vec<_>>();
+        told.extend(facts(self));
+        Line {
+            cover: "chip",
+            name: name.to_string(),
+            purpose: lead(self).unwrap_or_default(),
+            meta: told.join(", "),
+            cost: row_cost(self),
+            mark: Some(badge(self.id())),
+        }
     }
 
     fn page(&self) -> AnyView {
-        let mut parts = vec![note(self.id.clone()).boxed()];
-        if self.tools == Some(false) {
-            parts.push(
-                label(
-                    "This model can't use tools, so agents can only \
-                     chat with it.",
-                )
-                .tone(Tone::Critical)
-                .boxed(),
-            );
-        }
-        parts.push(deals(self.id()));
+        let mut parts = vec![deals(self)];
         if let Some(first) = self.description.split("\n\n").next()
             && !first.trim().is_empty()
         {
-            parts.push(description(first.trim().to_string()).boxed());
+            parts.push(prose(first.trim().to_string()).boxed());
         }
-        parts.push(about(self));
+        parts.push(section("DETAILS", details(self)));
         if self.source == Source::OpenRouter {
-            parts.push(part("PROVIDERS", providers(self.id.clone())));
+            parts.push(section(
+                "PROVIDERS",
+                providers(self.id.clone()),
+            ));
         }
-        column(parts).boxed()
+        sections(parts)
     }
 
     fn opened(world: &mut World, id: &WareId) {
@@ -250,7 +263,48 @@ fn sources(world: &World) -> Vec<Source> {
     all
 }
 
-/// ADDED beside a ware the home allows.
+/// The maker a title of OpenRouter's names before its colon, and the
+/// rest.
+fn made(title: &str) -> (Option<&str>, &str) {
+    match title.split_once(": ") {
+        Some((maker, name)) if !name.is_empty() => {
+            (Some(maker), name)
+        }
+        _ => (None, title),
+    }
+}
+
+/// The first sentence of what a ware is told to be.
+fn lead(ware: &Ware) -> Option<String> {
+    let first = ware.description.lines().next()?.trim();
+    let first = first.split_once(". ").map_or(first, |(one, _)| one);
+    let first = first.trim_end_matches('.');
+    (!first.is_empty()).then(|| format!("{first}."))
+}
+
+/// A ware's price on its row: a million tokens in, as wares are
+/// ordered by it.
+fn row_cost(ware: &Ware) -> Cost {
+    match ware.input.zip(ware.output) {
+        None => Cost::new("Varies", ""),
+        Some((0.0, 0.0)) => Cost::free(),
+        Some((input, _)) => Cost::new(dollars(input), "input"),
+    }
+}
+
+/// A ware's price on its page.
+fn page_cost(ware: &Ware) -> Cost {
+    match ware.input.zip(ware.output) {
+        None => Cost::new("Price varies", "by provider"),
+        Some((0.0, 0.0)) => Cost::free(),
+        Some((input, output)) => Cost::new(
+            format!("{} in, {} out", dollars(input), dollars(output)),
+            "per million tokens",
+        ),
+    }
+}
+
+/// In your catalogue, beside a ware the home allows.
 fn badge(id: WareId) -> AnyView {
     keyed(
         derived(move |world: &World| added(world, &id)).when(either(
@@ -258,15 +312,7 @@ fn badge(id: WareId) -> AnyView {
             moved::<Configured>(),
         )),
         |added| match added {
-            true => row((
-                icon("check").tone(Tone::Accent),
-                label("ADDED")
-                    .size(Size::Small)
-                    .tone(Tone::Accent)
-                    .face(Face::Display),
-            ))
-            .space(Space::Half)
-            .boxed(),
+            true => owned("In your catalogue"),
             false => column(()).boxed(),
         },
     )
@@ -274,7 +320,7 @@ fn badge(id: WareId) -> AnyView {
 }
 
 /// The facts a row tells of a ware besides its name and price.
-fn facts(ware: &Ware) -> String {
+fn facts(ware: &Ware) -> Vec<String> {
     let mut facts = Vec::new();
     if let Some(context) = ware.context {
         facts.push(format!("{} context", tokens(context)));
@@ -288,12 +334,16 @@ fn facts(ware: &Ware) -> String {
     if ware.sees() {
         facts.push("images".into());
     }
-    facts.join(", ")
+    facts
 }
 
-/// The deals of the ware `id`: adding it and making it the default.
-fn deals(id: WareId) -> AnyView {
+/// The box a ware is had from: its price, adding it and making it the
+/// default.
+fn deals(ware: &Ware) -> AnyView {
+    let id = ware.id();
     let read = id.clone();
+    let blind = ware.tools == Some(false);
+    let cost = page_cost(ware);
     let now = derived(move |world: &World| {
         (added(world, &read), is_default(world, &read))
     })
@@ -303,59 +353,69 @@ fn deals(id: WareId) -> AnyView {
             let id = id.clone();
             move |world: &mut World| acquire(world, &id, then)
         };
-        let mut all = Vec::new();
+        let mut actions = Vec::new();
         if *added {
-            all.push(badge(id.clone()));
+            actions.push(owned("In your catalogue"));
         } else {
-            all.push(
-                icon_button("plus", "ADD")
+            actions.push(
+                icon_button("plus", "ADD TO THE CATALOGUE")
                     .style(ButtonStyle::Primary)
                     .on_click(deal(Then::Keep))
                     .boxed(),
             );
         }
         if *default {
-            all.push(note("Your default model.").boxed());
+            actions.push(owned("Your default model"));
         } else {
-            all.push(
-                icon_button("sliders", "MAKE DEFAULT")
+            actions.push(
+                icon_button("sliders", "MAKE IT THE DEFAULT")
                     .on_click(deal(Then::MakeDefault))
                     .boxed(),
             );
         }
-        row(all).space(Space::Half).boxed()
+        let mut notes = Vec::new();
+        if blind {
+            notes.push(
+                prose(
+                    "This model can't use tools, so agents can only \
+                     chat with it.",
+                )
+                .tone(Tone::Critical)
+                .boxed(),
+            );
+        }
+        if !*added {
+            notes.push(
+                meta(
+                    "Adding it puts it in your catalogue, where you \
+                     can give it to any agent.",
+                )
+                .boxed(),
+            );
+        }
+        action_box(Some(cost.clone()), actions, notes)
     })
     .boxed()
 }
 
-/// A fact of a ware: its name and what it is.
-fn fact(text: &str, value: String) -> AnyView {
-    row((name(text.to_string()), label(value)))
-        .space(Space::Half)
-        .boxed()
-}
-
-fn about(ware: &Ware) -> AnyView {
+/// What a ware's page tells of it past its price, a line each.
+fn details(ware: &Ware) -> AnyView {
     let mut all = Vec::new();
-    let price = price_words(ware.input, ware.output);
-    let price = match ware.input.zip(ware.output) {
-        Some(_) => format!("{price} per million tokens"),
-        None => price,
-    };
-    all.push(fact("PRICE", price));
     if let Some(context) = ware.context {
-        all.push(fact(
-            "CONTEXT",
-            format!("{} tokens", tokens(context)),
-        ));
+        all.push(format!("{} tokens of context", tokens(context)));
     }
     if !ware.inputs.is_empty() {
-        all.push(fact("READS", ware.inputs.join(", ")));
+        all.push(format!("Reads {}", ware.inputs.join(", ")));
+    }
+    if ware.reasoning == Some(true) {
+        all.push("Reasons before it answers".into());
     }
     if let Some(index) = ware.intelligence {
-        all.push(fact("INTELLIGENCE", format!("{index:.0} of 100")));
+        all.push(format!(
+            "Scores {index:.0} of 100 on Artificial Analysis's index"
+        ));
     }
-    column(all).space(Space::Half).boxed()
+    lines(all.into_iter().map(|line| aside(line).boxed()).collect())
 }
 
 /// One provider that serves the ware.
@@ -379,12 +439,7 @@ fn serving(serving: &Serving) -> AnyView {
     if let Some(quantization) = &serving.quantization {
         told.push(quantization.clone());
     }
-    column((
-        label(serving.provider.clone()).bold(true),
-        description(told.join(", ")),
-    ))
-    .space(Space::None)
-    .boxed()
+    named(serving.provider.clone(), told.join(", "))
 }
 
 /// The providers that serve the ware `id` through OpenRouter.
@@ -394,22 +449,21 @@ fn providers(id: String) -> AnyView {
     })
     .when(moved::<Providers>());
     keyed(known, |known| match known {
-        None | Some(None) => {
-            description("Asking OpenRouter...").boxed()
-        }
-        Some(Some(Err(why))) => description(why.clone()).boxed(),
+        None | Some(None) => aside("Asking OpenRouter...").boxed(),
+        Some(Some(Err(why))) => aside(format!(
+            "OpenRouter could not say who serves it: {why}"
+        ))
+        .boxed(),
         Some(Some(Ok(servings))) if servings.is_empty() => {
-            description("No provider serves it now.").boxed()
+            aside("No provider serves it now.").boxed()
         }
-        Some(Some(Ok(servings))) => column(
+        Some(Some(Ok(servings))) => lines(
             servings
                 .iter()
                 .take(PROVIDERS)
                 .map(serving)
                 .collect::<Vec<_>>(),
-        )
-        .space(Space::Half)
-        .boxed(),
+        ),
     })
     .boxed()
 }

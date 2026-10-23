@@ -62,17 +62,6 @@ pub(crate) enum Price {
 }
 
 impl Price {
-    /// The price in a few words.
-    pub fn words(self) -> String {
-        match self {
-            Price::Free => "Free".into(),
-            Price::Once(dollars) => format!("${dollars:.2}"),
-            Price::Monthly(dollars) => {
-                format!("${dollars:.2} a month")
-            }
-        }
-    }
-
     /// What it costs over a year, to set a price paid once beside one
     /// paid each month.
     fn yearly(self) -> f64 {

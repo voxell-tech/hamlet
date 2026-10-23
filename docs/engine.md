@@ -1577,18 +1577,31 @@ answer; those of the Inspector and Skills bring the chat `with` them.
 Bazaar and Browse the Models in the Hamlet menu, and Browse the
 Agents, the Plugins, the Skills and the Hamlets as commands
 (`agents`, `plugins`, `skills`, `hamlets`). A tab for each of
-its five stalls, MODELS, AGENTS, PLUGINS, SKILLS and HAMLETS, is over
-the stall shown, which is kept across a reload.
+its five stalls is over the stall shown, on two lines so a narrow
+panel cuts none: MODELS, SKILLS and PLUGINS, what the agents use,
+then AGENTS and HAMLETS. The stall shown is kept across a reload.
 
 - **One shelf** (`shelf.rs`, drawn by `view/shelf.rs`) for every
-  stall, over a `Listing` with a typed id, filter and order: FIND
-  keeps those that hold every word typed, of any case, a dropdown
-  puts them in order, the stall's own controls narrow them, a line
-  says how many there are and how fresh, and the rows come 30 at a
-  time with SHOW MORE, 120 at most. A row opens its listing on a page
-  of its own under the breadcrumb back to the shelf, and what was
-  done last is said over it, in red where it went wrong. What each
-  shelf is searched for and the page open are kept across a reload.
+  stall, over a `Listing` with a typed id, filter and order: the
+  search field, on a line of its own, keeps those that hold every
+  word typed, of any case, a dropdown puts them in order, the
+  stall's own controls narrow them, two to a line with the order,
+  one quiet line over the rows says how many there are and how
+  fresh, and the rows come 30 at a time with SHOW MORE, 120 at most.
+  A row opens its listing on a page of its own under the breadcrumb
+  back to the shelf, and what was done last is said over it, in red
+  where it went wrong. What each shelf is searched for and the page
+  open are kept across a reload.
+- **One style** (`view/style.rs`) every stall is drawn with, so each
+  reads the same: the body face at three steps, content, meta (small
+  and dim) and the accent of a price, and the display face only for
+  a page's title. A row (`Line`) is a cover, the listing's name over
+  what it is for, cut to two lines, and a meta line, with its price
+  (`Cost`) at its end, one word a line. A page is its title and meta
+  line, one box it is had from (`action_box`: its price, the primary
+  action first, and what that does), then its sections, each under
+  the theme's section heading, room between them. A label in a
+  button is bold, so a row's steps are of size and tone.
 - **Asked for once.** A stall's listings are fetched the first time
   it is shown and again on LOOK AGAIN, never on their own; what came
   is kept in the plugin's world and its views read it by change
@@ -1600,32 +1613,35 @@ the stall shown, which is kept across a reload.
   price and to those that use tools, and ordered by newest, price,
   context, Artificial Analysis's index or name. A model's page shows
   who serves it through OpenRouter (`/api/v1/models/<id>/endpoints`),
-  ADD (`AddModel` to the endpoint at OpenRouter's address, or the
-  endpoint it came from) and MAKE DEFAULT (`SetModel`, after adding
-  it). One the catalogue allows is marked ADDED. With no OpenRouter
-  endpoint, the stall says so with SET UP OPENROUTER, which begins a
-  setup as Welcome shows it, and OPEN SETTINGS; the model is added
-  once the settings have one.
+  ADD TO THE CATALOGUE (`AddModel` to the endpoint at OpenRouter's
+  address, or the endpoint it came from) and MAKE IT THE DEFAULT
+  (`SetModel`, after adding it). A row shows a model by its name
+  without its maker, which its meta line names, and its price in.
+  One the catalogue allows is marked In your catalogue. With no
+  OpenRouter endpoint, the stall says so with SET UP OPENROUTER,
+  which begins a setup as Welcome shows it, and OPEN SETTINGS; the
+  model is added once the settings have one.
 - **Skills** (`skills.rs`, `skills/skills_sh.rs`): skills.sh's most
-  installed of all time, three pages of 200, and SEARCH ALL OF
-  SKILLS.SH past them for the words typed. A skill's page fetches
-  its files (`/api/download/<owner>/<repo>/<skill>`), shows its
-  SKILL.md as Markdown, and ADD TO LIBRARY hands them over with
+  installed of all time, three pages of 200, and SEARCH SKILLS.SH
+  past them for the words typed. A skill's page fetches its files
+  (`/api/download/<owner>/<repo>/<skill>`), shows its SKILL.md as
+  Markdown, and TAKE INTO THE LIBRARY hands them over with
   `TakeSkill`. A file whose path would leave the skill's folder fails
   it whole; one too large, or not text, is left out and named. One
-  the library has is marked IN YOUR LIBRARY.
+  the library has is marked In your library.
 - **Agents and Plugins** (`samples/agents.rs`, `samples/plugins.rs`)
-  are made-up listings, narrowed by kind, with a page each of what it
-  does, its price, who is paid and what users say. Hiring and
-  installing come with the marketplace, as the page says; nothing is
-  had or paid.
+  are made-up listings, narrowed by kind with a dropdown, with a
+  page each of what it does, its price, who is paid and what users
+  say. Hiring and installing come with the marketplace, as the page
+  says; nothing is had or paid.
 - **Hamlets** (`hamlets.rs`, `samples/hamlets.rs`) are made-up
   templates, each a mayor and agents with their characters, notes and
-  a skill. FOUND IT sends `FoundFrom`, unless the realm already holds
-  the most hamlets its limits allow, which the stall says; a price
-  is paid with the marketplace, so for now it is founded for nothing.
-  One founded is selected and the realm brought to the front, and one
-  the roster has is marked YOURS with GO TO IT.
+  a skill. FOUND THIS HAMLET sends `FoundFrom`, unless the realm
+  already holds the most hamlets its limits allow, which the stall
+  says; a price is paid with the marketplace, so for now it is
+  founded for nothing. One founded is selected and the realm brought
+  to the front, and one the roster has is marked Yours with GO TO
+  THE HAMLET.
 - **Events.** It hears the realm's `stall` (payload type
   `bazaar.stall`, the stall's name: `models`, `community`, `plugins`,
   `skills` or `hamlets`), shows that stall and brings its panel to

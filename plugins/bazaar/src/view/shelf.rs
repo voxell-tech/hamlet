@@ -2,23 +2,30 @@
 //! order and filters, a word of how many there are, its rows a page
 //! at a time, and one listing on a page of its own.
 
-use agents_ui::{breadcrumb, either, link_row, moved, name};
+use agents_ui::{breadcrumb, either, moved, short};
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::ui::{
-    AnyView, Button, ButtonProps, ButtonStyle, FrameProps, Space,
-    Tone, UiExt, ViewExt, button, column, derived, description,
-    dropdown, each, field, icon_button, keyed, label, list, resource,
-    row, scroll,
+    AnyView, ButtonProps, ButtonStyle, FrameProps, Space, UiExt,
+    ViewExt, column, derived, dropdown, each, field, icon_button,
+    keyed, list, resource, row, scroll,
 };
 
 use crate::shelf::{Arranged, Listing, PAGES, Said, Shelf, Stock};
+use crate::view::style::{
+    Line, controls, meta, notice, page_head, prose, sections,
+    status_line,
+};
 use crate::view::words::ago;
+
+/// The most characters of a page's name on its breadcrumb.
+const CRUMB_MOST: usize = 24;
 
 /// A stall's listings as the panel draws them.
 pub(crate) trait Shown: Listing {
     /// The stall's name on the way back to it.
     const BACK: &'static str;
-    /// What the stall lists, for the words of how many there are.
+    /// What the stall lists, for the words of how many there are:
+    /// the plural, ending in `s`.
     const NOUN: &'static str;
     /// The words in the field while it is empty.
     const FIND: &'static str;
@@ -30,7 +37,8 @@ pub(crate) trait Shown: Listing {
         column(()).boxed()
     }
 
-    /// The controls past the words and the order.
+    /// The controls past the words and the order, laid after the
+    /// order a few to a line.
     fn controls() -> Vec<AnyView> {
         Vec::new()
     }
@@ -43,12 +51,17 @@ pub(crate) trait Shown: Listing {
         summary::<Self>(world)
     }
 
-    /// Its name, on its page's breadcrumb.
+    /// Its name, at the head of its page.
     fn title(&self) -> String;
 
-    fn row(&self) -> AnyView;
+    /// The meta line under its title on its page.
+    fn byline(&self) -> String {
+        String::new()
+    }
 
-    /// What its page shows under the breadcrumb.
+    fn row(&self) -> Line;
+
+    /// What its page shows under its head.
     fn page(&self) -> AnyView;
 
     /// Asks for what its page shows.
@@ -88,9 +101,10 @@ pub(crate) fn choice<L: Listing>(
         .boxed()
 }
 
-/// A word to press for each of `all`, and ALL, the one chosen lit,
-/// narrowing the shelf of `L` to it.
-pub(crate) fn chips<L, T>(
+/// The way to narrow the shelf of `L` to one of `all`, or to show
+/// `any` of them.
+pub(crate) fn kinds<L, T>(
+    any: &str,
     all: &'static [T],
     named: fn(T) -> &'static str,
 ) -> AnyView
@@ -98,34 +112,22 @@ where
     L: Listing<Filter = Option<T>>,
     T: Copy + PartialEq + Send + Sync + 'static,
 {
-    keyed(resource::<Shelf<L>, _>(|shelf| shelf.filter), move |now| {
-        let chip = |text: &str, on: bool, then: Option<T>| {
-            button_of(text, on)
-                .on_click(move |world| {
-                    browse::<L>(world, |shelf| shelf.filter = then)
+    let mut options = vec![any.to_string()];
+    options.extend(all.iter().map(|one| named(*one).to_string()));
+    choice::<L>(
+        options,
+        move |shelf| {
+            shelf
+                .filter
+                .and_then(|now| {
+                    all.iter().position(|one| *one == now)
                 })
-                .boxed()
-        };
-        let mut chips = vec![chip("ALL", now.is_none(), None)];
-        chips.extend(all.iter().map(|one| {
-            chip(
-                &named(*one).to_uppercase(),
-                *now == Some(*one),
-                Some(*one),
-            )
-        }));
-        row(chips).space(Space::Half).boxed()
-    })
-    .boxed()
-}
-
-/// A button of a row of choices, lit when it is the one chosen.
-fn button_of(text: &str, on: bool) -> Button {
-    button(text.to_string()).style(if on {
-        ButtonStyle::Primary
-    } else {
-        ButtonStyle::Quiet
-    })
+                .map_or(0, |at| at + 1)
+        },
+        move |shelf, chosen| {
+            shelf.filter = chosen.checked_sub(1).map(|at| all[at]);
+        },
+    )
 }
 
 fn shelf<L: Shown>() -> AnyView {
@@ -147,17 +149,16 @@ fn shelf<L: Shown>() -> AnyView {
             .on_commit(|world, words| {
                 browse::<L>(world, |shelf| shelf.words = words)
             });
+    let mut narrow = vec![orders];
+    narrow.extend(L::controls());
     let counted = derived(L::summary)
         .when(either(moved::<Stock<L>>(), moved::<Arranged<L>>()));
-    let mut count = vec![description(counted).boxed()];
-    if L::FROM.is_some() {
-        count.push(
-            icon_button("restore", "LOOK AGAIN")
-                .style(ButtonStyle::Quiet)
-                .on_click(L::again)
-                .boxed(),
-        );
-    }
+    let again = L::FROM.map(|_| {
+        icon_button("restore", "LOOK AGAIN")
+            .style(ButtonStyle::Quiet)
+            .on_click(L::again)
+            .boxed()
+    });
     let rows = list((each(
         resource::<Arranged<L>, _>(|arranged| arranged.rows.clone()),
         |(listing, batch): &(L, u32)| (listing.id(), *batch),
@@ -167,13 +168,15 @@ fn shelf<L: Shown>() -> AnyView {
         resource::<Arranged<L>, _>(|arranged| arranged.more()),
         |more| more_rows::<L>(*more),
     );
-    let mut parts = vec![L::heading(), said::<L>(), find.boxed()];
-    let mut controls = vec![orders.boxed()];
-    controls.extend(L::controls());
-    parts.push(column(controls).space(Space::Half).boxed());
-    parts.push(row(count).boxed());
-    parts.push(scroll((rows, more)).boxed());
-    column(parts).boxed()
+    column((
+        L::heading(),
+        said::<L>(),
+        find,
+        controls(narrow),
+        status_line(counted, again),
+        scroll((rows, more)),
+    ))
+    .boxed()
 }
 
 /// SHOW MORE while there are more rows and room for them, or how
@@ -185,8 +188,8 @@ fn more_rows<L: Shown>(more: usize) -> AnyView {
     keyed(
         resource::<Shelf<L>, _>(|shelf| shelf.pages >= PAGES),
         move |all| match all {
-            true => description(format!(
-                "{more} more. Type words to narrow them."
+            true => meta(format!(
+                "{more} more. Type a few words to narrow them."
             ))
             .boxed(),
             false => row((icon_button("more", "SHOW MORE")
@@ -205,21 +208,31 @@ fn more_rows<L: Shown>(more: usize) -> AnyView {
 pub(crate) fn summary<L: Shown>(world: &World) -> String {
     let stock = world.resource::<Stock<L>>();
     let found = world.resource::<Arranged<L>>().found;
+    let none = || {
+        format!(
+            "No {} match your search. Try fewer words, or another \
+             filter.",
+            L::NOUN
+        )
+    };
     match L::FROM {
         Some(from) if stock.asking => format!("Asking {from}..."),
-        Some(_) if stock.items.is_empty() => {
+        Some(from) if stock.items.is_empty() => {
             stock.problem.as_ref().map_or_else(
-                || format!("No {} yet. Choose Look Again.", L::NOUN),
-                |why| why.clone(),
+                || {
+                    format!(
+                        "No {} yet. Press Look again to ask {from}.",
+                        L::NOUN
+                    )
+                },
+                |why| format!("{why} Press Look again to try again."),
             )
         }
-        Some(_) if found == 0 => {
-            format!("No {} match your search.", L::NOUN)
-        }
+        Some(_) if found == 0 => none(),
         Some(from) => {
             let mut words = format!(
-                "{found} {} from {from}, asked {}.",
-                L::NOUN,
+                "{} from {from}, fetched {}.",
+                counted::<L>(found),
                 ago(stock.fetched)
             );
             if let Some(why) = &stock.problem {
@@ -227,23 +240,27 @@ pub(crate) fn summary<L: Shown>(world: &World) -> String {
             }
             words
         }
-        None if found == 0 => {
-            format!("No {} match your search.", L::NOUN)
-        }
-        None => format!("{found} {}.", L::NOUN),
+        None if found == 0 => none(),
+        None => format!("{}.", counted::<L>(found)),
+    }
+}
+
+/// `count` listings of `L`, in words.
+pub(crate) fn counted<L: Shown>(count: usize) -> String {
+    match count {
+        1 => format!("1 {}", L::NOUN.trim_end_matches('s')),
+        _ => format!("{count} {}", L::NOUN),
     }
 }
 
 /// The row of `listing`, which opens its page.
 fn shown<L: Shown>(listing: &L) -> AnyView {
     let id = listing.id();
-    link_row(listing.row())
-        .on_click(move |world| {
-            browse::<L>(world, |shelf| shelf.open = Some(id.clone()));
-            world.resource_mut::<Said<L>>().0 = None;
-            L::opened(world, &id);
-        })
-        .boxed()
+    listing.row().view(move |world| {
+        browse::<L>(world, |shelf| shelf.open = Some(id.clone()));
+        world.resource_mut::<Said<L>>().0 = None;
+        L::opened(world, &id);
+    })
 }
 
 /// The listing `id` on a page of its own, under the breadcrumb back
@@ -258,20 +275,34 @@ fn page<L: Shown>(id: L::Id) -> AnyView {
             browse::<L>(world, |shelf| shelf.open = None);
         };
         let (title, body) = match known {
-            Some(listing) => (listing.title(), listing.page()),
+            Some(listing) => (
+                listing.title(),
+                sections(vec![
+                    page_head(&listing.title(), listing.byline()),
+                    listing.page(),
+                ]),
+            ),
             None => (
                 "...".to_string(),
-                description(format!(
-                    "This is not among the {} now.",
+                prose(format!(
+                    "This {} is no longer listed. Go back to the {} \
+                     to choose another.",
+                    L::NOUN.trim_end_matches('s'),
                     L::NOUN
                 ))
                 .boxed(),
             ),
         };
         column((
-            breadcrumb(vec![L::BACK.to_string()], title, back),
+            breadcrumb(
+                vec![L::BACK.to_string()],
+                short(&title, CRUMB_MOST),
+                back,
+            ),
             said::<L>(),
-            scroll((body,)),
+            // Room inside the scroll, as a wrapped paragraph can be
+            // laid a little wider than the scroll is.
+            scroll((column((body,)).padding(Space::Half),)),
         ))
         .boxed()
     })
@@ -282,22 +313,9 @@ fn page<L: Shown>(id: L::Id) -> AnyView {
 fn said<L: Listing>() -> AnyView {
     keyed(resource::<Said<L>, _>(|said| said.0.clone()), |said| {
         match said {
-            Some((words, wrong)) => label(words.clone())
-                .tone(if *wrong {
-                    Tone::Critical
-                } else {
-                    Tone::Accent
-                })
-                .boxed(),
+            Some((words, wrong)) => notice(words.clone(), *wrong),
             None => column(()).boxed(),
         }
     })
     .boxed()
-}
-
-/// The name of a part of a page, over it.
-pub(crate) fn part(text: &str, body: AnyView) -> AnyView {
-    column((name(text.to_string()), body))
-        .space(Space::Half)
-        .boxed()
 }

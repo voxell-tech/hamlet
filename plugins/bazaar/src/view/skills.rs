@@ -2,19 +2,22 @@
 //! leaderboard, and a skill's page with its SKILL.md and the way to
 //! the library.
 
-use agents_ui::{Shelves, either, markdown, moved, note};
+use agents_ui::{Shelves, either, markdown, moved};
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::ui::{
-    AnyView, ButtonProps, ButtonStyle, Face, FrameProps, Size, Space,
-    Tone, UiExt, ViewExt, column, derived, description, icon,
-    icon_button, keyed, label, row,
+    AnyView, ButtonProps, ButtonStyle, Tone, UiExt, ViewExt, column,
+    derived, icon_button, keyed,
 };
 use hamlet_engine_bevy::{DesktopRequest, HostExt};
 
 use crate::shelf::{Listing, Shelf};
 use crate::skills::skills_sh::{Scroll, Unrolled};
 use crate::skills::{self, Desk, SkillId, Taking, shelved};
-use crate::view::shelf::{Shown, part, summary};
+use crate::view::shelf::{Shown, summary};
+use crate::view::style::{
+    Cost, Line, action_box, aside, meta, owned, prose, section,
+    sections,
+};
 use crate::view::words::{count, grouped};
 
 /// The most characters of a SKILL.md shown on its page.
@@ -28,21 +31,19 @@ impl Shown for Scroll {
 
     fn controls() -> Vec<AnyView> {
         vec![
-            row((
-                icon_button("lens", "SEARCH ALL OF SKILLS.SH")
-                    .on_click(|world| {
-                        let words = world
-                            .resource::<Shelf<Scroll>>()
-                            .words
-                            .clone();
-                        skills::seek(world, &words);
-                    }),
-                description(
-                    "Past the most installed, for the words typed.",
-                ),
-            ))
-            .space(Space::Half)
-            .boxed(),
+            icon_button("lens", "SEARCH SKILLS.SH")
+                .on_click(|world| {
+                    let words = world
+                        .resource::<Shelf<Scroll>>()
+                        .words
+                        .clone();
+                    skills::seek(world, &words);
+                })
+                .tip(
+                    "Searches all of skills.sh for the words typed, \
+                     past the most installed.",
+                )
+                .boxed(),
         ]
     }
 
@@ -59,7 +60,9 @@ impl Shown for Scroll {
             }
             None => return all,
             Some((_, None)) => "Asking skills.sh...".to_string(),
-            Some((_, Some(Err(why)))) => why.clone(),
+            Some((_, Some(Err(why)))) => {
+                format!("Searching skills.sh failed: {why}")
+            }
             Some((_, Some(Ok(0)))) => {
                 "skills.sh has nothing more for those words.".into()
             }
@@ -76,31 +79,38 @@ impl Shown for Scroll {
         self.name.clone()
     }
 
-    fn row(&self) -> AnyView {
+    fn byline(&self) -> String {
+        let mut told = vec![
+            format!("From {}", self.source),
+            format!("{} installs", grouped(self.installs)),
+        ];
+        if self.official {
+            told.push("official".into());
+        }
+        told.join(", ")
+    }
+
+    fn row(&self) -> Line {
         let mut told = Vec::new();
         if let Some(rank) = self.rank {
             told.push(format!("#{rank}"));
         }
-        told.push(self.source.clone());
+        told.push(format!("{} installs", count(self.installs)));
         if self.official {
             told.push("official".into());
         }
-        told.push(format!("{} installs", count(self.installs)));
-        column((
-            row((
-                label(self.name.clone()).bold(true),
-                in_library(self),
-            ))
-            .space(Space::Half),
-            description(told.join(", ")),
-        ))
-        .space(Space::None)
-        .boxed()
+        Line {
+            cover: "book",
+            name: self.name.clone(),
+            purpose: self.source.clone(),
+            meta: told.join(", "),
+            cost: Cost::free(),
+            mark: Some(in_library(self)),
+        }
     }
 
     fn page(&self) -> AnyView {
         let id = self.id();
-        let repository = self.repository();
         let files = {
             let id = id.clone();
             derived(move |world: &World| {
@@ -117,29 +127,15 @@ impl Shown for Scroll {
             Some(Ok(files))
                 if !files.description().trim().is_empty() =>
             {
-                description(files.description()).boxed()
+                prose(files.description()).boxed()
             }
             _ => column(()).boxed(),
         });
-        column((
-            note(self.source.clone()),
-            about,
+        sections(vec![
             taking(id.clone(), self.clone()),
-            row((
-                note(format!("{} installs", grouped(self.installs))),
-                icon_button("globe", "VIEW SOURCE")
-                    .style(ButtonStyle::Quiet)
-                    .on_click(move |world| {
-                        world.desktop(&DesktopRequest::Open(
-                            repository.clone(),
-                        ));
-                    })
-                    .leads_to(self.repository()),
-            ))
-            .space(Space::Half),
+            about.boxed(),
             preview(id),
-        ))
-        .boxed()
+        ])
     }
 
     fn opened(world: &mut World, id: &SkillId) {
@@ -147,34 +143,24 @@ impl Shown for Scroll {
     }
 }
 
-/// IN YOUR LIBRARY beside a skill the library has.
+/// In your library, beside a skill the library has.
 fn in_library(scroll: &Scroll) -> AnyView {
     let scroll = scroll.clone();
     keyed(
         derived(move |world: &World| shelved(world, &scroll))
             .when(moved::<Shelves>()),
         |shelved| match shelved {
-            true => kept(),
+            true => owned("In your library"),
             false => column(()).boxed(),
         },
     )
     .boxed()
 }
 
-fn kept() -> AnyView {
-    row((
-        icon("check").tone(Tone::Accent),
-        label("IN YOUR LIBRARY")
-            .size(Size::Small)
-            .tone(Tone::Accent)
-            .face(Face::Display),
-    ))
-    .space(Space::Half)
-    .boxed()
-}
-
-/// The way to the library, or how the skill is on its way there.
+/// The box a skill is taken from: the way to the library, how the
+/// skill is on its way there, and its source.
 fn taking(id: SkillId, scroll: Scroll) -> AnyView {
+    let repository = scroll.repository();
     let now = {
         let id = id.clone();
         derived(move |world: &World| {
@@ -189,45 +175,77 @@ fn taking(id: SkillId, scroll: Scroll) -> AnyView {
         .when(either(moved::<Desk>(), moved::<Shelves>()))
     };
     keyed(now, move |(mine, busy, shelved)| {
-        let said = |words: String| description(words).boxed();
-        let id = id.clone();
+        let said = |words: String| meta(words).boxed();
         let take = || {
             let id = id.clone();
-            row((icon_button("book", "ADD TO LIBRARY")
+            icon_button("book", "TAKE INTO THE LIBRARY")
                 .style(ButtonStyle::Primary)
-                .on_click(move |world| skills::take(world, &id)),))
-            .boxed()
+                .on_click(move |world| skills::take(world, &id))
+                .boxed()
         };
-        let parts = match mine {
-            Some(Taking::Fetching) => {
-                vec![said("Downloading...".into())]
-            }
-            Some(Taking::Giving(files)) => vec![said(format!(
-                "Adding {files} file{}...",
-                if *files == 1 { "" } else { "s" }
-            ))],
-            Some(Taking::Taken(name)) => vec![
-                kept(),
-                said(format!(
-                    "Saved as `{name}`. All agents can use it now."
-                )),
-            ],
-            _ if *shelved => vec![kept()],
-            Some(Taking::Failed(why)) => vec![
-                take(),
-                label(format!(
-                    "Couldn't add it: {}.",
-                    why.trim_end_matches('.')
-                ))
-                .tone(Tone::Critical)
-                .boxed(),
-            ],
-            None if *busy => vec![said(
-                "Adding another skill. Try again in a moment.".into(),
-            )],
-            None => vec![take()],
+        let source = {
+            let address = repository.clone();
+            icon_button("globe", "VIEW SOURCE")
+                .style(ButtonStyle::Quiet)
+                .on_click(move |world| {
+                    world.desktop(&DesktopRequest::Open(
+                        address.clone(),
+                    ));
+                })
+                .leads_to(repository.clone())
+                .boxed()
         };
-        column(parts).space(Space::Half).boxed()
+        let what = || {
+            said(
+                "Its files go into your library, and every agent \
+                 can use it."
+                    .into(),
+            )
+        };
+        let (actions, notes) = match mine {
+            Some(Taking::Fetching) => (
+                vec![],
+                vec![said("Downloading its files...".into())],
+            ),
+            Some(Taking::Giving(files)) => (
+                vec![],
+                vec![said(format!(
+                    "Adding {files} file{}...",
+                    if *files == 1 { "" } else { "s" }
+                ))],
+            ),
+            Some(Taking::Taken(name)) => (
+                vec![owned("In your library")],
+                vec![said(format!(
+                    "Saved as `{name}`. Every agent can use it now."
+                ))],
+            ),
+            _ if *shelved => (vec![owned("In your library")], vec![]),
+            Some(Taking::Failed(why)) => (
+                vec![take()],
+                vec![
+                    prose(format!(
+                        "Couldn't take it into the library: {}. Try \
+                         again in a moment.",
+                        why.trim_end_matches('.')
+                    ))
+                    .tone(Tone::Critical)
+                    .boxed(),
+                ],
+            ),
+            None if *busy => (
+                vec![],
+                vec![said(
+                    "Another skill is on its way to the library. \
+                     Try again in a moment."
+                        .into(),
+                )],
+            ),
+            None => (vec![take()], vec![what()]),
+        };
+        let mut actions = actions;
+        actions.push(source);
+        action_box(Some(Cost::free()), actions, notes)
     })
     .boxed()
 }
@@ -241,11 +259,11 @@ fn preview(id: SkillId) -> AnyView {
     .when(moved::<Desk>());
     keyed(files, |files| match files {
         None | Some(None) => {
-            description("Unrolling its SKILL.md from skills.sh...")
-                .boxed()
+            aside("Fetching its SKILL.md from skills.sh...").boxed()
         }
-        Some(Some(Err(why))) => description(format!(
-            "Its files could not be fetched: {why}"
+        Some(Some(Err(why))) => aside(format!(
+            "Its files could not be fetched: {why} Open its page \
+             again to try once more."
         ))
         .boxed(),
         Some(Some(Ok(files))) => unrolled(files),
@@ -270,9 +288,8 @@ fn unrolled(files: &Unrolled) -> AnyView {
     if !files.left.is_empty() {
         told.push(format!("Left out: {}", files.left.join(", ")));
     }
-    column((
-        part("SKILL.MD", markdown(&shown, Tone::Body)),
-        part("FILES", description(told.join(". ")).boxed()),
-    ))
-    .boxed()
+    sections(vec![
+        section("SKILL.MD", markdown(&shown, Tone::Body)),
+        section("FILES", aside(told.join(". ")).boxed()),
+    ])
 }
