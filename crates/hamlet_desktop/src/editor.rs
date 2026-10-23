@@ -165,12 +165,16 @@ fn folder() -> io::Result<PathBuf> {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    let mut builder = fs::DirBuilder::new();
+    // Only its owner may read the folder, where the OS can say so.
     #[cfg(unix)]
-    {
+    let builder = {
         use std::os::unix::fs::DirBuilderExt;
+        let mut builder = fs::DirBuilder::new();
         builder.mode(0o700);
-    }
+        builder
+    };
+    #[cfg(not(unix))]
+    let builder = fs::DirBuilder::new();
     for attempt in 0.. {
         let folder = std::env::temp_dir().join(format!(
             "hamlet-editor-{}-{stamp}-{attempt}",
