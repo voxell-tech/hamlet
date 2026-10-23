@@ -7,6 +7,7 @@
 mod bridge;
 mod build;
 mod folk;
+mod fx;
 mod places;
 mod realm;
 mod society;
@@ -89,7 +90,12 @@ impl Plugin for RealmPlugin {
                 (|| Place::Library).pipe(pick_up),
             )
             .add_systems(Declare, watch)
-            .add_plugins((realm::plugin, folk::plugin));
+            .add_plugins((
+                realm::plugin,
+                folk::plugin,
+                world::plugin,
+                fx::plugin,
+            ));
     }
 }
 

@@ -1,6 +1,6 @@
 //! The door lanterns and the common's lantern: their glass shows the
-//! state of the agent inside, and after dark the nearest throw light
-//! on the ground.
+//! state of the agent inside, and after dark each in view throws
+//! light on the ground.
 
 use std::f32::consts::PI;
 
@@ -18,8 +18,8 @@ use crate::world::tint::to_linear;
 
 /// The hues of a lantern, in sRGB: at work, waiting for the chief,
 /// faulted, and a candle at rest.
-const CURRENT: Vec3 = Vec3::new(0.247, 0.847, 0.910);
-const SIGNAL: Vec3 = Vec3::new(1.0, 0.541, 0.122);
+pub const CURRENT: Vec3 = Vec3::new(0.247, 0.847, 0.910);
+pub const SIGNAL: Vec3 = Vec3::new(1.0, 0.541, 0.122);
 const FAULT: Vec3 = Vec3::new(1.0, 0.322, 0.278);
 const CANDLE: Vec3 = Vec3::new(1.0, 0.816, 0.541);
 
@@ -27,8 +27,10 @@ const CANDLE: Vec3 = Vec3::new(1.0, 0.816, 0.541);
 const EMBER: f32 = 1.5;
 const LIT: f32 = 4.0;
 
-/// Lanterns that throw light at once, the nearest the camera.
-const SPILLS: usize = 8;
+/// Lamps that throw light at once, the nearest the camera: the
+/// engine's 64 lights a scene, less 8 kept for the sun and its fill,
+/// the library and the chief.
+const SPILLS: usize = 56;
 /// Keys of the spills' entities.
 const SPILL_KEY: u32 = 6;
 
@@ -73,12 +75,36 @@ pub struct Lamps {
     /// The glow each glass was last given.
     shown: [Vec3; 5],
     /// Each light, and how it shines while it does.
-    spills: Vec<(Entity, Option<Spill>)>,
+    spills: Vec<(Entity, Option<Glow>)>,
 }
 
-/// A lantern's light: where it shines, for which state and how
-/// strongly.
-type Spill = (Vec3, KState, f32);
+/// The light a lamp throws on the ground.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Glow {
+    pub at: Vec3,
+    /// Linear.
+    pub colour: Vec3,
+    pub lumens: f32,
+    pub reach: f32,
+}
+
+impl Glow {
+    /// The light of a door lantern at `at` for the state of the agent
+    /// inside, `lumens` strong and reaching `reach`.
+    pub fn lantern(
+        at: Vec3,
+        state: KState,
+        lumens: f32,
+        reach: f32,
+    ) -> Self {
+        Self {
+            at,
+            colour: lantern(state, 0.0).0,
+            lumens,
+            reach,
+        }
+    }
+}
 
 impl Lamps {
     pub fn make(
@@ -142,35 +168,35 @@ impl Lamps {
         }
     }
 
-    /// Has the lanterns of `lit`, the nearest first, throw light on
-    /// the ground, `lumens` strong and reaching `reach`. None do by
-    /// day.
+    /// Has the lamps of `lit` throw light on the ground, the nearest
+    /// `eye` first while there are lights to give. None that is dark
+    /// does.
     pub fn spill(
         &mut self,
-        lit: &[(Vec3, KState)],
-        lumens: f32,
-        reach: f32,
+        mut lit: Vec<Glow>,
+        eye: Vec3,
         draw: &mut Draw,
     ) {
+        lit.retain(|glow| glow.lumens > 0.0);
+        lit.sort_by(|a, b| {
+            a.at.distance_squared(eye)
+                .total_cmp(&b.at.distance_squared(eye))
+        });
         for (i, (entity, shown)) in self.spills.iter_mut().enumerate()
         {
-            let want = lit
-                .get(i)
-                .filter(|_| lumens > 0.0)
-                .map(|&(at, state)| (at, state, lumens));
+            let want = lit.get(i).copied();
             if *shown == want {
                 continue;
             }
             *shown = want;
             match want {
-                Some((at, state, _)) => {
-                    draw.place(*entity, Frame::at(at));
-                    let hue = lantern(state, 0.0).0;
+                Some(glow) => {
+                    draw.place(*entity, Frame::at(glow.at));
                     draw.commands.entity(*entity).insert(SceneLight(
                         Light::Point(PointLight {
-                            color: rgba(hue),
-                            intensity: lumens,
-                            range: reach,
+                            color: rgba(glow.colour),
+                            intensity: glow.lumens,
+                            range: glow.reach,
                             radius: 0.0,
                             shadows: false,
                         }),

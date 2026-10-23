@@ -566,6 +566,9 @@ interface scene {
         /// From 0, a mirror, to 1.
         roughness: f32,
         metallic: f32,
+        /// How much light a surface that is not metal reflects
+        /// head-on, 0 to 1; 0.5 is 4%.
+        reflectance: f32,
         alpha-mode: alpha-mode,
         /// Under it a `mask` material shows nothing.
         alpha-cutoff: f32,
@@ -627,6 +630,22 @@ interface scene {
         spot(spot-light),
     }
 
+    /// A box of haze one unit each way about the entity, placed,
+    /// turned and sized by its transform, shown by a camera with
+    /// volumetric fog where a volumetric light lights it.
+    record fog-volume {
+        color: rgba,
+        density: f32,
+        /// The share of light it takes at each step, and the share it
+        /// scatters.
+        absorption: f32,
+        scattering: f32,
+        /// From -1 to 1: how much more it scatters toward the camera.
+        scattering-asymmetry: f32,
+        light-tint: rgba,
+        light-intensity: f32,
+    }
+
     variant projection {
         /// Its vertical field of view in radians, near and far.
         perspective(vec3),
@@ -682,6 +701,74 @@ interface scene {
         ambient: tuple<rgba, f32>,
         /// Samples a pixel: 1, 2, 4 or 8.
         msaa: u8,
+    }
+
+    enum depth-of-field-mode {
+        gaussian,
+        bokeh,
+    }
+
+    /// Bevy's depth of field: what is not at `focal-distance` is
+    /// blurred.
+    record depth-of-field {
+        mode: depth-of-field-mode,
+        focal-distance: f32,
+        aperture-f-stops: f32,
+        /// The widest a blur is, in pixels.
+        max-circle-of-confusion: f32,
+    }
+
+    /// Bevy's colour grading of the whole image.
+    record color-grading {
+        /// In EV, on top of the camera's exposure.
+        exposure: f32,
+        temperature: f32,
+        tint: f32,
+        /// In radians.
+        hue: f32,
+        /// 1 as drawn, 0 grey.
+        post-saturation: f32,
+    }
+
+    enum quality {
+        low,
+        medium,
+        high,
+        ultra,
+    }
+
+    /// Bevy's screen-space ambient occlusion: darkening where
+    /// surfaces meet.
+    record ambient-occlusion {
+        quality: quality,
+        /// How thick a surface is taken to be, in the world's units.
+        thickness: f32,
+    }
+
+    /// Bevy's volumetric fog: the fog volumes of the scene, lit by
+    /// its volumetric lights.
+    record volumetric-fog {
+        ambient-color: rgba,
+        ambient-intensity: f32,
+        /// Steps through the fog.
+        step-count: u32,
+        /// How far each ray's start is moved at random.
+        jitter: f32,
+    }
+
+    /// What a camera draws over its image, each off when none.
+    record camera-effects {
+        depth-of-field: option<depth-of-field>,
+        color-grading: color-grading,
+        /// Draws without MSAA.
+        ambient-occlusion: option<ambient-occlusion>,
+        /// Bevy's SMAA edges, of this quality; draws without MSAA.
+        smaa: option<quality>,
+        /// The engine's scattering sky, of an earth-like world, in
+        /// place of what the camera clears to. Draws in high range.
+        atmosphere: bool,
+        /// One plugin's at a time: another's is not drawn.
+        volumetric-fog: option<volumetric-fog>,
     }
 
     /// Where a camera draws.
@@ -741,6 +828,14 @@ interface scene {
 
         /// Whether it casts shadows and is shadowed.
         set-shadows: func(cast: bool, receive: bool);
+
+        /// Whether the entity's directional light, with shadows,
+        /// lights fog volumes.
+        set-volumetric: func(on: bool);
+
+        /// Makes the entity a fog volume, or none. One plugin's fog
+        /// volumes are drawn at a time.
+        set-fog-volume: func(volume: option<fog-volume>) -> result<_, string>;
 
         /// Words shown over the entity in each view of the scene.
         set-label: func(label: option<label>);
@@ -832,6 +927,8 @@ interface scene {
 
         set: func(settings: camera-settings);
 
+        set-effects: func(effects: camera-effects) -> result<_, string>;
+
         /// Shows the camera's image in `frame`, a frame of one of the
         /// plugin's panels, filling it. The pointer and wheel over it
         /// are told to the plugin.
@@ -840,6 +937,12 @@ interface scene {
 
     /// Has the engine call `tick` each frame while `on`.
     animate: func(on: bool);
+
+    /// The side of each cascade of a directional light's shadow, in
+    /// texels: a power of two, at most the GPU's widest texture. The
+    /// engine draws the largest any scene asks for, 2048 when none
+    /// does.
+    shadow-map: func(size: u32) -> result<_, string>;
 }
 
 /// What a plugin with scenes gives the engine.
@@ -983,8 +1086,10 @@ interface gpu {
     use scene.{alpha-mode, material, camera, decal};
 
     enum shader-kind {
-        /// `fn shade(surface: Surface) -> vec4<f32>`, and optionally
-        /// `fn displace(vertex: Vertex) -> vec3<f32>`.
+        /// `fn shade(surface: Surface) -> vec4<f32>`, or `-> Shading`
+        /// for its metallic, roughness, reflectance and emissive too,
+        /// and optionally `fn displace(vertex: Vertex) -> vec3<f32>`,
+        /// which its shadow and depth follow.
         material,
         /// `fn post(drawn: Pass) -> vec4<f32>`.
         pass,
@@ -1026,7 +1131,8 @@ interface gpu {
     }
 
     /// A material drawn by `shader`, a `material` shader, with
-    /// `params` (64 floats at most), `texture` and `data` bound.
+    /// `params` (64 floats at most), `texture` and `data` bound. It
+    /// casts shadows, as a standard material does.
     shaded-material: func(shader: borrow<shader>, settings: shaded, params: list<f32>, texture: option<borrow<texture>>, data: option<borrow<buffer>>) -> result<material, string>;
 
     /// Gives a material `shaded-material` or `shaded-decal` made new

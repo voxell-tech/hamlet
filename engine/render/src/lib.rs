@@ -10,6 +10,7 @@ mod balloon;
 mod change;
 mod compute;
 mod decal;
+mod effects;
 mod guard;
 mod label;
 mod material;
@@ -28,7 +29,9 @@ use bevy::render::storage::ShaderBuffer;
 use bevy::shader::Shader;
 
 pub use crate::balloon::Balloon;
-pub use crate::change::{CameraSetup, SceneChange, SceneLight};
+pub use crate::change::{
+    CameraEffects, CameraSetup, SceneChange, SceneLight,
+};
 pub use crate::guard::{GpuInfo, GpuLost, Throttled};
 pub use crate::label::{
     HangsOn, LabelLook, PointerLabel, WorldLabel,
@@ -62,6 +65,7 @@ pub fn plugin(app: &mut App) {
         label::plugin,
         material::plugin,
         decal::plugin,
+        effects::plugin,
         compute::plugin,
         pass::plugin,
         guard::plugin,

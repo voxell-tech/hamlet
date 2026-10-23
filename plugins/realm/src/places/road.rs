@@ -6,17 +6,23 @@
 mod build;
 mod groove;
 mod mesh;
+mod traffic;
 
 use std::collections::{HashMap, HashSet};
 
 use glam::{Vec2, Vec3Swizzles};
+use hamlet_engine_bevy::AgentsEventReceived;
+use hamlet_engine_bevy::api::agents::AgentsEvent;
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::scene::Mesh;
 
+use crate::bridge::Bridge;
+use crate::build::frame::Frame;
 use crate::build::upload::Draw;
 use crate::places::road::build::{Build, Built};
 use crate::places::road::groove::Grooves;
 use crate::places::road::mesh::Span;
+use crate::places::road::traffic::Traffic;
 use crate::realm::{Ctx, Shared};
 use crate::society::{AgentId, Pair, RoadLevel, Society};
 use crate::world::land::Land;
@@ -125,6 +131,17 @@ impl Society {
     }
 }
 
+/// A robot out on a road with a message.
+#[derive(Clone, Copy, Debug)]
+pub struct Walking {
+    /// Its place on the road, facing the way it goes.
+    pub at: Frame,
+    /// True when it goes by cart.
+    pub rides: bool,
+    /// Ground it has covered since it set out, there and back.
+    pub gone: f32,
+}
+
 /// The roads drawn.
 #[derive(Resource)]
 pub struct Roads {
@@ -140,6 +157,7 @@ pub struct Roads {
     /// Roads laid so far, which numbers each.
     laid: u64,
     grooves: Grooves,
+    traffic: Traffic,
 }
 
 impl Roads {
@@ -156,6 +174,24 @@ impl Roads {
             holds: Vec::new(),
             laid: 0,
             grooves: Grooves::make(pal, draw)?,
+            traffic: Traffic::default(),
+        })
+    }
+
+    /// Where the robot of `agent` is out on a road, if it is.
+    pub fn walking(&self, agent: AgentId) -> Option<Walking> {
+        let trip =
+            self.traffic.trips.iter().find(|t| t.walker == agent)?;
+        let road = self.drawn.get(&trip.pair)?;
+        let total = road.route.total();
+        Some(Walking {
+            at: trip.stand(road),
+            rides: trip.rides,
+            gone: if trip.back {
+                2.0 * total - trip.gone
+            } else {
+                trip.gone
+            },
         })
     }
 
@@ -164,16 +200,35 @@ impl Roads {
         self.drawn.values().map(|road| &road.route).collect()
     }
 
+    /// Sends `walker` with a message along the road `pair` and back.
+    pub fn send(&mut self, pair: Pair, walker: AgentId) {
+        self.traffic.send(pair, walker);
+    }
+
     /// Brings what is drawn in line with the society, while the call
-    /// has room.
-    pub fn update(&mut self, ctx: &Ctx, draw: &mut Draw) {
+    /// has room, and moves what is out on the roads `dt` seconds
+    /// further.
+    pub fn update(&mut self, ctx: &Ctx, dt: f32, draw: &mut Draw) {
         let shape = (ctx.society.shape(), ctx.land.places());
         if self.shape != Some(shape) {
             self.look_over(ctx.society, ctx.land, draw);
             self.shape = Some(shape);
         }
         self.work(ctx, draw);
-        self.grooves.light(ctx, &self.drawn, draw);
+        let jobs = &self.jobs;
+        self.traffic.run(
+            ctx,
+            &self.drawn,
+            |pair| jobs.contains_key(&pair),
+            dt,
+        );
+        self.traffic.carts(ctx, &self.drawn, draw);
+        self.grooves.light(
+            ctx,
+            &self.drawn,
+            &self.traffic.trips,
+            draw,
+        );
     }
 
     /// Takes out the roads the society no longer holds and sets about
@@ -396,12 +451,28 @@ impl Roads {
     }
 }
 
-/// Brings the roads drawn in line with the society.
+/// Brings the roads drawn in line with the society, and sends the
+/// sender of each message carried along its road.
 pub fn build_roads(
     mut roads: ResMut<Roads>,
+    mut events: MessageReader<AgentsEventReceived>,
+    bridge: Res<Bridge>,
     shared: Shared,
     mut draw: Draw,
 ) {
+    for event in events.read() {
+        let AgentsEvent::Carried { road, from } = &event.event else {
+            continue;
+        };
+        let (Some(a), Some(b), Some(walker)) = (
+            bridge.drawn(&road[0]),
+            bridge.drawn(&road[1]),
+            bridge.drawn(from),
+        ) else {
+            continue;
+        };
+        roads.send(Pair::new(a, b), walker);
+    }
     let floor = shared.floor();
-    roads.update(&shared.ctx(&floor), &mut draw);
+    roads.update(&shared.ctx(&floor), shared.clock.dt, &mut draw);
 }

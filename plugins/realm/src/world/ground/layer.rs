@@ -16,6 +16,12 @@ use crate::world::land::Land;
 pub trait TileEntity {
     fn entity(&self) -> Entity;
 
+    /// True once all of it is handed over. Until then what it takes
+    /// the place of stays, and it is hidden.
+    fn whole(&self) -> bool {
+        true
+    }
+
     fn lift(&self, by: f32, draw: &mut Draw) {
         draw.place(self.entity(), Frame::at(Vec3::Y * by));
     }
@@ -24,6 +30,9 @@ pub trait TileEntity {
 /// One tile: what is drawn of it and what is being built.
 struct Patch<D, J> {
     drawn: Option<D>,
+    /// What takes its place: in the scene, hidden, and not whole
+    /// yet. `drawn` stays until it is.
+    coming: Option<D>,
     job: Option<J>,
     /// The land changed under what is drawn of it.
     old: bool,
@@ -41,6 +50,7 @@ impl<D, J> Default for Patch<D, J> {
     fn default() -> Self {
         Self {
             drawn: None,
+            coming: None,
             job: None,
             old: false,
             sunk: false,
@@ -62,6 +72,8 @@ pub struct Layer<D, J> {
     jobs: Vec<Tile>,
     /// Something changed since the tiles were last looked over.
     stirred: bool,
+    /// What was coming to tiles built anew, to be taken away.
+    dropped: Vec<Entity>,
 }
 
 impl<D, J> Default for Layer<D, J> {
@@ -72,32 +84,43 @@ impl<D, J> Default for Layer<D, J> {
             keys: HashMap::new(),
             jobs: Vec::new(),
             stirred: false,
+            dropped: Vec::new(),
         }
     }
 }
 
 impl<D: TileEntity, J> Layer<D, J> {
-    /// Forgets the job of `tile`, if it has one.
+    /// Forgets the job of `tile`, if it has one, and what was coming
+    /// to it.
     fn stop(&mut self, tile: Tile) {
-        if let Some(patch) = self.patches.get_mut(&tile)
-            && patch.job.take().is_some()
-        {
+        let Some(patch) = self.patches.get_mut(&tile) else {
+            return;
+        };
+        if let Some(coming) = patch.coming.take() {
+            self.dropped.push(coming.entity());
+        }
+        if patch.job.take().is_some() {
             self.jobs.retain(|job| *job != tile);
         }
     }
 
     /// Has the tiles within `hold` of `at` built anew.
     pub fn redo(&mut self, chunk: f32, at: Vec2, hold: f32) {
-        let near = self
+        self.redo_where(|tile| {
+            let reach = tile.side(chunk) * 0.71 + hold;
+            tile.middle(chunk).distance(at) < reach
+        });
+    }
+
+    /// Has the tiles `which` picks built anew.
+    pub fn redo_where(&mut self, which: impl Fn(Tile) -> bool) {
+        let picked = self
             .patches
             .keys()
-            .filter(|tile| {
-                let reach = tile.side(chunk) * 0.71 + hold;
-                tile.middle(chunk).distance(at) < reach
-            })
+            .filter(|tile| which(**tile))
             .copied()
             .collect::<Vec<_>>();
-        for tile in near {
+        for tile in picked {
             self.stop(tile);
             if let Some(patch) = self.patches.get_mut(&tile) {
                 patch.old = true;
@@ -198,6 +221,9 @@ impl<D: TileEntity, J> Layer<D, J> {
         if !self.stirred {
             return;
         }
+        for gone in self.dropped.drain(..) {
+            draw.despawn(gone);
+        }
         let ready = self
             .patches
             .iter()
@@ -216,8 +242,11 @@ impl<D: TileEntity, J> Layer<D, J> {
                 }
                 return true;
             }
-            // Nobody waits for what was being built for a tile the
-            // view has left.
+            // Nobody waits for what was coming to a tile the view
+            // has left, or for what was being built for it.
+            if let Some(coming) = patch.coming.take() {
+                draw.despawn(coming.entity());
+            }
             if patch.job.take().is_some() {
                 stopped.push(*tile);
             }
@@ -274,6 +303,7 @@ impl<D: TileEntity, J> Layer<D, J> {
             .filter(|tile| {
                 self.patches.get(*tile).is_none_or(|p| {
                     p.job.is_none()
+                        && p.coming.is_none()
                         && !p.refused
                         && (p.drawn.is_none() || p.old)
                 })
@@ -297,9 +327,28 @@ impl<D: TileEntity, J> Layer<D, J> {
         }
     }
 
-    /// What is drawn of each tile.
-    pub fn drawn_mut(&mut self) -> impl Iterator<Item = &mut D> {
-        self.patches.values_mut().filter_map(|p| p.drawn.as_mut())
+    /// What is coming to each tile and is not whole yet.
+    pub fn coming_mut(&mut self) -> impl Iterator<Item = &mut D> {
+        self.patches.values_mut().filter_map(|p| p.coming.as_mut())
+    }
+
+    /// Shows what came whole in place of what its tile had drawn.
+    pub fn settle(&mut self, draw: &mut Draw) {
+        for patch in self.patches.values_mut() {
+            if !patch.coming.as_ref().is_some_and(D::whole) {
+                continue;
+            }
+            let Some(coming) = patch.coming.take() else {
+                continue;
+            };
+            draw.show(coming.entity(), true);
+            if let Some(was) = patch.drawn.replace(coming) {
+                draw.despawn(was.entity());
+            }
+            patch.old = false;
+            patch.sunk = false;
+            self.stirred = true;
+        }
     }
 
     /// The tile of the first job under way, and the job.
@@ -310,8 +359,8 @@ impl<D: TileEntity, J> Layer<D, J> {
     }
 
     /// Draws `drawn` for the tile of the first job, which is done, in
-    /// place of what it had; or, with none, marks the tile as one the
-    /// engine refused.
+    /// place of what it had, once it is whole; or, with none, marks
+    /// the tile as one the engine refused.
     pub fn finish(&mut self, drawn: Option<D>, draw: &mut Draw) {
         let Some(tile) =
             (!self.jobs.is_empty()).then(|| self.jobs.remove(0))
@@ -329,7 +378,14 @@ impl<D: TileEntity, J> Layer<D, J> {
             return;
         };
         patch.job = None;
+        if let Some(was) = patch.coming.take() {
+            draw.despawn(was.entity());
+        }
         match drawn {
+            Some(drawn) if !drawn.whole() => {
+                draw.show(drawn.entity(), false);
+                patch.coming = Some(drawn);
+            }
             Some(drawn) => {
                 if let Some(was) = patch.drawn.replace(drawn) {
                     draw.despawn(was.entity());

@@ -48,9 +48,11 @@ pub struct Shape {
 }
 
 impl Shape {
-    /// A ring and a square on its corner, for a circle of runes.
+    /// A ring, a square on its corner and a six-sided rune, for
+    /// circles of runes.
     pub const RING: Self = Self::of(0, 0.9, 0.985);
     pub const DIAMOND: Self = Self::of(4, 0.56, 0.64);
+    pub const HEX: Self = Self::of(6, 0.62, 0.7);
 
     const fn of(sides: u32, inner: f32, outer: f32) -> Self {
         Self {
@@ -152,6 +154,11 @@ impl Mark {
     /// Has it shine `light`, in linear RGB, `strength` strong.
     pub fn shine(&mut self, light: Vec3, strength: f32, draw: &Draw) {
         self.set(0, light.extend(strength).to_array(), draw);
+    }
+
+    /// Takes it away.
+    pub fn despawn(self, draw: &mut Draw) {
+        draw.despawn(self.entity);
     }
 
     pub fn show(&mut self, shown: bool, draw: &mut Draw) {

@@ -5,8 +5,11 @@
 //! out when the view has left them (docs/endless-world.md).
 
 mod grove;
+mod lanes;
 mod layer;
 mod sod;
+#[cfg(test)]
+mod tests;
 
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -22,6 +25,7 @@ use crate::build::upload::{Draw, Unsent};
 use crate::realm::{Ctx, Shared};
 use crate::world::flora::{self, Tree};
 use crate::world::ground::grove::{Grove, GroveJob};
+use crate::world::ground::lanes::Lanes;
 use crate::world::ground::layer::{Layer, TileEntity};
 use crate::world::ground::sod::{Recipe, Sod, SodJob};
 use crate::world::land::{Land, LandData};
@@ -330,6 +334,10 @@ impl TileEntity for Wood {
     fn entity(&self) -> Entity {
         self.entity
     }
+
+    fn whole(&self) -> bool {
+        self.waiting.is_empty()
+    }
 }
 
 /// The ground drawn about the camera.
@@ -338,6 +346,7 @@ pub struct Ground {
     sods: Layer<Turf, SodJob>,
     woods: Layer<Wood, GroveJob>,
     lies: Lies,
+    lanes: Lanes,
     /// The plain ground that shows where no tile is drawn yet, and
     /// where it was last put.
     bed: Entity,
@@ -361,6 +370,11 @@ pub struct Ground {
 }
 
 impl Ground {
+    /// The ground the roads between towns run over.
+    pub fn lanes(&self) -> &Lanes {
+        &self.lanes
+    }
+
     /// No tiles yet, only the plain ground under where they will be.
     pub fn make(
         pal: &Palette,
@@ -371,12 +385,14 @@ impl Ground {
             draw.assets.add(Mesh::shape(Shape::Plane((2.0, 2.0)))?);
         let bed_look = draw.material(Pbr {
             roughness: 0.92,
+            reflectance: 0.18,
             ..Pbr::colored(rgba(plain))
         })?;
         let pond =
             draw.assets.add(Mesh::shape(Shape::Plane((1.0, 1.0)))?);
         let water = draw.material(Pbr {
             roughness: 0.22,
+            reflectance: 0.4,
             ..Pbr::colored(rgba(pal.river))
         })?;
         let bed = draw.spawn(None, 0);
@@ -386,6 +402,7 @@ impl Ground {
             sods: Layer::default(),
             woods: Layer::default(),
             lies: Lies::default(),
+            lanes: Lanes::default(),
             bed,
             bed_at: None,
             pond,
@@ -417,6 +434,21 @@ impl Ground {
         let until = Instant::now() + SHARE;
         self.lay_bed(ctx, &sight, draw);
         let changed = self.follow_land(land);
+        // The trees about a road between towns that came or went are
+        // planted anew.
+        let cleared = self
+            .lanes
+            .follow(land, ctx.society, || Instant::now() < until);
+        if !cleared.is_empty() {
+            self.woods.redo_where(|tile| {
+                let (lo, side) =
+                    (tile.corner(chunk), tile.side(chunk));
+                tile.level < detail.tree_levels
+                    && cleared.iter().any(|p| {
+                        p.cmpge(lo).all() && p.cmplt(lo + side).all()
+                    })
+            });
+        }
         let moved = |was: &Sight, now: &Sight| {
             was.eye.distance(now.eye) > 0.5
                 || was.centre.distance(now.centre) > 0.5
@@ -455,7 +487,11 @@ impl Ground {
             going.centre,
             detail.tile_tasks,
             |tile, drawn| {
-                SodJob::new(Recipe::of(land, detail, tile), drawn)
+                SodJob::new(
+                    land,
+                    Recipe::of(land, detail, tile),
+                    drawn,
+                )
             },
         );
         if self.kinds.len() == flora::KINDS {
@@ -636,11 +672,12 @@ impl Ground {
             }
         }
         let mut room = ctx.tuning.detail.trees_per_frame;
-        for wood in self.woods.drawn_mut() {
-            if !wood.waiting.is_empty() {
-                wood.give(ctx, draw, &mut room);
-            }
+        // A wood is shown in place of the one it replaces once its
+        // last tree is planted.
+        for wood in self.woods.coming_mut() {
+            wood.give(ctx, draw, &mut room);
         }
+        self.woods.settle(draw);
         while left() && draw.left() && room > 0 {
             let Some((_, job)) = self.woods.next() else {
                 return;
@@ -697,7 +734,9 @@ impl Ground {
         }
         // The copies of each kind.
         let mut kinds = vec![Vec::new(); flora::KINDS];
-        for tree in &trees {
+        for tree in
+            trees.iter().filter(|t| !self.lanes.holds(t.at.xz()))
+        {
             kinds[tree.kind].push(tree.frame().transform());
         }
         let mut wood = Wood {

@@ -46,6 +46,7 @@ pub(crate) fn plugin(app: &mut App) {
                 mix::place_ears,
                 heard::follow,
                 heard::hear_folk,
+                heard::hear_nudges,
                 heard::hear_agents,
                 mix::start_ambience,
                 mix::mix_ambience,

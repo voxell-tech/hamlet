@@ -4,6 +4,7 @@
 //! as changes for the render crate to make once the call ends.
 
 mod convert;
+mod effects;
 mod gpu;
 mod serve;
 
@@ -46,10 +47,10 @@ pub(crate) mod scene_bindings {
 }
 
 use crate::scene::scene_bindings::hamlet::engine::scene::{
-    Balloon as WitBalloon, CameraSettings, Decal, Host, HostCamera,
-    HostEntity, HostInstances, HostMaterial, HostMesh, Label, Light,
-    MeshData, Pbr, PointerLabel as WitPointerLabel, Shape, Target,
-    Transform,
+    Balloon as WitBalloon, CameraEffects, CameraSettings, Decal,
+    FogVolume, Host, HostCamera, HostEntity, HostInstances,
+    HostMaterial, HostMesh, Label, Light, MeshData, Pbr,
+    PointerLabel as WitPointerLabel, Shape, Target, Transform,
 };
 
 /// The interfaces of scenes and GPU work a plugin may import.
@@ -538,6 +539,21 @@ impl Host for State {
             .transpose()?;
         self.scene.change(SceneChange::PointerLabel(label))
     }
+
+    fn shadow_map(
+        &mut self,
+        size: u32,
+    ) -> wasmtime::Result<Result<(), String>> {
+        let most = self.scene.gpu.texture_size;
+        if !size.is_power_of_two() || size > most {
+            return Ok(Err(format!(
+                "a shadow map's side is a power of two, {most} at \
+                 most"
+            )));
+        }
+        self.scene.change(SceneChange::ShadowMap(size as usize))?;
+        Ok(Ok(()))
+    }
 }
 
 /// A card hung over the entity `id`, or taken down: what a call
@@ -856,6 +872,38 @@ impl HostEntity for State {
             .change(SceneChange::Shadows { id, cast, receive })
     }
 
+    fn set_volumetric(
+        &mut self,
+        at: Resource<EntityHandle>,
+        on: bool,
+    ) -> wasmtime::Result<()> {
+        let id = at.rep();
+        self.scene.held(id, entity)?;
+        self.scene.change(SceneChange::Volumetric { id, on })
+    }
+
+    fn set_fog_volume(
+        &mut self,
+        at: Resource<EntityHandle>,
+        volume: Option<FogVolume>,
+    ) -> wasmtime::Result<Result<(), String>> {
+        let id = at.rep();
+        self.scene.held(id, entity)?;
+        let volume = volume
+            .map(|volume| {
+                effects::fog_volume(volume)
+                    .ok_or_else(|| trap(SceneError::Invalid))
+            })
+            .transpose()?;
+        if let Err(why) =
+            self.scene.allowed(Powers::SCENE, "render.scene")
+        {
+            return Ok(Err(why));
+        }
+        self.scene.change(SceneChange::FogVolume { id, volume })?;
+        Ok(Ok(()))
+    }
+
     fn set_label(
         &mut self,
         at: Resource<EntityHandle>,
@@ -1096,6 +1144,24 @@ impl HostCamera for State {
         let setup = convert::camera(settings)
             .ok_or_else(|| trap(SceneError::Invalid))?;
         self.scene.change(SceneChange::Setup { id, setup })
+    }
+
+    fn set_effects(
+        &mut self,
+        camera: Resource<CameraHandle>,
+        effects: CameraEffects,
+    ) -> wasmtime::Result<Result<(), String>> {
+        let id = camera.rep();
+        self.scene
+            .held(id, |held| matches!(held, Held::Camera { .. }))?;
+        let effects = match effects::effects(effects)
+            .ok_or_else(|| trap(SceneError::Invalid))?
+        {
+            Ok(effects) => effects,
+            Err(why) => return Ok(Err(why)),
+        };
+        self.scene.change(SceneChange::Effects { id, effects })?;
+        Ok(Ok(()))
     }
 
     fn show_in(

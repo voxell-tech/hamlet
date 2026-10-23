@@ -6,14 +6,18 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use glam::{Mat3, Vec3};
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::scene::{
-    Bloom, CameraSettings as Lens, DirectionalLight, Fog, FogFalloff,
-    Light, Projection, Tonemapping,
+    AtmosphereSettings, Bloom, CameraSettings as Lens, ColorGrading,
+    ColorGradingGlobal, DepthOfField, DepthOfFieldMode,
+    DirectionalLight, DirectionalLightShadowMap, Fog, FogFalloff,
+    FogVolume, Light, Projection, ScreenSpaceAmbientOcclusion,
+    Tonemapping, VolumetricFog, VolumetricLight,
 };
 
 use crate::build::frame::Frame;
 use crate::build::stock::Stock;
 use crate::build::upload::Draw;
 use crate::tuning::WorldTuning;
+use crate::view::camera::Camera;
 use crate::world::palette::Palette;
 use crate::world::tint;
 
@@ -24,6 +28,13 @@ const FILL: u32 = 3;
 /// The exposure the realm is drawn at, in EV100, before the look's
 /// own.
 const EXPOSURE: f32 = 9.7;
+
+/// The camera's bloom, at every quality but the lowest.
+const BLOOM: Bloom = Bloom {
+    intensity: 0.15,
+    low_frequency_boost: 0.7,
+    threshold: 0.0,
+};
 
 /// One time of day: lights, sky and how strongly the fittings burn.
 #[derive(Clone, PartialEq, Debug, serde::Deserialize)]
@@ -208,7 +219,7 @@ impl SkySettings {
 }
 
 /// The hour the sky shows.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum Hour {
     /// The chief's clock.
     #[default]
@@ -217,6 +228,8 @@ pub enum Hour {
     Day,
     /// The middle of the night.
     Night,
+    /// An hour of the day, 0 to 24, held.
+    At(f32),
 }
 
 impl Hour {
@@ -226,6 +239,77 @@ impl Hour {
             Self::Clock => Sky::hour_at(offset),
             Self::Day => set.middle(false),
             Self::Night => set.middle(true),
+            Self::At(hour) => hour.rem_euclid(24.0),
+        }
+    }
+}
+
+/// The part of the day.
+#[derive(
+    Resource, Clone, Copy, PartialEq, Eq, Hash, Debug, Default,
+)]
+pub enum DayPart {
+    Dawn,
+    #[default]
+    Day,
+    Dusk,
+    Night,
+}
+
+impl DayPart {
+    /// True in the hours lanterns are lit: every part of the day but
+    /// [`DayPart::Day`].
+    pub fn dark(self) -> bool {
+        self != Self::Day
+    }
+
+    /// True while the sun is low: [`DayPart::Dawn`] and
+    /// [`DayPart::Dusk`].
+    pub fn low_sun(self) -> bool {
+        matches!(self, Self::Dawn | Self::Dusk)
+    }
+}
+
+/// The realm's spending on looking good.
+#[derive(
+    Resource,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Debug,
+    Default,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum Quality {
+    /// No particles, no bloom, plain edges and small shadows.
+    Low,
+    /// Fewer particles and middling shadows.
+    Medium,
+    #[default]
+    High,
+}
+
+impl Quality {
+    /// The share of the full number of particles it draws.
+    pub fn density(self) -> f32 {
+        match self {
+            Self::Low => 0.0,
+            Self::Medium => 0.4,
+            Self::High => 1.0,
+        }
+    }
+
+    /// The share of the full shadow map's side it uses.
+    pub fn shadows(self) -> f32 {
+        match self {
+            Self::Low => 0.25,
+            Self::Medium => 0.5,
+            Self::High => 1.0,
         }
     }
 }
@@ -303,6 +387,39 @@ pub struct CameraSettings {
 }
 
 impl CameraSettings {
+    /// Gives the camera `at` the lens for `look` with it `dist` from
+    /// what it looks at, with the grading of the look and the blur
+    /// of the distance.
+    pub fn dress(
+        &self,
+        at: Entity,
+        look: &Look,
+        dist: f32,
+        commands: &mut Commands,
+    ) {
+        let mut camera = commands.entity(at);
+        camera.insert((
+            SceneCamera::viewport(self.lens(look, dist)),
+            ColorGrading {
+                global: ColorGradingGlobal {
+                    post_saturation: look.saturation,
+                    ..Default::default()
+                },
+            },
+        ));
+        if dist < self.blur_within {
+            camera.insert(DepthOfField {
+                mode: DepthOfFieldMode::Gaussian,
+                focal_distance: dist,
+                aperture_f_stops: (self.blur_stop / dist)
+                    .max(self.blur_stop_min),
+                max_circle_of_confusion_diameter: self.blur_circle,
+            });
+        } else {
+            camera.remove::<DepthOfField>();
+        }
+    }
+
     /// The lens for the look `look` with the camera `dist` from what
     /// it looks at.
     pub fn lens(&self, look: &Look, dist: f32) -> Lens {
@@ -315,7 +432,7 @@ impl CameraSettings {
             )),
             clear: Some(haze),
             hdr: true,
-            tonemapping: Tonemapping::Neutral,
+            tonemapping: Tonemapping::Fitted,
             exposure: EXPOSURE - look.exposure,
             fog: Some(Fog {
                 color: haze,
@@ -324,11 +441,7 @@ impl CameraSettings {
                     dist * self.fog_end.0 + self.fog_end.1,
                 )),
             }),
-            bloom: Some(Bloom {
-                intensity: 0.15,
-                low_frequency_boost: 0.7,
-                threshold: 0.0,
-            }),
+            bloom: Some(BLOOM),
             ambient: (
                 (look.ambient.x, look.ambient.y, look.ambient.z, 1.0),
                 look.ambient_nits,
@@ -368,6 +481,25 @@ impl Sky {
         let k = (height / set.horizon.max(1e-3)).clamp(0.0, 1.0);
         look.sun_lux *= k * k * (3.0 - 2.0 * k);
         Self { hour, look }
+    }
+
+    pub fn part(set: &SkySettings, hour: f32) -> DayPart {
+        let half = set.twilight * 0.5;
+        if !set.moving {
+            if set.night(hour) {
+                DayPart::Night
+            } else {
+                DayPart::Day
+            }
+        } else if (hour - set.sunrise).abs() < half {
+            DayPart::Dawn
+        } else if (hour - set.sunset).abs() < half {
+            DayPart::Dusk
+        } else if set.night(hour) {
+            DayPart::Night
+        } else {
+            DayPart::Day
+        }
     }
 
     /// The hour on a clock `offset` seconds east of UTC.
@@ -462,8 +594,8 @@ pub struct SkyClock {
     pub offset: i32,
 }
 
-/// Brings the sky to the hour, and lights the realm and its windows
-/// as it has them.
+/// Brings the sky to the hour, moves [`DayPart`] with it, and lights
+/// the realm and its windows as it has them.
 pub fn light(
     tuning: Res<WorldTuning>,
     pal: Res<Palette>,
@@ -471,6 +603,7 @@ pub fn light(
     stock: Res<Stock>,
     lights: Res<Lights>,
     mut sky: ResMut<Sky>,
+    mut part: ResMut<DayPart>,
     mut draw: Draw,
 ) {
     let hour = clock.hour.now(&tuning.sky, clock.offset);
@@ -480,6 +613,133 @@ pub fn light(
         if next.look.candle != sky.look.candle {
             stock.light_windows(&pal, next.look.candle, &draw);
         }
+    }
+    let now = Sky::part(&tuning.sky, next.hour);
+    if *part != now {
+        *part = now;
+    }
+    if *sky != next {
         *sky = next;
+    }
+}
+
+/// What the camera and the lights were last given by [`finish`].
+#[derive(PartialEq)]
+pub struct Finished {
+    occlusion: bool,
+    atmosphere: bool,
+    haze: bool,
+}
+
+/// Gives the camera the effects the sky is set to, and the sun the
+/// haze it throws shafts through at dawn and dusk.
+pub fn finish(
+    tuning: Option<Res<WorldTuning>>,
+    part: Res<DayPart>,
+    camera: Option<Res<Camera>>,
+    lights: Option<Res<Lights>>,
+    mut done: Local<Option<Finished>>,
+    mut haze: Local<Option<(Entity, Frame)>>,
+    mut draw: Draw,
+) {
+    let (Some(tuning), Some(camera), Some(lights)) =
+        (tuning, camera, lights)
+    else {
+        return;
+    };
+    let set = &tuning.sky;
+    let (view, sun) = (camera.view(), lights.sun);
+    let low = matches!(*part, DayPart::Dawn | DayPart::Dusk);
+    let now = Finished {
+        occlusion: set.occlusion,
+        atmosphere: set.atmosphere,
+        haze: set.shafts && low,
+    };
+    if done.as_ref() != Some(&now) {
+        // Occlusion needs the camera drawn without MSAA, so with it
+        // the edges are not smoothed.
+        if now.occlusion {
+            draw.commands
+                .entity(view)
+                .insert(ScreenSpaceAmbientOcclusion::default());
+        } else {
+            draw.commands
+                .entity(view)
+                .remove::<ScreenSpaceAmbientOcclusion>();
+        }
+        if now.atmosphere {
+            draw.commands.entity(view).insert(AtmosphereSettings);
+        } else {
+            draw.commands.entity(view).remove::<AtmosphereSettings>();
+        }
+        if now.haze {
+            draw.commands.entity(view).insert(VolumetricFog {
+                ambient_intensity: 0.0,
+                step_count: set.shaft_steps,
+                ..Default::default()
+            });
+            draw.commands.entity(sun).insert(VolumetricLight);
+            let fog = draw.spawn(None, 0);
+            draw.commands.entity(fog).insert(FogVolume {
+                density_factor: set.shaft_density,
+                // It scatters far more than it takes, so the haze
+                // lifts the light and does not dim the ground.
+                absorption: 0.02,
+                scattering: 0.6,
+                scattering_asymmetry: 0.7,
+                light_intensity: set.shaft_strength,
+                ..Default::default()
+            });
+            *haze = Some((fog, Frame::IDENTITY));
+        } else if let Some((fog, _)) = haze.take() {
+            draw.commands.entity(view).remove::<VolumetricFog>();
+            draw.commands.entity(sun).remove::<VolumetricLight>();
+            draw.despawn(fog);
+        }
+        *done = Some(now);
+    }
+    // The haze lies over the ground the camera looks at.
+    if let Some((fog, laid)) = haze.as_mut() {
+        let stand = camera.stand();
+        let forward = stand.turn * Vec3::NEG_Z;
+        let reach = if forward.y < -0.05 {
+            (-stand.at.y / forward.y).clamp(10.0, 2000.0)
+        } else {
+            2000.0
+        };
+        let centre = stand.at + forward * reach;
+        let next = Frame::at(Vec3::new(centre.x, 0.0, centre.z))
+            .with_size(Vec3::new(reach * 8.0, 60.0, reach * 8.0));
+        if *laid != next {
+            draw.place(*fog, next);
+            *laid = next;
+        }
+    }
+}
+
+/// Fits the camera's bloom and the size of the shadows to the
+/// quality the realm is drawn at.
+pub fn spend(
+    quality: Res<Quality>,
+    tuning: Option<Res<WorldTuning>>,
+    camera: Option<Res<Camera>>,
+    mut shadows: ResMut<DirectionalLightShadowMap>,
+    mut lenses: Query<&mut SceneCamera>,
+) {
+    if let Some(tuning) = tuning {
+        let side = (tuning.camera.shadow_map as f32
+            * quality.shadows()) as usize;
+        if shadows.size != side {
+            shadows.size = side;
+        }
+    }
+    let Some(mut lens) =
+        camera.and_then(|camera| lenses.get_mut(camera.view()).ok())
+    else {
+        return;
+    };
+    let bloom = *quality != Quality::Low;
+    if lens.settings.bloom.is_some() != bloom {
+        lens.settings.bloom = bloom.then_some(BLOOM);
     }
 }

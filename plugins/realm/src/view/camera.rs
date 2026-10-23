@@ -217,9 +217,12 @@ impl Camera {
         draw: &mut Draw,
     ) -> Self {
         let at = draw.spawn(None, VIEW);
-        draw.commands.entity(at).insert(SceneCamera::viewport(
-            settings.lens(look, settings.distance),
-        ));
+        settings.dress(
+            at,
+            look,
+            settings.distance,
+            &mut draw.commands,
+        );
         Self {
             at,
             orbit: Orbit::default(),
@@ -525,9 +528,7 @@ impl Camera {
         }
         let lit = (look.clone(), dist);
         if self.lit.as_ref() != Some(&lit) {
-            draw.commands.entity(self.at).insert(
-                SceneCamera::viewport(camera.lens(look, dist)),
-            );
+            camera.dress(self.at, look, dist, &mut draw.commands);
             self.lit = Some(lit);
         }
         !settled || self.orbit != self.glide

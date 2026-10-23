@@ -140,28 +140,7 @@ impl Hearth {
         let Some(at) = place::stand(land, &taken) else {
             return Ok(None);
         };
-        // No town is founded or set down on a chief's ground.
-        society.claims.push(Claim {
-            place: Place::Chief,
-            at,
-            radius: land.set.town.keep_apart * 0.5,
-        });
-        let mut rounds = land.held();
-        rounds.push((at, set.grounds));
-        rounds.sort_by(|a, b| {
-            a.0.x.total_cmp(&b.0.x).then(a.0.y.total_cmp(&b.0.y))
-        });
-        land.hold(&rounds);
-        // The door looks toward the first town.
-        let first = land
-            .sites
-            .iter()
-            .find(|site| site.buildable)
-            .map_or(Vec2::ZERO, |site| site.at);
-        let toward = (first - at).normalize_or(Vec2::Y);
-        let yaw = toward.x.atan2(toward.y);
-        let frame = Frame::at(land.on_ground(at))
-            .with_turn(Quat::from_rotation_y(yaw));
+        let (frame, yaw) = Self::claim(set, at, land, society);
 
         let light = look.light.colour(pal);
         let orb_look = draw.material(lit(light, set.orb_light))?;
@@ -225,9 +204,87 @@ impl Hearth {
         }))
     }
 
+    /// Claims the ground at `at` against the towns, holds it level,
+    /// and finds the frame of the place there and the way its door
+    /// faces.
+    fn claim(
+        set: &ChiefSettings,
+        at: Vec2,
+        land: &mut Land,
+        society: &mut Society,
+    ) -> (Frame, f32) {
+        // No town is founded or set down on a chief's ground.
+        society.claims.push(Claim {
+            place: Place::Chief,
+            at,
+            radius: land.set.town.keep_apart * 0.5,
+        });
+        let mut rounds = land.held();
+        rounds.push((at, set.grounds));
+        rounds.sort_by(|a, b| {
+            a.0.x.total_cmp(&b.0.x).then(a.0.y.total_cmp(&b.0.y))
+        });
+        land.hold(&rounds);
+        // The door looks toward the first town.
+        let first = land
+            .sites
+            .iter()
+            .find(|site| site.buildable)
+            .map_or(Vec2::ZERO, |site| site.at);
+        let toward = (first - at).normalize_or(Vec2::Y);
+        let yaw = toward.x.atan2(toward.y);
+        let frame = Frame::at(land.on_ground(at))
+            .with_turn(Quat::from_rotation_y(yaw));
+        (frame, yaw)
+    }
+
+    /// Takes the place up and stands it on `at`, where the chief set
+    /// it down, with the mascot on its waystone.
+    pub fn move_to(
+        &mut self,
+        pal: &Palette,
+        at: Vec2,
+        land: &mut Land,
+        society: &mut Society,
+        draw: &mut Draw,
+    ) {
+        let before = self.frame.at.xz();
+        society.claims.retain(|claim| claim.place != Place::Chief);
+        let rounds = land
+            .held()
+            .into_iter()
+            .filter(|&round| round != (before, self.set.grounds))
+            .collect::<Vec<_>>();
+        land.hold(&rounds);
+        let (frame, yaw) = Self::claim(&self.set, at, land, society);
+        self.frame = frame;
+        draw.place(self.place, frame);
+        let stone = place::spots(&self.set)[0].at;
+        let stone =
+            frame.point(Vec3::new(stone.x, 0.0, stone.y)).xz();
+        self.mascot = Mascot::new(
+            land.on_ground(stone),
+            yaw,
+            0.0,
+            self.set.linger.0,
+        );
+        self.stood = None;
+        // The meshes that follow the ground are built again where it
+        // lies, unless the place has yet to be built.
+        if self.built > 0 {
+            let again = self.build_place(land, pal, draw);
+            self.pending.extend(again);
+        }
+    }
+
     /// Where the mascot stands.
     pub fn mascot(&self) -> Vec3 {
         self.mascot.at
+    }
+
+    /// The ground the place stands on.
+    pub fn at(&self) -> Vec2 {
+        self.frame.at.xz()
     }
 
     /// The middle of the house.

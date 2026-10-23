@@ -2,10 +2,15 @@
 //! realm draws: every hamlet takes its town, every agent its plot and
 //! every road its place, and what changes in the roster changes them.
 
+#[cfg(test)]
+mod tests;
+
 use std::collections::{HashMap, HashSet};
 
 use glam::Vec2;
-use hamlet_engine_bevy::api::agents::{RoadUse, Roster, RosterAgent};
+use hamlet_engine_bevy::api::agents::{
+    Budget, RoadUse, Roster, RosterAgent,
+};
 use hamlet_engine_bevy::prelude::*;
 
 use crate::folk::keeper::KState;
@@ -48,6 +53,29 @@ pub struct Bridge {
     names: HashMap<AgentId, (String, String)>,
     /// The name each hamlet's chief gave it, by its name on disk.
     titles: HashMap<String, String>,
+    /// The mode each hamlet works on its folder in, by its name on
+    /// disk; none while it works on no folder.
+    modes: HashMap<String, Option<Mode>>,
+    /// Each hamlet's budget, by its name on disk.
+    budgets: HashMap<String, Budget>,
+}
+
+/// The way a hamlet's agents work on its folder.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Mode {
+    /// They ask the chief before each edit and command.
+    Manual,
+    Auto,
+}
+
+impl Mode {
+    /// The name of the mode in the chief's `/mode` command.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Manual => "manual",
+            Self::Auto => "auto",
+        }
+    }
 }
 
 /// The bridge's methods on [`RosterAgent`].
@@ -113,9 +141,25 @@ impl Bridge {
         self.titles.get(hamlet).map(String::as_str)
     }
 
+    /// The agent of the society the agent `who` is drawn as.
+    pub fn drawn(&self, who: &Who) -> Option<AgentId> {
+        self.housed.get(who).copied()
+    }
+
     /// The town of the hamlet `hamlet`.
     pub fn town(&self, hamlet: &str) -> Option<TownId> {
         self.towns.get(hamlet).copied()
+    }
+
+    /// The budget of the hamlet whose town is `town`.
+    pub fn budget(&self, town: TownId) -> Option<&Budget> {
+        self.budgets.get(self.hamlet(town)?)
+    }
+
+    /// The mode the hamlet whose town is `town` works in; none while
+    /// it works on no folder.
+    pub fn mode(&self, town: TownId) -> Option<Mode> {
+        self.modes.get(self.hamlet(town)?).copied().flatten()
     }
 
     /// Brings the society in line with `roster`, and says what befell
@@ -131,6 +175,25 @@ impl Bridge {
             .hamlets
             .iter()
             .map(|hamlet| (hamlet.id.clone(), hamlet.title.clone()))
+            .collect();
+        self.budgets = roster
+            .hamlets
+            .iter()
+            .map(|hamlet| (hamlet.id.clone(), hamlet.budget.clone()))
+            .collect();
+        self.modes = roster
+            .hamlets
+            .iter()
+            .map(|hamlet| {
+                let mode = hamlet.folder.as_ref().map(|_| {
+                    if hamlet.manual {
+                        Mode::Manual
+                    } else {
+                        Mode::Auto
+                    }
+                });
+                (hamlet.id.clone(), mode)
+            })
             .collect();
         self.close(roster, society);
         self.move_out(roster, society);
@@ -195,7 +258,11 @@ impl Bridge {
         land: &mut Land,
         society: &mut Society,
     ) {
-        for hamlet in &roster.hamlets {
+        // In the order the realm's record founded them, so that each
+        // takes the site it took before.
+        let mut hamlets = roster.hamlets.iter().collect::<Vec<_>>();
+        hamlets.sort_by_key(|hamlet| hamlet.founded);
+        for hamlet in hamlets {
             if self.towns.contains_key(&hamlet.id) {
                 continue;
             }
@@ -247,18 +314,21 @@ impl Bridge {
         }
     }
 
-    /// The host of a merged agent: the living agent of its hamlet it
-    /// was merged into, if the realm has housed it.
+    /// The host of a merged agent, if the realm has housed it: the
+    /// agent it was merged into, the one of that name that lived as
+    /// it left, wherever it is now.
     fn host(
         &self,
         roster: &Roster,
         gone: &RosterAgent,
     ) -> Option<AgentId> {
         let into = gone.merged_into.as_ref()?;
+        let left = gone.until.unwrap_or(u64::MAX);
         let host = roster.agents.iter().find(|agent| {
             &agent.name == into
-                && agent.hamlet == gone.hamlet
-                && !agent.gone
+                && agent.who() != gone.who()
+                && agent.since <= left
+                && agent.until.is_none_or(|until| until >= left)
         })?;
         self.housed.get(&host.who()).copied()
     }

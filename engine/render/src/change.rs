@@ -1,16 +1,21 @@
 //! A change to a scene, as its owner made it, by the number the
 //! owner's host gave each thing in it.
 
+use bevy::anti_alias::smaa::Smaa;
 use bevy::camera::{ClearColorConfig, Exposure, Projection};
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::light::{
-    AmbientLight, DirectionalLight, PointLight, SpotLight,
+    AmbientLight, DirectionalLight, FogVolume, PointLight, SpotLight,
+    VolumetricFog,
 };
 use bevy::material::AlphaMode;
 use bevy::mesh::Mesh;
-use bevy::pbr::{DistanceFog, StandardMaterial};
+use bevy::pbr::{
+    DistanceFog, ScreenSpaceAmbientOcclusion, StandardMaterial,
+};
 use bevy::post_process::bloom::Bloom;
-use bevy::render::view::Msaa;
+use bevy::post_process::dof::DepthOfField;
+use bevy::render::view::{ColorGrading, Msaa};
 use bevy::transform::components::Transform;
 
 use crate::balloon::Balloon;
@@ -57,6 +62,18 @@ pub enum SceneChange {
         cast: bool,
         receive: bool,
     },
+    /// Whether the directional light of `id` lights fog volumes.
+    Volumetric {
+        id: u32,
+        on: bool,
+    },
+    FogVolume {
+        id: u32,
+        volume: Option<FogVolume>,
+    },
+    /// The side of a directional light's shadow map the owner asks
+    /// for.
+    ShadowMap(usize),
     Label {
         id: u32,
         label: Option<WorldLabel>,
@@ -113,6 +130,10 @@ pub enum SceneChange {
     Setup {
         id: u32,
         setup: CameraSetup,
+    },
+    Effects {
+        id: u32,
+        effects: CameraEffects,
     },
     /// A shader that passed its check.
     Shader {
@@ -201,4 +222,15 @@ pub struct CameraSetup {
     pub bloom: Option<Bloom>,
     pub ambient: AmbientLight,
     pub msaa: Msaa,
+}
+
+/// What a camera draws over its image, each off when none.
+#[derive(Clone, Default)]
+pub struct CameraEffects {
+    pub depth_of_field: Option<DepthOfField>,
+    pub color_grading: ColorGrading,
+    pub occlusion: Option<ScreenSpaceAmbientOcclusion>,
+    pub smaa: Option<Smaa>,
+    pub atmosphere: bool,
+    pub volumetric_fog: Option<VolumetricFog>,
 }

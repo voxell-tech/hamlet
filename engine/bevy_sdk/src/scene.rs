@@ -20,6 +20,8 @@
 //! }
 //! ```
 
+mod effects;
+
 use core::marker::PhantomData;
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
@@ -52,13 +54,20 @@ pub use crate::bindings::hamlet::engine::scene::{
     PointLight, Projection, Rgba, Shape, SpotLight, Target,
     Tonemapping,
 };
+pub use crate::scene::effects::{
+    AtmosphereSettings, ColorGrading, ColorGradingGlobal,
+    DepthOfField, DepthOfFieldMode, DirectionalLightShadowMap,
+    FogVolume, Quality, ScreenSpaceAmbientOcclusion, Smaa,
+    VolumetricFog, VolumetricLight,
+};
 use crate::ui::{AnyView, Cx, Key, Ui, column};
 
 /// Keys made from entities, apart from those a [`SceneKey`] gives.
 const MADE_KEYS: u32 = 1 << 31;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<SceneAssets>()
+    app.add_plugins(effects::plugin)
+        .init_resource::<SceneAssets>()
         .init_resource::<SceneKeys>()
         .init_resource::<Viewports>()
         .init_resource::<Animate>()
@@ -361,6 +370,7 @@ impl Pbr {
             emissive: (0.0, 0.0, 0.0, 1.0),
             roughness: 0.5,
             metallic: 0.0,
+            reflectance: 0.5,
             alpha_mode: AlphaMode::Opaque,
             alpha_cutoff: 0.5,
             unlit: false,

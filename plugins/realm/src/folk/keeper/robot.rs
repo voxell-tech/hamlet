@@ -19,6 +19,7 @@ use crate::folk::keeper::trip::{Stride, Trip};
 use crate::folk::keeper::work::{Chore, routine};
 use crate::folk::keeper::{KState, Motion};
 use crate::folk::sounds::{FolkCue, FolkSound};
+use crate::places::road::{RoadSettings, Walking};
 use crate::places::yard::Station;
 use crate::society::AgentId;
 use crate::world::land::Land;
@@ -105,6 +106,11 @@ impl Passage {
             begun: false,
             held: false,
         }
+    }
+
+    /// True when the robot is gone once it has played.
+    pub fn vanishes(&self) -> bool {
+        self.act.vanishes()
     }
 
     /// `act`, kept up from clock time `from` until the passage is
@@ -401,6 +407,33 @@ impl Robot {
             vec![to.0]
         };
         Job::new(want, began, way, to, motion)
+    }
+
+    /// Has the robot carry its message on the road, where `walking`
+    /// puts it, at clock time `now`.
+    pub fn walk_road(
+        &mut self,
+        walking: &Walking,
+        set: &RoadSettings,
+        now: f32,
+    ) {
+        let mut at = walking.at;
+        // In a cart it stands on the bed.
+        if walking.rides {
+            at.at += Vec3::Y * set.cart_bed;
+        }
+        self.rig.place(at);
+        if self.rig.act() != Act::Carry {
+            self.rig.take_up(Act::Carry, now, Some(now));
+        }
+        // On foot it covers the road at a pace it rolls at; in a
+        // cart it stands.
+        self.rig.stride((!walking.rides).then_some(Stride {
+            gone: walking.gone,
+            pace: 1.0,
+            speed: set.walk_speed,
+        }));
+        self.put_down(None);
     }
 
     /// Has the robot do its chore about its house a frame `dt`

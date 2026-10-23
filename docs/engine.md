@@ -1977,8 +1977,9 @@ none of them imports none of them.
   shape of the engine's, or `mesh-data` of the plugin's: positions,
   normals made when left out, uvs, a colour at each vertex and the
   triangles, checked whole and uploaded once; `update` replaces it),
-  `material` (`pbr`: base colour, emissive, roughness, metallic, alpha
-  mode and cutoff, unlit, both faces, fog; a mesh's vertex colours
+  `material` (`pbr`: base colour, emissive, roughness, metallic,
+  reflectance, alpha mode and cutoff, unlit, both faces, fog; a mesh's
+  vertex colours
   tint it; or a decal's), `entity` (under a parent or the scene's
   root, with a key of the plugin's: its transform, visibility,
   parent, mesh and material or decal, light, shadows, words over it
@@ -1991,7 +1992,20 @@ none of them imports none of them.
   stays, counted against the GPU memory the person may set, until
   nothing uses it.
 - **Lights** are directional (with shadows), point and spot, each a
-  light of an entity; ambient light is a camera's.
+  light of an entity; ambient light is a camera's. The side of each
+  cascade of a directional light's shadow map is `shadow-map`, a power
+  of two up to the GPU's widest
+  texture. Bevy's map is one for the whole engine, so it is drawn at
+  the largest side any scene asks for, 2048 when none does
+  (`effects.rs`).
+- **Fog volumes** (`set-fog-volume`) are Bevy's: a box of haze one unit
+  each way about the entity, shown by a camera with volumetric fog
+  where a directional light with shadows and `set-volumetric` lights
+  it, as shafts. Bevy shows every fog volume to every camera with
+  volumetric fog, whatever its layer, so one plugin's fog volumes and
+  volumetric fog are drawn at a time: the first to ask holds them
+  until it has neither, and another's are left out, the log saying
+  so.
 - **Decals** are Bevy's forward decals (`decal.rs`): `draw-decal`
   lays a material made by `material.decal` (one colour) or
   `gpu.decal-material` (its colour times a texture's) on what lies
@@ -2009,6 +2023,21 @@ none of them imports none of them.
   what it clears to, high range, tonemapping, exposure, distance fog,
   bloom, ambient light and samples a pixel (MSAA), lowered to the most
   the GPU has for a camera's images where it asks more.
+- **A camera's effects** (`set-effects`) are Bevy's own, each off when
+  none: depth of field (Gaussian or bokeh), colour grading (exposure,
+  temperature, tint, hue, saturation), screen-space ambient occlusion
+  and SMAA (either draws without MSAA; occlusion adds the depth and
+  normal prepasses), the scattering sky of an earth-like world
+  (`atmosphere`, drawn in high range; the engine makes one sky for all
+  scenes once a camera asks for it and keeps it, as Bevy's renderer
+  fails if its medium goes mid-frame) and volumetric fog. Depth of
+  field reads the camera's own depth, so a pass needs none. In the
+  SDK these are components named and shaped as Bevy's
+  (`scene/effects.rs`): `DepthOfField`, `ColorGrading`,
+  `ScreenSpaceAmbientOcclusion`, `Smaa`, `AtmosphereSettings` and
+  `VolumetricFog` on the camera's entity, `VolumetricLight` on a
+  light's, `FogVolume` on an entity of its own, and the resource
+  `DirectionalLightShadowMap`.
 - **One scene a camera.** Each scene is on a render layer of its own
   and its cameras see that layer alone, so a camera shows its own
   scene and nothing else.
@@ -2093,7 +2122,9 @@ none of them imports none of them.
   declares no bindings, no entry point but a compute shader's `main`
   and no `override`; naga parses and validates the whole, and a
   refusal names the line of the source. A material gives
-  `fn shade(surface: Surface) -> vec4<f32>` and may give
+  `fn shade(surface: Surface) -> vec4<f32>`, or `-> Shading` (colour,
+  emissive, metallic, roughness and reflectance, for a lit material's
+  sheen), and may give
   `fn displace(vertex: Vertex) -> vec3<f32>`; a decal
   `fn shade(decal: Decal) -> vec4<f32>`; a pass
   `fn post(drawn: Pass) -> vec4<f32>` (`drawn`, as WGSL reserves
@@ -2113,8 +2144,13 @@ none of them imports none of them.
 - **Materials** (`gpu.shaded-material`) are Bevy's `Material` with the
   plugin's shader in place of its own, lit by the scene's lights
   through Bevy's PBR functions or shown as `shade` gives, fogged and
-  tonemapped as Bevy's own; `set-params` changes their params. Their
-  vertices may move, so they have no prepass and cast no shadows.
+  tonemapped as Bevy's own; `set-params` changes their params. They
+  are in the prepasses and cast shadows as a standard material does
+  (an entity's `set-shadows` turns it off): the plugin's shader is
+  wrapped for Bevy's prepass too, running the same `displace` with the
+  prepass's time and the mesh's normals, so a shadow moves with what
+  casts it, and cutting a masked material under half its alpha, and a
+  blended one under 0.05, as `shade` gives it.
 - **Compute** (`gpu.compute`) runs over the plugin's buffers
   (`gpu.buffer`, of 16-byte items; a write uploads the whole buffer as
   the plugin last wrote it), once or every frame, before the cameras

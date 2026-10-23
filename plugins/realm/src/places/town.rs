@@ -7,27 +7,36 @@
 
 mod build;
 mod common;
+mod flag;
 mod kit;
 mod lights;
+mod meter;
+mod works;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use glam::{Quat, Vec2, Vec3};
 use hamlet_engine_bevy::prelude::*;
-use hamlet_engine_bevy::scene::Mesh;
+use hamlet_engine_bevy::scene::{Mesh, SceneClick};
 
+use crate::bridge::Bridge;
 use crate::build::frame::Frame;
 use crate::build::mesh::Mb;
 use crate::build::upload::{Draw, Unsent};
 use crate::folk::keeper::{KState, Robot, Robots};
+use crate::fx::magic::Shifted;
 use crate::places::house::{self, TownStyle};
 use crate::places::shift::{Part, Shift, Way};
-use crate::places::town::build::{Built, FlagSettings, Recipe};
+use crate::places::town::build::{Built, Recipe};
+use crate::places::town::flag::Flags;
 use crate::places::town::kit::{Kit, Part as KitPart};
-use crate::places::town::lights::Lamps;
+use crate::places::town::lights::{Glow, Lamps};
+use crate::places::town::meter::{Meter, Meters};
+use crate::places::town::works::{Bench, Benches};
 use crate::places::yard::Yard;
 use crate::realm::{Ctx, Shared};
 use crate::society::{Agent, AgentId, Society, Town, TownId};
+use crate::sound::{Cue, Sound};
 use crate::view::pick::Thing;
 use crate::world::land::{Land, LandData};
 use crate::world::layout::{HALL_PLOT, plot};
@@ -89,6 +98,8 @@ struct House {
     /// Its door lantern, with the state it shows and where it hangs
     /// in the realm.
     lamp: Option<(Entity, KState, Vec3)>,
+    /// Its banner, with where it hangs in the house's frame.
+    banner: Option<(Entity, Vec3)>,
     props: Vec<Prop>,
     yard: Yard,
     engine: Option<Engine>,
@@ -112,6 +123,10 @@ struct TownDrawn {
     /// Its mesh once it is drawn; none for one the engine refused.
     common_mesh: Option<Option<Handle<Mesh>>>,
     lamp: Entity,
+    bench: Bench,
+    /// Its budget meter, and the light it throws.
+    meter: Meter,
+    meter_glow: Option<Glow>,
     /// The whole as one mesh, shown far, and its window panes.
     far: Entity,
     far_panes: Entity,
@@ -125,7 +140,9 @@ struct TownDrawn {
 pub struct Towns {
     kit: Kit,
     lamps: Lamps,
-    flag: FlagSettings,
+    flags: Flags,
+    benches: Benches,
+    meters: Meters,
     towns: HashMap<TownId, TownDrawn>,
     houses: HashMap<AgentId, House>,
     /// The house each house being built replaces, drawn until the
@@ -141,6 +158,10 @@ pub struct Towns {
     /// The society's shape and the land's places when last brought
     /// in line.
     shape: Option<(u64, u64)>,
+    /// The sounds of the houses whose part began this frame.
+    cues: Vec<Cue>,
+    /// The parts that began this frame, for the magic.
+    shifts: Vec<Shifted>,
 }
 
 impl Towns {
@@ -152,7 +173,9 @@ impl Towns {
         Ok(Self {
             kit: Kit::new(),
             lamps: Lamps::make(pal, draw)?,
-            flag: FlagSettings::read()?,
+            flags: Flags::make(draw)?,
+            benches: Benches::make(pal, draw)?,
+            meters: Meters::make(pal, draw)?,
             towns: HashMap::new(),
             houses: HashMap::new(),
             replaced: HashMap::new(),
@@ -160,15 +183,20 @@ impl Towns {
             jobs: VecDeque::new(),
             stale: HashSet::new(),
             shape: None,
+            cues: Vec::new(),
+            shifts: Vec::new(),
         })
     }
 
-    /// Brings what is drawn in line with the society, while the call
-    /// has room.
+    /// Brings what is drawn in line with the society and with how
+    /// each hamlet works, while the call has room. `taking_leave`
+    /// says whether an agent's robot is taking its leave.
     pub fn update(
         &mut self,
         ctx: &Ctx,
         robots: &Robots,
+        bridge: &Bridge,
+        taking_leave: impl Fn(AgentId) -> bool,
         draw: &mut Draw,
     ) {
         self.lamps.light(ctx.pal, ctx.sky, ctx.clock, draw);
@@ -183,11 +211,30 @@ impl Towns {
         self.build(ctx, draw);
         self.far(ctx, draw);
         self.commons(ctx, draw);
-        self.shift(ctx, draw);
+        self.shift(ctx, &taking_leave, draw);
         self.detail(ctx, draw);
         self.states(ctx, draw);
         self.engines(robots, draw);
+        self.benches(ctx, bridge, draw);
+        self.wave(ctx, draw);
         self.spill(ctx, draw);
+    }
+
+    /// Turns each banner down the wind, whichever way its house
+    /// faces.
+    fn wave(&mut self, ctx: &Ctx, draw: &mut Draw) {
+        let blown = self.flags.downwind(ctx.clock);
+        let houses = self
+            .houses
+            .values()
+            .chain(self.replaced.values())
+            .chain(&self.leaving);
+        for house in houses {
+            if let Some((banner, at)) = house.banner {
+                let turn = house.frame.turn.inverse() * blown;
+                draw.place(banner, Frame::at(at).with_turn(turn));
+            }
+        }
     }
 
     /// Takes out what the society no longer holds, and draws what is
@@ -282,8 +329,14 @@ impl Towns {
                 }
                 continue;
             }
-            self.towns
-                .insert(town.id, TownDrawn::make(ctx, town, draw));
+            let group = TownDrawn::make(
+                ctx,
+                town,
+                (&self.benches, &self.meters),
+                &self.kit,
+                draw,
+            );
+            self.towns.insert(town.id, group);
             self.stale.insert(town.id);
             founded.insert(town.id);
         }
@@ -376,6 +429,7 @@ impl Towns {
             built: None,
             drawn: false,
             lamp: None,
+            banner: None,
             props: Vec::new(),
             yard,
             engine: None,
@@ -489,7 +543,7 @@ impl Towns {
             };
             let recipe = house.recipe;
             let built = house.built.get_or_insert_with(|| {
-                Built::of(ctx.land, &self.flag, recipe)
+                Built::of(ctx.land, &self.flags.set, recipe)
             });
             if !built.hand(draw) {
                 break;
@@ -504,6 +558,7 @@ impl Towns {
                 ctx,
                 &self.kit,
                 &self.lamps,
+                &self.flags,
                 state,
                 old.is_some(),
                 draw,
@@ -590,18 +645,57 @@ impl Towns {
     }
 
     /// Plays every house that is coming in or going out.
-    fn shift(&mut self, ctx: &Ctx, draw: &mut Draw) {
+    fn shift(
+        &mut self,
+        ctx: &Ctx,
+        taking_leave: &impl Fn(AgentId) -> bool,
+        draw: &mut Draw,
+    ) {
         let (set, now) = (&ctx.tuning.house_motion, ctx.clock);
+        let mut begun = Vec::new();
         for house in self.houses.values_mut() {
-            house.play(set, now, draw);
+            let leaves = taking_leave(house.agent);
+            house.play(set, now, leaves, &mut begun, draw);
         }
         self.leaving.retain_mut(|house| {
-            let playing = house.play(set, now, draw);
+            let leaves = taking_leave(house.agent);
+            let playing =
+                house.play(set, now, leaves, &mut begun, draw);
             if !playing {
                 draw.despawn(house.entity);
             }
             playing
         });
+        // A house that rises is heard standing up, and one that falls
+        // shuddering, or its motes setting out for the house it was
+        // merged into.
+        for (agent, part, began, from) in begun {
+            self.shifts.push(Shifted {
+                agent,
+                part,
+                began,
+                from,
+            });
+            let at = from.at;
+            let sound = match part {
+                Part::Rise => Sound::HouseRise,
+                Part::Fall
+                    if ctx
+                        .society
+                        .agent(agent)
+                        .is_some_and(|gone| gone.into.is_some()) =>
+                {
+                    Sound::MergeAway
+                }
+                Part::Fall => Sound::HouseShudder,
+                Part::Clear | Part::Rest => continue,
+            };
+            self.cues.push(Cue {
+                sound,
+                at,
+                turn: agent.0,
+            });
+        }
     }
 
     /// Shows each town's houses near the camera and its far mesh past
@@ -683,46 +777,79 @@ impl Towns {
         }
     }
 
-    /// Has the lanterns nearest the camera throw light after dark.
+    /// Has every lantern of a town shown near throw light after dark,
+    /// the nearest the camera first while there are lights to give.
     fn spill(&mut self, ctx: &Ctx, draw: &mut Draw) {
-        let set = &ctx.tuning.sky;
-        let lumens = set.door_lumens * ctx.sky.look.candle;
-        let mut lit = self
+        let (set, land) = (&ctx.tuning.sky, ctx.land);
+        let candle = ctx.sky.look.candle;
+        let lumens = set.door_lumens * candle;
+        let door = |at, state| {
+            Glow::lantern(at, state, lumens, set.door_reach)
+        };
+        let towns = &self.towns;
+        let doors = self
             .houses
             .values()
-            .filter(|house| house.seen)
-            .filter_map(|house| {
-                house
-                    .lamp
-                    .as_ref()
-                    .map(|(_, state, at)| (*at, *state))
+            .filter(|house| {
+                house.seen
+                    && towns.get(&house.town).is_some_and(|group| {
+                        group.near_shown == Some(true)
+                    })
             })
-            .chain(
-                self.towns
-                    .values()
-                    .filter(|g| g.near_shown == Some(true))
-                    .map(|group| {
-                        (
-                            ctx.land
-                                .common_frame(group.site)
-                                .point(ctx.land.set.town.lamp),
-                            KState::Rest,
-                        )
-                    }),
-            )
-            .filter(|(_, state)| *state != KState::Failed)
-            .collect::<Vec<_>>();
-        let eye = ctx.eye;
-        lit.sort_by(|a, b| {
-            a.0.distance_squared(eye)
-                .total_cmp(&b.0.distance_squared(eye))
-        });
-        self.lamps.spill(&lit, lumens, set.door_reach, draw);
+            .filter_map(|house| house.lamp.as_ref())
+            .filter(|(_, state, _)| *state != KState::Failed)
+            .map(|(_, state, at)| door(*at, *state));
+        let mut commons = Vec::new();
+        for group in
+            towns.values().filter(|g| g.near_shown == Some(true))
+        {
+            let frame = land.common_frame(group.site);
+            commons.push(door(
+                frame.point(land.set.town.lamp),
+                KState::Rest,
+            ));
+            commons.extend(group.meter_glow);
+            commons.extend(self.benches.glow(
+                &group.bench,
+                &frame,
+                candle,
+            ));
+        }
+        let lit = doors.chain(commons).collect();
+        self.lamps.spill(lit, ctx.eye, draw);
+    }
+
+    /// Keeps each common's workbench as its hamlet works now, and its
+    /// meter showing its budget.
+    fn benches(
+        &mut self,
+        ctx: &Ctx,
+        bridge: &Bridge,
+        draw: &mut Draw,
+    ) {
+        let dt = self.benches.tick(ctx.clock);
+        for group in self.towns.values_mut() {
+            self.benches.show(&mut group.bench, bridge, dt, draw);
+            let frame = ctx.land.common_frame(group.site);
+            group.meter_glow = self.meters.show(
+                &mut group.meter,
+                ctx,
+                bridge,
+                &frame,
+                draw,
+            );
+        }
     }
 }
 
 impl TownDrawn {
-    fn make(ctx: &Ctx, town: &Town, draw: &mut Draw) -> Self {
+    fn make(
+        ctx: &Ctx,
+        town: &Town,
+        (benches, meters): (&Benches, &Meters),
+        kit: &Kit,
+        draw: &mut Draw,
+    ) -> Self {
         let near = draw.spawn(None, PLAIN);
         draw.show(near, false);
         // From far, the whole town answers as its common.
@@ -738,13 +865,20 @@ impl TownDrawn {
         let lamp = draw.spawn(Some(common), PLAIN);
         draw.place(lamp, Frame::at(ctx.land.set.town.lamp));
         draw.shadows(lamp, false, true);
+        let bench = benches
+            .bench(ctx.land, kit, ctx.stock, town.id, common, draw);
+        let meter = meters
+            .meter(ctx.land, kit, ctx.stock, town.id, common, draw);
         Self {
+            meter,
+            meter_glow: None,
             site: town.site,
             at: ctx.land.sites[town.site].at,
             near,
             common,
             common_mesh: None,
             lamp,
+            bench,
             far,
             far_panes,
             near_shown: None,
@@ -762,6 +896,7 @@ impl House {
         ctx: &Ctx,
         kit: &Kit,
         lamps: &Lamps,
+        flags: &Flags,
         state: KState,
         replaces: bool,
         draw: &mut Draw,
@@ -769,6 +904,28 @@ impl House {
         let Some(built) = &self.built else {
             return;
         };
+        if let Some((cloth, at)) = &built.banner
+            && let Some(mesh) = cloth.mesh()
+        {
+            match flags.material(
+                house::BANNER.x,
+                self.frame.point(*at),
+                draw,
+            ) {
+                Ok(material) => {
+                    let entity = draw.spawn(Some(self.entity), PLAIN);
+                    draw.place(entity, Frame::at(*at));
+                    draw.draw(entity, mesh, &material);
+                    draw.shadows(entity, false, true);
+                    self.banner = Some((entity, *at));
+                }
+                Err(why) => {
+                    hamlet_engine_bevy::warn(&format!(
+                        "a banner: {why}"
+                    ));
+                }
+            }
+        }
         if let Some(body) = built.body.mesh() {
             draw.draw(self.entity, body, &ctx.stock.matte);
             // An archived house answers only as a ruin.
@@ -811,10 +968,14 @@ impl House {
 
     /// Plays its part a frame further, at clock time `now`. False
     /// once it is over and it goes.
+    /// `taking_leave` is true while its agent's robot takes its
+    /// leave.
     fn play(
         &mut self,
         set: &crate::places::shift::HouseMotion,
         now: f32,
+        taking_leave: bool,
+        begun: &mut Vec<(AgentId, Part, f32, Frame)>,
         draw: &mut Draw,
     ) -> bool {
         let Some(shift) = &mut self.shift else {
@@ -824,8 +985,15 @@ impl House {
         let (since, from) = match shift.began {
             Some(began) => began,
             None => {
+                // A house stands until its robot has taken its leave.
+                if taking_leave
+                    && matches!(part, Part::Fall | Part::Rest)
+                {
+                    return true;
+                }
                 let began = (now + shift.wait, self.frame);
                 shift.began = Some(began);
+                begun.push((self.agent, part, began.0, self.frame));
                 began
             }
         };
@@ -930,13 +1098,38 @@ fn far_mesh(
     (mb, panes)
 }
 
-/// Brings the towns drawn in line with the society.
+/// Brings the towns drawn in line with the society, and switches the
+/// mode of a hamlet whose clockwork is clicked.
 pub fn build_towns(
     mut towns: ResMut<Towns>,
     robots: Res<Robots>,
     shared: Shared,
+    bridge: Res<Bridge>,
+    mut clicks: MessageReader<SceneClick>,
+    keys: Query<&SceneKey>,
+    mut cues: MessageWriter<Cue>,
+    mut shifted: MessageWriter<Shifted>,
     mut draw: Draw,
 ) {
+    for click in clicks.read() {
+        if let Ok(key) = keys.get(click.0.entity)
+            && works::switch(key.0, &bridge, &mut draw.commands)
+        {
+            cues.write(Cue {
+                sound: Sound::Clockwork,
+                at: click.0.point,
+                turn: key.0,
+            });
+        }
+    }
     let floor = shared.floor();
-    towns.update(&shared.ctx(&floor), &robots, &mut draw);
+    towns.update(
+        &shared.ctx(&floor),
+        &robots,
+        &bridge,
+        |agent| robots.taking_leave(agent),
+        &mut draw,
+    );
+    cues.write_batch(towns.cues.drain(..));
+    shifted.write_batch(towns.shifts.drain(..));
 }

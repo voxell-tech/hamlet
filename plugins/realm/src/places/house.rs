@@ -639,7 +639,7 @@ fn garden(
 pub(crate) const BANNER: Vec2 = Vec2::new(0.95, 0.55);
 
 /// The mast that marks the leader's house. Returns where its banner
-/// hangs from. The cloth itself waves, and is `hamlet_vfx`'s.
+/// hangs from. The cloth is a mesh of its own, which waves.
 fn mast(mb: &mut Mb, foot: Vec3, pal: &Palette) -> Vec3 {
     let top = foot + Vec3::Y * 1.9;
     mb.tube(foot, top, 0.035, 0.025, 6, pal.timber_dark, true);

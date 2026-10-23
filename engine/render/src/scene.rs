@@ -24,8 +24,8 @@ use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::{EntityWorldMut, World};
 use bevy::image::Image;
 use bevy::light::{
-    DirectionalLight, NotShadowCaster, NotShadowReceiver, PointLight,
-    SpotLight,
+    DirectionalLight, FogVolume, NotShadowCaster, NotShadowReceiver,
+    PointLight, SpotLight, VolumetricLight,
 };
 use bevy::math::primitives::Cuboid;
 use bevy::mesh::{Mesh, Mesh3d, MeshTag};
@@ -47,6 +47,7 @@ use hamlet_engine_shell::Backdrop;
 use crate::change::{CameraSetup, SceneChange, SceneLight};
 use crate::compute::ComputeJob;
 use crate::decal::{DecalMaterial, DrawsDecals, ShadedDecal};
+use crate::effects::{CameraLook, FogHolder, ShadowMaps};
 use crate::guard::{GpuInfo, TimedSlots};
 use crate::label::{PointerLabel, WorldLabel};
 use crate::material::{self, ShadedMaterial};
@@ -790,8 +791,53 @@ impl Scene {
                     world.set_up(camera, setup);
                 }
             }
+            SceneChange::Effects { id, effects } => {
+                let fog = effects.volumetric_fog.is_some()
+                    && self.hold_fog(world);
+                let decals = !self.decals.is_empty();
+                if let Some(camera) = self.camera(id)
+                    && let Ok(mut camera) =
+                        world.get_entity_mut(camera)
+                {
+                    effects.put_on(&mut camera, decals, fog);
+                }
+            }
+            SceneChange::Volumetric { id, on } => {
+                if on {
+                    self.insert(world, id, VolumetricLight);
+                } else {
+                    self.remove::<VolumetricLight>(world, id);
+                }
+            }
+            SceneChange::FogVolume { id, volume } => {
+                match volume.filter(|_| self.hold_fog(world)) {
+                    Some(volume) => self.insert(world, id, volume),
+                    None => self.remove::<FogVolume>(world, id),
+                }
+            }
+            SceneChange::ShadowMap(size) => {
+                world
+                    .get_resource_or_init::<ShadowMaps>()
+                    .0
+                    .insert(root, size);
+            }
             SceneChange::Drop(id) => self.drop(world, id),
         }
+    }
+
+    /// Whether the owner holds the fog, taking it if no one does.
+    fn hold_fog(&self, world: &mut World) -> bool {
+        let held = world
+            .get_resource_or_init::<FogHolder>()
+            .take(self.owner);
+        if !held {
+            world.write_message(LogLine::warn(
+                "render",
+                "another plugin draws fog volumes, so this one's \
+                 are not drawn",
+            ));
+        }
+        held
     }
 
     fn layers(&self) -> RenderLayers {
@@ -1141,13 +1187,13 @@ impl SceneWorldExt for World {
             setup.tonemapping,
             setup.exposure,
             setup.ambient,
-            msaa,
         ));
-        if setup.hdr || background {
-            camera.insert(Hdr);
-        } else {
-            camera.remove::<Hdr>();
+        CameraLook {
+            msaa,
+            hdr: setup.hdr || background,
+            ..camera.get::<CameraLook>().copied().unwrap_or_default()
         }
+        .show(&mut camera);
         match setup.fog {
             Some(fog) => camera.insert(fog),
             None => camera.remove::<DistanceFog>(),

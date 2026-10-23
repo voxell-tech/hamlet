@@ -226,7 +226,12 @@ pub(crate) fn alpha(mode: AlphaMode, cutoff: f32) -> Blend {
 }
 
 pub(crate) fn pbr(pbr: Pbr) -> Option<StandardMaterial> {
-    if !finite(&[pbr.roughness, pbr.metallic, pbr.alpha_cutoff]) {
+    if !finite(&[
+        pbr.roughness,
+        pbr.metallic,
+        pbr.reflectance,
+        pbr.alpha_cutoff,
+    ]) {
         return None;
     }
     Some(StandardMaterial {
@@ -234,6 +239,7 @@ pub(crate) fn pbr(pbr: Pbr) -> Option<StandardMaterial> {
         emissive: color(pbr.emissive)?,
         perceptual_roughness: pbr.roughness.clamp(0.0, 1.0),
         metallic: pbr.metallic.clamp(0.0, 1.0),
+        reflectance: pbr.reflectance.clamp(0.0, 1.0),
         alpha_mode: alpha(pbr.alpha_mode, pbr.alpha_cutoff),
         unlit: pbr.unlit,
         double_sided: pbr.double_sided,

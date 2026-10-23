@@ -91,6 +91,14 @@ struct Vertex {
     tag: u32,
     time: f32,
 }
+
+struct Shading {
+    color: vec4<f32>,
+    emissive: vec3<f32>,
+    metallic: f32,
+    roughness: f32,
+    reflectance: f32,
+}
 ";
 
 const DECAL: &str = "
@@ -147,6 +155,10 @@ var<private> view_transformations: f32;
 var<private> pbr_types: f32;
 var<private> pbr_functions: f32;
 var<private> mesh_view_bindings: f32;
+var<private> prepass_io: f32;
+var<private> prepass_bindings: f32;
+var<private> hamlet_globals: f32;
+var<private> hamlet_globals_types: f32;
 ";
 
 const DECAL_IMPORTS: &str = "
@@ -163,14 +175,16 @@ var<private> fullscreen_vertex_shader: f32;
 ";
 
 /// The material's entry points in the stand-in, calling `displace`
-/// where the source has it.
-fn material_stand_in(displaces: bool) -> String {
+/// where the source has it, and taking the colour of a `shade` that
+/// gives a `Shading`.
+fn material_stand_in(displaces: bool, shading: bool) -> String {
     let moved = if displaces {
         "displace(Vertex(vec3<f32>(0.0), vec3<f32>(0.0, 1.0, 0.0), \
          vec2<f32>(0.0), index, 0.0))"
     } else {
         "vec3<f32>(0.0)"
     };
+    let color = if shading { ".color" } else { "" };
     format!(
         "
 @vertex
@@ -184,7 +198,7 @@ fn fragment(@builtin(position) at: vec4<f32>) -> @location(0) \
          vec4<f32> {{
     let seen = textureSample(picture, picture_sampler, at.xy);
     return shade(Surface(at.xyz, vec3<f32>(0.0, 1.0, 0.0), at.xy, \
-         seen + data[0] + params[0], 0u, 0.0));
+         seen + data[0] + params[0], 0u, 0.0)){color};
 }}
 "
     )
@@ -210,28 +224,66 @@ fn fragment(@builtin(position) at: vec4<f32>) -> @location(0) \
 }
 ";
 
-/// What Bevy is given for a material, around the source.
+/// What Bevy is given for a material, around the source. Its
+/// prepass and shadows run the same `displace`, with the time of the
+/// prepass's view.
 const MATERIAL_HEAD: &str = "
 #import bevy_pbr::mesh_functions
-#import bevy_pbr::forward_io
 #import bevy_pbr::view_transformations
+#import bevy_pbr::mesh_view_bindings
+#ifdef PREPASS_PIPELINE
+#import bevy_pbr::prepass_io
+#import bevy_render::globals as hamlet_globals_types
+@group(0) @binding(1) var<uniform> hamlet_globals: \
+                             hamlet_globals_types::Globals;
+#ifdef MOTION_VECTOR_PREPASS
+#import bevy_pbr::prepass_bindings
+#endif
+#else
+#import bevy_pbr::forward_io
 #import bevy_pbr::pbr_types
 #import bevy_pbr::pbr_functions
-#import bevy_pbr::mesh_view_bindings
+#endif
 ";
 
-fn material_tail(displaces: bool) -> String {
+/// The vertex shader of a material, of the module `io`, the time
+/// being `time`.
+fn material_vertex(io: &str, time: &str, displaces: bool) -> String {
     let moved = if displaces {
-        "local = local + displace(Vertex(local, normal, uv, tag, \
-         mesh_view_bindings::globals.time));"
+        format!(
+            "local = local + displace(Vertex(local, normal, uv, \
+             tag, {time}));"
+        )
     } else {
-        ""
+        String::new()
+    };
+    let normal = "out.world_normal = \
+                  mesh_functions::mesh_normal_local_to_world(normal, \
+                  input.instance_index);";
+    // A prepass has a normal out only for a normal prepass.
+    let (normal, extra) = if io == "prepass_io" {
+        (
+            format!(
+                "#ifdef NORMAL_PREPASS_OR_DEFERRED_PREPASS\n    \
+                 {normal}\n#endif"
+            ),
+            "
+#ifdef UNCLIPPED_DEPTH_ORTHO_EMULATION
+    out.unclipped_depth = out.position.z;
+    out.position.z = min(out.position.z, 1.0);
+#endif
+#ifdef MOTION_VECTOR_PREPASS
+    out.previous_world_position = mesh_functions::mesh_position_local_to_world(mesh_functions::get_previous_world_from_local(input.instance_index), vec4<f32>(local, 1.0));
+#endif",
+        )
+    } else {
+        (normal.to_owned(), "")
     };
     format!(
         "
 @vertex
-fn vertex(input: forward_io::Vertex) -> forward_io::VertexOutput {{
-    var out: forward_io::VertexOutput;
+fn vertex(input: {io}::Vertex) -> {io}::VertexOutput {{
+    var out: {io}::VertexOutput;
     let world_from_local = mesh_functions::get_world_from_local(input.instance_index);
     var local = input.position;
 #ifdef VERTEX_NORMALS
@@ -248,7 +300,7 @@ fn vertex(input: forward_io::Vertex) -> forward_io::VertexOutput {{
     {moved}
     out.world_position = mesh_functions::mesh_position_local_to_world(world_from_local, vec4<f32>(local, 1.0));
     out.position = view_transformations::position_world_to_clip(out.world_position.xyz);
-    out.world_normal = mesh_functions::mesh_normal_local_to_world(normal, input.instance_index);
+    {normal}
 #ifdef VERTEX_UVS_A
     out.uv = uv;
 #endif
@@ -257,16 +309,18 @@ fn vertex(input: forward_io::Vertex) -> forward_io::VertexOutput {{
 #endif
 #ifdef VERTEX_OUTPUT_INSTANCE_INDEX
     out.instance_index = input.instance_index;
-#endif
+#endif{extra}
     return out;
 }}
+"
+    )
+}
 
-@fragment
-fn fragment(input: forward_io::VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {{
-    var normal = normalize(input.world_normal);
-    if !front {{
-        normal = -normal;
-    }}
+/// The lines of a fragment shader that call `shade` as `shaded`, at
+/// `normal`, the time being `time`.
+fn material_shade(time: &str) -> String {
+    format!(
+        "
 #ifdef VERTEX_UVS_A
     let uv = input.uv;
 #else
@@ -278,23 +332,128 @@ fn fragment(input: forward_io::VertexOutput, @builtin(front_facing) front: bool)
     let color = vec4<f32>(1.0);
 #endif
     let tag = mesh_functions::get_tag(input.instance_index);
-    let shaded = shade(Surface(input.world_position.xyz, normal, uv, color, tag, mesh_view_bindings::globals.time));
+    let shaded = shade(Surface(input.world_position.xyz, normal, uv, \
+         color, tag, {time}));"
+    )
+}
+
+/// What Bevy is given after the source: the entry points of the main
+/// pass and of the prepass, for a `shade` that gives a colour or a
+/// `Shading`.
+fn material_tail(displaces: bool, shading: bool) -> String {
+    let main_time = "mesh_view_bindings::globals.time";
+    let prepass_time = "hamlet_globals.time";
+    let color = if shading { "shaded.color" } else { "shaded" };
+    let finish = if shading {
+        "
+    pbr.material.emissive = vec4<f32>(shaded.emissive, 1.0);
+    pbr.material.metallic = shaded.metallic;
+    pbr.material.perceptual_roughness = shaded.roughness;
+    pbr.material.reflectance = vec3<f32>(shaded.reflectance);"
+    } else {
+        ""
+    };
+    let unlit = if shading {
+        "vec4<f32>(shaded.color.rgb + shaded.emissive, \
+         shaded.color.a)"
+    } else {
+        "shaded"
+    };
+    let prepass_vertex =
+        material_vertex("prepass_io", prepass_time, displaces);
+    let main_vertex =
+        material_vertex("forward_io", main_time, displaces);
+    let prepass_shade = material_shade(prepass_time);
+    let main_shade = material_shade(main_time);
+    format!(
+        "
+#ifdef PREPASS_PIPELINE
+{prepass_vertex}
+#ifdef PREPASS_FRAGMENT
+@fragment
+fn fragment(input: prepass_io::VertexOutput, @builtin(front_facing) \
+         front: bool) -> prepass_io::FragmentOutput {{
+    var out: prepass_io::FragmentOutput;
+#else
+@fragment
+fn fragment(input: prepass_io::VertexOutput, @builtin(front_facing) \
+         front: bool) {{
+#endif
+#ifdef NORMAL_PREPASS_OR_DEFERRED_PREPASS
+    var normal = normalize(input.world_normal);
+    if !front {{
+        normal = -normal;
+    }}
+#else
+    let normal = vec3<f32>(0.0, 1.0, 0.0);
+#endif
+#ifdef MAY_DISCARD
+{prepass_shade}
+#ifdef HAMLET_MASK
+    if {color}.a < 0.5 {{
+        discard;
+    }}
+#else
+    if {color}.a < 0.05 {{
+        discard;
+    }}
+#endif
+#endif
+#ifdef PREPASS_FRAGMENT
+#ifdef NORMAL_PREPASS
+    out.normal = vec4<f32>(normal * 0.5 + vec3<f32>(0.5), 1.0);
+#endif
+#ifdef MOTION_VECTOR_PREPASS
+    let clip = mesh_view_bindings::view.unjittered_clip_from_world * \
+         input.world_position;
+    let previous = \
+         prepass_bindings::previous_view_uniforms.clip_from_world * \
+         input.previous_world_position;
+    out.motion_vector = (clip.xy / clip.w - previous.xy / \
+         previous.w) * vec2<f32>(0.5, -0.5);
+#endif
+#ifdef UNCLIPPED_DEPTH_ORTHO_EMULATION
+    out.frag_depth = input.unclipped_depth;
+#endif
+    return out;
+#endif
+}}
+#else
+{main_vertex}
+@fragment
+fn fragment(input: forward_io::VertexOutput, @builtin(front_facing) \
+         front: bool) -> @location(0) vec4<f32> {{
+    var normal = normalize(input.world_normal);
+    if !front {{
+        normal = -normal;
+    }}
+{main_shade}
+#ifdef HAMLET_MASK
+    if {color}.a < 0.5 {{
+        discard;
+    }}
+#endif
     var pbr = pbr_types::pbr_input_new();
-    pbr.material.base_color = shaded;
-    pbr.material.flags = pbr.material.flags | pbr_types::STANDARD_MATERIAL_FLAGS_FOG_ENABLED_BIT;
+    pbr.material.base_color = {color};{finish}
+    pbr.material.flags = pbr.material.flags | \
+         pbr_types::STANDARD_MATERIAL_FLAGS_FOG_ENABLED_BIT;
     pbr.frag_coord = input.position;
     pbr.world_position = input.world_position;
     pbr.world_normal = normal;
     pbr.N = normal;
-    pbr.is_orthographic = mesh_view_bindings::view.clip_from_view[3].w == 1.0;
-    pbr.V = pbr_functions::calculate_view(input.world_position, pbr.is_orthographic);
+    pbr.is_orthographic = \
+         mesh_view_bindings::view.clip_from_view[3].w == 1.0;
+    pbr.V = pbr_functions::calculate_view(input.world_position, \
+         pbr.is_orthographic);
 #ifdef HAMLET_LIT
     let lit = pbr_functions::apply_pbr_lighting(pbr);
 #else
-    let lit = shaded;
+    let lit = {unlit};
 #endif
-    return pbr_functions::main_pass_post_lighting_processing(pbr, lit);
+    return pbr_functions::main_pass_post_lighting_processing(pbr, \
+         lit);
 }}
+#endif
 "
     )
 }
@@ -358,6 +517,10 @@ fn fragment(input: forward_io::VertexOutput) -> @location(0) vec4<f32> {
 /// The shader def a lit material's shader is specialized with.
 pub const LIT: &str = "HAMLET_LIT";
 
+/// The shader def of a material that masks: cut where its alpha is
+/// under a half.
+pub const MASK: &str = "HAMLET_MASK";
+
 /// The shader def of a decal that adds its light to what is there.
 pub const ADD: &str = "HAMLET_ADD";
 
@@ -391,11 +554,13 @@ pub fn check(
     let at = Lines { before, lines };
     let first = at.parse(&format!("{head}{source}\n"))?;
     let displaces = has(&first, "displace");
+    let shading =
+        kind == ShaderKind::Material && gives_shading(&first);
     // Before the stand-in calls them, so a function of the wrong
     // shape is named rather than failing where it is called.
-    own(&first, kind, displaces, rules)?;
+    own(&first, kind, displaces, shading, rules)?;
     let stand_in = match kind {
-        ShaderKind::Material => material_stand_in(displaces),
+        ShaderKind::Material => material_stand_in(displaces, shading),
         ShaderKind::Pass => PASS_STAND_IN.to_owned(),
         ShaderKind::Compute => String::new(),
         ShaderKind::Decal => DECAL_STAND_IN.to_owned(),
@@ -426,7 +591,7 @@ pub fn check(
     let wgsl = match kind {
         ShaderKind::Material => format!(
             "{MATERIAL_HEAD}{MATERIAL}{group}\n{source}\n{}",
-            material_tail(displaces)
+            material_tail(displaces, shading)
         ),
         ShaderKind::Pass => {
             format!("{PASS_HEAD}{PASS}\n{source}\n{PASS_TAIL}")
@@ -489,6 +654,17 @@ fn has(module: &Module, name: &str) -> bool {
         .any(|(_, function)| function.name.as_deref() == Some(name))
 }
 
+/// Whether the module's `shade` gives a `Shading`.
+fn gives_shading(module: &Module) -> bool {
+    module.functions.iter().any(|(_, function)| {
+        function.name.as_deref() == Some("shade")
+            && function.result.as_ref().is_some_and(|made| {
+                module.types[made.ty].name.as_deref()
+                    == Some("Shading")
+            })
+    })
+}
+
 /// Whether the module holds only what a source of `kind` may: the
 /// engine's bindings and none of its own, the entry points the kind
 /// has, and its functions as the kind calls them.
@@ -496,6 +672,7 @@ fn own(
     module: &Module,
     kind: ShaderKind,
     displaces: bool,
+    shading: bool,
     rules: &ShaderRules,
 ) -> Result<(), String> {
     let engine: &[&str] = match kind {
@@ -545,11 +722,17 @@ fn own(
     };
     match kind {
         ShaderKind::Material => {
+            let shaded = module
+                .types
+                .iter()
+                .find(|(_, ty)| ty.name.as_deref() == Some("Shading"))
+                .map(|(_, ty)| ty.inner.clone())
+                .filter(|_| shading);
             takes(
                 module,
                 "shade",
                 "Surface",
-                vector(VectorSize::Quad),
+                shaded.unwrap_or(vector(VectorSize::Quad)),
             )?;
             if displaces {
                 takes(
@@ -698,6 +881,10 @@ mod tests {
         let shade = "fn shade(surface: Surface) -> vec4<f32> { \
                      return surface.color * params[0]; }";
         assert!(check(ShaderKind::Material, shade, &RULES).is_ok());
+        let sheen = "fn shade(surface: Surface) -> Shading { return \
+                     Shading(surface.color, vec3<f32>(0.0), 0.5, \
+                     0.4, 0.5); }";
+        assert!(check(ShaderKind::Material, sheen, &RULES).is_ok());
         let binding = format!(
             "{shade}\n@group(0) @binding(9) var<uniform> mine: f32;"
         );

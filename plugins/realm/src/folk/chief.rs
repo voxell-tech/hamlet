@@ -11,9 +11,13 @@ pub mod mascot;
 pub mod place;
 mod wickstep;
 
-use glam::Vec3;
+use glam::{Vec2, Vec3};
+use hamlet_engine_bevy::api::agents::{
+    AgentsEvent, AgentsReply, AgentsRequest,
+};
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::scene::Shader;
+use hamlet_engine_bevy::{AgentsEventReceived, Replied, Reply};
 
 use crate::build::upload::Draw;
 use crate::folk::chief::company::whereabouts;
@@ -26,8 +30,9 @@ pub use crate::folk::chief::wickstep::chance;
 use crate::folk::keeper::{Act, Passage, Robots};
 use crate::folk::sounds::FolkCue;
 use crate::places::library::Library;
+use crate::places::moving::SetDown;
 use crate::realm::{Ctx, Shared};
-use crate::society::{AgentId, Society};
+use crate::society::{AgentId, Place, Society};
 use crate::tuning::WorldTuning;
 use crate::view::camera::Camera;
 use crate::view::pick::{Picking, Thing};
@@ -84,6 +89,20 @@ impl Chief {
         })
     }
 
+    /// Stands the chief's place on `at`, where the chief set it down.
+    pub fn move_to(
+        &mut self,
+        pal: &Palette,
+        at: Vec2,
+        land: &mut Land,
+        society: &mut Society,
+        draw: &mut Draw,
+    ) {
+        if let Some(hearth) = &mut self.hearth {
+            hearth.move_to(pal, at, land, society, draw);
+        }
+    }
+
     /// Where the mascot stands.
     pub fn mascot(&self) -> Option<Vec3> {
         self.hearth.as_ref().map(Hearth::mascot)
@@ -95,11 +114,15 @@ impl Chief {
     }
 }
 
+/// What the chief's place is stood anew with.
+type Grounds<'w> =
+    (Res<'w, Palette>, ResMut<'w, Land>, ResMut<'w, Society>);
+
 /// Builds what is left of the chief's place, and moves the mascot a
 /// frame further.
 pub fn move_chief(
     mut chief: ResMut<Chief>,
-    shared: Shared,
+    mut world: ParamSet<(Shared, Grounds)>,
     keeping: Res<Keeping>,
     (camera, picking, library): (
         Res<Camera>,
@@ -108,8 +131,45 @@ pub fn move_chief(
     ),
     mut robots: ResMut<Robots>,
     mut cues: MessageWriter<FolkCue>,
+    mut replies: MessageReader<Replied>,
+    mut events: MessageReader<AgentsEventReceived>,
+    mut set_downs: MessageReader<SetDown>,
     mut draw: Draw,
 ) {
+    // The spot the chief's record has the Hearth at, or where the
+    // chief set it down, which the home keeps.
+    let mut spot = None;
+    for replied in replies.read() {
+        if let Ok(Reply::Agents(AgentsReply::Chief(record))) =
+            &replied.reply
+        {
+            spot = record.hearth.or(spot);
+        }
+    }
+    for event in events.read() {
+        if let AgentsEvent::Chief(record) = &event.event {
+            spot = record.hearth.or(spot);
+        }
+    }
+    let mut spot = spot.map(|(x, z)| Vec2::new(x, z));
+    for set in set_downs.read() {
+        if set.place == Place::Chief {
+            spot = Some(set.to);
+            draw.commands.agents(&AgentsRequest::SetHearth((
+                set.to.x, set.to.y,
+            )));
+        }
+    }
+    if let Some(at) = spot
+        && chief
+            .hearth
+            .as_ref()
+            .is_some_and(|hearth| hearth.at().distance(at) > 0.01)
+    {
+        let (pal, mut land, mut society) = world.p1();
+        chief.move_to(&pal, at, &mut land, &mut society, &mut draw);
+    }
+    let shared = world.p0();
     let floor = shared.floor();
     let ctx = shared.ctx(&floor);
     let with = keeping.with.and_then(|company| {

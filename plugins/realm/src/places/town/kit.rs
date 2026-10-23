@@ -1,13 +1,17 @@
 //! The meshes every town shares: the yard's desk and engine, the
-//! engine's wheel and its steam, the glass of a lantern and the trees
-//! of the gardens, each handed to the engine once.
+//! engine's wheel and its steam, the glass of a lantern, the common's
+//! workbench and clockwork, and the trees of the gardens, each handed
+//! to the engine once.
 
+use glam::{Quat, Vec3};
 use hamlet_engine_bevy::prelude::Handle;
 use hamlet_engine_bevy::scene::{Mesh, MeshData};
 
 use crate::build::mesh::Mb;
 use crate::build::upload::{Draw, Unsent};
 use crate::places::lantern::lantern_glass;
+use crate::places::town::meter;
+use crate::places::town::works::{self, COGS};
 use crate::places::yard::{self, YardSettings};
 use crate::world::flora;
 use crate::world::palette::Palette;
@@ -23,12 +27,26 @@ pub enum Part {
     Wheel,
     Ring,
     Lamp,
+    /// The common's workbench, the work laid on it and the glass of
+    /// its lamp.
+    Bench,
+    Work,
+    BenchLamp,
+    /// A wheel of the bench's clockwork, the largest first.
+    Cog(usize),
+    /// A box one wide each way, for what is hit but not seen.
+    Box,
+    /// The common's budget meter: its stand, its light and its
+    /// pointer.
+    Meter,
+    Level,
+    Pace,
     /// A garden tree of a kind, from 0.
     Tree(usize),
 }
 
 impl Part {
-    const ALL: usize = 5 + GARDEN_TREES;
+    const ALL: usize = 12 + COGS + GARDEN_TREES;
 
     fn index(self) -> usize {
         match self {
@@ -37,7 +55,17 @@ impl Part {
             Self::Wheel => 2,
             Self::Ring => 3,
             Self::Lamp => 4,
-            Self::Tree(kind) => 5 + kind.min(GARDEN_TREES - 1),
+            Self::Bench => 5,
+            Self::Work => 6,
+            Self::BenchLamp => 7,
+            Self::Box => 8,
+            Self::Meter => 9,
+            Self::Level => 10,
+            Self::Pace => 11,
+            Self::Cog(k) => 12 + k.min(COGS - 1),
+            Self::Tree(kind) => {
+                12 + COGS + kind.min(GARDEN_TREES - 1)
+            }
         }
     }
 
@@ -48,7 +76,15 @@ impl Part {
             2 => Self::Wheel,
             3 => Self::Ring,
             4 => Self::Lamp,
-            kind => Self::Tree(kind - 5),
+            5 => Self::Bench,
+            6 => Self::Work,
+            7 => Self::BenchLamp,
+            8 => Self::Box,
+            9 => Self::Meter,
+            10 => Self::Level,
+            11 => Self::Pace,
+            k if k < 12 + COGS => Self::Cog(k - 12),
+            kind => Self::Tree(kind - 12 - COGS),
         }
     }
 
@@ -59,6 +95,25 @@ impl Part {
             Self::Wheel => yard::wheel(pal),
             Self::Ring => yard::ring(),
             Self::Lamp => lantern_glass(0.075, 0.17),
+            Self::Bench => works::bench(pal),
+            Self::Work => works::work(pal),
+            Self::BenchLamp => lantern_glass(0.09, 0.22),
+            Self::Cog(k) => works::cog(pal, k),
+            Self::Box => {
+                let mut mb = Mb::new();
+                mb.rbox(
+                    Vec3::ZERO,
+                    Vec3::splat(0.5),
+                    0.0,
+                    Quat::IDENTITY,
+                    Vec3::ONE,
+                    0.0,
+                );
+                mb
+            }
+            Self::Meter => meter::stand(pal),
+            Self::Level => meter::level(),
+            Self::Pace => meter::pace(pal),
             Self::Tree(kind) => flora::mesh(pal, kind),
         }
     }

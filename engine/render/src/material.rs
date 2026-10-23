@@ -8,7 +8,7 @@ use bevy::asset::{Asset, Assets, Handle};
 use bevy::image::Image;
 use bevy::material::AlphaMode;
 use bevy::math::Vec4;
-use bevy::mesh::MeshVertexBufferLayoutRef;
+use bevy::mesh::{Mesh, MeshVertexBufferLayoutRef};
 use bevy::pbr::{
     Material, MaterialPipeline, MaterialPipelineKey, MaterialPlugin,
 };
@@ -19,9 +19,15 @@ use bevy::render::render_resource::{
     SpecializedMeshPipelineError,
 };
 use bevy::render::storage::ShaderBuffer;
-use bevy::shader::Shader;
+use bevy::shader::{Shader, ShaderDefVal, ShaderRef};
 
-use crate::shader::{LIT, PARAMS};
+use crate::shader::{LIT, MASK, PARAMS};
+
+/// The shader defs of Bevy's prepass, and of the normals it is
+/// given.
+const PREPASS: &str = "PREPASS_PIPELINE";
+const NORMALS: &str = "VERTEX_NORMALS";
+const NORMALS_OUT: &str = "NORMAL_PREPASS_OR_DEFERRED_PREPASS";
 
 pub(crate) fn plugin(app: &mut App) {
     if app.get_sub_app(RenderApp).is_some() {
@@ -54,6 +60,7 @@ pub struct ShadedKey {
     shader: Handle<Shader>,
     double_sided: bool,
     lit: bool,
+    mask: bool,
 }
 
 impl From<&ShadedMaterial> for ShadedKey {
@@ -62,6 +69,7 @@ impl From<&ShadedMaterial> for ShadedKey {
             shader: material.shader.clone(),
             double_sided: material.double_sided,
             lit: material.lit,
+            mask: matches!(material.alpha, AlphaMode::Mask(_)),
         }
     }
 }
@@ -71,26 +79,52 @@ impl Material for ShadedMaterial {
         self.alpha
     }
 
-    // A plugin's vertices may move, which the engine's prepass and
-    // shadows would not see.
-    fn enable_prepass() -> bool {
-        false
+    // Stand-ins, which `specialize` replaces with the plugin's
+    // shader. Given, they have Bevy bind the material in each
+    // prepass and shadow, as `displace` may read it, and run the
+    // fragment shader of one that may cut a masked or blended
+    // material.
+    fn prepass_vertex_shader() -> ShaderRef {
+        ShaderRef::Handle(Handle::default())
     }
 
-    fn enable_shadows() -> bool {
-        false
+    fn prepass_fragment_shader() -> ShaderRef {
+        ShaderRef::Handle(Handle::default())
     }
 
     fn specialize(
         _: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
-        _: &MeshVertexBufferLayoutRef,
+        layout: &MeshVertexBufferLayoutRef,
         key: MaterialPipelineKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         let key = key.bind_group_data;
-        descriptor.vertex.shader = key.shader.clone();
+        let mut defs = Vec::<ShaderDefVal>::new();
+        if key.mask {
+            defs.push(MASK.into());
+        }
+        let vertex = &mut descriptor.vertex;
+        let prepass = vertex.shader_defs.contains(&PREPASS.into());
+        // A prepass has normals only for a normal prepass, and
+        // `displace` is given them in each pass so the shadow moves
+        // with what casts it.
+        if prepass
+            && layout.0.contains(Mesh::ATTRIBUTE_NORMAL)
+            && !vertex.shader_defs.contains(&NORMALS.into())
+        {
+            let normal = layout.0.get_layout(&[
+                Mesh::ATTRIBUTE_NORMAL.at_shader_location(3),
+            ])?;
+            if let Some(buffer) = vertex.buffers.first_mut() {
+                buffer.attributes.extend(normal.attributes);
+            }
+            defs.extend([NORMALS_OUT.into(), NORMALS.into()]);
+        }
+        vertex.shader = key.shader.clone();
+        vertex.shader_defs.extend(defs.iter().cloned());
         if let Some(fragment) = descriptor.fragment.as_mut() {
             fragment.shader = key.shader;
+            fragment.shader_defs.extend(defs);
             if key.lit {
                 fragment.shader_defs.push(LIT.into());
             }

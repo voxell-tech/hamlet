@@ -14,7 +14,7 @@ use crate::world::land::Land;
 #[derive(Clone, Copy, Debug)]
 pub struct Recipe {
     pub tile: Tile,
-    cells: usize,
+    pub(super) cells: usize,
     /// The width of one cell.
     step: f32,
     /// A coarse tile cannot hold a river's bed, so a river that
@@ -87,9 +87,8 @@ impl Recipe {
         Self::new(land, self.sinks, self.top, tile)
     }
 
-    /// The place of the tile's point `(i, j)`, which may lie a cell
-    /// outside it.
-    fn point(&self, land: &Land, i: i32, j: i32) -> Vec2 {
+    /// The place of the tile's point `(i, j)`.
+    fn point(&self, land: &Land, i: usize, j: usize) -> Vec2 {
         self.tile.corner(land.set.land.chunk)
             + Vec2::new(i as f32, j as f32) * self.step
     }
@@ -108,6 +107,218 @@ impl Recipe {
     fn hem(&self, land: &Land, side: f32, y: f32) -> f32 {
         let floor = land.set.land.water_y - 1.0;
         (y - (1.5 + side * 0.03 + self.sink)).min(floor)
+    }
+}
+
+/// How far a coarse tile is lowered at each of its points, so that
+/// its flat triangles lie under the ground as it is drawn up close
+/// and nothing standing on that ground is ever covered by a tile
+/// seen from far. A point drops only by as much as the triangles
+/// about it would rise over the ground between their corners, so a
+/// slope stays where it is and tiles of two sizes meet at nearly the
+/// same height. It is worked out a row of cells at a time.
+struct Under {
+    /// The highest each point may lie, row by row. Empty for the
+    /// finest tiles, which are the ground.
+    cap: Vec<f32>,
+    /// The first point it holds, and how many along `j`.
+    from: (usize, usize),
+    side: usize,
+    bank: f32,
+    /// Samples to a cell.
+    k: usize,
+    /// Cells it looks over each way, one more on every side than the
+    /// points it holds.
+    across: (usize, usize),
+    /// Samples along a row of them.
+    width: usize,
+    /// The first sample's place, and the room between two.
+    start: Vec2,
+    fine: f32,
+    wide: f32,
+    /// The samples of the row of cells being looked over, `k + 1`
+    /// rows of them.
+    field: Vec<f32>,
+    /// Rows of cells looked over.
+    done: usize,
+}
+
+impl Under {
+    /// Samples to a cell at most. A tile is `cells` of these wide.
+    const FINEST: usize = 4;
+
+    /// The drop of the tile's points from `from` to `to`, both
+    /// among them, before any of it is worked out.
+    fn new(
+        land: &Land,
+        recipe: &Recipe,
+        from: (usize, usize),
+        to: (usize, usize),
+    ) -> Self {
+        // Ground at the water's edge is left alone, or a river
+        // would spread over its banks.
+        let bank = land.set.land.water_y + 0.3;
+        let side = to.1 - from.1 + 1;
+        // One cell more on every side, so that a point on the edge
+        // drops as it does on the tile beside.
+        let across = (to.0 - from.0 + 2, to.1 - from.1 + 2);
+        let k = (1usize << recipe.tile.level).min(Self::FINEST);
+        let finest = recipe.tile.level == 0;
+        Self {
+            cap: if finest {
+                Vec::new()
+            } else {
+                vec![f32::MAX; (across.0 - 1) * side]
+            },
+            from,
+            side,
+            bank,
+            k,
+            across,
+            width: across.1 * k + 1,
+            start: recipe.point(land, from.0, from.1)
+                - Vec2::splat(recipe.step),
+            fine: recipe.step / k as f32,
+            wide: recipe.wide,
+            field: Vec::new(),
+            done: if finest { across.0 } else { 0 },
+        }
+    }
+
+    /// The drop of the tile's points from `from` to `to`, worked
+    /// out whole.
+    fn of(
+        land: &Land,
+        recipe: &Recipe,
+        from: (usize, usize),
+        to: (usize, usize),
+    ) -> Self {
+        let mut under = Self::new(land, recipe, from, to);
+        while under.done < under.across.0 {
+            under.row(land);
+        }
+        under
+    }
+
+    /// True once the drop of the tile's points of row `i` is known.
+    fn ready(&self, i: usize) -> bool {
+        self.done >= (i - self.from.0 + 2).min(self.across.0)
+    }
+
+    /// Looks over the next row of cells.
+    fn row(&mut self, land: &Land) {
+        let (k, width, i) = (self.k, self.width, self.done);
+        // The samples of the row's lower edge are those of the upper
+        // edge of the row before.
+        let fresh = if self.field.is_empty() {
+            self.field = vec![0.0; (k + 1) * width];
+            0
+        } else {
+            self.field.copy_within(k * width.., 0);
+            1
+        };
+        for a in fresh..=k {
+            for b in 0..width {
+                let p = self.start
+                    + Vec2::new((i * k + a) as f32, b as f32)
+                        * self.fine;
+                self.field[a * width + b] =
+                    land.height_wide(p, self.wide).max(self.bank);
+            }
+        }
+        let (field, bank) = (&self.field, self.bank);
+        let sample = |a: usize, b: usize| field[a * width + b];
+        let mut samples = Vec::with_capacity((k + 1) * (k + 1));
+        for j in 0..self.across.1 {
+            let (h00, h01, h10, h11) = (
+                sample(0, j * k),
+                sample(0, (j + 1) * k),
+                sample(k, j * k),
+                sample(k, (j + 1) * k),
+            );
+            // Each sample of the cell: how far the cell's two
+            // triangles and the ground lie over its lowest ground
+            // there.
+            samples.clear();
+            let lowest = (0..=k)
+                .flat_map(|a| (0..=k).map(move |b| (a, b)))
+                .map(|(a, b)| sample(a, j * k + b))
+                .fold(f32::MAX, f32::min);
+            for a in 0..=k {
+                for b in 0..=k {
+                    let y = sample(a, j * k + b);
+                    let (fx, fy) =
+                        (a as f32 / k as f32, b as f32 / k as f32);
+                    // A quad is cut from its first corner to the one
+                    // across.
+                    let flat = if fy >= fx {
+                        h00 + (h11 - h01) * fx + (h01 - h00) * fy
+                    } else {
+                        h00 + (h10 - h00) * fx + (h11 - h10) * fy
+                    };
+                    samples.push((flat - lowest, y - lowest));
+                }
+            }
+            // With its corners brought `flatten` of the way down to
+            // the cell's lowest ground, the triangles still rise this
+            // far over the ground.
+            let over = |flatten: f32| {
+                samples
+                    .iter()
+                    .map(|(flat, y)| flat * (1.0 - flatten) - y)
+                    .fold(0.0f32, f32::max)
+            };
+            // Dropping the corners by that keeps the triangles under
+            // the ground. Where it would take the lowest corner under
+            // the bank, the corners are flattened until it does not:
+            // the cell's lowest ground is never under the bank. A
+            // finger under it is let by, so that the rounding of the
+            // samples does not decide.
+            let low = h00.min(h01).min(h10).min(h11) - lowest;
+            let dry = |flatten: f32| {
+                lowest + low * (1.0 - flatten) - over(flatten)
+                    >= bank - 0.01
+            };
+            let mut flatten = 0.0;
+            if !dry(0.0) {
+                let mut wet = 0.0;
+                flatten = 1.0;
+                for _ in 0..12 {
+                    let mid = (wet + flatten) * 0.5;
+                    if dry(mid) {
+                        flatten = mid;
+                    } else {
+                        wet = mid;
+                    }
+                }
+            }
+            let drop = over(flatten);
+            for (di, dj, h) in
+                [(0, 0, h00), (0, 1, h01), (1, 0, h10), (1, 1, h11)]
+            {
+                // The points it holds are one cell in.
+                let (vi, vj) = (i + di, j + dj);
+                if !(1..self.across.0).contains(&vi)
+                    || !(1..self.across.1).contains(&vj)
+                {
+                    continue;
+                }
+                let at = (vi - 1) * self.side + vj - 1;
+                let most =
+                    lowest + (h - lowest) * (1.0 - flatten) - drop;
+                self.cap[at] = self.cap[at].min(most);
+            }
+        }
+        self.done += 1;
+    }
+
+    /// The height of the tile's point `(i, j)`, whose own is `y`.
+    fn at(&self, i: usize, j: usize, y: f32) -> f32 {
+        if self.cap.is_empty() || y < self.bank {
+            return y;
+        }
+        let at = (i - self.from.0) * self.side + j - self.from.1;
+        y.min(self.cap[at])
     }
 }
 
@@ -180,8 +391,10 @@ impl Stitch {
                 self.along(land, drawn, master, &recipe, i, j)
             }
             None => {
-                let p = recipe.point(land, i as i32, j as i32);
-                recipe.sunk(land, land.height_wide(p, recipe.wide))
+                let under = Under::of(land, &recipe, (i, j), (i, j));
+                let p = recipe.point(land, i, j);
+                let y = land.height_wide(p, recipe.wide);
+                recipe.sunk(land, under.at(i, j, y))
             }
         };
         self.known.insert((recipe.tile, i, j), y);
@@ -239,16 +452,15 @@ impl Stitch {
 /// drawn, its normal and its colour.
 type RimPoint = ((usize, usize), Vec3, Vec3, Vec3);
 
-/// The ground of one tile being built: first the heights of its
-/// points and a ring of points about them, a row at a time, then its
-/// vertices a row at a time, then its triangles and skirt.
+/// The ground of one tile being built: a row of the drop of a coarse
+/// tile's points or a row of its vertices at a time, each row of
+/// vertices once the drop about it is known, then its triangles and
+/// skirt.
 pub struct SodJob {
     recipe: Recipe,
     /// The tiles drawn with it, its rim cut to the coarser of them.
     drawn: HashSet<Tile>,
-    /// The heights of the points from a cell outside the tile to a
-    /// cell outside its far side, row by row, as many rows as found.
-    heights: Vec<f32>,
+    under: Under,
     /// Rows of vertices made.
     rows: usize,
     mb: Mb,
@@ -268,11 +480,16 @@ pub struct Sod {
 }
 
 impl SodJob {
-    pub fn new(recipe: Recipe, drawn: &HashSet<Tile>) -> Self {
+    pub fn new(
+        land: &Land,
+        recipe: Recipe,
+        drawn: &HashSet<Tile>,
+    ) -> Self {
+        let cells = recipe.cells;
         Self {
             recipe,
             drawn: drawn.clone(),
-            heights: Vec::new(),
+            under: Under::new(land, &recipe, (0, 0), (cells, cells)),
             rows: 0,
             mb: Mb::new(),
             ids: Vec::new(),
@@ -288,35 +505,17 @@ impl SodJob {
         self.ready = Some(sod);
     }
 
-    /// Points along a side of the heights found, the ring included.
-    fn span(&self) -> usize {
-        self.recipe.cells + 3
-    }
-
-    /// The height of the point `(i, j)`, which may lie a cell outside
-    /// the tile.
-    fn high(&self, i: i32, j: i32) -> f32 {
-        let span = self.span();
-        self.heights[(i + 1) as usize * span + (j + 1) as usize]
-    }
-
     /// One row more of the tile's work; the ground once it is done.
     pub fn step(&mut self, land: &Land) -> Option<Sod> {
         if let Some(sod) = self.ready.take() {
             return Some(sod);
         }
-        let span = self.span();
-        if self.heights.len() < span * span {
-            let i = (self.heights.len() / span) as i32 - 1;
-            let recipe = self.recipe;
-            self.heights.extend((0..span).map(|j| {
-                let p = recipe.point(land, i, j as i32 - 1);
-                land.height_wide(p, recipe.wide)
-            }));
-            return None;
-        }
         if self.rows <= self.recipe.cells {
-            self.row(land);
+            if self.under.ready(self.rows) {
+                self.row(land);
+            } else {
+                self.under.row(land);
+            }
             return None;
         }
         Some(self.finish(land))
@@ -327,19 +526,20 @@ impl SodJob {
         let recipe = self.recipe;
         let cells = recipe.cells;
         let water = land.set.land.water_y;
+        // A coarse tile's normals are those of the ground at its
+        // grain.
+        let grain = if recipe.tile.level == 0 {
+            0.4
+        } else {
+            recipe.step * 0.5
+        };
         let i = self.rows;
         for j in 0..=cells {
-            let (si, sj) = (i as i32, j as i32);
-            let p = recipe.point(land, si, sj);
-            let high = self.high(si, sj);
-            self.wet |= high < water + 0.15;
-            // The normal of the ground across the points beside it.
-            let n = Vec3::new(
-                self.high(si - 1, sj) - self.high(si + 1, sj),
-                2.0 * recipe.step,
-                self.high(si, sj - 1) - self.high(si, sj + 1),
-            )
-            .normalize();
+            let p = recipe.point(land, i, j);
+            let high = land.height_wide(p, recipe.wide);
+            let y = self.under.at(i, j, high);
+            self.wet |= y < water + 0.15;
+            let n = land.normal_wide(p, grain, recipe.wide);
             // Coloured as the ground it stands for, not as the
             // height it is lowered to.
             let colour = land.ground_colour(p, high, n);
@@ -364,7 +564,7 @@ impl SodJob {
                     i,
                     j,
                 ),
-                None => recipe.sunk(land, high),
+                None => recipe.sunk(land, y),
             };
             let at = Vec3::new(p.x, sunk, p.y);
             self.ids.push(self.mb.v(at, n, colour));

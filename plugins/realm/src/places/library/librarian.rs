@@ -23,6 +23,9 @@ pub(super) const STANDS: Vec3 = Vec3::new(0.0, 0.6, 5.05);
 /// Its size as a multiple of a chief's mascot.
 pub(super) const GROWN: f32 = 1.18;
 
+/// The seconds it attends to whoever called on it.
+pub(super) const ATTENDS: f32 = 6.0;
+
 /// The meshes that set the librarian apart from a chief: the white
 /// hair, brows, spectacles and beard about its head, its staff, and
 /// the stone in the staff with where it sits.

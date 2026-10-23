@@ -7,6 +7,7 @@ mod notice;
 mod touch;
 mod toys;
 
+use std::collections::HashMap;
 use std::f32::consts::{PI, TAU};
 
 use bevy_ecs::system::SystemParam;
@@ -21,6 +22,7 @@ use crate::folk::hand::lift::Fall;
 pub use crate::folk::hand::toys::Toys;
 use crate::folk::keeper::{Act, Robot, Robots};
 use crate::folk::sounds::{FolkCue, FolkSound};
+use crate::fx::magic::Nudged;
 use crate::places::moving::Carrying;
 use crate::realm::{Clock, Now};
 use crate::society::{AgentId, Society};
@@ -92,6 +94,10 @@ pub struct PlaySettings {
     pub heart_rise: f32,
     pub heart_size: f32,
     pub heart_time: f32,
+    /// Seconds a nudged thought stays in its balloon, and the radius
+    /// of the room about its light that a pointer can hit.
+    pub nudge_pin: f32,
+    pub nudge_room: f32,
 }
 
 /// A robot's handling of late. Times are the realm's clock.
@@ -199,9 +205,19 @@ pub struct Hand {
     rest: Option<Rest>,
     /// The robot under the pointer that could be lifted.
     within: Option<AgentId>,
+    /// The agents whose thought a nudge holds open in its balloon,
+    /// until a clock time.
+    pins: HashMap<AgentId, f32>,
 }
 
 impl Hand {
+    /// True while a nudge holds the thought of `agent` open in its
+    /// balloon.
+    #[expect(dead_code, reason = "read by the balloons")]
+    pub fn pinned(&self, agent: AgentId) -> bool {
+        self.pins.contains_key(&agent)
+    }
+
     /// The agent of the robot held off the ground.
     pub fn lifted(&self) -> Option<AgentId> {
         self.held.filter(|held| held.lifted).map(|held| held.agent)
@@ -332,6 +348,23 @@ pub struct HandFrame<'a> {
     /// still click.
     click_slop: f32,
     land: &'a Land,
+}
+
+/// Holds the thought of each agent whose light was nudged open in its
+/// balloon for a while, and lets it go when the time is up.
+pub fn pin_thoughts(
+    tuning: Res<WorldTuning>,
+    clock: Res<Clock>,
+    mut hand: ResMut<Hand>,
+    mut nudged: MessageReader<Nudged>,
+) {
+    let now = clock.now;
+    for nudge in nudged.read() {
+        hand.pins.insert(nudge.agent, now + tuning.play.nudge_pin);
+    }
+    if hand.pins.values().any(|until| *until <= now) {
+        hand.pins.retain(|_, until| *until > now);
+    }
 }
 
 /// Plays a frame of the chief's hand: what it clicked, rested on,

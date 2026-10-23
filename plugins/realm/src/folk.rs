@@ -9,12 +9,13 @@ use hamlet_engine_bevy::api::agents::AgentsRequest;
 use hamlet_engine_bevy::prelude::*;
 
 use crate::folk::chief::{Keeping, follow_company};
-use crate::folk::hand::{Hand, Toys, play_hand};
+use crate::folk::hand::{Hand, Toys, pin_thoughts, play_hand};
 use crate::folk::keeper::{
     Robots, ViewShape, follow_needs, follow_view, move_robots,
 };
 use crate::folk::sounds::FolkCue;
 use crate::places::road::build_roads;
+use crate::tuning::WorldTuning;
 use crate::view::camera::Camera;
 
 pub(crate) fn plugin(app: &mut App) {
@@ -30,6 +31,7 @@ pub(crate) fn plugin(app: &mut App) {
                 follow_needs.run_if(resource_exists::<Robots>),
                 follow_company.run_if(resource_exists::<Robots>),
                 follow_view.run_if(resource_exists::<Camera>),
+                pin_thoughts.run_if(resource_exists::<WorldTuning>),
                 // The hand plays on the robots as the pointer finds
                 // them, before they move.
                 play_hand

@@ -2,6 +2,8 @@
 //! between them.
 
 mod places;
+#[cfg(test)]
+mod tests;
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 

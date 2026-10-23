@@ -6,17 +6,24 @@ mod build;
 mod librarian;
 
 use glam::{Quat, Vec2, Vec3};
+use hamlet_engine_bevy::api::agents::{
+    AgentsEvent, AgentsReply, AgentsRequest,
+};
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::scene::{
     Light, Material, Mesh, MeshData, Pbr, PointLight,
 };
+use hamlet_engine_bevy::{AgentsEventReceived, Replied, Reply};
 
 use crate::build::frame::Frame;
 use crate::build::stock::rgba;
 use crate::build::upload::{Draw, Unsent};
 use crate::folk::chief::mascot::{Doing, Pose, Rig, parts, wick};
 use crate::folk::chief::{ChiefSettings, place};
-use crate::places::library::librarian::{GROWN, LOOK, STANDS, sage};
+use crate::places::library::librarian::{
+    ATTENDS, GROWN, LOOK, STANDS, sage,
+};
+use crate::places::moving::SetDown;
 use crate::realm::{Ctx, Shared};
 use crate::society::{Claim, Place, Society};
 use crate::view::pick::Thing;
@@ -25,6 +32,10 @@ use crate::world::palette::Palette;
 
 /// The radius of the ground the library keeps level and clear.
 const GROUNDS: f32 = 9.5;
+
+/// What the library is stood anew with.
+type Grounds<'w> =
+    (Res<'w, Palette>, ResMut<'w, Land>, ResMut<'w, Society>);
 
 /// Reach of the library from its middle and its height, for the ring
 /// about it and the name over it.
@@ -36,6 +47,12 @@ const LAMP_REACH: f32 = 11.0;
 
 /// Brightness of the windows' glass by day, and the gain after dark.
 const GLASS: (f32, f32) = (1.2, 16.0);
+
+/// The beacon's light at its brightest and how far it reaches, and
+/// how many times brighter the windows burn with it.
+const BEACON: f32 = 900_000.0;
+const BEACON_REACH: f32 = 26.0;
+const FLASH: f32 = 9.0;
 
 /// Brightness of the stone in the librarian's staff, the light it
 /// throws and its reach.
@@ -58,10 +75,19 @@ enum Slot {
 #[derive(Resource)]
 pub struct Library {
     stood: Option<Stood>,
+    /// The spot a chief set it down on, as the home keeps it.
+    /// Without one it stands where the land puts it.
+    spot: Option<Vec2>,
+    /// True once the chief's record is asked for.
+    asked: bool,
+    /// The clock time an agent last called on the librarian.
+    called: Option<f32>,
 }
 
 /// The library as it is drawn.
 struct Stood {
+    /// The middle of the ground it holds.
+    held: Vec2,
     frame: Frame,
     house: Entity,
     glass: Entity,
@@ -81,8 +107,12 @@ struct Stood {
     parts: [Option<Handle<Mesh>>; 8],
     wick: Option<Handle<Mesh>>,
     dressed: bool,
-    /// The candle it was last lit for.
+    /// The candle it was last lit for, and how much it last flared.
     candle: Option<f32>,
+    flared: f32,
+    /// The light over the dome that flares when the librarian is
+    /// called on.
+    beacon: Entity,
 }
 
 impl Library {
@@ -101,9 +131,72 @@ impl Library {
             .map(|town| land.sites[town.site].at)
             .chain(society.claims.iter().map(|claim| claim.at))
             .collect::<Vec<_>>();
-        let Some(at) = place::stand(land, &taken) else {
-            return Ok(Self { stood: None });
+        let stood = match place::stand(land, &taken) {
+            Some(at) => {
+                Some(Stood::raise(pal, land, society, at, draw)?)
+            }
+            None => None,
         };
+        Ok(Self {
+            stood,
+            spot: None,
+            asked: false,
+            called: None,
+        })
+    }
+
+    /// Takes the library up and stands it on `to`, where the chief
+    /// set it down.
+    fn resettle(
+        &mut self,
+        pal: &Palette,
+        land: &mut Land,
+        society: &mut Society,
+        to: Vec2,
+        draw: &mut Draw,
+    ) -> Result<(), String> {
+        if let Some(stood) = self.stood.take() {
+            society
+                .claims
+                .retain(|claim| claim.place != Place::Library);
+            let rounds = land
+                .held()
+                .into_iter()
+                .filter(|&round| round != (stood.held, GROUNDS))
+                .collect::<Vec<_>>();
+            land.hold(&rounds);
+            draw.despawn(stood.house);
+        }
+        self.stood =
+            Some(Stood::raise(pal, land, society, to, draw)?);
+        Ok(())
+    }
+
+    /// Where it stands, on the ground.
+    pub fn at(&self) -> Option<Vec3> {
+        self.stood.as_ref().map(|stood| stood.frame.at)
+    }
+
+    /// Builds what is left to build, lights it as the hour has it,
+    /// and moves the librarian a frame further.
+    pub fn update(&mut self, ctx: &Ctx, draw: &mut Draw) {
+        let level =
+            self.called.map_or(0.0, |at| flare(ctx.clock - at));
+        if let Some(stood) = &mut self.stood {
+            stood.update(ctx, level, draw);
+        }
+    }
+}
+
+impl Stood {
+    /// The library on `at`, its ground claimed and held level.
+    fn raise(
+        pal: &Palette,
+        land: &mut Land,
+        society: &mut Society,
+        at: Vec2,
+        draw: &mut Draw,
+    ) -> Result<Self, String> {
         society.claims.push(Claim {
             place: Place::Library,
             at,
@@ -159,6 +252,8 @@ impl Library {
             draw.place(lamp, Frame::at(at));
             (lamp, lumens)
         });
+        let beacon = draw.spawn(Some(house), 0);
+        draw.place(beacon, Frame::at(Vec3::new(0.0, 10.2, 1.0)));
         // The librarian, on the porch before its doors.
         let keeper = Rig::make(key, draw);
         draw.commands.entity(keeper.root).insert(ChildOf(house));
@@ -168,57 +263,66 @@ impl Library {
         let stone = draw.spawn(Some(keeper.figure()), 0);
         draw.shadows(stone, false, true);
         Ok(Self {
-            stood: Some(Stood {
-                frame,
-                house,
-                glass,
-                lamps,
-                keeper,
-                hair,
-                staff,
-                stone,
-                windows,
-                stone_look,
-                flame,
-                built: 0,
-                pending: Vec::new(),
-                parts: Default::default(),
-                wick: None,
-                dressed: false,
-                candle: None,
-            }),
+            held: at,
+            frame,
+            house,
+            glass,
+            lamps,
+            keeper,
+            hair,
+            staff,
+            stone,
+            windows,
+            stone_look,
+            flame,
+            built: 0,
+            pending: Vec::new(),
+            parts: Default::default(),
+            wick: None,
+            dressed: false,
+            candle: None,
+            flared: 0.0,
+            beacon,
         })
     }
 
-    /// Where it stands, on the ground.
-    pub fn at(&self) -> Option<Vec3> {
-        self.stood.as_ref().map(|stood| stood.frame.at)
-    }
-
-    /// Builds what is left to build, lights it as the hour has it,
-    /// and moves the librarian a frame further.
-    pub fn update(&mut self, ctx: &Ctx, draw: &mut Draw) {
-        if let Some(stood) = &mut self.stood {
-            stood.update(ctx, draw);
-        }
-    }
-}
-
-impl Stood {
-    fn update(&mut self, ctx: &Ctx, draw: &mut Draw) {
+    /// Builds, lights and moves it a frame further, flaring `level`
+    /// strong for a call on the librarian.
+    fn update(&mut self, ctx: &Ctx, level: f32, draw: &mut Draw) {
         self.hand_over(ctx, draw);
         let candle = ctx.sky.look.candle;
-        if self.candle != Some(candle) {
+        let glass = ctx.pal.glass_lit;
+        if self.candle != Some(candle) || self.flared != level {
+            // Dim by day, glowing after dark, and brighter still
+            // while the librarian is called on.
             let (day, night) = GLASS;
             draw.set_material(
                 &self.windows,
                 Pbr {
                     emissive: rgba(
-                        ctx.pal.glass_lit * (day + night * candle),
+                        glass
+                            * (day + night * candle + FLASH * level),
                     ),
-                    ..Pbr::colored(rgba(ctx.pal.glass_lit))
+                    ..Pbr::colored(rgba(glass))
                 },
             );
+        }
+        if self.flared != level {
+            let mut beacon = draw.commands.entity(self.beacon);
+            if level > 0.0 {
+                beacon.insert(SceneLight(Light::Point(PointLight {
+                    color: rgba(ctx.pal.rune),
+                    intensity: BEACON * level,
+                    range: BEACON_REACH,
+                    radius: 0.0,
+                    shadows: false,
+                })));
+            } else {
+                beacon.remove::<SceneLight>();
+            }
+            self.flared = level;
+        }
+        if self.candle != Some(candle) {
             for (lamp, lumens) in self.lamps {
                 draw.commands.entity(lamp).insert(SceneLight(
                     Light::Point(PointLight {
@@ -233,8 +337,13 @@ impl Stood {
             self.candle = Some(candle);
         }
         let set: &ChiefSettings = &ctx.tuning.chief;
+        let doing = if level > 0.0 {
+            Doing::Wave
+        } else {
+            Doing::Idle
+        };
         self.keeper.place(
-            &Pose::of(Doing::Idle, ctx.clock),
+            &Pose::of(doing, ctx.clock),
             set.size * GROWN,
             LOOK.hat.crest(),
             draw,
@@ -354,13 +463,80 @@ impl Stood {
     }
 }
 
-/// Builds what is left of the library, and moves its librarian a
+/// Brightness of the library `since` seconds after a call: up at
+/// once, wavering while the librarian attends, and down again.
+fn flare(since: f32) -> f32 {
+    if !(0.0..ATTENDS).contains(&since) {
+        return 0.0;
+    }
+    let up = (since / 0.25).min(1.0);
+    let down = ((ATTENDS - since) / 1.8).min(1.0);
+    up * down * (0.82 + 0.18 * (since * 9.0).sin())
+}
+
+/// Stands the library where a chief sets it down, or where the
+/// chief's record says one did, flares it when an agent calls on the
+/// librarian, builds what is left of it, and moves its librarian a
 /// frame further.
 pub fn build_library(
     mut library: ResMut<Library>,
-    shared: Shared,
+    mut replies: MessageReader<Replied>,
+    mut events: MessageReader<AgentsEventReceived>,
+    mut set_downs: MessageReader<SetDown>,
+    mut world: ParamSet<(Shared, Grounds)>,
     mut draw: Draw,
 ) {
+    if !std::mem::replace(&mut library.asked, true) {
+        draw.commands.agents(&AgentsRequest::Chief);
+    }
+    let replied = replies.read().filter_map(|replied| match &replied
+        .reply
+    {
+        Ok(Reply::Agents(AgentsReply::Chief(record))) => Some(record),
+        _ => None,
+    });
+    let mut records = replied.cloned().collect::<Vec<_>>();
+    let mut called = false;
+    for event in events.read() {
+        match &event.event {
+            AgentsEvent::Chief(record) => {
+                records.push(record.clone())
+            }
+            AgentsEvent::Consulted { .. } => called = true,
+            _ => {}
+        }
+    }
+    if let Some(record) = records.last() {
+        library.spot = record.library.map(|(x, z)| Vec2::new(x, z));
+    }
+    // Set down by the chief: it stands there at once, and the home
+    // keeps the spot.
+    for set in set_downs.read() {
+        if set.place == Place::Library {
+            library.spot = Some(set.to);
+            draw.commands.agents(&AgentsRequest::SetLibrary((
+                set.to.x, set.to.y,
+            )));
+        }
+    }
+    if called {
+        library.called = Some(world.p0().clock.now);
+    }
+    if let Some(to) = library.spot
+        && library.stood.as_ref().is_none_or(|stood| stood.held != to)
+    {
+        let (pal, mut land, mut society) = world.p1();
+        if let Err(why) = library.resettle(
+            &pal,
+            &mut land,
+            &mut society,
+            to,
+            &mut draw,
+        ) {
+            hamlet_engine_bevy::warn(&format!("the library: {why}"));
+        }
+    }
+    let shared = world.p0();
     let floor = shared.floor();
     library.update(&shared.ctx(&floor), &mut draw);
 }

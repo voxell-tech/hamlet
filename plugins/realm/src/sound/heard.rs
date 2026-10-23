@@ -11,6 +11,7 @@ use hamlet_engine_bevy::prelude::*;
 use crate::bridge::Bridge;
 use crate::folk::keeper::KState;
 use crate::folk::sounds::{FolkCue, FolkSound};
+use crate::fx::magic::Nudged;
 use crate::realm::Clock;
 use crate::society::{AgentId, Pair, RoadLevel, Society, TownId};
 use crate::sound::kinds::Sound;
@@ -324,6 +325,17 @@ pub fn hear_folk(
             FolkSound::WickIn => Sound::WickIn,
         };
         due.push(clock.now, sound, cue.at, cue.turn);
+    }
+}
+
+/// A glass note as a thinking light is nudged.
+pub fn hear_nudges(
+    clock: Res<Clock>,
+    mut nudged: MessageReader<Nudged>,
+    mut due: ResMut<Due>,
+) {
+    for nudge in nudged.read() {
+        due.push(clock.now, Sound::Nudge, nudge.at, nudge.agent.0);
     }
 }
 

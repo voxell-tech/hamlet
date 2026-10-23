@@ -49,6 +49,7 @@ impl Stock {
         Ok(Self {
             matte: draw.material(Pbr {
                 roughness: 0.92,
+                reflectance: 0.18,
                 ..Pbr::colored(white)
             })?,
             brass: draw.material(Pbr {

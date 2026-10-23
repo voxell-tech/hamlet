@@ -38,7 +38,7 @@ use crate::realm::{Ctx, Shared};
 use crate::society::{Agent, AgentId};
 use crate::view::camera::{Camera, View};
 use crate::view::pick::Thing;
-use crate::world::layout::{HALL_PLOT, Route, plot};
+use crate::world::layout::{HALL_PLOT, plot};
 use crate::world::palette::Palette;
 
 /// The most robots made in one frame.
@@ -91,7 +91,7 @@ impl Robots {
         &mut self,
         ctx: &Ctx,
         sight: &Sight,
-        roads: &[&Route],
+        roads: &Roads,
         dt: f32,
         cue: &mut impl FnMut(FolkCue),
         draw: &mut Draw,
@@ -99,6 +99,7 @@ impl Robots {
         if !self.kit.hand_over(ctx.pal, draw) {
             return;
         }
+        let routes = roads.routes();
         let now = ctx.clock;
         self.sync(ctx, now, draw);
         let (land, motion) = (ctx.land, &ctx.tuning.motion);
@@ -117,8 +118,12 @@ impl Robots {
         let mut heard = HashMap::new();
         for robot in self.robots.values_mut() {
             robot.pass(now);
-            let objects = self.objecting.contains(&robot.agent);
-            robot.work(land, roads, motion, objects, now, dt);
+            if let Some(walking) = roads.walking(robot.agent) {
+                robot.walk_road(&walking, &land.set.road, now);
+            } else {
+                let objects = self.objecting.contains(&robot.agent);
+                robot.work(land, &routes, motion, objects, now, dt);
+            }
             robot.rig.show(shown(robot), draw);
             let seen = posed(robot);
             robot
@@ -323,6 +328,24 @@ impl Robots {
         }
     }
 
+    /// True while the robot of `agent` is asked to leave the realm
+    /// or merge into another, or is playing that passage.
+    pub fn taking_leave(&self, agent: AgentId) -> bool {
+        self.asked.get(&agent).is_some_and(|act| act.vanishes())
+            || self
+                .robots
+                .get(&agent)
+                .into_iter()
+                .chain(
+                    self.leaving.iter().filter(|r| r.agent == agent),
+                )
+                .any(|robot| {
+                    robot
+                        .passage
+                        .is_some_and(|passage| passage.vanishes())
+                })
+    }
+
     /// Where the robot of `agent` stands.
     pub fn at(&self, agent: AgentId) -> Option<Vec3> {
         self.robots.get(&agent).map(|robot| robot.rig.at.at)
@@ -438,7 +461,7 @@ pub fn move_robots(
     robots.update(
         &ctx,
         &sight,
-        &roads.routes(),
+        &roads,
         shared.clock.dt,
         &mut |cue| {
             cues.write(cue);

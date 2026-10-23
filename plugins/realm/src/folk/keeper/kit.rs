@@ -273,6 +273,7 @@ impl Kit {
 fn matte(colour: Vec3) -> Pbr {
     Pbr {
         roughness: 0.92,
+        reflectance: 0.18,
         ..Pbr::colored(rgba(colour))
     }
 }

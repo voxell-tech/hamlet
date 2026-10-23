@@ -1,6 +1,6 @@
-//! The light of the grooves: orange at the door of an agent that
-//! waits, red where one has faulted. Every other groove shares one
-//! material that is not lit.
+//! The light of the grooves: a mote under a robot out with a message,
+//! orange at the door of an agent that waits, red where one has
+//! faulted. Every other groove shares one material that is not lit.
 
 use std::collections::HashMap;
 
@@ -14,6 +14,7 @@ use crate::build::frame::Frame;
 use crate::build::upload::Draw;
 use crate::folk::keeper::KState;
 use crate::places::road::Drawn;
+use crate::places::road::traffic::Trip;
 use crate::realm::Ctx;
 use crate::society::Pair;
 use crate::world::palette::Palette;
@@ -24,14 +25,16 @@ use crate::world::tint::to_linear;
 const LIT: f32 = 4.0;
 
 /// How the strip is lit, as the shader reads it.
+const TRAVEL: f32 = 1.0;
 const BREATH: f32 = 3.0;
 const STUTTER: f32 = 4.0;
 
 /// Height of the light over the groove it lies on.
 const OVER: f32 = 0.003;
 
-/// The light's colours, in sRGB: an agent that waits, and one that
-/// faulted.
+/// The light's colours, in sRGB: a message under way, an agent that
+/// waits, and one that faulted.
+const CURRENT: Vec3 = Vec3::new(0.247, 0.847, 0.910);
 const SIGNAL: Vec3 = Vec3::new(1.0, 0.541, 0.122);
 const FAULT: Vec3 = Vec3::new(1.0, 0.322, 0.278);
 
@@ -62,7 +65,7 @@ impl Grooves {
     ) -> Result<Self, String> {
         let shader = draw.assets.add(Shader::compile(
             ShaderKind::Material,
-            include_str!("groove.wgsl"),
+            include_str!("../../build/inlay.wgsl"),
         )?);
         let stone = [
             pal.bed.x,
@@ -104,10 +107,12 @@ impl Grooves {
         &mut self,
         ctx: &Ctx,
         drawn: &HashMap<Pair, Drawn>,
+        trips: &[Trip],
         draw: &mut Draw,
     ) {
         let (society, looks) = (ctx.society, &ctx.tuning.looks);
         let gain = ctx.sky.look.inlay_gain;
+        let speed = ctx.land.set.road.walk_speed;
         let mut wanted = HashMap::new();
         for agent in society.agents.iter().filter(|a| !a.archived) {
             let (hue, mode, reach) = match agent.state {
@@ -145,10 +150,47 @@ impl Grooves {
                 looks.trace_half_life,
                 looks.strip_share,
                 1.0,
-                0.0,
+                speed,
                 0.0,
             ]);
             wanted.insert(pair, params);
+        }
+        for trip in trips {
+            let Some(road) = drawn.get(&trip.pair) else {
+                continue;
+            };
+            let total = road.route.total();
+            let forward = (road.first == trip.walker) != trip.back;
+            let mote = if road.first == trip.walker {
+                trip.gone
+            } else {
+                total - trip.gone
+            };
+            // The shader leaves a trace behind a mote that runs up
+            // the line. One running down it shows only
+            // its head.
+            let from = if forward { 0.0 } else { total + 1.0 };
+            let hue = to_linear(CURRENT);
+            let mut params = self.stone.to_vec();
+            params.extend([
+                hue.x,
+                hue.y,
+                hue.z,
+                LIT * gain,
+                0.0,
+                total,
+                0.0,
+                total + 2.0,
+                TRAVEL,
+                0.0,
+                mote,
+                looks.trace_half_life,
+                looks.strip_share,
+                1.0,
+                speed,
+                from,
+            ]);
+            wanted.insert(trip.pair, params);
         }
         self.lit.retain(|pair, lit| {
             let kept = drawn

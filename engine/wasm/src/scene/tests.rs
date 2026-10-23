@@ -51,6 +51,7 @@ fn a_dropped_mesh_is_counted_while_an_entity_draws_it() {
         emissive: (0.0, 0.0, 0.0, 1.0),
         roughness: 0.5,
         metallic: 0.0,
+        reflectance: 0.5,
         alpha_mode: AlphaMode::Opaque,
         alpha_cutoff: 0.5,
         unlit: false,
