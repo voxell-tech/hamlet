@@ -111,7 +111,7 @@ pub enum Failure {
     Refused(String),
     /// Two sides name a type differently: how.
     Mismatch(String),
-    /// Past a budget: which.
+    /// Past a limit: which.
     OutOfBudget(String),
     /// It was taken and could not be done: why.
     Failed(String),

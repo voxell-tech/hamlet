@@ -1,5 +1,5 @@
 //! What a house is built from, and its meshes as the engine takes
-//! them, handed over across frames when one call has no room left.
+//! them, handed over across frames when one frame has no time left.
 
 use std::f32::consts::TAU;
 
@@ -124,7 +124,7 @@ pub enum Handed {
 }
 
 impl Handed {
-    /// Hands the mesh over if it waits and the call has room. True
+    /// Hands the mesh over if it waits and the frame has time. True
     /// once it is there or refused.
     fn hand(&mut self, draw: &mut Draw) -> bool {
         let Self::Waiting(_) = self else {
@@ -207,7 +207,7 @@ impl Built {
         }
     }
 
-    /// Hands over what waits, while the call has room. True once all
+    /// Hands over what waits, while the frame has time. True once all
     /// of it is there or refused.
     pub fn hand(&mut self, draw: &mut Draw) -> bool {
         self.body.hand(draw)

@@ -1,33 +1,31 @@
 //! One plugin's clips and sounds as its host holds them while it is
-//! called: each make and play held to `audio.play` and to the
-//! budgets, and kept as a change for the world once the call ends.
+//! called: each make and play held to `audio.play` and to the audio
+//! memory the person switched on, and kept as a change for the world
+//! once the call ends.
 
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use bevy::math::Vec3;
+use hamlet_engine_api::PluginLimits;
 use hamlet_engine_api::audio::Category;
-use hamlet_engine_core::Budgets;
 
 use crate::clip::Clip;
 
 /// The speeds a sound may play at, as made at 1.
 pub const SPEEDS: (f32, f32) = (0.25, 4.0);
 
-/// What a plugin may hold and play.
+/// What a plugin may hold, when the person switched it on.
 #[derive(Clone, Copy, Debug)]
 pub struct AudioCaps {
-    pub clip_bytes: u64,
-    pub sounds: usize,
-    pub plays_per_second: u32,
+    /// Bytes of the samples of its clips, four a sample.
+    pub clip_bytes: Option<u64>,
 }
 
 impl AudioCaps {
-    pub fn of(budgets: &Budgets) -> Self {
+    pub fn of(limits: &PluginLimits) -> Self {
         Self {
-            clip_bytes: budgets.clip_bytes,
-            sounds: budgets.sounds_playing,
-            plays_per_second: budgets.plays_per_second,
+            clip_bytes: limits.audio_memory,
         }
     }
 }
@@ -108,9 +106,6 @@ pub struct Ledger {
     /// The clip each sound playing plays.
     sounds: HashMap<u32, u32>,
     bytes: u64,
-    /// Sounds started in the second that began at `second`.
-    plays: u32,
-    second: Option<Instant>,
     pub caps: AudioCaps,
     /// Whether it may play, and whether the person is to be asked.
     pub allowed: bool,
@@ -129,8 +124,6 @@ impl Ledger {
             gone: HashMap::new(),
             sounds: HashMap::new(),
             bytes: 0,
-            plays: 0,
-            second: None,
             caps,
             allowed: false,
             asking: false,
@@ -163,13 +156,14 @@ impl Ledger {
     pub fn make_clip(&mut self, clip: Clip) -> Result<u32, String> {
         self.may()?;
         let bytes = clip.bytes();
-        let most = self.caps.clip_bytes;
-        if self.bytes.saturating_add(bytes) > most {
+        if let Some(most) = self.caps.clip_bytes
+            && self.bytes.saturating_add(bytes) > most
+        {
             return Err(format!(
                 "a plugin's clips hold {most} bytes at most"
             ));
         }
-        self.bytes += bytes;
+        self.bytes = self.bytes.saturating_add(bytes);
         let id = self.number();
         self.clips.insert(id, bytes);
         self.changes.push(AudioChange::Clip { id, clip });
@@ -204,26 +198,6 @@ impl Ledger {
         place: Place,
     ) -> Result<u32, String> {
         self.may()?;
-        let most = self.caps.sounds;
-        if self.sounds.len() >= most {
-            return Err(format!(
-                "a plugin plays {most} sounds at once at most"
-            ));
-        }
-        let now = Instant::now();
-        if self.second.is_none_or(|second| {
-            now.duration_since(second) >= Duration::from_secs(1)
-        }) {
-            self.second = Some(now);
-            self.plays = 0;
-        }
-        let most = self.caps.plays_per_second;
-        if self.plays >= most {
-            return Err(format!(
-                "a plugin starts {most} sounds a second at most"
-            ));
-        }
-        self.plays += 1;
         let id = self.number();
         self.sounds.insert(id, clip);
         self.changes.push(AudioChange::Play {
@@ -286,9 +260,7 @@ mod tests {
 
     fn ledger() -> Ledger {
         let mut ledger = Ledger::new(AudioCaps {
-            clip_bytes: 4 * 1_000,
-            sounds: 2,
-            plays_per_second: 3,
+            clip_bytes: Some(4 * 1_000),
         });
         ledger.allowed = true;
         ledger
@@ -316,7 +288,7 @@ mod tests {
     }
 
     #[test]
-    fn the_guards_refuse_past_their_limits() {
+    fn the_audio_memory_switched_on_refuses_past_it() {
         let mut ledger = ledger();
         let made = ledger.make_clip(clip(600)).unwrap();
         assert!(ledger.make_clip(clip(500)).is_err());
@@ -327,15 +299,6 @@ mod tests {
         ledger.drop_clip(made);
         assert!(ledger.make_clip(clip(500)).is_err());
         ledger.ended([first]);
-        let other = ledger.make_clip(clip(500)).unwrap();
-
-        let second =
-            ledger.play(other, ONCE, Place::Unplaced).unwrap();
-        ledger.play(other, ONCE, Place::Unplaced).unwrap();
-        assert!(ledger.play(other, ONCE, Place::Unplaced).is_err());
-
-        // The fourth start in a second is refused, with room to play.
-        ledger.stop(second);
-        assert!(ledger.play(other, ONCE, Place::Unplaced).is_err());
+        assert!(ledger.make_clip(clip(500)).is_ok());
     }
 }

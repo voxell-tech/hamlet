@@ -17,7 +17,7 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use hamlet_engine_api::{Dependency, PluginId};
-use hamlet_engine_core::{Budgets, LogLine};
+use hamlet_engine_core::LogLine;
 use hamlet_engine_shell::StartRank;
 
 use crate::PluginInfo;
@@ -514,7 +514,6 @@ fn start_builtins(
     plugins: Query<(&PluginInfo, &EntryPoint)>,
     waiting: Query<(), (With<Starting>, Without<Blocked>)>,
     order: Res<StartOrder>,
-    budgets: Res<Budgets>,
     mut commands: Commands,
 ) {
     let ready = order.ready(
@@ -529,7 +528,7 @@ fn start_builtins(
         (point.0)(&mut entry);
         commands.entity(plugin).remove::<Starting>();
         let rank = order.rank(plugin, info);
-        commands.switch_on(plugin, info, &rank, entry, &budgets);
+        commands.switch_on(plugin, info, &rank, entry);
     }
 }
 

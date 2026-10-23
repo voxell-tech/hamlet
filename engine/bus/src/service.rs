@@ -1,10 +1,8 @@
 //! Services between plugins. A call is checked against the caller's
-//! manifest and grants, its depth in a chain and the caller's calls
-//! of the second, and the signature both sides name; then it is
+//! manifest and grants, and the signature both sides name; then it is
 //! handed to the plugin that serves it, and its result to the caller.
 
 use std::collections::HashMap;
-use std::time::Duration;
 
 use bevy::app::{App, PostUpdate};
 use bevy::ecs::entity::Entity;
@@ -13,11 +11,9 @@ use bevy::ecs::query::Has;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Local, Query, Res, ResMut};
-use bevy::time::{Real, Time};
 use hamlet_engine_api::{
     Capability, Failure, PluginId, Reply, Request, ServiceId, Ticket,
 };
-use hamlet_engine_core::Budgets;
 use hamlet_engine_grants::{
     Decided, FirstUse, Grants, Verdict, Waiting,
 };
@@ -51,13 +47,11 @@ pub struct Served {
     pub result: Result<Vec<u8>, Failure>,
 }
 
-/// The calls being served, and how many each caller made in its
-/// current second.
+/// The calls being served.
 #[derive(Resource, Default, Debug)]
 pub struct Calls {
     next: u64,
     open: HashMap<u64, Open>,
-    seconds: HashMap<Entity, Second>,
 }
 
 #[derive(Debug)]
@@ -68,37 +62,8 @@ struct Open {
     callee: Entity,
 }
 
-/// The calls one caller made in a second.
-#[derive(Clone, Copy, Default, PartialEq, Debug)]
-pub struct Second {
-    /// When it began, on the real clock.
-    pub since: Duration,
-    pub calls: u32,
-}
-
 impl Calls {
-    /// The calls `caller` made in the second that holds `now`.
-    pub fn second(
-        &mut self,
-        caller: Entity,
-        now: Duration,
-    ) -> Second {
-        let second = self.seconds.entry(caller).or_default();
-        if now.saturating_sub(second.since) >= Duration::from_secs(1)
-        {
-            *second = Second {
-                since: now,
-                ..Second::default()
-            };
-        }
-        *second
-    }
-
-    fn open(&mut self, now: Duration, open: Open) -> u64 {
-        self.second(open.caller, now);
-        if let Some(second) = self.seconds.get_mut(&open.caller) {
-            second.calls = second.calls.saturating_add(1);
-        }
+    fn open(&mut self, open: Open) -> u64 {
         self.next += 1;
         self.open.insert(self.next, open);
         self.next
@@ -109,9 +74,6 @@ impl Calls {
 pub struct Call<'a> {
     pub caller: &'a PluginInfo,
     pub service: &'a str,
-    pub depth: u32,
-    /// The calls the caller made this second.
-    pub spent: Second,
     /// Whether the person allowed this call just now.
     pub allowed: bool,
 }
@@ -132,7 +94,6 @@ impl Call<'_> {
         &self,
         plugins: impl Iterator<Item = (T, &'p PluginInfo, bool)>,
         grants: &Grants,
-        budgets: &Budgets,
     ) -> Result<Admitted<T>, Failure> {
         let caller = self.caller;
         let id = ServiceId::try_from(self.service)
@@ -152,18 +113,6 @@ impl Call<'_> {
             return Err(Failure::Refused(
                 "a plugin does not call itself".into(),
             ));
-        }
-        if self.depth > budgets.chain_depth {
-            return Err(Failure::OutOfBudget(format!(
-                "the chain crosses more than {} plugins",
-                budgets.chain_depth
-            )));
-        }
-        if self.spent.calls >= budgets.service_calls_per_second {
-            return Err(Failure::OutOfBudget(format!(
-                "{} calls a second, the most",
-                budgets.service_calls_per_second
-            )));
         }
         if !self.allowed {
             match grants.verdict(
@@ -221,17 +170,13 @@ fn call(
     mut decided: MessageReader<Decided>,
     plugins: Query<(Entity, &PluginInfo, Has<Enabled>, Has<Stopped>)>,
     grants: Res<Grants>,
-    budgets: Res<Budgets>,
-    time: Res<Time<Real>>,
     mut calls: ResMut<Calls>,
     mut parked: Local<Waiting<Asked>>,
     mut serve: MessageWriter<Serve>,
     mut deliver: MessageWriter<Deliver>,
     mut first_use: MessageWriter<FirstUse>,
 ) {
-    let now = time.elapsed();
     parked.keep(|plugin| plugins.contains(plugin));
-    calls.seconds.retain(|caller, _| plugins.contains(*caller));
     let mut again = Vec::new();
     for (waiting, allowed) in parked.settle(decided.read()) {
         if allowed {
@@ -257,15 +202,13 @@ fn call(
         let check = Call {
             caller,
             service,
-            depth: request.depth,
-            spent: calls.second(request.plugin, now),
             allowed,
         };
         let running =
             plugins.iter().map(|(plugin, info, on, stopped)| {
                 (plugin, info, on && !stopped)
             });
-        match check.admit(running, &grants, &budgets) {
+        match check.admit(running, &grants) {
             Ok(Admitted::To(callee, name)) => {
                 let open = Open {
                     caller: request.plugin,
@@ -274,7 +217,7 @@ fn call(
                     callee,
                 };
                 serve.write(Serve {
-                    call: calls.open(now, open),
+                    call: calls.open(open),
                     callee,
                     caller: caller.id.clone(),
                     service: name,

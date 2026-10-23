@@ -4,12 +4,11 @@ use hamlet_engine_api::{
     Ask, Capability, Failure, Manifest, PluginId, ServiceExport,
     ServiceId, ServiceImport, TypeName,
 };
-use hamlet_engine_core::tuning::Tuning;
-use hamlet_engine_core::{Budgets, Home};
+use hamlet_engine_core::Home;
 use hamlet_engine_grants::{Answer, Grants, Record};
 use hamlet_engine_plugins::{PluginInfo, PluginKind};
 
-use crate::{Admitted, Call, Second};
+use crate::{Admitted, Call};
 
 const WORDS: &str = "test.notes/words";
 
@@ -74,61 +73,24 @@ fn a_call_goes_through_only_within_its_rules() {
         record.set(Capability::ServiceCall, WORDS, answer);
         grants.set(&info.id, record).unwrap();
     }
-    let budgets = Budgets::designed();
-    let deep = budgets.chain_depth + 1;
-    let busy = Second {
-        calls: budgets.service_calls_per_second,
-        ..Second::default()
-    };
-
     let cases = [
-        ("one that agrees", &board, 1, true, None, "to"),
-        (
-            "a signature that differs",
-            &other,
-            1,
-            true,
-            None,
-            "mismatch",
-        ),
-        ("one not allowed", &stranger, 1, true, None, "refused"),
-        ("one too deep", &board, deep, true, None, "out_of_budget"),
-        (
-            "one to a plugin off",
-            &board,
-            1,
-            false,
-            None,
-            "no_implementer",
-        ),
-        (
-            "one past the calls of a second",
-            &board,
-            1,
-            true,
-            Some(busy),
-            "out_of_budget",
-        ),
+        ("one that agrees", &board, true, "to"),
+        ("a signature that differs", &other, true, "mismatch"),
+        ("one not allowed", &stranger, true, "refused"),
+        ("one to a plugin off", &board, false, "no_implementer"),
     ];
-    for (case, info, depth, running, spent, wanted) in cases {
+    for (case, info, running, wanted) in cases {
         let call = Call {
             caller: info,
             service: WORDS,
-            depth,
-            spent: spent.unwrap_or_default(),
             allowed: false,
         };
         let plugins = [(0_usize, &notes, running), (1, info, true)];
-        let got = match call.admit(
-            plugins.into_iter(),
-            &grants,
-            &budgets,
-        ) {
+        let got = match call.admit(plugins.into_iter(), &grants) {
             Ok(Admitted::To(0, name)) if name == "words" => "to",
             Ok(_) => "elsewhere",
             Err(Failure::Mismatch(_)) => "mismatch",
             Err(Failure::Refused(_)) => "refused",
-            Err(Failure::OutOfBudget(_)) => "out_of_budget",
             Err(Failure::NoImplementer) => "no_implementer",
             Err(_) => "failed",
         };

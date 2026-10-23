@@ -46,7 +46,7 @@ use bevy::shader::Shader;
 use wgpu::RenderPassTimestampWrites;
 
 use crate::compute::{RenderClock, param_bytes};
-use crate::guard::{Throttled, TimedSlots};
+use crate::guard::{Metered, Throttled, TimedSlots};
 use crate::shader::PARAMS;
 
 pub(crate) fn plugin(app: &mut App) {
@@ -195,6 +195,7 @@ fn run(
     pipeline_cache: Res<PipelineCache>,
     device: Res<RenderDevice>,
     throttled: Res<Throttled>,
+    metered: Res<Metered>,
     clock: Res<RenderClock>,
     time: Res<bevy::time::Time>,
     mut pipelines: ResMut<PassPipelines>,
@@ -205,12 +206,14 @@ fn run(
         .slot
         .filter(|_| clock.buffer.is_some())
         .zip(clock.set.as_ref());
-    // Untimed, it would escape its owner's GPU time: it waits for a
-    // slot, then keeps it while it lives. With a slot it runs every
-    // frame, untimed only while the clock's buffer is not yet made on
-    // the device.
+    // Untimed, a metered owner's pass would escape its GPU time: it
+    // waits for a slot, then keeps it while it lives. With a slot it
+    // runs every frame, untimed only while the clock's buffer is not
+    // yet made on the device.
     if throttled.0.contains(&pass.owner)
-        || (clock.set.is_some() && pass.slot.is_none())
+        || (clock.set.is_some()
+            && pass.slot.is_none()
+            && metered.0.contains_key(&pass.owner))
     {
         return;
     }

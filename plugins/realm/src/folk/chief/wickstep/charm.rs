@@ -160,7 +160,8 @@ impl Charm {
     }
 
     /// Plays the circles and the motes, and hides each at its end.
-    /// The ground under a circle is handed over as the call has room.
+    /// The ground under a circle is handed over as the frame has
+    /// time.
     pub fn play(
         &mut self,
         set: &ChiefSettings,

@@ -382,7 +382,7 @@ impl Hearth {
         out
     }
 
-    /// Builds what meshes the call has room for, a step at a time,
+    /// Builds what meshes the frame has time for, a step at a time,
     /// hands them over, and draws each with what it is for.
     fn hand_over(&mut self, ctx: &Ctx, draw: &mut Draw) {
         while draw.left() {

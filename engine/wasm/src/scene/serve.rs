@@ -3,7 +3,7 @@
 //! its ticks while it animates, and its changes made in the world.
 
 use std::collections::{HashMap, VecDeque};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use bevy::app::{App, Update};
 use bevy::ecs::component::Component;
@@ -15,7 +15,7 @@ use bevy::ecs::system::{Commands, Local, Query, Res};
 use bevy::ecs::world::World;
 use bevy::time::Time;
 use hamlet_engine_api::capability::GPU;
-use hamlet_engine_core::{Budgets, LogLine, PluginBudgets};
+use hamlet_engine_core::{ActiveLimits, Guards, LogLine};
 use hamlet_engine_grants::{Decided, FirstUse, Grants, Verdict};
 use hamlet_engine_plugins::{Asked, PluginInfo};
 use hamlet_engine_render::{
@@ -146,33 +146,22 @@ fn lose(
     }
 }
 
-/// Puts what the person did in a scene's views in its owner's inbox,
-/// a second's events at most.
+/// Puts what the person did in a scene's views in its owner's inbox.
 fn route(
     mut inputs: MessageReader<SceneInput>,
-    mut plugins: Query<
-        (Option<&mut SceneInbox>, &mut Spending),
-        With<Instance>,
-    >,
-    budgets: Res<Budgets>,
+    mut plugins: Query<Option<&mut SceneInbox>, With<Instance>>,
     mut commands: Commands,
 ) {
-    let most = budgets.events_per_second as usize;
     // The inboxes of plugins told of something for the first time.
     let mut first = HashMap::<Entity, VecDeque<SceneEvent>>::new();
     for input in inputs.read() {
-        let Ok((inbox, mut spending)) = plugins.get_mut(input.owner)
-        else {
+        let Ok(inbox) = plugins.get_mut(input.owner) else {
             continue;
         };
         let events = match inbox {
             Some(inbox) => &mut inbox.into_inner().0,
             None => first.entry(input.owner).or_default(),
         };
-        if events.len() >= most {
-            spending.dropped_events += 1;
-            continue;
-        }
         events.push_back(input.event.clone());
     }
     for (plugin, events) in first {
@@ -181,18 +170,18 @@ fn route(
 }
 
 /// Hands each plugin what the person did in its views, and a tick
-/// while it animates, within the frame's share and the budgets of
-/// the second. A plugin at fault is stopped.
+/// while it animates. Only a plugin past the CPU time a second the
+/// person set waits. A plugin at fault is stopped.
 fn play(
     mut plugins: Query<(
         Entity,
         &PluginInfo,
-        &PluginBudgets,
+        &ActiveLimits,
         &mut Instance,
         &mut Spending,
         Option<&mut SceneInbox>,
     )>,
-    budgets: Res<Budgets>,
+    guards: Res<Guards>,
     tuning: Res<WasmTuning>,
     time: Res<Time>,
     mut log: MessageWriter<LogLine>,
@@ -200,47 +189,37 @@ fn play(
     mut commands: Commands,
 ) {
     let micros = u32::try_from(time.delta().as_micros()).unwrap_or(0);
-    let mut left =
-        Duration::from_secs_f32(budgets.frame_share / 1000.0);
     for (plugin, info, limits, mut instance, mut spending, inbox) in
         &mut plugins
     {
-        let caps = Caps::of(limits, &budgets, &tuning);
+        let caps = Caps::of(&limits.0, &guards, &tuning);
         let mut calls = Vec::new();
         if let Some(mut inbox) = inbox
             && !inbox.0.is_empty()
-            && spending.may_call(&budgets, true)
+            && spending.may_call(limits)
         {
             let inputs = inbox
                 .0
                 .drain(..)
                 .map(convert::input)
                 .collect::<Vec<_>>();
-            calls.push((true, instance.scene_input(&caps, &inputs)));
+            calls.push(instance.scene_input(&caps, &inputs));
         }
-        if calls.iter().all(|(_, (done, _))| done.is_ok())
+        if calls.iter().all(|(done, _)| done.is_ok())
             && instance.scene().animate
-            && !left.is_zero()
-            && spending.may_call(&budgets, false)
+            && spending.may_call(limits)
         {
-            calls.push((false, instance.scene_tick(&caps, micros)));
+            calls.push(instance.scene_tick(&caps, micros));
         }
-        for (event, (done, spent)) in calls {
-            left = left.saturating_sub(spent.time);
+        for (done, spent) in calls {
             instance.settle(
                 &mut commands,
                 plugin,
                 &mut spending,
                 spent,
-                event,
                 &mut asked,
             );
-            instance.pass_logs(
-                info,
-                &mut spending,
-                &budgets,
-                &mut log,
-            );
+            instance.pass_logs(info, &mut log);
             if let Err(fault) = done {
                 commands.stop_plugin(&mut log, plugin, info, &fault);
                 break;
@@ -258,7 +237,6 @@ impl Instance {
         plugin: Entity,
         spending: &mut Spending,
         spent: Spent,
-        event: bool,
         asked: &mut MessageWriter<Asked>,
     ) {
         let changes = self.take_node_changes();
@@ -272,7 +250,7 @@ impl Instance {
             self.take_surface_changes(),
         );
         self.pass_requests(plugin, 0, asked);
-        spending.charge(spent, event);
+        spending.charge(spent);
     }
 }
 

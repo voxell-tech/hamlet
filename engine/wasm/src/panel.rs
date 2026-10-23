@@ -1,9 +1,8 @@
 //! Serving WASM plugins: what is in each one's inbox handed to it,
-//! frame by frame, within its budgets, and its panels and settings
+//! frame by frame, and its panels and settings
 //! pages marked as its, to be built node by node (`retained.rs`).
 
 use std::collections::VecDeque;
-use std::time::Duration;
 
 use bevy::app::{App, Update};
 use bevy::ecs::component::Component;
@@ -14,13 +13,13 @@ use bevy::ecs::observer::On;
 use bevy::ecs::query::{Changed, Has, With};
 use bevy::ecs::relationship::RelationshipTarget;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
+use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::time::Time;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{FrameProps, column, label};
 use hamlet_engine_api::Failure;
 use hamlet_engine_bus::{Serve, Served};
-use hamlet_engine_core::{Budgets, LogLine, PluginBudgets};
+use hamlet_engine_core::{ActiveLimits, Guards, LogLine};
 use hamlet_engine_plugins::{
     Asked, ContributedBy, Contributions, PluginInfo, Stopped,
 };
@@ -169,72 +168,52 @@ fn adopt_section(
     }
 }
 
-/// Gives the running plugins what is in their inboxes, and a frame
-/// to those whose views still move, within the frame's share and
-/// the budgets of the second. The plugin served longest ago
-/// goes first, and what is left waits for the next frame. A plugin
-/// at fault is stopped.
+/// Gives the running plugins all that is in their inboxes, and a
+/// frame to those whose views still move. Only a plugin past the CPU
+/// time a second the person set leaves work for the next second. A
+/// plugin at fault is stopped.
 pub(crate) fn serve(
     mut plugins: Query<(
         Entity,
         &PluginInfo,
-        &PluginBudgets,
+        &ActiveLimits,
         &mut Instance,
         &mut Inbox,
         &mut Spending,
         Has<Moving>,
     )>,
-    budgets: Res<Budgets>,
+    guards: Res<Guards>,
     tuning: Res<WasmTuning>,
     theme: Option<Res<EngineTheme>>,
     time: Res<Time>,
     mut stats: ResMut<NodeStats>,
-    mut frame: Local<u64>,
     mut log: MessageWriter<LogLine>,
     mut asked: MessageWriter<Asked>,
     mut served_calls: MessageWriter<Served>,
     mut commands: Commands,
 ) {
-    *frame += 1;
     let motions = theme.map_or([0.0; 2], |theme| {
         [theme.motion.interact, theme.motion.expand]
     });
     let micros = u32::try_from(time.delta().as_micros()).unwrap_or(0);
-    let mut left =
-        Duration::from_secs_f32(budgets.frame_share / 1000.0);
-    let mut order = plugins
-        .iter()
-        .map(|(plugin, .., spending, _)| (spending.served, plugin))
-        .collect::<Vec<_>>();
-    order.sort();
-    for (_, plugin) in order {
-        let Ok((
-            _,
-            info,
-            limits,
-            mut instance,
-            mut inbox,
-            mut spending,
-            was_moving,
-        )) = plugins.get_mut(plugin)
-        else {
-            continue;
-        };
-        let caps = Caps::of(limits, &budgets, &tuning);
+    for (
+        plugin,
+        info,
+        limits,
+        mut instance,
+        mut inbox,
+        mut spending,
+        was_moving,
+    ) in &mut plugins
+    {
+        let caps = Caps::of(&limits.0, &guards, &tuning);
         let mut fault = None;
-        let mut served = false;
         let mut moving = was_moving;
         let mut moved = false;
-        while let Some(work) = inbox.0.front() {
-            let event = matches!(work, Work::Node(..));
-            if left.is_zero() || !spending.may_call(&budgets, event) {
-                break;
-            }
+        while !inbox.0.is_empty() && spending.may_call(limits) {
             let Some(work) = inbox.0.pop_front() else {
                 break;
             };
-            // A service's caller pays for its call.
-            let mut paid = false;
             // A call of its views, which says whether they still
             // move.
             let mut viewed = None;
@@ -242,11 +221,10 @@ pub(crate) fn serve(
                 Work::Run(name) => (instance.run(&caps, &name), 0),
                 Work::Mail(message, depth) => {
                     let (messages, depth) =
-                        inbox.batch((message, depth), caps.bytes);
+                        inbox.batch((message, depth));
                     (instance.receive(&caps, &messages), depth)
                 }
                 Work::Serve(call) => {
-                    paid = true;
                     let (done, spent) = instance.serve_call(
                         &caps,
                         &call,
@@ -308,12 +286,7 @@ pub(crate) fn serve(
                 }
             };
             instance.pass_requests(plugin, depth, &mut asked);
-            spending.charge(
-                if paid { Spent::default() } else { spent },
-                event,
-            );
-            left = left.saturating_sub(spent.time);
-            served = true;
+            spending.charge(spent);
             if let Err(why) = done {
                 fault = Some(why);
                 break;
@@ -324,8 +297,7 @@ pub(crate) fn serve(
         if was_moving
             && !moved
             && fault.is_none()
-            && !left.is_zero()
-            && spending.may_call(&budgets, false)
+            && spending.may_call(limits)
         {
             let (done, spent) = instance.frame(&caps, micros);
             let changes = instance.take_node_changes();
@@ -335,9 +307,7 @@ pub(crate) fn serve(
                 instance.take_surface_changes(),
             );
             stats.count(&spent);
-            spending.charge(spent, false);
-            left = left.saturating_sub(spent.time);
-            served = true;
+            spending.charge(spent);
             match done {
                 Ok(now) => moving = now,
                 Err(why) => fault = Some(why),
@@ -350,10 +320,7 @@ pub(crate) fn serve(
                 commands.entity(plugin).remove::<Moving>();
             }
         }
-        instance.pass_logs(info, &mut spending, &budgets, &mut log);
-        if served {
-            spending.served = *frame;
-        }
+        instance.pass_logs(info, &mut log);
         if let Some(fault) = fault {
             commands.stop_plugin(&mut log, plugin, info, &fault);
         }
@@ -361,8 +328,8 @@ pub(crate) fn serve(
 }
 
 impl Instance {
-    /// Serves `call` and says what became of it. A plugin past its
-    /// time for the call leaves the caller out of budget.
+    /// Serves `call` and says what became of it. A plugin past the
+    /// call time the person set leaves the caller out of budget.
     fn serve_call(
         &mut self,
         caps: &Caps,

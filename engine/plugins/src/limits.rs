@@ -1,8 +1,8 @@
-//! The limits each plugin's instance is held to, [`PluginBudgets`] on
-//! its entity: the person's value, else the plugin's ask, else the
-//! engine's. The person's values are kept in `plugin_limits.toml` in
-//! the home, written whole or not at all; a file that cannot be read
-//! is never written over.
+//! The limits the person switched on for each plugin,
+//! [`ActiveLimits`] on its entity; none until they do. What they set
+//! is kept in `plugin_limits.toml` in the home, each limit on or off
+//! with its value, written whole or not at all; a file that cannot be
+//! read is never written over.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -16,10 +16,8 @@ use bevy::ecs::message::MessageWriter;
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
-use hamlet_engine_api::{Limits, PluginId};
-use hamlet_engine_core::{
-    DefaultLimits, Home, LogLine, PluginBudgets, write_whole,
-};
+use hamlet_engine_api::{Limit, LimitKind, Limits, PluginId};
+use hamlet_engine_core::{ActiveLimits, Home, LogLine, write_whole};
 use serde::{Deserialize, Serialize};
 
 use crate::list::Uninstall;
@@ -66,9 +64,10 @@ impl ChosenLimits {
                 .map_err(|e| e.message().to_owned())
                 .and_then(|file| {
                     for (id, limits) in &file.plugins {
-                        limits.check().map_err(|limit| {
+                        limits.check().map_err(|kind| {
                             format!(
-                                "{limit} of {id} is not above zero"
+                                "{} of {id} is not above zero",
+                                kind.name()
                             )
                         })?;
                     }
@@ -99,22 +98,26 @@ impl ChosenLimits {
         self.plugins.get(id)
     }
 
-    /// Sets the memory of the plugin `id` to `bytes`, or back to what
-    /// it would be without the person for `None`, and writes the
-    /// file. Zero bytes are refused.
-    pub fn set_memory(
+    /// Sets the limit `kind` of the plugin `id`, or forgets it for
+    /// `None`, and writes the file. A value of zero is refused.
+    pub fn set(
         &mut self,
         id: &PluginId,
-        bytes: Option<u64>,
+        kind: LimitKind,
+        limit: Option<Limit>,
     ) -> Result<(), String> {
-        if bytes == Some(0) {
-            return Err("memory must be above zero".into());
+        if limit.is_some_and(|limit| limit.value == 0) {
+            return Err(format!(
+                "{} must be above zero",
+                kind.name()
+            ));
         }
-        let limits = Limits { memory: bytes };
-        if self.plugins.get(id).cloned().unwrap_or_default() == limits
-        {
+        let mut limits =
+            self.plugins.get(id).cloned().unwrap_or_default();
+        if limits.get(kind) == limit {
             return Ok(());
         }
+        limits.set(kind, limit);
         if limits.is_empty() {
             self.plugins.remove(id);
         } else {
@@ -130,6 +133,13 @@ impl ChosenLimits {
             return Ok(());
         }
         self.save()
+    }
+
+    /// The limits switched on for the plugin `id`.
+    fn active(&self, id: &PluginId) -> ActiveLimits {
+        ActiveLimits(
+            self.get(id).map(Limits::in_force).unwrap_or_default(),
+        )
     }
 
     fn save(&self) -> Result<(), String> {
@@ -152,7 +162,6 @@ impl ChosenLimits {
 fn resolve(
     inserted: On<Insert, PluginInfo>,
     plugins: Query<&PluginInfo>,
-    defaults: Res<DefaultLimits>,
     chosen: Res<ChosenLimits>,
     mut commands: Commands,
 ) {
@@ -161,32 +170,22 @@ fn resolve(
     };
     commands
         .entity(inserted.entity)
-        .insert(PluginBudgets::resolve(
-            &defaults,
-            &info.limits,
-            chosen.get(&info.id),
-        ));
+        .insert(chosen.active(&info.id));
 }
 
-/// Gives every plugin its limits again when the engine's or the
-/// person's change.
+/// Gives every plugin its limits again when the person's change.
 fn follow(
-    plugins: Query<(Entity, &PluginInfo, Option<&PluginBudgets>)>,
-    defaults: Res<DefaultLimits>,
+    plugins: Query<(Entity, &PluginInfo, Option<&ActiveLimits>)>,
     chosen: Res<ChosenLimits>,
     mut commands: Commands,
 ) {
-    if !defaults.is_changed() && !chosen.is_changed() {
+    if !chosen.is_changed() {
         return;
     }
     for (plugin, info, now) in &plugins {
-        let budgets = PluginBudgets::resolve(
-            &defaults,
-            &info.limits,
-            chosen.get(&info.id),
-        );
-        if now != Some(&budgets) {
-            commands.entity(plugin).insert(budgets);
+        let active = chosen.active(&info.id);
+        if now != Some(&active) {
+            commands.entity(plugin).insert(active);
         }
     }
 }
@@ -238,25 +237,46 @@ mod tests {
         let home = Home::at(&root);
         let id = PluginId::try_from("hamlet.realm").unwrap();
 
-        ChosenLimits::open(&home)
-            .set_memory(&id, Some(3_000_000_000))
+        assert_eq!(
+            ChosenLimits::open(&home).active(&id).0.memory,
+            None
+        );
+        let off = Limit {
+            on: false,
+            value: 3_000_000_000,
+        };
+        let mut chosen = ChosenLimits::open(&home);
+        chosen.set(&id, LimitKind::Memory, Some(off)).unwrap();
+        chosen
+            .set(
+                &id,
+                LimitKind::CallTime,
+                Some(Limit {
+                    on: true,
+                    value: 20,
+                }),
+            )
             .unwrap();
         let again = ChosenLimits::open(&home);
         assert_eq!(again.held(), None);
+        let active = again.active(&id).0;
         assert_eq!(
-            again.get(&id).and_then(|l| l.memory),
-            Some(3_000_000_000)
+            (active.memory, active.call_time),
+            (None, Some(20))
         );
+        assert_eq!(again.get(&id).and_then(|l| l.memory), Some(off));
 
         for broken in [
             "[plugins.\"hamlet.realm\"]\nmemory = lots\n",
-            "[plugins.\"hamlet.realm\"]\nmemory = 0\n",
-            "[plugins.\"hamlet.realm\"]\ncall_time = 20.0\n",
+            "[plugins.\"hamlet.realm\"]\nmemory = { on = true, \
+             value = 0 }\n",
+            "[plugins.\"hamlet.realm\"]\nnodes = { on = true, value \
+             = 2 }\n",
         ] {
             fs::write(home.path(FILE), broken).unwrap();
             let mut chosen = ChosenLimits::open(&home);
             assert!(chosen.held().is_some(), "{broken}");
-            chosen.set_memory(&id, Some(1)).unwrap();
+            chosen.set(&id, LimitKind::Memory, Some(off)).unwrap();
             chosen.forget(&id).unwrap();
             assert_eq!(
                 fs::read_to_string(home.path(FILE)).unwrap(),

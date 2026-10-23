@@ -54,9 +54,7 @@ pub struct Sound {
 }
 
 impl Sound {
-    /// The clip of `samples`, or why the engine refused it. One
-    /// call hands over `[budgets] bytes_per_call` at most, four a
-    /// sample.
+    /// The clip of `samples`, or why the engine refused it.
     pub fn new(
         samples: &[f32],
         channels: u8,

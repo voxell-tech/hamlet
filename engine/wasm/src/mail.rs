@@ -3,18 +3,13 @@
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::message::{MessageReader, MessageWriter};
-use bevy::ecs::system::{Query, Res};
+use bevy::ecs::system::Query;
 use hamlet_engine_api::{Failure, Message, encode};
 use hamlet_engine_bus::{Serve, Served};
-use hamlet_engine_core::Budgets;
 use hamlet_engine_plugins::{Asked, Deliver};
 
-use crate::budget::Spending;
 use crate::instance::Instance;
 use crate::panel::{Inbox, Work};
-
-/// The bytes a batch keeps aside for the length of its list.
-const LIST: usize = 16;
 
 impl Instance {
     /// Passes on what the plugin `plugin` asked for in its last call,
@@ -30,39 +25,34 @@ impl Instance {
                 plugin,
                 ticket,
                 request,
-                depth: depth + 1,
+                depth: depth.saturating_add(1),
             });
         }
     }
 }
 
-/// Puts each message and call for a running plugin in its inbox. An
-/// inbox holds a second's events at most; the rest are left out, and
-/// a call left out leaves its caller out of budget.
+/// Puts each message and call for a running plugin in its inbox. A
+/// call of a plugin that does not run fails.
 pub(crate) fn deliver(
     mut delivered: MessageReader<Deliver>,
     mut calls: MessageReader<Serve>,
-    mut inboxes: Query<(&mut Inbox, &mut Spending)>,
-    budgets: Res<Budgets>,
+    mut inboxes: Query<&mut Inbox>,
     mut served: MessageWriter<Served>,
 ) {
     for call in calls.read() {
-        let taken = inboxes.get_mut(call.callee).is_ok_and(
-            |(mut inbox, mut spending)| {
-                inbox.offer(
-                    Work::Serve(call.clone()),
-                    &mut spending,
-                    &budgets,
-                )
-            },
-        );
-        if !taken {
-            served.write(Served {
-                call: call.call,
-                result: Err(Failure::OutOfBudget(
-                    "the plugin that serves it is busy".into(),
-                )),
-            });
+        match inboxes.get_mut(call.callee) {
+            Ok(mut inbox) => {
+                inbox.0.push_back(Work::Serve(call.clone()));
+            }
+            Err(_) => {
+                served.write(Served {
+                    call: call.call,
+                    result: Err(Failure::Failed(
+                        "the plugin that serves it is not running"
+                            .into(),
+                    )),
+                });
+            }
         }
     }
     for Deliver {
@@ -71,74 +61,25 @@ pub(crate) fn deliver(
         depth,
     } in delivered.read()
     {
-        if let Ok((mut inbox, mut spending)) =
-            inboxes.get_mut(*plugin)
-        {
-            inbox.offer(
-                Work::Mail(message.clone(), *depth),
-                &mut spending,
-                &budgets,
-            );
+        if let Ok(mut inbox) = inboxes.get_mut(*plugin) {
+            inbox.0.push_back(Work::Mail(message.clone(), *depth));
         }
     }
 }
 
 impl Inbox {
-    /// Puts `work` last, unless the inbox holds a second's events
-    /// already and it is counted as left out: whether it was put in.
-    pub(crate) fn offer(
-        &mut self,
-        work: Work,
-        spending: &mut Spending,
-        budgets: &Budgets,
-    ) -> bool {
-        if self.0.len() >= budgets.events_per_second as usize {
-            spending.dropped_events += 1;
-            return false;
-        }
-        self.0.push_back(work);
-        true
-    }
-
-    /// The bytes of `first` and the messages after it here, as many
-    /// as fit in `most` bytes, and the deepest of them. A reply too
-    /// large to hand over at all is handed over as a failure.
+    /// The bytes of `first` and every message right after it here,
+    /// and the deepest of them.
     pub(crate) fn batch(
         &mut self,
         first: (Message, u32),
-        most: usize,
     ) -> (Vec<u8>, u32) {
-        let room = most.saturating_sub(LIST);
-        let (mut messages, mut depth) = (Vec::new(), 0);
-        let mut used = 0_usize;
-        let mut next = Some(first);
-        while let Some((message, at)) = next.take() {
-            let size = encode(&message)
-                .map_or(usize::MAX, |bytes| bytes.len());
-            if used.saturating_add(size) <= room {
-                used += size;
+        let (mut messages, mut depth) = (vec![first.0], first.1);
+        while let Some(Work::Mail(..)) = self.0.front() {
+            if let Some(Work::Mail(message, at)) = self.0.pop_front()
+            {
                 messages.push(message);
                 depth = depth.max(at);
-            } else if messages.is_empty() {
-                if let Message::Reply { ticket, .. } = message {
-                    messages.push(Message::Reply {
-                        ticket,
-                        reply: Err(Failure::Failed(
-                            "the reply is too large to hand over"
-                                .into(),
-                        )),
-                    });
-                    depth = depth.max(at);
-                }
-            } else {
-                self.0.push_front(Work::Mail(message, at));
-                break;
-            }
-            if let Some(Work::Mail(..)) = self.0.front()
-                && let Some(Work::Mail(message, at)) =
-                    self.0.pop_front()
-            {
-                next = Some((message, at));
             }
         }
         (encode(&messages).unwrap_or_default(), depth)

@@ -12,7 +12,7 @@ use bevy::ecs::query::{Has, With};
 use bevy::ecs::system::{Commands, Query};
 use bevy::ecs::world::World;
 use hamlet_engine_api::Manifest;
-use hamlet_engine_core::{Budgets, LogLine};
+use hamlet_engine_core::LogLine;
 use hamlet_engine_shell::StartRank;
 
 use crate::entry::{Entry, EntryPoint};
@@ -108,15 +108,14 @@ pub trait PluginCommandsExt {
     ) -> Option<Entity>;
 
     /// Adds what `entry` declares, linked to `plugin` at its `rank`,
-    /// within `budgets`, and marks the plugin [`Enabled`]. What is
-    /// left out is told in the log.
+    /// and marks the plugin [`Enabled`]. What is left out is told in
+    /// the log.
     fn switch_on(
         &mut self,
         plugin: Entity,
         info: &PluginInfo,
         rank: &StartRank,
         entry: Entry,
-        budgets: &Budgets,
     );
 }
 
@@ -160,10 +159,8 @@ impl PluginCommandsExt for Commands<'_, '_> {
         info: &PluginInfo,
         rank: &StartRank,
         entry: Entry,
-        budgets: &Budgets,
     ) {
-        for why in entry.spawn(plugin, &info.id, rank, budgets, self)
-        {
+        for why in entry.spawn(plugin, &info.id, rank, self) {
             self.write_message(LogLine::warn(info.id.as_str(), why));
         }
         self.entity(plugin).insert(Enabled);

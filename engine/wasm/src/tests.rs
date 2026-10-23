@@ -14,25 +14,25 @@ use hamlet_engine_api::{
     API_VERSION, Capability, PluginId, PluginLimits,
 };
 use hamlet_engine_core::tuning::Tuning;
-use hamlet_engine_core::{Budgets, Bundle, Home, LogLevel};
-use hamlet_engine_grants::{
-    Admitted, Answer, Grants, Petition, Record,
-};
-use hamlet_engine_plugins::{Stopped, Uninstall};
+use hamlet_engine_core::{Bundle, Guards, Home, LogLevel};
+use hamlet_engine_grants::{Admitted, Answer, Grants, Petition};
+use hamlet_engine_plugins::Uninstall;
 use wasmtime::component::Resource;
 use wit_component::{ComponentEncoder, StringEncoding};
 use wit_parser::Resolve;
 
 use crate::add::check;
 use crate::budget::Spending;
+use crate::compiled;
 use crate::folder::{FOLDER, MANIFEST, WASM};
 use crate::host::{Host, WasmTuning};
 use crate::instance::ui_bindings::hamlet::engine::ui::{
     HostNode, Kind, Property,
 };
-use crate::instance::{Caps, Fault, Instance, State, link};
+use crate::instance::{
+    Caps, Fault, Instance, State, link, link_compiled,
+};
 use crate::nodes::NodeError;
-use crate::panel::{Inbox, Work};
 
 /// What `run` does in a test plugin that counts its runs.
 const COUNT: &str =
@@ -155,31 +155,25 @@ fn component(text: &str, wasi: bool) -> Vec<u8> {
         .expect("the component encodes")
 }
 
-/// The limits of the tests: a plugin of four pages of memory.
-const LIMITS: PluginLimits = PluginLimits { memory: 4 * 65_536 };
-
-/// The budgets of the tests: a kilobyte handed over a call.
-fn budgets() -> Budgets {
-    Budgets {
-        bytes_per_call: 1_024,
-        ..Budgets::designed()
+/// A plugin of four pages of memory, as the person may switch on.
+fn small() -> PluginLimits {
+    PluginLimits {
+        memory: Some(4 * 65_536),
+        ..PluginLimits::default()
     }
 }
 
-/// The plugin `component`, started within `limits` and `budgets`,
+/// The plugin `component`, started within `limits` and the guards,
 /// with its caps.
 fn start(
     component: &[u8],
     limits: &PluginLimits,
-    budgets: &Budgets,
+    guards: &Guards,
 ) -> (Instance, Caps) {
-    let tuning = WasmTuning {
-        plugins: 1,
-        ..WasmTuning::designed()
-    };
+    let tuning = WasmTuning::designed();
     let host = Host::new(&tuning).expect("the host starts");
     let linked = link(&host.0, component).expect("the plugin links");
-    let caps = Caps::of(limits, budgets, &tuning);
+    let caps = Caps::of(limits, guards, &tuning);
     let instance = Instance::new(&host.0, &linked, &caps)
         .expect("the plugin starts");
     (instance, caps)
@@ -191,12 +185,16 @@ fn declaring(declare: &str) -> Vec<u8> {
 }
 
 #[test]
-fn nodes_are_held_to_their_budgets_and_kinds() {
-    let caps = Caps {
-        node_changes: 6,
+fn nodes_are_held_to_their_kinds_and_depth() {
+    let guards = Guards {
         node_depth: 1,
-        ..Caps::of(&LIMITS, &budgets(), &WasmTuning::designed())
+        ..Guards::designed()
     };
+    let caps = Caps::of(
+        &PluginLimits::default(),
+        &guards,
+        &WasmTuning::designed(),
+    );
     let mut state = State::new(&caps);
     let root = state.nodes.root().rep();
     let make = |state: &mut State, kind, parent: u32| {
@@ -206,10 +204,11 @@ fn nodes_are_held_to_their_budgets_and_kinds() {
     let set = |state: &mut State, node: u32, value| {
         HostNode::set(state, Resource::new_borrow(node), value, None)
     };
-    let refused = |error: wasmtime::Error| match Fault::of(error) {
-        Fault::Node(why) => why,
-        fault => panic!("{fault}"),
-    };
+    let refused =
+        |error: wasmtime::Error| match Fault::of(error, &caps) {
+            Fault::Node(why) => why,
+            fault => panic!("{fault}"),
+        };
 
     let label = make(&mut state, Kind::Label, root).unwrap();
     let under_label = make(&mut state, Kind::Label, label);
@@ -220,97 +219,53 @@ fn nodes_are_held_to_their_budgets_and_kinds() {
     let frame = make(&mut state, Kind::Frame, root).unwrap();
     let deep = make(&mut state, Kind::Label, frame);
     assert_eq!(refused(deep.unwrap_err()), NodeError::Depth);
-    assert!(set(&mut state, label, Property::Bold(true)).is_ok());
-    let past = set(&mut state, label, Property::Bold(false));
-    assert_eq!(refused(past.unwrap_err()), NodeError::Changes);
 }
 
 #[test]
-fn a_call_hands_over_its_bytes_in_all() {
-    let caps = Caps::of(&LIMITS, &budgets(), &WasmTuning::designed());
-    let mut state = State::new(&caps);
-    let root = state.nodes.root().rep();
-    let label = HostNode::new(
-        &mut state,
-        Kind::Label,
-        Resource::new_borrow(root),
-        0,
-    )
-    .unwrap()
-    .rep();
-    let mut set = || {
-        HostNode::set(
-            &mut state,
-            Resource::new_borrow(label),
-            Property::Text("a".repeat(600)),
-            None,
-        )
+fn a_limit_holds_only_once_switched_on_and_a_hang_is_stopped() {
+    let guards = Guards {
+        hung: 0.05,
+        ..Guards::designed()
     };
-    assert!(set().is_ok());
-    assert_eq!(Fault::of(set().unwrap_err()), Fault::Bytes);
-}
-
-#[test]
-fn hostile_plugins_are_held_to_their_budgets() {
-    let (mut instance, caps) =
-        start(&declaring("(i32.const 0)"), &LIMITS, &budgets());
-    assert_eq!(instance.declare(&caps).0, Ok(Vec::new()));
-
+    let none = PluginLimits::default();
+    let timed = PluginLimits {
+        call_time: Some(1),
+        ..PluginLimits::default()
+    };
+    // Two memories, each within four pages and together past them.
+    let grow =
+        "(drop (memory.grow $more (i32.const 3))) (i32.const 0)";
     let endless = "(loop $again (br $again)) (i32.const 0)";
-    let cases: [(&str, fn(&mut Budgets), Fault); 4] = [
-        // A list twice as long as a call may hand over.
-        (
-            "(i32.store (i32.const 4) (i32.const 2048)) (i32.const \
-             0)",
-            |_| {},
-            Fault::Bytes,
-        ),
-        // A line of the log as long.
-        (
-            "(call $log (i32.const 0) (i32.const 0) (i32.const \
-             2048))
-             (i32.const 0)",
-            |_| {},
-            Fault::Bytes,
-        ),
-        // Two memories, each within the budget and together past it.
-        (
-            "(drop (memory.grow $more (i32.const 3))) (i32.const 0)",
-            |_| {},
-            Fault::Memory,
-        ),
-        (endless, |budgets| budgets.call_time = 1.0, Fault::Time),
+    let cases = [
+        (grow, small(), Err(Fault::Memory)),
+        (grow, none, Ok(Vec::new())),
+        (endless, timed, Err(Fault::Time)),
+        (endless, none, Err(Fault::Hung(0))),
     ];
-    for (declare, adjust, fault) in cases {
-        let mut budgets = budgets();
-        adjust(&mut budgets);
+    for (declare, limits, wanted) in cases {
         let (mut instance, caps) =
-            start(&declaring(declare), &LIMITS, &budgets);
-        assert_eq!(
-            instance.declare(&caps).0,
-            Err(fault),
-            "{declare}"
-        );
+            start(&declaring(declare), &limits, &guards);
+        assert_eq!(instance.declare(&caps).0, wanted, "{declare}");
     }
 }
 
 #[test]
-fn the_largest_limits_and_budgets_are_taken() {
-    let limits = PluginLimits { memory: u64::MAX };
-    let budgets = Budgets {
-        call_time: f32::MAX,
-        log_lines_per_second: u32::MAX,
-        bytes_per_call: u64::MAX,
-        node_changes_per_call: usize::MAX,
-        ..budgets()
+fn the_largest_limits_are_taken() {
+    let limits = PluginLimits {
+        memory: Some(u64::MAX),
+        call_time: Some(u64::MAX),
+        ..PluginLimits::default()
     };
-    let (mut instance, caps) =
-        start(&declaring("(i32.const 0)"), &limits, &budgets);
+    let (mut instance, caps) = start(
+        &declaring("(i32.const 0)"),
+        &limits,
+        &Guards::designed(),
+    );
     assert_eq!(instance.declare(&caps).0, Ok(Vec::new()));
 }
 
 #[test]
-fn a_plugin_has_the_system_and_its_prints_are_cut() {
+fn a_plugin_has_the_system_and_its_waits_end_with_the_call() {
     let imports = r#"(module
   (import "wasi:clocks/monotonic-clock@0.2.0" "now" (func $now (result i64)))
   (import "wasi:clocks/monotonic-clock@0.2.0" "subscribe-duration" (func $sleep (param i64) (result i32)))
@@ -337,20 +292,18 @@ fn a_plugin_has_the_system_and_its_prints_are_cut() {
     // Running, it sleeps for a thousand seconds.
     let run = "(call $block (call $sleep (i64.const 1000000000000)))";
     let text = module(declare, run).replacen("(module", imports, 1);
-    let (mut instance, caps) = start(
-        &component(&text, true),
-        &LIMITS,
-        &Budgets {
-            call_time: 20.0,
-            ..Budgets::designed()
-        },
-    );
+    let timed = PluginLimits {
+        call_time: Some(20),
+        ..small()
+    };
+    let (mut instance, caps) =
+        start(&component(&text, true), &timed, &Guards::designed());
 
     assert_eq!(instance.declare(&caps).0, Ok(Vec::new()));
     let logs = instance.take_logs();
-    assert_eq!(logs.len(), caps.lines);
+    assert_eq!(logs.len(), 200);
     assert!(logs.iter().all(|(level, text)| {
-        *level == LogLevel::Info && text.len() == caps.line_bytes
+        *level == LogLevel::Info && text.len() == 1999
     }));
 
     // The sleep ends with the call's time.
@@ -360,61 +313,12 @@ fn a_plugin_has_the_system_and_its_prints_are_cut() {
 }
 
 #[test]
-fn a_plugin_over_its_budgets_waits_then_is_stopped() {
-    // It is asked to run each frame, past its calls of a second.
-    let root = home("over");
-    install(
-        &root,
-        &format!(
-            "id = \"test.over\"\nname = \"Over\"\nversion = \
-             \"0.1.0\"\napi = \"{API_VERSION}\"\n"
-        ),
-        &component(&module("(i32.const 32)", ""), false),
-    );
-    let mut app = engine(&root);
-    app.insert_resource(Budgets {
-        strikes: 1,
-        calls_per_second: 2,
-        ..Budgets::designed()
-    });
-    let record = Record {
-        allowed: true,
-        version: "0.1.0".into(),
-        bundled: false,
-        answers: Vec::new(),
-    };
-    let id = PluginId::try_from("test.over").unwrap();
-    app.world_mut()
-        .resource_mut::<Grants>()
-        .set(&id, record)
-        .unwrap();
-    let stopped = (0..500).find_map(|_| {
-        app.update();
-        std::thread::sleep(Duration::from_millis(10));
-        let world = app.world_mut();
-        for mut inbox in world.query::<&mut Inbox>().iter_mut(world) {
-            inbox.0.push_back(Work::Run("p".into()));
-        }
-        world.query::<&Stopped>().iter(world).next().cloned()
-    });
-    let Some(Stopped(why)) = stopped else {
-        panic!("the plugin was never stopped");
-    };
-    assert_eq!(why, Fault::Over(1).to_string());
-    let _ = fs::remove_dir_all(&root);
-}
-
-#[test]
 fn a_reloaded_plugin_keeps_its_state() {
-    let budgets = budgets();
-    let tuning = WasmTuning {
-        plugins: 1,
-        ..WasmTuning::designed()
-    };
+    let tuning = WasmTuning::designed();
     let host = Host::new(&tuning).expect("the host starts");
     let plugin = declaring("(i32.const 0)");
     let linked = link(&host.0, &plugin).expect("the plugin links");
-    let caps = Caps::of(&LIMITS, &budgets, &tuning);
+    let caps = Caps::of(&small(), &Guards::designed(), &tuning);
     let mut old = Instance::new(&host.0, &linked, &caps)
         .expect("the plugin starts");
     for _ in 0..3 {
@@ -426,6 +330,36 @@ fn a_reloaded_plugin_keeps_its_state() {
         .expect("it reloads");
     assert_eq!(declared, Vec::new());
     assert_eq!(fresh.save(&caps).0, Ok(3_u32.to_le_bytes().to_vec()));
+}
+
+#[test]
+fn a_kept_component_is_one_of_its_bytes_or_compiled_again() {
+    let tuning = WasmTuning::designed();
+    let host = Host::new(&tuning).expect("the host starts");
+    let kept = home("kept_compiled");
+    let caps = Caps::of(&small(), &Guards::designed(), &tuning);
+    let runs = |plugin: &[u8]| {
+        let component = compiled::component(&host.0, plugin, &kept)
+            .expect("it compiles");
+        let linked =
+            link_compiled(&host.0, &component).expect("it links");
+        let mut instance = Instance::new(&host.0, &linked, &caps)
+            .expect("it starts");
+        instance.run(&caps, "count").0
+    };
+    let files = || fs::read_dir(&kept).expect("it is kept").count();
+    let plugin = declaring("(i32.const 0)");
+    assert_eq!(runs(&plugin), Ok(()));
+    assert_eq!(runs(&plugin), Ok(()));
+    assert_eq!(files(), 1);
+    for entry in fs::read_dir(&kept).expect("it is kept").flatten() {
+        fs::write(entry.path(), b"spoiled").expect("it is spoiled");
+    }
+    assert_eq!(runs(&plugin), Ok(()));
+    let other = declaring("(i32.const 1)");
+    assert_eq!(runs(&other), Ok(()));
+    assert_eq!(files(), 1);
+    let _ = fs::remove_dir_all(&kept);
 }
 
 #[test]
@@ -492,6 +426,8 @@ enum Made {
     Source,
     /// Asking for keys.
     Never,
+    /// Asking for limits of its own.
+    Limits,
 }
 
 #[test]
@@ -514,6 +450,7 @@ fn only_the_folder_of_a_built_plugin_is_added() {
         (Made::InHome, "the folder is in the engine's home"),
         (Made::Source, "it has no plugin.wasm"),
         (Made::Never, "keys.read, and reading keys is never granted"),
+        (Made::Limits, "only the person sets a plugin's limits"),
     ];
     if cfg!(unix) {
         cases.push((Made::Linked, "plugin.wasm is a link"));
@@ -531,6 +468,7 @@ fn only_the_folder_of_a_built_plugin_is_added() {
                 "[[asks]]\ncapability = \"keys.read\"\ntarget = \
                  \"all\"\nreason = \"To sign\"\n"
             }
+            Made::Limits => "[limits]\nmemory = 65536\n",
             _ => "",
         };
         fs::write(
@@ -602,14 +540,6 @@ fn home(name: &str) -> PathBuf {
     ));
     let _ = fs::remove_dir_all(&root);
     root
-}
-
-/// Installs the plugin of `manifest` and `wasm` in the home `root`.
-fn install(root: &Path, manifest: &str, wasm: &[u8]) {
-    let folder = root.join(FOLDER).join("plugin");
-    fs::create_dir_all(&folder).unwrap();
-    fs::write(folder.join(MANIFEST), manifest).unwrap();
-    fs::write(folder.join(WASM), wasm).unwrap();
 }
 
 /// The engine without a window, on the home `root`.

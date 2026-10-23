@@ -15,17 +15,9 @@ license = "MIT OR Apache-2.0"
 hamlet_engine_bevy = { path = "../engine/bevy_sdk" }
 serde = { version = "1.0.229", features = ["derive"] }
 
-# Small builds: a plugin is loaded and compiled at start. "z" takes a
-# fifth off a plugin built with Bevy. The crates plugins share stay at
-# one level, as one built at another grows every plugin it is in.
+# Built for speed, every plugin and every crate in it alike.
 [profile.release]
-opt-level = "z"
+opt-level = 3
 lto = true
 codegen-units = 1
 strip = true
-
-# The realm builds its meshes within a few milliseconds a frame, and
-# at "s" they go up about twice as fast as at "z". Its own crate alone
-# is built so.
-[profile.release.package.realm]
-opt-level = "s"

@@ -1,8 +1,10 @@
-//! What plugins' own GPU work may spend: the GPU's time of each
-//! plugin's compute and passes, timed with timestamp queries where
-//! the device has them, its work held back as a whole once it is
-//! over, until its scene is made again; and a failing device rebuilt,
-//! with the plugins whose work was on it stopped.
+//! What keeps plugins' own GPU work from failing the device: the
+//! device's own sizes, and a failing device rebuilt, with the plugins
+//! whose work was on it stopped. For a plugin the person gave a GPU
+//! time a second, its compute and passes are timed with timestamp
+//! queries where the device has them, and held back as a whole once
+//! over, until its scene is made again. Work of any other plugin is
+//! not timed, and nothing holds it back.
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
@@ -12,6 +14,7 @@ use bevy::asset::{Assets, Handle, RenderAssetUsages};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::message::{Message, MessageWriter};
 use bevy::ecs::observer::On;
+use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_exists_and_changed;
@@ -35,7 +38,7 @@ use bevy::render::settings::{RenderCreation, WgpuSettings};
 use bevy::render::storage::ShaderBuffer;
 use bevy::render::view::Msaa;
 use bevy::time::{Real, Time};
-use hamlet_engine_core::{Budgets, LogLine};
+use hamlet_engine_core::{ActiveLimits, LogLine};
 use wgpu::{Backend, Limits};
 
 use crate::compute::ComputeJob;
@@ -47,23 +50,26 @@ pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<GpuInfo>()
         .init_resource::<TimedSlots>()
         .init_resource::<Throttled>()
+        .init_resource::<Metered>()
         .init_resource::<GpuSpend>()
         .init_resource::<Rebuilds>()
         .add_message::<GpuLost>()
         .add_systems(
             Update,
             (
-                (know, start_clock).chain().run_if(
+                know.run_if(
                     resource_exists_and_changed::<RenderDevice>,
                 ),
-                (tally, time_waiting),
-            ),
+                (meter, start_clock, tally, time_waiting).chain(),
+            )
+                .chain(),
         );
     if app.get_sub_app(RenderApp).is_some() {
         app.insert_resource(RenderErrorHandler(recover))
-            .add_plugins(
+            .add_plugins((
                 ExtractResourcePlugin::<Throttled>::default(),
-            );
+                ExtractResourcePlugin::<Metered>::default(),
+            ));
     }
 }
 
@@ -191,6 +197,13 @@ impl TimedSlots {
 #[derive(Resource, ExtractResource, Clone, Default, Debug)]
 pub struct Throttled(pub HashSet<Entity>);
 
+/// The owners the person gave a GPU time a second, in milliseconds:
+/// only their compute and passes are timed.
+#[derive(
+    Resource, ExtractResource, Clone, Default, PartialEq, Debug,
+)]
+pub struct Metered(pub HashMap<Entity, f32>);
+
 /// Milliseconds of GPU time each owner's work took this second, and
 /// the root of the scene of each owner held back as it went over.
 #[derive(Resource, Default, Debug)]
@@ -269,16 +282,33 @@ fn know(
     }
 }
 
+/// Keeps the owners with a GPU time a second the person switched on.
+fn meter(
+    owners: Query<(Entity, &ActiveLimits), With<Scenes>>,
+    mut metered: ResMut<Metered>,
+) {
+    let now = owners
+        .iter()
+        .filter_map(|(owner, limits)| {
+            Some((owner, limits.0.gpu_time_per_second? as f32))
+        })
+        .collect::<HashMap<_, _>>();
+    if metered.0 != now {
+        metered.0 = now;
+    }
+}
+
 /// Makes the clock's buffer, read back every frame, where the GPU has
-/// timestamps.
+/// timestamps, once an owner's work is to be timed.
 fn start_clock(
     gpu: Res<GpuInfo>,
     tuning: Res<RenderTuning>,
+    metered: Res<Metered>,
     clock: Option<Res<GpuClock>>,
     mut buffers: ResMut<Assets<ShaderBuffer>>,
     mut commands: Commands,
 ) {
-    if !gpu.timed || clock.is_some() {
+    if !gpu.timed || clock.is_some() || metered.0.is_empty() {
         return;
     }
     let size = u64::from(tuning.timed_slots) * SLOT_BYTES;
@@ -316,9 +346,9 @@ fn read_clock(
     }
 }
 
-/// Holds back the work of each owner over its GPU time this second
-/// until its scene is made again, and begins the next second when
-/// this one is over.
+/// Holds back the work of each owner over the GPU time the person
+/// gave it this second until its scene is made again, and begins the
+/// next second when this one is over.
 ///
 /// Work held back stays off as a whole: let run again each second, an
 /// owner near its time would have its passes and compute go off and
@@ -327,7 +357,7 @@ fn tally(
     mut spend: ResMut<GpuSpend>,
     mut throttled: ResMut<Throttled>,
     scenes: Query<&Scenes>,
-    budgets: Res<Budgets>,
+    metered: Res<Metered>,
     time: Res<Time<Real>>,
     mut log: MessageWriter<LogLine>,
 ) {
@@ -348,9 +378,10 @@ fn tally(
         return;
     }
     for (&owner, &millis) in &spend.spent {
-        if millis <= budgets.gpu_time_per_second
-            || spend.held.contains_key(&owner)
-        {
+        let Some(&most) = metered.0.get(&owner) else {
+            continue;
+        };
+        if millis <= most || spend.held.contains_key(&owner) {
             continue;
         }
         let Some(held) = root(owner) else {
@@ -369,34 +400,39 @@ fn tally(
     }
 }
 
-/// Gives work that waits for a slot of the clock one, as other work
-/// lets its slot go.
+/// Gives metered work that waits for a slot of the clock one, as
+/// other work lets its slot go.
 fn time_waiting(
     mut jobs: Query<&mut ComputeJob>,
     mut passes: Query<&mut ScenePass>,
     gpu: Res<GpuInfo>,
     tuning: Res<RenderTuning>,
+    metered: Res<Metered>,
     mut slots: ResMut<TimedSlots>,
 ) {
     if !gpu.timed {
         return;
     }
     let most = tuning.timed_slots;
+    let waits = |owner: &Entity, slot: Option<u32>| {
+        slot.is_none() && metered.0.contains_key(owner)
+    };
     let waiting = jobs
         .iter_mut()
-        .filter(|job| job.slot.is_none())
+        .filter(|job| waits(&job.owner, job.slot))
         .map(|job| {
             (job.owner, job.map_unchanged(|job| &mut job.slot))
         })
         .chain(
-            passes.iter_mut().filter(|pass| pass.slot.is_none()).map(
-                |pass| {
+            passes
+                .iter_mut()
+                .filter(|pass| waits(&pass.owner, pass.slot))
+                .map(|pass| {
                     (
                         pass.owner,
                         pass.map_unchanged(|pass| &mut pass.slot),
                     )
-                },
-            ),
+                }),
         );
     for (owner, mut slot) in waiting {
         let Some(taken) = slots.take(owner, most) else {

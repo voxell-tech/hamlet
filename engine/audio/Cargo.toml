@@ -3,7 +3,7 @@ name = "hamlet_engine_audio"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The audio service: clips handed over as samples, played unplaced or placed, by category, scaled by the person's settings and held to the budgets"
+description = "The audio service: clips handed over as samples, played unplaced or placed, by category, scaled by the person's settings"
 
 [lints]
 workspace = true

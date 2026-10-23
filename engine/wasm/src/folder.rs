@@ -319,6 +319,12 @@ impl PluginPathExt for Path {
             .map_err(|_| format!("{MANIFEST} is not text"))?;
         let table = toml::from_str::<toml::Table>(&text)
             .map_err(|e| format!("{MANIFEST}: {}", e.message()))?;
+        if table.contains_key("limits") {
+            return Err(format!(
+                "{MANIFEST} asks for [limits], and only the person \
+                 sets a plugin's limits, on its page"
+            ));
+        }
         let asked = table
             .get("asks")
             .and_then(toml::Value::as_array)

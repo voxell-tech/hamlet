@@ -3,7 +3,7 @@
 //! lookups. It has the clocks and randomness, an empty stdin, and its
 //! stdout and stderr go to its log.
 
-use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Instant;
 
 use bevy::platform::cell::SyncCell;
@@ -20,15 +20,11 @@ use wasmtime_wasi::p2::{
 };
 use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
 
-use crate::instance::{Caps, State, keep};
+use crate::instance::{Caps, State};
 
-/// The most bytes one write to stdout or stderr is kept of: the most
+/// The most bytes one write to stdout or stderr takes: the most
 /// WASI's blocking write takes.
 const CHUNK: usize = 4096;
-
-/// The most writes to stdout and stderr one call keeps, whatever its
-/// limits: the channel holds room for each from the start.
-const WRITES: usize = 1024;
 
 /// Adds the system interface to `linker`, its waits cut at the
 /// call's deadline.
@@ -60,8 +56,8 @@ pub(crate) struct Wasi {
 impl Wasi {
     /// A context that grants nothing, whose stdout and stderr go to
     /// the log.
-    pub(crate) fn new(caps: &Caps) -> Self {
-        let (sender, written) = sync_channel(WRITES);
+    pub(crate) fn new() -> Self {
+        let (sender, written) = channel();
         let stdout = Output {
             level: LogLevel::Info,
             sender: sender.clone(),
@@ -76,12 +72,6 @@ impl Wasi {
             .allow_tcp(false)
             .allow_udp(false)
             .allow_ip_name_lookup(false)
-            // The host makes the bytes before they reach the plugin's
-            // memory, which holds no more. wasmtime-wasi has no way
-            // to change it once built, so a new limit
-            // reaches it in the plugin's next store, as
-            // it starts or is reloaded.
-            .max_random_size(caps.bytes.min(caps.memory) as u64)
             .build();
         Self {
             ctx: SyncCell::new(ctx),
@@ -92,41 +82,31 @@ impl Wasi {
         }
     }
 
-    /// Holds the plugin to `caps` for the call about to be made.
+    /// Ends the waits of the call about to be made by its time in
+    /// `caps`.
     pub(crate) fn arm(&mut self, caps: &Caps) {
         self.deadline = Instant::now().checked_add(caps.time);
-        self.table.get().set_max_capacity(caps.resources);
     }
 
     /// Moves what the plugin wrote since this was last asked into
-    /// `logs`, a line each, within `caps`: `caps.lines` writes, and
-    /// the rest left out.
+    /// `logs`, a line each.
     pub(crate) fn take_written(
         &mut self,
-        caps: &Caps,
         logs: &mut Vec<(LogLevel, String)>,
     ) {
         let written = self.written.get();
-        let mut kept = 0;
         while let Ok(Written { level, bytes }) = written.try_recv() {
-            if kept == caps.lines {
-                continue;
-            }
-            kept += 1;
             let line = &mut self.lines[level as usize];
             for piece in bytes.split_inclusive(|&byte| byte == b'\n')
             {
-                let room = caps.line_bytes.saturating_sub(line.len());
-                line.extend_from_slice(
-                    &piece[..piece.len().min(room)],
-                );
+                line.extend_from_slice(piece);
                 if piece.ends_with(b"\n") {
-                    end(level, line, caps, logs);
+                    end(level, line, logs);
                 }
             }
         }
         for level in [LogLevel::Info, LogLevel::Warn] {
-            end(level, &mut self.lines[level as usize], caps, logs);
+            end(level, &mut self.lines[level as usize], logs);
         }
     }
 }
@@ -135,13 +115,12 @@ impl Wasi {
 fn end(
     level: LogLevel,
     line: &mut Vec<u8>,
-    caps: &Caps,
     logs: &mut Vec<(LogLevel, String)>,
 ) {
     let text = String::from_utf8_lossy(line).trim_end().to_string();
     line.clear();
     if !text.is_empty() {
-        keep(logs, caps, level, text);
+        logs.push((level, text));
     }
 }
 
@@ -161,12 +140,11 @@ struct Written {
     bytes: Bytes,
 }
 
-/// Stdout or stderr. A write past what a call keeps is left out, and
-/// the plugin is not told.
+/// Stdout or stderr.
 #[derive(Clone)]
 struct Output {
     level: LogLevel,
-    sender: SyncSender<Written>,
+    sender: Sender<Written>,
 }
 
 impl IsTerminal for Output {
@@ -193,12 +171,11 @@ impl Pollable for Output {
 
 impl OutputStream for Output {
     fn write(&mut self, bytes: Bytes) -> StreamResult<()> {
-        // A copy, so the rest of a longer write is not kept with it.
-        let _ = self.sender.try_send(Written {
+        // The receiver lives as long as the store, so this only fails
+        // as the store goes.
+        let _ = self.sender.send(Written {
             level: self.level,
-            bytes: Bytes::copy_from_slice(
-                &bytes[..bytes.len().min(CHUNK)],
-            ),
+            bytes,
         });
         Ok(())
     }

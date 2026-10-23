@@ -21,8 +21,8 @@ Each depends only on those above it, and each adds one Bevy plugin,
 | Folder | Crate | What it is |
 |---|---|---|
 | `engine/api` | `hamlet_engine_api` | The names the engine and plugins share. serde only, no Bevy |
-| `engine/core` | `hamlet_engine_core` | The tuning files, the home, the bundle's folder, the log, the budgets |
-| `engine/audio` | `hamlet_engine_audio` | Sound on Bevy's audio: clips handed over as samples, played unplaced or placed, by category, scaled by the person's volumes, a plugin's held to the budgets |
+| `engine/core` | `hamlet_engine_core` | The tuning files, the home, the bundle's folder, the log, the guards and the limits a plugin is held to |
+| `engine/audio` | `hamlet_engine_audio` | Sound on Bevy's audio: clips handed over as samples, played unplaced or placed, by category, scaled by the person's volumes |
 | `engine/shell` | `hamlet_engine_shell` | The window, its theme, the dock and its panels, workspaces, commands, shortcuts, the menu bar and the status line |
 | `engine/plugins` | `hamlet_engine_plugins` | Plugins as entities, what they add, switching them on and off, the Plugins panel, and the mail between plugins and services |
 | `engine/grants` | `hamlet_engine_grants` | What the person lets plugins do: petitions, the grants file, the Permissions page |
@@ -32,7 +32,7 @@ Each depends only on those above it, and each adds one Bevy plugin,
 | `engine/agents` | `hamlet_engine_agents` | The agents service: the agent core run in the engine, behind a protocol |
 | `engine/desktop` | `hamlet_engine_desktop` | The desktop service: the machine kept awake while an agent works, addresses and files opened for plugins, the address under the pointer, one engine per home |
 | `engine/render` | `hamlet_engine_render` | What plugins draw: scenes kept entity by entity, their views in a viewport or behind the dock, picking, and plugins' own WGSL checked with naga, their compute and passes, held to their GPU time |
-| `engine/wasm` | `hamlet_engine_wasm` | The host of WASM plugins: wasmtime, a store per plugin, its budgets, and the glue from the WIT to the services. The only crate that knows wasmtime |
+| `engine/wasm` | `hamlet_engine_wasm` | The host of WASM plugins: wasmtime, a store per plugin, the limits the person switches on, and the glue from the WIT to the services. The only crate that knows wasmtime |
 | `engine/harness` | `hamlet_engine_harness` | The engine without a window, for tests, and `plugin_check` |
 | `engine/app` | `hamlet_engine` | The binary |
 | `engine/bevy_sdk` | `hamlet_engine_bevy` | What a plugin is written with, as a Bevy plugin, built for `wasm32-wasip2` |
@@ -72,16 +72,15 @@ same types.
   was built against (`API_VERSION`, 0.1.0), its asks, and what it shares:
   `[assets]` the types it `makes` and `uses`, `[services]` the services
   it `exports` and `imports`, `[events]` the events it `sends` and
-  `hears`, `[limits]` the memory its instance needs in place of
-  the engine's (see [Limits](#limits)), and `[dependencies]` the
-  plugins it needs (see [Dependencies](#dependencies)). `check`
-  refuses one built against another API, with an empty or unreadable
-  text, asking for the same thing twice, naming a type, service or
-  event twice, using a type or importing a service it does not ask
-  for, asking for a memory of zero, naming a dependency that is not a
-  plugin id with a semver requirement, or needing itself. One that
-  names anything but `memory` in `[limits]` cannot be read, and says
-  which name.
+  `hears`, and `[dependencies]` the plugins it needs (see
+  [Dependencies](#dependencies)). `check` refuses one built against
+  another API, with an empty or unreadable text, asking for the same
+  thing twice, naming a type, service or event twice, using a type or
+  importing a service it does not ask for, naming a dependency that is
+  not a plugin id with a semver requirement, or needing itself. A
+  plugin cannot ask for limits: a `plugin.toml` with `[limits]` is
+  refused as it is read, saying only the person sets them (see
+  [Limits](#limits)).
 - **Capabilities.** An ask names a capability, its target and a reason in
   the plugin's words: `net.fetch` a host, `assets.read` a type name,
   `services.call` another plugin's service, and `agents.read`,
@@ -132,8 +131,8 @@ types, so the WIT names nothing twice.
   requests, each giving a ticket: `create-asset`, `read-asset`,
   `update-asset`, `delete-asset`, `list-assets`, `hold-asset`,
   `release-asset`, `call`, `subscribe`, `emit`, `fetch`, `agents` and
-  `desktop`. A ticket of 0 is a request not taken: one call made more than
-  `[budgets] requests_per_call`.
+  `desktop`. A ticket of 0 is a request not taken: a `fetch`,
+  `agents` or `desktop` request that cannot be read.
 - **The guest** exports `declare` (its `Contribution`s), `run` (a
   command by name), `save` and `restore` (its state, as bytes of its
   own, handed from one version to the next on a reload), `receive` (a
@@ -162,8 +161,7 @@ types, so the WIT names nothing twice.
   one of its settings pages shown in Settings; or, by a full id
   `plugin.id/name`, a panel of any plugin brought to the front, which
   needs no capability since it changes only the dock). Each counts
-  as a
-  change to a node towards the budgets.
+  as a change to a node in `NodeStats`.
 - **The kinds of node**: `frame` (a column or a row), `label`,
   `button` (showing its text, or holding an icon and a label as an
   icon button does), `icon` (one of the engine's set, by name),
@@ -470,7 +468,7 @@ samples) runs the scripts of hello, notes and board.
 ## The core
 
 - **Tuning.** `engine/tuning/engine.toml` holds the sizes, timings and
-  budgets, and `theme.toml` the shell's theme. Both are built into the
+  guards, and `theme.toml` the shell's theme. Both are built into the
   binary. A module reads one section of a file as a resource: it
   implements `Tuning` (the file and the section) and adds
   `TuningPlugin<T>`. In a debug build the files in the source tree are
@@ -497,18 +495,16 @@ samples) runs the scripts of hello, notes and board.
 - **The log.** A `LogLine` message, from a part of the engine or a
   plugin, is passed to the terminal and kept in `Log`, the last
   `[log] keep` lines, for the console.
-- **Budgets and limits.** `[budgets]` in `engine.toml`, as the
-  `Budgets` resource, holds the engine's caps, the same for every
-  plugin and not asked for by any: the frame's share, the strikes, a
-  call's time, the chain's depth and every cap of a call, a second,
-  the services, the assets, the network, the panels, the log, the
-  petitions, the nodes, the scenes, the GPU and the sounds. `[limits]`, as
-  `DefaultLimits`, holds the memory of one plugin's instance as the
-  engine has it; each plugin's own is `PluginBudgets` on its entity
-  (see [Limits](#limits)). A file with a memory of zero, or a
-  `frame_share`, `call_time`, `fetch_time` or `gpu_time_per_second`
-  that is not a finite number above zero, is refused, as a file that
-  cannot be read is.
+- **Guards and limits.** `[guards]` in `engine.toml`, as the
+  `Guards` resource, holds what keeps any plugin from crashing or
+  freezing the engine: how deep a node may sit, and how long a call
+  may hold the frame with no call time set (see [Limits](#limits)).
+  None of it holds a plugin back. `[limits]`, as `StartingLimits`,
+  holds the value each limit starts at when the person first
+  switches it on; no limit is on until they do. The limits switched
+  on for a plugin are `ActiveLimits` on its entity. A `hung` that is
+  not a finite number above zero is refused, as a file that cannot be
+  read is.
 
 ## The shell
 
@@ -793,9 +789,8 @@ person has one or more, and one is shown at a time.
   by its full id for another's.
 - **What it adds** is an entity each, linked to the plugin by
   `ContributedBy`; the plugin's `Contributions` lists them, and goes with
-  it (`linked_spawn`). `[budgets] panels` and `contributions` cap how
-  much one plugin adds; what is past them, or not well named, is left
-  out and told in the log.
+  it (`linked_spawn`). A plugin adds as much as it declares; what is
+  not well named is left out and told in the log.
 - **On and off.** Triggering `Enable` on a plugin marks it `Starting`;
   at its turn (see [Dependencies](#dependencies)) its entry point runs,
   what it declares is added, and it is marked `Enabled`. `Disable`
@@ -832,7 +827,7 @@ person has one or more, and one is shown at a time.
   "PLUGINS / its name", whose PLUGINS goes back to the list and which
   stays as the rest scrolls: a head with its name, its id and version,
   where it comes from (built into the engine, comes with Hamlet, or
-  installed) and its state, with its switch at the right; MEMORY (see
+  installed) and its state, with its switch at the right; LIMITS (see
   [Limits](#limits)); WHAT IT ADDS, each panel, settings page and
   footer, command, menu entry, shortcut, status item, overlay, section
   and workspace it added, nothing while it is off; NEEDS, each plugin
@@ -906,53 +901,97 @@ person has one or more, and one is shown at a time.
 
 ### Limits
 
-- **What one plugin is held to.** A plugin's own limit is its
-  instance's memory, all its memories summed: `PluginLimits`
-  (`engine/api/src/limits.rs`). The engine's value is `[limits]` in
-  `engine.toml` (`DefaultLimits`). Every other cap is in `[budgets]`,
-  the same for every plugin, and neither a plugin nor the person
-  changes it for one plugin.
-- **The plugin's ask.** A manifest's `[limits]` gives the memory it
-  needs other than the engine's, in bytes:
-
-  ```toml
-  [limits]
-  memory = 134_217_728
-  ```
-
-  What it asks is used as it is, for a bundled plugin and an
-  installed one alike: nobody is asked about it.
-- **On a plugin's page**, MEMORY says where the value
-  in use comes from (the engine's, asked for by the plugin, or yours)
-  over the value as a number and a unit, KB, MB or GB of 1,024 of the
-  one before, in the largest unit it holds one of: 64 MB, 1.5 GB. A
-  number typed there, or another unit picked for the same number,
-  becomes the person's value, kept in bytes, and RESET takes it away
-  again; one that is not a number above zero is refused and said so
-  under it.
-- **The person's value** of any plugin's memory is kept in
-  `plugin_limits.toml` in the home, by plugin, and outlasts reloads,
-  new versions and restarts; uninstalling a plugin forgets it. Any
-  value above zero is taken, with no ceiling. The file is written
-  whole or not at all; one that cannot be read, or that names
-  anything but `memory`, is left as it is, the log says so, and the
-  values are kept only until the engine closes. The agents' `limits.toml`
-  beside it is theirs, and never read here.
+- **Full speed by default.** A plugin runs with no limit at all: no
+  cap on its memory, no deadline on a call, nothing it may spend in a
+  second, no count of what it holds, makes or asks, no GPU time held
+  back. Nothing makes it wait, skips its work or stops it because it
+  spends a lot.
+- **Only the person turns a limit on**, for one plugin at a time.
+  Each is `LimitKind` (`engine/api/src/limits.rs`), and once on, the
+  engine holds the plugin to it:
+  - **Memory**: bytes of all its memories summed; a growth past it
+    fails the call and stops the plugin.
+  - **Time of one call**: milliseconds, through the epoch; a call
+    past it stops the plugin, "a call ran past the call time you
+    set".
+  - **CPU time a second**: milliseconds its calls take in a second;
+    past it, what is in its inbox waits for the next second, and the
+    log says so the first second it waits.
+  - **GPU memory**: bytes of its meshes, buffers and textures as the
+    engine counts them; a make past it fails, saying why.
+  - **GPU time a second**: milliseconds of its compute and passes,
+    where the GPU has timestamp queries; past it, they are held back
+    until its scene is made again (see
+    [Layer two](#layer-two-the-plugins-own-gpu-work)). Only such a
+    plugin's work is timed.
+  - **Scene entities**: entities of its scenes, each copy of
+    instances counted; a make past it fails.
+  - **Audio memory**: bytes of the samples of its clips; a make past
+    it fails.
+- **A plugin cannot ask for limits**, for itself or another: a
+  `plugin.toml` with `[limits]` is refused.
+- **On a plugin's page**, LIMITS lists each, a switch with its name
+  beside its value: bytes as a number and a unit, KB, MB or GB of
+  1,024 of the one before, in the largest unit it holds one of (64
+  MB, 1.5 GB), milliseconds with "ms", entities as a count. With none
+  on it says "None is on, so nothing holds it back." Switching one on
+  holds the plugin to the value shown: the person's last, else
+  `[limits]` in `engine.toml` (`StartingLimits`). A number typed, or
+  another unit picked for the same number, becomes its value, on or
+  off; one that is not a number of one or more is refused and said so
+  under it. Switching it off keeps the value for next time.
+- **The person's limits** are kept in `plugin_limits.toml` in the
+  home, by plugin, each on or off with its value, and outlast
+  reloads, new versions and restarts; uninstalling a plugin forgets
+  them. Any value above zero is taken, with no ceiling. The file is
+  written whole or not at all; one that cannot be read, that names
+  anything else or a value of zero, is left as it is, the log says
+  so, and the limits are kept only until the engine closes. The
+  agents' `limits.toml` beside it is theirs, and never read here.
 
   ```toml
   [plugins."hamlet.realm"]
-  memory = 268_435_456
+  memory = { on = true, value = 268_435_456 }
+  call_time = { on = false, value = 1_000 }
   ```
 
-- **Resolved** in this order: the person's value, else the plugin's
-  ask, else the engine's. The result is `PluginBudgets` on the
+- **In force.** The limits switched on are `ActiveLimits` on the
   plugin's entity, given as the plugin comes or its manifest changes,
-  and again when `[limits]` or the person's values change.
-- **When a change applies.** At the plugin's next call. A
-  `plugin.toml` whose limits alone changed is read again while the
-  plugin runs. A change to `[budgets]` applies as the file is read
-  again: a call's caps at the next call, `panels` and
-  `contributions` when the plugin is next switched on.
+  and again when the person's change. A change applies at the
+  plugin's next call; GPU time within the frame.
+- **What stays**, for every plugin alike. None is a limit on what a
+  plugin spends; each keeps one plugin from crashing the engine,
+  losing the device or getting past the sandbox:
+  - **The sandbox**: a store of its own, WASI that grants nothing, and
+    wasmtime's checks of every pointer and length a plugin hands
+    over against its own memory.
+  - **Capabilities and grants**: every power is asked for and
+    answered (see [Permissions](#permissions)).
+  - **The device's limits**: naga validation of every shader with
+    wgpu's runtime bounds checks, workgroups and their sizes along
+    each axis, the largest buffer and texture, and the samples a
+    camera may ask for. Past them the device would be lost.
+  - **Numbers**: values that are not finite are refused where they
+    would move a scene, a sound or a layout, offsets are held to
+    100,000 pixels, and counts saturate rather than overflow.
+  - **`[guards] node_depth`**: how deep a node may sit under its
+    panel's root. The layout of the interface is recursive, and a
+    deeper tree would overflow its stack.
+  - **`[guards] hung`**, 10 seconds: see
+    [A call that hangs](#a-call-that-hangs).
+
+### A call that hangs
+
+A call into a plugin runs on the frame. While one holds the frame,
+nothing else reaches the engine: no click on the plugin's page, no
+menu. So a plugin with no call time set is stopped by the epoch once
+one call has held the frame for `[guards] hung` seconds, "a call held
+Hamlet for 10 seconds without returning". Epoch interruption stays
+compiled in for this, and for the call time the person may set: the
+ticker thread moves the epoch on every `[wasm] tick` milliseconds,
+and the call past its deadline traps. A wait of the system's clock
+ends by the same deadline. A plugin whose calls are long but return
+can be switched off on its page between them, as any plugin can.
 
 ## Permissions
 
@@ -998,8 +1037,8 @@ all they ask (see [Bundled plugins](#bundled-plugins)).
   (`Grants::verdict` gives `Asking`) sends a `FirstUse`; the person is
   asked, and `Decided` says whether the use may go on. Allow and Don't
   allow are kept; Ask next time lets this use go on and asks again next
-  time. `[budgets] petitions_per_minute` of these a plugin may raise in
-  a minute; the rest are refused. The asset store, the bus and the
+  time. The same question is asked once while it is open. The asset
+  store, the bus and the
   network keep the request meanwhile in a `Waiting`, and answer it once
   the person did: reading another's type, calling a service and
   fetching from a host are each asked about this way.
@@ -1023,8 +1062,8 @@ all they ask (see [Bundled plugins](#bundled-plugins)).
 
 `hamlet_engine_wasm` runs plugins built as WASM components, with
 wasmtime. `[wasm]` in `engine.toml` sets it up; it holds a plugin
-to its memory (see [Limits](#limits)) and to the engine's caps,
-written here by their names in `[budgets]`.
+only to the limits the person switched on and to the guards (see
+[Limits](#limits)).
 
 - **Installed plugins** are folders in `<home>/plugins/`, each with its
   `plugin.toml` and `plugin.wasm`. At start each is read and added as a
@@ -1061,7 +1100,10 @@ written here by their names in `[budgets]`.
 - **Switched on**, only when it is `Admitted`, a plugin's component is
   compiled off the frame, on
   the async compute pool, and kept, so switching it on again needs no
-  compile. At its turn in the start order (see
+  compile. What it compiles to is also kept in
+  `<home>/compiled/<id>/`, named by the hash of its `plugin.wasm`, so
+  the next start reads it in place of compiling; one this engine
+  cannot read is compiled again and written over. At its turn in the start order (see
   [Dependencies](#dependencies)) it is then instantiated in a store of
   its own and asked what it adds. A plugin that imports anything but
   the host's interface and
@@ -1069,21 +1111,12 @@ written here by their names in `[budgets]`.
   version of the interface is told so.
 - **The system** (`wasi.rs`) is WASI 0.2 from wasmtime, with a context
   of its own in each store that grants nothing but the clocks and
-  randomness. Its calls are held to the same budgets as the host's: a
-  list it hands over counts towards `bytes_per_call`, random bytes are
-  `bytes_per_call` at most, a wait ends at the call's `call_time`, and
-  it holds `wasi_resources` resources at most. The most
-  random bytes are fixed as its store is made, since wasmtime-wasi
-  cannot change them after, so a new `bytes_per_call` reaches them
-  only when the plugin next starts or is reloaded. Each write to
-  stdout or stderr is kept up to 4,096 bytes, 1,024 writes a call at
-  most, of which `log_lines_per_second` are kept; the rest are left
-  out without the plugin knowing.
-  What is kept is cut into lines, each cut at `log_line_bytes`, for
-  the log.
+  randomness. A wait of its clock ends at the call's deadline (see
+  [A call that hangs](#a-call-that-hangs)). Every write to stdout or
+  stderr is kept, and cut into lines for the log.
 - **What it adds** comes back from `declare` as `Contribution`s and is
-  made into the same `Entry` a built-in plugin fills, so it is added,
-  capped and taken away as theirs is: its panels, settings pages,
+  made into the same `Entry` a built-in plugin fills, so it is added
+  and taken away as theirs is: its panels, settings pages,
   footers, overlays and sections are built node by node as it says, and its
   commands put their name in its inbox, to run it on the next frame.
   Its menu entries, shortcuts, suggested workspaces and status items
@@ -1091,44 +1124,38 @@ written here by their names in `[budgets]`.
   `set-section` and `open` is made once the call ends (`surfaces.rs`), on what the
   plugin added under that name.
 - **Switched off**, its store goes, and with it its state.
-- **The engine** is one for all plugins, with an epoch and a pool. A
-  plugin is held by time, through the epoch, and does not count its
-  instructions. A thread ticks the epoch every `[wasm] tick`
-  milliseconds. The pool
-  has room for `[wasm] plugins` plugins and one more, for a version
-  built beside a running one; each plugin's share of it is capped: its
-  core instances, memories and tables, and each table's elements.
-- **Every call** into a plugin is given an epoch deadline of
-  `[budgets] call_time` milliseconds, 1,000, so a plugin caught in a
-  loop is stopped rather than holding the frame for good; it is there
-  for runaways, not to pace plugins. Each call is also given
-  `bytes_per_call` bytes it may hand over in all, counted across every
-  host and system call it makes in it. wasmtime takes the length of a
-  string or a list from the plugin from those bytes, given anew to
-  each host call, and checks it against the plugin's memory, before it
-  copies any of it; what the host keeps of them is counted against the
-  same bytes for the whole call. What the host hands a plugin is
-  checked against the same bytes before the call.
-- **Memory** is counted over all of a plugin's memories together, held
-  to its `memory` (see [Limits](#limits)). The pool leaves each
-  memory all a 32-bit memory can address, so the limit holds whatever
-  it is set to.
-- **Caps change as it runs.** Each call is armed with the plugin's
-  memory and the budgets as they are then, so a new value reaches a
-  running plugin at its next call; only the most random bytes wait for
-  its next store.
-- **A fault** is a call past its time, its memory or its bytes, a
-  trap, or what cannot be read; a plugin cannot be called again after
-  one. A call past its time stops the plugin with "the call ran past
-  its time".
+- **The engine** is one for all plugins, with an epoch, compiling
+  with cranelift at `OptLevel::Speed`, a plugin's functions in
+  parallel. A thread ticks the epoch every `[wasm] tick` milliseconds;
+  a plugin is held by time through it, and does not count its
+  instructions. Instances are allocated on demand: each is given its
+  memories and tables as it is made, as large as it asks, and nothing
+  caps how many plugins run. A memory still sits in a reservation
+  with guard pages, so its accesses need no bounds checks. A pool
+  would make instantiating cheaper, but a plugin is instantiated
+  once as it starts, and a pool caps the plugins, their instances,
+  memories and tables up front.
+- **Every call** into a plugin is given an epoch deadline: the call
+  time the person set, else `[guards] hung` (see
+  [A call that hangs](#a-call-that-hangs)). What a plugin hands over
+  is bounded by its own memory alone: wasmtime checks the pointer and
+  length of a string or a list against it before it copies any of it,
+  and the store's hostcall fuel is left unbounded.
+- **Memory** is counted over all of a plugin's memories together,
+  held to the memory the person set, if they did.
+- **Limits change as it runs.** Each call is armed with the limits as
+  they are then, so a new value reaches a running plugin at its next
+  call.
+- **A fault** is a call past the call time set, past the memory set,
+  hung, a trap, or what cannot be read; a plugin cannot be called
+  again after one.
 - **The log.** What a plugin logs or prints goes to the engine's log
-  under its id, each line cut at `log_line_bytes`.
+  under its id.
 - **Requests and mail.** What a plugin asked in a call is written as
   an `Asked` for the services once the call ends, `depth` one more than
   the work it was serving. A `Deliver` for it goes into its inbox, and
   the messages at the front of its inbox are handed over together in
-  one `receive`, as many as fit in `bytes_per_call`; a reply too large
-  to fit at all is handed over as a failure. A call of one of its
+  one `receive`. A call of one of its
   services (a `Serve`) goes into its inbox too, and `serve` answers it
   with a `Served`. Its tickets go on counting across a reload.
 
@@ -1140,9 +1167,9 @@ written here by their names in `[budgets]`.
 - **A new `plugin.wasm`** of a running plugin is compiled off the frame
   and swapped in by one system in the frame's update, never in the
   middle of a call: the running version's `save` gives its state, the
-  new one is instantiated in a store of its own (the pool keeps room
-  for it), given the state by `restore`, and asked what it adds. Its
-  inbox and its second's spending carry over. Its nodes are taken
+  new one is instantiated in a store of its own, given the state by
+  `restore`, and asked what it adds. Its
+  inbox and its CPU time of the second carry over. Its nodes are taken
   away and each panel or settings page shown is mounted again; when it
   adds something else, what it added is taken away and added anew.
   The log says it was reloaded.
@@ -1151,36 +1178,23 @@ written here by their names in `[budgets]`.
   it changes. A running version at fault while it saves is stopped.
 - **A plugin that is not running** forgets its compiled component, so
   it is compiled anew when it starts.
-- **A new `plugin.toml`** that changes anything but its limits adds
-  the plugin again, as if it had just come: one that asks for more is
-  asked about again. Its state is not kept. One whose limits alone
-  changed holds the running plugin to them.
+- **A new `plugin.toml`** that changes anything adds the plugin
+  again, as if it had just come: one that asks for more is asked about
+  again. Its state is not kept.
 
-### Budgets
+### Serving
 
-- **A second's budgets.** Every call into a running plugin, of any
-  kind, counts towards what it spends in a second: `calls_per_second`
-  calls, of which `events_per_second` events, and the changes it makes
-  to its nodes and scenes. A plugin past one waits: what is in its
-  inbox stays for the next second. Its time is not counted by the
-  second; each call has its `call_time`, and all of them the frame's
-  share.
-- **Stopped when it keeps going over.** A plugin that went past a
-  second's budget `strikes` seconds in a row is stopped, and the log
-  says why. The first second it goes over, the log says it waits.
-- **The frame's share.** The calls of all the plugins in one frame
-  share `frame_share` milliseconds. The plugin served longest ago goes
-  first, and what is left when the share is spent waits for the next
-  frame, when those left go first.
+- **Every frame, everything.** Each running plugin is handed all that
+  is in its inbox, and a frame while its views move, every frame. No
+  share of the frame is kept for others, and nothing it sends, makes
+  or asks is counted against a second.
 - **The inbox** holds what the person did to its nodes, commands,
-  messages, calls to serve, and panels to mount and unmount,
-  `events_per_second` at most; more are left out, and the log
-  says how many. A call left out answers its caller out of budget.
-- **A service's call** counts towards its caller's
-  `service_calls_per_second`, and towards its own plugin's calls.
-- **The log.** A plugin's lines of each level, info, warn and error,
-  are `log_lines_per_second` a second at most; the rest are left out,
-  and the log says how many when the second ends.
+  messages, calls to serve, and panels to mount and unmount, as many
+  as come. A call of a plugin that does not run fails.
+- **CPU time.** The time of its calls in a second is counted (the
+  wasm crate's `budget.rs`), and only matters when the person set a
+  CPU time a second: past it, what is in its inbox waits for the next
+  second (see [Limits](#limits)).
 
 ### Panels
 
@@ -1234,15 +1248,14 @@ written here by their names in `[budgets]`.
   a button down on it or up, a toggle switched and a field's text (on
   Enter, or as the field is left, and sent from a field of several
   lines) go into the inbox, and are handed
-  over together in one `input`; the texts together are cut to
-  `bytes_per_call`. A plugin that answers that something still moves
-  is given a `frame` each frame until it answers that nothing does.
-  Any other call that changed its nodes is given a frame after it too.
-- **Budgets.** Makes, sets, orders and watches are
-  `[budgets] node_changes_per_call` a call, past which the call fails,
-  and `node_changes_per_second` a second, past which the plugin waits.
-  It holds `nodes` nodes at most, none deeper than `node_depth` under
-  its root; a call that makes more, or deeper, fails.
+  over together in one `input`. A plugin that answers that something
+  still moves is given a `frame` each frame until it answers that
+  nothing does. Any other call that changed its nodes is given a
+  frame after it too.
+- **As many as it makes.** A plugin makes, sets, orders and watches as
+  many nodes as it likes; only none sits deeper than
+  `[guards] node_depth` under its root, and a call that makes one
+  deeper fails.
 - **Bounded values.** An opacity is held from 0 to 1 and an offset to
   100,000 pixels either way; one that is not finite is taken as its
   first value, so the layout never meets it.
@@ -1261,9 +1274,8 @@ in Rust and from those the person installs.
 
 - **The folder.** `plugins/` at the repository root is a cargo
   workspace of its own, left out of the root's, with one release
-  profile for small builds (`opt-level = "z"`, which takes a fifth off
-  a plugin built with Bevy), but for the realm's own crate, built at
-  `"s"` so that its meshes go up about twice as fast. Each plugin
+  profile built for speed, every plugin and crate alike (`opt-level =
+  3`, `lto`, one codegen unit). Each plugin
   is a crate `plugins/<name>/`, named as its folder, with its
   `plugin.toml`, depending on `hamlet_engine_bevy` by path.
 - **The script.** `scripts/build_plugins.sh` checks that the
@@ -1388,7 +1400,7 @@ Its tuning is `assets/world.toml` and `assets/palette.toml`, built in.
 - **The source** is grouped by what it is: `world/` the land and its
   look, `places/` what stands on it, `folk/` the robots and the chief,
   `view/` the camera, the pointer and the signs, and `build/` the
-  meshes, materials and transforms handed over within its budgets.
+  meshes, materials and transforms handed over a frame at a time.
   `realm.rs`, `bridge.rs`, `society.rs` and `tuning.rs` stand at the
   root.
 - **As a Bevy plugin.** The land, the society, the roster's bridge
@@ -1406,12 +1418,11 @@ Its tuning is `assets/world.toml` and `assets/palette.toml`, built in.
   The realm is made at `Startup`, on the plugin's first call after it
   declares what it adds. While the panel is behind another tab or out
   of the dock, its camera does not draw.
-- **Within its budgets.** Everything is built a step at a time, a
+- **A frame at a time.** Everything is built a step at a time, a
   frame at a time, nearest the camera first: `build/upload.rs` holds
-  each frame to most of the engine's `bytes_per_call` and to 8
-  milliseconds, so the view stays smooth, and a mesh with no room
-  left waits for the next frame. Its manifest asks for 128 MB of
-  memory.
+  each frame to 8 milliseconds of building, so the view stays smooth,
+  and a mesh with no time left waits for the next frame.
+  This pace is the realm's own; the engine holds it to nothing.
 - **The roster** is followed in `bridge.rs` as `main` follows the
   core's entities: a hamlet founds its town at its spot or the first
   free site, its agents take their plots in the order they came, one
@@ -1580,10 +1591,8 @@ ask of it, in `PostUpdate`.
   version its maker makes, once the person allowed `assets.read` of
   that type. A type of another version is a mismatch; one no plugin
   makes is refused.
-- **Caps** (`[budgets]`): `asset_bytes` for one asset, less than
-  `bytes_per_call` so a read one can be handed over; `assets` it may
-  own, and as many it may hold; `asset_writes_per_second` made,
-  changed or deleted.
+- **No caps.** A plugin makes, holds, writes and reads as many assets,
+  of any size, as it likes.
 - **References.** A plugin that holds an asset (`Holding` on its
   entity) is sent `Changed` with the version each time it changes, and
   `Gone` when it is deleted. What it holds is let go when it is
@@ -1598,23 +1607,20 @@ run.
   of its argument's and result's types; a caller imports it by its full
   id with the types it expects, and asks for `services.call` on it.
 - **A call** is checked in this order: the caller imports it, does not
-  call itself, the chain is `[budgets] chain_depth` plugins deep at
-  most, the caller is within its `service_calls_per_second`, the
-  person allowed it (or is asked first), a running plugin exports it (else no
+  call itself, the person allowed it (or is asked first), a running plugin exports it (else no
   implementer), and both sides name the same types (else a mismatch).
   The bus then hands the plugin a `Serve` and remembers the call
   (`Calls`).
 - **Answered.** The result of `serve`, or why it failed, comes back as
-  `Answered` or a failure; a plugin past its time for the call leaves
-  the caller out of budget and is stopped, as any plugin at fault
-  is. A call whose plugin stops before it serves it fails.
+  `Answered` or a failure; a plugin past the call time the person set
+  leaves the caller out of budget and is stopped, as any plugin at
+  fault is. A call whose plugin stops before it serves it fails.
 - **Asynchronous.** Each plugin has a store of its own, and a host
   call cannot reach another store while its own is in use, so a call
   is not made within the caller's call: it goes through the callee's
   inbox, served on the next frame, and its answer through the caller's
   on the frame after. The depth a request is made at follows the chain
-  of messages, so calls that call back and forth stop at
-  `chain_depth`.
+  of messages, and saturates rather than overflows.
 
 ## Events
 
@@ -1624,9 +1630,8 @@ run.
 - **Subscribed** by name at run time (`subscribe`), to an event its
   manifest hears; `Subscriptions` on its entity, let go when it is
   switched off.
-- **Sent** with `emit`, `[budgets] events_sent_per_second` a second at
-  most and no deeper than `chain_depth`; a refusal is replied to, a
-  sent event is not. Events need no grant: a plugin hears only what it
+- **Sent** with `emit`, as many as it likes; a refusal is replied to,
+  a sent event is not. Events need no grant: a plugin hears only what it
   declares, from the plugin that names it.
 - **Delivered** together: the events of a frame go to each subscriber
   that names the payload's type as the sender does, and reach it in
@@ -1648,8 +1653,8 @@ runtime of its own.
   unspecified addresses are refused, as is a host that is one of them.
   No redirect is followed and no proxy is used, so it cannot go
   elsewhere.
-- **Caps** (`[budgets]`): `fetches_per_minute`, `fetches_waiting` at
-  once, `fetch_bytes` of an answer, `fetch_time` seconds for the whole.
+- **No caps.** A plugin makes as many fetches as it likes, at once,
+  of answers of any size, for as long as each takes.
 - **A fetch** is a `Fetch` on a child of its plugin, so it goes with
   it. With `Offline` in the app, as the harness has it, fetches are
   never sent and wait for `world.answer_fetch(..)` (`NetWorldExt`).
@@ -1834,7 +1839,8 @@ none of them imports none of them.
   `camera` (at an entity, along its forward). Dropping a handle takes
   its thing away; dropping an entity takes away what is under it. A
   mesh, material, shader, buffer or texture still drawn or run with
-  stays, counted against the budgets, until nothing uses it.
+  stays, counted against the GPU memory the person may set, until
+  nothing uses it.
 - **Lights** are directional (with shadows), point and spot, each a
   light of an entity; ambient light is a camera's.
 - **Decals** are Bevy's forward decals (`decal.rs`): `draw-decal`
@@ -1893,7 +1899,7 @@ none of them imports none of them.
 ### Layer two: the plugin's own GPU work
 
 - **WGSL, checked first.** `shader.compile` takes plain WGSL of one
-  kind, without `#`, of at most `[budgets] shader_bytes`. The engine's
+  kind, without `#`, of any size. The engine's
   bindings come before it and its entry points after it, so the source
   declares no bindings, no entry point but a compute shader's `main`
   and no `override`; naga parses and validates the whole, and a
@@ -1923,10 +1929,9 @@ none of them imports none of them.
 - **Compute** (`gpu.compute`) runs over the plugin's buffers
   (`gpu.buffer`, of 16-byte items; a write uploads the whole buffer as
   the plugin last wrote it), once or every frame, before the cameras
-  draw. The workgroups of one plugin's dispatches in a frame are
-  `[budgets] workgroups_per_frame` at most; one dispatch past them is
-  refused, and what is past them in a frame waits for the next. A
-  dispatch is also at most the device's workgroups along each axis.
+  draw. A dispatch is at most the device's workgroups along each
+  axis, as one past them would lose the device; a plugin dispatches
+  as many as it likes.
 - **The device's sizes.** A buffer, and a mesh's vertices and
   triangles, are at most the device's largest buffer (the smaller of
   its `max_buffer_size` and `max_storage_buffer_binding_size`); a
@@ -1951,17 +1956,19 @@ none of them imports none of them.
   its tonemapping.
 - **Textures** (`gpu.texture`) are sRGB images a material or a
   decal samples.
-- **GPU time.** Where the device has timestamp queries, each compute
-  and pass is timed (`[render] timed_slots` at once, shared by all
-  plugins; one that finds every slot taken does not run until a slot
-  is let go, then keeps its slot while it lives and runs every frame,
-  untimed only while the clock is not yet made on the device), read
-  back each frame, and its plugin's milliseconds summed over a second;
-  a plugin past `[budgets] gpu_time_per_second` has its compute and
-  passes held back as a whole until its scene is made again, as it is
-  switched off and on, reloaded or stopped, and the log says so. Let
-  run again each second, a plugin near its time would have them go
-  off and on, and its view flicker. A material is drawn inside Bevy's
+- **GPU time** is timed only for a plugin the person gave a GPU time
+  a second (`Metered`, in `guard.rs`); any other's compute and passes
+  run untimed, with no clock read back. Where the device has
+  timestamp queries, each compute and pass of a metered plugin is
+  timed (`[render] timed_slots` at once, shared by them; one that
+  finds every slot taken does not run until a slot is let go, then
+  keeps its slot while it lives and runs every frame, untimed only
+  while the clock is not yet made on the device), read back each
+  frame, and its milliseconds summed over a second; past its GPU time
+  its compute and passes are held back as a whole until its scene is
+  made again, as it is switched off and on, reloaded or stopped, and
+  the log says so. Let run again each second, a plugin near its time
+  would have them go off and on, and its view flicker. A material is drawn inside Bevy's
   own passes, among every other mesh, so it is not timed apart.
 - **A failing device.** Bevy's `RenderErrorHandler` is the engine's:
   when the device is lost or wgpu reports an error, the plugins with
@@ -1973,7 +1980,7 @@ none of them imports none of them.
   a minute at most, before it is built again, so a failure of the
   engine's own does not flash each frame. The engine is not quit.
 
-### Capabilities and budgets
+### Capabilities and limits
 
 - `render.scene` makes meshes, materials (a decal's too), entities,
   instances and cameras; `render.shader` compiles material, decal and pass shaders, makes
@@ -1982,14 +1989,12 @@ none of them imports none of them.
   Each is asked for on the target `gpu`. A make without its capability
   fails saying so; one answered Ask next time fails saying it waits,
   and the person is asked once.
-- **Held at once**: `scene_entities` (each copy counted),
-  `scene_vertices`, `scene_materials`, `scene_lights`,
-  `scene_cameras`, `gpu_objects` (shaders, buffers, textures, compute
-  and passes) and `gpu_memory` (meshes, buffers and textures, as the
-  engine counts their bytes). A make past one fails with why.
-- **Changes**: `scene_changes_per_call`, past which the call fails and
-  the plugin is stopped, as with nodes; `scene_changes_per_second`,
-  past which it waits. A drop is never refused.
+- **As much as it likes.** A plugin holds as many meshes, materials,
+  lights, cameras, shaders, buffers and textures as it makes, and
+  changes its scenes as often as it likes. Only when the person set
+  them are its scene entities (each copy counted) and its GPU memory
+  (meshes, buffers and textures, as the engine counts their bytes)
+  held; a make past one fails with why (see [Limits](#limits)).
 - **Misuse** (a handle of another kind, a number that is not finite
   where it moves the scene) fails the call.
 
@@ -2061,13 +2066,11 @@ and come to their end all the same, and nothing is heard.
   clips and plays them. A bundled plugin that asks for it has it;
   an installed one asks the person, and a make or play answered Ask
   next time fails saying it waits, and the person is asked once.
-- **The guards**, each in `[budgets]` and the same for every plugin:
-  `clip_bytes`, the bytes of the samples of the clips a plugin holds
-  (four a sample; a clip let go of while a sound plays it stays
-  counted until none does), `sounds_playing`, the sounds it plays at
-  once, and `plays_per_second`, the sounds it starts in a second. A
-  make or play past one fails, saying why. The samples of one clip
-  come in one call, so a clip is at most `bytes_per_call`.
+- **As many as it likes.** A plugin holds as many clips and plays as
+  many sounds as it likes. Only when the person set its audio memory
+  are the bytes of the samples of its clips held (four a sample; a
+  clip let go of while a sound plays it stays counted until none
+  does); a make past it fails, saying why.
 - **The interface** `audio` in the WIT, in the world `sounds`, which
   `render-plugin` includes: the resource `clip` (`make` with the
   samples, the channels and the rate), the resource `sound` (`play`,
@@ -2076,7 +2079,7 @@ and come to their end all the same, and nothing is heard.
   loops; `set` its volume and speed; `stop`; dropping it stops it)
   and `listen` at an entity of its scene or none. A number that is
   not finite fails the call. The host keeps each plugin's clips and
-  sounds in a `Ledger`, held to the budgets as it calls, and makes
+  sounds in a `Ledger` as it calls, and makes
   them in the world as the call ends (`engine/wasm/src/audio.rs`);
   each frame the ledger hears which sounds came to their end, and a
   plugin numbering anew, after a reload, has its sounds stopped.
@@ -2113,14 +2116,14 @@ a Bevy plugin: it plays its clips through `audio`, placed at its
 entities and heard from its listener between the camera and the
 ground.
 
-## Where the budgets are
+## Where the limits and guards are
 
-A cap the engine holds every plugin to alike is a field of `Budgets`,
-`[budgets]` in `engine/tuning/engine.toml`, its meaning beside its
-field in `engine/core/src/budget.rs`. The one limit of a plugin's own,
-its memory, is a field of `PluginLimits`, its meaning beside it in
-`engine/api/src/limits.rs`, and the engine's value of it is in
-`[limits]`. The host's set-up is
+A limit the person may switch on for a plugin is a `LimitKind` and a
+field of `PluginLimits`, its meaning beside it in
+`engine/api/src/limits.rs`; the value each starts at is `[limits]` in
+`engine/tuning/engine.toml`. What keeps every plugin from crashing or
+freezing the engine is a field of `Guards`, `[guards]`, its meaning
+beside it in `engine/core/src/budget.rs`. The host's set-up is
 `[wasm]`, how scenes are shown `[render]`, how sounds are heard
 `[sound]` and `[interface_sounds]`, and the harness's waiting
 `[harness]`.

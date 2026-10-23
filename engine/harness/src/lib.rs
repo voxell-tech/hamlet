@@ -479,13 +479,10 @@ impl Harness {
     }
 
     pub fn read_asset(&self, id: AssetId) -> Result<Asset, Failure> {
-        let world = self.app.world();
-        let most = world
-            .resource::<hamlet_engine_core::Budgets>()
-            .asset_bytes;
-        world
+        self.app
+            .world()
             .resource::<hamlet_engine_assets::AssetStore>()
-            .read(id, most)
+            .read(id)
     }
 
     /// The fetches waiting for a reply.

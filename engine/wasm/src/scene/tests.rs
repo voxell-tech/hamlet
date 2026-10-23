@@ -1,5 +1,6 @@
+use hamlet_engine_api::PluginLimits;
+use hamlet_engine_core::Guards;
 use hamlet_engine_core::tuning::Tuning;
-use hamlet_engine_core::{Budgets, DefaultLimits};
 use wasmtime::component::Resource;
 
 use super::scene_bindings::hamlet::engine::scene::{
@@ -9,19 +10,18 @@ use super::{Powers, SceneError};
 use crate::host::WasmTuning;
 use crate::instance::{Caps, State};
 
+/// The caps of a plugin held to `limits`.
+fn caps(limits: &PluginLimits) -> Caps {
+    Caps::of(limits, &Guards::designed(), &WasmTuning::designed())
+}
+
 #[test]
-fn entities_are_held_to_their_capability_and_budgets() {
-    let budgets = Budgets {
-        scene_entities: 2,
-        scene_changes_per_call: 3,
-        ..Budgets::designed()
+fn entities_are_held_to_their_capability_and_the_limit_set() {
+    let limits = PluginLimits {
+        scene_entities: Some(2),
+        ..PluginLimits::default()
     };
-    let caps = Caps::of(
-        &DefaultLimits::designed(),
-        &budgets,
-        &WasmTuning::designed(),
-    );
-    let mut state = State::new(&caps);
+    let mut state = State::new(&caps(&limits));
     let make = |state: &mut State, parent: Option<u32>| {
         let parent = parent.map(Resource::new_borrow);
         HostEntity::make(state, parent, 0).expect("no trap")
@@ -34,37 +34,18 @@ fn entities_are_held_to_their_capability_and_budgets() {
     assert!(make(&mut state, Some(first)).is_ok());
     let full = make(&mut state, None).map(|made| made.rep());
     assert!(full.unwrap_err().contains("2 entities"));
-
-    let hide = |state: &mut State| {
-        HostEntity::set_visible(
-            state,
-            Resource::new_borrow(first),
-            false,
-        )
-    };
-    assert!(hide(&mut state).is_ok());
-    let past = hide(&mut state).expect_err("past the call's changes");
-    assert_eq!(
-        past.downcast_ref::<SceneError>(),
-        Some(&SceneError::Changes)
-    );
 }
 
 #[test]
 fn a_dropped_mesh_is_counted_while_an_entity_draws_it() {
-    let caps = Caps::of(
-        &DefaultLimits::designed(),
-        &Budgets::designed(),
-        &WasmTuning::designed(),
-    );
-    let mut state = State::new(&caps);
+    let mut state = State::new(&caps(&PluginLimits::default()));
     state.scene.powers = Powers::SCENE;
     let cube = |state: &mut State| {
         HostMesh::shape(state, Shape::Cuboid((1.0, 1.0, 1.0)))
             .expect("no trap")
     };
     let mesh = cube(&mut state).expect("room").rep();
-    state.scene.caps.gpu_memory = state.scene.counts.gpu_bytes;
+    state.scene.caps.gpu_memory = Some(state.scene.counts.gpu_bytes);
     let pbr = Pbr {
         base_color: (1.0, 1.0, 1.0, 1.0),
         emissive: (0.0, 0.0, 0.0, 1.0),
@@ -100,17 +81,12 @@ fn a_dropped_mesh_is_counted_while_an_entity_draws_it() {
     HostEntity::undraw(&mut state, Resource::new_borrow(entity))
         .expect("undrawn");
     assert!(cube(&mut state).is_ok());
-    assert_eq!(state.scene.counts.materials, 0);
+    assert!(state.scene.gone.is_empty());
 }
 
 #[test]
 fn a_decal_is_laid_only_with_a_decals_material() {
-    let caps = Caps::of(
-        &DefaultLimits::designed(),
-        &Budgets::designed(),
-        &WasmTuning::designed(),
-    );
-    let mut state = State::new(&caps);
+    let mut state = State::new(&caps(&PluginLimits::default()));
     state.scene.powers = Powers::SCENE;
     let decal = Decal {
         base_color: (1.0, 1.0, 1.0, 1.0),
@@ -162,5 +138,5 @@ fn a_decal_is_laid_only_with_a_decals_material() {
     );
     HostMaterial::drop(&mut state, Resource::new_own(material))
         .expect("no trap");
-    assert_eq!(state.scene.counts.materials, 1);
+    assert!(state.scene.gone.contains_key(&material));
 }

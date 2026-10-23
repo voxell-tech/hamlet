@@ -1,22 +1,18 @@
 //! Events between plugins. A plugin subscribes by name to an event
-//! its manifest hears, and sends only the events its manifest sends,
-//! `[budgets] events_sent_per_second` at most. The events of a frame
-//! are passed on together, to each subscriber that names the
-//! payload's type as the sender does, and handed over in one batch on
-//! the next frame.
+//! its manifest hears, and sends only the events its manifest sends.
+//! The events of a frame are passed on together, to each subscriber
+//! that names the payload's type as the sender does, and handed over
+//! in one batch on the next frame.
 
-use std::collections::{BTreeSet, HashMap};
-use std::time::Duration;
+use std::collections::BTreeSet;
 
 use bevy::app::{App, PostUpdate};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::ecs::observer::On;
-use bevy::ecs::system::{Local, Query, Res};
-use bevy::time::{Real, Time};
+use bevy::ecs::system::Query;
 use hamlet_engine_api::{EventId, Failure, Message, Reply, Request};
-use hamlet_engine_core::Budgets;
 use hamlet_engine_plugins::{Asked, Deliver, Disable, PluginInfo};
 
 pub(crate) fn plugin(app: &mut App) {
@@ -76,18 +72,11 @@ impl BusPluginInfoExt for PluginInfo {
 }
 
 /// Takes subscriptions, and passes on the events sent this frame.
-/// `sent` holds, for each sender, when its second began and how many
-/// events it sent in it.
 fn pass(
     mut asked: MessageReader<Asked>,
     mut plugins: Query<(Entity, &PluginInfo, &mut Subscriptions)>,
-    budgets: Res<Budgets>,
-    time: Res<Time<Real>>,
-    mut sent: Local<HashMap<Entity, (Duration, u32)>>,
     mut deliver: MessageWriter<Deliver>,
 ) {
-    let now = time.elapsed();
-    sent.retain(|plugin, _| plugins.contains(*plugin));
     let mut frame = Vec::new();
     for request in asked.read() {
         let Ok((_, plugin, mut subscriptions)) =
@@ -126,33 +115,6 @@ fn pass(
                         continue;
                     }
                 };
-                if request.depth > budgets.chain_depth {
-                    deliver.write(request.reply(Err(
-                        Failure::OutOfBudget(format!(
-                            "the chain crosses more than {} plugins",
-                            budgets.chain_depth
-                        )),
-                    )));
-                    continue;
-                }
-                let (since, count) = sent
-                    .get(&request.plugin)
-                    .copied()
-                    .filter(|(since, _)| {
-                        now.saturating_sub(*since)
-                            < Duration::from_secs(1)
-                    })
-                    .unwrap_or((now, 0));
-                if count >= budgets.events_sent_per_second {
-                    deliver.write(request.reply(Err(
-                        Failure::OutOfBudget(format!(
-                            "{} events a second, the most",
-                            budgets.events_sent_per_second
-                        )),
-                    )));
-                    continue;
-                }
-                sent.insert(request.plugin, (since, count + 1));
                 frame.push((
                     request.plugin,
                     id,

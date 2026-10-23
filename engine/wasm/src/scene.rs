@@ -1,5 +1,6 @@
 //! A plugin's scenes, as it makes, changes and drops what is in them
-//! in a call: each held to its budgets and its capabilities, and kept
+//! in a call: each held to its capabilities and the limits the person
+//! switched on, and kept
 //! as changes for the render crate to make once the call ends.
 
 mod convert;
@@ -15,8 +16,7 @@ use std::time::Instant;
 
 use bevy::pbr::StandardMaterial;
 use bevy::transform::components::Transform as Placed;
-use hamlet_engine_api::Capability;
-use hamlet_engine_core::Budgets;
+use hamlet_engine_api::{Capability, PluginLimits};
 use hamlet_engine_render::{GpuInfo, SceneChange, ShaderKind};
 use wasmtime::component::Resource;
 
@@ -64,35 +64,23 @@ pub struct EntityHandle;
 pub struct InstancesHandle;
 pub struct CameraHandle;
 
-/// What one call may spend on scenes, and what a plugin may hold.
+/// What a plugin may hold in its scenes, when the person switched it
+/// on.
 #[derive(Clone, Copy, Debug)]
 pub struct SceneCaps {
-    pub entities: usize,
-    pub vertices: usize,
-    pub materials: usize,
-    pub lights: usize,
-    pub cameras: usize,
-    pub changes: usize,
-    pub gpu_memory: u64,
-    pub gpu_objects: usize,
-    pub shader_bytes: usize,
-    /// Workgroups of one dispatch.
-    pub workgroups: u32,
+    /// Entities, each copy of instances counted.
+    pub entities: Option<usize>,
+    /// Bytes of meshes, buffers and textures.
+    pub gpu_memory: Option<u64>,
 }
 
 impl SceneCaps {
-    pub fn of(budgets: &Budgets) -> Self {
+    pub fn of(limits: &PluginLimits) -> Self {
         Self {
-            entities: budgets.scene_entities,
-            vertices: budgets.scene_vertices,
-            materials: budgets.scene_materials,
-            lights: budgets.scene_lights,
-            cameras: budgets.scene_cameras,
-            changes: budgets.scene_changes_per_call,
-            gpu_memory: budgets.gpu_memory,
-            gpu_objects: budgets.gpu_objects,
-            shader_bytes: budgets.shader_bytes,
-            workgroups: budgets.workgroups_per_frame,
+            entities: limits.scene_entities.map(|entities| {
+                usize::try_from(entities).unwrap_or(usize::MAX)
+            }),
+            gpu_memory: limits.gpu_memory,
         }
     }
 }
@@ -132,12 +120,10 @@ type Uses = [Option<u32>; 3];
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Held {
     Entity {
-        light: bool,
         /// The mesh, none for a decal, and the material it draws.
         draws: Option<(Option<u32>, u32)>,
     },
     Mesh {
-        vertices: usize,
         bytes: u64,
     },
     /// A material, with the shader, texture and buffer it uses.
@@ -230,17 +216,12 @@ impl Held {
     }
 }
 
-/// What a plugin holds in its scenes, counted against its budgets.
+/// What a plugin holds in its scenes, counted against the limits the
+/// person may switch on.
 #[derive(Clone, Copy, Default, Debug)]
 struct Counts {
     entities: usize,
-    vertices: usize,
-    materials: usize,
-    lights: usize,
-    cameras: usize,
     gpu_bytes: u64,
-    /// Shaders, buffers, textures, compute and passes.
-    gpu_objects: usize,
 }
 
 /// The scenes of a plugin, as its host holds them.
@@ -251,7 +232,7 @@ pub(crate) struct SceneState {
     next: u32,
     held: HashMap<u32, Held>,
     /// What the plugin let go of while something still draws or runs
-    /// with it, counted against its budgets until nothing does.
+    /// with it, counted until nothing does.
     gone: HashMap<u32, Held>,
     /// How many things use each number.
     users: HashMap<u32, usize>,
@@ -260,8 +241,6 @@ pub(crate) struct SceneState {
     pub(crate) changes: Vec<SceneChange>,
     /// Cameras to show in frames, by their numbers.
     pub(crate) shown: Vec<(u32, u32)>,
-    /// Changes in the call under way.
-    pub(crate) spent: usize,
     pub(crate) animate: bool,
     /// What it may use now, and what waits for the person.
     pub(crate) powers: Powers,
@@ -274,10 +253,9 @@ pub(crate) struct SceneState {
     pub(crate) gpu: GpuInfo,
 }
 
-/// A plugin misused its scenes or went past a budget of one call.
+/// A plugin misused its scenes.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum SceneError {
-    Changes,
     /// A number it never held, or one of another kind.
     Unknown,
     /// A number that is not finite, or out of its range.
@@ -287,12 +265,6 @@ pub enum SceneError {
 impl fmt::Display for SceneError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Changes => {
-                write!(
-                    f,
-                    "it changed its scenes more than one call may"
-                )
-            }
             Self::Unknown => {
                 write!(f, "it named a part of a scene it never made")
             }
@@ -321,7 +293,6 @@ impl SceneState {
             caps,
             changes: Vec::new(),
             shown: Vec::new(),
-            spent: 0,
             animate: false,
             powers: Powers::default(),
             asking: Powers::default(),
@@ -329,15 +300,6 @@ impl SceneState {
             backdrop_taken: false,
             gpu: GpuInfo::default(),
         }
-    }
-
-    /// Counts `count` changes within the call's cap.
-    fn spend(&mut self, count: usize) -> wasmtime::Result<()> {
-        if self.spent.saturating_add(count) > self.caps.changes {
-            return Err(trap(SceneError::Changes));
-        }
-        self.spent += count;
-        Ok(())
     }
 
     /// Whether the plugin may use `power`; why not otherwise.
@@ -398,34 +360,21 @@ impl SceneState {
     fn free(&mut self, held: Held) {
         let counts = &mut self.counts;
         match held {
-            Held::Entity { light, .. } => {
-                counts.entities -= 1;
-                counts.lights -= usize::from(light);
-            }
-            Held::Mesh { vertices, bytes } => {
-                counts.vertices -= vertices;
+            Held::Entity { .. } => counts.entities -= 1,
+            Held::Mesh { bytes } | Held::Buffer { bytes } => {
                 counts.gpu_bytes -= bytes;
             }
-            Held::Material { .. } => counts.materials -= 1,
             Held::Instances { copies, .. } => {
                 counts.entities -= copies + 1;
             }
-            Held::Camera { pass, .. } => {
-                counts.cameras -= 1;
-                counts.gpu_objects -= usize::from(pass.is_some());
-            }
-            Held::Shader(_) | Held::Compute { .. } => {
-                counts.gpu_objects -= 1
-            }
-            Held::Buffer { bytes } => {
-                counts.gpu_objects -= 1;
-                counts.gpu_bytes -= bytes;
-            }
             Held::Texture { width, height } => {
-                counts.gpu_objects -= 1;
                 counts.gpu_bytes -=
                     u64::from(width) * u64::from(height) * 4;
             }
+            Held::Material { .. }
+            | Held::Camera { .. }
+            | Held::Shader(_)
+            | Held::Compute { .. } => {}
         }
         self.release(held.uses());
     }
@@ -448,7 +397,6 @@ impl SceneState {
         &mut self,
         change: SceneChange,
     ) -> wasmtime::Result<()> {
-        self.spend(1)?;
         self.changes.push(change);
         Ok(())
     }
@@ -465,31 +413,42 @@ impl SceneState {
         } else {
             self.free(held);
         }
-        // A drop is not refused, so it is not held to the call's cap.
         self.changes.push(SceneChange::Drop(id));
         Ok(())
     }
 
-    /// Whether `count` more entities fit; why not otherwise.
+    /// Whether `count` more entities fit within the person's limit;
+    /// why not otherwise.
     fn room(&self, count: usize) -> Result<(), String> {
-        let most = self.caps.entities;
-        if self.counts.entities.saturating_add(count) > most {
-            return Err(format!(
-                "a scene holds {most} entities at most"
-            ));
+        match self.caps.entities {
+            Some(most)
+                if self.counts.entities.saturating_add(count)
+                    > most =>
+            {
+                Err(format!(
+                    "its scenes hold {most} entities at most, as \
+                     you set"
+                ))
+            }
+            _ => Ok(()),
         }
-        Ok(())
     }
 
-    /// Whether one more material fits; why not otherwise.
-    fn room_material(&self) -> Result<(), String> {
-        let most = self.caps.materials;
-        if self.counts.materials >= most {
-            return Err(format!(
-                "a scene holds {most} materials at most"
-            ));
+    /// Whether `bytes` more of GPU memory fit within the person's
+    /// limit; why not otherwise.
+    fn room_gpu(&self, bytes: u64) -> Result<(), String> {
+        match self.caps.gpu_memory {
+            Some(most)
+                if self.counts.gpu_bytes.saturating_add(bytes)
+                    > most =>
+            {
+                Err(format!(
+                    "its GPU memory is {most} bytes at most, as you \
+                     set"
+                ))
+            }
+            _ => Ok(()),
         }
-        Ok(())
     }
 
     /// Numbers a decal's material, `made` with `texture`, if the
@@ -500,14 +459,10 @@ impl SceneState {
         texture: Option<u32>,
     ) -> wasmtime::Result<Result<Resource<MaterialHandle>, String>>
     {
-        if let Err(why) = self
-            .allowed(Powers::SCENE, "render.scene")
-            .and_then(|()| self.room_material())
+        if let Err(why) = self.allowed(Powers::SCENE, "render.scene")
         {
             return Ok(Err(why));
         }
-        self.spend(1)?;
-        self.counts.materials += 1;
         let id = self.number(Held::Material {
             kind: MaterialKind::Decal,
             uses: [None, texture, None],
@@ -521,45 +476,22 @@ impl SceneState {
         Ok(Ok(Resource::new_own(id)))
     }
 
-    /// A mesh of `vertices` taking `bytes`, numbered, or why it does
-    /// not fit.
-    fn fit_mesh(
-        &mut self,
-        vertices: usize,
-        bytes: u64,
-    ) -> Result<(), String> {
+    /// Counts a mesh of `bytes`, or why it does not fit: past the
+    /// device's largest buffer, or the person's GPU memory.
+    fn fit_mesh(&mut self, bytes: u64) -> Result<(), String> {
         let largest = self.gpu.buffer_size;
         if bytes > largest {
             return Err(format!("a mesh is {largest} bytes at most"));
         }
-        let most = self.caps.vertices;
-        if self.counts.vertices.saturating_add(vertices) > most {
-            return Err(format!(
-                "meshes hold {most} vertices at most"
-            ));
-        }
-        let memory = self.caps.gpu_memory;
-        if self.counts.gpu_bytes.saturating_add(bytes) > memory {
-            return Err(format!(
-                "a plugin's GPU memory is {memory} bytes at most"
-            ));
-        }
-        self.counts.vertices += vertices;
-        self.counts.gpu_bytes += bytes;
+        self.room_gpu(bytes)?;
+        self.counts.gpu_bytes =
+            self.counts.gpu_bytes.saturating_add(bytes);
         Ok(())
     }
 
     /// Whether `id` names an entity it holds.
     pub(crate) fn holds_entity(&self, id: u32) -> bool {
         self.held.get(&id).is_some_and(entity)
-    }
-
-    /// Whether the entity `id` is a light.
-    fn light(&self, id: u32) -> wasmtime::Result<bool> {
-        match self.held(id, entity)? {
-            Held::Entity { light, .. } => Ok(light),
-            _ => Err(trap(SceneError::Unknown)),
-        }
     }
 
     /// The scene's number of `parent`, if it is an entity of the
@@ -603,7 +535,6 @@ impl HostMesh for State {
         &mut self,
         data: MeshData,
     ) -> wasmtime::Result<Result<Resource<MeshHandle>, String>> {
-        self.keep_bytes(data.bytes())?;
         self.make_mesh(|| convert::mesh(data))
     }
 
@@ -612,10 +543,8 @@ impl HostMesh for State {
         mesh: Resource<MeshHandle>,
         data: MeshData,
     ) -> wasmtime::Result<Result<(), String>> {
-        self.keep_bytes(data.bytes())?;
         let id = mesh.rep();
-        let Held::Mesh { vertices, bytes } =
-            self.scene.held(id, Held::mesh)?
+        let Held::Mesh { bytes } = self.scene.held(id, Held::mesh)?
         else {
             return Err(trap(SceneError::Unknown));
         };
@@ -623,22 +552,13 @@ impl HostMesh for State {
             Ok(made) => made,
             Err(why) => return Ok(Err(why)),
         };
-        self.scene.spend(1)?;
         let scene = &mut self.scene;
-        scene.counts.vertices -= vertices;
         scene.counts.gpu_bytes -= bytes;
-        if let Err(why) = scene.fit_mesh(made.vertices, made.bytes) {
-            scene.counts.vertices += vertices;
+        if let Err(why) = scene.fit_mesh(made.bytes) {
             scene.counts.gpu_bytes += bytes;
             return Ok(Err(why));
         }
-        scene.keep(
-            id,
-            Held::Mesh {
-                vertices: made.vertices,
-                bytes: made.bytes,
-            },
-        );
+        scene.keep(id, Held::Mesh { bytes: made.bytes });
         scene.changes.push(SceneChange::Mesh {
             id,
             mesh: made.mesh,
@@ -655,7 +575,7 @@ impl HostMesh for State {
 }
 
 impl State {
-    /// Numbers the mesh `make` makes, within the budgets.
+    /// Numbers the mesh `make` makes, if it fits.
     fn make_mesh(
         &mut self,
         make: impl FnOnce() -> Result<convert::Made, String>,
@@ -669,16 +589,10 @@ impl State {
             Ok(made) => made,
             Err(why) => return Ok(Err(why)),
         };
-        self.scene.spend(1)?;
-        if let Err(why) =
-            self.scene.fit_mesh(made.vertices, made.bytes)
-        {
+        if let Err(why) = self.scene.fit_mesh(made.bytes) {
             return Ok(Err(why));
         }
-        let id = self.scene.number(Held::Mesh {
-            vertices: made.vertices,
-            bytes: made.bytes,
-        });
+        let id = self.scene.number(Held::Mesh { bytes: made.bytes });
         self.scene.changes.push(SceneChange::Mesh {
             id,
             mesh: made.mesh,
@@ -698,13 +612,8 @@ impl HostMaterial for State {
         {
             return Ok(Err(why));
         }
-        if let Err(why) = self.scene.room_material() {
-            return Ok(Err(why));
-        }
         let material = convert::pbr(pbr)
             .ok_or_else(|| trap(SceneError::Invalid))?;
-        self.scene.spend(1)?;
-        self.scene.counts.materials += 1;
         let id = self.scene.number(Held::Material {
             kind: MaterialKind::Pbr,
             uses: [None; 3],
@@ -720,7 +629,6 @@ impl HostMaterial for State {
         decal: Decal,
     ) -> wasmtime::Result<Result<Resource<MaterialHandle>, String>>
     {
-        self.keep_bytes(size_of::<Decal>())?;
         let made = convert::decal(decal)
             .ok_or_else(|| trap(SceneError::Invalid))?;
         self.scene.make_decal(made, None)
@@ -751,7 +659,6 @@ impl HostMaterial for State {
         material: Resource<MaterialHandle>,
         decal: Decal,
     ) -> wasmtime::Result<()> {
-        self.keep_bytes(size_of::<Decal>())?;
         let id = material.rep();
         self.scene.held(id, |held| {
             matches!(
@@ -795,12 +702,8 @@ impl HostEntity for State {
         {
             return Ok(Err(why));
         }
-        self.scene.spend(1)?;
         self.scene.counts.entities += 1;
-        let id = self.scene.number(Held::Entity {
-            light: false,
-            draws: None,
-        });
+        let id = self.scene.number(Held::Entity { draws: None });
         self.scene.changes.push(SceneChange::Entity {
             id,
             key,
@@ -849,7 +752,7 @@ impl HostEntity for State {
         material: Resource<MaterialHandle>,
     ) -> wasmtime::Result<()> {
         let id = at.rep();
-        let light = self.scene.light(id)?;
+        self.scene.held(id, entity)?;
         let (mesh, material) = (mesh.rep(), material.rep());
         self.scene.held(mesh, Held::mesh)?;
         self.scene.held(material, Held::material)?;
@@ -861,7 +764,6 @@ impl HostEntity for State {
         self.scene.keep(
             id,
             Held::Entity {
-                light,
                 draws: Some((Some(mesh), material)),
             },
         );
@@ -874,14 +776,13 @@ impl HostEntity for State {
         material: Resource<MaterialHandle>,
     ) -> wasmtime::Result<()> {
         let id = at.rep();
-        let light = self.scene.light(id)?;
+        self.scene.held(id, entity)?;
         let material = material.rep();
         self.scene.held(material, Held::decal)?;
         self.scene.change(SceneChange::DrawDecal { id, material })?;
         self.scene.keep(
             id,
             Held::Entity {
-                light,
                 draws: Some((None, material)),
             },
         );
@@ -893,9 +794,9 @@ impl HostEntity for State {
         at: Resource<EntityHandle>,
     ) -> wasmtime::Result<()> {
         let id = at.rep();
-        let light = self.scene.light(id)?;
+        self.scene.held(id, entity)?;
         self.scene.change(SceneChange::Undraw(id))?;
-        self.scene.keep(id, Held::Entity { light, draws: None });
+        self.scene.keep(id, Held::Entity { draws: None });
         Ok(())
     }
 
@@ -905,29 +806,13 @@ impl HostEntity for State {
         light: Option<Light>,
     ) -> wasmtime::Result<Result<(), String>> {
         let id = at.rep();
-        let Held::Entity { light: was, draws } =
-            self.scene.held(id, entity)?
-        else {
-            return Err(trap(SceneError::Unknown));
-        };
-        let now = light.is_some();
-        let most = self.scene.caps.lights;
-        if now && !was && self.scene.counts.lights >= most {
-            return Ok(Err(format!(
-                "a scene holds {most} lights at most"
-            )));
-        }
+        self.scene.held(id, entity)?;
         let light = light
             .map(|light| {
                 convert::light(light)
                     .ok_or_else(|| trap(SceneError::Invalid))
             })
             .transpose()?;
-        self.scene.spend(1)?;
-        let counts = &mut self.scene.counts;
-        counts.lights =
-            counts.lights + usize::from(now) - usize::from(was);
-        self.scene.keep(id, Held::Entity { light: now, draws });
         self.scene.changes.push(SceneChange::Light { id, light });
         Ok(Ok(()))
     }
@@ -949,15 +834,8 @@ impl HostEntity for State {
         at: Resource<EntityHandle>,
         text: Option<String>,
     ) -> wasmtime::Result<()> {
-        self.keep_bytes(text.as_ref().map_or(0, String::len))?;
         let id = at.rep();
         self.scene.held(id, entity)?;
-        let text = text.map(|mut text| {
-            text.truncate(
-                text.floor_char_boundary(self.caps.line_bytes),
-            );
-            text
-        });
         self.scene.change(SceneChange::Label { id, text })
     }
 
@@ -1000,7 +878,6 @@ impl HostInstances for State {
         {
             return Ok(Err(why));
         }
-        self.scene.spend(1)?;
         self.scene.counts.entities += 1;
         let id = self.scene.number(Held::Instances {
             copies: 0,
@@ -1022,7 +899,6 @@ impl HostInstances for State {
         instances: Resource<InstancesHandle>,
         transforms: Vec<f32>,
     ) -> wasmtime::Result<Result<(), String>> {
-        self.keep_bytes(size_of_val(transforms.as_slice()))?;
         let id = instances.rep();
         let Held::Instances {
             copies,
@@ -1042,10 +918,11 @@ impl HostInstances for State {
         }
         let count = transforms.len() / COPY;
         let others = self.scene.counts.entities - copies;
-        let most = self.scene.caps.entities;
-        if others.saturating_add(count) > most {
+        if let Some(most) = self.scene.caps.entities
+            && others.saturating_add(count) > most
+        {
             return Ok(Err(format!(
-                "a scene holds {most} entities at most"
+                "its scenes hold {most} entities at most, as you set"
             )));
         }
         let placed = transforms
@@ -1055,7 +932,6 @@ impl HostInstances for State {
             .map(|floats| convert::copy(floats))
             .collect::<Option<Vec<Placed>>>()
             .ok_or_else(|| trap(SceneError::Invalid))?;
-        self.scene.spend(count.max(1))?;
         self.scene.counts.entities = others + count;
         self.scene.keep(
             id,
@@ -1105,16 +981,10 @@ impl HostCamera for State {
         let background = target == Target::Background;
         let setup = convert::camera(settings)
             .ok_or_else(|| trap(SceneError::Invalid))?;
-        let most = self.scene.caps.cameras;
         let refused = self
             .scene
             .allowed(Powers::SCENE, "render.scene")
             .err()
-            .or_else(|| {
-                (self.scene.counts.cameras >= most).then(|| {
-                    format!("a scene holds {most} cameras at most")
-                })
-            })
             .or_else(|| {
                 let behind = self.scene.held.values().any(|held| {
                     matches!(
@@ -1134,8 +1004,6 @@ impl HostCamera for State {
         if let Some(why) = refused {
             return Ok(Err(why));
         }
-        self.scene.spend(1)?;
-        self.scene.counts.cameras += 1;
         let id = self.scene.number(Held::Camera {
             background,
             pass: None,
@@ -1178,7 +1046,6 @@ impl HostCamera for State {
             )
         })?;
         self.nodes.frame(frame.rep())?;
-        self.scene.spend(1)?;
         self.scene.shown.push((id, frame.rep()));
         Ok(())
     }

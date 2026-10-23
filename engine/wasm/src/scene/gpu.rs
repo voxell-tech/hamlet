@@ -1,7 +1,7 @@
 //! A plugin's own GPU work, as it makes and changes it in a call:
 //! each shader checked with naga before it is kept, and each thing
-//! held to the budgets of GPU memory and objects and to the render
-//! capabilities.
+//! held to the render capabilities, the device's sizes, and the GPU
+//! memory the person switched on.
 
 use hamlet_engine_render::{
     PARAMS, SceneChange, ShaderKind, ShaderRules, check,
@@ -27,24 +27,6 @@ pub struct ComputeHandle;
 const CUTOFF: f32 = 0.5;
 
 impl SceneState {
-    /// Whether one more GPU object of `bytes` fits; why not
-    /// otherwise.
-    fn room_gpu(&self, bytes: u64) -> Result<(), String> {
-        let most = self.caps.gpu_objects;
-        if self.counts.gpu_objects >= most {
-            return Err(format!(
-                "a plugin holds {most} GPU objects at most"
-            ));
-        }
-        let memory = self.caps.gpu_memory;
-        if self.counts.gpu_bytes.saturating_add(bytes) > memory {
-            return Err(format!(
-                "a plugin's GPU memory is {memory} bytes at most"
-            ));
-        }
-        Ok(())
-    }
-
     /// Whether the plugin may make what both kinds of its GPU work
     /// use.
     fn allowed_either(&mut self) -> Result<(), String> {
@@ -61,9 +43,8 @@ impl SceneState {
         bytes: u64,
         change: impl FnOnce(u32) -> SceneChange,
     ) -> wasmtime::Result<Resource<T>> {
-        self.spend(1)?;
-        self.counts.gpu_objects += 1;
-        self.counts.gpu_bytes += bytes;
+        self.counts.gpu_bytes =
+            self.counts.gpu_bytes.saturating_add(bytes);
         let id = self.number(held);
         self.changes.push(change(id));
         Ok(Resource::new_own(id))
@@ -105,7 +86,6 @@ impl HostShader for State {
         source: String,
     ) -> wasmtime::Result<Result<Resource<ShaderHandle>, String>>
     {
-        self.keep_bytes(source.len())?;
         let (kind, power, name) = match kind {
             Kind::Material => (
                 ShaderKind::Material,
@@ -125,14 +105,10 @@ impl HostShader for State {
             }
         };
         let scene = &mut self.scene;
-        if let Err(why) = scene
-            .allowed(power, name)
-            .and_then(|()| scene.room_gpu(0))
-        {
+        if let Err(why) = scene.allowed(power, name) {
             return Ok(Err(why));
         }
-        let rules =
-            ShaderRules::of(&scene.gpu, scene.caps.shader_bytes);
+        let rules = ShaderRules::of(&scene.gpu);
         let shader = match check(kind, &source, &rules) {
             Ok(shader) => shader,
             Err(why) => return Ok(Err(why)),
@@ -192,7 +168,6 @@ impl HostBuffer for State {
         offset: u32,
         bytes: Vec<u8>,
     ) -> wasmtime::Result<Result<(), String>> {
-        self.keep_bytes(bytes.len())?;
         let id = buffer.rep();
         let Held::Buffer { bytes: size } = self
             .scene
@@ -260,7 +235,6 @@ impl HostTexture for State {
         pixels: Vec<u8>,
     ) -> wasmtime::Result<Result<Resource<TextureHandle>, String>>
     {
-        self.keep_bytes(pixels.len())?;
         let bytes = pixels.len() as u64;
         let refused = self
             .picture(width, height, &pixels)
@@ -287,7 +261,6 @@ impl HostTexture for State {
         texture: Resource<TextureHandle>,
         pixels: Vec<u8>,
     ) -> wasmtime::Result<Result<(), String>> {
-        self.keep_bytes(pixels.len())?;
         let id = texture.rep();
         let Held::Texture { width, height } = self
             .scene
@@ -346,13 +319,10 @@ impl SceneState {
         let refused = self
             .allowed(Powers::SHADER, "render.shader")
             .and(of_kind)
-            .and_then(|()| params(&floats))
-            .and_then(|()| self.room_material());
+            .and_then(|()| params(&floats));
         if let Err(why) = refused {
             return Ok(Err(why));
         }
-        self.spend(1)?;
-        self.counts.materials += 1;
         let id = self.number(Held::Material {
             kind,
             uses: [Some(shader), texture, data],
@@ -372,7 +342,6 @@ impl Host for State {
         data: Option<Resource<BufferHandle>>,
     ) -> wasmtime::Result<Result<Resource<MaterialHandle>, String>>
     {
-        self.keep_bytes(size_of_val(floats.as_slice()))?;
         let shader = shader.rep();
         let texture = texture.map(|texture| texture.rep());
         let data = data.map(|data| data.rep());
@@ -403,7 +372,6 @@ impl Host for State {
         data: Option<Resource<BufferHandle>>,
     ) -> wasmtime::Result<Result<Resource<MaterialHandle>, String>>
     {
-        self.keep_bytes(size_of_val(floats.as_slice()))?;
         if matches!(alpha_mode, AlphaMode::Opaque | AlphaMode::Mask) {
             return Ok(Err("a decal's alpha mode is one that \
                            blends"
@@ -433,7 +401,6 @@ impl Host for State {
         material: Resource<MaterialHandle>,
         floats: Vec<f32>,
     ) -> wasmtime::Result<Result<(), String>> {
-        self.keep_bytes(size_of_val(floats.as_slice()))?;
         let id = material.rep();
         self.scene.held(id, |held| {
             matches!(
@@ -459,7 +426,6 @@ impl Host for State {
         texture: Resource<TextureHandle>,
     ) -> wasmtime::Result<Result<Resource<MaterialHandle>, String>>
     {
-        self.keep_bytes(size_of::<Decal>())?;
         self.scene.held(texture.rep(), |held| {
             matches!(held, Held::Texture { .. })
         })?;
@@ -474,9 +440,8 @@ impl Host for State {
         shader: Option<Resource<ShaderHandle>>,
         floats: Vec<f32>,
     ) -> wasmtime::Result<Result<(), String>> {
-        self.keep_bytes(size_of_val(floats.as_slice()))?;
         let id = camera.rep();
-        let Held::Camera { background, pass } = self
+        let Held::Camera { background, .. } = self
             .scene
             .held(id, |held| matches!(held, Held::Camera { .. }))?
         else {
@@ -487,14 +452,7 @@ impl Host for State {
         if let Some(shader) = shader {
             let refused = scene
                 .allowed(Powers::SHADER, "render.shader")
-                .and_then(|()| params(&floats))
-                .and_then(|()| {
-                    if pass.is_some() {
-                        Ok(())
-                    } else {
-                        scene.room_gpu(0)
-                    }
-                });
+                .and_then(|()| params(&floats));
             if let Err(why) = refused {
                 return Ok(Err(why));
             }
@@ -504,10 +462,6 @@ impl Host for State {
                 return Ok(Err(why));
             }
         }
-        scene.spend(1)?;
-        scene.counts.gpu_objects = scene.counts.gpu_objects
-            + usize::from(shader.is_some())
-            - usize::from(pass.is_some());
         scene.keep(
             id,
             Held::Camera {
@@ -539,9 +493,8 @@ impl HostCompute for State {
         if let Some(extra) = &extra {
             scene.held(extra.rep(), buffer)?;
         }
-        if let Err(why) = scene
-            .allowed(Powers::COMPUTE, "render.compute")
-            .and_then(|()| scene.room_gpu(0))
+        if let Err(why) =
+            scene.allowed(Powers::COMPUTE, "render.compute")
         {
             return Ok(Err(why));
         }
@@ -570,7 +523,6 @@ impl HostCompute for State {
         compute: Resource<ComputeHandle>,
         floats: Vec<f32>,
     ) -> wasmtime::Result<Result<(), String>> {
-        self.keep_bytes(size_of_val(floats.as_slice()))?;
         let id = compute.rep();
         self.scene.held(id, Held::compute)?;
         if let Err(why) = params(&floats) {
@@ -591,14 +543,6 @@ impl HostCompute for State {
     ) -> wasmtime::Result<Result<(), String>> {
         let id = compute.rep();
         self.scene.held(id, Held::compute)?;
-        let most = self.scene.caps.workgroups;
-        let groups = u64::from(x) * u64::from(y) * u64::from(z);
-        if groups > u64::from(most) {
-            return Ok(Err(format!(
-                "{groups} workgroups, the most a frame runs is \
-                 {most}"
-            )));
-        }
         let widest = self.scene.gpu.groups;
         if x.max(y).max(z) > widest {
             return Ok(Err(format!(

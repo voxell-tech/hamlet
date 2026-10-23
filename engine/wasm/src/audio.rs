@@ -1,6 +1,6 @@
 //! A plugin's sounds: its clips and sounds held to `audio.play` and
-//! the budgets by its [`Ledger`](hamlet_engine_audio::Ledger) while
-//! it is called, kept in step
+//! its audio memory by its [`Ledger`](hamlet_engine_audio::Ledger)
+//! while it is called, kept in step
 //! with the grants, and made in the world once its call ends.
 
 use core::fmt;
@@ -88,7 +88,7 @@ fn playback(asked: Asked) -> wasmtime::Result<Playback> {
 }
 
 impl State {
-    /// Plays the clip `clip` from `place`, within the budgets.
+    /// Plays the clip `clip` from `place`.
     fn play(
         &mut self,
         clip: &Resource<ClipHandle>,
@@ -138,7 +138,6 @@ impl HostClip for State {
         channels: u8,
         rate: u32,
     ) -> wasmtime::Result<Result<Resource<ClipHandle>, String>> {
-        self.keep_bytes(size_of_val(samples.as_slice()))?;
         let clip = match Clip::new(samples, channels.into(), rate) {
             Ok(clip) => clip,
             Err(why) => return Ok(Err(why)),

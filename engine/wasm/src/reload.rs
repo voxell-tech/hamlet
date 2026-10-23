@@ -21,7 +21,7 @@ use bevy::tasks::futures::check_ready;
 use bevy::time::common_conditions::on_real_timer;
 use hamlet_engine_api::Contribution;
 use hamlet_engine_core::tuning::Tuning;
-use hamlet_engine_core::{Budgets, LogLine, PluginBudgets};
+use hamlet_engine_core::{ActiveLimits, Guards, Home, LogLine};
 use hamlet_engine_plugins::{
     Asked, ContributedBy, Contributions, PluginCommandsExt,
     PluginInfo, StartOrder,
@@ -29,6 +29,7 @@ use hamlet_engine_plugins::{
 use wasmtime::Engine;
 
 use crate::budget::Spending;
+use crate::compiled::WasmHomeExt;
 use crate::folder::{Look, MANIFEST, Package, WASM};
 use crate::host::{Host, WasmTuning};
 use crate::instance::{Caps, Fault, Instance, Linked};
@@ -86,6 +87,7 @@ fn notice(
         Option<&Reloading>,
     )>,
     host: Option<Res<Host>>,
+    home: Res<Home>,
     tuning: Res<WasmTuning>,
     mut last: Local<HashMap<Entity, Loaded>>,
     mut log: MessageWriter<LogLine>,
@@ -111,13 +113,9 @@ fn notice(
             match package.folder.read_manifest(tuning.manifest_bytes)
             {
                 Ok(manifest) => {
-                    let read =
-                        PluginInfo::of(manifest.clone(), info.kind);
-                    let same_but_limits = PluginInfo {
-                        limits: info.limits.clone(),
-                        ..read.clone()
-                    } == *info;
-                    if !same_but_limits {
+                    if PluginInfo::of(manifest.clone(), info.kind)
+                        != *info
+                    {
                         log.write(LogLine::info(
                             "plugins",
                             format!(
@@ -132,11 +130,6 @@ fn notice(
                             info.kind,
                         );
                         continue;
-                    }
-                    // New limits reach the running plugin as they
-                    // are.
-                    if read.limits != info.limits {
-                        commands.entity(plugin).insert(read);
                     }
                 }
                 Err(why) => {
@@ -159,9 +152,11 @@ fn notice(
             continue;
         }
         let file = package.folder.join(WASM);
-        commands
-            .entity(plugin)
-            .insert(Reloading(host.compile(file, tuning.wasm_bytes)));
+        commands.entity(plugin).insert(Reloading(host.compile(
+            file,
+            tuning.wasm_bytes,
+            home.kept_compiled(info),
+        )));
     }
 }
 
@@ -170,7 +165,7 @@ fn swap(
     mut plugins: Query<(
         Entity,
         &PluginInfo,
-        &PluginBudgets,
+        &ActiveLimits,
         &mut Instance,
         &mut Inbox,
         &mut Spending,
@@ -181,7 +176,7 @@ fn swap(
     roots: Query<(Entity, &UiRoot, &ContributedBy)>,
     order: Res<StartOrder>,
     host: Option<Res<Host>>,
-    budgets: Res<Budgets>,
+    guards: Res<Guards>,
     tuning: Res<WasmTuning>,
     mut log: MessageWriter<LogLine>,
     mut asked: MessageWriter<Asked>,
@@ -205,7 +200,7 @@ fn swap(
         let Some(built) = check_ready(&mut reloading.0.0) else {
             continue;
         };
-        let caps = Caps::of(limits, &budgets, &tuning);
+        let caps = Caps::of(&limits.0, &guards, &tuning);
         commands.entity(plugin).remove::<Reloading>();
         let source = info.id.as_str();
         let linked = match built {
@@ -224,16 +219,11 @@ fn swap(
         };
         let reloaded =
             instance.reload(&host.0, &linked, &caps, &mut spending);
-        instance.pass_logs(info, &mut spending, &budgets, &mut log);
+        instance.pass_logs(info, &mut log);
         instance.pass_requests(plugin, 0, &mut asked);
         match reloaded {
             Ok((mut fresh, contributions_now)) => {
-                fresh.pass_logs(
-                    info,
-                    &mut spending,
-                    &budgets,
-                    &mut log,
-                );
+                fresh.pass_logs(info, &mut log);
                 fresh.pass_requests(plugin, 0, &mut asked);
                 if contributions_now != declared.0 {
                     commands
@@ -244,7 +234,6 @@ fn swap(
                         info,
                         &order.rank(plugin, info),
                         entry(contributions_now.clone()),
-                        &budgets,
                     );
                 }
                 // Keys of the old version's nodes may name others of
@@ -292,16 +281,16 @@ impl Instance {
         spending: &mut Spending,
     ) -> Result<(Instance, Vec<Contribution>), Failed> {
         let (state, spent) = self.save(caps);
-        spending.charge(spent, false);
+        spending.charge(spent);
         let state = state.map_err(Failed::Old)?;
         let mut fresh = Instance::new(engine, linked, caps)
             .map_err(Failed::New)?;
         fresh.follow(self);
         let (restored, spent) = fresh.restore(caps, &state);
-        spending.charge(spent, false);
+        spending.charge(spent);
         restored.map_err(Failed::New)?;
         let (declared, spent) = fresh.declare(caps);
-        spending.charge(spent, false);
+        spending.charge(spent);
         Ok((fresh, declared.map_err(Failed::New)?))
     }
 }

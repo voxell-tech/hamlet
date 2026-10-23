@@ -1,44 +1,30 @@
-//! What each running plugin spends in a second, across every kind of
-//! call: calls, events, changes and log lines. A plugin past a
-//! budget waits for the next second; one that goes over for
-//! [`Budgets::strikes`] seconds in a row is stopped.
+//! The time each running plugin's calls take in a second. A plugin
+//! the person gave a CPU time a second waits, once past it, for the
+//! next second; any other is never held back.
 
 use std::time::Duration;
 
 use bevy::ecs::component::Component;
-use bevy::ecs::entity::Entity;
 use bevy::ecs::message::MessageWriter;
 use bevy::ecs::query::With;
-use bevy::ecs::system::{Commands, Query, Res};
+use bevy::ecs::system::{Query, Res};
 use bevy::time::{Real, Time};
-use hamlet_engine_core::{Budgets, LogLine};
+use hamlet_engine_core::{ActiveLimits, LogLine};
 use hamlet_engine_plugins::PluginInfo;
 
-use crate::WasmCommandsExt;
-use crate::instance::{Fault, Instance, Spent};
+use crate::instance::{Instance, Spent};
 
-/// On a running plugin: what it spent in the current second.
+/// On a running plugin: the time its calls took in the current
+/// second.
 #[derive(Component, Default, Debug)]
 pub(crate) struct Spending {
     /// When the second began, on the real clock.
     since: Duration,
-    calls: u32,
-    events: u32,
-    /// Nodes of retained panels made, set or ordered.
-    changes: u32,
-    /// Changes to its scenes.
-    scene_changes: u32,
-    /// Lines logged, by level.
-    lines: [u32; 3],
-    /// Lines and events left out.
-    dropped_lines: u32,
-    pub(crate) dropped_events: u32,
-    /// Whether it went past a budget.
+    time: Duration,
+    /// Whether it went past its CPU time this second, and the second
+    /// before.
     over: bool,
-    /// Seconds in a row it went past one.
-    strikes: u32,
-    /// The frame it was last served in.
-    pub(crate) served: u64,
+    was_over: bool,
 }
 
 impl Spending {
@@ -49,48 +35,31 @@ impl Spending {
         }
     }
 
-    /// Whether the plugin may be called again this second, with an
-    /// event when `event`. A plugin that may not is over a budget.
-    pub(crate) fn may_call(
-        &mut self,
-        budgets: &Budgets,
-        event: bool,
-    ) -> bool {
-        let within = self.calls < budgets.calls_per_second
-            && self.changes < budgets.node_changes_per_second
-            && self.scene_changes < budgets.scene_changes_per_second
-            && (!event || self.events < budgets.events_per_second);
+    /// Whether the plugin may be called again this second: always,
+    /// unless the person gave it a CPU time and it is past it.
+    pub(crate) fn may_call(&mut self, limits: &ActiveLimits) -> bool {
+        let within =
+            limits.0.cpu_time_per_second.is_none_or(|most| {
+                self.time < Duration::from_millis(most)
+            });
         self.over |= !within;
         within
     }
 
-    /// Counts a call, given an event when `event`.
-    pub(crate) fn charge(&mut self, spent: Spent, event: bool) {
-        self.calls += 1;
-        self.events += u32::from(event);
-        self.changes = self.changes.saturating_add(spent.changes);
-        self.scene_changes =
-            self.scene_changes.saturating_add(spent.scene_changes);
+    /// Counts a call.
+    pub(crate) fn charge(&mut self, spent: Spent) {
+        self.time = self.time.saturating_add(spent.time);
     }
 }
 
 impl Instance {
-    /// Tells the log what the plugin `info` logged, as many lines of
-    /// each level a second as the budgets allow.
+    /// Tells the log what the plugin `info` logged.
     pub(crate) fn pass_logs(
         &mut self,
         info: &PluginInfo,
-        spending: &mut Spending,
-        budgets: &Budgets,
         log: &mut MessageWriter<LogLine>,
     ) {
         for (level, text) in self.take_logs() {
-            let lines = &mut spending.lines[level as usize];
-            if *lines >= budgets.log_lines_per_second {
-                spending.dropped_lines += 1;
-                continue;
-            }
-            *lines += 1;
             log.write(LogLine {
                 level,
                 source: info.id.to_string(),
@@ -101,61 +70,31 @@ impl Instance {
 }
 
 /// Starts each plugin's next second when its last is over, telling
-/// what was left out, and stops a plugin that went over its budgets
-/// too many seconds in a row.
+/// the log when one first waits for its CPU time.
 pub(crate) fn tally(
-    mut plugins: Query<
-        (Entity, &PluginInfo, &mut Spending),
-        With<Instance>,
-    >,
-    budgets: Res<Budgets>,
+    mut plugins: Query<(&PluginInfo, &mut Spending), With<Instance>>,
     time: Res<Time<Real>>,
     mut log: MessageWriter<LogLine>,
-    mut commands: Commands,
 ) {
     let now = time.elapsed();
-    for (plugin, info, mut spending) in &mut plugins {
+    for (info, mut spending) in &mut plugins {
         if now.saturating_sub(spending.since) < Duration::from_secs(1)
         {
             continue;
         }
-        let source = info.id.as_str();
-        for (count, what) in [
-            (spending.dropped_lines, "lines of its log"),
-            (spending.dropped_events, "events"),
-        ] {
-            if count > 0 {
-                log.write(LogLine::warn(
-                    source,
-                    format!(
-                        "{count} {what} were left out in a second"
-                    ),
-                ));
-            }
-        }
-        let strikes = if spending.over {
-            spending.strikes + 1
-        } else {
-            0
-        };
-        if strikes >= budgets.strikes {
-            let fault = Fault::Over(strikes);
-            commands.stop_plugin(&mut log, plugin, info, &fault);
-            continue;
-        }
-        if strikes == 1 {
+        if spending.over && !spending.was_over {
             log.write(LogLine::warn(
-                source,
+                info.id.as_str(),
                 format!(
-                    "{} is over its budget, and waits",
+                    "{} is past the CPU time a second you set, and \
+                     waits",
                     info.name
                 ),
             ));
         }
         *spending = Spending {
             since: now,
-            strikes,
-            served: spending.served,
+            was_over: spending.over,
             ..Spending::default()
         };
     }

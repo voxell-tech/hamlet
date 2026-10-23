@@ -1,10 +1,12 @@
 //! The host of WASM plugins: wasmtime with the component model, a
-//! store for each plugin, and each call into a plugin held to its
-//! budgets. The only engine crate that knows wasmtime.
+//! store for each plugin, and each call into a plugin held only to
+//! the limits the person switched on and the guards. The only engine
+//! crate that knows wasmtime.
 
 mod add;
 mod audio;
 mod budget;
+mod compiled;
 mod dialog;
 mod folder;
 mod host;

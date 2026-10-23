@@ -3,7 +3,7 @@ name = "hamlet_engine_core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "What every engine module stands on: the tuning files, the home folder, the log and the budgets"
+description = "What every engine module stands on: the tuning files, the home folder, the log, the guards and the plugins' limits"
 
 [lints]
 workspace = true

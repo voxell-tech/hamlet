@@ -16,7 +16,7 @@ use bevy::tasks::futures::check_ready;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
 use bevy::time::{Real, Time};
 use hamlet_engine_api::Contribution;
-use hamlet_engine_core::{Budgets, LogLine, PluginBudgets};
+use hamlet_engine_core::{ActiveLimits, Guards, Home, LogLine};
 use hamlet_engine_grants::Admitted;
 use hamlet_engine_plugins::{
     Asked, Blocked, ContributedBy, Disable, Enable, Enabled, Entry,
@@ -26,9 +26,10 @@ use hamlet_engine_shell::Command;
 use hamlet_engine_shell::icons::Glyph;
 
 use crate::budget::Spending;
+use crate::compiled::{self, WasmHomeExt};
 use crate::folder::{Package, WASM};
 use crate::host::{Host, WasmTuning};
-use crate::instance::{Caps, Instance, Linked, link};
+use crate::instance::{Caps, Instance, Linked, link_compiled};
 use crate::panel::{Inbox, Moving, Work};
 use crate::reload::{Declared, Reloading};
 use crate::{PluginPathExt, retained};
@@ -50,15 +51,20 @@ pub(crate) struct Built(pub(crate) Linked);
 
 impl Host {
     /// Compiles the `plugin.wasm` at `file`, of at most `most` bytes,
-    /// off the frame.
+    /// off the frame, or takes it as kept compiled in `kept`.
     pub(crate) fn compile(
         &self,
         file: PathBuf,
         most: u64,
+        kept: PathBuf,
     ) -> Compiling {
         let engine = self.0.clone();
         Compiling(AsyncComputeTaskPool::get().spawn(async move {
-            link(&engine, &file.read_capped(most)?)
+            let bytes = file.read_capped(most)?;
+            link_compiled(
+                &engine,
+                &compiled::component(&engine, &bytes, &kept)?,
+            )
         }))
     }
 }
@@ -187,12 +193,8 @@ fn run_command(world: &mut World, command: Entity) {
     else {
         return;
     };
-    let budgets = world.resource::<Budgets>().clone();
-    let mut inboxes = world.query::<(&mut Inbox, &mut Spending)>();
-    if let Ok((mut inbox, mut spending)) =
-        inboxes.get_mut(world, plugin)
-    {
-        inbox.offer(Work::Run(name), &mut spending, &budgets);
+    if let Some(mut inbox) = world.get_mut::<Inbox>(plugin) {
+        inbox.0.push_back(Work::Run(name));
     }
 }
 
@@ -200,21 +202,24 @@ fn run_command(world: &mut World, command: Entity) {
 /// none yet.
 fn begin(
     plugins: Query<
-        (Entity, &Package),
+        (Entity, &PluginInfo, &Package),
         (With<Starting>, Without<Built>, Without<Compiling>),
     >,
     host: Option<Res<Host>>,
+    home: Res<Home>,
     tuning: Res<WasmTuning>,
     mut commands: Commands,
 ) {
     let Some(host) = host else {
         return;
     };
-    for (plugin, package) in &plugins {
+    for (plugin, info, package) in &plugins {
         let file = package.folder.join(WASM);
-        commands
-            .entity(plugin)
-            .insert(host.compile(file, tuning.wasm_bytes));
+        commands.entity(plugin).insert(host.compile(
+            file,
+            tuning.wasm_bytes,
+            home.kept_compiled(info),
+        ));
     }
 }
 
@@ -248,11 +253,11 @@ fn compiled(
 /// Instantiates each plugin whose turn it is to start, its component
 /// built, and adds what it declares.
 fn start(
-    plugins: Query<(&PluginInfo, &PluginBudgets, &Built)>,
+    plugins: Query<(&PluginInfo, &ActiveLimits, &Built)>,
     waiting: Query<(), (With<Starting>, Without<Blocked>)>,
     order: Res<StartOrder>,
     host: Option<Res<Host>>,
-    budgets: Res<Budgets>,
+    guards: Res<Guards>,
     tuning: Res<WasmTuning>,
     time: Res<Time<Real>>,
     mut log: MessageWriter<LogLine>,
@@ -270,7 +275,7 @@ fn start(
         let Ok((info, limits, built)) = plugins.get(plugin) else {
             continue;
         };
-        let caps = Caps::of(limits, &budgets, &tuning);
+        let caps = Caps::of(&limits.0, &guards, &tuning);
         commands.entity(plugin).remove::<Starting>();
         let mut instance =
             match Instance::new(&host.0, &built.0, &caps) {
@@ -289,8 +294,8 @@ fn start(
         let mut spending = Spending::new(time.elapsed());
         let (declared, spent) = instance.declare(&caps);
         instance.pass_requests(plugin, 0, &mut asked);
-        spending.charge(spent, false);
-        instance.pass_logs(info, &mut spending, &budgets, &mut log);
+        spending.charge(spent);
+        instance.pass_logs(info, &mut log);
         match declared {
             Ok(contributions) => {
                 commands.switch_on(
@@ -298,7 +303,6 @@ fn start(
                     info,
                     &order.rank(plugin, info),
                     entry(contributions.clone()),
-                    &budgets,
                 );
                 commands.entity(plugin).insert((
                     instance,

@@ -4,8 +4,7 @@ use hamlet_engine_api::{
     Ask, AssetType, Capability, Failure, Manifest, PluginId, Reply,
     Request, TypeName,
 };
-use hamlet_engine_core::tuning::Tuning;
-use hamlet_engine_core::{Budgets, Home};
+use hamlet_engine_core::Home;
 use hamlet_engine_grants::{Answer, Grants, Record};
 use hamlet_engine_plugins::{PluginInfo, PluginKind};
 
@@ -57,7 +56,7 @@ fn done(outcome: Option<Outcome>) -> Result<Reply, Failure> {
 }
 
 #[test]
-fn the_store_keeps_to_types_grants_and_caps() {
+fn the_store_keeps_to_types_and_grants() {
     let home = home("rules");
     let notes = plugin("test.notes", &["notes.note"], &[]);
     let board = plugin("test.board", &[], &[("notes.note", 1)]);
@@ -65,11 +64,6 @@ fn the_store_keeps_to_types_grants_and_caps() {
     let (registry, _) =
         TypeRegistry::of([&notes, &board, &old].into_iter());
     let mut grants = Grants::open(&home);
-    let budgets = Budgets {
-        asset_bytes: 8,
-        assets: 1,
-        ..Budgets::designed()
-    };
     let mut store = AssetStore::open(&home);
     let create = |bytes: &[u8]| Request::CreateAsset {
         kind: "notes.note".into(),
@@ -84,24 +78,14 @@ fn the_store_keeps_to_types_grants_and_caps() {
         let rules = Rules {
             registry: &registry,
             grants,
-            budgets: &budgets,
         };
         rules.answer(store, plugin, request, false)
     };
-    // Past the size, then made, then past the count.
-    assert!(matches!(
-        done(answer(&mut store, &grants, &notes, &create(&[0; 9]))),
-        Err(Failure::OutOfBudget(_))
-    ));
     let Ok(Reply::Created(id)) =
         done(answer(&mut store, &grants, &notes, &create(b"hello")))
     else {
         panic!("the note was not made");
     };
-    assert!(matches!(
-        done(answer(&mut store, &grants, &notes, &create(b"again"))),
-        Err(Failure::OutOfBudget(_))
-    ));
     // Only its maker makes a type, and changes its own.
     assert!(matches!(
         done(answer(&mut store, &grants, &board, &create(b"mine"))),
@@ -166,7 +150,6 @@ fn the_store_keeps_to_types_grants_and_caps() {
     let rules = Rules {
         registry: &registry,
         grants: &grants,
-        budgets: &budgets,
     };
     assert!(matches!(
         done(rules.answer(&mut store, &taker, &read, false)),

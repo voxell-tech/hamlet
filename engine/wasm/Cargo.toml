@@ -3,7 +3,7 @@ name = "hamlet_engine_wasm"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The host of WASM plugins: wasmtime with a store per plugin, held to its budgets"
+description = "The host of WASM plugins: wasmtime with a store per plugin, held only to the limits the person switches on"
 
 [lints]
 workspace = true
@@ -23,6 +23,7 @@ bytes.workspace = true
 fynix.workspace = true
 rfd.workspace = true
 serde.workspace = true
+sha2.workspace = true
 tokio.workspace = true
 toml.workspace = true
 wasmtime.workspace = true

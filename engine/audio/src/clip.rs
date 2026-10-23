@@ -61,7 +61,8 @@ impl Clip {
         })
     }
 
-    /// Bytes its samples take, as a plugin's budget counts them.
+    /// Bytes its samples take, as a plugin's audio memory counts
+    /// them.
     pub fn bytes(&self) -> u64 {
         size_of_val(self.samples.as_slice()) as u64
     }

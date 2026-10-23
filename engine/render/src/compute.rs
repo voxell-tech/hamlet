@@ -1,7 +1,8 @@
 //! A plugin's compute: its checked WGSL run over its buffers, each
-//! frame it is asked to, before the cameras draw. The workgroups of
-//! one owner in a frame are capped, an owner over its GPU time waits,
-//! and each run is timed where the GPU has timestamps.
+//! frame it is asked to, before the cameras draw. A dispatch is held
+//! to the device's workgroups along each axis. An owner the person
+//! gave a GPU time has each run timed where the GPU has timestamps,
+//! and waits once over it.
 
 use std::collections::{HashMap, HashSet};
 
@@ -37,13 +38,14 @@ use bevy::render::{
 };
 use bevy::shader::Shader;
 use bevy::time::Time;
-use hamlet_engine_core::Budgets;
 use wgpu::{
     ComputePassTimestampWrites, QuerySet, QuerySetDescriptor,
     QueryType,
 };
 
-use crate::guard::{GpuClock, SLOT_BYTES, Throttled, TimedSlots};
+use crate::guard::{
+    GpuClock, Metered, SLOT_BYTES, Throttled, TimedSlots,
+};
 use crate::shader::PARAMS;
 use crate::viewport::RenderTuning;
 
@@ -95,8 +97,8 @@ fn give_slot(mut world: DeferredWorld, context: HookContext) {
 struct Jobs {
     jobs: Vec<(Entity, ComputeJob)>,
     throttled: HashSet<Entity>,
-    /// The workgroups an owner may run in the frame.
-    workgroups: u32,
+    /// The owners whose runs are timed.
+    metered: HashSet<Entity>,
     time: f32,
     delta: f32,
     slots: u32,
@@ -121,7 +123,7 @@ impl RenderClock {
 fn extract(
     jobs: Extract<Query<(Entity, &ComputeJob)>>,
     throttled: Extract<Res<Throttled>>,
-    budgets: Extract<Res<Budgets>>,
+    metered: Extract<Res<Metered>>,
     tuning: Extract<Res<RenderTuning>>,
     time: Extract<Res<Time>>,
     clock: Extract<Option<Res<GpuClock>>>,
@@ -138,7 +140,7 @@ fn extract(
             .map(|(entity, job)| (entity, job.clone()))
             .collect(),
         throttled: throttled.0.clone(),
-        workgroups: budgets.workgroups_per_frame,
+        metered: metered.0.keys().copied().collect(),
         time: time.elapsed_secs_wrapped(),
         delta: time.delta_secs(),
         slots: tuning.timed_slots,
@@ -182,9 +184,8 @@ fn layout() -> BindGroupLayoutDescriptor {
     )
 }
 
-/// Runs each job owed a run, within its owner's workgroups of the
-/// frame, timing it where the GPU can, and submits them before the
-/// cameras draw.
+/// Runs each job owed a run, timing a metered owner's where the GPU
+/// can, and submits them before the cameras draw.
 fn run(
     jobs: Res<Jobs>,
     pipeline_cache: Res<PipelineCache>,
@@ -232,7 +233,6 @@ fn run(
         .clone();
     // A dispatch past it would fail the device.
     let widest = device.limits().max_compute_workgroups_per_dimension;
-    let mut spent = HashMap::<Entity, u32>::new();
     let frame = |count: u32| {
         let mut bytes = Vec::with_capacity(16);
         bytes.extend_from_slice(&jobs.time.to_le_bytes());
@@ -249,22 +249,18 @@ fn run(
             .slot
             .filter(|_| clock.buffer.is_some())
             .zip(clock.set.as_ref());
-        // Untimed, it would escape its owner's GPU time: it waits for
-        // a slot, then keeps it while it lives. With a slot it runs
-        // every frame it is owed, untimed only while the clock's
-        // buffer is not yet made on the device.
-        let waits = clock.set.is_some() && job.slot.is_none();
+        // Untimed, a metered owner's run would escape its GPU time:
+        // it waits for a slot, then keeps it while it lives.
+        // With a slot it runs every frame it is owed, untimed
+        // only while the clock's buffer is not yet made on
+        // the device.
+        let waits = clock.set.is_some()
+            && job.slot.is_none()
+            && jobs.metered.contains(&job.owner);
         if job.asked == 0
             || !owed
             || waits
             || jobs.throttled.contains(&job.owner)
-        {
-            continue;
-        }
-        let [x, y, z] = job.groups;
-        let groups = x.saturating_mul(y).saturating_mul(z);
-        let used = spent.entry(job.owner).or_default();
-        if used.saturating_add(groups) > jobs.workgroups
             || job.groups.iter().any(|&along| along > widest)
         {
             continue;
@@ -303,7 +299,6 @@ fn run(
                 &spare
             }
         };
-        *used += groups;
         let params =
             device.create_buffer_with_data(&BufferInitDescriptor {
                 label: Some("hamlet_params"),
@@ -344,6 +339,7 @@ fn run(
                 });
             pass.set_pipeline(pipeline);
             pass.set_bind_group(0, &bind_group, &[]);
+            let [x, y, z] = job.groups;
             pass.dispatch_workgroups(x, y, z);
         }
         if let (Some((slot, set)), Some(buffer)) =

@@ -39,10 +39,9 @@ use crate::scene::scene_bindings::hamlet::engine::scene::{
     Pbr, Projection, Rgba, Shape, Tonemapping, Transform,
 };
 
-/// A mesh, and what it holds against the budgets.
+/// A mesh, and the GPU memory it takes.
 pub(crate) struct Made {
     pub(crate) mesh: Mesh,
-    pub(crate) vertices: usize,
     /// Bytes of its vertices and indices on the GPU.
     pub(crate) bytes: u64,
 }
@@ -51,22 +50,10 @@ impl Made {
     fn of(mesh: Mesh) -> Self {
         let indices = mesh.indices().map_or(0, Indices::len);
         Self {
-            vertices: mesh.count_vertices(),
             bytes: (mesh.get_vertex_buffer_size() + indices * 4)
                 as u64,
             mesh,
         }
-    }
-}
-
-impl MeshData {
-    /// Bytes the plugin handed over.
-    pub(crate) fn bytes(&self) -> usize {
-        size_of_val(self.positions.as_slice())
-            + size_of_val(self.normals.as_slice())
-            + size_of_val(self.uvs.as_slice())
-            + size_of_val(self.colors.as_slice())
-            + size_of_val(self.indices.as_slice())
     }
 }
 

@@ -28,7 +28,7 @@ macro_rules! tuning_file {
     };
 }
 
-/// Sizes, timings and budgets.
+/// Sizes, timings and guards.
 pub const ENGINE: TuningFile = tuning_file!("engine.toml");
 /// The colours and sizes of the shell.
 pub const THEME: TuningFile = tuning_file!("theme.toml");

@@ -373,21 +373,33 @@ impl Scene {
                 self.remove::<Drawn>(world, id);
                 self.decals.remove(&id);
             }
+            // A light of the kind it had is changed in place, so its
+            // shadow maps are kept.
             SceneChange::Light { id, light } => {
-                self.remove::<(DirectionalLight, PointLight, SpotLight)>(
-                    world, id,
-                );
                 match light {
                     Some(SceneLight::Directional(light)) => {
+                        self.remove::<(PointLight, SpotLight)>(
+                            world, id,
+                        );
                         self.insert(world, id, light);
                     }
                     Some(SceneLight::Point(light)) => {
+                        self.remove::<(DirectionalLight, SpotLight)>(
+                            world, id,
+                        );
                         self.insert(world, id, light);
                     }
                     Some(SceneLight::Spot(light)) => {
+                        self.remove::<(DirectionalLight, PointLight)>(
+                        world, id,
+                    );
                         self.insert(world, id, light);
                     }
-                    None => {}
+                    None => self.remove::<(
+                        DirectionalLight,
+                        PointLight,
+                        SpotLight,
+                    )>(world, id),
                 }
             }
             SceneChange::Shadows { id, cast, receive } => {

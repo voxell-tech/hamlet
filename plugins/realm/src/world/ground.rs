@@ -719,13 +719,13 @@ impl Ground {
 }
 
 impl Wood {
-    /// Gives each kind its copies while the call has room and the
-    /// frame has `room` trees left to plant, taking what it plants
+    /// Gives each kind its copies while the frame has time and
+    /// `room` trees left to plant, taking what it plants
     /// from `room`.
     fn give(&mut self, ctx: &Ctx, draw: &mut Draw, room: &mut usize) {
         let entity = self.entity;
         self.waiting.retain_mut(|(mesh, copies)| {
-            if *room == 0 || !draw.copies(copies.len()) {
+            if *room == 0 || !draw.left() {
                 return true;
             }
             *room = room.saturating_sub(copies.len());
@@ -755,7 +755,7 @@ pub fn build_ground(
 
 /// Something built that was not drawn.
 enum Unbuilt<T> {
-    /// The frame had no room left to hand it over: it waits for the
+    /// The frame had no time left to hand it over: it waits for the
     /// next.
     Full(T),
     /// The engine refused it, saying why.

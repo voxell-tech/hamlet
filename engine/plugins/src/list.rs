@@ -24,8 +24,10 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, Signal, ViewExt, each, keyed, resource};
 use hamlet_engine_api::id::ENGINE;
-use hamlet_engine_api::{PanelId, PluginId};
-use hamlet_engine_core::{LogLine, PluginBudgets};
+use hamlet_engine_api::{
+    Limit, LimitKind, Limits, PanelId, PluginId,
+};
+use hamlet_engine_core::LogLine;
 use hamlet_engine_shell::dock::{PLUGIN_LIST, PanelIcon};
 use hamlet_engine_shell::icons::{Glyph, glyph};
 use hamlet_engine_shell::style::{
@@ -35,7 +37,6 @@ use hamlet_engine_shell::style::{
 use hamlet_engine_shell::{AnyView, Cx, Panel, StyleExt};
 
 use crate::limits::ChosenLimits;
-use crate::list::limits::{MemoryLine, memory_line};
 pub use crate::list::page::PluginPageSection;
 use crate::list::page::{
     Added, Things, added, confirmation, page_view,
@@ -59,9 +60,9 @@ pub(crate) fn plugin(app: &mut App) {
 #[derive(Resource, Clone, PartialEq, Default)]
 struct Rows {
     plugins: Vec<Row>,
-    /// A value typed for the memory of a plugin that was refused,
-    /// and why.
-    refused: Option<(Entity, String)>,
+    /// A value typed for a limit of a plugin that was refused, and
+    /// why.
+    refused: Option<(Entity, LimitKind, String)>,
     /// The plugin whose UNINSTALL was pressed, waiting to be
     /// confirmed.
     uninstalling: Option<Entity>,
@@ -180,7 +181,8 @@ struct Row {
     /// Why it cannot run.
     blocked: Option<String>,
     kind: PluginKind,
-    memory: Option<MemoryLine>,
+    /// The limits the person set for it.
+    limits: Limits,
     /// Each plugin it needs with the versions that fit, and why it
     /// is not there if it is not.
     needs: Vec<(String, Option<String>)>,
@@ -481,18 +483,22 @@ trait ListWorldExt {
     /// to be confirmed.
     fn show(&mut self, page: Shown);
 
-    /// Sets the memory of the plugin `id` to `bytes`, or back for
-    /// `None`, saying on its page why when it cannot be kept.
+    /// Sets the limit `kind` of the plugin `id`, saying on its page
+    /// why when it cannot be kept.
     fn choose(
         &mut self,
         plugin: Entity,
         id: &PluginId,
-        bytes: Option<u64>,
+        kind: LimitKind,
+        limit: Limit,
     );
 
-    /// Shows `why` under the memory of `plugin`, or nothing for
-    /// `None`.
-    fn refuse(&mut self, plugin: Entity, why: Option<String>);
+    /// Shows `why` under a limit of `plugin`, or nothing for `None`.
+    fn refuse(
+        &mut self,
+        plugin: Entity,
+        why: Option<(LimitKind, String)>,
+    );
 
     /// Asks to confirm uninstalling `plugin`, or asks no more for
     /// `None`.
@@ -521,21 +527,29 @@ impl ListWorldExt for World {
         &mut self,
         plugin: Entity,
         id: &PluginId,
-        bytes: Option<u64>,
+        kind: LimitKind,
+        limit: Limit,
     ) {
-        let kept =
-            self.resource_mut::<ChosenLimits>().set_memory(id, bytes);
+        let kept = self.resource_mut::<ChosenLimits>().set(
+            id,
+            kind,
+            Some(limit),
+        );
         if let Err(why) = &kept {
             self.write_message(LogLine::error(
                 "plugins",
                 why.clone(),
             ));
         }
-        self.refuse(plugin, kept.err());
+        self.refuse(plugin, kept.err().map(|why| (kind, why)));
     }
 
-    fn refuse(&mut self, plugin: Entity, why: Option<String>) {
-        let refused = why.map(|why| (plugin, why));
+    fn refuse(
+        &mut self,
+        plugin: Entity,
+        why: Option<(LimitKind, String)>,
+    ) {
+        let refused = why.map(|(kind, why)| (plugin, kind, why));
         let mut rows = self.resource_mut::<Rows>();
         if rows.refused != refused {
             rows.refused = refused;
@@ -574,9 +588,9 @@ impl ListWorldExt for World {
     }
 }
 
-/// Gathers the rows again when a plugin comes, goes, is switched or
-/// is held to other limits, and shows the list again in place of the
-/// page of a plugin that went.
+/// Gathers the rows again when a plugin comes, goes or is switched,
+/// or the person's limits change, and shows the list again in place
+/// of the page of a plugin that went.
 fn follow(
     changed: Query<
         (),
@@ -587,7 +601,6 @@ fn follow(
             Changed<Stopped>,
             Changed<Starting>,
             Changed<Blocked>,
-            Changed<PluginBudgets>,
         )>,
     >,
     mut gone: RemovedComponents<PluginInfo>,
@@ -602,7 +615,6 @@ fn follow(
         Has<Enabled>,
         Option<&Contributions>,
         Option<&Stopped>,
-        Option<&PluginBudgets>,
     )>,
     states: Query<State>,
     things: Query<Things>,
@@ -633,7 +645,7 @@ fn follow(
     };
     let mut now = plugins
         .iter()
-        .map(|(plugin, info, enabled, adds, stopped, budgets)| {
+        .map(|(plugin, info, enabled, adds, stopped)| {
             let (starting, blocked) = states
                 .get(plugin)
                 .map(|(_, _, _, starting, blocked, _)| {
@@ -653,13 +665,10 @@ fn follow(
                 stopped: stopped.map(|stopped| stopped.0.clone()),
                 blocked,
                 kind: info.kind,
-                memory: budgets.map(|budgets| {
-                    memory_line(
-                        budgets,
-                        &info.limits,
-                        chosen.get(&info.id),
-                    )
-                }),
+                limits: chosen
+                    .get(&info.id)
+                    .cloned()
+                    .unwrap_or_default(),
                 needs: info
                     .dependencies
                     .iter()

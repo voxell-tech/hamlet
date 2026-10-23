@@ -1,7 +1,7 @@
 //! The nodes of a plugin's retained panels, as the plugin makes,
 //! sets, orders and drops them in a call: kept as changes to make to
-//! the engine's widgets once the call ends, each held to the budgets
-//! and to what its kind may hold and be set to.
+//! the engine's widgets once the call ends, each held to what its
+//! kind may hold and be set to, and to the guards' depth.
 
 use core::fmt;
 use std::collections::HashMap;
@@ -10,7 +10,7 @@ use wasmtime::component::Resource;
 
 use crate::instance::State;
 use crate::instance::ui_bindings::hamlet::engine::ui::{
-    Host, HostNode, Kind, MenuItem, Motion, Property, StatusItem,
+    Host, HostNode, Kind, Motion, Property, StatusItem,
 };
 use crate::surfaces::SurfaceChange;
 
@@ -93,14 +93,10 @@ impl Nodes {
         self.next
     }
 
-    /// Counts one change within `most`.
-    fn spend(&mut self, most: usize) -> wasmtime::Result<()> {
+    /// Counts one change.
+    fn count(&mut self) {
         self.calls += 1;
-        if self.spent >= most {
-            return Err(wasmtime::Error::new(NodeError::Changes));
-        }
         self.spent += 1;
-        Ok(())
     }
 
     /// Fails unless `node` is a frame the plugin holds.
@@ -197,37 +193,11 @@ impl Property {
             other => other,
         }
     }
-
-    /// Bytes of what it holds that the host keeps.
-    fn bytes(&self) -> usize {
-        match self {
-            Self::Text(text)
-            | Self::Placeholder(text)
-            | Self::Tip(text)
-            | Self::Folder(text) => text.len(),
-            Self::Options(options) => options
-                .iter()
-                .map(|option| size_of::<String>() + option.len())
-                .sum(),
-            Self::Menu(menu) => menu
-                .items
-                .iter()
-                .map(|item| {
-                    size_of::<MenuItem>()
-                        + item.text.len()
-                        + item.group.len()
-                })
-                .sum(),
-            _ => 0,
-        }
-    }
 }
 
-/// A plugin went past a budget of its nodes, or misused one.
+/// A plugin misused its nodes, or nested one past the guards' depth.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum NodeError {
-    Changes,
-    Nodes,
     Depth,
     /// A node made under one that holds none.
     Leaf,
@@ -240,12 +210,6 @@ pub enum NodeError {
 impl fmt::Display for NodeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Changes => {
-                write!(f, "it changed more nodes than one call may")
-            }
-            Self::Nodes => {
-                write!(f, "it held more nodes than it may")
-            }
             Self::Depth => {
                 write!(f, "it nested nodes deeper than it may")
             }
@@ -270,13 +234,7 @@ impl Host for State {
         name: String,
         item: StatusItem,
     ) -> wasmtime::Result<()> {
-        self.nodes.spend(self.caps.node_changes)?;
-        self.keep_bytes(
-            name.len()
-                + item.icon.len()
-                + item.text.len()
-                + item.tip.len(),
-        )?;
+        self.nodes.count();
         self.surfaces.push(SurfaceChange::Status { name, item });
         Ok(())
     }
@@ -286,8 +244,7 @@ impl Host for State {
         name: String,
         shown: bool,
     ) -> wasmtime::Result<()> {
-        self.nodes.spend(self.caps.node_changes)?;
-        self.keep_bytes(name.len())?;
+        self.nodes.count();
         self.surfaces.push(SurfaceChange::Overlay { name, shown });
         Ok(())
     }
@@ -297,15 +254,13 @@ impl Host for State {
         name: String,
         holds: u32,
     ) -> wasmtime::Result<()> {
-        self.nodes.spend(self.caps.node_changes)?;
-        self.keep_bytes(name.len())?;
+        self.nodes.count();
         self.surfaces.push(SurfaceChange::Section { name, holds });
         Ok(())
     }
 
     fn open(&mut self, name: String) -> wasmtime::Result<()> {
-        self.nodes.spend(self.caps.node_changes)?;
-        self.keep_bytes(name.len())?;
+        self.nodes.count();
         self.surfaces.push(SurfaceChange::Open(name));
         Ok(())
     }
@@ -318,10 +273,7 @@ impl HostNode for State {
         parent: Resource<UiNode>,
         key: u32,
     ) -> wasmtime::Result<Resource<UiNode>> {
-        self.nodes.spend(self.caps.node_changes)?;
-        if self.nodes.held.len() >= self.caps.nodes {
-            return Err(wasmtime::Error::new(NodeError::Nodes));
-        }
+        self.nodes.count();
         let Some(&above) = self.nodes.held.get(&parent.rep()) else {
             return Err(wasmtime::Error::new(NodeError::Unknown));
         };
@@ -350,11 +302,10 @@ impl HostNode for State {
         value: Property,
         motion: Option<Motion>,
     ) -> wasmtime::Result<()> {
-        self.nodes.spend(self.caps.node_changes)?;
+        self.nodes.count();
         if !self.nodes.kind(node.rep())?.takes(&value) {
             return Err(wasmtime::Error::new(NodeError::Property));
         }
-        self.keep_bytes(value.bytes())?;
         self.nodes.changes.push(NodeChange::Set {
             node: node.rep(),
             value: value.bounded(),
@@ -368,8 +319,7 @@ impl HostNode for State {
         node: Resource<UiNode>,
         children: Vec<Resource<UiNode>>,
     ) -> wasmtime::Result<()> {
-        self.nodes.spend(self.caps.node_changes)?;
-        self.keep_bytes(children.len() * size_of::<u32>())?;
+        self.nodes.count();
         self.nodes.changes.push(NodeChange::Order {
             node: node.rep(),
             children: children.iter().map(Resource::rep).collect(),
@@ -383,7 +333,7 @@ impl HostNode for State {
         hover: bool,
         press: bool,
     ) -> wasmtime::Result<()> {
-        self.nodes.spend(self.caps.node_changes)?;
+        self.nodes.count();
         self.nodes.changes.push(NodeChange::Watch {
             node: node.rep(),
             hover,

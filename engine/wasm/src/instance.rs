@@ -1,14 +1,10 @@
 //! A running plugin: its component instantiated in a store of its
-//! own, and each call into it held to the plugin's limits and the
-//! engine's budgets.
+//! own, and each call into it held to the limits the person switched
+//! on, none until they do.
 //!
 //! Every value a plugin hands the host crosses as a string or a list
 //! of bytes. wasmtime checks its pointer and length against the
-//! plugin's memory, and against the store's cap on what one host call
-//! copies, before it copies a byte; the cap is `bytes_per_call`,
-//! given anew to each call of the host. What the host keeps of them
-//! is counted against the same bytes for the whole call into the
-//! plugin.
+//! plugin's memory before it copies a byte.
 
 use core::fmt;
 use std::time::{Duration, Instant};
@@ -19,7 +15,7 @@ use hamlet_engine_api::{
     FetchRequest, PluginLimits, Request, Ticket, decode,
 };
 use hamlet_engine_audio::{AudioCaps, Ledger};
-use hamlet_engine_core::{Budgets, LogLevel};
+use hamlet_engine_core::{Guards, LogLevel};
 use wasmtime::component::{Component as Compiled, HasSelf, Linker};
 use wasmtime::{Engine, ResourceLimiter, Store, Trap};
 
@@ -61,32 +57,18 @@ use crate::instance::ui_bindings::{UiPanels, UiPanelsIndices};
 const HOST: &str = "hamlet:engine/host@0.1.0";
 const UI: &str = "hamlet:engine/ui@0.1.0";
 
-/// The text wasmtime gives a host call that copied more than its cap
-/// allows. It names the error in its text only.
-const TOO_MUCH: &str =
-    "fuel allocated for hostcalls has been exhausted";
-
-/// What one call may spend.
+/// What one call may spend: the limits the person switched on, and
+/// the guards.
 #[derive(Clone, Copy, Debug)]
 pub struct Caps {
-    /// Ticks of the epoch, and the time they stand for.
+    /// Ticks of the epoch the call may last, and the time they stand
+    /// for: the person's call time, else the guards' `hung`.
     pub ticks: u64,
     pub time: Duration,
-    /// Bytes copied in or out.
-    pub bytes: usize,
-    /// Lines logged, and the bytes of one.
-    pub lines: usize,
-    pub line_bytes: usize,
-    /// Requests made of the engine's services.
-    pub requests: usize,
-    /// Bytes of all the plugin's memories.
-    pub memory: usize,
-    /// Resources of the system interface held at once.
-    pub resources: usize,
-    /// Nodes of retained panels made, set or ordered.
-    pub node_changes: usize,
-    /// Nodes of retained panels held at once.
-    pub nodes: usize,
+    /// Whether the time is the person's call time.
+    pub timed: bool,
+    /// Bytes of all the plugin's memories, when the person set it.
+    pub memory: Option<usize>,
     /// How deep a node may sit under its panel's root.
     pub node_depth: usize,
     pub scene: SceneCaps,
@@ -94,50 +76,46 @@ pub struct Caps {
 }
 
 impl Caps {
-    /// The caps of a plugin held to `limits` and the engine's
-    /// `budgets`.
+    /// The caps of a plugin held to `limits` and the `guards`.
     pub fn of(
         limits: &PluginLimits,
-        budgets: &Budgets,
+        guards: &Guards,
         tuning: &WasmTuning,
     ) -> Self {
+        let time = limits.call_time.map_or_else(
+            || {
+                Duration::try_from_secs_f32(guards.hung)
+                    .unwrap_or(Duration::MAX)
+            },
+            Duration::from_millis,
+        );
         Self {
-            ticks: tuning.call_ticks(budgets),
-            time: Duration::try_from_secs_f32(
-                budgets.call_time / 1000.0,
-            )
-            .unwrap_or(Duration::MAX),
-            bytes: usize::try_from(budgets.bytes_per_call)
-                .unwrap_or(usize::MAX),
-            lines: budgets.log_lines_per_second as usize,
-            line_bytes: budgets.log_line_bytes,
-            requests: budgets.requests_per_call,
-            memory: usize::try_from(limits.memory)
-                .unwrap_or(usize::MAX),
-            resources: budgets.wasi_resources,
-            node_changes: budgets.node_changes_per_call,
-            nodes: budgets.nodes,
-            node_depth: budgets.node_depth,
-            scene: SceneCaps::of(budgets),
-            audio: AudioCaps::of(budgets),
+            ticks: tuning.ticks(time),
+            time,
+            timed: limits.call_time.is_some(),
+            memory: limits.memory.map(|memory| {
+                usize::try_from(memory).unwrap_or(usize::MAX)
+            }),
+            node_depth: guards.node_depth,
+            scene: SceneCaps::of(limits),
+            audio: AudioCaps::of(limits),
         }
     }
 }
 
 /// Why a plugin is stopped: a call that failed, after which it cannot
-/// be called again, or budgets of a second gone past too often.
+/// be called again.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Fault {
-    /// It went past a budget of a second this many seconds in a row.
-    Over(u32),
-    /// A call ran past `[budgets] call_time`.
+    /// A call ran past the call time the person set.
     Time,
-    /// Its memories grew past its budget.
+    /// A call held the frame for this many seconds, with no call time
+    /// set.
+    Hung(u64),
+    /// Its memories grew past the memory the person set.
     Memory,
-    /// It handed over more bytes than one call may.
-    Bytes,
-    /// It went past a budget of the nodes of its panels, or misused
-    /// one.
+    /// It misused a node of its panels, or nested one past the
+    /// guards' depth.
     Node(NodeError),
     /// It trapped: why.
     Trap(String),
@@ -148,19 +126,16 @@ pub enum Fault {
 impl fmt::Display for Fault {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Over(seconds) => write!(
-                f,
-                "it went over its budgets {seconds} seconds in a row"
-            ),
-            Self::Time => write!(f, "the call ran past its time"),
-            Self::Memory => {
-                write!(f, "its memory grew past its budget")
+            Self::Time => {
+                write!(f, "a call ran past the call time you set")
             }
-            Self::Bytes => {
-                write!(
-                    f,
-                    "it handed over more bytes than one call may"
-                )
+            Self::Hung(seconds) => write!(
+                f,
+                "a call held Hamlet for {seconds} seconds without \
+                 returning"
+            ),
+            Self::Memory => {
+                write!(f, "its memory grew past the memory you set")
             }
             Self::Node(error) => write!(f, "{error}"),
             Self::Trap(why) => write!(f, "it failed: {why}"),
@@ -172,20 +147,17 @@ impl fmt::Display for Fault {
 }
 
 impl Fault {
-    pub(crate) fn of(error: wasmtime::Error) -> Self {
-        match error.downcast_ref::<OverBudget>() {
-            Some(OverBudget::Memory) => return Self::Memory,
-            Some(OverBudget::Bytes) => return Self::Bytes,
-            None => {}
+    /// The fault of `error`, of a call made within `caps`.
+    pub(crate) fn of(error: wasmtime::Error, caps: &Caps) -> Self {
+        if error.downcast_ref::<PastMemory>().is_some() {
+            return Self::Memory;
         }
         if let Some(&error) = error.downcast_ref::<NodeError>() {
             return Self::Node(error);
         }
         match error.downcast_ref::<Trap>() {
-            Some(Trap::Interrupt) => Self::Time,
-            _ if format!("{error:#}").contains(TOO_MUCH) => {
-                Self::Bytes
-            }
+            Some(Trap::Interrupt) if caps.timed => Self::Time,
+            Some(Trap::Interrupt) => Self::Hung(caps.time.as_secs()),
             _ => Self::Trap(format!("{error:#}")),
         }
     }
@@ -199,8 +171,6 @@ pub struct Spent {
     pub changes: u32,
     /// Calls on nodes of its panels, of every kind.
     pub node_calls: u64,
-    /// Changes to its scenes.
-    pub scene_changes: u32,
 }
 
 /// A plugin's component, compiled and linked, ready to be
@@ -213,9 +183,20 @@ pub struct Linked {
 }
 
 /// Compiles and links the component in `bytes`.
+#[cfg(test)]
 pub fn link(engine: &Engine, bytes: &[u8]) -> Result<Linked, String> {
-    let component =
-        Compiled::new(engine, bytes).map_err(|e| format!("{e:#}"))?;
+    link_compiled(
+        engine,
+        &Compiled::new(engine, bytes)
+            .map_err(|e| format!("{e:#}"))?,
+    )
+}
+
+/// Links `component`, compiled.
+pub(crate) fn link_compiled(
+    engine: &Engine,
+    component: &Compiled,
+) -> Result<Linked, String> {
     let ty = component.component_type();
     for (name, _) in ty.imports(engine) {
         if name.starts_with("wasi:")
@@ -263,7 +244,7 @@ pub fn link(engine: &Engine, bytes: &[u8]) -> Result<Linked, String> {
         >(&mut linker, |state| state)
     })
     .and_then(|()| wasi::add_to_linker(&mut linker))
-    .and_then(|()| linker.instantiate_pre(&component))
+    .and_then(|()| linker.instantiate_pre(component))
     .map_err(|e| format!("{e:#}"))?;
     let panels = UiPanelsIndices::new(&pre).ok();
     let scenes = SceneViewIndices::new(&pre).ok();
@@ -283,8 +264,6 @@ pub struct State {
     requests: Vec<(Ticket, Request)>,
     /// The ticket the last request was given.
     ticket: Ticket,
-    /// Bytes the call under way may still hand over to be kept.
-    bytes: usize,
     pub(crate) wasi: Wasi,
     pub(crate) nodes: Nodes,
     pub(crate) surfaces: Vec<SurfaceChange>,
@@ -300,8 +279,7 @@ impl State {
             logs: Vec::new(),
             requests: Vec::new(),
             ticket: 0,
-            bytes: caps.bytes,
-            wasi: Wasi::new(caps),
+            wasi: Wasi::new(),
             nodes: Nodes::default(),
             surfaces: Vec::new(),
             scene: SceneState::new(caps.scene),
@@ -309,27 +287,8 @@ impl State {
         }
     }
 
-    /// Counts `size` bytes the plugin handed over to be kept, failing
-    /// the call past what it may hand over.
-    pub(crate) fn keep_bytes(
-        &mut self,
-        size: usize,
-    ) -> wasmtime::Result<()> {
-        self.bytes = self
-            .bytes
-            .checked_sub(size)
-            .ok_or_else(|| wasmtime::Error::new(OverBudget::Bytes))?;
-        Ok(())
-    }
-
-    /// Takes `request` of `size` bytes, within the call's caps: its
-    /// ticket, or 0.
-    fn ask(&mut self, size: usize, request: Request) -> Ticket {
-        if self.requests.len() >= self.caps.requests
-            || self.keep_bytes(size).is_err()
-        {
-            return 0;
-        }
+    /// Takes `request`: its ticket.
+    fn ask(&mut self, request: Request) -> Ticket {
         self.ticket += 1;
         self.requests.push((self.ticket, request));
         self.ticket
@@ -343,59 +302,52 @@ impl host::Host for State {
         name: String,
         bytes: Vec<u8>,
     ) -> Ticket {
-        let size = kind.len() + name.len() + bytes.len();
-        self.ask(size, Request::CreateAsset { kind, name, bytes })
+        self.ask(Request::CreateAsset { kind, name, bytes })
     }
 
     fn read_asset(&mut self, id: u64) -> Ticket {
-        self.ask(0, Request::ReadAsset(AssetId(id)))
+        self.ask(Request::ReadAsset(AssetId(id)))
     }
 
     fn update_asset(&mut self, id: u64, bytes: Vec<u8>) -> Ticket {
-        let size = bytes.len();
-        self.ask(
-            size,
-            Request::UpdateAsset {
-                id: AssetId(id),
-                bytes,
-            },
-        )
+        self.ask(Request::UpdateAsset {
+            id: AssetId(id),
+            bytes,
+        })
     }
 
     fn delete_asset(&mut self, id: u64) -> Ticket {
-        self.ask(0, Request::DeleteAsset(AssetId(id)))
+        self.ask(Request::DeleteAsset(AssetId(id)))
     }
 
     fn list_assets(&mut self, kind: String) -> Ticket {
-        self.ask(kind.len(), Request::ListAssets(kind))
+        self.ask(Request::ListAssets(kind))
     }
 
     fn hold_asset(&mut self, id: u64) -> Ticket {
-        self.ask(0, Request::HoldAsset(AssetId(id)))
+        self.ask(Request::HoldAsset(AssetId(id)))
     }
 
     fn release_asset(&mut self, id: u64) -> Ticket {
-        self.ask(0, Request::ReleaseAsset(AssetId(id)))
+        self.ask(Request::ReleaseAsset(AssetId(id)))
     }
 
     fn call(&mut self, service: String, argument: Vec<u8>) -> Ticket {
-        let size = service.len() + argument.len();
-        self.ask(size, Request::Call { service, argument })
+        self.ask(Request::Call { service, argument })
     }
 
     fn subscribe(&mut self, event: String) -> Ticket {
-        self.ask(event.len(), Request::Subscribe(event))
+        self.ask(Request::Subscribe(event))
     }
 
     fn emit(&mut self, event: String, payload: Vec<u8>) -> Ticket {
-        let size = event.len() + payload.len();
-        self.ask(size, Request::Emit { event, payload })
+        self.ask(Request::Emit { event, payload })
     }
 
     /// A request that cannot be read is not taken.
     fn fetch(&mut self, request: Vec<u8>) -> Ticket {
         match decode::<FetchRequest>(&request) {
-            Ok(read) => self.ask(request.len(), Request::Fetch(read)),
+            Ok(read) => self.ask(Request::Fetch(read)),
             Err(_) => 0,
         }
     }
@@ -403,9 +355,7 @@ impl host::Host for State {
     /// A request that cannot be read is not taken.
     fn agents(&mut self, request: Vec<u8>) -> Ticket {
         match decode::<AgentsRequest>(&request) {
-            Ok(read) => {
-                self.ask(request.len(), Request::Agents(read))
-            }
+            Ok(read) => self.ask(Request::Agents(read)),
             Err(_) => 0,
         }
     }
@@ -413,9 +363,7 @@ impl host::Host for State {
     /// A request that cannot be read is not taken.
     fn desktop(&mut self, request: Vec<u8>) -> Ticket {
         match decode::<DesktopRequest>(&request) {
-            Ok(read) => {
-                self.ask(request.len(), Request::Desktop(read))
-            }
+            Ok(read) => self.ask(Request::Desktop(read)),
             Err(_) => 0,
         }
     }
@@ -426,23 +374,8 @@ impl host::Host for State {
             Level::Warn => LogLevel::Warn,
             Level::Error => LogLevel::Error,
         };
-        keep(&mut self.logs, &self.caps, level, text);
+        self.logs.push((level, text));
     }
-}
-
-/// Keeps the line `text` in `logs`, within `caps`.
-pub(crate) fn keep(
-    logs: &mut Vec<(LogLevel, String)>,
-    caps: &Caps,
-    level: LogLevel,
-    mut text: String,
-) {
-    if logs.len() >= caps.lines {
-        return;
-    }
-    text.truncate(text.floor_char_boundary(caps.line_bytes));
-    text.shrink_to_fit();
-    logs.push((level, text));
 }
 
 /// On a running plugin: its store and its exports.
@@ -486,6 +419,9 @@ impl Instance {
         let mut store = Store::new(engine, State::new(caps));
         store.limiter(|state| &mut state.limiter);
         store.epoch_deadline_trap();
+        // What one host call copies is bounded by the plugin's memory
+        // alone.
+        store.set_hostcall_fuel(usize::MAX);
         store.arm(caps);
         let made = linked
             .plugin
@@ -506,7 +442,8 @@ impl Instance {
                 Ok((plugin, panels, scenes))
             });
         store.take_written();
-        let (plugin, panels, scenes) = made.map_err(Fault::of)?;
+        let (plugin, panels, scenes) =
+            made.map_err(|error| Fault::of(error, caps))?;
         Ok(Self {
             store,
             plugin,
@@ -555,14 +492,12 @@ impl Instance {
 
     /// Hands over what the person did to nodes of its retained
     /// panels, each by the plugin's key: whether something still
-    /// moves. The texts of fields together are cut to the bytes one
-    /// call may hand over.
+    /// moves.
     pub fn input(
         &mut self,
         caps: &Caps,
         inputs: Vec<(u32, NodeInput)>,
     ) -> (Result<bool, Fault>, Spent) {
-        let mut left = caps.bytes;
         let events = inputs
             .into_iter()
             .map(|(key, input)| UiEvent {
@@ -572,24 +507,16 @@ impl Instance {
                     NodeInput::Hover(on) => Action::Hover(on),
                     NodeInput::Press(on) => Action::Press(on),
                     NodeInput::Toggle(on) => Action::Toggled(on),
-                    NodeInput::Commit(mut text) => {
-                        text.truncate(text.floor_char_boundary(left));
-                        left -= text.len();
+                    NodeInput::Commit(text) => {
                         Action::Committed(text)
                     }
-                    NodeInput::Submit(mut text) => {
-                        text.truncate(text.floor_char_boundary(left));
-                        left -= text.len();
+                    NodeInput::Submit(text) => {
                         Action::Submitted(text)
                     }
                     NodeInput::Pick(at) => Action::Picked(at),
                     NodeInput::Top => Action::ReachedTop,
                     NodeInput::Chose(at) => Action::Chose(at),
-                    NodeInput::Chosen(mut folder) => {
-                        folder.truncate(
-                            folder.floor_char_boundary(left),
-                        );
-                        left -= folder.len();
+                    NodeInput::Chosen(folder) => {
                         Action::Chosen(folder)
                     }
                 },
@@ -656,9 +583,6 @@ impl Instance {
         caps: &Caps,
         state: &[u8],
     ) -> (Result<(), Fault>, Spent) {
-        if state.len() > caps.bytes {
-            return (Err(Fault::Bytes), Spent::default());
-        }
         self.call(caps, |guest, store| {
             guest.call_restore(store, state)
         })
@@ -670,9 +594,6 @@ impl Instance {
         caps: &Caps,
         messages: &[u8],
     ) -> (Result<(), Fault>, Spent) {
-        if messages.len() > caps.bytes {
-            return (Err(Fault::Bytes), Spent::default());
-        }
         self.call(caps, |guest, store| {
             guest.call_receive(store, messages)
         })
@@ -687,9 +608,6 @@ impl Instance {
         caller: &str,
         argument: &[u8],
     ) -> (Result<Result<Vec<u8>, String>, Fault>, Spent) {
-        if argument.len() > caps.bytes {
-            return (Err(Fault::Bytes), Spent::default());
-        }
         self.call(caps, |guest, store| {
             guest.call_serve(store, service, caller, argument)
         })
@@ -811,30 +729,25 @@ impl WasmStoreExt for Store<State> {
             time: started.elapsed(),
             changes: u32::try_from(nodes.spent).unwrap_or(u32::MAX),
             node_calls: nodes.calls,
-            scene_changes: u32::try_from(self.data().scene.spent)
-                .unwrap_or(u32::MAX),
         };
-        (done.map_err(Fault::of), spent)
+        (done.map_err(|error| Fault::of(error, caps)), spent)
     }
 
     fn arm(&mut self, caps: &Caps) {
         self.set_epoch_deadline(caps.ticks);
-        self.set_hostcall_fuel(caps.bytes);
         let state = self.data_mut();
         state.caps = *caps;
-        state.bytes = caps.bytes;
         state.limiter.memory = caps.memory;
         state.wasi.arm(caps);
         state.nodes.spent = 0;
         state.nodes.calls = 0;
-        state.scene.spent = 0;
         state.scene.caps = caps.scene;
         state.audio.caps = caps.audio;
     }
 
     fn take_written(&mut self) {
         let state = self.data_mut();
-        state.wasi.take_written(&state.caps, &mut state.logs);
+        state.wasi.take_written(&mut state.logs);
     }
 }
 
@@ -844,30 +757,22 @@ fn read<T: serde::de::DeserializeOwned>(
     decode(bytes).map_err(|why| Fault::Unreadable(why.to_string()))
 }
 
-/// A call went past a budget the host counts itself.
+/// The plugin's memories grew past the memory the person set.
 #[derive(Debug)]
-enum OverBudget {
-    /// The plugin's memories grew past it.
-    Memory,
-    /// The call handed over more bytes than it may.
-    Bytes,
-}
+struct PastMemory;
 
-impl fmt::Display for OverBudget {
+impl fmt::Display for PastMemory {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Memory => write!(f, "past the plugin's memory"),
-            Self::Bytes => write!(f, "past the bytes of a call"),
-        }
+        write!(f, "past the plugin's memory")
     }
 }
 
-impl core::error::Error for OverBudget {}
+impl core::error::Error for PastMemory {}
 
-/// Holds a store's memories together to one budget. A growth past it
-/// fails the call.
+/// Holds a store's memories together to the memory the person set,
+/// if they did. A growth past it fails the call.
 struct Limiter {
-    memory: usize,
+    memory: Option<usize>,
     /// Bytes of all the store's memories.
     used: usize,
     /// The last growth allowed, given back if it failed.
@@ -875,7 +780,7 @@ struct Limiter {
 }
 
 impl Limiter {
-    fn new(memory: usize) -> Self {
+    fn new(memory: Option<usize>) -> Self {
         Self {
             memory,
             used: 0,
@@ -892,10 +797,12 @@ impl ResourceLimiter for Limiter {
         _maximum: Option<usize>,
     ) -> wasmtime::Result<bool> {
         let growth = desired.saturating_sub(current);
-        if self.used.saturating_add(growth) > self.memory {
-            return Err(wasmtime::Error::new(OverBudget::Memory));
+        if self.memory.is_some_and(|memory| {
+            self.used.saturating_add(growth) > memory
+        }) {
+            return Err(wasmtime::Error::new(PastMemory));
         }
-        self.used += growth;
+        self.used = self.used.saturating_add(growth);
         self.growing = growth;
         Ok(true)
     }
@@ -914,7 +821,6 @@ impl ResourceLimiter for Limiter {
         _desired: usize,
         _maximum: Option<usize>,
     ) -> wasmtime::Result<bool> {
-        // The pool caps each table's elements.
         Ok(true)
     }
 }

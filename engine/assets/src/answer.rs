@@ -3,17 +3,12 @@
 //! types, and another's that its manifest uses at the version the
 //! maker makes, once the person allowed `assets.read` of that type.
 
-use std::collections::HashMap;
-use std::time::Duration;
-
 use bevy::ecs::entity::Entity;
 use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::ecs::system::{Local, Query, Res, ResMut};
-use bevy::time::{Real, Time};
 use hamlet_engine_api::{
     AssetType, Capability, Failure, Reply, Request, TypeName,
 };
-use hamlet_engine_core::Budgets;
 use hamlet_engine_grants::{
     Decided, FirstUse, Grants, Verdict, Waiting,
 };
@@ -39,7 +34,6 @@ pub enum Outcome {
 pub struct Rules<'a> {
     pub registry: &'a TypeRegistry,
     pub grants: &'a Grants,
-    pub budgets: &'a Budgets,
 }
 
 impl Rules<'_> {
@@ -79,9 +73,7 @@ impl Rules<'_> {
                 match self.may_read(plugin, &info.kind.name, allowed)
                 {
                     Ok(true) if hold => Ok(Reply::Held(info.version)),
-                    Ok(true) => store
-                        .read(*id, self.budgets.asset_bytes)
-                        .map(Reply::Read),
+                    Ok(true) => store.read(*id).map(Reply::Read),
                     Ok(false) => {
                         return Some(Outcome::Asking(info.kind.name));
                     }
@@ -97,7 +89,6 @@ impl Rules<'_> {
             | Request::Desktop(_) => return None,
             Request::UpdateAsset { id, bytes } => self
                 .own(store, plugin, *id)
-                .and_then(|()| self.fits(bytes))
                 .and_then(|()| store.update(*id, bytes))
                 .map(Reply::Updated),
             Request::DeleteAsset(id) => self
@@ -163,13 +154,6 @@ impl Rules<'_> {
                 "the name is empty or not readable".into(),
             ));
         }
-        self.fits(bytes)?;
-        if store.owned(&plugin.id) >= self.budgets.assets {
-            return Err(Failure::OutOfBudget(format!(
-                "it has {} assets, the most",
-                self.budgets.assets
-            )));
-        }
         store
             .create(
                 plugin.id.clone(),
@@ -181,17 +165,6 @@ impl Rules<'_> {
                 bytes,
             )
             .map(Reply::Created)
-    }
-
-    fn fits(&self, bytes: &[u8]) -> Result<(), Failure> {
-        let most = self.budgets.asset_bytes;
-        if bytes.len() as u64 > most {
-            return Err(Failure::OutOfBudget(format!(
-                "the asset has {} bytes, and the most is {most}",
-                bytes.len()
-            )));
-        }
-        Ok(())
     }
 
     /// Whether the asset `id` is `plugin`'s own.
@@ -273,26 +246,8 @@ fn type_name(kind: &str) -> Result<TypeName, Failure> {
         .map_err(|why| Failure::Refused(why.to_string()))
 }
 
-/// The asset store's methods on [`Request`].
-trait AssetRequestExt {
-    /// Whether the request writes to the store.
-    fn writes(&self) -> bool;
-}
-
-impl AssetRequestExt for Request {
-    fn writes(&self) -> bool {
-        matches!(
-            self,
-            Request::CreateAsset { .. }
-                | Request::UpdateAsset { .. }
-                | Request::DeleteAsset(_)
-        )
-    }
-}
-
 /// Answers what plugins asked of the store, and what waited for the
-/// person. `written` holds, for each plugin, when its second began
-/// and how many writes it made in it.
+/// person.
 pub(crate) fn answer(
     mut asked: MessageReader<Asked>,
     mut decided: MessageReader<Decided>,
@@ -300,14 +255,10 @@ pub(crate) fn answer(
     mut store: ResMut<AssetStore>,
     registry: Res<TypeRegistry>,
     grants: Res<Grants>,
-    budgets: Res<Budgets>,
-    time: Res<Time<Real>>,
     mut parked: Local<Waiting<Asked>>,
-    mut written: Local<HashMap<Entity, (Duration, u32)>>,
     mut deliver: MessageWriter<Deliver>,
     mut first_use: MessageWriter<FirstUse>,
 ) {
-    let now = time.elapsed();
     parked.keep(|plugin| plugins.contains(plugin));
     let mut again = Vec::new();
     for (waiting, allowed) in parked.settle(decided.read()) {
@@ -325,7 +276,6 @@ pub(crate) fn answer(
     let rules = Rules {
         registry: &registry,
         grants: &grants,
-        budgets: &budgets,
     };
     let fresh = asked.read().map(|asked| (asked.clone(), false));
     let mut changes = Vec::<Change>::new();
@@ -335,26 +285,6 @@ pub(crate) fn answer(
         else {
             continue;
         };
-        if request.request.writes() {
-            let (since, count) = written
-                .get(&request.plugin)
-                .copied()
-                .filter(|(since, _)| {
-                    now.saturating_sub(*since)
-                        < Duration::from_secs(1)
-                })
-                .unwrap_or((now, 0));
-            if count >= budgets.asset_writes_per_second {
-                deliver.write(request.reply(Err(
-                    Failure::OutOfBudget(format!(
-                        "{} writes a second, the most",
-                        budgets.asset_writes_per_second
-                    )),
-                )));
-                continue;
-            }
-            written.insert(request.plugin, (since, count + 1));
-        }
         match rules.answer(
             &mut store,
             plugin,
@@ -362,21 +292,11 @@ pub(crate) fn answer(
             allowed,
         ) {
             Some(Outcome::Done(reply)) => {
-                let mut reply = *reply;
+                let reply = *reply;
                 let depth = request.depth;
                 match (&request.request, &reply) {
-                    (Request::HoldAsset(id), Ok(_))
-                        if !holding.0.contains(id) =>
-                    {
-                        if holding.0.len() >= budgets.assets {
-                            reply =
-                                Err(Failure::OutOfBudget(format!(
-                                    "it holds {} assets, the most",
-                                    budgets.assets
-                                )));
-                        } else {
-                            holding.0.insert(*id);
-                        }
+                    (Request::HoldAsset(id), Ok(_)) => {
+                        holding.0.insert(*id);
                     }
                     (Request::ReleaseAsset(id), _) => {
                         holding.0.remove(id);

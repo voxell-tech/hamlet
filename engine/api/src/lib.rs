@@ -31,7 +31,9 @@ pub use crate::id::{
     CommandId, EventId, IdError, PanelId, PluginId, ServiceId,
 };
 pub use crate::layout::{Axis, Layout};
-pub use crate::limits::{Limits, PluginLimits};
+pub use crate::limits::{
+    Limit, LimitKind, LimitUnit, Limits, PluginLimits,
+};
 pub use crate::mail::{Failure, Message, Reply, Request, Ticket};
 pub use crate::manifest::{Dependency, Manifest, ManifestError};
 pub use crate::net::{FetchReply, FetchRequest, Method};

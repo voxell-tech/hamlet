@@ -14,8 +14,7 @@ mod switched_off;
 use bevy::app::App;
 use bevy::ecs::component::Component;
 use hamlet_engine_api::{
-    Ask, AssetTypes, Dependency, Events, Limits, Manifest, PluginId,
-    Services,
+    Ask, AssetTypes, Dependency, Events, Manifest, PluginId, Services,
 };
 
 pub use crate::entry::{Entry, EntryPoint};
@@ -54,9 +53,6 @@ pub struct PluginInfo {
     pub assets: AssetTypes,
     pub services: Services,
     pub events: Events,
-    /// The limits of its instance it asks for in place of the
-    /// engine's.
-    pub limits: Limits,
     /// The plugins it needs, by id.
     pub dependencies: Vec<Dependency>,
 }
@@ -85,7 +81,6 @@ impl PluginInfo {
             assets: manifest.assets,
             services: manifest.services,
             events: manifest.events,
-            limits: manifest.limits,
         }
     }
 }

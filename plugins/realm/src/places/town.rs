@@ -463,7 +463,7 @@ impl Towns {
     }
 
     /// Builds the houses waiting, one at a time and nearest the
-    /// camera first, while the call has room.
+    /// camera first, while the frame has time.
     fn build(&mut self, ctx: &Ctx, draw: &mut Draw) {
         let eye = ctx.eye;
         let houses = &self.houses;

@@ -30,8 +30,3 @@ hears = [{ event = "hamlet.inspector/carry", payload = "realm.carry" }]
 # Inspector forward on a click.
 [dependencies]
 "hamlet.inspector" = "^0.1"
-
-# Its ground, hamlets and roads hold more memory than the engine gives a
-# plugin, 128 MB in all.
-[limits]
-memory = 134_217_728

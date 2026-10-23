@@ -1,5 +1,4 @@
 use std::net::IpAddr;
-use std::time::Duration;
 
 use crate::{public, reach};
 
@@ -38,9 +37,8 @@ fn only_public_addresses_are_reached() {
         .enable_all()
         .build()
         .unwrap();
-    let patience = Duration::from_secs(5);
     for host in ["localhost", "127.0.0.1", "[::1]"] {
-        let reached = runtime.block_on(reach(host, 443, patience));
+        let reached = runtime.block_on(reach(host, 443));
         assert!(reached.is_err(), "{host} was reached");
     }
 }

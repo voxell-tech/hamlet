@@ -102,30 +102,16 @@ impl AssetStore {
             .count()
     }
 
-    /// The asset `id` and its bytes, of at most `most`.
-    pub fn read(
-        &self,
-        id: AssetId,
-        most: u64,
-    ) -> Result<Asset, Failure> {
+    /// The asset `id` and its bytes.
+    pub fn read(&self, id: AssetId) -> Result<Asset, Failure> {
         let info = self.get(id).ok_or(Failure::NotFound)?;
         let path = self.bytes_path(id, info.version);
-        let unread = |why: String| {
+        let bytes = fs::read(&path).map_err(|e| {
             Failure::Failed(format!(
-                "asset {} cannot be read: {why}",
+                "asset {} cannot be read: {e}",
                 id.0
             ))
-        };
-        let size = fs::metadata(&path)
-            .map_err(|e| unread(e.to_string()))?
-            .len();
-        if size > most {
-            return Err(unread(format!(
-                "it has more than {most} bytes"
-            )));
-        }
-        let bytes =
-            fs::read(&path).map_err(|e| unread(e.to_string()))?;
+        })?;
         Ok(Asset {
             info: info.clone(),
             bytes,

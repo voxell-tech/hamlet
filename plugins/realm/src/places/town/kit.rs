@@ -83,8 +83,8 @@ impl Kit {
         }
     }
 
-    /// Builds and hands over what is missing, while the call has
-    /// room. True once every part is done.
+    /// Builds and hands over what is missing, while the frame has
+    /// time. True once every part is done.
     pub fn fill(
         &mut self,
         pal: &Palette,

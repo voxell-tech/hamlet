@@ -35,8 +35,6 @@ pub enum ShaderKind {
 /// What a source is checked against.
 #[derive(Clone, Copy, Debug)]
 pub struct ShaderRules {
-    /// Bytes of the source.
-    pub bytes: usize,
     /// Whether wgpu bounds every loop on the device's backend. Where
     /// it does not, a source with a loop is refused.
     pub loops_bounded: bool,
@@ -49,10 +47,9 @@ pub struct ShaderRules {
 }
 
 impl ShaderRules {
-    /// The rules of `gpu`, for sources of `bytes` at most.
-    pub fn of(gpu: &GpuInfo, bytes: usize) -> Self {
+    /// The rules of `gpu`.
+    pub fn of(gpu: &GpuInfo) -> Self {
         Self {
-            bytes,
             loops_bounded: gpu.loops_bounded,
             invocations: gpu.invocations,
             workgroup_size: gpu.workgroup_size,
@@ -371,13 +368,6 @@ pub fn check(
     source: &str,
     rules: &ShaderRules,
 ) -> Result<CheckedShader, String> {
-    if source.len() > rules.bytes {
-        return Err(format!(
-            "the source has {} bytes, the most is {}",
-            source.len(),
-            rules.bytes
-        ));
-    }
     if source.contains('#') {
         return Err("a source has no `#`: it is plain WGSL".into());
     }
@@ -693,7 +683,6 @@ mod tests {
     use super::*;
 
     const RULES: ShaderRules = ShaderRules {
-        bytes: 4_096,
         loops_bounded: true,
         invocations: 256,
         workgroup_size: [256, 256, 64],

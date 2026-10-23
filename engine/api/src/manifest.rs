@@ -11,7 +11,6 @@ use crate::asset::{AssetTypes, TypeName};
 use crate::capability::{Ask, Capability};
 use crate::event::Events;
 use crate::id::{PluginId, is_name};
-use crate::limits::Limits;
 use crate::service::Services;
 
 /// The longest a name, version, target or reason may be, in bytes.
@@ -35,10 +34,6 @@ pub struct Manifest {
     pub services: Services,
     #[serde(default)]
     pub events: Events,
-    /// The limits of its instance it asks for in place of the
-    /// engine's.
-    #[serde(default)]
-    pub limits: Limits,
     /// The plugins it needs: each id with a semver requirement of
     /// its version, `"^0.1"`.
     #[serde(default)]
@@ -73,7 +68,6 @@ impl Manifest {
             assets: AssetTypes::default(),
             services: Services::default(),
             events: Events::default(),
-            limits: Limits::default(),
             dependencies: BTreeMap::new(),
         }
     }
@@ -114,8 +108,6 @@ pub enum ManifestError {
     /// A service or event that is not well named, or named twice:
     /// which.
     Shared(String),
-    /// A limit asked for that is zero: which.
-    Limit(&'static str),
     /// A dependency whose id is not a plugin's or whose requirement
     /// is not semver: the two.
     Dependency(String, String),
@@ -152,9 +144,6 @@ impl fmt::Display for ManifestError {
             ),
             Self::Shared(name) => {
                 write!(f, "{name:?} is not a name, or named twice")
-            }
-            Self::Limit(limit) => {
-                write!(f, "the limit {limit} is not above zero")
             }
             Self::Dependency(id, requirement) => write!(
                 f,
@@ -281,7 +270,7 @@ impl Manifest {
                 return Err(ManifestError::OnItself);
             }
         }
-        self.limits.check().map_err(ManifestError::Limit)
+        Ok(())
     }
 
     /// Whether it asks for `capability` on `target`.

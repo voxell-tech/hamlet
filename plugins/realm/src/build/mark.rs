@@ -202,19 +202,14 @@ impl Mark {
         self.reveal(draw);
     }
 
-    /// Hands over the heights it waits for, if the call has room for
-    /// them.
+    /// Hands over the heights it waits for.
     pub fn hand_over(&mut self, draw: &mut Draw) {
         let Some((bytes, field)) = &self.waiting else {
             return;
         };
-        match draw.write(&self.heights, bytes) {
-            Ok(true) => {}
-            Ok(false) => return,
-            Err(why) => {
-                hamlet_engine_bevy::warn(&format!("a mark: {why}"));
-                return;
-            }
+        if let Err(why) = draw.write(&self.heights, bytes) {
+            hamlet_engine_bevy::warn(&format!("a mark: {why}"));
+            return;
         }
         let field = *field;
         self.ground = Some((Vec2::new(field[0], field[1]), field[2]));

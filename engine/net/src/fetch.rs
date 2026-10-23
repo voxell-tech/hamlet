@@ -2,27 +2,22 @@
 //! asked, so it goes with the plugin, and its reply goes to the
 //! plugin once it is done.
 
-use std::collections::HashMap;
-use std::time::Duration;
-
 use bevy::app::{App, PostUpdate};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
-use bevy::ecs::hierarchy::{ChildOf, Children};
+use bevy::ecs::hierarchy::ChildOf;
 use bevy::ecs::message::{MessageReader, MessageWriter};
-use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Local, Query, Res};
 use bevy::ecs::world::World;
 use bevy::log::error;
 use bevy::tasks::futures::check_ready;
-use bevy::time::{Real, Time};
 use hamlet_engine_api::{
     Capability, Failure, FetchReply, FetchRequest, Method, Reply,
     Request, Ticket,
 };
-use hamlet_engine_core::{Budgets, LogLine};
+use hamlet_engine_core::LogLine;
 use hamlet_engine_grants::{
     Decided, FirstUse, Grants, Verdict, Waiting,
 };
@@ -82,31 +77,21 @@ impl Drop for Sent {
 }
 
 /// Starts the fetches that may be made, and answers the others with
-/// why not. `made` holds, for each plugin, when its minute began and
-/// how many fetches it made in it.
+/// why not.
 fn start(
     mut asked: MessageReader<Asked>,
     mut decided: MessageReader<Decided>,
-    plugins: Query<(&PluginInfo, Option<&Children>)>,
-    fetches: Query<(), With<Fetch>>,
+    plugins: Query<&PluginInfo>,
     grants: Res<Grants>,
-    budgets: Res<Budgets>,
-    time: Res<Time<Real>>,
     network: Option<Res<Network>>,
     offline: Option<Res<Offline>>,
     mut parked: Local<Waiting<Asked>>,
-    mut made: Local<HashMap<Entity, (Duration, u32)>>,
-    mut started: Local<HashMap<Entity, usize>>,
     mut deliver: MessageWriter<Deliver>,
     mut first_use: MessageWriter<FirstUse>,
     mut log: MessageWriter<LogLine>,
     mut commands: Commands,
 ) {
-    let now = time.elapsed();
     parked.keep(|plugin| plugins.contains(plugin));
-    made.retain(|plugin, _| plugins.contains(*plugin));
-    // The fetches spawned this frame are not children yet.
-    started.clear();
     let mut again = Vec::new();
     for (waiting, allowed) in parked.settle(decided.read()) {
         if allowed {
@@ -125,8 +110,7 @@ fn start(
         let Request::Fetch(fetch) = &request.request else {
             continue;
         };
-        let Ok((plugin, children)) = plugins.get(request.plugin)
-        else {
+        let Ok(plugin) = plugins.get(request.plugin) else {
             continue;
         };
         let (url, target) = match plugin.listed(&fetch.url) {
@@ -170,36 +154,6 @@ fn start(
             ))));
             continue;
         }
-        let waiting = children
-            .into_iter()
-            .flatten()
-            .filter(|child| fetches.contains(**child))
-            .count()
-            + started.get(&request.plugin).copied().unwrap_or(0);
-        let (since, count) = made
-            .get(&request.plugin)
-            .copied()
-            .filter(|(since, _)| {
-                now.saturating_sub(*since) < Duration::from_secs(60)
-            })
-            .unwrap_or((now, 0));
-        let over = if waiting >= budgets.fetches_waiting {
-            Some(format!("{waiting} fetches under way, the most"))
-        } else if count >= budgets.fetches_per_minute {
-            Some(format!(
-                "{} fetches a minute, the most",
-                budgets.fetches_per_minute
-            ))
-        } else {
-            None
-        };
-        if let Some(why) = over {
-            deliver
-                .write(request.reply(Err(Failure::OutOfBudget(why))));
-            continue;
-        }
-        made.insert(request.plugin, (since, count + 1));
-        *started.entry(request.plugin).or_default() += 1;
         log.write(LogLine::info(
             plugin.id.as_str(),
             format!(
@@ -216,25 +170,8 @@ fn start(
             ChildOf(request.plugin),
         ));
         if let Some(network) = &network {
-            // A budget has no ceiling, so one past what a duration
-            // holds is no limit.
-            let patience =
-                Duration::try_from_secs_f32(budgets.fetch_time)
-                    .unwrap_or(Duration::MAX);
-            let most = budgets.fetch_bytes;
             let fetch = fetch.clone();
-            entity.insert(Sent(network.0.spawn(async move {
-                tokio::time::timeout(
-                    patience,
-                    send(url, fetch, patience, most),
-                )
-                .await
-                .unwrap_or_else(|_| {
-                    Err(Failure::Failed(
-                        "the fetch took too long".into(),
-                    ))
-                })
-            })));
+            entity.insert(Sent(network.0.spawn(send(url, fetch))));
         }
     }
 }
@@ -308,23 +245,19 @@ impl Fetch {
 
 /// Sends `fetch` to `url` at the public addresses its host is at, and
 /// reads the answer, whatever its status. A redirect is not followed,
-/// no proxy is used, the whole takes no longer than `patience`, and
-/// an answer over `most` bytes is refused.
+/// and no proxy is used.
 async fn send(
     url: Url,
     fetch: FetchRequest,
-    patience: Duration,
-    most: u64,
 ) -> Result<FetchReply, Failure> {
     let failed = |why: String| Failure::Failed(why);
     let host = url.host_str().unwrap_or_default().to_owned();
     let port = url.port_or_known_default().unwrap_or(443);
-    let addresses = reach(&host, port, patience).await?;
+    let addresses = reach(&host, port).await?;
     let client = Client::builder()
         .redirect(Policy::none())
         .referer(false)
         .no_proxy()
-        .timeout(patience)
         .resolve_to_addrs(&host, &addresses)
         .build()
         .map_err(|why| failed(format!("no client: {why}")))?;
@@ -340,21 +273,9 @@ async fn send(
         }
     };
     let unsent = |why: reqwest::Error| {
-        if why.is_timeout() {
-            failed("the fetch took too long".into())
-        } else {
-            failed(format!("the fetch failed: {}", why.without_url()))
-        }
+        failed(format!("the fetch failed: {}", why.without_url()))
     };
     let mut answer = request.send().await.map_err(unsent)?;
-    let over = || {
-        Failure::OutOfBudget(format!(
-            "the answer has more than {most} bytes"
-        ))
-    };
-    if answer.content_length().is_some_and(|length| length > most) {
-        return Err(over());
-    }
     let status = answer.status().as_u16();
     let content_type = answer
         .headers()
@@ -364,9 +285,6 @@ async fn send(
         .to_owned();
     let mut body = Vec::new();
     while let Some(chunk) = answer.chunk().await.map_err(unsent)? {
-        if (body.len() + chunk.len()) as u64 > most {
-            return Err(over());
-        }
         body.extend_from_slice(&chunk);
     }
     Ok(FetchReply {

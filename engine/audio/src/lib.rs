@@ -2,7 +2,7 @@
 //! as they are to be heard; a sound plays one unplaced, or placed at
 //! a point or an entity and heard from its owner's listener. Each is
 //! of a [`Category`] the person's settings scale, under a master
-//! volume, and a plugin's are held to the budgets by its [`Ledger`].
+//! volume, and a plugin's are kept by its [`Ledger`].
 //! The owner is an entity; this crate knows nothing of how it runs.
 //!
 //! [`Category`]: hamlet_engine_api::audio::Category

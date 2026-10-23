@@ -1,6 +1,6 @@
 //! A plugin's page in the Plugins panel: a breadcrumb back to the
 //! list, and under it, as it scrolls, the plugin's head with its
-//! switch, its memory, what it adds, the sections other parts of the
+//! switch, its limits, what it adds, the sections other parts of the
 //! engine add, and UNINSTALL for an installed one.
 
 use bevy::ecs::component::Component;
@@ -14,7 +14,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row,
 };
 use bevy_fynix::{ModifierExt, ScopedExt, ViewExt, keyed, resource};
-use hamlet_engine_api::{CommandId, PluginId};
+use hamlet_engine_api::{CommandId, LimitKind, PluginId};
 use hamlet_engine_shell::icons::Glyph;
 use hamlet_engine_shell::style::{
     ButtonStyle, Wraps, action, breadcrumb, buttons, description,
@@ -28,7 +28,7 @@ use hamlet_engine_shell::{
 };
 
 use crate::PluginKind;
-use crate::list::limits::memory_view;
+use crate::list::limits::limits_view;
 use crate::list::{
     ListWorldExt, Question, Row, Rows, Shown, Uninstall, and_list,
     bound, plugin_switch,
@@ -85,8 +85,8 @@ enum Kind {
 #[derive(Clone, PartialEq)]
 struct Page {
     row: Row,
-    /// Why a value typed for its memory was refused.
-    refused: Option<String>,
+    /// Why a value typed for one of its limits was refused.
+    refused: Option<(LimitKind, String)>,
     /// Its UNINSTALL was pressed, and waits to be confirmed.
     uninstalling: bool,
     /// Its switch was pressed, and waits to be confirmed.
@@ -140,8 +140,8 @@ impl Page {
             refused: rows
                 .refused
                 .as_ref()
-                .filter(|(at, _)| *at == row.plugin)
-                .map(|(_, why)| why.clone()),
+                .filter(|(at, ..)| *at == row.plugin)
+                .map(|(_, kind, why)| (*kind, why.clone())),
             uninstalling: rows.uninstalling == Some(row.plugin),
             asked: rows.asked(row.plugin),
             row,
@@ -265,20 +265,17 @@ pub(super) fn page_view(id: PluginId) -> AnyView {
     })
 }
 
-/// The memory, what it adds, the other sections and UNINSTALL, a part
-/// of a panel apart.
+/// The limits, what it adds, the other sections and UNINSTALL, a
+/// part of a panel apart.
 fn body(page: &Page) -> AnyView {
     let row_of = &page.row;
     let plugin = row_of.plugin;
-    let memory = row_of.memory.map(|line| {
-        memory_view(
-            plugin,
-            &row_of.id,
-            line,
-            page.refused.clone(),
-            row_of.on,
-        )
-    });
+    let limits = limits_view(
+        plugin,
+        &row_of.id,
+        &row_of.limits,
+        page.refused.clone(),
+    );
     let asked =
         page.asked.map(|question| confirmation(row_of, question));
     let adds = adds(row_of);
@@ -289,7 +286,7 @@ fn body(page: &Page) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let gap = cx.theme().space.panel;
         let mut parts = asked.into_iter().collect::<Vec<_>>();
-        parts.extend(memory);
+        parts.push(limits);
         parts.extend([adds, needs, needed_by]);
         parts.extend(sections(cx.world, plugin));
         parts.extend(uninstall);

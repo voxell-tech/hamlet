@@ -302,7 +302,7 @@ impl Roads {
         }
     }
 
-    /// Takes the roads being laid a step further while the call has
+    /// Takes the roads being laid a step further while the frame has
     /// time, one road at a time, the roads nearest the camera first.
     fn work(&mut self, ctx: &Ctx, draw: &mut Draw) {
         while draw.left() {

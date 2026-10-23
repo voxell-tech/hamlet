@@ -12,9 +12,7 @@ mod tests;
 use bevy::app::App;
 
 pub use crate::event::Subscriptions;
-pub use crate::service::{
-    Admitted, Call, Calls, Second, Serve, Served,
-};
+pub use crate::service::{Admitted, Call, Calls, Serve, Served};
 
 pub fn plugin(app: &mut App) {
     app.add_plugins((service::plugin, event::plugin));

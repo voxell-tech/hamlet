@@ -9,7 +9,6 @@ use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_api::{
     CommandId, IdError, Layout, PanelId, PanelPadding, PluginId,
 };
-use hamlet_engine_core::Budgets;
 use hamlet_engine_shell::command::parse_chord;
 use hamlet_engine_shell::dock::{PanelIcon, PanelInset};
 use hamlet_engine_shell::icons::Glyph;
@@ -278,28 +277,18 @@ impl Entry {
     }
 
     /// Adds what was declared, linked to `plugin`, whose id is
-    /// `owner`, at its `rank`, within `budgets`. Why each thing not
-    /// added was not.
+    /// `owner`, at its `rank`. Why each thing not added was not.
     pub(crate) fn spawn(
         self,
         plugin: Entity,
         owner: &PluginId,
         rank: &StartRank,
-        budgets: &Budgets,
         commands: &mut Commands,
     ) -> Vec<String> {
         let mut problems = Vec::new();
-        let (mut added, mut panels) = (0, 0);
         let link = || (ContributedBy(plugin), rank.clone());
         let owner = owner.as_str();
         for declared in self.declared {
-            if added == budgets.contributions {
-                problems.push(format!(
-                    "adds more than {} things; the rest are left out",
-                    budgets.contributions
-                ));
-                break;
-            }
             let done = match declared {
                 Declared::Panel {
                     name,
@@ -308,13 +297,6 @@ impl Entry {
                     padding,
                     content,
                 } => {
-                    if panels == budgets.panels {
-                        problems.push(format!(
-                            "{name}: more than {} panels",
-                            budgets.panels
-                        ));
-                        continue;
-                    }
                     if let Some(padding) =
                         padding.filter(|padding| !padding.is_valid())
                     {
@@ -323,7 +305,6 @@ impl Entry {
                         ));
                         continue;
                     }
-                    panels += 1;
                     PanelId::new(owner, &name).map(|id| {
                         let panel = Panel { id, title, content };
                         let mut spawned = commands.spawn(link());
@@ -445,9 +426,8 @@ impl Entry {
                     })
                 }
             };
-            match done {
-                Ok(()) => added += 1,
-                Err(why) => problems.push(why.to_string()),
+            if let Err(why) = done {
+                problems.push(why.to_string());
             }
         }
         problems

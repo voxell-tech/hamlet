@@ -9,11 +9,10 @@ use bevy::ecs::message::MessageWriter;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Res};
 use hamlet_engine_core::tuning::{ENGINE, Tuning, TuningFile};
-use hamlet_engine_core::{Budgets, LogLine, TuningPlugin};
+use hamlet_engine_core::{LogLine, TuningPlugin};
 use serde::Deserialize;
 use wasmtime::{
-    Config, Engine, InstanceAllocationStrategy,
-    PoolingAllocationConfig,
+    Config, Engine, InstanceAllocationStrategy, OptLevel,
 };
 
 pub(crate) fn plugin(app: &mut App) {
@@ -21,26 +20,13 @@ pub(crate) fn plugin(app: &mut App) {
         .add_systems(Startup, start);
 }
 
-/// How the host runs plugins. The tick and the pool are read as the
-/// engine starts.
+/// How the host runs plugins. The tick is read as the engine starts.
 #[derive(Resource, Clone, PartialEq, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WasmTuning {
     /// Milliseconds between two ticks of the epoch, which a call's
     /// time is counted in.
     pub tick: f32,
-    /// Plugins that can run at once, each with its share of the
-    /// pool. The pool holds one more, for a version built beside the
-    /// running one.
-    pub plugins: u32,
-    /// Core instances one plugin's component may hold.
-    pub instances: u32,
-    /// Memories one plugin's component may hold. Together they hold
-    /// the plugin's `memory` limit at most.
-    pub memories: u32,
-    pub tables: u32,
-    /// Elements of one table.
-    pub table_elements: usize,
     /// Bytes of a `plugin.wasm`; a larger one is not read.
     pub wasm_bytes: u64,
     /// Bytes of a `plugin.toml`; a larger one is not read.
@@ -56,12 +42,13 @@ impl Tuning for WasmTuning {
 }
 
 impl WasmTuning {
-    /// Ticks of the epoch one call may last, at least one. wasmtime
-    /// adds them to the epoch, so they stay far from `u64::MAX`.
-    pub(crate) fn call_ticks(&self, budgets: &Budgets) -> u64 {
-        (budgets.call_time / self.tick)
+    /// Ticks of the epoch a call of `time` lasts, at least one.
+    /// wasmtime adds them to the epoch, so they stay far from
+    /// `u64::MAX`.
+    pub(crate) fn ticks(&self, time: Duration) -> u64 {
+        (time.as_secs_f64() * 1000.0 / f64::from(self.tick))
             .ceil()
-            .clamp(1.0, u32::MAX as f32) as u64
+            .clamp(1.0, f64::from(u32::MAX)) as u64
     }
 }
 
@@ -70,31 +57,21 @@ impl WasmTuning {
 pub struct Host(pub(crate) Engine);
 
 impl Host {
-    /// An engine for components with an epoch, and a pool
-    /// in which each plugin's share is capped, so no plugin can take
-    /// another's room. Its epoch is ticked for as long as it lives.
+    /// An engine for components, its code compiled for speed, with an
+    /// epoch ticked for as long as it lives.
     pub fn new(tuning: &WasmTuning) -> wasmtime::Result<Self> {
-        let slots = tuning.plugins + 1;
-        let mut pool = PoolingAllocationConfig::new();
-        // A memory's size is left to the pool's own most, all a
-        // 32-bit memory can address, so each plugin's `memory` limit
-        // holds it, whatever it is set to.
-        pool.table_elements(tuning.table_elements)
-            .max_core_instances_per_component(tuning.instances)
-            .max_memories_per_component(tuning.memories)
-            .max_memories_per_module(tuning.memories)
-            .max_tables_per_component(tuning.tables)
-            .max_tables_per_module(tuning.tables)
-            .total_component_instances(slots)
-            .total_core_instances(slots * tuning.instances)
-            .total_memories(slots * tuning.memories)
-            .total_tables(slots * tuning.tables);
         let mut config = Config::new();
+        // Each instance is given its memories and tables as it is
+        // made, as large as it asks, with no pool to cap how many
+        // plugins run or how much each holds. A memory still sits in
+        // a reservation with guard pages, so its accesses need no
+        // bounds checks.
         config
             .wasm_component_model(true)
+            .cranelift_opt_level(OptLevel::Speed)
             .epoch_interruption(true)
             .allocation_strategy(
-                InstanceAllocationStrategy::Pooling(pool),
+                InstanceAllocationStrategy::OnDemand,
             );
         let engine = Engine::new(&config)?;
         engine.tick(Duration::from_secs_f32(tuning.tick / 1000.0))?;

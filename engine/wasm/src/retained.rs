@@ -55,7 +55,6 @@ use bevy_fynix::{
 use fynix::Patch;
 use hamlet_engine_api::contribution::Space;
 use hamlet_engine_api::{PanelId, PanelPadding};
-use hamlet_engine_core::Budgets;
 use hamlet_engine_plugins::{
     ContributedBy, Contributions, PluginInfo,
 };
@@ -76,7 +75,6 @@ use hamlet_engine_shell::{
 };
 
 use crate::WasmCommandsExt;
-use crate::budget::Spending;
 use crate::dialog::{Asker, ChooseFolder};
 use crate::instance::ui_bindings::hamlet::engine::ui::{
     self as wit, Kind, Property,
@@ -1868,19 +1866,14 @@ fn offer_roots(
         (&UiRoot, &Surface, &ContributedBy),
         Changed<UiRoot>,
     >,
-    mut inboxes: Query<(&mut Inbox, &mut Spending)>,
-    budgets: Res<Budgets>,
+    mut inboxes: Query<&mut Inbox>,
 ) {
     for (root, shown, by) in &roots {
-        if let Ok((mut inbox, mut spending)) = inboxes.get_mut(by.0) {
-            inbox.offer(
-                Work::Mount {
-                    root: root.holder,
-                    name: shown.name.clone(),
-                },
-                &mut spending,
-                &budgets,
-            );
+        if let Ok(mut inbox) = inboxes.get_mut(by.0) {
+            inbox.0.push_back(Work::Mount {
+                root: root.holder,
+                name: shown.name.clone(),
+            });
         }
     }
 }
@@ -1891,8 +1884,7 @@ fn offer_roots(
 fn lose_roots(
     roots: Query<(Entity, &UiRoot, &Surface, &ContributedBy)>,
     alive: Query<()>,
-    mut inboxes: Query<(&mut Inbox, &mut Spending)>,
-    budgets: Res<Budgets>,
+    mut inboxes: Query<&mut Inbox>,
     mut commands: Commands,
 ) {
     for (surface, root, shown, by) in &roots {
@@ -1901,12 +1893,8 @@ fn lose_roots(
         }
         commands.entity(root.holder).try_despawn();
         commands.entity(surface).remove::<UiRoot>();
-        if let Ok((mut inbox, mut spending)) = inboxes.get_mut(by.0) {
-            inbox.offer(
-                Work::Unmount(shown.name.clone()),
-                &mut spending,
-                &budgets,
-            );
+        if let Ok(mut inbox) = inboxes.get_mut(by.0) {
+            inbox.0.push_back(Work::Unmount(shown.name.clone()));
         }
     }
 }
@@ -1935,21 +1923,17 @@ fn hovers(
 }
 
 /// Puts what the person did in the inbox of the plugin it was done
-/// to, a second's events at most.
+/// to.
 fn route(
     mut actions: MessageReader<NodeAction>,
-    mut inboxes: Query<(&mut Inbox, &mut Spending)>,
-    budgets: Res<Budgets>,
+    mut inboxes: Query<&mut Inbox>,
 ) {
     for action in actions.read() {
-        if let Ok((mut inbox, mut spending)) =
-            inboxes.get_mut(action.plugin)
-        {
-            inbox.offer(
-                Work::Node(action.key, action.input.clone()),
-                &mut spending,
-                &budgets,
-            );
+        if let Ok(mut inbox) = inboxes.get_mut(action.plugin) {
+            inbox.0.push_back(Work::Node(
+                action.key,
+                action.input.clone(),
+            ));
         }
     }
 }

@@ -105,8 +105,8 @@ toml = "1"
 # The guest side of the engine's WIT, for plugins.
 wit-bindgen = { version = "0.63", default-features = false, features = ["macros", "realloc", "std"] }
 # The WASM engine, pinned to a stable release. Only `hamlet_engine_wasm`
-# names it.
-wasmtime = { version = "=49.0.3", default-features = false, features = ["std", "runtime", "cranelift", "component-model", "pooling-allocator"] }
+# names it. A plugin's functions are compiled in parallel.
+wasmtime = { version = "=49.0.3", default-features = false, features = ["std", "runtime", "cranelift", "component-model", "parallel-compilation"] }
 # The system interface a plugin is given, held to wasmtime's version.
 wasmtime-wasi = { version = "=49.0.3", default-features = false, features = ["p2"] }
 # Test plugins: core modules in text, made into components against the

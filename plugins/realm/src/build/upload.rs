@@ -1,8 +1,7 @@
-//! What a frame may build and hand the engine: the engine stops a
-//! plugin that hands over more than its `bytes_per_call`, and a frame
-//! builds for no longer than half of one at 60 frames a second, so
-//! the view stays smooth. What is left is built in the next frame.
-//! [`Draw`] is what its systems change the scene with.
+//! How long a frame builds for: no longer than half of one at 60
+//! frames a second, so the view stays smooth. What is left is built
+//! in the next frame. [`Draw`] is what its systems change the scene
+//! with.
 
 use std::time::{Duration, Instant};
 
@@ -14,24 +13,18 @@ use hamlet_engine_bevy::scene::{
 
 use crate::build::frame::Frame;
 
-/// Bytes of meshes, buffers and copies one call hands over, of the
-/// engine's `bytes_per_call`, the rest left for the call's other
-/// changes.
-const CALL_BYTES: usize = 896 * 1024;
-
 /// The longest a frame builds for.
 const FRAME_TIME: Duration = Duration::from_millis(8);
 
-/// What the frame under way may still hand over and build for.
+/// When the frame under way stops building.
 #[derive(Resource)]
 pub struct Upload {
-    bytes: usize,
     until: Instant,
 }
 
 /// A mesh the engine was not handed.
 pub enum Unsent {
-    /// The call has no room left for it: hand it over in a later
+    /// The frame has no time left for it: hand it over in a later
     /// one.
     Full(MeshData),
     /// The engine refused it, saying why.
@@ -39,42 +32,30 @@ pub enum Unsent {
 }
 
 impl Default for Upload {
-    /// Nothing left, until a frame begins.
+    /// No time left, until a frame begins.
     fn default() -> Self {
         Self {
-            bytes: 0,
             until: Instant::now(),
         }
     }
 }
 
 impl Upload {
-    /// What a frame begun now may hand over and build for.
+    /// What a frame begun now may build for.
     pub fn frame() -> Self {
         Self {
-            bytes: CALL_BYTES,
             until: Instant::now() + FRAME_TIME,
         }
     }
 
-    /// True while the frame has time and bytes left to build with.
+    /// True while the frame has time left to build with.
     pub fn left(&self) -> bool {
-        self.bytes > 0 && Instant::now() < self.until
-    }
-
-    /// Takes `bytes` from what the call may hand over. False when it
-    /// has no room left for them.
-    fn take(&mut self, bytes: usize) -> bool {
-        if bytes > self.bytes {
-            return false;
-        }
-        self.bytes -= bytes;
-        true
+        Instant::now() < self.until
     }
 }
 
 /// What the realm's systems change the scene with: its commands, the
-/// scene's assets, and what the call may still hand over.
+/// scene's assets, and how long the frame may still build for.
 #[derive(SystemParam)]
 pub struct Draw<'w, 's> {
     pub commands: Commands<'w, 's>,
@@ -83,7 +64,7 @@ pub struct Draw<'w, 's> {
 }
 
 impl Draw<'_, '_> {
-    /// True while the call has time and bytes left to build with.
+    /// True while the frame has time left to build with.
     pub fn left(&self) -> bool {
         self.upload.left()
     }
@@ -93,47 +74,22 @@ impl Draw<'_, '_> {
         &mut self,
         data: MeshData,
     ) -> Result<Handle<Mesh>, Unsent> {
-        let bytes = 4
-            * (data.positions.len()
-                + data.normals.len()
-                + data.uvs.len()
-                + data.colors.len()
-                + data.indices.len());
-        if !self.upload.take(bytes) {
-            // A mesh larger than any call takes is refused, so that
-            // it does not wait for ever.
-            if bytes > CALL_BYTES {
-                return Err(Unsent::Refused(format!(
-                    "a mesh of {bytes} bytes is more than a call \
-                     hands over"
-                )));
-            }
-            self.upload.bytes = 0;
+        if !self.left() {
             return Err(Unsent::Full(data));
         }
         let mesh = Mesh::build(&data).map_err(Unsent::Refused)?;
         Ok(self.assets.add(mesh))
     }
 
-    /// Writes `bytes` to the start of `buffer`. False when the call
-    /// has no room left for them.
+    /// Writes `bytes` to the start of `buffer`.
     pub fn write(
         &mut self,
         buffer: &Handle<Buffer>,
         bytes: &[u8],
-    ) -> Result<bool, String> {
-        if !self.upload.take(bytes.len()) {
-            return Ok(false);
-        }
+    ) -> Result<(), String> {
         let buffer =
             self.assets.get(buffer).ok_or("the buffer is gone")?;
-        buffer.write(0, bytes).map(|()| true)
-    }
-
-    /// Takes the room of `count` copies of instances from what the
-    /// call may hand over. False when it has none left for them.
-    pub fn copies(&mut self, count: usize) -> bool {
-        self.upload.take(count * 10 * 4)
+        buffer.write(0, bytes)
     }
 
     /// A material of `pbr`.

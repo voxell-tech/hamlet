@@ -451,7 +451,8 @@ world ui-plugin {
 /// 3D scenes a plugin keeps entity by entity, as Bevy's ECS holds
 /// them, drawn by the engine. Each call is one change, and only
 /// changes cross. Dropping a handle takes its thing away. A make
-/// fails, saying why, past a budget or without `render.scene`.
+/// fails, saying why, past a limit the person set or without
+/// `render.scene`.
 interface scene {
     use ui.{node};
 
@@ -690,7 +691,7 @@ interface scene {
 
         undraw: func();
 
-        /// Makes the entity a light of a budget's count, or none.
+        /// Makes the entity a light, or none.
         set-light: func(light: option<light>) -> result<_, string>;
 
         /// Whether it casts shadows and is shadowed.
@@ -801,8 +802,9 @@ interface scene-guest {
 /// used: materials and passes over a camera's image, with
 /// `render.shader`, and compute, with `render.compute`. A source
 /// declares no bindings of its own: the engine's are at fixed
-/// places, under fixed names. A make fails, saying why, past a
-/// budget or without its capability.
+/// places, under fixed names. A make fails, saying why, past the
+/// device's sizes, past a limit the person set or without its
+/// capability.
 interface gpu {
     use scene.{alpha-mode, material, camera, decal};
 
@@ -892,7 +894,7 @@ world scene-view {
 
 /// Sounds a plugin plays through the engine's audio output, each of
 /// a category the person's settings scale. A make or a play fails,
-/// saying why, past a budget or without `audio.play`.
+/// saying why, past a limit the person set or without `audio.play`.
 interface audio {
     use scene.{vec3, entity};
 

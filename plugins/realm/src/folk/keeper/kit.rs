@@ -223,7 +223,7 @@ impl Kit {
     }
 
     /// Builds the parts and hands over their meshes, as many as
-    /// the call has room for. True once every one is handed over.
+    /// the frame has time for. True once every one is handed over.
     pub fn hand_over(
         &mut self,
         pal: &Palette,

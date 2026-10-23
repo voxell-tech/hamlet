@@ -1,56 +1,22 @@
-//! A plugin's memory on its page: the value in use and where it comes
-//! from, a number and a unit to set it, and a way back to what it
-//! would be without the person.
+//! A plugin's limits on its page: each off until the person switches
+//! it on, a switch with its name beside a value and its unit, the
+//! value kept while it is off.
 
 use bevy::ecs::entity::Entity;
 use bevy::ui::{AlignItems, px};
 use bevy_fynix::ViewExt;
 use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, label, row,
+use bevy_fynix::views::{FrameProps, column, label, row};
+use hamlet_engine_api::{
+    Limit, LimitKind, LimitUnit, Limits, PluginId,
 };
-use hamlet_engine_api::{Limits, PluginId, PluginLimits};
-use hamlet_engine_shell::fonts::DisplayText;
-use hamlet_engine_shell::icons::Glyph;
+use hamlet_engine_core::StartingLimits;
 use hamlet_engine_shell::style::{
-    ButtonStyle, dropdown, field, icon_button,
+    dropdown, field, labelled_switch, note, section,
 };
 use hamlet_engine_shell::{AnyView, Cx};
 
 use crate::list::ListWorldExt;
-
-/// A plugin's memory as its page shows it.
-#[derive(Clone, Copy, PartialEq)]
-pub(super) struct MemoryLine {
-    /// The bytes in use.
-    bytes: u64,
-    source: Source,
-}
-
-/// Where the value in use comes from.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Source {
-    Engine,
-    Plugin,
-    Person,
-}
-
-impl Source {
-    fn text(self) -> &'static str {
-        match self {
-            Self::Engine => "The engine's",
-            Self::Plugin => "Asked for by the plugin",
-            Self::Person => "Yours",
-        }
-    }
-
-    fn tone(self) -> Tone {
-        match self {
-            Self::Person => Tone::Accent,
-            Self::Engine | Self::Plugin => Tone::Dim,
-        }
-    }
-}
 
 /// A unit of memory the page shows and takes it in.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -87,130 +53,162 @@ impl Unit {
             .find(|unit| bytes >= unit.bytes())
             .unwrap_or(Self::Kb)
     }
-
-    /// `bytes` as a number of this unit, to two decimals at most.
-    fn amount(self, bytes: u64) -> String {
-        let text =
-            format!("{:.2}", bytes as f64 / self.bytes() as f64);
-        text.trim_end_matches('0').trim_end_matches('.').to_owned()
-    }
-
-    /// `text`, a number of this unit, in bytes, when it is above
-    /// zero. `_` between digits is passed over.
-    fn parse(self, text: &str) -> Option<u64> {
-        let number =
-            text.trim().replace('_', "").parse::<f64>().ok()?;
-        let bytes = (number * self.bytes() as f64).round();
-        // The cast saturates at u64::MAX.
-        (bytes.is_finite() && bytes >= 1.0).then_some(bytes as u64)
-    }
 }
 
-/// The memory in `used`, from the person's value in `chosen`, the
-/// plugin's in `asked`, or the engine's.
-pub(super) fn memory_line(
-    used: &PluginLimits,
-    asked: &Limits,
-    chosen: Option<&Limits>,
-) -> MemoryLine {
-    let source = if chosen.and_then(|c| c.memory).is_some() {
-        Source::Person
-    } else if asked.memory.is_some() {
-        Source::Plugin
-    } else {
-        Source::Engine
-    };
-    MemoryLine {
-        bytes: used.memory,
-        source,
-    }
+/// `value` of `per` as a number, to two decimals at most.
+fn amount(value: u64, per: u64) -> String {
+    let text = format!("{:.2}", value as f64 / per as f64);
+    text.trim_end_matches('0').trim_end_matches('.').to_owned()
 }
 
-/// MEMORY and where its value comes from, over the value as a number
-/// and a unit, with RESET when it is the person's, and why a value
-/// typed was `refused`, dim while the plugin is not `on`.
-pub(super) fn memory_view(
+/// `text`, a number of `per`, when it is at least one. `_` between
+/// digits is passed over.
+fn parse(text: &str, per: u64) -> Option<u64> {
+    let number = text.trim().replace('_', "").parse::<f64>().ok()?;
+    let value = (number * per as f64).round();
+    // The cast saturates at u64::MAX.
+    (value.is_finite() && value >= 1.0).then_some(value as u64)
+}
+
+/// LIMITS: each limit of `plugin`, of the id `id`, as the person set
+/// it in `limits`, and why a value typed for `refused` was refused.
+pub(super) fn limits_view(
     plugin: Entity,
     id: &PluginId,
-    line: MemoryLine,
-    refused: Option<String>,
-    on: bool,
+    limits: &Limits,
+    refused: Option<(LimitKind, String)>,
 ) -> AnyView {
-    let MemoryLine { bytes, source } = line;
-    let unit = Unit::of(bytes);
-    let amount = unit.amount(bytes);
-    let shown = amount.clone();
+    let none = LimitKind::ALL
+        .iter()
+        .all(|&kind| !limits.get(kind).is_some_and(|limit| limit.on));
+    let limits = limits.clone();
+    let id = id.clone();
+    AnyView::new(move |cx: &mut Cx| {
+        let starting = cx.world.resource::<StartingLimits>().clone();
+        let gap = cx.theme().space.gap;
+        let mut parts = vec![section("LIMITS")];
+        if none {
+            parts.push(note(
+                "None is on, so nothing holds it back. Switch one \
+                 on to hold it to that.",
+            ));
+        }
+        for kind in LimitKind::ALL {
+            let limit = limits.get(kind).unwrap_or(Limit {
+                on: false,
+                value: starting.of(kind),
+            });
+            let why = refused
+                .as_ref()
+                .filter(|(at, _)| *at == kind)
+                .map(|(_, why)| why.clone());
+            parts.push(limit_row(
+                plugin,
+                id.clone(),
+                kind,
+                limit,
+                why,
+            ));
+        }
+        cx.build(column(parts).gap(gap / 2.0))
+    })
+}
+
+/// The switch of `kind` with its name, its value and unit, and why a
+/// value typed was `refused`.
+fn limit_row(
+    plugin: Entity,
+    id: PluginId,
+    kind: LimitKind,
+    limit: Limit,
+    refused: Option<String>,
+) -> AnyView {
+    let switched_for = id.clone();
+    let switch =
+        labelled_switch(kind.name(), limit.on, move |world, on| {
+            world.choose(
+                plugin,
+                &switched_for,
+                kind,
+                Limit { on, ..limit },
+            );
+        });
+    let (per, unit) = match kind.unit() {
+        LimitUnit::Bytes => {
+            let unit = Unit::of(limit.value);
+            (unit.bytes(), Some(unit))
+        }
+        LimitUnit::Milliseconds | LimitUnit::Count => (1, None),
+    };
+    let shown = amount(limit.value, per);
     let typed_for = id.clone();
+    let left = shown.clone();
     let number =
-        field(amount.clone(), String::new(), move |world, typed| {
-            match unit.parse(&typed) {
-                // Left as it was: not made the person's.
-                Some(typed) if unit.amount(typed) == amount => {
-                    world.refuse(plugin, None);
+        field(shown.clone(), String::new(), move |world, typed| {
+            match parse(&typed, per) {
+                // Left as it was.
+                Some(_) if typed.trim() == left => {
+                    world.refuse(plugin, None)
                 }
-                Some(typed) => {
-                    world.choose(plugin, &typed_for, Some(typed))
-                }
+                Some(value) => world.choose(
+                    plugin,
+                    &typed_for,
+                    kind,
+                    Limit { value, ..limit },
+                ),
                 None => world.refuse(
                     plugin,
-                    Some("memory: a number above zero".into()),
+                    Some((kind, "a number of one or more".into())),
                 ),
             }
         });
-    let picked_for = id.clone();
-    let units = dropdown(
-        Unit::ALL
-            .iter()
-            .map(|unit| unit.name().to_owned())
-            .collect(),
-        Unit::ALL.iter().position(|at| *at == unit).unwrap_or(0),
-        move |world, at| {
-            let Some(&picked) = Unit::ALL.get(at) else {
-                return;
-            };
-            if picked != unit
-                && let Some(bytes) = picked.parse(&shown)
-            {
-                world.choose(plugin, &picked_for, Some(bytes));
-            }
-        },
-    );
-    let reset_for = id.clone();
-    let reset = (source == Source::Person).then(|| {
-        icon_button(ButtonStyle::Quiet, Glyph::Restore, "RESET")
-            .on_activate(move |world| {
-                world.choose(plugin, &reset_for, None);
-            })
-            .boxed()
-    });
+    let after = match unit {
+        Some(unit) => {
+            let picked_for = id;
+            dropdown(
+                Unit::ALL
+                    .iter()
+                    .map(|at| at.name().to_owned())
+                    .collect(),
+                Unit::ALL
+                    .iter()
+                    .position(|at| *at == unit)
+                    .unwrap_or(0),
+                move |world, at| {
+                    let Some(&picked) = Unit::ALL.get(at) else {
+                        return;
+                    };
+                    if picked != unit
+                        && let Some(value) =
+                            parse(&shown, picked.bytes())
+                    {
+                        world.choose(
+                            plugin,
+                            &picked_for,
+                            kind,
+                            Limit { value, ..limit },
+                        );
+                    }
+                },
+            )
+        }
+        None => note(match kind.unit() {
+            LimitUnit::Milliseconds => "ms",
+            _ => "",
+        }),
+    };
     let refused = refused.map(|why| label(why).tone(Tone::Critical));
     AnyView::new(move |cx: &mut Cx| {
         let theme = cx.theme();
-        let (gap, size, side) =
-            (theme.space.gap, theme.text.small, theme.space.row);
-        let name = label("MEMORY")
-            .size(size)
-            .bold(true)
-            .tone(Tone::Faint)
-            .wrap(false)
-            .tagged(DisplayText);
-        let from = label(source.text())
-            .size(size)
-            .tone(if on { source.tone() } else { Tone::Dim })
-            .wrap(false);
-        let mut control = vec![
-            column((number,))
-                .gap(0.0)
-                .grow(1.0)
-                .min_width(px(0.0))
-                .boxed(),
-            column((units,)).gap(0.0).width(px(side * 3.0)).boxed(),
-        ];
-        control.extend(reset);
-        let mut parts = vec![
-            row((name, from)).gap(gap).boxed(),
-            row(control).gap(gap).align(AlignItems::Center).boxed(),
-        ];
+        let (gap, side) = (theme.space.gap, theme.space.row);
+        let line = row((
+            column((switch,)).gap(0.0).grow(1.0).min_width(px(0.0)),
+            column((number,)).gap(0.0).width(px(side * 4.0)),
+            column((after,)).gap(0.0).width(px(side * 3.0)),
+        ))
+        .gap(gap)
+        .align(AlignItems::Center);
+        let mut parts = vec![line.boxed()];
         parts.extend(refused.map(|why| why.boxed()));
         cx.build(column(parts).gap(gap / 2.0))
     })

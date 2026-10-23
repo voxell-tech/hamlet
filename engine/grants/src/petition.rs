@@ -9,9 +9,6 @@
 //! plugins add to it first, then these questions under PLUGINS, each
 //! part shown while it holds something.
 
-use std::collections::HashMap;
-use std::time::Duration;
-
 use bevy::app::{App, Startup, Update};
 use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::component::Component;
@@ -23,9 +20,8 @@ use bevy::ecs::observer::On;
 use bevy::ecs::query::{Added, Changed, Has};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
+use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::time::{Real, Time};
 use bevy::ui::{UiRect, px};
 use bevy_fynix::dock::DockTree;
 use bevy_fynix::tokens::Tone;
@@ -35,7 +31,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_engine_api::id::ENGINE;
 use hamlet_engine_api::{Ask, Capability, PanelId, PluginId};
-use hamlet_engine_core::{Budgets, LogLine};
+use hamlet_engine_core::LogLine;
 use hamlet_engine_plugins::{
     ContributedBy, Enable, PluginInfo, PluginKind, SwitchedOff,
     resolve,
@@ -290,22 +286,16 @@ impl Question {
     }
 }
 
-/// Asks about each use of a plugin answered Ask next time, as many a
-/// minute as the budgets allow; the rest are refused. `raised` holds,
-/// for each plugin, when its minute began and how many it raised.
+/// Asks about each use of a plugin answered Ask next time, once while
+/// the same question is open.
 fn first_use(
     mut uses: MessageReader<FirstUse>,
     plugins: Query<(&PluginInfo, Option<&Children>)>,
     petitions: Query<&Petition>,
-    mut raised: Local<HashMap<Entity, (Duration, u32)>>,
-    budgets: Res<Budgets>,
-    time: Res<Time<Real>>,
     mut tree: Option<ResMut<DockTree>>,
-    mut decided: MessageWriter<Decided>,
     mut log: MessageWriter<LogLine>,
     mut commands: Commands,
 ) {
-    let now = time.elapsed();
     // The petitions raised here are not children until the end.
     let mut asking = Vec::new();
     for wanted in uses.read() {
@@ -333,23 +323,6 @@ fn first_use(
         if open {
             continue;
         }
-        let (since, count) = raised
-            .get(&wanted.plugin)
-            .copied()
-            .filter(|(since, _)| {
-                now.saturating_sub(*since) < Duration::from_secs(60)
-            })
-            .unwrap_or((now, 0));
-        if count >= budgets.petitions_per_minute {
-            decided.write(Decided {
-                plugin: wanted.plugin,
-                capability: wanted.capability,
-                target: wanted.target.clone(),
-                allowed: false,
-            });
-            continue;
-        }
-        raised.insert(wanted.plugin, (since, count + 1));
         asking.push((wanted.plugin, question.clone()));
         commands.raise_petition(
             tree.as_deref_mut(),
