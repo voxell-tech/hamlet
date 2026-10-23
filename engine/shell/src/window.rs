@@ -213,7 +213,7 @@ fn root() -> AnyView {
                 status::view(),
                 overlay::view(),
                 menu::open_view(),
-                switcher::rename_view(),
+                switcher::popup_view(),
             ))
             .width(percent(100.0))
             .height(percent(100.0))

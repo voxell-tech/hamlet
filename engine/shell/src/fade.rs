@@ -37,6 +37,8 @@ pub enum FadeSurface {
     Background,
     /// `surface`, as a card.
     Surface,
+    /// `surface_sunken`, as a field or a track.
+    Sunken,
 }
 
 /// An edge of a scroll area.
@@ -207,6 +209,7 @@ fn fade(
         }
         let ground = match scroll.surface {
             FadeSurface::Surface => *theme.colors.surface,
+            FadeSurface::Sunken => *theme.colors.surface_sunken,
             FadeSurface::Background => {
                 let y = fade.edge.y(place, computed.size());
                 parents

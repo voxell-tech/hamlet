@@ -50,7 +50,7 @@ use crate::settings::{Pages, SETTINGS};
 pub use crate::settings::{SettingsFooter, SettingsPage};
 pub use crate::status::StatusItem;
 pub use crate::style::{ButtonStyle, StyleExt};
-use crate::switcher::{Renaming, WorkspaceTab};
+use crate::switcher::Renaming;
 pub use crate::theme::EngineTheme;
 pub use crate::window::{ShowWindow, window_plugin};
 use crate::workspace::Workspaces;
@@ -117,7 +117,7 @@ pub trait ShellWorldExt {
     /// Opens the menu titled `title` under its title, `node`.
     fn open_menu(&mut self, title: &str, node: Entity);
 
-    /// Opens the rename field over the tab of the workspace at `at`.
+    /// Opens the rename field in the tab of the workspace at `at`.
     fn start_rename(&mut self, at: usize);
 
     /// Puts `theme` in, for the views and the window behind them.
@@ -182,16 +182,7 @@ impl ShellWorldExt for World {
         else {
             return;
         };
-        let anchor = self
-            .try_query::<(Entity, &WorkspaceTab)>()
-            .and_then(|mut tabs| {
-                tabs.iter(self)
-                    .find(|(_, tab)| tab.0 == at)
-                    .map(|(node, _)| node)
-            })
-            .and_then(|node| self.node_rect(node))
-            .unwrap_or_default();
-        self.resource_mut::<Renaming>().0 = Some((at, anchor, name));
+        self.resource_mut::<Renaming>().0 = Some((at, name));
     }
 
     fn apply_theme(&mut self, theme: EngineTheme) {

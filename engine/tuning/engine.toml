@@ -61,6 +61,8 @@ hidden_wait = 0.5
 
 [workspaces]
 save_after = 0.5
+double_click = 0.4
+drag_start = 4.0
 
 [wasm]
 tick = 5.0

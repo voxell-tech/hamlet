@@ -227,6 +227,15 @@ pub struct Spacing {
     /// How far into a scroll area the fade over an edge with more
     /// past it reaches.
     pub scroll_fade: f32,
+    /// The space between a bar's edge and a track of segments in it,
+    /// between the track's frame and its segments, and the track's
+    /// corner. A segment's corner follows the track's.
+    pub track_inset: f32,
+    pub track_padding: f32,
+    pub track_radius: f32,
+    /// The height of the line that sets a track apart from what is
+    /// before it in a bar.
+    pub track_divider: f32,
 }
 
 /// The shadow under what floats.

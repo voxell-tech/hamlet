@@ -15,7 +15,7 @@ use crate::style::{BottomLight, title_button};
 use crate::{AnyView, Cx, ShellWorldExt, StartRank};
 
 /// The engine's own menus, first and in this order.
-const OWN: [&str; 3] = ["Hamlet", "Workspace", "View"];
+const OWN: [&str; 2] = ["Hamlet", "View"];
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<MenuBar>()

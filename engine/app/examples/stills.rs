@@ -41,8 +41,9 @@ use hamlet_engine_shell::style::{
     labelled_switch, link_row, link_rows, list, note, page_head,
     section, switch, title_button,
 };
+use hamlet_engine_shell::workspace::Workspaces;
 use hamlet_engine_shell::{
-    AnyView, Cx, DockTreeExt, EngineTheme, StyleExt,
+    AnyView, Cx, DockTreeExt, EngineTheme, ShellWorldExt, StyleExt,
 };
 
 /// One still: its name, its size in the interface's pixels and the
@@ -53,7 +54,32 @@ struct Shot {
     scale: f32,
 }
 
-const SHOTS: [Shot; 5] = [
+const SHOTS: [Shot; 10] = [
+    Shot {
+        name: "workspaces_1",
+        size: UVec2::new(900, 220),
+        scale: 2.0,
+    },
+    Shot {
+        name: "workspaces_3",
+        size: UVec2::new(900, 220),
+        scale: 2.0,
+    },
+    Shot {
+        name: "workspaces_9",
+        size: UVec2::new(900, 220),
+        scale: 2.0,
+    },
+    Shot {
+        name: "workspace_hover",
+        size: UVec2::new(900, 220),
+        scale: 2.0,
+    },
+    Shot {
+        name: "workspace_rename",
+        size: UVec2::new(900, 220),
+        scale: 2.0,
+    },
     Shot {
         name: "controls",
         size: UVec2::new(900, 1100),
@@ -220,11 +246,16 @@ impl Shot {
                 let scene = match name {
                     "menu" => Shell::Menu,
                     "settings" => Shell::Settings,
+                    "workspaces_1" => Shell::Workspaces(1),
+                    "workspaces_3" => Shell::Workspaces(3),
+                    "workspaces_9" => Shell::Workspaces(9),
+                    "workspace_hover" => Shell::Hover,
+                    "workspace_rename" => Shell::Rename,
                     _ => Shell::Panels,
                 };
                 app.insert_resource(scene)
                     .add_systems(Startup, add_plugins)
-                    .add_systems(Update, (arrange, open_menu));
+                    .add_systems(Update, (arrange, stage));
             }
         }
         app.run();
@@ -248,7 +279,20 @@ enum Shell {
     Menu,
     /// The Settings panel showing its link rows.
     Settings,
+    /// That many workspaces, the second shown.
+    Workspaces(usize),
+    /// Three workspaces, the pointer on the third's tab.
+    Hover,
+    /// Three workspaces, the second being renamed.
+    Rename,
 }
+
+/// The names of the workspaces a still of the switcher shows after
+/// the first.
+const NAMES: [&str; 8] = [
+    "Writing", "Research", "Agents", "Realm", "Review", "Budget",
+    "Music", "Planning",
+];
 
 /// Points the window's camera at the image.
 fn aim(
@@ -710,8 +754,10 @@ fn arrange(
     }
 }
 
-/// Opens the first menu of the bar, as a press on its title would.
-fn open_menu(
+/// Adds the workspaces a still of the switcher shows, and then holds
+/// a tab under the pointer, opens a rename field or opens the first
+/// menu of the bar, as a press on its title would.
+fn stage(
     still: Res<Still>,
     scene: Res<Shell>,
     labels: Query<(Entity, &Text)>,
@@ -719,8 +765,49 @@ fn open_menu(
     buttons: Query<(), With<ButtonBehavior>>,
     mut commands: Commands,
 ) {
-    if *scene != Shell::Menu || still.update != MENU {
+    if still.update == ARRANGE {
+        let count = match *scene {
+            Shell::Workspaces(count) => count,
+            Shell::Hover | Shell::Rename => 3,
+            _ => 1,
+        };
+        if count > 1 {
+            commands.queue(move |world: &mut World| {
+                let mut workspaces =
+                    world.resource_mut::<Workspaces>();
+                for name in &NAMES[..count - 1] {
+                    let at = workspaces.add();
+                    workspaces.rename(at, name);
+                }
+                workspaces.show(1);
+            });
+        }
+    }
+    if still.update != MENU {
         return;
+    }
+    let tab = |name: &str| {
+        labels.iter().find(|(_, text)| text.0 == name).and_then(
+            |(label, _)| {
+                parents
+                    .iter_ancestors(label)
+                    .find(|above| buttons.contains(*above))
+            },
+        )
+    };
+    match *scene {
+        Shell::Hover => {
+            if let Some(tab) = tab("RESEARCH") {
+                commands.entity(tab).insert(Held::Hover);
+            }
+            return;
+        }
+        Shell::Rename => {
+            commands.queue(|world: &mut World| world.start_rename(1));
+            return;
+        }
+        Shell::Menu => {}
+        _ => return,
     }
     let title = labels
         .iter()

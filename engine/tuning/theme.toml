@@ -85,6 +85,10 @@ switch_width = 36.0
 switch_height = 20.0
 switch_inset = 2.0
 scroll_fade = 24.0
+track_inset = 4.0
+track_padding = 2.0
+track_radius = 7.0
+track_divider = 14.0
 
 [shadow]
 drop = 6.0

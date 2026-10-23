@@ -621,7 +621,7 @@ buttons, cards, headings, notes, icons and chrome. Dark only.
   its edge, out of the layout, under the scroll bars and passing the
   pointer through, `scroll_fade` deep. Its colour is the theme role
   `FadeSurface` names: `Background`, shaded as the `BottomGradient`
-  panel it is on, or `Surface` for a card. Every `scroll_area` has
+  panel it is on, `Surface` for a card, or `Sunken` for a track. Every `scroll_area` has
   one on the panel's background, `scroll_area_on(surface, ..)` on
   another surface, so plugin scrolls have it too; a stuck scroll at
   its end shows no fade at its bottom.
@@ -633,9 +633,10 @@ buttons, cards, headings, notes, icons and chrome. Dark only.
   by `Glyph::name`.
 - **Pointers** are drawn in code too: see [Pointers](#pointers).
 - **Stills.** `cargo run -p hamlet_engine --example stills -- --out
-  <dir>` draws the widgets in each state, the icons, and the shell with
-  a menu open or Settings shown, into PNGs with no window; `--scene
-  <name>` draws one.
+  <dir>` draws the widgets in each state, the icons, the shell with
+  a menu open or Settings shown, and the workspace switcher with 1, 3
+  and 9 workspaces, a tab under the pointer and one being renamed, into
+  PNGs with no window; `--scene <name>` draws one.
 
 ### Pointers
 
@@ -711,23 +712,60 @@ person has one or more, and one is shown at a time.
   earlier one), the console says so and where, and the workspaces start
   afresh. If it cannot even be moved, nothing is saved, so the file stays
   as it is.
-- **The switcher** (`switcher.rs`) is a tab per workspace in the bar at
-  the top, its name in capitals, the one shown lit and underlined; a
-  press shows that workspace. "+" adds an empty one, named
-  "Workspace" and a number, and shows it. A right-click on a tab offers
-  Rename, a field under the tab (Enter keeps the name; Escape or a press
-  outside leaves it), and Delete, while there is more than one. A name is
-  trimmed, at most 40 characters, and no other workspace's, whatever the
-  case.
-- **Commands.** New, rename and delete the shown workspace, and next and
-  previous, are in the Workspace menu. Ctrl+Tab shows the next workspace
-  and Ctrl+Shift+Tab the one before, going round; Cmd+1 to Cmd+9 (Ctrl
-  off macOS) show the first nine.
-- **Suggested.** A `SuggestedWorkspace`, as a plugin adds one, puts
-  "Take workspace" and its name in the Workspace menu while it is there.
-  Taking it adds a copy, numbered if the name is taken, and shows it. The
-  copy is the person's, to change or delete, and stays when the plugin
-  goes.
+- **Icons.** Each workspace has an icon before its name, saved with it
+  as the icon's name. "Main" has the house. Another is given one as it
+  is added: one its name calls for (Writing a pencil, Research a lens),
+  or else the first of the picks no other workspace has. Renamed, an
+  icon that came with the old name follows the new one; an icon picked
+  by hand stays. A file without icons, or with one no longer drawn, is
+  given them as it is read.
+- **The switcher** (`switcher.rs`, its motion in `switcher/motion.rs`)
+  is one control in the bar, set apart from the menus by a thin divider
+  (`[space] track_divider` high) and `section` of space: a track sunk
+  into the bar (`surface_sunken`, a `border` frame, `track_inset` from
+  the bar's edges, `track_padding` inside, `track_radius` corners) with
+  a segment per workspace, its icon and its name in capitals in the
+  display face (`[text] heading`). The one shown sits on a raised
+  segment (`fill`, lit inside from below by `active` at `[glow]
+  bottom`) with an `underline` line in `accent` under it, glowing; the
+  segment glides from tab to tab over `[motion] interact`, at once
+  under reduced motion. The others are dim and brighten under the
+  pointer with a row's inner light (`Glow::Inner`), ticking; a press
+  taps, and so does showing another by a key.
+  - A press shows the workspace; the tip under the pointer names its
+    key. Under the pointer an "x" in place of the icon closes it,
+    unless it is the last.
+  - A double-click (two clicks within `[workspaces] double_click`
+    seconds) renames it in place: a field over the tab, as wide.
+    Enter keeps the name; Escape, a press outside or the keyboard
+    going elsewhere leaves it. A name is trimmed, at most 40
+    characters, and no other workspace's, whatever the case.
+  - A right-click offers Rename, Change Icon (a picker of the icons a
+    workspace may have, `workspace/icon.rs`), Duplicate (a copy after
+    it, numbered), Move Left, Move Right and Close, each where it
+    applies.
+  - Dragged past `[workspaces] drag_start` pixels, a tab follows the
+    pointer and the others ease aside to leave a gap where it would
+    land; let go, it moves there.
+  - "+" is the track's last segment: a press adds a blank workspace,
+    "Workspace" and a number, shows it and opens its name to be typed.
+    The chevron beside it, or a right-click on "+", offers New
+    workspace and the layouts plugins suggest ("New from layout...").
+  - Past what fits, the tabs scroll across (by wheel too) with a
+    `ScrollFade` at each edge into `surface_sunken`, the shown one is
+    scrolled into sight, and a chevron at the end lists every
+    workspace with its key.
+- **Commands.** New (Cmd+T, Ctrl+T off macOS), rename, duplicate and
+  close the shown workspace, next and previous, and Workspace 1 to 9
+  are commands with no menu in the bar: the switcher holds them. Ctrl+Tab
+  shows the next workspace and Ctrl+Shift+Tab the one before, going
+  round; Cmd+1 to Cmd+9 (Ctrl off macOS) show the first nine. The tips
+  write each key as the menus do.
+- **Suggested.** A `SuggestedWorkspace`, as a plugin adds one, is
+  offered under "+" while it is there, with its command "Take
+  workspace" and its name. Taking it adds a copy, numbered if the name
+  is taken, and shows it. The copy is the person's, to change or
+  delete, and stays when the plugin goes.
 
 ## Commands, menus and the status line
 
@@ -743,13 +781,14 @@ person has one or more, and one is shown at a time.
   Primary is Command on macOS and Control elsewhere.
 - **A menu entry** is an entity with a `MenuEntry`: the title of its
   menu and the id of its command. The bar gathers the entries into
-  menus, the engine's own first (Hamlet, Workspace, View) and then the
+  menus, the engine's own first (Hamlet, View) and then the
   others in the order of their entries. A menu's title, in capitals, opens it
   under itself and stays lit while it is open; a press on another title
   opens that one instead. An entry shows its command's label and first
   key. An entry whose command is not there is left out.
 - **The engine's own.** Run in Background and Quit Hamlet (Cmd+Q,
-  Ctrl+Q off macOS) in the Hamlet menu, the workspace commands, and for each panel a command in
+  Ctrl+Q off macOS) in the Hamlet menu, the workspace commands (see
+  [Workspaces](#workspaces)), and for each panel a command in
   the View menu that brings it to the front, or opens it in the first
   area (`world.open_panel(id)`).
 - **The order of what plugins add.** What a plugin adds carries its
@@ -2096,8 +2135,8 @@ with a note) and its volume by `sway`.
 
 | Sound | When |
 |---|---|
-| Tick, one small high tick | The pointer comes onto a plain, primary, critical or quiet button, or a row |
-| Tap, a soft knock | A button, a switch, a row, a tab, a menu's title or item, or a field goes down |
+| Tick, one small high tick | The pointer comes onto a plain, primary, critical or quiet button, a row, or a segment of the workspace switcher |
+| Tap, a soft knock | A button, a switch, a row, a tab, a menu's title or item, or a field goes down, or a key shows another workspace |
 | Confirm, two bell notes | A primary button does its work |
 | Deny, two dull notes going down | A critical button does its work |
 | Pop open and pop close, air up and down | A menu, a context menu, a dropdown's list or another popup opens or closes, not one taking another's place |

@@ -4,6 +4,7 @@
 
 mod arrange;
 mod file;
+pub(crate) mod icon;
 
 use bevy::app::{App, AppExit, Last, Startup, Update};
 use bevy::ecs::change_detection::DetectChanges;
@@ -26,6 +27,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::command::{RunCommand, ShellCommandsExt};
 use crate::dock::PLUGIN_LIST;
+use crate::icons::Glyph;
 pub use crate::workspace::arrange::DockTreeExt;
 use crate::{EngineTheme, console};
 
@@ -75,6 +77,11 @@ pub(crate) fn plugin(app: &mut App) {
 pub struct WorkspaceTuning {
     /// Seconds the workspaces stay unchanged before they are saved.
     pub save_after: f32,
+    /// The most seconds between the two presses of a double-click on
+    /// a workspace's tab.
+    pub double_click: f32,
+    /// How far, in logical pixels, a tab is dragged before it moves.
+    pub drag_start: f32,
 }
 
 impl Tuning for WorkspaceTuning {
@@ -86,11 +93,16 @@ impl Tuning for WorkspaceTuning {
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Workspace {
     pub name: String,
+    /// The icon before its name. A file without one is given one as
+    /// it is read.
+    #[serde(default, with = "icon")]
+    pub icon: Option<Glyph>,
     pub layout: Layout,
 }
 
 /// A workspace a plugin suggests. The person takes a copy of it with
-/// the command `take`, in the Workspace menu, and the copy is theirs.
+/// the command `take`, offered by the switcher's "+", and the copy is
+/// theirs.
 #[derive(Component, Clone, Debug)]
 #[component(immutable)]
 pub struct SuggestedWorkspace {
@@ -140,6 +152,7 @@ impl Default for Workspaces {
             shown: 0,
             list: vec![Workspace {
                 name: FIRST.into(),
+                icon: Some(Glyph::House),
                 layout: split(
                     Axis::Horizontal,
                     0.2,
@@ -185,51 +198,78 @@ impl Workspaces {
         self.show((self.shown + step) % count);
     }
 
-    /// Adds an empty workspace with a name of its own and shows it.
-    pub fn add(&mut self) {
+    /// Adds an empty workspace with a name of its own, shows it and
+    /// gives its index.
+    pub fn add(&mut self) -> usize {
         let name = (self.list.len() + 1..)
             .map(|n| format!("Workspace {n}"))
             .find(|name| !self.named(name, None))
             .unwrap_or_default();
-        self.list.push(Workspace {
-            name,
-            layout: Layout::empty(),
-        });
-        self.shown = self.list.len() - 1;
+        self.insert(self.list.len(), name, Layout::empty())
     }
 
     /// Adds a copy of `layout` named after `name`, numbered when the
     /// name is taken, and shows it.
     pub fn take(&mut self, name: &str, layout: &Layout) {
-        let name = name
-            .trim()
-            .chars()
-            .take(LONGEST_NAME - 3)
-            .collect::<String>();
-        let name = (1..)
-            .map(|n| match n {
-                1 => name.clone(),
-                n => format!("{name} {n}"),
-            })
-            .find(|name| !name.is_empty() && !self.named(name, None))
-            .unwrap_or_default();
-        self.list.push(Workspace {
-            name,
-            layout: layout.clone(),
-        });
-        self.shown = self.list.len() - 1;
+        let name = self.free_name(name);
+        self.insert(self.list.len(), name, layout.clone());
+    }
+
+    /// Adds a copy of the workspace at `at` after it, numbered, and
+    /// shows it.
+    pub fn duplicate(&mut self, at: usize) {
+        let Some(workspace) = self.list.get(at).cloned() else {
+            return;
+        };
+        let name = self.free_name(&workspace.name);
+        self.list.insert(at + 1, Workspace { name, ..workspace });
+        self.shown = at + 1;
+    }
+
+    /// Moves the workspace at `from` to `to`, the shown one still
+    /// shown.
+    pub fn move_to(&mut self, from: usize, to: usize) {
+        let count = self.list.len();
+        if from >= count || to >= count || from == to {
+            return;
+        }
+        let shown = self.shown;
+        let workspace = self.list.remove(from);
+        self.list.insert(to, workspace);
+        self.shown = match shown {
+            _ if shown == from => to,
+            _ if from < shown && shown <= to => shown - 1,
+            _ if to <= shown && shown < from => shown + 1,
+            _ => shown,
+        };
+    }
+
+    /// Gives the workspace at `at` the icon `icon`.
+    pub fn set_icon(&mut self, at: usize, icon: Glyph) {
+        if let Some(workspace) = self.list.get_mut(at)
+            && workspace.icon != Some(icon)
+        {
+            workspace.icon = Some(icon);
+        }
     }
 
     /// Names the workspace at `at` `name`, trimmed. Whether it was: a
-    /// name that is empty, too long or another's is refused.
+    /// name that is empty, too long or another's is refused. An icon
+    /// that came with the old name follows the new one.
     pub fn rename(&mut self, at: usize, name: &str) -> bool {
         let name = name.trim();
         let fits = !name.is_empty()
             && name.chars().count() <= LONGEST_NAME
             && !self.named(name, Some(at));
+        let taken = self.icons_besides(at);
         match self.list.get_mut(at) {
             Some(workspace) if fits => {
                 if workspace.name != name {
+                    let came = icon::suggest(&workspace.name, &taken);
+                    if workspace.icon == Some(came) {
+                        workspace.icon =
+                            Some(icon::suggest(name, &taken));
+                    }
                     workspace.name = name.to_owned();
                 }
                 true
@@ -249,6 +289,47 @@ impl Workspaces {
         }
     }
 
+    /// Puts a workspace named `name` holding `layout` at `at`, with
+    /// the icon its name calls for, shows it and gives `at`.
+    fn insert(
+        &mut self,
+        at: usize,
+        name: String,
+        layout: Layout,
+    ) -> usize {
+        let taken = self.icons_besides(usize::MAX);
+        let icon = Some(icon::suggest(&name, &taken));
+        self.list.insert(at, Workspace { name, icon, layout });
+        self.shown = at;
+        at
+    }
+
+    /// `name`, trimmed and numbered when another workspace has it.
+    fn free_name(&self, name: &str) -> String {
+        let name = name
+            .trim()
+            .chars()
+            .take(LONGEST_NAME - 3)
+            .collect::<String>();
+        (1..)
+            .map(|n| match n {
+                1 => name.clone(),
+                n => format!("{name} {n}"),
+            })
+            .find(|name| !name.is_empty() && !self.named(name, None))
+            .unwrap_or_default()
+    }
+
+    /// The icons of the workspaces but the one at `besides`.
+    fn icons_besides(&self, besides: usize) -> Vec<Glyph> {
+        self.list
+            .iter()
+            .enumerate()
+            .filter(|(at, _)| *at != besides)
+            .filter_map(|(_, workspace)| workspace.icon)
+            .collect()
+    }
+
     /// Whether a workspace other than the one at `besides` is called
     /// `name`.
     fn named(&self, name: &str, besides: Option<usize>) -> bool {
@@ -259,15 +340,21 @@ impl Workspaces {
     }
 
     /// These, with at least one workspace, one of them shown, and
-    /// every one named.
+    /// every one named and with an icon.
     fn cleaned(mut self) -> Self {
         if self.list.is_empty() {
             return Self::default();
         }
         self.shown = self.shown.min(self.list.len() - 1);
-        for (at, workspace) in self.list.iter_mut().enumerate() {
+        for at in 0..self.list.len() {
+            let taken = self.icons_besides(at);
+            let workspace = &mut self.list[at];
             if workspace.name.trim().is_empty() {
                 workspace.name = format!("Workspace {}", at + 1);
+            }
+            if workspace.icon.is_none() {
+                workspace.icon =
+                    Some(icon::suggest(&workspace.name, &taken));
             }
         }
         self
@@ -286,7 +373,7 @@ struct Shown {
     drawn: Option<Layout>,
 }
 
-/// Puts a suggested workspace in the Workspace menu, for as long as
+/// Adds the command that takes a suggested workspace, for as long as
 /// it is there.
 fn suggest(
     added: On<Add, SuggestedWorkspace>,
@@ -303,7 +390,7 @@ fn suggest(
         .spawn_command(
             suggestion.take.clone(),
             &format!("Take workspace {name}"),
-            Some("Workspace"),
+            None,
             &[],
         )
         .insert(ChildOf(entity))
@@ -395,6 +482,7 @@ mod tests {
             vec![
                 Workspace {
                     name: "Writing".into(),
+                    icon: Some(Glyph::Moon),
                     layout: Layout::Split {
                         axis: Axis::Horizontal,
                         share: 0.25,
@@ -418,6 +506,7 @@ mod tests {
                 },
                 Workspace {
                     name: "Quiet".into(),
+                    icon: Some(Glyph::Bell),
                     layout: Layout::empty(),
                 },
             ],
@@ -451,6 +540,27 @@ mod tests {
             matches!(*second, Layout::Tabs { ref panels, shown: 1 }
             if panels.len() == 2)
         );
+        let _ = fs::remove_dir_all(home.root());
+    }
+
+    #[test]
+    fn a_file_without_icons_is_read_and_given_them() {
+        let home = home("no_icons");
+        let text = "(shown: 1, list: [(name: \"Main\", layout: \
+                    Tabs(panels: [], shown: 0)), (name: \"Ledger\", \
+                    layout: Tabs(panels: [], shown: 0))])";
+        fs::write(home.path(FILE), text).unwrap();
+        let Restored::Read(read) = Restored::read(&home) else {
+            panic!("the file was not read");
+        };
+        let icons = read
+            .list()
+            .iter()
+            .map(|workspace| workspace.icon)
+            .collect::<Vec<_>>();
+        assert_eq!(icons[0], Some(Glyph::House));
+        assert!(icons[1].is_some_and(|icon| icon != Glyph::House));
+        assert_eq!(read.shown(), 1);
         let _ = fs::remove_dir_all(home.root());
     }
 
