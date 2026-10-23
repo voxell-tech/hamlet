@@ -38,5 +38,3 @@ multiple-versions = "warn"
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-# fynix, which the root Cargo.toml pins to a commit.
-allow-git = ["https://github.com/voxell-tech/fynix"]

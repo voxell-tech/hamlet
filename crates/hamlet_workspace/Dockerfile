@@ -23,6 +23,7 @@ WORKDIR /src
 # compiled. `--locked` refuses to build if Cargo.lock would change.
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
+COPY vendor vendor
 RUN cargo build --locked --release -p hamlet_workspace \
         --bin hamlet-workspace \
     && install -D -m 0755 target/release/hamlet-workspace \

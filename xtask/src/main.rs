@@ -1,8 +1,8 @@
 //! `cargo xtask`: builds, installs and checks Hamlet with Cargo
 //! alone.
 //!
-//! It is a workspace of its own, so it builds before the main
-//! workspace's dependencies are fetched.
+//! It is a workspace of its own, so it builds before the vendored
+//! fynix that the main workspace needs has been fetched.
 
 use std::path::Path;
 use std::process::{Command, ExitCode};
@@ -33,10 +33,11 @@ Usage: cargo xtask <task> [args]
   workspace-image  build the remote workspace image; args go to \
                      docker build
 
-Tasks that build, run or check pi first install its packages when
-they are missing or stale. The installed server finds pi in this
-checkout, so keep it where it was installed from, and run `cargo
-xtask install` again after pulling.
+Every task but help and uninstall first fetches the vendored fynix
+when it is missing. Tasks that build, run or check pi install its
+packages when they are missing or stale. The installed server finds
+pi in this checkout, so keep it where it was installed from, and run
+`cargo xtask install` again after pulling.
 
 lints needs cargo-deny and typos: `cargo install --locked cargo-deny
 typos-cli`. With CI set, the steps pass --locked to cargo.";
@@ -92,6 +93,9 @@ fn run(task: &str, rest: &[String]) -> Result<(), String> {
         .ok_or("xtask has no parent folder")?
         .to_path_buf();
     env::set_current_dir(&root).map_err(|error| error.to_string())?;
+    if !matches!(task, "" | "help" | "-h" | "--help" | "uninstall") {
+        fynix(&root)?;
+    }
     if let Some((_, step)) =
         STEPS.iter().find(|(name, _)| *name == task)
     {
@@ -293,6 +297,20 @@ fn workspace_image(rest: &[String]) -> Result<(), String> {
         build.args(["-t", &format!("hamlet-workspace:{short}")]);
     }
     status(build.args(rest).arg("."))
+}
+
+/// Fetches the vendored fynix, a submodule, when it is missing: every
+/// cargo command on the workspace needs its manifest.
+fn fynix(root: &Path) -> Result<(), String> {
+    if root.join("vendor/fynix/Cargo.toml").exists() {
+        return Ok(());
+    }
+    status(Command::new("git").args([
+        "submodule",
+        "update",
+        "--init",
+        "vendor/fynix",
+    ]))
 }
 
 /// Installs pi's packages when they are missing or stale.

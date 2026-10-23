@@ -4,6 +4,8 @@
 extend-exclude = [
     "target/",
     "xtask/target/",
+    # The vendored fynix is not this repository's to spell.
+    "vendor/",
     "node_modules/",
     "assets/",
     "brand/",
