@@ -14,7 +14,7 @@
 //!     ));
 //!     commands.spawn((
 //!         Mesh3d(assets.add(Mesh::shape(Shape::Cuboid((1.0, 1.0, 1.0)))?)),
-//!         MeshMaterial3d(assets.add(Material::make(Pbr::colored(RED))?)),
+//!         MeshMaterial3d(assets.add(Material::make(StandardMaterial::colored(RED))?)),
 //!     ));
 //!     Ok(())
 //! }
@@ -49,15 +49,17 @@ use crate::bindings::hamlet::engine::scene::{
     Instances as HostCopies,
 };
 pub use crate::bindings::hamlet::engine::scene::{
-    AlphaMode, Bloom, CameraSettings, Decal, DirectionalLight, Fog,
-    FogFalloff, LabelLook, Light, Material, Mesh, MeshData, Pbr,
-    PointLight, Projection, Rgba, Shape, SpotLight, Target,
-    Tonemapping,
+    AlphaMode, AmbientLight, Bloom, BloomPrefilter, CameraSettings,
+    Decal, DirectionalLight, DistanceFog, Exposure, FogFalloff,
+    LabelLook, Light, Material, Mesh, MeshData, Msaa, PointLight,
+    Projection, Rgba, ShadowFilteringMethod, Shape, SpotLight,
+    StandardMaterial, Target, Tonemapping,
 };
 pub use crate::scene::effects::{
     AtmosphereSettings, ColorGrading, ColorGradingGlobal,
     DepthOfField, DepthOfFieldMode, DirectionalLightShadowMap,
-    FogVolume, Quality, ScreenSpaceAmbientOcclusion, Smaa,
+    FogVolume, ScreenSpaceAmbientOcclusion,
+    ScreenSpaceAmbientOcclusionQualityLevel, Smaa, SmaaPreset,
     VolumetricFog, VolumetricLight,
 };
 use crate::ui::{AnyView, Cx, Key, Ui, column};
@@ -74,9 +76,9 @@ pub(crate) fn plugin(app: &mut App) {
         .add_message::<SceneOver>()
         .add_message::<SceneOut>()
         .add_message::<SceneClick>()
-        .add_message::<ScenePointer>()
+        .add_message::<SceneMove>()
         .add_message::<ScenePress>()
-        .add_message::<SceneWheel>()
+        .add_message::<SceneScroll>()
         .add_message::<SceneResize>()
         .add_message::<SceneKeyInput>()
         .add_message::<SceneDrop>()
@@ -362,27 +364,28 @@ impl SceneAssets {
     }
 }
 
-impl Pbr {
+impl StandardMaterial {
     /// A material of `color`, rough and not metal, lit and fogged.
     pub fn colored(color: Rgba) -> Self {
         Self {
             base_color: color,
             emissive: (0.0, 0.0, 0.0, 1.0),
-            roughness: 0.5,
+            perceptual_roughness: 0.5,
             metallic: 0.0,
             reflectance: 0.5,
             alpha_mode: AlphaMode::Opaque,
             alpha_cutoff: 0.5,
             unlit: false,
             double_sided: false,
-            fog: true,
+            fog_enabled: true,
         }
     }
 }
 
 impl Default for CameraSettings {
     /// A perspective of 45 degrees from 0.1 to 1000, clearing to
-    /// black, in high range, neither fogged nor blooming.
+    /// black, in high range, neither fogged nor blooming, with
+    /// Bevy's default MSAA and shadow filtering.
     fn default() -> Self {
         Self {
             projection: Projection::Perspective((
@@ -390,14 +393,18 @@ impl Default for CameraSettings {
                 0.1,
                 1000.0,
             )),
-            clear: Some((0.0, 0.0, 0.0, 1.0)),
+            clear_color: Some((0.0, 0.0, 0.0, 1.0)),
             hdr: true,
-            tonemapping: Tonemapping::Neutral,
-            exposure: 9.7,
-            fog: None,
+            tonemapping: Tonemapping::TonyMcMapface,
+            exposure: Exposure { ev100: 9.7 },
+            distance_fog: None,
             bloom: None,
-            ambient: ((1.0, 1.0, 1.0, 1.0), 80.0),
-            msaa: 4,
+            ambient_light: AmbientLight {
+                color: (1.0, 1.0, 1.0, 1.0),
+                brightness: 80.0,
+            },
+            msaa: Msaa::Sample4,
+            shadow_filtering_method: ShadowFilteringMethod::Gaussian,
         }
     }
 }
@@ -447,6 +454,7 @@ pub enum Visibility {
     #[default]
     Inherited,
     Hidden,
+    Visible,
 }
 
 /// Words shown over an entity in each view of the scene, centred
@@ -533,7 +541,7 @@ pub struct Animate(pub bool);
 pub struct Hit {
     pub entity: Entity,
     pub index: u32,
-    pub point: Vec3,
+    pub position: Vec3,
     pub normal: Vec3,
     /// The button of a click, `Primary` as the pointer comes over.
     pub button: MouseButton,
@@ -558,7 +566,7 @@ pub struct SceneClick(pub Hit);
 /// The pointer over the view of the camera of `view`, in its pixels
 /// from its top left, and how far it moved.
 #[derive(Message, Clone, Copy, Debug)]
-pub struct ScenePointer {
+pub struct SceneMove {
     pub view: Entity,
     pub x: f32,
     pub y: f32,
@@ -605,7 +613,7 @@ pub struct SceneDrop {
 
 /// The wheel turned over a view, in lines.
 #[derive(Message, Clone, Copy, Debug)]
-pub struct SceneWheel {
+pub struct SceneScroll {
     pub view: Entity,
     pub x: f32,
     pub y: f32,
@@ -626,9 +634,9 @@ pub enum SceneInput {
     Over(Hit),
     Out(SceneOut),
     Click(Hit),
-    Pointer(ScenePointer),
+    Move(SceneMove),
     Press(ScenePress),
-    Wheel(SceneWheel),
+    Scroll(SceneScroll),
     Resize(SceneResize),
     Key(SceneKeyInput),
 }
@@ -799,8 +807,7 @@ fn show(
         if made.is_added() && *visibility == Visibility::Inherited {
             continue;
         }
-        host.entity
-            .set_visible(*visibility == Visibility::Inherited);
+        host.entity.set_visible(*visibility != Visibility::Hidden);
     }
     for entity in unhidden.read() {
         if let Ok(host) = hosts.get(entity) {
@@ -1153,7 +1160,7 @@ pub(crate) fn deliver(world: &mut World, input: WitInput) {
         Some(Hit {
             entity: entity(world, hit.key)?,
             index: hit.index,
-            point: hit.point.into(),
+            position: hit.position.into(),
             normal: hit.normal.into(),
             button,
             modifiers,
@@ -1193,9 +1200,9 @@ pub(crate) fn deliver(world: &mut World, input: WitInput) {
             }
             return;
         }
-        WitInput::Moved(pointer) => {
+        WitInput::Move(pointer) => {
             entity(world, pointer.view).map(|view| {
-                SceneInput::Pointer(ScenePointer {
+                SceneInput::Move(SceneMove {
                     view,
                     x: pointer.x,
                     y: pointer.y,
@@ -1206,7 +1213,7 @@ pub(crate) fn deliver(world: &mut World, input: WitInput) {
                 })
             })
         }
-        WitInput::Pressed(press) => {
+        WitInput::Press(press) => {
             entity(world, press.view).map(|view| {
                 SceneInput::Press(ScenePress {
                     view,
@@ -1218,12 +1225,12 @@ pub(crate) fn deliver(world: &mut World, input: WitInput) {
                 })
             })
         }
-        WitInput::Turned(wheel) => {
-            entity(world, wheel.view).map(|view| {
-                SceneInput::Wheel(SceneWheel {
+        WitInput::Scroll(scroll) => {
+            entity(world, scroll.view).map(|view| {
+                SceneInput::Scroll(SceneScroll {
                     view,
-                    x: wheel.x,
-                    y: wheel.y,
+                    x: scroll.x,
+                    y: scroll.y,
                 })
             })
         }
@@ -1249,14 +1256,14 @@ pub(crate) fn deliver(world: &mut World, input: WitInput) {
         SceneInput::Click(at) => {
             world.write_message(SceneClick(at));
         }
-        SceneInput::Pointer(pointer) => {
-            world.write_message(pointer);
+        SceneInput::Move(moved) => {
+            world.write_message(moved);
         }
         SceneInput::Press(press) => {
             world.write_message(press);
         }
-        SceneInput::Wheel(wheel) => {
-            world.write_message(wheel);
+        SceneInput::Scroll(scroll) => {
+            world.write_message(scroll);
         }
         SceneInput::Resize(resize) => {
             world.write_message(resize);

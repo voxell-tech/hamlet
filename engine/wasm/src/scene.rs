@@ -49,8 +49,9 @@ pub(crate) mod scene_bindings {
 use crate::scene::scene_bindings::hamlet::engine::scene::{
     Balloon as WitBalloon, CameraEffects, CameraSettings, Decal,
     FogVolume, Host, HostCamera, HostEntity, HostInstances,
-    HostMaterial, HostMesh, Label, Light, MeshData, Pbr,
-    PointerLabel as WitPointerLabel, Shape, Target, Transform,
+    HostMaterial, HostMesh, Label, Light, MeshData,
+    PointerLabel as WitPointerLabel, Shape, StandardMaterial as Wit,
+    Target, Transform,
 };
 
 /// The interfaces of scenes and GPU work a plugin may import.
@@ -647,7 +648,7 @@ impl State {
 impl HostMaterial for State {
     fn make(
         &mut self,
-        pbr: Pbr,
+        standard_material: Wit,
     ) -> wasmtime::Result<Result<Resource<MaterialHandle>, String>>
     {
         if let Err(why) =
@@ -655,7 +656,7 @@ impl HostMaterial for State {
         {
             return Ok(Err(why));
         }
-        let material = convert::pbr(pbr)
+        let material = convert::standard_material(standard_material)
             .ok_or_else(|| trap(SceneError::Invalid))?;
         let id = self.scene.number(Held::Material {
             kind: MaterialKind::Pbr,
@@ -680,7 +681,7 @@ impl HostMaterial for State {
     fn set(
         &mut self,
         material: Resource<MaterialHandle>,
-        pbr: Pbr,
+        standard_material: Wit,
     ) -> wasmtime::Result<()> {
         let id = material.rep();
         self.scene.held(id, |held| {
@@ -692,7 +693,7 @@ impl HostMaterial for State {
                 }
             )
         })?;
-        let material = convert::pbr(pbr)
+        let material = convert::standard_material(standard_material)
             .ok_or_else(|| trap(SceneError::Invalid))?;
         self.scene.change(SceneChange::Material { id, material })
     }

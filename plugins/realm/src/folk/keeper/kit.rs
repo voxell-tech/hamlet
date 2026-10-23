@@ -7,7 +7,9 @@ mod props;
 
 use glam::Vec3;
 use hamlet_engine_bevy::prelude::Handle;
-use hamlet_engine_bevy::scene::{Material, Mesh, MeshData, Pbr};
+use hamlet_engine_bevy::scene::{
+    Material, Mesh, MeshData, StandardMaterial,
+};
 
 use crate::build::mesh::Mb;
 use crate::build::stock::rgba;
@@ -270,10 +272,10 @@ impl Kit {
     }
 }
 
-fn matte(colour: Vec3) -> Pbr {
-    Pbr {
-        roughness: 0.92,
+fn matte(colour: Vec3) -> StandardMaterial {
+    StandardMaterial {
+        perceptual_roughness: 0.92,
         reflectance: 0.18,
-        ..Pbr::colored(rgba(colour))
+        ..StandardMaterial::colored(rgba(colour))
     }
 }

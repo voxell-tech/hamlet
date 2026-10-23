@@ -5,8 +5,8 @@ use bevy::anti_alias::smaa::Smaa;
 use bevy::camera::{ClearColorConfig, Exposure, Projection};
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::light::{
-    AmbientLight, DirectionalLight, FogVolume, PointLight, SpotLight,
-    VolumetricFog,
+    AmbientLight, DirectionalLight, FogVolume, PointLight,
+    ShadowFilteringMethod, SpotLight, VolumetricFog,
 };
 use bevy::material::AlphaMode;
 use bevy::mesh::Mesh;
@@ -222,6 +222,7 @@ pub struct CameraSetup {
     pub bloom: Option<Bloom>,
     pub ambient: AmbientLight,
     pub msaa: Msaa,
+    pub shadow_filtering: ShadowFilteringMethod,
 }
 
 /// What a camera draws over its image, each off when none.

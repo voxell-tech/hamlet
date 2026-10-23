@@ -1117,7 +1117,7 @@ pub fn build_towns(
         {
             cues.write(Cue {
                 sound: Sound::Clockwork,
-                at: click.0.point,
+                at: click.0.position,
                 turn: key.0,
             });
         }

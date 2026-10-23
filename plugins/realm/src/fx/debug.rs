@@ -10,7 +10,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use bevy_ecs::system::SystemParam;
 use glam::{Vec2, Vec3, Vec3Swizzles};
 use hamlet_engine_bevy::prelude::*;
-use hamlet_engine_bevy::scene::{Material, Pbr};
+use hamlet_engine_bevy::scene::{Material, StandardMaterial};
 use hamlet_engine_bevy::ui::{StatusItem, Tone, set_status};
 
 use crate::build::mesh::{Line, Mb};
@@ -240,11 +240,11 @@ impl Overlay {
 
 impl Drawn {
     fn make(draw: &mut Draw) -> Result<Self, String> {
-        let lines = draw.material(Pbr {
+        let lines = draw.material(StandardMaterial {
             unlit: true,
             double_sided: true,
-            fog: false,
-            ..Pbr::colored(rgba(Vec3::ONE))
+            fog_enabled: false,
+            ..StandardMaterial::colored(rgba(Vec3::ONE))
         })?;
         let root = draw.spawn(None, 0);
         let fixed = draw.spawn(Some(root), 0);

@@ -129,7 +129,7 @@ impl Rig {
                 intensity: lumens,
                 range,
                 radius: 0.05,
-                shadows: false,
+                shadow_maps_enabled: false,
             }),
         ));
     }

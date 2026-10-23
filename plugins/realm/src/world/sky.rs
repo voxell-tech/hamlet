@@ -6,11 +6,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use glam::{Mat3, Vec3};
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::scene::{
-    AtmosphereSettings, Bloom, CameraSettings as Lens, ColorGrading,
-    ColorGradingGlobal, DepthOfField, DepthOfFieldMode,
-    DirectionalLight, DirectionalLightShadowMap, Fog, FogFalloff,
-    FogVolume, Light, Projection, ScreenSpaceAmbientOcclusion,
-    Tonemapping, VolumetricFog, VolumetricLight,
+    self as engine, AmbientLight, AtmosphereSettings, Bloom,
+    BloomPrefilter, ColorGrading, ColorGradingGlobal, DepthOfField,
+    DepthOfFieldMode, DirectionalLight, DirectionalLightShadowMap,
+    DistanceFog, Exposure, FogFalloff, FogVolume, Light, Projection,
+    ScreenSpaceAmbientOcclusion, Tonemapping, VolumetricFog,
+    VolumetricLight,
 };
 
 use crate::build::frame::Frame;
@@ -33,7 +34,10 @@ const EXPOSURE: f32 = 9.7;
 const BLOOM: Bloom = Bloom {
     intensity: 0.15,
     low_frequency_boost: 0.7,
-    threshold: 0.0,
+    prefilter: BloomPrefilter {
+        threshold: 0.0,
+        threshold_softness: 0.0,
+    },
 };
 
 /// One time of day: lights, sky and how strongly the fittings burn.
@@ -414,6 +418,7 @@ impl CameraSettings {
                 aperture_f_stops: (self.blur_stop / dist)
                     .max(self.blur_stop_min),
                 max_circle_of_confusion_diameter: self.blur_circle,
+                ..DepthOfField::default()
             });
         } else {
             camera.remove::<DepthOfField>();
@@ -422,19 +427,25 @@ impl CameraSettings {
 
     /// The lens for the look `look` with the camera `dist` from what
     /// it looks at.
-    pub fn lens(&self, look: &Look, dist: f32) -> Lens {
+    pub fn lens(
+        &self,
+        look: &Look,
+        dist: f32,
+    ) -> engine::CameraSettings {
         let haze = (look.haze.x, look.haze.y, look.haze.z, 1.0);
-        Lens {
+        engine::CameraSettings {
             projection: Projection::Perspective((
                 self.fov.to_radians(),
                 self.near,
                 self.far,
             )),
-            clear: Some(haze),
+            clear_color: Some(haze),
             hdr: true,
-            tonemapping: Tonemapping::Fitted,
-            exposure: EXPOSURE - look.exposure,
-            fog: Some(Fog {
+            tonemapping: Tonemapping::AcesFitted,
+            exposure: Exposure {
+                ev100: EXPOSURE - look.exposure,
+            },
+            distance_fog: Some(DistanceFog {
                 color: haze,
                 falloff: FogFalloff::Linear((
                     dist * self.fog_start,
@@ -442,11 +453,16 @@ impl CameraSettings {
                 )),
             }),
             bloom: Some(BLOOM),
-            ambient: (
-                (look.ambient.x, look.ambient.y, look.ambient.z, 1.0),
-                look.ambient_nits,
-            ),
-            msaa: 4,
+            ambient_light: AmbientLight {
+                color: (
+                    look.ambient.x,
+                    look.ambient.y,
+                    look.ambient.z,
+                    1.0,
+                ),
+                brightness: look.ambient_nits,
+            },
+            ..engine::CameraSettings::default()
         }
     }
 }
@@ -556,13 +572,14 @@ impl Lights {
 
     /// Lights the realm as `look` has it.
     pub fn show(&self, look: &Look, draw: &mut Draw) {
-        let light = |color: Vec3, lux: f32, shadows: bool| {
-            SceneLight(Light::Directional(DirectionalLight {
-                color: (color.x, color.y, color.z, 1.0),
-                illuminance: lux,
-                shadows,
-            }))
-        };
+        let light =
+            |color: Vec3, lux: f32, shadow_maps_enabled: bool| {
+                SceneLight(Light::Directional(DirectionalLight {
+                    color: (color.x, color.y, color.z, 1.0),
+                    illuminance: lux,
+                    shadow_maps_enabled,
+                }))
+            };
         draw.commands.entity(self.sun).insert(light(
             look.sun,
             look.sun_lux,

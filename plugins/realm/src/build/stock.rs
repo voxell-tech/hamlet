@@ -3,7 +3,9 @@
 
 use glam::Vec3;
 use hamlet_engine_bevy::prelude::*;
-use hamlet_engine_bevy::scene::{AlphaMode, Material, Pbr, Rgba};
+use hamlet_engine_bevy::scene::{
+    AlphaMode, Material, Rgba, StandardMaterial,
+};
 
 use crate::build::upload::Draw;
 use crate::world::palette::Palette;
@@ -29,14 +31,14 @@ pub fn rgba(colour: Vec3) -> Rgba {
 
 /// A material that gives off `colour` times `strength` and is not
 /// lit, added to what is behind it.
-pub fn glow(colour: Vec3, strength: f32) -> Pbr {
-    Pbr {
+pub fn glow(colour: Vec3, strength: f32) -> StandardMaterial {
+    StandardMaterial {
         base_color: rgba(colour * strength),
         unlit: true,
         alpha_mode: AlphaMode::Add,
         double_sided: true,
-        fog: false,
-        ..Pbr::colored(rgba(Vec3::ONE))
+        fog_enabled: false,
+        ..StandardMaterial::colored(rgba(Vec3::ONE))
     }
 }
 
@@ -47,32 +49,32 @@ impl Stock {
     ) -> Result<Self, String> {
         let white = rgba(Vec3::ONE);
         Ok(Self {
-            matte: draw.material(Pbr {
-                roughness: 0.92,
+            matte: draw.material(StandardMaterial {
+                perceptual_roughness: 0.92,
                 reflectance: 0.18,
-                ..Pbr::colored(white)
+                ..StandardMaterial::colored(white)
             })?,
-            brass: draw.material(Pbr {
+            brass: draw.material(StandardMaterial {
                 metallic: 0.75,
-                roughness: 0.42,
-                ..Pbr::colored(white)
+                perceptual_roughness: 0.42,
+                ..StandardMaterial::colored(white)
             })?,
             windows: draw.material(Self::pane(pal, 0.0))?,
         })
     }
 
     /// A window pane with candles burning `candle` strong behind it.
-    fn pane(pal: &Palette, candle: f32) -> Pbr {
+    fn pane(pal: &Palette, candle: f32) -> StandardMaterial {
         let glow = to_linear(CANDLE) * EMBER * candle;
         let base = if candle > 0.0 {
             pal.pane_lit
         } else {
             pal.pane_dark
         };
-        Pbr {
+        StandardMaterial {
             emissive: rgba(glow),
-            roughness: 0.3,
-            ..Pbr::colored(rgba(base))
+            perceptual_roughness: 0.3,
+            ..StandardMaterial::colored(rgba(base))
         }
     }
 

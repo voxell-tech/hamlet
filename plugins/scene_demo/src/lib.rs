@@ -11,10 +11,10 @@ use std::f32::consts::{FRAC_PI_2, TAU};
 
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::scene::{
-    AlphaMode, Bloom, Buffer, CameraSettings, Compute, Decal,
-    DirectionalLight, Fog, FogFalloff, Light, Material, Mesh,
-    MeshData, MouseButton, Pbr, Rgba, Shaded, Shader, ShaderKind,
-    Shape, Texture, viewport,
+    AlphaMode, Bloom, BloomPrefilter, Buffer, CameraSettings,
+    Compute, Decal, DirectionalLight, DistanceFog, FogFalloff, Light,
+    Material, Mesh, MeshData, MouseButton, Rgba, Shaded, Shader,
+    ShaderKind, Shape, StandardMaterial, Texture, viewport,
 };
 use hamlet_engine_bevy::ui::{
     FrameProps, Space, Tone, column, label, resource, row,
@@ -194,14 +194,18 @@ fn build(
         SceneLight(Light::Directional(DirectionalLight {
             color: WHITE,
             illuminance: 8_000.0,
-            shadows: true,
+            shadow_maps_enabled: true,
         })),
     ));
     commands.spawn((
         SceneKey(GROUND),
-        Mesh3d(assets.add(Mesh::shape(Shape::Plane((40.0, 40.0)))?)),
+        Mesh3d(
+            assets.add(Mesh::shape(Shape::Plane3d((40.0, 40.0)))?),
+        ),
         MeshMaterial3d(
-            assets.add(Material::make(Pbr::colored(SOIL))?),
+            assets.add(Material::make(StandardMaterial::colored(
+                SOIL,
+            ))?),
         ),
     ));
 
@@ -220,7 +224,9 @@ fn build(
             "the sphere",
             Vec3::new(-3.0, 1.0, 0.0),
             assets.add(Mesh::shape(Shape::Sphere(1.0))?),
-            assets.add(Material::make(Pbr::colored(SPHERE_COLOR))?),
+            assets.add(Material::make(StandardMaterial::colored(
+                SPHERE_COLOR,
+            ))?),
         ),
         (
             RING,
@@ -240,7 +246,9 @@ fn build(
             "the pyramid",
             Vec3::new(3.0, 0.0, 0.0),
             assets.add(Mesh::build(&pyramid())?),
-            assets.add(Material::make(Pbr::colored(WHITE))?),
+            assets.add(Material::make(StandardMaterial::colored(
+                WHITE,
+            ))?),
         ),
     ];
     for (key, name, at, mesh, material) in shapes {
@@ -256,9 +264,9 @@ fn build(
             Lit { name, material },
         ));
     }
-    let glowing = assets.add(Material::make(Pbr {
+    let glowing = assets.add(Material::make(StandardMaterial {
         emissive: (2.0, 1.6, 0.6, 1.0),
-        ..Pbr::colored(GLOW)
+        ..StandardMaterial::colored(GLOW)
     })?);
 
     let picture = assets.add(Texture::make(
@@ -276,8 +284,8 @@ fn build(
                 base_color: GLOW,
                 emissive: (0.0, 0.0, 0.0, 1.0),
                 unlit: true,
-                fog: false,
-                depth_fade: 1.0,
+                fog_enabled: false,
+                depth_fade_factor: 1.0,
             },
             &picture,
         )?),
@@ -380,7 +388,7 @@ fn name_clicks(
                 PlaybackSettings::DESPAWN
                     .with_spatial(true)
                     .with_speed(2f32.powf(step / 12.0)),
-                Transform::from_translation(hit.point),
+                Transform::from_translation(hit.position),
             ));
         }
         said.0 = if field.contains(hit.entity) {
@@ -398,8 +406,8 @@ fn name_clicks(
 /// it nearer as the wheel turns.
 fn turn(
     mut presses: MessageReader<ScenePress>,
-    mut pointers: MessageReader<ScenePointer>,
-    mut wheels: MessageReader<SceneWheel>,
+    mut pointers: MessageReader<SceneMove>,
+    mut scrolls: MessageReader<SceneScroll>,
     mut orbit: ResMut<Orbit>,
     mut camera: Query<&mut Transform, With<SceneCamera>>,
 ) {
@@ -416,9 +424,9 @@ fn turn(
                 .clamp(0.05, FRAC_PI_2 - 0.05);
         }
     }
-    for wheel in wheels.read() {
-        orbit.distance =
-            (orbit.distance * (1.0 - wheel.y * 0.1)).clamp(4.0, 60.0);
+    for scroll in scrolls.read() {
+        orbit.distance = (orbit.distance * (1.0 - scroll.y * 0.1))
+            .clamp(4.0, 60.0);
     }
     if before != (orbit.yaw, orbit.pitch, orbit.distance)
         && let Ok(mut camera) = camera.single_mut()
@@ -429,15 +437,18 @@ fn turn(
 
 fn settings() -> CameraSettings {
     CameraSettings {
-        clear: Some(SKY),
-        fog: Some(Fog {
+        clear_color: Some(SKY),
+        distance_fog: Some(DistanceFog {
             color: SKY,
             falloff: FogFalloff::Linear((20.0, 60.0)),
         }),
         bloom: Some(Bloom {
             intensity: 0.2,
             low_frequency_boost: 0.6,
-            threshold: 1.0,
+            prefilter: BloomPrefilter {
+                threshold: 1.0,
+                threshold_softness: 0.0,
+            },
         }),
         ..CameraSettings::default()
     }

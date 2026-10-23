@@ -11,7 +11,7 @@ use hamlet_engine_bevy::api::agents::{
 };
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::scene::{
-    Light, Material, Mesh, MeshData, Pbr, PointLight,
+    Light, Material, Mesh, MeshData, PointLight, StandardMaterial,
 };
 use hamlet_engine_bevy::{AgentsEventReceived, Replied, Reply};
 
@@ -219,19 +219,19 @@ impl Stood {
             Quat::from_rotation_y(toward.x.atan2(toward.y)),
         );
 
-        let windows = draw.material(Pbr {
+        let windows = draw.material(StandardMaterial {
             emissive: rgba(pal.glass_lit * GLASS.0),
-            ..Pbr::colored(rgba(pal.glass_lit))
+            ..StandardMaterial::colored(rgba(pal.glass_lit))
         })?;
         let light = LOOK.light.colour(pal);
-        let flame = draw.material(Pbr {
+        let flame = draw.material(StandardMaterial {
             unlit: true,
-            fog: false,
-            ..Pbr::colored(rgba(light))
+            fog_enabled: false,
+            ..StandardMaterial::colored(rgba(light))
         })?;
-        let stone_look = draw.material(Pbr {
+        let stone_look = draw.material(StandardMaterial {
             emissive: rgba(light * STONE.0),
-            ..Pbr::colored(rgba(light))
+            ..StandardMaterial::colored(rgba(light))
         })?;
         let key = Thing::Library.key();
         let house = draw.spawn(None, key);
@@ -298,12 +298,12 @@ impl Stood {
             let (day, night) = GLASS;
             draw.set_material(
                 &self.windows,
-                Pbr {
+                StandardMaterial {
                     emissive: rgba(
                         glass
                             * (day + night * candle + FLASH * level),
                     ),
-                    ..Pbr::colored(rgba(glass))
+                    ..StandardMaterial::colored(rgba(glass))
                 },
             );
         }
@@ -315,7 +315,7 @@ impl Stood {
                     intensity: BEACON * level,
                     range: BEACON_REACH,
                     radius: 0.0,
-                    shadows: false,
+                    shadow_maps_enabled: false,
                 })));
             } else {
                 beacon.remove::<SceneLight>();
@@ -330,7 +330,7 @@ impl Stood {
                         intensity: lumens * candle,
                         range: LAMP_REACH,
                         radius: 0.0,
-                        shadows: false,
+                        shadow_maps_enabled: false,
                     }),
                 ));
             }
@@ -440,7 +440,7 @@ impl Stood {
                             intensity: lumens,
                             range: reach,
                             radius: 0.0,
-                            shadows: false,
+                            shadow_maps_enabled: false,
                         }),
                     ));
                 }

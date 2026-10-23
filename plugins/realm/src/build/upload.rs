@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use bevy_ecs::system::SystemParam;
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::scene::{
-    Buffer, Material, Mesh, MeshData, Pbr,
+    Buffer, Material, Mesh, MeshData, StandardMaterial,
 };
 
 use crate::build::frame::Frame;
@@ -95,7 +95,7 @@ impl Draw<'_, '_> {
     /// A material of `pbr`.
     pub fn material(
         &mut self,
-        pbr: Pbr,
+        pbr: StandardMaterial,
     ) -> Result<Handle<Material>, String> {
         Ok(self.assets.add(Material::make(pbr)?))
     }
@@ -104,7 +104,7 @@ impl Draw<'_, '_> {
     pub fn set_material(
         &self,
         material: &Handle<Material>,
-        pbr: Pbr,
+        pbr: StandardMaterial,
     ) {
         if let Some(material) = self.assets.get(material) {
             material.set(pbr);

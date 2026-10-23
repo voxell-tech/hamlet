@@ -5,7 +5,7 @@
 use glam::{Quat, Vec2, Vec3, Vec3Swizzles};
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::scene::{
-    Material, Mesh, MeshData, Pbr, Shader, Shape,
+    Material, Mesh, MeshData, Shader, Shape, StandardMaterial,
 };
 
 use crate::build::frame::Frame;
@@ -29,11 +29,11 @@ use crate::world::land::Land;
 use crate::world::palette::Palette;
 
 /// A light of its own colour that no shading dims.
-fn lit(colour: Vec3, strength: f32) -> Pbr {
-    Pbr {
+fn lit(colour: Vec3, strength: f32) -> StandardMaterial {
+    StandardMaterial {
         unlit: true,
-        fog: false,
-        ..Pbr::colored(rgba(colour * strength))
+        fog_enabled: false,
+        ..StandardMaterial::colored(rgba(colour * strength))
     }
 }
 
@@ -146,9 +146,9 @@ impl Hearth {
         let orb_look = draw.material(lit(light, set.orb_light))?;
         let ring_look =
             draw.material(glow(light, set.waystone_light))?;
-        let glass_look = draw.material(Pbr {
-            roughness: 0.4,
-            ..Pbr::colored(rgba(pal.glass_lit))
+        let glass_look = draw.material(StandardMaterial {
+            perceptual_roughness: 0.4,
+            ..StandardMaterial::colored(rgba(pal.glass_lit))
         })?;
         let orb_mesh =
             draw.assets.add(Mesh::shape(Shape::Sphere(1.0))?);
@@ -314,10 +314,12 @@ impl Hearth {
                 ctx.pal.wicks[0] * self.set.lantern_light * candle;
             draw.set_material(
                 &self.glass_look,
-                Pbr {
+                StandardMaterial {
                     emissive: rgba(warm),
-                    roughness: 0.4,
-                    ..Pbr::colored(rgba(ctx.pal.glass_lit))
+                    perceptual_roughness: 0.4,
+                    ..StandardMaterial::colored(rgba(
+                        ctx.pal.glass_lit,
+                    ))
                 },
             );
             self.candle = Some(candle);

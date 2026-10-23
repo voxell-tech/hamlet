@@ -10,7 +10,8 @@ use bevy::camera::{
 use bevy::color::{Color, LinearRgba};
 use bevy::core_pipeline::tonemapping::Tonemapping as Mapping;
 use bevy::light::{
-    AmbientLight, DirectionalLight, PointLight, SpotLight,
+    AmbientLight, DirectionalLight, PointLight, ShadowFilteringMethod,
+    SpotLight,
 };
 use bevy::material::AlphaMode as Blend;
 use bevy::math::Quat;
@@ -35,13 +36,14 @@ use hamlet_engine_render::{
 
 use crate::scene::scene_bindings::exports::hamlet::engine::scene_guest::{
     Buttons, Click, Dropped, Hit, Key as Typed, KeyCode,
-    Modifiers as Held, MouseButton, Pointer, Press, SceneInput, Wheel,
+    Modifiers as Held, MouseButton, Pointer, Press, SceneInput, Scroll,
 };
 use crate::scene::scene_bindings::hamlet::engine::scene::{
     AlphaMode, Balloon as WitBalloon, CameraSettings, Decal,
-    FogFalloff, Label, LabelLook, Light, MeshData, Pbr,
-    PointerLabel as WitPointerLabel, Projection, Rgba, Shape,
-    Tonemapping, Transform,
+    FogFalloff, Label, LabelLook, Light, MeshData, Msaa as WitMsaa,
+    PointerLabel as WitPointerLabel, Projection, Rgba,
+    ShadowFilteringMethod as WitShadowFiltering, Shape,
+    StandardMaterial as Wit, Tonemapping, Transform,
 };
 
 /// A mesh, and the GPU memory it takes.
@@ -83,7 +85,7 @@ pub(crate) fn shape(shape: Shape) -> Result<Made, String> {
         Shape::Sphere(radius) if positive(&[radius]) => {
             Mesh::from(Sphere::new(radius))
         }
-        Shape::Plane((x, z)) if positive(&[x, z]) => {
+        Shape::Plane3d((x, z)) if positive(&[x, z]) => {
             Plane3d::default().mesh().size(x, z).build()
         }
         Shape::Cylinder((radius, height))
@@ -91,7 +93,7 @@ pub(crate) fn shape(shape: Shape) -> Result<Made, String> {
         {
             Mesh::from(Cylinder::new(radius, height))
         }
-        Shape::Capsule((radius, length))
+        Shape::Capsule3d((radius, length))
             if positive(&[radius, length]) =>
         {
             Mesh::from(Capsule3d::new(radius, length))
@@ -225,26 +227,30 @@ pub(crate) fn alpha(mode: AlphaMode, cutoff: f32) -> Blend {
     }
 }
 
-pub(crate) fn pbr(pbr: Pbr) -> Option<StandardMaterial> {
+pub(crate) fn standard_material(
+    material: Wit,
+) -> Option<StandardMaterial> {
     if !finite(&[
-        pbr.roughness,
-        pbr.metallic,
-        pbr.reflectance,
-        pbr.alpha_cutoff,
+        material.perceptual_roughness,
+        material.metallic,
+        material.reflectance,
+        material.alpha_cutoff,
     ]) {
         return None;
     }
     Some(StandardMaterial {
-        base_color: Color::LinearRgba(color(pbr.base_color)?),
-        emissive: color(pbr.emissive)?,
-        perceptual_roughness: pbr.roughness.clamp(0.0, 1.0),
-        metallic: pbr.metallic.clamp(0.0, 1.0),
-        reflectance: pbr.reflectance.clamp(0.0, 1.0),
-        alpha_mode: alpha(pbr.alpha_mode, pbr.alpha_cutoff),
-        unlit: pbr.unlit,
-        double_sided: pbr.double_sided,
-        cull_mode: (!pbr.double_sided).then_some(Face::Back),
-        fog_enabled: pbr.fog,
+        base_color: Color::LinearRgba(color(material.base_color)?),
+        emissive: color(material.emissive)?,
+        perceptual_roughness: material
+            .perceptual_roughness
+            .clamp(0.0, 1.0),
+        metallic: material.metallic.clamp(0.0, 1.0),
+        reflectance: material.reflectance.clamp(0.0, 1.0),
+        alpha_mode: alpha(material.alpha_mode, material.alpha_cutoff),
+        unlit: material.unlit,
+        double_sided: material.double_sided,
+        cull_mode: (!material.double_sided).then_some(Face::Back),
+        fog_enabled: material.fog_enabled,
         ..StandardMaterial::default()
     })
 }
@@ -252,7 +258,7 @@ pub(crate) fn pbr(pbr: Pbr) -> Option<StandardMaterial> {
 /// A decal's material, always blended, and how far from its square
 /// it fades out.
 pub(crate) fn decal(decal: Decal) -> Option<(StandardMaterial, f32)> {
-    if !positive(&[decal.depth_fade]) {
+    if !positive(&[decal.depth_fade_factor]) {
         return None;
     }
     let material = StandardMaterial {
@@ -260,10 +266,10 @@ pub(crate) fn decal(decal: Decal) -> Option<(StandardMaterial, f32)> {
         emissive: color(decal.emissive)?,
         alpha_mode: Blend::Blend,
         unlit: decal.unlit,
-        fog_enabled: decal.fog,
+        fog_enabled: decal.fog_enabled,
         ..StandardMaterial::default()
     };
-    Some((material, decal.depth_fade))
+    Some((material, decal.depth_fade_factor))
 }
 
 pub(crate) fn light(light: Light) -> Option<SceneLight> {
@@ -275,7 +281,7 @@ pub(crate) fn light(light: Light) -> Option<SceneLight> {
             SceneLight::Directional(DirectionalLight {
                 color: Color::LinearRgba(color(light.color)?),
                 illuminance: light.illuminance.max(0.0),
-                shadow_maps_enabled: light.shadows,
+                shadow_maps_enabled: light.shadow_maps_enabled,
                 ..DirectionalLight::default()
             })
         }
@@ -289,7 +295,7 @@ pub(crate) fn light(light: Light) -> Option<SceneLight> {
                 intensity: light.intensity.max(0.0),
                 range: light.range.max(0.0),
                 radius: light.radius.max(0.0),
-                shadow_maps_enabled: light.shadows,
+                shadow_maps_enabled: light.shadow_maps_enabled,
                 ..PointLight::default()
             })
         }
@@ -314,7 +320,7 @@ pub(crate) fn light(light: Light) -> Option<SceneLight> {
                 radius: light.radius.max(0.0),
                 inner_angle: light.inner_angle.clamp(0.0, outer),
                 outer_angle: outer,
-                shadow_maps_enabled: light.shadows,
+                shadow_maps_enabled: light.shadow_maps_enabled,
                 ..SpotLight::default()
             })
         }
@@ -353,13 +359,13 @@ pub(crate) fn camera(
         }
         _ => return None,
     };
-    let clear = match settings.clear {
+    let clear = match settings.clear_color {
         Some(clear) => {
             ClearColorConfig::Custom(Color::LinearRgba(color(clear)?))
         }
         None => ClearColorConfig::None,
     };
-    let fog = match settings.fog {
+    let fog = match settings.distance_fog {
         Some(fog) => {
             let falloff = match fog.falloff {
                 FogFalloff::Linear((start, end))
@@ -392,7 +398,8 @@ pub(crate) fn camera(
             let values = [
                 bloom.intensity,
                 bloom.low_frequency_boost,
-                bloom.threshold,
+                bloom.prefilter.threshold,
+                bloom.prefilter.threshold_softness,
             ];
             if !finite(&values) {
                 return None;
@@ -403,24 +410,26 @@ pub(crate) fn camera(
                     .low_frequency_boost
                     .max(0.0),
                 prefilter: BloomPrefilter {
-                    threshold: bloom.threshold.max(0.0),
-                    threshold_softness: 0.0,
+                    threshold: bloom.prefilter.threshold.max(0.0),
+                    threshold_softness: bloom
+                        .prefilter
+                        .threshold_softness
+                        .clamp(0.0, 1.0),
                 },
                 ..Glow::NATURAL
             })
         }
         None => None,
     };
-    let (ambient, brightness) = settings.ambient;
-    if !finite(&[settings.exposure, brightness]) {
+    let ambient = settings.ambient_light;
+    if !finite(&[settings.exposure.ev100, ambient.brightness]) {
         return None;
     }
     let msaa = match settings.msaa {
-        1 => Msaa::Off,
-        2 => Msaa::Sample2,
-        4 => Msaa::Sample4,
-        8 => Msaa::Sample8,
-        _ => return None,
+        WitMsaa::Off => Msaa::Off,
+        WitMsaa::Sample2 => Msaa::Sample2,
+        WitMsaa::Sample4 => Msaa::Sample4,
+        WitMsaa::Sample8 => Msaa::Sample8,
     };
     Some(CameraSetup {
         projection,
@@ -428,27 +437,43 @@ pub(crate) fn camera(
         hdr: settings.hdr,
         tonemapping: match settings.tonemapping {
             Tonemapping::None => Mapping::None,
-            Tonemapping::Simple => Mapping::Reinhard,
-            Tonemapping::Luminance => Mapping::ReinhardLuminance,
-            Tonemapping::Fitted => Mapping::AcesFitted,
-            Tonemapping::Agx => Mapping::AgX,
-            Tonemapping::Display => {
+            Tonemapping::Reinhard => Mapping::Reinhard,
+            Tonemapping::ReinhardLuminance => {
+                Mapping::ReinhardLuminance
+            }
+            Tonemapping::AcesFitted => Mapping::AcesFitted,
+            Tonemapping::AgX => Mapping::AgX,
+            Tonemapping::SomewhatBoringDisplayTransform => {
                 Mapping::SomewhatBoringDisplayTransform
             }
-            Tonemapping::Neutral => Mapping::TonyMcMapface,
-            Tonemapping::Film => Mapping::BlenderFilmic,
+            Tonemapping::TonyMcMapface => Mapping::TonyMcMapface,
+            Tonemapping::BlenderFilmic => Mapping::BlenderFilmic,
+            Tonemapping::KhronosPbrNeutral => {
+                Mapping::KhronosPbrNeutral
+            }
         },
         exposure: Exposure {
-            ev100: settings.exposure,
+            ev100: settings.exposure.ev100,
         },
         fog,
         bloom,
         ambient: AmbientLight {
-            color: Color::LinearRgba(color(ambient)?),
-            brightness: brightness.max(0.0),
+            color: Color::LinearRgba(color(ambient.color)?),
+            brightness: ambient.brightness.max(0.0),
             affects_lightmapped_meshes: true,
         },
         msaa,
+        shadow_filtering: match settings.shadow_filtering_method {
+            WitShadowFiltering::Hardware2x2 => {
+                ShadowFilteringMethod::Hardware2x2
+            }
+            WitShadowFiltering::Gaussian => {
+                ShadowFilteringMethod::Gaussian
+            }
+            WitShadowFiltering::Temporal => {
+                ShadowFilteringMethod::Temporal
+            }
+        },
     })
 }
 
@@ -497,7 +522,7 @@ fn hit(met: Met) -> Hit {
     Hit {
         key: met.key,
         index: met.index,
-        point: met.point.into(),
+        position: met.point.into(),
         normal: met.normal.into(),
     }
 }
@@ -560,7 +585,7 @@ pub(crate) fn input(event: SceneEvent) -> Option<SceneInput> {
                     buttons |= flag;
                 }
             }
-            SceneInput::Moved(Pointer {
+            SceneInput::Move(Pointer {
                 view,
                 x: at.x,
                 y: at.y,
@@ -576,7 +601,7 @@ pub(crate) fn input(event: SceneEvent) -> Option<SceneInput> {
             down,
             at,
             mods,
-        } => SceneInput::Pressed(Press {
+        } => SceneInput::Press(Press {
             view,
             button: button(which),
             down,
@@ -585,7 +610,7 @@ pub(crate) fn input(event: SceneEvent) -> Option<SceneInput> {
             modifiers: modifiers(mods),
         }),
         SceneEvent::Turned { view, by } => {
-            SceneInput::Turned(Wheel {
+            SceneInput::Scroll(Scroll {
                 view,
                 x: by.x,
                 y: by.y,
@@ -628,32 +653,32 @@ pub(crate) fn dropped(
 /// The interface's name of `key`, if it has one.
 fn code(key: Key) -> Option<KeyCode> {
     const LETTERS: [(Key, KeyCode); 26] = [
-        (Key::KeyA, KeyCode::A),
-        (Key::KeyB, KeyCode::B),
-        (Key::KeyC, KeyCode::C),
-        (Key::KeyD, KeyCode::D),
-        (Key::KeyE, KeyCode::E),
-        (Key::KeyF, KeyCode::F),
-        (Key::KeyG, KeyCode::G),
-        (Key::KeyH, KeyCode::H),
-        (Key::KeyI, KeyCode::I),
-        (Key::KeyJ, KeyCode::J),
-        (Key::KeyK, KeyCode::K),
-        (Key::KeyL, KeyCode::L),
-        (Key::KeyM, KeyCode::M),
-        (Key::KeyN, KeyCode::N),
-        (Key::KeyO, KeyCode::O),
-        (Key::KeyP, KeyCode::P),
-        (Key::KeyQ, KeyCode::Q),
-        (Key::KeyR, KeyCode::R),
-        (Key::KeyS, KeyCode::S),
-        (Key::KeyT, KeyCode::T),
-        (Key::KeyU, KeyCode::U),
-        (Key::KeyV, KeyCode::V),
-        (Key::KeyW, KeyCode::W),
-        (Key::KeyX, KeyCode::X),
-        (Key::KeyY, KeyCode::Y),
-        (Key::KeyZ, KeyCode::Z),
+        (Key::KeyA, KeyCode::KeyA),
+        (Key::KeyB, KeyCode::KeyB),
+        (Key::KeyC, KeyCode::KeyC),
+        (Key::KeyD, KeyCode::KeyD),
+        (Key::KeyE, KeyCode::KeyE),
+        (Key::KeyF, KeyCode::KeyF),
+        (Key::KeyG, KeyCode::KeyG),
+        (Key::KeyH, KeyCode::KeyH),
+        (Key::KeyI, KeyCode::KeyI),
+        (Key::KeyJ, KeyCode::KeyJ),
+        (Key::KeyK, KeyCode::KeyK),
+        (Key::KeyL, KeyCode::KeyL),
+        (Key::KeyM, KeyCode::KeyM),
+        (Key::KeyN, KeyCode::KeyN),
+        (Key::KeyO, KeyCode::KeyO),
+        (Key::KeyP, KeyCode::KeyP),
+        (Key::KeyQ, KeyCode::KeyQ),
+        (Key::KeyR, KeyCode::KeyR),
+        (Key::KeyS, KeyCode::KeyS),
+        (Key::KeyT, KeyCode::KeyT),
+        (Key::KeyU, KeyCode::KeyU),
+        (Key::KeyV, KeyCode::KeyV),
+        (Key::KeyW, KeyCode::KeyW),
+        (Key::KeyX, KeyCode::KeyX),
+        (Key::KeyY, KeyCode::KeyY),
+        (Key::KeyZ, KeyCode::KeyZ),
     ];
     const OTHERS: [(Key, KeyCode); 49] = [
         (Key::Digit0, KeyCode::Digit0),
@@ -684,10 +709,10 @@ fn code(key: Key) -> Option<KeyCode> {
         (Key::Tab, KeyCode::Tab),
         (Key::Backspace, KeyCode::Backspace),
         (Key::Delete, KeyCode::Delete),
-        (Key::ArrowUp, KeyCode::Up),
-        (Key::ArrowDown, KeyCode::Down),
-        (Key::ArrowLeft, KeyCode::Left),
-        (Key::ArrowRight, KeyCode::Right),
+        (Key::ArrowUp, KeyCode::ArrowUp),
+        (Key::ArrowDown, KeyCode::ArrowDown),
+        (Key::ArrowLeft, KeyCode::ArrowLeft),
+        (Key::ArrowRight, KeyCode::ArrowRight),
         (Key::Home, KeyCode::Home),
         (Key::End, KeyCode::End),
         (Key::PageUp, KeyCode::PageUp),

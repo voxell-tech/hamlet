@@ -6,7 +6,7 @@ use std::f32::consts::TAU;
 
 use glam::{Quat, Vec2, Vec3};
 use hamlet_engine_bevy::prelude::*;
-use hamlet_engine_bevy::scene::{Material, Pbr};
+use hamlet_engine_bevy::scene::{Material, StandardMaterial};
 
 use crate::bridge::Bridge;
 use crate::build::frame::Frame;
@@ -104,10 +104,10 @@ impl Meters {
         let glow = tints
             .iter()
             .map(|&light| {
-                draw.material(Pbr {
+                draw.material(StandardMaterial {
                     emissive: rgba(light * set.meter_glow),
-                    roughness: 0.6,
-                    ..Pbr::colored(rgba(light))
+                    perceptual_roughness: 0.6,
+                    ..StandardMaterial::colored(rgba(light))
                 })
             })
             .collect::<Result<_, _>>()?;

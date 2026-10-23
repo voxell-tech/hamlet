@@ -317,7 +317,7 @@ hamlet_engine_bevy::export!(Hello);
   it. Despawning an entity takes it away in the engine. What the
   person does over a view comes as `SceneOver`, `SceneOut`,
   `SceneClick` (its `Hit` with the button and `Modifiers`),
-  `ScenePointer`, `ScenePress`, `SceneWheel`, `SceneResize` and
+  `SceneMove`, `ScenePress`, `SceneScroll`, `SceneResize` and
   `SceneKeyInput`, and each again as a `SceneInput` in the order it
   came, and a file dropped as `SceneDrop`; `viewport(camera)` shows a
   camera in a panel (see [Scenes and GPU work](#scenes-and-gpu-work)).
@@ -1977,8 +1977,9 @@ none of them imports none of them.
   shape of the engine's, or `mesh-data` of the plugin's: positions,
   normals made when left out, uvs, a colour at each vertex and the
   triangles, checked whole and uploaded once; `update` replaces it),
-  `material` (`pbr`: base colour, emissive, roughness, metallic,
-  reflectance, alpha mode and cutoff, unlit, both faces, fog; a mesh's
+  `material` (`standard-material`: base colour, emissive,
+  perceptual roughness, metallic, reflectance, alpha mode and cutoff,
+  unlit, both faces, fog enabled; a mesh's
   vertex colours
   tint it; or a decal's), `entity` (under a parent or the scene's
   root, with a key of the plugin's: its transform, visibility,
@@ -2012,7 +2013,7 @@ none of them imports none of them.
   under and over a square one unit wide on the entity's x and z,
   placed, turned and sized by its transform. Its look is a standard
   material, always blended: base colour and alpha, emissive, unlit
-  and fog, and `depth-fade`, how far from the square what it falls
+  and fog enabled, and `depth-fade-factor`, how far from the square what it falls
   on may lie before it fades out. `set-decal` changes it and keeps
   its texture. Once a scene has a decal, each of its cameras has a
   depth prepass, which the decal reads. A decal's material draws no
@@ -2020,14 +2021,21 @@ none of them imports none of them.
   counted as its entity and its material. `draw-decal` also lays a
   decal of the plugin's own shader (`gpu.shaded-decal`, below).
 - **A camera's settings**: a perspective or orthographic projection,
-  what it clears to, high range, tonemapping, exposure, distance fog,
-  bloom, ambient light and samples a pixel (MSAA), lowered to the most
-  the GPU has for a camera's images where it asks more.
+  what it clears to, high range, tonemapping (all of Bevy's nine),
+  exposure, distance fog, bloom, ambient light, `msaa` (Bevy's `Msaa`:
+  `off`, `sample2`, `sample4`, `sample8`, lowered to the most the GPU
+  has for a camera's images where it asks more) and
+  `shadow-filtering-method` (Bevy's `ShadowFilteringMethod`:
+  `hardware2x2`, `gaussian`, `temporal`). Bevy needs a camera with
+  screen-space ambient occlusion to draw without MSAA, so the engine
+  draws it as `off` while it has the occlusion and as asked otherwise.
+  Every name of the interface that has a counterpart in Bevy is
+  Bevy's own, in kebab-case.
 - **A camera's effects** (`set-effects`) are Bevy's own, each off when
   none: depth of field (Gaussian or bokeh), colour grading (exposure,
   temperature, tint, hue, saturation), screen-space ambient occlusion
-  and SMAA (either draws without MSAA; occlusion adds the depth and
-  normal prepasses), the scattering sky of an earth-like world
+  (which draws without MSAA, and adds the depth and normal prepasses)
+  and SMAA, the scattering sky of an earth-like world
   (`atmosphere`, drawn in high range; the engine makes one sky for all
   scenes once a camera asks for it and keeps it, as Bevy's renderer
   fails if its medium goes mid-frame) and volumetric fog. Depth of

@@ -7,7 +7,9 @@ use std::f32::consts::TAU;
 
 use glam::{Vec2, Vec3, Vec3Swizzles};
 use hamlet_engine_bevy::prelude::*;
-use hamlet_engine_bevy::scene::{Material, Mesh, Pbr, Shape};
+use hamlet_engine_bevy::scene::{
+    Material, Mesh, Shape, StandardMaterial,
+};
 
 use crate::build::frame::Frame;
 use crate::build::stock::rgba;
@@ -156,9 +158,9 @@ impl Footprint {
         set: &CarrySettings,
         draw: &mut Draw,
     ) -> Result<Self, String> {
-        let light = |colour: Vec3| Pbr {
+        let light = |colour: Vec3| StandardMaterial {
             emissive: rgba(colour * set.glow),
-            ..Pbr::colored((0.0, 0.0, 0.0, 1.0))
+            ..StandardMaterial::colored((0.0, 0.0, 0.0, 1.0))
         };
         let fits = draw.material(light(pal.place_fits))?;
         let unfit = draw.material(light(pal.place_unfit))?;

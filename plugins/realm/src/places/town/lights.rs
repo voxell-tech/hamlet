@@ -6,7 +6,9 @@ use std::f32::consts::PI;
 
 use glam::Vec3;
 use hamlet_engine_bevy::prelude::*;
-use hamlet_engine_bevy::scene::{Light, Material, Pbr, PointLight};
+use hamlet_engine_bevy::scene::{
+    Light, Material, PointLight, StandardMaterial,
+};
 
 use crate::build::frame::Frame;
 use crate::build::stock::rgba;
@@ -111,9 +113,9 @@ impl Lamps {
         pal: &Palette,
         draw: &mut Draw,
     ) -> Result<Self, String> {
-        let pbr = Pbr {
-            roughness: 0.4,
-            ..Pbr::colored(rgba(pal.glass_lit))
+        let pbr = StandardMaterial {
+            perceptual_roughness: 0.4,
+            ..StandardMaterial::colored(rgba(pal.glass_lit))
         };
         let glass = [
             draw.material(pbr)?,
@@ -158,10 +160,12 @@ impl Lamps {
                 self.shown[i] = glow;
                 draw.set_material(
                     &self.glass[i],
-                    Pbr {
+                    StandardMaterial {
                         emissive: rgba(glow),
-                        roughness: 0.4,
-                        ..Pbr::colored(rgba(pal.glass_lit))
+                        perceptual_roughness: 0.4,
+                        ..StandardMaterial::colored(rgba(
+                            pal.glass_lit,
+                        ))
                     },
                 );
             }
@@ -198,7 +202,7 @@ impl Lamps {
                             intensity: glow.lumens,
                             range: glow.reach,
                             radius: 0.0,
-                            shadows: false,
+                            shadow_maps_enabled: false,
                         }),
                     ));
                 }

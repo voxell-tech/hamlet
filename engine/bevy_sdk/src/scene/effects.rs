@@ -18,10 +18,11 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryItem;
 
 use crate::bindings::hamlet::engine::scene::{
-    self as wit, AmbientOcclusion, CameraEffects, Rgba,
+    self as wit, CameraEffects, Rgba,
 };
 pub use crate::bindings::hamlet::engine::scene::{
-    DepthOfFieldMode, Quality,
+    DepthOfFieldMode, ScreenSpaceAmbientOcclusionQualityLevel,
+    SmaaPreset,
 };
 use crate::scene::{HostCamera, HostEntity, SceneSync, make_cameras};
 
@@ -48,9 +49,12 @@ pub(crate) fn plugin(app: &mut App) {
 pub struct DepthOfField {
     pub mode: DepthOfFieldMode,
     pub focal_distance: f32,
+    /// In metres.
+    pub sensor_height: f32,
     pub aperture_f_stops: f32,
     /// In pixels.
     pub max_circle_of_confusion_diameter: f32,
+    pub max_depth: f32,
 }
 
 impl Default for DepthOfField {
@@ -58,8 +62,10 @@ impl Default for DepthOfField {
         Self {
             mode: DepthOfFieldMode::Gaussian,
             focal_distance: 10.0,
+            sensor_height: 0.01866,
             aperture_f_stops: 1.0,
             max_circle_of_confusion_diameter: 64.0,
+            max_depth: f32::INFINITY,
         }
     }
 }
@@ -98,29 +104,30 @@ impl Default for ColorGradingGlobal {
 /// camera draws without MSAA.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct ScreenSpaceAmbientOcclusion {
-    pub quality_level: Quality,
+    pub quality_level: ScreenSpaceAmbientOcclusionQualityLevel,
     pub constant_object_thickness: f32,
 }
 
 impl Default for ScreenSpaceAmbientOcclusion {
     fn default() -> Self {
         Self {
-            quality_level: Quality::High,
+            quality_level:
+                ScreenSpaceAmbientOcclusionQualityLevel::High,
             constant_object_thickness: 0.25,
         }
     }
 }
 
-/// Bevy's SMAA, on a camera's entity. The camera draws without MSAA.
+/// Bevy's SMAA, on a camera's entity.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Smaa {
-    pub preset: Quality,
+    pub preset: SmaaPreset,
 }
 
 impl Default for Smaa {
     fn default() -> Self {
         Self {
-            preset: Quality::High,
+            preset: SmaaPreset::High,
         }
     }
 }
@@ -216,24 +223,31 @@ fn effects(
         depth_of_field: dof.map(|dof| wit::DepthOfField {
             mode: dof.mode,
             focal_distance: dof.focal_distance,
+            sensor_height: dof.sensor_height,
             aperture_f_stops: dof.aperture_f_stops,
-            max_circle_of_confusion: dof
+            max_circle_of_confusion_diameter: dof
                 .max_circle_of_confusion_diameter,
+            max_depth: dof.max_depth,
         }),
         color_grading: wit::ColorGrading {
-            exposure: global.exposure,
-            temperature: global.temperature,
-            tint: global.tint,
-            hue: global.hue,
-            post_saturation: global.post_saturation,
+            global: wit::ColorGradingGlobal {
+                exposure: global.exposure,
+                temperature: global.temperature,
+                tint: global.tint,
+                hue: global.hue,
+                post_saturation: global.post_saturation,
+            },
         },
-        ambient_occlusion: occlusion.map(|occlusion| {
-            AmbientOcclusion {
-                quality: occlusion.quality_level,
-                thickness: occlusion.constant_object_thickness,
+        screen_space_ambient_occlusion: occlusion.map(|occlusion| {
+            wit::ScreenSpaceAmbientOcclusion {
+                quality_level: occlusion.quality_level,
+                constant_object_thickness: occlusion
+                    .constant_object_thickness,
             }
         }),
-        smaa: smaa.map(|smaa| smaa.preset),
+        smaa: smaa.map(|smaa| wit::Smaa {
+            preset: smaa.preset,
+        }),
         atmosphere,
         volumetric_fog: fog.map(|fog| wit::VolumetricFog {
             ambient_color: fog.ambient_color,
@@ -319,8 +333,8 @@ fn put_fog_volumes(
 ) {
     for (host, volume) in &volumes {
         let volume = wit::FogVolume {
-            color: volume.fog_color,
-            density: volume.density_factor,
+            fog_color: volume.fog_color,
+            density_factor: volume.density_factor,
             absorption: volume.absorption,
             scattering: volume.scattering,
             scattering_asymmetry: volume.scattering_asymmetry,

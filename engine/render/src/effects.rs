@@ -63,7 +63,7 @@ pub(crate) struct ShadowMaps(pub(crate) HashMap<Entity, usize>);
 pub(crate) struct CameraLook {
     pub(crate) msaa: Msaa,
     pub(crate) hdr: bool,
-    /// Ambient occlusion or SMAA, which draw without MSAA.
+    /// Ambient occlusion, which Bevy draws without MSAA.
     pub(crate) single_sample: bool,
     /// The sky, which draws in high range.
     pub(crate) sky: bool,
@@ -108,8 +108,7 @@ impl CameraEffects {
         fog: bool,
     ) {
         let look = CameraLook {
-            single_sample: self.occlusion.is_some()
-                || self.smaa.is_some(),
+            single_sample: self.occlusion.is_some(),
             sky: self.atmosphere,
             ..camera.get::<CameraLook>().copied().unwrap_or_default()
         };

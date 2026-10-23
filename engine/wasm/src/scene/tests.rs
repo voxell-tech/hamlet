@@ -4,7 +4,8 @@ use hamlet_engine_core::tuning::Tuning;
 use wasmtime::component::Resource;
 
 use super::scene_bindings::hamlet::engine::scene::{
-    AlphaMode, Decal, HostEntity, HostMaterial, HostMesh, Pbr, Shape,
+    AlphaMode, Decal, HostEntity, HostMaterial, HostMesh, Shape,
+    StandardMaterial,
 };
 use super::{Powers, SceneError};
 use crate::host::WasmTuning;
@@ -46,19 +47,19 @@ fn a_dropped_mesh_is_counted_while_an_entity_draws_it() {
     };
     let mesh = cube(&mut state).expect("room").rep();
     state.scene.caps.gpu_memory = Some(state.scene.counts.gpu_bytes);
-    let pbr = Pbr {
+    let standard_material = StandardMaterial {
         base_color: (1.0, 1.0, 1.0, 1.0),
         emissive: (0.0, 0.0, 0.0, 1.0),
-        roughness: 0.5,
+        perceptual_roughness: 0.5,
         metallic: 0.0,
         reflectance: 0.5,
         alpha_mode: AlphaMode::Opaque,
         alpha_cutoff: 0.5,
         unlit: false,
         double_sided: false,
-        fog: true,
+        fog_enabled: true,
     };
-    let material = HostMaterial::make(&mut state, pbr)
+    let material = HostMaterial::make(&mut state, standard_material)
         .expect("no trap")
         .expect("room")
         .rep();
@@ -93,8 +94,8 @@ fn a_decal_is_laid_only_with_a_decals_material() {
         base_color: (1.0, 1.0, 1.0, 1.0),
         emissive: (0.0, 0.0, 0.0, 1.0),
         unlit: true,
-        fog: false,
-        depth_fade: 0.5,
+        fog_enabled: false,
+        depth_fade_factor: 0.5,
     };
     let material = HostMaterial::decal(&mut state, decal)
         .expect("no trap")
@@ -124,7 +125,7 @@ fn a_decal_is_laid_only_with_a_decals_material() {
     )
     .expect("laid");
     let flat = Decal {
-        depth_fade: 0.0,
+        depth_fade_factor: 0.0,
         ..decal
     };
     let set = HostMaterial::set_decal(

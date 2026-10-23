@@ -423,9 +423,7 @@ impl Camera {
                     self.steer = Steer::Still;
                 }
             }
-            SceneInput::Pointer(pointer)
-                if pointer.view == self.at =>
-            {
+            SceneInput::Move(pointer) if pointer.view == self.at => {
                 self.pointer = Some(Vec2::new(pointer.x, pointer.y));
                 let delta = Vec2::new(pointer.dx, pointer.dy);
                 self.travel += delta.length();
@@ -440,10 +438,10 @@ impl Camera {
                     Steer::Still => {}
                 }
             }
-            SceneInput::Wheel(wheel) if wheel.view == self.at => {
+            SceneInput::Scroll(scroll) if scroll.view == self.at => {
                 let (least, most) = self.leash.zoom(camera);
                 self.orbit.zoom = (self.orbit.zoom
-                    * (-wheel.y * camera.scroll_rate).exp())
+                    * (-scroll.y * camera.scroll_rate).exp())
                 .clamp(least, most.max(least));
             }
             SceneInput::Resize(resize) if resize.view == self.at => {

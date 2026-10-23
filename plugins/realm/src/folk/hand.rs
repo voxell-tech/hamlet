@@ -14,7 +14,7 @@ use bevy_ecs::system::SystemParam;
 use glam::{EulerRot, Quat, Vec2, Vec3};
 use hamlet_engine_bevy::api::agents::AgentsRequest;
 use hamlet_engine_bevy::prelude::*;
-use hamlet_engine_bevy::scene::{MouseButton, ScenePointer};
+use hamlet_engine_bevy::scene::{MouseButton, SceneMove};
 
 use crate::bridge::Bridge;
 use crate::build::upload::Draw;
@@ -241,14 +241,14 @@ impl Hand {
         click_slop: f32,
     ) -> Option<SceneInput> {
         match input {
-            SceneInput::Pointer(pointer) => {
+            SceneInput::Move(pointer) => {
                 self.pointer = Some(Vec2::new(pointer.x, pointer.y));
                 if self.down {
                     self.travel +=
                         Vec2::new(pointer.dx, pointer.dy).length();
                 }
                 if self.held.is_some() {
-                    return Some(SceneInput::Pointer(ScenePointer {
+                    return Some(SceneInput::Move(SceneMove {
                         dx: 0.0,
                         dy: 0.0,
                         ..*pointer

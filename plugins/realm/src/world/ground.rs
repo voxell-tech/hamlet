@@ -17,7 +17,9 @@ use std::time::{Duration, Instant};
 
 use glam::{Quat, Vec2, Vec3, Vec3Swizzles};
 use hamlet_engine_bevy::prelude::*;
-use hamlet_engine_bevy::scene::{Material, Mesh, Pbr, Shape};
+use hamlet_engine_bevy::scene::{
+    Material, Mesh, Shape, StandardMaterial,
+};
 
 use crate::build::frame::Frame;
 use crate::build::stock::rgba;
@@ -382,18 +384,18 @@ impl Ground {
     ) -> Result<Self, String> {
         let plain = pal.grass_shade.lerp(pal.grass, 0.85);
         let bed_mesh =
-            draw.assets.add(Mesh::shape(Shape::Plane((2.0, 2.0)))?);
-        let bed_look = draw.material(Pbr {
-            roughness: 0.92,
+            draw.assets.add(Mesh::shape(Shape::Plane3d((2.0, 2.0)))?);
+        let bed_look = draw.material(StandardMaterial {
+            perceptual_roughness: 0.92,
             reflectance: 0.18,
-            ..Pbr::colored(rgba(plain))
+            ..StandardMaterial::colored(rgba(plain))
         })?;
         let pond =
-            draw.assets.add(Mesh::shape(Shape::Plane((1.0, 1.0)))?);
-        let water = draw.material(Pbr {
-            roughness: 0.22,
+            draw.assets.add(Mesh::shape(Shape::Plane3d((1.0, 1.0)))?);
+        let water = draw.material(StandardMaterial {
+            perceptual_roughness: 0.22,
             reflectance: 0.4,
-            ..Pbr::colored(rgba(pal.river))
+            ..StandardMaterial::colored(rgba(pal.river))
         })?;
         let bed = draw.spawn(None, 0);
         draw.draw(bed, &bed_mesh, &bed_look);

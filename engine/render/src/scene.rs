@@ -1187,6 +1187,7 @@ impl SceneWorldExt for World {
             setup.tonemapping,
             setup.exposure,
             setup.ambient,
+            setup.shadow_filtering,
         ));
         CameraLook {
             msaa,

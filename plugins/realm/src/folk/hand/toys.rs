@@ -3,7 +3,9 @@
 
 use glam::{Quat, Vec3};
 use hamlet_engine_bevy::prelude::*;
-use hamlet_engine_bevy::scene::{Material, Mesh, Pbr, Shape};
+use hamlet_engine_bevy::scene::{
+    Material, Mesh, Shape, StandardMaterial,
+};
 
 use crate::build::frame::Frame;
 use crate::build::mesh::Mb;
@@ -44,11 +46,11 @@ pub struct Toys {
 }
 
 /// A light that glows in its own colour.
-fn lit(colour: Vec3, strength: f32) -> Pbr {
-    Pbr {
+fn lit(colour: Vec3, strength: f32) -> StandardMaterial {
+    StandardMaterial {
         emissive: rgba(colour * strength),
-        roughness: 0.6,
-        ..Pbr::colored(rgba(colour))
+        perceptual_roughness: 0.6,
+        ..StandardMaterial::colored(rgba(colour))
     }
 }
 

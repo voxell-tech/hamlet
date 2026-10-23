@@ -7,7 +7,9 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 use glam::{Quat, Vec3};
 use hamlet_engine_bevy::api::agents::{AgentsRequest, Selected};
 use hamlet_engine_bevy::prelude::*;
-use hamlet_engine_bevy::scene::{AlphaMode, Material, Pbr};
+use hamlet_engine_bevy::scene::{
+    AlphaMode, Material, StandardMaterial,
+};
 use hamlet_engine_bevy::ui::open;
 
 use crate::bridge::{Bridge, Mode};
@@ -144,27 +146,27 @@ impl Benches {
             .works;
         let lamp = |mode: Mode| {
             let glow = hue(mode);
-            Pbr {
+            StandardMaterial {
                 emissive: rgba(glow * set.lamp_glow),
-                roughness: 0.4,
-                ..Pbr::colored(rgba(glow))
+                perceptual_roughness: 0.4,
+                ..StandardMaterial::colored(rgba(glow))
             }
         };
         Ok(Self {
-            dark: draw.material(Pbr {
-                roughness: 0.4,
-                ..Pbr::colored(rgba(pal.glass_dark))
+            dark: draw.material(StandardMaterial {
+                perceptual_roughness: 0.4,
+                ..StandardMaterial::colored(rgba(pal.glass_dark))
             })?,
             lamps: [
                 draw.material(lamp(Mode::Manual))?,
                 draw.material(lamp(Mode::Auto))?,
             ],
-            unseen: draw.material(Pbr {
+            unseen: draw.material(StandardMaterial {
                 base_color: (0.0, 0.0, 0.0, 0.0),
                 alpha_mode: AlphaMode::Mask,
                 unlit: true,
-                fog: false,
-                ..Pbr::colored(rgba(Vec3::ZERO))
+                fog_enabled: false,
+                ..StandardMaterial::colored(rgba(Vec3::ZERO))
             })?,
             set,
             last: None,

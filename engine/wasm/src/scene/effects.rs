@@ -7,7 +7,7 @@ use bevy::color::{Color, LinearRgba};
 use bevy::light::{FogVolume, VolumetricFog};
 use bevy::pbr::{
     ScreenSpaceAmbientOcclusion,
-    ScreenSpaceAmbientOcclusionQualityLevel,
+    ScreenSpaceAmbientOcclusionQualityLevel as OcclusionLevel,
 };
 use bevy::post_process::dof::{DepthOfField, DepthOfFieldMode};
 use bevy::render::view::{ColorGrading, ColorGradingGlobal};
@@ -15,7 +15,8 @@ use hamlet_engine_render::CameraEffects;
 
 use crate::scene::scene_bindings::hamlet::engine::scene::{
     CameraEffects as Effects, DepthOfFieldMode as Mode,
-    FogVolume as Volume, Quality, Rgba,
+    FogVolume as Volume, Rgba,
+    ScreenSpaceAmbientOcclusionQualityLevel, SmaaPreset as WitPreset,
 };
 
 /// What is made, or why it is refused.
@@ -32,7 +33,7 @@ fn color((r, g, b, a): Rgba) -> Option<Color> {
 
 pub(crate) fn fog_volume(volume: Volume) -> Option<FogVolume> {
     let values = [
-        volume.density,
+        volume.density_factor,
         volume.absorption,
         volume.scattering,
         volume.scattering_asymmetry,
@@ -42,8 +43,8 @@ pub(crate) fn fog_volume(volume: Volume) -> Option<FogVolume> {
         return None;
     }
     Some(FogVolume {
-        fog_color: color(volume.color)?,
-        density_factor: volume.density.max(0.0),
+        fog_color: color(volume.fog_color)?,
+        density_factor: volume.density_factor.max(0.0),
         absorption: volume.absorption.max(0.0),
         scattering: volume.scattering.max(0.0),
         scattering_asymmetry: volume
@@ -55,28 +56,30 @@ pub(crate) fn fog_volume(volume: Volume) -> Option<FogVolume> {
     })
 }
 
-fn preset(quality: Quality) -> SmaaPreset {
-    match quality {
-        Quality::Low => SmaaPreset::Low,
-        Quality::Medium => SmaaPreset::Medium,
-        Quality::High => SmaaPreset::High,
-        Quality::Ultra => SmaaPreset::Ultra,
+fn preset(preset: WitPreset) -> SmaaPreset {
+    match preset {
+        WitPreset::Low => SmaaPreset::Low,
+        WitPreset::Medium => SmaaPreset::Medium,
+        WitPreset::High => SmaaPreset::High,
+        WitPreset::Ultra => SmaaPreset::Ultra,
     }
 }
 
 fn occlusion_level(
-    quality: Quality,
-) -> ScreenSpaceAmbientOcclusionQualityLevel {
-    match quality {
-        Quality::Low => ScreenSpaceAmbientOcclusionQualityLevel::Low,
-        Quality::Medium => {
-            ScreenSpaceAmbientOcclusionQualityLevel::Medium
+    level: ScreenSpaceAmbientOcclusionQualityLevel,
+) -> OcclusionLevel {
+    match level {
+        ScreenSpaceAmbientOcclusionQualityLevel::Low => {
+            OcclusionLevel::Low
         }
-        Quality::High => {
-            ScreenSpaceAmbientOcclusionQualityLevel::High
+        ScreenSpaceAmbientOcclusionQualityLevel::Medium => {
+            OcclusionLevel::Medium
         }
-        Quality::Ultra => {
-            ScreenSpaceAmbientOcclusionQualityLevel::Ultra
+        ScreenSpaceAmbientOcclusionQualityLevel::High => {
+            OcclusionLevel::High
+        }
+        ScreenSpaceAmbientOcclusionQualityLevel::Ultra => {
+            OcclusionLevel::Ultra
         }
     }
 }
@@ -84,7 +87,7 @@ fn occlusion_level(
 pub(crate) fn effects(
     effects: Effects,
 ) -> Option<Made<CameraEffects>> {
-    let grading = effects.color_grading;
+    let grading = effects.color_grading.global;
     if !finite(&[
         grading.exposure,
         grading.temperature,
@@ -98,15 +101,19 @@ pub(crate) fn effects(
         Some(dof) => {
             let values = [
                 dof.focal_distance,
+                dof.sensor_height,
                 dof.aperture_f_stops,
-                dof.max_circle_of_confusion,
+                dof.max_circle_of_confusion_diameter,
             ];
-            if !finite(&values) {
+            if !finite(&values) || dof.max_depth.is_nan() {
                 return None;
             }
-            if values.iter().any(|&value| value <= 0.0) {
+            if values.iter().any(|&value| value <= 0.0)
+                || dof.max_depth <= 0.0
+            {
                 return Some(Err("a depth of field's distance, \
-                                 f-stops and circle are positive"
+                                 sensor, f-stops, circle and \
+                                 depth are positive"
                     .into()));
             }
             Some(DepthOfField {
@@ -115,23 +122,26 @@ pub(crate) fn effects(
                     Mode::Bokeh => DepthOfFieldMode::Bokeh,
                 },
                 focal_distance: dof.focal_distance,
+                sensor_height: dof.sensor_height,
                 aperture_f_stops: dof.aperture_f_stops,
                 max_circle_of_confusion_diameter: dof
-                    .max_circle_of_confusion,
-                ..DepthOfField::default()
+                    .max_circle_of_confusion_diameter,
+                max_depth: dof.max_depth,
             })
         }
         None => None,
     };
-    let occlusion = match effects.ambient_occlusion {
+    let occlusion = match effects.screen_space_ambient_occlusion {
         Some(occlusion) => {
-            if !finite(&[occlusion.thickness]) {
+            if !finite(&[occlusion.constant_object_thickness]) {
                 return None;
             }
             Some(ScreenSpaceAmbientOcclusion {
-                quality_level: occlusion_level(occlusion.quality),
+                quality_level: occlusion_level(
+                    occlusion.quality_level,
+                ),
                 constant_object_thickness: occlusion
-                    .thickness
+                    .constant_object_thickness
                     .max(0.0),
             })
         }
@@ -170,8 +180,8 @@ pub(crate) fn effects(
             ..ColorGrading::default()
         },
         occlusion,
-        smaa: effects.smaa.map(|quality| Smaa {
-            preset: preset(quality),
+        smaa: effects.smaa.map(|smaa| Smaa {
+            preset: preset(smaa.preset),
         }),
         atmosphere: effects.atmosphere,
         volumetric_fog,

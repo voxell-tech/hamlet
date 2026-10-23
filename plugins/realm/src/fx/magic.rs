@@ -8,7 +8,9 @@ use std::collections::HashMap;
 use glam::{Vec3, Vec3Swizzles};
 use hamlet_engine_bevy::api::agents::Doing;
 use hamlet_engine_bevy::prelude::*;
-use hamlet_engine_bevy::scene::{AlphaMode, Material, Pbr, Shader};
+use hamlet_engine_bevy::scene::{
+    AlphaMode, Material, Shader, StandardMaterial,
+};
 
 use crate::build::frame::Frame;
 use crate::build::mark::{self, Mark, Shape};
@@ -155,10 +157,10 @@ fn make(tuning: Res<VfxTuning>, pal: Res<Palette>, mut draw: Draw) {
             marks: mark::shader(&mut draw)?,
             musing: draw
                 .material(glow(pal.rune, set.musing_light))?,
-            room: draw.material(Pbr {
+            room: draw.material(StandardMaterial {
                 alpha_mode: AlphaMode::Blend,
                 unlit: true,
-                ..Pbr::colored((0.0, 0.0, 0.0, 0.0))
+                ..StandardMaterial::colored((0.0, 0.0, 0.0, 0.0))
             })?,
             circles: Vec::new(),
             clouds: Vec::new(),
@@ -489,7 +491,7 @@ fn muse(
         {
             nudged.write(Nudged {
                 agent: *agent,
-                at: click.0.point,
+                at: click.0.position,
             });
         }
     }

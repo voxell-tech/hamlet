@@ -7,7 +7,7 @@ use std::f32::consts::TAU;
 use glam::{Vec2, Vec3};
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::scene::{
-    Light, Material, Mesh, Pbr, PointLight,
+    Light, Material, Mesh, PointLight, StandardMaterial,
 };
 
 use crate::build::frame::Frame;
@@ -202,9 +202,9 @@ impl Rig {
     ) -> Result<Self, String> {
         // One material for both lanterns and the ring, so they show
         // the same state.
-        let lit = draw.material(Pbr {
-            roughness: 0.4,
-            ..Pbr::colored(rgba(to_linear(Vec3::new(
+        let lit = draw.material(StandardMaterial {
+            perceptual_roughness: 0.4,
+            ..StandardMaterial::colored(rgba(to_linear(Vec3::new(
                 0.2, 0.19, 0.17,
             ))))
         })?;
@@ -478,7 +478,7 @@ impl Rig {
                         intensity: strength / LIT * lumens,
                         range: LANTERN_REACH,
                         radius: LANTERN_FLAME,
-                        shadows: false,
+                        shadow_maps_enabled: false,
                     }),
                 ));
             }
@@ -760,10 +760,10 @@ impl Rig {
             let glass = to_linear(GLASS_OUT.lerp(GLASS_LIT, lit));
             draw.set_material(
                 &self.lit,
-                Pbr {
+                StandardMaterial {
                     emissive: rgba(p.glow),
-                    roughness: 0.4,
-                    ..Pbr::colored(rgba(glass))
+                    perceptual_roughness: 0.4,
+                    ..StandardMaterial::colored(rgba(glass))
                 },
             );
         }
