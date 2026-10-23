@@ -313,7 +313,11 @@ hamlet_engine_bevy::export!(Hello);
 - **Views** are written with fynix (`hamlet_engine_bevy::ui`) over the
   plugin's Bevy `World`. `Hamlet` is fynix's backend: a node is made
   in the engine as fynix spawns it, of the kind of its element, and a
-  property still at its first value is not sent. A view is built each
+  property still at its first value is not sent, but for a label's
+  tone, size and boldness and an icon's tone: the engine starts those
+  by where the node is, such as bold in a button, so each is sent
+  whenever the plugin sets it (fynix's `optional` props) and left to
+  the engine while it is unset. A view is built each
   time its panel or page is shown, from the world as it is, and
   `resource` and `component` signals read the world by Bevy's change
   ticks. The elements are `label` (and `heading`),

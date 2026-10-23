@@ -20,11 +20,11 @@ use crate::ui::{Hamlet, Handler, Key, States, Theme, Ui};
 pub struct Label {
     #[elem(patch = SetText)]
     pub text: Prop<World, String>,
-    #[elem(default = Tone::Body, patch = SetTone, blend = jump)]
+    #[elem(optional, patch = SetTone, blend = jump)]
     pub tone: Prop<World, Tone>,
-    #[elem(default = Size::Body, patch = SetSize, blend = jump)]
+    #[elem(optional, patch = SetSize, blend = jump)]
     pub size: Prop<World, Size>,
-    #[elem(patch = SetBold)]
+    #[elem(optional, patch = SetBold)]
     pub bold: Prop<World, bool>,
     #[elem(default = Face::Body, patch = SetFace)]
     pub face: Prop<World, Face>,
@@ -82,7 +82,7 @@ pub struct Frame {
 pub struct Icon {
     #[elem(patch = SetText)]
     pub name: Prop<World, String>,
-    #[elem(default = Tone::Body, patch = SetTone, blend = jump)]
+    #[elem(optional, patch = SetTone, blend = jump)]
     pub tone: Prop<World, Tone>,
     #[elem(default = 1.0, patch = SetOpacity, blend = blend)]
     pub opacity: Prop<World, f32>,
@@ -713,8 +713,19 @@ fn jump<T: Copy>(_: &T, to: &T, _: f32) -> T {
     *to
 }
 
+/// The motion of fynix's `motion` as the engine names it.
+fn movement(motion: Option<fynix::Motion>) -> Option<Movement> {
+    motion.map(|motion| match motion {
+        fynix::Motion::Interact => Movement::Interact,
+        fynix::Motion::Expand => Movement::Expand,
+    })
+}
+
 /// A [`Patch`] sending one property of a node, over the motion of a
-/// transition where the engine moves it.
+/// transition where the engine moves it. One of an `optional` prop,
+/// which the engine starts by where the node is, such as bold in a
+/// button, is sent whenever the plugin sets it, and `$unset` while it
+/// is unset once it was sent.
 macro_rules! patch {
     ($name:ident, $value:ty, $make:expr) => {
         pub struct $name;
@@ -730,15 +741,45 @@ macro_rules! patch {
                 value: &$value,
                 motion: Option<fynix::Motion>,
             ) {
-                let motion = motion.map(|motion| match motion {
-                    fynix::Motion::Interact => Movement::Interact,
-                    fynix::Motion::Expand => Movement::Expand,
-                });
                 world.resource_mut::<Ui>().nodes.set(
                     node,
                     $make(value),
-                    motion,
+                    movement(motion),
                 );
+            }
+        }
+    };
+    ($name:ident, optional $value:ty, $unset:expr, $make:expr) => {
+        pub struct $name;
+
+        impl Patch<Hamlet, Option<$value>> for $name {
+            fn patch(
+                world: &mut World,
+                node: Key,
+                value: &Option<$value>,
+            ) {
+                Self::patch_over(world, node, value, None);
+            }
+
+            fn patch_over(
+                world: &mut World,
+                node: Key,
+                value: &Option<$value>,
+                motion: Option<fynix::Motion>,
+            ) {
+                let nodes = &mut world.resource_mut::<Ui>().nodes;
+                match value {
+                    Some(value) => nodes.send(
+                        node,
+                        $make(value),
+                        movement(motion),
+                    ),
+                    None => nodes.set(
+                        node,
+                        $make(&$unset),
+                        movement(motion),
+                    ),
+                }
             }
         }
     };
@@ -747,9 +788,15 @@ macro_rules! patch {
 patch!(SetText, String, |text: &String| Property::Text(
     text.clone()
 ));
-patch!(SetTone, Tone, |tone: &Tone| Property::Tone(*tone));
-patch!(SetSize, Size, |size: &Size| Property::Size(*size));
-patch!(SetBold, bool, |bold: &bool| Property::Bold(*bold));
+patch!(SetTone, optional Tone, Tone::Body, |tone: &Tone| {
+    Property::Tone(*tone)
+});
+patch!(SetSize, optional Size, Size::Body, |size: &Size| {
+    Property::Size(*size)
+});
+patch!(SetBold, optional bool, false, |bold: &bool| {
+    Property::Bold(*bold)
+});
 patch!(SetFace, Face, |face: &Face| Property::Face(*face));
 patch!(SetOpacity, f32, |opacity: &f32| Property::Opacity(*opacity));
 patch!(SetStyle, ButtonStyle, |style: &ButtonStyle| {

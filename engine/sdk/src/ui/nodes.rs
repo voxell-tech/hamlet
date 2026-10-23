@@ -106,6 +106,21 @@ impl Nodes {
         if entry.sent & bit == 0 && value.is_first() {
             return;
         }
+        self.send(key, value, motion);
+    }
+
+    /// Sends `value` for `key`, over `motion` where the engine moves
+    /// it, even as its first value.
+    pub fn send(
+        &mut self,
+        key: Key,
+        value: Property,
+        motion: Option<Motion>,
+    ) {
+        let bit = value.bit();
+        let Some(entry) = self.entries.get_mut(&key) else {
+            return;
+        };
         if let Some(node) = &entry.node {
             node.set(&value, motion);
             entry.sent |= bit;
