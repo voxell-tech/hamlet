@@ -15,22 +15,23 @@ pub(super) use self::props::KITE;
 use self::props::{glint, prop};
 use super::pose::Prop;
 use super::{Emblem, Hat, Paint};
-use crate::meshes::Mb;
+use crate::meshes::Meshing;
 use crate::palette::Palette;
 use crate::{Stock, lantern};
 
 /// A part made of up to two meshes: paint or wood, and brass.
 #[derive(Default)]
 struct Piece {
-    wood: Mb,
-    brass: Mb,
+    wood: Meshing,
+    brass: Meshing,
 }
 
 type Pair = (Option<Handle<Mesh>>, Option<Handle<Mesh>>);
 
 fn pair(meshes: &mut Assets<Mesh>, piece: Piece) -> Pair {
-    let mut add =
-        |mb: Mb| (!mb.is_empty()).then(|| meshes.add(mb.build()));
+    let mut add = |meshing: Meshing| {
+        (!meshing.is_empty()).then(|| meshes.add(meshing.build()))
+    };
     (add(piece.wood), add(piece.brass))
 }
 
@@ -75,7 +76,7 @@ impl Kit {
         let hat = |meshes: &mut Assets<Mesh>, h: Hat| {
             pair(meshes, hat(h, pal))
         };
-        let mut ring = Mb::new();
+        let mut ring = Meshing::new();
         ring.torus(Vec3::ZERO, Vec3::Y, 0.125, 0.009, 24, Vec3::ONE);
         Self {
             matte: stock.matte.clone(),
@@ -117,8 +118,9 @@ impl Kit {
             props: Prop::HELD
                 .map(|p| meshes.add(prop(p, pal).build())),
             glints: Prop::HELD.map(|p| {
-                let mb = glint(p);
-                (!mb.is_empty()).then(|| meshes.add(mb.build()))
+                let meshing = glint(p);
+                (!meshing.is_empty())
+                    .then(|| meshes.add(meshing.build()))
             }),
             mantle: meshes.add(mantle(pal).build()),
             pennant: meshes.add(pennant(pal).build()),

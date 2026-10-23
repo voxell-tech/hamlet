@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use hamlet_client::realm::{
-    Activity, Busy, Carried, Citizen, Doing, HOME, Left, Lived,
-    LivesIn, Mayor, MergedInto, Road, RoadUse, Settlement, Spot,
+    Activity, AgentNumber, Busy, Carried, Doing, HOME, HamletId,
+    Left, Lived, LivesIn, Mayor, MergedInto, Road, RoadUse, Spot,
     Traffic, Voted,
 };
 use hamlet_client::{ClientPlugin, receive};
@@ -14,9 +14,9 @@ use crate::generator::society::{
     Agent, Ground, Pair, RoadLevel, Society,
 };
 use crate::generator::{
-    Ahead, GenSettings, GenView, Objecting, Trips, Voting,
+    Ahead, GeneratorSettings, GeneratorView, Objecting, Trips, Voting,
 };
-use crate::keeper::KState;
+use crate::keeper::KeeperState;
 use crate::keeper::work::Task;
 use crate::palette::Palette;
 use crate::pick::{Centre, Glide, Leash, Orbit, Stance};
@@ -40,7 +40,7 @@ fn bare() -> App {
         .init_resource::<Clock>()
         .insert_resource(Land::new(
             1,
-            GenSettings::default(),
+            GeneratorSettings::default(),
             Palette::default(),
         ))
         .init_resource::<CameraSettings>()
@@ -49,7 +49,7 @@ fn bare() -> App {
         .init_resource::<Leash>()
         .init_resource::<Centre>()
         .init_resource::<Stance>()
-        .init_resource::<GenView>()
+        .init_resource::<GeneratorView>()
         .init_resource::<Ahead>()
         .add_plugins(super::plugin);
     app
@@ -66,7 +66,7 @@ fn a_hamlet_that_is_removed_takes_its_town_with_it() {
     let (mut app, _) = app();
     let mill = settle(&mut app, "mill");
     let miller = app.world_mut().spawn((
-        Citizen(1),
+        AgentNumber(1),
         LivesIn(mill),
         Lived::default(),
     ));
@@ -116,9 +116,9 @@ fn settle(app: &mut App, name: &str) -> Entity {
     }
     let world = app.world_mut();
     world
-        .query::<(Entity, &Settlement)>()
+        .query::<(Entity, &HamletId)>()
         .iter(world)
-        .find(|(_, hamlet)| hamlet.name == name)
+        .find(|(_, hamlet)| hamlet.0 == name)
         .unwrap()
         .0
 }
@@ -126,15 +126,15 @@ fn settle(app: &mut App, name: &str) -> Entity {
 fn entity(app: &mut App, number: u64) -> Option<Entity> {
     let world = app.world_mut();
     let first = world
-        .query::<(Entity, &Settlement)>()
+        .query::<(Entity, &HamletId)>()
         .iter(world)
-        .find(|(_, s)| s.name == HOME)
+        .find(|(_, s)| s.0 == HOME)
         .map(|(entity, _)| entity)?;
     world
-        .query::<(Entity, &Citizen, &LivesIn)>()
+        .query::<(Entity, &AgentNumber, &LivesIn)>()
         .iter(world)
-        .find(|(_, citizen, lives)| {
-            citizen.0 == number && lives.0 == first
+        .find(|(_, agent_number, lives)| {
+            agent_number.0 == number && lives.0 == first
         })
         .map(|(entity, ..)| entity)
 }
@@ -150,7 +150,7 @@ fn tell(
     for number in living.iter().chain(gone.iter().map(|(n, _)| n)) {
         if entity(app, *number).is_none() {
             app.world_mut()
-                .spawn((Citizen(*number), LivesIn(hamlet)));
+                .spawn((AgentNumber(*number), LivesIn(hamlet)));
         }
     }
     for number in living {
@@ -257,7 +257,7 @@ fn a_newcomer_takes_the_plot_of_one_who_left_and_keeps_it() {
         (3, lived(40, None)),
     ] {
         later.world_mut().spawn((
-            Citizen(number),
+            AgentNumber(number),
             LivesIn(hamlet),
             times,
         ));
@@ -325,7 +325,7 @@ fn roads_and_work_follow_the_entities() {
     };
     assert_eq!(level(&app), Some(RoadLevel::Dirt));
     let one = agent(&mut app, 1);
-    assert_eq!(one.state, KState::Working);
+    assert_eq!(one.state, KeeperState::Working);
     assert_eq!(one.work.task, Task::Fetch);
 
     // A message: the road is used more and its sender walks.
@@ -367,7 +367,7 @@ fn several_hamlets_are_towns_with_roads_between_and_ballots_are_seen()
     assert_ne!(here.town, there.town);
     // Each first mayor has its town's hall.
     let society = app.world().resource::<Society>();
-    assert_eq!(society.town(there.town).unwrap().leader, there.id);
+    assert_eq!(society.town(there.town).unwrap().mayor, there.id);
 
     // The office moves and nobody changes house.
     let one = entity(&mut app, 1).unwrap();
@@ -411,9 +411,9 @@ fn several_hamlets_are_towns_with_roads_between_and_ballots_are_seen()
 fn towns(app: &mut App) -> Vec<(String, Vec2)> {
     let world = app.world_mut();
     let mut found = world
-        .query::<(&Settlement, &Sited)>()
+        .query::<(&HamletId, &Sited)>()
         .iter(world)
-        .map(|(settlement, sited)| (settlement.name.clone(), sited.0))
+        .map(|(id, sited)| (id.0.clone(), sited.0))
         .collect::<Vec<_>>();
     found.sort();
     let (land, society) =
@@ -449,14 +449,17 @@ fn towns_never_set_down_stand_on_the_first_free_sites() {
     let world = app.world_mut();
     assert!(
         world
-            .query_filtered::<&Spot, With<Settlement>>()
+            .query_filtered::<&Spot, With<HamletId>>()
             .iter(world)
             .all(|spot| spot.0.is_none())
     );
     app.update();
     let land = app.world().resource::<Land>().clone();
-    let fresh =
-        Land::new(1, GenSettings::default(), Palette::default());
+    let fresh = Land::new(
+        1,
+        GeneratorSettings::default(),
+        Palette::default(),
+    );
     assert_eq!(land.sites, fresh.sites);
     let free = fresh
         .sites
@@ -482,7 +485,7 @@ fn a_town_follows_where_the_record_sets_it_down() {
     let before = towns(&mut app);
     let people = app.world().resource::<Society>().clone();
     let to = meadow(&mut app, mill);
-    let view = *app.world().resource::<GenView>();
+    let view = *app.world().resource::<GeneratorView>();
 
     app.world_mut()
         .entity_mut(mill)
@@ -495,7 +498,7 @@ fn a_town_follows_where_the_record_sets_it_down() {
     assert_eq!(*app.world().resource::<Society>(), people);
     // The camera looks where it looked, though the middle of
     // the hamlets is elsewhere now.
-    let now = *app.world().resource::<GenView>();
+    let now = *app.world().resource::<GeneratorView>();
     assert!(now.focus.distance(view.focus) < 0.01);
     assert!((now.dist - view.dist).abs() < 0.01);
     assert_ne!(app.world().resource::<Centre>().0, view.focus);
@@ -543,9 +546,9 @@ fn a_received_realm_houses_the_founder_in_its_hall() {
     let society = app.world().resource::<Society>();
     assert_eq!(society.towns.len(), 1);
     assert_eq!(society.agents.len(), 1);
-    assert_eq!(society.towns[0].leader, founder.id);
+    assert_eq!(society.towns[0].mayor, founder.id);
     assert_eq!(founder.plot, 0);
-    assert_eq!(founder.state, KState::Rest);
+    assert_eq!(founder.state, KeeperState::Rest);
 }
 
 #[test]
@@ -599,7 +602,7 @@ fn the_founders_robot_follows_its_own_work_and_faults() {
     );
     app.update();
     let working = agent(&mut app, 0);
-    assert_eq!(working.state, KState::Working);
+    assert_eq!(working.state, KeeperState::Working);
     assert_eq!(working.work.task, Task::Run);
     founder.faulted = true;
     receive_change(
@@ -609,7 +612,7 @@ fn the_founders_robot_follows_its_own_work_and_faults() {
         },
     );
     app.update();
-    assert_eq!(agent(&mut app, 0).state, KState::Fault);
+    assert_eq!(agent(&mut app, 0).state, KeeperState::Fault);
     founder.busy = false;
     receive_change(
         &mut app,
@@ -618,7 +621,7 @@ fn the_founders_robot_follows_its_own_work_and_faults() {
         },
     );
     app.update();
-    assert_eq!(agent(&mut app, 0).state, KState::Fault);
+    assert_eq!(agent(&mut app, 0).state, KeeperState::Fault);
     receive_change(
         &mut app,
         protocol::Update::Wait {
@@ -626,10 +629,10 @@ fn the_founders_robot_follows_its_own_work_and_faults() {
         },
     );
     app.update();
-    assert_eq!(agent(&mut app, 0).state, KState::Waiting);
+    assert_eq!(agent(&mut app, 0).state, KeeperState::Waiting);
     receive_state(&mut app, realm::state());
     app.update();
-    assert_eq!(agent(&mut app, 0).state, KState::Rest);
+    assert_eq!(agent(&mut app, 0).state, KeeperState::Rest);
 }
 
 #[test]

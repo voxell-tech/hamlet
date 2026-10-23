@@ -17,7 +17,7 @@ use bevy::light::{
 use bevy::pbr::ExtendedMaterial;
 use bevy::post_process::dof::{DepthOfField, DepthOfFieldMode};
 use bevy::prelude::*;
-use hamlet_realm::keeper::{self, KState, Kit, Who};
+use hamlet_realm::keeper::{self, KeeperState, Kit, Who};
 use hamlet_realm::lantern::lantern_glass;
 use hamlet_realm::needs::TagSettings;
 use hamlet_realm::palette::Palette;
@@ -416,38 +416,43 @@ fn respawn_keepers(
             &mut commands,
             &kit,
             &mut materials,
-            Who::leader(),
+            Who::mayor(),
             Transform::default(),
-            demo.kstate,
+            demo.keeper_state,
         );
         commands
             .entity(e)
             .try_insert((MainKeeper, Stationed::default()));
     }
 
-    let wanted = if demo.lineup { KState::ALL.len() } else { 0 };
+    let wanted = if demo.lineup {
+        KeeperState::ALL.len()
+    } else {
+        0
+    };
     let right = lineup.iter().count() == wanted;
     if !right {
         for entity in &lineup {
             commands.entity(entity).try_despawn();
         }
         for (i, state) in
-            KState::ALL.into_iter().enumerate().take(wanted)
+            KeeperState::ALL.into_iter().enumerate().take(wanted)
         {
             let at =
                 terrain.at.lineup + Vec3::X * (i as f32 - 2.0) * 1.25;
             let at = at.with_y(terrain.ground_y(at.x, at.z));
-            let turn =
-                Quat::from_rotation_y(if state == KState::Working {
+            let turn = Quat::from_rotation_y(
+                if state == KeeperState::Working {
                     0.9
                 } else {
                     0.25
-                });
+                },
+            );
             let e = keeper::spawn_as(
                 &mut commands,
                 &kit,
                 &mut materials,
-                Who::leader(),
+                Who::mayor(),
                 Transform::from_translation(at).with_rotation(turn),
                 state,
             );

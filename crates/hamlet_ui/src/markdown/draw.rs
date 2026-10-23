@@ -49,9 +49,9 @@ fn words<'a>(
 
 /// True while the entry `id` is the last of its conversation and
 /// may have more words to come.
-fn growing(world: &World, session: Entity, id: &str) -> bool {
+fn is_growing(world: &World, session: Entity, id: &str) -> bool {
     world.get::<Transcript>(session).is_some_and(|transcript| {
-        transcript.answering()
+        transcript.is_answering()
             && transcript.items().last().map(|item| item.id.as_str())
                 == Some(id)
     })
@@ -93,7 +93,7 @@ pub(crate) fn entry(
             let mut blocks = words(world, session, &read_id)
                 .map(parse)
                 .unwrap_or_default();
-            if growing(world, session, &read_id) {
+            if is_growing(world, session, &read_id) {
                 unsettle(&mut blocks);
             }
             blocks
@@ -103,7 +103,7 @@ pub(crate) fn entry(
                 return false;
             }
             let now = words(world, session, &id);
-            let grows = growing(world, session, &id);
+            let grows = is_growing(world, session, &id);
             if seen
                 .as_ref()
                 .map(|(text, grew)| (text.as_str(), *grew))
@@ -574,8 +574,8 @@ mod tests {
                     Item {
                         id: format!("{at}:user"),
                         at: 0,
-                        entry: Entry::User {
-                            user: "a".into(),
+                        entry: Entry::Chief {
+                            name: "a".into(),
                             text: "go".into(),
                         },
                     },

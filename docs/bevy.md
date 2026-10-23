@@ -30,12 +30,12 @@ trusting memory: the engine moves every release.
 
 | The need | The tool | Here |
 |---|---|---|
-| A fact about one thing | A component | `Citizen`, `Busy`, `Housed` |
+| A fact about one thing | A component | `AgentNumber`, `Busy`, `Housed` |
 | A fact nothing may edit in place | `#[component(immutable)]`, replaced by inserting it again | Server facts projected into client entities (`docs/tour.md`) |
-| One thing points at another, and the other should know | A relationship | `LivesIn` and `Citizens`, `TalksTo`, `RaisedBy`, and a road's `RoadFrom` and `RoadTo`, which take it with either end |
+| One thing points at another, and the other should know | A relationship | `LivesIn` and `Agents`, `TalksTo`, `RaisedBy`, and a road's `RoadFrom` and `RoadTo`, which take it with either end |
 | A link kept as a bare `Entity` and found by scanning | Make it a relationship, with `linked_spawn` where one goes with the other | `Sign` and `Signed` |
 | One of a kind for the whole app | A resource | `Society`, `Stage`, `Selected` |
-| Something happened, and whoever cares answers at once | An observer event (`commands.trigger`, `On<E>`) | `UserMessage`, `Carried`, `Reconnected` |
+| Something happened, and whoever cares answers at once | An observer event (`commands.trigger`, `On<E>`) | `ChiefMessage`, `Carried`, `Reconnected` |
 | Something happened to one thing | An `EntityEvent` aimed at that entity, observed on it or by all | `Answer`, `SessionOutput`, `TagAnswered`, `SkillGiven` |
 | Something happened, and a system reads it in its turn | A message (`MessageWriter`, `MessageReader`) | `Played`, `Cue`, `SetDown` |
 | A component came or went | `On<Add, T>`, `On<Insert, T>`, `On<Discard, T>` | A chat is opened when its `Chat` is inserted and closed when it is discarded |
@@ -77,7 +77,7 @@ that runs every frame is also work that keeps the app from resting.
    take a `Query`. In exclusive code that runs often keep a
    `SystemState`, or run a cached system. A hamlet, an agent, a wait or
    a chat by its protocol id or name is a lookup in `hamlet_client`'s
-   `Index` (`realm::named`, `settlement`, `agent`, `waits::find`,
+   `Index` (`realm::named`, `hamlet`, `agent`, `waits::find`,
    `chats::find`), which component hooks keep.
 5. **No file is read in a frame.** A `stat` is the limit: a picture is
    read again on the task pool only when its file's time or size moved

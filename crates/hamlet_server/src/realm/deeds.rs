@@ -8,7 +8,7 @@ use crate::Outcome;
 use crate::harness::Harnesses;
 use crate::papers::Capability;
 use crate::protocol::Refusal;
-use crate::record::{self, AgentRef, Audience, FoundRecord};
+use crate::record::{self, AgentRef, FoundRecord};
 use crate::service::Service;
 use crate::society::{self, Deed};
 
@@ -41,9 +41,9 @@ pub(crate) async fn deed(
         _ => None,
     };
     if let Some(capability) = needs
-        && let Err(words) = service.houses.allows(capability)
+        && let Err(refusal) = service.houses.allows(capability)
     {
-        return bad(words);
+        return Ok(Some(Err(refusal)));
     }
     let mut realm = read(service.db())?;
     if deed == "hamlets" {
@@ -64,9 +64,11 @@ pub(crate) async fn deed(
     let cap = service.limits_of("home")?.hamlets.most as usize;
     if deed == "found" {
         if words.len() < 3 {
-            return bad("Use /found <hamlet> <mayor> <purpose>; \
-                        give the new mayor a purpose."
-                .into());
+            return Ok(Some(Err(Refusal::Usage(
+                "Use /found <hamlet> <mayor> <purpose>; give the \
+                 new mayor a purpose."
+                    .into(),
+            ))));
         }
         if realm.hamlets.iter().any(|h| h.id == id) {
             return bad(format!(
@@ -90,7 +92,9 @@ pub(crate) async fn deed(
         let result = crate::operation::change(&tx, &operation)?;
         match result {
             Outcome::Refused(refusal) => {
-                return bad(refusal.text(Audience::Chief));
+                return Ok(Some(Err(Refusal::Record(Box::new(
+                    refusal,
+                )))));
             }
             Outcome::Done(_) => {
                 let realm = read(&tx)?;
@@ -116,7 +120,7 @@ pub(crate) async fn deed(
     let Some(index) =
         realm.hamlets.iter().position(|h| h.id == id && !h.erased)
     else {
-        return bad(format!("no hamlet named `{id}`"));
+        return Ok(Some(Err(Refusal::NoHamlet(id.into()))));
     };
     let r = service
         .home
@@ -162,9 +166,11 @@ pub(crate) async fn deed(
                 None
             };
             let Some((x, z)) = at else {
-                return bad("Use /move-hamlet <hamlet> <x> <z> \
-                            with finite coordinates."
-                    .into());
+                return Ok(Some(Err(Refusal::Usage(
+                    "Use /move-hamlet <hamlet> <x> <z> with finite \
+                     coordinates."
+                        .into(),
+                ))));
             };
             realm.hamlets[index].at = Some(At { x, z });
             format!("The town of `{id}` is set down at {x}, {z}.")
@@ -235,7 +241,7 @@ pub(crate) async fn deed(
     };
     let tx = service.home.store().transaction()?;
     write(&tx, &realm)?;
-    if realm.lives(id) {
+    if realm.is_living(id) {
         record::claim_names(&tx, id)?;
     } else {
         record::release_names(&tx, id)?;

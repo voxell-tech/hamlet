@@ -21,7 +21,7 @@ use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use hamlet_realm::generator::land::Land;
 use hamlet_realm::generator::society::{Ground, Society, TownId};
-use hamlet_realm::generator::{GenView, Loading, Tally};
+use hamlet_realm::generator::{GeneratorView, Loading, Tally};
 use hamlet_realm::moving::{self, Carrying};
 use hamlet_realm::pick::Reach;
 use hamlet_realm::sky::SkySettings;
@@ -360,7 +360,7 @@ fn run(
     tally: Option<Res<Tally>>,
     mut land: ResMut<Land>,
     mut society: ResMut<Society>,
-    mut view: ResMut<GenView>,
+    mut view: ResMut<GeneratorView>,
     (mut stage, sky, mut hour, mut pace): (
         ResMut<Stage>,
         Res<SkySettings>,
@@ -374,13 +374,17 @@ fn run(
     entities: Query<Entity>,
     mut exit: MessageWriter<AppExit>,
 ) {
-    run.settled = if loading.done() { run.settled + 1 } else { 0 };
+    run.settled = if loading.is_done() {
+        run.settled + 1
+    } else {
+        0
+    };
     run.frames += 1;
     // Time stands still while the world is built, so that a still
     // does not depend on how long the building took. A slide and a
     // timing are of the building itself.
     let waits = !run.timing
-        && !loading.done()
+        && !loading.is_done()
         && !matches!(run.steps.get(run.at), Some(Step::Slide(..)));
     let frame = if waits { 0.0 } else { FRAME };
     *pace = TimeUpdateStrategy::ManualDuration(
@@ -411,7 +415,7 @@ fn run(
             pitch,
         } => {
             let focus = place(at, &run, &land, &society);
-            *view = GenView {
+            *view = GeneratorView {
                 focus,
                 dist,
                 yaw,
@@ -488,7 +492,7 @@ fn run(
             if done {
                 let tally =
                     tally.as_deref().copied().unwrap_or_default();
-                let mb = |bytes: usize| bytes as f32 / 1e6;
+                let megabytes = |bytes: usize| bytes as f32 / 1e6;
                 let (ground, woods) = loading.bytes();
                 println!(
                     "{name}: built in {:.2} s; {} tiles of ground \
@@ -497,14 +501,14 @@ fn run(
                      roads in {:.1} MB, {} entities",
                     run.began.elapsed().as_secs_f32(),
                     tally.tiles,
-                    mb(ground),
-                    mb(woods),
+                    megabytes(ground),
+                    megabytes(woods),
                     tally.trees,
                     tally.towns,
                     tally.houses,
-                    mb(tally.house_bytes),
+                    megabytes(tally.house_bytes),
                     tally.roads,
-                    mb(tally.road_bytes),
+                    megabytes(tally.road_bytes),
                     entities.iter().count(),
                 );
             }

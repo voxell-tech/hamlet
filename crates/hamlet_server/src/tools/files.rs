@@ -13,18 +13,90 @@ use super::truncate::{
 use super::{Arguments, Outcome, diagnostic, diff, number_words};
 use crate::sandbox::{FileError, FileKind};
 
-/// A call that threw, with the words of what it threw.
-type Thrown = String;
-
-impl From<FileError> for Thrown {
-    fn from(error: FileError) -> Self {
-        error.message
-    }
+/// The failure of a file call, in pi's words.
+#[derive(Debug, thiserror::Error)]
+enum CallError {
+    #[error(transparent)]
+    File(#[from] FileError),
+    #[error(
+        "Offset {} is beyond end of file ({lines} lines total)",
+        number_words(*.offset)
+    )]
+    BeyondEnd { offset: f64, lines: usize },
+    #[error(
+        "Edit tool input is invalid. edits must contain at least \
+         one replacement."
+    )]
+    NoEdits,
+    #[error(
+        "Could not edit file: {path}. Error code: {}.",
+        .code.as_str()
+    )]
+    Unedited { path: String, code: Code },
+    #[error("Could not edit file: {0}. Path is not a file.")]
+    NotAFile(String),
+    #[error("oldText must not be empty in {0}.")]
+    EmptyOld(String),
+    #[error("edits[{index}].oldText must not be empty in {path}.")]
+    EmptyOldAt { index: usize, path: String },
+    #[error(
+        "Could not find the exact text in {0}. The old text must \
+         match exactly including all whitespace and newlines."
+    )]
+    Missing(String),
+    #[error(
+        "Could not find edits[{index}] in {path}. The oldText must \
+         match exactly including all whitespace and newlines."
+    )]
+    MissingAt { index: usize, path: String },
+    #[error(
+        "Found {count} occurrences of the text in {path}. The text \
+         must be unique. Please provide more context to make it \
+         unique."
+    )]
+    Repeated { count: usize, path: String },
+    #[error(
+        "Found {count} occurrences of edits[{index}] in {path}. \
+         Each oldText must be unique. Please provide more context \
+         to make it unique."
+    )]
+    RepeatedAt {
+        count: usize,
+        index: usize,
+        path: String,
+    },
+    #[error(
+        "edits[{first}] and edits[{second}] overlap in {path}. \
+         Merge them into one edit or target disjoint regions."
+    )]
+    Overlap {
+        first: usize,
+        second: usize,
+        path: String,
+    },
+    #[error(
+        "No changes made to {0}. The replacement produced identical \
+         content. This might indicate an issue with special \
+         characters or the text not existing as expected."
+    )]
+    Unchanged(String),
+    #[error(
+        "No changes made to {0}. The replacements produced \
+         identical content."
+    )]
+    UnchangedAll(String),
+    #[error("Replacement range is outside the base content.")]
+    Outside,
+    #[error(
+        "Cannot preserve unchanged lines because the base content \
+         has a different line count."
+    )]
+    LineCount,
 }
 
-fn outcome(result: Result<Outcome, Thrown>) -> Outcome {
-    result.unwrap_or_else(|message| {
-        Outcome::thrown("tool_error", message)
+fn outcome(result: Result<Outcome, CallError>) -> Outcome {
+    result.unwrap_or_else(|error| {
+        Outcome::thrown("tool_error", error.to_string())
     })
 }
 
@@ -78,7 +150,7 @@ async fn read_text(
     path: &str,
     offset: Option<f64>,
     limit: Option<f64>,
-) -> Result<Outcome, Thrown> {
+) -> Result<Outcome, CallError> {
     let resolved = tool_path(env, path);
     let decomposed = resolved.nfd().collect::<String>();
     let variants = [
@@ -125,11 +197,10 @@ async fn read_text(
         _ => 0.0,
     };
     if start >= total {
-        return Err(format!(
-            "Offset {} is beyond end of file ({} lines total)",
-            number_words(offset.unwrap_or(0.0)),
-            lines.len()
-        ));
+        return Err(CallError::BeyondEnd {
+            offset: offset.unwrap_or(0.0),
+            lines: lines.len(),
+        });
     }
     let (selected, end) = match limit {
         Some(limit) => {
@@ -273,7 +344,7 @@ fn image_type(bytes: &[u8]) -> Option<&'static str> {
         let header = bytes.len() >= 16
             && at(12, b"IHDR")
             && be32(bytes, 8) == 13;
-        return (header && !animated_png(bytes))
+        return (header && !is_animated_png(bytes))
             .then_some("image/png");
     }
     if at(0, b"GIF87a") || at(0, b"GIF89a") {
@@ -291,7 +362,7 @@ fn be32(bytes: &[u8], offset: usize) -> usize {
     })
 }
 
-fn animated_png(bytes: &[u8]) -> bool {
+fn is_animated_png(bytes: &[u8]) -> bool {
     let mut offset = 8;
     while offset + 8 <= bytes.len() {
         match &bytes[offset + 4..offset + 8] {
@@ -313,7 +384,7 @@ fn animated_png(bytes: &[u8]) -> bool {
 async fn queued(
     env: &mut impl Reach,
     path: &str,
-) -> Result<(), Thrown> {
+) -> Result<(), CallError> {
     let mut path = path.to_owned();
     loop {
         match env.canonical_path(&path).await {
@@ -326,7 +397,7 @@ async fn queued(
                 }
                 path = parent;
             }
-            Err(error) => return Err(error.message),
+            Err(error) => return Err(error.into()),
         }
     }
 }
@@ -360,7 +431,7 @@ pub(super) async fn write(
 pub(super) async fn preview(
     env: &mut impl Reach,
     path: &str,
-) -> Result<Option<String>, Thrown> {
+) -> Result<Option<String>, FileError> {
     let full = env.footing(path).await?;
     Ok(match env.read_text(&full).await {
         Ok(text) => Some(text),
@@ -429,32 +500,26 @@ async fn edited(
     env: &mut impl Reach,
     path: &str,
     replaces: &[Replace],
-) -> Result<Outcome, Thrown> {
+) -> Result<Outcome, CallError> {
     if replaces.is_empty() {
-        return Err("Edit tool input is invalid. edits must \
-                    contain at least one replacement."
-            .into());
+        return Err(CallError::NoEdits);
     }
-    let access = |error: FileError| {
-        format!(
-            "Could not edit file: {path}. Error code: {}.",
-            error.code.as_str()
-        )
+    let access = |error: FileError| CallError::Unedited {
+        path: path.into(),
+        code: error.code,
     };
     let absolute = tool_path(env, path);
     queued(env, &absolute).await?;
     let info = env.file_info(&absolute).await.map_err(access)?;
     if !matches!(info.kind, FileKind::File | FileKind::Symlink) {
-        return Err(format!(
-            "Could not edit file: {path}. Path is not a file."
-        ));
+        return Err(CallError::NotAFile(path.into()));
     }
     let content = env.read_text(&absolute).await.map_err(access)?;
     let (bom, content) = match content.strip_prefix('\u{feff}') {
         Some(rest) => ("\u{feff}", rest),
         None => ("", content.as_str()),
     };
-    let crlf = line_ending_is_crlf(content);
+    let crlf = has_crlf_endings(content);
     let base = to_lf(content);
     let new = apply(&base, replaces, path)?;
     let written = if crlf {
@@ -526,7 +591,7 @@ fn repaired(arguments: &Map<String, Value>) -> Map<String, Value> {
     args
 }
 
-fn line_ending_is_crlf(content: &str) -> bool {
+fn has_crlf_endings(content: &str) -> bool {
     match (content.find("\r\n"), content.find('\n')) {
         (Some(crlf), Some(lf)) => crlf < lf,
         _ => false,
@@ -542,7 +607,7 @@ fn fuzzy(text: &str) -> String {
     let normal = text.nfkc().collect::<String>();
     normal
         .split('\n')
-        .map(|line| line.trim_end_matches(super::pi_space))
+        .map(|line| line.trim_end_matches(super::is_pi_space))
         .collect::<Vec<_>>()
         .join("\n")
         .chars()
@@ -594,7 +659,7 @@ fn apply(
     base: &str,
     replaces: &[Replace],
     path: &str,
-) -> Result<String, Thrown> {
+) -> Result<String, CallError> {
     let edits = replaces
         .iter()
         .map(|each| Replace {
@@ -605,10 +670,11 @@ fn apply(
     let many = edits.len() > 1;
     if let Some(i) = edits.iter().position(|edit| edit.old.is_empty())
     {
+        let path = path.into();
         return Err(if many {
-            format!("edits[{i}].oldText must not be empty in {path}.")
+            CallError::EmptyOldAt { index: i, path }
         } else {
-            format!("oldText must not be empty in {path}.")
+            CallError::EmptyOld(path)
         });
     }
     let used_fuzzy = edits.iter().any(|edit| {
@@ -623,34 +689,24 @@ fn apply(
     for (i, edit) in edits.iter().enumerate() {
         let Some((at, length, _)) = find(&replaced_in, &edit.old)
         else {
+            let path = path.into();
             return Err(if many {
-                format!(
-                    "Could not find edits[{i}] in {path}. The \
-                     oldText must match exactly including all \
-                     whitespace and newlines."
-                )
+                CallError::MissingAt { index: i, path }
             } else {
-                format!(
-                    "Could not find the exact text in {path}. The \
-                     old text must match exactly including all \
-                     whitespace and newlines."
-                )
+                CallError::Missing(path)
             });
         };
         let count = occurrences(&replaced_in, &edit.old);
         if count > 1 {
+            let path = path.into();
             return Err(if many {
-                format!(
-                    "Found {count} occurrences of edits[{i}] in \
-                     {path}. Each oldText must be unique. Please \
-                     provide more context to make it unique."
-                )
+                CallError::RepeatedAt {
+                    count,
+                    index: i,
+                    path,
+                }
             } else {
-                format!(
-                    "Found {count} occurrences of the text in \
-                     {path}. The text must be unique. Please \
-                     provide more context to make it unique."
-                )
+                CallError::Repeated { count, path }
             });
         }
         matched.push(Matched {
@@ -663,11 +719,11 @@ fn apply(
     matched.sort_by_key(|each| each.at);
     for pair in matched.windows(2) {
         if pair[0].at + pair[0].length > pair[1].at {
-            return Err(format!(
-                "edits[{}] and edits[{}] overlap in {path}. Merge \
-                 them into one edit or target disjoint regions.",
-                pair[0].index, pair[1].index
-            ));
+            return Err(CallError::Overlap {
+                first: pair[0].index,
+                second: pair[1].index,
+                path: path.into(),
+            });
         }
     }
     let new = if used_fuzzy {
@@ -676,18 +732,11 @@ fn apply(
         replaced(&replaced_in, &matched.iter().collect::<Vec<_>>(), 0)
     };
     if new == base {
+        let path = path.into();
         return Err(if many {
-            format!(
-                "No changes made to {path}. The replacements \
-                 produced identical content."
-            )
+            CallError::UnchangedAll(path)
         } else {
-            format!(
-                "No changes made to {path}. The replacement \
-                 produced identical content. This might indicate an \
-                 issue with special characters or the text not \
-                 existing as expected."
-            )
+            CallError::Unchanged(path)
         });
     }
     Ok(new)
@@ -714,10 +763,7 @@ fn preserving_lines(
     original: &str,
     fuzzy_base: &str,
     matched: &[Matched],
-) -> Result<String, Thrown> {
-    let outside = || {
-        "Replacement range is outside the base content.".to_owned()
-    };
+) -> Result<String, CallError> {
     let originals =
         original.split_inclusive('\n').collect::<Vec<_>>();
     let mut spans = Vec::new();
@@ -727,9 +773,7 @@ fn preserving_lines(
         offset += line.len();
     }
     if originals.len() != spans.len() {
-        return Err("Cannot preserve unchanged lines because the \
-                    base content has a different line count."
-            .into());
+        return Err(CallError::LineCount);
     }
     // Groups of replacements by the lines they touch, as (first line,
     // end line, replacements).
@@ -738,12 +782,12 @@ fn preserving_lines(
         let start = spans
             .iter()
             .position(|(from, to)| each.at >= *from && each.at < *to)
-            .ok_or_else(outside)?;
+            .ok_or(CallError::Outside)?;
         let end = start
             + spans[start..]
                 .iter()
                 .position(|(_, to)| *to >= each.at + each.length)
-                .ok_or_else(outside)?;
+                .ok_or(CallError::Outside)?;
         match groups.last_mut() {
             Some(group) if start < group.1 => {
                 group.1 = group.1.max(end + 1);
@@ -781,8 +825,9 @@ mod tests {
     #[test]
     fn refuses_an_edit_with_pi_s_words() {
         let base = "one\ntwo\nthree\ntwo\n";
-        let refused =
-            |pairs| apply(base, &edits(pairs), "f").unwrap_err();
+        let refused = |pairs| {
+            apply(base, &edits(pairs), "f").unwrap_err().to_string()
+        };
         assert_eq!(
             refused(&[("four", "4")]),
             "Could not find the exact text in f. The old text must \

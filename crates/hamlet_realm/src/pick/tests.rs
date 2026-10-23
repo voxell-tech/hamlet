@@ -31,8 +31,8 @@ fn a_house_does_not_keep_the_pointer_from_the_agent_behind_it() {
             ))
             .id()
     };
-    let house = stand(Thing::ResidentHouse(agent), 0.0);
-    let behind = stand(Thing::Resident(agent), -4.0);
+    let house = stand(Thing::House(agent), 0.0);
+    let behind = stand(Thing::Agent(agent), -4.0);
     let surface = world.spawn(WorldSurface).id();
     let camera = world.spawn(WorldCamera).id();
     let hit = HitData::new(camera, 0.0, None, None);
@@ -52,7 +52,7 @@ fn a_house_does_not_keep_the_pointer_from_the_agent_behind_it() {
     app.update();
     assert_eq!(
         app.world().resource::<Hovered>().0,
-        Some(Thing::Resident(agent))
+        Some(Thing::Agent(agent))
     );
 
     // An agent held in the hand is skipped.
@@ -60,7 +60,7 @@ fn a_house_does_not_keep_the_pointer_from_the_agent_behind_it() {
     app.update();
     assert_eq!(
         app.world().resource::<Hovered>().0,
-        Some(Thing::ResidentHouse(agent))
+        Some(Thing::House(agent))
     );
 
     // Nothing is hovered off the world.

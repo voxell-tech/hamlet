@@ -6,7 +6,9 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 use bevy::prelude::*;
 use hamlet_assets::tint::hex;
-use hamlet_realm::meshes::{Line, Mb, Rng, fbm, noise2, smoothstep};
+use hamlet_realm::meshes::{
+    Line, Meshing, Rng, fbm, noise2, smoothstep,
+};
 use hamlet_realm::palette::Palette;
 
 use super::cottage::cottage;
@@ -255,21 +257,21 @@ impl Terrain {
 /// Meshes grouped by the material they need.
 #[derive(Default)]
 pub struct Built {
-    pub ground: Mb,
+    pub ground: Meshing,
     /// Stone, timber, plaster: single-sided, casts shadows.
-    pub solid: Mb,
+    pub solid: Meshing,
     /// Canvas: double-sided, casts shadows.
-    pub cloth: Mb,
+    pub cloth: Meshing,
     /// Tree crowns and bushes: unculled, lit from one side, casts
     /// shadows.
-    pub leaf: Mb,
+    pub leaf: Meshing,
     /// Grass and flowers: unculled, lit from one side, casts
     /// nothing.
-    pub tuft: Mb,
-    pub water: Mb,
-    pub brass: Mb,
-    pub iron: Mb,
-    pub window: Mb,
+    pub tuft: Meshing,
+    pub water: Meshing,
+    pub brass: Meshing,
+    pub iron: Meshing,
+    pub window: Meshing,
 }
 
 pub fn build(terrain: &Terrain, pal: &Palette) -> Built {
@@ -287,7 +289,7 @@ pub fn build(terrain: &Terrain, pal: &Palette) -> Built {
     b
 }
 
-fn ground(mb: &mut Mb, t: &Terrain, pal: &Palette) {
+fn ground(meshing: &mut Meshing, t: &Terrain, pal: &Palette) {
     // Fine cells where the camera looks, stretching toward the
     // horizon.
     let axis = |lo: f32, hi: f32| {
@@ -319,7 +321,7 @@ fn ground(mb: &mut Mb, t: &Terrain, pal: &Palette) {
                 2.0 * e,
                 t.ground_y(x, z - e) - t.ground_y(x, z + e),
             );
-            ids[i][j] = mb.v(
+            ids[i][j] = meshing.v(
                 Vec3::new(x, y, z),
                 n.normalize(),
                 t.ground_colour(pal, x, z, y),
@@ -328,7 +330,7 @@ fn ground(mb: &mut Mb, t: &Terrain, pal: &Palette) {
     }
     for i in 0..xs.len() - 1 {
         for j in 0..zs.len() - 1 {
-            mb.quad(
+            meshing.quad(
                 ids[i][j],
                 ids[i][j + 1],
                 ids[i + 1][j + 1],
@@ -395,7 +397,7 @@ fn water(b: &mut Built, t: &Terrain, pal: &Palette) {
 }
 
 /// Dressed stone along both banks, each block a little out of true.
-fn quay(mb: &mut Mb, t: &Terrain, pal: &Palette) {
+fn quay(meshing: &mut Meshing, t: &Terrain, pal: &Palette) {
     let mut rng = Rng::seeded("canal quay");
     for side in [-1.0f32, 1.0] {
         let mut s = t.canal.total() * 0.18;
@@ -415,7 +417,7 @@ fn quay(mb: &mut Mb, t: &Terrain, pal: &Palette) {
                     .lerp(pal.limestone_shade, rng.f() * 0.35)
                     * rng.value(0.05);
                 let h = rng.range(0.52, 0.58);
-                mb.rbox(
+                meshing.rbox(
                     c + Vec3::Y * (0.1 - h),
                     Vec3::new(0.19, h, len * 0.5 - 0.012),
                     0.04,
@@ -429,7 +431,7 @@ fn quay(mb: &mut Mb, t: &Terrain, pal: &Palette) {
     }
 }
 
-fn bridge(mb: &mut Mb, t: &Terrain, pal: &Palette) {
+fn bridge(meshing: &mut Meshing, t: &Terrain, pal: &Palette) {
     let mut rng = Rng::seeded("bridge by the stall");
     let (c, tan) = (t.bridge_c, t.bridge_t);
     let n = Vec3::new(-tan.z, 0.0, tan.x);
@@ -459,7 +461,7 @@ fn bridge(mb: &mut Mb, t: &Terrain, pal: &Palette) {
                 .limestone
                 .lerp(pal.limestone_shade, rng.f() * 0.3)
                 * rng.value(0.05);
-            mb.face(
+            meshing.face(
                 [
                     at(u0, w0, y0),
                     at(u1, w0, y1),
@@ -479,7 +481,7 @@ fn bridge(mb: &mut Mb, t: &Terrain, pal: &Palette) {
                 .lerp(pal.limestone_shade, 0.25 + rng.f() * 0.3)
                 * rng.value(0.05);
             let shade = col * 0.62;
-            mb.face_cols(
+            meshing.face_cols(
                 [
                     at(u0, w, b0),
                     at(u1, w, b1),
@@ -491,7 +493,7 @@ fn bridge(mb: &mut Mb, t: &Terrain, pal: &Palette) {
             );
         }
         let dark = pal.limestone_shade * 0.45;
-        mb.face(
+        meshing.face(
             [
                 at(u0, -hw, b0),
                 at(u1, -hw, b1),
@@ -506,7 +508,7 @@ fn bridge(mb: &mut Mb, t: &Terrain, pal: &Palette) {
         [(-t.at.bridge_half, -1.0), (t.at.bridge_half, 1.0)]
     {
         let y = t.deck_y(u);
-        mb.face(
+        meshing.face(
             [
                 at(u, -hw, -0.7),
                 at(u, hw, -0.7),
@@ -537,7 +539,7 @@ fn bridge(mb: &mut Mb, t: &Terrain, pal: &Palette) {
                 .limestone
                 .lerp(pal.limestone_shade, rng.f() * 0.25)
                 * rng.value(0.06);
-            mb.rbox(
+            meshing.rbox(
                 p,
                 Vec3::new(0.155, 0.12, 0.05),
                 0.03,
@@ -562,7 +564,7 @@ fn bridge(mb: &mut Mb, t: &Terrain, pal: &Palette) {
                 * rng.wobble(2.0);
             let h = rng.range(0.13, 0.16);
             let col = pal.limestone * rng.value(0.07);
-            mb.rbox(
+            meshing.rbox(
                 at(mid, side * (hw - 0.06), t.deck_y(mid) + h - 0.02),
                 Vec3::new(len * 0.5 - 0.012, h, 0.11),
                 0.04,
@@ -575,7 +577,7 @@ fn bridge(mb: &mut Mb, t: &Terrain, pal: &Palette) {
     }
 }
 
-fn doorstep(mb: &mut Mb, t: &Terrain, pal: &Palette) {
+fn doorstep(meshing: &mut Meshing, t: &Terrain, pal: &Palette) {
     let mut rng = Rng::seeded("web-search doorstep");
     // Two slabs with the groove's seam between them.
     for side in [-1.0f32, 1.0] {
@@ -590,7 +592,7 @@ fn doorstep(mb: &mut Mb, t: &Terrain, pal: &Palette) {
                 t.at.step_top - 0.11,
                 0.0,
             );
-        mb.rbox(
+        meshing.rbox(
             c,
             half,
             0.035,

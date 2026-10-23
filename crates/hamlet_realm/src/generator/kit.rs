@@ -9,7 +9,7 @@ use super::land::Land;
 use super::loading::Bed;
 use super::{Tally, flora, traffic, yard};
 use crate::Stock;
-use crate::keeper::KState;
+use crate::keeper::KeeperState;
 use crate::lantern::lantern_glass;
 use crate::palette::Palette;
 
@@ -20,7 +20,7 @@ pub(super) struct Kit {
     pub(super) matte: Handle<StandardMaterial>,
     pub(super) windows: Handle<StandardMaterial>,
     /// One lantern material per state, in the order of
-    /// [`KState::ALL`].
+    /// [`KeeperState::ALL`].
     pub(super) lamps: [Handle<StandardMaterial>; 5],
     pub(super) lamp_glass: Handle<Mesh>,
     /// The wheel of a yard's engine and a ring of its steam.
@@ -38,8 +38,11 @@ pub(super) struct Kit {
     pub(super) groove: Handle<InlayMaterial>,
 }
 
-pub(super) fn state_index(state: KState) -> usize {
-    KState::ALL.iter().position(|&s| s == state).unwrap_or(0)
+pub(super) fn state_index(state: KeeperState) -> usize {
+    KeeperState::ALL
+        .iter()
+        .position(|&s| s == state)
+        .unwrap_or(0)
 }
 
 pub(super) fn setup(
@@ -51,7 +54,7 @@ pub(super) fn setup(
     pal: Res<Palette>,
     stock: Res<Stock>,
 ) {
-    let lamps = KState::ALL.map(|_| {
+    let lamps = KeeperState::ALL.map(|_| {
         materials.add(StandardMaterial {
             base_color: pal.glass_lit,
             perceptual_roughness: 0.4,

@@ -1,6 +1,6 @@
-//! A watched chat's items, kept up to date by its live ops.
+//! A watched chat's items, kept up to date by its live operations.
 
-use crate::client::{Change, Item, Op};
+use crate::client::{Change, Item, TranscriptOperation};
 
 /// An item of a chat as a client keeps it.
 pub trait Kept {
@@ -14,27 +14,41 @@ pub trait Kept {
     fn close(&mut self, closed: Closed<'_>) -> bool;
 }
 
-/// The end of a tool call, as an [`Op::Close`] gives it.
+/// The end of a tool call, as a [`TranscriptOperation::Close`] gives
+/// it.
 #[derive(Clone, Copy, Debug)]
 pub struct Closed<'a> {
     pub exit: i64,
     pub ms: Option<u64>,
     pub failure: Option<&'a str>,
-    /// The completed write's change, when the op carries one.
+    /// The completed write's change, when the operation carries one.
     pub change: Option<Option<&'a Change>>,
 }
 
-/// Applies `op` to the `items` of a chat, making an added item with
-/// `keep`. `Err` names an item the op refers to that is missing from
-/// `items` or holds no tool call; the rest of the op still applies.
+/// An item a [`TranscriptOperation`] refers to that a chat's items
+/// do not hold as it says.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum Mismatch {
+    /// No item has this id.
+    #[error("No item {0}")]
+    Missing(String),
+    /// The item with this id holds no tool call to close.
+    #[error("{0} is no tool call")]
+    NoToolCall(String),
+}
+
+/// Applies `operation` to the `items` of a chat, making an added item
+/// with `keep`. `Err` names an item the operation refers to that is
+/// missing from `items` or holds no tool call; the rest of the
+/// operation still applies.
 pub fn apply<T: Kept>(
     items: &mut Vec<T>,
-    op: &Op,
+    operation: &TranscriptOperation,
     keep: impl FnOnce(&Item) -> T,
-) -> Result<(), String> {
-    let missing = |id: &str| Err(format!("No item {id}"));
-    match op {
-        Op::Add { item, replaces } => {
+) -> Result<(), Mismatch> {
+    let missing = |id: &str| Err(Mismatch::Missing(id.to_owned()));
+    match operation {
+        TranscriptOperation::Add { item, replaces } => {
             let at = replaces.as_deref().map(|id| {
                 items
                     .iter()
@@ -50,7 +64,7 @@ pub fn apply<T: Kept>(
                 _ => Ok(()),
             }
         }
-        Op::Append { item, text } => {
+        TranscriptOperation::Append { item, text } => {
             match items.iter_mut().find(|kept| kept.id() == item) {
                 Some(kept) => {
                     kept.append(text);
@@ -59,7 +73,7 @@ pub fn apply<T: Kept>(
                 None => missing(item),
             }
         }
-        Op::Close {
+        TranscriptOperation::Close {
             item,
             exit,
             ms,
@@ -78,15 +92,18 @@ pub fn apply<T: Kept>(
                 .map(|kept| kept.close(closed))
             {
                 Some(true) => Ok(()),
-                Some(false) => Err(format!("{item} is no tool call")),
+                Some(false) => {
+                    Err(Mismatch::NoToolCall(item.clone()))
+                }
                 None => missing(item),
             }
         }
-        Op::Reset {} => {
+        TranscriptOperation::Reset {} => {
             items.clear();
             Ok(())
         }
-        Op::Status { .. } | Op::Usage { .. } => Ok(()),
+        TranscriptOperation::Status { .. }
+        | TranscriptOperation::Usage { .. } => Ok(()),
     }
 }
 
@@ -121,11 +138,11 @@ mod tests {
 
     fn fold(
         items: &mut Vec<Item>,
-        op: serde_json::Value,
-    ) -> Result<(), String> {
+        operation: serde_json::Value,
+    ) -> Result<(), Mismatch> {
         apply(
             items,
-            &serde_json::from_value(op).unwrap(),
+            &serde_json::from_value(operation).unwrap(),
             Item::clone,
         )
     }
@@ -167,23 +184,23 @@ mod tests {
         let tool = items[0].tool.as_ref().unwrap();
         assert_eq!((tool.exit, tool.ms), (Some(7), Some(3)));
         assert_eq!(tool.failure.as_deref(), Some("broken"));
-        assert!(
+        assert_eq!(
             fold(
                 &mut items,
                 json!({"op": "close", "item": "entry", "exit": 0,
                 "ms": null, "failure": null})
-            )
-            .is_err()
+            ),
+            Err(Mismatch::NoToolCall("entry".into()))
         );
         // The added item is kept even when the one it replaces is
         // gone.
-        assert!(
+        assert_eq!(
             fold(
                 &mut items,
                 json!({"op": "add", "replaces": "live",
                 "item": item("again", "")})
-            )
-            .is_err()
+            ),
+            Err(Mismatch::Missing("live".into()))
         );
         assert_eq!(items.len(), 3);
         fold(&mut items, json!({"op": "reset"})).unwrap();

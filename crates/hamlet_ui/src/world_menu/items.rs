@@ -7,9 +7,9 @@ use bevy::math::Vec2;
 use bevy_fynix::ViewExt;
 use bevy_fynix::views::{BehaviorExt, label, menu_item};
 use hamlet_client::gifts::{give, offers};
-use hamlet_client::messages::UserMessage;
+use hamlet_client::messages::ChiefMessage;
 use hamlet_client::realm::{
-    self as agents, Busy, Deeds, HOME, Left, Mayor, Road, Settlement,
+    self as agents, Busy, Deeds, HOME, HamletId, Left, Mayor, Road,
     road_between, roads_of,
 };
 use hamlet_realm::generator::society::Ground;
@@ -24,10 +24,11 @@ use crate::{AnyView, chat};
 
 /// An agent of the hamlet that is not its mayor and has not left,
 /// with its name.
-fn resident(world: &World, thing: Thing) -> Option<(Entity, String)> {
-    let (Thing::Resident(agent) | Thing::ResidentHouse(agent)) =
-        thing
-    else {
+fn plain_agent(
+    world: &World,
+    thing: Thing,
+) -> Option<(Entity, String)> {
+    let (Thing::Agent(agent) | Thing::House(agent)) = thing else {
         return None;
     };
     let plain = world.get::<Mayor>(agent).is_none()
@@ -80,7 +81,7 @@ fn focus(thing: Thing) -> AnyView {
 fn new_conversation(agent: Entity) -> AnyView {
     item("New Conversation".into(), move |world| {
         if let Some(to) = agents::address_of(world, agent) {
-            world.trigger(UserMessage {
+            world.trigger(ChiefMessage {
                 to,
                 text: "/new".into(),
             });
@@ -90,7 +91,7 @@ fn new_conversation(agent: Entity) -> AnyView {
 }
 
 fn gifts(world: &World, agent: Entity, at: Vec2) -> Vec<AnyView> {
-    if !Deeds::allows(world, "give")
+    if !Deeds::is_allowed(world, "give")
         || offers(world, agent).is_empty()
     {
         return Vec::new();
@@ -129,7 +130,7 @@ fn for_mayor(world: &World, at: Vec2) -> Vec<AnyView> {
 }
 
 fn for_ruin(world: &World, agent: Entity) -> Vec<AnyView> {
-    if Deeds::allows(world, "restore") {
+    if Deeds::is_allowed(world, "restore") {
         vec![item(
             format!("Restore {}", agents::name_of(world, agent)),
             move |world| restore(world, agent),
@@ -139,7 +140,7 @@ fn for_ruin(world: &World, agent: Entity) -> Vec<AnyView> {
     }
 }
 
-fn for_resident(
+fn for_agent(
     world: &World,
     thing: Thing,
     agent: Entity,
@@ -168,7 +169,7 @@ fn for_resident(
     items.push(item("Undo the Last Change".into(), move |world| {
         orders::decree(world, agent, "/undo".into());
     }));
-    let Some((_, me)) = resident(world, thing) else {
+    let Some((_, me)) = plain_agent(world, thing) else {
         return items;
     };
     // The other of the two that are chosen, if there are two.
@@ -177,17 +178,17 @@ fn for_resident(
     let other = chosen
         .into_iter()
         .flatten()
-        .filter_map(|thing| resident(world, thing))
+        .filter_map(|thing| plain_agent(world, thing))
         .find(|(other, _)| *other != agent);
     let chosen = other.as_ref().map(|(them, _)| *them);
     if let Some((them, other)) = other.clone() {
         let joined = road_between(world, agent, them).is_some();
-        if joined && Deeds::allows(world, "unroad") {
+        if joined && Deeds::is_allowed(world, "unroad") {
             items.push(item(
                 format!("Remove the road to {other}"),
                 move |w| orders::part(w, agent, them),
             ));
-        } else if !joined && Deeds::allows(world, "road") {
+        } else if !joined && Deeds::is_allowed(world, "road") {
             items.push(item(
                 format!("Build a road to {other}"),
                 move |w| orders::introduce(w, agent, them),
@@ -195,7 +196,7 @@ fn for_resident(
         }
     }
     if let Some((them, other)) =
-        other.filter(|_| Deeds::allows(world, "merge"))
+        other.filter(|_| Deeds::is_allowed(world, "merge"))
     {
         let into_me = Deed::Merge {
             absorbed: them,
@@ -219,21 +220,22 @@ fn for_resident(
     // The roads it has, besides the one to the other of
     // two that are chosen, which is offered above.
     for (peer, name) in joined(world, agent) {
-        if Some(peer) != chosen && Deeds::allows(world, "unroad") {
+        if Some(peer) != chosen && Deeds::is_allowed(world, "unroad")
+        {
             items.push(item(
                 format!("Remove the road to {name}"),
                 move |w| orders::part(w, agent, peer),
             ));
         }
     }
-    if Deeds::allows(world, "mayor") {
+    if Deeds::is_allowed(world, "mayor") {
         items.push(asking(
             format!("Make {me} Mayor..."),
             Deed::Mayor(agent),
             at,
         ));
     }
-    if Deeds::allows(world, "remove") {
+    if Deeds::is_allowed(world, "remove") {
         items.push(asking(
             format!("Remove {me}..."),
             Deed::Remove(agent),
@@ -254,17 +256,17 @@ fn for_common(
     // It is closed by the name commands know it by. The
     // first hamlet is the home itself and stays.
     let id = world
-        .get::<Settlement>(hamlet)
-        .map(|settlement| settlement.name.clone())
+        .get::<HamletId>(hamlet)
+        .map(|id| id.0.clone())
         .unwrap_or_default();
-    if Deeds::allows(world, "move-hamlet") {
+    if Deeds::is_allowed(world, "move-hamlet") {
         items.push(item(format!("Move {name}..."), move |w| {
             orders::carry(w, hamlet);
         }));
     }
     if !id.is_empty()
         && id != HOME
-        && Deeds::allows(world, "remove-hamlet")
+        && Deeds::is_allowed(world, "remove-hamlet")
     {
         items.push(asking(
             format!("Close Down {name}..."),
@@ -321,8 +323,8 @@ pub(super) fn items(
     match thing {
         Thing::Keeper | Thing::Cottage => for_mayor(world, at),
         Thing::Ruin(agent) => for_ruin(world, agent),
-        Thing::Resident(agent) | Thing::ResidentHouse(agent) => {
-            for_resident(world, thing, agent, at)
+        Thing::Agent(agent) | Thing::House(agent) => {
+            for_agent(world, thing, agent, at)
         }
         Thing::Common(hamlet) => for_common(world, thing, hamlet, at),
         Thing::Clockwork(hamlet) | Thing::Workbench(hamlet) => {

@@ -24,7 +24,7 @@ fn whole(land: &Land, tiles: &[Tile], sight: &Sight) {
     let chunk = land.set.land.chunk;
     for (i, a) in tiles.iter().enumerate() {
         for b in &tiles[i + 1..] {
-            assert!(!a.covers(*b) && !b.covers(*a), "{a:?} {b:?}");
+            assert!(!a.is_over(*b) && !b.is_over(*a), "{a:?} {b:?}");
         }
     }
     for k in 0..400 {
@@ -38,7 +38,7 @@ fn whole(land: &Land, tiles: &[Tile], sight: &Sight) {
             z: cell.y as i32,
         };
         assert!(
-            tiles.iter().any(|t| t.covers(finest)),
+            tiles.iter().any(|t| t.is_over(finest)),
             "nothing under {p}"
         );
     }
@@ -56,7 +56,7 @@ fn a_river_does_not_spread_into_a_coarse_tile_beside_it() {
             let tile = Tile { level: 4, x, z };
             let side = tile.side(chunk);
             let near = land.river_dist(tile.middle(chunk));
-            if watered(&land, tile) || near > side {
+            if is_watered(&land, tile) || near > side {
                 continue;
             }
             beside += 1;

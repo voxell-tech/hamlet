@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::heard::turn_of_day;
-use super::mix::{Heard, admit};
+use super::mix::{Admission, Heard, admit};
 use super::*;
 use crate::DayPart;
 
@@ -26,7 +26,7 @@ fn every_sound_is_made_whole() {
         assert!(rms > 0.004, "{sound:?} {rms}");
         let mean = samples.iter().sum::<f32>() / samples.len() as f32;
         assert!(mean.abs() < 1e-3, "{sound:?} {mean}");
-        if !sound.ambient() {
+        if !sound.is_ambient() {
             // It ends in silence, so it does not click.
             assert!(samples.last().unwrap().abs() < 0.01);
             assert!(samples.len() < 2 * RATE as usize);
@@ -102,49 +102,43 @@ fn a_family_takes_only_so_many_and_no_echo_of_itself() {
     };
     let mut heard = Heard::default();
     let mut playing = HashMap::<Family, usize>::new();
-    assert!(admit(&cue(Sound::Pat), &set, &mut heard, &playing, 1.0));
+    assert_eq!(
+        admit(&cue(Sound::Pat), &set, &mut heard, &playing, 1.0),
+        Admission::Passed
+    );
     playing.insert(Family::Hand, 1);
     // The same sound again too soon, then late enough.
-    assert!(!admit(
-        &cue(Sound::Pat),
-        &set,
-        &mut heard,
-        &playing,
-        1.2
-    ));
-    assert!(admit(&cue(Sound::Pat), &set, &mut heard, &playing, 1.6));
+    assert_eq!(
+        admit(&cue(Sound::Pat), &set, &mut heard, &playing, 1.2),
+        Admission::Held
+    );
+    assert_eq!(
+        admit(&cue(Sound::Pat), &set, &mut heard, &playing, 1.6),
+        Admission::Passed
+    );
     playing.insert(Family::Hand, 2);
-    assert!(!admit(
-        &cue(Sound::Poke),
-        &set,
-        &mut heard,
-        &playing,
-        3.0
-    ));
+    assert_eq!(
+        admit(&cue(Sound::Poke), &set, &mut heard, &playing, 3.0),
+        Admission::Held
+    );
     // Another family is not held back by it.
-    assert!(admit(&cue(Sound::Tab), &set, &mut heard, &playing, 3.0));
+    assert_eq!(
+        admit(&cue(Sound::Tab), &set, &mut heard, &playing, 3.0),
+        Admission::Passed
+    );
     // A second alert within the gap is left out.
-    assert!(admit(
-        &cue(Sound::Chime),
-        &set,
-        &mut heard,
-        &playing,
-        4.0
-    ));
-    assert!(!admit(
-        &cue(Sound::Fault),
-        &set,
-        &mut heard,
-        &playing,
-        6.0
-    ));
-    assert!(admit(
-        &cue(Sound::Fault),
-        &set,
-        &mut heard,
-        &playing,
-        9.5
-    ));
+    assert_eq!(
+        admit(&cue(Sound::Chime), &set, &mut heard, &playing, 4.0),
+        Admission::Passed
+    );
+    assert_eq!(
+        admit(&cue(Sound::Fault), &set, &mut heard, &playing, 6.0),
+        Admission::Held
+    );
+    assert_eq!(
+        admit(&cue(Sound::Fault), &set, &mut heard, &playing, 9.5),
+        Admission::Passed
+    );
 }
 
 #[test]
@@ -177,7 +171,7 @@ fn the_day_turning_is_heard_once_each_way() {
 
 #[test]
 fn a_loop_has_no_seam() {
-    for sound in Sound::ALL.into_iter().filter(|s| s.ambient()) {
+    for sound in Sound::ALL.into_iter().filter(|s| s.is_ambient()) {
         let samples = sound.samples();
         let jump = |a: f32, b: f32| (a - b).abs();
         // The step over the seam is no larger than the steps

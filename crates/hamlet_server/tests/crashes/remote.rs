@@ -388,20 +388,20 @@ fn perform(
     let at = |path: &str, no_follow| {
         reached(root, &request, path, no_follow)
     };
-    use wire::Operation as Op;
+    use wire::Operation;
     let writes = matches!(
         request.operation,
-        Op::Write(_)
-            | Op::TreeWrite(_)
-            | Op::Remove(_)
-            | Op::Mkdir(_)
-            | Op::SetMode(_)
+        Operation::Write(_)
+            | Operation::TreeWrite(_)
+            | Operation::Remove(_)
+            | Operation::Mkdir(_)
+            | Operation::SetMode(_)
     );
     if request.read_only && writes {
         return Err(wire::Code::PermissionDenied);
     }
     match request.operation.clone() {
-        Op::InitHouse(_) => {
+        Operation::InitHouse(_) => {
             fs::create_dir_all(house.join("skills")).map_err(code)?;
             fs::create_dir_all(house.join("inbox")).map_err(code)?;
             if !house.join("NOTES.md").exists() {
@@ -410,19 +410,19 @@ fn perform(
             }
             ok(())
         }
-        Op::Info(info) => {
+        Operation::Info(info) => {
             ok(stat(&at(&info.path, info.no_follow)?)
                 .map_err(code)?)
         }
-        Op::Canonical(canonical) => ok(canonical.path),
-        Op::List(list) => {
+        Operation::Canonical(canonical) => ok(canonical.path),
+        Operation::List(list) => {
             ok(fs::read_dir(at(&list.path, list.no_follow)?)
                 .map_err(code)?
                 .map(|entry| stat(&entry?.path()))
                 .collect::<std::io::Result<Vec<_>>>()
                 .map_err(code)?)
         }
-        Op::Read(read) => {
+        Operation::Read(read) => {
             let path = at(&read.path, read.no_follow)?;
             if read.no_follow
                 && fs::symlink_metadata(&path)
@@ -436,7 +436,7 @@ fn perform(
                 data: wire::Bytes(fs::read(&path).map_err(code)?),
             })
         }
-        Op::Write(write) => {
+        Operation::Write(write) => {
             let path = at(&write.path, write.no_follow)?;
             if write.parents {
                 fs::create_dir_all(path.parent().unwrap())
@@ -452,7 +452,7 @@ fn perform(
                 .map_err(code)?;
             ok(())
         }
-        Op::TreeWrite(write) => {
+        Operation::TreeWrite(write) => {
             let path = at(&write.path, true)?;
             fs::create_dir_all(path.parent().unwrap())
                 .map_err(code)?;
@@ -470,7 +470,7 @@ fn perform(
                 .map_err(code)?;
             ok(())
         }
-        Op::SetMode(set) => {
+        Operation::SetMode(set) => {
             let path = at(&set.path, true)?;
             if fs::symlink_metadata(&path).map_err(code)?.is_symlink()
             {
@@ -483,7 +483,7 @@ fn perform(
             .map_err(code)?;
             ok(())
         }
-        Op::Mkdir(mkdir) => {
+        Operation::Mkdir(mkdir) => {
             let path = at(&mkdir.path, mkdir.no_follow)?;
             if mkdir.recursive {
                 fs::create_dir_all(path)
@@ -493,7 +493,7 @@ fn perform(
             .map_err(code)?;
             ok(())
         }
-        Op::TreeList(list) => {
+        Operation::TreeList(list) => {
             let path = at(&list.path, true)?;
             let mut entries = Vec::new();
             tree(&path, &path, &mut entries).map_err(code)?;
@@ -502,7 +502,7 @@ fn perform(
             }
             ok(entries)
         }
-        Op::Remove(remove) => {
+        Operation::Remove(remove) => {
             let path = at(&remove.path, remove.no_follow)?;
             let removed = match fs::symlink_metadata(&path) {
                 Ok(info) if info.is_dir() && remove.recursive => {
@@ -521,7 +521,7 @@ fn perform(
             }
             ok(())
         }
-        Op::Walk(walk) => {
+        Operation::Walk(walk) => {
             let root = at(&walk.path, true)?;
             let base = root.to_string_lossy().into_owned();
             let walked = wire::walk(
@@ -562,7 +562,7 @@ fn perform(
             );
             ok(walked)
         }
-        Op::Exec(_) => ok(wire::Ran {
+        Operation::Exec(_) => ok(wire::Ran {
             exit_code: 0,
             stdout: "remote-command-output".into(),
             stderr: String::new(),
@@ -596,7 +596,7 @@ fn credentials(home: &Scratch, url: &str) {
 }
 
 #[tokio::test]
-async fn remote_houses_prompt_gifts_and_backend_move_do_not_open_host_houses()
+async fn remote_houses_prompt_gifts_and_workspace_move_do_not_open_host_houses()
  {
     let manager = Manager::start();
     let home = Scratch::new("remote-houses");
@@ -882,11 +882,8 @@ async fn remote_startup_signal_releases_the_home_before_manager_ok() {
     })
     .await;
     assert!(!home.join("server.json").exists());
-    // SAFETY: kill sends a signal to this child's PID.
-    let sent = unsafe {
-        libc::kill(server.id().unwrap() as i32, libc::SIGTERM)
-    };
-    assert_eq!(sent, 0);
+    let pid = Pid::from_raw(server.id().unwrap() as i32).unwrap();
+    kill_process(pid, Signal::TERM).unwrap();
     let ended =
         tokio::time::timeout(Duration::from_secs(3), server.wait())
             .await

@@ -16,20 +16,20 @@ use super::lights::Lamp;
 use super::loading::Loading;
 use super::society::{AgentId, Pair, RoadLevel, Society, TownId};
 use super::work::{Engine, Passage, Robot};
-use super::{GenOptions, HouseMotion, Kit, Tally};
+use super::{GeneratorOptions, HouseMotion, Kit, Tally};
 use crate::Clock;
-use crate::keeper::{self, KState};
+use crate::keeper::{self, KeeperState};
 use crate::sky::SkySettings;
 
 #[derive(Clone, PartialEq)]
-pub(super) struct HouseSig {
+pub(super) struct HouseSignature {
     pub(super) site: usize,
     /// The place of its town.
     pub(super) at: Vec2,
     pub(super) plot: u32,
     pub(super) archived: bool,
     pub(super) cleared: bool,
-    pub(super) leader: bool,
+    pub(super) mayor: bool,
     pub(super) wings: u8,
 }
 
@@ -61,8 +61,9 @@ pub(super) struct TownDrawn {
 #[derive(Resource, Default)]
 pub(super) struct Drawn {
     pub(super) towns: HashMap<TownId, TownDrawn>,
-    pub(super) houses: HashMap<AgentId, (Entity, HouseSig, Cost)>,
-    pub(super) lamps: HashMap<AgentId, (Entity, KState)>,
+    pub(super) houses:
+        HashMap<AgentId, (Entity, HouseSignature, Cost)>,
+    pub(super) lamps: HashMap<AgentId, (Entity, KeeperState)>,
     pub(super) engines: HashMap<AgentId, Engine>,
     pub(super) robots: HashMap<AgentId, Entity>,
     pub(super) roads: HashMap<Pair, RoadDrawn>,
@@ -154,7 +155,7 @@ pub(super) struct Makings<'w, 's> {
     kit: Res<'w, Kit>,
     robot_kit: Res<'w, keeper::Kit>,
     sky: Res<'w, SkySettings>,
-    options: Res<'w, GenOptions>,
+    options: Res<'w, GeneratorOptions>,
     motion: Res<'w, HouseMotion>,
     clock: Res<'w, Clock>,
     passing: Query<'w, 's, &'static Passage>,

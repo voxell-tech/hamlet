@@ -84,14 +84,14 @@ pub fn change_between(
     let added = count_of(ChangeLinesMark::Plus);
     let removed = count_of(ChangeLinesMark::Minus);
     Change {
-        path: clip(path, WIDE, false, false),
+        path: clip(path, WIDE, Cut::Bare),
         created,
         lines: shown
             .iter()
             .take(KEPT)
             .map(|(mark, text)| ChangeLines {
                 mark: mark.clone(),
-                text: clip(text, WIDE, false, false),
+                text: clip(text, WIDE, Cut::Bare),
             })
             .collect(),
         total: shown.len() as u64,
@@ -208,31 +208,33 @@ pub fn lines_of(text: &str) -> Vec<&str> {
         .collect()
 }
 
-/// An excerpt of at most `most` characters. Unless `flat` is false,
-/// each run of white space is one space and the ends are trimmed;
-/// unless `dots` is false, a cut excerpt ends with `...`.
-#[expect(
-    clippy::fn_params_excessive_bools,
-    reason = "its bools are typed in Phase 5"
-)]
-pub fn clip(
-    text: &str,
-    most: usize,
-    flat: bool,
-    dots: bool,
-) -> String {
-    let shown = if flat {
-        text.split_whitespace().collect::<Vec<_>>().join(" ")
-    } else {
-        text.to_owned()
+/// The cut [`clip`] gives an excerpt.
+#[derive(Clone, Copy)]
+pub enum Cut {
+    /// As written, cut with nothing added.
+    Bare,
+    /// As written, a cut excerpt ending with `...`.
+    Dotted,
+    /// Each run of white space one space and the ends trimmed, a cut
+    /// excerpt ending with `...`.
+    Flat,
+}
+
+/// An excerpt of at most `most` characters, shown as `cut` says.
+pub fn clip(text: &str, most: usize, cut: Cut) -> String {
+    let shown = match cut {
+        Cut::Flat => {
+            text.split_whitespace().collect::<Vec<_>>().join(" ")
+        }
+        Cut::Bare | Cut::Dotted => text.to_owned(),
     };
     match shown.char_indices().nth(most) {
-        Some((cut, _)) => {
-            format!(
-                "{}{}",
-                &shown[..cut],
-                if dots { "..." } else { "" }
-            )
+        Some((end, _)) => {
+            let dots = match cut {
+                Cut::Bare => "",
+                Cut::Dotted | Cut::Flat => "...",
+            };
+            format!("{}{dots}", &shown[..end])
         }
         None => shown,
     }

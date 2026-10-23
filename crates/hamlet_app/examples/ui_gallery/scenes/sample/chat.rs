@@ -17,8 +17,8 @@ pub(super) fn conversation(lines: &[(&str, &str)]) -> Transcript {
                 at: 1_791_374_400_000 + at as u64 * 60_000,
                 entry: match *by {
                     "" => Entry::Assistant((*text).into()),
-                    by => Entry::User {
-                        user: by.into(),
+                    by => Entry::Chief {
+                        name: by.into(),
                         text: (*text).into(),
                     },
                 },
@@ -146,8 +146,8 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
             items.push(Item {
                 id: "reply:0".into(),
                 at: 1_791_374_580_000,
-                entry: Entry::User {
-                    user: "chief".into(),
+                entry: Entry::Chief {
+                    name: "chief".into(),
                     text: "(Replying to Pip: \"The key is by the \
                            mill door.\")\n\n> by the mill \
                            door\nWrite that into the almanac."

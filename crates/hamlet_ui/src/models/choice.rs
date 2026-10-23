@@ -99,17 +99,13 @@ fn whole(
         return;
     };
     let Some(place) = world
-        .get::<hamlet_client::realm::Settlement>(hamlet)
-        .map(|place| place.name.clone())
+        .get::<hamlet_client::realm::HamletId>(hamlet)
+        .map(|place| place.0.clone())
     else {
         return;
     };
     change(&mut limits);
-    let whole =
-        serde_json::from_value::<
-            std::collections::BTreeMap<String, serde_json::Value>,
-        >(serde_json::to_value(limits).expect("limits JSON"))
-        .expect("limits object");
+    let whole = crate::limits::whole_of(&limits);
     edit(world, |id| {
         protocol::Edit::Limits(protocol::EditLimits::Whole {
             id,
@@ -134,7 +130,7 @@ fn pin(world: &mut World, agent: Entity, model: &str) {
             id,
             hamlet: address.hamlet,
             reason: None,
-            set: protocol::EditLimitsSetSet {
+            set: protocol::LimitsEdit {
                 section: "pinned".into(),
                 key,
                 value: model.into(),

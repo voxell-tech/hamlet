@@ -11,6 +11,7 @@ description = "cargo xtask: builds, installs and checks Hamlet"
 [workspace]
 
 [dependencies]
+thiserror = "2"
 
 # The root workspace's lints, less print_stdout and print_stderr
 # (printing is this tool's job) and the two Bevy allows (xtask has

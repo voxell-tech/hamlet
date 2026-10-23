@@ -97,10 +97,15 @@ impl From<By> for String {
     }
 }
 
-impl TryFrom<String> for By {
-    type Error = String;
+/// A `by` that names no one who changes a record.
+#[derive(Debug, thiserror::Error)]
+#[error("`{0}` names no one who changes a record")]
+pub struct Nobody(String);
 
-    fn try_from(by: String) -> std::result::Result<Self, String> {
+impl TryFrom<String> for By {
+    type Error = Nobody;
+
+    fn try_from(by: String) -> std::result::Result<Self, Nobody> {
         match by.as_str() {
             "mayor" => return Ok(Self::Mayor),
             "realm" => return Ok(Self::Realm),
@@ -121,7 +126,7 @@ impl TryFrom<String> for By {
                 number,
             }));
         }
-        Err(format!("`{by}` names no one who changes a record"))
+        Err(Nobody(by))
     }
 }
 
@@ -515,7 +520,7 @@ impl Hamlet {
             })
     }
 
-    fn chief(&self, chief: &str) -> bool {
+    fn is_chief(&self, chief: &str) -> bool {
         self.chiefs.is_empty()
             || self.chiefs.iter().any(|c| c == chief)
     }
@@ -583,7 +588,7 @@ impl Operation for RecordOperation {
         let refused = match &self.actor {
             Actor::Member(_) => Some(self.refuse(Reason::NotMayor)),
             Actor::Chief(chief) => {
-                (!record.chief(chief)).then(|| {
+                (!record.is_chief(chief)).then(|| {
                     self.refuse(
                         if matches!(self.change, Change::Seat { .. })
                         {
@@ -657,15 +662,14 @@ impl Operation for RecordOperation {
                 )));
             };
             return Ok(match &self.actor {
-                Actor::Chief(chief) => {
-                    (!target.chief(chief)).then(|| {
+                Actor::Chief(chief) => (!target.is_chief(chief))
+                    .then(|| {
                         Refusal::new(
                             Action::Move,
                             to,
                             Reason::RecordChief,
                         )
-                    })
-                }
+                    }),
                 Actor::Mayors { joining, .. } => {
                     target.require_mayor(joining).or_else(|| {
                         target.may_decide(self.at, Action::Move)
@@ -847,7 +851,7 @@ impl Operation for FoundRecord {
         // The first request is made by home setup after
         // authenticating its chief.
         Ok(read(db, "home")?
-            .filter(|home| !home.chief(&self.chief))
+            .filter(|home| !home.is_chief(&self.chief))
             .map(|_| {
                 Refusal::new(
                     Action::Found,

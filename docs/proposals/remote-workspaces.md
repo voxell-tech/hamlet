@@ -1,9 +1,9 @@
 # Remote workspaces behind existing tools
 
 What remains to build and prove for remote workspaces. What works now,
-locally, is in [`sandbox.md`](../sandbox.md#a-remote-workspace); nothing
+locally, is in [`sandbox.md`](../sandbox.md#remote-workspaces); nothing
 has run on GKE yet. ADR 0003 and S12 place tool execution behind one
-interface; the remote backend must preserve the applicable C18-C21, S3 and
+interface; the remote workspace must preserve the applicable C18-C21, S3 and
 S7 contracts.
 
 ## Outcome
@@ -16,7 +16,7 @@ Substrate lifecycle client or Kubernetes credentials.
 A separate Rust workspace service manages the actor. One crate,
 `hamlet_workspace`, contains the service and an in-actor worker.
 The worker performs file/process operations; it is not another control-plane
-service. Keep the local backend as the default.
+service. Keep the local workspace as the default.
 
 Local evidence informs the implementation; live validation is required
 before its isolation guarantees are accepted.
@@ -136,7 +136,7 @@ egress gateway configured, but enforcement has not been established. Actor-wide
 egress also cannot replace per-command grants for agents sharing an actor.
 
 If a required boundary cannot be enforced, fail closed and report the blocked
-contract. Do not silently relabel the backend safe or replace isolation with
+contract. Do not silently relabel the remote workspace safe or replace isolation with
 agent naming conventions. Any weaker trust model or different actor layout
 needs a chief decision.
 

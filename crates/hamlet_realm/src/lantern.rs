@@ -5,7 +5,7 @@ use std::f32::consts::FRAC_PI_2;
 
 use bevy::prelude::*;
 
-use super::meshes::Mb;
+use super::meshes::Meshing;
 
 /// Lanterns burn as the day goes.
 pub(crate) fn plugin(app: &mut App) {
@@ -33,13 +33,13 @@ pub fn burn(
 /// Brass cap, base, bars and ring for a lantern whose glass is
 /// centred at `c`.
 pub fn lantern_frame(
-    mb: &mut Mb,
+    meshing: &mut Meshing,
     c: Vec3,
     r: f32,
     h: f32,
     col: Vec3,
 ) {
-    lantern_cage(mb, c, r, h, col);
+    lantern_cage(meshing, c, r, h, col);
     let cap = [
         (r * 1.25, 0.0),
         (r * 1.3, 0.015),
@@ -48,8 +48,8 @@ pub fn lantern_frame(
         (r * 0.16, h * 0.56),
         (0.0, h * 0.58),
     ];
-    mb.lathe(c + Vec3::Y * h * 0.5, &cap, 12, |_, _| col);
-    mb.torus(
+    meshing.lathe(c + Vec3::Y * h * 0.5, &cap, 12, |_, _| col);
+    meshing.torus(
         c + Vec3::Y * (h * 0.5 + h * 0.58 + r * 0.3),
         Vec3::Z,
         r * 0.38,
@@ -61,7 +61,7 @@ pub fn lantern_frame(
 
 /// A lantern's base and corner posts, with nothing on top.
 pub(crate) fn lantern_cage(
-    mb: &mut Mb,
+    meshing: &mut Meshing,
     c: Vec3,
     r: f32,
     h: f32,
@@ -74,11 +74,12 @@ pub(crate) fn lantern_cage(
         (r * 1.15, 0.0),
         (0.0, 0.0),
     ];
-    mb.lathe(c - Vec3::Y * h * 0.5, &base, 12, |_, _| col * 0.85);
+    meshing
+        .lathe(c - Vec3::Y * h * 0.5, &base, 12, |_, _| col * 0.85);
     for i in 0..4 {
         let a = i as f32 * FRAC_PI_2 + 0.785;
         let d = Vec3::new(a.cos(), 0.0, a.sin()) * r * 1.02;
-        mb.tube(
+        meshing.tube(
             c + d - Vec3::Y * h * 0.5,
             c + d + Vec3::Y * h * 0.5,
             r * 0.09,
@@ -92,8 +93,8 @@ pub(crate) fn lantern_cage(
 
 /// The glass of a lantern, centred on the origin.
 pub fn lantern_glass(r: f32, h: f32) -> Mesh {
-    let mut mb = Mb::new();
-    mb.tube(
+    let mut meshing = Meshing::new();
+    meshing.tube(
         Vec3::Y * -h * 0.5,
         Vec3::Y * h * 0.5,
         r * 0.93,
@@ -102,5 +103,5 @@ pub fn lantern_glass(r: f32, h: f32) -> Mesh {
         Vec3::ONE,
         true,
     );
-    mb.build()
+    meshing.build()
 }

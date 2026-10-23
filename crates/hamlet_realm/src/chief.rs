@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 use bevy::prelude::*;
-use hamlet_client::ViewDir;
+use hamlet_client::ViewFolder;
 
 pub use self::look::{Cloak, Hat, Holds, Light, Look};
 pub use self::wickstep::{Mascot, Phase, Stay};
@@ -60,7 +60,7 @@ pub(super) fn plugin(app: &mut App) {
         )
         .add_systems(
             Update,
-            keep_place.run_if(resource_exists::<ViewDir>),
+            keep_place.run_if(resource_exists::<ViewFolder>),
         );
 }
 
@@ -136,7 +136,7 @@ pub struct ChiefSettings {
 /// A human the world knows, by the name they sign in with.
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct Chief {
-    pub user: String,
+    pub name: String,
 }
 
 /// On the chief this app belongs to: the one whose place the hand
@@ -155,8 +155,8 @@ pub struct Beside(pub Option<Entity>);
 pub struct Stands(pub Vec2);
 
 impl Stands {
-    fn file(view: &Path, user: &str) -> PathBuf {
-        Look::file(view, user).with_extension("place")
+    fn file(view: &Path, name: &str) -> PathBuf {
+        Look::file(view, name).with_extension("place")
     }
 
     /// The spot `text` holds, as [`Self::write_at`] writes it.
@@ -176,9 +176,9 @@ impl Stands {
     pub fn write(
         self,
         view: &Path,
-        user: &str,
+        name: &str,
     ) -> std::io::Result<()> {
-        self.write_at(&Self::file(view, user))
+        self.write_at(&Self::file(view, name))
     }
 
     /// Keeps where a place was set down in `file`.
@@ -247,27 +247,27 @@ impl Kept {
         Ok(kept)
     }
 
-    /// The look kept for `user`, else the first look.
-    pub fn look(&self, user: &str) -> Look {
+    /// The look kept for `name`, else the first look.
+    pub fn look(&self, name: &str) -> Look {
         self.looks
-            .get(&look::kept_name(user))
+            .get(&look::kept_name(name))
             .copied()
             .unwrap_or_default()
     }
 
-    /// Where `user` last set its place down, if it has.
-    pub fn place(&self, user: &str) -> Option<Stands> {
-        self.places.get(&look::kept_name(user)).copied()
+    /// Where `name` last set its place down, if it has.
+    pub fn place(&self, name: &str) -> Option<Stands> {
+        self.places.get(&look::kept_name(name)).copied()
     }
 
-    /// Notes that `look` is kept for `user`.
-    pub fn keep_look(&mut self, user: &str, look: Look) {
-        self.looks.insert(look::kept_name(user), look);
+    /// Notes that `look` is kept for `name`.
+    pub fn keep_look(&mut self, name: &str, look: Look) {
+        self.looks.insert(look::kept_name(name), look);
     }
 
-    /// Notes that `stands` is kept for `user`.
-    pub fn keep_place(&mut self, user: &str, stands: Stands) {
-        self.places.insert(look::kept_name(user), stands);
+    /// Notes that `stands` is kept for `name`.
+    pub fn keep_place(&mut self, name: &str, stands: Stands) {
+        self.places.insert(look::kept_name(name), stands);
     }
 }
 
@@ -327,14 +327,14 @@ pub struct Place {
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct Settling;
 
-/// Brings the chief `user` into the world, looking like `look`.
-pub fn arrive(world: &mut World, user: &str, look: Look) -> Entity {
+/// Brings the chief `name` into the world, looking like `look`.
+pub fn arrive(world: &mut World, name: &str, look: Look) -> Entity {
     world
         .spawn((
             Chief {
-                user: user.to_string(),
+                name: name.to_string(),
             },
-            Name::new(user.to_string()),
+            Name::new(name.to_string()),
             look,
             Beside::default(),
         ))
@@ -343,31 +343,31 @@ pub fn arrive(world: &mut World, user: &str, look: Look) -> Entity {
 
 /// Keeps the place a chief set down.
 fn keep_place(
-    view: Res<ViewDir>,
+    view: Res<ViewFolder>,
     mut kept: ResMut<Kept>,
     placed: Query<(&Chief, &Stands), Changed<Stands>>,
 ) {
     for (chief, stands) in &placed {
         // One read back at launch is as it was written.
-        if kept.place(&chief.user) != Some(*stands) {
-            let _ = stands.write(&view.0, &chief.user);
-            kept.keep_place(&chief.user, *stands);
+        if kept.place(&chief.name) != Some(*stands) {
+            let _ = stands.write(&view.0, &chief.name);
+            kept.keep_place(&chief.name, *stands);
         }
     }
 }
 
-/// The chief called `user`, if the world knows one.
-pub fn named(world: &mut World, user: &str) -> Option<Entity> {
+/// The chief called `name`, if the world knows one.
+pub fn named(world: &mut World, name: &str) -> Option<Entity> {
     world
         .query::<(Entity, &Chief)>()
         .iter(world)
-        .find(|(_, chief)| chief.user == user)
+        .find(|(_, chief)| chief.name == name)
         .map(|(entity, _)| entity)
 }
 
 #[cfg(test)]
 mod persistence_tests {
-    use hamlet_client::ViewDir;
+    use hamlet_client::ViewFolder;
     use hamlet_testing::Scratch;
 
     use super::*;
@@ -379,7 +379,7 @@ mod persistence_tests {
         let dir = Scratch::new("wizard-view-place");
         let mut app = App::new();
         crate::generator::testing::rehearse(&mut app);
-        app.insert_resource(ViewDir(dir.join("view")))
+        app.insert_resource(ViewFolder(dir.join("view")))
             .init_resource::<Kept>()
             .init_resource::<Society>()
             .init_resource::<Quality>()

@@ -9,9 +9,9 @@ use bevy::window::PrimaryWindow;
 
 use super::{Composer, Moment, Mood, render};
 use crate::generator::society::Society;
-use crate::keeper::KState;
+use crate::keeper::KeeperState;
 use crate::sound::clip::Clip;
-use crate::sound::{Cue, Cues, SoundSettings, drawn};
+use crate::sound::{Cue, Cues, SoundSettings, is_drawn};
 use crate::{DayPart, WorldCamera};
 
 /// A breath that has been played, and the seconds to the next.
@@ -67,7 +67,9 @@ fn busy(society: Option<&Society>, set: &SoundSettings) -> f32 {
         society
             .agents
             .iter()
-            .filter(|a| !a.archived && a.state == KState::Working)
+            .filter(|a| {
+                !a.archived && a.state == KeeperState::Working
+            })
             .count()
     });
     (at_work as f32 / set.busy_full.max(1.0)).min(1.0)
@@ -94,7 +96,7 @@ fn conduct(
 ) {
     let band = &mut *band;
     let now = time.elapsed_secs();
-    let want = set.score() && drawn(&camera, &window);
+    let want = set.can_hear_music() && is_drawn(&camera, &window);
     let step = time.delta_secs() / set.music_fade.max(1e-3);
     band.level = (band.level + if want { step } else { -step })
         .clamp(0.0, 1.0);

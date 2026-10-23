@@ -1,6 +1,6 @@
 //! Connection-owned file uploads and chief skill gifts (H25, H28).
 //! Uploads are staged on this machine; every delivery runs apart from
-//! the service loop on the houses' backend.
+//! the service loop on the houses' workspace.
 
 mod rules;
 #[cfg(test)]
@@ -12,8 +12,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use hamlet_protocol::client::{
-    self as protocol, Address, ClientMessage, Give, GiveFilesFiles,
-    GivePart, GiveSkillSkill, ServerMessage,
+    self as protocol, Address, ClientMessage, Give, GiveFile,
+    GivePart, GiveSkillSource, RequestId, ServerMessage,
 };
 use hamlet_workspace_wire::{Code, TREE_ENTRIES, TreeKind};
 use rules::{DELIVERY, MAX_BYTES, MISMATCH, STAGING, UNKNOWN};
@@ -34,17 +34,17 @@ const SKILL_ENTRIES: usize = 4096;
 pub(crate) struct Uploads {
     pending: HashMap<String, Upload>,
     pub tasks: tokio::task::JoinSet<Completed>,
-    pub working: HashSet<(u64, String)>,
+    pub working: HashSet<(u64, RequestId)>,
 }
 
 struct Upload {
-    owner: u64,
+    connection: u64,
     to: Address,
     agent: AgentRef,
-    id: String,
+    id: RequestId,
     bytes: u64,
     touched: Instant,
-    files: Vec<(GiveFilesFiles, u64)>,
+    files: Vec<(GiveFile, u64)>,
     stage: tree::Stage,
 }
 
@@ -53,7 +53,7 @@ enum Progress {
     Waiting(String),
     Received,
     Delivered {
-        id: String,
+        id: RequestId,
         agent: AgentRef,
         paths: Vec<String>,
     },
@@ -77,41 +77,41 @@ pub(crate) struct Skill {
 /// A gift step that finished apart from the service loop.
 pub(crate) enum Completed {
     Began {
-        owner: u64,
-        id: String,
+        connection: u64,
+        id: RequestId,
         token: String,
         result: Result<()>,
     },
     Files {
-        owner: u64,
-        id: String,
-        original: String,
+        connection: u64,
+        id: RequestId,
+        original: RequestId,
         agent: AgentRef,
         result: Result<Vec<String>>,
     },
     Prepared {
-        owner: u64,
-        id: String,
+        connection: u64,
+        id: RequestId,
         gift: Skill,
         snapshot: Refusable<Snapshot>,
     },
     Delivered {
-        owner: u64,
-        id: String,
+        connection: u64,
+        id: RequestId,
         gift: Skill,
         result: Result<Vec<String>>,
     },
 }
 
 impl Uploads {
-    pub fn gone(&mut self, owner: u64) {
-        self.pending.retain(|_, u| u.owner != owner);
-        self.working.retain(|(client, _)| *client != owner);
+    pub fn gone(&mut self, connection: u64) {
+        self.pending.retain(|_, u| u.connection != connection);
+        self.working.retain(|(client, _)| *client != connection);
     }
 
     pub fn expire(&mut self) {
         self.pending.retain(|_, u| {
-            self.working.contains(&(u.owner, u.id.clone()))
+            self.working.contains(&(u.connection, u.id.clone()))
                 || u.touched.elapsed() < Duration::from_secs(60)
         });
     }
@@ -135,26 +135,26 @@ fn undelivered(error: &anyhow::Error) -> Refusal {
 pub(crate) async fn request(
     service: &mut Service,
     harnesses: &mut Harnesses,
-    owner: u64,
+    connection: u64,
     message: &ClientMessage,
 ) -> Result<Option<ServerMessage>> {
     let (id, progress) = match message {
         ClientMessage::Give(Give::Skill { id, to, skill }) => {
             let (name, from) = match skill {
-                GiveSkillSkill::Starter { starter } => {
+                GiveSkillSource::Starter { starter } => {
                     (starter, None)
                 }
-                GiveSkillSkill::From { from, name } => {
+                GiveSkillSource::From { from, name } => {
                     (name, Some(from))
                 }
             };
-            (id, service.gift_skill(owner, id, to, name, from)?)
+            (id, service.gift_skill(connection, id, to, name, from)?)
         }
         ClientMessage::Give(Give::Files { id, to, files }) => {
-            (id, service.gift_begin(owner, id, to, files)?)
+            (id, service.gift_begin(connection, id, to, files)?)
         }
         ClientMessage::GivePart(part) => {
-            (&part.id, service.gift_part(owner, part)?)
+            (&part.id, service.gift_part(connection, part)?)
         }
         _ => return Ok(None),
     };
@@ -165,13 +165,13 @@ pub(crate) async fn request(
 /// house or the starters; the answer comes once it is delivered.
 pub(crate) fn skill(
     service: &mut Service,
-    owner: u64,
-    id: &str,
+    connection: u64,
+    id: &RequestId,
     to: &Address,
     name: &str,
     from: Option<&Address>,
 ) -> Result<Option<ServerMessage>> {
-    Ok(match service.gift_skill(owner, id, to, name, from)? {
+    Ok(match service.gift_skill(connection, id, to, name, from)? {
         Err(error) => Some(reply(id, Err(error))),
         Ok(_) => None,
     })
@@ -180,7 +180,7 @@ pub(crate) fn skill(
 async fn receipt(
     service: &mut Service,
     harnesses: &mut Harnesses,
-    id: &str,
+    id: &RequestId,
     progress: Refusable<Progress>,
 ) -> Result<Option<ServerMessage>> {
     let progress = match progress {
@@ -250,10 +250,10 @@ impl Service {
 
     fn gift_begin(
         &mut self,
-        owner: u64,
-        id: &str,
+        connection: u64,
+        id: &RequestId,
         to: &Address,
-        files: &[GiveFilesFiles],
+        files: &[GiveFile],
     ) -> Result<Refusable<Progress>> {
         use std::io::Write;
         let target = match self.agent(to, "give")? {
@@ -262,11 +262,11 @@ impl Service {
         };
         let bytes = match rules::manifest(files) {
             Ok(n) => n,
-            Err(e) => return Ok(Err(refused(e))),
+            Err(unfit) => return Ok(Err(refused(unfit.to_string()))),
         };
         for file in files {
             if let Err(words) = self.houses.admits(file.size) {
-                return Ok(Err(refused(words)));
+                return Ok(Err(refused(words.to_string())));
             }
         }
         let agent = AgentRef {
@@ -278,7 +278,7 @@ impl Service {
             .gifts
             .pending
             .values()
-            .filter(|u| u.owner == owner)
+            .filter(|u| u.connection == connection)
             .count()
             >= 3
         {
@@ -317,10 +317,10 @@ impl Service {
         self.gifts.pending.insert(
             token.clone(),
             Upload {
-                owner,
+                connection,
                 to: to.clone(),
                 agent,
-                id: id.into(),
+                id: id.clone(),
                 bytes,
                 touched: Instant::now(),
                 files: files
@@ -331,13 +331,13 @@ impl Service {
                 stage,
             },
         );
-        self.gifts.working.insert((owner, id.into()));
-        let id = id.to_owned();
+        self.gifts.working.insert((connection, id.clone()));
+        let id = id.clone();
         self.gifts.tasks.spawn(async move {
             let result =
                 shelf(&house, "inbox", &roots).await.map(drop);
             Completed::Began {
-                owner,
+                connection,
                 id,
                 token,
                 result,
@@ -348,7 +348,7 @@ impl Service {
 
     fn gift_part(
         &mut self,
-        owner: u64,
+        connection: u64,
         part: &GivePart,
     ) -> Result<Refusable<Progress>> {
         use std::io::Write;
@@ -360,7 +360,7 @@ impl Service {
             .gifts
             .pending
             .get(&part.upload)
-            .is_none_or(|u| u.owner != owner)
+            .is_none_or(|u| u.connection != connection)
         {
             return Ok(Err(refused(UNKNOWN)));
         }
@@ -412,7 +412,7 @@ impl Service {
     fn gift_finish(
         &mut self,
         upload: Upload,
-        request: &str,
+        request: &RequestId,
     ) -> Result<Refusable<Progress>> {
         let target = match self.agent(&upload.to, "give")? {
             Ok(a) => a,
@@ -428,9 +428,9 @@ impl Service {
             .house(&upload.agent.hamlet, upload.agent.number)?;
         let roots =
             roots(upload.files.iter().map(|(f, _)| f.path.as_str()));
-        let owner = upload.owner;
-        let id = request.to_owned();
-        self.gifts.working.insert((owner, id.clone()));
+        let connection = upload.connection;
+        let id = request.clone();
+        self.gifts.working.insert((connection, id.clone()));
         self.gifts.tasks.spawn(async move {
             let result = async {
                 let source =
@@ -449,7 +449,7 @@ impl Service {
             }
             .await;
             Completed::Files {
-                owner,
+                connection,
                 id,
                 original: upload.id,
                 agent: upload.agent,
@@ -463,8 +463,8 @@ impl Service {
     /// house or the starters.
     fn gift_skill(
         &mut self,
-        owner: u64,
-        id: &str,
+        connection: u64,
+        id: &RequestId,
         to: &Address,
         name: &str,
         from: Option<&Address>,
@@ -473,12 +473,12 @@ impl Service {
             Ok(gift) => gift,
             Err(error) => return Ok(Err(error)),
         };
-        let id = id.to_owned();
-        self.gifts.working.insert((owner, id.clone()));
+        let id = id.clone();
+        self.gifts.working.insert((connection, id.clone()));
         self.gifts.tasks.spawn(async move {
             let snapshot = gift.snapshot().await;
             Completed::Prepared {
-                owner,
+                connection,
                 id,
                 gift,
                 snapshot,
@@ -629,12 +629,15 @@ impl Skill {
             Snapshot::read(&skill, MAX_BYTES, SKILL_ENTRIES, false)
                 .await
                 .map_err(|error| {
-                    if crate::workspace::is(&error, Code::TooMany) {
+                    if crate::workspace::has_code(
+                        &error,
+                        Code::TooMany,
+                    ) {
                         refused(
                             "A skill gift takes at most 4096 files \
                              and folders at once.",
                         )
-                    } else if crate::workspace::is(
+                    } else if crate::workspace::has_code(
                         &error,
                         Code::TooLarge,
                     ) {
@@ -709,13 +712,13 @@ pub(crate) async fn complete(
     harnesses: &mut Harnesses,
     completed: Completed,
 ) -> Result<Option<(u64, ServerMessage)>> {
-    let Some((owner, id, progress)) = step(service, completed)?
+    let Some((connection, id, progress)) = step(service, completed)?
     else {
         return Ok(None);
     };
     Ok(receipt(service, harnesses, &id, progress)
         .await?
-        .map(|answer| (owner, answer)))
+        .map(|answer| (connection, answer)))
 }
 
 /// The gift's next step after `completed`: its connection, its
@@ -723,21 +726,29 @@ pub(crate) async fn complete(
 fn step(
     service: &mut Service,
     completed: Completed,
-) -> Result<Option<(u64, String, Refusable<Progress>)>> {
+) -> Result<Option<(u64, RequestId, Refusable<Progress>)>> {
     Ok(Some(match completed {
         Completed::Began {
-            owner,
+            connection,
             id,
             token,
             result,
         } => {
-            if !service.gifts.working.remove(&(owner, id.clone())) {
+            if !service
+                .gifts
+                .working
+                .remove(&(connection, id.clone()))
+            {
                 return Ok(None);
             }
             let Some(mut upload) =
                 service.gifts.pending.remove(&token)
             else {
-                return Ok(Some((owner, id, Err(refused(UNKNOWN)))));
+                return Ok(Some((
+                    connection,
+                    id,
+                    Err(refused(UNKNOWN)),
+                )));
             };
             let progress = match result {
                 Err(error) => Err(undelivered(&error)),
@@ -764,16 +775,16 @@ fn step(
                     }
                 },
             };
-            (owner, id, progress)
+            (connection, id, progress)
         }
         Completed::Files {
-            owner,
+            connection,
             id,
             original,
             agent,
             result,
         } => {
-            service.gifts.working.remove(&(owner, id.clone()));
+            service.gifts.working.remove(&(connection, id.clone()));
             let progress = result
                 .map(|paths| Progress::Delivered {
                     id: original,
@@ -781,15 +792,19 @@ fn step(
                     paths,
                 })
                 .map_err(|error| undelivered(&error));
-            (owner, id, progress)
+            (connection, id, progress)
         }
         Completed::Prepared {
-            owner,
+            connection,
             id,
             gift,
             snapshot,
         } => {
-            if !service.gifts.working.contains(&(owner, id.clone())) {
+            if !service
+                .gifts
+                .working
+                .contains(&(connection, id.clone()))
+            {
                 return Ok(None);
             }
             let allowed = gift.allowed(service)?;
@@ -801,14 +816,14 @@ fn step(
                     service
                         .gifts
                         .working
-                        .remove(&(owner, id.clone()));
-                    return Ok(Some((owner, id, Err(error))));
+                        .remove(&(connection, id.clone()));
+                    return Ok(Some((connection, id, Err(error))));
                 }
             };
             service.gifts.tasks.spawn(async move {
                 let result = gift.deliver(&snapshot).await;
                 Completed::Delivered {
-                    owner,
+                    connection,
                     id,
                     gift,
                     result,
@@ -817,17 +832,17 @@ fn step(
             return Ok(None);
         }
         Completed::Delivered {
-            owner,
+            connection,
             id,
             gift,
             result,
         } => {
-            service.gifts.working.remove(&(owner, id.clone()));
+            service.gifts.working.remove(&(connection, id.clone()));
             let progress = match result {
                 Err(error) => Err(undelivered(&error)),
                 Ok(_) => Ok(Progress::Given(gift.record(service)?)),
             };
-            (owner, id, progress)
+            (connection, id, progress)
         }
     }))
 }

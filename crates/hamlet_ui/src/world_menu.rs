@@ -136,7 +136,7 @@ pub(super) fn open_for(world: &mut World, thing: Thing) {
 
 /// Opens the form a hamlet is founded with, at the pointer.
 pub(super) fn ask_found(world: &mut World) {
-    if !Deeds::allows(world, "found") {
+    if !Deeds::is_allowed(world, "found") {
         return;
     }
     let at = pointer(world);
@@ -151,7 +151,7 @@ pub(crate) fn ask(world: &mut World, deed: Deed) {
 
 /// Brings back `agent`, which was removed or merged away.
 pub(super) fn restore(world: &mut World, agent: Entity) {
-    if !Deeds::allows(world, "restore") {
+    if !Deeds::is_allowed(world, "restore") {
         return;
     }
     let text = format!("/restore {}", agents::name_of(world, agent));
@@ -194,7 +194,7 @@ fn menus() -> AnyView {
             }
             Open::Question(deed, at) => question(deed, at),
             Open::Ground(at) => AnyView::new(move |cx: &mut Cx| {
-                if !Deeds::allows(cx.world, "found") {
+                if !Deeds::is_allowed(cx.world, "found") {
                     return cx.build(frame());
                 }
                 let found =
@@ -269,7 +269,7 @@ fn gift_reports() -> AnyView {
 #[cfg(test)]
 mod tests {
     use hamlet_client::outbox::Outbox;
-    use hamlet_client::realm::{HOME, Settlement};
+    use hamlet_client::realm::{HOME, HamletId};
     use hamlet_protocol::client as protocol;
     use hamlet_realm::pick::{Also, Selected};
     use hamlet_testing::realm;
@@ -323,7 +323,7 @@ mod tests {
                 .any(|text| text == "Found a Hamlet...")
         );
         let world = app.world_mut();
-        let home = world.query_filtered::<Entity, bevy::ecs::query::With<Settlement>>()
+        let home = world.query_filtered::<Entity, bevy::ecs::query::With<HamletId>>()
             .single(world).unwrap();
         open(&mut app, Open::Menu(Thing::Common(home), Vec2::ZERO));
         assert!(
@@ -359,10 +359,10 @@ mod tests {
         let a = agents::named(app.world_mut(), "scout").unwrap();
         let b = agents::named(app.world_mut(), "scribe").unwrap();
         app.world_mut().resource_mut::<Selected>().0 =
-            Some(Thing::Resident(a));
+            Some(Thing::Agent(a));
         app.world_mut().resource_mut::<Also>().0 =
-            Some(Thing::Resident(b));
-        open(&mut app, Open::Menu(Thing::Resident(a), Vec2::ZERO));
+            Some(Thing::Agent(b));
+        open(&mut app, Open::Menu(Thing::Agent(a), Vec2::ZERO));
         let shown = words(&mut app);
         for absent in [
             "Build a road to scribe",
@@ -381,7 +381,7 @@ mod tests {
             protocol::ServerMessage::State(state),
         );
         open(&mut app, Open::Nothing);
-        open(&mut app, Open::Menu(Thing::Resident(a), Vec2::ZERO));
+        open(&mut app, Open::Menu(Thing::Agent(a), Vec2::ZERO));
         press(&mut app, "Build a road to scribe");
         let messages = sent(&mut app);
         let [protocol::ClientMessage::Say(say)] = &messages[..]
@@ -471,13 +471,13 @@ mod tests {
         for (label, expected) in [
             (
                 "research (starter)",
-                protocol::GiveSkillSkill::Starter {
+                protocol::GiveSkillSource::Starter {
                     starter: "research".into(),
                 },
             ),
             (
                 "maps (of scout)",
-                protocol::GiveSkillSkill::From {
+                protocol::GiveSkillSource::From {
                     from: protocol::Address {
                         hamlet: HOME.into(),
                         agent: "scout".into(),

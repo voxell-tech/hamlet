@@ -40,7 +40,7 @@ impl Authority {
             .insert((runtime, scope.into()), (provider.into(), true));
     }
 
-    pub fn owns(&self, runtime: usize, scope: &str) -> bool {
+    pub fn is_open(&self, runtime: usize, scope: &str) -> bool {
         self.scopes
             .get(&(runtime, scope.into()))
             .is_some_and(|(_, open)| *open)
@@ -79,8 +79,10 @@ impl Authority {
         loop {
             let mut progress = false;
             for _ in 0..self.waiting.len() {
-                let (at, request) =
-                    self.waiting.pop_front().expect("queued request");
+                let (at, request) = self
+                    .waiting
+                    .pop_front()
+                    .expect("one pop for each queued request");
                 let mut answer = CredentialResult {
                     v: runtime::VERSION,
                     id: String::new(),
@@ -173,7 +175,7 @@ impl Authority {
                 let revision = self
                     .held
                     .remove(&provider)
-                    .expect("held lease")
+                    .expect("the lease was checked as held")
                     .revision;
                 let saved = if request.action == Action::Commit {
                     request

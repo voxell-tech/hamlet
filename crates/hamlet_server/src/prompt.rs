@@ -12,6 +12,8 @@ use anyhow::Result;
 use hamlet_protocol::runtime::Section;
 use serde_json::Value;
 
+use crate::credentials::Credentials;
+use crate::diagnostic::{Secrets, tell};
 use crate::papers::{Reader, cut};
 use crate::service::Service;
 use crate::spend::{books, money};
@@ -69,11 +71,13 @@ pub(crate) struct Subject<'a> {
 }
 
 /// Stocks the library at `root` with the starters it was not
-/// offered yet, telling stderr when it cannot.
-#[expect(clippy::print_stderr, reason = "stderr is the server's log")]
-pub(crate) fn stock(root: &Path) {
+/// offered yet, telling the log when it cannot.
+pub(crate) fn stock(root: &Path, credentials: &Credentials) {
     if let Err(error) = crate::starters::install(root) {
-        eprintln!("hamlet: could not open the library: {error}");
+        tell(
+            Secrets::Of(credentials),
+            format_args!("could not open the library: {error}"),
+        );
     }
 }
 
@@ -469,7 +473,7 @@ async fn project(
             house.display()
         ),
     ];
-    if reader.project_has(folder, ".git").await {
+    if reader.has_project_file(folder, ".git").await {
         lines.push(
             "- The project is a git repository. When two agents \
              must work apart, the mayor may have one of them use a \

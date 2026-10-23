@@ -7,7 +7,7 @@ use bevy::window::FileDragAndDrop;
 use hamlet_client::realm::{Deeds, Mayor};
 
 use super::toys::{self, Kind, Toys};
-use super::{Hand, Mood, PlaySettings, Wish, free, met, toward};
+use super::{Hand, Mood, PlaySettings, Wish, is_free, met, toward};
 use crate::Clock;
 use crate::generator::{Passage, Robot};
 use crate::hamlet::Housed;
@@ -77,7 +77,7 @@ pub(super) fn letters(
         mut played,
         mut wishes,
     } = writers;
-    if !deeds.is_some_and(|deeds| deeds.has("give")) {
+    if !deeds.is_some_and(|deeds| deeds.is_supported("give")) {
         dropped.clear();
         hand.letters.clear();
         return;
@@ -106,7 +106,7 @@ pub(super) fn letters(
     let caught = robot.and_then(|robot| {
         let (place, passage) = places.get(robot).ok()?;
         let of = plain.get(robot).ok()?;
-        Some((robot, place.translation, free(of, passage)))
+        Some((robot, place.translation, is_free(of, passage)))
     });
     for (i, (path, _)) in hand.letters.drain(..).enumerate() {
         wishes.write(Wish::Letter { to, path });
@@ -157,7 +157,7 @@ fn cue(
     let (robot, at) = robot_for(world, agent)?;
     let free = world
         .get::<Robot>(robot)
-        .is_some_and(|of| free(of, world.get::<Passage>(robot)));
+        .is_some_and(|of| is_free(of, world.get::<Passage>(robot)));
     let now = world.resource::<Clock>().t;
     if free && let Some(mut mood) = world.get_mut::<Mood>(robot) {
         mood.joins = Some((now, act));

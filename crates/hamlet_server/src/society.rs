@@ -385,8 +385,8 @@ pub(crate) async fn reconfigure(
 
 /// The result of a call of a tool the conversation is not offered, as
 /// pi-durable gives it.
-pub(crate) fn unavailable(tool: &str) -> Value {
-    json!(Outcome {
+pub(crate) fn unavailable(tool: &str) -> SocietyOutcome {
+    SocietyOutcome::from(Outcome {
         text: String::new(),
         error: true,
         details: None,
@@ -463,17 +463,18 @@ pub(crate) async fn operation(
         // The owners of these answer them.
         None
         | Some(SocietyTool::BuildRoad | SocietyTool::AskChief) => {
-            Some(outcome(
-                &format!("There is no tool named {tool}."),
-                true,
-            ))
+            Some(SocietyOutcome::failed(format!(
+                "There is no tool named {tool}."
+            )))
         }
         Some(SocietyTool::Object) => {
             return match parsed(tool, &args) {
                 Ok(given) => objections::object(
                     service, binding, key, input, given,
                 ),
-                Err(Unanswered::Refused(refused)) => result(&refused),
+                Err(Unanswered::Refused(refused)) => {
+                    Ok(SocietyOutcome::failed(refused).into())
+                }
                 Err(Unanswered::Failed(error)) => Err(error),
             };
         }
@@ -482,7 +483,9 @@ pub(crate) async fn operation(
                 .await
             {
                 Ok(answered) => answered,
-                Err(Unanswered::Refused(refused)) => Some(refused),
+                Err(Unanswered::Refused(refused)) => {
+                    Some(SocietyOutcome::failed(refused))
+                }
                 Err(Unanswered::Failed(error)) => return Err(error),
             }
         }
@@ -496,16 +499,17 @@ pub(crate) async fn operation(
         &caller.request,
         |_| Ok(outcome),
     )?;
-    if service.house_work.pending(&caller.id) {
+    if service.house_work.is_pending(&caller.id) {
         return Ok(letters::waiting());
     }
-    result(&outcome)
+    Ok(outcome.into())
 }
 
 /// Why a society call ends before its tool answers.
 enum Unanswered {
-    /// Its arguments do not parse; the outcome says why.
-    Refused(Value),
+    /// Its arguments do not parse; the words say why, and the call
+    /// fails with them.
+    Refused(String),
     Failed(anyhow::Error),
 }
 
@@ -521,11 +525,8 @@ fn parsed<T: DeserializeOwned>(
     args: &Value,
 ) -> std::result::Result<T, Unanswered> {
     serde_json::from_value(args.clone()).map_err(|error| {
-        Unanswered::Refused(outcome(
-            &format!(
-                "The arguments of {tool} are not valid: {error}."
-            ),
-            true,
+        Unanswered::Refused(format!(
+            "The arguments of {tool} are not valid: {error}."
         ))
     })
 }
@@ -538,7 +539,7 @@ async fn answer(
     caller: &Caller<'_>,
     tool: SocietyTool,
     args: &Value,
-) -> std::result::Result<Option<Value>, Unanswered> {
+) -> std::result::Result<Option<SocietyOutcome>, Unanswered> {
     use crate::realm::dealings;
     let name = tool.name();
     Ok(match tool {
@@ -646,20 +647,71 @@ async fn answer(
     })
 }
 
-/// A tool's outcome as markers keep it: its text and whether it
-/// failed.
-pub(crate) fn outcome(text: &str, error: bool) -> Value {
-    json!(Outcome {
-        text: text.into(),
-        error,
-        details: None,
-        diagnostics: Vec::new(),
-    })
+/// A society tool's outcome as its marker keeps it: the tool's
+/// outcome the agent reads, and what this server does once it is
+/// kept. Each of the rest is a key of the marker only when it is set,
+/// so a marker without them reads as a tool's outcome too.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SocietyOutcome {
+    /// The tool's outcome, which the agent reads.
+    #[serde(flatten)]
+    pub tool: Outcome,
+    /// The mayor a dealing tells, and what it is told.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notice: Option<Notice>,
+    /// The other mayor a dealing asks to agree, and the question.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ask: Option<letters::Message>,
+    /// The number of the agent a removal took out.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub number: Option<u64>,
+    /// The archive of the agent a merge took in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archive: Option<String>,
 }
 
-/// The answer of a marked outcome.
-pub(crate) fn result(outcome: &Value) -> Result<Answer> {
-    Ok(Outcome::deserialize(outcome)?.into())
+impl SocietyOutcome {
+    /// The outcome of a call that answers with `text`.
+    pub(crate) fn answered(text: impl Into<String>) -> Self {
+        Self::from(Outcome {
+            text: text.into(),
+            error: false,
+            details: None,
+            diagnostics: Vec::new(),
+        })
+    }
+
+    /// The outcome of a call that failed, saying why in `text`.
+    pub(crate) fn failed(text: impl Into<String>) -> Self {
+        let mut outcome = Self::answered(text);
+        outcome.tool.error = true;
+        outcome
+    }
+}
+
+impl From<Outcome> for SocietyOutcome {
+    fn from(tool: Outcome) -> Self {
+        Self {
+            tool,
+            notice: None,
+            ask: None,
+            number: None,
+            archive: None,
+        }
+    }
+}
+
+impl From<SocietyOutcome> for Answer {
+    fn from(outcome: SocietyOutcome) -> Self {
+        outcome.tool.into()
+    }
+}
+
+/// A dealing's notice to the mayor of `hamlet`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct Notice {
+    pub hamlet: String,
+    pub text: String,
 }
 
 /// The outcome of the call `id`: the one its marker keeps, else the
@@ -670,17 +722,11 @@ pub(crate) fn once(
     store: &mut Store,
     id: &OperationId,
     request: &Request,
-    make: impl FnOnce(&Connection) -> Result<Value>,
-) -> Result<Value> {
-    let made = store.once(id, request, |db| {
-        let value = make(db)?;
-        // Every call's marker is read back as a tool's outcome.
-        Outcome::deserialize(&value)
-            .context("a society tool's outcome")?;
-        Ok(value)
-    })?;
+    make: impl FnOnce(&Connection) -> Result<SocietyOutcome>,
+) -> Result<SocietyOutcome> {
+    let made = store.once(id, request, make)?;
     Ok(made.unwrap_or_else(|| {
-        outcome(crate::harness::tools::CONFLICT, true)
+        SocietyOutcome::failed(crate::harness::tools::CONFLICT)
     }))
 }
 
@@ -786,3 +832,54 @@ pub(crate) fn payer(
 
 /// A chief deed's words, or its refusal.
 pub(crate) type Deed = Refusable<String>;
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+
+    use super::SocietyOutcome;
+
+    /// Reads `marker` as a society outcome and writes it back.
+    fn round_trip(marker: &Value) -> Value {
+        let outcome: SocietyOutcome =
+            serde_json::from_value(marker.clone()).unwrap();
+        serde_json::to_value(outcome).unwrap()
+    }
+
+    #[test]
+    fn a_kept_marker_reads_and_writes_back_as_it_was_stored() {
+        let markers = [
+            json!({"details": null, "diagnostics": [], "error": false,
+                "text": "Your ballot is cast."}),
+            json!({"details": null, "diagnostics": [{"code":
+                "tool_unavailable", "message":
+                "Tool merge_agents is not available", "severity":
+                "error"}], "error": true, "text": ""}),
+            json!({"details": null, "diagnostics": [], "error": false,
+                "notice": {"hamlet": "b", "text": "Enough have asked."},
+                "text": "Enough have asked."}),
+            json!({"ask": {"message": "Please consider agreeing.",
+                "name": "mayor@b"}, "details": null, "diagnostics": [],
+                "error": false, "text": "The move is proposed."}),
+            json!({"details": null, "diagnostics": [], "error": false,
+                "number": 3, "text": "Removed `ana`."}),
+            json!({"archive": "a1", "details": null, "diagnostics": [],
+                "error": false, "text": "Merged `bo` into `ana`."}),
+        ];
+        for marker in markers {
+            assert_eq!(round_trip(&marker), marker);
+        }
+    }
+
+    #[test]
+    fn an_outcome_without_its_extra_keys_writes_none_of_them() {
+        let written =
+            serde_json::to_value(SocietyOutcome::failed("No."))
+                .unwrap();
+        assert_eq!(
+            written,
+            json!({"text": "No.", "error": true, "details": null,
+                "diagnostics": []})
+        );
+    }
+}

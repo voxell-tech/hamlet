@@ -6,6 +6,7 @@ use std::process::{ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 use hamlet_testing::cli;
+use rustix::process::{Pid, Signal, kill_process};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::mpsc;
@@ -87,12 +88,8 @@ impl Cli {
     /// Sends SIGINT, as Ctrl-C does, without waiting.
     pub fn interrupt(&mut self) {
         let pid = self.child.id().expect("the command is running");
-        assert_eq!(
-            // SAFETY: `pid` is our own child, which has not been
-            // reaped.
-            unsafe { libc::kill(pid as i32, libc::SIGINT) },
-            0
-        );
+        let pid = Pid::from_raw(pid as i32).expect("a process id");
+        kill_process(pid, Signal::INT).unwrap();
     }
 
     /// Waits until stdout shows `text`.

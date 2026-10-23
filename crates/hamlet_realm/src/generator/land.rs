@@ -14,7 +14,7 @@ use std::sync::Arc;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 
-use super::GenSettings;
+use super::GeneratorSettings;
 use super::noise::{key, signed, unit};
 use crate::palette::Palette;
 
@@ -100,7 +100,7 @@ pub struct Site {
 }
 
 impl Site {
-    pub fn moved(&self) -> bool {
+    pub fn has_moved(&self) -> bool {
         self.at != self.home
     }
 }
@@ -123,7 +123,11 @@ pub enum Unfit {
 pub struct Land(Arc<LandData>);
 
 impl Land {
-    pub fn new(seed: u64, set: GenSettings, pal: Palette) -> Self {
+    pub fn new(
+        seed: u64,
+        set: GeneratorSettings,
+        pal: Palette,
+    ) -> Self {
         Land(Arc::new(LandData::new(seed, set, pal)))
     }
 
@@ -208,7 +212,7 @@ impl Deref for Land {
 pub struct LandData {
     pub seed: u64,
     /// The settings it was built from.
-    pub set: GenSettings,
+    pub set: GeneratorSettings,
     pub sites: Vec<Site>,
     river_dir: Vec2,
     /// The sites that reach into each square of ground.
@@ -242,7 +246,7 @@ fn hex_ring(q: i32, r: i32) -> i32 {
 }
 
 impl LandData {
-    fn new(seed: u64, set: GenSettings, pal: Palette) -> Self {
+    fn new(seed: u64, set: GeneratorSettings, pal: Palette) -> Self {
         let a = unit(key(&[seed, 11])) * TAU;
         let rings = set.land.site_rings;
         let spacing = set.land.site_spacing;
@@ -382,7 +386,7 @@ impl LandData {
     }
 
     /// True when `p` lies on held ground or within `margin` of it.
-    pub fn holds(&self, p: Vec2, margin: f32) -> bool {
+    pub fn is_held(&self, p: Vec2, margin: f32) -> bool {
         self.holds
             .iter()
             .any(|h| h.at.distance(p) < h.radius + margin)

@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use hamlet_client::realm::Busy;
 
 use super::toys::{self, Kind, Toys};
-use super::{Hand, Mood, PlaySettings, free, robot_of, toward};
+use super::{Hand, Mood, PlaySettings, is_free, robot_of, toward};
 use crate::bubble::Pinned;
 use crate::generator::{Passage, Robot, Thought};
 use crate::hamlet::Housed;
@@ -89,7 +89,7 @@ pub(super) fn tap(
         && !shift
         && !taken.click
         && travel.0 <= camera.click_slop
-        && matches!(thing, Thing::Keeper | Thing::Resident(_))
+        && matches!(thing, Thing::Keeper | Thing::Agent(_))
         && robots.contains(parent.parent())
     {
         taps.write(Tap(parent.parent()));
@@ -195,7 +195,7 @@ pub(super) fn pokes(
             continue;
         };
         let at = place.translation;
-        if !free(robot, passage) || mood.sulks(now) {
+        if !is_free(robot, passage) || mood.is_sulking(now) {
             continue;
         }
         let proud = agents
@@ -233,8 +233,8 @@ pub(super) fn pokes(
                 if entity == tapped {
                     mood.joins = Some((now, Act::Celebrate));
                 } else if far < set.cheer_reach
-                    && free(robot, passage)
-                    && !mood.sulks(now)
+                    && is_free(robot, passage)
+                    && !mood.is_sulking(now)
                 {
                     let wait = 0.25 + far * set.cheer_lag;
                     mood.joins = Some((now + wait, Act::Celebrate));
@@ -345,7 +345,10 @@ pub(super) fn pats(
     let stroked = rest.path >= set.stroke_length
         && rest.turns >= set.stroke_turns
         && since >= set.stroke_rest;
-    if (held || stroked) && free(robot, passage) && !mood.sulks(now) {
+    if (held || stroked)
+        && is_free(robot, passage)
+        && !mood.is_sulking(now)
+    {
         mood.patted = now;
         mood.face = None;
         (rest.began, rest.path, rest.turns) = (now, 0.0, 0);

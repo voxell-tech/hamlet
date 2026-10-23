@@ -176,7 +176,7 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
             .get::<Transcript>(session)
             .and_then(|t| t.item(&id).map(|item| &item.entry));
         let (words, typed) = match entry {
-            Some(Entry::User { text, .. }) => {
+            Some(Entry::Chief { text, .. }) => {
                 (Words::Plain, text.as_str())
             }
             Some(Entry::Answered(said)) => {
@@ -191,7 +191,7 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
             None => (None, typed),
         };
         let replies = words != Words::Fault
-            && entry.is_some_and(reply::answerable);
+            && entry.is_some_and(reply::can_reply_to);
         let mine = who.kind == Kind::Me;
         // The chief's own words in its own conversation with the
         // agent are what that conversation can be taken back to.
@@ -200,7 +200,7 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
             .get::<hamlet_client::chats::Chat>(session)
             .is_none_or(|chat| chat.0.from.is_none())
             && mine
-            && matches!(entry, Some(Entry::User { .. }))
+            && matches!(entry, Some(Entry::Chief { .. }))
             && words == Words::Plain
             && session == cx.world.resource::<Me>().session;
         let palette = &cx.theme().palette;
@@ -265,7 +265,7 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
                 .boxed(),
         };
         // Words with a link in them are set once, span by span.
-        let linked = match quote::quotes(typed) {
+        let linked = match quote::has_quote(typed) {
             true => {
                 Some(quote::drawn(typed, reserve, palette.brass_4))
             }
@@ -289,7 +289,7 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
                         move |t| match t.and_then(|t| {
                             t.item(&typed_id).map(|item| &item.entry)
                         }) {
-                            Some(Entry::User { text, .. }) => {
+                            Some(Entry::Chief { text, .. }) => {
                                 format!(
                                     "{}{reserve}",
                                     reply::rest(text)
@@ -339,7 +339,7 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
             }
         }
         let ends_key = key.clone();
-        let ends = move |lines: &Lines| lines.ends_run(&ends_key);
+        let ends = move |lines: &Lines| lines.is_run_end(&ends_key);
         let corner_ends = ends.clone();
         let bubble = column(inside)
             .gap(2.0)

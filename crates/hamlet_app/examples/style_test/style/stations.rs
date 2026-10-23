@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use bevy::window::RequestRedraw;
 use hamlet_realm::Clock;
 use hamlet_realm::keeper::{
-    Act, KState, Keeper, Motion, Stride, Trip,
+    Act, Keeper, KeeperState, Motion, Stride, Trip,
 };
 
 use super::demo::Demo;
@@ -15,7 +15,7 @@ use super::scene::Terrain;
 #[derive(Component)]
 pub struct Stationed {
     /// The state it was last placed for.
-    state: Option<KState>,
+    state: Option<KeeperState>,
     /// A walk to its next station, and the motion it plays there.
     errand: Option<(Trip, Act)>,
     /// The spot it stopped at, when a state holds it in place.
@@ -45,7 +45,7 @@ impl Default for Stationed {
 /// walked if the state keeps it walking. `x` is seconds since it took
 /// the state up.
 fn station(
-    state: KState,
+    state: KeeperState,
     x: f32,
     terrain: &Terrain,
     motion: &Motion,
@@ -54,10 +54,10 @@ fn station(
     let ground =
         |x: f32, z: f32| Vec3::new(x, terrain.ground_y(x, z), z);
     match state {
-        KState::Rest | KState::Failed => {
+        KeeperState::Rest | KeeperState::Failed => {
             (ground(2.05, -1.55), 0.35, None)
         }
-        KState::Working => {
+        KeeperState::Working => {
             // Out to the far end and back, turning at each.
             let (far, near) = (4.0, total - 1.0);
             let span = near - far;
@@ -72,7 +72,7 @@ fn station(
             let tan = if out { -tan } else { tan };
             (p, tan.x.atan2(tan.z), Some(walked))
         }
-        KState::Waiting => (
+        KeeperState::Waiting => (
             ground(
                 terrain.at.signal_post.x - 0.85,
                 terrain.at.signal_post.z + 0.45,
@@ -80,7 +80,7 @@ fn station(
             0.0,
             None,
         ),
-        KState::Fault => {
+        KeeperState::Fault => {
             let (p, tan) = terrain.on_path(total - 3.2);
             (p, tan.x.atan2(tan.z) + 2.4, None)
         }
@@ -116,7 +116,7 @@ fn take_up(
     keeper: &mut Keeper,
     stationed: &mut Stationed,
     root: &Transform,
-    state: KState,
+    state: KeeperState,
     now: f32,
     frozen: bool,
     terrain: &Terrain,
@@ -134,7 +134,7 @@ fn take_up(
         return;
     }
     stationed.since = now;
-    if matches!(state, KState::Fault | KState::Failed) {
+    if matches!(state, KeeperState::Fault | KeeperState::Failed) {
         // It breaks down where it stands.
         let facing = root.rotation.to_euler(EulerRot::YXZ).0;
         stationed.spot = Some((root.translation, facing));
@@ -165,12 +165,12 @@ pub fn walk(
     let t = clock.t;
     for (mut keeper, mut root, mut stationed) in &mut robots {
         let (keeper, stationed) = (&mut *keeper, &mut *stationed);
-        if stationed.state != Some(demo.kstate) {
+        if stationed.state != Some(demo.keeper_state) {
             take_up(
                 keeper,
                 stationed,
                 &root,
-                demo.kstate,
+                demo.keeper_state,
                 t,
                 clock.frozen,
                 &terrain,
@@ -185,7 +185,7 @@ pub fn walk(
             spot
         } else {
             let (at, yaw, walked) = station(
-                demo.kstate,
+                demo.keeper_state,
                 t - stationed.since,
                 &terrain,
                 &motion,
@@ -215,7 +215,7 @@ pub fn walk(
             to
         };
         if let Some((trip, then)) = &stationed.errand {
-            if trip.arrived(t) {
+            if trip.has_arrived(t) {
                 let then = *then;
                 stationed.errand = None;
                 stationed.since = t;

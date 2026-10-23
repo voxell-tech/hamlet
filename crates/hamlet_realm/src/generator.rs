@@ -1,5 +1,5 @@
 //! A world generated from the society's state
-//! (docs/endless-world.md): land from a seed, a town per leader, a
+//! (docs/endless-world.md): land from a seed, a town per mayor, a
 //! house and a robot per agent, a road per pair.
 
 mod building;
@@ -51,7 +51,7 @@ use self::society::{AgentId, Pair, RoadLevel, Society, TownId};
 use self::sync::{Drawn, reshaped, sync, tell_states};
 use self::traffic::run_traffic;
 pub use self::traffic::{Trip, Trips};
-pub use self::view::{Ahead, GenView};
+pub use self::view::{Ahead, GeneratorView};
 use self::view::{aim, robot_detail, town_detail};
 pub use self::work::{
     Floor, Objecting, Passage, Rehearsal, Robot, Voting,
@@ -69,14 +69,14 @@ use crate::sky::{Quality, SkySettings};
 #[derive(Resource, Clone)]
 pub struct Origin {
     pub seed: u64,
-    pub settings: GenSettings,
+    pub settings: GeneratorSettings,
 }
 
 impl Default for Origin {
     fn default() -> Self {
         Self {
             seed: 7,
-            settings: GenSettings::default(),
+            settings: GeneratorSettings::default(),
         }
     }
 }
@@ -123,9 +123,9 @@ pub fn plugin(app: &mut App) {
     .init_resource::<Society>()
     .init_resource::<Trips>()
     .init_resource::<Drawn>()
-    .init_resource::<GenView>()
+    .init_resource::<GeneratorView>()
     .init_resource::<Ahead>()
-    .init_resource::<GenOptions>()
+    .init_resource::<GeneratorOptions>()
     .init_resource::<Rehearsal>()
     .init_resource::<Voting>()
     .init_state::<Phase>()
@@ -141,7 +141,7 @@ pub fn plugin(app: &mut App) {
             sync.run_if(
                 reshaped
                     .or_eager(resource_changed::<Land>)
-                    .or_eager(resource_changed::<GenOptions>),
+                    .or_eager(resource_changed::<GeneratorOptions>),
             ),
             tell_states.run_if(resource_changed::<Society>),
             shift_houses,
@@ -178,7 +178,7 @@ pub fn plugin(app: &mut App) {
 /// copy it was built from, so a change means a new land.
 #[derive(Clone, PartialEq, Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct GenSettings {
+pub struct GeneratorSettings {
     pub land: LandSettings,
     pub town: TownSettings,
     pub house: HouseSettings,
@@ -248,11 +248,11 @@ pub struct Common {
 
 /// The parts left out, to see their cost.
 #[derive(Resource, Clone, Copy, PartialEq, Debug)]
-pub struct GenOptions {
+pub struct GeneratorOptions {
     pub robots: bool,
 }
 
-impl Default for GenOptions {
+impl Default for GeneratorOptions {
     fn default() -> Self {
         Self { robots: true }
     }
@@ -305,7 +305,7 @@ mod tests {
     use super::*;
     use crate::Stock;
     use crate::keeper::Kit;
-    use crate::meshes::Mb;
+    use crate::meshes::Meshing;
 
     /// Prints the mesh data each kind of thing holds. Run with
     /// `cargo test --release generator::tests::cost -- --ignored
@@ -317,8 +317,11 @@ mod tests {
         reason = "it prints its measurements, read with --nocapture"
     )]
     fn cost() {
-        let land =
-            Land::new(7, GenSettings::default(), Palette::default());
+        let land = Land::new(
+            7,
+            GeneratorSettings::default(),
+            Palette::default(),
+        );
         let detail = DetailSettings::default();
         for far in [72.0, 300.0, 1150.0] {
             let sight = ground::Sight {
@@ -382,7 +385,7 @@ mod tests {
             "a hall: {} bytes",
             hall.body.bytes() + hall.panes.bytes()
         );
-        let (mut far, mut panes) = (Mb::new(), Mb::new());
+        let (mut far, mut panes) = (Meshing::new(), Meshing::new());
         house::far(
             &mut far,
             &mut panes,

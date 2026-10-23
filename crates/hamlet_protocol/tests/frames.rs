@@ -105,18 +105,18 @@ fn a_recorded_held_write_carries_its_preview_through_the_wait_and_close()
             (&ChangeLinesMark::Plus, "reviewed"),
         ]
     );
-    let ops = messages
+    let operations = messages
         .iter()
         .filter_map(|message| match message {
-            ServerMessage::Turn(turn) => Some(&turn.ops),
+            ServerMessage::Turn(turn) => Some(&turn.operations),
             _ => None,
         })
         .flatten()
         .collect::<Vec<_>>();
-    let write = ops
+    let write = operations
         .iter()
-        .find_map(|op| match op {
-            Op::Add { item, .. }
+        .find_map(|operation| match operation {
+            TranscriptOperation::Add { item, .. }
                 if item
                     .tool
                     .as_ref()
@@ -127,8 +127,8 @@ fn a_recorded_held_write_carries_its_preview_through_the_wait_and_close()
             _ => None,
         })
         .expect("the held write needs a tool item");
-    assert!(ops.iter().any(|op| matches!(op,
-        Op::Close { item, exit: 0, change: Some(Some(change)), .. }
+    assert!(operations.iter().any(|operation| matches!(operation,
+        TranscriptOperation::Close { item, exit: 0, change: Some(Some(change)), .. }
             if item == write && change == preview
     )));
 }
@@ -140,7 +140,7 @@ fn a_recorded_rewind_returns_words_and_an_adjacent_reset_and_transcript()
     assert!(messages.iter().any(|message| matches!(message, ServerMessage::Reply(reply) if reply.kind == ReplyKind::Rewound && reply.text == "Take back this line.")), "the rewind recording needs its receipt");
     let reset = messages
         .iter()
-        .position(|message| matches!(message, ServerMessage::Turn(turn) if turn.ops.iter().any(|op| matches!(op, Op::Reset {}))))
+        .position(|message| matches!(message, ServerMessage::Turn(turn) if turn.operations.iter().any(|operation| matches!(operation, TranscriptOperation::Reset {}))))
         .expect("the rewind recording needs a reset");
     let ServerMessage::Transcript(transcript) = &messages[reset + 1]
     else {

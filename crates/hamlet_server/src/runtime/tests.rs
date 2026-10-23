@@ -167,7 +167,7 @@ async fn a_skill_put_in_a_house_by_hand_shows_on_the_next_tick() {
             .state
             .agents
             .iter()
-            .find(|a| a.ref_.number == 1)
+            .find(|a| a.agent.number == 1)
             .unwrap()
             .skills
             .clone()
@@ -178,7 +178,7 @@ async fn a_skill_put_in_a_house_by_hand_shows_on_the_next_tick() {
 
 /// Times idle ticks and rescans of the tools folder in a hamlet of a
 /// hundred agents. Run it with `cargo test -p hamlet_server --lib
-/// idle_ticks -- --ignored --nocapture`. On the owner's Mac on
+/// idle_ticks -- --ignored --nocapture`. On a 10-core Mac on
 /// 2026-10-23, in the dev profile: 1.27 ms and no statement an idle
 /// tick, nearly all of it reading the 101 houses' skills; 26 µs a
 /// rescan.

@@ -41,13 +41,13 @@ pub struct Loading {
 
 impl Loading {
     /// True when everything asked for so far is in the world.
-    pub fn done(&self) -> bool {
-        self.settled() && self.builds.is_empty()
+    pub fn is_done(&self) -> bool {
+        self.is_settled() && self.builds.is_empty()
     }
 
     /// True when the ground and the trees of the view are in the
     /// world.
-    fn settled(&self) -> bool {
+    fn is_settled(&self) -> bool {
         self.waiting.is_empty()
             && self.ground.settled
             && self.groves.settled

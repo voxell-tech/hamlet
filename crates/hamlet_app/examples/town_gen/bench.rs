@@ -12,7 +12,9 @@ use bevy::prelude::*;
 use hamlet_realm::generator::land::Land;
 use hamlet_realm::generator::noise::key;
 use hamlet_realm::generator::society::Society;
-use hamlet_realm::generator::{GenOptions, GenView, Tally, Trips};
+use hamlet_realm::generator::{
+    GeneratorOptions, GeneratorView, Tally, Trips,
+};
 use hamlet_realm::sky::SkySettings;
 use hamlet_realm::{Clock, Hour, Stage};
 
@@ -84,11 +86,11 @@ pub fn run_bench(
     mut main: ResMut<MainTime>,
     mut run: ResMut<BenchRun>,
     mut world: ResMut<Society>,
-    mut view: ResMut<GenView>,
+    mut view: ResMut<GeneratorView>,
     mut stage: ResMut<Stage>,
     mut clock: ResMut<Clock>,
     mut traffic: ResMut<Trips>,
-    mut options: ResMut<GenOptions>,
+    mut options: ResMut<GeneratorOptions>,
     mut sky_set: ResMut<SkySettings>,
     mut hour: ResMut<Hour>,
     mut exit: MessageWriter<AppExit>,
@@ -173,7 +175,7 @@ pub fn run_bench(
             options.robots = robots;
             world.set_changed();
         }
-        *view = GenView {
+        *view = GeneratorView {
             focus: if dist > 300.0 {
                 Vec2::ZERO
             } else {
@@ -185,7 +187,7 @@ pub fn run_bench(
         // The hour is held, so a timing does not depend on when it
         // was taken.
         hour.0 = Some(at);
-        stage.night = sky_set.night(at);
+        stage.night = sky_set.is_night(at);
         if run.fx {
             *sky_set = effects(fx);
         }

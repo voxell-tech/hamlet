@@ -19,10 +19,9 @@ fn fault(text: &str, to: Option<&RequestId>) -> ServerMessage {
 async fn refuses_a_wrong_token_and_closes() {
     let s = Session::start(Script::new()).await;
     let mut wire = Wire::open(&s.server.url).await;
-    wire.send_text(
-        r#"{"type":"hello","v":0,"token":"not-the-token"}"#,
-    )
-    .await;
+    let hello =
+        json!({"type": "hello", "v": V, "token": "not-the-token"});
+    wire.send_text(&hello.to_string()).await;
     let (got, ending) = wire.rest().await;
     assert_eq!(
         got,
@@ -58,14 +57,16 @@ async fn refuses_another_protocol_version() {
     let s = Session::start(Script::new()).await;
     let mut wire = Wire::open(&s.server.url).await;
     let hello =
-        json!({"type": "hello", "v": 1, "token": s.server.token});
+        json!({"type": "hello", "v": V + 1, "token": s.server.token});
     wire.send_text(&hello.to_string()).await;
     let (got, ending) = wire.rest().await;
     assert_eq!(
         got,
         [fault(
-            "This `hello` message does not fit the protocol: `v` \
-             must be `0`.",
+            &format!(
+                "This `hello` message does not fit the protocol: \
+                 `v` must be `{V}`."
+            ),
             None
         )]
     );

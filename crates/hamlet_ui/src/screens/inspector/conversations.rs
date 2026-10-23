@@ -16,7 +16,7 @@ use crate::looks::{Fills, action, filling, note};
 use crate::me::Me;
 use crate::{AnyView, View};
 
-pub(super) fn read_only(world: &World) -> bool {
+pub(super) fn is_read_only(world: &World) -> bool {
     let me = world.resource::<Me>();
     world
         .get::<Chat>(me.session)

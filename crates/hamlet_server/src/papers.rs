@@ -1,4 +1,4 @@
-//! Houses on the backend chosen at startup, notes confined to them,
+//! Houses on the workspace chosen at startup, notes confined to them,
 //! and the chief's prompt material.
 
 pub(crate) mod copy;
@@ -19,15 +19,16 @@ use rustix::fs::{
 };
 
 use self::files::Files;
+use crate::protocol::{Cause, Refusable, Refusal};
 use crate::record::AgentRef;
-use crate::workspace::{Policy, Session, Transport};
+use crate::workspace::{Policy, Transport, WorkspaceSession};
 
 pub(crate) const CHARTER: &str = include_str!("../assets/charter.md");
 
 /// An agent's notes, at the top of its house.
 pub(crate) const NOTES: &str = "NOTES.md";
 
-/// What a backend may refuse to do.
+/// A deed a workspace may refuse.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Capability {
     EraseHouse,
@@ -55,16 +56,16 @@ impl Capability {
 }
 
 /// Where houses live and tools run.
-enum Backend {
+enum Workspace {
     Local,
     Remote(Transport),
 }
 
-/// The houses of the home's agents on the backend chosen at startup.
-/// The opened home directory anchors every local house.
+/// The houses of the home's agents on the workspace chosen at
+/// startup. The opened home directory anchors every local house.
 pub(crate) struct Houses {
     root: File,
-    backend: Backend,
+    workspace: Workspace,
     skills: std::collections::BTreeMap<
         (String, u64),
         (std::time::Instant, Vec<String>),
@@ -77,15 +78,15 @@ impl Houses {
     /// The houses under `root`, or in the remote `workspace`.
     pub fn open(
         root: &Path,
-        workspace: Option<crate::credentials::Workspace>,
+        workspace: Option<crate::credentials::WorkspaceAddress>,
     ) -> Result<Self> {
         Ok(Self {
             root: File::open(root)?,
-            backend: match workspace {
+            workspace: match workspace {
                 Some(connection) => {
-                    Backend::Remote(Transport::new(connection)?)
+                    Workspace::Remote(Transport::new(connection)?)
                 }
-                None => Backend::Local,
+                None => Workspace::Local,
             },
             skills: Default::default(),
             reading: Default::default(),
@@ -100,34 +101,32 @@ impl Houses {
     /// The remote workspace the houses are in.
     pub fn workspace(
         &self,
-    ) -> Option<&crate::credentials::Workspace> {
-        match &self.backend {
-            Backend::Local => None,
-            Backend::Remote(transport) => {
+    ) -> Option<&crate::credentials::WorkspaceAddress> {
+        match &self.workspace {
+            Workspace::Local => None,
+            Workspace::Remote(transport) => {
                 Some(transport.connection())
             }
         }
     }
 
-    /// Words for the chief when the backend cannot do `capability`.
-    pub fn allows(
-        &self,
-        capability: Capability,
-    ) -> Result<(), String> {
-        match &self.backend {
-            Backend::Local => Ok(()),
-            Backend::Remote(_) => Err(crate::workspace::unavailable(
-                capability.operation(),
-            )),
+    /// Refuses `capability` when the workspace cannot do it.
+    pub fn allows(&self, capability: Capability) -> Refusable<()> {
+        match &self.workspace {
+            Workspace::Local => Ok(()),
+            Workspace::Remote(_) => Err(Refusal::Cannot {
+                operation: capability.operation().into(),
+                cause: Cause::Remote,
+            }),
         }
     }
 
-    /// Words for the chief when the backend cannot take a file of
-    /// `size` bytes in one transfer.
-    pub fn admits(&self, size: u64) -> Result<(), &'static str> {
-        match self.backend {
-            Backend::Remote(_) if size > MAX_FILE as u64 => {
-                Err(remote::TOO_LARGE)
+    /// Refuses a file of `size` bytes when the workspace cannot take
+    /// it in one transfer.
+    pub fn admits(&self, size: u64) -> Result<(), remote::TooLarge> {
+        match self.workspace {
+            Workspace::Remote(_) if size > MAX_FILE as u64 => {
+                Err(remote::TooLarge)
             }
             _ => Ok(()),
         }
@@ -135,8 +134,8 @@ impl Houses {
 
     /// Whether every house change has happened or not once it
     /// returns, so work a crash cut short may be done again.
-    pub fn confirms(&self) -> bool {
-        matches!(self.backend, Backend::Local)
+    pub fn can_confirm(&self) -> bool {
+        matches!(self.workspace, Workspace::Local)
     }
 
     /// Checks before serving that tools can run.
@@ -144,26 +143,26 @@ impl Houses {
         &self,
         sandbox: crate::sandbox::Sandbox,
     ) -> Result<()> {
-        match self.backend {
-            Backend::Local => sandbox.probe(),
-            Backend::Remote(_) => Ok(()),
+        match self.workspace {
+            Workspace::Local => sandbox.probe(),
+            Workspace::Remote(_) => Ok(()),
         }
     }
 
     /// The machine tools run on, where it is not this one.
     pub fn machine(&self) -> Option<&'static str> {
-        match self.backend {
-            Backend::Local => None,
-            Backend::Remote(_) => Some(remote::MACHINE),
+        match self.workspace {
+            Workspace::Local => None,
+            Workspace::Remote(_) => Some(remote::MACHINE),
         }
     }
 
-    /// The only folder a hamlet may work on, where the backend fixes
-    /// it.
+    /// The only folder a hamlet may work on, where the workspace
+    /// fixes it.
     pub fn fixed_folder(&self) -> Option<&'static str> {
-        match self.backend {
-            Backend::Local => None,
-            Backend::Remote(_) => Some(remote::PROJECT),
+        match self.workspace {
+            Workspace::Local => None,
+            Workspace::Remote(_) => Some(remote::PROJECT),
         }
     }
 
@@ -172,7 +171,7 @@ impl Houses {
         hamlet: &str,
         number: u64,
         policy: Policy,
-    ) -> Result<Session> {
+    ) -> Result<WorkspaceSession> {
         transport.session(
             AgentRef {
                 hamlet: hamlet.into(),
@@ -184,12 +183,12 @@ impl Houses {
 
     /// The house of agent `number` of `hamlet`.
     pub fn house(&self, hamlet: &str, number: u64) -> Result<Files> {
-        Ok(match &self.backend {
-            Backend::Local => Files::Local(house(
+        Ok(match &self.workspace {
+            Workspace::Local => Files::Local(house(
                 &self.root, hamlet, number, false,
             )?),
-            Backend::Remote(transport) => {
-                Files::Remote(remote::Dir::house(Self::session(
+            Workspace::Remote(transport) => {
+                Files::Remote(remote::Folder::house(Self::session(
                     transport,
                     hamlet,
                     number,
@@ -207,13 +206,13 @@ impl Houses {
         number: u64,
         project: bool,
     ) -> Result<Reader> {
-        Ok(match &self.backend {
-            Backend::Local => Reader::Local {
+        Ok(match &self.workspace {
+            Workspace::Local => Reader::Local {
                 root: self.root.try_clone()?,
                 hamlet: hamlet.into(),
                 number,
             },
-            Backend::Remote(transport) => {
+            Workspace::Remote(transport) => {
                 Reader::Remote(Self::session(
                     transport,
                     hamlet,
@@ -236,12 +235,12 @@ impl Houses {
         place: crate::tools::Place,
         net: bool,
         sandbox: crate::sandbox::Sandbox,
-    ) -> Result<crate::tools::Session> {
-        Ok(match &self.backend {
-            Backend::Local => {
-                crate::tools::Session::local(place, net, sandbox)
+    ) -> Result<crate::tools::ToolSession> {
+        Ok(match &self.workspace {
+            Workspace::Local => {
+                crate::tools::ToolSession::local(place, net, sandbox)
             }
-            Backend::Remote(transport) => {
+            Workspace::Remote(transport) => {
                 let policy = Policy {
                     project: place.folder.is_some(),
                     network: net,
@@ -249,7 +248,7 @@ impl Houses {
                 };
                 let session =
                     transport.session(agent.clone(), policy)?;
-                crate::tools::Session::remote(place, session)
+                crate::tools::ToolSession::remote(place, session)
             }
         })
     }
@@ -263,22 +262,22 @@ impl Houses {
     ) -> impl Future<Output = Result<()>> + Send + 'static {
         enum Making {
             Local(File, String),
-            Remote(remote::Dir),
+            Remote(remote::Folder),
         }
-        let making = match &self.backend {
-            Backend::Local => self
+        let making = match &self.workspace {
+            Workspace::Local => self
                 .root
                 .try_clone()
                 .map(|root| Making::Local(root, hamlet.into()))
                 .map_err(Into::into),
-            Backend::Remote(transport) => Self::session(
+            Workspace::Remote(transport) => Self::session(
                 transport,
                 hamlet,
                 number,
                 Policy::default(),
             )
             .map(|session| {
-                Making::Remote(remote::Dir::house(session))
+                Making::Remote(remote::Folder::house(session))
             }),
         };
         async move {
@@ -297,9 +296,9 @@ impl Houses {
     /// Makes a local house now. A remote house is made by
     /// [`Houses::initialize`], which waits for the workspace.
     pub fn build(&self, hamlet: &str, number: u64) -> Result<()> {
-        match self.backend {
-            Backend::Local => build(&self.root, hamlet, number),
-            Backend::Remote(_) => Ok(()),
+        match self.workspace {
+            Workspace::Local => build(&self.root, hamlet, number),
+            Workspace::Remote(_) => Ok(()),
         }
     }
 
@@ -331,7 +330,7 @@ impl Houses {
         number: u64,
         local: &Path,
     ) -> Result<Vec<String>> {
-        if let Backend::Local = self.backend {
+        if let Workspace::Local = self.workspace {
             return Ok(crate::prompt::skill_names(local));
         }
         while let Some(Ok((hamlet, number, names))) =
@@ -369,8 +368,7 @@ impl Houses {
         from: &AgentRef,
         to: &AgentRef,
     ) -> Result<()> {
-        self.allows(Capability::MoveHouse)
-            .map_err(anyhow::Error::msg)?;
+        self.allows(Capability::MoveHouse)?;
         let source =
             match house(&self.root, &from.hamlet, from.number, false)
             {
@@ -400,8 +398,7 @@ impl Houses {
     }
 
     pub fn erase_hamlet(&self, hamlet: &str) -> Result<()> {
-        self.allows(Capability::EraseHamlet)
-            .map_err(anyhow::Error::msg)?;
+        self.allows(Capability::EraseHamlet)?;
         ensure!(
             crate::record::check_name(hamlet).is_none(),
             "invalid hamlet name"
@@ -428,8 +425,7 @@ impl Houses {
     }
 
     pub fn erase(&self, hamlet: &str, number: u64) -> Result<()> {
-        self.allows(Capability::EraseHouse)
-            .map_err(anyhow::Error::msg)?;
+        self.allows(Capability::EraseHouse)?;
         let house = match house(&self.root, hamlet, number, false) {
             Ok(house) => house,
             Err(error)
@@ -459,7 +455,7 @@ impl Houses {
         number: u64,
         snapshot: &copy::Snapshot,
     ) -> Result<()> {
-        let Backend::Local = self.backend else {
+        let Workspace::Local = self.workspace else {
             self.initialize(hamlet, number).await?;
             return snapshot
                 .replace(&self.house(hamlet, number)?)
@@ -554,7 +550,7 @@ pub(crate) enum Reader {
         hamlet: String,
         number: u64,
     },
-    Remote(Session),
+    Remote(WorkspaceSession),
 }
 
 impl Reader {
@@ -644,7 +640,7 @@ impl Reader {
     }
 
     /// Whether the hamlet's `folder` has `name`.
-    pub async fn project_has(
+    pub async fn has_project_file(
         &self,
         folder: &str,
         name: &str,
@@ -657,7 +653,7 @@ impl Reader {
                     .unwrap_or(false)
             }
             Self::Remote(session) => {
-                remote::project_has(session, name).await
+                remote::has_project_file(session, name).await
             }
         }
     }

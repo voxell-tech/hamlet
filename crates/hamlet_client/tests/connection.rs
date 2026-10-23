@@ -5,7 +5,7 @@ use bevy_ecs::prelude::*;
 use futures::{SinkExt, StreamExt};
 use hamlet_client::connection::{Connection, Contact};
 use hamlet_client::outbox::Outbox;
-use hamlet_client::realm::Settlement;
+use hamlet_client::realm::HamletId;
 use hamlet_client::{ClientPlugin, Tokio};
 use hamlet_protocol::client as protocol;
 use hamlet_protocol::client::discovery::ServerAddress;
@@ -136,7 +136,7 @@ async fn hello_precedes_the_outbox_and_received_state_fills_the_world()
         received
             .extend(std::iter::from_fn(|| frames.try_recv().ok()));
         received.len() == 3
-            && world.query::<&Settlement>().iter(world).count() == 1
+            && world.query::<&HamletId>().iter(world).count() == 1
     })
     .await;
     assert_eq!(
@@ -167,10 +167,10 @@ async fn hello_precedes_the_outbox_and_received_state_fills_the_world()
     );
     assert_eq!(
         app.world_mut()
-            .query::<&Settlement>()
+            .query::<&HamletId>()
             .single(app.world())
             .unwrap()
-            .name,
+            .0,
         "home"
     );
     assert_eq!(app.world().resource::<Outbox>().iter().count(), 0);
@@ -240,7 +240,7 @@ async fn a_reconnection_keeps_the_realm_and_sends_offline_requests_after_hello()
     assert_eq!(app.world().resource::<Reconnections>().0, 0);
     let home = app
         .world_mut()
-        .query_filtered::<Entity, With<Settlement>>()
+        .query_filtered::<Entity, With<HamletId>>()
         .single(app.world())
         .unwrap();
     close.send(()).unwrap();
@@ -275,10 +275,10 @@ async fn a_reconnection_keeps_the_realm_and_sends_offline_requests_after_hello()
     };
     assert_eq!(message.id, request);
     assert_eq!(message.text, "While away");
-    assert!(app.world().get::<Settlement>(home).is_some());
+    assert!(app.world().get::<HamletId>(home).is_some());
     assert_eq!(
         app.world_mut()
-            .query::<&Settlement>()
+            .query::<&HamletId>()
             .iter(app.world())
             .count(),
         1
@@ -592,7 +592,7 @@ async fn a_socket_error_after_state_and_fault_reconnects_instead_of_refusing()
     );
     assert_eq!(
         app.world_mut()
-            .query::<&Settlement>()
+            .query::<&HamletId>()
             .iter(app.world())
             .count(),
         1

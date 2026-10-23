@@ -1,4 +1,4 @@
-//! Chief limits, omitted defaults and the record's constraints.
+//! Chief limits, their omitted defaults and a record's limits.
 
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -121,7 +121,7 @@ impl Limits {
 
     /// Whether `name`, or the mayor when `mayor`, holds `permission`
     /// by these limits.
-    pub fn permits(
+    pub fn is_granted(
         &self,
         permission: &Permission,
         name: &str,
@@ -171,11 +171,12 @@ pub(crate) fn of(
     Ok(*record.limits.chief)
 }
 
-pub(crate) struct Rules {
+/// The bundled limits schema, compiled to check a chief's edit.
+pub(crate) struct LimitsSchema {
     validator: jsonschema::Validator,
 }
 
-impl Rules {
+impl LimitsSchema {
     pub fn new() -> Result<Self> {
         Ok(Self {
             validator: jsonschema::validator_for(&SCHEMA)?,
@@ -188,22 +189,21 @@ impl Rules {
         current: &Limits,
         edit: &EditLimits,
     ) -> Refusable<Value> {
-        let current =
-            serde_json::to_value(current).expect("limits are JSON");
         let mut value = match edit {
             EditLimits::Whole { whole, .. } => {
-                serde_json::to_value(whole).expect("JSON object")
+                Value::Object(whole.clone().into_iter().collect())
             }
             EditLimits::Set { set, .. } => {
-                let mut value = current;
+                let mut value = serde_json::to_value(current).expect(
+                    "Limits serializes: its maps have string keys",
+                );
                 let Some(fields) = value
                     .get_mut(&set.section)
                     .and_then(Value::as_object_mut)
                 else {
-                    return Err(Refusal::Invalid(format!(
-                        "unknown section `{}`",
-                        set.section
-                    )));
+                    return Err(Refusal::UnknownSection(
+                        set.section.clone(),
+                    ));
                 };
                 let reset = set.value.is_null()
                     && !(["budget", "task"]
@@ -214,10 +214,10 @@ impl Rules {
                     if fields.remove(&set.key).is_none()
                         && set.section != "pinned"
                     {
-                        return Err(Refusal::Invalid(format!(
-                            "unknown field `{}` under {}",
-                            set.key, set.section
-                        )));
+                        return Err(Refusal::UnknownField {
+                            field: set.key.clone(),
+                            under: set.section.clone(),
+                        });
                     }
                 } else {
                     fields.insert(set.key.clone(), set.value.clone());
@@ -247,11 +247,14 @@ impl Rules {
                 unexpected,
             } = &error.kind
             {
-                return Err(Refusal::Invalid(format!(
-                    "unknown field `{}` under {}",
-                    unexpected[0],
-                    if path.is_empty() { "limits" } else { &path }
-                )));
+                return Err(Refusal::UnknownField {
+                    field: unexpected[0].clone(),
+                    under: if path.is_empty() {
+                        "limits".into()
+                    } else {
+                        path
+                    },
+                });
             }
             let schema_path = error.schema_path.to_string();
             let constraint =

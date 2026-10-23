@@ -4,9 +4,8 @@ use anyhow::{Context, Result};
 use hamlet_protocol::client::Permission;
 use rusqlite::{Connection, params};
 use serde::Deserialize;
-use serde_json::Value;
 
-use super::{Caller, Deed, outcome};
+use super::{Caller, Deed, SocietyOutcome};
 use crate::harness::Harnesses;
 use crate::papers::Capability;
 use crate::protocol::Refusal;
@@ -39,22 +38,20 @@ pub(super) fn guards(db: &Connection, hamlet: &str) -> Result<()> {
     record::guard(db, hamlet, r.open_votes, protected)
 }
 
-fn removed(r: &record::Hamlet, archive: &str) -> Value {
+/// The number of the agent that left `r` as `archive`, and the words
+/// for its removal.
+fn removed(r: &record::Hamlet, archive: &str) -> (u64, String) {
     let entry = r
         .archive
         .iter()
         .find(|a| a.id == archive)
-        .expect("recorded departure");
-    let mut result = outcome(
-        &format!(
-            "Removed `{}`. Its house is archived as {} and its \
-             roads are gone. A chief can restore it.",
-            entry.agent.name, entry.id
-        ),
-        false,
+        .expect("a departure's archive is in its record");
+    let text = format!(
+        "Removed `{}`. Its house is archived as {} and its roads \
+         are gone. A chief can restore it.",
+        entry.agent.name, entry.id
     );
-    result["number"] = entry.agent.number.into();
-    result
+    (entry.agent.number, text)
 }
 
 /// The arguments of `remove_agent`.
@@ -71,9 +68,9 @@ pub(super) async fn remove(
     harnesses: &mut Harnesses,
     caller: &Caller<'_>,
     given: Remove,
-) -> Result<Value> {
+) -> Result<SocietyOutcome> {
     let agent = &caller.place.agent;
-    let value = society::once(
+    let outcome = society::once(
         service.home.store(),
         &caller.id,
         &caller.request,
@@ -92,24 +89,30 @@ pub(super) async fn remove(
             };
             Ok(match crate::operation::change(db, &change)? {
                 Outcome::Done(RecordResult::Departed { archive }) => {
-                    removed(
+                    let (number, text) = removed(
                         &record::read(db, &agent.hamlet)?.context(
                             "the departed agent's hamlet has no \
                              record",
                         )?,
                         &archive,
-                    )
+                    );
+                    SocietyOutcome {
+                        number: Some(number),
+                        ..SocietyOutcome::answered(text)
+                    }
                 }
-                Outcome::Refused(refusal) => {
-                    outcome(&refusal.text(Audience::Agent), true)
-                }
+                Outcome::Refused(refusal) => SocietyOutcome::failed(
+                    refusal.text(Audience::Agent),
+                ),
                 Outcome::Done(_) => {
                     anyhow::bail!("unexpected departure result")
                 }
             })
         },
     )?;
-    if let Some(number) = value["number"].as_u64() {
+    // Every removal's marker keeps the number of the agent it took
+    // out; a refused one took none.
+    if let Some(number) = outcome.number {
         crate::chats::stop_agent(
             service,
             harnesses,
@@ -121,7 +124,7 @@ pub(super) async fn remove(
         .await?;
         lapse(service.db(), &agent.hamlet, number)?;
     }
-    Ok(value)
+    Ok(outcome)
 }
 
 pub(crate) fn lapse(
@@ -162,10 +165,10 @@ pub(super) async fn deed(
         return Ok(None);
     }
     if deed == "erase"
-        && let Err(words) =
+        && let Err(refusal) =
             service.houses.allows(Capability::EraseHouse)
     {
-        return Ok(Some(Err(Refusal::Invalid(words))));
+        return Ok(Some(Err(refusal)));
     }
     let r = match service.access(hamlet, deed)? {
         Ok(r) => r,
@@ -252,9 +255,9 @@ pub(super) async fn deed(
             if let Outcome::Refused(refusal) =
                 crate::operation::change(service.db(), &op)?
             {
-                return Ok(Some(Err(Refusal::Invalid(
-                    refusal.text(Audience::Chief),
-                ))));
+                return Ok(Some(Err(Refusal::Record(Box::new(
+                    refusal,
+                )))));
             }
             crate::fault::point("after_agent_erasure");
             service.houses.erase(hamlet, entry.agent.number)?;
@@ -282,9 +285,7 @@ pub(super) async fn deed(
             let r = service.home.store().record(hamlet)?.context(
                 "the departed agent's hamlet has no record",
             )?;
-            let value = removed(&r, &archive);
-            let number =
-                value["number"].as_u64().expect("departure number");
+            let (number, text) = removed(&r, &archive);
             crate::chats::stop_agent(
                 service,
                 harnesses,
@@ -295,14 +296,14 @@ pub(super) async fn deed(
             )
             .await?;
             lapse(service.db(), hamlet, number)?;
-            Ok(value["text"].as_str().unwrap_or_default().into())
+            Ok(text)
         }
         // The merge lane splits a restored merge's files.
         Outcome::Done(RecordResult::Restored { text, .. }) => {
             Ok(text)
         }
         Outcome::Refused(refusal) => {
-            Err(Refusal::Invalid(refusal.text(Audience::Chief)))
+            Err(Refusal::Record(Box::new(refusal)))
         }
         Outcome::Done(_) => {
             anyhow::bail!("unexpected lifecycle result")

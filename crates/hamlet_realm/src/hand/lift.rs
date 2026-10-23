@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use hamlet_client::realm::{self, Mayor, Road, RoadsFrom, RoadsTo};
 
 use super::{
-    Hand, Held, Mood, PlaySettings, Wish, free, liftable, met,
+    Hand, Held, Mood, PlaySettings, Wish, is_free, liftable, met,
     toward, yaw_of,
 };
 use crate::Clock;
@@ -199,7 +199,9 @@ pub(super) fn carry(
         {
             let known = ends.get(me).is_ok_and(|(from, to)| {
                 realm::roads(from, to).any(|road| {
-                    roads.get(road).is_ok_and(|road| road.has(other))
+                    roads
+                        .get(road)
+                        .is_ok_and(|road| road.has_end(other))
                 })
             });
             let office = mayor
@@ -298,7 +300,7 @@ pub(super) fn fall(
             continue;
         };
         let there = place.translation;
-        if free(&robot, passage) && !mood.sulks(clock.t) {
+        if is_free(&robot, passage) && !mood.is_sulking(clock.t) {
             mood.joins = Some((clock.t, Act::Greet));
             mood.face = Some(toward(there, here));
         }

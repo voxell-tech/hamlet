@@ -7,7 +7,7 @@ use bevy::DefaultPlugins;
 use bevy::app::PluginGroup;
 use bevy_app::{App, AppExit};
 use hamlet_client::connection::LocalServer;
-use hamlet_client::{ClientPlugin, Connection, Tokio, ViewDir};
+use hamlet_client::{ClientPlugin, Connection, Tokio, ViewFolder};
 use hamlet_desktop::DesktopPlugin;
 use hamlet_protocol::client::discovery::{self, Chosen};
 use hamlet_realm::RealmPlugin;
@@ -79,7 +79,7 @@ fn main() -> Result<()> {
     let rt = tokio::runtime::Runtime::new()?;
     let mut app = App::new();
     app.insert_resource(Tokio(rt.handle().clone()))
-        .insert_resource(ViewDir(view))
+        .insert_resource(ViewFolder(view))
         .insert_resource(remembered)
         .insert_resource(kept)
         .add_plugins(DefaultPlugins.set(window));
@@ -109,10 +109,10 @@ fn client(app: &mut App, vars: impl Fn(&str) -> Option<String>) {
             app.add_plugins(ClientPlugin { server: None })
                 .insert_resource(LocalServer(home));
         }
-        Err(words) => {
+        Err(error) => {
             app.add_plugins(ClientPlugin { server: None })
                 .insert_resource(Connection {
-                    words,
+                    words: error.to_string(),
                     ..Connection::default()
                 });
         }

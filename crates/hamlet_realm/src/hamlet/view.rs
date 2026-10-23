@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use super::Sited;
 use crate::generator::land::Land;
 use crate::generator::society::Society;
-use crate::generator::{Ahead, GenView};
+use crate::generator::{Ahead, GeneratorView};
 use crate::pick::{Centre, Glide, Leash, Orbit, Stance};
 use crate::sky::CameraSettings;
 
@@ -74,7 +74,7 @@ pub(super) fn aim(
     land: Res<Land>,
     society: Res<Society>,
     hamlets: Query<&Sited>,
-    mut view: ResMut<GenView>,
+    mut view: ResMut<GeneratorView>,
     mut ahead: ResMut<Ahead>,
     mut framed: Local<Option<(usize, Vec2, f32)>>,
 ) {
@@ -98,7 +98,7 @@ pub(super) fn aim(
     if centre.0 != middle {
         centre.0 = middle;
     }
-    let seen = |orbit: Orbit| GenView {
+    let seen = |orbit: Orbit| GeneratorView {
         focus: middle + orbit.pan,
         dist: base * orbit.zoom,
         yaw: orbit.yaw,

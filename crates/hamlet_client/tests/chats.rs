@@ -86,7 +86,7 @@ fn frames(text: &str) -> Vec<protocol::ServerMessage> {
 
 #[derive(Resource, Default)]
 struct Observed {
-    output: Vec<(Entity, protocol::Op)>,
+    output: Vec<(Entity, protocol::TranscriptOperation)>,
     finished: Vec<Entity>,
 }
 
@@ -95,7 +95,8 @@ fn observe(app: &mut App) {
     app.init_resource::<Observed>()
         .add_observer(
             |event: On<SessionOutput>, mut seen: ResMut<Observed>| {
-                seen.output.push((event.chat, event.op.clone()));
+                seen.output
+                    .push((event.chat, event.operation.clone()));
             },
         )
         .add_observer(
@@ -124,10 +125,13 @@ fn live_turns_equal_the_transcript_read_back_and_emit_each_operation_once()
             .world()
             .get::<Transcript>(chat)
             .map_or(0, Transcript::shape);
-        let appended = matches!(&frame, protocol::ServerMessage::Turn(turn) if turn.ops.iter().all(|op| matches!(op, protocol::Op::Append {..})));
+        let appended = matches!(&frame, protocol::ServerMessage::Turn(turn) if turn.operations.iter().all(|operation| matches!(operation, protocol::TranscriptOperation::Append {..})));
         if let protocol::ServerMessage::Turn(turn) = &frame {
             expected_ops.extend(
-                turn.ops.iter().cloned().map(|op| (chat, op)),
+                turn.operations
+                    .iter()
+                    .cloned()
+                    .map(|operation| (chat, operation)),
             );
         }
         receive(app.world_mut(), frame);
@@ -138,7 +142,7 @@ fn live_turns_equal_the_transcript_read_back_and_emit_each_operation_once()
             );
         }
         if let Some(status) = app.world().get::<Status>(chat) {
-            saw_working |= status.working();
+            saw_working |= status.is_working();
         }
     }
     assert!(saw_working);
@@ -146,7 +150,7 @@ fn live_turns_equal_the_transcript_read_back_and_emit_each_operation_once()
     let said = world.get::<Transcript>(chat).unwrap();
     assert_eq!(said.items().len(), 4);
     assert!(
-        matches!(&said.items()[0].entry, Entry::User { user, text } if user == "chief" && text == "Hello, mayor.")
+        matches!(&said.items()[0].entry, Entry::Chief { name, text } if name == "chief" && text == "Hello, mayor.")
     );
     assert!(
         matches!(&said.items()[1].entry, Entry::Reasoning(text) if text == "I will greet the chief.")
@@ -157,8 +161,8 @@ fn live_turns_equal_the_transcript_read_back_and_emit_each_operation_once()
     assert!(
         matches!(&said.items()[3].entry, Entry::Assistant(text) if text == "Hello chief. The mayor is here and ready to work with you. ".repeat(6).trim_end())
     );
-    assert!(!said.answering());
-    assert!(!world.get::<Status>(chat).unwrap().working());
+    assert!(!said.is_answering());
+    assert!(!world.get::<Status>(chat).unwrap().is_working());
     let protocol::ServerMessage::Transcript(page) = &read_back else {
         panic!("the recording ends with a read-back transcript");
     };
@@ -236,7 +240,7 @@ fn earlier_requests_one_page_and_prepends_it_to_the_received_transcript()
     assert_eq!(said.items().len(), 46);
     assert_eq!(&said.items()[6..], &later);
     assert!(
-        matches!(&said.items()[0].entry, Entry::User { text, .. } if text == "Line 1.")
+        matches!(&said.items()[0].entry, Entry::Chief { text, .. } if text == "Line 1.")
     );
     assert_eq!(said.earlier(), None);
     earlier(app.world_mut(), chat);
@@ -370,7 +374,7 @@ fn a_recorded_rewind_returns_the_chief_words_and_replaces_the_reset_items()
                 .id
                 .clone();
         }
-        let reset = matches!(&message, protocol::ServerMessage::Turn(turn) if turn.ops.iter().any(|op| matches!(op, protocol::Op::Reset {})));
+        let reset = matches!(&message, protocol::ServerMessage::Turn(turn) if turn.operations.iter().any(|operation| matches!(operation, protocol::TranscriptOperation::Reset {})));
         receive(app.world_mut(), message);
         if reset {
             assert!(
@@ -420,16 +424,17 @@ fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
             .iter()
             .filter_map(|message| match message {
                 protocol::ServerMessage::Turn(turn) => {
-                    Some(&turn.ops)
+                    Some(&turn.operations)
                 }
                 _ => None,
             })
             .flatten()
-            .find_map(|op| match op {
-                protocol::Op::Add { item, .. }
-                    if item.tool.as_ref().is_some_and(|tool| {
-                        tool.summary.contains(summary)
-                    }) =>
+            .find_map(|operation| match operation {
+                protocol::TranscriptOperation::Add {
+                    item, ..
+                } if item.tool.as_ref().is_some_and(|tool| {
+                    tool.summary.contains(summary)
+                }) =>
                 {
                     Some(item.id.clone())
                 }
@@ -440,17 +445,17 @@ fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
             .iter()
             .filter_map(|message| match message {
                 protocol::ServerMessage::Turn(turn) => {
-                    Some(&turn.ops)
+                    Some(&turn.operations)
                 }
                 _ => None,
             })
             .flatten()
-            .find_map(|op| match op {
-                protocol::Op::Close { item, ms, .. }
-                    if item == &id =>
-                {
-                    *ms
-                }
+            .find_map(|operation| match operation {
+                protocol::TranscriptOperation::Close {
+                    item,
+                    ms,
+                    ..
+                } if item == &id => *ms,
                 _ => None,
             })
             .expect("the recorded tool close carries its duration");
@@ -494,11 +499,13 @@ fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
     }
 }
 
-fn turn(ops: Vec<protocol::Op>) -> protocol::ServerMessage {
+fn turn(
+    operations: Vec<protocol::TranscriptOperation>,
+) -> protocol::ServerMessage {
     protocol::ServerMessage::Turn(protocol::Turn {
         chat: reference(),
         number: Some(1),
-        ops,
+        operations,
     })
 }
 
@@ -511,15 +518,17 @@ fn working_and_last_activity_follow_status_and_finishing_is_not_repeated()
     let chat = app.world_mut().spawn(Chat(reference())).id();
     receive(
         app.world_mut(),
-        turn(vec![protocol::Op::Status {
+        turn(vec![protocol::TranscriptOperation::Status {
             working: true,
             pending: 2,
             last: None,
         }]),
     );
     assert_eq!(app.world().get::<Status>(chat).unwrap().pending, 3);
-    assert!(app.world().get::<Transcript>(chat).unwrap().answering());
-    let idle = turn(vec![protocol::Op::Status {
+    assert!(
+        app.world().get::<Transcript>(chat).unwrap().is_answering()
+    );
+    let idle = turn(vec![protocol::TranscriptOperation::Status {
         working: false,
         pending: 0,
         last: Some(protocol::LastActivity {
@@ -530,13 +539,13 @@ fn working_and_last_activity_follow_status_and_finishing_is_not_repeated()
     receive(app.world_mut(), idle.clone());
     receive(app.world_mut(), idle);
     let status = app.world().get::<Status>(chat).unwrap();
-    assert!(!status.working());
+    assert!(!status.is_working());
     assert_eq!(
         status.last,
         Some((1234, "Finished the chief's task".into()))
     );
     assert!(
-        !app.world().get::<Transcript>(chat).unwrap().answering()
+        !app.world().get::<Transcript>(chat).unwrap().is_answering()
     );
     assert_eq!(
         app.world().resource::<Observed>().finished,
@@ -570,8 +579,8 @@ fn recorded_chats_keep_last_activity_from_live_status_and_transcripts()
                         .map(|last| (last.at, last.what.clone()));
                 }
                 protocol::ServerMessage::Turn(turn) => {
-                    for op in &turn.ops {
-                        if let protocol::Op::Status { last, .. } = op
+                    for operation in &turn.operations {
+                        if let protocol::TranscriptOperation::Status { last, .. } = operation
                         {
                             expected = last.as_ref().map(|last| {
                                 (last.at, last.what.clone())
@@ -619,7 +628,7 @@ fn new_and_resumed_conversations_keep_their_received_number() {
     let said = app.world().get::<Transcript>(chat).unwrap();
     assert_eq!(said.items().len(), 3);
     assert!(
-        matches!(&said.items()[0].entry, Entry::User { text, .. } if text == "Remember our first conversation.")
+        matches!(&said.items()[0].entry, Entry::Chief { text, .. } if text == "Remember our first conversation.")
     );
 }
 
@@ -699,7 +708,7 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
             app.world().get::<Transcript>(chat).unwrap().shape();
         receive(
             app.world_mut(),
-            turn(vec![protocol::Op::Add {
+            turn(vec![protocol::TranscriptOperation::Add {
                 item: item(id, kind, text),
                 replaces: None,
             }]),
@@ -711,7 +720,7 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
     }
     let said = app.world().get::<Transcript>(chat).unwrap();
     assert!(
-        matches!(&said.item("chief").unwrap().entry, Entry::User { user, text } if user == "chief" && text == "Chief words")
+        matches!(&said.item("chief").unwrap().entry, Entry::Chief { name, text } if name == "chief" && text == "Chief words")
     );
     assert!(
         matches!(&said.item("notice").unwrap().entry, Entry::Notice(text) if text == "A notice")
@@ -725,7 +734,7 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
     let shape = said.shape();
     receive(
         app.world_mut(),
-        turn(vec![protocol::Op::Append {
+        turn(vec![protocol::TranscriptOperation::Append {
             item: "reason".into(),
             text: " grows".into(),
         }]),
@@ -737,7 +746,7 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
     );
     receive(
         app.world_mut(),
-        turn(vec![protocol::Op::Add {
+        turn(vec![protocol::TranscriptOperation::Add {
             item: item(
                 "replacement",
                 protocol::ItemKind::Reasoning,
@@ -760,7 +769,7 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
     });
     receive(
         app.world_mut(),
-        turn(vec![protocol::Op::Add {
+        turn(vec![protocol::TranscriptOperation::Add {
             item: tool,
             replaces: None,
         }]),
@@ -770,7 +779,7 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
             app.world().get::<Transcript>(chat).unwrap().shape();
         receive(
             app.world_mut(),
-            turn(vec![protocol::Op::Close {
+            turn(vec![protocol::TranscriptOperation::Close {
                 item: "tool".into(),
                 exit: 0,
                 ms: Some(1),
@@ -865,7 +874,7 @@ fn another_transcript_keeps_the_page_outstanding_but_stale() {
         if reset {
             receive(
                 app.world_mut(),
-                turn(vec![protocol::Op::Reset {}]),
+                turn(vec![protocol::TranscriptOperation::Reset {}]),
             );
         }
         let mut replacement = pages[0].clone();
@@ -898,7 +907,7 @@ fn another_transcript_keeps_the_page_outstanding_but_stale() {
         assert_eq!(said.items(), kept.items());
         assert_eq!(said.shape(), kept.shape());
         assert_eq!(said.earlier(), Some("replacement-cursor"));
-        assert!(said.answering());
+        assert!(said.is_answering());
         use hamlet_client::chats::{
             ConversationNumber, Status, Usage,
         };
@@ -954,6 +963,6 @@ fn peer_inputs_keep_their_author_and_never_become_chief_inputs() {
         }
     );
     assert!(
-        matches!(&items[1].entry, Entry::User { user, .. } if user == "chief")
+        matches!(&items[1].entry, Entry::Chief { name, .. } if name == "chief")
     );
 }

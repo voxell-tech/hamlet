@@ -2,16 +2,17 @@
 
 use anyhow::{Context, Result, ensure};
 use hamlet_protocol::client::{
-    Address, Edit, Read, ServerMessage, State,
+    Address, Edit, Read, RequestId, ServerMessage, State,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
 
 use crate::credentials::Credentials;
+use crate::diagnostic::{Secrets, tell};
 use crate::documents::Work;
-use crate::limits::Rules;
+use crate::limits::LimitsSchema;
 use crate::papers::{Capability, Houses};
-use crate::protocol::{Refusable, Refusal, reply};
+use crate::protocol::{Cause, Refusable, Refusal, reply};
 use crate::record::{self, FoundRecord};
 use crate::settings::{Overrides, Settings};
 use crate::{Home, OperationId, Outcome, Reply, RuntimeInstance};
@@ -21,7 +22,7 @@ pub struct Service {
     pub home: Home,
     pub(crate) chief: String,
     pub(crate) credentials: Credentials,
-    pub(crate) limits: Rules,
+    pub(crate) limits: LimitsSchema,
     pub(crate) houses: Houses,
     pub(crate) overrides: Overrides,
     pub(crate) models: crate::models::Models,
@@ -97,7 +98,7 @@ impl Service {
             ensure!(
                 houses.allows(Capability::MoveHouse).is_ok(),
                 "An unfinished local house move needs the original \
-                 local backend. Remote houses were not changed."
+                 local workspace. Remote houses were not changed."
             );
             for binding in crate::chats::records::conversations_of(
                 home.connection(),
@@ -121,13 +122,13 @@ impl Service {
         for directory in ["library", "tools", "librarian"] {
             std::fs::create_dir_all(root.join(directory))?;
         }
-        crate::prompt::stock(&root.join("library"));
+        crate::prompt::stock(&root.join("library"), &credentials);
         Ok(Self {
             home,
             chief,
             credentials,
             houses,
-            limits: Rules::new()?,
+            limits: LimitsSchema::new()?,
             models: crate::models::Models::open(
                 &root,
                 overrides.faux,
@@ -161,7 +162,7 @@ impl Service {
     /// Answers the chief's edit of a document, the request `id`.
     pub async fn edit_document(
         &mut self,
-        id: &str,
+        id: &RequestId,
         edit: Edit,
     ) -> Result<ServerMessage> {
         crate::fault::panic_at("edit_document");
@@ -185,18 +186,18 @@ impl Service {
             ))));
         }
         let Some(record) = self.home.store().record(hamlet)? else {
-            return Ok(Err(Refusal::Invalid(format!(
-                "Cannot {operation}: no hamlet named `{hamlet}`. \
-                 Choose a living hamlet."
-            ))));
+            return Ok(Err(Refusal::Cannot {
+                operation: operation.into(),
+                cause: Cause::NoHamlet(hamlet.into()),
+            }));
         };
         if !record.chiefs.is_empty()
             && !record.chiefs.contains(&self.chief)
         {
-            return Ok(Err(Refusal::Invalid(format!(
-                "Cannot {operation}: Only a chief of that hamlet \
-                 may reach its agents. Ask one of its chiefs."
-            ))));
+            return Ok(Err(Refusal::Cannot {
+                operation: operation.into(),
+                cause: Cause::NotChief,
+            }));
         }
         Ok(Ok(record))
     }
@@ -246,16 +247,12 @@ impl Service {
         agent: &record::AgentRef,
         place: crate::tools::Place,
         net: bool,
-    ) -> Result<crate::tools::Session> {
+    ) -> Result<crate::tools::ToolSession> {
         self.houses.tools(agent, place, net, self.chats.sandbox)
     }
 
     /// Makes the live agents' houses where they are missing. A
     /// failure is told and does not stop the server.
-    #[expect(
-        clippy::print_stderr,
-        reason = "stderr is the server's log"
-    )]
     pub(crate) async fn initialize_houses(&mut self) -> Result<()> {
         let live = crate::realm::live(self.db())?;
         for record in records(self.db())? {
@@ -268,10 +265,11 @@ impl Service {
                     .initialize(&record.id, agent.number)
                     .await
                 {
-                    eprintln!(
-                        "hamlet: could not initialize a house: {}",
-                        self.credentials
-                            .scrub_text(&error.to_string())
+                    tell(
+                        Secrets::Of(&self.credentials),
+                        format_args!(
+                            "could not initialize a house: {error}"
+                        ),
                     );
                 }
             }

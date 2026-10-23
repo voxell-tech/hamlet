@@ -45,7 +45,7 @@ fn chief_messages_become_requests_with_fresh_uuid_ids_and_wire_addresses()
         &world.resource_mut::<Outbox>().drain().collect::<Vec<_>>()[..],
         [protocol::ClientMessage::Open(_)]
     ));
-    world.trigger(UserMessage {
+    world.trigger(ChiefMessage {
         to: address(MAYOR),
         text: "hello".into(),
     });
@@ -290,8 +290,8 @@ fn chats_expose_string_item_ids_server_usage_and_agent_relations() {
         Item {
             id: "user:0".into(),
             at: 1000,
-            entry: Entry::User {
-                user: "chief".into(),
+            entry: Entry::Chief {
+                name: "chief".into(),
                 text: "hello".into(),
             },
         },
@@ -314,7 +314,7 @@ fn chats_expose_string_item_ids_server_usage_and_agent_relations() {
     assert_eq!(transcript.item("user:0").unwrap().at, 1000);
     assert!(transcript.item("missing").is_none());
     assert_eq!(transcript.shape(), 2);
-    assert!(transcript.answering());
+    assert!(transcript.is_answering());
     assert_eq!(transcript.earlier(), Some("before"));
     let chat = world
         .spawn((
@@ -339,8 +339,8 @@ fn chats_expose_string_item_ids_server_usage_and_agent_relations() {
         pending: 1,
         last: Some((1000, "working".into())),
     };
-    assert!(status.working());
-    assert!(!Status::default().working());
+    assert!(status.is_working());
+    assert!(!Status::default().is_working());
     let usage = Usage(protocol::UsageView {
         calls: 1,
         unreported: 0,
@@ -366,7 +366,7 @@ fn an_offline_client_keeps_requests_without_a_runtime_or_a_connection()
     assert!(app.world().get_resource::<Tokio>().is_none());
     assert!(app.world().get_resource::<Connection>().is_some());
     assert!(app.world().resource::<Settings>().0.unset);
-    app.world_mut().trigger(UserMessage {
+    app.world_mut().trigger(ChiefMessage {
         to: address(MAYOR),
         text: "kept while offline".into(),
     });

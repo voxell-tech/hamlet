@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use futures::{SinkExt, StreamExt};
 use hamlet_protocol::client::{RequestId, V};
+use rustix::process::{Pid, Signal, kill_process};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
@@ -92,7 +93,7 @@ impl Home {
     ) -> String {
         match self.launch(script, env).await {
             Ok(_) => panic!("the server started"),
-            Err(failure) => failure,
+            Err(failure) => failure.to_string(),
         }
     }
 
@@ -116,7 +117,7 @@ impl Home {
         &mut self,
         script: &Script,
         env: &[(&str, &str)],
-    ) -> Result<Server, String> {
+    ) -> Result<Server, Unstarted> {
         self.started += 1;
         let file =
             self.side().join(format!("script-{}.json", self.started));
@@ -135,6 +136,35 @@ impl Default for Home {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// A server that did not start, with the command that ran it.
+#[derive(Debug, thiserror::Error)]
+pub enum Unstarted {
+    /// It could not be run at all.
+    #[error("cannot start the server `{command}`: {error}")]
+    Spawn {
+        command: String,
+        error: std::io::Error,
+    },
+    /// It ended before it published its address; `log` is the end
+    /// of its output.
+    #[error(
+        "the server `{command}` ended with {status} before it \
+         published its address:\n{log}"
+    )]
+    Ended {
+        command: String,
+        status: ExitStatus,
+        log: String,
+    },
+    /// It published no address in time; `log` is the end of its
+    /// output.
+    #[error(
+        "the server `{command}` published no address in \
+         {START:?}:\n{log}"
+    )]
+    Silent { command: String, log: String },
 }
 
 /// A running server, killed on drop.
@@ -176,7 +206,7 @@ impl Server {
         home: &Path,
         models: Models<'_>,
         env: &[(&str, &str)],
-    ) -> Result<Self, String> {
+    ) -> Result<Self, Unstarted> {
         let (program, args) =
             command.split_first().expect("a command to run");
         let logs = Scratch::new("server-log");
@@ -203,8 +233,9 @@ impl Server {
                 .collect::<Vec<_>>()
                 .join(" ")
         };
-        let child = started.map_err(|error| {
-            format!("cannot start the server `{}`: {error}", words())
+        let child = started.map_err(|error| Unstarted::Spawn {
+            command: words(),
+            error,
         })?;
         let mut server = Self {
             child,
@@ -218,12 +249,11 @@ impl Server {
         let began = Instant::now();
         server.url = loop {
             if let Some(status) = server.child.try_wait().unwrap() {
-                return Err(format!(
-                    "the server `{}` ended with {status} before it \
-                     published its address:\n{}",
-                    words(),
-                    tail(&server.log)
-                ));
+                return Err(Unstarted::Ended {
+                    command: words(),
+                    status,
+                    log: tail(&server.log),
+                });
             }
             let found = std::fs::read_to_string(&published)
                 .ok()
@@ -235,13 +265,12 @@ impl Server {
             {
                 break found.url;
             }
-            assert!(
-                began.elapsed() < START,
-                "the server `{}` published no address in \
-                 {START:?}:\n{}",
-                words(),
-                tail(&server.log)
-            );
+            if began.elapsed() >= START {
+                return Err(Unstarted::Silent {
+                    command: words(),
+                    log: tail(&server.log),
+                });
+            }
             tokio::time::sleep(Duration::from_millis(10)).await;
         };
         let credentials =
@@ -303,12 +332,12 @@ impl Server {
 
     /// Sends SIGTERM without waiting.
     pub fn terminate(&mut self) {
-        self.signal(libc::SIGTERM);
+        self.signal(Signal::TERM);
     }
 
     /// Sends SIGINT, as Ctrl-C does, without waiting.
     pub fn interrupt(&mut self) {
-        self.signal(libc::SIGINT);
+        self.signal(Signal::INT);
     }
 
     /// Waits for the server to end, and gives its exit code.
@@ -325,16 +354,13 @@ impl Server {
         .unwrap_or_else(|_| panic!("the server ends within {END:?}"))
     }
 
-    fn signal(&mut self, signal: i32) {
-        // SAFETY: kill sends a signal to our own child's PID, which
-        // has not been reaped.
-        let sent =
-            unsafe { libc::kill(self.child.id() as i32, signal) };
-        assert_eq!(sent, 0, "the server is running");
+    fn signal(&mut self, signal: Signal) {
+        kill_process(Pid::from_child(&self.child), signal)
+            .expect("the server is running");
     }
 
     /// Whether the process is still running.
-    pub fn running(&mut self) -> bool {
+    pub fn is_running(&mut self) -> bool {
         self.child.try_wait().unwrap().is_none()
     }
 

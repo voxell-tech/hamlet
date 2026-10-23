@@ -8,13 +8,14 @@ use hamlet_protocol::client::{
 };
 use hamlet_protocol::runtime::{Item, ItemKind};
 use rusqlite::{Connection, OptionalExtension, params};
-use serde::Deserialize;
-use serde_json::{Value, json};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 
-use super::{Caller, outcome};
+use super::{Caller, SocietyOutcome};
 use crate::chats::records::{self, Place};
 use crate::harness::{
-    Answer, BindingId, Harnesses, Input, InputMark, InputStatus, Mail,
+    Answer, BindingId, Harnesses, Input, InputMark, InputStatus,
+    Letter,
 };
 use crate::record::{
     self, Actor, AgentRef, Change, DecisionKind, RecordOperation,
@@ -158,15 +159,16 @@ impl Unsent {
 }
 
 /// The words for an agent of a letter or question that was refused.
-fn refused(text: &str) -> Value {
-    outcome(text, false)
+fn refused(text: &str) -> SocietyOutcome {
+    SocietyOutcome::answered(text)
 }
 
-/// The arguments of `tell_agent` and `ask_agent`.
-#[derive(Deserialize)]
+/// The arguments of `tell_agent` and `ask_agent`, and the question a
+/// dealing asks the other mayor.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Message {
-    name: String,
-    message: String,
+    pub name: String,
+    pub message: String,
 }
 
 /// The arguments of `request_road`.
@@ -182,7 +184,7 @@ pub(super) async fn tell(
     harnesses: &mut Harnesses,
     caller: &Caller<'_>,
     given: Message,
-) -> Result<Value> {
+) -> Result<SocietyOutcome> {
     let db = service.db();
     if let Some(sent) =
         sent_by(db, caller.id.runtime.as_str(), &caller.id.key)?
@@ -241,7 +243,7 @@ pub(crate) async fn ask(
     harnesses: &mut Harnesses,
     caller: &Caller<'_>,
     given: Message,
-) -> Result<Option<Value>> {
+) -> Result<Option<SocietyOutcome>> {
     let db = service.db();
     let known =
         sent_by(db, caller.id.runtime.as_str(), &caller.id.key)?;
@@ -395,7 +397,7 @@ pub(super) async fn request_road(
     harnesses: &mut Harnesses,
     caller: &Caller<'_>,
     given: RoadAsk,
-) -> Result<Option<Value>> {
+) -> Result<Option<SocietyOutcome>> {
     let place = caller.place.agent.clone();
     let Some(record) = service.home.store().record(&place.hamlet)?
     else {
@@ -761,7 +763,7 @@ async fn submit(
 ) -> Result<()> {
     let db = service.db();
     let (from, address) = sender(db, sent)?;
-    let message = Mail {
+    let message = Letter {
         from,
         task: sent.task.clone(),
         at: sent.at,
@@ -780,7 +782,7 @@ async fn submit(
     } else {
         (
             format!("Letter from `{address}`:\n{}", sent.text),
-            InputMark::Letter(Mail {
+            InputMark::Letter(Letter {
                 reply_to: Some(sent.sender.0),
                 ..message
             }),
@@ -932,7 +934,7 @@ async fn reply(
         ),
     };
     let request = format!("reply:{}:{}", sent.runtime, sent.key);
-    let mark = InputMark::Reply(Mail {
+    let mark = InputMark::Reply(Letter {
         from: sent.to.clone(),
         task: sent.task.clone(),
         at: crate::clock::now(),

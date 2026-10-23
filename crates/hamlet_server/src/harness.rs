@@ -34,11 +34,11 @@ use hamlet_protocol::runtime::{
     self, Capability, Diagnostic, HelloStore, Item, Mark, Partial,
     RuntimeMessage, Section, ServerMessage, ToolSpec,
 };
-pub use mark::{InputMark, Mail};
+pub use mark::{InputMark, Letter};
 pub use process::Pi;
 use process::{Launch, Process, Received};
 use serde_json::Value;
-use session::{Session, id_of, parse};
+use session::{RuntimeSession, id_of, parse};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::credentials::Credentials;
@@ -159,7 +159,7 @@ pub enum Notice {
     /// [`Harnesses::answer`].
     Call {
         binding: BindingId,
-        re: Re,
+        address: ReplyAddress,
         call: Call,
     },
     Cancelled {
@@ -227,7 +227,7 @@ impl Call {
 
 /// The message a [`Call`] came in, to answer it by.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Re {
+pub struct ReplyAddress {
     index: usize,
     generation: u64,
     id: String,
@@ -244,7 +244,7 @@ enum Wake {
 }
 
 #[cfg(test)]
-impl Re {
+impl ReplyAddress {
     /// A message no runtime sent.
     pub(crate) fn test() -> Self {
         Self {
@@ -350,7 +350,7 @@ pub struct Harnesses {
     runtimes: Vec<Runtime>,
     sender: UnboundedSender<Received>,
     receiver: UnboundedReceiver<Received>,
-    session: Session,
+    session: RuntimeSession,
     /// The turns told to wait for a chief's ruling, by runtime.
     held_turns: HashSet<(usize, BindingId)>,
     provider_requests: HashMap<usize, Vec<runtime::ProviderRequest>>,
@@ -380,7 +380,7 @@ impl Harnesses {
             runtimes: Vec::new(),
             sender,
             receiver,
-            session: Session::default(),
+            session: RuntimeSession::default(),
             held_turns: HashSet::new(),
             provider_requests: HashMap::new(),
             credentials: credentials::Authority::default(),
@@ -456,7 +456,7 @@ impl Harnesses {
     ) {
         let indices = (0..self.runtimes.len())
             .filter(|index| {
-                self.credentials.owns(*index, &control.scope)
+                self.credentials.is_open(*index, &control.scope)
             })
             .collect::<Vec<_>>();
         for index in indices {
@@ -646,87 +646,84 @@ impl Harnesses {
         Ok(fork)
     }
 
-    /// Answers the call `re` came in. A runtime that started again
-    /// since asks again, so its answer is dropped.
-    pub async fn answer(&mut self, re: Re, answer: Answer) {
-        let Some(runtime) = self.runtimes.get(re.index) else {
+    /// Answers the call that came in at `address`. A runtime that
+    /// started again since asks again, so its answer is dropped.
+    pub async fn answer(
+        &mut self,
+        address: ReplyAddress,
+        answer: Answer,
+    ) {
+        let Some(runtime) = self.runtimes.get(address.index) else {
             return;
         };
-        if runtime.generation != re.generation
+        if runtime.generation != address.generation
             || runtime.phase != Phase::Ready
         {
             return;
         }
         if let (Answer::Waiting(_), Wake::Turn(binding)) =
-            (&answer, &re.wake)
+            (&answer, &address.wake)
         {
-            self.held_turns.insert((re.index, *binding));
+            self.held_turns.insert((address.index, *binding));
         }
-        let key = re.wake.key();
-        let re_id = re.id;
-        self.send(re.index, |v, id| {
-            let re = re_id;
-            match answer {
-                Answer::Allowed => {
-                    ServerMessage::Allowed(runtime::Allowed {
-                        id,
-                        re,
-                        v,
-                    })
-                }
-                Answer::Waiting(words) => {
-                    ServerMessage::Waiting(runtime::Waiting {
-                        id,
-                        key,
-                        re,
-                        v,
-                        words,
-                    })
-                }
-                Answer::Refusal(words) => {
-                    ServerMessage::Refusal(runtime::Refusal {
-                        id,
-                        re,
-                        v,
-                        words,
-                    })
-                }
-                Answer::Result {
-                    text,
-                    error,
-                    details,
-                    diagnostics,
-                } => ServerMessage::Result(runtime::Result {
-                    details,
-                    diagnostics: (!diagnostics.is_empty())
-                        .then_some(diagnostics),
-                    error,
-                    id,
-                    re,
-                    text,
-                    v,
-                }),
-                Answer::Sections(sections) => {
-                    ServerMessage::Sections(runtime::Sections {
-                        id,
-                        re,
-                        sections,
-                        v,
-                    })
-                }
-                Answer::Verdict {
-                    words,
-                    notice,
-                    compact,
-                } => ServerMessage::Verdict(runtime::Verdict {
-                    id,
-                    notice,
-                    compact: compact.then_some(true),
-                    re,
-                    v,
-                    words,
-                }),
+        let key = address.wake.key();
+        let re = address.id;
+        self.send(address.index, |v, id| match answer {
+            Answer::Allowed => {
+                ServerMessage::Allowed(runtime::Allowed { id, re, v })
             }
+            Answer::Waiting(words) => {
+                ServerMessage::Waiting(runtime::Waiting {
+                    id,
+                    key,
+                    re,
+                    v,
+                    words,
+                })
+            }
+            Answer::Refusal(words) => {
+                ServerMessage::Refusal(runtime::Refusal {
+                    id,
+                    re,
+                    v,
+                    words,
+                })
+            }
+            Answer::Result {
+                text,
+                error,
+                details,
+                diagnostics,
+            } => ServerMessage::Result(runtime::Result {
+                details,
+                diagnostics: (!diagnostics.is_empty())
+                    .then_some(diagnostics),
+                error,
+                id,
+                re,
+                text,
+                v,
+            }),
+            Answer::Sections(sections) => {
+                ServerMessage::Sections(runtime::Sections {
+                    id,
+                    re,
+                    sections,
+                    v,
+                })
+            }
+            Answer::Verdict {
+                words,
+                notice,
+                compact,
+            } => ServerMessage::Verdict(runtime::Verdict {
+                id,
+                notice,
+                compact: compact.then_some(true),
+                re,
+                v,
+                words,
+            }),
         })
         .await;
     }
@@ -860,7 +857,7 @@ impl Harnesses {
     }
 
     /// Whether every runtime has exited.
-    pub fn down(&self) -> bool {
+    pub fn is_down(&self) -> bool {
         self.runtimes
             .iter()
             .all(|runtime| runtime.process.is_none())
@@ -1155,7 +1152,7 @@ impl Harnesses {
         index: usize,
         event: runtime::ProviderEvent,
     ) -> Vec<Notice> {
-        if self.credentials.owns(index, &event.scope) {
+        if self.credentials.is_open(index, &event.scope) {
             vec![Notice::ProviderEvent(event)]
         } else {
             Vec::new()

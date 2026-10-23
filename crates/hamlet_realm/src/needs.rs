@@ -331,7 +331,7 @@ fn place(
     let (camera, view) = lens.camera();
     for (tag, mut node, mut visibility, computed) in &mut tags {
         // Only the first hamlet's mayor lives in the cottage.
-        let own = Thing::ResidentHouse(tag.agent);
+        let own = Thing::House(tag.agent);
         let hall = mayors.contains(tag.agent);
         let point = houses
             .iter()

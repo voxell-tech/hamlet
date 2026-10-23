@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use hamlet_assets::tint::hex;
 use hamlet_vfx::inlay;
 
-use super::Ctx;
+use super::Context;
 use crate::keeper::pose::{Pose, arc, dice, ramp, rx, ry, rz};
 
 pub(super) fn current(strength: f32) -> Vec3 {
@@ -41,7 +41,7 @@ pub(super) fn crook_out(p: &mut Pose, by: f32) {
     p.pole = ry(0.95 * by) * p.pole;
 }
 
-pub(super) fn breathe(p: &mut Pose, c: &Ctx, depth: f32) {
+pub(super) fn breathe(p: &mut Pose, c: &Context, depth: f32) {
     let b = (c.t * 1.6).sin();
     p.squash *= 1.0 + 0.014 * depth * b;
     p.head_lift += 0.004 * depth * (c.t * 1.6 - 0.7).sin();
@@ -49,7 +49,7 @@ pub(super) fn breathe(p: &mut Pose, c: &Ctx, depth: f32) {
     p.flag += 0.3 * (c.t * 2.3).sin() + 0.12 * (c.t * 6.1).sin();
 }
 
-pub(super) fn blink(p: &mut Pose, c: &Ctx) {
+pub(super) fn blink(p: &mut Pose, c: &Context) {
     const EVERY: f32 = 3.4;
     let n = (c.t / EVERY).floor();
     let f = c.t - n * EVERY;
@@ -64,7 +64,7 @@ pub(super) fn blink(p: &mut Pose, c: &Ctx) {
 }
 
 /// Turns the head now and then, the eyes going first.
-pub(super) fn look_about(p: &mut Pose, c: &Ctx, amount: f32) {
+pub(super) fn look_about(p: &mut Pose, c: &Context, amount: f32) {
     const EVERY: f32 = 4.3;
     let n = (c.t / EVERY).floor();
     let f = c.t - n * EVERY;
@@ -93,7 +93,7 @@ pub(super) fn look_about(p: &mut Pose, c: &Ctx, amount: f32) {
 }
 
 /// Leans on one foot, then the other.
-pub(super) fn shift_weight(p: &mut Pose, c: &Ctx) {
+pub(super) fn shift_weight(p: &mut Pose, c: &Context) {
     const EVERY: f32 = 7.3;
     let n = (c.t / EVERY).floor();
     let f = c.t - n * EVERY;

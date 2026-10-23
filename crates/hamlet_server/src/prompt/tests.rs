@@ -88,7 +88,7 @@ async fn tells_a_fresh_mayor_its_prompt() {
     )
     .unwrap();
     let root = service.home.layout().root().to_owned();
-    stock(&root.join("library"));
+    stock(&root.join("library"), &service.credentials);
     let prompt = told(&mut service, &subject(0, &[])).await;
 
     let opening = format!(

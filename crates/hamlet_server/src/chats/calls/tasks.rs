@@ -8,7 +8,7 @@ use serde_json::Value;
 use tokio::task::{AbortHandle, Id, JoinError, JoinSet};
 
 use super::Preparation;
-use crate::harness::{BindingId, Call, Re};
+use crate::harness::{BindingId, Call, ReplyAddress};
 use crate::{OperationId, tools};
 
 /// The tasks running for runtimes' calls.
@@ -22,14 +22,14 @@ pub(crate) struct Tasks {
 
 /// A tool call running, and the calls of runtimes it answers.
 struct Running {
-    res: Vec<Re>,
+    addresses: Vec<ReplyAddress>,
     binding: BindingId,
     abort: AbortHandle,
 }
 
 struct Preparing {
     binding: BindingId,
-    re: Re,
+    address: ReplyAddress,
     abort: AbortHandle,
 }
 
@@ -37,7 +37,7 @@ struct Preparing {
 /// preparation began when the state it reads had `signature`.
 pub(crate) struct Prepared {
     pub binding: BindingId,
-    pub re: Re,
+    pub address: ReplyAddress,
     pub call: Call,
     pub signature: Value,
     pub result: Preparation,
@@ -52,56 +52,78 @@ pub(crate) enum Finished {
     /// A tool call ran, with the calls it answers.
     Ran {
         id: OperationId,
-        res: Vec<Re>,
+        addresses: Vec<ReplyAddress>,
         outcome: tools::Outcome,
     },
     Prepared(Prepared),
     /// A preparation failed, and its call is answered with a refusal.
     Unprepared {
-        re: Re,
+        address: ReplyAddress,
     },
 }
 
+/// The outcome of [`Tasks::join`].
+#[derive(Debug, PartialEq)]
+pub(crate) enum Join {
+    /// The tool call runs, and answers the call joined too.
+    Joined,
+    /// No such tool call runs.
+    NotRunning,
+}
+
 impl Tasks {
-    /// Runs the tool call `id` of `binding`, answering `re` when it
-    /// ends.
+    /// Runs the tool call `id` of `binding`, answering `address` when
+    /// it ends.
     pub fn run(
         &mut self,
         id: OperationId,
         binding: BindingId,
-        re: Re,
+        address: ReplyAddress,
         task: impl Future<Output = tools::Outcome> + Send + 'static,
     ) {
         let abort = self.tools.spawn(task);
         self.running.insert(
             id,
             Running {
-                res: vec![re],
+                addresses: vec![address],
                 binding,
                 abort,
             },
         );
     }
 
-    /// Lets `re` be answered too when the tool call `id` ends;
-    /// whether `id` runs.
-    pub fn join(&mut self, id: &OperationId, re: &Re) -> bool {
-        self.running
-            .get_mut(id)
-            .map(|running| running.res.push(re.clone()))
-            .is_some()
+    /// Lets `address` be answered too when the tool call `id` ends,
+    /// if `id` runs.
+    pub fn join(
+        &mut self,
+        id: &OperationId,
+        address: &ReplyAddress,
+    ) -> Join {
+        match self.running.get_mut(id) {
+            Some(running) => {
+                running.addresses.push(address.clone());
+                Join::Joined
+            }
+            None => Join::NotRunning,
+        }
     }
 
-    /// Prepares the call `re` of `binding`.
+    /// Prepares the call of `binding` that came in at `address`.
     pub fn prepare(
         &mut self,
         binding: BindingId,
-        re: Re,
+        address: ReplyAddress,
         task: impl Future<Output = Prepared> + Send + 'static,
     ) {
         let abort = self.preparing.spawn(task);
-        self.preparations
-            .insert(abort.id(), Preparing { binding, re, abort });
+        self.preparations.insert(
+            abort.id(),
+            Preparing {
+                binding,
+                address,
+                abort,
+            },
+        );
     }
 
     /// Stops the tasks of `binding`.
@@ -166,7 +188,7 @@ impl Tasks {
         let running = self.running.remove(&id)?;
         Some(Finished::Ran {
             id,
-            res: running.res,
+            addresses: running.addresses,
             outcome,
         })
     }
@@ -184,7 +206,9 @@ impl Tasks {
             Err(error) => {
                 let preparing =
                     self.preparations.remove(&error.id())?;
-                Some(Finished::Unprepared { re: preparing.re })
+                Some(Finished::Unprepared {
+                    address: preparing.address,
+                })
             }
         }
     }
@@ -210,23 +234,24 @@ mod tests {
             runtime: RuntimeInstance::new("pi-1").unwrap(),
             key: "7".into(),
         };
-        let re = Re::test();
-        tasks.run(id.clone(), BindingId(1), re.clone(), async {
+        let address = ReplyAddress::test();
+        tasks.run(id.clone(), BindingId(1), address.clone(), async {
             panic!("a tool's bug")
         });
         let Some(Finished::Ran {
             id: ended,
-            res,
+            addresses,
             outcome,
         }) = tasks.next().await
         else {
             panic!("the panicked tool call was never answered");
         };
         assert_eq!(ended, id);
-        assert_eq!(res, vec![re.clone()]);
+        assert_eq!(addresses, vec![address.clone()]);
         assert!(outcome.error);
-        assert!(
-            !tasks.join(&id, &re),
+        assert_eq!(
+            tasks.join(&id, &address),
+            Join::NotRunning,
             "a panicked call still counts as running"
         );
         assert!(tasks.next().await.is_none());

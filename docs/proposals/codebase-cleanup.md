@@ -125,28 +125,51 @@ second `Ground` beside `society::Ground`.
 
 ## Phase 5: naming and typing
 
-1. Glossary renames. `Settlement` to `HamletId`, `Citizen` to
-   `AgentNumber`, `Mail` to `Letter`, leader to mayor, the four limits
-   names to two, the four `Session` types qualified by role, `Backend`
-   to `Workspace`.
-2. Typed values. Society tools return a typed outcome, and `once`
-   serializes it at the marker. The two `.expect` calls on marker JSON go.
-   The request ids the serve loop, the gifts and the merge lane still
-   carry as `String` become `RequestId`, so `reply` and `fault` take the
-   type and lose their fallback for an id that is not one.
-3. Refusals. `Error` and `Display` on `protocol::Refusal` through
-   `thiserror`, variants for the recurring cases, and the 32
-   `Result<_, String>` helpers turned into small enums.
-4. Names. `is_` and `has_` on boolean methods; `Re`, `Mb` and `KState`
-   spelled out; the five stutter names fixed, with a schema regeneration
-   and a pi update; `ref_` and `move_` renamed.
-5. Lint cleanup. The remaining expects reviewed, the Bevy crates' prints
-   routed through the log, the server given one diagnostic function. The
-   CLI's `kill` switched to rustix, then `unsafe_code` denied, with
-   module-level expects.
-
-Done when: the lint block passes with no expects outside the listed
-unsafe modules, and no type carries a word from a CONTEXT.md avoid list.
+Built: the code uses the glossary's words: `HamletId`, `AgentNumber`
+and the `Agents` relationship, `ChiefMessage`, `Letter`, the mayor
+(`Who::mayor`), limits rather than rules or constraints (`hamlet_ui`'s
+`limits.rs`, `LimitsSchema`), `ToolSession`, `WorkspaceSession`,
+`ChatSession` and `RuntimeSession`, and `papers::Workspace` beside
+`WorkspaceAddress`. The abbreviations are spelled out (`ReplyAddress`,
+`Meshing`, `KeeperState`, `Context`, `GeneratorSettings`,
+`HouseSignature`, `ViewFolder`, `remote::Folder`,
+`TranscriptOperation`), and the six stutter names are `LimitsEdit`,
+`Charter`, `GiveFile`, `GiveSkillSource`, `LoginStart` and
+`LoginReply`, so the client protocol's `V` is 1. A society tool returns
+a `SocietyOutcome`, which `once` keeps at its marker under the same
+keys, and no `.expect` reads marker JSON. A request id is a `RequestId`
+from the serve loop through the gifts and the merge lane, so `reply`
+and `fault` take it with no fallback, and the connection number beside
+it is `connection`. `Refusal` derives `Error` and `Display` with
+`thiserror`, with variants for the recurring cases (`NoAgent`,
+`NoSession`, `TurnRunning`, `Answered`, ...), and no
+`Result<_, String>` or `&'static str` error is left, down from 61. A
+boolean function reads as a question, and one that acts returns what
+happened. The server has one diagnostic, `diagnostic::tell`, and the
+Bevy crates log rather than print. `unsafe_code` is denied: the CLI's
+`process.rs` and Windows console, `app_icon.rs` and `supervise.rs`
+expect it, and kill, signals, the terminal and `flock` go through
+rustix, so only `hamlet_workspace` keeps libc. The 40 expects that stay
+are the prints of the CLI, the window's `--help`, five examples, the
+harness driver, the server's one diagnostic and its banner, the
+workspace server's commands and log, and the tests that print
+measurements or a scenario; `large_enum_variant` on five wire and
+channel enums; `new_without_default` on `RequestId`; ring's deprecated
+compare; `too_many_arguments` on `chats::calls::operation`, which the
+server warns on; `match_same_arms` on the keeper's motion lengths;
+`redundant_closure_for_method_calls` in `asking::card`, where
+`Option::cloned` is not general over the lifetime; the generated
+proto's four lints; and `unsafe_code` in the four modules above. No
+type, variant or field carries an avoid-list word in its avoided sense;
+what is left is the drawn house, town and engine, the Home folder, the
+OS sandbox, the model check's link, and the wire's `project`,
+`ItemKind::User` and the persisted `Chosen` names. Left: the recorded
+frames' hello still says `v` 0; `EditLimits::Whole.whole` is an untyped
+map, so the window keeps one `unreachable!` in `limits::whole_of`; two
+`bool` arguments (`remember`'s gone filter and `robot`'s `rises`); the
+run conditions and `Kept::close` keep their names; the rewind texts,
+the gift rules' other texts and `ExecError`'s two variants are still
+words; and `hamlet_workspace`'s lints are still to pass on Linux.
 
 ## Deliberately not in the plan
 
@@ -170,4 +193,4 @@ unsafe modules, and no type carries a word from a CONTEXT.md avoid list.
 | 2 Server seams | Two to three weeks | After 1 |
 | 3 Tests and workspace | Two weeks | After 1; beside 2 on its own branch, since they touch different crates |
 | 4 Bevy side | Two to three weeks | After 3, for the feature changes |
-| 5 Naming and typing | Two weeks | Interleaved: file by file inside the other phases' PRs, not one sweep |
+| 5 Naming and typing | Two weeks | After 4, as one sweep in waves: the client protocol first, then the units on disjoint files |

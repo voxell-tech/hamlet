@@ -8,8 +8,8 @@ use bevy_fynix::{ViewExt, derived, every_frame, keyed};
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{
-    Bylaws, Citizen, Citizens, Deeds, Lived, LivesIn, Mayor, Seen,
-    Settlement, Treasury, Votes, Works,
+    AgentNumber, Agents, Bylaws, Deeds, HamletId, Lived, LivesIn,
+    Mayor, Seen, Treasury, Votes, Works,
 };
 use hamlet_protocol::client as protocol;
 
@@ -55,11 +55,11 @@ impl Annals {
 struct RecordPanel(Entity);
 
 fn request(world: &mut World, hamlet: Entity, opening: bool) {
-    if !world.resource::<Deeds>().has("record") {
+    if !world.resource::<Deeds>().is_supported("record") {
         return;
     }
     let Some(name) =
-        world.get::<Settlement>(hamlet).map(|h| h.name.clone())
+        world.get::<HamletId>(hamlet).map(|h| h.0.clone())
     else {
         return;
     };
@@ -105,7 +105,7 @@ fn answered(response: On<Response>, mut annals: ResMut<Annals>) {
 }
 
 fn refresh(world: &mut World) {
-    let available = world.resource::<Deeds>().has("record");
+    let available = world.resource::<Deeds>().is_supported("record");
     let mut annals = world.resource_mut::<Annals>();
     let force = annals.reconnect || (available && !annals.available);
     annals.available = available;
@@ -118,10 +118,10 @@ fn refresh(world: &mut World) {
         .collect::<Vec<_>>();
     let changed = world
         .query_filtered::<Entity, (
-            With<Settlement>,
+            With<HamletId>,
             Or<(
                 Changed<Name>,
-                Changed<Citizens>,
+                Changed<Agents>,
                 Changed<Works>,
                 Changed<Bylaws>,
                 Changed<Treasury>,
@@ -132,7 +132,7 @@ fn refresh(world: &mut World) {
         .collect::<Vec<_>>();
     let agents = world
         .query_filtered::<&LivesIn, (
-            With<Citizen>,
+            With<AgentNumber>,
             Or<(Changed<Name>, Changed<Lived>, Changed<Mayor>)>,
         )>()
         .iter(world)
@@ -166,8 +166,8 @@ pub(super) fn record_of(hamlet: Entity) -> AnyView {
             } else {
                 String::new()
             },
-            world.resource::<Deeds>().has("overturn"),
-            world.resource::<Deeds>().has("record"),
+            world.resource::<Deeds>().is_supported("overturn"),
+            world.resource::<Deeds>().is_supported("record"),
         )
     })
     .when(every_frame());
@@ -188,7 +188,7 @@ pub(super) fn record_of(hamlet: Entity) -> AnyView {
                         move |world| {
                             if world
                                 .resource::<Deeds>()
-                                .has("overturn")
+                                .is_supported("overturn")
                             {
                                 tell(
                                     world,

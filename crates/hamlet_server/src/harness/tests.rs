@@ -87,7 +87,9 @@ fn run(
 ) -> Answer {
     let call = match tools::parse("build_road", arguments) {
         Ok(call) => call,
-        Err(words) => return Answer::result(words, true),
+        Err(no_call) => {
+            return Answer::result(no_call.to_string(), true);
+        }
     };
     let id = OperationId {
         runtime: binding.runtime.clone(),

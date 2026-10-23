@@ -4,12 +4,16 @@ use std::f32::consts::TAU;
 
 use bevy::prelude::*;
 use hamlet_assets::tint::hex;
-use hamlet_realm::meshes::{Mb, Rng, noise2, smoothstep};
+use hamlet_realm::meshes::{Meshing, Rng, noise2, smoothstep};
 use hamlet_realm::palette::Palette;
 
 use super::scene::{Built, Terrain};
 
-pub(super) fn fence(mb: &mut Mb, t: &Terrain, pal: &Palette) {
+pub(super) fn fence(
+    meshing: &mut Meshing,
+    t: &Terrain,
+    pal: &Palette,
+) {
     let mut rng = Rng::seeded("fence along the south verge");
     let mut tops: Vec<Vec3> = Vec::new();
     let mut s = 0.4;
@@ -24,7 +28,7 @@ pub(super) fn fence(mb: &mut Mb, t: &Terrain, pal: &Palette) {
         let col =
             pal.timber.lerp(hex("#8C7A5A"), 0.35) * rng.value(0.1);
         let c = Vec3::new(foot.x, y + h * 0.5 - 0.04, foot.z);
-        mb.rbox(
+        meshing.rbox(
             c,
             Vec3::new(0.05, h * 0.5 + 0.04, 0.05),
             0.02,
@@ -49,7 +53,7 @@ pub(super) fn fence(mb: &mut Mb, t: &Terrain, pal: &Palette) {
             let rot = Quat::from_rotation_arc(Vec3::X, d.normalize());
             let col = pal.timber.lerp(hex("#8C7A5A"), 0.45)
                 * rng.value(0.1);
-            mb.rbox(
+            meshing.rbox(
                 (a + c) * 0.5 + Vec3::Z * 0.05,
                 Vec3::new(d.length() * 0.5 + 0.06, 0.035, 0.018),
                 0.012,

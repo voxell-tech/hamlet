@@ -12,9 +12,9 @@ use std::time::Duration;
 
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
-use hamlet_client::ViewDir;
+use hamlet_client::ViewFolder;
 use hamlet_client::realm::{
-    Citizen, Consulted, HOME, Lived, LivesIn, Mayor, Settlement,
+    AgentNumber, Consulted, HOME, HamletId, Lived, LivesIn, Mayor,
     Treasury,
 };
 use hamlet_realm::chief::mascot::Doing;
@@ -253,7 +253,7 @@ fn main() {
     std::fs::create_dir_all(&out).expect("output folder");
     let view = hamlet_testing::Scratch::new("chief-sheet-view");
     let mut app = App::new();
-    app.insert_resource(ViewDir(view.to_path_buf()))
+    app.insert_resource(ViewFolder(view.to_path_buf()))
         .insert_resource(Kept::read(&view).expect("the kept chiefs"))
         .add_plugins((offscreen::plugins(SIZE), RealmPlugin));
     Target::insert(&mut app, SIZE, 1.0);
@@ -284,9 +284,7 @@ fn people(world: &mut World) {
     let hamlet = world
         .spawn((
             Name::new("Pear Tree Hollow"),
-            Settlement {
-                name: HOME.to_string(),
-            },
+            HamletId(HOME.to_string()),
             Treasury(serde_json::from_value(serde_json::json!({
                 "period": "day", "periodWords": "today", "gone": 0.33,
                 "spent": {"tokens": 560, "micros": 0, "ms": 0},
@@ -297,7 +295,7 @@ fn people(world: &mut World) {
         .id();
     world.spawn((
         Name::new("founder"),
-        Citizen(0),
+        AgentNumber(0),
         Mayor,
         LivesIn(hamlet),
         Lived::default(),
@@ -309,7 +307,7 @@ fn people(world: &mut World) {
         let agent = world
             .spawn((
                 Name::new(name),
-                Citizen(number),
+                AgentNumber(number),
                 LivesIn(hamlet),
                 Lived {
                     since: number,
@@ -352,7 +350,7 @@ fn direct(
 ) {
     // Time stands still while the world is built, so that a still
     // does not depend on how long the building took.
-    let built = loading.is_some_and(|loading| loading.done());
+    let built = loading.is_some_and(|loading| loading.is_done());
     let frame = if built { FRAME } else { Duration::ZERO };
     *pace = TimeUpdateStrategy::ManualDuration(frame);
     if !built {

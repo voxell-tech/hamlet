@@ -67,7 +67,7 @@ pub(super) fn ask(
     let questions =
         match asking::read(&serde_json::to_string(call.arguments)?) {
             Ok(questions) => questions,
-            Err(why) => return answered(&why),
+            Err(unasked) => return answered(&unasked.to_string()),
         };
     let mut questions = serde_json::to_value(questions)?;
     service.credentials.scrub(&mut questions);

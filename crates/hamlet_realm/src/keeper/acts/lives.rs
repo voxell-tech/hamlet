@@ -4,7 +4,7 @@
 use bevy::prelude::*;
 use hamlet_vfx::inlay::{EMBER, LIT};
 
-use super::Ctx;
+use super::Context;
 use super::parts::{arm_high, arm_l, blink, breathe, crook_out};
 use crate::keeper::MERGE_GAP;
 use crate::keeper::pose::{
@@ -20,7 +20,7 @@ pub(super) fn tuck(p: &mut Pose, k: f32) {
     p.arm_l = p.arm_l.slerp(rz(0.02) * rx(-0.15), k.clamp(0.0, 1.0));
 }
 
-pub(super) fn appear(c: &Ctx) -> Pose {
+pub(super) fn appear(c: &Context) -> Pose {
     let mut p = Pose::stand();
     breathe(&mut p, c, ramp(1.5, 2.5, c.tau));
     let x = c.tau;
@@ -57,7 +57,7 @@ pub(super) fn appear(c: &Ctx) -> Pose {
     p
 }
 
-pub(super) fn leave(c: &Ctx) -> Pose {
+pub(super) fn leave(c: &Context) -> Pose {
     let mut p = Pose::stand();
     let x = c.tau;
     breathe(&mut p, c, 1.0 - ramp(1.5, 2.2, x));
@@ -83,7 +83,7 @@ pub(super) fn leave(c: &Ctx) -> Pose {
     p
 }
 
-pub(super) fn merge_into(c: &Ctx) -> Pose {
+pub(super) fn merge_into(c: &Context) -> Pose {
     let mut p = Pose::stand();
     blink(&mut p, c);
     let x = c.tau;
@@ -111,7 +111,7 @@ pub(super) fn merge_into(c: &Ctx) -> Pose {
     p
 }
 
-pub(super) fn merge_host(c: &Ctx) -> Pose {
+pub(super) fn merge_host(c: &Context) -> Pose {
     let mut p = Pose::stand();
     breathe(&mut p, c, 1.0);
     blink(&mut p, c);

@@ -8,8 +8,8 @@ The contract is the Rust types in
 module per area: `state`, `chat`, `waits`, `gifts`, `documents`, `limits`
 and `settings`.
 The names below, such as `Hello` and `ClientMessage`, are their type names.
-The handshake's `v` is the protocol's version, `V`; it moves whenever a
-message's shape does.
+The handshake's `v` is the protocol's version, `V`; it moves whenever the
+schema does: a message's shape or a type's name.
 `?` means optional; `null` is an explicit value. Objects reject extra fields.
 
 ## Transport and handshake
@@ -27,7 +27,7 @@ to loopback. Keep the token private; plain WebSocket supplies no encryption.
 Send `Hello` first, within 10 seconds:
 
 ```json
-{"type":"hello","v":0,"token":"<home token>"}
+{"type":"hello","v":1,"token":"<home token>"}
 ```
 
 A successful hello receives a full `state` before live changes. The
@@ -102,7 +102,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 
 | Type (schema) | Fields | Action and answer |
 |---|---|---|
-| `hello` (`Hello`) | `v: 0`, `token: string`; no `id` | Authenticate; full `state`. |
+| `hello` (`Hello`) | `v: 1`, `token: string`; no `id` | Authenticate; full `state`. |
 | `say` (`Say`) | `to: Address`, `text: string` | Send a chief line or typed command. A command gets `reply`; an admitted agent line gets its receipt when that submission settles. Live work arrives through watches and realm changes. |
 | `give` (`Give`) | `to: Address`, `files: {path: string, size: integer}[]` | Begin a file gift; `reply.upload` identifies the upload for chunks. Paths are relative; sizes are byte counts. |
 | `give` (`Give`) | `to: Address`, `skill: {starter: string}` | Give an installed starter skill; `reply`. |
@@ -145,7 +145,7 @@ answers a single question that accepts words. `dismiss` needs neither.
 
 The committed result of `ask_chief` produces a transcript item with kind
 `answered`, containing the chief's reply. Structured replies quote each
-question above its answer. Live ops and reopened history use the same item
+question above its answer. Live operations and reopened history use the same item
 ID and text; a dismissed question produces no answered item. Known
 credentials are removed before questions or answers are stored or sent.
 
@@ -196,7 +196,7 @@ These are all members of `ServerMessage`. Each row has `type` as shown.
 | `state` (`State`) | `epoch`, `revision`, `chief: string`, `sandbox: string`, `hamlets: Hamlet[]`, `agents: Agent[]`, `waits: Wait[]`, `grants: Grant[]`, `settings: SettingsView`, `providers: ProviderView[]`, `houses: string`, `library: LibrarySkill[]`, `closed: ClosedHamlet[]`, `deeds: {name: string, usage: string, description: string}[]`, `starters: {name: string, description: string}[]` | Full realm snapshot. | Every client that said hello; a new client gets its own initial snapshot. |
 | `change` (`Changes`) | `epoch`, `revision`, `changes: Update[]` | Realm updates since the previous revision. | Every client that said hello. |
 | `transcript` (`Transcript`) | `to?: RequestId`, `chat: ChatRef`, `number?: integer`, `items: Item[]`, `earlier: string \| null`, `last: {what: string, at: integer} \| null`, `working: boolean`, `pending: integer`, `usage: UsageView` | A page, or replacement page after a reset. `number` is the chief conversation's stable number. | Only clients watching that chat; a requested page goes to its requester. |
-| `turn` (`Turn`) | `chat: ChatRef`, `number?: integer`, `ops: Op[]` | Live transcript operations, in order. | Only clients watching that chat. |
+| `turn` (`Turn`) | `chat: ChatRef`, `number?: integer`, `ops: TranscriptOperation[]` | Live transcript operations, in order. | Only clients watching that chat. |
 | `reply` (`Reply`) | `to: RequestId`, `kind: "notice" \| "error" \| "rewound"`, `text: string`, `upload?: string` | Request receipt, refusal or words recovered by rewind. | Only the connection that asked. |
 | `read` (`ReadResult`) | `to: RequestId` and one of `prompt`, `history`, `models`, `papers`, `charter` as above | Requested document or list. | Only the connection that asked. |
 | `login` (`LoginProgress`) | `login: string`, `to?: RequestId`, `step: LoginStep` | Sign-in session progress. | Only the connection that started the session. |
@@ -228,8 +228,8 @@ entry and content block (`<entryId>:<block>`); use them as opaque cursors. Tool 
 200 Unicode code points. A `Change` preview holds at most 200 lines, each
 at most 240 characters, plus total and added/removed counts.
 
-`Op` is discriminated by `op`, not `type`. Clients apply ops with
-`hamlet_protocol::client::transcript::apply`.
+`TranscriptOperation` is discriminated by `op`, not `type`. Clients apply
+operations with `hamlet_protocol::client::transcript::apply`.
 
 | `op` | Fields | Meaning |
 |---|---|---|
@@ -350,7 +350,7 @@ refusal.
    attribute: the server checks every client message against the JSON
    Schema derived from these types.
 2. Move `V` in `crates/hamlet_protocol/src/client.rs` when a message's
-   shape changes.
+   shape or a type's name changes.
    `cargo test -p hamlet_protocol` keeps a sha256 of the client schema
    with `V` in `crates/hamlet_protocol/client_schema.fingerprint`. It
    fails while the shapes differ from the recorded ones and `V` has not

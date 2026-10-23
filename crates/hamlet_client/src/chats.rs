@@ -224,17 +224,19 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
                         .entity_mut(chat)
                         .insert(ConversationNumber(number));
                 }
-                for op in &turn.ops {
-                    if matches!(op, protocol::Op::Reset {})
-                        && let Some(page) = world
-                            .resource_mut::<Watches>()
-                            .pages
-                            .get_mut(&chat)
+                for operation in &turn.operations {
+                    if matches!(
+                        operation,
+                        protocol::TranscriptOperation::Reset {}
+                    ) && let Some(page) = world
+                        .resource_mut::<Watches>()
+                        .pages
+                        .get_mut(&chat)
                     {
                         page.stale = true;
                     }
-                    match op {
-                        protocol::Op::Status {
+                    match operation {
+                        protocol::TranscriptOperation::Status {
                             working,
                             pending,
                             last,
@@ -249,19 +251,21 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
                                 }),
                             );
                         }
-                        protocol::Op::Usage { usage } => {
+                        protocol::TranscriptOperation::Usage {
+                            usage,
+                        } => {
                             world
                                 .entity_mut(chat)
                                 .insert(Usage(usage.clone()));
                         }
-                        op => world
+                        operation => world
                             .get_mut::<Transcript>(chat)
                             .unwrap()
-                            .apply(op, &chief),
+                            .apply(operation, &chief),
                     }
                     world.trigger(SessionOutput {
                         chat,
-                        op: op.clone(),
+                        operation: operation.clone(),
                     });
                 }
             }
@@ -296,8 +300,8 @@ fn received_item(item: protocol::Item, chief: &str) -> Item {
                 text: item.text,
             }
         }
-        protocol::ItemKind::User => Entry::User {
-            user: item.chief.unwrap_or_else(|| chief.into()),
+        protocol::ItemKind::User => Entry::Chief {
+            name: item.chief.unwrap_or_else(|| chief.into()),
             text: item.text,
         },
         protocol::ItemKind::Assistant => Entry::Assistant(item.text),
@@ -399,8 +403,8 @@ impl Conversations {
 /// A displayed chief input, agent output or tool result.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Entry {
-    User {
-        user: String,
+    Chief {
+        name: String,
         text: String,
     },
     Assistant(String),
@@ -439,7 +443,7 @@ impl transcript::Kept for Item {
 
     fn append(&mut self, text: &str) {
         match &mut self.entry {
-            Entry::User { text: shown, .. }
+            Entry::Chief { text: shown, .. }
             | Entry::Agent { text: shown, .. }
             | Entry::Assistant(shown)
             | Entry::Reasoning(shown)
@@ -481,17 +485,24 @@ pub struct Transcript {
 }
 
 impl Transcript {
-    fn apply(&mut self, op: &protocol::Op, chief: &str) {
-        // An op on an item this window does not hold changes nothing.
-        let _ = transcript::apply(&mut self.items, op, |item| {
-            received_item(item.clone(), chief)
-        });
-        match op {
-            protocol::Op::Reset {} => {
+    fn apply(
+        &mut self,
+        operation: &protocol::TranscriptOperation,
+        chief: &str,
+    ) {
+        // An operation on an item this window does not hold changes
+        // nothing.
+        let _ =
+            transcript::apply(&mut self.items, operation, |item| {
+                received_item(item.clone(), chief)
+            });
+        match operation {
+            protocol::TranscriptOperation::Reset {} => {
                 self.earlier = None;
                 self.shape += 1;
             }
-            protocol::Op::Add { .. } | protocol::Op::Close { .. } => {
+            protocol::TranscriptOperation::Add { .. }
+            | protocol::TranscriptOperation::Close { .. } => {
                 self.shape += 1;
             }
             _ => {}
@@ -535,7 +546,7 @@ impl Transcript {
     }
 
     /// The presence of an unfinished answer in the transcript.
-    pub fn answering(&self) -> bool {
+    pub fn is_answering(&self) -> bool {
         self.answering
     }
 
@@ -555,7 +566,7 @@ pub struct Status {
 
 impl Status {
     /// The presence of running or queued work.
-    pub fn working(&self) -> bool {
+    pub fn is_working(&self) -> bool {
         self.pending > 0
     }
 }

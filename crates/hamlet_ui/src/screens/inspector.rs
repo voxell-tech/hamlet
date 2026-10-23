@@ -143,9 +143,7 @@ pub(crate) fn follow_selection(world: &mut World) {
                 None => return,
             }
         }
-        Some(
-            Thing::Resident(agent) | Thing::ResidentHouse(agent),
-        ) => agent,
+        Some(Thing::Agent(agent) | Thing::House(agent)) => agent,
         // A hamlet, one that is gone, or nothing at all.
         _ => return show_tab(world, "agent"),
     };

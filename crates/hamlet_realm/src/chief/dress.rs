@@ -71,7 +71,7 @@ pub(super) fn dress(
         };
         let handles = mascot::parts(&pal, *look)
             .each()
-            .map(|mb| meshes.add(mb.build()));
+            .map(|meshing| meshes.add(meshing.build()));
         for (entity, which) in rig.dressed() {
             commands
                 .entity(entity)

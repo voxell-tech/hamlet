@@ -228,7 +228,7 @@ impl Default for Mood {
 }
 
 impl Mood {
-    pub(crate) fn sulks(&self, now: f32) -> bool {
+    pub(crate) fn is_sulking(&self, now: f32) -> bool {
         now < self.sulks_until
     }
 }
@@ -296,8 +296,8 @@ fn yaw_of(rotation: Quat) -> f32 {
 
 /// True when a robot can be given a motion to play now: about its
 /// house, and in nothing it must finish.
-fn free(robot: &Robot, passage: Option<&Passage>) -> bool {
-    robot.at_home()
+fn is_free(robot: &Robot, passage: Option<&Passage>) -> bool {
+    robot.is_at_house()
         && passage.is_none_or(|passage| {
             matches!(
                 passage.act(),
@@ -318,7 +318,7 @@ fn robot_of(
     boxes: &Query<(Entity, &Thing, &ChildOf)>,
     robots: &Query<&Robot>,
 ) -> Option<Entity> {
-    if !matches!(thing, Thing::Keeper | Thing::Resident(_)) {
+    if !matches!(thing, Thing::Keeper | Thing::Agent(_)) {
         return None;
     }
     boxes
@@ -349,9 +349,9 @@ fn liftable(
     thing
         .and_then(|thing| robot_of(thing, boxes, robots))
         .filter(|robot| {
-            robots
-                .get(*robot)
-                .is_ok_and(|of| free(of, passages.get(*robot).ok()))
+            robots.get(*robot).is_ok_and(|of| {
+                is_free(of, passages.get(*robot).ok())
+            })
         })
 }
 
@@ -409,7 +409,7 @@ fn met(
         )
     };
     match thing {
-        Thing::Resident(agent) | Thing::ResidentHouse(agent) => {
+        Thing::Agent(agent) | Thing::House(agent) => {
             Some((agent, robot_for(agent)))
         }
         Thing::Keeper | Thing::Cottage => {

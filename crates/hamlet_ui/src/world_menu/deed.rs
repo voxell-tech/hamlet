@@ -14,7 +14,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt};
 use hamlet_client::messages::Rewind;
 use hamlet_client::realm::{
-    self as agents, Busy, Citizen, Deeds, Left, LivesIn, Settlement,
+    self as agents, AgentNumber, Busy, Deeds, HamletId, Left, LivesIn,
 };
 use hamlet_realm::orders;
 
@@ -58,7 +58,7 @@ impl Deed {
     /// Gives the chief's command that does it to the hamlet it is
     /// about.
     pub(crate) fn run(&self, world: &mut World) {
-        if !self.available(world) {
+        if !self.is_available(world) {
             return;
         }
         let name = |agent: Entity| agents::name_of(world, agent);
@@ -109,7 +109,7 @@ impl Deed {
         }
     }
 
-    fn available(&self, world: &World) -> bool {
+    fn is_available(&self, world: &World) -> bool {
         let command = match self {
             Self::Remove(_) => "remove",
             Self::Merge { .. } => "merge",
@@ -121,7 +121,7 @@ impl Deed {
             | Self::DefaultCharter
             | Self::Rewind { .. } => return true,
         };
-        Deeds::allows(world, command)
+        Deeds::is_allowed(world, command)
     }
 
     fn question(&self, world: &World) -> String {
@@ -245,18 +245,18 @@ impl Deed {
             | Deed::Rewind { .. }
             | Deed::DefaultCharter => Vec::new(),
             Deed::Close(hamlet) => {
-                let mut living = world
-                    .query_filtered::<(&Name, &LivesIn), (
-                        With<Citizen>,
+                let mut living =
+                    world.query_filtered::<(&Name, &LivesIn), (
+                        With<AgentNumber>,
                         With<Busy>,
                         Without<Left>,
                     )>();
                 living
                     .iter(world)
                     .filter(|(_, lives)| {
-                        world.get::<Settlement>(lives.0).is_some_and(
-                            |settlement| settlement.name == *hamlet,
-                        )
+                        world
+                            .get::<HamletId>(lives.0)
+                            .is_some_and(|id| id.0 == *hamlet)
                     })
                     .map(|(name, _)| name.as_str().to_string())
                     .collect()
@@ -269,7 +269,7 @@ impl Deed {
 /// at work.
 pub(crate) fn question(deed: Deed, at: Vec2) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
-        if !deed.available(cx.world) {
+        if !deed.is_available(cx.world) {
             return cx.build(frame());
         }
         let working = deed.working(cx.world);

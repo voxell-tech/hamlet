@@ -11,6 +11,7 @@ mod claim;
 mod clock;
 mod connection;
 mod credentials;
+mod diagnostic;
 mod documents;
 mod fault;
 mod gate;

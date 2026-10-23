@@ -17,7 +17,7 @@ use super::shift::{Part, Shift};
 use super::society::{AgentId, Society};
 use super::work::Robot;
 use crate::Clock;
-use crate::keeper::KState;
+use crate::keeper::KeeperState;
 use crate::keeper::work::Task;
 use crate::palette::Palette;
 
@@ -140,7 +140,8 @@ pub(super) fn charm(
                     began,
                     ground,
                 );
-                let plain = if burst { 0 } else { set.embers };
+                let plain =
+                    if burst.is_some() { 0 } else { set.embers };
                 for i in 0..plain {
                     let own = i as f32 + chance(began + i as f32);
                     let around = chance(own) * TAU;
@@ -214,7 +215,7 @@ pub(super) fn muse(
 ) {
     let thinks = |robot: &Robot| {
         robot.work.task == Task::Think
-            && matches!(robot.state, KState::Working)
+            && matches!(robot.state, KeeperState::Working)
     };
     let thinking = |agent: AgentId| {
         robots

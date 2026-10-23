@@ -6,13 +6,13 @@ use bevy::math::Affine3A;
 use bevy::prelude::*;
 use hamlet_assets::tint::hex;
 use hamlet_realm::lantern::lantern_frame;
-use hamlet_realm::meshes::{Mb, Rng, noise2, smoothstep};
+use hamlet_realm::meshes::{Meshing, Rng, noise2, smoothstep};
 use hamlet_realm::palette::Palette;
 
 use super::scene::{Built, Terrain};
 
 pub(super) fn plank(
-    mb: &mut Mb,
+    meshing: &mut Meshing,
     rng: &mut Rng,
     c: Vec3,
     half: Vec3,
@@ -20,7 +20,7 @@ pub(super) fn plank(
     col: Vec3,
 ) {
     let col = col * rng.value(0.1);
-    mb.rbox(c, half, 0.02, rot * rng.wobble(0.9), col, 0.3);
+    meshing.rbox(c, half, 0.02, rot * rng.wobble(0.9), col, 0.3);
 }
 
 /// The skill stall: timber frame, striped awning, counter, bench,
@@ -396,7 +396,7 @@ pub(super) fn stall(b: &mut Built, t: &Terrain, pal: &Palette) {
 }
 
 fn awning(
-    mb: &mut Mb,
+    meshing: &mut Meshing,
     rng: &mut Rng,
     pal: &Palette,
     hx: f32,
@@ -444,12 +444,16 @@ fn awning(
                 // the drip edge.
                 let shade = 1.0 - 0.14 * smoothstep(0.55, 1.0, v)
                     + 0.04 * (noise2(u * 9.0, v * 5.0) - 0.5);
-                *id = mb.v(surface(u, v), normal(u, v), col * shade);
+                *id = meshing.v(
+                    surface(u, v),
+                    normal(u, v),
+                    col * shade,
+                );
             }
         }
         for i in 0..cols {
             for j in 0..rows {
-                mb.quad(
+                meshing.quad(
                     ids[i][j],
                     ids[i][j + 1],
                     ids[i + 1][j + 1],
@@ -464,9 +468,9 @@ fn awning(
         let drop = Vec3::new(0.0, -0.12, 0.012);
         let col = col * 0.86;
         let v = [a, c, c + drop, a + drop, m + drop * 2.0]
-            .map(|p| mb.v(p, n, col));
-        mb.quad(v[0], v[1], v[2], v[3]);
-        mb.tri(v[3], v[2], v[4]);
+            .map(|p| meshing.v(p, n, col));
+        meshing.quad(v[0], v[1], v[2], v[3]);
+        meshing.tri(v[3], v[2], v[4]);
     }
 }
 
@@ -534,9 +538,9 @@ pub(super) fn signal_post(b: &mut Built, t: &Terrain, pal: &Palette) {
 /// The semaphore arm, pivoting about its origin and pointing along
 /// +X.
 pub fn signal_arm(pal: &Palette) -> Mesh {
-    let mut mb = Mb::new();
+    let mut meshing = Meshing::new();
     let orange = hex("#C96A1A");
-    mb.rbox(
+    meshing.rbox(
         Vec3::new(0.3, 0.0, 0.0),
         Vec3::new(0.36, 0.055, 0.015),
         0.012,
@@ -544,7 +548,7 @@ pub fn signal_arm(pal: &Palette) -> Mesh {
         pal.parchment,
         0.0,
     );
-    mb.rbox(
+    meshing.rbox(
         Vec3::new(0.6, 0.0, 0.0),
         Vec3::new(0.1, 0.085, 0.017),
         0.012,
@@ -552,7 +556,7 @@ pub fn signal_arm(pal: &Palette) -> Mesh {
         orange,
         0.0,
     );
-    mb.rbox(
+    meshing.rbox(
         Vec3::new(0.34, 0.0, 0.004),
         Vec3::new(0.035, 0.057, 0.015),
         0.006,
@@ -560,7 +564,7 @@ pub fn signal_arm(pal: &Palette) -> Mesh {
         orange,
         0.0,
     );
-    mb.rbox(
+    meshing.rbox(
         Vec3::new(-0.12, 0.0, 0.0),
         Vec3::new(0.08, 0.04, 0.02),
         0.012,
@@ -568,5 +572,5 @@ pub fn signal_arm(pal: &Palette) -> Mesh {
         pal.bed,
         0.0,
     );
-    mb.build()
+    meshing.build()
 }

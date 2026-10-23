@@ -19,7 +19,7 @@ pub(crate) struct Place {
 
 /// One session of a chat, by its number.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Session {
+pub(crate) struct ChatSession {
     pub number: i64,
     pub binding: BindingId,
     pub began: i64,
@@ -43,7 +43,7 @@ pub(crate) fn current(
     db: &Connection,
     agent: &AgentRef,
     chief: &str,
-) -> Result<Option<Session>> {
+) -> Result<Option<ChatSession>> {
     let number = db
         .query_row(
             "SELECT current FROM chat WHERE hamlet = ?1 AND number \
@@ -64,7 +64,7 @@ pub(crate) fn session(
     agent: &AgentRef,
     chief: &str,
     number: i64,
-) -> Result<Option<Session>> {
+) -> Result<Option<ChatSession>> {
     Ok(db
         .query_row(
             "SELECT session, binding, began FROM chat_session WHERE \
@@ -72,7 +72,7 @@ pub(crate) fn session(
              = ?4",
             params![agent.hamlet, number_of(agent)?, chief, number],
             |row| {
-                Ok(Session {
+                Ok(ChatSession {
                     number: row.get(0)?,
                     binding: BindingId(row.get(1)?),
                     began: row.get(2)?,
@@ -87,7 +87,7 @@ pub(crate) fn sessions(
     db: &Connection,
     agent: &AgentRef,
     chief: &str,
-) -> Result<Vec<Session>> {
+) -> Result<Vec<ChatSession>> {
     let mut query = db.prepare(
         "SELECT session, binding, began FROM chat_session WHERE \
          hamlet = ?1 AND number = ?2 AND chief = ?3 ORDER BY session",
@@ -96,7 +96,7 @@ pub(crate) fn sessions(
         .query_map(
             params![agent.hamlet, number_of(agent)?, chief],
             |row| {
-                Ok(Session {
+                Ok(ChatSession {
                     number: row.get(0)?,
                     binding: BindingId(row.get(1)?),
                     began: row.get(2)?,

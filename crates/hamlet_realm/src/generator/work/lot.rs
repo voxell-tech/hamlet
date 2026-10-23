@@ -34,7 +34,7 @@ impl Lot {
     pub(super) fn paved(&self, p: Vec2) -> Option<f32> {
         let local = self.local(Vec3::new(p.x, self.origin.y, p.y));
         self.yard
-            .holds(local)
+            .is_on_paving(local)
             .then_some(self.origin.y + self.yard.shape.terrace)
     }
 
@@ -60,7 +60,7 @@ impl Lot {
     /// ground.
     pub(super) fn world(&self, land: &Land, p: Vec3) -> Vec3 {
         let at = self.origin + Quat::from_rotation_y(self.yaw) * p;
-        let y = if self.yard.holds(p) {
+        let y = if self.yard.is_on_paving(p) {
             self.origin.y + self.yard.shape.terrace
         } else {
             footing(land, at.xz())
@@ -91,7 +91,7 @@ impl Lot {
     /// round or toward `to` itself.
     pub(super) fn approach(&self, land: &Land, to: Vec3) -> Vec3 {
         let town = &land.set.town;
-        let toward = if self.yard.holds(self.local(to)) {
+        let toward = if self.yard.is_on_paving(self.local(to)) {
             self.world(land, self.yard.gate())
         } else {
             to
@@ -104,7 +104,7 @@ impl Lot {
 
     /// True when `p` is away from the house, so that the way to it
     /// has to be found.
-    pub(super) fn away(&self, land: &Land, p: Vec3) -> bool {
+    pub(super) fn is_away(&self, land: &Land, p: Vec3) -> bool {
         let town = &land.set.town;
         p.xz().distance(self.origin.xz())
             > town.house_radius + town.robot_clearance + 0.5

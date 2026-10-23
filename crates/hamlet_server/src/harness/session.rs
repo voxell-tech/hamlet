@@ -29,12 +29,12 @@ pub(super) enum Pending {
 /// The server's end of the runtime protocol: its message ids and the
 /// requests in flight, by the runtime they went to.
 #[derive(Default)]
-pub(super) struct Session {
+pub(super) struct RuntimeSession {
     next: u64,
     pending: HashMap<String, (usize, Pending)>,
 }
 
-impl Session {
+impl RuntimeSession {
     fn id(&mut self) -> String {
         self.next += 1;
         format!("s{}", self.next)
@@ -47,7 +47,7 @@ impl Session {
 
     /// Whether a request of runtime `index` that `which` matches is
     /// in flight.
-    pub fn in_flight(
+    pub fn is_in_flight(
         &self,
         index: usize,
         which: impl Fn(&Pending) -> bool,

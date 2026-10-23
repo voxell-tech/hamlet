@@ -18,16 +18,22 @@ use serde_json::{Map, Value, json};
 
 pub(super) use self::answer::answer_words;
 use self::decide::{Decision, Gate, Reading, Unadmitted};
-use self::tasks::Prepared;
 pub(crate) use self::tasks::{Finished, Tasks};
+use self::tasks::{Join, Prepared};
 use super::{asking, follow, records};
 use crate::harness::tools::CONFLICT;
 use crate::harness::{
-    Answer, Binding, BindingId, Call, Harnesses, InputMark, Re,
+    Answer, Binding, BindingId, Call, Harnesses, InputMark,
+    ReplyAddress,
 };
 use crate::operation::{self, Marked, Request};
+use crate::sandbox::FileError;
 use crate::service::Service;
 use crate::tools;
+
+/// The text a write would replace, as
+/// [`tools::ToolSession::preview`] reads it.
+type Previewed = std::result::Result<Option<String>, FileError>;
 
 /// The words of a call that waits for a chief.
 const WAITING: &str = "This call waits for a chief's answer.";
@@ -41,7 +47,6 @@ const IDENTITY_REFUSAL: &str = "This call's identity does not match \
 /// The words of a call whose preparation failed.
 const UNPREPARED: &str =
     "The server could not prepare this call, so it did not run.";
-/// What a preview shows of a file it cannot show as text.
 /// The chief's recovery advice for an answer with no text or calls.
 const EMPTY: &str =
     "the model answered with nothing. Send the message again";
@@ -60,7 +65,7 @@ const UNSAFE: &[&str] = &["bash", "write", "edit"];
 /// What a call's preparation read.
 pub(crate) enum Preparation {
     Prompt(Result<Vec<Section>>),
-    Preview(std::result::Result<Option<String>, String>),
+    Preview(Previewed),
 }
 
 /// Answers the calls of a task that ended.
@@ -70,19 +75,25 @@ pub(crate) async fn finished(
     finished: Finished,
 ) -> Result<()> {
     match finished {
-        Finished::Ran { id, res, outcome } => {
+        Finished::Ran {
+            id,
+            addresses,
+            outcome,
+        } => {
             // Kept before any answer, as the call may not run again.
             operation::settle(service.db(), &id, &outcome)?;
-            for re in res {
-                harnesses.answer(re, outcome.clone().into()).await;
+            for address in addresses {
+                harnesses
+                    .answer(address, outcome.clone().into())
+                    .await;
             }
         }
         Finished::Prepared(prepared) => {
             self::prepared(service, harnesses, prepared).await?;
         }
-        Finished::Unprepared { re } => {
+        Finished::Unprepared { address } => {
             harnesses
-                .answer(re, Answer::Refusal(UNPREPARED.into()))
+                .answer(address, Answer::Refusal(UNPREPARED.into()))
                 .await;
         }
     }
@@ -97,7 +108,7 @@ async fn prepared(
 ) -> Result<()> {
     let Prepared {
         binding,
-        re,
+        address,
         call,
         signature,
         result,
@@ -108,7 +119,7 @@ async fn prepared(
             if service.home.store().cancelling(binding)? {
                 harnesses
                     .answer(
-                        re,
+                        address,
                         Answer::Refusal(
                             crate::harness::answers::STOPPED_WORDS
                                 .into(),
@@ -119,7 +130,10 @@ async fn prepared(
             }
             if objecting(service, binding, input)? {
                 harnesses
-                    .answer(re, Answer::Waiting(OBJECTING.into()))
+                    .answer(
+                        address,
+                        Answer::Waiting(OBJECTING.into()),
+                    )
                     .await;
                 return Ok(());
             }
@@ -127,7 +141,7 @@ async fn prepared(
                 != signature
             {
                 return self::call(
-                    service, harnesses, binding, re, call,
+                    service, harnesses, binding, address, call,
                 )
                 .await;
             }
@@ -136,7 +150,9 @@ async fn prepared(
                 section.text =
                     service.credentials.scrub_text(&section.text);
             }
-            harnesses.answer(re, Answer::Sections(sections)).await;
+            harnesses
+                .answer(address, Answer::Sections(sections))
+                .await;
         }
         Preparation::Preview(result) => {
             let Some(bound) =
@@ -149,7 +165,7 @@ async fn prepared(
             )? != signature
             {
                 return self::call(
-                    service, harnesses, binding, re, call,
+                    service, harnesses, binding, address, call,
                 )
                 .await;
             }
@@ -157,7 +173,7 @@ async fn prepared(
                 service,
                 harnesses,
                 binding,
-                re,
+                address,
                 call,
                 Some(result),
             )
@@ -206,19 +222,20 @@ pub(super) async fn call(
     service: &mut Service,
     harnesses: &mut Harnesses,
     binding: BindingId,
-    re: Re,
+    address: ReplyAddress,
     call: Call,
 ) -> Result<()> {
-    call_prepared(service, harnesses, binding, re, call, None).await
+    call_prepared(service, harnesses, binding, address, call, None)
+        .await
 }
 
 async fn call_prepared(
     service: &mut Service,
     harnesses: &mut Harnesses,
     binding: BindingId,
-    re: Re,
+    address: ReplyAddress,
     call: Call,
-    preview: Option<std::result::Result<Option<String>, String>>,
+    preview: Option<Previewed>,
 ) -> Result<()> {
     if merging(service, binding, &call)? {
         if matches!(call, Call::Prompt { .. }) {
@@ -226,7 +243,7 @@ async fn call_prepared(
         }
         harnesses
             .answer(
-                re,
+                address,
                 Answer::Refusal(
                     "This house is being merged or split. Wait for \
                      its files to finish, then ask the chief to \
@@ -245,8 +262,10 @@ async fn call_prepared(
     }
     let input = input.as_deref();
     if let Call::Prompt { .. } = call {
-        return prompt_call(service, harnesses, binding, re, call)
-            .await;
+        return prompt_call(
+            service, harnesses, binding, address, call,
+        )
+        .await;
     }
     let answer = match &call {
         Call::Allow {
@@ -274,7 +293,9 @@ async fn call_prepared(
                     Answer::Waiting(words.into())
                 }
                 Gate::Preview(reading) => {
-                    preview_call(service, binding, re, call, reading);
+                    preview_call(
+                        service, binding, address, call, reading,
+                    );
                     return Ok(());
                 }
             }
@@ -288,7 +309,7 @@ async fn call_prepared(
             match operation(
                 service,
                 binding,
-                &re,
+                &address,
                 key,
                 input,
                 tool,
@@ -298,7 +319,9 @@ async fn call_prepared(
                 Step::Answer(answer) => answer,
                 Step::Running => return Ok(()),
                 Step::Preview(reading) => {
-                    preview_call(service, binding, re, call, reading);
+                    preview_call(
+                        service, binding, address, call, reading,
+                    );
                     return Ok(());
                 }
                 Step::Society(bound) => {
@@ -331,7 +354,7 @@ async fn call_prepared(
             summary_failure.as_deref(),
         )?,
     };
-    harnesses.answer(re, answer).await;
+    harnesses.answer(address, answer).await;
     Ok(())
 }
 
@@ -345,7 +368,7 @@ fn merging(
     Ok(!matches!(call, Call::Yield { .. })
         && service.home.store().binding(binding)?.is_some_and(
             |bound| {
-                !bound.errand && service.merges.held(&bound.agent)
+                !bound.errand && service.merges.is_held(&bound.agent)
             },
         ))
 }
@@ -366,7 +389,7 @@ async fn prompt_call(
     service: &mut Service,
     harnesses: &mut Harnesses,
     binding: BindingId,
-    re: Re,
+    address: ReplyAddress,
     call: Call,
 ) -> Result<()> {
     let input = call.input();
@@ -376,17 +399,17 @@ async fn prompt_call(
     .await?;
     if objecting(service, binding, input)? {
         harnesses
-            .answer(re, Answer::Waiting(OBJECTING.into()))
+            .answer(address, Answer::Waiting(OBJECTING.into()))
             .await;
         return Ok(());
     }
     let prepared = prompt(service, binding, input)?;
     let signature = prepared.signature();
-    let answers = re.clone();
-    service.chats.calls.prepare(binding, re, async move {
+    let answers = address.clone();
+    service.chats.calls.prepare(binding, address, async move {
         Prepared {
             binding,
-            re: answers,
+            address: answers,
             call,
             signature,
             result: Preparation::Prompt(prepared.render().await),
@@ -399,12 +422,12 @@ async fn prompt_call(
 fn preview_call(
     service: &mut Service,
     binding: BindingId,
-    re: Re,
+    address: ReplyAddress,
     call: Call,
     reading: Reading,
 ) {
-    let answers = re.clone();
-    service.chats.calls.prepare(binding, re, async move {
+    let answers = address.clone();
+    service.chats.calls.prepare(binding, address, async move {
         let Reading {
             tools,
             path,
@@ -413,7 +436,7 @@ fn preview_call(
         let result = tools.preview(&path).await;
         Prepared {
             binding,
-            re: answers,
+            address: answers,
             call,
             signature,
             result: Preparation::Preview(result),
@@ -442,12 +465,12 @@ enum Step {
 fn operation(
     service: &mut Service,
     binding: BindingId,
-    re: &Re,
+    address: &ReplyAddress,
     key: &str,
     input: Option<&str>,
     tool: &str,
     arguments: &BTreeMap<String, Value>,
-    preview: Option<&std::result::Result<Option<String>, String>>,
+    preview: Option<&Previewed>,
 ) -> Result<Step> {
     let call = match decide::admit(
         service, binding, key, input, tool, arguments,
@@ -462,10 +485,11 @@ fn operation(
             )));
         }
     };
-    if service.chats.calls.join(&call.id, re) {
+    if let Join::Joined = service.chats.calls.join(&call.id, address)
+    {
         return Ok(Step::Running);
     }
-    if service.house_work.pending(&call.id) {
+    if service.house_work.is_pending(&call.id) {
         return Ok(Step::Answer(Answer::Waiting(
             "The house work is still running.".into(),
         )));
@@ -502,7 +526,7 @@ fn operation(
                 Ok(crate::society::unavailable(tool))
             })?;
         return Ok(Step::Answer(match outcome {
-            Some(outcome) => crate::society::result(&outcome)?,
+            Some(outcome) => outcome.into(),
             None => Answer::Refusal(CONFLICT.into()),
         }));
     }
@@ -526,9 +550,10 @@ fn operation(
         let call_of =
             match crate::harness::tools::parse(tool, arguments) {
                 Ok(call) => call,
-                Err(words) => {
+                Err(no_call) => {
                     return Ok(Step::Answer(Answer::result(
-                        words, true,
+                        no_call.to_string(),
+                        true,
                     )));
                 }
             };
@@ -544,7 +569,7 @@ fn operation(
     if crate::society::SocietyTool::named(tool).is_some() {
         return Ok(Step::Society(call.bound));
     }
-    run(service, call, re, &request, net)?;
+    run(service, call, address, &request, net)?;
     Ok(Step::Running)
 }
 
@@ -553,7 +578,7 @@ fn operation(
 fn run(
     service: &mut Service,
     call: decide::Admitted<'_>,
-    re: &Re,
+    address: &ReplyAddress,
     request: &Request,
     net: bool,
 ) -> Result<()> {
@@ -572,7 +597,7 @@ fn run(
     service.chats.calls.run(
         call.id,
         call.bound.id,
-        re.clone(),
+        address.clone(),
         async move {
             let mut outcome =
                 tools.run(&secrets, &name, &arguments).await;

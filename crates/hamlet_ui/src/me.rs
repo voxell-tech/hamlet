@@ -11,7 +11,7 @@ use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ecs::world::World;
 use hamlet_client::chats::{Chat, Status, Transcript};
 use hamlet_client::realm::{
-    self as agents, Chief, Citizen, HOME, MAYOR, Mayor,
+    self as agents, AgentNumber, Chief, HOME, MAYOR, Mayor,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Selected, Thing, select};
@@ -26,7 +26,7 @@ pub(crate) fn plugin(app: &mut App) {
         agent: MAYOR.into(),
     };
     let session = watch(app.world_mut(), to.clone());
-    let user = app
+    let name = app
         .world()
         .get_resource::<Chief>()
         .map(|chief| chief.0.clone())
@@ -36,7 +36,7 @@ pub(crate) fn plugin(app: &mut App) {
     app.insert_resource(Me {
         session,
         to,
-        user,
+        name,
         agent: mayor,
         with: None,
     })
@@ -48,9 +48,9 @@ pub(crate) fn chief_name(
     mut me: ResMut<Me>,
 ) {
     if let Some(chief) = chief
-        && me.user != chief.0
+        && me.name != chief.0
     {
-        me.user.clone_from(&chief.0);
+        me.name.clone_from(&chief.0);
     }
 }
 
@@ -59,7 +59,8 @@ pub(crate) fn chief_name(
 pub struct Me {
     pub session: Entity,
     pub to: protocol::Address,
-    pub user: String,
+    /// The name the chief signs in with.
+    pub name: String,
     /// The agent the chat is with.
     pub agent: Entity,
     /// That agent's name. `None` for the mayor.
@@ -100,13 +101,21 @@ fn watch(world: &mut World, to: protocol::Address) -> Entity {
     })
 }
 
+/// Whether the chat could be pointed at an agent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Seating {
+    Seated,
+    /// It has no address: it left, or the world does not know it.
+    Unaddressed,
+}
+
 /// The selected agent's watched chat.
-pub(crate) fn seat(world: &mut World, agent: Entity) -> bool {
+pub(crate) fn seat(world: &mut World, agent: Entity) -> Seating {
     let Some((to, with)) = address(world, agent) else {
-        return false;
+        return Seating::Unaddressed;
     };
     seat_as(world, agent, to, with);
-    true
+    Seating::Seated
 }
 
 fn seat_as(
@@ -126,7 +135,7 @@ fn seat_as(
 /// Points the chat at one of the hamlet's agents, and selects it in
 /// the world.
 pub(crate) fn talk_to(world: &mut World, agent: Entity) {
-    if !seat(world, agent) {
+    if seat(world, agent) == Seating::Unaddressed {
         return;
     }
     let mayor = agents::mayor(world) == Some(agent);
@@ -134,9 +143,9 @@ pub(crate) fn talk_to(world: &mut World, agent: Entity) {
         world.get_resource::<Selected>().map(|selected| selected.0);
     let same = match selected {
         Some(Some(Thing::Keeper | Thing::Cottage)) => mayor,
-        Some(Some(
-            Thing::Resident(of) | Thing::ResidentHouse(of),
-        )) => of == agent,
+        Some(Some(Thing::Agent(of) | Thing::House(of))) => {
+            of == agent
+        }
         Some(_) => false,
         // Nothing can be selected where there is no world.
         None => true,
@@ -145,7 +154,7 @@ pub(crate) fn talk_to(world: &mut World, agent: Entity) {
         let thing = if mayor {
             Thing::Keeper
         } else {
-            Thing::Resident(agent)
+            Thing::Agent(agent)
         };
         select(world, Some(thing));
     }
@@ -173,7 +182,7 @@ pub(crate) fn talk_to_mayor_of(world: &mut World, hamlet: &str) {
             let thing = if hamlet == HOME {
                 Thing::Keeper
             } else {
-                Thing::Resident(mayor)
+                Thing::Agent(mayor)
             };
             select(world, Some(thing));
         }
@@ -185,9 +194,9 @@ pub(crate) fn talk_to_mayor_of(world: &mut World, hamlet: &str) {
 pub(crate) fn roster_moved(
     named: Query<
         (),
-        (With<Citizen>, Or<(Added<Mayor>, Changed<Name>)>),
+        (With<AgentNumber>, Or<(Added<Mayor>, Changed<Name>)>),
     >,
-    mut gone: RemovedComponents<Citizen>,
+    mut gone: RemovedComponents<AgentNumber>,
     mut unseated: RemovedComponents<Mayor>,
 ) -> bool {
     let removed = gone.read().count() + unseated.read().count();
@@ -231,8 +240,8 @@ pub(crate) fn reseat(world: &mut World) {
     // An agent that is gone from the world cannot stay selected.
     let gone = match world.get_resource::<Selected>().map(|s| s.0) {
         Some(Some(
-            Thing::Resident(agent)
-            | Thing::ResidentHouse(agent)
+            Thing::Agent(agent)
+            | Thing::House(agent)
             | Thing::Ruin(agent),
         )) => world.get_entity(agent).is_err(),
         _ => false,
@@ -247,7 +256,7 @@ impl Me {
     pub(crate) fn of(
         session: Entity,
         agent: Entity,
-        user: &str,
+        name: &str,
         with: Option<&str>,
     ) -> Me {
         Me {
@@ -256,7 +265,7 @@ impl Me {
                 hamlet: HOME.into(),
                 agent: with.unwrap_or(MAYOR).into(),
             },
-            user: user.into(),
+            name: name.into(),
             agent,
             with: with.map(str::to_string),
         }
@@ -283,7 +292,7 @@ mod tests {
         );
         app.add_plugins(plugin);
         let me = app.world().resource::<Me>();
-        assert_eq!(me.user, "alice");
+        assert_eq!(me.name, "alice");
         let chat = app
             .world()
             .get::<Chat>(me.session)
@@ -313,7 +322,7 @@ mod tests {
         let first = app.world().resource::<Me>().session;
         *app.world_mut().resource_mut::<crate::world_menu::Open>() =
             crate::world_menu::Open::Menu(
-                Thing::Resident(founder),
+                Thing::Agent(founder),
                 bevy::math::Vec2::ZERO,
             );
         bevy_fynix::mount::<crate::theme::HamletTheme>(
@@ -402,7 +411,7 @@ mod tests {
                 epoch: state.epoch,
                 revision: revision + 1,
                 changes: vec![protocol::Update::AgentGone {
-                    ref_: state.agents[0].ref_.clone(),
+                    agent: state.agents[0].agent.clone(),
                 }],
             }),
         );
@@ -471,7 +480,7 @@ mod tests {
         );
         app.update();
         assert_eq!(
-            app.world().resource::<Me>().user,
+            app.world().resource::<Me>().name,
             "renamed-chief"
         );
     }

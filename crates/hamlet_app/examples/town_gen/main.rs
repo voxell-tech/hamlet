@@ -26,7 +26,7 @@ use hamlet_realm::debug::DebugSettings;
 use hamlet_realm::generator::land::Land;
 use hamlet_realm::generator::society::Society;
 use hamlet_realm::generator::{
-    self, GenView, Loading, Origin, Phase, Tally,
+    self, GeneratorView, Loading, Origin, Phase, Tally,
 };
 use hamlet_realm::sound::SoundSettings;
 use hamlet_realm::{RealmSystems, scene};
@@ -161,7 +161,7 @@ fn main() {
 fn first_world(
     land: Res<Land>,
     mut world: ResMut<Society>,
-    mut view: ResMut<GenView>,
+    mut view: ResMut<GeneratorView>,
 ) {
     *world = society(&land, &[9, 5], 3);
     view.focus = land.sites[world.towns[0].site].at;
@@ -209,5 +209,5 @@ fn hud(
 
 /// Stills and timings wait for the ground and the trees.
 fn world_loaded(loading: Option<Res<Loading>>) -> bool {
-    loading.is_some_and(|l| l.done())
+    loading.is_some_and(|l| l.is_done())
 }

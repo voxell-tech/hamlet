@@ -39,8 +39,8 @@ fn recorded_hello_fills_the_realm_and_the_servers_words() {
     for message in recorded {
         receive(world, message);
     }
-    let (home, settlement, shown, works, bylaws, treasury) = world.query::<(Entity, &Settlement, &Name, &Works, &Bylaws, &Treasury)>().single(world).unwrap();
-    assert_eq!((&*settlement.name, shown.as_str()), ("home", "home"));
+    let (home, id, shown, works, bylaws, treasury) = world.query::<(Entity, &HamletId, &Name, &Works, &Bylaws, &Treasury)>().single(world).unwrap();
+    assert_eq!((&*id.0, shown.as_str()), ("home", "home"));
     assert_eq!(works.folder, None);
     assert_eq!(works.mode, Mode::Manual);
     assert_eq!(
@@ -49,8 +49,19 @@ fn recorded_hello_fills_the_realm_and_the_servers_words() {
     );
     assert_eq!(bylaws.0.most_agents, 12);
     assert_eq!(treasury.0.summary, "Hamlet today: $0.00 of $5.00");
-    let (agent, citizen, name, lives, account, activity) = world.query_filtered::<(Entity, &Citizen, &Name, &LivesIn, &Account, &Activity), With<Mayor>>().single(world).unwrap();
-    assert_eq!(citizen.0, 0);
+    let (agent, number, name, lives, account, activity) =
+        world
+            .query_filtered::<(
+                Entity,
+                &AgentNumber,
+                &Name,
+                &LivesIn,
+                &Account,
+                &Activity,
+            ), With<Mayor>>()
+            .single(world)
+            .unwrap();
+    assert_eq!(number.0, 0);
     assert_eq!(name.as_str(), "founder");
     assert_eq!(lives.0, home);
     assert_eq!(account.model, "faux::faux-1");
@@ -62,8 +73,8 @@ fn recorded_hello_fills_the_realm_and_the_servers_words() {
     assert_eq!(world.resource::<Settings>().0.model, "faux::faux-1");
     assert_eq!(world.resource::<Providers>().0[0].name, "faux");
     assert!(world.resource::<Grants>().0.is_empty());
-    assert!(world.resource::<Deeds>().has("stop"));
-    assert!(world.resource::<Deeds>().has("found"));
+    assert!(world.resource::<Deeds>().is_supported("stop"));
+    assert!(world.resource::<Deeds>().is_supported("found"));
     assert_eq!(mayor(world), Some(agent));
     assert_eq!(named(world, "mayor"), Some(agent));
     assert_eq!(
@@ -248,7 +259,7 @@ fn snapshots_reconcile_by_identity_across_epochs_and_changes_only_advance_the_se
                 epoch,
                 revision,
                 changes: vec![protocol::Update::AgentGone {
-                    ref_: first.agents[0].ref_.clone(),
+                    agent: first.agents[0].agent.clone(),
                 }],
             }),
         );
@@ -267,7 +278,7 @@ fn snapshots_reconcile_by_identity_across_epochs_and_changes_only_advance_the_se
             epoch: first.epoch,
             revision: 9,
             changes: vec![protocol::Update::AgentGone {
-                ref_: first.agents[0].ref_.clone(),
+                agent: first.agents[0].agent.clone(),
             }],
         }),
     );
@@ -378,7 +389,7 @@ fn streamed_words_only_change_saying_and_keep_relationship_order() {
     let founder = mayor(world).unwrap();
     let home = world.get::<LivesIn>(founder).unwrap().0;
     let before = world
-        .get::<Citizens>(home)
+        .get::<Agents>(home)
         .unwrap()
         .iter()
         .collect::<Vec<_>>();
@@ -426,7 +437,7 @@ fn streamed_words_only_change_saying_and_keep_relationship_order() {
     );
     assert_eq!(
         world
-            .get::<Citizens>(home)
+            .get::<Agents>(home)
             .unwrap()
             .iter()
             .collect::<Vec<_>>(),

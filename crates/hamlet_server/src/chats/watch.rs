@@ -34,7 +34,10 @@ pub(super) async fn open(
     let binding = match resolve(service, harnesses, chat).await? {
         Ok(binding) => binding,
         Err(refusal) => {
-            return Ok(Some(fault(Some(&open.id), refusal.text())));
+            return Ok(Some(fault(
+                Some(&open.id),
+                refusal.to_string(),
+            )));
         }
     };
     let watched = service.chats.watches.iter().any(|watch| {
@@ -135,9 +138,7 @@ pub(super) async fn resolve(
         match records::session(service.db(), &agent, &chief, number)?
         {
             Some(session) => Ok(session.binding),
-            None => Err(Refusal::Invalid(format!(
-                "There is no past session `{number}` here."
-            ))),
+            None => Err(Refusal::NoSession(number)),
         },
     )
 }
@@ -164,7 +165,7 @@ pub(super) fn transcript(
                 Some(end) => end,
                 None => {
                     return Ok(fault(
-                        to.map(RequestId::as_str),
+                        to,
                         format!("There is no item `{before}` here."),
                     ));
                 }

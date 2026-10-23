@@ -118,13 +118,13 @@ pub(crate) enum TimeOfDay {
 }
 
 impl TimeOfDay {
-    fn night(self, set: &SkySettings) -> bool {
+    fn is_night(self, set: &SkySettings) -> bool {
         match self {
             Self::Day => false,
             Self::Night => true,
             Self::Clock => {
                 let now = chrono::Local::now();
-                set.night(
+                set.is_night(
                     now.hour() as f32 + now.minute() as f32 / 60.0,
                 )
             }
@@ -330,7 +330,7 @@ pub(crate) fn drive(
     sky_set: Res<SkySettings>,
     mut stage: ResMut<Stage>,
 ) {
-    let night = sky.night(&sky_set);
+    let night = sky.is_night(&sky_set);
     if stage.night != night {
         stage.night = night;
     }

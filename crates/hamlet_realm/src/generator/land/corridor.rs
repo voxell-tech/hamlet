@@ -220,7 +220,7 @@ impl LandData {
         homes: &mut HashMap<Cell, Vec2>,
     ) -> Vec<(Node, f32)> {
         let here = &self.sites[site];
-        if !here.moved() {
+        if !here.has_moved() {
             let c = here.cell;
             return HEX_DIRS
                 .iter()
@@ -243,7 +243,7 @@ impl LandData {
             .map(|node| (node, self.node_at(node, homes)))
             .filter(|&(_, at)| {
                 here.at.distance(at) > town.gate_radius + 6.0
-                    && !self.blocked(at)
+                    && !self.is_blocked(at)
                     && !self.sites.iter().enumerate().any(|(i, s)| {
                         i != site
                             && segment_dist(s.at, here.at, at)
@@ -259,16 +259,17 @@ impl LandData {
     }
 
     /// True when a moved town stands where a corridor would pass `p`.
-    fn blocked(&self, p: Vec2) -> bool {
+    fn is_blocked(&self, p: Vec2) -> bool {
         self.sites.iter().any(|s| {
-            s.moved() && s.at.distance(p) < self.set.town.radius + 6.0
+            s.has_moved()
+                && s.at.distance(p) < self.set.town.radius + 6.0
         })
     }
 
     /// True when a moved town stands in the way from `a` to `b`.
-    fn barred(&self, a: Vec2, b: Vec2) -> bool {
+    fn is_barred(&self, a: Vec2, b: Vec2) -> bool {
         self.sites.iter().any(|s| {
-            s.moved()
+            s.has_moved()
                 && segment_dist(s.at, a, b)
                     < self.set.town.radius + 2.0
         })
@@ -319,7 +320,7 @@ impl LandData {
             let p = place(node, &mut homes);
             for next in node.links() {
                 let q = place(next, &mut homes);
-                if self.blocked(q) || self.barred(p, q) {
+                if self.is_blocked(q) || self.is_barred(p, q) {
                     continue;
                 }
                 // Roads keep to low ground where they can.

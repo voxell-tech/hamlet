@@ -19,6 +19,7 @@ use hamlet_testing::openai::{Endpoint, Response};
 use hamlet_testing::{
     Models, Scratch, Server, Socket, answers, strip_overrides,
 };
+use rustix::process::{Pid, Signal, kill_process};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
 
@@ -53,11 +54,7 @@ fn the_server_holds_its_home_until_terminated() {
     assert!(line.contains("holding"), "{line}");
     let refused = Home::open(&dir).err().unwrap();
     assert!(refused.downcast_ref::<Held>().is_some(), "{refused}");
-    // SAFETY: kill sends a signal to the child's PID and has no
-    // preconditions.
-    let sent =
-        unsafe { libc::kill(server.id() as i32, libc::SIGTERM) };
-    assert_eq!(sent, 0);
+    kill_process(Pid::from_child(&server), Signal::TERM).unwrap();
     assert!(server.wait().unwrap().success());
     let mut home = Home::open(&dir).unwrap();
     assert!(!dir.join("server.json").exists());
@@ -245,7 +242,7 @@ async fn a_request_whose_handler_panics_is_faulted_and_the_server_goes_on()
     );
     assert_eq!(answers[1]["type"], "read", "{answers:?}");
     assert_ne!(answers[1]["charter"]["text"], "Kept?");
-    assert!(server.running());
+    assert!(server.is_running());
     assert_eq!(
         std::fs::read(home.join("server.json")).unwrap(),
         published

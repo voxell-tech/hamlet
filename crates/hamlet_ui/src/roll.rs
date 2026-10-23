@@ -11,15 +11,15 @@ use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
 use bevy_fynix::{Signal, derived, resource};
 use hamlet_client::realm::{
-    Account, Activity, Busy, Bylaws, Citizen, Left, Mayor, Purpose,
-    Settlement, Treasury, Works,
+    Account, Activity, AgentNumber, Busy, Bylaws, HamletId, Left,
+    Mayor, Purpose, Treasury, Works,
 };
 use hamlet_client::waits::Waiting;
 
 use crate::PanelSystems;
 
 type AgentMoved = (
-    With<Citizen>,
+    With<AgentNumber>,
     Or<(
         Changed<Name>,
         Changed<Purpose>,
@@ -32,7 +32,7 @@ type AgentMoved = (
 );
 
 type HamletMoved = (
-    With<Settlement>,
+    With<HamletId>,
     Or<(
         Changed<Bylaws>,
         Changed<Works>,
@@ -46,7 +46,7 @@ type AgentLost<'w, 's> = (
     RemovedComponents<'w, 's, Busy>,
     RemovedComponents<'w, 's, Left>,
     RemovedComponents<'w, 's, Account>,
-    RemovedComponents<'w, 's, Citizen>,
+    RemovedComponents<'w, 's, AgentNumber>,
     RemovedComponents<'w, 's, Mayor>,
 );
 
@@ -132,7 +132,7 @@ pub(crate) fn turn_roll(
     hamlets: Query<(), HamletMoved>,
     waits: Query<(), Changed<Waiting>>,
     (mut idle, mut back, mut closed, mut gone, mut unseated): AgentLost,
-    mut razed: RemovedComponents<Settlement>,
+    mut razed: RemovedComponents<HamletId>,
     mut answered: RemovedComponents<Waiting>,
     mut roll: ResMut<Roll>,
 ) {

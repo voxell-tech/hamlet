@@ -88,7 +88,7 @@ impl Models {
         })
     }
 
-    pub fn starting(&self) -> bool {
+    pub fn is_starting(&self) -> bool {
         self.pending.values().any(|p| p.from.is_none())
     }
 
@@ -364,11 +364,7 @@ impl Service {
                     else {
                         return Ok(Some(vec![reply(
                             id,
-                            Err(Refusal::Invalid(
-                                "There is no sign-in here with that \
-                                 id."
-                                .into(),
-                            )),
+                            Err(Refusal::NoSignIn),
                         )]));
                     };
                     let Some(prompt) = signin.prompt.take() else {
@@ -401,11 +397,7 @@ impl Service {
                     else {
                         return Ok(Some(vec![reply(
                             id,
-                            Err(Refusal::Invalid(
-                                "There is no sign-in here with that \
-                                 id."
-                                .into(),
-                            )),
+                            Err(Refusal::NoSignIn),
                         )]));
                     };
                     answers.push(login_step(
@@ -611,7 +603,7 @@ impl Service {
         {
             let settings = self.settings()?;
             if settings.model != name {
-                return invalid(format!("no model named `{name}`"));
+                return Ok(Err(Refusal::NoModel(name.into())));
             }
         }
         Ok(Ok((provider.into(), id.into())))
@@ -733,7 +725,7 @@ impl Service {
                 card.priced,
                 ListedPriced::Unknown | ListedPriced::Assigned
             ) {
-                let local = local(model["baseUrl"].as_str());
+                let local = is_local(model["baseUrl"].as_str());
                 (card.price, card.priced) = if local {
                     let price = ListedPrice {
                         input: LOCAL_RATE,
@@ -779,9 +771,7 @@ impl Service {
         let db = self.db();
         let mut cards = catalogue(db)?;
         let Some(card) = cards.get_mut(name) else {
-            return Ok(Err(Refusal::Invalid(format!(
-                "no model named `{name}`"
-            ))));
+            return Ok(Err(Refusal::NoModel(name.into())));
         };
         if let Some(allowed) = set.allowed {
             card.allowed = allowed;
@@ -924,7 +914,7 @@ impl Choices {
             },
             _ => serde_json::from_value(listed["cost"].clone())
                 .unwrap_or_else(|_| {
-                    let rate = if local(base_url.as_deref()) {
+                    let rate = if is_local(base_url.as_deref()) {
                         LOCAL_RATE
                     } else {
                         RATE
@@ -950,7 +940,7 @@ impl Choices {
     }
 }
 
-fn local(base_url: Option<&str>) -> bool {
+fn is_local(base_url: Option<&str>) -> bool {
     base_url
         .and_then(|s| url::Url::parse(s).ok())
         .is_some_and(|u| {

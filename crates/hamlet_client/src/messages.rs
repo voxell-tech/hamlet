@@ -18,7 +18,8 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Rewinds>()
         .init_resource::<Answers>()
         .add_observer(
-            |message: On<UserMessage>, mut outbox: ResMut<Outbox>| {
+            |message: On<ChiefMessage>,
+             mut outbox: ResMut<Outbox>| {
                 let message = message.event();
                 outbox.send(|id| {
                     protocol::ClientMessage::Say(protocol::Say {
@@ -95,7 +96,7 @@ pub fn plugin(app: &mut App) {
 
 /// A chief's typed line addressed to an agent.
 #[derive(Event, Clone, Debug)]
-pub struct UserMessage {
+pub struct ChiefMessage {
     pub to: protocol::Address,
     pub text: String,
 }
@@ -135,7 +136,7 @@ pub struct Rewind {
 pub struct SessionOutput {
     #[event_target]
     pub chat: Entity,
-    pub op: protocol::Op,
+    pub operation: protocol::TranscriptOperation,
 }
 
 /// The end of a watched chat's running work.

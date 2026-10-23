@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use hamlet_protocol::client::GiveFilesFiles;
+use hamlet_protocol::client::GiveFile;
 use unicode_normalization::UnicodeNormalization;
 
 pub(super) const MAX_BYTES: u64 = 32 * 1024 * 1024;
@@ -18,14 +18,38 @@ pub(super) const MISMATCH: &str = "A gift part must match its path, \
                                    next offset, size and base64 \
                                    bytes.";
 
-pub(super) fn manifest(
-    files: &[GiveFilesFiles],
-) -> Result<u64, &'static str> {
+/// The fault in a gift's list of files, for which it is refused.
+#[derive(Debug, thiserror::Error)]
+pub(super) enum Unfit {
+    #[error("Choose a file or folder to hand over.")]
+    Empty,
+    #[error("A gift takes at most 4096 files at once.")]
+    TooMany,
+    #[error(
+        "A gift's path must be relative to the inbox, with ordinary \
+         file and folder names."
+    )]
+    Path,
+    #[error(
+        "The gift is larger than the 32 MB an inbox takes at once."
+    )]
+    TooLarge,
+    #[error(
+        "The gift repeats a path, ignoring case and Unicode \
+         spelling."
+    )]
+    Repeated,
+    #[error("The gift uses one path as both a file and a folder.")]
+    FileAndFolder,
+}
+
+/// The bytes of a gift of `files`, or why it is refused.
+pub(super) fn manifest(files: &[GiveFile]) -> Result<u64, Unfit> {
     if files.is_empty() {
-        return Err("Choose a file or folder to hand over.");
+        return Err(Unfit::Empty);
     }
     if files.len() > 4096 {
-        return Err("A gift takes at most 4096 files at once.");
+        return Err(Unfit::TooMany);
     }
     let mut size = 0u64;
     let mut paths = HashSet::new();
@@ -38,18 +62,13 @@ pub(super) fn manifest(
                 && file.path.as_bytes()[0].is_ascii_alphabetic()
                 && file.path.as_bytes().get(2) == Some(&b'/'))
         {
-            return Err("A gift's path must be relative to the \
-                        inbox, with ordinary file and folder \
-                        names.");
+            return Err(Unfit::Path);
         }
         let bytes = file.size;
         size = size
             .checked_add(bytes)
             .filter(|n| *n <= MAX_BYTES)
-            .ok_or(
-                "The gift is larger than the 32 MB an inbox takes \
-                 at once.",
-            )?;
+            .ok_or(Unfit::TooLarge)?;
         let folded = file
             .path
             .nfc()
@@ -60,16 +79,14 @@ pub(super) fn manifest(
             .nfc()
             .collect::<String>();
         if !paths.insert(folded) {
-            return Err("The gift repeats a path, ignoring case \
-                        and Unicode spelling.");
+            return Err(Unfit::Repeated);
         }
     }
     for path in &paths {
         let mut parent = path.as_str();
         while let Some((next, _)) = parent.rsplit_once('/') {
             if paths.contains(next) {
-                return Err("The gift uses one path as both a file \
-                            and a folder.");
+                return Err(Unfit::FileAndFolder);
             }
             parent = next;
         }

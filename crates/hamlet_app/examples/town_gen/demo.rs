@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 use hamlet_realm::generator::Trips;
 use hamlet_realm::generator::society::Society;
-use hamlet_realm::keeper::KState;
+use hamlet_realm::keeper::KeeperState;
 use hamlet_realm::sound::{Cue, Hearing, Sound};
 
 /// With TOWN_DEMO set to a number of seconds: a town at work with
@@ -53,15 +53,17 @@ pub fn demo(
         return;
     };
     let ids =
-        world.citizens(town.id).map(|a| a.id).collect::<Vec<_>>();
+        world.agents_of(town.id).map(|a| a.id).collect::<Vec<_>>();
     match demo.told {
         2 => {
             for &id in &ids {
-                world.set_state(id, KState::Working);
+                world.set_state(id, KeeperState::Working);
             }
         }
-        9 => world.set_state(ids[ids.len() / 2], KState::Waiting),
-        15 => world.set_state(ids[ids.len() / 3], KState::Fault),
+        9 => {
+            world.set_state(ids[ids.len() / 2], KeeperState::Waiting);
+        }
+        15 => world.set_state(ids[ids.len() / 3], KeeperState::Fault),
         _ => {}
     }
     if demo.told % 5 == 3

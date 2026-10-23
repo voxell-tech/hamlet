@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use crate::Stock;
 use crate::hand::PlaySettings;
 use crate::hand::toys::lit;
-use crate::meshes::Mb;
+use crate::meshes::Meshing;
 use crate::palette::Palette;
 
 /// The meshes and lights of a hamlet's meter.
@@ -60,14 +60,14 @@ pub(super) const COLUMN: (f32, f32) = (0.42, 2.9);
 
 /// A round bar from `low` to `high`, `radius` wide.
 fn drum(
-    mb: &mut Mb,
+    meshing: &mut Meshing,
     low: f32,
     high: f32,
     radius: f32,
     sides: usize,
     colour: Vec3,
 ) {
-    mb.lathe(
+    meshing.lathe(
         Vec3::Y * low,
         &[
             (0.0, 0.0),
@@ -84,15 +84,22 @@ fn drum(
 /// side: a stone foot, a dark core the light stands about, three
 /// brass rods with a ring at every tenth, and a cap.
 fn meter(pal: &Palette) -> Mesh {
-    let mut mb = Mb::new();
+    let mut meshing = Meshing::new();
     let (foot, tall) = COLUMN;
     let top = foot + tall;
-    drum(&mut mb, 0.0, foot * 0.55, 0.62, 12, pal.limestone_shade);
-    drum(&mut mb, foot * 0.55, foot, 0.48, 12, pal.limestone);
-    drum(&mut mb, foot, top, 0.12, 8, pal.timber_dark * 0.45);
+    drum(
+        &mut meshing,
+        0.0,
+        foot * 0.55,
+        0.62,
+        12,
+        pal.limestone_shade,
+    );
+    drum(&mut meshing, foot * 0.55, foot, 0.48, 12, pal.limestone);
+    drum(&mut meshing, foot, top, 0.12, 8, pal.timber_dark * 0.45);
     for rod in 0..3 {
         let around = rod as f32 * std::f32::consts::TAU / 3.0 + 0.5;
-        mb.rbox(
+        meshing.rbox(
             Vec3::new(
                 around.cos() * 0.4,
                 foot + tall * 0.5,
@@ -109,7 +116,7 @@ fn meter(pal: &Palette) -> Mesh {
     for tenth in 1..10 {
         let thick = if tenth == 5 { 0.03 } else { 0.014 };
         let at = foot + tall * tenth as f32 / 10.0;
-        mb.lathe(
+        meshing.lathe(
             Vec3::Y * (at - thick),
             &[
                 (0.37, 0.0),
@@ -122,29 +129,29 @@ fn meter(pal: &Palette) -> Mesh {
             |_, _| pal.brass * 1.1,
         );
     }
-    drum(&mut mb, top, top + 0.12, 0.5, 12, pal.brass);
-    mb.lathe(
+    drum(&mut meshing, top, top + 0.12, 0.5, 12, pal.brass);
+    meshing.lathe(
         Vec3::Y * (top + 0.12),
         &[(0.0, 0.0), (0.3, 0.0), (0.12, 0.22), (0.0, 0.3)],
         10,
         |_, _| pal.brass * 1.1,
     );
-    mb.build()
+    meshing.build()
 }
 
 /// The light of a meter at its fullest, standing on the ground it
 /// is scaled from.
 fn level() -> Mesh {
-    let mut mb = Mb::new();
-    drum(&mut mb, 0.0, COLUMN.1, 0.3, 14, Vec3::ONE);
-    mb.build()
+    let mut meshing = Meshing::new();
+    drum(&mut meshing, 0.0, COLUMN.1, 0.3, 14, Vec3::ONE);
+    meshing.build()
 }
 
 /// The pointer that shows where the light would stand if the budget
 /// were spent evenly: a heavy brass ring about the rods.
 fn pace(pal: &Palette) -> Mesh {
-    let mut mb = Mb::new();
-    mb.lathe(
+    let mut meshing = Meshing::new();
+    meshing.lathe(
         Vec3::Y * -0.05,
         &[
             (0.44, 0.0),
@@ -156,7 +163,7 @@ fn pace(pal: &Palette) -> Mesh {
         14,
         |_, _| pal.brass * 1.35,
     );
-    mb.build()
+    meshing.build()
 }
 
 pub(in crate::hand) fn prepare(

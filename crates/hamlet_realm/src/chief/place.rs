@@ -10,7 +10,7 @@ use super::look::Look;
 use crate::chief::ChiefSettings;
 use crate::generator::land::Land;
 use crate::lantern::lantern_cage;
-use crate::meshes::{Mb, Rng};
+use crate::meshes::{Meshing, Rng};
 use crate::palette::Palette;
 
 /// The site of a chief's place, clear of the middles in `taken`: the
@@ -142,8 +142,8 @@ pub struct Planted {
 
 /// The meshes of a place and what is spawned beside them.
 pub struct Built {
-    pub body: Mb,
-    pub panes: Mb,
+    pub body: Meshing,
+    pub panes: Meshing,
     pub lights: Lights,
     pub trees: [Planted; 3],
 }
@@ -155,20 +155,20 @@ fn up(at: Vec2, y: f32) -> Vec3 {
 /// The round house: a plinth, a plump wall with a door and two
 /// round windows, a chimney and the hat of a roof with its bent tip.
 fn house(
-    mb: &mut Mb,
-    panes: &mut Mb,
+    meshing: &mut Meshing,
+    panes: &mut Meshing,
     pal: &Palette,
     base: Vec3,
     roof: Vec3,
 ) -> (Vec3, f32) {
     let (stone, shade) = (pal.limestone, pal.limestone_shade);
-    mb.lathe(
+    meshing.lathe(
         base,
         &[(2.5, -0.3), (2.5, 0.2), (2.36, 0.3), (2.1, 0.3)],
         24,
         |r, s| stone.lerp(shade, ((r * 5 + s * 3) % 4) as f32 * 0.14),
     );
-    mb.lathe(
+    meshing.lathe(
         base,
         &[(2.12, 0.3), (2.28, 1.05), (2.26, 2.1), (2.08, 3.0)],
         24,
@@ -180,7 +180,7 @@ fn house(
         },
     );
     for (y, big) in [(0.36, 2.15), (2.92, 2.1)] {
-        mb.torus(
+        meshing.torus(
             base + Vec3::Y * y,
             Vec3::Y,
             big,
@@ -204,7 +204,7 @@ fn house(
         (0.4, 5.9),
         (0.26, 6.25),
     ];
-    mb.lathe(base, &hat, 24, |r, s| {
+    meshing.lathe(base, &hat, 24, |r, s| {
         if r == 0 {
             return pal.timber_dark;
         }
@@ -212,7 +212,7 @@ fn house(
         roof * row * (1.0 - ((r * 5 + s * 3) % 4) as f32 * 0.035)
     });
     let tip = base + Vec3::new(0.46, 6.85, 0.14);
-    mb.tube(
+    meshing.tube(
         base + Vec3::Y * 6.19,
         tip,
         0.27,
@@ -221,7 +221,7 @@ fn house(
         roof * 0.8,
         true,
     );
-    mb.lathe(
+    meshing.lathe(
         tip - Vec3::Y * 0.02,
         &[(0.0, 0.0), (0.15, 0.0), (0.2, 0.08), (0.17, 0.1)],
         10,
@@ -230,8 +230,8 @@ fn house(
 
     let foot = base + Vec3::new(-1.35, 3.6, -0.9);
     let top = base + Vec3::new(-1.62, 5.4, -1.06);
-    mb.tube(foot, top, 0.36, 0.3, 8, stone * 0.92, true);
-    mb.rbox(
+    meshing.tube(foot, top, 0.36, 0.3, 8, stone * 0.92, true);
+    meshing.rbox(
         top,
         Vec3::new(0.38, 0.07, 0.38),
         0.03,
@@ -242,7 +242,7 @@ fn house(
 
     // The door, round at the top, with a brass slot for letters.
     let front = base + Vec3::Z * 2.2;
-    mb.rbox(
+    meshing.rbox(
         front + Vec3::Y * 1.1,
         Vec3::new(0.62, 0.8, 0.16),
         0.04,
@@ -250,7 +250,7 @@ fn house(
         shade,
         0.2,
     );
-    mb.tube(
+    meshing.tube(
         front + Vec3::new(0.0, 1.9, -0.16),
         front + Vec3::new(0.0, 1.9, 0.16),
         0.62,
@@ -259,7 +259,7 @@ fn house(
         shade,
         true,
     );
-    mb.rbox(
+    meshing.rbox(
         front + Vec3::new(0.0, 1.07, 0.13),
         Vec3::new(0.47, 0.77, 0.06),
         0.02,
@@ -267,7 +267,7 @@ fn house(
         pal.timber,
         0.2,
     );
-    mb.tube(
+    meshing.tube(
         front + Vec3::new(0.0, 1.84, 0.07),
         front + Vec3::new(0.0, 1.84, 0.19),
         0.47,
@@ -276,7 +276,7 @@ fn house(
         pal.timber,
         true,
     );
-    mb.rbox(
+    meshing.rbox(
         front + Vec3::new(0.0, 1.3, 0.2),
         Vec3::new(0.17, 0.035, 0.012),
         0.006,
@@ -284,7 +284,7 @@ fn house(
         pal.brass,
         0.0,
     );
-    mb.blob(
+    meshing.blob(
         front + Vec3::new(0.32, 1.0, 0.22),
         Vec3::splat(0.05),
         4,
@@ -292,7 +292,7 @@ fn house(
         0.0,
         |_| pal.brass,
     );
-    mb.rbox(
+    meshing.rbox(
         front + Vec3::new(0.0, 0.14, 0.5),
         Vec3::new(0.75, 0.13, 0.36),
         0.04,
@@ -307,7 +307,14 @@ fn house(
         let out = Vec3::new(a.sin(), 0.0, a.cos());
         let across = Vec3::new(a.cos(), 0.0, -a.sin());
         let c = base + out * 2.22 + Vec3::Y * 1.85;
-        mb.torus(c + out * 0.08, out, 0.46, 0.075, 16, pal.timber);
+        meshing.torus(
+            c + out * 0.08,
+            out,
+            0.46,
+            0.075,
+            16,
+            pal.timber,
+        );
         panes.tube(
             c - out * 0.1,
             c + out * 0.07,
@@ -318,7 +325,7 @@ fn house(
             true,
         );
         for bar in [across, Vec3::Y] {
-            mb.tube(
+            meshing.tube(
                 c + out * 0.09 - bar * 0.45,
                 c + out * 0.09 + bar * 0.45,
                 0.025,
@@ -334,7 +341,7 @@ fn house(
 
 /// The wall of loose stones, open at the gate.
 fn wall(
-    mb: &mut Mb,
+    meshing: &mut Meshing,
     rng: &mut Rng,
     pal: &Palette,
     radius: f32,
@@ -356,7 +363,7 @@ fn wall(
             tall + rng.sym(0.03),
             rng.range(0.16, 0.2),
         );
-        mb.rbox(
+        meshing.rbox(
             up(at, ground(at) + half.y - 0.04),
             half,
             0.05,
@@ -370,14 +377,14 @@ fn wall(
 /// The gate: two posts, a beam under a little roof, and the cage of
 /// the lantern that hangs from it. Returns where its glass is.
 fn gate(
-    mb: &mut Mb,
+    meshing: &mut Meshing,
     rng: &mut Rng,
     pal: &Palette,
     at: Vec3,
     roof: Vec3,
 ) -> Vec3 {
     for side in [-1.0f32, 1.0] {
-        mb.rbox(
+        meshing.rbox(
             at + Vec3::new(side * 1.2, 1.0, 0.0),
             Vec3::new(0.1, 1.0, 0.1),
             0.03,
@@ -386,7 +393,7 @@ fn gate(
             0.3,
         );
     }
-    mb.rbox(
+    meshing.rbox(
         at + Vec3::Y * 2.02,
         Vec3::new(1.5, 0.07, 0.1),
         0.03,
@@ -395,7 +402,7 @@ fn gate(
         0.1,
     );
     for side in [-1.0f32, 1.0] {
-        mb.face(
+        meshing.face(
             [
                 at + Vec3::new(-1.55, 2.06, side * 0.44),
                 at + Vec3::new(1.55, 2.06, side * 0.44),
@@ -405,7 +412,7 @@ fn gate(
             Vec3::new(0.0, 1.0, side),
             roof * if side > 0.0 { 1.0 } else { 0.85 },
         );
-        mb.face(
+        meshing.face(
             [
                 at + Vec3::new(-1.55, 2.05, side * 0.44),
                 at + Vec3::new(1.55, 2.05, side * 0.44),
@@ -417,7 +424,7 @@ fn gate(
         );
     }
     let glass = at + Vec3::Y * 1.62;
-    mb.tube(
+    meshing.tube(
         at + Vec3::Y * 1.96,
         glass + Vec3::Y * 0.2,
         0.016,
@@ -426,8 +433,8 @@ fn gate(
         pal.bed,
         false,
     );
-    lantern_cage(mb, glass, 0.1, 0.24, pal.brass);
-    mb.lathe(
+    lantern_cage(meshing, glass, 0.1, 0.24, pal.brass);
+    meshing.lathe(
         glass + Vec3::Y * 0.12,
         &[(0.13, 0.0), (0.07, 0.08), (0.0, 0.12)],
         8,
@@ -438,16 +445,28 @@ fn gate(
 
 /// The waystone: a round slab with a brass ring and a diamond let
 /// into it, and four small stones standing about it.
-fn waystone(mb: &mut Mb, rng: &mut Rng, pal: &Palette, at: Vec3) {
+fn waystone(
+    meshing: &mut Meshing,
+    rng: &mut Rng,
+    pal: &Palette,
+    at: Vec3,
+) {
     let slate = pal.bed.lerp(pal.rock_dark, 0.5);
-    mb.lathe(
+    meshing.lathe(
         at,
         &[(1.2, -0.1), (1.2, 0.1), (1.08, 0.16), (0.0, 0.16)],
         20,
         |r, s| slate * (1.0 + ((r * 3 + s * 5) % 4) as f32 * 0.05),
     );
-    mb.torus(at + Vec3::Y * 0.16, Vec3::Y, 0.84, 0.03, 24, pal.brass);
-    mb.lathe(
+    meshing.torus(
+        at + Vec3::Y * 0.16,
+        Vec3::Y,
+        0.84,
+        0.03,
+        24,
+        pal.brass,
+    );
+    meshing.lathe(
         at,
         &[(0.44, 0.16), (0.36, 0.2), (0.0, 0.2)],
         4,
@@ -456,7 +475,7 @@ fn waystone(mb: &mut Mb, rng: &mut Rng, pal: &Palette, at: Vec3) {
     for i in 0..4 {
         let a = FRAC_PI_4 + i as f32 * TAU / 4.0;
         let half = Vec3::new(0.13, rng.range(0.24, 0.36), 0.1);
-        mb.rbox(
+        meshing.rbox(
             at + Vec3::new(a.sin(), 0.0, a.cos()) * 1.6
                 + Vec3::Y * (half.y - 0.03),
             half,
@@ -470,8 +489,13 @@ fn waystone(mb: &mut Mb, rng: &mut Rng, pal: &Palette, at: Vec3) {
 
 /// The letterbox, in the chief's colour, with its flag up and a
 /// letter in its mouth.
-fn letterbox(mb: &mut Mb, pal: &Palette, at: Vec3, paint: Vec3) {
-    mb.rbox(
+fn letterbox(
+    meshing: &mut Meshing,
+    pal: &Palette,
+    at: Vec3,
+    paint: Vec3,
+) {
+    meshing.rbox(
         at + Vec3::Y * 0.5,
         Vec3::new(0.05, 0.5, 0.05),
         0.02,
@@ -479,7 +503,7 @@ fn letterbox(mb: &mut Mb, pal: &Palette, at: Vec3, paint: Vec3) {
         pal.timber,
         0.3,
     );
-    mb.rbox(
+    meshing.rbox(
         at + Vec3::Y * 1.1,
         Vec3::new(0.22, 0.12, 0.15),
         0.02,
@@ -487,7 +511,7 @@ fn letterbox(mb: &mut Mb, pal: &Palette, at: Vec3, paint: Vec3) {
         paint,
         0.15,
     );
-    mb.tube(
+    meshing.tube(
         at + Vec3::new(-0.22, 1.2, 0.0),
         at + Vec3::new(0.22, 1.2, 0.0),
         0.15,
@@ -496,7 +520,7 @@ fn letterbox(mb: &mut Mb, pal: &Palette, at: Vec3, paint: Vec3) {
         paint,
         true,
     );
-    mb.rbox(
+    meshing.rbox(
         at + Vec3::new(0.1, 1.33, 0.17),
         Vec3::new(0.05, 0.11, 0.012),
         0.005,
@@ -504,7 +528,7 @@ fn letterbox(mb: &mut Mb, pal: &Palette, at: Vec3, paint: Vec3) {
         pal.wax,
         0.0,
     );
-    mb.rbox(
+    meshing.rbox(
         at + Vec3::new(-0.24, 1.12, 0.0),
         Vec3::new(0.05, 0.07, 0.1),
         0.004,
@@ -515,8 +539,13 @@ fn letterbox(mb: &mut Mb, pal: &Palette, at: Vec3, paint: Vec3) {
 }
 
 /// The flower bed, edged with stones, and the watering can by it.
-fn bed(mb: &mut Mb, rng: &mut Rng, pal: &Palette, at: Vec3) {
-    mb.lathe(
+fn bed(
+    meshing: &mut Meshing,
+    rng: &mut Rng,
+    pal: &Palette,
+    at: Vec3,
+) {
+    meshing.lathe(
         at,
         &[(1.2, -0.1), (1.2, 0.06), (1.05, 0.1), (0.0, 0.1)],
         14,
@@ -524,7 +553,7 @@ fn bed(mb: &mut Mb, rng: &mut Rng, pal: &Palette, at: Vec3) {
     );
     for i in 0..13 {
         let a = i as f32 / 13.0 * TAU + rng.sym(0.08);
-        mb.rbox(
+        meshing.rbox(
             at + Vec3::new(a.sin(), 0.0, a.cos()) * 1.22
                 + Vec3::Y * 0.08,
             Vec3::new(0.16, 0.11, 0.11),
@@ -543,7 +572,7 @@ fn bed(mb: &mut Mb, rng: &mut Rng, pal: &Palette, at: Vec3) {
         let tall = rng.range(0.26, 0.5);
         let head =
             foot + Vec3::new(rng.sym(0.05), tall, rng.sym(0.05));
-        mb.tube(
+        meshing.tube(
             foot,
             head,
             0.018,
@@ -553,7 +582,7 @@ fn bed(mb: &mut Mb, rng: &mut Rng, pal: &Palette, at: Vec3) {
             false,
         );
         let leaf = pal.foliage * rng.value(0.1);
-        mb.blob(
+        meshing.blob(
             foot + Vec3::Y * 0.07,
             Vec3::new(0.13, 0.07, 0.13),
             4,
@@ -562,7 +591,7 @@ fn bed(mb: &mut Mb, rng: &mut Rng, pal: &Palette, at: Vec3) {
             |_| leaf,
         );
         let petal = pal.flowers[i % pal.flowers.len()];
-        mb.blob(
+        meshing.blob(
             head,
             Vec3::new(0.1, 0.075, 0.1),
             4,
@@ -577,13 +606,13 @@ fn bed(mb: &mut Mb, rng: &mut Rng, pal: &Palette, at: Vec3) {
         );
     }
     let can = at + Vec3::new(1.5, 0.0, -0.35);
-    mb.lathe(
+    meshing.lathe(
         can,
         &[(0.12, 0.0), (0.14, 0.2), (0.11, 0.22), (0.0, 0.22)],
         10,
         |_, _| pal.steel_bright,
     );
-    mb.tube(
+    meshing.tube(
         can + Vec3::new(0.1, 0.08, 0.0),
         can + Vec3::new(0.33, 0.24, 0.0),
         0.03,
@@ -592,7 +621,7 @@ fn bed(mb: &mut Mb, rng: &mut Rng, pal: &Palette, at: Vec3) {
         pal.steel,
         true,
     );
-    mb.torus(
+    meshing.torus(
         can + Vec3::new(-0.14, 0.13, 0.0),
         Vec3::Z,
         0.08,
@@ -603,9 +632,14 @@ fn bed(mb: &mut Mb, rng: &mut Rng, pal: &Palette, at: Vec3) {
 }
 
 /// A bench with a back, facing `toward`.
-fn bench(mb: &mut Mb, pal: &Palette, at: Vec3, toward: Vec2) {
+fn bench(
+    meshing: &mut Meshing,
+    pal: &Palette,
+    at: Vec3,
+    toward: Vec2,
+) {
     let yaw = Quat::from_rotation_y(toward.x.atan2(toward.y));
-    mb.rbox(
+    meshing.rbox(
         at + Vec3::Y * 0.42,
         Vec3::new(0.7, 0.035, 0.2),
         0.02,
@@ -613,7 +647,7 @@ fn bench(mb: &mut Mb, pal: &Palette, at: Vec3, toward: Vec2) {
         pal.log,
         0.2,
     );
-    mb.rbox(
+    meshing.rbox(
         at + yaw * Vec3::new(0.0, 0.72, -0.19),
         Vec3::new(0.7, 0.12, 0.03),
         0.02,
@@ -622,7 +656,7 @@ fn bench(mb: &mut Mb, pal: &Palette, at: Vec3, toward: Vec2) {
         0.1,
     );
     for side in [-1.0f32, 1.0] {
-        mb.rbox(
+        meshing.rbox(
             at + yaw * Vec3::new(side * 0.55, 0.2, 0.0),
             Vec3::new(0.04, 0.2, 0.16),
             0.02,
@@ -630,7 +664,7 @@ fn bench(mb: &mut Mb, pal: &Palette, at: Vec3, toward: Vec2) {
             pal.timber_dark,
             0.3,
         );
-        mb.rbox(
+        meshing.rbox(
             at + yaw * Vec3::new(side * 0.55, 0.6, -0.19),
             Vec3::new(0.035, 0.25, 0.03),
             0.015,
@@ -651,19 +685,26 @@ pub fn build(
 ) -> Built {
     let plan = Plan::of(set);
     let mut rng = Rng::seeded("the hearth of a chief");
-    let (mut mb, mut panes) = (Mb::new(), Mb::new());
+    let (mut meshing, mut panes) = (Meshing::new(), Meshing::new());
     let roof = look.cloak.colour(pal);
     let on = |at: Vec2| up(at, ground(at));
 
-    let orb = house(&mut mb, &mut panes, pal, on(plan.house), roof);
-    wall(&mut mb, &mut rng, pal, plan.wall, &ground);
+    let orb =
+        house(&mut meshing, &mut panes, pal, on(plan.house), roof);
+    wall(&mut meshing, &mut rng, pal, plan.wall, &ground);
     let gate_at = Vec2::new(0.0, plan.wall);
-    let lantern = gate(&mut mb, &mut rng, pal, on(gate_at), roof);
+    let lantern =
+        gate(&mut meshing, &mut rng, pal, on(gate_at), roof);
     let stone = on(plan.waystone);
-    waystone(&mut mb, &mut rng, pal, stone);
-    letterbox(&mut mb, pal, on(plan.letterbox), roof);
-    bed(&mut mb, &mut rng, pal, on(plan.bed));
-    bench(&mut mb, pal, on(plan.bench), plan.waystone - plan.bench);
+    waystone(&mut meshing, &mut rng, pal, stone);
+    letterbox(&mut meshing, pal, on(plan.letterbox), roof);
+    bed(&mut meshing, &mut rng, pal, on(plan.bed));
+    bench(
+        &mut meshing,
+        pal,
+        on(plan.bench),
+        plan.waystone - plan.bench,
+    );
 
     // Stepping stones from the gate to the waystone and on to the
     // door.
@@ -679,7 +720,7 @@ pub fn build(
             let at = Vec2::new(rng.sym(0.14), z);
             let r = rng.range(0.28, 0.36);
             let tint = rng.value(0.07);
-            mb.lathe(
+            meshing.lathe(
                 on(at),
                 &[
                     (r, -0.05),
@@ -698,7 +739,7 @@ pub fn build(
     {
         let at = Vec2::new(a.sin(), a.cos()) * out * plan.wall;
         let (light, dark) = (pal.foliage, pal.foliage_shade);
-        mb.blob(
+        meshing.blob(
             on(at) + Vec3::Y * r * 0.55,
             Vec3::new(r, r * 0.75, r),
             5,
@@ -720,7 +761,7 @@ pub fn build(
         scale,
     });
     Built {
-        body: mb,
+        body: meshing,
         panes,
         lights: Lights {
             orb,

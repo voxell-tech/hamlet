@@ -4,7 +4,7 @@
 use anyhow::Result;
 use hamlet_protocol::runtime;
 
-use super::{Call, Harnesses, Notice, Re, Wake};
+use super::{Call, Harnesses, Notice, ReplyAddress, Wake};
 use crate::Store;
 
 impl Harnesses {
@@ -100,7 +100,7 @@ impl Harnesses {
                 Wake::Turn(binding.id)
             }
         };
-        let re = Re {
+        let address = ReplyAddress {
             index,
             generation: self.runtimes[index].generation,
             id,
@@ -108,7 +108,7 @@ impl Harnesses {
         };
         Ok(vec![Notice::Call {
             binding: binding.id,
-            re,
+            address,
             call,
         }])
     }

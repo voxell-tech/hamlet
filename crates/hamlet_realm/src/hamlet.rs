@@ -11,7 +11,7 @@ mod tests;
 mod view;
 
 use bevy::prelude::*;
-use hamlet_client::realm::{HOME, LivesIn, Settlement};
+use hamlet_client::realm::{HOME, HamletId, LivesIn};
 
 use crate::chief::Settling;
 use crate::generator::land::Land;
@@ -99,6 +99,6 @@ struct Laid(Pair);
 
 /// True when `lives` is the first hamlet, the one the window's own
 /// session is with.
-fn first(hamlets: &Query<&Settlement>, lives: &LivesIn) -> bool {
-    hamlets.get(lives.0).is_ok_and(|s| s.name == HOME)
+fn is_first(hamlets: &Query<&HamletId>, lives: &LivesIn) -> bool {
+    hamlets.get(lives.0).is_ok_and(|s| s.0 == HOME)
 }

@@ -21,8 +21,8 @@ use bevy_fynix::views::{
     scroll,
 };
 use bevy_fynix::{ScopedExt, ViewExt, component, derived, keyed};
-use hamlet_client::ViewDir;
-use hamlet_client::messages::UserMessage;
+use hamlet_client::ViewFolder;
+use hamlet_client::messages::ChiefMessage;
 use hamlet_realm::chief::{
     self, Beside, Chief, Cloak, Hat, Holds, Kept, Light, Look, Player,
 };
@@ -63,18 +63,18 @@ pub(crate) fn plugin(app: &mut App) {
 /// Brings the chief this window belongs to into the world, with the
 /// look that was kept for them.
 pub(crate) fn enter(world: &mut World) {
-    let user = world.resource::<Me>().user.clone();
-    if user.is_empty() {
+    let name = world.resource::<Me>().name.clone();
+    if name.is_empty() {
         return;
     }
-    if let Some(chief) = chief::named(world, &user) {
+    if let Some(chief) = chief::named(world, &name) {
         world.entity_mut(chief).insert(Player);
         return;
     }
     let kept = world.resource::<Kept>().clone();
-    let chief = chief::arrive(world, &user, kept.look(&user));
+    let chief = chief::arrive(world, &name, kept.look(&name));
     world.entity_mut(chief).insert(Player);
-    if let Some(stands) = kept.place(&user) {
+    if let Some(stands) = kept.place(&name) {
         world.entity_mut(chief).insert(stands);
     }
     // The place the library was last set down, too.
@@ -94,8 +94,8 @@ pub(crate) fn carry_home(world: &mut World) {
 /// Selects the place of the chief this window belongs to, and
 /// brings it into view.
 pub(crate) fn go_home(world: &mut World) {
-    let user = world.resource::<Me>().user.clone();
-    let Some(chief) = chief::named(world, &user) else {
+    let name = world.resource::<Me>().name.clone();
+    let Some(chief) = chief::named(world, &name) else {
         return;
     };
     let thing = Thing::ChiefPlace(chief);
@@ -111,8 +111,8 @@ fn company(selected: Option<Thing>, agent: Entity) -> Option<Entity> {
         Some(
             Thing::Keeper
             | Thing::Cottage
-            | Thing::Resident(_)
-            | Thing::ResidentHouse(_),
+            | Thing::Agent(_)
+            | Thing::House(_),
         ) => Some(agent),
         Some(Thing::Common(hamlet)) => Some(hamlet),
         _ => None,
@@ -136,7 +136,7 @@ pub(crate) fn accompany(
         chosen => company(chosen, me.agent),
     };
     for (chief, mut beside) in &mut chiefs {
-        if chief.user == me.user && beside.0 != with {
+        if chief.name == me.name && beside.0 != with {
             beside.0 = with;
         }
     }
@@ -145,7 +145,7 @@ pub(crate) fn accompany(
 /// A message sent with nobody selected brings the mascot from home
 /// to whoever it was sent to.
 pub(crate) fn spoke(
-    message: On<UserMessage>,
+    message: On<ChiefMessage>,
     me: Res<Me>,
     mut chiefs: Query<(&Chief, &mut Beside)>,
 ) {
@@ -153,7 +153,7 @@ pub(crate) fn spoke(
         return;
     }
     for (chief, mut beside) in &mut chiefs {
-        if chief.user == me.user && beside.0.is_none() {
+        if chief.name == me.name && beside.0.is_none() {
             beside.0 = Some(me.agent);
         }
     }
@@ -161,14 +161,14 @@ pub(crate) fn spoke(
 
 /// Writes a look that was changed to its chief's file.
 pub fn keep(
-    view: Res<ViewDir>,
+    view: Res<ViewFolder>,
     mut kept: ResMut<Kept>,
     looks: Query<(&Chief, Ref<Look>)>,
 ) {
     for (chief, look) in &looks {
         if look.is_changed() && !look.is_added() {
-            let _ = look.write(&view.0, &chief.user);
-            kept.keep_look(&chief.user, *look);
+            let _ = look.write(&view.0, &chief.name);
+            kept.keep_look(&chief.name, *look);
         }
     }
 }
@@ -429,15 +429,15 @@ mod tests {
             app.world_mut().resource_mut::<Selected>().0 = thing;
             app.update();
         };
-        pick(&mut app, Some(Thing::Resident(agent)));
+        pick(&mut app, Some(Thing::Agent(agent)));
         assert_eq!(beside(&app, chief), Some(agent));
-        pick(&mut app, Some(Thing::ResidentHouse(agent)));
+        pick(&mut app, Some(Thing::House(agent)));
         assert_eq!(beside(&app, chief), Some(agent));
 
         // Its own place, a hamlet or nothing at all: it goes home.
         pick(&mut app, Some(Thing::ChiefPlace(chief)));
         assert_eq!(beside(&app, chief), None);
-        pick(&mut app, Some(Thing::Resident(agent)));
+        pick(&mut app, Some(Thing::Agent(agent)));
         pick(&mut app, None);
         assert_eq!(beside(&app, chief), None);
     }
@@ -448,7 +448,7 @@ mod tests {
         app.update();
         let key = app.world().resource::<Me>().to.clone();
         // Another chat's message is not this chief's.
-        app.world_mut().trigger(UserMessage {
+        app.world_mut().trigger(ChiefMessage {
             to: protocol::Address {
                 hamlet: "home".into(),
                 agent: "Sorrel".into(),
@@ -456,7 +456,7 @@ mod tests {
             text: "hello".into(),
         });
         assert_eq!(beside(&app, chief), None);
-        app.world_mut().trigger(UserMessage {
+        app.world_mut().trigger(ChiefMessage {
             to: key,
             text: "hello".into(),
         });
@@ -466,13 +466,13 @@ mod tests {
     #[test]
     fn the_chief_arrives_with_the_servers_name_after_the_window_opens()
      {
-        use hamlet_client::{ClientPlugin, ViewDir};
+        use hamlet_client::{ClientPlugin, ViewFolder};
         use hamlet_testing::Scratch;
 
         let view = Scratch::new("chief-late-name");
         let mut app = App::new();
         app.add_plugins(ClientPlugin { server: None })
-            .insert_resource(ViewDir(view.to_path_buf()))
+            .insert_resource(ViewFolder(view.to_path_buf()))
             .init_resource::<Kept>()
             .init_resource::<Stood>()
             .add_plugins((crate::me::plugin, plugin));
@@ -491,7 +491,7 @@ mod tests {
 
     #[test]
     fn the_chiefs_look_returns_from_the_view_folder_at_launch() {
-        use hamlet_client::ViewDir;
+        use hamlet_client::ViewFolder;
         use hamlet_realm::chief::Stands;
         use hamlet_testing::Scratch;
 
@@ -505,7 +505,7 @@ mod tests {
             let agent =
                 app.world_mut().spawn(Name::new("founder")).id();
             let chat = app.world_mut().spawn_empty().id();
-            app.insert_resource(ViewDir(dir.join("view")))
+            app.insert_resource(ViewFolder(dir.join("view")))
                 .insert_resource(
                     Kept::read(&dir.join("view")).unwrap(),
                 )

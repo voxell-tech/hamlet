@@ -18,8 +18,9 @@ use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 use hamlet_protocol::client::{
-    Address, Answer, ChatRef, Close, Doing, New, Op, Open, RequestId,
-    Resume, Retry, Rewind, Say, ServerMessage, Stop, Turn, UsageView,
+    Address, Answer, ChatRef, Close, Doing, New, Open, RequestId,
+    Resume, Retry, Rewind, Say, ServerMessage, Stop,
+    TranscriptOperation, Turn, UsageView,
 };
 
 use self::activity::Activity;
@@ -29,6 +30,7 @@ pub(crate) use self::deeds::stop_agent;
 use self::fold::Fold;
 use self::records::Place;
 pub(crate) use self::say::{admit_line, deeds as advertised_deeds};
+use crate::diagnostic::{Secrets, tell};
 use crate::harness::{
     BindingId, Harnesses, Input, InputMark, InputStatus, Notice,
 };
@@ -71,7 +73,7 @@ struct Conversation {
 
 impl Conversation {
     /// Whether it runs a turn or has inputs waiting in its runtime.
-    fn busy(&self) -> bool {
+    fn is_busy(&self) -> bool {
         self.running || self.pending > 0
     }
 }
@@ -87,7 +89,7 @@ struct Watch {
 /// be kept.
 struct Deferred {
     client: u64,
-    id: String,
+    id: RequestId,
     binding: BindingId,
     request: String,
     text: String,
@@ -127,15 +129,15 @@ impl Chats {
 
     /// Whether the conversation of `binding` runs a turn or has
     /// inputs waiting in its runtime.
-    fn busy(&self, binding: BindingId) -> bool {
+    fn is_busy(&self, binding: BindingId) -> bool {
         self.conversations
             .get(&binding)
-            .is_some_and(Conversation::busy)
+            .is_some_and(Conversation::is_busy)
     }
 
     /// Whether the conversation of `binding` has inputs waiting while
     /// no turn runs.
-    fn queued(&self, binding: BindingId) -> bool {
+    fn is_queued(&self, binding: BindingId) -> bool {
         self.conversations
             .get(&binding)
             .is_some_and(|c| !c.running && c.pending > 0)
@@ -332,8 +334,12 @@ pub(crate) async fn heard(
                     .await?;
             }
         }
-        Notice::Call { binding, re, call } => {
-            calls::call(service, harnesses, binding, re, call)
+        Notice::Call {
+            binding,
+            address,
+            call,
+        } => {
+            calls::call(service, harnesses, binding, address, call)
                 .await?;
         }
         Notice::Cancelled { binding } => {
@@ -351,15 +357,13 @@ pub(crate) async fn heard(
 
 /// Logs what a chief must hear of the runtimes until the client
 /// protocol shows it.
-#[expect(clippy::print_stderr, reason = "stderr is the server's log")]
 fn report(service: &Service, notice: &Notice) {
     if let Notice::Refused { runtime, words }
     | Notice::Fault { runtime, words } = notice
     {
-        eprintln!(
-            "hamlet-server: {}: {}",
-            runtime.as_str(),
-            service.credentials.scrub_text(words)
+        tell(
+            Secrets::Of(&service.credentials),
+            format_args!("{}: {words}", runtime.as_str()),
         );
     }
 }
@@ -441,7 +445,7 @@ pub(crate) fn work(
         chats
             .conversations
             .get(binding)
-            .is_some_and(Conversation::busy)
+            .is_some_and(Conversation::is_busy)
     });
     let active = bindings
         .iter()
@@ -510,8 +514,8 @@ fn conversation(
         .context("a conversation just loaded")
 }
 
-/// Sends the ops of `binding` to the clients watching it, with its
-/// usage when that changed.
+/// Sends the operations of `binding` to the clients watching it, with
+/// its usage when that changed.
 fn broadcast(
     service: &mut Service,
     binding: BindingId,
@@ -529,10 +533,10 @@ fn broadcast(
     let number = records::kept(service.db(), binding)?
         .map(|kept| kept.place.session);
     let conversation = conversation(service, binding)?;
-    let mut ops = conversation.fold.take();
+    let mut operations = conversation.fold.take();
     let stale = std::mem::take(&mut conversation.fold.stale);
     if stale {
-        ops.push(Op::Reset {});
+        operations.push(TranscriptOperation::Reset {});
         let mut items = service.home.store().items(binding)?;
         crate::society::letters::authored(service.db(), &mut items)?;
         let conversation = self::conversation(service, binding)?;
@@ -547,9 +551,9 @@ fn broadcast(
         && conversation.usage.as_ref() != Some(&usage)
     {
         conversation.usage = Some(usage.clone());
-        ops.push(Op::Usage { usage });
+        operations.push(TranscriptOperation::Usage { usage });
     }
-    if ops.is_empty() {
+    if operations.is_empty() {
         return Ok(());
     }
     let watchers = service
@@ -566,7 +570,7 @@ fn broadcast(
             ServerMessage::Turn(Turn {
                 chat: chat.clone(),
                 number,
-                ops: ops.clone(),
+                operations: operations.clone(),
             }),
         ));
         if stale {
@@ -611,7 +615,7 @@ async fn refresh_watches(
             ServerMessage::Turn(Turn {
                 chat: chat.clone(),
                 number: None,
-                ops: vec![Op::Reset {}],
+                operations: vec![TranscriptOperation::Reset {}],
             }),
         ));
         let message =
@@ -650,7 +654,7 @@ fn answer_deferred(
 fn reply_done(
     service: &mut Service,
     client: u64,
-    id: &str,
+    id: &RequestId,
     done: Refusable<deeds::Done>,
 ) -> Option<ServerMessage> {
     match done {
@@ -661,7 +665,7 @@ fn reply_done(
         }) => {
             service.chats.deferred.push(Deferred {
                 client,
-                id: id.into(),
+                id: id.clone(),
                 binding,
                 request,
                 text,

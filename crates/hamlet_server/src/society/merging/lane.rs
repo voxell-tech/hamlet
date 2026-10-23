@@ -1,10 +1,11 @@
 //! The home-wide merge and split lane, separate from client dispatch.
 //! Every merge and split runs here, its file work in the background
-//! on the houses' backend.
+//! on the houses' workspace.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use anyhow::{Context, Result};
+use hamlet_protocol::client::RequestId;
 use tokio::task::JoinSet;
 
 use super::{
@@ -17,12 +18,13 @@ use crate::protocol::{Refusal, reply};
 use crate::record::{Actor, AgentRef};
 use crate::runtime::Asked;
 use crate::service::Service;
+use crate::society::work::Hold;
 use crate::society::{self, Caller, Deed};
 
 #[derive(Clone)]
 enum Origin {
     Call(OperationId),
-    Chief { owner: u64, id: String },
+    Chief { connection: u64, id: RequestId },
 }
 
 impl Origin {
@@ -72,7 +74,7 @@ pub(crate) struct Merges {
     pub finished: Vec<u64>,
     queue: VecDeque<Request>,
     active: Option<Active>,
-    clients: HashSet<(u64, String)>,
+    clients: HashSet<(u64, RequestId)>,
     ready: HashMap<OperationId, Planned>,
 }
 
@@ -91,18 +93,20 @@ enum Finished {
 }
 
 impl Merges {
-    pub fn held(&self, agent: &AgentRef) -> bool {
+    pub fn is_held(&self, agent: &AgentRef) -> bool {
         self.active
             .as_ref()
             .is_some_and(|active| active.held.contains(agent))
     }
 
-    pub fn busy(&self, client: u64) -> bool {
-        self.clients.iter().any(|(owner, _)| *owner == client)
+    pub fn is_busy(&self, client: u64) -> bool {
+        self.clients
+            .iter()
+            .any(|(connection, _)| *connection == client)
     }
 
     pub fn gone(&mut self, client: u64) {
-        self.clients.retain(|(owner, _)| *owner != client);
+        self.clients.retain(|(connection, _)| *connection != client);
     }
 
     pub(super) fn take(
@@ -112,7 +116,7 @@ impl Merges {
         self.ready.remove(id)
     }
 
-    pub(super) fn owns(&self, id: &OperationId) -> bool {
+    pub(super) fn is_active(&self, id: &OperationId) -> bool {
         self.active
             .as_ref()
             .is_some_and(|active| active.origin.call() == Some(id))
@@ -139,7 +143,7 @@ pub(super) fn offer(
     args: Merge,
 ) -> Result<()> {
     let origin = Origin::Call(caller.id.clone());
-    if service.house_work.hold(caller.id.clone()) {
+    if let Hold::Taken = service.house_work.hold(caller.id.clone()) {
         let actor =
             society::actor(service.db(), &caller.place.agent)?;
         service.merges.queue.push_back(Request {
@@ -157,8 +161,8 @@ pub(super) fn offer(
 
 pub(crate) fn chief(
     service: &mut Service,
-    owner: u64,
-    id: &str,
+    connection: u64,
+    id: &RequestId,
     hamlet: &str,
     deed: &str,
     rest: &str,
@@ -167,10 +171,10 @@ pub(crate) fn chief(
         let words = rest.split_whitespace().collect::<Vec<_>>();
         if words.len() < 3 || words[1] != "into" {
             service.chats.outbox.push((
-                owner,
+                connection,
                 reply(
                     id,
-                    Err(Refusal::Invalid(
+                    Err(Refusal::Usage(
                         "Use /merge <absorbed> into <kept> [reason]."
                             .into(),
                     )),
@@ -199,11 +203,11 @@ pub(crate) fn chief(
             rest: rest.into(),
         }
     };
-    service.merges.clients.insert((owner, id.into()));
+    service.merges.clients.insert((connection, id.clone()));
     service.merges.queue.push_back(Request {
         origin: Origin::Chief {
-            owner,
-            id: id.into(),
+            connection,
+            id: id.clone(),
         },
         hamlet: hamlet.into(),
         action,
@@ -221,7 +225,7 @@ pub(crate) async fn advance(
     if let Some(active) = &service.merges.active {
         if let Origin::Call(id) = &active.origin
             && !active.applying
-            && !service.house_work.pending(id)
+            && !service.house_work.is_pending(id)
             && !crate::oversight::held::unfinished(
                 service.db(),
                 id.runtime.as_str(),
@@ -254,9 +258,10 @@ async fn begin(
             id.runtime.as_str(),
             &id.key,
         )?,
-        Origin::Chief { owner, id } => {
-            service.merges.clients.contains(&(*owner, id.clone()))
-        }
+        Origin::Chief { connection, id } => service
+            .merges
+            .clients
+            .contains(&(*connection, id.clone())),
     };
     if !allowed {
         request.origin.release(service);
@@ -423,7 +428,7 @@ async fn begin(
                 &rest,
             )
             .await?
-            .expect("restore deed");
+            .expect("restore is a deed");
             if let Ok(text) = &answer
                 && let Some(entry) = entry
                 && start_apply(
@@ -503,7 +508,7 @@ fn start_apply(
     if let Some(id) = origin.call() {
         service.house_work.hold(id.clone());
     }
-    if !service.houses.confirms() {
+    if !service.houses.can_confirm() {
         society::keep(
             service.db(),
             "remote-merge-attempt",
@@ -538,11 +543,11 @@ pub(crate) async fn complete(
     let origin = completed.origin.clone();
     let done = finish(service, harnesses, completed).await;
     match (done, origin) {
-        (Err(error), Origin::Chief { owner, id }) => {
+        (Err(error), Origin::Chief { connection, id }) => {
             service.merges.release();
-            service.merges.clients.remove(&(owner, id.clone()));
+            service.merges.clients.remove(&(connection, id.clone()));
             Err(error.context(Asked {
-                client: owner,
+                client: connection,
                 request: Some(id),
             }))
         }
@@ -573,11 +578,11 @@ async fn finish(
                     service.merges.release();
                 }
             }
-            Origin::Chief { owner, id } => {
+            Origin::Chief { connection, id } => {
                 if !service
                     .merges
                     .clients
-                    .contains(&(*owner, id.clone()))
+                    .contains(&(*connection, id.clone()))
                 {
                     if let Ok(plan) = result {
                         discard(service, &plan)?;
@@ -608,26 +613,20 @@ async fn finish(
                     &crate::operation::Request::new("merge", &plan)?,
                     &plan,
                 )?;
-                let answer = if result["error"] == true {
-                    Err(Refusal::Invalid(
-                        result["text"]
-                            .as_str()
-                            .unwrap_or_default()
-                            .into(),
-                    ))
+                let text = result.tool.text.clone();
+                let answer = if result.tool.error {
+                    Err(Refusal::Invalid(text))
                 } else {
-                    Ok(result["text"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .to_owned())
+                    Ok(text)
                 };
                 if let Ok(text) = &answer
                     && start_apply(
                         service,
                         completed.origin.clone(),
                         &plan.kept.hamlet,
-                        result["archive"]
-                            .as_str()
+                        result
+                            .archive
+                            .as_deref()
                             .context("merge archive")?,
                         text.clone(),
                     )?
@@ -649,13 +648,14 @@ async fn finish(
             let answer = match result {
                 Ok(()) => answer,
                 Err(error) => {
-                    // Only a backend that cannot confirm its changes
-                    // leaves them unknown, unless it refused.
-                    let uncertain = !service.houses.confirms()
+                    // Only a workspace that cannot confirm its
+                    // changes leaves them unknown, unless it
+                    // refused.
+                    let uncertain = !service.houses.can_confirm()
                         && error
                             .downcast_ref::<crate::workspace::Failure>()
                             .is_none_or(|failure| failure.uncertain);
-                    if !service.houses.confirms() {
+                    if !service.houses.can_confirm() {
                         society::keep(
                             service.db(),
                             "remote-merge-attempt",
@@ -702,9 +702,11 @@ async fn respond(
     match origin {
         Origin::Call(id) => {
             if let Err(error) = answer {
-                let mut outcome =
-                    society::outcome(&error.text(), true);
-                service.credentials.scrub(&mut outcome);
+                let outcome = society::SocietyOutcome::failed(
+                    service
+                        .credentials
+                        .scrub_text(&error.to_string()),
+                );
                 crate::operation::settle(
                     service.db(),
                     &id,
@@ -713,13 +715,17 @@ async fn respond(
             }
             harnesses.wake(&id.runtime, &id.key).await;
         }
-        Origin::Chief { owner, id } => {
-            if service.merges.clients.remove(&(owner, id.clone())) {
-                service.merges.finished.push(owner);
+        Origin::Chief { connection, id } => {
+            if service
+                .merges
+                .clients
+                .remove(&(connection, id.clone()))
+            {
+                service.merges.finished.push(connection);
                 service
                     .chats
                     .outbox
-                    .push((owner, reply(&id, answer)));
+                    .push((connection, reply(&id, answer)));
             }
         }
     }
@@ -752,11 +758,12 @@ mod tests {
             crate::testing::config(Overrides::none(true)),
         )
         .unwrap();
+        let id = RequestId::new();
         let origin = Origin::Chief {
-            owner: 7,
-            id: "merge".into(),
+            connection: 7,
+            id: id.clone(),
         };
-        service.merges.clients.insert((7, "merge".into()));
+        service.merges.clients.insert((7, id.clone()));
         service.merges.active = Some(Active {
             origin: origin.clone(),
             held: Vec::new(),
@@ -803,10 +810,10 @@ mod tests {
         .unwrap_err();
         let asked = error.downcast_ref::<Asked>().unwrap();
         assert_eq!(
-            (asked.client, asked.request.as_deref()),
-            (7, Some("merge"))
+            (asked.client, asked.request.as_ref()),
+            (7, Some(&id))
         );
         assert!(service.merges.active.is_none());
-        assert!(!service.merges.busy(7));
+        assert!(!service.merges.is_busy(7));
     }
 }

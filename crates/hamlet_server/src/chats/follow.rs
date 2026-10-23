@@ -101,7 +101,7 @@ pub(crate) async fn follow(
             records::enter(db, binding, input)?;
         }
     } else if status == Some(InputStatus::Done)
-        && mark.as_ref().is_some_and(InputMark::chief_turn)
+        && mark.as_ref().is_some_and(InputMark::is_chief_turn)
     {
         records::count_turns(db, binding, Some(1))?;
     }
@@ -130,7 +130,7 @@ pub(crate) async fn follow(
         )
         .await?;
     }
-    if service.chats.queued(binding)
+    if service.chats.is_queued(binding)
         && let Some(input) = submission
     {
         super::write(

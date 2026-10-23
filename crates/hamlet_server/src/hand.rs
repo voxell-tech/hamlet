@@ -11,7 +11,7 @@ use hamlet_protocol::runtime::{
 use serde_json::{Map, Value, json};
 
 use crate::sandbox::path::{resolve, text};
-use crate::sandbox::{Env, ExecError, Policy, Sandbox};
+use crate::sandbox::{Env, ExecError, LimitError, Policy, Sandbox};
 use crate::tools::{Outcome, diagnostic};
 
 /// A loaded manifest and the program its tool runs.
@@ -23,9 +23,43 @@ pub(crate) struct Manifest {
 }
 
 impl Manifest {
-    pub fn net(&self) -> bool {
+    pub fn has_net(&self) -> bool {
         self.policy.net
     }
+}
+
+/// The fault in a tool's folder that keeps it from loading.
+#[derive(Debug, thiserror::Error)]
+enum Unloaded {
+    #[error("not a folder")]
+    NotFolder,
+    #[error(transparent)]
+    Unread(std::io::Error),
+    #[error("manifest.json is not valid JSON")]
+    NotJson,
+    #[error("missing name")]
+    NoName,
+    #[error("exec must be an array")]
+    ExecNotArray,
+    #[error("exec is empty")]
+    ExecEmpty,
+    #[error("name '{0}' must match [a-zA-Z0-9_-]{{1,64}}")]
+    BadName(String),
+    #[error(
+        "parameters do not compile: parameters must be a JSON \
+         Schema object"
+    )]
+    ParametersNotObject,
+    /// Boxed, as the schema's error is larger than the rest of the
+    /// manifest's errors together.
+    #[error("parameters do not compile: {0}")]
+    Uncompiled(Box<jsonschema::ValidationError<'static>>),
+    #[error(transparent)]
+    Limit(#[from] LimitError),
+    #[error("name '{0}' is reserved")]
+    Reserved(String),
+    #[error("name '{0}' is taken by another tool")]
+    Taken(String),
 }
 
 /// The tools that load, in folder order, and diagnostics for those
@@ -64,29 +98,28 @@ pub(crate) fn load(root: &Path) -> (Vec<Manifest>, Vec<String>) {
         }
         let loaded = (|| {
             let dir = std::fs::canonicalize(&path)
-                .map_err(|_| "not a folder".to_owned())?;
+                .map_err(|_| Unloaded::NotFolder)?;
             if !dir.is_dir() {
-                return Err("not a folder".into());
+                return Err(Unloaded::NotFolder);
             }
             let data =
                 std::fs::read_to_string(dir.join("manifest.json"))
-                    .map_err(|error| error.to_string())?;
+                    .map_err(Unloaded::Unread)?;
             let manifest = parse(&data, &dir, root)?;
             let name = &manifest.spec.name;
             if reserved.contains(name) {
-                return Err(format!("name '{name}' is reserved"));
+                return Err(Unloaded::Reserved(name.clone()));
             }
             if !names.insert(name.clone()) {
-                return Err(format!(
-                    "name '{name}' is taken by another tool"
-                ));
+                return Err(Unloaded::Taken(name.clone()));
             }
             Ok(manifest)
         })();
         match loaded {
             Ok(manifest) => tools.push(manifest),
-            Err(words) => {
-                faults.push(format!("{}: {words}", path.display()));
+            Err(unloaded) => {
+                faults
+                    .push(format!("{}: {unloaded}", path.display()));
             }
         }
     }
@@ -97,19 +130,19 @@ fn parse(
     data: &str,
     dir: &Path,
     root: &Path,
-) -> Result<Manifest, String> {
+) -> Result<Manifest, Unloaded> {
     let value = serde_json::from_str::<Value>(data)
-        .map_err(|_| "manifest.json is not valid JSON")?;
-    let name = value["name"].as_str().ok_or("missing name")?;
+        .map_err(|_| Unloaded::NotJson)?;
+    let name = value["name"].as_str().ok_or(Unloaded::NoName)?;
     let exec = value["exec"]
         .as_array()
-        .ok_or("exec must be an array")?
+        .ok_or(Unloaded::ExecNotArray)?
         .iter()
         .filter_map(Value::as_str)
         .map(str::to_owned)
         .collect::<Vec<_>>();
     if exec.is_empty() {
-        return Err("exec is empty".into());
+        return Err(Unloaded::ExecEmpty);
     }
     if name.is_empty()
         || name.len() > 64
@@ -117,22 +150,17 @@ fn parse(
             c.is_ascii_alphanumeric() || c == b'_' || c == b'-'
         })
     {
-        return Err(format!(
-            "name '{name}' must match [a-zA-Z0-9_-]{{1,64}}"
-        ));
+        return Err(Unloaded::BadName(name.into()));
     }
     let parameters = value
         .get("parameters")
         .cloned()
         .unwrap_or_else(|| json!({"type":"object","properties":{}}));
-    let parameters = parameters.as_object().ok_or(
-        "parameters do not compile: parameters must be a JSON \
-         Schema object",
-    )?;
+    let parameters = parameters
+        .as_object()
+        .ok_or(Unloaded::ParametersNotObject)?;
     jsonschema::validator_for(&Value::Object(parameters.clone()))
-        .map_err(|error| {
-            format!("parameters do not compile: {error}")
-        })?;
+        .map_err(|error| Unloaded::Uncompiled(Box::new(error)))?;
     let sandbox = &value["sandbox"];
     let paths = |key: &str| {
         sandbox[key]
@@ -231,7 +259,9 @@ pub(crate) async fn run(
         *sandbox,
     ) {
         Ok(env) => env,
-        Err(words) => return Outcome::thrown("tool_error", words),
+        Err(error) => {
+            return Outcome::thrown("tool_error", error.to_string());
+        }
     };
     let file = match env.create_temp_file().and_then(|file| {
         env.write_file(&file, &arguments.to_string())?;

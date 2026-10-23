@@ -1,5 +1,16 @@
 //! Local server discovery and the lifetimes of the server and window.
 
+#![cfg_attr(
+    unix,
+    expect(
+        unsafe_code,
+        reason = "a session's leader is made between fork and exec"
+    )
+)]
+
+use std::env;
+#[cfg(unix)]
+use std::fs;
 #[cfg(unix)]
 use std::io::{Read, Seek, SeekFrom};
 #[cfg(unix)]
@@ -10,10 +21,15 @@ use std::os::unix::{
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::Duration;
-use std::{env, fs};
 
 use anyhow::{Context, Result, bail};
-use hamlet_protocol::client::discovery::{self, Chosen, Running};
+#[cfg(unix)]
+use hamlet_protocol::client::discovery::Running;
+use hamlet_protocol::client::discovery::{self, Chosen};
+#[cfg(unix)]
+use rustix::io::Errno;
+#[cfg(unix)]
+use rustix::process::{Pid, Signal, kill_process, test_kill_process};
 use tokio::time::timeout;
 #[cfg(unix)]
 use tokio::{
@@ -28,20 +44,22 @@ fn nonempty(name: &str) -> Option<String> {
 }
 
 /// The local home the environment selects.
-pub fn home() -> Result<PathBuf> {
-    discovery::home(nonempty).map_err(anyhow::Error::msg)
+#[cfg(unix)]
+fn home() -> Result<PathBuf> {
+    Ok(discovery::home(nonempty)?)
 }
 
 /// The server the environment selects.
 pub fn address() -> Result<ServerAddress> {
-    ServerAddress::find(nonempty).map_err(anyhow::Error::msg)
+    Ok(ServerAddress::find(nonempty)?)
 }
 
+#[cfg(unix)]
 fn running(home: &Path) -> Result<Option<Running>> {
-    Running::read(home).map_err(anyhow::Error::msg)
+    Ok(Running::read(home)?)
 }
 
-async fn answers(address: &ServerAddress) -> bool {
+async fn is_answering(address: &ServerAddress) -> bool {
     timeout(Duration::from_secs(2), async {
         let (mut connection, _) = client::connect(address).await?;
         connection.close().await
@@ -50,30 +68,28 @@ async fn answers(address: &ServerAddress) -> bool {
     .is_ok_and(|result| result.is_ok())
 }
 
+/// The one process `pid` names, never a process group.
 #[cfg(unix)]
-fn alive(pid: u32) -> bool {
-    // SAFETY: kill with signal zero checks a positive process ID
-    // without sending a signal.
-    i32::try_from(pid).is_ok_and(|pid| unsafe {
-        libc::kill(pid, 0) == 0
-            || std::io::Error::last_os_error().raw_os_error()
-                != Some(libc::ESRCH)
-    })
+fn process(pid: u32) -> Option<Pid> {
+    i32::try_from(pid).ok().and_then(Pid::from_raw)
 }
 
 #[cfg(unix)]
-fn signal(pid: u32, signal: i32) -> Result<()> {
-    let pid = i32::try_from(pid)?;
-    anyhow::ensure!(pid > 0, "Invalid process ID");
-    // SAFETY: the ID is positive, so this targets one process, never
-    // a process group.
-    if unsafe { libc::kill(pid, signal) } != 0 {
-        let error = std::io::Error::last_os_error();
-        if error.raw_os_error() != Some(libc::ESRCH) {
-            return Err(error.into());
+fn is_alive(pid: u32) -> bool {
+    // EPERM says the process exists but is not ours to signal.
+    process(pid)
+        .is_some_and(|pid| test_kill_process(pid) != Err(Errno::SRCH))
+}
+
+#[cfg(unix)]
+fn signal(pid: u32, signal: Signal) -> Result<()> {
+    let pid = process(pid).context("Invalid process ID")?;
+    match kill_process(pid, signal) {
+        Err(error) if error != Errno::SRCH => {
+            Err(std::io::Error::from(error).into())
         }
+        _ => Ok(()),
     }
-    Ok(())
 }
 
 #[cfg(unix)]
@@ -83,15 +99,15 @@ async fn inspect(
     let Some(record) = running(home)? else {
         return Ok(None);
     };
-    if !alive(record.pid) {
+    if !is_alive(record.pid) {
         return Ok(None);
     }
     if let Ok(address) = record.address(home)
-        && answers(&address).await
+        && is_answering(&address).await
     {
         return Ok(Some((record, address)));
     }
-    if !alive(record.pid) {
+    if !is_alive(record.pid) {
         return Ok(None);
     }
     bail!(
@@ -137,13 +153,12 @@ pub fn serve(port: u16, faux: Option<&str>) -> Result<i32> {
 
 #[cfg(unix)]
 fn session(command: &mut Command) {
-    // SAFETY: the child calls only async-signal-safe setsid before
-    // exec and touches no shared state.
+    // SAFETY: the child calls only setsid, which is
+    // async-signal-safe, before exec, allocates nothing and touches
+    // no shared state.
     unsafe {
         command.pre_exec(|| {
-            if libc::setsid() == -1 {
-                return Err(std::io::Error::last_os_error());
-            }
+            rustix::process::setsid()?;
             Ok(())
         });
     }
@@ -155,7 +170,7 @@ fn session(command: &mut Command) {
     command.creation_flags(0x0000_0008 | 0x0000_0200);
 }
 
-fn executable(path: &Path) -> bool {
+fn is_executable(path: &Path) -> bool {
     #[cfg(unix)]
     {
         fs::metadata(path)
@@ -176,7 +191,7 @@ fn find_binary(name: &str, variable: &str) -> Result<PathBuf> {
     if let Some(dir) = env::current_exe()?.parent() {
         let path =
             dir.join(format!("{name}{}", env::consts::EXE_SUFFIX));
-        if executable(&path) {
+        if is_executable(&path) {
             return Ok(path);
         }
     }
@@ -185,7 +200,7 @@ fn find_binary(name: &str, variable: &str) -> Result<PathBuf> {
     {
         let path =
             dir.join(format!("{name}{}", env::consts::EXE_SUFFIX));
-        if executable(&path) {
+        if is_executable(&path) {
             return Ok(path);
         }
     }
@@ -379,9 +394,7 @@ async fn ensure(home: &Path) -> Result<(Running, ServerAddress)> {
 }
 
 pub async fn service(action: &str) -> Result<i32> {
-    let address = match discovery::choose(nonempty)
-        .map_err(anyhow::Error::msg)?
-    {
+    let address = match discovery::choose(nonempty)? {
         Chosen::Home(home) => {
             return local_service(action, &home).await;
         }
@@ -393,7 +406,7 @@ pub async fn service(action: &str) -> Result<i32> {
          stopped on its own machine."
     );
     if action == "status" {
-        let live = answers(&address).await;
+        let live = is_answering(&address).await;
         println!(
             "hamlet: {} at {}",
             if live { "running" } else { "not answering" },
@@ -424,9 +437,9 @@ async fn local_service(action: &str, home: &Path) -> Result<i32> {
         return Ok(i32::from(action != "stop"));
     };
     if action == "stop" {
-        signal(record.pid, libc::SIGTERM)?;
+        signal(record.pid, Signal::TERM)?;
         let deadline = Instant::now() + Duration::from_secs(30);
-        while alive(record.pid) {
+        while is_alive(record.pid) {
             anyhow::ensure!(
                 Instant::now() < deadline,
                 "Process {} is still stopping after 30 seconds. \
@@ -470,9 +483,7 @@ fn canonical(path: &Path) -> Result<PathBuf> {
 
 #[cfg(unix)]
 fn dev_home(chosen: Option<&str>) -> Result<PathBuf> {
-    // SAFETY: getuid reads this process's user ID and has no
-    // preconditions.
-    let uid = unsafe { libc::getuid() };
+    let uid = rustix::process::getuid().as_raw();
     let path = chosen
         .map(PathBuf::from)
         .or_else(|| nonempty("HAMLET_HOME").map(PathBuf::from))
@@ -575,9 +586,8 @@ async fn ready(
         if let Ok(Some(record)) = running(home)
             && Some(record.pid) == server.id()
         {
-            let address =
-                record.address(home).map_err(anyhow::Error::msg)?;
-            if answers(&address).await {
+            let address = record.address(home)?;
+            if is_answering(&address).await {
                 return Ok(address);
             }
         }
@@ -666,7 +676,7 @@ pub async fn develop(
         .into_iter()
         .flatten()
     {
-        signal(pid, libc::SIGTERM)?;
+        signal(pid, Signal::TERM)?;
     }
     let closing = async {
         let window_closed = async {
@@ -691,7 +701,7 @@ pub async fn develop(
             let window_pid = window.as_ref().and_then(Child::id);
             let pids = [window_pid, server.id()];
             for pid in pids.into_iter().flatten() {
-                signal(pid, libc::SIGKILL)?;
+                signal(pid, Signal::KILL)?;
             }
             if let Some(child) = &mut window {
                 child.wait().await?;

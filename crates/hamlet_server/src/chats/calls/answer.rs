@@ -44,7 +44,9 @@ pub(in crate::chats) async fn answer_words(
     }
     let text = match words(&wait, choice, text, picks) {
         Ok(text) => text,
-        Err(why) => return Ok(Err(Refusal::Invalid(why))),
+        Err(why) => {
+            return Ok(Err(Refusal::Invalid(why.to_string())));
+        }
     };
     let text =
         service.credentials.scrub_text(&text).trim().to_owned();
@@ -71,41 +73,51 @@ pub(in crate::chats) async fn answer_words(
     )))
 }
 
+/// The fault in a chief's choice that cannot answer a wait so.
+#[derive(Debug, thiserror::Error)]
+enum Unanswerable {
+    #[error("That cannot be answered that way:\n{0}")]
+    NotThatWay(String),
+    #[error("Use picks only for a reply, without text.")]
+    PicksWithText,
+    #[error("This wait does not take structured answers.")]
+    NoPicks,
+    #[error("Say what to reply.")]
+    NoWords,
+    #[error("This wait does not take a reply.")]
+    NoReply,
+    #[error(transparent)]
+    Picks(#[from] asking::Unanswered),
+}
+
 /// The words of `choice` on `wait`: a reply's text, or the answer its
-/// picks make; else why it cannot be answered so.
+/// picks make.
 fn words(
     wait: &Wait,
     choice: &Choice,
     text: &str,
     picks: Option<&[Pick]>,
-) -> std::result::Result<String, String> {
+) -> std::result::Result<String, Unanswerable> {
     if !wait.answers.contains(choice) {
-        return Err(format!(
-            "That cannot be answered that way:\n{}",
-            oversight::strip(wait)
-        ));
+        return Err(Unanswerable::NotThatWay(oversight::strip(wait)));
     }
     if let Some(picks) = picks {
         if *choice != Choice::Reply || !text.is_empty() {
-            return Err(
-                "Use picks only for a reply, without text.".into()
-            );
+            return Err(Unanswerable::PicksWithText);
         }
         let WaitKind::Question(questions) = &wait.kind else {
-            return Err("This wait does not take structured \
-                        answers."
-                .into());
+            return Err(Unanswerable::NoPicks);
         };
-        return asking::answer(questions, picks);
+        return Ok(asking::answer(questions, picks)?);
     }
     if *choice != Choice::Reply {
         return Ok(text.into());
     }
     if text.trim().is_empty() {
-        return Err("Say what to reply.".into());
+        return Err(Unanswerable::NoWords);
     }
     let WaitKind::Question(questions) = &wait.kind else {
-        return Err("This wait does not take a reply.".into());
+        return Err(Unanswerable::NoReply);
     };
     let words = Pick::Words { text: text.into() };
     asking::answer(questions, &[words])?;
@@ -147,7 +159,7 @@ fn rule(
         };
         let place = conversation.place;
         let mut net = false;
-        if ruling.allows() {
+        if ruling.is_allowing() {
             let Some(record) =
                 service.home.store().record(&place.agent.hamlet)?
             else {
@@ -178,7 +190,7 @@ fn rule(
     }
     let mut struck = Vec::<BindingId>::new();
     for Ruled { call, place, net } in &ruled {
-        if ruling.allows() {
+        if ruling.is_allowing() {
             held::set_net(&tx, &call.id, *net)?;
         }
         if ruling == Ruling::Always

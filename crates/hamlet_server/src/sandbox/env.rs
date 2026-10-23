@@ -20,9 +20,9 @@ use tokio::time::Instant;
 
 use super::path::{self, text};
 use super::policy::{
-    MAX_LINKS, Policy, canon_text, cased, directory_root,
-    fixed_roots, policy_hash, private_tmp, readable, temp_root,
-    writable,
+    MAX_LINKS, Policy, SetupError, canon_text, cased, directory_root,
+    fixed_roots, is_readable, is_writable, policy_hash, private_tmp,
+    temp_root,
 };
 use super::{Sandbox, limited};
 use crate::scrub::Scrubber;
@@ -63,7 +63,8 @@ struct Root {
 
 /// A failed file operation: its kind and the words pi's tools give
 /// for it.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("{message}")]
 pub(crate) struct FileError {
     pub(crate) code: Code,
     pub(crate) message: String,
@@ -126,7 +127,7 @@ impl Env {
         cwd: &str,
         policy: Policy,
         sandbox: Sandbox,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, SetupError> {
         Self::open(cwd, policy, sandbox, false)
     }
 
@@ -136,7 +137,7 @@ impl Env {
         cwd: &str,
         policy: Policy,
         sandbox: Sandbox,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, SetupError> {
         Self::open(cwd, policy, sandbox, true)
     }
 
@@ -145,7 +146,7 @@ impl Env {
         policy: Policy,
         sandbox: Sandbox,
         private: bool,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, SetupError> {
         for each in &policy.rw {
             directory_root(&text(each))?;
         }
@@ -162,7 +163,7 @@ impl Env {
         builder.recursive(true);
         #[cfg(unix)]
         std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-        builder.create(&output).map_err(|error| error.to_string())?;
+        builder.create(&output)?;
         let mut policy = policy;
         policy.fixed.push(temp_root().into());
         policy.fixed.push(output.clone().into());
@@ -233,11 +234,11 @@ impl Env {
         let reached = walk(&resolved, follow)?;
         let (allowed, verb) = match reach {
             Reach::Read => (
-                readable(&self.policy, &self.tmp, &reached.real),
+                is_readable(&self.policy, &self.tmp, &reached.real),
                 "read",
             ),
             Reach::Write => (
-                writable(
+                is_writable(
                     &self.policy,
                     &self.tmp,
                     &reached.real,
@@ -465,7 +466,9 @@ impl Env {
             })
             .await;
         kept(&scrubber.flush(), &mut spill);
-        let spilled = spill.finish().map_err(ExecError::Spill)?;
+        let spilled = spill
+            .finish()
+            .map_err(|error| ExecError::Spill(error.message))?;
         match ran? {
             Ended::Exited(status) => Ok(Ran {
                 exit_code: exit_code(&status),
@@ -490,7 +493,7 @@ impl Env {
             ["bash".to_owned(), "-c".into(), command.to_owned()];
         // The sandbox's own program always starts, so a missing one
         // is found here.
-        if !self.found("bash") {
+        if !self.is_on_path("bash") {
             return Err(ExecError::Spawn(
                 "bash: command not found".into(),
             ));
@@ -504,7 +507,9 @@ impl Env {
                 &self.cwd,
                 &self.tmp,
             )
-            .map_err(ExecError::Spawn)?;
+            .map_err(|missing| {
+                ExecError::Spawn(missing.to_string())
+            })?;
         let timeout =
             timeout.min(Duration::from_secs(limits.wall_secs));
         if fs::metadata(&self.cwd).is_err() {
@@ -605,13 +610,13 @@ impl Env {
 
     /// True when `program` names an executable file on the policy's
     /// `PATH`.
-    fn found(&self, program: &str) -> bool {
+    fn is_on_path(&self, program: &str) -> bool {
         let dirs =
             self.policy.env.get("PATH").map_or("", String::as_str);
         dirs.split(':')
             .filter(|dir| !dir.is_empty())
             .map(|dir| path::resolve(dir, program))
-            .any(|candidate| executable(&candidate))
+            .any(|candidate| is_executable(&candidate))
     }
 }
 
@@ -731,7 +736,7 @@ struct Spill {
     newlines: usize,
     spilling: bool,
     path: Option<String>,
-    error: Option<String>,
+    error: Option<FileError>,
 }
 
 impl Spill {
@@ -762,11 +767,11 @@ impl Spill {
             env.append_file(&path, &text)
         });
         if let Err(error) = written {
-            self.error = Some(error.message);
+            self.error = Some(error);
         }
     }
 
-    fn finish(self) -> Result<Option<String>, String> {
+    fn finish(self) -> Result<Option<String>, FileError> {
         match self.error {
             Some(error) => Err(error),
             None => Ok(self.path),
@@ -782,20 +787,17 @@ impl Drop for Env {
     }
 }
 
-fn root_at(path: &str) -> Result<Root, String> {
+fn root_at(path: &str) -> Result<Root, SetupError> {
     let meta = match fs::symlink_metadata(path::resolve(".", path)) {
         Ok(meta) => Some(meta),
         Err(error) if error.kind() == ErrorKind::NotFound => None,
-        Err(error) => return Err(error.to_string()),
+        Err(error) => return Err(error.into()),
     };
     if meta
         .as_ref()
         .is_some_and(|meta| !meta.is_dir() && !meta.is_file())
     {
-        return Err(format!(
-            "The sandbox root must be a real file or directory: \
-             {path}"
-        ));
+        return Err(SetupError::NotReal(path.into()));
     }
     Ok(Root {
         path: path.to_owned(),
@@ -1042,12 +1044,12 @@ fn info_of(name: &str, stat: &Stat) -> Result<FileInfo, FileError> {
 }
 
 #[cfg(unix)]
-fn executable(path: &str) -> bool {
+fn is_executable(path: &str) -> bool {
     rustix::fs::access(path, rustix::fs::Access::EXEC_OK).is_ok()
 }
 
 #[cfg(not(unix))]
-fn executable(path: &str) -> bool {
+fn is_executable(path: &str) -> bool {
     std::path::Path::new(path).exists()
 }
 

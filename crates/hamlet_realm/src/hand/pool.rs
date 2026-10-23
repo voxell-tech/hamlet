@@ -156,7 +156,7 @@ fn throw(lamp: &mut PointLight, colour: Color, lumens: f32) {
 
 /// True when a light that blinks is lit just now. It is while the
 /// clock is stopped, so a still shows it.
-fn blinks(clock: &Clock, set: &PlaySettings) -> bool {
+fn is_blink_lit(clock: &Clock, set: &PlaySettings) -> bool {
     clock.frozen || (clock.t * set.meter_blink).fract() < 0.5
 }
 
@@ -226,7 +226,7 @@ pub(super) fn meters(
         let report = &hamlets.get(hamlet).ok()?.2?.0;
         Some((report.left?, report.gone as f32))
     };
-    let lit = blinks(&clock, &set);
+    let lit = is_blink_lit(&clock, &set);
     let dark = sky.look.candle;
     for (level, mut at, mut seen, mut light, mut thrown) in
         &mut levels

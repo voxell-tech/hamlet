@@ -29,11 +29,11 @@ pub enum InputMark {
     #[serde(rename = "hamlet.notice")]
     Notice { text: String, at: i64 },
     #[serde(rename = "hamlet.letter")]
-    Letter(Mail),
+    Letter(Letter),
     #[serde(rename = "hamlet.question")]
-    Question(Mail),
+    Question(Letter),
     #[serde(rename = "hamlet.reply")]
-    Reply(Mail),
+    Reply(Letter),
     /// A one-off errand's instructions.
     #[serde(rename = "hamlet.errand")]
     Errand { task: String, at: i64 },
@@ -41,7 +41,7 @@ pub enum InputMark {
 
 /// A letter, question or reply from another agent.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Mail {
+pub struct Letter {
     pub from: AgentRef,
     pub task: String,
     pub at: i64,
@@ -112,7 +112,7 @@ impl InputMark {
     }
 
     /// The message from another agent it marks.
-    pub fn message(&self) -> Option<&Mail> {
+    pub fn message(&self) -> Option<&Letter> {
         match self {
             Self::Letter(message)
             | Self::Question(message)
@@ -122,7 +122,7 @@ impl InputMark {
     }
 
     /// Whether its turn is one a chief asked for: a line or a retry.
-    pub fn chief_turn(&self) -> bool {
+    pub fn is_chief_turn(&self) -> bool {
         matches!(self, Self::Chief { .. } | Self::Retry { .. })
     }
 }
@@ -130,9 +130,10 @@ impl InputMark {
 impl From<&InputMark> for Mark {
     fn from(mark: &InputMark) -> Self {
         serde_json::from_value(
-            serde_json::to_value(mark).expect("a mark is JSON"),
+            serde_json::to_value(mark)
+                .expect("an input mark has only string keys"),
         )
-        .expect("a mark has a kind and data")
+        .expect("each input mark's data is an object")
     }
 }
 

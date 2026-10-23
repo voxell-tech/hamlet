@@ -13,7 +13,7 @@ use super::Housed;
 use crate::Clock;
 use crate::generator::society::Society;
 use crate::generator::{Objecting, Voting};
-use crate::keeper::KState;
+use crate::keeper::KeeperState;
 use crate::keeper::work::{self, Task, Work};
 
 fn work(activity: &Activity) -> Work {
@@ -71,13 +71,13 @@ pub(super) fn show(
         // Waiting for the chief shows over whatever else an agent
         // does.
         let state = if needs {
-            KState::Waiting
+            KeeperState::Waiting
         } else if faulted {
-            KState::Fault
+            KeeperState::Fault
         } else if busy {
-            KState::Working
+            KeeperState::Working
         } else {
-            KState::Rest
+            KeeperState::Rest
         };
         if society.agent(agent.0).is_some_and(|a| a.state != state) {
             society.set_state(agent.0, state);

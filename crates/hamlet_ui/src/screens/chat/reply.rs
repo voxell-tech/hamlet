@@ -111,7 +111,7 @@ pub(super) fn rest(text: &str) -> &str {
 /// The words of an entry a message can reply to or select.
 pub(super) fn words(entry: &Entry) -> Option<&str> {
     match entry {
-        Entry::User { text, .. } => Some(rest(text)),
+        Entry::Chief { text, .. } => Some(rest(text)),
         Entry::Assistant(text)
         | Entry::Agent { text, .. }
         | Entry::Answered(text) => Some(text),
@@ -120,7 +120,7 @@ pub(super) fn words(entry: &Entry) -> Option<&str> {
 }
 
 /// True when `entry` can be replied to.
-pub(super) fn answerable(entry: &Entry) -> bool {
+pub(super) fn can_reply_to(entry: &Entry) -> bool {
     words(entry).is_some_and(|text| !text.trim().is_empty())
 }
 

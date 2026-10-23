@@ -5,8 +5,8 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use hamlet_protocol::client::{
-    Address, Edit, EditLimits, Papers, Read, ReadResult,
-    ReadResultCharterCharter, RequestId, ServerMessage,
+    Address, Charter, Edit, EditLimits, Papers, Read, ReadResult,
+    RequestId, ServerMessage,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -15,7 +15,7 @@ use crate::Outcome;
 use crate::limits::Limits;
 use crate::papers::{CHARTER, cut};
 use crate::protocol::{Refusable, Refusal, reply};
-use crate::record::{Actor, Audience, Change, RecordOperation};
+use crate::record::{Actor, Change, RecordOperation};
 use crate::service::{Service, document, save};
 
 impl Service {
@@ -92,11 +92,7 @@ impl Service {
         self.credentials.scrub(&mut value);
         let Ok(limits) = serde_json::from_value::<Limits>(value)
         else {
-            return Ok(Err(Refusal::Invalid(
-                "A limit is outside the protocol's supported number \
-                 range."
-                    .into(),
-            )));
+            return Ok(Err(Refusal::OutOfRange("A limit")));
         };
         // The schema keeps both at zero or more; a budget too large
         // for micros or milliseconds reaches the largest `i64`.
@@ -105,11 +101,7 @@ impl Service {
         }) || limits.budget.minutes.is_some_and(|minutes| {
             crate::clock::minutes(minutes) == i64::MAX
         }) {
-            return Ok(Err(Refusal::Invalid(
-                "The budget is outside the protocol's supported \
-                 number range."
-                    .into(),
-            )));
+            return Ok(Err(Refusal::OutOfRange("The budget")));
         }
         let home = self.settings()?.model;
         let runs = record
@@ -137,9 +129,7 @@ impl Service {
         if let Outcome::Refused(error) =
             crate::operation::change(&tx, &operation)?
         {
-            return Ok(Err(Refusal::Invalid(
-                error.text(Audience::Chief),
-            )));
+            return Ok(Err(Refusal::Record(Box::new(error))));
         }
         tx.commit()?;
         Ok(Ok("Saved.".into()))
@@ -230,9 +220,7 @@ impl Service {
             if let Outcome::Refused(error) =
                 crate::operation::change(&tx, &operation)?
             {
-                return Ok(Err(Refusal::Invalid(
-                    error.text(Audience::Chief),
-                )));
+                return Ok(Err(Refusal::Record(Box::new(error))));
             }
             tx.commit()?;
         } else if self
@@ -241,11 +229,7 @@ impl Service {
             .await
             .is_err()
         {
-            return Ok(Err(Refusal::Invalid(
-                "The agent's NOTES.md could not be written safely. \
-                 Inspect its house before trying again."
-                    .into(),
-            )));
+            return Ok(Err(Refusal::NotesUnwritable));
         }
         Ok(Ok("Saved.".into()))
     }
@@ -395,7 +379,7 @@ pub(crate) struct Work {
 
 impl Work {
     /// Whether its agents ask before each edit and command.
-    pub fn asks(&self) -> bool {
+    pub fn is_asking(&self) -> bool {
         self.folder.is_some() && self.mode == Mode::Manual
     }
 }
@@ -501,7 +485,7 @@ pub(crate) fn prepare_read(
             return Ok(Reading::Ready(Box::new(
                 ServerMessage::Read(ReadResult::Charter {
                     to: id,
-                    charter: ReadResultCharterCharter { text, own },
+                    charter: Charter { text, own },
                 }),
             )));
         }

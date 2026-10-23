@@ -188,8 +188,8 @@ impl<B: Send + 'static> Layer<B> {
     /// Puts the built tiles into the world with `place`, which
     /// returns the entity, the bytes of its meshes and true if it is
     /// whole. A tile that is not whole is spawned hidden, and the one
-    /// it replaces stays drawn until [`Layer::whole`] is told. True
-    /// if any came.
+    /// it replaces stays drawn until [`Layer::whole`] is told.
+    /// Returns how many came.
     pub(super) fn land(
         &mut self,
         commands: &mut Commands,
@@ -198,11 +198,11 @@ impl<B: Send + 'static> Layer<B> {
             Tile,
             B,
         ) -> (Entity, usize, bool),
-    ) -> bool {
+    ) -> usize {
         if self.building == 0 {
-            return false;
+            return 0;
         }
-        let mut came = false;
+        let mut came = 0;
         for (tile, patch) in &mut self.patches {
             let Some(task) = &mut patch.task else {
                 continue;
@@ -235,7 +235,7 @@ impl<B: Send + 'static> Layer<B> {
                 patch.coming = Some(entity);
                 patch.bytes = bytes;
             }
-            came = true;
+            came += 1;
         }
         came
     }
@@ -325,7 +325,7 @@ impl<B: Send + 'static> Layer<B> {
                 Some(above) => ready.contains(&above),
                 None => wanted
                     .iter()
-                    .filter(|w| tile.covers(**w))
+                    .filter(|w| tile.is_over(**w))
                     .all(|w| ready.contains(w)),
             };
             if covered {

@@ -54,7 +54,7 @@ pub enum EditLimits {
         #[serde(deserialize_with = "crate::client::present")]
         #[schemars(with = "String")]
         reason: Option<String>,
-        set: EditLimitsSetSet,
+        set: LimitsEdit,
     },
     Whole {
         hamlet: String,
@@ -71,7 +71,7 @@ pub enum EditLimits {
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
-pub struct EditLimitsSetSet {
+pub struct LimitsEdit {
     pub key: String,
     pub section: String,
     pub value: serde_json::Value,
@@ -169,33 +169,18 @@ pub enum Read {
 )]
 #[serde(untagged, deny_unknown_fields)]
 pub enum ReadResult {
-    Prompt {
-        prompt: String,
-        to: RequestId,
-    },
-    History {
-        history: Vec<Past>,
-        to: RequestId,
-    },
-    Models {
-        models: Vec<Listed>,
-        to: RequestId,
-    },
-    Papers {
-        papers: Papers,
-        to: RequestId,
-    },
-    Charter {
-        charter: ReadResultCharterCharter,
-        to: RequestId,
-    },
+    Prompt { prompt: String, to: RequestId },
+    History { history: Vec<Past>, to: RequestId },
+    Models { models: Vec<Listed>, to: RequestId },
+    Papers { papers: Papers, to: RequestId },
+    Charter { charter: Charter, to: RequestId },
 }
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
-pub struct ReadResultCharterCharter {
+pub struct Charter {
     pub own: bool,
     pub text: String,
 }

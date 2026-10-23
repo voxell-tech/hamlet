@@ -169,7 +169,7 @@ impl Pictures {
     }
 
     /// True while a picture is being read.
-    pub fn waiting(&self) -> bool {
+    pub fn is_waiting(&self) -> bool {
         self.loading > 0
     }
 
@@ -317,7 +317,7 @@ fn settings(world: &World) -> ChatSettings {
 
 /// True when the name of `file` says it is a picture that can be
 /// read.
-fn pictured(file: &Path) -> bool {
+fn is_picture_file(file: &Path) -> bool {
     file.extension()
         .and_then(|ending| ending.to_str())
         .is_some_and(|ending| {
@@ -339,8 +339,8 @@ pub(crate) fn find(
             host(address).map(|_| Source::Web(address.clone()))
         }
         Target::Path(path) => {
-            let file =
-                seek(world, path).filter(|file| pictured(file))?;
+            let file = seek(world, path)
+                .filter(|file| is_picture_file(file))?;
             let bounds = bounds(&settings(world));
             world
                 .get_resource_or_init::<Pictures>()
@@ -535,7 +535,7 @@ mod tests {
         assert_eq!(pictures.state(&file), State::Loading);
         pictures.settle(file.clone(), now, ready(2));
         assert_eq!(pictures.state(&file), ready(2));
-        assert!(!pictures.waiting());
+        assert!(!pictures.is_waiting());
     }
 
     #[test]

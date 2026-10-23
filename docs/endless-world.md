@@ -70,7 +70,7 @@ camera has been or how many towns there are. Houses and robots are drawn
 only within `DetailSettings::town_far` and `robots_far`. What the society
 holds is bounded by the society.
 
-On the owner's machine a frame takes 2 to 3.5 ms from 8 towns seen near to
+On a 10-core Mac a frame takes 2 to 3.5 ms from 8 towns seen near to
 42 towns at the widest view. The settings are in `assets/world.toml`, and
 each is explained beside its field.
 

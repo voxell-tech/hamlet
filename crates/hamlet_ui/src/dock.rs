@@ -150,7 +150,7 @@ pub(crate) fn keep_wide(
 
 /// The world in the centre, and the working panels as tabs beside it.
 pub(crate) fn seed(world: &mut World) {
-    if remember::restore(world) {
+    if remember::restore(world) == remember::Restored::Dock {
         return;
     }
     let mut tree = world.resource_mut::<DockTree>();

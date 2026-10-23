@@ -3,9 +3,9 @@
 use bevy::prelude::*;
 use hamlet_realm::generator::land::Land;
 use hamlet_realm::generator::noise::key;
-use hamlet_realm::generator::society::{RoadLevel, Society};
-use hamlet_realm::generator::{GenView, Trips};
-use hamlet_realm::keeper::KState;
+use hamlet_realm::generator::society::{Outcome, RoadLevel, Society};
+use hamlet_realm::generator::{GeneratorView, Trips};
+use hamlet_realm::keeper::KeeperState;
 use hamlet_realm::keeper::work::{Paper, Task, Work};
 use hamlet_realm::sky::SkySettings;
 use hamlet_realm::sound::SoundSettings;
@@ -61,7 +61,7 @@ pub fn keys(
     mut traffic: ResMut<Trips>,
     mut hand: ResMut<Hand>,
     mut stage: ResMut<Stage>,
-    mut view: ResMut<GenView>,
+    mut view: ResMut<GeneratorView>,
     sky: Res<Sky>,
     sky_set: Res<SkySettings>,
     mut hour: ResMut<Hour>,
@@ -71,19 +71,18 @@ pub fn keys(
     let Some(town) = world.towns.get(hand.town).cloned() else {
         return;
     };
-    let citizens =
-        world.citizens(town.id).map(|a| a.id).collect::<Vec<_>>();
-    let others = citizens
+    let agents =
+        world.agents_of(town.id).map(|a| a.id).collect::<Vec<_>>();
+    let others = agents
         .iter()
         .copied()
-        .filter(|&id| id != town.leader)
+        .filter(|&id| id != town.mayor)
         .collect::<Vec<_>>();
     let local = world
         .roads
         .iter()
         .filter(|r| {
-            citizens.contains(&r.pair.0)
-                && citizens.contains(&r.pair.1)
+            agents.contains(&r.pair.0) && agents.contains(&r.pair.1)
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -107,11 +106,11 @@ pub fn keys(
             None => world.restore(&land, back.id),
         };
     }
-    if input.just_pressed(KeyCode::KeyR) && citizens.len() > 2 {
+    if input.just_pressed(KeyCode::KeyR) && agents.len() > 2 {
         for _ in 0..40 {
-            let a = citizens[hand.pick(citizens.len())];
-            let b = citizens[hand.pick(citizens.len())];
-            if world.add_road(a, b) {
+            let a = agents[hand.pick(agents.len())];
+            let b = agents[hand.pick(agents.len())];
+            if world.add_road(a, b) == Outcome::Changed {
                 break;
             }
         }
@@ -142,20 +141,24 @@ pub fn keys(
     if input.just_pressed(KeyCode::KeyW) && !others.is_empty() {
         let id = others[hand.pick(others.len())];
         let next = match world.agent(id).map(|a| a.state) {
-            Some(KState::Rest) => KState::Waiting,
-            Some(KState::Waiting) => KState::Fault,
-            _ => KState::Rest,
+            Some(KeeperState::Rest) => KeeperState::Waiting,
+            Some(KeeperState::Waiting) => KeeperState::Fault,
+            _ => KeeperState::Rest,
         };
         world.set_state(id, next);
     }
     if input.just_pressed(KeyCode::KeyB) {
-        let busy = citizens.iter().any(|&id| {
+        let busy = agents.iter().any(|&id| {
             world
                 .agent(id)
-                .is_some_and(|a| a.state == KState::Working)
+                .is_some_and(|a| a.state == KeeperState::Working)
         });
-        let next = if busy { KState::Rest } else { KState::Working };
-        for &id in &citizens {
+        let next = if busy {
+            KeeperState::Rest
+        } else {
+            KeeperState::Working
+        };
+        for &id in &agents {
             world.set_state(id, next);
         }
     }
@@ -167,7 +170,7 @@ pub fn keys(
         if next {
             hand.task = (hand.task + 1) % TASKS.len();
         }
-        for &id in &citizens {
+        for &id in &agents {
             let Some(was) = world.agent(id).map(|a| a.work) else {
                 continue;
             };
@@ -212,7 +215,7 @@ pub fn keys(
         let to = (sky.hour + turn * 3.0 * time.delta_secs())
             .rem_euclid(24.0);
         hour.0 = Some(to);
-        stage.night = sky_set.night(to);
+        stage.night = sky_set.is_night(to);
     }
     if input.just_pressed(KeyCode::Escape) {
         exit.write(AppExit::Success);

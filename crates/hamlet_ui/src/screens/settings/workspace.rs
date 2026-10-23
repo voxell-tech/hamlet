@@ -149,13 +149,13 @@ fn answered(response: On<Response>, mut draft: ResMut<Draft>) {
 }
 
 /// Whether the saved choice waits for a restart.
-fn waiting(settings: &Settings) -> bool {
+fn is_waiting_for_restart(settings: &Settings) -> bool {
     let workspace = &settings.0.workspace;
     workspace.url != workspace.running
 }
 
 fn pending(settings: &Settings) -> String {
-    if waiting(settings) {
+    if is_waiting_for_restart(settings) {
         "Takes effect when Hamlet restarts.".into()
     } else {
         String::new()
@@ -166,22 +166,25 @@ fn pending(settings: &Settings) -> String {
 fn move_of(
     settings: &Settings,
 ) -> Option<&protocol::SettingsViewWorkspaceMove> {
-    settings.0.workspace.move_.as_ref()
+    settings.0.workspace.moving.as_ref()
 }
 
 /// What moving the houses does, how far it has come or how it ended.
 /// A failure is the refusal's to tell.
 fn progress(settings: &Settings) -> String {
     use protocol::SettingsViewWorkspaceMoveState as State;
-    if !waiting(settings) {
+    if !is_waiting_for_restart(settings) {
         return String::new();
     }
     match move_of(settings) {
-        Some(move_) if move_.state == State::Moving => {
-            format!("Moving houses: {} of {}.", move_.done, move_.of)
+        Some(latest) if latest.state == State::Moving => {
+            format!(
+                "Moving houses: {} of {}.",
+                latest.done, latest.of
+            )
         }
-        Some(move_) if move_.state == State::Moved => {
-            move_.text.clone()
+        Some(latest) if latest.state == State::Moved => {
+            latest.text.clone()
         }
         _ => {
             let to = if settings.0.workspace.url.is_some() {
@@ -202,9 +205,9 @@ fn progress(settings: &Settings) -> String {
 fn moving() -> AnyView {
     keyed(
         resource::<Settings, _>(|settings| {
-            waiting(settings)
-                && move_of(settings).is_none_or(|move_| {
-                    move_.state
+            is_waiting_for_restart(settings)
+                && move_of(settings).is_none_or(|latest| {
+                    latest.state
                         != protocol::SettingsViewWorkspaceMoveState::Moving
                 })
         }),
@@ -335,13 +338,13 @@ mod tests {
         revision: i64,
         url: Option<&str>,
         running: Option<&str>,
-        move_: Option<protocol::SettingsViewWorkspaceMove>,
+        moving: Option<protocol::SettingsViewWorkspaceMove>,
     ) {
         let mut settings = hamlet_testing::realm::state().settings;
         settings.workspace = protocol::SettingsViewWorkspace {
             url: url.map(Into::into),
             running: running.map(Into::into),
-            move_,
+            moving,
         };
         hamlet_client::receive(
             app.world_mut(),

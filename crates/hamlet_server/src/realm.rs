@@ -123,7 +123,7 @@ impl Realm {
     }
 
     /// Whether `hamlet` lives.
-    pub fn lives(&self, hamlet: &str) -> bool {
+    pub fn is_living(&self, hamlet: &str) -> bool {
         self.live().any(|h| h.id == hamlet)
     }
 }

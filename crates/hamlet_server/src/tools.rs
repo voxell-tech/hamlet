@@ -24,7 +24,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 use crate::sandbox::path::{self, text};
-use crate::sandbox::{Env, Sandbox, closed_policy, open_policy};
+use crate::sandbox::{
+    Env, FileError, Sandbox, SetupError, closed_policy, open_policy,
+};
 use crate::scrub::scrub_value;
 
 /// The preview of a file the agent may not read as text.
@@ -285,7 +287,7 @@ fn object(value: Value) -> BTreeMap<String, Value> {
 /// Where an agent's tools run, chosen once by
 /// [`crate::papers::Houses::tools`]: this machine under the sandbox,
 /// or a remote workspace, which never falls back to the host.
-pub(crate) enum Session {
+pub(crate) enum ToolSession {
     Local {
         place: Place,
         /// Whether commands reach the network.
@@ -294,11 +296,11 @@ pub(crate) enum Session {
     },
     Remote {
         place: Place,
-        session: crate::workspace::Session,
+        session: crate::workspace::WorkspaceSession,
     },
 }
 
-impl Session {
+impl ToolSession {
     pub fn local(place: Place, net: bool, sandbox: Sandbox) -> Self {
         Self::Local {
             place,
@@ -309,7 +311,7 @@ impl Session {
 
     pub fn remote(
         place: Place,
-        session: crate::workspace::Session,
+        session: crate::workspace::WorkspaceSession,
     ) -> Self {
         Self::Remote { place, session }
     }
@@ -321,7 +323,7 @@ impl Session {
     pub async fn preview(
         &self,
         path: &str,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<String>, FileError> {
         match self {
             Self::Local { place, sandbox, .. } => {
                 let Ok(mut env) =
@@ -342,7 +344,7 @@ impl Session {
     /// Whether an edit of `path` stays in the agent's own house,
     /// where the sandbox keeps it. A remote house is never taken
     /// as one.
-    pub fn house_edit(&self, path: &str) -> bool {
+    pub fn is_house_edit(&self, path: &str) -> bool {
         let Self::Local { place, .. } = self else {
             return false;
         };
@@ -355,7 +357,7 @@ impl Session {
                 !there(&folder) && there(&house)
             });
         let full = footing(path, &house, folder.as_deref(), own);
-        crate::sandbox::within(
+        crate::sandbox::is_within(
             std::path::Path::new(&full),
             &place.house,
         )
@@ -388,9 +390,10 @@ impl Session {
                         Ok(mut env) => {
                             file_run(&mut env, tool, arguments).await
                         }
-                        Err(message) => {
-                            Outcome::thrown("tool_error", message)
-                        }
+                        Err(unopened) => Outcome::thrown(
+                            "tool_error",
+                            unopened.to_string(),
+                        ),
                     }
                 }
                 _ => {
@@ -494,7 +497,7 @@ pub(crate) fn environment(
     sandbox: &Sandbox,
     place: &Place,
     net: bool,
-) -> Result<Env, String> {
+) -> Result<Env, SetupError> {
     let mut policy = match &place.folder {
         None => closed_policy(&place.house, &place.shared),
         Some(folder) => open_policy(
@@ -608,7 +611,7 @@ impl<'a> Arguments<'a> {
 }
 
 /// True for the characters pi's tools take as white space.
-pub(crate) fn pi_space(c: char) -> bool {
+pub(crate) fn is_pi_space(c: char) -> bool {
     (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}'
 }
 

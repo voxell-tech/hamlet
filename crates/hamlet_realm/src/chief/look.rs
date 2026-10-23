@@ -205,18 +205,18 @@ impl Look {
     }
 
     /// The file for the chief's look under the window's folder.
-    pub fn file(view: &Path, user: &str) -> PathBuf {
+    pub fn file(view: &Path, name: &str) -> PathBuf {
         view.join("chiefs")
-            .join(format!("{}.toml", kept_name(user)))
+            .join(format!("{}.toml", kept_name(name)))
     }
 
-    /// Keeps the look of `user`.
+    /// Keeps the look of the chief `name`.
     pub fn write(
         self,
         view: &Path,
-        user: &str,
+        name: &str,
     ) -> std::io::Result<()> {
-        let file = Self::file(view, user);
+        let file = Self::file(view, name);
         if let Some(folder) = file.parent() {
             std::fs::create_dir_all(folder)?;
         }
@@ -226,9 +226,10 @@ impl Look {
     }
 }
 
-/// The name `user`'s files are kept under in the window's folder.
-pub(crate) fn kept_name(user: &str) -> String {
-    user.chars()
+/// The name the files of the chief `name` are kept under in the
+/// window's folder.
+pub(crate) fn kept_name(name: &str) -> String {
+    name.chars()
         .map(|c| {
             if c.is_alphanumeric() || c == '-' || c == '_' {
                 c

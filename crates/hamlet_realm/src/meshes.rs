@@ -112,50 +112,50 @@ pub fn smoothstep(a: f32, b: f32, x: f32) -> f32 {
 
 /// Accumulates triangles with normals, vertex colours and UVs.
 #[derive(Default)]
-pub struct Mb {
-    pos: Vec<[f32; 3]>,
-    nor: Vec<[f32; 3]>,
-    col: Vec<[f32; 4]>,
-    uv: Vec<[f32; 2]>,
-    idx: Vec<u32>,
+pub struct Meshing {
+    positions: Vec<[f32; 3]>,
+    normals: Vec<[f32; 3]>,
+    colors: Vec<[f32; 4]>,
+    uvs: Vec<[f32; 2]>,
+    indices: Vec<u32>,
     /// Applied to everything pushed after it is set.
-    pub xf: Affine3A,
+    pub transform: Affine3A,
 }
 
 use bevy::math::Affine3A;
 
-impl Mb {
+impl Meshing {
     pub fn new() -> Self {
         Self::default()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.idx.is_empty()
+        self.indices.is_empty()
     }
 
     pub fn tris(&self) -> usize {
-        self.idx.len() / 3
+        self.indices.len() / 3
     }
 
     /// True when any vertex was given a UV.
     fn has_uvs(&self) -> bool {
-        self.uv.iter().any(|uv| *uv != [0.0; 2])
+        self.uvs.iter().any(|uv| *uv != [0.0; 2])
     }
 
     /// True when every index fits in 16 bits.
     fn is_small(&self) -> bool {
-        self.pos.len() <= u16::MAX as usize + 1
+        self.positions.len() <= u16::MAX as usize + 1
     }
 
     /// Bytes of vertex and index data the built mesh holds.
     pub fn bytes(&self) -> usize {
         let vertex = if self.has_uvs() { 48 } else { 40 };
         let index = if self.is_small() { 2 } else { 4 };
-        self.pos.len() * vertex + self.idx.len() * index
+        self.positions.len() * vertex + self.indices.len() * index
     }
 
-    pub fn at(&mut self, xf: Affine3A) -> &mut Self {
-        self.xf = xf;
+    pub fn at(&mut self, transform: Affine3A) -> &mut Self {
+        self.transform = transform;
         self
     }
 
@@ -170,25 +170,26 @@ impl Mb {
         c: Vec3,
         uv: Vec2,
     ) -> u32 {
-        let p = self.xf.transform_point3(p);
-        let n = self.xf.transform_vector3(n).normalize_or_zero();
-        self.pos.push(p.to_array());
-        self.nor.push(n.to_array());
-        self.col.push([c.x, c.y, c.z, 1.0]);
-        self.uv.push(uv.to_array());
-        self.pos.len() as u32 - 1
+        let p = self.transform.transform_point3(p);
+        let n =
+            self.transform.transform_vector3(n).normalize_or_zero();
+        self.positions.push(p.to_array());
+        self.normals.push(n.to_array());
+        self.colors.push([c.x, c.y, c.z, 1.0]);
+        self.uvs.push(uv.to_array());
+        self.positions.len() as u32 - 1
     }
 
     /// A triangle wound so that it faces the way its vertex normals
     /// point.
     pub fn tri(&mut self, a: u32, b: u32, c: u32) {
-        let p = |i: u32| Vec3::from(self.pos[i as usize]);
-        let n = |i: u32| Vec3::from(self.nor[i as usize]);
+        let p = |i: u32| Vec3::from(self.positions[i as usize]);
+        let n = |i: u32| Vec3::from(self.normals[i as usize]);
         let face = (p(b) - p(a)).cross(p(c) - p(a));
         if face.dot(n(a) + n(b) + n(c)) < 0.0 {
-            self.idx.extend([a, c, b]);
+            self.indices.extend([a, c, b]);
         } else {
-            self.idx.extend([a, b, c]);
+            self.indices.extend([a, b, c]);
         }
     }
 
@@ -392,7 +393,7 @@ impl Mb {
         col: impl Fn(Vec3) -> Vec3,
     ) {
         let segs = rings * 2;
-        let start = self.pos.len();
+        let start = self.positions.len();
         let mut grid = vec![vec![0u32; segs + 1]; rings + 1];
         for (i, row) in grid.iter_mut().enumerate() {
             let phi = i as f32 / rings as f32 * PI;
@@ -437,12 +438,12 @@ impl Mb {
         }
         // The squash and lumps bend the surface, so nudge normals to
         // match.
-        for k in start..self.pos.len() {
-            let n = Vec3::from(self.nor[k]);
-            let local = self.xf.inverse().transform_vector3(n);
+        for k in start..self.positions.len() {
+            let n = Vec3::from(self.normals[k]);
+            let local = self.transform.inverse().transform_vector3(n);
             let squashed = (local / r).normalize_or_zero();
-            self.nor[k] = self
-                .xf
+            self.normals[k] = self
+                .transform
                 .transform_vector3(squashed)
                 .normalize_or_zero()
                 .to_array();
@@ -491,32 +492,35 @@ impl Mb {
         // draws nothing. Bevy's mesh allocator gives a mesh without
         // vertices no room and then logs a use-after-free as it
         // copies it in.
-        if self.pos.is_empty() {
-            self.xf = Affine3A::IDENTITY;
+        if self.positions.is_empty() {
+            self.transform = Affine3A::IDENTITY;
             let at = self.v(Vec3::ZERO, Vec3::Y, Vec3::ZERO);
-            self.pos.extend([[0.0; 3]; 2]);
-            self.nor.extend([[0.0, 1.0, 0.0]; 2]);
-            self.col.extend([self.col[0]; 2]);
-            self.uv.extend([[0.0; 2]; 2]);
-            self.idx = vec![at, at + 1, at + 2];
+            self.positions.extend([[0.0; 3]; 2]);
+            self.normals.extend([[0.0, 1.0, 0.0]; 2]);
+            self.colors.extend([self.colors[0]; 2]);
+            self.uvs.extend([[0.0; 2]; 2]);
+            self.indices = vec![at, at + 1, at + 2];
         }
-        let (uvs, small) = (self.has_uvs(), self.is_small());
+        let (has_uvs, is_small) = (self.has_uvs(), self.is_small());
         let mut mesh = Mesh::new(
             PrimitiveTopology::TriangleList,
             RenderAssetUsages::RENDER_WORLD,
         )
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, self.pos)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, self.nor)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, self.col);
-        if uvs {
-            mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, self.uv);
+        .with_inserted_attribute(
+            Mesh::ATTRIBUTE_POSITION,
+            self.positions,
+        )
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, self.normals)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, self.colors);
+        if has_uvs {
+            mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, self.uvs);
         }
-        mesh.with_inserted_indices(if small {
+        mesh.with_inserted_indices(if is_small {
             Indices::U16(
-                self.idx.into_iter().map(|i| i as u16).collect(),
+                self.indices.into_iter().map(|i| i as u16).collect(),
             )
         } else {
-            Indices::U32(self.idx)
+            Indices::U32(self.indices)
         })
     }
 }
@@ -602,7 +606,7 @@ mod tests {
 
     #[test]
     fn a_mesh_of_nothing_still_has_vertices() {
-        let mesh = Mb::new().build();
+        let mesh = Meshing::new().build();
         assert_eq!(mesh.count_vertices(), 3);
         assert!(mesh.get_vertex_buffer_size() > 0);
     }

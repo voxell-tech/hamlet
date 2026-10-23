@@ -3,7 +3,6 @@
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 use serde::Deserialize;
-use serde_json::{Value, json};
 
 use super::{
     Agreed, End, Move, Pending, Realm, Removal, Road, read, resolve,
@@ -12,12 +11,14 @@ use super::{
 use crate::Outcome;
 use crate::harness::Harnesses;
 use crate::limits::Limits;
+use crate::protocol::Refusal;
 use crate::record::{
     self, Actor, AgentRef, Audience, Change, RecordOperation,
     RecordResult,
 };
 use crate::service::Service;
-use crate::society::{self, Caller, outcome};
+use crate::society::letters::Message;
+use crate::society::{self, Caller, Notice, SocietyOutcome};
 
 /// The arguments of `ask_removal`.
 #[derive(Deserialize)]
@@ -50,7 +51,7 @@ pub(crate) async fn ask_removal(
     harnesses: &mut Harnesses,
     caller: &Caller<'_>,
     given: AskRemoval,
-) -> Result<Option<Value>> {
+) -> Result<Option<SocietyOutcome>> {
     let limits = service.limits_of("home")?;
     deal(
         service,
@@ -70,7 +71,7 @@ pub(crate) async fn agree_road(
     harnesses: &mut Harnesses,
     caller: &Caller<'_>,
     given: AgreeRoad,
-) -> Result<Option<Value>> {
+) -> Result<Option<SocietyOutcome>> {
     let limits = service.limits_of("home")?;
     deal(
         service,
@@ -98,7 +99,7 @@ pub(crate) async fn agree_move(
     harnesses: &mut Harnesses,
     caller: &Caller<'_>,
     given: AgreeMove,
-) -> Result<Option<Value>> {
+) -> Result<Option<SocietyOutcome>> {
     let task = caller.task.clone();
     deal(
         service,
@@ -126,10 +127,10 @@ async fn deal(
         &mut Realm,
         &AgentRef,
         &str,
-    ) -> Result<Value>,
-) -> Result<Option<Value>> {
+    ) -> Result<SocietyOutcome>,
+) -> Result<Option<SocietyOutcome>> {
     let from = &caller.place.agent;
-    let value = society::once(
+    let outcome = society::once(
         service.home.store(),
         &crate::OperationId {
             runtime: crate::RuntimeInstance::new("realm-agreements")?,
@@ -142,15 +143,14 @@ async fn deal(
         |db| {
             let mut realm = read(db)?;
             let own = record::read(db, &from.hamlet)?;
-            if !realm.lives(&from.hamlet)
+            if !realm.is_living(&from.hamlet)
                 || realm.live().count() < 2
                 || own
                     .as_ref()
                     .is_none_or(|r| r.require_mayor(from).is_some())
             {
-                return Ok(outcome(
+                return Ok(SocietyOutcome::failed(
                     "Only a mayor of a living hamlet can do that.",
-                    true,
                 ));
             }
             if let Some(held) = own.as_ref().and_then(|r| {
@@ -159,16 +159,14 @@ async fn deal(
                     record::Action::Mayor,
                 )
             }) {
-                return Ok(outcome(
-                    &held.text(Audience::Agent),
-                    true,
+                return Ok(SocietyOutcome::failed(
+                    held.text(Audience::Agent),
                 ));
             }
             let reason = reason.trim();
             if reason.is_empty() {
-                return Ok(outcome(
+                return Ok(SocietyOutcome::failed(
                     "say why in `reason`; the chief is shown it",
-                    true,
                 ));
             }
             make(db, &mut realm, from, reason)
@@ -185,26 +183,22 @@ async fn deal(
         }
     }
     finish(service)?;
-    if !value["ask"].is_null()
-        && society::letters::ask(
-            service,
-            harnesses,
-            caller,
-            serde_json::from_value(value["ask"].clone())?,
-        )
-        .await?
-        .is_none()
+    if let Some(ask) = outcome.ask.clone()
+        && society::letters::ask(service, harnesses, caller, ask)
+            .await?
+            .is_none()
     {
         return Ok(None);
     }
-    if let Some(hamlet) = value["notice"]["hamlet"].as_str()
-        && let Some(r) = service.home.store().record(hamlet)?
+    if let Some(notice) = &outcome.notice
+        && let Some(r) =
+            service.home.store().record(&notice.hamlet)?
     {
         let binding = crate::chats::current(
             service,
             harnesses,
             &AgentRef {
-                hamlet: hamlet.into(),
+                hamlet: notice.hamlet.clone(),
                 number: r.mayor,
             },
         )
@@ -218,13 +212,13 @@ async fn deal(
                 caller.id.runtime.as_str(),
                 caller.id.key
             ),
-            value["notice"]["text"].as_str().unwrap_or_default(),
+            &notice.text,
             false,
         )
         .await?;
     }
     society::reconfigure(service, harnesses).await?;
-    Ok(Some(value))
+    Ok(Some(outcome))
 }
 
 /// Records the mayor `from`'s ask that a hamlet be removed.
@@ -235,9 +229,10 @@ fn removal(
     reason: &str,
     id: &str,
     limits: &Limits,
-) -> Result<Value> {
-    if !realm.lives(id) {
-        return Ok(outcome(&format!("no hamlet named `{id}`"), true));
+) -> Result<SocietyOutcome> {
+    if !realm.is_living(id) {
+        let refusal = Refusal::NoHamlet(id.into());
+        return Ok(SocietyOutcome::failed(refusal.to_string()));
     }
     realm.removals.push(Removal {
         hamlet: id.into(),
@@ -248,7 +243,7 @@ fn removal(
     let asked = realm
         .removals
         .iter()
-        .filter(|r| r.hamlet == id && realm.lives(&r.by))
+        .filter(|r| r.hamlet == id && realm.is_living(&r.by))
         .map(|r| r.by.as_str())
         .collect::<std::collections::BTreeSet<_>>();
     let ready = asked.contains(id)
@@ -266,9 +261,13 @@ fn removal(
         }
     );
     write(db, realm)?;
-    let mut result = outcome(&text, false);
-    result["notice"] = json!({"hamlet":id,"text":text});
-    Ok(result)
+    Ok(SocietyOutcome {
+        notice: Some(Notice {
+            hamlet: id.into(),
+            text: text.clone(),
+        }),
+        ..SocietyOutcome::answered(text)
+    })
 }
 
 /// Records the mayor `from`'s agreement to a road between hamlets.
@@ -279,11 +278,10 @@ fn road(
     reason: &str,
     ends_named: [&str; 2],
     limits: &Limits,
-) -> Result<Value> {
+) -> Result<SocietyOutcome> {
     if !limits.hamlets.roads_between {
-        return Ok(outcome(
+        return Ok(SocietyOutcome::failed(
             "The chief does not allow roads between hamlets.",
-            true,
         ));
     }
     let mut ends = Vec::new();
@@ -291,7 +289,9 @@ fn road(
         match resolve(db, &from.hamlet, address)? {
             Ok(resolved) => ends.push(resolved.agent),
             Err(error) => {
-                return Ok(outcome(&error.text(address), true));
+                return Ok(SocietyOutcome::failed(
+                    error.text(address),
+                ));
             }
         }
     }
@@ -300,19 +300,17 @@ fn road(
         if record::read(db, &end.hamlet)?
             .is_some_and(|r| r.mayor == end.number)
         {
-            return Ok(outcome(
+            return Ok(SocietyOutcome::failed(
                 "The mayors already have an office road; agree to a \
                  road between other agents.",
-                true,
             ));
         }
     }
     if a.hamlet == b.hamlet
         || (a.hamlet != from.hamlet && b.hamlet != from.hamlet)
     {
-        return Ok(outcome(
+        return Ok(SocietyOutcome::failed(
             "Agree to a road between your hamlet and another hamlet.",
-            true,
         ));
     }
     let pair = |r: &Road| {
@@ -336,10 +334,9 @@ fn road(
         });
     }
     write(db, realm)?;
-    let mut result = outcome(
+    let mut result = SocietyOutcome::answered(
         "The road agreement is recorded; it works once both mayors \
          agree.",
-        false,
     );
     if realm
         .roads
@@ -352,7 +349,14 @@ fn road(
         } else {
             &a.hamlet
         };
-        result["ask"] = json!({"name":format!("mayor@{other}"),"message":format!("Please consider agreeing to a road between {}#{} and {}#{}. {reason}",a.hamlet,a.number,b.hamlet,b.number)});
+        result.ask = Some(Message {
+            name: format!("mayor@{other}"),
+            message: format!(
+                "Please consider agreeing to a road between {}#{} \
+                 and {}#{}. {reason}",
+                a.hamlet, a.number, b.hamlet, b.number
+            ),
+        });
     }
     Ok(result)
 }
@@ -366,29 +370,27 @@ fn moving(
     reason: &str,
     given: &AgreeMove,
     task: Option<String>,
-) -> Result<Value> {
+) -> Result<SocietyOutcome> {
     let address = &given.agent;
     let agent = match resolve(db, &from.hamlet, address)? {
         Ok(r) => r.agent,
         Err(error) => {
-            return Ok(outcome(&error.text(address), true));
+            return Ok(SocietyOutcome::failed(error.text(address)));
         }
     };
     let to = given.to.as_str();
-    if !realm.lives(to)
+    if !realm.is_living(to)
         || agent.hamlet == to
         || (from.hamlet != agent.hamlet && from.hamlet != to)
     {
-        return Ok(outcome(
+        return Ok(SocietyOutcome::failed(
             "A move needs the agent's mayor and the receiving mayor.",
-            true,
         ));
     }
     if realm.pending.is_some() {
-        return Ok(outcome(
+        return Ok(SocietyOutcome::failed(
             "A house move is still pending; finish it before \
              another move.",
-            true,
         ));
     }
     let old = record::read(db, &agent.hamlet)?
@@ -399,12 +401,13 @@ fn moving(
     if let Some(held) =
         other.may_decide(crate::clock::now(), record::Action::Move)
     {
-        return Ok(outcome(&held.text(Audience::Agent), true));
+        return Ok(SocietyOutcome::failed(
+            held.text(Audience::Agent),
+        ));
     }
     if agent.number == old.mayor {
-        return Ok(outcome(
+        return Ok(SocietyOutcome::failed(
             "A mayor cannot move to another hamlet.",
-            true,
         ));
     }
     let keep = given
@@ -450,14 +453,20 @@ fn moving(
     });
     if moving.agreed.len() < 2 {
         write(db, realm)?;
-        let mut result = outcome(
-            "The move is proposed; the other mayor must agree.",
-            false,
-        );
         let other =
             if from.hamlet == to { &agent.hamlet } else { to };
-        result["ask"] = json!({"name":format!("mayor@{other}"),"message":format!("Please consider agreeing to move {address} to {to}. {reason}")});
-        return Ok(result);
+        return Ok(SocietyOutcome {
+            ask: Some(Message {
+                name: format!("mayor@{other}"),
+                message: format!(
+                    "Please consider agreeing to move {address} to \
+                     {to}. {reason}"
+                ),
+            }),
+            ..SocietyOutcome::answered(
+                "The move is proposed; the other mayor must agree.",
+            )
+        });
     }
     let keep = moving.agreed[0]
         .keep
@@ -491,7 +500,9 @@ fn moving(
     let moved = match result {
         Outcome::Done(RecordResult::Moved(moved)) => moved,
         Outcome::Refused(refusal) => {
-            return Ok(outcome(&refusal.text(Audience::Agent), true));
+            return Ok(SocietyOutcome::failed(
+                refusal.text(Audience::Agent),
+            ));
         }
         _ => anyhow::bail!("unexpected move result"),
     };
@@ -565,9 +576,8 @@ fn moving(
         to: moved,
     });
     write(db, realm)?;
-    Ok(outcome(
+    Ok(SocietyOutcome::answered(
         "The agent moved with its house and agreed roads.",
-        false,
     ))
 }
 

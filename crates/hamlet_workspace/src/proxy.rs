@@ -68,7 +68,7 @@ async fn forward(mut client: UnixStream) -> Result<()> {
     .await??
     .collect::<Vec<_>>();
     if addresses.is_empty()
-        || addresses.iter().any(|address| !public(address.ip()))
+        || addresses.iter().any(|address| !is_public(address.ip()))
     {
         client.write_all(b"HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n").await?;
         return Ok(());
@@ -121,9 +121,9 @@ async fn forward(mut client: UnixStream) -> Result<()> {
     Ok(())
 }
 
-fn public(address: IpAddr) -> bool {
+fn is_public(address: IpAddr) -> bool {
     match address {
-        IpAddr::V4(address) => public_v4(address),
+        IpAddr::V4(address) => is_public_v4(address),
         IpAddr::V6(address) => {
             let bits = address.segments();
             // Global unicast only, excluding transition and
@@ -137,7 +137,7 @@ fn public(address: IpAddr) -> bool {
     }
 }
 
-fn public_v4(address: Ipv4Addr) -> bool {
+fn is_public_v4(address: Ipv4Addr) -> bool {
     let [a, b, c, _] = address.octets();
     !matches!(
         (a, b, c),
@@ -183,7 +183,7 @@ mod tests {
             "2002:0808:0808::1",
         ] {
             assert!(
-                !public(address.parse().expect("address")),
+                !is_public(address.parse().expect("address")),
                 "{address}"
             );
         }
@@ -196,7 +196,7 @@ mod tests {
             "2606:4700:4700::1111",
         ] {
             assert!(
-                public(address.parse().expect("address")),
+                is_public(address.parse().expect("address")),
                 "{address}"
             );
         }

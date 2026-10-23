@@ -67,7 +67,7 @@ pub(super) fn start(world: &mut World, provider: &str, key: bool) {
     let id = world.resource_mut::<Outbox>().send(|id| {
         protocol::ClientMessage::Login(protocol::Login::Start {
             id,
-            start: protocol::LoginStartStart {
+            start: protocol::LoginStart {
                 provider: provider.clone(),
                 method,
             },
@@ -135,7 +135,7 @@ pub(super) fn reply(world: &mut World) {
     let request = world.resource_mut::<Outbox>().send(|request| {
         protocol::ClientMessage::Login(protocol::Login::Reply {
             id: request,
-            reply: protocol::LoginReplyReply {
+            reply: protocol::LoginReply {
                 login: id,
                 value: answer,
             },
@@ -145,17 +145,24 @@ pub(super) fn reply(world: &mut World) {
     world.resource_mut::<Welcome>().asking = true;
 }
 
+/// Whether a response was one the sign-in waits for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Received {
+    Login,
+    Other,
+}
+
 pub(super) fn receive(
     world: &mut World,
     response: &Response,
-) -> bool {
+) -> Received {
     if world.resource_mut::<Login>().abandoned.remove(&response.to) {
         if let protocol::ServerMessage::Login(progress) =
             &response.message
         {
             send_cancel(world, progress.login.clone());
         }
-        return true;
+        return Received::Login;
     }
     if world.resource_mut::<Login>().replies.remove(&response.to) {
         let failure = match &response.message {
@@ -174,11 +181,11 @@ pub(super) fn receive(
             welcome.problem = Some(problem);
             welcome.asking = false;
         }
-        return true;
+        return Received::Login;
     }
     if world.resource::<Login>().start.as_ref() != Some(&response.to)
     {
-        return false;
+        return Received::Other;
     }
     let step = match &response.message {
         protocol::ServerMessage::Login(progress) => {
@@ -198,12 +205,12 @@ pub(super) fn receive(
                 failed: reply.text.clone(),
             }
         }
-        _ => return true,
+        _ => return Received::Login,
     };
     match step {
         protocol::LoginStep::Url { url, instructions } => {
             if !world.resource::<Login>().urls.contains(&url) {
-                if browsable(&url) {
+                if is_browsable(&url) {
                     let browse = world.resource::<Browser>().0;
                     browse(world, &url);
                 }
@@ -253,10 +260,10 @@ pub(super) fn receive(
             welcome.problem = Some(failed);
         }
     }
-    true
+    Received::Login
 }
 
-fn browsable(text: &str) -> bool {
+fn is_browsable(text: &str) -> bool {
     let Ok(url) = reqwest::Url::parse(text) else {
         return false;
     };

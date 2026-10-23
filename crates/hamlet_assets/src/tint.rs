@@ -45,8 +45,10 @@ impl Written {
 
 /// Linear RGB from an sRGB hex string such as `#C9B98F`.
 pub fn hex(s: &str) -> Vec3 {
-    LinearRgba::from(Srgba::hex(s).expect("valid hex colour"))
-        .to_vec3()
+    LinearRgba::from(
+        Srgba::hex(s).expect("a colour written in code is valid hex"),
+    )
+    .to_vec3()
 }
 
 pub fn deserialize<'de, D: Deserializer<'de>>(

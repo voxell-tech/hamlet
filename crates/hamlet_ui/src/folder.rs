@@ -194,7 +194,7 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
 #[cfg(test)]
 mod tests {
     use hamlet_client::outbox::Outbox;
-    use hamlet_client::realm::Settlement;
+    use hamlet_client::realm::HamletId;
     use hamlet_protocol::client as protocol;
 
     use super::*;
@@ -219,7 +219,7 @@ mod tests {
         );
         let hamlet = app
             .world_mut()
-            .query::<(Entity, &Settlement)>()
+            .query::<(Entity, &HamletId)>()
             .iter(app.world())
             .next()
             .unwrap()

@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 use bevy::ecs::world::World;
 use hamlet_client::chats::{Chat, Status, Usage};
-use hamlet_client::{ViewDir, realm};
+use hamlet_client::{ViewFolder, realm};
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Also, Selected, Thing};
 use hamlet_ui::Me;
@@ -68,13 +68,13 @@ pub(super) fn setup(world: &mut World) {
     world.insert_resource(Me {
         session,
         to,
-        user: "chief".into(),
+        name: "chief".into(),
         agent,
         with: None,
     });
     world.init_resource::<Also>();
-    world.insert_resource(Selected(Some(Thing::Resident(agent))));
-    world.insert_resource(ViewDir(scratch().join("window")));
+    world.insert_resource(Selected(Some(Thing::Agent(agent))));
+    world.insert_resource(ViewFolder(scratch().join("window")));
     menu::setup(world, scene);
     settings::setup(world, scene);
     inspector::setup(world, scene);

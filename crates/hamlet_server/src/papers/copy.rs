@@ -1,6 +1,6 @@
 //! Verified copies of house trees, including empty folders and
 //! ordinary modes: one snapshot read and one tree write for every
-//! backend.
+//! workspace.
 
 use std::collections::BTreeMap;
 
@@ -9,7 +9,7 @@ use hamlet_workspace_wire::{
     TREE_BYTES, TREE_ENTRIES, TreeEntry, TreeKind,
 };
 
-use super::files::{Files, same_bytes};
+use super::files::{Files, has_bytes};
 use super::tree::Entry;
 
 /// Links and special files met while copying a tree that refuses
@@ -62,7 +62,7 @@ impl Snapshot {
                     let bytes =
                         source.read_file(&entry.path, cap).await?;
                     ensure!(
-                        same_bytes(&entry, &bytes),
+                        has_bytes(&entry, &bytes),
                         "The tree changed while it was copied. \
                          Inspect it before retrying."
                     );
@@ -238,7 +238,7 @@ impl Snapshot {
                                 .unwrap_or(".");
                             actual.iter().any(|actual| {
                                 actual.path == relative
-                                    && same(
+                                    && is_same(
                                         actual,
                                         entry,
                                         &self.files,
@@ -283,7 +283,7 @@ impl Snapshot {
             for path in claimed.into_iter().rev() {
                 complete &= target.remove(path, false).await.is_ok();
             }
-            if crate::workspace::uncertain(&error) {
+            if crate::workspace::is_uncertain(&error) {
                 bail!(Stopped(
                     "The workspace did not confirm the tree \
                      operation, so part of it may have happened. \
@@ -326,7 +326,7 @@ impl Snapshot {
             }
             if self.entries.iter().any(|wanted| {
                 wanted.path == entry.path
-                    && (same(&entry, wanted, &self.files)
+                    && (is_same(&entry, wanted, &self.files)
                         || wanted.kind == TreeKind::Directory
                             && entry.kind == TreeKind::Directory)
             }) {
@@ -353,7 +353,7 @@ impl Snapshot {
                     |actual| actual.path == entry.path
                         && (entry.path == "."
                             && actual.kind == TreeKind::Directory
-                            || same(actual, entry, &self.files))
+                            || is_same(actual, entry, &self.files))
                 )),
             "The copy did not match it afterwards."
         );
@@ -373,7 +373,7 @@ fn folder(path: &str) -> TreeEntry {
 
 /// Whether the listed `actual` is the snapshot's `wanted`, whose
 /// bytes are in `files`.
-fn same(
+fn is_same(
     actual: &TreeEntry,
     wanted: &TreeEntry,
     files: &BTreeMap<String, Entry>,
@@ -381,7 +381,7 @@ fn same(
     actual.kind == wanted.kind
         && actual.mode & 0o777 == wanted.mode & 0o777
         && (actual.kind != TreeKind::File
-            || files.get(&wanted.path).is_some_and(|entry| {
-                same_bytes(actual, &entry.bytes)
-            }))
+            || files
+                .get(&wanted.path)
+                .is_some_and(|entry| has_bytes(actual, &entry.bytes)))
 }

@@ -150,7 +150,7 @@ async fn start_login(
     c: &mut Client,
     provider: &str,
 ) -> LoginProgress {
-    let start = LoginStartStart {
+    let start = LoginStart {
         method: LoginMethod::Key,
         provider: provider.into(),
     };
@@ -169,7 +169,7 @@ async fn finish_login(
     login: &str,
     value: &str,
 ) -> LoginStep {
-    let reply = LoginReplyReply {
+    let reply = LoginReply {
         login: login.into(),
         value: value.into(),
     };
@@ -278,7 +278,7 @@ async fn signs_in_with_a_key_without_sending_it_to_any_client() {
     assert_eq!(stored["models"]["openai"]["key"], "sk-openai-own");
     // A login answers only the connection that started it.
     let again = start_login(&mut s.chief, "openai").await;
-    let reply = LoginReplyReply {
+    let reply = LoginReply {
         login: again.login.clone(),
         value: "sk-other".into(),
     };
@@ -606,7 +606,7 @@ async fn reads_fixed_usage_and_preserves_an_explicit_zero_bill() {
         (1, 17000, 1240, 424900)
     );
     assert_eq!(page.usage.summary, "18.2k tok, $0.42");
-    assert!(s.chief.ops(&chat(mayor())).iter().any(|op| matches!(op, Op::Usage { usage } if usage.summary == page.usage.summary)));
+    assert!(s.chief.operations(&chat(mayor())).iter().any(|operation| matches!(operation, TranscriptOperation::Usage { usage } if usage.summary == page.usage.summary)));
     s.chief
         .request(|id| {
             ClientMessage::Edit(Edit::Catalogue {
@@ -1257,7 +1257,7 @@ async fn charges_a_summary_to_the_cut_off_task_not_the_queued_line() {
     let first = s.chief.tell(mayor(), "Cut off.").await;
     endpoint.completions(3).await;
     let queued = s.chief.tell(mayor(), "Queued.").await;
-    s.chief.until("the queued task", |c| c.messages().iter().any(|m| matches!(m, ServerMessage::Turn(t) if t.ops.iter().any(|o| matches!(o, Op::Status { pending, .. } if *pending == 1))))).await;
+    s.chief.until("the queued task", |c| c.messages().iter().any(|m| matches!(m, ServerMessage::Turn(t) if t.operations.iter().any(|o| matches!(o, TranscriptOperation::Status { pending, .. } if *pending == 1))))).await;
     std::fs::write(release, "").unwrap();
     s.chief.reply(&first).await;
     s.chief.reply(&queued).await;

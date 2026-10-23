@@ -38,7 +38,7 @@ impl Harnesses {
         for binding in store.bindings_of(&runtime_id)? {
             let Some(conversation) = binding.conversation.clone()
             else {
-                if !self.session.in_flight(index, |p| {
+                if !self.session.is_in_flight(index, |p| {
                     matches!(p, Pending::Create(b) if *b == binding.id)
                 }) {
                     self.make(store, index, &binding).await?;
@@ -48,7 +48,7 @@ impl Harnesses {
             // No later input reaches pi until the cancel is durably
             // acknowledged.
             if store.cancelling(binding.id)? {
-                if !self.session.in_flight(index, |p| {
+                if !self.session.is_in_flight(index, |p| {
                     matches!(p, Pending::Cancel(b) if *b == binding.id)
                 }) {
                     self.send_cancel(index, binding.id, conversation)
@@ -59,7 +59,7 @@ impl Harnesses {
             // The tools a conversation offers reach pi before the
             // inputs kept after they changed.
             if let Some(tools) = store.tools_owed(binding.id)? {
-                if !self.session.in_flight(index, |p| {
+                if !self.session.is_in_flight(index, |p| {
                     matches!(p, Pending::Configure(b, _) if *b == binding.id)
                 }) {
                     let told = serde_json::to_string(&tools)?;
@@ -91,7 +91,7 @@ impl Harnesses {
                 choices.select(store, &binding.agent)?.context_window;
             for owed in owed {
                 let request = owed.request.clone();
-                if self.session.in_flight(index, |p| {
+                if self.session.is_in_flight(index, |p| {
                     matches!(p, Pending::Submit(b, r) if *b == binding.id && *r == request)
                 }) {
                     continue;

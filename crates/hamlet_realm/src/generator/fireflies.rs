@@ -22,8 +22,8 @@ pub(super) fn keep(
     society: Res<Society>,
     swarms: Query<(Entity, &Fireflies, &Transform)>,
 ) {
-    let out = sparks.as_ref().is_some_and(|s| s.any())
-        && sky_set.night(sky.hour);
+    let out = sparks.as_ref().is_some_and(|s| s.has_particles())
+        && sky_set.is_night(sky.hour);
     // A swarm stays where its town stands.
     let strayed = |of: TownId, at: &Transform| {
         society.town(of).is_none_or(|town| {

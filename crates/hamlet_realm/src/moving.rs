@@ -469,13 +469,16 @@ fn keys(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::generator::GenSettings;
+    use crate::generator::GeneratorSettings;
     use crate::generator::society::TownId;
 
     fn app() -> (App, TownId) {
         let mut app = App::new();
-        let mut land =
-            Land::new(1, GenSettings::default(), Palette::default());
+        let mut land = Land::new(
+            1,
+            GeneratorSettings::default(),
+            Palette::default(),
+        );
         let mut society = Society::default();
         let town = society.found_town(&mut land);
         society.found_town(&mut land);

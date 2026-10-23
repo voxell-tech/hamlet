@@ -52,7 +52,9 @@ pub(crate) fn plugin(app: &mut App) {
         .add_systems(
             PostUpdate,
             run_committed
-                .run_if(|pending: Res<Committing>| pending.waits())
+                .run_if(|pending: Res<Committing>| {
+                    pending.is_pending()
+                })
                 .after(InputFocusSystems::FocusChangeEvents),
         );
 }
@@ -97,7 +99,7 @@ enum Asked {
 pub(crate) struct Committing(bool);
 
 impl Committing {
-    pub(crate) fn waits(&self) -> bool {
+    pub(crate) fn is_pending(&self) -> bool {
         self.0
     }
 }
@@ -203,7 +205,9 @@ fn pick(world: &mut World, model: &str) {
 fn answered(response: On<Response>, mut commands: Commands) {
     let response = response.event().clone();
     commands.queue(move |world: &mut World| {
-        if providers::receive(world, &response) {
+        if providers::receive(world, &response)
+            == providers::Received::Login
+        {
             return;
         }
         let asked = world

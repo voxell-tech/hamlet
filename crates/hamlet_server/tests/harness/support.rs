@@ -14,6 +14,7 @@ use hamlet_server::{
 };
 use hamlet_testing::{Scratch, strip_overrides};
 use rusqlite::{Connection, OpenFlags};
+use rustix::process::{Pid, Signal, kill_process, test_kill_process};
 use serde_json::{Value, json};
 
 /// How long a step may take before the test fails.
@@ -587,23 +588,25 @@ impl Drop for Driver {
     }
 }
 
+fn process(pid: u32) -> Pid {
+    Pid::from_raw(pid as i32).expect("a process id")
+}
+
 /// Kills the process `pid` at once.
 pub fn kill(pid: u32) {
-    // SAFETY: kill sends a signal to a PID and has no preconditions.
-    let sent = unsafe { libc::kill(pid as i32, libc::SIGKILL) };
-    assert_eq!(sent, 0, "no process {pid}");
+    kill_process(process(pid), Signal::KILL)
+        .unwrap_or_else(|_| panic!("no process {pid}"));
 }
 
 /// Whether the process `pid` still runs.
-pub fn alive(pid: u32) -> bool {
-    // SAFETY: signal 0 only checks that the PID exists.
-    unsafe { libc::kill(pid as i32, 0) == 0 }
+fn is_alive(pid: u32) -> bool {
+    test_kill_process(process(pid)).is_ok()
 }
 
 /// Waits until the process `pid` is gone.
 pub fn gone(pid: u32) {
     let deadline = Instant::now() + PATIENCE;
-    while alive(pid) {
+    while is_alive(pid) {
         assert!(
             Instant::now() < deadline,
             "process {pid} still runs"

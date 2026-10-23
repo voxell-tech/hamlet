@@ -21,7 +21,8 @@ fn an_explicit_server_without_its_token_fails_in_words() {
     let words = ServerAddress::find(|key| {
         (key == "HAMLET_SERVER").then(|| "ws://127.0.0.1:7313".into())
     })
-    .unwrap_err();
+    .unwrap_err()
+    .to_string();
     assert!(words.contains("HAMLET_SERVER needs HAMLET_TOKEN"));
 }
 
@@ -52,7 +53,8 @@ fn a_home_without_a_server_says_how_to_start_one() {
     let words = ServerAddress::find(|key| {
         (key == "HAMLET_HOME").then(|| home.display().to_string())
     })
-    .unwrap_err();
+    .unwrap_err()
+    .to_string();
     assert_eq!(
         words,
         format!(

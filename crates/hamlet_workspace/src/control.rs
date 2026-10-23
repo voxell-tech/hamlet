@@ -86,11 +86,11 @@ pub struct ActorView {
 }
 
 impl ActorView {
-    pub fn running(&self) -> bool {
+    pub fn is_running(&self) -> bool {
         self.state == ActorState::Running as i32
     }
 
-    pub fn suspended(&self) -> bool {
+    pub fn is_suspended(&self) -> bool {
         self.state == ActorState::Suspended as i32
             || self.state == ActorState::Suspending as i32
     }

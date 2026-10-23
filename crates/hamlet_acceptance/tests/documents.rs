@@ -62,7 +62,7 @@ async fn edits_and_reads_the_charter_character_and_notes() {
     let charter = s.chief.read(|id| Read::Charter { id }).await;
     assert!(
         matches!(&charter, ServerMessage::Read(ReadResult::Charter { charter, .. })
-            if charter == &ReadResultCharterCharter { own: true, text: "Be brief.".into() }),
+            if charter == &Charter { own: true, text: "Be brief.".into() }),
         "{charter:?}"
     );
     let prompt = s.chief.prompt(mayor()).await;

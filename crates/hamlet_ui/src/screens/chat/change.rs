@@ -240,7 +240,7 @@ pub(crate) fn change_view(
     let path = change.path.clone();
     let file = keyed(
         component::<Transcript, _>(session, |t| {
-            t.is_some_and(Transcript::answering)
+            t.is_some_and(Transcript::is_answering)
         }),
         move |_| {
             markdown::typed(&path, "")

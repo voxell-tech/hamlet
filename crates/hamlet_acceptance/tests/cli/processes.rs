@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use hamlet_acceptance::Cli;
 use hamlet_testing::{Home, Script, cli, openai};
+use rustix::process::{Pid, Signal, kill_process};
 use serde_json::Value;
 
 struct Local(Home);
@@ -18,10 +19,10 @@ impl Drop for Local {
             && let Some(pid) = record["pid"].as_i64()
             && let Ok(pid) = i32::try_from(pid)
             && pid > 0
+            && let Some(pid) = Pid::from_raw(pid)
         {
-            // SAFETY: the positive PID belongs to this test's scratch
-            // server.
-            unsafe { libc::kill(pid, libc::SIGTERM) };
+            // The scratch server may have stopped already.
+            let _ = kill_process(pid, Signal::TERM);
         }
     }
 }

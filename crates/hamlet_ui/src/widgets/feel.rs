@@ -80,7 +80,7 @@ pub enum Mood {
 
 impl Mood {
     /// The pointer coming onto it is heard.
-    fn ticks(self) -> bool {
+    fn has_tick(self) -> bool {
         matches!(
             self,
             Self::Plain | Self::Ink | Self::Good | Self::Bad

@@ -407,11 +407,12 @@ The server checks start the server and pi with faux model responses.
 An authenticated loopback manager double records workspace-v1 requests
 and operates disposable file trees. These checks cover remote house notes,
 prompts, file and skill gifts, agent creation, merge/split, library publication
-and removal, backend copies, manual house-write approval, network grants,
-library snapshots, cancellation by request ID, uncertain results and refusal
-of host paths without local fallback. Copies check binary contents, modes,
-empty directories and skipped links. Backend selection stays fixed until
-restart even when the Settings target changes.
+and removal, copies between workspaces, manual house-write approval,
+network grants, library snapshots, cancellation by request ID, uncertain
+results and refusal of host paths without local fallback. Copies check
+binary contents, modes, empty directories and skipped links. The
+workspace chosen stays fixed until restart even when the Settings target
+changes.
 
 The manager's separate Rust tests use an offline control double for lifecycle
 races, uncertain creation/suspension and UID-checked deletion. Neither suite

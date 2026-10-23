@@ -9,7 +9,7 @@ use hamlet_workspace_wire::{
     Message, Operation, Reply, Request, VERSION,
 };
 
-use crate::credentials::Workspace;
+use crate::credentials::WorkspaceAddress;
 use crate::record::AgentRef;
 use crate::sandbox::FileError;
 
@@ -31,11 +31,11 @@ pub(crate) struct Policy {
 #[derive(Clone)]
 pub(crate) struct Transport {
     client: reqwest::Client,
-    connection: Workspace,
+    connection: WorkspaceAddress,
 }
 
 impl Transport {
-    pub fn new(connection: Workspace) -> anyhow::Result<Self> {
+    pub fn new(connection: WorkspaceAddress) -> anyhow::Result<Self> {
         Ok(Self {
             client: reqwest::Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
@@ -45,7 +45,7 @@ impl Transport {
         })
     }
 
-    pub fn connection(&self) -> &Workspace {
+    pub fn connection(&self) -> &WorkspaceAddress {
         &self.connection
     }
 
@@ -54,12 +54,12 @@ impl Transport {
         &self,
         agent: AgentRef,
         policy: Policy,
-    ) -> anyhow::Result<Session> {
+    ) -> anyhow::Result<WorkspaceSession> {
         anyhow::ensure!(
             agent.number <= u32::MAX as u64,
             "invalid workspace agent"
         );
-        Ok(Session {
+        Ok(WorkspaceSession {
             transport: self.clone(),
             agent,
             policy,
@@ -149,14 +149,14 @@ impl From<Failure> for FileError {
 
 /// Whether `error` leaves its request's effect unknown. Only a
 /// workspace request can.
-pub(crate) fn uncertain(error: &anyhow::Error) -> bool {
+pub(crate) fn is_uncertain(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<Failure>()
         .is_some_and(|failure| failure.uncertain)
 }
 
 /// Whether `error` is a workspace refusal with `code`.
-pub(crate) fn is(error: &anyhow::Error, code: Code) -> bool {
+pub(crate) fn has_code(error: &anyhow::Error, code: Code) -> bool {
     error
         .downcast_ref::<Failure>()
         .is_some_and(|failure| failure.code == code)
@@ -184,14 +184,14 @@ impl Drop for Pending<'_> {
 
 /// Requests of one agent under one policy.
 #[derive(Clone)]
-pub(crate) struct Session {
+pub(crate) struct WorkspaceSession {
     transport: Transport,
     agent: AgentRef,
     policy: Policy,
     library: Option<Library>,
 }
 
-impl Session {
+impl WorkspaceSession {
     /// The same requests with the shared library at `root` mounted
     /// read-only at `/library`, as it is now.
     pub async fn with_library(
@@ -332,15 +332,6 @@ async fn snapshot(root: PathBuf) -> Result<Library, Failure> {
     })
 }
 
-pub(crate) fn unavailable(operation: &str) -> String {
-    format!(
-        "Cannot {operation}: this operation is not supported by \
-         remote workspaces. No local copy was opened; keep the \
-         remote files in place and ask the chief before changing \
-         workspace backends."
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use serde_json::Value;
@@ -356,7 +347,7 @@ mod tests {
     #[test]
     fn requests_are_the_shared_fixture_s() {
         let fixture = serde_json::from_str::<Value>(FIXTURE).unwrap();
-        let transport = Transport::new(Workspace {
+        let transport = Transport::new(WorkspaceAddress {
             url: "http://127.0.0.1:9".into(),
             token: "fixture-token".into(),
         })

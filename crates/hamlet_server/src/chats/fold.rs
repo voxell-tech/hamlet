@@ -1,12 +1,13 @@
 //! A conversation's transcript as a chief's client holds it (C30),
-//! folded from the entries its runtime keeps, with the ops that keep
-//! a client in step.
+//! folded from the entries its runtime keeps, with the operations
+//! that keep a client in step.
 
 use std::collections::{BTreeMap, HashMap};
 
 use anyhow::{Context, Result};
 use hamlet_protocol::client::{
-    Change, Item, ItemKind, ItemTool, LastActivity, Op,
+    Change, Item, ItemKind, ItemTool, LastActivity,
+    TranscriptOperation,
 };
 use hamlet_protocol::runtime::{self, Block};
 use serde_json::Value;
@@ -31,11 +32,11 @@ pub(crate) struct Fold {
     pub pending: u64,
     pub last: Option<LastActivity>,
     /// An answer landed without some of what it showed being kept,
-    /// which no op takes away.
+    /// which no operation takes away.
     pub stale: bool,
     /// Counts each time `last` is set, even to what it was.
     lasts: u64,
-    ops: Vec<Op>,
+    operations: Vec<TranscriptOperation>,
     /// The ids of tool items by their call's id.
     calls: HashMap<String, String>,
     /// The ids of the items of the answer being written, by block.
@@ -49,13 +50,13 @@ impl Fold {
         for item in items {
             fold.entry(item)?;
         }
-        fold.ops.clear();
+        fold.operations.clear();
         Ok(fold)
     }
 
-    /// The ops of what was folded since they were last taken.
-    pub fn take(&mut self) -> Vec<Op> {
-        std::mem::take(&mut self.ops)
+    /// The operations of what was folded since they were last taken.
+    pub fn take(&mut self) -> Vec<TranscriptOperation> {
+        std::mem::take(&mut self.operations)
     }
 
     /// Takes in what the conversation does now: whether it runs, how
@@ -81,7 +82,7 @@ impl Fold {
         {
             self.working = running;
             self.pending = pending;
-            self.ops.push(Op::Status {
+            self.operations.push(TranscriptOperation::Status {
                 working: running,
                 pending,
                 last: self.last.clone(),
@@ -125,7 +126,7 @@ impl Fold {
                     tool.change.clone_from(&change);
                 }
             }
-            self.ops.push(Op::Close {
+            self.operations.push(TranscriptOperation::Close {
                 item: id,
                 exit,
                 ms,
@@ -233,10 +234,12 @@ impl Fold {
                         let text =
                             item.text[shown.text.len()..].to_owned();
                         shown.text = item.text;
-                        self.ops.push(Op::Append {
-                            item: shown.id.clone(),
-                            text,
-                        });
+                        self.operations.push(
+                            TranscriptOperation::Append {
+                                item: shown.id.clone(),
+                                text,
+                            },
+                        );
                     }
                 }
             }
@@ -252,7 +255,7 @@ impl Fold {
         {
             self.items.remove(at);
         }
-        self.ops.push(Op::Add {
+        self.operations.push(TranscriptOperation::Add {
             item: item.clone(),
             replaces: replaced,
         });
@@ -311,14 +314,14 @@ pub(crate) fn items_of(
             )]);
         }
         Some(
-            InputMark::Letter(mail)
-            | InputMark::Question(mail)
-            | InputMark::Reply(mail),
+            InputMark::Letter(letter)
+            | InputMark::Question(letter)
+            | InputMark::Reply(letter),
         ) if entry.kind == runtime::ItemKind::User => {
             return Ok(vec![(
                 0,
                 Item {
-                    author: mail.author,
+                    author: letter.author,
                     ..item(ItemKind::User, entry.text.clone(), at)
                 },
             )]);

@@ -53,7 +53,7 @@ pub fn society(
     let towns = s.towns.clone();
     for (t, town) in towns.iter().enumerate() {
         let ids =
-            s.citizens(town.id).map(|a| a.id).collect::<Vec<_>>();
+            s.agents_of(town.id).map(|a| a.id).collect::<Vec<_>>();
         for k in 0..roads.min(ids.len()) {
             let h = key(&[t as u64, k as u64, 1]);
             let a = ids[(h % ids.len() as u64) as usize];
@@ -63,7 +63,7 @@ pub fn society(
         // Now and then two agents in neighbouring towns are joined.
         if t > 0 && !ids.is_empty() && roads > 0 {
             let other = s
-                .citizens(towns[t - 1].id)
+                .agents_of(towns[t - 1].id)
                 .map(|a| a.id)
                 .collect::<Vec<_>>();
             let h = key(&[t as u64, 3]);

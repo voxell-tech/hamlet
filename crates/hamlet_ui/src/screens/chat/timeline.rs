@@ -11,7 +11,7 @@ use bevy::ecs::query::{Added, Changed, Has, Or, With};
 use bevy::ecs::system::{Query, Res, SystemParam};
 use bevy::math::Vec3;
 use hamlet_client::chats::{Entry, Transcript};
-use hamlet_client::realm::{Citizen, LivesIn, Mayor, Purpose};
+use hamlet_client::realm::{AgentNumber, LivesIn, Mayor, Purpose};
 use hamlet_realm::chief::{Chief, Look};
 use hamlet_realm::hamlet::Housed;
 use hamlet_realm::keeper;
@@ -93,7 +93,7 @@ pub struct People<'w, 's> {
         (
             Entity,
             &'static Name,
-            Option<&'static Citizen>,
+            Option<&'static AgentNumber>,
             Has<Mayor>,
             Option<&'static Purpose>,
             Option<&'static LivesIn>,
@@ -108,7 +108,7 @@ pub struct People<'w, 's> {
         's,
         (),
         (
-            With<Citizen>,
+            With<AgentNumber>,
             Or<(
                 Changed<Name>,
                 Changed<Purpose>,
@@ -122,7 +122,7 @@ pub struct People<'w, 's> {
 
 impl People<'_, '_> {
     /// An agent's name, look or place may have changed.
-    pub(super) fn moved(&self) -> bool {
+    pub(super) fn has_moved(&self) -> bool {
         !self.changed.is_empty()
     }
 
@@ -131,17 +131,17 @@ impl People<'_, '_> {
     }
 
     fn agent(&self, agent: Entity) -> Option<Who> {
-        let (_, name, citizen, mayor, purpose, _, housed) =
+        let (_, name, number, mayor, purpose, _, housed) =
             self.agents.get(agent).ok()?;
-        let look = match (mayor, housed, citizen) {
-            (true, ..) => keeper::Who::leader(),
+        let look = match (mayor, housed, number) {
+            (true, ..) => keeper::Who::mayor(),
             (_, Some(housed), _) => {
-                keeper::Who::citizen(housed.0.0 * 7 + 3)
+                keeper::Who::agent(housed.0.0 * 7 + 3)
             }
-            (_, None, Some(citizen)) => {
-                keeper::Who::citizen(citizen.0 as u32 * 7 + 3)
+            (_, None, Some(number)) => {
+                keeper::Who::agent(number.0 as u32 * 7 + 3)
             }
-            (_, None, None) => keeper::Who::citizen(1),
+            (_, None, None) => keeper::Who::agent(1),
         };
         let paints = match &self.palette {
             Some(palette) => palette.paints,
@@ -159,19 +159,19 @@ impl People<'_, '_> {
         })
     }
 
-    fn chief(&self, user: &str, me: &Me) -> Who {
+    fn chief(&self, name: &str, me: &Me) -> Who {
         let cloak = self
             .chiefs
             .iter()
-            .find(|(chief, _)| chief.user == user)
+            .find(|(chief, _)| chief.name == name)
             .map(|(_, look)| match &self.palette {
                 Some(palette) => look.cloak.colour(palette),
                 None => look.cloak.colour(&Palette::default()),
             });
         Who {
-            name: titled(user),
+            name: titled(name),
             tag: String::new(),
-            kind: if user == me.user {
+            kind: if name == me.name {
                 Kind::Me
             } else {
                 Kind::Chief
@@ -235,10 +235,10 @@ impl Cast<'_, '_, '_> {
         })
     }
 
-    fn chief(&mut self, user: &str) -> usize {
+    fn chief(&mut self, name: &str) -> usize {
         let (people, me) = (self.people, self.me);
-        self.place(Id::Chief(user.to_string()), || {
-            people.chief(user, me)
+        self.place(Id::Chief(name.to_string()), || {
+            people.chief(name, me)
         })
     }
 }
@@ -248,7 +248,7 @@ impl Cast<'_, '_, '_> {
 pub(super) struct Line {
     pub row: Row,
     /// The agent whose chat it is drawn in.
-    pub owner: Entity,
+    pub agent: Entity,
     /// The speaker and the one spoken to, as [`Who`]s of the chat.
     pub by: usize,
     pub to: usize,
@@ -282,8 +282,8 @@ pub(super) fn timeline(
         ids: Vec::new(),
         all: Vec::new(),
     };
-    let owner = cast.agent(me.agent);
-    let chief = cast.chief(&me.user);
+    let agent = cast.agent(me.agent);
+    let chief = cast.chief(&me.name);
     let mut lines = rows(me.session, transcript, open)
         .into_iter()
         .map(|row| {
@@ -294,17 +294,17 @@ pub(super) fn timeline(
             let item = transcript.item(first);
             let (by, to) = match item.map(|item| &item.entry) {
                 Some(Entry::Agent { name, .. }) => {
-                    (cast.peer(name), owner)
+                    (cast.peer(name), agent)
                 }
-                Some(Entry::User { user, .. }) => {
-                    (cast.chief(user), owner)
+                Some(Entry::Chief { name, .. }) => {
+                    (cast.chief(name), agent)
                 }
-                Some(Entry::Answered(_)) => (chief, owner),
-                _ => (owner, chief),
+                Some(Entry::Answered(_)) => (chief, agent),
+                _ => (agent, chief),
             };
             Line {
                 row,
-                owner: me.agent,
+                agent: me.agent,
                 by,
                 to,
                 at: item.map_or(0, |item| item.at),
@@ -332,7 +332,7 @@ fn look(who: &Who) -> u64 {
 }
 
 /// A row that is a message, which a run is named by and ends on.
-fn message(line: &Line) -> bool {
+fn is_message(line: &Line) -> bool {
     matches!(line.row, Row::Entry { .. })
 }
 
@@ -348,10 +348,10 @@ fn mark_runs(lines: &mut [Line]) {
             .map_or(lines.len(), |more| start + more);
         lines[start].lead = true;
         let run = &mut lines[start..end];
-        if let Some(first) = run.iter_mut().find(|l| message(l)) {
+        if let Some(first) = run.iter_mut().find(|l| is_message(l)) {
             first.named = true;
         }
-        if let Some(last) = run.iter_mut().rfind(|l| message(l)) {
+        if let Some(last) = run.iter_mut().rfind(|l| is_message(l)) {
             last.last = true;
         }
         start = end;

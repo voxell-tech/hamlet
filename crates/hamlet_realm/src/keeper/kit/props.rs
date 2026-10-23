@@ -3,18 +3,18 @@
 use bevy::prelude::*;
 
 use crate::keeper::pose::Prop;
-use crate::meshes::Mb;
+use crate::meshes::Meshing;
 use crate::palette::Palette;
 
 /// The thing held in the free hand, in that arm's space. The hand is
 /// 0.3 below the shoulder.
-pub(super) fn prop(which: Prop, pal: &Palette) -> Mb {
-    let mut mb = Mb::new();
+pub(super) fn prop(which: Prop, pal: &Palette) -> Meshing {
+    let mut meshing = Meshing::new();
     let wax = pal.wax;
     match which {
         Prop::None => {}
         Prop::Warrant => {
-            mb.rbox(
+            meshing.rbox(
                 Vec3::new(0.0, -0.42, 0.02),
                 Vec3::new(0.085, 0.11, 0.006),
                 0.004,
@@ -22,7 +22,7 @@ pub(super) fn prop(which: Prop, pal: &Palette) -> Mb {
                 pal.parchment,
                 0.0,
             );
-            mb.blob(
+            meshing.blob(
                 Vec3::new(0.035, -0.47, 0.03),
                 Vec3::new(0.022, 0.022, 0.008),
                 4,
@@ -33,7 +33,7 @@ pub(super) fn prop(which: Prop, pal: &Palette) -> Mb {
             for (i, w) in
                 [0.05f32, 0.055, 0.035].into_iter().enumerate()
             {
-                mb.rbox(
+                meshing.rbox(
                     Vec3::new(-0.01, -0.36 - 0.03 * i as f32, 0.027),
                     Vec3::new(w, 0.005, 0.002),
                     0.001,
@@ -45,7 +45,7 @@ pub(super) fn prop(which: Prop, pal: &Palette) -> Mb {
         }
         Prop::Letter => {
             let c = Vec3::new(0.0, -0.39, 0.03);
-            mb.rbox(
+            meshing.rbox(
                 c,
                 Vec3::new(0.1, 0.068, 0.007),
                 0.004,
@@ -55,7 +55,7 @@ pub(super) fn prop(which: Prop, pal: &Palette) -> Mb {
             );
             // The flap, and the seal that holds it.
             for side in [-1.0f32, 1.0] {
-                mb.rbox(
+                meshing.rbox(
                     c + Vec3::new(side * 0.047, 0.03, 0.008),
                     Vec3::new(0.058, 0.004, 0.002),
                     0.001,
@@ -64,7 +64,7 @@ pub(super) fn prop(which: Prop, pal: &Palette) -> Mb {
                     0.0,
                 );
             }
-            mb.blob(
+            meshing.blob(
                 c + Vec3::new(0.0, -0.005, 0.01),
                 Vec3::new(0.02, 0.02, 0.008),
                 4,
@@ -74,7 +74,7 @@ pub(super) fn prop(which: Prop, pal: &Palette) -> Mb {
             );
         }
         Prop::Mallet => {
-            mb.tube(
+            meshing.tube(
                 Vec3::Y * -0.26,
                 Vec3::new(0.0, -0.5, 0.02),
                 0.016,
@@ -83,7 +83,7 @@ pub(super) fn prop(which: Prop, pal: &Palette) -> Mb {
                 pal.timber,
                 true,
             );
-            mb.tube(
+            meshing.tube(
                 Vec3::new(0.0, -0.52, -0.075),
                 Vec3::new(0.0, -0.52, 0.115),
                 0.055,
@@ -94,7 +94,7 @@ pub(super) fn prop(which: Prop, pal: &Palette) -> Mb {
             );
         }
         Prop::Block => {
-            mb.rbox(
+            meshing.rbox(
                 Vec3::new(0.17, -0.36, 0.0),
                 Vec3::new(0.13, 0.085, 0.09),
                 0.02,
@@ -105,7 +105,7 @@ pub(super) fn prop(which: Prop, pal: &Palette) -> Mb {
         }
         Prop::Ballot => {
             let c = Vec3::new(0.0, -0.39, 0.02);
-            mb.rbox(
+            meshing.rbox(
                 c,
                 Vec3::new(0.06, 0.075, 0.006),
                 0.004,
@@ -118,7 +118,7 @@ pub(super) fn prop(which: Prop, pal: &Palette) -> Mb {
                 (-0.018, -0.012, 0.016, -0.8f32),
                 (0.012, 0.004, 0.034, 0.9),
             ] {
-                mb.rbox(
+                meshing.rbox(
                     c + Vec3::new(x, y, 0.008),
                     Vec3::new(len, 0.006, 0.002),
                     0.001,
@@ -130,7 +130,7 @@ pub(super) fn prop(which: Prop, pal: &Palette) -> Mb {
         }
         Prop::Book => {
             let c = Vec3::new(0.0, -0.37, 0.02);
-            mb.rbox(
+            meshing.rbox(
                 c - Vec3::Z * 0.006,
                 Vec3::new(0.165, 0.115, 0.008),
                 0.006,
@@ -142,7 +142,7 @@ pub(super) fn prop(which: Prop, pal: &Palette) -> Mb {
             for side in [-1.0f32, 1.0] {
                 let turn = Quat::from_rotation_y(-side * 0.2);
                 let page = c + Vec3::new(side * 0.078, 0.0, 0.016);
-                mb.rbox(
+                meshing.rbox(
                     page,
                     Vec3::new(0.074, 0.1, 0.007),
                     0.004,
@@ -151,7 +151,7 @@ pub(super) fn prop(which: Prop, pal: &Palette) -> Mb {
                     0.0,
                 );
                 for i in 0..3 {
-                    mb.rbox(
+                    meshing.rbox(
                         page + turn
                             * Vec3::new(
                                 0.0,
@@ -168,7 +168,7 @@ pub(super) fn prop(which: Prop, pal: &Palette) -> Mb {
             }
         }
         Prop::Quill => {
-            mb.tube(
+            meshing.tube(
                 QUILL_NIB,
                 QUILL_NIB + QUILL * 0.52,
                 0.007,
@@ -178,7 +178,7 @@ pub(super) fn prop(which: Prop, pal: &Palette) -> Mb {
                 true,
             );
             // The vane, flat and white.
-            mb.rbox(
+            meshing.rbox(
                 QUILL_NIB + QUILL * 0.32,
                 Vec3::new(0.062, 0.006, 0.19),
                 0.004,
@@ -192,7 +192,7 @@ pub(super) fn prop(which: Prop, pal: &Palette) -> Mb {
                 Quat::from_rotation_z(SCROLL.y.atan2(SCROLL.x));
             let across = turn * Vec3::Y;
             let top = Vec3::new(0.0, -0.31, 0.0);
-            mb.rbox(
+            meshing.rbox(
                 top + SCROLL * 0.29,
                 Vec3::new(0.29, 0.1, 0.004),
                 0.003,
@@ -202,7 +202,7 @@ pub(super) fn prop(which: Prop, pal: &Palette) -> Mb {
             );
             for k in [0.0f32, 0.58] {
                 let c = top + SCROLL * k;
-                mb.tube(
+                meshing.tube(
                     c - across * 0.13,
                     c + across * 0.13,
                     0.024,
@@ -214,7 +214,7 @@ pub(super) fn prop(which: Prop, pal: &Palette) -> Mb {
             }
             for i in 0..6 {
                 let w = if i % 3 == 2 { 0.045 } else { 0.07 };
-                mb.rbox(
+                meshing.rbox(
                     top + SCROLL * (0.09 + 0.075 * i as f32)
                         + Vec3::Z * 0.006,
                     Vec3::new(0.005, w, 0.002),
@@ -239,11 +239,11 @@ pub(super) fn prop(which: Prop, pal: &Palette) -> Mb {
                 for i in 0..4 {
                     let col = cloth[i % 2];
                     let v = [mid, tips[i], tips[(i + 1) % 4]]
-                        .map(|p| mb.v(p + n * 0.004, n, col));
-                    mb.tri(v[0], v[1], v[2]);
+                        .map(|p| meshing.v(p + n * 0.004, n, col));
+                    meshing.tri(v[0], v[1], v[2]);
                 }
             }
-            mb.tube(
+            meshing.tube(
                 tips[0],
                 tips[2],
                 0.008,
@@ -252,7 +252,7 @@ pub(super) fn prop(which: Prop, pal: &Palette) -> Mb {
                 pal.timber_dark,
                 false,
             );
-            mb.tube(
+            meshing.tube(
                 tips[1],
                 tips[3],
                 0.008,
@@ -266,8 +266,9 @@ pub(super) fn prop(which: Prop, pal: &Palette) -> Mb {
             for i in 0..4 {
                 let side = if i % 2 == 0 { 1.0 } else { -1.0 };
                 let next = at + Vec3::new(side * 0.09, 0.17, 0.0);
-                mb.tube(at, next, 0.005, 0.005, 3, pal.ink, false);
-                mb.rbox(
+                meshing
+                    .tube(at, next, 0.005, 0.005, 3, pal.ink, false);
+                meshing.rbox(
                     next,
                     Vec3::new(0.06, 0.028, 0.004),
                     0.003,
@@ -277,7 +278,7 @@ pub(super) fn prop(which: Prop, pal: &Palette) -> Mb {
                 );
                 at = next;
             }
-            mb.tube(
+            meshing.tube(
                 Vec3::Y * -0.3,
                 mid,
                 0.006,
@@ -288,7 +289,7 @@ pub(super) fn prop(which: Prop, pal: &Palette) -> Mb {
             );
         }
     }
-    mb
+    meshing
 }
 
 /// The nib of the quill, and the way its feather points, in the
@@ -302,10 +303,10 @@ pub(in crate::keeper) const KITE: f32 = 4.2;
 
 /// The part of a prop that shows the robot's light, in the arm's
 /// space. Empty for a prop that has none.
-pub(super) fn glint(which: Prop) -> Mb {
-    let mut mb = Mb::new();
+pub(super) fn glint(which: Prop) -> Meshing {
+    let mut meshing = Meshing::new();
     let mut spark = |at: Vec3, r: f32| {
-        mb.blob(at, Vec3::splat(r), 4, 0.0, 0.0, |_| Vec3::ONE);
+        meshing.blob(at, Vec3::splat(r), 4, 0.0, 0.0, |_| Vec3::ONE);
     };
     match which {
         Prop::Quill => spark(QUILL_NIB, 0.024),
@@ -316,5 +317,5 @@ pub(super) fn glint(which: Prop) -> Mb {
         Prop::Kite => spark(Vec3::Y * -0.3, 0.07),
         _ => {}
     }
-    mb
+    meshing
 }

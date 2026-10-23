@@ -158,6 +158,7 @@ mod tests {
     use bevy::ecs::system::In;
     use hamlet_client::outbox::Outbox;
     use hamlet_desktop::editor::{Edit, Opener};
+    use hamlet_desktop::open::Launch;
     use hamlet_protocol::client as protocol;
 
     #[derive(Resource, Default)]
@@ -177,7 +178,7 @@ mod tests {
             |In(path): In<std::path::PathBuf>,
              mut opened: ResMut<Opened>| {
                 opened.0.push(path);
-                true
+                Launch::Started
             },
         );
         app.insert_resource(Opener(opener));
@@ -237,7 +238,7 @@ mod tests {
             |In(path): In<std::path::PathBuf>,
              mut opened: ResMut<Opened>| {
                 opened.0.push(path);
-                true
+                Launch::Started
             },
         );
         app.insert_resource(Opener(opener));

@@ -90,12 +90,12 @@ separate: a complete delivered file is not undone by stopping its turn.
 Settings chooses a workspace URL and token for the next server start.
 The running server keeps its startup-selected connection; an environment
 override can select it for one run. `Houses` in `papers.rs` chooses the
-backend once, and every house read, house write and tool call goes through
-it. Remote execution never falls back to host files or commands, so
+workspace once, and every house read, house write and tool call goes
+through it. Remote execution never falls back to host files or commands, so
 hand-added tools are refused there, and operations a remote workspace
 cannot do (founding, moving, removing, restoring or erasing a hamlet,
 erasing an archived house, moving a house) are refused as capabilities of
-the backend. The server skips its local sandbox probe only when a remote
+the workspace. The server skips its local sandbox probe only when a remote
 workspace is selected.
 
 `workspace.rs` sends authenticated workspace-v1 requests with the agent,
@@ -109,15 +109,15 @@ its own operation. Transfers are limited to 4 MiB per file. Interrupted
 requests are cancelled by request ID; an uncertain result asks the chief
 to inspect before retrying, and is not automatically replayed.
 
-Houses can be copied between local and remote backends, preserving regular
-files, modes and empty directories while skipping links. Copying does not
-switch the active backend: restart afterward, and avoid changing files in
-the old backend between copy and restart. Copies, gifts and house moves
-write a tree the same way on both backends: each path must be free, what
+Houses can be copied between the local and a remote workspace, preserving
+regular files, modes and empty directories while skipping links. Copying
+does not switch the workspace in use: restart afterward, and avoid
+changing files in the old workspace between copy and restart. Copies,
+gifts and house moves write a tree the same way in both workspaces: each path must be free, what
 was written is taken back if a later write fails, and an uncertain write is
 reported rather than undone.
 
-House work runs outside the service dispatcher on both backends. Requests
+House work runs outside the service dispatcher in both workspaces. Requests
 on one connection retain their order; other connections, disconnect
 cleanup and shutdown remain independent of a held response. Prompt and
 permission preparations are checked against current state before use.

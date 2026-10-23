@@ -300,7 +300,7 @@ fn admission_and_departure_trim_unicode_white_space() {
     call.reason = "\u{85}".into();
     assert_eq!(
         refused(&mut store, "empty-reason", &call).reason,
-        Reason::ReasonEmpty
+        Reason::Empty
     );
     assert!(record(&store, "home").named("scout").is_some());
 }
@@ -859,7 +859,7 @@ fn current_vote_limits_and_chief_tasks_hold_effects_but_chiefs_can_overrule()
     call.reason = " ".into();
     assert_eq!(
         refused(&mut store, "blank", &call).reason,
-        Reason::ReasonEmpty
+        Reason::Empty
     );
     call.reason = "Done".into();
     assert!(matches!(

@@ -7,10 +7,9 @@ use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use super::{Caller, outcome};
+use super::{Caller, SocietyOutcome};
 use crate::harness::Harnesses;
 use crate::operation::Request;
 use crate::papers::NOTES;
@@ -485,7 +484,7 @@ fn commit(
     id: &OperationId,
     request: &Request,
     plan: &Plan,
-) -> Result<Value> {
+) -> Result<SocietyOutcome> {
     super::once(service.home.store(), id, request, |db| {
         super::leaving::guards(db, &plan.operation.hamlet)?;
         let mut operation = plan.operation.clone();
@@ -500,17 +499,15 @@ fn commit(
                     .iter()
                     .any(|agent| agent.number == plan.kept.number)
             }) {
-                return Ok(outcome(
+                return Ok(SocietyOutcome::failed(
                     "The agents changed while their merge was \
                      prepared. No replacement agent was merged.",
-                    true,
                 ));
             }
         }
         match crate::operation::change(db, &operation)? {
-            Outcome::Refused(refusal) => Ok(outcome(
-                &refusal.text(record::Audience::Agent),
-                true,
+            Outcome::Refused(refusal) => Ok(SocietyOutcome::failed(
+                refusal.text(record::Audience::Agent),
             )),
             Outcome::Done(RecordResult::Departed { archive }) => {
                 super::keep(
@@ -525,9 +522,11 @@ fn commit(
                     .archive
                     .iter()
                     .find(|a| a.id == archive)
-                    .expect("merge archive");
-                let merge =
-                    entry.merge.as_ref().expect("merge manifest");
+                    .expect("a departure's archive is in its record");
+                let merge = entry
+                    .merge
+                    .as_ref()
+                    .expect("a merge's archive keeps its manifest");
                 let mut text = format!(
                     "Merged `{}` into `{}`. Their notes were {}.",
                     entry.agent.name,
@@ -544,9 +543,10 @@ fn commit(
                         merge.files.clashes.join("\n")
                     ));
                 }
-                let mut value = outcome(&text, false);
-                value["archive"] = json!(archive);
-                Ok(value)
+                Ok(SocietyOutcome {
+                    archive: Some(archive),
+                    ..SocietyOutcome::answered(text)
+                })
             }
             _ => anyhow::bail!("unexpected merge result"),
         }
@@ -561,8 +561,8 @@ pub(super) async fn operation(
     harnesses: &mut Harnesses,
     caller: &Caller<'_>,
     given: Merge,
-) -> Result<Option<Value>> {
-    if !service.merges.owns(&caller.id) {
+) -> Result<Option<SocietyOutcome>> {
+    if !service.merges.is_active(&caller.id) {
         lane::offer(service, caller, given)?;
         return Ok(None);
     }
@@ -584,7 +584,9 @@ pub(super) async fn operation(
             }
             Err(unplanned) => {
                 lane::release(service, &caller.id);
-                return Ok(Some(outcome(&unplanned.text(), true)));
+                return Ok(Some(SocietyOutcome::failed(
+                    unplanned.text(),
+                )));
             }
         },
     };
@@ -612,7 +614,9 @@ pub(super) async fn operation(
         }
     }
     let result = commit(service, &caller.id, &caller.request, &plan)?;
-    if result["error"] != true {
+    // Every merge's marker keeps the archive it committed; a refused
+    // merge has none and is answered as it is.
+    if let Some(archive) = &result.archive {
         crate::chats::stop_agent(service, harnesses, &plan.kept)
             .await?;
         crate::chats::stop_agent(service, harnesses, &plan.gone)
@@ -626,7 +630,7 @@ pub(super) async fn operation(
             service,
             &caller.id,
             &plan.kept.hamlet,
-            result["archive"].as_str().expect("merge archive"),
+            archive,
         )? {
             return Ok(None);
         }
@@ -661,8 +665,12 @@ impl Applying {
         entry: record::Archived,
         snapshot: String,
     ) -> Result<Self> {
-        let kept =
-            entry.merge.as_ref().expect("merge manifest").kept.number;
+        let kept = entry
+            .merge
+            .as_ref()
+            .expect("a merge's archive keeps its manifest")
+            .kept
+            .number;
         Ok(Self {
             root: service.houses.root().try_clone()?,
             house: service.houses.house(hamlet, kept)?,
@@ -680,8 +688,12 @@ impl Applying {
             let bytes = self.house.read_file(NOTES, CAP).await?;
             anyhow::Ok(String::from_utf8(bytes)?)
         };
-        let merge =
-            self.merge.entry.merge.as_ref().expect("merge manifest");
+        let merge = self
+            .merge
+            .entry
+            .merge
+            .as_ref()
+            .expect("a merge's archive keeps its manifest");
         crate::fault::point("after_merge_record");
         if self.merge.entry.back.is_none() {
             let files = tree::read_snapshot(
@@ -827,7 +839,7 @@ pub(crate) async fn finish(service: &mut Service) -> Result<()> {
             }
             // An attempt a crash cut short is replayed only where
             // every house change is known to have happened or not.
-            if !service.houses.confirms() {
+            if !service.houses.can_confirm() {
                 if super::document::<Option<bool>>(
                     service.db(),
                     "remote-merge-attempt",

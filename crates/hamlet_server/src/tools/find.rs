@@ -4,7 +4,7 @@ use serde_json::{Map, Value};
 
 use super::environment::Reach;
 use super::walk::{
-    FOUND, Failure, reached, report, shown, under, wanted,
+    FOUND, Failure, is_wanted, reached, report, shown, under,
 };
 use super::{Arguments, Outcome};
 use crate::sandbox::FileKind;
@@ -69,7 +69,7 @@ async fn find(
     let walked = env.walk(&root).await;
     let mut capped = walked.capped;
     for file in walked.files {
-        if wanted(name, &under(&root, &file.path)) {
+        if is_wanted(name, &under(&root, &file.path)) {
             found.push(shown(env, &file.path));
         }
         if found.len() > FOUND {

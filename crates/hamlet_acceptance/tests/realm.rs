@@ -275,7 +275,7 @@ async fn agrees_a_road_and_a_move_between_hamlets() {
         .find(|a| a.name == "scout" && a.left.is_none())
         .unwrap();
     assert_eq!(
-        scout.ref_,
+        scout.agent,
         AgentRef {
             hamlet: "mill".into(),
             number: 2

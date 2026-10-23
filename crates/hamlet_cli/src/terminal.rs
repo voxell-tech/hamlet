@@ -9,6 +9,10 @@ use std::{env, fs};
 
 use anyhow::{Context, Result, bail};
 use hamlet_protocol::client::*;
+#[cfg(unix)]
+use rustix::termios::{
+    LocalModes, OptionalActions, Termios, tcgetattr, tcsetattr,
+};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use uuid::Uuid;
 
@@ -296,38 +300,22 @@ async fn in_editor(doc: &str, text: &str) -> Result<String> {
 }
 
 #[cfg(unix)]
-struct PrivateInput(Option<libc::termios>);
+struct PrivateInput(Option<Termios>);
 
 #[cfg(unix)]
 impl PrivateInput {
     fn new() -> Result<Self> {
-        if !std::io::stdin().is_terminal() {
+        let stdin = std::io::stdin();
+        if !stdin.is_terminal() {
             return Ok(Self(None));
         }
-        let mut original =
-            std::mem::MaybeUninit::<libc::termios>::uninit();
-        // SAFETY: tcgetattr writes the allocated termios; it is read
-        // only after success.
-        let original = unsafe {
-            if libc::tcgetattr(
-                libc::STDIN_FILENO,
-                original.as_mut_ptr(),
-            ) != 0
-            {
-                return Err(std::io::Error::last_os_error().into());
-            }
-            original.assume_init()
-        };
-        let mut quiet = original;
-        quiet.c_lflag &= !(libc::ECHO | libc::ECHONL);
-        // SAFETY: quiet is an initialized termios for this terminal;
-        // canonical editing stays enabled.
-        if unsafe {
-            libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &quiet)
-        } != 0
-        {
-            return Err(std::io::Error::last_os_error().into());
-        }
+        let original = tcgetattr(&stdin)?;
+        let mut quiet = original.clone();
+        // Canonical editing stays enabled.
+        quiet
+            .local_modes
+            .remove(LocalModes::ECHO | LocalModes::ECHONL);
+        tcsetattr(&stdin, OptionalActions::Now, &quiet)?;
         Ok(Self(Some(original)))
     }
 }
@@ -336,20 +324,21 @@ impl PrivateInput {
 impl Drop for PrivateInput {
     fn drop(&mut self) {
         if let Some(original) = &self.0 {
-            // SAFETY: original was obtained from this terminal and
-            // remains initialized.
-            unsafe {
-                libc::tcsetattr(
-                    libc::STDIN_FILENO,
-                    libc::TCSANOW,
-                    original,
-                );
-            }
+            // A terminal that cannot be restored is left as it is.
+            let _ = tcsetattr(
+                std::io::stdin(),
+                OptionalActions::Now,
+                original,
+            );
         }
     }
 }
 
 #[cfg(windows)]
+#[expect(
+    unsafe_code,
+    reason = "the console's echo is set through kernel32"
+)]
 mod console {
     use std::ffi::c_void;
     use std::os::windows::io::AsRawHandle;
@@ -417,7 +406,7 @@ async fn login(
     client
         .send(ClientMessage::Login(Login::Start {
             id: RequestId::new(),
-            start: LoginStartStart {
+            start: LoginStart {
                 provider,
                 method: if key {
                     LoginMethod::Key
@@ -460,7 +449,7 @@ async fn login(
                 client
                     .send(ClientMessage::Login(Login::Reply {
                         id: RequestId::new(),
-                        reply: LoginReplyReply {
+                        reply: LoginReply {
                             login: message.login,
                             value,
                         },

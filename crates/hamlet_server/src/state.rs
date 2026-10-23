@@ -224,7 +224,7 @@ pub(crate) fn build(
                 })
                 .transpose()?;
             agents.push(Agent {
-                ref_: reference(agent.number),
+                agent: reference(agent.number),
                 name: agent.name.clone(),
                 purpose: agent.purpose.clone(),
                 since: u64::try_from(agent.since).with_context(
@@ -313,7 +313,7 @@ pub(crate) fn build(
         .map(|e| SettingsViewEndpoints {
             name: e.name.clone(),
             base_url: e.base_url.clone(),
-            key: service.credentials.configured(&e.name),
+            key: service.credentials.is_configured(&e.name),
         })
         .collect();
     let state = State {
@@ -352,7 +352,7 @@ pub(crate) fn build(
                     .houses
                     .workspace()
                     .map(|connection| connection.url.clone()),
-                move_: service.moving.view(),
+                moving: service.moving.view(),
             },
         },
     };
@@ -436,7 +436,7 @@ pub(crate) fn skills_moved(
     }
     for agent in state.agents.iter().filter(|a| a.left.is_none()) {
         let found =
-            skills(service, &agent.ref_.hamlet, agent.ref_.number)?;
+            skills(service, &agent.agent.hamlet, agent.agent.number)?;
         if found != agent.skills {
             return Ok(true);
         }
@@ -460,7 +460,7 @@ pub(crate) fn changed(
         }
     }
     for agent in &after.agents {
-        if before.agents.iter().find(|a| a.ref_ == agent.ref_)
+        if before.agents.iter().find(|a| a.agent == agent.agent)
             != Some(agent)
         {
             changes.push(Update::Agent {
@@ -469,9 +469,9 @@ pub(crate) fn changed(
         }
     }
     for agent in &before.agents {
-        if !after.agents.iter().any(|a| a.ref_ == agent.ref_) {
+        if !after.agents.iter().any(|a| a.agent == agent.agent) {
             changes.push(Update::AgentGone {
-                ref_: agent.ref_.clone(),
+                agent: agent.agent.clone(),
             });
         }
     }

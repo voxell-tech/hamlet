@@ -5,7 +5,7 @@ use std::time::Duration;
 use hamlet_acceptance::{QUIET, Wire, chat, fold, mayor, realm};
 pub use hamlet_protocol::MAYOR;
 use hamlet_protocol::client::{
-    ClientMessage, Item, RequestId, ServerMessage, State,
+    ClientMessage, Item, RequestId, ServerMessage, State, V,
 };
 use hamlet_testing::{Home, Script, Server};
 use serde_json::{Value, json};
@@ -42,7 +42,7 @@ impl Capture {
             secrets: vec![token.clone()],
         };
         result
-            .send(json!({"type":"hello","v":0,"token":token}))
+            .send(json!({"type":"hello","v":V,"token":token}))
             .await;
         result.next().await;
         assert_eq!(result.frames[1]["message"]["type"], "state");

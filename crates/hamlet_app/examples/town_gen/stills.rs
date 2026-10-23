@@ -9,8 +9,10 @@ use hamlet_realm::generator::layout::{Route, plot};
 use hamlet_realm::generator::society::{
     AgentId, Pair, RoadLevel, Society, TownId,
 };
-use hamlet_realm::generator::{GenView, Rehearsal, Trips, house};
-use hamlet_realm::keeper::KState;
+use hamlet_realm::generator::{
+    GeneratorView, Rehearsal, Trips, house,
+};
+use hamlet_realm::keeper::KeeperState;
 use hamlet_realm::keeper::work::{Chore, routine};
 use hamlet_realm::sky::SkySettings;
 use hamlet_realm::{Clock, Hour, Stage};
@@ -25,7 +27,7 @@ struct Shot {
     /// Its place in a strip of stills with the same name.
     frame: Option<usize>,
     world: Society,
-    view: GenView,
+    view: GeneratorView,
     night: bool,
     /// Roads with a robot part of the way along.
     trips: Vec<(Pair, AgentId, f32)>,
@@ -43,8 +45,8 @@ fn town_view(
     world: &Society,
     town: usize,
     dist: f32,
-) -> GenView {
-    GenView {
+) -> GeneratorView {
+    GeneratorView {
         focus: land.sites[world.towns[town].site].at,
         dist,
         ..default()
@@ -53,7 +55,7 @@ fn town_view(
 
 fn shot_list(land: &Land) -> Vec<Shot> {
     let mut shots = Vec::new();
-    let leader = |w: &Society, t: usize| w.towns[t].leader;
+    let mayor = |w: &Society, t: usize| w.towns[t].mayor;
 
     let fresh = society(land, &[0], 0);
     shots.push(Shot {
@@ -97,10 +99,10 @@ fn shot_list(land: &Land) -> Vec<Shot> {
     let mut grown = society(land, &[26], 7);
     grown.remove_agent(AgentId(7));
     grown.merge(AgentId(3), AgentId(12));
-    grown.set_state(AgentId(5), KState::Waiting);
-    grown.set_state(AgentId(16), KState::Fault);
+    grown.set_state(AgentId(5), KeeperState::Waiting);
+    grown.set_state(AgentId(16), KeeperState::Fault);
     let walker = AgentId(9);
-    let trip = (Pair::new(walker, leader(&grown, 0)), walker, 0.4);
+    let trip = (Pair::new(walker, mayor(&grown, 0)), walker, 0.4);
     for (name, night) in
         [("05-grown-town-day", false), ("06-grown-town-night", true)]
     {
@@ -116,7 +118,7 @@ fn shot_list(land: &Land) -> Vec<Shot> {
 
     // One town with a road of each level side by side.
     let mut levels = society(land, &[8], 0);
-    let chief = leader(&levels, 0);
+    let chief = mayor(&levels, 0);
     for (id, level) in [
         (1, RoadLevel::Overgrown),
         (2, RoadLevel::Dirt),
@@ -136,7 +138,7 @@ fn shot_list(land: &Land) -> Vec<Shot> {
     ] {
         shots.push(Shot {
             name,
-            view: GenView {
+            view: GeneratorView {
                 focus: at,
                 dist: 40.0,
                 ..default()
@@ -164,7 +166,7 @@ fn shot_list(land: &Land) -> Vec<Shot> {
         let side = (at - a.door()).normalize().perp();
         shots.push(Shot {
             name,
-            view: GenView {
+            view: GeneratorView {
                 focus: a.door().lerp(at, 0.4),
                 dist: 24.0,
                 pitch: 36.0,
@@ -190,7 +192,7 @@ fn shot_list(land: &Land) -> Vec<Shot> {
     ] {
         shots.push(Shot {
             name,
-            view: GenView {
+            view: GeneratorView {
                 focus: middle,
                 dist: 215.0,
                 ..default()
@@ -217,7 +219,7 @@ fn shot_list(land: &Land) -> Vec<Shot> {
     let many = society(land, &sizes, 4);
     shots.push(Shot {
         name: "16-the-world",
-        view: GenView {
+        view: GeneratorView {
             focus: Vec2::ZERO,
             dist: 720.0,
             pitch: 38.0,
@@ -230,7 +232,7 @@ fn shot_list(land: &Land) -> Vec<Shot> {
     });
     shots.push(Shot {
         name: "17-far-towns",
-        view: GenView {
+        view: GeneratorView {
             focus: Vec2::ZERO,
             dist: 330.0,
             pitch: 40.0,
@@ -246,7 +248,7 @@ fn shot_list(land: &Land) -> Vec<Shot> {
     let ruin = plot(land, grown.towns[0].site, 7);
     shots.push(Shot {
         name: "18-ruin",
-        view: GenView {
+        view: GeneratorView {
             focus: ruin.at,
             dist: 24.0,
             pitch: 36.0,
@@ -263,7 +265,7 @@ fn shot_list(land: &Land) -> Vec<Shot> {
     {
         shots.push(Shot {
             name,
-            view: GenView {
+            view: GeneratorView {
                 focus: hall,
                 dist: 30.0,
                 pitch: 38.0,
@@ -303,7 +305,7 @@ fn shot_list(land: &Land) -> Vec<Shot> {
     ] {
         shots.push(Shot {
             name,
-            view: GenView {
+            view: GeneratorView {
                 focus: hall,
                 dist: 46.0,
                 pitch: 16.0,
@@ -327,14 +329,14 @@ fn yard_view(
     land: &Land,
     world: &Society,
     agent: AgentId,
-) -> GenView {
+) -> GeneratorView {
     let a = world.agent(agent).unwrap();
     let spot = plot(land, site_of(world, a), a.plot);
     let yard = house::yard_of(land, agent, false, spot.yaw, 0);
     let (p, _) =
         yard.stand(hamlet_realm::keeper::work::Station::Beat, 0.5);
     let p = Quat::from_rotation_y(spot.yaw) * p;
-    GenView {
+    GeneratorView {
         focus: spot.at + Vec2::new(p.x, p.z) * 0.8,
         dist: 13.5,
         pitch: 30.0,
@@ -349,9 +351,9 @@ fn work_shots(land: &Land) -> Vec<Shot> {
     let mut shots = Vec::new();
     let mut world = society(land, &[6], 2);
     let ids =
-        world.citizens(TownId(0)).map(|a| a.id).collect::<Vec<_>>();
+        world.agents_of(TownId(0)).map(|a| a.id).collect::<Vec<_>>();
     for &id in &ids {
-        world.set_state(id, KState::Working);
+        world.set_state(id, KeeperState::Working);
     }
     let star = AgentId(
         std::env::var("TOWN_STAR")
@@ -361,7 +363,7 @@ fn work_shots(land: &Land) -> Vec<Shot> {
     );
     let close = yard_view(land, &world, star);
     // Room above for what goes up: steam and the kite.
-    let wide = GenView {
+    let wide = GeneratorView {
         focus: close.focus - Vec2::Y * 1.6,
         dist: 23.0,
         ..close
@@ -458,7 +460,7 @@ fn work_shots(land: &Land) -> Vec<Shot> {
         shots.push(Shot {
             name,
             world: world.clone(),
-            view: GenView {
+            view: GeneratorView {
                 pitch: 40.0,
                 ..town_view(land, &world, 0, dist)
             },
@@ -475,7 +477,7 @@ fn work_shots(land: &Land) -> Vec<Shot> {
             name: "w-hamlet-round",
             frame: Some(k),
             world: world.clone(),
-            view: GenView {
+            view: GeneratorView {
                 pitch: 40.0,
                 ..town_view(land, &world, 0, 46.0)
             },
@@ -487,7 +489,7 @@ fn work_shots(land: &Land) -> Vec<Shot> {
 }
 
 /// A view of the first place a road between towns stands over water.
-fn bridge_view(land: &Land, world: &Society) -> GenView {
+fn bridge_view(land: &Land, world: &Society) -> GeneratorView {
     for r in &world.roads {
         let end = |id: AgentId| {
             let a = world.agent(id).unwrap();
@@ -503,7 +505,7 @@ fn bridge_view(land: &Land, world: &Society) -> GenView {
             .collect::<Vec<_>>();
         if let Some(&mid) = wet.get(wet.len() / 2) {
             let p = route.line.pts[mid];
-            return GenView {
+            return GeneratorView {
                 focus: Vec2::new(p.x, p.z),
                 dist: 38.0,
                 pitch: 34.0,
@@ -511,7 +513,7 @@ fn bridge_view(land: &Land, world: &Society) -> GenView {
             };
         }
     }
-    GenView::default()
+    GeneratorView::default()
 }
 
 /// With TOWN_SHOT set: steps through the stills, saves each, then
@@ -542,7 +544,7 @@ pub fn run_shots(
     land: Res<Land>,
     mut run: ResMut<ShotRun>,
     mut world: ResMut<Society>,
-    mut view: ResMut<GenView>,
+    mut view: ResMut<GeneratorView>,
     mut stage: ResMut<Stage>,
     mut clock: ResMut<Clock>,
     mut traffic: ResMut<Trips>,
@@ -577,7 +579,7 @@ pub fn run_shots(
         }
         *view = shot.view;
         stage.night =
-            shot.hour.map_or(shot.night, |h| sky_set.night(h));
+            shot.hour.map_or(shot.night, |h| sky_set.is_night(h));
         hour.0 = shot.hour;
         clock.frozen = true;
         clock.t = shot.at.unwrap_or(0.5);

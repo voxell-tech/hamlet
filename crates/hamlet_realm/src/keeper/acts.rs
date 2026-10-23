@@ -22,7 +22,7 @@ use self::meeting::{
 use self::plain::{
     Gait, failed, fault, idle, object, reflect, sleep, wait, walk,
 };
-use super::KState;
+use super::KeeperState;
 use super::pose::{Pose, dice};
 use super::work::RING_EVERY;
 use crate::sound::Sound;
@@ -163,17 +163,17 @@ impl Act {
 
     /// The motion a state plays when nothing more specific is asked
     /// for.
-    pub fn of(state: KState) -> Self {
+    pub fn of(state: KeeperState) -> Self {
         match state {
-            KState::Rest => Self::Idle,
-            KState::Working => Self::Carry,
-            KState::Waiting => Self::Wait,
-            KState::Fault => Self::Fault,
-            KState::Failed => Self::Failed,
+            KeeperState::Rest => Self::Idle,
+            KeeperState::Working => Self::Carry,
+            KeeperState::Waiting => Self::Wait,
+            KeeperState::Fault => Self::Fault,
+            KeeperState::Failed => Self::Failed,
         }
     }
 
-    pub fn state(self) -> KState {
+    pub fn state(self) -> KeeperState {
         match self {
             Self::Idle
             | Self::Sleep
@@ -190,7 +190,7 @@ impl Act {
             | Self::Dangle
             | Self::Land
             | Self::Greet
-            | Self::Wave => KState::Rest,
+            | Self::Wave => KeeperState::Rest,
             Self::Carry
             | Self::HandOver
             | Self::Receive
@@ -212,10 +212,10 @@ impl Act {
             | Self::Recall
             | Self::Stow
             | Self::Tinker
-            | Self::Oops => KState::Working,
-            Self::Wait | Self::Object => KState::Waiting,
-            Self::Fault => KState::Fault,
-            Self::Failed => KState::Failed,
+            | Self::Oops => KeeperState::Working,
+            Self::Wait | Self::Object => KeeperState::Waiting,
+            Self::Fault => KeeperState::Fault,
+            Self::Failed => KeeperState::Failed,
         }
     }
 
@@ -271,20 +271,20 @@ impl Act {
 
     /// True when the robot is out of sight once the motion has
     /// played.
-    pub(crate) fn vanishes(self) -> bool {
+    pub(crate) fn is_vanishing(self) -> bool {
         matches!(self, Self::Leave | Self::MergeInto)
     }
 
     /// True when a robot settled in this motion can go undrawn. It
     /// still breathes when frames come for another reason.
-    pub fn rests(self) -> bool {
+    pub fn is_resting(self) -> bool {
         matches!(
             self,
             Self::Idle | Self::Sleep | Self::Reflect | Self::Failed
         )
     }
 
-    pub fn walks(self) -> bool {
+    pub fn is_walking(self) -> bool {
         matches!(
             self,
             Self::Walk | Self::Carry | Self::Amble | Self::Pace
@@ -304,7 +304,7 @@ impl Act {
             (_, Self::Land) => (0.06, 0.0),
             (Self::Talk, Self::Listen)
             | (Self::Listen, Self::Talk) => (0.4, 0.2),
-            (a, b) if a.walks() && b.walks() => (0.3, 0.0),
+            (a, b) if a.is_walking() && b.is_walking() => (0.3, 0.0),
             (_, Self::Failed) => (0.3, 0.0),
             (Self::Sleep, _) | (_, Self::Sleep) => (0.9, 0.3),
             _ => (0.45, 1.0),
@@ -346,7 +346,7 @@ impl Quirk {
     }
 }
 
-pub(super) struct Ctx {
+pub(super) struct Context {
     /// The robot's own clock.
     pub t: f32,
     /// Seconds since the motion began.
@@ -360,7 +360,7 @@ pub(super) struct Ctx {
     pub q: Quirk,
 }
 
-pub(super) fn pose(act: Act, c: &Ctx) -> Pose {
+pub(super) fn pose(act: Act, c: &Context) -> Pose {
     match act {
         Act::Idle => idle(c),
         Act::Sleep => sleep(c),
@@ -409,12 +409,12 @@ pub(super) fn pose(act: Act, c: &Ctx) -> Pose {
 
 /// The sound a motion makes, and a count that passes a whole number
 /// each time it makes it.
-pub(super) fn beat(act: Act, c: &Ctx) -> Option<(Sound, f32)> {
+pub(super) fn beat(act: Act, c: &Context) -> Option<(Sound, f32)> {
     let steps = c.gait / PI - 0.5;
     let once = |at: f32| f32::from(c.tau >= at);
     Some(match act {
         // A robot on its wheels takes no steps.
-        _ if act.walks() && (c.pace <= 0.3 || c.roll > 0.5) => {
+        _ if act.is_walking() && (c.pace <= 0.3 || c.roll > 0.5) => {
             return None;
         }
         Act::Walk | Act::Amble | Act::Pace => (Sound::Step, steps),

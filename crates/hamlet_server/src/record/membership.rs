@@ -181,7 +181,7 @@ impl RecordOperation {
                 return Err(self.refuse(Reason::MergedPurposeEmpty));
             }
             if self.reason.trim().is_empty() {
-                return Err(self.refuse(Reason::ReasonEmpty));
+                return Err(self.refuse(Reason::Empty));
             }
             self.unprotected(r, &kept)?;
             self.unprotected(r, &gone)?;
@@ -192,7 +192,7 @@ impl RecordOperation {
         let agent =
             r.ordinary(name).map_err(|reason| self.refuse(reason))?;
         if self.reason.trim().is_empty() {
-            return Err(self.refuse(Reason::ReasonEmpty));
+            return Err(self.refuse(Reason::Empty));
         }
         self.unprotected(r, &agent)?;
         let mut stamp = i128::from(self.at);
@@ -212,13 +212,13 @@ impl RecordOperation {
             roads: r
                 .roads_of()
                 .into_iter()
-                .filter(|r| r.touches(agent.number))
+                .filter(|r| r.has_agent(agent.number))
                 .collect(),
             merge: None,
             back: None,
         };
         r.agents.retain(|a| a.number != agent.number);
-        r.roads.retain(|road| !road.touches(agent.number));
+        r.roads.retain(|road| !road.has_agent(agent.number));
         if let (
             Departure::Merged {
                 purpose,
@@ -239,10 +239,9 @@ impl RecordOperation {
                 if peer == End::Agent(kept.number) {
                     continue;
                 }
-                let existing = r
-                    .roads
-                    .iter_mut()
-                    .find(|r| r.joins(End::Agent(kept.number), peer));
+                let existing = r.roads.iter_mut().find(|r| {
+                    r.is_between(End::Agent(kept.number), peer)
+                });
                 let fresh = existing.is_none();
                 let last_from = road.last_from.map(|end| {
                     if end == End::Agent(agent.number) {
@@ -378,7 +377,7 @@ impl RecordOperation {
             }
             for inherited in &merge.inherited {
                 if let Some(index) = r.roads.iter().position(|r| {
-                    r.joins(
+                    r.is_between(
                         End::Agent(merge.kept.number),
                         inherited.peer,
                     )
@@ -403,7 +402,10 @@ impl RecordOperation {
                 End::Agent(n) => {
                     r.agents.iter().any(|a| a.number == *n)
                 }
-            }) && !r.roads.iter().any(|r| r.joins(road.a, road.b))
+            }) && !r
+                .roads
+                .iter()
+                .any(|r| r.is_between(road.a, road.b))
             {
                 r.roads.push(road.clone());
             }
@@ -421,7 +423,7 @@ impl RecordOperation {
         let peers = r
             .roads_of()
             .iter()
-            .filter(|road| road.touches(agent.number))
+            .filter(|road| road.has_agent(agent.number))
             .map(|road| {
                 r.end_name(if road.a == End::Agent(agent.number) {
                     road.b
@@ -594,7 +596,7 @@ impl RecordOperation {
         let name = agent.name.clone();
         target.agents.push(agent);
         old.agents.retain(|a| a.number != number);
-        old.roads.retain(|r| !r.touches(number));
+        old.roads.retain(|r| !r.has_agent(number));
         for mut protection in
             old.protected.extract_if(.., |p| p.agent == number)
         {

@@ -1,7 +1,7 @@
 //! The overview and hamlet gallery scenes.
 
 use bevy::ecs::world::World;
-use hamlet_client::realm::Settlement;
+use hamlet_client::realm::HamletId;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Selected, Thing};
 
@@ -10,7 +10,7 @@ use crate::scenes::Scene;
 pub(super) fn setup(world: &mut World, scene: Scene) {
     if !matches!(
         scene,
-        Scene::Overview | Scene::Hamlet | Scene::Rules
+        Scene::Overview | Scene::Hamlet | Scene::Bylaws
     ) {
         return;
     }
@@ -91,13 +91,13 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         protocol::ServerMessage::State(state),
     );
     let first = world
-        .query::<(bevy::ecs::entity::Entity, &Settlement)>()
+        .query::<(bevy::ecs::entity::Entity, &HamletId)>()
         .iter(world)
-        .find(|(_, hamlet)| hamlet.name == "home")
+        .find(|(_, hamlet)| hamlet.0 == "home")
         .map(|(entity, _)| entity)
         .unwrap();
     world.insert_resource(Selected(match scene {
-        Scene::Hamlet | Scene::Rules => Some(Thing::Common(first)),
+        Scene::Hamlet | Scene::Bylaws => Some(Thing::Common(first)),
         _ => None,
     }));
     world.insert_resource(hamlet_ui::overview::Annals::received(
@@ -109,7 +109,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     if scene == Scene::Hamlet {
         world.insert_resource(hamlet_ui::overview::Page::Record);
     }
-    if scene == Scene::Rules {
+    if scene == Scene::Bylaws {
         world.insert_resource(hamlet_ui::overview::Page::Bylaws);
     }
 }

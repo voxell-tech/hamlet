@@ -4,7 +4,6 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
-use std::os::fd::AsRawFd;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -14,6 +13,7 @@ use anyhow::{Context, Result, bail};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use ring::signature::{ED25519, UnparsedPublicKey};
+use rustix::fs::{FlockOperation, flock};
 use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixListener;
@@ -24,7 +24,8 @@ use tokio::task::JoinSet;
 use crate::control::save;
 use crate::wire::{
     Code, Envelope, LIBRARY_FILES, Library, MAX_BODY, MAX_FILE,
-    Message, Progress, Reply, Request, State, valid_id, valid_name,
+    Message, Progress, Reply, Request, State, is_valid_id,
+    is_valid_name,
 };
 use crate::{http, proxy};
 
@@ -42,10 +43,8 @@ pub async fn run(config: Configuration) -> Result<()> {
     let root = fs::canonicalize(config.root)?;
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
     let lock = fs::File::create(root.join("lock"))?;
-    // SAFETY: the owned lock stays open while this event loop runs.
-    if unsafe {
-        libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB)
-    } != 0
+    // The lock is held while this event loop runs.
+    if flock(&lock, FlockOperation::NonBlockingLockExclusive).is_err()
     {
         bail!("Worker data is already open");
     }
@@ -154,7 +153,7 @@ impl Worker {
             }
             Message::Execute { request } => {
                 if request.version != 1
-                    || !valid_name(&request.workspace)
+                    || !is_valid_name(&request.workspace)
                 {
                     let _ = call.reply.send(Reply::error(
                         Code::NotSupported,
@@ -243,8 +242,8 @@ impl Worker {
         let envelope =
             match serde_json::from_slice::<Envelope>(&call.body) {
                 Ok(envelope)
-                    if valid_name(&envelope.home)
-                        && valid_id(envelope.message.id()) =>
+                    if is_valid_name(&envelope.home)
+                        && is_valid_id(envelope.message.id()) =>
                 {
                     envelope
                 }

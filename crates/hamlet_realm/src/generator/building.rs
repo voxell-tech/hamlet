@@ -15,7 +15,7 @@ use super::shift::Way;
 use super::society::{AgentId, Pair, RoadLevel};
 use super::yard::Yard;
 use super::{common, road};
-use crate::meshes::Mb;
+use crate::meshes::Meshing;
 
 /// Triangles and bytes of mesh data.
 #[derive(Clone, Copy, Default)]
@@ -25,10 +25,10 @@ pub(super) struct Cost {
 }
 
 impl Cost {
-    fn of(parts: &[&Mb]) -> Self {
+    fn of(parts: &[&Meshing]) -> Self {
         Self {
-            tris: parts.iter().map(|mb| mb.tris()).sum(),
-            bytes: parts.iter().map(|mb| mb.bytes()).sum(),
+            tris: parts.iter().map(|meshing| meshing.tris()).sum(),
+            bytes: parts.iter().map(|meshing| meshing.bytes()).sum(),
         }
     }
 }
@@ -47,7 +47,7 @@ pub(super) struct HouseRecipe {
     pub agent: AgentId,
     pub site: usize,
     pub hall: bool,
-    pub leader: bool,
+    pub mayor: bool,
     /// Its remains, if its agent is archived.
     pub remains: Option<Remains>,
     pub wings: u8,
@@ -59,7 +59,7 @@ pub(super) struct HouseBuilt {
     /// The window panes and where the door lantern hangs. Only a
     /// house that is lived in has them.
     pub fittings: Option<(Mesh, Vec3)>,
-    /// The point the leader's banner hangs from, and its colours.
+    /// The point the mayor's banner hangs from, and its colours.
     pub banner: Option<(Vec3, [Vec3; 2])>,
     pub cost: Cost,
 }
@@ -70,7 +70,7 @@ fn build_house(land: &Land, recipe: HouseRecipe) -> HouseBuilt {
             Remains::Ruin => {
                 house::ruin(land, recipe.agent, recipe.hall)
             }
-            Remains::Bare => Mb::new(),
+            Remains::Bare => Meshing::new(),
         };
         return HouseBuilt {
             cost: Cost::of(&[&rest]),
@@ -84,7 +84,7 @@ fn build_house(land: &Land, recipe: HouseRecipe) -> HouseBuilt {
         recipe.agent,
         &TownStyle::of(land, recipe.site),
         recipe.hall,
-        if recipe.leader {
+        if recipe.mayor {
             house::Banner::Flown
         } else {
             house::Banner::None
@@ -125,7 +125,7 @@ impl Course {
     }
 
     /// True when it runs from one town to another.
-    pub fn between(&self) -> bool {
+    pub fn is_between_towns(&self) -> bool {
         self.ends.0.site != self.ends.1.site
     }
 }
@@ -226,7 +226,7 @@ impl Builds {
 
     /// True when `agent`'s house is being built with nothing drawn in
     /// its place meanwhile.
-    pub(crate) fn bare_house(&self, agent: AgentId) -> bool {
+    pub(crate) fn is_house_bare(&self, agent: AgentId) -> bool {
         self.houses.iter().any(|job| {
             job.agent == agent
                 && job.old.is_none()
@@ -235,7 +235,7 @@ impl Builds {
     }
 
     /// True when the common `entity` is still being built.
-    pub(crate) fn bare_common(&self, entity: Entity) -> bool {
+    pub(crate) fn is_common_bare(&self, entity: Entity) -> bool {
         self.commons.iter().any(|(common, _)| *common == entity)
     }
 

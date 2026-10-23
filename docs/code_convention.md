@@ -28,7 +28,8 @@ in two places:
 - A `bool` or `Option` argument that changes what a function does
   becomes an enum.
 - No abbreviation that is not a word in [`CONTEXT.md`](../CONTEXT.md):
-  `Re`, `Mb` and `KState` are spelled out.
+  `ReplyAddress`, not `Re`; `Meshing`, not `Mb`; `KeeperState`, not
+  `KState`.
 - Use CONTEXT.md's words, never those on its avoid lists.
 
 ## A defect is an `anyhow` error, an expected outcome a typed refusal
@@ -60,6 +61,15 @@ Every rule a lint can check is set in the workspace lint block in
 `Cargo.toml` and in `clippy.toml`, so clippy enforces it, not a
 reader. A lint is silenced with `#[expect(lint, reason = "...")]` at
 the narrowest scope.
+
+`unsafe_code` is denied. A module that needs unsafe code says so once,
+on the module, with `expect(unsafe_code, reason = "...")`; when the
+module builds on every OS but only one OS's build has unsafe code, the
+attribute is a `cfg_attr` for that OS. Every unsafe block carries a
+`// SAFETY:` comment. Those modules are the CLI's `process.rs` and
+Windows console in `terminal.rs`, `hamlet_desktop`'s `app_icon.rs` and
+the workspace's `supervise.rs`. Elsewhere, system calls go through
+rustix.
 
 ## Test our own code, and only what can break
 

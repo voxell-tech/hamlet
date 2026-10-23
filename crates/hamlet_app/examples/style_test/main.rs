@@ -187,7 +187,7 @@ fn keys(
         clock.t = 0.0;
     }
     if input.just_pressed(KeyCode::KeyK) {
-        demo.kstate = demo.kstate.next();
+        demo.keeper_state = demo.keeper_state.next();
     }
     if input.just_pressed(KeyCode::KeyC) {
         demo.view = demo.view.next();
@@ -229,7 +229,7 @@ fn hud(
          [F] focus blur {}   [L] line-up   [G] tag",
         if demo.night { "night" } else { "day" },
         demo.inlay,
-        demo.kstate,
+        demo.keeper_state,
         demo.view,
         if demo.dof { "on" } else { "off" },
     );
@@ -246,7 +246,7 @@ fn pacing(
     show: Res<Show>,
     mut settings: ResMut<WinitSettings>,
 ) {
-    let mode = if demo.animating() || show.set.is_some() {
+    let mode = if demo.is_animating() || show.set.is_some() {
         UpdateMode::Continuous
     } else {
         UpdateMode::reactive_low_power(Duration::from_secs(60))

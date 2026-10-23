@@ -192,7 +192,7 @@ impl Texts<'_, '_> {
     /// True when the words of the text node `node` can be selected:
     /// it is seen, the pointer reaches it, and it is not part of a
     /// button, a field or anything else that has a hand of its own.
-    fn selectable(&self, node: Entity) -> bool {
+    fn is_selectable(&self, node: Entity) -> bool {
         let seen = self.seen.get(node).is_ok_and(|(shown, pick)| {
             shown.is_none_or(|s| s.get())
                 && pick.is_none_or(|p| p.is_hoverable)
@@ -218,7 +218,8 @@ impl Texts<'_, '_> {
         self.children
             .iter_descendants_depth_first(area)
             .filter(|node| {
-                self.blocks.contains(*node) && self.selectable(*node)
+                self.blocks.contains(*node)
+                    && self.is_selectable(*node)
             })
             .collect()
     }
@@ -499,7 +500,7 @@ fn mark(
     mut commands: Commands,
 ) {
     for node in &added {
-        if texts.selectable(node) {
+        if texts.is_selectable(node) {
             commands
                 .entity(node)
                 .try_insert(EntityCursor(SystemCursorIcon::Text));
@@ -539,7 +540,7 @@ fn press(
         chain.iter().rev().copied().find(|e| areas.contains(*e));
     let scope = match (control, area, text) {
         (false, Some(area), _) => Some(area),
-        (false, None, Some(text)) if texts.selectable(text) => {
+        (false, None, Some(text)) if texts.is_selectable(text) => {
             Some(text)
         }
         _ => None,

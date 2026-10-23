@@ -43,7 +43,7 @@ pub(crate) fn plugin(app: &mut App) {
 pub struct Offer {
     pub skill: String,
     pub from: Option<String>,
-    source: protocol::GiveSkillSkill,
+    source: protocol::GiveSkillSource,
 }
 
 /// The server's replies to gifts, for the chief.
@@ -99,7 +99,7 @@ pub fn give(world: &mut World, agent: Entity, offer: &Offer) {
     let Some(to) = realm::address_of(world, agent) else {
         return;
     };
-    if !Deeds::allows(world, "give") {
+    if !Deeds::is_allowed(world, "give") {
         return;
     }
     queue(
@@ -120,7 +120,7 @@ pub fn give(world: &mut World, agent: Entity, offer: &Offer) {
 
 /// The skills the received state offers to an agent.
 pub fn offers(world: &World, agent: Entity) -> Vec<Offer> {
-    if !Deeds::allows(world, "give") {
+    if !Deeds::is_allowed(world, "give") {
         return Vec::new();
     }
     let Some(to) = realm::address_of(world, agent) else {
@@ -137,7 +137,7 @@ pub fn offers(world: &World, agent: Entity) -> Vec<Offer> {
         .map(|starter| Offer {
             skill: starter.name.clone(),
             from: None,
-            source: protocol::GiveSkillSkill::Starter {
+            source: protocol::GiveSkillSource::Starter {
                 starter: starter.name.clone(),
             },
         })
@@ -168,7 +168,7 @@ pub fn offers(world: &World, agent: Entity) -> Vec<Offer> {
                 |skill| Offer {
                     skill: skill.clone(),
                     from: Some(from.clone()),
-                    source: protocol::GiveSkillSkill::From {
+                    source: protocol::GiveSkillSource::From {
                         from: address.clone(),
                         name: skill.clone(),
                     },
@@ -185,7 +185,7 @@ pub fn letter(world: &mut World, agent: Entity, paths: Vec<PathBuf>) {
     let Some(to) = realm::address_of(world, agent) else {
         return;
     };
-    if !Deeds::allows(world, "give") {
+    if !Deeds::is_allowed(world, "give") {
         return;
     }
     let walk = move || {
@@ -341,7 +341,7 @@ fn manifest(
 ) {
     let manifest = files
         .iter()
-        .map(|file| protocol::GiveFilesFiles {
+        .map(|file| protocol::GiveFile {
             path: file.path.clone(),
             size: file.size,
         })

@@ -6,9 +6,9 @@ use std::collections::HashMap;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use hamlet_client::realm::{Left, LivesIn, Mayor, Settlement};
+use hamlet_client::realm::{HamletId, Left, LivesIn, Mayor};
 
-use super::{Housed, Returning, Sited, first, housing};
+use super::{Housed, Returning, Sited, housing, is_first};
 use crate::generator::house::Remains;
 use crate::generator::land::Land;
 use crate::generator::society::AgentId;
@@ -45,7 +45,7 @@ pub(super) fn plugin(app: &mut App) {
 /// Every agent's standing with its hamlet.
 #[derive(SystemParam)]
 struct Standing<'w, 's> {
-    hamlets: Query<'w, 's, &'static Settlement>,
+    hamlets: Query<'w, 's, &'static HamletId>,
     agents: Query<
         'w,
         's,
@@ -86,7 +86,7 @@ impl Standing<'_, '_> {
             .map(|(entity, housed, lives, mayor, left, returning)| {
                 let stood = Stood {
                     entity,
-                    mayor: mayor && first(&self.hamlets, lives),
+                    mayor: mayor && is_first(&self.hamlets, lives),
                     left,
                     returning,
                 };
@@ -114,8 +114,8 @@ impl Known {
             (true, ..) => return None,
             (_, true, true) => Thing::Cottage,
             (_, true, false) => Thing::Keeper,
-            (_, false, true) => Thing::ResidentHouse(stood.entity),
-            (_, false, false) => Thing::Resident(stood.entity),
+            (_, false, true) => Thing::House(stood.entity),
+            (_, false, false) => Thing::Agent(stood.entity),
         })
     }
 }

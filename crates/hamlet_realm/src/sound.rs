@@ -190,12 +190,12 @@ pub struct SoundSettings {
 
 impl SoundSettings {
     /// True when the effects can be heard.
-    pub fn effects(&self) -> bool {
+    pub fn can_hear_effects(&self) -> bool {
         !self.muted && self.volume > 0.0
     }
 
     /// True when the music can be heard.
-    pub fn score(&self) -> bool {
+    pub fn can_hear_music(&self) -> bool {
         self.music_on && self.volume > 0.0 && self.music > 0.0
     }
 }
@@ -228,7 +228,7 @@ pub struct Cue {
 pub(crate) struct Cues;
 
 /// True when the world is being drawn in a window that is shown.
-fn drawn(
+fn is_drawn(
     camera: &Query<&Camera, With<WorldCamera>>,
     window: &Query<&Window, With<PrimaryWindow>>,
 ) -> bool {
@@ -245,7 +245,8 @@ fn listen(
     hearing: Res<State<Hearing>>,
     mut next: ResMut<NextState<Hearing>>,
 ) {
-    let want = if set.effects() && drawn(&camera, &window) {
+    let want = if set.can_hear_effects() && is_drawn(&camera, &window)
+    {
         Hearing::On
     } else {
         Hearing::Off

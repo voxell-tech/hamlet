@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 use hamlet_realm::Stage;
-use hamlet_realm::keeper::KState;
+use hamlet_realm::keeper::KeeperState;
 use hamlet_vfx::inlay::InlayState;
 
 /// The camera's subject.
@@ -33,7 +33,7 @@ impl View {
 pub struct Demo {
     pub night: bool,
     pub inlay: InlayState,
-    pub kstate: KState,
+    pub keeper_state: KeeperState,
     pub view: View,
     /// Mild tilt-shift blur in the far views.
     pub dof: bool,
@@ -48,7 +48,7 @@ impl Default for Demo {
         Demo {
             night: false,
             inlay: InlayState::Unlit,
-            kstate: KState::Rest,
+            keeper_state: KeeperState::Rest,
             view: View::Default,
             dof: true,
             lineup: false,
@@ -59,9 +59,9 @@ impl Default for Demo {
 
 impl Demo {
     /// True while anything moves, so frames must keep coming.
-    pub fn animating(&self) -> bool {
+    pub fn is_animating(&self) -> bool {
         self.inlay != InlayState::Unlit
-            || self.kstate.animates()
+            || self.keeper_state.is_animated()
             || self.lineup
     }
 }

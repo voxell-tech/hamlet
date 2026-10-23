@@ -95,7 +95,7 @@ impl Client {
         let mut found = realm
             .agents
             .into_iter()
-            .filter(|a| a.ref_.hamlet == hamlet && a.name == name)
+            .filter(|a| a.agent.hamlet == hamlet && a.name == name)
             .collect::<Vec<_>>();
         found.sort_by_key(|a| a.left.is_none());
         found.pop()
@@ -112,8 +112,8 @@ impl Client {
     }
 
     /// Whether a watched chat is working, from its last status.
-    pub fn working(&self, chat: &ChatRef) -> bool {
-        fold::working(&self.log, chat)
+    pub fn is_working(&self, chat: &ChatRef) -> bool {
+        fold::is_working(&self.log, chat)
     }
 
     /// Every realm update received.
@@ -128,13 +128,16 @@ impl Client {
             .collect()
     }
 
-    /// Every transcript op received for `chat`.
-    pub fn ops(&self, chat: &ChatRef) -> Vec<Op> {
+    /// Every transcript operation received for `chat`.
+    pub fn operations(
+        &self,
+        chat: &ChatRef,
+    ) -> Vec<TranscriptOperation> {
         self.log
             .iter()
             .filter_map(|m| match m {
                 ServerMessage::Turn(t) if &t.chat == chat => {
-                    Some(t.ops.clone())
+                    Some(t.operations.clone())
                 }
                 _ => None,
             })
@@ -226,7 +229,7 @@ impl Client {
     ) -> Reply {
         let manifest = files
             .iter()
-            .map(|(path, bytes)| GiveFilesFiles {
+            .map(|(path, bytes)| GiveFile {
                 path: path.to_string(),
                 size: bytes.len() as u64,
             })
@@ -388,7 +391,7 @@ impl Client {
         key: &str,
         value: Value,
     ) -> Reply {
-        let set = EditLimitsSetSet {
+        let set = LimitsEdit {
             section: section.into(),
             key: key.into(),
             value,
@@ -607,7 +610,7 @@ fn parse(text: &str) -> ServerMessage {
             });
     let again = serde_json::to_value(&message).unwrap();
     assert!(
-        same(&raw, &again),
+        is_same(&raw, &again),
         "the server sent fields outside the client protocol:\nsent: \
          {raw}\nread: {again}"
     );
@@ -615,19 +618,19 @@ fn parse(text: &str) -> ServerMessage {
 }
 
 /// Whether two JSON values are equal, numbers compared by value.
-fn same(a: &Value, b: &Value) -> bool {
+fn is_same(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Number(x), Value::Number(y)) => {
             x.as_f64() == y.as_f64()
         }
         (Value::Array(x), Value::Array(y)) => {
             x.len() == y.len()
-                && x.iter().zip(y).all(|(x, y)| same(x, y))
+                && x.iter().zip(y).all(|(x, y)| is_same(x, y))
         }
         (Value::Object(x), Value::Object(y)) => {
             x.len() == y.len()
                 && x.iter().all(|(k, v)| {
-                    y.get(k).is_some_and(|w| same(v, w))
+                    y.get(k).is_some_and(|w| is_same(v, w))
                 })
         }
         _ => a == b,

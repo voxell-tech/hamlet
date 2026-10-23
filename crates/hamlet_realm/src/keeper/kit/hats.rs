@@ -4,17 +4,17 @@ use bevy::prelude::*;
 
 use super::Piece;
 use crate::keeper::Hat;
-use crate::meshes::Mb;
+use crate::meshes::Meshing;
 use crate::palette::Palette;
 
-/// The top of the leader's spire, above the hat's base.
+/// The top of the mayor's spire, above the hat's base.
 pub(in crate::keeper) const SPIRE: f32 = 0.44;
 
 /// A flat ring of brim from radius `a` out to `b`.
-fn brim(mb: &mut Mb, a: f32, b: f32, y: f32, col: Vec3) {
+fn brim(meshing: &mut Meshing, a: f32, b: f32, y: f32, col: Vec3) {
     let ring =
         [(a, y), (b, y), (b + 0.004, y + 0.012), (a, y + 0.022)];
-    mb.lathe(Vec3::ZERO, &ring, 16, |_, _| col);
+    meshing.lathe(Vec3::ZERO, &ring, 16, |_, _| col);
 }
 
 /// A hat with its base at the origin. The wood half takes the
@@ -22,8 +22,8 @@ fn brim(mb: &mut Mb, a: f32, b: f32, y: f32, col: Vec3) {
 pub(super) fn hat(which: Hat, pal: &Palette) -> Piece {
     let mut p = Piece::default();
     let felt = Vec3::splat(0.92);
-    let band = |mb: &mut Mb, y: f32, r: f32| {
-        mb.torus(Vec3::Y * y, Vec3::Y, r, 0.012, 18, pal.brass);
+    let band = |meshing: &mut Meshing, y: f32, r: f32| {
+        meshing.torus(Vec3::Y * y, Vec3::Y, r, 0.012, 18, pal.brass);
     };
     match which {
         Hat::Dome => {

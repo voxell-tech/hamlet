@@ -8,7 +8,6 @@ mod tests;
 
 use std::collections::HashMap;
 use std::fs;
-use std::os::fd::AsRawFd;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -17,6 +16,7 @@ use anyhow::{Context, Result, bail};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use ring::signature::Ed25519KeyPair;
+use rustix::fs::{FlockOperation, flock};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -31,7 +31,7 @@ use crate::control::{
 use crate::http::{self, Call};
 use crate::wire::{
     self, Envelope, MAX_BODY, Message, Progress, Reply, State,
-    valid_id, valid_name,
+    is_valid_id, is_valid_name,
 };
 
 const IDLE: Duration = Duration::from_secs(300);
@@ -125,7 +125,7 @@ fn tokens(
     }
     let mut tokens = HashMap::new();
     for (home, token) in homes {
-        if !valid_name(home) || token.len() < 16 {
+        if !is_valid_name(home) || token.len() < 16 {
             bail!("Invalid name or token of home {home:?}");
         }
         if tokens
@@ -151,7 +151,7 @@ pub async fn delete(
     workspace: &str,
     expected_uid: &str,
 ) -> Result<()> {
-    if !valid_name(home) || !valid_name(workspace) {
+    if !is_valid_name(home) || !is_valid_name(workspace) {
         bail!("Invalid home or workspace name");
     }
     let _lock = lock(&config.state)?;
@@ -213,10 +213,7 @@ fn lock(state: &Path) -> Result<fs::File> {
     fs::create_dir_all(state)?;
     fs::set_permissions(state, fs::Permissions::from_mode(0o700))?;
     let lock = fs::File::create(state.join("lock"))?;
-    // SAFETY: flock only reads the descriptor of the owned file.
-    if unsafe {
-        libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB)
-    } != 0
+    if flock(&lock, FlockOperation::NonBlockingLockExclusive).is_err()
     {
         bail!("Workspace state already has a manager");
     }
@@ -472,7 +469,7 @@ impl<A: Actors, R: Router> Manager<A, R> {
             let home = folder
                 .file_name()
                 .and_then(|name| name.to_str())
-                .filter(|home| valid_name(home))
+                .filter(|home| is_valid_name(home))
                 .with_context(|| {
                     format!("Unexpected {}", folder.display())
                 })?
@@ -498,7 +495,7 @@ impl<A: Actors, R: Router> Manager<A, R> {
                     &fs::read(&path)?,
                 )
                 .ok()
-                .filter(|_| valid_id(id));
+                .filter(|_| is_valid_id(id));
                 let route = match record {
                     Some(Record::Operation {
                         route,
@@ -516,7 +513,7 @@ impl<A: Actors, R: Router> Manager<A, R> {
                          refusing to start"
                     ),
                 };
-                if !self.routable(&route) {
+                if !self.is_routable(&route) {
                     bail!(
                         "Operation record {name} has a foreign \
                          route; refusing to start"
@@ -534,7 +531,7 @@ impl<A: Actors, R: Router> Manager<A, R> {
         Ok(())
     }
 
-    fn routable(&self, route: &str) -> bool {
+    fn is_routable(&self, route: &str) -> bool {
         route
             .strip_prefix(&self.atespace)
             .and_then(|route| route.strip_prefix('/'))
@@ -581,7 +578,7 @@ impl<A: Actors, R: Router> Manager<A, R> {
         };
         let message =
             match serde_json::from_slice::<Message>(&call.body) {
-                Ok(message) if valid_id(message.id()) => message,
+                Ok(message) if is_valid_id(message.id()) => message,
                 _ => {
                     let _ = call.reply.send(Reply::error(
                         wire::Code::Invalid,
@@ -599,7 +596,7 @@ impl<A: Actors, R: Router> Manager<A, R> {
         let purpose = match &message {
             Message::Execute { request } => {
                 if request.version != 1
-                    || !valid_name(&request.workspace)
+                    || !is_valid_name(&request.workspace)
                 {
                     let _ = call.reply.send(Reply::error(
                         wire::Code::NotSupported,
@@ -756,7 +753,7 @@ impl<A: Actors, R: Router> Manager<A, R> {
             binding.uid = Some(actor.uid.clone());
             self.persist(key, binding.clone(), now)?;
         }
-        if !actor.running() {
+        if !actor.is_running() {
             // ResumeActor addresses the actor by name only; the
             // reply's UID is checked so a replaced actor
             // is refused.
@@ -877,7 +874,7 @@ impl<A: Actors, R: Router> Manager<A, R> {
         }
         let reply =
             done.result.unwrap_or_else(|_| Reply::uncertain());
-        if settles(done.purpose, &reply)
+        if is_settling(done.purpose, &reply)
             && self.pending.contains_key(&done.ticket)
         {
             let record = Record::Operation {
@@ -910,7 +907,8 @@ impl<A: Actors, R: Router> Manager<A, R> {
             .filter(|(_, route)| {
                 !self.inflight.contains_key(*route)
                     && only.is_none_or(|only| {
-                        only == route.as_str() || !self.bound(route)
+                        only == route.as_str()
+                            || !self.is_bound(route)
                     })
             })
             .map(|(ticket, route)| (ticket.clone(), route.clone()))
@@ -930,24 +928,24 @@ impl<A: Actors, R: Router> Manager<A, R> {
         }
     }
 
-    fn bound(&self, route: &str) -> bool {
+    fn is_bound(&self, route: &str) -> bool {
         self.workspaces.values().any(|workspace| {
             self.route(&workspace.binding).as_deref() == Some(route)
         })
     }
 
     /// An unknown outcome on an unbound route blocks every workspace.
-    fn blocked(&self, route: &str) -> bool {
+    fn is_blocked(&self, route: &str) -> bool {
         self.inflight.contains_key(route)
             || self.pending.values().any(|pending| {
-                pending == route || !self.bound(pending)
+                pending == route || !self.is_bound(pending)
             })
     }
 
     fn deadline(&self) -> Option<Instant> {
         self.workspaces
             .values()
-            .filter(|workspace| eligible(&workspace.binding))
+            .filter(|workspace| is_eligible(&workspace.binding))
             .map(|workspace| workspace.last + self.idle)
             .min()
     }
@@ -963,7 +961,7 @@ impl<A: Actors, R: Router> Manager<A, R> {
             .workspaces
             .iter()
             .filter(|(_, workspace)| {
-                eligible(&workspace.binding)
+                is_eligible(&workspace.binding)
                     && workspace.last + self.idle <= now
             })
             .map(|(key, _)| key.clone())
@@ -973,7 +971,7 @@ impl<A: Actors, R: Router> Manager<A, R> {
             let Some(route) = self.route(&binding) else {
                 continue;
             };
-            if self.blocked(&route) {
+            if self.is_blocked(&route) {
                 self.reconcile(tasks, Some(&route));
             } else {
                 self.suspend(&key, binding, now).await;
@@ -1023,10 +1021,10 @@ impl<A: Actors, R: Router> Manager<A, R> {
             .await
             .map_err(|_| Refusal::Unavailable)?;
         self.verify(binding, &actor)?;
-        if actor.suspended() {
+        if actor.is_suspended() {
             return Ok(true);
         }
-        if !actor.running() {
+        if !actor.is_running() {
             return Ok(false);
         }
         let actor = self
@@ -1039,7 +1037,7 @@ impl<A: Actors, R: Router> Manager<A, R> {
     }
 }
 
-fn eligible(binding: &Binding) -> bool {
+fn is_eligible(binding: &Binding) -> bool {
     binding.uid.is_some()
         && binding.deletion.is_none()
         && binding.lifecycle != Lifecycle::Suspended
@@ -1047,7 +1045,7 @@ fn eligible(binding: &Binding) -> bool {
 
 /// Whether a worker reply settles the operation. Status answers with
 /// the worker's front-door rejections are not trusted as results.
-fn settles(purpose: Purpose, reply: &Reply) -> bool {
+fn is_settling(purpose: Purpose, reply: &Reply) -> bool {
     match reply {
         _ if purpose == Purpose::Cancel => false,
         Reply::Error {
@@ -1061,11 +1059,11 @@ fn settles(purpose: Purpose, reply: &Reply) -> bool {
                 );
             !uncertain && !rejected
         }
-        Reply::Ok { value } => !in_progress(value),
+        Reply::Ok { value } => !is_in_progress(value),
     }
 }
 
-fn in_progress(value: &Value) -> bool {
+fn is_in_progress(value: &Value) -> bool {
     serde_json::from_value::<Progress>(value.clone()).is_ok_and(
         |progress| {
             matches!(

@@ -17,7 +17,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 pub use script::{Script, Step, call, calls, failure, words};
 #[cfg(unix)]
 pub use server::{
-    Home, Models, Server, Socket, answers, cli, send, until,
+    Home, Models, Server, Socket, Unstarted, answers, cli, send,
+    until,
 };
 
 /// The variables a developer's shell may carry that would change what

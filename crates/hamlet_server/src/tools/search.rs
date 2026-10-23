@@ -6,10 +6,10 @@ use serde_json::{Map, Value};
 
 use super::environment::Reach;
 use super::walk::{
-    FOUND, Failure, reached, report, shown, under, wanted,
+    FOUND, Failure, is_wanted, reached, report, shown, under,
 };
-use super::{Arguments, Outcome, pi_space};
-use crate::change::{clip, lines_of};
+use super::{Arguments, Outcome, is_pi_space};
+use crate::change::{Cut, clip, lines_of};
 use crate::sandbox::FileKind;
 
 pub(super) const DESCRIPTION: &str =
@@ -80,7 +80,7 @@ async fn search(
     let mut found = Vec::new();
     let mut look = async |at: &str, size: u64| {
         if let Some(name) = name.filter(|name| !name.is_empty())
-            && !wanted(name, &under(&root, at))
+            && !is_wanted(name, &under(&root, at))
         {
             return true;
         }
@@ -102,10 +102,9 @@ async fn search(
                 shown(env, at),
                 index + 1,
                 clip(
-                    line.trim_end_matches(pi_space),
+                    line.trim_end_matches(is_pi_space),
                     WIDTH,
-                    false,
-                    true
+                    Cut::Dotted
                 )
             ));
             if found.len() > FOUND {

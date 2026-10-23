@@ -86,8 +86,8 @@ pub(super) async fn run(
     };
     let env = match environment(sandbox, place, net) {
         Ok(env) => env,
-        Err(message) => {
-            return Outcome::thrown("tool_error", message);
+        Err(error) => {
+            return Outcome::thrown("tool_error", error.to_string());
         }
     };
     let folder = env.file_info(env.cwd());

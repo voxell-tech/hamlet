@@ -25,7 +25,7 @@ fn inbox(s: &Session) -> Vec<String> {
 async fn manifest(c: &mut Client, files: &[(&str, u64)]) -> Reply {
     let files = files
         .iter()
-        .map(|(path, size)| GiveFilesFiles {
+        .map(|(path, size)| GiveFile {
             path: path.to_string(),
             size: *size,
         })
@@ -44,7 +44,7 @@ async fn starter(c: &mut Client, to: Address, name: &str) -> Reply {
     c.request(|id| {
         ClientMessage::Give(Give::Skill {
             id,
-            skill: GiveSkillSkill::Starter {
+            skill: GiveSkillSource::Starter {
                 starter: name.into(),
             },
             to,
@@ -413,7 +413,7 @@ async fn copies_another_agents_whole_skill() {
         std::fs::Permissions::from_mode(0o755),
     )
     .unwrap();
-    let from = |name: &str| GiveSkillSkill::From {
+    let from = |name: &str| GiveSkillSource::From {
         from: to("home", "scout"),
         name: name.into(),
     };
@@ -501,7 +501,7 @@ async fn answers_a_gift_to_a_departed_agent_with_its_farewell() {
         .chief
         .request(|id| {
             ClientMessage::Give(Give::Files {
-                files: vec![GiveFilesFiles {
+                files: vec![GiveFile {
                     path: "note.txt".into(),
                     size: 0,
                 }],

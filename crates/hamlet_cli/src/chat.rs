@@ -38,7 +38,7 @@ fn resolve(
         .iter()
         .find(|a| {
             a.left.is_none()
-                && hamlet.is_none_or(|h| a.ref_.hamlet == h)
+                && hamlet.is_none_or(|h| a.agent.hamlet == h)
                 && if name == MAYOR {
                     a.mayor
                 } else {
@@ -47,7 +47,7 @@ fn resolve(
         })
         .with_context(|| format!("no agent named `{name}`"))?;
     Ok(Address {
-        hamlet: agent.ref_.hamlet.clone(),
+        hamlet: agent.agent.hamlet.clone(),
         agent: if agent.mayor {
             MAYOR.into()
         } else {
@@ -599,22 +599,27 @@ impl Screen {
                     self.views.remove(&key).unwrap_or_default();
                 let id =
                     |raw: &str| Self::item_id(&t.chat, t.number, raw);
-                for op in &t.ops {
+                for operation in &t.operations {
                     let applied = transcript::apply(
                         &mut items,
-                        op,
+                        operation,
                         Item::clone,
                     )
                     .is_ok();
-                    match op {
-                        Op::Add { item, replaces } => {
+                    match operation {
+                        TranscriptOperation::Add {
+                            item,
+                            replaces,
+                        } => {
                             let mut item = item.clone();
                             item.id = id(&item.id);
                             let replaces =
                                 replaces.as_deref().map(id);
                             self.add(&item, replaces.as_deref())?;
                         }
-                        Op::Append { item, .. } => {
+                        TranscriptOperation::Append {
+                            item, ..
+                        } => {
                             let Some(kept) = items
                                 .iter()
                                 .find(|kept| &kept.id == item)
@@ -634,12 +639,15 @@ impl Screen {
                                     .unwrap_or_default(),
                             )?;
                         }
-                        Op::Close { exit, .. }
-                            if applied && *exit != 0 =>
-                        {
+                        TranscriptOperation::Close {
+                            exit, ..
+                        } if applied && *exit != 0 => {
                             self.line(&format!("  [exit {exit}]"))?;
                         }
-                        Op::Status { working: false, .. } => {
+                        TranscriptOperation::Status {
+                            working: false,
+                            ..
+                        } => {
                             self.end()?;
                         }
                         _ => {}

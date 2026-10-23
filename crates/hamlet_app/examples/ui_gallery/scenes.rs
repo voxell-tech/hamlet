@@ -58,10 +58,10 @@ impl Plugin for GalleryPlugin {
             .init_resource::<Roll>()
             .init_resource::<SoundSettings>()
             .init_resource::<History>()
-            .init_resource::<hamlet_ui::rules::Book>()
+            .init_resource::<hamlet_ui::limits::Book>()
             .init_resource::<hamlet_ui::models::Shelf>()
             .init_resource::<hamlet_ui::models::Draft>()
-            .init_resource::<hamlet_ui::rules::Part>()
+            .init_resource::<hamlet_ui::limits::Part>()
             .init_resource::<menu::OpenMenu>()
             .insert_resource(first_run(self.0))
             .init_resource::<chrome::ChromeSettings>()
@@ -132,8 +132,8 @@ pub enum Scene {
     Overview,
     /// One hamlet and everyone in it.
     Hamlet,
-    /// The running of that hamlet: its budget, models and rules.
-    Rules,
+    /// The running of that hamlet: its budget, models and limits.
+    Bylaws,
     /// The Inspector's History page, with its list of sessions.
     History,
     /// The Inspector's History page, with one session being read.

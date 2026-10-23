@@ -200,14 +200,7 @@ fn listed(
         } else {
             (0, None)
         };
-        #[cfg_attr(
-            target_os = "linux",
-            expect(
-                clippy::useless_conversion,
-                reason = "Linux mode_t is u32; macOS's is u16"
-            )
-        )]
-        let mode = u32::from(info.st_mode) & 0o777;
+        let mode = permission_bits(info.st_mode);
         entries.push(TreeEntry {
             path: path.clone(),
             kind,
@@ -593,4 +586,10 @@ pub(crate) fn erase(root: &File, name: &str) -> Result<()> {
     super::clear(&dir)?;
     unlinkat(root, name, AtFlags::REMOVEDIR)?;
     Ok(())
+}
+
+/// The permission bits of `mode`, a `u16` on macOS and a `u32` on
+/// Linux.
+fn permission_bits(mode: impl Into<u32>) -> u32 {
+    mode.into() & 0o777
 }

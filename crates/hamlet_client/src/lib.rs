@@ -57,7 +57,7 @@ pub struct Tokio(pub Handle);
 
 /// The folder for this window's layout, size and look.
 #[derive(Resource, Clone, Debug)]
-pub struct ViewDir(pub PathBuf);
+pub struct ViewFolder(pub PathBuf);
 
 /// One frame of the server's state or a request's answer.
 pub fn receive(world: &mut World, message: protocol::ServerMessage) {

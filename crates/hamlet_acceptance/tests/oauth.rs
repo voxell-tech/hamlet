@@ -265,7 +265,7 @@ async fn shutdown_waits_for_a_model_calls_started_rotation_to_persist()
     server.terminate();
     stopped_listening(&server).await;
     assert!(
-        server.running(),
+        server.is_running(),
         "shutdown abandoned a started rotation"
     );
     std::fs::write(fixture.join("release-refresh"), "release")

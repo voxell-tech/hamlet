@@ -13,7 +13,7 @@ use bevy_fynix::views::{
     label, row, scroll,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
-use hamlet_client::messages::UserMessage;
+use hamlet_client::messages::ChiefMessage;
 use hamlet_client::realm::{
     Account, Activity, Busy, LivesIn, Purpose, Treasury,
 };
@@ -159,7 +159,7 @@ fn header(agent: Entity, with: Option<String>) -> AnyView {
                 world_menu::stop(world, agent);
             }),))
             .display(rolled(move |world| {
-                if super::conversations::read_only(world) {
+                if super::conversations::is_read_only(world) {
                     return Display::None;
                 }
                 match world.get::<Busy>(agent) {
@@ -183,7 +183,7 @@ fn header(agent: Entity, with: Option<String>) -> AnyView {
             let thing = if mayor == Some(agent) {
                 Thing::Keeper
             } else {
-                Thing::Resident(agent)
+                Thing::Agent(agent)
             };
             world_menu::open_for(world, thing);
         });
@@ -229,7 +229,7 @@ fn notes() -> impl View {
     // Reflecting is what writes them.
     let reflect = action(Glyph::Notes, "REFLECT NOW", |w| {
         if let Some(to) = super::papers::selected(w) {
-            w.trigger(UserMessage {
+            w.trigger(ChiefMessage {
                 to,
                 text: "/reflect".into(),
             });
@@ -341,7 +341,7 @@ fn sections() -> impl View {
         Section::Conversation => {
             keyed(resource::<Me, _>(|m| m.session), |_| {
                 with_cx(|cx| {
-                    let bar = if super::conversations::read_only(
+                    let bar = if super::conversations::is_read_only(
                         cx.world,
                     ) {
                         column((
@@ -651,7 +651,7 @@ mod tests {
         app.init_resource::<Bar>();
         let agent = app.world().resource::<Me>().agent;
         app.insert_resource(hamlet_realm::pick::Selected(Some(
-            Thing::Resident(agent),
+            Thing::Agent(agent),
         )));
         app.update();
         bevy_fynix::mount::<crate::theme::HamletTheme>(

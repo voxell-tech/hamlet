@@ -118,7 +118,7 @@ async fn chats_with_answers_on_stdout_and_the_rest_on_stderr() {
         chat.err.contains("\n  [bash] {\"command\":\"echo hi\"}\n"),
         "{chat:?}"
     );
-    assert!(s.server.running());
+    assert!(s.server.is_running());
 }
 
 #[tokio::test]
@@ -139,7 +139,7 @@ async fn ends_with_a_failure_when_its_agent_does_not_exist() {
             "{chat:?}"
         );
     }
-    assert!(s.server.running());
+    assert!(s.server.is_running());
 }
 
 #[tokio::test]

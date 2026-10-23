@@ -107,7 +107,7 @@ impl Cast {
     fn until(&mut self, stay: Stay) -> f32 {
         for frame in 0..600 {
             let mascot = self.mascot();
-            if mascot.stay == stay && !mascot.stepping() {
+            if mascot.stay == stay && !mascot.is_stepping() {
                 return frame as f32 / 60.0;
             }
             self.run(1.0 / 60.0);
@@ -120,7 +120,7 @@ impl Cast {
 fn talking_to_an_agent_sends_the_mascot_beside_it_by_wickstep() {
     let mut cast = Cast::new();
     let mascot = cast.settled().mascot;
-    assert_eq!(cast.mascot().stay, Stay::Home);
+    assert_eq!(cast.mascot().stay, Stay::House);
     assert!(
         cast.at(mascot).xz().distance(cast.waystone().xz()) < 0.1
     );
@@ -169,7 +169,7 @@ fn talking_to_nobody_sends_the_mascot_home() {
     cast.talk_to(Some(cast.agent));
     cast.until(Stay::With(cast.agent));
     cast.talk_to(None);
-    let took = cast.until(Stay::Home);
+    let took = cast.until(Stay::House);
     assert!(took < 2.0, "{took}");
     assert!(
         cast.at(mascot).xz().distance(cast.waystone().xz()) < 0.1
@@ -180,7 +180,7 @@ fn talking_to_nobody_sends_the_mascot_home() {
     cast.until(Stay::With(cast.agent));
     cast.app.world_mut().entity_mut(cast.robot).despawn();
     cast.app.world_mut().entity_mut(cast.agent).despawn();
-    cast.until(Stay::Home);
+    cast.until(Stay::House);
 }
 
 #[test]
@@ -204,7 +204,7 @@ fn the_mascot_follows_an_agent_that_strays() {
     shift(&mut cast, Vec3::X * 2.5);
     cast.run(0.1);
     assert_eq!(cast.mascot().doing, Doing::Walk);
-    assert!(!cast.mascot().stepping());
+    assert!(!cast.mascot().is_stepping());
     cast.run(2.5);
     assert!((apart(&cast) - reach).abs() < set.slack + 0.05);
 
@@ -213,12 +213,12 @@ fn the_mascot_follows_an_agent_that_strays() {
     shift(&mut cast, Vec3::X * (set.restep + 3.0));
     cast.run(0.1);
     assert_eq!(cast.mascot().doing, Doing::Walk);
-    assert!(!cast.mascot().stepping());
+    assert!(!cast.mascot().is_stepping());
 
     // A long way off: it steps after it.
     shift(&mut cast, Vec3::X * (set.afoot + 3.0));
     cast.run(0.1);
-    assert!(cast.mascot().stepping());
+    assert!(cast.mascot().is_stepping());
     cast.until(Stay::With(cast.agent));
     assert!((apart(&cast) - reach).abs() < set.slack + 0.05);
 }
@@ -252,7 +252,7 @@ fn at_home_the_mascot_goes_about_its_grounds() {
     assert!(seen.len() >= 4, "{seen:?}");
     // On foot it never moves further than a step in a frame.
     assert!(furthest < set.walk_speed / 60.0 + 0.02, "{furthest}");
-    assert_eq!(cast.mascot().stay, Stay::Home);
+    assert_eq!(cast.mascot().stay, Stay::House);
 }
 
 #[test]
@@ -262,7 +262,7 @@ fn a_still_shows_the_mascot_there_with_no_magic() {
     cast.talk_to(Some(cast.agent));
     cast.app.update();
     assert_eq!(cast.mascot().stay, Stay::With(cast.agent));
-    assert!(!cast.mascot().stepping());
+    assert!(!cast.mascot().is_stepping());
     cast.app.update();
     let world = cast.app.world_mut();
     assert_eq!(world.query::<&Rune>().iter(world).count(), 0);
@@ -280,7 +280,7 @@ fn a_chief_that_leaves_takes_its_place_and_its_mascot() {
     assert!(world.get_entity(settled.mascot).is_err());
 }
 
-fn finite(mesh: &Mesh) -> bool {
+fn is_finite(mesh: &Mesh) -> bool {
     [Mesh::ATTRIBUTE_POSITION, Mesh::ATTRIBUTE_NORMAL]
         .into_iter()
         .all(|attribute| match mesh.attribute(attribute) {
@@ -303,12 +303,12 @@ fn every_look_builds_finite_meshes() {
         let held = !parts.item.is_empty();
         assert_eq!(held, look.holds != Holds::Nothing, "{look:?}");
         assert!(parts.cloak.tris() > 50 && parts.hat.tris() > 20);
-        for mb in parts.each() {
-            assert!(finite(&mb.build()), "{look:?}");
+        for meshing in parts.each() {
+            assert!(is_finite(&meshing.build()), "{look:?}");
         }
         assert!(crest(look.hat).is_finite());
     }
-    assert!(finite(&mascot::wick().build()));
+    assert!(is_finite(&mascot::wick().build()));
     for cloak in Cloak::ALL {
         let look = Look {
             cloak,
@@ -316,8 +316,8 @@ fn every_look_builds_finite_meshes() {
         };
         let built = place::build(&pal, &set, look, |at| at.x * 0.01);
         assert!(built.body.tris() > 1000);
-        assert!(finite(&built.body.build()));
-        assert!(finite(&built.panes.build()));
+        assert!(is_finite(&built.body.build()));
+        assert!(is_finite(&built.panes.build()));
         assert!(built.lights.orb.0.is_finite());
     }
 }

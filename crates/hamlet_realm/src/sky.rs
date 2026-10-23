@@ -184,7 +184,7 @@ impl SkySettings {
         if night { (noon + 12.0) % 24.0 } else { noon }
     }
 
-    pub fn night(&self, hour: f32) -> bool {
+    pub fn is_night(&self, hour: f32) -> bool {
         !(self.sunrise..self.sunset).contains(&hour)
     }
 
@@ -203,7 +203,7 @@ impl SkySettings {
     /// its setting, and true when it is the sun.
     pub fn arc(&self, hour: f32) -> (f32, bool) {
         let day = self.sunset - self.sunrise;
-        if self.night(hour) {
+        if self.is_night(hour) {
             let since = (hour - self.sunset).rem_euclid(24.0);
             (since / (24.0 - day).max(1e-3), false)
         } else {
@@ -446,7 +446,7 @@ impl Sky {
     pub fn part(set: &SkySettings, hour: f32) -> DayPart {
         let half = set.twilight * 0.5;
         if !set.moving {
-            if set.night(hour) {
+            if set.is_night(hour) {
                 DayPart::Night
             } else {
                 DayPart::Day
@@ -455,7 +455,7 @@ impl Sky {
             DayPart::Dawn
         } else if (hour - set.sunset).abs() < half {
             DayPart::Dusk
-        } else if set.night(hour) {
+        } else if set.is_night(hour) {
             DayPart::Night
         } else {
             DayPart::Day
@@ -510,7 +510,7 @@ pub(crate) fn tell(
         .0
         .or_else(|| (!clock.frozen).then(wall_hour))
         // The stage has the last word on whether it is night.
-        .filter(|&h| set.moving && set.night(h) == stage.night)
+        .filter(|&h| set.moving && set.is_night(h) == stage.night)
         .unwrap_or_else(|| set.held(stage.night));
     if sky.hour != hour || looks.is_changed() || set.is_changed() {
         let now = Sky::at(&looks, &set, hour);

@@ -17,21 +17,21 @@ use self::lot::footing;
 pub(super) use self::lot::{Engine, Lot};
 pub use self::passage::Passage;
 pub(super) use self::passage::pass;
-use super::homing::homeward;
+use super::homing::houseward;
 use super::land::Land;
 use super::society::AgentId;
 use super::sync::Drawn;
 use super::traffic::Trips;
 use crate::Clock;
 use crate::keeper::work::{Chore, Station, Task, Work, routine};
-use crate::keeper::{self, Act, KState, Keeper, Motion, Stride};
+use crate::keeper::{self, Act, Keeper, KeeperState, Motion, Stride};
 
 /// An agent's robot. Its meshes are this entity's descendants.
 #[derive(Component, Debug)]
 pub struct Robot {
     pub agent: AgentId,
     /// The agent's state when it is not out on a road.
-    pub(super) state: KState,
+    pub(super) state: KeeperState,
     pub(super) work: Work,
     pub(super) lot: Lot,
     engine: Engine,
@@ -60,7 +60,7 @@ pub struct Robot {
 impl Robot {
     pub(super) fn new(
         agent: AgentId,
-        state: KState,
+        state: KeeperState,
         work: Work,
         lot: Lot,
         engine: Engine,
@@ -108,7 +108,7 @@ impl Robot {
     }
 
     /// True when it is about its house, where a hand can reach it.
-    pub(crate) fn at_home(&self) -> bool {
+    pub(crate) fn is_at_house(&self) -> bool {
         self.job.is_some()
     }
 
@@ -192,16 +192,16 @@ impl Job {
     }
 
     /// True when the chore has been seen for long enough to leave.
-    fn shown(&self, now: f32) -> bool {
+    fn has_shown_long_enough(&self, now: f32) -> bool {
         let least = self.chore.least();
         least == 0.0 || now >= self.arrive() + least
     }
 
     /// True when it is real work, to be rounded off when it ends.
-    fn works(&self) -> bool {
+    fn is_real_work(&self) -> bool {
         !matches!(
             self.chore,
-            Chore::Home | Chore::Stand | Chore::Done | Chore::Vote
+            Chore::House | Chore::Stand | Chore::Done | Chore::Vote
         )
     }
 }
@@ -231,7 +231,7 @@ fn wanted(
     live: bool,
 ) -> (Chore, f32) {
     match robot.state {
-        KState::Working => {
+        KeeperState::Working => {
             if let Some(&chore) = rehearsal.0.get(&robot.agent) {
                 (chore, 0.0)
             } else if live && robot.oops {
@@ -244,11 +244,13 @@ fn wanted(
                 (Chore::of(robot.work.task), robot.step_at)
             }
         }
-        KState::Rest => {
-            if live && robot.job.as_ref().is_some_and(Job::works) {
+        KeeperState::Rest => {
+            if live
+                && robot.job.as_ref().is_some_and(Job::is_real_work)
+            {
                 (Chore::Done, now)
             } else {
-                (Chore::Home, now)
+                (Chore::House, now)
             }
         }
         _ => (Chore::Stand, now),
@@ -283,7 +285,7 @@ fn settled(
             .unwrap_or((lot.porch, lot.yaw))
     };
     let to = stand(want, first_beat(want, seed));
-    let by_the_clock = robot.state == KState::Working
+    let by_the_clock = robot.state == KeeperState::Working
         && robot.work.task == Task::Unknown
         && !rehearsal.0.contains_key(&robot.agent);
     let way = if by_the_clock {
@@ -400,7 +402,7 @@ pub(super) fn work_robots(
         // state.
         let live = !clock.frozen && robot.placed;
         robot.placed = true;
-        if live && robot.state == KState::Working {
+        if live && robot.state == KeeperState::Working {
             if robot.work.failures > robot.failures {
                 robot.oops = true;
             }
@@ -420,7 +422,7 @@ pub(super) fn work_robots(
         robot.failures = robot.work.failures;
         if let Some(job) = &robot.job
             && now >= job.arrive()
-            && job.shown(now)
+            && job.has_shown_long_enough(now)
         {
             if robot.queued == Some(job.chore) {
                 robot.queued = None;
@@ -451,7 +453,9 @@ pub(super) fn work_robots(
                 &motion,
             ));
         } else if robot.job.as_ref().is_none_or(|job| {
-            want != job.chore && (want.breaks_in() || job.shown(now))
+            want != job.chore
+                && (want.is_breaking_in()
+                    || job.has_shown_long_enough(now))
         }) {
             let from = at.translation;
             let facing = at.rotation.to_euler(EulerRot::YXZ).0;
@@ -464,14 +468,14 @@ pub(super) fn work_robots(
                 Some(to) => {
                     let lot = &robot.lot;
                     // From away it finds a way to its house first.
-                    let (way, by_road) = if lot.away(&land, from) {
+                    let (way, by_road) = if lot.is_away(&land, from) {
                         let near = lot.approach(&land, to.0);
                         let roads = drawn
                             .roads
                             .values()
                             .map(|road| &road.route)
                             .collect::<Vec<_>>();
-                        let Some(home) = homeward(
+                        let Some(back) = houseward(
                             &land,
                             &roads,
                             from.xz(),
@@ -490,11 +494,11 @@ pub(super) fn work_robots(
                             );
                             continue;
                         };
-                        let mut way = home.way;
+                        let mut way = back.way;
                         way[0] = from;
                         way.pop();
                         way.extend(lot.way(&land, near, to.0));
-                        (way, home.by_road)
+                        (way, back.by_road)
                     } else {
                         (lot.way(&land, from, to.0), false)
                     };
@@ -528,7 +532,7 @@ pub(super) fn work_robots(
         let lot = &robot.lot;
         let mut ran = None;
         let (p, yaw) = if job.chore == Chore::Stand {
-            let objects = robot.state == KState::Waiting
+            let objects = robot.state == KeeperState::Waiting
                 && objecting
                     .as_ref()
                     .is_some_and(|o| o.0.contains(&robot.agent));
@@ -537,7 +541,7 @@ pub(super) fn work_robots(
                     keeper.play(Act::Object, now);
                 }
             } else if keeper.act() == Act::Object
-                && robot.state == KState::Waiting
+                && robot.state == KeeperState::Waiting
             {
                 keeper.play(Act::Wait, now);
             } else if keeper.state != robot.state {
@@ -550,7 +554,7 @@ pub(super) fn work_robots(
         } else {
             let (p, yaw, act, since, stride) = if now < arrive {
                 let s = job.leg.at(now);
-                let act = if job.chore == Chore::Home {
+                let act = if job.chore == Chore::House {
                     Act::Walk
                 } else {
                     Act::Amble

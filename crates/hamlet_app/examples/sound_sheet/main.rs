@@ -195,7 +195,7 @@ fn effects(dir: &Path, set: &SoundSettings) -> Vec<(Sound, f32)> {
             ));
         }
         let (first, last) = (samples[0], samples[samples.len() - 1]);
-        if !sound.ambient() && first.abs().max(last.abs()) > 0.01 {
+        if !sound.is_ambient() && first.abs().max(last.abs()) > 0.01 {
             warnings.push(format!("{}: a hard edge", sound.name()));
         }
         if mean.abs() > 1e-3 {
@@ -230,7 +230,7 @@ fn effects(dir: &Path, set: &SoundSettings) -> Vec<(Sound, f32)> {
         // The loops of the ambience are mixed by the hour and the
         // camera's height, not against each other.
         for (sound, level) in of {
-            if level > middle + 3.0 && !sound.ambient() {
+            if level > middle + 3.0 && !sound.is_ambient() {
                 warnings.push(format!(
                     "{}: {:.1} dB over its family",
                     sound.name(),
@@ -531,7 +531,7 @@ fn main() {
     // The music against the effects.
     let mut one_shots = heard
         .iter()
-        .filter(|(s, _)| !s.ambient())
+        .filter(|(s, _)| !s.is_ambient())
         .map(|&(_, level)| db(level))
         .collect::<Vec<_>>();
     one_shots.sort_by(f32::total_cmp);

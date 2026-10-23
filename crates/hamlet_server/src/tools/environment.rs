@@ -9,11 +9,11 @@ use hamlet_workspace_wire::{
 };
 
 use super::walk::{SKIPPED, VISITED};
-use crate::papers::remote::{HOUSE, PROJECT, TOO_LARGE};
+use crate::papers::remote::{HOUSE, PROJECT, TooLarge};
 use crate::sandbox::{
-    Env, FileError, FileInfo, FileKind, Sandbox, path,
+    Env, FileError, FileInfo, FileKind, Sandbox, SetupError, path,
 };
-use crate::workspace::Session;
+use crate::workspace::WorkspaceSession;
 
 /// File operations on the paths an agent's tools see.
 pub(super) trait Reach {
@@ -83,6 +83,15 @@ pub(super) trait Reach {
     }
 }
 
+/// The failure to open the tools' environment on this machine.
+#[derive(Debug, thiserror::Error)]
+pub(super) enum Unopened {
+    #[error(transparent)]
+    Setup(#[from] SetupError),
+    #[error(transparent)]
+    Lost(#[from] tokio::task::JoinError),
+}
+
 /// This machine's files, reached under the sandbox's policy off the
 /// async runtime.
 pub(super) struct Local {
@@ -98,13 +107,12 @@ impl Local {
     pub async fn open(
         sandbox: Sandbox,
         place: &super::Place,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, Unopened> {
         let at = place.clone();
         let env = tokio::task::spawn_blocking(move || {
             super::environment(&sandbox, &at, false)
         })
-        .await
-        .map_err(|error| error.to_string())??;
+        .await??;
         Ok(Self {
             cwd: env.cwd().to_owned(),
             env: Some(env),
@@ -252,11 +260,11 @@ impl Reach for Local {
 
 /// A remote workspace's `/house` and `/project`.
 pub(super) struct Remote {
-    session: Session,
+    session: WorkspaceSession,
 }
 
 impl Remote {
-    pub fn new(session: Session) -> Self {
+    pub fn new(session: WorkspaceSession) -> Self {
         Self { session }
     }
 
@@ -447,7 +455,7 @@ impl Reach for Remote {
         if content.len() > MAX_FILE {
             return Err(FileError {
                 code: Code::Invalid,
-                message: TOO_LARGE.into(),
+                message: TooLarge.to_string(),
             });
         }
         let write = Write {

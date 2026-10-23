@@ -19,13 +19,13 @@ use bevy::window::{
 use bevy::winit::{
     EventLoopProxyWrapper, UpdateMode, WinitSettings, WinitUserEvent,
 };
-use hamlet_client::ViewDir;
+use hamlet_client::ViewFolder;
 use hamlet_client::connection::Wake;
 use hamlet_realm::chief;
 
 use crate::chrome;
 
-/// The size the window opens at until the user has resized it once.
+/// The size the window opens at until the chief has resized it once.
 const DEFAULT_SIZE: (u32, u32) = (1920, 1080);
 
 /// The least size of the window.
@@ -102,7 +102,7 @@ fn saved_size(view: &Path) -> Result<(u32, u32)> {
 /// Keeps the size once resizing has settled.
 pub(crate) fn remember_size(
     time: Res<Time>,
-    view: Res<ViewDir>,
+    view: Res<ViewFolder>,
     mut resizes: MessageReader<WindowResized>,
     mut pending: Local<Option<(f32, (u32, u32))>>,
 ) {
@@ -177,7 +177,7 @@ mod tests {
             .add_message::<WindowCloseRequested>()
             .add_message::<WindowResized>()
             .init_resource::<Time>()
-            .insert_resource(ViewDir(dir.join("view")));
+            .insert_resource(ViewFolder(dir.join("view")));
         app.world_mut().spawn((Window::default(), PrimaryWindow));
         app.add_plugins(plugin);
         app.update();

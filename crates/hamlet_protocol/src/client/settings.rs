@@ -41,7 +41,7 @@ pub struct SettingsViewWorkspace {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "SettingsViewWorkspaceMove")]
-    pub move_: Option<SettingsViewWorkspaceMove>,
+    pub moving: Option<SettingsViewWorkspaceMove>,
     #[serde(deserialize_with = "Option::deserialize")]
     pub running: Option<String>,
     #[serde(deserialize_with = "Option::deserialize")]
@@ -187,25 +187,16 @@ pub struct MoveHouses {
 )]
 #[serde(untagged, deny_unknown_fields)]
 pub enum Login {
-    Start {
-        id: RequestId,
-        start: LoginStartStart,
-    },
-    Reply {
-        id: RequestId,
-        reply: LoginReplyReply,
-    },
-    Cancel {
-        cancel: String,
-        id: RequestId,
-    },
+    Start { id: RequestId, start: LoginStart },
+    Reply { id: RequestId, reply: LoginReply },
+    Cancel { cancel: String, id: RequestId },
 }
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
-pub struct LoginStartStart {
+pub struct LoginStart {
     pub method: LoginMethod,
     pub provider: String,
 }
@@ -214,7 +205,7 @@ pub struct LoginStartStart {
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
-pub struct LoginReplyReply {
+pub struct LoginReply {
     pub login: String,
     pub value: String,
 }

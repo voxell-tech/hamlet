@@ -162,7 +162,7 @@ macro_rules! operations {
         #[cfg(test)]
         impl Operation {
             /// Whether `value` is this operation's reply.
-            fn answered_by(&self, value: Value) -> bool {
+            fn is_answered_by(&self, value: Value) -> bool {
                 match self {
                     $(Self::$name(_) => {
                         serde_json::from_value::<$reply>(value).is_ok()
@@ -421,11 +421,11 @@ impl Reply {
     }
 }
 
-pub fn valid_id(id: &str) -> bool {
+pub fn is_valid_id(id: &str) -> bool {
     uuid::Uuid::parse_str(id).is_ok_and(|uuid| uuid.to_string() == id)
 }
 
-pub fn valid_name(name: &str) -> bool {
+pub fn is_valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 128
         && name
@@ -437,7 +437,7 @@ pub fn valid_name(name: &str) -> bool {
 mod tests {
     use serde_json::Value;
 
-    use super::{Message, Operation, Reply, valid_id};
+    use super::{Message, Operation, Reply, is_valid_id};
 
     /// Messages as Hamlet's server sends them, which its own tests
     /// build again from its requests.
@@ -456,7 +456,7 @@ mod tests {
                 case["message"].clone(),
             )
             .unwrap_or_else(|error| panic!("{name}: {error}"));
-            assert!(valid_id(message.id()), "{name}");
+            assert!(is_valid_id(message.id()), "{name}");
             assert_eq!(
                 serde_json::to_value(&message).unwrap(),
                 case["message"],
@@ -475,7 +475,7 @@ mod tests {
                 && let Reply::Ok { value } = reply
             {
                 assert!(
-                    request.operation.answered_by(value),
+                    request.operation.is_answered_by(value),
                     "{name}: the reply is not the operation's"
                 );
             }

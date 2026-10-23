@@ -18,7 +18,7 @@ use bevy_fynix::views::{
     number_field, row, scroll, slider,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
-use hamlet_client::messages::{Reconnected, Response, UserMessage};
+use hamlet_client::messages::{ChiefMessage, Reconnected, Response};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Grants, HOME, MAYOR, Settings};
 use hamlet_desktop::awake::KeepAwake;
@@ -111,7 +111,7 @@ pub enum Pane {
     Workspace,
     /// The words every agent's prompt opens with.
     Charter,
-    /// The rules that hold for every hamlet.
+    /// The limits that hold for every hamlet.
     Realm,
     Senses,
 }
@@ -171,7 +171,7 @@ impl Pane {
                  kept."
             }
             Pane::Charter => "What every agent is told.",
-            Pane::Realm => "Rules that apply to every hamlet.",
+            Pane::Realm => "Limits that apply to every hamlet.",
             Pane::Senses => "Sound, music and how much is drawn.",
         }
     }
@@ -300,7 +300,7 @@ fn permissions() -> AnyView {
                         Glyph::Cross,
                         "REVOKE",
                         move |world| {
-                            world.trigger(UserMessage {
+                            world.trigger(ChiefMessage {
                                 to: protocol::Address {
                                     hamlet: hamlet.clone(),
                                     agent: MAYOR.into(),
@@ -600,7 +600,7 @@ pub fn screen() -> AnyView {
             Pane::Agents => agents().boxed(),
             Pane::Workspace => workspace::page().boxed(),
             Pane::Charter => with_cx(charter_page),
-            Pane::Realm => crate::rules::realm().boxed(),
+            Pane::Realm => crate::limits::realm().boxed(),
             Pane::Front | Pane::Senses => senses().boxed(),
         };
         column((
@@ -806,7 +806,7 @@ mod tests {
             protocol::ServerMessage::Read(
                 protocol::ReadResult::Charter {
                     to: sent,
-                    charter: protocol::ReadResultCharterCharter {
+                    charter: protocol::Charter {
                         text: "Keep the orchard kind.".into(),
                         own: true,
                     },
@@ -855,7 +855,7 @@ mod tests {
             protocol::ServerMessage::Read(
                 protocol::ReadResult::Charter {
                     to: id,
-                    charter: protocol::ReadResultCharterCharter {
+                    charter: protocol::Charter {
                         text: "Keep the orchard kind.".into(),
                         own: true,
                     },
@@ -972,7 +972,7 @@ mod tests {
             protocol::ServerMessage::Read(
                 protocol::ReadResult::Charter {
                     to: read,
-                    charter: protocol::ReadResultCharterCharter {
+                    charter: protocol::Charter {
                         text: "The server's default words.".into(),
                         own: false,
                     },

@@ -46,7 +46,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, resource};
 use hamlet_client::chats::Chat;
 use hamlet_client::messages::{
-    Response, Rewind, ServerFault, UserMessage,
+    ChiefMessage, Response, Rewind, ServerFault,
 };
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::MAYOR;
@@ -135,7 +135,7 @@ fn fault(
 #[derive(Resource, Default)]
 struct Requests(HashSet<protocol::RequestId>);
 
-fn remember_said(message: On<UserMessage>, mut commands: Commands) {
+fn remember_said(message: On<ChiefMessage>, mut commands: Commands) {
     let message = message.event().clone();
     // The client's observers enqueue the requests before this command
     // keeps their ids.
@@ -247,12 +247,12 @@ pub fn send(world: &mut World, text: String) {
         return;
     }
     let to = me.to.clone();
-    world.trigger(UserMessage { to, text });
+    world.trigger(ChiefMessage { to, text });
 }
 
 /// A chief's command addressed to a hamlet's mayor.
 pub(crate) fn decree(world: &mut World, hamlet: &str, text: String) {
-    world.trigger(UserMessage {
+    world.trigger(ChiefMessage {
         to: protocol::Address {
             hamlet: hamlet.into(),
             agent: MAYOR.into(),
@@ -276,7 +276,7 @@ fn told(tell: On<Tell>, mut commands: Commands) {
         let Some((to, _)) = me::address(world, agent) else {
             return;
         };
-        world.trigger(UserMessage { to, text });
+        world.trigger(ChiefMessage { to, text });
         world.flush();
     });
 }
@@ -1017,8 +1017,8 @@ mod tests {
                 Item {
                     id: "chief:0".into(),
                     at: 0,
-                    entry: Entry::User {
-                        user: "chief".into(),
+                    entry: Entry::Chief {
+                        name: "chief".into(),
                         text: "Go".into(),
                     },
                 },
@@ -1082,8 +1082,8 @@ mod tests {
             Transcript::from_items(vec![Item {
                 id: "entry-abc:0".into(),
                 at: 1,
-                entry: Entry::User {
-                    user: "chief".into(),
+                entry: Entry::Chief {
+                    name: "chief".into(),
                     text: "Change these words".into(),
                 },
             }]),

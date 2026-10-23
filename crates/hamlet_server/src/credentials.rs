@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use crate::scrub;
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Stored {
@@ -19,7 +21,7 @@ struct Stored {
     connection: Connection,
     models: serde_json::Map<String, Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    workspace: Option<Workspace>,
+    workspace: Option<WorkspaceAddress>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -27,8 +29,9 @@ struct Connection {
     token: String,
 }
 
+/// A remote workspace's url and token.
 #[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct Workspace {
+pub(crate) struct WorkspaceAddress {
     pub url: String,
     pub token: String,
 }
@@ -99,7 +102,7 @@ impl Credentials {
         Ok(credentials)
     }
 
-    pub(crate) fn accepts(&self, token: &str) -> bool {
+    pub(crate) fn is_connection_token(&self, token: &str) -> bool {
         // Both hashes are fixed length, independent of the token's
         // spelling.
         let a = Sha256::digest(token.as_bytes());
@@ -116,7 +119,7 @@ impl Credentials {
         self.workspace().map(|w| w.url.as_str())
     }
 
-    pub(crate) fn workspace(&self) -> Option<&Workspace> {
+    pub(crate) fn workspace(&self) -> Option<&WorkspaceAddress> {
         self.stored.workspace.as_ref()
     }
 
@@ -147,7 +150,7 @@ impl Credentials {
         self.stored.models.get(provider).cloned()
     }
 
-    pub(crate) fn configured(&self, provider: &str) -> bool {
+    pub(crate) fn is_configured(&self, provider: &str) -> bool {
         self.stored.models.contains_key(provider)
     }
 
@@ -197,7 +200,7 @@ impl Credentials {
 
     pub(crate) fn choose_workspace(
         &mut self,
-        workspace: Option<Workspace>,
+        workspace: Option<WorkspaceAddress>,
     ) -> Result<()> {
         if let Some(target) = &workspace {
             self.remember(&target.token);
@@ -242,20 +245,12 @@ impl Credentials {
     }
 
     pub(crate) fn scrub(&self, value: &mut Value) {
-        let secrets = self.secrets();
-        let secrets =
-            secrets.iter().map(String::as_str).collect::<Vec<_>>();
-        scrub_value(value, &secrets);
+        scrub::scrub_value(&self.secrets(), value);
     }
 
     /// `text` with every secret removed.
     pub(crate) fn scrub_text(&self, text: &str) -> String {
-        let mut value = Value::String(text.into());
-        self.scrub(&mut value);
-        match value {
-            Value::String(text) => text,
-            _ => String::new(),
-        }
+        scrub::scrub_text(&self.secrets(), text)
     }
 }
 
@@ -293,45 +288,6 @@ pub(crate) fn unpack(
         }
     }
     Ok(value)
-}
-
-fn scrub_value(value: &mut Value, secrets: &[&str]) {
-    match value {
-        Value::String(text) => {
-            let mut clean = String::new();
-            let mut rest = text.as_str();
-            while !rest.is_empty() {
-                if let Some(secret) =
-                    secrets.iter().find(|s| rest.starts_with(**s))
-                {
-                    clean.push_str("[REDACTED]");
-                    rest = &rest[secret.len()..];
-                } else {
-                    let c =
-                        rest.chars().next().expect("nonempty text");
-                    clean.push(c);
-                    rest = &rest[c.len_utf8()..];
-                }
-            }
-            *text = clean;
-        }
-        Value::Array(values) => {
-            values.iter_mut().for_each(|v| scrub_value(v, secrets));
-        }
-        Value::Object(values) => {
-            let old = std::mem::take(values);
-            for (key, mut value) in old {
-                let mut key = Value::String(key);
-                scrub_value(&mut key, secrets);
-                scrub_value(&mut value, secrets);
-                values.insert(
-                    key.as_str().expect("string key").into(),
-                    value,
-                );
-            }
-        }
-        _ => {}
-    }
 }
 
 pub(crate) fn write_whole(file: &Path, bytes: &[u8]) -> Result<()> {
@@ -372,7 +328,7 @@ mod tests {
         credentials.workspace_token =
             Some("environment-workspace-token".into());
         credentials
-            .choose_workspace(Some(Workspace {
+            .choose_workspace(Some(WorkspaceAddress {
                 url: "https://first.invalid".into(),
                 token: "startup-workspace-token".into(),
             }))
@@ -382,7 +338,7 @@ mod tests {
         credentials.workspace_token =
             Some("environment-workspace-token".into());
         credentials
-            .choose_workspace(Some(Workspace {
+            .choose_workspace(Some(WorkspaceAddress {
                 url: "https://second.invalid".into(),
                 token: "target-workspace-token".into(),
             }))

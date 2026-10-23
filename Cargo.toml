@@ -82,6 +82,8 @@ winit = { version = "0.30", default-features = false }
 toml = "1"
 
 [workspace.lints.rust]
+# Unsafe code lives only in the modules that say so.
+unsafe_code = "deny"
 unsafe_op_in_unsafe_fn = "warn"
 unused_qualifications = "warn"
 

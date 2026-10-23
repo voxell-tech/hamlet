@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 use hamlet_realm::Clock;
-use hamlet_realm::keeper::KState;
+use hamlet_realm::keeper::KeeperState;
 use hamlet_vfx::inlay::InlayState;
 
 use crate::sets;
@@ -57,7 +57,7 @@ fn shot_list(sets: &[sets::Set]) -> Vec<Shot> {
             4.45,
             Demo {
                 inlay: InlayState::Current,
-                kstate: KState::Working,
+                keeper_state: KeeperState::Working,
                 ..b.clone()
             },
         );
@@ -66,7 +66,7 @@ fn shot_list(sets: &[sets::Set]) -> Vec<Shot> {
             11.5,
             Demo {
                 inlay: InlayState::Fill,
-                kstate: KState::Working,
+                keeper_state: KeeperState::Working,
                 ..b.clone()
             },
         );
@@ -75,7 +75,7 @@ fn shot_list(sets: &[sets::Set]) -> Vec<Shot> {
             0.5,
             Demo {
                 inlay: InlayState::Signal,
-                kstate: KState::Waiting,
+                keeper_state: KeeperState::Waiting,
                 ..b.clone()
             },
         );
@@ -84,7 +84,7 @@ fn shot_list(sets: &[sets::Set]) -> Vec<Shot> {
             0.9,
             Demo {
                 inlay: InlayState::Fault,
-                kstate: KState::Fault,
+                keeper_state: KeeperState::Fault,
                 ..b.clone()
             },
         );
@@ -110,7 +110,7 @@ fn shot_list(sets: &[sets::Set]) -> Vec<Shot> {
         4.45,
         Demo {
             inlay: InlayState::Current,
-            kstate: KState::Working,
+            keeper_state: KeeperState::Working,
             view: View::Wide,
             ..base.clone()
         },
@@ -121,7 +121,7 @@ fn shot_list(sets: &[sets::Set]) -> Vec<Shot> {
         Demo {
             night: true,
             inlay: InlayState::Current,
-            kstate: KState::Working,
+            keeper_state: KeeperState::Working,
             view: View::Wide,
             ..base.clone()
         },

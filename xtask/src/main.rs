@@ -5,8 +5,8 @@
 //! fynix that the main workspace needs has been fetched.
 
 use std::path::Path;
-use std::process::{Command, ExitCode};
-use std::{env, fs, io};
+use std::process::{Command, ExitCode, ExitStatus};
+use std::{env, fmt, fs, io};
 
 const USAGE: &str = "\
 Usage: cargo xtask <task> [args]
@@ -51,21 +51,79 @@ const NIGHTLY: &str = "rust-nightly";
 /// The command that installs the tools `lints` runs.
 const INSTALL: &str = "cargo install --locked cargo-deny typos-cli";
 
-/// A step of `check`, run in the folder holding the workspace.
-type Step = fn(&Path) -> Result<(), String>;
+/// A step of `check`, also a task of its own under its name.
+enum Step {
+    Lints,
+    Test,
+    Acceptance,
+    Harness,
+    Doc,
+    Node,
+}
 
-/// The steps of `check`, in the order it runs them.
-const STEPS: [(&str, Step); 6] = [
-    ("lints", lints),
-    ("test", test),
-    ("acceptance", acceptance),
-    // The harness tests rebuild the server with fault points, so
-    // they run after the acceptance suite, which needs the plain
-    // one.
-    ("harness", harness),
-    ("doc", doc),
-    ("node", node),
-];
+impl Step {
+    /// The steps of `check`, in the order it runs them.
+    const ALL: [Self; 6] = [
+        Self::Lints,
+        Self::Test,
+        Self::Acceptance,
+        // The harness tests rebuild the server with fault points,
+        // so they run after the acceptance suite, which needs the
+        // plain one.
+        Self::Harness,
+        Self::Doc,
+        Self::Node,
+    ];
+
+    /// The step named `name`, as CI calls it.
+    fn parse(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|step| step.to_string() == name)
+    }
+
+    /// Runs the step in `root`, the folder holding the workspace.
+    fn run(self, root: &Path) -> Result<(), Failure> {
+        match self {
+            Self::Lints => lints(root),
+            Self::Test => test(),
+            Self::Acceptance => acceptance(root),
+            Self::Harness => harness(root),
+            Self::Doc => doc(),
+            Self::Node => node(root),
+        }
+    }
+}
+
+impl fmt::Display for Step {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Lints => "lints",
+            Self::Test => "test",
+            Self::Acceptance => "acceptance",
+            Self::Harness => "harness",
+            Self::Doc => "doc",
+            Self::Node => "node",
+        })
+    }
+}
+
+/// A task's failure, as `main` prints it.
+#[derive(Debug, thiserror::Error)]
+enum Failure {
+    #[error("xtask has no parent folder")]
+    NoRoot,
+    #[error("{0}")]
+    EnterRoot(io::Error),
+    #[error("no task `{0}`\n\n{USAGE}")]
+    NoTask(String),
+    #[error("no `{0}`; run `{INSTALL}`")]
+    NoTool(&'static str),
+    #[error("{NIGHTLY}: {0}")]
+    Nightly(io::Error),
+    #[error("{command}: {error}")]
+    Spawn { command: String, error: io::Error },
+    #[error("{command} failed ({status})")]
+    Exit { command: String, status: ExitStatus },
+}
 
 /// The binaries a chief runs, with the packages that hold them.
 const BINARIES: [(&str, &str); 3] = [
@@ -87,19 +145,17 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(task: &str, rest: &[String]) -> Result<(), String> {
+fn run(task: &str, rest: &[String]) -> Result<(), Failure> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .ok_or("xtask has no parent folder")?
+        .ok_or(Failure::NoRoot)?
         .to_path_buf();
-    env::set_current_dir(&root).map_err(|error| error.to_string())?;
+    env::set_current_dir(&root).map_err(Failure::EnterRoot)?;
     if !matches!(task, "" | "help" | "-h" | "--help" | "uninstall") {
         fynix(&root)?;
     }
-    if let Some((_, step)) =
-        STEPS.iter().find(|(name, _)| *name == task)
-    {
-        return step(&root);
+    if let Some(step) = Step::parse(task) {
+        return step.run(&root);
     }
     match task {
         "build" => {
@@ -154,7 +210,9 @@ fn run(task: &str, rest: &[String]) -> Result<(), String> {
                     .args(rest),
             )
         }
-        "check" => STEPS.iter().try_for_each(|(_, step)| step(&root)),
+        "check" => {
+            Step::ALL.into_iter().try_for_each(|step| step.run(&root))
+        }
         "fmt" => {
             prepare(&root)?;
             let nightly = nightly(&root)?;
@@ -172,17 +230,17 @@ fn run(task: &str, rest: &[String]) -> Result<(), String> {
             println!("{USAGE}");
             Ok(())
         }
-        other => Err(format!("no task `{other}`\n\n{USAGE}")),
+        other => Err(Failure::NoTask(other.to_owned())),
     }
 }
 
-fn lints(root: &Path) -> Result<(), String> {
+fn lints(root: &Path) -> Result<(), Failure> {
     for tool in ["cargo-deny", "typos"] {
         if let Err(error) =
             Command::new(tool).arg("--version").output()
             && error.kind() == io::ErrorKind::NotFound
         {
-            return Err(format!("no `{tool}`; run `{INSTALL}`"));
+            return Err(Failure::NoTool(tool));
         }
     }
     let nightly = nightly(root)?;
@@ -206,12 +264,12 @@ fn lints(root: &Path) -> Result<(), String> {
     status(&mut Command::new("typos"))
 }
 
-fn test(_: &Path) -> Result<(), String> {
+fn test() -> Result<(), Failure> {
     status(&mut locked("build", &["--all-targets"]))?;
     status(&mut locked("test", &[]))
 }
 
-fn acceptance(root: &Path) -> Result<(), String> {
+fn acceptance(root: &Path) -> Result<(), Failure> {
     prepare(root)?;
     status(&mut locked(
         "build",
@@ -236,7 +294,7 @@ fn acceptance(root: &Path) -> Result<(), String> {
     ))
 }
 
-fn harness(root: &Path) -> Result<(), String> {
+fn harness(root: &Path) -> Result<(), Failure> {
     prepare(root)?;
     status(&mut locked(
         "clippy",
@@ -257,7 +315,7 @@ fn harness(root: &Path) -> Result<(), String> {
     ))
 }
 
-fn doc(_: &Path) -> Result<(), String> {
+fn doc() -> Result<(), Failure> {
     status(
         locked(
             "doc",
@@ -272,7 +330,7 @@ fn doc(_: &Path) -> Result<(), String> {
     )
 }
 
-fn node(root: &Path) -> Result<(), String> {
+fn node(root: &Path) -> Result<(), Failure> {
     prepare(root)?;
     status(&mut npm(&["run", "check"]))?;
     status(&mut npm(&["test"]))
@@ -281,7 +339,7 @@ fn node(root: &Path) -> Result<(), String> {
 /// Builds the remote workspace image, tagged with the short commit
 /// unless `rest` names a tag, and labelled with the full one, so a
 /// deployed image tells which commit it holds.
-fn workspace_image(rest: &[String]) -> Result<(), String> {
+fn workspace_image(rest: &[String]) -> Result<(), Failure> {
     let commit =
         output(Command::new("git").args(["rev-parse", "HEAD"]))?;
     let mut build = Command::new("docker");
@@ -301,7 +359,7 @@ fn workspace_image(rest: &[String]) -> Result<(), String> {
 
 /// Fetches the vendored fynix, a submodule, when it is missing: every
 /// cargo command on the workspace needs its manifest.
-fn fynix(root: &Path) -> Result<(), String> {
+fn fynix(root: &Path) -> Result<(), Failure> {
     if root.join("vendor/fynix/Cargo.toml").exists() {
         return Ok(());
     }
@@ -314,7 +372,7 @@ fn fynix(root: &Path) -> Result<(), String> {
 }
 
 /// Installs pi's packages when they are missing or stale.
-fn prepare(root: &Path) -> Result<(), String> {
+fn prepare(root: &Path) -> Result<(), Failure> {
     let pi = root.join("harnesses/pi");
     // npm ci rewrites this file, so it is newer than the lockfile it
     // installed from.
@@ -331,9 +389,9 @@ fn prepare(root: &Path) -> Result<(), String> {
 }
 
 /// `+` and the toolchain [`NIGHTLY`] names, for `cargo fmt`.
-fn nightly(root: &Path) -> Result<String, String> {
+fn nightly(root: &Path) -> Result<String, Failure> {
     let name = fs::read_to_string(root.join(NIGHTLY))
-        .map_err(|error| format!("{NIGHTLY}: {error}"))?;
+        .map_err(Failure::Nightly)?;
     Ok(format!("+{}", name.trim()))
 }
 
@@ -366,26 +424,36 @@ fn npm(args: &[&str]) -> Command {
     command
 }
 
-fn status(command: &mut Command) -> Result<(), String> {
+fn status(command: &mut Command) -> Result<(), Failure> {
     let shown = shown(command);
     eprintln!("$ {shown}");
-    let status = command
-        .status()
-        .map_err(|error| format!("{shown}: {error}"))?;
+    let status =
+        command.status().map_err(|error| Failure::Spawn {
+            command: shown.clone(),
+            error,
+        })?;
     if status.success() {
         Ok(())
     } else {
-        Err(format!("{shown} failed ({status})"))
+        Err(Failure::Exit {
+            command: shown,
+            status,
+        })
     }
 }
 
-fn output(command: &mut Command) -> Result<String, String> {
+fn output(command: &mut Command) -> Result<String, Failure> {
     let shown = shown(command);
-    let output = command
-        .output()
-        .map_err(|error| format!("{shown}: {error}"))?;
+    let output =
+        command.output().map_err(|error| Failure::Spawn {
+            command: shown.clone(),
+            error,
+        })?;
     if !output.status.success() {
-        return Err(format!("{shown} failed ({})", output.status));
+        return Err(Failure::Exit {
+            command: shown,
+            status: output.status,
+        });
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }

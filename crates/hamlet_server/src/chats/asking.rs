@@ -50,21 +50,55 @@ enum AskChiefOption {
     },
 }
 
-/// The questions in the arguments of an `ask_chief` call. `Err` says
-/// what is wrong with them, for the agent to put right.
-pub(super) fn read(args: &str) -> Result<Questions, String> {
+/// The fault in an `ask_chief` call's arguments, for the agent to
+/// put right.
+#[derive(Debug, thiserror::Error)]
+pub(super) enum Unasked {
+    #[error("the arguments are not JSON")]
+    NotJson,
+    #[error("the arguments are not valid: {0}")]
+    Invalid(serde_json::Error),
+    #[error("say what in `questions`")]
+    NoQuestions,
+    #[error("ask at most {most} questions at once", most = MOST_QUESTIONS)]
+    TooMany,
+    #[error("question {0} has no `question`")]
+    Blank(usize),
+    #[error(
+        "question {0} offers more than {most} options",
+        most = MOST_OPTIONS
+    )]
+    Crowded(usize),
+    #[error("an option of question {0} has no `title`")]
+    Untitled(usize),
+    #[error("question {question} offers `{title}` twice")]
+    Twice { question: usize, title: String },
+}
+
+/// The fault in picks that do not answer the questions they are for.
+#[derive(Debug, thiserror::Error)]
+pub(super) enum Unanswered {
+    #[error("every question needs an answer")]
+    Unequal,
+    #[error("question {0} has no such option")]
+    NoOption(usize),
+    #[error("question {0} takes an option")]
+    TakesOption(usize),
+    #[error("question {0} needs words")]
+    NoWords(usize),
+}
+
+/// The questions in the arguments of an `ask_chief` call.
+pub(super) fn read(args: &str) -> Result<Questions, Unasked> {
     let args = serde_json::from_str::<Value>(args)
-        .map_err(|_| "the arguments are not JSON".to_string())?;
-    let args = serde_json::from_value::<AskChief>(args).map_err(
-        |error| format!("the arguments are not valid: {error}"),
-    )?;
+        .map_err(|_| Unasked::NotJson)?;
+    let args = serde_json::from_value::<AskChief>(args)
+        .map_err(Unasked::Invalid)?;
     if args.questions.is_empty() {
-        return Err("say what in `questions`".into());
+        return Err(Unasked::NoQuestions);
     }
     if args.questions.len() > MOST_QUESTIONS {
-        return Err(format!(
-            "ask at most {MOST_QUESTIONS} questions at once"
-        ));
+        return Err(Unasked::TooMany);
     }
     let questions = args
         .questions
@@ -82,15 +116,13 @@ pub(super) fn read(args: &str) -> Result<Questions, String> {
 fn question(
     n: usize,
     asked: AskChiefQuestion,
-) -> Result<Question, String> {
+) -> Result<Question, Unasked> {
     let question = asked.question.trim().to_string();
     if question.is_empty() {
-        return Err(format!("question {n} has no `question`"));
+        return Err(Unasked::Blank(n));
     }
     if asked.options.len() > MOST_OPTIONS {
-        return Err(format!(
-            "question {n} offers more than {MOST_OPTIONS} options"
-        ));
+        return Err(Unasked::Crowded(n));
     }
     let mut options = Vec::<Offer>::new();
     for offer in asked.options {
@@ -105,14 +137,10 @@ fn question(
             description.trim().to_string(),
         );
         if title.is_empty() {
-            return Err(format!(
-                "an option of question {n} has no `title`"
-            ));
+            return Err(Unasked::Untitled(n));
         }
         if options.iter().any(|o| o.title == title) {
-            return Err(format!(
-                "question {n} offers `{title}` twice"
-            ));
+            return Err(Unasked::Twice { question: n, title });
         }
         options.push(Offer { title, description });
     }
@@ -169,13 +197,13 @@ pub(super) fn about(asked: &Questions) -> String {
 
 /// The answer the agent is given for `picks`, one for each question
 /// of `asked` in order: the chief's reply, each question quoted over
-/// its answer. `Err` says why they do not answer them.
+/// its answer.
 pub(super) fn answer(
     asked: &Questions,
     picks: &[Pick],
-) -> Result<String, String> {
+) -> Result<String, Unanswered> {
     if picks.len() != asked.questions.len() {
-        return Err("every question needs an answer".into());
+        return Err(Unanswered::Unequal);
     }
     let answers = asked
         .questions
@@ -187,14 +215,12 @@ pub(super) fn answer(
                 .ok()
                 .and_then(|index| q.options.get(index))
                 .map(|o| o.title.clone())
-                .ok_or_else(|| {
-                    format!("question {} has no such option", at + 1)
-                }),
+                .ok_or(Unanswered::NoOption(at + 1)),
             Pick::Words { .. } if !q.text_input => {
-                Err(format!("question {} takes an option", at + 1))
+                Err(Unanswered::TakesOption(at + 1))
             }
             Pick::Words { text } if text.trim().is_empty() => {
-                Err(format!("question {} needs words", at + 1))
+                Err(Unanswered::NoWords(at + 1))
             }
             Pick::Words { text } => Ok(text.trim().to_string()),
         })
@@ -280,8 +306,9 @@ mod tests {
 
     #[test]
     fn what_is_wrong_with_a_call_is_named() {
-        let fails =
-            |args: Value| read(&args.to_string()).unwrap_err();
+        let fails = |args: Value| {
+            read(&args.to_string()).unwrap_err().to_string()
+        };
         assert!(fails(json!({})).contains("`questions`"));
         assert!(
             fails(json!({"questions": []})).contains("`questions`")
@@ -332,8 +359,9 @@ mod tests {
             )
         );
         assert_eq!(said("The chief chose not to answer."), None);
-        let wrong =
-            |picks: &[Pick]| answer(&asked, picks).unwrap_err();
+        let wrong = |picks: &[Pick]| {
+            answer(&asked, picks).unwrap_err().to_string()
+        };
         let first = Pick::Offer { index: 0 };
         assert!(
             wrong(std::slice::from_ref(&first))

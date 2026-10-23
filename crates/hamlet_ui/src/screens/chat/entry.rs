@@ -9,7 +9,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, component};
 use hamlet_client::chats::{Chat, Entry, Transcript};
-use hamlet_client::messages::UserMessage;
+use hamlet_client::messages::ChiefMessage;
 
 use super::change::change_view;
 use crate::looks::{Fills, note};
@@ -102,9 +102,9 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
             })
         };
         let view: AnyView = match kind {
-            Some(Entry::User { .. }) => column((
+            Some(Entry::Chief { .. }) => column((
                 label(text(|e| match e {
-                    Entry::User { user, .. } => user.clone(),
+                    Entry::Chief { name, .. } => name.clone(),
                     _ => String::new(),
                 }))
                 .size(11.0)
@@ -112,7 +112,7 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
                 .tone(Tone::Faint)
                 .tagged(DisplayText),
                 label(text(|e| match e {
-                    Entry::User { text, .. } => text.clone(),
+                    Entry::Chief { text, .. } => text.clone(),
                     _ => String::new(),
                 })),
             ))
@@ -187,7 +187,7 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
                         else {
                             return;
                         };
-                        world.trigger(UserMessage {
+                        world.trigger(ChiefMessage {
                             to,
                             text: "/retry".into(),
                         });

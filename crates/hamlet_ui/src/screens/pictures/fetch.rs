@@ -24,7 +24,7 @@ const AGENT: &str = concat!(
 );
 
 /// True when `scheme` is one a picture is fetched over.
-fn webbed(scheme: &str) -> bool {
+fn is_web(scheme: &str) -> bool {
     matches!(scheme, "http" | "https")
 }
 
@@ -32,7 +32,7 @@ fn webbed(scheme: &str) -> bool {
 /// picture may be fetched from.
 pub(crate) fn host(address: &str) -> Option<String> {
     let url = Url::parse(address).ok()?;
-    let host = url.host_str().filter(|_| webbed(url.scheme()))?;
+    let host = url.host_str().filter(|_| is_web(url.scheme()))?;
     Some(match url.port() {
         Some(port) => format!("{host}:{port}"),
         None => host.to_string(),
@@ -40,7 +40,7 @@ pub(crate) fn host(address: &str) -> Option<String> {
 }
 
 /// True when a server says what it sends is a picture.
-fn pictured(kind: &str) -> bool {
+fn is_picture_type(kind: &str) -> bool {
     kind.trim_start().to_ascii_lowercase().starts_with("image/")
 }
 
@@ -53,7 +53,7 @@ async fn bytes(address: &str, most: u64) -> Option<Vec<u8>> {
         .referer(false)
         .redirect(Policy::custom(|attempt| {
             if attempt.previous().len() >= HOPS
-                || !webbed(attempt.url().scheme())
+                || !is_web(attempt.url().scheme())
             {
                 attempt.stop()
             } else {
@@ -65,7 +65,7 @@ async fn bytes(address: &str, most: u64) -> Option<Vec<u8>> {
     let mut answer = client.get(address).send().await.ok()?;
     let kind = answer.headers().get(CONTENT_TYPE)?.to_str().ok()?;
     if !answer.status().is_success()
-        || !pictured(kind)
+        || !is_picture_type(kind)
         || answer.content_length().is_some_and(|all| all > most)
     {
         return None;
@@ -111,8 +111,8 @@ mod tests {
         assert_eq!(host("mailto:chief@hamlet.gg"), None);
         assert_eq!(host("file:///etc/passwd"), None);
         assert_eq!(host("https://"), None);
-        assert!(pictured("image/png"));
-        assert!(pictured(" Image/WebP; q=1"));
-        assert!(!pictured("text/html; charset=utf-8"));
+        assert!(is_picture_type("image/png"));
+        assert!(is_picture_type(" Image/WebP; q=1"));
+        assert!(!is_picture_type("text/html; charset=utf-8"));
     }
 }

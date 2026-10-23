@@ -12,6 +12,8 @@ use rustix::fs::{
     unlinkat,
 };
 
+use crate::diagnostic::{Secrets, tell};
+
 pub(super) fn directory(
     parent: &File,
     name: &str,
@@ -135,10 +137,6 @@ impl Stage {
 }
 
 impl Drop for Stage {
-    #[expect(
-        clippy::print_stderr,
-        reason = "stderr is the server's log"
-    )]
     fn drop(&mut self) {
         if clear(&self.dir)
             .and_then(|()| {
@@ -151,7 +149,7 @@ impl Drop for Stage {
             })
             .is_err()
         {
-            eprintln!("hamlet: could not discard a gift.");
+            tell(Secrets::Fixed, "could not discard a gift.");
         }
     }
 }

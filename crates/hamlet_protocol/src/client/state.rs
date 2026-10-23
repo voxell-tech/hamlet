@@ -45,11 +45,11 @@ impl State {
             }
             Update::Agent { agent } => {
                 put(&mut self.agents, agent, |a| {
-                    a.ref_ == agent.ref_
+                    a.agent == agent.agent
                 });
             }
-            Update::AgentGone { ref_ } => {
-                self.agents.retain(|a| a.ref_ != *ref_);
+            Update::AgentGone { agent } => {
+                self.agents.retain(|a| a.agent != *agent);
             }
             Update::Wait { wait } => {
                 put(&mut self.waits, wait, |w| w.id == wait.id);
@@ -109,7 +109,7 @@ pub enum Update {
     #[serde(rename = "agent-gone")]
     AgentGone {
         #[serde(rename = "ref")]
-        ref_: AgentRef,
+        agent: AgentRef,
     },
     #[serde(rename = "wait")]
     Wait { wait: Wait },
@@ -160,7 +160,7 @@ pub struct Agent {
     pub name: String,
     pub purpose: String,
     #[serde(rename = "ref")]
-    pub ref_: AgentRef,
+    pub agent: AgentRef,
     pub saying: AgentSaying,
     pub since: u64,
     pub skills: Vec<String>,
@@ -566,7 +566,7 @@ mod tests {
         let mut state = state();
         state.agents.push(ours(realm::agent("home", 2, "smith")));
         state.apply(&Update::AgentGone {
-            ref_: ours(realm::reference("home", 1)),
+            agent: ours(realm::reference("home", 1)),
         });
         let names = state
             .agents

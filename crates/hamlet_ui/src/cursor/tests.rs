@@ -81,7 +81,7 @@ fn no_picture_is_cut_by_the_edge_of_its_square() {
 
 #[test]
 fn each_fact_gives_way_to_the_ones_before_it() {
-    let agent = Thing::Resident(Entity::PLACEHOLDER);
+    let agent = Thing::Agent(Entity::PLACEHOLDER);
     let panel = Facts {
         asked: Some(SystemCursorIcon::Pointer),
         over: Some(agent),

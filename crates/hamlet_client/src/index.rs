@@ -12,7 +12,7 @@ use hamlet_protocol::client as protocol;
 
 use crate::chats::Chat;
 use crate::realm::{
-    Citizen, HOME, Left, LivesIn, MAYOR, Mayor, Settlement,
+    AgentNumber, HOME, HamletId, Left, LivesIn, MAYOR, Mayor,
 };
 use crate::waits::Waiting;
 
@@ -228,7 +228,7 @@ fn read(world: &World, agent: Entity) -> Option<Filed> {
     let entity = world.get_entity(agent).ok()?;
     Some(Filed {
         hamlet: entity.get::<LivesIn>()?.0,
-        number: entity.get::<Citizen>()?.0,
+        number: entity.get::<AgentNumber>()?.0,
         name: entity
             .get::<Name>()
             .map(|name| name.as_str().to_owned()),
@@ -302,9 +302,8 @@ pub(crate) fn file_hamlet(
     mut world: DeferredWorld,
     context: HookContext,
 ) {
-    let Some(id) = world
-        .get::<Settlement>(context.entity)
-        .map(|hamlet| hamlet.name.clone())
+    let Some(id) =
+        world.get::<HamletId>(context.entity).map(|id| id.0.clone())
     else {
         return;
     };
@@ -319,9 +318,8 @@ pub(crate) fn unfile_hamlet(
     mut world: DeferredWorld,
     context: HookContext,
 ) {
-    let Some(id) = world
-        .get::<Settlement>(context.entity)
-        .map(|hamlet| hamlet.name.clone())
+    let Some(id) =
+        world.get::<HamletId>(context.entity).map(|id| id.0.clone())
     else {
         return;
     };
@@ -503,7 +501,7 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::State(realm),
         );
-        assert_eq!(realm::settlement(app.world(), "mill"), None);
+        assert_eq!(realm::hamlet(app.world(), "mill"), None);
         assert_eq!(realm::mayor_of(app.world(), "mill"), None);
         assert_eq!(realm::named(app.world(), "miller"), None);
         let miller = reference("mill", 0);

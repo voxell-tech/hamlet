@@ -151,7 +151,7 @@ enum Incoming {
     Connected { again: bool },
     Lost { answered: bool },
     Refused(String),
-    Invalid(String),
+    Invalid(InvalidAddress),
     Frame(protocol::ServerMessage),
 }
 
@@ -209,10 +209,10 @@ fn discover(
             });
             commands.insert_resource(Server(server));
         }
-        Err(words) => {
+        Err(error) => {
             commands.insert_resource(Connection {
                 state: Contact::Lost,
-                words,
+                words: error.to_string(),
             });
             discovery.delay = if discovery.next.is_none() {
                 retry.first
@@ -303,10 +303,10 @@ fn receive(world: &mut World) {
                         words,
                     });
                 }
-                Incoming::Invalid(words) => {
+                Incoming::Invalid(address) => {
                     world.insert_resource(Connection {
                         state: Contact::Lost,
-                        words,
+                        words: address.to_string(),
                     });
                 }
                 Incoming::Frame(message) => {
@@ -364,8 +364,8 @@ async fn connect(
     retry: Retry,
     heartbeat: Heartbeat,
 ) {
-    if let Err(words) = validate(&server.url) {
-        let _ = frames.send(Incoming::Invalid(words)).await;
+    if let Err(address) = validate(&server.url) {
+        let _ = frames.send(Incoming::Invalid(address)).await;
         return;
     }
     let mut delay = retry.first.min(retry.cap);
@@ -415,17 +415,24 @@ async fn connect(
     }
 }
 
-fn validate(url: &str) -> Result<(), String> {
-    let invalid = || {
-        format!("Not a WebSocket address: {url}. Use ws://host:port.")
-    };
+/// A server URL this window cannot connect to.
+#[derive(Debug, thiserror::Error)]
+enum InvalidAddress {
+    #[error("Not a WebSocket address: {0}. Use ws://host:port.")]
+    NotWebSocket(String),
+    #[error(
+        "Cannot connect to {0}: TLS is not available in this \
+         window. Use ws:// through a secure tunnel."
+    )]
+    Tls(String),
+}
+
+fn validate(url: &str) -> Result<(), InvalidAddress> {
+    let invalid = || InvalidAddress::NotWebSocket(url.to_owned());
     let request = url.into_client_request().map_err(|_| invalid())?;
     match request.uri().scheme_str() {
         Some("ws") => Ok(()),
-        Some("wss") => Err(format!(
-            "Cannot connect to {url}: TLS is not available in this \
-             window. Use ws:// through a secure tunnel."
-        )),
+        Some("wss") => Err(InvalidAddress::Tls(url.to_owned())),
         _ => Err(invalid()),
     }
 }
@@ -434,10 +441,6 @@ fn wire(message: &protocol::ClientMessage) -> Message {
     Message::text(serde_json::to_string(message).unwrap())
 }
 
-#[expect(
-    clippy::print_stderr,
-    reason = "hamlet_client depends on no logger"
-)]
 async fn exchange(
     socket: &mut Socket,
     frames: &Handoff,
@@ -503,7 +506,7 @@ async fn exchange(
                         }
                     }
                     Err(_) if !*reported => {
-                        eprintln!(
+                        bevy_log::warn!(
                             "The server sent a message that does \
                              not fit the protocol."
                         );
@@ -619,6 +622,21 @@ pub struct LocalServer(pub PathBuf);
 mod tests {
     use super::*;
     use crate::ClientPlugin;
+
+    #[test]
+    fn an_address_this_window_cannot_reach_says_what_to_use() {
+        assert_eq!(
+            validate("http://host:1").unwrap_err().to_string(),
+            "Not a WebSocket address: http://host:1. Use \
+             ws://host:port."
+        );
+        assert_eq!(
+            validate("wss://host:1").unwrap_err().to_string(),
+            "Cannot connect to wss://host:1: TLS is not available \
+             in this window. Use ws:// through a secure tunnel."
+        );
+        assert!(validate("ws://host:1").is_ok());
+    }
 
     #[test]
     fn a_window_started_first_discovers_its_local_server_later() {

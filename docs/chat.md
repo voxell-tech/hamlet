@@ -50,7 +50,7 @@ to the top sends `open` with `before` set to the first item's ID. Only one
 page request is outstanding, and the returned items go above the rows
 already there. The hint reads "Earlier lines. Scroll up to read them."
 
-Sending a line triggers `UserMessage`, which the client sends as `say` to
+Sending a line triggers `ChiefMessage`, which the client sends as `say` to
 the selected address. Typed slash lines are refused locally with directions
 to use the window's controls; those controls send commands to the server.
 Unaddressed server faults and error replies to the chat's own requests show

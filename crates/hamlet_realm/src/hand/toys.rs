@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use bevy::window::RequestRedraw;
 
 use crate::hand::PlaySettings;
-use crate::meshes::Mb;
+use crate::meshes::Meshing;
 use crate::palette::Palette;
 use crate::{Clock, Stock};
 
@@ -54,9 +54,9 @@ pub(super) fn lit(colour: Vec3, strength: f32) -> StandardMaterial {
     }
 }
 
-fn disc(mb: &mut Mb, at: Vec3, radius: f32, colour: Vec3) {
+fn disc(meshing: &mut Meshing, at: Vec3, radius: f32, colour: Vec3) {
     let thick = radius * 0.3;
-    mb.lathe(
+    meshing.lathe(
         at,
         &[(0.0, 0.0), (radius, 0.0), (radius, thick), (0.0, thick)],
         10,
@@ -65,10 +65,10 @@ fn disc(mb: &mut Mb, at: Vec3, radius: f32, colour: Vec3) {
 }
 
 fn heart() -> Mesh {
-    let mut mb = Mb::new();
+    let mut meshing = Meshing::new();
     let white = |_: Vec3| Vec3::ONE;
     for side in [-1.0f32, 1.0] {
-        mb.blob(
+        meshing.blob(
             Vec3::new(side * 0.42, 0.5, 0.0),
             Vec3::new(0.52, 0.5, 0.36),
             5,
@@ -77,19 +77,19 @@ fn heart() -> Mesh {
             white,
         );
     }
-    mb.lathe(
+    meshing.lathe(
         Vec3::new(0.0, -0.75, 0.0),
         &[(0.0, 0.0), (0.5, 0.62), (0.86, 1.2), (0.0, 1.3)],
         10,
         |_, _| Vec3::ONE,
     );
-    mb.build()
+    meshing.build()
 }
 
 fn gift(pal: &Palette) -> Mesh {
-    let mut mb = Mb::new();
+    let mut meshing = Meshing::new();
     let upright = Quat::IDENTITY;
-    mb.rbox(
+    meshing.rbox(
         Vec3::Y * 0.5,
         Vec3::splat(0.5),
         0.04,
@@ -98,7 +98,7 @@ fn gift(pal: &Palette) -> Mesh {
         0.25,
     );
     for side in [-1.0f32, 1.0] {
-        mb.rbox(
+        meshing.rbox(
             Vec3::new(side * 0.32, 0.5, 0.0),
             Vec3::new(0.06, 0.53, 0.53),
             0.01,
@@ -108,7 +108,7 @@ fn gift(pal: &Palette) -> Mesh {
         );
     }
     // A tag that says what is inside.
-    mb.rbox(
+    meshing.rbox(
         Vec3::new(0.0, 0.62, 0.52),
         Vec3::new(0.2, 0.14, 0.012),
         0.005,
@@ -116,7 +116,7 @@ fn gift(pal: &Palette) -> Mesh {
         pal.parchment,
         0.0,
     );
-    mb.rbox(
+    meshing.rbox(
         Vec3::new(0.0, 1.02, 0.0),
         Vec3::new(0.12, 0.03, 0.12),
         0.01,
@@ -124,12 +124,12 @@ fn gift(pal: &Palette) -> Mesh {
         pal.wax,
         0.0,
     );
-    mb.build()
+    meshing.build()
 }
 
 fn letter(pal: &Palette) -> Mesh {
-    let mut mb = Mb::new();
-    mb.rbox(
+    let mut meshing = Meshing::new();
+    meshing.rbox(
         Vec3::ZERO,
         Vec3::new(0.5, 0.012, 0.34),
         0.005,
@@ -137,8 +137,8 @@ fn letter(pal: &Palette) -> Mesh {
         pal.parchment,
         0.0,
     );
-    disc(&mut mb, Vec3::Y * 0.01, 0.09, pal.wax);
-    mb.build()
+    disc(&mut meshing, Vec3::Y * 0.01, 0.09, pal.wax);
+    meshing.build()
 }
 
 pub(super) fn prepare(

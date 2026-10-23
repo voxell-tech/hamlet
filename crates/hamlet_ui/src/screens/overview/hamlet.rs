@@ -139,7 +139,7 @@ fn list_of(hamlet: Entity) -> impl View {
             let thing = if gone {
                 Thing::Ruin(agent)
             } else {
-                Thing::Resident(agent)
+                Thing::Agent(agent)
             };
             pressable(
                 thing,
@@ -191,7 +191,7 @@ pub fn hamlet(hamlet: Entity) -> AnyView {
             .into_iter()
             .find(|row| row.hamlet == hamlet)
             .map(|facts| {
-                let has = |deed| Deeds::allows(world, deed);
+                let has = |deed| Deeds::is_allowed(world, deed);
                 (
                     facts,
                     has("name-hamlet"),
@@ -262,7 +262,7 @@ pub fn hamlet(hamlet: Entity) -> AnyView {
         keyed(resource::<Page, _>(|page| *page), move |page| {
             match page {
                 Page::Agents => list_of(hamlet).boxed(),
-                Page::Bylaws => crate::rules::panel(hamlet),
+                Page::Bylaws => crate::limits::panel(hamlet),
                 Page::Record => record_of(hamlet).boxed(),
             }
         })

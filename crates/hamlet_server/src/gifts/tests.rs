@@ -39,7 +39,8 @@ impl Service {
         skill: &str,
         from: Option<&Address>,
     ) -> Result<Refusable<String>> {
-        let asked = self.gift_skill(1, "give", to, skill, from);
+        let asked =
+            self.gift_skill(1, &RequestId::new(), to, skill, from);
         Ok(self.settled(asked).await?.map(
             |progress| match progress {
                 Progress::Given(text) => text,
@@ -50,21 +51,21 @@ impl Service {
 
     async fn begin_gift(
         &mut self,
-        owner: u64,
-        id: &str,
+        connection: u64,
         to: &Address,
-        files: &[GiveFilesFiles],
+        files: &[GiveFile],
     ) -> Result<Refusable<Progress>> {
-        let asked = self.gift_begin(owner, id, to, files);
+        let asked =
+            self.gift_begin(connection, &RequestId::new(), to, files);
         self.settled(asked).await
     }
 
     async fn send_part(
         &mut self,
-        owner: u64,
+        connection: u64,
         part: &GivePart,
     ) -> Result<Refusable<Progress>> {
-        let asked = self.gift_part(owner, part);
+        let asked = self.gift_part(connection, part);
         self.settled(asked).await
     }
 }
@@ -135,9 +136,8 @@ async fn begin(service: &mut Service, to: &Address) -> String {
     match service
         .begin_gift(
             1,
-            "gift",
             to,
-            &[GiveFilesFiles {
+            &[GiveFile {
                 path: "note".into(),
                 size: 1,
             }],
@@ -153,7 +153,7 @@ async fn begin(service: &mut Service, to: &Address) -> String {
 
 fn part(upload: &str) -> GivePart {
     GivePart {
-        id: hamlet_protocol::client::RequestId::new(),
+        id: RequestId::new(),
         upload: upload.into(),
         path: "note".into(),
         offset: 0,
@@ -218,7 +218,7 @@ async fn copies_whole_skills_records_the_giver_and_keeps_modes_across_restart()
             .await
             .unwrap()
             .unwrap_err()
-            .text(),
+            .to_string(),
         "`founder` already has a skill named `maps`"
     );
 }
@@ -247,24 +247,23 @@ async fn refuses_departed_recipients_and_a_recipient_that_leaves_during_upload()
             .await
             .unwrap()
             .unwrap_err()
-            .text(),
+            .to_string(),
         farewell
     );
     let refused = service
         .begin_gift(
             1,
-            "new",
             &scout(),
-            &[GiveFilesFiles {
+            &[GiveFile {
                 path: "empty".into(),
                 size: 0,
             }],
         )
         .await
         .unwrap();
-    assert!(matches!(refused, Err(e) if e.text() == farewell));
+    assert!(matches!(refused, Err(e) if e.to_string() == farewell));
     let refused = service.send_part(1, &part(&upload)).await.unwrap();
-    assert!(matches!(refused, Err(e) if e.text() == farewell));
+    assert!(matches!(refused, Err(e) if e.to_string() == farewell));
     assert!(!dir.join("houses/home/1/inbox/note").exists());
     assert_eq!(fs::read_dir(dir.join(".gifts")).unwrap().count(), 0);
 }
@@ -280,7 +279,7 @@ async fn refuses_linked_receivers_and_cleans_abandoned_and_expired_uploads()
     fs::remove_dir(&inbox).unwrap();
     symlink(&*outside, &inbox).unwrap();
     let outcome = service.send_part(1, &part(&upload)).await.unwrap();
-    assert!(matches!(outcome, Err(e) if e.text() == DELIVERY));
+    assert!(matches!(outcome, Err(e) if e.to_string() == DELIVERY));
     assert_eq!(
         fs::read_to_string(outside.join("note")).unwrap(),
         "untouched"
@@ -289,9 +288,8 @@ async fn refuses_linked_receivers_and_cleans_abandoned_and_expired_uploads()
         service
             .begin_gift(
                 1,
-                "another",
                 &mayor(),
-                &[GiveFilesFiles {
+                &[GiveFile {
                     path: "note".into(),
                     size: 1
                 }]
@@ -306,7 +304,7 @@ async fn refuses_linked_receivers_and_cleans_abandoned_and_expired_uploads()
     service.gifts.pending.get_mut(&upload).unwrap().touched =
         Instant::now() - Duration::from_secs(61);
     assert!(
-        matches!(service.send_part(1, &part(&upload)).await.unwrap(), Err(e) if e.text() == UNKNOWN)
+        matches!(service.send_part(1, &part(&upload)).await.unwrap(), Err(e) if e.to_string() == UNKNOWN)
     );
     begin(&mut service, &mayor()).await;
     service.gifts.gone(1);
@@ -336,7 +334,7 @@ async fn refuses_unsafe_or_overfull_skills_without_partial_delivery()
             .await
             .unwrap()
             .unwrap_err()
-            .text(),
+            .to_string(),
         "A skill gift cannot include links or special files."
     );
     fs::remove_file(source.join("link")).unwrap();
@@ -348,7 +346,7 @@ async fn refuses_unsafe_or_overfull_skills_without_partial_delivery()
             .await
             .unwrap()
             .unwrap_err()
-            .text(),
+            .to_string(),
         "The skill gift is larger than 32 MB."
     );
     fs::remove_file(source.join("large")).unwrap();
@@ -362,7 +360,7 @@ async fn refuses_unsafe_or_overfull_skills_without_partial_delivery()
             .await
             .unwrap()
             .unwrap_err()
-            .text(),
+            .to_string(),
         "A skill gift takes at most 4096 files and folders at once."
     );
     fs::remove_dir_all(&source).unwrap();
@@ -374,7 +372,7 @@ async fn refuses_unsafe_or_overfull_skills_without_partial_delivery()
             .await
             .unwrap()
             .unwrap_err()
-            .text(),
+            .to_string(),
         "A skill gift cannot include links or special files."
     );
     assert_eq!(
@@ -396,13 +394,12 @@ async fn rolls_back_roots_when_numbering_would_collide_with_another_root()
     let (dir, mut service) = setup();
     let inbox = dir.join("houses/home/0/inbox");
     fs::write(inbox.join("a.txt"), "earlier").unwrap();
-    let files =
-        ["first", "a.txt", "a-2.txt"].map(|path| GiveFilesFiles {
-            path: path.into(),
-            size: 0,
-        });
+    let files = ["first", "a.txt", "a-2.txt"].map(|path| GiveFile {
+        path: path.into(),
+        size: 0,
+    });
     assert!(
-        matches!(service.begin_gift(1, "gift", &mayor(), &files).await.unwrap(), Err(e) if e.text() == DELIVERY)
+        matches!(service.begin_gift(1, &mayor(), &files).await.unwrap(), Err(e) if e.to_string() == DELIVERY)
     );
     assert_eq!(
         fs::read_to_string(inbox.join("a.txt")).unwrap(),
@@ -413,21 +410,21 @@ async fn rolls_back_roots_when_numbering_would_collide_with_another_root()
 }
 
 #[tokio::test]
-async fn refuses_malformed_parts_and_preserves_the_owners_upload_on_a_foreign_part()
+async fn refuses_malformed_parts_and_preserves_the_connections_upload_on_a_foreign_part()
  {
     let (dir, mut service) = setup();
     for data in ["", "%%", "QQ", "QR==", "QUE="] {
         let upload = begin(&mut service, &mayor()).await;
         assert!(
-            matches!(service.send_part(2, &part(&upload)).await.unwrap(), Err(e) if e.text() == UNKNOWN)
+            matches!(service.send_part(2, &part(&upload)).await.unwrap(), Err(e) if e.to_string() == UNKNOWN)
         );
         let mut bad = part(&upload);
         bad.data = data.into();
         assert!(
-            matches!(service.send_part(1, &bad).await.unwrap(), Err(e) if e.text() == MISMATCH)
+            matches!(service.send_part(1, &bad).await.unwrap(), Err(e) if e.to_string() == MISMATCH)
         );
         assert!(
-            matches!(service.send_part(1, &part(&upload)).await.unwrap(), Err(e) if e.text() == UNKNOWN)
+            matches!(service.send_part(1, &part(&upload)).await.unwrap(), Err(e) if e.to_string() == UNKNOWN)
         );
         assert_eq!(
             fs::read_dir(dir.join(".gifts")).unwrap().count(),

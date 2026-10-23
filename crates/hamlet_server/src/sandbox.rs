@@ -14,7 +14,8 @@ use anyhow::bail;
 pub(crate) use self::env::{
     Env, ExecError, FileError, FileInfo, FileKind,
 };
-pub use self::policy::{Limits, Policy, within};
+pub(crate) use self::policy::{LimitError, SetupError};
+pub use self::policy::{Limits, Policy, is_within};
 pub use self::reach::{closed_policy, open_policy};
 
 /// A command confined to a policy: the program to run and its whole
@@ -64,7 +65,7 @@ impl Sandbox {
         let (argv, hint) = match self.0 {
             Kind::Bwrap => (&bwrap::PROBE[..], bwrap::HINT),
             Kind::Seatbelt => (&seatbelt::PROBE[..], seatbelt::HINT),
-            Kind::Missing => bail!(missing()),
+            Kind::Missing => bail!(NoSandbox),
         };
         let ran = std::process::Command::new(argv[0])
             .args(&argv[1..])
@@ -112,23 +113,24 @@ impl Sandbox {
         argv: &[String],
         cwd: &str,
         tmp: &str,
-    ) -> Result<Confined, String> {
+    ) -> Result<Confined, NoSandbox> {
         match self.0 {
             Kind::Bwrap => Ok(bwrap::command(policy, argv, cwd, tmp)),
             Kind::Seatbelt => {
                 Ok(seatbelt::command(policy, argv, tmp))
             }
-            Kind::Missing => Err(missing()),
+            Kind::Missing => Err(NoSandbox),
         }
     }
 }
 
-fn missing() -> String {
-    format!(
-        "There is no sandbox for {}, so tools cannot run here.",
-        std::env::consts::OS
-    )
-}
+/// This platform has no sandbox.
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "There is no sandbox for {os}, so tools cannot run here.",
+    os = std::env::consts::OS
+)]
+pub(crate) struct NoSandbox;
 
 /// `argv`, run by bash once `limits` hold for it and for every
 /// process it starts.

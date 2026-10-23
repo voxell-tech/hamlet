@@ -58,26 +58,38 @@ pub(crate) struct BuildRoad {
     reason: String,
 }
 
-/// The call of `tool` with `arguments`, or the words for the agent of
-/// why it is no call.
+/// The fault that makes a runtime tool's call no call, in words for
+/// the agent.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum NoCall {
+    #[error("The arguments of {tool} are not valid: {error}.")]
+    Invalid {
+        tool: String,
+        error: serde_json::Error,
+    },
+    #[error("There is no tool named {0}.")]
+    NoTool(String),
+}
+
+/// The call of `tool` with `arguments`.
 pub(crate) fn parse(
     tool: &str,
     arguments: &BTreeMap<String, Value>,
-) -> std::result::Result<Call, String> {
+) -> std::result::Result<Call, NoCall> {
     let value = Value::Object(
         arguments
             .iter()
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect(),
     );
-    let invalid = |error: serde_json::Error| {
-        format!("The arguments of {tool} are not valid: {error}.")
-    };
     match tool {
         "build_road" => serde_json::from_value(value)
             .map(Call::BuildRoad)
-            .map_err(invalid),
-        _ => Err(format!("There is no tool named {tool}.")),
+            .map_err(|error| NoCall::Invalid {
+                tool: tool.into(),
+                error,
+            }),
+        _ => Err(NoCall::NoTool(tool.into())),
     }
 }
 

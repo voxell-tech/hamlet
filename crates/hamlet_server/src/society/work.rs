@@ -3,10 +3,10 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use anyhow::Result;
-use serde_json::json;
 use tokio::task::JoinSet;
 
 use crate::OperationId;
+use crate::diagnostic::{Secrets, tell};
 use crate::harness::Harnesses;
 use crate::papers::tree::Entry;
 use crate::service::Service;
@@ -20,6 +20,14 @@ pub(crate) struct Work {
     offers: HashMap<OperationId, Result<BTreeMap<String, Entry>>>,
     cleaned: HashMap<OperationId, Result<bool>>,
     founding: HashSet<(String, u64)>,
+}
+
+/// The outcome of [`Work::hold`].
+pub(crate) enum Hold {
+    /// The operation waits for its work from now.
+    Taken,
+    /// The operation was already waiting.
+    AlreadyHeld,
 }
 
 pub(crate) enum Completed {
@@ -51,14 +59,17 @@ impl Work {
     }
 
     /// Whether the operation `id` waits for its work.
-    pub fn pending(&self, id: &OperationId) -> bool {
+    pub fn is_pending(&self, id: &OperationId) -> bool {
         self.pending.contains(id)
     }
 
-    /// Marks the operation `id` as waiting for work; false when it
-    /// already was.
-    pub fn hold(&mut self, id: OperationId) -> bool {
-        self.pending.insert(id)
+    /// Marks the operation `id` as waiting for work.
+    pub fn hold(&mut self, id: OperationId) -> Hold {
+        if self.pending.insert(id) {
+            Hold::Taken
+        } else {
+            Hold::AlreadyHeld
+        }
     }
 
     /// Marks the operation `id` as no longer waiting.
@@ -137,7 +148,7 @@ impl Work {
 
     /// Whether the hamlet founded by vote `vote` of `hamlet` is still
     /// being prepared.
-    pub fn founding(&self, hamlet: &str, vote: u64) -> bool {
+    pub fn is_founding(&self, hamlet: &str, vote: u64) -> bool {
         self.founding.contains(&(hamlet.into(), vote))
     }
 
@@ -180,7 +191,6 @@ impl Work {
     }
 }
 
-#[expect(clippy::print_stderr, reason = "stderr is the server's log")]
 pub(crate) async fn complete(
     service: &mut Service,
     harnesses: &mut Harnesses,
@@ -194,12 +204,13 @@ pub(crate) async fn complete(
         } => {
             service.house_work.founding.remove(&(hamlet, vote));
             if let Err(error) = result {
-                let mut diagnostic = json!(format!(
-                    "Could not prepare the founded hamlet's house: \
-                     {error}"
-                ));
-                service.credentials.scrub(&mut diagnostic);
-                eprintln!("{diagnostic}");
+                tell(
+                    Secrets::Of(&service.credentials),
+                    format_args!(
+                        "Could not prepare the founded hamlet's \
+                         house: {error}"
+                    ),
+                );
             }
             super::votes::changed(service, harnesses).await?;
         }
@@ -228,12 +239,13 @@ pub(crate) async fn complete(
         Completed::Initialized { id, result } => {
             service.house_work.pending.remove(&id);
             if let Err(error) = result {
-                let mut diagnostic = json!(format!(
-                    "Could not prepare the recorded agent's house: \
-                     {error}"
-                ));
-                service.credentials.scrub(&mut diagnostic);
-                eprintln!("{diagnostic}");
+                tell(
+                    Secrets::Of(&service.credentials),
+                    format_args!(
+                        "Could not prepare the recorded agent's \
+                         house: {error}"
+                    ),
+                );
             }
             harnesses.wake(&id.runtime, &id.key).await;
         }

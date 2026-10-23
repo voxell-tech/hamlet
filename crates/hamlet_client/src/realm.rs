@@ -33,7 +33,7 @@ impl From<protocol::HamletMode> for Mode {
     }
 }
 
-/// A hamlet identified by its protocol id.
+/// A hamlet's protocol id, which is not its shown `Name`.
 #[derive(Component, Clone, Debug, PartialEq)]
 #[component(
     immutable,
@@ -41,10 +41,7 @@ impl From<protocol::HamletMode> for Mode {
     on_discard = index::unfile_hamlet
 )]
 #[require(Spot)]
-pub struct Settlement {
-    /// The protocol id, distinct from the shown Name.
-    pub name: String,
-}
+pub struct HamletId(pub String);
 
 /// The hamlet's folder, earlier folders and mode words.
 #[derive(Component, Clone, Debug, PartialEq)]
@@ -71,7 +68,7 @@ pub struct Treasury(pub protocol::Report);
     on_discard = index::unfile_agent
 )]
 #[require(Activity, Lived)]
-pub struct Citizen(pub u64);
+pub struct AgentNumber(pub u64);
 
 /// The agent's purpose as sent by the server.
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
@@ -90,13 +87,13 @@ pub struct Lived {
     on_insert = index::file_agent,
     on_discard = index::unfile_agent
 )]
-#[relationship(relationship_target = Citizens)]
+#[relationship(relationship_target = Agents)]
 pub struct LivesIn(pub Entity);
 
 /// The agents belonging to a hamlet.
 #[derive(Component, Default, Debug)]
 #[relationship_target(relationship = LivesIn, linked_spawn)]
-pub struct Citizens(Vec<Entity>);
+pub struct Agents(Vec<Entity>);
 
 /// The agent holding its hamlet's office.
 #[derive(Component, Clone, Copy, Debug)]
@@ -213,7 +210,7 @@ impl Default for Settings {
                 words: None,
             },
             workspace: protocol::SettingsViewWorkspace {
-                move_: None,
+                moving: None,
                 running: None,
                 url: None,
             },
@@ -235,16 +232,16 @@ pub struct Deeds(pub Vec<String>);
 
 impl Deeds {
     /// Membership in the server's supported deeds.
-    pub fn has(&self, name: &str) -> bool {
+    pub fn is_supported(&self, name: &str) -> bool {
         self.0.iter().any(|deed| deed == name)
     }
 
     /// Whether the server supports the deed `name`, as `world` last
     /// heard: never before its state is received.
-    pub fn allows(world: &World, name: &str) -> bool {
+    pub fn is_allowed(world: &World, name: &str) -> bool {
         world
             .get_resource::<Deeds>()
-            .is_some_and(|deeds| deeds.has(name))
+            .is_some_and(|deeds| deeds.is_supported(name))
     }
 }
 
@@ -289,16 +286,16 @@ struct Consulting;
 
 /// Component registration for lookups before the first state arrives.
 pub fn register(world: &mut World) {
-    world.register_component::<Settlement>();
+    world.register_component::<HamletId>();
     world.register_component::<Name>();
     world.register_component::<Works>();
     world.register_component::<Bylaws>();
     world.register_component::<Treasury>();
-    world.register_component::<Citizen>();
+    world.register_component::<AgentNumber>();
     world.register_component::<Purpose>();
     world.register_component::<Lived>();
     world.register_component::<LivesIn>();
-    world.register_component::<Citizens>();
+    world.register_component::<Agents>();
     world.register_component::<Mayor>();
     world.register_component::<Busy>();
     world.register_component::<Faulted>();
@@ -368,7 +365,7 @@ pub fn mayor_of(world: &World, name: &str) -> Option<Entity> {
 /// The protocol id of an agent's hamlet.
 pub fn hamlet_of(world: &World, agent: Entity) -> Option<&str> {
     let lives = world.get::<LivesIn>(agent)?;
-    Some(&world.get::<Settlement>(lives.0)?.name)
+    Some(&world.get::<HamletId>(lives.0)?.0)
 }
 
 /// The wire address of a living agent.
@@ -376,7 +373,7 @@ pub fn address_of(
     world: &World,
     agent: Entity,
 ) -> Option<protocol::Address> {
-    world.get::<Citizen>(agent)?;
+    world.get::<AgentNumber>(agent)?;
     if world.get::<Left>(agent).is_some() {
         return None;
     }
@@ -387,7 +384,7 @@ pub fn address_of(
 }
 
 /// A hamlet by its protocol id.
-pub fn settlement(world: &World, id: &str) -> Option<Entity> {
+pub fn hamlet(world: &World, id: &str) -> Option<Entity> {
     world.get_resource::<Index>()?.hamlet(id)
 }
 
@@ -484,27 +481,27 @@ pub(crate) fn state(world: &mut World, state: protocol::State) {
 
 fn upsert_hamlet(
     world: &mut World,
-    hamlet: protocol::Hamlet,
+    value: protocol::Hamlet,
 ) -> Entity {
-    let entity = settlement(world, &hamlet.id)
+    let entity = hamlet(world, &value.id)
         .unwrap_or_else(|| world.spawn_empty().id());
     let mut entity_mut = world.entity_mut(entity);
-    put(&mut entity_mut, Settlement { name: hamlet.id });
-    put(&mut entity_mut, Name::new(hamlet.name));
+    put(&mut entity_mut, HamletId(value.id));
+    put(&mut entity_mut, Name::new(value.name));
     put(
         &mut entity_mut,
         Works {
-            folder: hamlet.folder,
-            before: hamlet.before,
-            mode: hamlet.mode.into(),
-            words: hamlet.mode_words,
+            folder: value.folder,
+            before: value.before,
+            mode: value.mode.into(),
+            words: value.mode_words,
         },
     );
-    put(&mut entity_mut, Bylaws(hamlet.limits));
-    put(&mut entity_mut, Treasury(hamlet.budget));
+    put(&mut entity_mut, Bylaws(value.limits));
+    put(&mut entity_mut, Treasury(value.budget));
     put(
         &mut entity_mut,
-        Spot(hamlet.at.map(|at| (at.x as f32, at.z as f32))),
+        Spot(value.at.map(|at| (at.x as f32, at.z as f32))),
     );
     entity
 }
@@ -513,14 +510,14 @@ fn upsert_agent(
     world: &mut World,
     value: protocol::Agent,
 ) -> Option<Entity> {
-    let hamlet = settlement(world, &value.ref_.hamlet)?;
-    let entity = agent(world, &value.ref_)
+    let hamlet = hamlet(world, &value.agent.hamlet)?;
+    let entity = agent(world, &value.agent)
         .unwrap_or_else(|| world.spawn_empty().id());
     let consulting = value.consulting;
     let consulted =
         consulting && world.get::<Consulting>(entity).is_none();
     let mut agent = world.entity_mut(entity);
-    put(&mut agent, Citizen(value.ref_.number));
+    put(&mut agent, AgentNumber(value.agent.number));
     put(&mut agent, Name::new(value.name));
     put(&mut agent, Purpose(value.purpose));
     put(&mut agent, HouseSkills(value.skills));
@@ -636,8 +633,8 @@ pub(crate) fn changes(world: &mut World, changes: protocol::Changes) {
                     world.despawn(entity);
                 }
             }
-            protocol::Update::AgentGone { ref_ } => {
-                if let Some(entity) = agent(world, &ref_) {
+            protocol::Update::AgentGone { agent: gone } => {
+                if let Some(entity) = agent(world, &gone) {
                     world.despawn(entity);
                 }
             }
@@ -682,7 +679,7 @@ fn departures(world: &mut World) {
 }
 
 fn society(world: &mut World, value: protocol::Hamlet, news: bool) {
-    let Some(hamlet) = settlement(world, &value.id) else {
+    let Some(hamlet) = hamlet(world, &value.id) else {
         return;
     };
     let votes = value.votes;
@@ -758,7 +755,7 @@ fn society(world: &mut World, value: protocol::Hamlet, news: bool) {
         }
     }
     let mut gone = world
-        .get::<Citizens>(hamlet)
+        .get::<Agents>(hamlet)
         .into_iter()
         .flat_map(RelationshipTarget::iter)
         .flat_map(|agent| roads_of(world, agent))
@@ -791,7 +788,7 @@ pub struct Road {
 
 impl Road {
     /// Membership of an agent among the road's ends.
-    pub fn has(&self, agent: Entity) -> bool {
+    pub fn has_end(&self, agent: Entity) -> bool {
         self.ends.0 == agent || self.ends.1 == agent
     }
 
@@ -854,7 +851,7 @@ pub fn road_between(
     b: Entity,
 ) -> Option<Entity> {
     roads_of(world, a).find(|road| {
-        world.get::<Road>(*road).is_some_and(|road| road.has(b))
+        world.get::<Road>(*road).is_some_and(|road| road.has_end(b))
     })
 }
 

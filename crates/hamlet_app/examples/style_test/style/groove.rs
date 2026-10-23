@@ -2,7 +2,7 @@
 //! the uniforms for each state it can show.
 
 use bevy::prelude::*;
-use hamlet_realm::meshes::Mb;
+use hamlet_realm::meshes::Meshing;
 use hamlet_realm::sky::Looks;
 use hamlet_vfx::inlay::{
     InlayState, InlayUniform, LIT, current, fault, signal,
@@ -61,7 +61,7 @@ fn ribbon(
     lift: f32,
     skirt: f32,
 ) -> Mesh {
-    let mut mb = Mb::new();
+    let mut meshing = Meshing::new();
     let total = terrain.path.total();
     let mut prev: Option<[u32; 4]> = None;
     let steps = (total / 0.05).ceil() as usize;
@@ -73,15 +73,15 @@ fn ribbon(
         let (l, r) =
             (p - n * width * 0.5 + up, p + n * width * 0.5 + up);
         let row = [
-            mb.vuv(
+            meshing.vuv(
                 l - Vec3::Y * skirt,
                 -n,
                 Vec3::splat(0.6),
                 Vec2::new(s, -1.0),
             ),
-            mb.vuv(l, Vec3::Y, Vec3::ONE, Vec2::new(s, -1.0)),
-            mb.vuv(r, Vec3::Y, Vec3::ONE, Vec2::new(s, 1.0)),
-            mb.vuv(
+            meshing.vuv(l, Vec3::Y, Vec3::ONE, Vec2::new(s, -1.0)),
+            meshing.vuv(r, Vec3::Y, Vec3::ONE, Vec2::new(s, 1.0)),
+            meshing.vuv(
                 r - Vec3::Y * skirt,
                 n,
                 Vec3::splat(0.6),
@@ -89,15 +89,15 @@ fn ribbon(
             ),
         ];
         if let Some(q) = prev {
-            mb.quad(q[1], q[2], row[2], row[1]);
+            meshing.quad(q[1], q[2], row[2], row[1]);
             if skirt > 0.0 {
-                mb.quad(q[0], q[1], row[1], row[0]);
-                mb.quad(q[2], q[3], row[3], row[2]);
+                meshing.quad(q[0], q[1], row[1], row[0]);
+                meshing.quad(q[2], q[3], row[3], row[2]);
             }
         }
         prev = Some(row);
     }
-    mb.build()
+    meshing.build()
 }
 
 /// The groove itself: bed and strip in one ribbon along the path.

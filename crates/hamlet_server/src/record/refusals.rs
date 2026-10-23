@@ -47,11 +47,6 @@ pub struct Refusal {
 /// The reason a record cannot change.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
-#[expect(
-    clippy::enum_variant_names,
-    reason = "ReasonEmpty refuses an operation given no reason; its \
-              kind is kept as `reason-empty`"
-)]
 pub enum Reason {
     AgentMissing {
         name: String,
@@ -83,7 +78,9 @@ pub enum Reason {
     },
     MayorUntouchable,
     PurposeEmpty,
-    ReasonEmpty,
+    /// Given no reason. Kept in the record as `reason-empty`.
+    #[serde(rename = "reason-empty")]
+    Empty,
     ArchiveMissing {
         archive: String,
     },
@@ -241,7 +238,7 @@ impl Refusal {
             Reason::PurposeEmpty => {
                 "say what the agent is for in `purpose`".into()
             }
-            Reason::ReasonEmpty => {
+            Reason::Empty => {
                 "give a `reason`; it is kept in the record".into()
             }
             Reason::ArchiveMissing { archive } => format!(
@@ -355,5 +352,19 @@ impl Refusal {
                 }
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Reason;
+
+    #[test]
+    fn an_empty_reason_keeps_its_recorded_kind() {
+        let kept = serde_json::json!({"kind": "reason-empty"});
+        let reason =
+            serde_json::from_value::<Reason>(kept.clone()).unwrap();
+        assert_eq!(reason, Reason::Empty);
+        assert_eq!(serde_json::to_value(&reason).unwrap(), kept);
     }
 }

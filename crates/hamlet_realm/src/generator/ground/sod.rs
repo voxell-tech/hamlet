@@ -4,9 +4,9 @@ use std::collections::{HashMap, HashSet};
 
 use bevy::prelude::*;
 
-use super::{DetailSettings, Tile, watered};
+use super::{DetailSettings, Tile, is_watered};
 use crate::generator::land::Land;
-use crate::meshes::{Mb, smoothstep};
+use crate::meshes::{Meshing, smoothstep};
 
 /// The makings of a tile's ground mesh, besides the land and the
 /// tiles drawn with it.
@@ -48,7 +48,7 @@ impl Recipe {
         let side = tile.side(chunk);
         let cells = land.cells(tile.middle(chunk), side);
         let step = side / cells as f32;
-        let wide = if watered(land, tile) {
+        let wide = if is_watered(land, tile) {
             ((step - 3.0) * 0.5).max(0.0)
         } else {
             0.0
@@ -72,7 +72,7 @@ impl Recipe {
 
     /// True when this tile's cells are wider than `other`'s, or as
     /// wide on a larger tile: the two then meet at this one's edge.
-    fn coarser(&self, other: &Recipe) -> bool {
+    fn is_coarser(&self, other: &Recipe) -> bool {
         let same = (self.step - other.step).abs() < other.step * 1e-3;
         if same {
             self.tile.level > other.tile.level
@@ -337,7 +337,7 @@ impl<'a> Stitch<'a> {
                         .map(|tile| recipe.other(land, tile))
                 });
             if let Some(other) = other
-                && other.coarser(best.as_ref().unwrap_or(recipe))
+                && other.is_coarser(best.as_ref().unwrap_or(recipe))
             {
                 best = Some(other);
             }
@@ -422,7 +422,7 @@ pub fn sod(
     } else {
         recipe.step * 0.5
     };
-    let mut mb = Mb::new();
+    let mut meshing = Meshing::new();
     let mut ids = vec![vec![0u32; cells + 1]; cells + 1];
     let mut rim = Vec::new();
     let mut wet = false;
@@ -447,7 +447,7 @@ pub fn sod(
                 None => recipe.sunk(land, y),
             };
             let at = Vec3::new(p.x, sunk, p.y);
-            *id = mb.v(at, n, colour);
+            *id = meshing.v(at, n, colour);
             if edge {
                 rim.push(((i, j), at, n, colour));
             }
@@ -455,7 +455,7 @@ pub fn sod(
     }
     for i in 0..cells {
         for j in 0..cells {
-            mb.quad(
+            meshing.quad(
                 ids[i][j],
                 ids[i][j + 1],
                 ids[i + 1][j + 1],
@@ -467,12 +467,12 @@ pub fn sod(
     // fineness. It is lit as the ground above it, so that it does
     // not show as a line, and faces both ways.
     let side = recipe.tile.side(land.set.land.chunk);
-    let hem = |mb: &mut Mb, (i, j): (usize, usize)| {
+    let hem = |meshing: &mut Meshing, (i, j): (usize, usize)| {
         rim.iter()
             .find(|(at, ..)| *at == (i, j))
             .map(|&(_, at, n, colour)| {
                 let low = recipe.hem(land, side, at.y);
-                mb.v(Vec3::new(at.x, low, at.z), n, colour)
+                meshing.v(Vec3::new(at.x, low, at.z), n, colour)
             })
             .unwrap()
     };
@@ -484,13 +484,13 @@ pub fn sod(
             ((cells, k), (cells, k + 1)),
         ] {
             let top = (ids[a.0][a.1], ids[b.0][b.1]);
-            let low = (hem(&mut mb, a), hem(&mut mb, b));
-            mb.quad(top.0, top.1, low.1, low.0);
-            mb.quad(top.1, top.0, low.0, low.1);
+            let low = (hem(&mut meshing, a), hem(&mut meshing, b));
+            meshing.quad(top.0, top.1, low.1, low.0);
+            meshing.quad(top.1, top.0, low.0, low.1);
         }
     }
     Sod {
-        mesh: mb.build(),
+        mesh: meshing.build(),
         wet,
     }
 }

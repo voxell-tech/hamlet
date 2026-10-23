@@ -9,7 +9,7 @@ use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::{Caller, Deed, errands, outcome};
+use super::{Caller, Deed, SocietyOutcome, errands};
 use crate::Outcome;
 use crate::harness::Harnesses;
 use crate::limits::Limits;
@@ -79,7 +79,7 @@ const DUE: &str = "votes";
 const DONE: &str = "votes-done";
 
 impl Vote {
-    fn due(&self) -> bool {
+    fn is_due(&self) -> bool {
         self.standing == Standing::Open || !self.reported
     }
 }
@@ -96,7 +96,7 @@ fn read(db: &Connection, hamlet: &str) -> Result<Vec<Vote>> {
 /// open ones as its record's guards.
 fn save(db: &Connection, hamlet: &str, votes: &[Vote]) -> Result<()> {
     let (due, done) =
-        votes.iter().cloned().partition::<Vec<_>, _>(Vote::due);
+        votes.iter().cloned().partition::<Vec<_>, _>(Vote::is_due);
     if due.is_empty() {
         db.execute(
             "DELETE FROM society_document WHERE kind = ?1 AND key = \
@@ -438,7 +438,7 @@ pub(super) async fn operation(
     harnesses: &mut Harnesses,
     caller: &Caller<'_>,
     args: &CallVote,
-) -> Result<Option<Value>> {
+) -> Result<Option<SocietyOutcome>> {
     let key = serde_json::to_string(&(
         caller.id.runtime.as_str(),
         &caller.id.key,
@@ -470,12 +470,14 @@ pub(super) async fn operation(
         )? {
             Ok(id) => id,
             Err(uncalled) => {
-                return Ok(Some(outcome(&uncalled.text(), true)));
+                return Ok(Some(SocietyOutcome::failed(
+                    uncalled.text(),
+                )));
             }
         }
     };
     sweep(service, harnesses).await?;
-    if service.house_work.founding(hamlet, id) {
+    if service.house_work.is_founding(hamlet, id) {
         return Ok(None);
     }
     let v = read(service.db(), hamlet)?
@@ -490,17 +492,18 @@ pub(super) async fn operation(
         .store()
         .record(hamlet)?
         .context("the voting hamlet has no record")?;
-    Ok(Some(outcome(
-        &report(&v, &r, &service.limits_of(hamlet)?),
-        false,
-    )))
+    Ok(Some(SocietyOutcome::answered(report(
+        &v,
+        &r,
+        &service.limits_of(hamlet)?,
+    ))))
 }
 
 pub(super) fn ballot(
     service: &mut Service,
     caller: &Caller<'_>,
     args: Cast,
-) -> Result<Value> {
+) -> Result<SocietyOutcome> {
     let db = service.db();
     let owner = db
         .query_row(
@@ -511,7 +514,9 @@ pub(super) fn ballot(
         )
         .optional()?;
     let Some(owner) = owner else {
-        return Ok(outcome("You were not asked for a ballot.", true));
+        return Ok(SocietyOutcome::failed(
+            "You were not asked for a ballot.",
+        ));
     };
     let owner = serde_json::from_str::<Value>(&owner)?;
     let hamlet = owner["hamlet"].as_str().unwrap_or_default();
@@ -522,16 +527,22 @@ pub(super) fn ballot(
         .iter_mut()
         .find(|v| v.id == id && v.standing == Standing::Open)
     else {
-        return Ok(outcome("The vote is closed.", true));
+        return Ok(SocietyOutcome::failed("The vote is closed."));
     };
     if v.ballots.iter().any(|b| b.voter == voter) {
-        return Ok(outcome("Your ballot is already cast.", false));
+        return Ok(SocietyOutcome::answered(
+            "Your ballot is already cast.",
+        ));
     }
     let choice = match args.choice.as_str() {
         "yes" => VoterCast::Yes,
         "no" => VoterCast::No,
         "abstain" => VoterCast::Abstain,
-        _ => return Ok(outcome("Choose yes, no or abstain.", true)),
+        _ => {
+            return Ok(SocietyOutcome::failed(
+                "Choose yes, no or abstain.",
+            ));
+        }
     };
     let evidence = args.evidence.as_str();
     let corpus = super::document::<String>(
@@ -557,7 +568,7 @@ pub(super) fn ballot(
         grounded,
     });
     save(db, hamlet, &votes)?;
-    Ok(outcome("Your ballot is cast.", false))
+    Ok(SocietyOutcome::answered("Your ballot is cast."))
 }
 
 async fn announce(
@@ -645,7 +656,7 @@ pub(crate) async fn sweep(
     }
     let realm = crate::realm::read(service.db())?;
     for hamlet in hamlets {
-        if realm.lives(&hamlet) {
+        if realm.is_living(&hamlet) {
             sweep_hamlet(service, harnesses, &hamlet).await?;
         } else {
             close_hamlet(service, harnesses, &hamlet).await?;
@@ -691,7 +702,7 @@ async fn sweep_hamlet(
         .context("the voting hamlet has no record")?;
     for index in 0..votes.len() {
         let mut v = votes[index].clone();
-        if service.house_work.founding(hamlet, v.id) {
+        if service.house_work.is_founding(hamlet, v.id) {
             continue;
         }
         if !v.announced {
@@ -1168,9 +1179,9 @@ pub(super) async fn deed(
                     },
                 )?
             {
-                return Ok(Some(Err(Refusal::Invalid(
-                    refusal.text(record::Audience::Chief),
-                ))));
+                return Ok(Some(Err(Refusal::Record(Box::new(
+                    refusal,
+                )))));
             }
             format!("`{name}` is the mayor again.")
         } else {

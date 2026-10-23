@@ -49,9 +49,7 @@ pub(super) async fn protocol(
         Ok(agent) => agent,
         Err(refusal) => return Ok(Err(refusal)),
     };
-    Ok(self::deed(service, harnesses, &agent, deed)
-        .await?
-        .map_err(Refusal::Invalid))
+    self::deed(service, harnesses, &agent, deed).await
 }
 
 /// The living agent of a chat a chief changes.
@@ -67,13 +65,13 @@ fn chat_agent(
         }))
 }
 
-/// Does `deed` on the chief's chat with `agent`; a refusal in words.
+/// Does `deed` on the chief's chat with `agent`.
 pub(super) async fn deed(
     service: &mut Service,
     harnesses: &mut Harnesses,
     agent: &AgentRef,
     deed: Deed,
-) -> Result<std::result::Result<Done, String>> {
+) -> Result<Refusable<Done>> {
     let done = |text: &str, written| {
         Ok(Ok(Done {
             text: text.into(),
@@ -89,7 +87,7 @@ pub(super) async fn deed(
         Deed::Resume(number) => {
             match resume(service, harnesses, agent, number).await? {
                 Ok(written) => done(RESUMED, written),
-                Err(words) => Ok(Err(words)),
+                Err(refusal) => Ok(Err(refusal)),
             }
         }
         Deed::Retry => carry_on(service, harnesses, agent).await,
@@ -182,14 +180,12 @@ async fn resume(
     harnesses: &mut Harnesses,
     agent: &AgentRef,
     number: i64,
-) -> Result<std::result::Result<(BindingId, String), String>> {
+) -> Result<Refusable<(BindingId, String)>> {
     let chief = service.chief.clone();
     let db = service.db();
     let Some(session) = records::session(db, agent, &chief, number)?
     else {
-        return Ok(Err(format!(
-            "There is no past session `{number}` here."
-        )));
+        return Ok(Err(Refusal::NoSession(number)));
     };
     let previous = super::current(service, harnesses, agent).await?;
     let db = service.db();
@@ -218,8 +214,11 @@ async fn resume(
 
 /// Whether the conversation of `binding` runs a turn or has inputs
 /// waiting.
-fn busy(service: &mut Service, binding: BindingId) -> Result<bool> {
-    Ok(service.chats.busy(binding)
+fn is_busy(
+    service: &mut Service,
+    binding: BindingId,
+) -> Result<bool> {
+    Ok(service.chats.is_busy(binding)
         || service
             .home
             .store()
@@ -233,12 +232,10 @@ async fn carry_on(
     service: &mut Service,
     harnesses: &mut Harnesses,
     agent: &AgentRef,
-) -> Result<std::result::Result<Done, String>> {
+) -> Result<Refusable<Done>> {
     let binding = super::current(service, harnesses, agent).await?;
-    if busy(service, binding)? {
-        return Ok(Err("A turn is running here. Stop it, then \
-                       retry."
-            .into()));
+    if is_busy(service, binding)? {
+        return Ok(Err(Refusal::TurnRunning("retry")));
     }
     let items = service.home.store().items(binding)?;
     let last = items.iter().rev().find(|item| {
@@ -256,9 +253,7 @@ async fn carry_on(
             && matches!(last.stop.as_deref(), Some("stop" | "length"))
     });
     if answered {
-        return Ok(Err("the last message was answered, so there \
-                       is nothing to carry on"
-            .into()));
+        return Ok(Err(Refusal::Answered));
     }
     let request = format!("retry:{}", uuid::Uuid::new_v4());
     let mark = InputMark::Retry {
@@ -293,7 +288,7 @@ pub(super) async fn rewind(
     harnesses: &mut Harnesses,
     rewind: &Rewind,
 ) -> Result<ServerMessage> {
-    let id = rewind.id.as_str();
+    let id = &rewind.id;
     let chat = &rewind.chat;
     if let Err(refusal) =
         service.access(&chat.with.hamlet, "change chat")?
@@ -357,16 +352,14 @@ pub(super) async fn rewind(
     for mark in kept.iter().filter_map(|item| item.mark.as_ref()) {
         match InputMark::of(mark)? {
             Some(InputMark::Reflection { .. }) => turns = 0,
-            Some(mark) if mark.chief_turn() => turns += 1,
+            Some(mark) if mark.is_chief_turn() => turns += 1,
             _ => {}
         }
     }
     let db = service.db();
     let reflecting = follow::reserved(db, binding)?;
-    if busy(service, binding)? || reflecting {
-        return refused(
-            "A turn is running here. Stop it, then rewind.",
-        );
+    if is_busy(service, binding)? || reflecting {
+        return Ok(reply(id, Err(Refusal::TurnRunning("rewind"))));
     }
     let db = service.db();
     let Some(conversation) = records::kept(db, binding)? else {
@@ -477,7 +470,7 @@ pub(crate) async fn stop_agent(
 ) -> Result<()> {
     let mut stopped = false;
     for binding in records::conversations_of(service.db(), agent)? {
-        if busy(service, binding)? {
+        if is_busy(service, binding)? {
             stop_turn(service, harnesses, binding).await?;
             stopped = true;
         }

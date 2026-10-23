@@ -18,7 +18,7 @@ use hamlet_client::Connection;
 use hamlet_client::chats::{Status, Usage};
 use hamlet_client::connection::Contact;
 use hamlet_client::realm::{
-    HOME, Sandbox, Settings, Settlement, Treasury,
+    HOME, HamletId, Sandbox, Settings, Treasury,
 };
 use hamlet_protocol::client as protocol;
 
@@ -62,13 +62,13 @@ pub(crate) fn update_status(
     sessions: Query<(Ref<Status>, Ref<Usage>)>,
     settings: Res<Settings>,
     connection: Res<Connection>,
-    treasury: Query<(&Settlement, Ref<Treasury>)>,
+    treasury: Query<(&HamletId, Ref<Treasury>)>,
     mut bar: ResMut<Bar>,
 ) {
     let session = sessions.get(me.session).ok();
     let home = treasury
         .iter()
-        .find(|(settlement, _)| settlement.name == HOME)
+        .find(|(id, _)| id.0 == HOME)
         .map(|(_, treasury)| treasury);
     let moved = me.is_changed()
         || settings.is_changed()
@@ -80,7 +80,7 @@ pub(crate) fn update_status(
     if !moved {
         return;
     }
-    let busy = session.as_ref().is_some_and(|(s, _)| s.working());
+    let busy = session.as_ref().is_some_and(|(s, _)| s.is_working());
     let next = Bar {
         busy,
         running: if busy {

@@ -12,7 +12,9 @@ use crate::generator::land::LandSettings;
 use crate::generator::layout::TownSettings;
 use crate::generator::road::RoadSettings;
 use crate::generator::yard::YardSettings;
-use crate::generator::{DetailSettings, GenSettings, HouseMotion};
+use crate::generator::{
+    DetailSettings, GeneratorSettings, HouseMotion,
+};
 use crate::hand::PlaySettings;
 use crate::keeper::Motion;
 use crate::moving::CarrySettings;
@@ -47,7 +49,7 @@ pub(crate) struct WorldTuning {
     pub works: WorksSettings,
     pub sound: SoundSettings,
     pub debug: DebugSettings,
-    pub generator: GenSettings,
+    pub generator: GeneratorSettings,
 }
 
 impl Tuning for WorldTuning {
@@ -90,7 +92,7 @@ designed!(WorldTuning {
     WorksSettings => works,
     SoundSettings => sound,
     DebugSettings => debug,
-    GenSettings => generator,
+    GeneratorSettings => generator,
     LandSettings => generator.land,
     TownSettings => generator.town,
     HouseSettings => generator.house,

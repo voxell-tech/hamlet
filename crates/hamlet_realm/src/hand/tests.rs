@@ -7,7 +7,7 @@ use bevy::picking::backend::HitData;
 use bevy::picking::pointer::{Location, PointerId};
 use bevy::time::TimeUpdateStrategy;
 use hamlet_client::ClientPlugin;
-use hamlet_client::realm::{Busy, Road, Settlement};
+use hamlet_client::realm::{Busy, HamletId, Road};
 use hamlet_protocol::client as protocol;
 use hamlet_testing::realm;
 
@@ -80,7 +80,7 @@ impl Cast {
             let robot = stand_in(world, AgentId(i), i);
             let hit = world
                 .spawn((
-                    Thing::Resident(agent),
+                    Thing::Agent(agent),
                     ChildOf(robot),
                     Pickable::default(),
                     Transform::default(),
@@ -254,7 +254,7 @@ impl Cast {
     }
 
     fn thing(&self, i: usize) -> Thing {
-        Thing::Resident(self.agents[i])
+        Thing::Agent(self.agents[i])
     }
 
     /// Presses on the robot `i` and drags it over `to`.
@@ -267,7 +267,7 @@ impl Cast {
         self.run(0.6);
     }
 
-    fn pickable(&self, i: usize) -> bool {
+    fn is_pickable(&self, i: usize) -> bool {
         self.app.world().get::<Pickable>(self.boxes[i]).is_some()
     }
 }
@@ -426,7 +426,7 @@ fn a_dragged_robot_is_lifted_dangles_and_scurries_home_when_let_go() {
         world.resource::<Hand>().lifted(),
         Some(cast.robots[0])
     );
-    assert!(!cast.pickable(0));
+    assert!(!cast.is_pickable(0));
     // It hangs over where the pointer is, clear of the ground.
     let land = cast.app.world().resource::<Land>().clone();
     let held = cast.at(0);
@@ -441,7 +441,7 @@ fn a_dragged_robot_is_lifted_dangles_and_scurries_home_when_let_go() {
     let (acts, _) = cast.run(1.0);
     assert_eq!(cast.played_at(), [Play::Drop]);
     assert!(acts.contains(&Act::Land));
-    assert!(cast.pickable(0));
+    assert!(cast.is_pickable(0));
     let world = cast.app.world();
     assert!(!world.resource::<Taken>().drag);
     assert_eq!(world.resource::<Hand>().lifted(), None);
@@ -571,7 +571,7 @@ fn a_file_dropped_on_a_robot_or_its_house_is_handed_to_its_agent() {
     drop(&mut cast, "/desk/list.txt");
     cast.run(0.5);
     assert!(cast.wishes().is_empty());
-    let house = Thing::ResidentHouse(cast.agents[0]);
+    let house = Thing::House(cast.agents[0]);
     cast.hover(Some(house));
     let (acts, _) = cast.run(0.3);
     assert_eq!(
@@ -636,25 +636,20 @@ fn walked(cast: &mut Cast) -> Vec<protocol::ClientMessage> {
 
 #[test]
 fn four_files_dropped_together_send_one_manifest_with_four_roots() {
-    use hamlet_client::realm::{Citizen, Deeds, LivesIn};
+    use hamlet_client::realm::{AgentNumber, Deeds, LivesIn};
     let dir = hamlet_testing::Scratch::new("hand-four-files");
     let mut cast = Cast::new(1);
     let runtime = tokio::runtime::Runtime::new().unwrap();
     with_gifts(&mut cast, &runtime);
     cast.app.insert_resource(Deeds(vec!["give".into()]));
-    let hamlet = cast
-        .app
-        .world_mut()
-        .spawn(Settlement {
-            name: "home".into(),
-        })
-        .id();
+    let hamlet =
+        cast.app.world_mut().spawn(HamletId("home".into())).id();
     cast.app.world_mut().entity_mut(cast.agents[0]).insert((
-        Citizen(0),
+        AgentNumber(0),
         Name::new("founder"),
         LivesIn(hamlet),
     ));
-    cast.hover(Some(Thing::ResidentHouse(cast.agents[0])));
+    cast.hover(Some(Thing::House(cast.agents[0])));
     for n in 0..4 {
         let path = dir.join(format!("book-{n}.txt"));
         std::fs::write(&path, "book").unwrap();
@@ -773,7 +768,7 @@ fn a_robot_dropped_on_another_greets_it_and_asks_for_a_road() {
     let ends = if a <= b { (a, b) } else { (b, a) };
     cast.app.world_mut().spawn(Road { ends });
     cast.played_at();
-    let house = Thing::ResidentHouse(b);
+    let house = Thing::House(b);
     cast.lift(0, other);
     cast.hover(Some(house));
     cast.release();
@@ -784,7 +779,7 @@ fn a_robot_dropped_on_another_greets_it_and_asks_for_a_road() {
     // Set down on its own house, it has met nobody.
     cast.run(8.0);
     cast.played_at();
-    let own = Thing::ResidentHouse(a);
+    let own = Thing::House(a);
     let porch = cast.porch(0);
     cast.lift(0, porch + Vec3::X);
     cast.hover(Some(own));
@@ -845,7 +840,7 @@ fn the_meter_follows_the_budget() {
     receive_state(&mut cast.app, state);
     let world = cast.app.world_mut();
     let hamlet = world
-        .query_filtered::<Entity, With<Settlement>>()
+        .query_filtered::<Entity, With<HamletId>>()
         .single(world)
         .unwrap();
     world.entity_mut(hamlet).insert(Sited(TownId(0)));
@@ -951,7 +946,7 @@ fn a_file_dropped_on_the_founder_begins_a_protocol_gift_without_a_house()
     assert_eq!(to.agent, "founder");
     assert_eq!(
         files,
-        &[protocol::GiveFilesFiles {
+        &[protocol::GiveFile {
             path: "list.txt".into(),
             size: 4
         }]

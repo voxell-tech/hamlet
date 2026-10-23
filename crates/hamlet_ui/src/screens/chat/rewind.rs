@@ -101,7 +101,7 @@ fn reveal(
     };
     let working =
         sessions.get(rewinds.session).is_ok_and(|(status, chat)| {
-            status.working()
+            status.is_working()
                 || chat.is_some_and(|chat| chat.0.past.is_some())
         });
     let want = match hovered.get() && !working {

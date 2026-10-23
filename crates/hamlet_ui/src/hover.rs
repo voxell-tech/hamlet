@@ -29,7 +29,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, overlay,
 };
 use hamlet_client::realm::{
-    Account, Activity, Busy, Citizen, Left, LivesIn, Mayor,
+    Account, Activity, AgentNumber, Busy, Left, LivesIn, Mayor,
     MergedInto, Mode, Purpose, Roster, Treasury, Works,
 };
 use hamlet_client::waits::Waiting;
@@ -86,7 +86,7 @@ pub(crate) struct Card {
 }
 
 impl Card {
-    pub(crate) fn shown(&self) -> bool {
+    pub(crate) fn is_shown(&self) -> bool {
         self.shown
     }
 }
@@ -114,12 +114,12 @@ pub(crate) fn short(text: &str, most: usize) -> String {
 pub(crate) struct Told<'w, 's> {
     roster: Roster<'w, 's>,
     names: Query<'w, 's, &'static Name>,
-    agents: Query<'w, 's, Doing<'static>, With<Citizen>>,
+    agents: Query<'w, 's, Doing<'static>, With<AgentNumber>>,
     living: Query<
         'w,
         's,
         Living<'static>,
-        (With<Citizen>, Without<Left>),
+        (With<AgentNumber>, Without<Left>),
     >,
     waits: Query<'w, 's, &'static Waiting>,
     spent: Query<'w, 's, &'static Treasury>,
@@ -142,7 +142,7 @@ impl Told<'_, '_> {
             Thing::Keeper | Thing::Cottage => {
                 self.roster.mayor().map(|mayor| (mayor, false))
             }
-            Thing::Resident(agent) | Thing::ResidentHouse(agent) => {
+            Thing::Agent(agent) | Thing::House(agent) => {
                 Some((agent, false))
             }
             Thing::Ruin(agent) => Some((agent, true)),
@@ -156,14 +156,14 @@ impl Told<'_, '_> {
     }
 
     /// The agent of `thing` has work to be cheered for.
-    fn proud(&self, thing: Thing) -> bool {
+    fn is_proud(&self, thing: Thing) -> bool {
         self.agent_of(thing)
             .and_then(|(agent, _)| self.agents.get(agent).ok())
             .is_some_and(|(_, (_, _, proud), ..)| proud)
     }
 
     /// The look or the company of the chief of `thing` changed.
-    fn chief_moved(&self, thing: Thing) -> bool {
+    fn has_chief_moved(&self, thing: Thing) -> bool {
         let (Thing::Chief(chief) | Thing::ChiefPlace(chief)) = thing
         else {
             return false;
@@ -358,7 +358,7 @@ impl Told<'_, '_> {
         };
         let followed = self.following.0 == Some(hovered);
         let robot =
-            matches!(hovered, Thing::Keeper | Thing::Resident(_));
+            matches!(hovered, Thing::Keeper | Thing::Agent(_));
         Some(Card {
             shown: true,
             title: name.to_uppercase(),
@@ -401,8 +401,8 @@ impl Told<'_, '_> {
             Thing::ChiefPlace(chief) => self.of_chief(chief, true),
             Thing::Keeper
             | Thing::Cottage
-            | Thing::Resident(_)
-            | Thing::ResidentHouse(_)
+            | Thing::Agent(_)
+            | Thing::House(_)
             | Thing::Ruin(_) => {
                 let (agent, ruin) = self.agent_of(thing)?;
                 self.of_agent(agent, ruin, thing)
@@ -448,11 +448,11 @@ pub(crate) fn describe(
         }
         return;
     };
-    let now = Some((thing, told.proud(thing)));
+    let now = Some((thing, told.is_proud(thing)));
     let moved = *made != now
         || roll.is_changed()
         || told.following.is_changed()
-        || told.chief_moved(thing);
+        || told.has_chief_moved(thing);
     if !moved {
         return;
     }

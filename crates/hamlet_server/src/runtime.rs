@@ -6,14 +6,14 @@ use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use hamlet_protocol::client::{ServerMessage, State};
-use serde_json::json;
+use hamlet_protocol::client::{RequestId, ServerMessage, State};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, watch};
 use tokio::task::{AbortHandle, JoinError, JoinSet};
 
 use crate::chats;
 use crate::connection::{self, Client, Event, refuse, send};
+use crate::diagnostic::{Secrets, tell};
 use crate::harness::{self, Harnesses, Notice};
 use crate::protocol::{Protocol, Refusable, fault, reply};
 use crate::requests::{BEGIN, NotesWritten, PapersRead};
@@ -35,7 +35,7 @@ const RESCAN: Duration = Duration::from_secs(2);
 #[derive(Debug)]
 pub(crate) struct Asked {
     pub(crate) client: u64,
-    pub(crate) request: Option<String>,
+    pub(crate) request: Option<RequestId>,
 }
 
 impl std::fmt::Display for Asked {
@@ -54,6 +54,13 @@ impl std::fmt::Display for Asked {
     }
 }
 
+/// Whether a connection [`Serving::free`] was asked to free is still
+/// there.
+pub(crate) enum Freed {
+    Here,
+    Gone,
+}
+
 /// What the serve loop holds between the events it handles.
 pub(crate) struct Serving {
     pub(crate) service: Service,
@@ -70,7 +77,7 @@ pub(crate) struct Serving {
     pub(crate) tasks: JoinSet<()>,
     pub(crate) reads: JoinSet<PapersRead>,
     /// The reads running, by connection and request id.
-    pub(crate) reading: HashMap<(u64, String), AbortHandle>,
+    pub(crate) reading: HashMap<(u64, RequestId), AbortHandle>,
     pub(crate) writes: JoinSet<NotesWritten>,
     /// Messages a busy connection held back, due now.
     pub(crate) ready: VecDeque<(u64, String)>,
@@ -253,8 +260,8 @@ impl Serving {
     }
 
     async fn on_gone(&mut self, id: u64) -> Result<()> {
-        self.reading.retain(|(owner, _), task| {
-            if *owner == id {
+        self.reading.retain(|(connection, _), task| {
+            if *connection == id {
                 task.abort();
                 false
             } else {
@@ -276,26 +283,26 @@ impl Serving {
     }
 
     /// Lets connection `id` take the messages it held back while
-    /// busy. False when it is gone.
-    pub(crate) fn free(&mut self, id: u64) -> bool {
+    /// busy, if it is still there.
+    pub(crate) fn free(&mut self, id: u64) -> Freed {
         let Some(client) = self.clients.get_mut(&id) else {
-            return false;
+            return Freed::Gone;
         };
         client.busy = false;
         self.ready
             .extend(client.waiting.drain(..).map(|text| (id, text)));
-        true
+        Freed::Here
     }
 
     /// Whether a merge or a gift of connection `id` is under way.
-    pub(crate) fn working(&self, id: u64) -> bool {
-        self.service.merges.busy(id)
+    pub(crate) fn is_working(&self, id: u64) -> bool {
+        self.service.merges.is_busy(id)
             || self
                 .service
                 .gifts
                 .working
                 .iter()
-                .any(|(owner, _)| *owner == id)
+                .any(|(connection, _)| *connection == id)
     }
 
     /// Moves on the house work, votes, reviews and merges, answers
@@ -312,7 +319,7 @@ impl Serving {
             || !expired.is_empty()
             || crate::clock::now() >= since.turns
             || self.service.moving.view()
-                != self.state.settings.workspace.move_;
+                != self.state.settings.workspace.moving;
         if !due
             && !crate::state::skills_moved(
                 &mut self.service,
@@ -409,10 +416,10 @@ impl Serving {
 
     fn on_moved(
         &mut self,
-        moved: Result<(u64, String, Refusable<String>), JoinError>,
+        moved: Result<(u64, RequestId, Refusable<String>), JoinError>,
     ) -> Result<()> {
-        if let Ok((owner, id, result)) = moved {
-            self.send_to(owner, reply(&id, result))?;
+        if let Ok((connection, id, result)) = moved {
+            self.send_to(connection, reply(&id, result))?;
         }
         self.refresh()
     }
@@ -425,12 +432,12 @@ impl Serving {
         let Ok(given) = given else {
             return self.refresh();
         };
-        let (Completed::Began { owner, id, .. }
-        | Completed::Files { owner, id, .. }
-        | Completed::Prepared { owner, id, .. }
-        | Completed::Delivered { owner, id, .. }) = &given;
+        let (Completed::Began { connection, id, .. }
+        | Completed::Files { connection, id, .. }
+        | Completed::Prepared { connection, id, .. }
+        | Completed::Delivered { connection, id, .. }) = &given;
         let asked = Asked {
-            client: *owner,
+            client: *connection,
             request: Some(id.clone()),
         };
         let completed = crate::gifts::complete(
@@ -440,10 +447,10 @@ impl Serving {
         )
         .await
         .context(asked)?;
-        if let Some((owner, answer)) = completed
-            && self.free(owner)
+        if let Some((connection, answer)) = completed
+            && let Freed::Here = self.free(connection)
         {
-            self.send_to(owner, answer)?;
+            self.send_to(connection, answer)?;
         }
         self.refresh()
     }
@@ -451,18 +458,27 @@ impl Serving {
     /// Frees the connections whose merge finished and sends what the
     /// chats hold, after each event.
     fn settle(&mut self) -> Result<()> {
-        for owner in std::mem::take(&mut self.service.merges.finished)
+        for connection in
+            std::mem::take(&mut self.service.merges.finished)
         {
-            self.free(owner);
+            self.free(connection);
         }
         self.deliver()
+    }
+
+    /// Logs `error`, a defect, with its context chain.
+    pub(crate) fn log_defect(&self, error: &anyhow::Error) {
+        tell(
+            Secrets::Of(&self.service.credentials),
+            format_args!("{error:#}"),
+        );
     }
 
     /// Logs `error`, which ended the handling of one event, and
     /// leaves the loop as handling it in full would. The request it
     /// was answering gets a fault and no longer holds its connection.
     fn recover(&mut self, error: &anyhow::Error) {
-        failed(&self.service, error);
+        self.log_defect(error);
         if let Some(asked) = error.downcast_ref::<Asked>() {
             let client = asked.client;
             if let Some(request) = &asked.request {
@@ -480,20 +496,20 @@ impl Serving {
                 Some(connection) => send(
                     connection,
                     &self.service,
-                    fault(asked.request.as_deref(), FAILED),
+                    fault(asked.request.as_ref(), FAILED),
                 ),
                 None => Ok(()),
             };
             if let Err(error) = faulted {
-                failed(&self.service, &error);
+                self.log_defect(&error);
             }
-            if !self.working(client) {
+            if !self.is_working(client) {
                 self.free(client);
             }
         }
         for done in [self.refresh(), self.settle()] {
             if let Err(error) = done {
-                failed(&self.service, &error);
+                self.log_defect(&error);
             }
         }
     }
@@ -623,11 +639,4 @@ pub(crate) async fn flush_models(
         .credentials(service.home.store(), &mut service.credentials)
         .await?;
     Ok(())
-}
-
-#[expect(clippy::print_stderr, reason = "stderr is the server's log")]
-pub(crate) fn failed(service: &Service, error: &anyhow::Error) {
-    let mut diagnostic = json!(format!("hamlet-server: {error:#}"));
-    service.credentials.scrub(&mut diagnostic);
-    eprintln!("{diagnostic}");
 }

@@ -13,7 +13,7 @@ compile_error!(
 /// server started after it passes the point.
 #[cfg(feature = "faults")]
 pub(crate) fn point(point: &str) {
-    if mark(point, "server-paused") {
+    if let Pass::Faults = mark(point, "server-paused") {
         loop {
             std::thread::park();
         }
@@ -28,7 +28,7 @@ pub(crate) fn point(_point: &str) {}
 /// the next pass of the point goes on.
 #[cfg(feature = "faults")]
 pub(crate) fn panic_at(point: &str) {
-    if mark(point, "server-panicked") {
+    if let Pass::Faults = mark(point, "server-panicked") {
         panic!("the fault point {point} panics");
     }
 }
@@ -36,25 +36,40 @@ pub(crate) fn panic_at(point: &str) {
 #[cfg(not(feature = "faults"))]
 pub(crate) fn panic_at(_point: &str) {}
 
-/// Writes `marker` in `HAMLET_FAULT_DIR` when `HAMLET_FAULT` names
-/// `point` and the marker is not there yet; whether it did.
+/// A fault point's course on this pass.
 #[cfg(feature = "faults")]
-fn mark(point: &str, marker: &str) -> bool {
+enum Pass {
+    /// It stops or panics, its marker written.
+    Faults,
+    /// It goes on.
+    Through,
+}
+
+/// Writes `marker` in `HAMLET_FAULT_DIR` when `HAMLET_FAULT` names
+/// `point` and the marker is not there yet, and the point faults
+/// when it did.
+#[cfg(feature = "faults")]
+fn mark(point: &str, marker: &str) -> Pass {
     let (Ok(fault), Some(dir)) = (
         std::env::var("HAMLET_FAULT"),
         std::env::var_os("HAMLET_FAULT_DIR"),
     ) else {
-        return false;
+        return Pass::Through;
     };
     let marker = std::path::Path::new(&dir).join(marker);
-    fault == point
+    if fault == point
         && !marker.exists()
         && std::fs::write(&marker, point).is_ok()
+    {
+        Pass::Faults
+    } else {
+        Pass::Through
+    }
 }
 
 /// Whether `HAMLET_FAULT_SPLIT_MARKER` asks for a change and its
 /// marker committed apart.
 #[cfg(feature = "faults")]
-pub(crate) fn split_marker() -> bool {
+pub(crate) fn is_marker_split() -> bool {
     std::env::var_os("HAMLET_FAULT_SPLIT_MARKER").is_some()
 }

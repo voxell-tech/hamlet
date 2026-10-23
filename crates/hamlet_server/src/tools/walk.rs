@@ -67,7 +67,7 @@ pub(super) async fn reached(
     env: &mut impl Reach,
     path: Option<&str>,
 ) -> Result<(String, FileInfo), Failure> {
-    let given = path.unwrap_or("").trim_matches(super::pi_space);
+    let given = path.unwrap_or("").trim_matches(super::is_pi_space);
     let full = if path::is_absolute(given) {
         given.to_owned()
     } else {
@@ -142,18 +142,18 @@ pub(super) fn report(
 /// True when the file at `at` under the searched folder is one
 /// `pattern` asks for: by its name, or by its path when `pattern` has
 /// a `/`.
-pub(super) fn wanted(pattern: &str, at: &str) -> bool {
+pub(super) fn is_wanted(pattern: &str, at: &str) -> bool {
     let name = if pattern.contains('/') {
         at
     } else {
         at.rsplit('/').next().unwrap_or("")
     };
-    glob_matches(pattern, name)
+    is_glob_match(pattern, name)
 }
 
 /// True when `name` matches `pattern`, where `*` stands for any run
 /// of characters and `?` for one.
-fn glob_matches(pattern: &str, name: &str) -> bool {
+fn is_glob_match(pattern: &str, name: &str) -> bool {
     let want = pattern.chars().collect::<Vec<_>>();
     let have = name.chars().collect::<Vec<_>>();
     let (mut p, mut n) = (0, 0);
@@ -183,11 +183,11 @@ mod tests {
 
     #[test]
     fn globs_a_name_or_a_path_under_the_folder() {
-        assert!(wanted("*.rs", "src/deep/mod.rs"));
-        assert!(wanted("mod.?s", "src/mod.rs"));
-        assert!(!wanted("*.rs", "src/mod.rsx"));
-        assert!(wanted("src/*/mod.rs", "src/deep/mod.rs"));
-        assert!(!wanted("deep/*.rs", "src/deep/mod.rs"));
-        assert!(wanted("a*b*c", "aXbYbZc"));
+        assert!(is_wanted("*.rs", "src/deep/mod.rs"));
+        assert!(is_wanted("mod.?s", "src/mod.rs"));
+        assert!(!is_wanted("*.rs", "src/mod.rsx"));
+        assert!(is_wanted("src/*/mod.rs", "src/deep/mod.rs"));
+        assert!(!is_wanted("deep/*.rs", "src/deep/mod.rs"));
+        assert!(is_wanted("a*b*c", "aXbYbZc"));
     }
 }

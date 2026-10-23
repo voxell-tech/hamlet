@@ -67,7 +67,7 @@ fn asks(
 /// The form a hamlet is founded with.
 pub(super) fn founding(at: Vec2) -> AnyView {
     AnyView::new(move |cx: &mut crate::Cx| {
-        if !Deeds::allows(cx.world, "found") {
+        if !Deeds::is_allowed(cx.world, "found") {
             return cx.build(frame());
         }
         let body = column((
@@ -103,7 +103,7 @@ pub(super) fn founding(at: Vec2) -> AnyView {
                     .rules(lamp)
                     .tagged(Mood::Good)
                     .on_activate(|world| {
-                        if !Deeds::allows(world, "found") {
+                        if !Deeds::is_allowed(world, "found") {
                             return;
                         }
                         let Some(command) =

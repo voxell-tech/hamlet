@@ -8,7 +8,7 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use crate::credentials::Workspace;
+use crate::credentials::WorkspaceAddress;
 use crate::protocol::{Refusable, Refusal};
 use crate::service::{document, save};
 
@@ -94,7 +94,7 @@ pub struct Overrides {
     base_url: Option<String>,
     reflect_every: Option<u64>,
     allow_net: Option<bool>,
-    pub(crate) workspace: Option<Workspace>,
+    pub(crate) workspace: Option<WorkspaceAddress>,
 }
 
 impl Overrides {
@@ -148,9 +148,8 @@ impl Overrides {
             ) {
                 (None, None) => None,
                 (Some(url), Some(token)) => {
-                    let workspace = Workspace { url, token };
-                    check_workspace(&workspace)
-                        .map_err(anyhow::Error::msg)?;
+                    let workspace = WorkspaceAddress { url, token };
+                    check_workspace(&workspace)?;
                     Some(workspace)
                 }
                 _ => bail!(
@@ -222,17 +221,18 @@ fn builtins() -> Vec<String> {
 
 pub(crate) fn validate(
     set: &EditSettingsSet,
-) -> Refusable<Option<Option<Workspace>>> {
+) -> Refusable<Option<Option<WorkspaceAddress>>> {
     let invalid = |text: &str| Refusal::Invalid(text.into());
     let workspace = match &set.workspace {
         None => None,
         Some(None) => Some(None),
         Some(Some(workspace)) => {
-            let connection = Workspace {
+            let connection = WorkspaceAddress {
                 url: workspace.url.clone(),
                 token: workspace.token.clone(),
             };
-            check_workspace(&connection).map_err(invalid)?;
+            check_workspace(&connection)
+                .map_err(|bad| invalid(&bad.to_string()))?;
             Some(Some(connection))
         }
     };
@@ -273,9 +273,21 @@ pub(crate) fn validate(
     Ok(workspace)
 }
 
+/// The fault in a workspace's address.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum BadAddress {
+    #[error(
+        "The workspace address must start with https://, or http:// \
+         for localhost, and have no password or query."
+    )]
+    Url,
+    #[error("The workspace token needs at least 16 characters.")]
+    ShortToken,
+}
+
 pub(crate) fn check_workspace(
-    workspace: &Workspace,
-) -> Result<(), &'static str> {
+    workspace: &WorkspaceAddress,
+) -> Result<(), BadAddress> {
     let valid = Url::parse(&workspace.url).ok().is_some_and(|url| {
         (url.scheme() == "https"
             || (url.scheme() == "http"
@@ -290,12 +302,39 @@ pub(crate) fn check_workspace(
             && url.port() != Some(0)
     });
     if !valid {
-        return Err("The workspace address must start with https://, or http:// for localhost, and have no password or query.");
+        return Err(BadAddress::Url);
     }
     if workspace.token.chars().count() < 16 {
-        return Err(
-            "The workspace token needs at least 16 characters."
-        );
+        return Err(BadAddress::ShortToken);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_workspace_is_refused_for_its_address_or_its_token() {
+        let check = |url: &str, token: &str| {
+            check_workspace(&WorkspaceAddress {
+                url: url.into(),
+                token: token.into(),
+            })
+            .map_err(|bad| bad.to_string())
+        };
+        let token = "0123456789abcdef";
+        assert_eq!(
+            check("http://workspace.example", token),
+            Err("The workspace address must start with https://, or \
+                 http:// for localhost, and have no password or query."
+                .into())
+        );
+        assert_eq!(
+            check("http://localhost:8080", "short"),
+            Err("The workspace token needs at least 16 characters."
+                .into())
+        );
+        assert_eq!(check("https://workspace.example", token), Ok(()));
+    }
 }

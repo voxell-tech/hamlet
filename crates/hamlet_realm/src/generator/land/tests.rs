@@ -155,7 +155,7 @@ fn roads_reach_a_town_that_was_moved_far_away() {
         }
         // It passes through no town that was moved into its way.
         for (i, site) in land.sites.iter().enumerate() {
-            if i == a || i == b || !site.moved() {
+            if i == a || i == b || !site.has_moved() {
                 continue;
             }
             for p in &way {

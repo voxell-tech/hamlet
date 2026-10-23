@@ -11,8 +11,8 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt};
 use hamlet_client::realm::{
-    Account, Activity, Busy, Citizen, HOME, Left, LivesIn, Mayor,
-    MergedInto, Purpose, Settlement, Treasury,
+    Account, Activity, AgentNumber, Busy, HOME, HamletId, Left,
+    LivesIn, Mayor, MergedInto, Purpose, Treasury,
 };
 use hamlet_client::waits::Waiting;
 use hamlet_realm::pick::Thing;
@@ -111,7 +111,7 @@ pub(super) struct AgentRow {
 
 type Told<'a> = (
     Entity,
-    &'a Citizen,
+    &'a AgentNumber,
     &'a Name,
     &'a LivesIn,
     Option<&'a Purpose>,
@@ -147,7 +147,7 @@ pub(super) fn agent_rows(
         .map(
             |(
                 agent,
-                citizen,
+                number,
                 name,
                 _,
                 purpose,
@@ -166,7 +166,7 @@ pub(super) fn agent_rows(
                 };
                 AgentRow {
                     agent,
-                    number: citizen.0,
+                    number: number.0,
                     waiting: waits
                         .iter()
                         .filter(|by| **by == name)
@@ -198,7 +198,7 @@ pub(super) fn agent_rows(
 pub(super) fn hamlet_rows(world: &World) -> Vec<HamletRow> {
     let Some(mut hamlets) = world.try_query::<(
         Entity,
-        &Settlement,
+        &HamletId,
         &Name,
         Option<&Treasury>,
     )>() else {
@@ -209,7 +209,7 @@ pub(super) fn hamlet_rows(world: &World) -> Vec<HamletRow> {
         |agent: Entity| world.get::<LivesIn>(agent).map(|l| l.0);
     let mut rows = hamlets
         .iter(world)
-        .map(|(hamlet, settlement, name, treasury)| {
+        .map(|(hamlet, id, name, treasury)| {
             let here = everyone
                 .iter()
                 .filter(|row| lives(row.agent) == Some(hamlet))
@@ -220,7 +220,7 @@ pub(super) fn hamlet_rows(world: &World) -> Vec<HamletRow> {
                 .collect::<Vec<_>>();
             HamletRow {
                 hamlet,
-                id: settlement.name.clone(),
+                id: id.0.clone(),
                 title: name.as_str().to_string(),
                 mayor: living
                     .iter()

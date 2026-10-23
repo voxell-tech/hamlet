@@ -15,7 +15,7 @@ use super::sync::Drawn;
 use super::traffic::Trips;
 use super::work::{Robot, Voting};
 use super::{House, HouseMotion};
-use crate::keeper::{KState, Keeper};
+use crate::keeper::{Keeper, KeeperState};
 use crate::sound::{Cue, Cues, Ears, Sound, SoundSettings};
 use crate::{Clock, Step};
 
@@ -138,15 +138,15 @@ pub(super) fn state_cues(
     society: Res<Society>,
     drawn: Res<Drawn>,
     places: Query<&GlobalTransform>,
-    mut known: Local<HashMap<AgentId, KState>>,
+    mut known: Local<HashMap<AgentId, KeeperState>>,
     mut cues: MessageWriter<Cue>,
 ) {
     known.retain(|id, _| society.agent(*id).is_some());
     for agent in &society.agents {
         let was = known.insert(agent.id, agent.state);
         let sound = match agent.state {
-            KState::Waiting => Sound::Chime,
-            KState::Fault => Sound::Fault,
+            KeeperState::Waiting => Sound::Chime,
+            KeeperState::Fault => Sound::Fault,
             _ => continue,
         };
         // An agent first seen in a state did not just enter it.
@@ -244,10 +244,10 @@ pub(super) fn life_cues(
 
     lives.towns.retain(|id, _| society.town(*id).is_some());
     for town in &society.towns {
-        match lives.towns.insert(town.id, town.leader) {
+        match lives.towns.insert(town.id, town.mayor) {
             None => cue(Sound::Founded, Vec3::ZERO, town.id.0),
-            Some(was) if was != town.leader => {
-                cue(Sound::Mayor, Vec3::ZERO, town.leader.0);
+            Some(was) if was != town.mayor => {
+                cue(Sound::Mayor, Vec3::ZERO, town.mayor.0);
             }
             Some(_) => {}
         }

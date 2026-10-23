@@ -1,6 +1,12 @@
 //! Trusted PID 1 drains every descendant before reporting an
 //! operation's result.
 
+#![expect(
+    unsafe_code,
+    reason = "namespaces, the loopback, limits and reaping are set \
+              through libc"
+)]
+
 use std::fs;
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
@@ -293,7 +299,7 @@ impl Task {
             Err(reply) => return Ok(reply),
         };
         output.drain(&mut stdout, &mut stderr)?;
-        Ok(if output.full() {
+        Ok(if output.is_full() {
             output_limit()
         } else if !self.file {
             Reply::ok(Ran {
@@ -324,7 +330,7 @@ impl Task {
         let started = Instant::now();
         loop {
             output.drain(stdout, stderr)?;
-            if output.full() {
+            if output.is_full() {
                 return Ok(Err(output_limit()));
             }
             if let Some(status) = child.try_wait()? {
@@ -375,7 +381,7 @@ impl Output {
         drain(stderr, &mut self.stderr, self.limit)
     }
 
-    fn full(&self) -> bool {
+    fn is_full(&self) -> bool {
         self.stdout.len() + self.stderr.len() > self.limit
     }
 }

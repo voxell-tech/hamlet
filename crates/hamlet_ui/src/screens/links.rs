@@ -243,21 +243,13 @@ fn follow(
     let Ok(anchor) = anchors.get(click.entity) else {
         return;
     };
-    let went = match anchor {
+    let launch = match anchor {
         Anchor::Web(address) => open::browse(address),
-        Anchor::File(path) => open_file(path),
+        Anchor::File(path) => open::show_file(path),
     };
-    if !went {
+    if launch == open::Launch::Failed {
         sounds::write(&mut cues, &mut turn, Sound::Deny);
     }
-}
-
-/// Opens the file `path` by the system's program for it. False when
-/// nothing could.
-pub(crate) fn open_file(path: &Path) -> bool {
-    let folder =
-        path.parent().and_then(|folder| folder.canonicalize().ok());
-    folder.is_some_and(|folder| open::show(path, &[folder]))
 }
 
 fn hamlets_turned(

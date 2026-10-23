@@ -11,7 +11,7 @@ use bevy::ecs::world::World;
 use bevy::math::Vec3;
 use bevy::time::Time;
 use bevy_fynix::dock::{ActiveTab, DockDrag, DockTab};
-use hamlet_client::messages::{SessionOutput, UserMessage};
+use hamlet_client::messages::{ChiefMessage, SessionOutput};
 use hamlet_protocol::client as protocol;
 use hamlet_realm::sound::{Cue, Sound};
 
@@ -136,20 +136,20 @@ fn folds(
     if unfolded.is_changed() && !unfolded.is_added() {
         write(&mut cues, &mut turn, Sound::Fold);
     }
-    if card.shown() && !*shown {
+    if card.is_shown() && !*shown {
         write(&mut cues, &mut turn, Sound::Card);
     }
-    *shown = card.shown();
+    *shown = card.is_shown();
 }
 
 /// A message sent from the command line.
-fn sent(_: On<UserMessage>, mut cues: MessageWriter<Cue>) {
+fn sent(_: On<ChiefMessage>, mut cues: MessageWriter<Cue>) {
     cues.write(cue(Sound::Send));
 }
 
 /// A reply that could not be finished.
 fn failed(output: On<SessionOutput>, mut cues: MessageWriter<Cue>) {
-    if matches!(&output.op, protocol::Op::Add { item, .. } if item.kind == protocol::ItemKind::Error)
+    if matches!(&output.operation, protocol::TranscriptOperation::Add { item, .. } if item.kind == protocol::ItemKind::Error)
     {
         cues.write(cue(Sound::Error));
     }
@@ -208,8 +208,8 @@ mod tests {
             protocol::ServerMessage::Turn(protocol::Turn {
                 chat,
                 number: None,
-                ops: vec![
-                    protocol::Op::Add {
+                operations: vec![
+                    protocol::TranscriptOperation::Add {
                         item: protocol::Item {
                             id: "error:0".into(),
                             at: 0,
@@ -223,7 +223,7 @@ mod tests {
                         },
                         replaces: None,
                     },
-                    protocol::Op::Append {
+                    protocol::TranscriptOperation::Append {
                         item: "error:0".into(),
                         text: " Try again.".into(),
                     },

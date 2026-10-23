@@ -56,7 +56,7 @@ fn departures_resolve_later_merge_hosts_and_restores_keep_identity() {
     ]);
     receive(world, protocol::ServerMessage::State(state));
     let gone = world
-        .query::<(Entity, &Citizen)>()
+        .query::<(Entity, &AgentNumber)>()
         .iter(world)
         .map(|(e, c)| (c.0, e))
         .collect::<std::collections::HashMap<_, _>>();
@@ -83,7 +83,7 @@ fn departures_resolve_later_merge_hosts_and_restores_keep_identity() {
         world,
         2,
         vec![protocol::Update::AgentGone {
-            ref_: reference("home", 2),
+            agent: reference("home", 2),
         }],
     );
     assert!(world.get_entity(gone[&2]).is_err());
@@ -123,7 +123,7 @@ fn roads_are_unordered_shared_and_only_growth_carries_letters() {
     let entity = world
         .query::<(Entity, &Road)>()
         .iter(world)
-        .find(|(_, r)| r.has(founder) && r.has(scout))
+        .find(|(_, r)| r.has_end(founder) && r.has_end(scout))
         .unwrap()
         .0;
     let mut changed = state.hamlets[0].clone();
@@ -163,7 +163,7 @@ fn roads_are_unordered_shared_and_only_growth_carries_letters() {
     state.revision = 4;
     state.hamlets.truncate(1);
     state.hamlets[0].roads = Vec::new();
-    state.agents.retain(|a| a.ref_.hamlet == "home");
+    state.agents.retain(|a| a.agent.hamlet == "home");
     let miller = named(world, "miller").unwrap();
     let mill = world.get::<LivesIn>(miller).unwrap().0;
     receive(world, protocol::ServerMessage::State(state));

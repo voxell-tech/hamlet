@@ -7,7 +7,7 @@ use hamlet_vfx::magic::chance;
 use hamlet_vfx::wind::{Breeze, WindSettings, gust};
 
 use super::land::Land;
-use super::view::GenView;
+use super::view::GeneratorView;
 use crate::sky::SkySettings;
 use crate::{Clock, Sky};
 
@@ -26,7 +26,7 @@ pub(super) fn gusts(
     set: Res<WindSettings>,
     density: Res<Density>,
     breeze: Option<Res<Breeze>>,
-    view: Res<GenView>,
+    view: Res<GeneratorView>,
     land: Res<Land>,
     sky: Res<Sky>,
     sky_set: Res<SkySettings>,

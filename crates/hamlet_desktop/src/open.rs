@@ -23,6 +23,15 @@ pub enum Way {
     Reveal,
 }
 
+/// Whether the system was asked to show or open something.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Launch {
+    /// A program of the system was started for it.
+    Started,
+    /// It was not where it may be shown, or no program started.
+    Failed,
+}
+
 /// `written` with a leading `~` as the chief's own folder.
 fn expand(written: &str) -> PathBuf {
     match (written.strip_prefix("~/"), std::env::home_dir()) {
@@ -49,7 +58,7 @@ pub fn locate(written: &str, roots: &[PathBuf]) -> Option<PathBuf> {
 }
 
 #[cfg(unix)]
-fn executable(path: &Path) -> bool {
+fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(path).is_ok_and(|file| {
         file.is_file() && file.permissions().mode() & 0o111 != 0
@@ -57,7 +66,7 @@ fn executable(path: &Path) -> bool {
 }
 
 #[cfg(not(unix))]
-fn executable(_: &Path) -> bool {
+fn is_executable(_: &Path) -> bool {
     false
 }
 
@@ -70,7 +79,7 @@ pub fn way(path: &Path) -> Way {
         .is_some_and(|ending| {
             RUNS.contains(&ending.to_ascii_lowercase().as_str())
         });
-    if listed || executable(path) {
+    if listed || is_executable(path) {
         Way::Reveal
     } else {
         Way::Open
@@ -107,19 +116,28 @@ fn program(path: &Path, way: Way) -> Command {
     }
 }
 
-/// Shows the file `path` if it is still under `roots`. False when it
-/// is not, or nothing could show it.
-pub fn show(path: &Path, roots: &[PathBuf]) -> bool {
+/// Shows the file `path` if it is still under `roots`.
+pub fn show(path: &Path, roots: &[PathBuf]) -> Launch {
     let Some(path) =
         path.to_str().and_then(|path| locate(path, roots))
     else {
-        return false;
+        return Launch::Failed;
     };
-    program(&path, way(&path)).spawn().is_ok()
+    started(&mut program(&path, way(&path)))
+}
+
+/// Shows the file `path` if it is still there, with no link leading
+/// out of its folder.
+pub fn show_file(path: &Path) -> Launch {
+    match path.parent().and_then(|folder| folder.canonicalize().ok())
+    {
+        Some(folder) => show(path, &[folder]),
+        None => Launch::Failed,
+    }
 }
 
 /// Opens `address` in the chief's browser or mail program.
-pub fn browse(address: &str) -> bool {
+pub fn browse(address: &str) -> Launch {
     let mut open = if cfg!(target_os = "macos") {
         Command::new("open")
     } else if cfg!(target_os = "windows") {
@@ -129,7 +147,14 @@ pub fn browse(address: &str) -> bool {
     } else {
         Command::new("xdg-open")
     };
-    open.arg(address).spawn().is_ok()
+    started(open.arg(address))
+}
+
+fn started(command: &mut Command) -> Launch {
+    match command.spawn() {
+        Ok(_) => Launch::Started,
+        Err(_) => Launch::Failed,
+    }
 }
 
 #[cfg(test)]
@@ -166,7 +191,7 @@ mod tests {
         assert_eq!(found("door.txt"), None);
         let outside = all.join("secret.txt");
         assert_eq!(found(outside.to_str().unwrap()), None);
-        assert!(!show(&outside, &roots));
+        assert_eq!(show(&outside, &roots), Launch::Failed);
 
         let run = project.join("run");
         std::fs::write(&run, "").unwrap();

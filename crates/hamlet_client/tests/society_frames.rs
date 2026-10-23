@@ -61,9 +61,9 @@ fn replay(text: &str, mut inspect: impl FnMut(&mut World)) -> App {
 
 fn entity(world: &mut World, number: u64) -> Entity {
     world
-        .query::<(Entity, &Citizen)>()
+        .query::<(Entity, &AgentNumber)>()
         .iter(world)
-        .find(|(_, citizen)| citizen.0 == number)
+        .find(|(_, agent_number)| agent_number.0 == number)
         .unwrap()
         .0
 }
@@ -76,7 +76,7 @@ fn recorded_society_carries_letters_and_questions_with_their_authors()
         |_| {},
     );
     let world = app.world_mut();
-    assert_eq!(world.query::<&Citizen>().iter(world).count(), 4);
+    assert_eq!(world.query::<&AgentNumber>().iter(world).count(), 4);
     assert_eq!(world.query::<&Road>().iter(world).count(), 4);
     assert!(world.resource::<SeenEvents>().letters >= 2);
     let scout = entity(world, 1);
@@ -102,7 +102,7 @@ fn recorded_leaving_restores_the_same_agent_then_resolves_its_merge_host()
         include_str!("../../hamlet_protocol/frames/leaving.jsonl"),
         |world| {
             let scout = world
-                .query::<(Entity, &Citizen)>()
+                .query::<(Entity, &AgentNumber)>()
                 .iter(world)
                 .find(|(_, c)| c.0 == 1)
                 .map(|(e, _)| e);
@@ -170,7 +170,7 @@ fn recorded_realm_places_a_second_town_builds_a_road_and_closes_then_erases_it()
     assert!(placed && built && closed);
     let world = app.world_mut();
     assert!(world.resource::<Closed>().0.is_empty());
-    assert_eq!(world.query::<&Settlement>().iter(world).count(), 1);
+    assert_eq!(world.query::<&HamletId>().iter(world).count(), 1);
     assert!(
         !world
             .query::<&Name>()

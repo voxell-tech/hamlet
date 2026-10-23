@@ -38,7 +38,7 @@ async fn build(s: &mut Session) {
                 .realm()
                 .agents
                 .into_iter()
-                .map(|a| (a.ref_.number, a.name))
+                .map(|a| (a.agent.number, a.name))
                 .collect::<Vec<_>>();
             names
                 == [
@@ -305,7 +305,7 @@ async fn protects_an_instructed_agent_then_removes_and_undoes() {
     let working =
         s.chief.tell(to("home", "scout"), "Keep working").await;
     s.chief
-        .until("scout to work", |c| c.working(&scout_chat))
+        .until("scout to work", |c| c.is_working(&scout_chat))
         .await;
     let mayor_chat = chat(mayor());
     s.chief.open(&mayor_chat).await;

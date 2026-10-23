@@ -20,8 +20,8 @@ use bevy_fynix::dock::{
     DockAreaStyle, DockLeaf, DockNode, DockRegistry, DockSplit,
     DockTree, NodeId, SplitAxis,
 };
-use hamlet_client::ViewDir;
-use hamlet_client::realm::{Citizen, Left, Settlement};
+use hamlet_client::ViewFolder;
+use hamlet_client::realm::{AgentNumber, HamletId, Left};
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_realm::chief;
 use hamlet_realm::pick::{Selected, Thing, select};
@@ -50,7 +50,7 @@ pub(crate) fn plugin(app: &mut App) {
         .add_systems(
             PreUpdate,
             reselect
-                .run_if(|pending: Res<Pending>| pending.seeks())
+                .run_if(|pending: Res<Pending>| pending.is_seeking())
                 .in_set(PanelSystems::Follow),
         )
         // After fynix has moved the dock.
@@ -164,7 +164,7 @@ pub(crate) struct Pending {
 
 impl Pending {
     /// A remembered selection is still looked for.
-    pub(crate) fn seeks(&self) -> bool {
+    pub(crate) fn is_seeking(&self) -> bool {
         self.chosen.is_some()
     }
 }
@@ -173,7 +173,7 @@ impl Chosen {
     /// `thing` by the names it will still have at the next launch.
     fn of(
         names: &Query<&Name>,
-        hamlets: &Query<&Settlement>,
+        hamlets: &Query<&HamletId>,
         thing: Thing,
     ) -> Option<Chosen> {
         let name = |of: Entity| {
@@ -182,13 +182,11 @@ impl Chosen {
         Some(match thing {
             Thing::Keeper => Chosen::Mayor,
             Thing::Cottage => Chosen::Hall,
-            Thing::Resident(agent) => Chosen::Agent(name(agent)?),
-            Thing::ResidentHouse(agent) => {
-                Chosen::House(name(agent)?)
-            }
+            Thing::Agent(agent) => Chosen::Agent(name(agent)?),
+            Thing::House(agent) => Chosen::House(name(agent)?),
             Thing::Ruin(agent) => Chosen::Ruin(name(agent)?),
             Thing::Common(hamlet) => {
-                Chosen::Hamlet(hamlets.get(hamlet).ok()?.name.clone())
+                Chosen::Hamlet(hamlets.get(hamlet).ok()?.0.clone())
             }
             Thing::Chief(_) => Chosen::Chief,
             Thing::ChiefPlace(_) => Chosen::Hearth,
@@ -205,7 +203,7 @@ impl Chosen {
         // An agent by its name, living or gone as asked.
         let agent = |world: &mut World, name: &str, gone: bool| {
             world
-                .query_filtered::<(Entity, &Name, Has<Left>), With<Citizen>>()
+                .query_filtered::<(Entity, &Name, Has<Left>), With<AgentNumber>>()
                 .iter(world)
                 .find(|(_, called, left)| {
                     called.as_str() == name && *left == gone
@@ -216,20 +214,20 @@ impl Chosen {
             Chosen::Mayor => Thing::Keeper,
             Chosen::Hall => Thing::Cottage,
             Chosen::Agent(name) => {
-                Thing::Resident(agent(world, name, false)?)
+                Thing::Agent(agent(world, name, false)?)
             }
             Chosen::House(name) => {
-                Thing::ResidentHouse(agent(world, name, false)?)
+                Thing::House(agent(world, name, false)?)
             }
             Chosen::Ruin(name) => {
                 Thing::Ruin(agent(world, name, true)?)
             }
             Chosen::Hamlet(name) => Thing::Common(
-                hamlet_client::realm::settlement(world, name)?,
+                hamlet_client::realm::hamlet(world, name)?,
             ),
             Chosen::Chief | Chosen::Hearth => {
-                let user = world.resource::<Me>().user.clone();
-                let chief = chief::named(world, &user)?;
+                let name = world.resource::<Me>().name.clone();
+                let chief = chief::named(world, &name)?;
                 match self {
                     Chosen::Chief => Thing::Chief(chief),
                     _ => Thing::ChiefPlace(chief),
@@ -420,11 +418,18 @@ fn rebuilt(
     Some(tree)
 }
 
-/// Puts back the kept View choices and the kept dock. False when
-/// there is no dock to put back.
-pub fn restore(world: &mut World) -> bool {
+/// Whether a kept dock was put back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Restored {
+    Dock,
+    /// None was kept, or the one kept cannot be built again.
+    NoDock,
+}
+
+/// Puts back the kept View choices and the kept dock.
+pub fn restore(world: &mut World) -> Restored {
     let Some(view) = world.resource::<Remembered>().0.clone() else {
-        return false;
+        return Restored::NoDock;
     };
     *world.resource_mut::<TimeOfDay>() = view.sky;
     let mut sound = world.resource_mut::<SoundSettings>();
@@ -441,10 +446,10 @@ pub fn restore(world: &mut World) -> bool {
     let registry = world.resource::<DockRegistry<HamletTheme>>();
     let known = |id: &str| registry.get(id).is_some();
     let Some(tree) = rebuilt(&view.dock, &known) else {
-        return false;
+        return Restored::NoDock;
     };
     *world.resource_mut::<DockTree>() = tree;
-    true
+    Restored::Dock
 }
 
 /// The selection, by the names it is kept under.
@@ -455,7 +460,7 @@ pub(crate) struct Kept(Option<Chosen>);
 pub(crate) fn note_selected(
     selected: Res<Selected>,
     names: Query<&Name>,
-    hamlets: Query<&Settlement>,
+    hamlets: Query<&HamletId>,
     mut kept: ResMut<Kept>,
 ) {
     let chosen = selected
@@ -469,7 +474,7 @@ pub(crate) fn note_selected(
 /// Writes the view once it has changed and then stood still.
 pub fn keep(
     time: Res<Time>,
-    folder: Res<ViewDir>,
+    folder: Res<ViewFolder>,
     tree: Res<DockTree>,
     sky: Res<TimeOfDay>,
     sound: Res<SoundSettings>,
@@ -544,13 +549,13 @@ mod tests {
         use bevy_fynix::ViewExt;
         use bevy_fynix::dock::DockWindowKind;
         use bevy_fynix::views::column;
-        use hamlet_client::ViewDir;
+        use hamlet_client::ViewFolder;
         use hamlet_testing::Scratch;
 
         let dir = Scratch::new("view-dock");
         let make = || {
             let mut app = App::new();
-            app.insert_resource(ViewDir(dir.join("view")))
+            app.insert_resource(ViewFolder(dir.join("view")))
                 .init_resource::<Time>()
                 .init_resource::<Selected>()
                 .init_resource::<Roll>()
@@ -595,7 +600,7 @@ mod tests {
         relaunched.insert_resource(
             Remembered::read(&dir.join("view")).unwrap(),
         );
-        assert!(restore(relaunched.world_mut()));
+        assert_eq!(restore(relaunched.world_mut()), Restored::Dock);
         assert_eq!(
             *relaunched.world().resource::<TimeOfDay>(),
             TimeOfDay::Night
@@ -644,9 +649,9 @@ mod tests {
         reselect(&mut world);
         assert_eq!(world.resource::<Selected>().0, None);
         let scout =
-            world.spawn((Name::new("scout"), Citizen(1))).id();
+            world.spawn((Name::new("scout"), AgentNumber(1))).id();
         reselect(&mut world);
-        let house = Thing::ResidentHouse(scout);
+        let house = Thing::House(scout);
         assert_eq!(world.resource::<Selected>().0, Some(house));
         assert!(world.resource::<Pending>().chosen.is_none());
         // And it is kept under the same name for the next launch.
@@ -665,12 +670,12 @@ mod tests {
         reselect(&mut world);
         world.resource_mut::<Time<Real>>().advance_by(PATIENCE);
         reselect(&mut world);
-        assert!(world.resource::<Pending>().seeks());
+        assert!(world.resource::<Pending>().is_seeking());
         world
             .resource_mut::<Time<Real>>()
             .advance_by(Duration::from_millis(16));
         reselect(&mut world);
-        assert!(!world.resource::<Pending>().seeks());
+        assert!(!world.resource::<Pending>().is_seeking());
         assert_eq!(world.resource::<Selected>().0, None);
     }
 

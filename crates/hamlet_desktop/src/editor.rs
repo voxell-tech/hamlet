@@ -18,6 +18,8 @@ use bevy_log::warn;
 use bevy_time::common_conditions::on_real_timer;
 use hamlet_client::connection::ClientSystems;
 
+use crate::open::Launch;
+
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Opener>()
         .init_resource::<Files>()
@@ -79,10 +81,9 @@ pub struct EndEdit {
     pub key: String,
 }
 
-/// The system that opens a temporary file, returning whether it
-/// opened.
+/// The system that opens a temporary file.
 #[derive(Resource)]
-pub struct Opener(pub SystemId<In<PathBuf>, bool>);
+pub struct Opener(pub SystemId<In<PathBuf>, Launch>);
 
 impl FromWorld for Opener {
     fn from_world(world: &mut World) -> Self {
@@ -90,10 +91,8 @@ impl FromWorld for Opener {
     }
 }
 
-fn open(In(path): In<PathBuf>) -> bool {
-    path.parent()
-        .and_then(|folder| folder.canonicalize().ok())
-        .is_some_and(|folder| crate::open::show(&path, &[folder]))
+fn open(In(path): In<PathBuf>) -> Launch {
+    crate::open::show_file(&path)
 }
 
 #[derive(Resource, Default)]
@@ -198,7 +197,10 @@ fn start(edit: On<Edit>, mut commands: Commands) {
             }
         };
         let opener = world.resource::<Opener>().0;
-        if !world.run_system_with(opener, file).unwrap_or(false) {
+        let launch = world
+            .run_system_with(opener, file)
+            .unwrap_or(Launch::Failed);
+        if launch == Launch::Failed {
             world.resource_mut::<Files>().end(&edit.key);
             warn!("Could not open the editor for {}", edit.key);
         }
@@ -293,7 +295,7 @@ mod tests {
         let open = app.world_mut().register_system(
             |In(path): In<PathBuf>, mut opened: ResMut<Opened>| {
                 opened.0.push(path);
-                true
+                Launch::Started
             },
         );
         app.insert_resource(Opener(open));
@@ -456,7 +458,7 @@ mod tests {
         let failed = app.world_mut().register_system(
             |In(path): In<PathBuf>, mut opened: ResMut<Opened>| {
                 opened.0.push(path);
-                false
+                Launch::Failed
             },
         );
         app.insert_resource(Opener(failed));

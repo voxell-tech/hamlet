@@ -199,7 +199,7 @@ pub(crate) fn rule(
     limits: &Limits,
     mayor: bool,
 ) -> Verdict {
-    let verdict = if mayor && mayor_reserved(call, limits) {
+    let verdict = if mayor && is_mayor_reserved(call, limits) {
         Verdict::Ask(Danger::Reserved)
     } else {
         reach(call, standing)
@@ -214,7 +214,7 @@ pub(crate) fn rule(
 }
 
 /// A society act the chief's limits reserve to the chief.
-fn mayor_reserved(call: &Call, limits: &Limits) -> bool {
+fn is_mayor_reserved(call: &Call, limits: &Limits) -> bool {
     let Call::Society { name, args } = call else {
         return false;
     };
@@ -249,7 +249,7 @@ fn reach(call: &Call, standing: &Standing) -> Verdict {
         Call::Shell { net, .. } | Call::Hand { net, .. } => {
             if !standing.net
                 && (*net
-                    || matches!(call, Call::Shell {command, ..} if networked(command)))
+                    || matches!(call, Call::Shell {command, ..} if is_networked(command)))
             {
                 Verdict::Ask(Danger::Network)
             } else if standing.asks_commands {
@@ -261,14 +261,14 @@ fn reach(call: &Call, standing: &Standing) -> Verdict {
     }
 }
 
-fn networked(command: &str) -> bool {
+fn is_networked(command: &str) -> bool {
     let lower = command.to_lowercase();
-    NETWORK.iter().any(|needle| mentions(&lower, needle))
+    NETWORK.iter().any(|needle| has_mention(&lower, needle))
 }
 
 /// Whether `command` names `needle`: a word as a whole word, other
 /// text anywhere.
-fn mentions(command: &str, needle: &str) -> bool {
+fn has_mention(command: &str, needle: &str) -> bool {
     let word =
         |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
     if needle.chars().all(word) {
@@ -573,14 +573,14 @@ pub(crate) fn grants(db: &Connection) -> Result<Vec<Grant>> {
 
 /// Whether `agent`, called `name`, has `permission` by the limits or
 /// a grant.
-pub(crate) fn holds(
+pub(crate) fn has_permission(
     limits: &Limits,
     grants: &[Grant],
     name: &str,
     agent: &AgentRef,
     permission: &Permission,
 ) -> bool {
-    limits.permits(permission, name)
+    limits.is_granted(permission, name)
         || grants.iter().any(|grant| {
             &grant.agent == agent && &grant.permission == permission
         })
@@ -646,10 +646,10 @@ mod tests {
 
     #[test]
     fn a_command_reaches_the_network_by_the_words_it_names() {
-        assert!(networked("echo curl > network"));
-        assert!(networked("git clone x"));
-        assert!(!networked("echo curly"));
-        assert!(!networked("echo ran > never"));
+        assert!(is_networked("echo curl > network"));
+        assert!(is_networked("git clone x"));
+        assert!(!is_networked("echo curly"));
+        assert!(!is_networked("echo ran > never"));
     }
 
     #[test]

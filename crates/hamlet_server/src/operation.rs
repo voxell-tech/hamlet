@@ -151,7 +151,7 @@ impl Store {
         let request = Request::new(O::KIND, operation)?;
         let tx = self.immediate()?;
         #[cfg(feature = "faults")]
-        if crate::fault::split_marker() {
+        if crate::fault::is_marker_split() {
             // Broken on purpose: the test of this order must catch
             // the result it loses.
             if let Some(kept) = kept(&tx, id)? {

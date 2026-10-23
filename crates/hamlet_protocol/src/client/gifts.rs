@@ -11,13 +11,13 @@ use crate::client::{Address, RequestId};
 #[serde(untagged, deny_unknown_fields)]
 pub enum Give {
     Files {
-        files: Vec<GiveFilesFiles>,
+        files: Vec<GiveFile>,
         id: RequestId,
         to: Address,
     },
     Skill {
         id: RequestId,
-        skill: GiveSkillSkill,
+        skill: GiveSkillSource,
         to: Address,
     },
 }
@@ -26,7 +26,7 @@ pub enum Give {
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
-pub struct GiveFilesFiles {
+pub struct GiveFile {
     pub path: String,
     #[schemars(range(max = 9_007_199_254_740_991_u64))]
     pub size: u64,
@@ -36,7 +36,7 @@ pub struct GiveFilesFiles {
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(untagged, deny_unknown_fields)]
-pub enum GiveSkillSkill {
+pub enum GiveSkillSource {
     Starter { starter: String },
     From { from: Address, name: String },
 }

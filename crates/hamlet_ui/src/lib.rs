@@ -9,6 +9,7 @@ mod dock;
 mod folder;
 pub mod history;
 mod hover;
+pub mod limits;
 pub mod lists;
 mod looks;
 mod markdown;
@@ -21,7 +22,6 @@ mod root;
 mod saving;
 pub mod secret;
 
-pub mod rules;
 pub mod screens;
 pub mod select;
 mod sounds;
@@ -117,7 +117,7 @@ pub(crate) fn panel_sets(app: &mut App) {
 }
 
 /// The app's panels, added after the client's plugin, a
-/// [`hamlet_client::ViewDir`] with the [`Remembered`] view and the
+/// [`hamlet_client::ViewFolder`] with the [`Remembered`] view and the
 /// chiefs' [`hamlet_realm::chief::Kept`] files read from it, the
 /// world's plugin and Bevy's default plugins set with
 /// [`window_plugin`].
@@ -146,7 +146,7 @@ impl Plugin for UiPlugin {
                 screens::plugin,
                 chief::plugin,
                 folder::plugin,
-                rules::plugin,
+                limits::plugin,
                 models::plugin,
                 asking::plugin,
                 select::plugin,
@@ -187,7 +187,7 @@ mod tests {
     use bevy::render::RenderPlugin;
     use bevy::render::settings::WgpuSettings;
     use bevy::winit::WinitPlugin;
-    use hamlet_client::{ClientPlugin, ViewDir};
+    use hamlet_client::{ClientPlugin, ViewFolder};
     use hamlet_testing::Scratch;
 
     use super::*;
@@ -228,7 +228,7 @@ mod tests {
                 }),
             ClientPlugin { server: None },
         ))
-        .insert_resource(ViewDir(view.to_path_buf()))
+        .insert_resource(ViewFolder(view.to_path_buf()))
         .insert_resource(Remembered::read(&view).unwrap())
         .insert_resource(
             hamlet_realm::chief::Kept::read(&view).unwrap(),
@@ -245,9 +245,7 @@ mod tests {
         use hamlet_assets::Tuning;
         use hamlet_client::Tokio;
         use hamlet_client::connection::Wake;
-        use hamlet_client::realm::{
-            HOME, mayor, name_of, settlement,
-        };
+        use hamlet_client::realm::{HOME, hamlet, mayor, name_of};
         use hamlet_protocol::client as protocol;
         use hamlet_protocol::client::discovery::ServerAddress;
 
@@ -292,7 +290,7 @@ mod tests {
         wakes.recv_timeout(wait).unwrap();
         wakes.recv_timeout(wait).unwrap();
         app.update();
-        assert!(settlement(app.world(), HOME).is_some());
+        assert!(hamlet(app.world(), HOME).is_some());
         assert_ne!(*app.world().resource::<Roll>(), before);
         let shown = testing::words(&mut app);
         assert!(

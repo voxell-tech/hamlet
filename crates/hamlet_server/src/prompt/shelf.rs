@@ -16,7 +16,7 @@ pub(crate) struct Skill {
 /// The skills of the house at `house` on this machine, none where it
 /// is not a folder.
 pub(crate) fn house_skills(house: &Path) -> Vec<Skill> {
-    if real_dir(house) {
+    if is_real_dir(house) {
         shelf(&house.join("skills"))
     } else {
         Vec::new()
@@ -69,7 +69,7 @@ pub(super) fn library_at(
     root: &Path,
     shown: &Path,
 ) -> Option<String> {
-    let skills = if real_dir(root) {
+    let skills = if is_real_dir(root) {
         shelf(root)
     } else {
         Vec::new()
@@ -103,7 +103,7 @@ pub(super) fn library_at(
     Some(lines.join("\n"))
 }
 
-fn real_dir(path: &Path) -> bool {
+fn is_real_dir(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|m| m.is_dir())
 }
 

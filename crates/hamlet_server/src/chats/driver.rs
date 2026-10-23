@@ -6,7 +6,10 @@ use anyhow::{Context, Result};
 use super::records::{self, Place};
 use super::{calls, deeds};
 use crate::RuntimeInstance;
-use crate::harness::{BindingId, Call, Harnesses, Notice, Re};
+use crate::harness::{
+    BindingId, Call, Harnesses, Notice, ReplyAddress,
+};
+use crate::protocol::Refusable;
 use crate::record::AgentRef;
 use crate::service::Service;
 
@@ -34,10 +37,10 @@ impl Service {
         &mut self,
         harnesses: &mut Harnesses,
         binding: BindingId,
-        re: Re,
+        address: ReplyAddress,
         call: Call,
     ) -> Result<()> {
-        calls::call(self, harnesses, binding, re, call).await
+        calls::call(self, harnesses, binding, address, call).await
     }
 
     /// The open wait that holds the call `key` of `runtime`.
@@ -56,18 +59,15 @@ impl Service {
     }
 
     /// The chief's `choice` on the wait `wait`, in the words a reply
-    /// gives; a refusal in words.
+    /// gives.
     pub async fn answer_wait(
         &mut self,
         harnesses: &mut Harnesses,
         wait: &str,
         choice: &hamlet_protocol::client::Choice,
-    ) -> Result<std::result::Result<String, String>> {
-        Ok(calls::answer_words(
-            self, harnesses, wait, choice, "", None,
-        )
-        .await?
-        .map_err(|refusal| refusal.text()))
+    ) -> Result<Refusable<String>> {
+        calls::answer_words(self, harnesses, wait, choice, "", None)
+            .await
     }
 
     /// Stops the turn of the conversation `binding`, as a chief's

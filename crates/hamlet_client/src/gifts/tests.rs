@@ -70,7 +70,7 @@ fn research() -> Offer {
     Offer {
         skill: "research".into(),
         from: None,
-        source: protocol::GiveSkillSkill::Starter {
+        source: protocol::GiveSkillSource::Starter {
             starter: "research".into(),
         },
     }
@@ -103,7 +103,7 @@ fn a_file_gift_begins_with_its_manifest_and_waits_for_acceptance() {
     );
     assert_eq!(
         files,
-        &[protocol::GiveFilesFiles {
+        &[protocol::GiveFile {
             path: "list.txt".into(),
             size: 4
         }]
@@ -205,11 +205,11 @@ fn a_refused_folder_shows_the_servers_words_and_sends_no_parts() {
     assert_eq!(
         files,
         &[
-            protocol::GiveFilesFiles {
+            protocol::GiveFile {
                 path: "books/empty.txt".into(),
                 size: 0
             },
-            protocol::GiveFilesFiles {
+            protocol::GiveFile {
                 path: "books/notes/list.txt".into(),
                 size: 4
             },
@@ -257,10 +257,10 @@ fn skill_offers_use_received_starters_and_other_houses_without_local_files()
         [("research", None), ("maps", Some("scout"))]
     );
     for (index, expected) in [
-        protocol::GiveSkillSkill::Starter {
+        protocol::GiveSkillSource::Starter {
             starter: "research".into(),
         },
-        protocol::GiveSkillSkill::From {
+        protocol::GiveSkillSource::From {
             from: protocol::Address {
                 hamlet: HOME.into(),
                 agent: "scout".into(),

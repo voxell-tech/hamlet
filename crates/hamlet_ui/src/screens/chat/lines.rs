@@ -252,13 +252,13 @@ impl Line {
     pub(super) fn key(&self) -> RowKey {
         match &self.row {
             Row::Entry { session, id } => RowKey::Entry(
-                self.owner,
+                self.agent,
                 *session,
                 id.clone(),
                 self.look,
             ),
             Row::Fold { session, first, .. } => {
-                RowKey::Fold(self.owner, *session, first.clone())
+                RowKey::Fold(self.agent, *session, first.clone())
             }
         }
     }
@@ -325,7 +325,7 @@ impl Lines {
     }
 
     /// The row `key` is the last message of its run.
-    pub(super) fn ends_run(&self, key: &RowKey) -> bool {
+    pub(super) fn is_run_end(&self, key: &RowKey) -> bool {
         self.line(key).is_some_and(|line| line.last)
     }
 
@@ -420,7 +420,7 @@ pub fn fold_lines(
     ));
     let moved = me.is_changed()
         || unfolded.is_changed()
-        || people.moved()
+        || people.has_moved()
         || whole.from != from;
     if !moved && !reach.is_changed() {
         return;

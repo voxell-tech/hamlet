@@ -1,7 +1,7 @@
 //! Chief documents and record views through the server's protocol
 //! seam.
 
-use hamlet_protocol::client::{ClientMessage, ServerMessage};
+use hamlet_protocol::client::{ClientMessage, ServerMessage, V};
 use hamlet_testing::Scratch;
 use schemars::generate::SchemaSettings;
 use serde_json::{Value, json};
@@ -22,8 +22,8 @@ fn run<F: Future>(future: F) -> F::Output {
 }
 
 fn request(service: &mut Service, mut value: Value) -> Value {
-    let id = uuid::Uuid::new_v4().to_string();
-    value["id"] = id.clone().into();
+    let id = RequestId::new();
+    value["id"] = id.as_str().into();
     let answer = match Protocol::new()
         .unwrap()
         .parse(&value.to_string())
@@ -397,7 +397,9 @@ fn budget_commands_reset_the_report_without_erasing_spend() {
 fn numeric_spelling_does_not_change_the_message() {
     let protocol = Protocol::new().unwrap();
     assert!(matches!(
-        protocol.parse(r#"{"type":"hello","v":0.0,"token":"test"}"#),
+        protocol.parse(&format!(
+            r#"{{"type":"hello","v":{V}.0,"token":"test"}}"#
+        )),
         Ok(ClientMessage::Hello(_))
     ));
     let id = "00000000-0000-4000-8000-000000000001";
@@ -505,4 +507,92 @@ fn a_malformed_pick_names_what_it_lacks() {
         "This `answer` message does not fit the protocol: `picks.0` \
          lacks `index`."
     );
+}
+
+#[test]
+fn every_refusal_says_the_words_its_sites_wrote() {
+    let refused = record::Refusal {
+        operation: record::Action::Depart,
+        hamlet: "home".into(),
+        reason: record::Reason::Empty,
+    };
+    let said = [
+        (Refusal::Invalid("As written.".into()), "As written."),
+        (
+            Refusal::Unsupported("gifts"),
+            "This server does not yet support gifts.",
+        ),
+        (Refusal::NoAgent("scout".into()), "no agent named `scout`"),
+        (Refusal::NoHamlet("far".into()), "no hamlet named `far`"),
+        (Refusal::NoModel("faux".into()), "no model named `faux`"),
+        (Refusal::NoSession(3), "There is no past session `3` here."),
+        (Refusal::NoSignIn, "There is no sign-in here with that id."),
+        (
+            Refusal::TurnRunning("retry"),
+            "A turn is running here. Stop it, then retry.",
+        ),
+        (
+            Refusal::Answered,
+            "the last message was answered, so there is nothing to \
+             carry on",
+        ),
+        (
+            Refusal::Cannot {
+                operation: "say".into(),
+                cause: Cause::NoHamlet("far".into()),
+            },
+            "Cannot say: no hamlet named `far`. Choose a living \
+             hamlet.",
+        ),
+        (
+            Refusal::Cannot {
+                operation: "say".into(),
+                cause: Cause::NotChief,
+            },
+            "Cannot say: Only a chief of that hamlet may reach its \
+             agents. Ask one of its chiefs.",
+        ),
+        (
+            Refusal::Cannot {
+                operation: "erase a house".into(),
+                cause: Cause::Remote,
+            },
+            "Cannot erase a house: this operation is not supported \
+             by remote workspaces. No local copy was opened; keep \
+             the remote files in place and ask the chief before \
+             changing workspaces.",
+        ),
+        (
+            Refusal::Record(Box::new(refused.clone())),
+            &refused.text(Audience::Chief),
+        ),
+        (
+            Refusal::Usage("usage: /unshelve <skill>".into()),
+            "usage: /unshelve <skill>",
+        ),
+        (
+            Refusal::NotesUnwritable,
+            "The agent's NOTES.md could not be written safely. \
+             Inspect its house before trying again.",
+        ),
+        (
+            Refusal::UnknownSection("hours".into()),
+            "unknown section `hours`",
+        ),
+        (
+            Refusal::UnknownField {
+                field: "most".into(),
+                under: "budget".into(),
+            },
+            "unknown field `most` under budget",
+        ),
+        (
+            Refusal::OutOfRange("The budget"),
+            "The budget is outside the protocol's supported number \
+             range.",
+        ),
+    ];
+    for (refusal, words) in said {
+        assert_eq!(refusal.to_string(), words);
+    }
 }

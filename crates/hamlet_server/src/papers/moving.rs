@@ -1,9 +1,10 @@
-//! Copies living houses to the next-start backend while the active
-//! backend stays selected.
+//! Copies living houses to the next-start workspace while the active
+//! workspace stays selected.
 
 use anyhow::{Context, Result};
 use hamlet_protocol::client::{
-    SettingsViewWorkspaceMove, SettingsViewWorkspaceMoveState,
+    RequestId, SettingsViewWorkspaceMove,
+    SettingsViewWorkspaceMoveState,
 };
 use hamlet_workspace_wire::{TREE_BYTES, TREE_ENTRIES};
 use tokio::sync::watch;
@@ -16,7 +17,7 @@ use crate::record::AgentRef;
 use crate::service::Service;
 
 pub(crate) struct Moving {
-    pub tasks: JoinSet<(u64, String, Refusable<String>)>,
+    pub tasks: JoinSet<(u64, RequestId, Refusable<String>)>,
     progress: watch::Receiver<Option<SettingsViewWorkspaceMove>>,
 }
 
@@ -39,8 +40,8 @@ impl Moving {
 impl Service {
     pub(crate) fn start_move(
         &mut self,
-        owner: u64,
-        id: &str,
+        connection: u64,
+        id: &RequestId,
     ) -> Result<Refusable<()>> {
         let refuse =
             |text: &str| Ok(Err(Refusal::Invalid(text.into())));
@@ -89,14 +90,14 @@ impl Service {
                 text: String::new(),
             }));
         self.moving.progress = receiver;
-        let id = id.to_owned();
+        let id = id.clone();
         let remote = to.is_some();
         self.moving.tasks.spawn(async move {
             let moved = move_houses(
                 &source, &target, &agents, of, remote, &progress,
             )
             .await;
-            (owner, id, moved)
+            (connection, id, moved)
         });
         Ok(Ok(()))
     }

@@ -3,9 +3,8 @@
 
 use anyhow::Result;
 use serde::Deserialize;
-use serde_json::Value;
 
-use super::{Caller, Deed, outcome};
+use super::{Caller, Deed, SocietyOutcome};
 use crate::harness::Harnesses;
 use crate::protocol::Refusal;
 use crate::record::{
@@ -40,7 +39,7 @@ pub(super) async fn create(
     service: &mut Service,
     caller: &Caller<'_>,
     given: Create,
-) -> Result<Value> {
+) -> Result<SocietyOutcome> {
     let place = caller.place.agent.clone();
     let at = crate::clock::now();
     let outcome = society::once(
@@ -104,7 +103,7 @@ pub(super) async fn create(
                     refusal.text(Audience::Agent)
                 }
             };
-            Ok(outcome(&text, false))
+            Ok(SocietyOutcome::answered(text))
         },
     )?;
     let record = service.home.store().record(&place.hamlet)?;
@@ -127,7 +126,7 @@ pub(super) fn set_model(
     service: &mut Service,
     caller: &Caller<'_>,
     given: SetModel,
-) -> Result<Value> {
+) -> Result<SocietyOutcome> {
     let place = caller.place.agent.clone();
     let limits = service.limits_of(&place.hamlet)?;
     let home = service.settings()?.model;
@@ -167,7 +166,7 @@ pub(super) fn set_model(
                     refusal.text(Audience::Agent)
                 }
             };
-            Ok(outcome(&text, false))
+            Ok(SocietyOutcome::answered(text))
         },
     )
 }
@@ -242,7 +241,7 @@ fn road(
 ) -> Result<Deed> {
     let mut words = rest.split_whitespace();
     let (Some(a), Some(b)) = (words.next(), words.next()) else {
-        return Ok(Err(Refusal::Invalid(format!(
+        return Ok(Err(Refusal::Usage(format!(
             "Use /{deed} a b [reason]."
         ))));
     };
@@ -269,7 +268,7 @@ fn road(
              refunded."
         )),
         Outcome::Refused(refusal) => {
-            Err(Refusal::Invalid(refusal.text(Audience::Chief)))
+            Err(Refusal::Record(Box::new(refusal)))
         }
     })
 }
@@ -295,9 +294,7 @@ pub(super) async fn mayor(
         )));
     };
     let Some(agent) = r.named(&name).cloned() else {
-        return Ok(Err(Refusal::Invalid(format!(
-            "no agent named `{name}`"
-        ))));
+        return Ok(Err(Refusal::NoAgent(name)));
     };
     let from = r.mayor;
     match chief_change(
@@ -310,9 +307,7 @@ pub(super) async fn mayor(
     )? {
         Outcome::Done(_) => {}
         Outcome::Refused(refusal) => {
-            return Ok(Err(Refusal::Invalid(
-                refusal.text(Audience::Chief),
-            )));
+            return Ok(Err(Refusal::Record(Box::new(refusal))));
         }
     }
     let text = format!(

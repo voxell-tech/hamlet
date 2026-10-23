@@ -127,7 +127,8 @@ pub struct Turn {
     #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "i64")]
     pub number: Option<i64>,
-    pub ops: Vec<Op>,
+    #[serde(rename = "ops")]
+    pub operations: Vec<TranscriptOperation>,
 }
 
 #[derive(
@@ -158,7 +159,7 @@ pub struct Transcript {
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(tag = "op", deny_unknown_fields)]
-pub enum Op {
+pub enum TranscriptOperation {
     #[serde(rename = "add")]
     Add {
         item: Item,

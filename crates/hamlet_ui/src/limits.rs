@@ -19,7 +19,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
-use hamlet_client::realm::{Bylaws, HOME, Settlement};
+use hamlet_client::realm::{Bylaws, HOME, HamletId};
 use hamlet_protocol::client::{self as protocol, Limits, Period};
 use serde_json::Value;
 
@@ -65,6 +65,17 @@ pub fn follow(hamlets: Query<&Bylaws>, mut book: ResMut<Book>) {
     }
 }
 
+/// `limits` as the map a whole edit sends.
+pub(crate) fn whole_of(limits: &Limits) -> BTreeMap<String, Value> {
+    match serde_json::to_value(limits) {
+        Ok(Value::Object(fields)) => fields.into_iter().collect(),
+        _ => unreachable!(
+            "Limits is a struct with string keys: it serializes to \
+             an object"
+        ),
+    }
+}
+
 fn put(
     world: &mut World,
     section: &'static str,
@@ -74,9 +85,8 @@ fn put(
     let Some(hamlet) = world.resource::<Book>().hamlet else {
         return;
     };
-    let Some(name) = world
-        .get::<Settlement>(hamlet)
-        .map(|hamlet| hamlet.name.clone())
+    let Some(name) =
+        world.get::<HamletId>(hamlet).map(|hamlet| hamlet.0.clone())
     else {
         return;
     };
@@ -84,10 +94,9 @@ fn put(
         return;
     };
     let whole = if section.is_empty() {
-        let mut whole =
-            serde_json::to_value(&limits.0).expect("limits JSON");
-        whole[key] = value.clone();
-        Some(serde_json::from_value(whole).expect("limits document"))
+        let mut whole = whole_of(&limits.0);
+        whole.insert(key.into(), value.clone());
+        Some(whole)
     } else {
         None
     };
@@ -104,7 +113,7 @@ fn put(
                     id,
                     hamlet: name,
                     reason: None,
-                    set: protocol::EditLimitsSetSet {
+                    set: protocol::LimitsEdit {
                         section: section.into(),
                         key: key.into(),
                         value,
@@ -440,7 +449,7 @@ fn votes() -> impl View {
     .gap(6.0)
 }
 
-fn realm_rules() -> impl View {
+fn realm_limits() -> impl View {
     column((
         heading(Glyph::Globe, "THE REALM"),
         fine("These apply to every hamlet, from home's bylaws."),
@@ -473,9 +482,9 @@ fn realm_rules() -> impl View {
 /// The way to home's realm bylaws.
 pub fn realm() -> AnyView {
     column((
-        fine("The realm's rules live in home's bylaws."),
+        fine("The realm's limits live in home's bylaws."),
         action(Glyph::Book, "OPEN HOME'S BYLAWS", |world| {
-            let home = hamlet_client::realm::settlement(world, HOME);
+            let home = hamlet_client::realm::hamlet(world, HOME);
             let Some(home) = home else { return };
             *world.resource_mut::<Part>() = Part::Realm;
             *world.resource_mut::<crate::overview::Page>() =
@@ -499,8 +508,8 @@ pub fn panel(hamlet: Entity) -> AnyView {
                 return AnyView::new(move |cx: &mut crate::Cx| {
                     let home = cx
                         .world
-                        .get::<Settlement>(hamlet)
-                        .is_some_and(|h| h.name == HOME);
+                        .get::<HamletId>(hamlet)
+                        .is_some_and(|h| h.0 == HOME);
                     let parts = Part::PAGES
                         .into_iter()
                         .filter(|part| *part != Part::Realm || home)
@@ -517,7 +526,7 @@ pub fn panel(hamlet: Entity) -> AnyView {
                         })
                         .collect::<Vec<_>>();
                     let foot = fine(if home {
-                        "The realm's rules apply to every hamlet."
+                        "The realm's limits apply to every hamlet."
                     } else {
                         "These apply to this hamlet only."
                     })
@@ -531,7 +540,7 @@ pub fn panel(hamlet: Entity) -> AnyView {
                 Part::Budget => budget(hamlet).boxed(),
                 Part::Models => crate::models::of_hamlet(hamlet),
                 Part::Votes => votes().boxed(),
-                Part::Realm => realm_rules().boxed(),
+                Part::Realm => realm_limits().boxed(),
                 Part::Front | Part::Mayor => mayor().boxed(),
             };
             column((
@@ -552,8 +561,8 @@ pub fn panel(hamlet: Entity) -> AnyView {
     AnyView::new(move |cx: &mut crate::Cx| {
         if cx
             .world
-            .get::<Settlement>(hamlet)
-            .is_some_and(|h| h.name != HOME)
+            .get::<HamletId>(hamlet)
+            .is_some_and(|h| h.0 != HOME)
             && *cx.world.resource::<Part>() == Part::Realm
         {
             *cx.world.resource_mut::<Part>() = Part::Front;
@@ -659,7 +668,7 @@ mod tests {
         app.world_mut().spawn((Window::default(), PrimaryWindow));
         let hamlet = app
             .world_mut()
-            .query::<(Entity, &Settlement)>()
+            .query::<(Entity, &HamletId)>()
             .iter(app.world())
             .next()
             .unwrap()
@@ -745,9 +754,9 @@ mod tests {
         );
         let places = app
             .world_mut()
-            .query::<(Entity, &Settlement)>()
+            .query::<(Entity, &HamletId)>()
             .iter(app.world())
-            .map(|(e, h)| (h.name.clone(), e))
+            .map(|(e, h)| (h.0.clone(), e))
             .collect::<BTreeMap<_, _>>();
         *app.world_mut().resource_mut::<Part>() = Part::Budget;
         bevy_fynix::mount::<crate::theme::HamletTheme>(
@@ -834,9 +843,9 @@ mod tests {
         );
         let mill = app
             .world_mut()
-            .query::<(Entity, &Settlement)>()
+            .query::<(Entity, &HamletId)>()
             .iter(app.world())
-            .find(|(_, h)| h.name == "mill")
+            .find(|(_, h)| h.0 == "mill")
             .unwrap()
             .0;
         bevy_fynix::mount::<crate::theme::HamletTheme>(

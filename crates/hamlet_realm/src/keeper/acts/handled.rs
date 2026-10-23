@@ -3,13 +3,13 @@
 use bevy::prelude::*;
 use hamlet_vfx::inlay::{EMBER, LIT};
 
-use super::Ctx;
+use super::Context;
 use super::parts::{arm_high, arm_l, arm_r, blink, flicker};
 use crate::keeper::pose::{
     Pose, arc, candle, pulse, ramp, ring, rx, ry, rz,
 };
 
-pub(super) fn startle(c: &Ctx) -> Pose {
+pub(super) fn startle(c: &Context) -> Pose {
     let mut p = Pose::stand();
     let x = c.tau;
     // A hop of fright, then it finds who did it and waves.
@@ -43,7 +43,7 @@ pub(super) fn startle(c: &Ctx) -> Pose {
     p
 }
 
-pub(super) fn sulk(c: &Ctx) -> Pose {
+pub(super) fn sulk(c: &Context) -> Pose {
     let mut p = Pose::stand();
     blink(&mut p, c);
     let x = c.tau;
@@ -77,7 +77,7 @@ pub(super) fn sulk(c: &Ctx) -> Pose {
     p
 }
 
-pub(super) fn wiggle(c: &Ctx) -> Pose {
+pub(super) fn wiggle(c: &Context) -> Pose {
     let mut p = Pose::stand();
     let x = c.tau;
     let on = pulse(0.0, 0.2, 1.1, 1.45, x);
@@ -101,7 +101,7 @@ pub(super) fn wiggle(c: &Ctx) -> Pose {
     p
 }
 
-pub(super) fn dangle(c: &Ctx) -> Pose {
+pub(super) fn dangle(c: &Context) -> Pose {
     let mut p = Pose::stand();
     blink(&mut p, c);
     let x = c.tau;
@@ -134,7 +134,7 @@ pub(super) fn dangle(c: &Ctx) -> Pose {
     p
 }
 
-pub(super) fn land(c: &Ctx) -> Pose {
+pub(super) fn land(c: &Context) -> Pose {
     let mut p = Pose::stand();
     let x = c.tau;
     let hit = ring(x, 15.0, 6.5);

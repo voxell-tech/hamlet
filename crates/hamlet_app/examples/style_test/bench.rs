@@ -12,7 +12,7 @@ use bevy::diagnostic::{
 };
 use bevy::prelude::*;
 use hamlet_realm::Clock;
-use hamlet_realm::keeper::KState;
+use hamlet_realm::keeper::KeeperState;
 use hamlet_vfx::inlay::InlayState;
 
 use crate::show::{Sets, Show};
@@ -115,39 +115,39 @@ pub fn run_bench(
             "day, inlay and Keeper animating",
             false,
             InlayState::Current,
-            KState::Working,
+            KeeperState::Working,
             true,
         ),
         (
             "night, inlay and Keeper animating",
             true,
             InlayState::Current,
-            KState::Working,
+            KeeperState::Working,
             true,
         ),
         (
             "day, nothing animating, redrawn every frame",
             false,
             InlayState::Unlit,
-            KState::Rest,
+            KeeperState::Rest,
             true,
         ),
         (
             "night, nothing animating, redrawn every frame",
             true,
             InlayState::Unlit,
-            KState::Rest,
+            KeeperState::Rest,
             true,
         ),
         (
             "day, animating, no depth of field",
             false,
             InlayState::Current,
-            KState::Working,
+            KeeperState::Working,
             false,
         ),
     ];
-    let Some(&(name, night, inlay, kstate, dof)) =
+    let Some(&(name, night, inlay, keeper_state, dof)) =
         phases.get(run.phase)
     else {
         exit.write(AppExit::Success);
@@ -156,7 +156,7 @@ pub fn run_bench(
     if run.frame == 0 {
         demo.night = night;
         demo.inlay = inlay;
-        demo.kstate = kstate;
+        demo.keeper_state = keeper_state;
         demo.dof = dof;
         clock.frozen = false;
     }

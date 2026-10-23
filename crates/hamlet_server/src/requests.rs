@@ -9,22 +9,23 @@ use std::panic::AssertUnwindSafe;
 use anyhow::{Context, Result};
 use futures::FutureExt;
 use hamlet_protocol::client::{
-    Address, ClientMessage, Edit, MoveHouses, Read, ServerMessage,
+    Address, ClientMessage, Edit, MoveHouses, Read, RequestId,
+    ServerMessage,
 };
 use tokio::task::JoinError;
 
 use crate::chats::{self, Request};
 use crate::connection::{Out, refuse, send};
 use crate::protocol::{Refusal, fault, reply};
-use crate::runtime::{Asked, FAILED, Serving, failed, flush_models};
+use crate::runtime::{Asked, FAILED, Freed, Serving, flush_models};
 
 pub(crate) const BEGIN: &str =
     "A connection begins with hello and the home's token.";
 
 /// A read of an agent's papers or prompt, rendered off the loop.
 pub(crate) struct PapersRead {
-    owner: u64,
-    request: String,
+    connection: u64,
+    request: RequestId,
     address: Address,
     /// The agent's number when the read was prepared; unset when it
     /// was refused then.
@@ -34,8 +35,8 @@ pub(crate) struct PapersRead {
 
 /// A write of an agent's NOTES.md, done off the loop.
 pub(crate) struct NotesWritten {
-    owner: u64,
-    request: String,
+    connection: u64,
+    request: RequestId,
     result: Result<()>,
 }
 
@@ -85,7 +86,7 @@ impl Serving {
                 return Ok(false);
             }
         };
-        let request = message.id().map(ToString::to_string);
+        let request = message.id().cloned();
         let taken = self.take(id, message).await;
         taken.with_context(|| Asked {
             client: id,
@@ -110,7 +111,10 @@ impl Serving {
         }
         match message {
             ClientMessage::Hello(hello)
-                if self.service.credentials.accepts(&hello.token) =>
+                if self
+                    .service
+                    .credentials
+                    .is_connection_token(&hello.token) =>
             {
                 let state = ServerMessage::State(self.state.clone());
                 send(client, &self.service, state)?;
@@ -141,7 +145,7 @@ impl Serving {
             .catch_unwind()
             .await
             .map_err(panicked)??;
-        if self.working(id) {
+        if self.is_working(id) {
             self.busy(id);
         }
         for answer in answers {
@@ -279,7 +283,7 @@ impl Serving {
     fn edit_notes(
         &mut self,
         id: u64,
-        request: &str,
+        request: &RequestId,
         agent: &Address,
         text: &str,
     ) -> Result<()> {
@@ -291,13 +295,13 @@ impl Serving {
                         .send_to(id, reply(request, Err(error)));
                 }
             };
-        let request = request.to_owned();
+        let request = request.clone();
         self.writes.spawn(async move {
             let result = house
                 .replace(crate::papers::NOTES, text.as_bytes())
                 .await;
             NotesWritten {
-                owner: id,
+                connection: id,
                 request,
                 result,
             }
@@ -312,7 +316,7 @@ impl Serving {
         &mut self,
         id: u64,
         read: &Read,
-        request: &str,
+        request: &RequestId,
         agent: &Address,
     ) -> Result<()> {
         let number = self
@@ -324,15 +328,15 @@ impl Serving {
             &mut self.service,
             read.clone(),
         )?;
-        let key = (id, request.to_owned());
+        let key = (id, request.clone());
         if self.reading.contains_key(&key) {
             let running = "That read request is already running.";
             return self.send_to(id, fault(Some(request), running));
         }
-        let (request, address) = (request.to_owned(), agent.clone());
+        let (request, address) = (request.clone(), agent.clone());
         let task = self.reads.spawn(async move {
             PapersRead {
-                owner: id,
+                connection: id,
                 request,
                 address,
                 number,
@@ -351,17 +355,18 @@ impl Serving {
         let Ok(read) = read else {
             return Ok(());
         };
-        self.reading.remove(&(read.owner, read.request.clone()));
-        if !self.free(read.owner) {
+        self.reading
+            .remove(&(read.connection, read.request.clone()));
+        let Freed::Here = self.free(read.connection) else {
             return Ok(());
-        }
+        };
         // A read refused when prepared keeps its refusal.
         let allowed = read.number.is_none()
             || self
                 .service
                 .agent(&read.address, "read or edit papers")
                 .with_context(|| Asked {
-                    client: read.owner,
+                    client: read.connection,
                     request: Some(read.request.clone()),
                 })?
                 .ok()
@@ -375,11 +380,11 @@ impl Serving {
             ),
             Ok(answer) => answer,
             Err(error) => {
-                failed(&self.service, &error);
+                self.log_defect(&error);
                 fault(Some(&read.request), FAILED)
             }
         };
-        self.send_to(read.owner, answer)
+        self.send_to(read.connection, answer)
     }
 
     pub(crate) fn on_written(
@@ -389,18 +394,17 @@ impl Serving {
         let Ok(written) = written else {
             return Ok(());
         };
-        if !self.free(written.owner) {
+        let Freed::Here = self.free(written.connection) else {
             return Ok(());
-        }
-        let result =
-            written.result.map(|()| "Saved.".into()).map_err(|_| {
-                Refusal::Invalid(
-                    "The agent's NOTES.md could not be written \
-                     safely. Inspect its house before trying again."
-                        .into(),
-                )
-            });
-        self.send_to(written.owner, reply(&written.request, result))
+        };
+        let result = written
+            .result
+            .map(|()| "Saved.".into())
+            .map_err(|_| Refusal::NotesUnwritable);
+        self.send_to(
+            written.connection,
+            reply(&written.request, result),
+        )
     }
 }
 

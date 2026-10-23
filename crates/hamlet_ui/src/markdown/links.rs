@@ -54,7 +54,7 @@ fn sans_place(word: &str) -> &str {
 
 /// True when `path` reads as a path: folders with a name in them, or
 /// one name with an ending.
-fn pathlike(path: &str) -> bool {
+fn is_path(path: &str) -> bool {
     if path.len() > LONGEST || !path.chars().any(char::is_alphabetic)
     {
         return false;
@@ -130,7 +130,7 @@ fn word(word: &str) -> Option<(Range<usize>, Target)> {
     }
     let target = web(link).or_else(|| {
         let path = sans_place(link);
-        pathlike(path).then(|| Target::Path(path.to_string()))
+        is_path(path).then(|| Target::Path(path.to_string()))
     })?;
     Some((start..start + link.len(), target))
 }

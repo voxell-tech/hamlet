@@ -54,11 +54,11 @@ pub struct Road {
 }
 
 impl Road {
-    pub(super) fn joins(&self, a: End, b: End) -> bool {
+    pub(super) fn is_between(&self, a: End, b: End) -> bool {
         (self.a == a && self.b == b) || (self.a == b && self.b == a)
     }
 
-    pub(super) fn touches(&self, number: u64) -> bool {
+    pub(super) fn has_agent(&self, number: u64) -> bool {
         self.a == End::Agent(number) || self.b == End::Agent(number)
     }
 
@@ -251,7 +251,8 @@ pub struct OpenVote {
     pub motion: String,
 }
 
-/// An owed chief task, supplied by the instructions owner (H7).
+/// A chief's task an agent still owes, which keeps it from removal
+/// or a merge (H7).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Protection {
     pub agent: u64,
@@ -260,7 +261,7 @@ pub struct Protection {
     pub done: Option<i64>,
 }
 
-/// A hamlet's record and the current constraints on its decisions.
+/// A hamlet's record and the limits on its decisions now.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Hamlet {
     pub id: String,

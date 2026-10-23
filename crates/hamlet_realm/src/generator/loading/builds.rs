@@ -17,7 +17,7 @@ use crate::generator::sync::{Drawn, RoadDrawn};
 use crate::generator::{
     DetailSettings, Kit, Phase, Road, Tally, house,
 };
-use crate::keeper::KState;
+use crate::keeper::KeeperState;
 use crate::sky::SkySettings;
 
 /// Puts whatever the background tasks have finished into the world.
@@ -162,7 +162,7 @@ fn place_builds(
         crate::adopt(commands, job.entity, panes);
         let state = society
             .agent(job.agent)
-            .map_or(KState::Rest, |agent| agent.state);
+            .map_or(KeeperState::Rest, |agent| agent.state);
         let lamp = commands
             .spawn((
                 Mesh3d(kit.lamp_glass.clone()),

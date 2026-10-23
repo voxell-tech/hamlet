@@ -46,7 +46,7 @@ pub fn run() -> Result<()> {
         .block_on(drive(home, faux))
 }
 
-fn listed(name: &str, tool: &str) -> bool {
+fn is_listed(name: &str, tool: &str) -> bool {
     std::env::var(name).is_ok_and(|tools| {
         tools.split(',').any(|listed| listed == tool)
     })
@@ -72,7 +72,7 @@ async fn drive(dir: PathBuf, faux: Option<PathBuf>) -> Result<()> {
     let layout = service.home.layout().clone();
     let mut config = Config::from_env(faux, overrides)?;
     for tool in &mut config.tools {
-        if listed("HAMLET_UNSAFE_TOOLS", &tool.name) {
+        if is_listed("HAMLET_UNSAFE_TOOLS", &tool.name) {
             tool.replay = ToolSpecReplay::Unsafe;
         }
     }
@@ -117,7 +117,12 @@ impl Driver {
     async fn answer(&mut self, notices: Vec<Notice>) -> Result<()> {
         print(&notices);
         for notice in notices {
-            let Notice::Call { binding, re, call } = notice else {
+            let Notice::Call {
+                binding,
+                address,
+                call,
+            } = notice
+            else {
                 continue;
             };
             let store = self.service.home.store();
@@ -136,7 +141,7 @@ impl Driver {
                         .answer_call(
                             &mut self.harnesses,
                             binding,
-                            re,
+                            address,
                             call,
                         )
                         .await?;
@@ -169,7 +174,7 @@ impl Driver {
                         && summary_failure.is_none(),
                 },
             };
-            self.harnesses.answer(re, answer).await;
+            self.harnesses.answer(address, answer).await;
         }
         Ok(())
     }

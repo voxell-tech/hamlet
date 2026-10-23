@@ -244,7 +244,9 @@ pub fn open_menu() -> impl View {
         bevy_fynix::derived(|world: &World| {
             (
                 world.resource::<OpenMenu>().0,
-                hamlet_client::realm::Deeds::allows(world, "found"),
+                hamlet_client::realm::Deeds::is_allowed(
+                    world, "found",
+                ),
             )
         })
         .when(crate::roll::either(

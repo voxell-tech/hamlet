@@ -49,7 +49,7 @@ pub struct Work {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Chore {
     /// At its door with nothing to do.
-    Home,
+    House,
     /// Held where it is by its state: waiting, faulted or failed.
     Stand,
     /// Thinking, up and down its yard.
@@ -159,7 +159,7 @@ impl Chore {
 
     pub fn station(self) -> Station {
         match self {
-            Self::Home | Self::Await => Station::Porch,
+            Self::House | Self::Await => Station::Porch,
             Self::Ponder => Station::Beat,
             Self::Study
             | Self::Jot
@@ -179,9 +179,10 @@ impl Chore {
     /// station, however soon the agent moves on.
     pub fn least(self) -> f32 {
         match self {
-            Self::Home | Self::Stand | Self::Ponder | Self::Await => {
-                0.0
-            }
+            Self::House
+            | Self::Stand
+            | Self::Ponder
+            | Self::Await => 0.0,
             Self::Stow => 3.4,
             Self::Vote => 3.3,
             Self::Oops => 1.9,
@@ -191,7 +192,7 @@ impl Chore {
     }
 
     /// True when it cuts short whatever the robot is doing.
-    pub(crate) fn breaks_in(self) -> bool {
+    pub(crate) fn is_breaking_in(self) -> bool {
         matches!(
             self,
             Self::Stand | Self::Oops | Self::Done | Self::Vote
@@ -209,7 +210,7 @@ impl Chore {
             beat: None,
         };
         match self {
-            Self::Home | Self::Stand => plain(Act::Idle),
+            Self::House | Self::Stand => plain(Act::Idle),
             Self::Await => plain(Act::Listen),
             Self::Ponder => ponder(x, seed),
             Self::Study => plain(Act::Read),

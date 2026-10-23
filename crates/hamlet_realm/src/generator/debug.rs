@@ -73,7 +73,7 @@ pub(super) fn draw(
                     continue;
                 }
                 let taken = society
-                    .citizens(town.id)
+                    .agents_of(town.id)
                     .any(|agent| agent.plot == k);
                 let colour =
                     if taken { set.plot } else { set.unused };

@@ -12,7 +12,7 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::change::clip;
+use crate::change::{Cut, clip};
 use crate::harness::BindingId;
 use crate::record::{AgentRef, Hamlet};
 use crate::{OperationId, RuntimeInstance};
@@ -194,7 +194,7 @@ impl Ruling {
     }
 
     /// Whether it lets a held call run.
-    pub fn allows(self) -> bool {
+    pub fn is_allowing(self) -> bool {
         matches!(self, Self::Allow | Self::Always)
     }
 }
@@ -436,20 +436,20 @@ pub(crate) fn line(wait: &Wait, most: usize) -> String {
             "{} {} `{}`",
             wait.by,
             danger.says(),
-            clip(subject, most, true, true)
+            clip(subject, most, Cut::Flat)
         ),
         WaitKind::Objection => {
-            clip(subject, most + wait.by.len(), true, true)
+            clip(subject, most + wait.by.len(), Cut::Flat)
         }
         WaitKind::Question(_) => format!(
             "{} asks: {}",
             wait.by,
-            clip(subject, most, true, true)
+            clip(subject, most, Cut::Flat)
         ),
         WaitKind::Fault => format!(
             "{} failed: {}",
             wait.by,
-            clip(subject, most, true, true)
+            clip(subject, most, Cut::Flat)
         ),
     }
 }

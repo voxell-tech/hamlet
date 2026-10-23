@@ -98,10 +98,13 @@ async fn streams_a_turn_whose_ops_equal_the_transcript_read_again() {
     s.chief.say(mayor(), "Hello, mayor.").await;
     s.chief.shows(&mayor_chat, greeting).await;
     s.chief
-        .until("the turn to end", |c| !c.working(&mayor_chat))
+        .until("the turn to end", |c| !c.is_working(&mayor_chat))
         .await;
-    let ops = s.chief.ops(&mayor_chat);
-    assert!(ops.iter().any(|op| matches!(op, Op::Append { .. })));
+    let operations = s.chief.operations(&mayor_chat);
+    assert!(operations.iter().any(|operation| matches!(
+        operation,
+        TranscriptOperation::Append { .. }
+    )));
     let live = s.chief.items(&mayor_chat);
     let again = s.chief.open(&mayor_chat).await;
     assert_eq!(again.items, live);
@@ -150,10 +153,12 @@ async fn closes_each_tool_with_its_exit_and_failure() {
         .await;
     let closes = s
         .chief
-        .ops(&mayor_chat)
+        .operations(&mayor_chat)
         .into_iter()
-        .filter_map(|op| match op {
-            Op::Close { exit, failure, .. } => Some((exit, failure)),
+        .filter_map(|operation| match operation {
+            TranscriptOperation::Close { exit, failure, .. } => {
+                Some((exit, failure))
+            }
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -628,7 +633,7 @@ async fn refuses_to_retry_while_a_turn_runs() {
     s.chief.open(&mayor_chat).await;
     s.chief.tell(mayor(), "Take your time.").await;
     s.chief
-        .until("the turn to run", |c| c.working(&mayor_chat))
+        .until("the turn to run", |c| c.is_working(&mayor_chat))
         .await;
     let typed = s.chief.say(mayor(), "/retry").await;
     assert_eq!(
@@ -793,7 +798,7 @@ async fn rewinds_a_chief_line_and_what_followed() {
         .iter()
         .position(|m| {
             matches!(m, ServerMessage::Turn(t)
-                if t.ops.iter().any(|op| matches!(op, Op::Reset {})))
+                if t.operations.iter().any(|operation| matches!(operation, TranscriptOperation::Reset {})))
         })
         .expect("a rewind resets its watchers");
     let ServerMessage::Transcript(after) =
@@ -1229,7 +1234,7 @@ async fn ends_at_once_at_a_second_ctrl_c() {
     s.server.interrupt();
     s.chief.settle(Duration::from_millis(500)).await;
     assert!(
-        s.server.running(),
+        s.server.is_running(),
         "the first Ctrl-C waits for the turn"
     );
     s.server.interrupt();
@@ -1530,7 +1535,7 @@ async fn reads_a_lowered_cap_before_the_next_model_call() {
     s.chief.open(&chat(mayor())).await;
     s.chief.tell(mayor(), "Read.").await;
     s.chief
-        .until("a running turn", |c| c.working(&chat(mayor())))
+        .until("a running turn", |c| c.is_working(&chat(mayor())))
         .await;
     assert_eq!(
         s.chief.limit("home", "budget", "cost", json!(0)).await.kind,
@@ -1813,10 +1818,10 @@ async fn stopping_drops_queued_lines_and_leaves_the_next_line_alone()
     s.chief.open(&chat(mayor())).await;
     s.chief.tell(mayor(), "Held.").await;
     s.chief
-        .until("the running turn", |c| c.working(&chat(mayor())))
+        .until("the running turn", |c| c.is_working(&chat(mayor())))
         .await;
     s.chief.tell(mayor(), "Queued.").await;
-    s.chief.until("the queued line", |c| c.messages().iter().any(|m| matches!(m, ServerMessage::Turn(t) if t.ops.iter().any(|o| matches!(o, Op::Status { pending, .. } if *pending == 1))))).await;
+    s.chief.until("the queued line", |c| c.messages().iter().any(|m| matches!(m, ServerMessage::Turn(t) if t.operations.iter().any(|o| matches!(o, TranscriptOperation::Status { pending, .. } if *pending == 1))))).await;
     std::fs::write(s.home.side().join("release"), "").unwrap();
     let wait = s.chief.wait_for("command", |_| true).await;
     let reply = s.chief.say(mayor(), "/stop mayor").await;

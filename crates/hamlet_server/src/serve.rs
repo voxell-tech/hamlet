@@ -89,7 +89,11 @@ struct Fatal(anyhow::Error);
 
 /// Serves until SIGTERM or Ctrl-C, closing every client before
 /// releasing the home.
-#[expect(clippy::print_stderr, reason = "stderr is the server's log")]
+#[expect(
+    clippy::print_stderr,
+    reason = "the banner is the server's output for whoever started \
+              it, not a diagnostic"
+)]
 pub async fn serve(options: Options) -> Result<()> {
     let mut signals = Signals::new()?;
     let overrides = Overrides::from_env(options.faux.is_some())?;
@@ -125,7 +129,7 @@ pub async fn serve(options: Options) -> Result<()> {
     service.start_models()?;
     flush_models(&mut service, &mut harnesses).await?;
     let started = async {
-        while service.models.starting() {
+        while service.models.is_starting() {
             let event = harnesses.next().await;
             for notice in harnesses
                 .handle(
@@ -285,7 +289,7 @@ impl Serving {
         }
         self.harnesses.begin_close().await;
         let stopped = async {
-            while !self.harnesses.down() {
+            while !self.harnesses.is_down() {
                 self.run_once().await?;
             }
             Ok::<_, anyhow::Error>(())

@@ -59,7 +59,7 @@ impl Society {
     /// True when a round of ground at `at` runs into any place but
     /// `but`. With `home`, the round is a town's own first ground,
     /// and towns that never moved are as near as the land put them.
-    fn crowded(
+    fn is_crowded(
         &self,
         land: &Land,
         but: Ground,
@@ -68,9 +68,9 @@ impl Society {
         home: bool,
     ) -> bool {
         let settled = |place: Ground| match place {
-            Ground::Town(id) => self
-                .town(id)
-                .is_some_and(|town| !land.sites[town.site].moved()),
+            Ground::Town(id) => self.town(id).is_some_and(|town| {
+                !land.sites[town.site].has_moved()
+            }),
             _ => false,
         };
         self.places()
@@ -108,7 +108,7 @@ impl Society {
         if !home {
             land.suits(to)?;
         }
-        if self.crowded(land, place, to, radius, home) {
+        if self.is_crowded(land, place, to, radius, home) {
             return Err(Unfit::Crowded);
         }
         let Ground::Town(id) = place else {
@@ -158,7 +158,7 @@ impl Society {
                     claim.at.distance(site.home) < room + claim.radius
                 }) || self.towns.iter().any(|town| {
                     let other = &land.sites[town.site];
-                    other.moved()
+                    other.has_moved()
                         && other.at.distance(site.home) < room * 2.0
                 }));
             site.buildable
@@ -167,8 +167,8 @@ impl Society {
         })
     }
 
-    /// Founds a town with a leader on the first free site, and lays
-    /// a road from the new leader to every other leader. There is
+    /// Founds a town with a mayor on the first free site, and lays
+    /// a road from the new mayor to every other mayor. There is
     /// always a site: when all the land has are taken, it readies
     /// one more, further out.
     pub fn found_town(&mut self, land: &mut Land) -> TownId {
@@ -210,7 +210,8 @@ impl Society {
         }
         let home = land.sites[site].home;
         let room = land.set.town.keep_apart * 0.5;
-        if !self.crowded(land, Ground::Town(id), home, room, true) {
+        if !self.is_crowded(land, Ground::Town(id), home, room, true)
+        {
             land.move_site(site, home);
             return id;
         }
@@ -230,12 +231,12 @@ impl Society {
     fn found_on(&mut self, site: usize) -> TownId {
         let id = TownId(self.next_town);
         self.next_town += 1;
-        let leader = self.spawn_agent(id, HALL_PLOT);
+        let mayor = self.spawn_agent(id, HALL_PLOT);
         let others =
-            self.towns.iter().map(|t| t.leader).collect::<Vec<_>>();
-        self.towns.push(Town { id, site, leader });
+            self.towns.iter().map(|t| t.mayor).collect::<Vec<_>>();
+        self.towns.push(Town { id, site, mayor });
         for other in others {
-            self.add_road(leader, other);
+            self.add_road(mayor, other);
         }
         id
     }

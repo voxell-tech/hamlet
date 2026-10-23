@@ -1,4 +1,4 @@
-//! A folder of house files on the startup-selected backend, or one
+//! A folder of house files on the startup-selected workspace, or one
 //! the server owns. Local work runs off the async runtime.
 
 use std::collections::BTreeMap;
@@ -8,16 +8,16 @@ use anyhow::{Result, ensure};
 use hamlet_workspace_wire::{TreeEntry, TreeKind};
 use sha2::{Digest, Sha256};
 
-use super::remote::Dir;
+use super::remote::Folder;
 use super::tree::{self, Entry};
 
 pub(crate) enum Files {
     Local(File),
-    Remote(Dir),
+    Remote(Folder),
 }
 
 /// Whether `path` is relative, with ordinary names only.
-pub(super) fn valid(path: &str) -> bool {
+pub(super) fn is_valid(path: &str) -> bool {
     !path.is_empty()
         && path.split('/').all(|part| {
             !part.is_empty()
@@ -43,7 +43,7 @@ impl Files {
         create: bool,
     ) -> Result<Self> {
         ensure!(
-            valid(name) && !name.contains('/'),
+            is_valid(name) && !name.contains('/'),
             "invalid tree directory"
         );
         let name = name.to_owned();
@@ -53,23 +53,24 @@ impl Files {
             })
             .await
             .map(Self::Local),
-            Self::Remote(dir) => {
-                dir.directory(&name, create).await.map(Self::Remote)
-            }
+            Self::Remote(folder) => folder
+                .directory(&name, create)
+                .await
+                .map(Self::Remote),
         }
     }
 
     /// What `path` names, a link itself rather than what it names,
     /// or `None` where nothing is.
     pub async fn kind(&self, path: &str) -> Result<Option<TreeKind>> {
-        ensure!(valid(path), "invalid tree path");
+        ensure!(is_valid(path), "invalid tree path");
         let path = path.to_owned();
         match self {
             Self::Local(root) => {
                 blocking(root, move |root| tree::kind(root, &path))
                     .await
             }
-            Self::Remote(dir) => dir.kind(&path).await,
+            Self::Remote(folder) => folder.kind(&path).await,
         }
     }
 
@@ -87,7 +88,7 @@ impl Files {
                 })
                 .await
             }
-            Self::Remote(dir) => dir.entries(cap, count).await,
+            Self::Remote(folder) => folder.entries(cap, count).await,
         }
     }
 
@@ -97,7 +98,7 @@ impl Files {
         path: &str,
         cap: u64,
     ) -> Result<Vec<u8>> {
-        ensure!(valid(path), "invalid tree path");
+        ensure!(is_valid(path), "invalid tree path");
         let path = path.to_owned();
         match self {
             Self::Local(root) => {
@@ -106,14 +107,16 @@ impl Files {
                 })
                 .await
             }
-            Self::Remote(dir) => dir.read_file(&path, cap).await,
+            Self::Remote(folder) => {
+                folder.read_file(&path, cap).await
+            }
         }
     }
 
     /// Writes a new file with its mode, making missing folders. A
     /// file already there must hold the same bytes.
     pub async fn put(&self, path: &str, entry: &Entry) -> Result<()> {
-        ensure!(valid(path), "invalid tree path");
+        ensure!(is_valid(path), "invalid tree path");
         match self {
             Self::Local(root) => {
                 let (path, entry) = (path.to_owned(), entry.clone());
@@ -122,20 +125,20 @@ impl Files {
                 })
                 .await
             }
-            Self::Remote(dir) => dir.put(path, entry).await,
+            Self::Remote(folder) => folder.put(path, entry).await,
         }
     }
 
     /// Makes the new folder `path` in an existing one.
     pub async fn mkdir(&self, path: &str) -> Result<()> {
-        ensure!(valid(path), "invalid tree path");
+        ensure!(is_valid(path), "invalid tree path");
         let path = path.to_owned();
         match self {
             Self::Local(root) => {
                 blocking(root, move |root| tree::mkdir(root, &path))
                     .await
             }
-            Self::Remote(dir) => dir.mkdir(&path).await,
+            Self::Remote(folder) => folder.mkdir(&path).await,
         }
     }
 
@@ -145,7 +148,7 @@ impl Files {
         path: &str,
         mode: u32,
     ) -> Result<()> {
-        ensure!(path == "." || valid(path), "invalid tree path");
+        ensure!(path == "." || is_valid(path), "invalid tree path");
         let path = path.to_owned();
         match self {
             Self::Local(root) => {
@@ -154,7 +157,9 @@ impl Files {
                 })
                 .await
             }
-            Self::Remote(dir) => dir.set_mode(&path, mode).await,
+            Self::Remote(folder) => {
+                folder.set_mode(&path, mode).await
+            }
         }
     }
 
@@ -165,7 +170,7 @@ impl Files {
         path: &str,
         bytes: &[u8],
     ) -> Result<()> {
-        ensure!(valid(path), "invalid tree path");
+        ensure!(is_valid(path), "invalid tree path");
         match self {
             Self::Local(root) => {
                 let (path, bytes) = (path.to_owned(), bytes.to_vec());
@@ -174,7 +179,7 @@ impl Files {
                 })
                 .await
             }
-            Self::Remote(dir) => dir.replace(path, bytes).await,
+            Self::Remote(folder) => folder.replace(path, bytes).await,
         }
     }
 
@@ -185,7 +190,7 @@ impl Files {
         path: &str,
         recursive: bool,
     ) -> Result<()> {
-        ensure!(valid(path), "invalid tree path");
+        ensure!(is_valid(path), "invalid tree path");
         let path = path.to_owned();
         match self {
             Self::Local(root) => {
@@ -198,7 +203,9 @@ impl Files {
                 })
                 .await
             }
-            Self::Remote(dir) => dir.remove(&path, recursive).await,
+            Self::Remote(folder) => {
+                folder.remove(&path, recursive).await
+            }
         }
     }
 
@@ -217,7 +224,7 @@ impl Files {
                     let bytes =
                         self.read_file(&entry.path, cap).await?;
                     ensure!(
-                        same_bytes(&entry, &bytes),
+                        has_bytes(&entry, &bytes),
                         "The tree changed while it was read. \
                          Inspect it before retrying."
                     );
@@ -239,7 +246,7 @@ impl Files {
 }
 
 /// Whether `bytes` are the file `entry` listed.
-pub(super) fn same_bytes(entry: &TreeEntry, bytes: &[u8]) -> bool {
+pub(super) fn has_bytes(entry: &TreeEntry, bytes: &[u8]) -> bool {
     entry.size == bytes.len() as u64
         && entry.sha256.as_deref()
             == Some(format!("{:x}", Sha256::digest(bytes)).as_str())

@@ -11,7 +11,7 @@ use hamlet_workspace_wire::{
 
 use super::tree::Entry;
 use crate::prompt::shelf::{self, Skill};
-use crate::workspace::{self, Session};
+use crate::workspace::{self, WorkspaceSession};
 
 /// Where tools see the house, the hamlet's folder and the library.
 pub(crate) const HOUSE: &str = "/house";
@@ -29,19 +29,20 @@ pub(crate) const MACHINE: &str =
      tree exits, at most 1 MiB; file transfers are limited to 4 MiB.";
 
 /// The refusal of a file too large for one request.
-pub(crate) const TOO_LARGE: &str =
-    "Remote files are limited to 4 MiB per transfer.";
+#[derive(Debug, thiserror::Error)]
+#[error("Remote files are limited to 4 MiB per transfer.")]
+pub(crate) struct TooLarge;
 
 /// A folder of a remote house.
 #[derive(Clone)]
-pub(crate) struct Dir {
-    session: Session,
+pub(crate) struct Folder {
+    session: WorkspaceSession,
     path: String,
 }
 
-impl Dir {
+impl Folder {
     /// The house of `session`'s agent.
-    pub fn house(session: Session) -> Self {
+    pub fn house(session: WorkspaceSession) -> Self {
         Self {
             session,
             path: HOUSE.into(),
@@ -143,7 +144,7 @@ impl Dir {
         for entry in &entries {
             ensure!(
                 (entry.path == "."
-                    || super::files::valid(&entry.path))
+                    || super::files::is_valid(&entry.path))
                     && kinds
                         .insert(entry.path.as_str(), entry.kind)
                         .is_none(),
@@ -158,7 +159,7 @@ impl Dir {
                         )
                     },
                 )?;
-                ensure!(entry.size <= MAX_FILE as u64, TOO_LARGE);
+                ensure!(entry.size <= MAX_FILE as u64, TooLarge);
             }
         }
         ensure!(
@@ -205,7 +206,7 @@ impl Dir {
     }
 
     pub async fn put(&self, path: &str, entry: &Entry) -> Result<()> {
-        ensure!(entry.bytes.len() <= MAX_FILE, TOO_LARGE);
+        ensure!(entry.bytes.len() <= MAX_FILE, TooLarge);
         let written = self
             .session
             .call(TreeWrite {
@@ -260,7 +261,7 @@ impl Dir {
         path: &str,
         bytes: &[u8],
     ) -> Result<()> {
-        ensure!(bytes.len() <= MAX_FILE, TOO_LARGE);
+        ensure!(bytes.len() <= MAX_FILE, TooLarge);
         let info = Info {
             path: self.at(path),
             no_follow: true,
@@ -304,7 +305,9 @@ impl Dir {
 }
 
 /// The agent's notes.
-pub(super) async fn notes(session: &Session) -> Result<String> {
+pub(super) async fn notes(
+    session: &WorkspaceSession,
+) -> Result<String> {
     let read = Read {
         path: format!("{HOUSE}/{}", super::NOTES),
         no_follow: true,
@@ -313,7 +316,7 @@ pub(super) async fn notes(session: &Session) -> Result<String> {
 }
 
 /// The skills on the house's shelf, in the folders' order.
-pub(super) async fn skills(session: &Session) -> Vec<Skill> {
+pub(super) async fn skills(session: &WorkspaceSession) -> Vec<Skill> {
     let list = List {
         path: format!("{HOUSE}/skills"),
         no_follow: true,
@@ -324,7 +327,7 @@ pub(super) async fn skills(session: &Session) -> Vec<Skill> {
     let mut found = Vec::new();
     for entry in entries {
         if entry.kind != Kind::Directory
-            || !super::files::valid(&entry.name)
+            || !super::files::is_valid(&entry.name)
         {
             continue;
         }
@@ -347,7 +350,7 @@ pub(super) async fn skills(session: &Session) -> Vec<Skill> {
 
 /// The file `name` of the hamlet's folder.
 pub(super) async fn project(
-    session: &Session,
+    session: &WorkspaceSession,
     name: &str,
 ) -> Option<Vec<u8>> {
     let read = Read {
@@ -358,8 +361,8 @@ pub(super) async fn project(
 }
 
 /// Whether the hamlet's folder has `name`.
-pub(super) async fn project_has(
-    session: &Session,
+pub(super) async fn has_project_file(
+    session: &WorkspaceSession,
     name: &str,
 ) -> bool {
     let info = Info {

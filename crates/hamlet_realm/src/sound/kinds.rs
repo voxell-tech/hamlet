@@ -88,7 +88,7 @@ impl Family {
 
     /// True when it is of the world's own doing, and so counts toward
     /// the most sounds the world plays at once.
-    pub(super) fn worldly(self) -> bool {
+    pub(super) fn is_worldly(self) -> bool {
         matches!(
             self,
             Self::Steps
@@ -360,19 +360,19 @@ impl Sound {
     }
 
     /// True when it is a loop of the ambience.
-    pub fn ambient(self) -> bool {
+    pub fn is_ambient(self) -> bool {
         self.family() == Family::Ambience
     }
 
     /// True when it asks for the chief's attention.
-    pub(crate) fn alert(self) -> bool {
+    pub(crate) fn is_alert(self) -> bool {
         self.family() == Family::Alerts
     }
 
     /// True when it is heard the same wherever the camera is: the
     /// panels, the chief's answers, the turn of the day, and what
     /// becomes of a whole hamlet.
-    pub fn everywhere(self) -> bool {
+    pub fn is_heard_everywhere(self) -> bool {
         matches!(self.family(), Family::Interface | Family::Answers)
             || matches!(
                 self,

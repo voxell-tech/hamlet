@@ -68,7 +68,7 @@ pub struct Policy {
 impl Policy {
     /// Refuses limits unless each is at least 1 and the wall time
     /// fits the timer.
-    pub(crate) fn check_limits(&self) -> Result<(), String> {
+    pub(crate) fn check_limits(&self) -> Result<(), LimitError> {
         let limits = &self.limits;
         for (name, value) in [
             ("cpuSecs", limits.cpu_secs),
@@ -77,21 +77,43 @@ impl Policy {
             ("maxFileMb", limits.max_file_mb),
         ] {
             if value < 1 {
-                return Err(format!(
-                    "The limit {name} is not a whole number of at \
-                     least 1: {value}"
-                ));
+                return Err(LimitError::BelowOne { name, value });
             }
         }
         if limits.wall_secs > MAX_WALL_SECS {
-            return Err(format!(
-                "The limit wallSecs is more than {MAX_WALL_SECS} \
-                 seconds: {}",
-                limits.wall_secs
-            ));
+            return Err(LimitError::PastTimer(limits.wall_secs));
         }
         Ok(())
     }
+}
+
+/// A limit a command cannot run under.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum LimitError {
+    #[error(
+        "The limit {name} is not a whole number of at least 1: \
+         {value}"
+    )]
+    BelowOne { name: &'static str, value: u64 },
+    #[error(
+        "The limit wallSecs is more than {most} seconds: {0}",
+        most = MAX_WALL_SECS
+    )]
+    PastTimer(u64),
+}
+
+/// The failure of a sandbox's setup for a policy.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum SetupError {
+    #[error(transparent)]
+    Limit(#[from] LimitError),
+    #[error("The sandbox root must be a real directory: {0}")]
+    NotDirectory(String),
+    #[error("The sandbox root must be a real file or directory: {0}")]
+    NotReal(String),
+    /// The file system's own refusal, in the OS's words.
+    #[error(transparent)]
+    FileSystem(#[from] std::io::Error),
 }
 
 /// A short digest of `policy` as `sandbox` runs it, which names the
@@ -143,11 +165,11 @@ pub(crate) fn host_env() -> BTreeMap<String, String> {
 }
 
 /// True when `path` is `parent` or lies inside it.
-pub fn within(path: &Path, parent: &Path) -> bool {
-    within_text(&text(path), &text(parent))
+pub fn is_within(path: &Path, parent: &Path) -> bool {
+    is_within_text(&text(path), &text(parent))
 }
 
-pub(crate) fn within_text(path: &str, parent: &str) -> bool {
+pub(crate) fn is_within_text(path: &str, parent: &str) -> bool {
     path == parent
         || if parent.ends_with('/') {
             path.starts_with(parent)
@@ -219,18 +241,18 @@ pub(super) fn cased(real: &str) -> String {
 
 /// A directory root's canonical spelling. Links and special files are
 /// refused.
-pub(crate) fn directory_root(path: &str) -> Result<String, String> {
+pub(crate) fn directory_root(
+    path: &str,
+) -> Result<String, SetupError> {
     let absolute = path::resolve(".", path);
     match fs::symlink_metadata(&absolute) {
         Ok(meta) if !meta.is_dir() => {
-            return Err(format!(
-                "The sandbox root must be a real directory: {path}"
-            ));
+            return Err(SetupError::NotDirectory(path.into()));
         }
         Err(error)
             if error.kind() != std::io::ErrorKind::NotFound =>
         {
-            return Err(error.to_string());
+            return Err(error.into());
         }
         _ => {}
     }
@@ -247,7 +269,9 @@ pub(crate) fn temp_root() -> String {
 
 /// The private temp dir a sandboxed command may write to: one for
 /// each set of writable paths, so each house has its own.
-pub(crate) fn private_tmp(policy: &Policy) -> Result<String, String> {
+pub(crate) fn private_tmp(
+    policy: &Policy,
+) -> Result<String, SetupError> {
     let mut digest = Sha256::new();
     for each in &policy.rw {
         digest.update(canon_text(&text(each)).as_bytes());
@@ -258,13 +282,12 @@ pub(crate) fn private_tmp(policy: &Policy) -> Result<String, String> {
     let dir = path::join(&[root.as_str(), &hex[..16]]);
     directory_root(&root)?;
     directory_root(&dir)?;
-    fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    fs::create_dir_all(&dir)?;
     directory_root(&dir)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))
-            .map_err(|error| error.to_string())?;
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))?;
     }
     Ok(dir)
 }
@@ -292,25 +315,25 @@ pub(crate) fn fixed_roots(policy: &Policy, tmp: &str) -> Vec<String> {
     roots
 }
 
-fn in_any(path: &str, paths: &[String]) -> bool {
+fn is_in_any(path: &str, paths: &[String]) -> bool {
     paths
         .iter()
-        .any(|each| within_text(path, &canon_text(each)))
+        .any(|each| is_within_text(path, &canon_text(each)))
 }
 
 /// True when `path` lies in any of `paths`, compared without case. A
 /// refusal uses it, so that a volume that ignores case cannot carry a
 /// path past one.
-fn in_any_folded(path: &str, paths: &[String]) -> bool {
+fn is_in_any_folded(path: &str, paths: &[String]) -> bool {
     let folded = path.to_lowercase();
     paths.iter().any(|each| {
-        within_text(&folded, &canon_text(each).to_lowercase())
+        is_within_text(&folded, &canon_text(each).to_lowercase())
     })
 }
 
 /// True when `policy` lets a command with `tmp` as its temp folder
 /// read `real`, a path without links.
-pub(crate) fn readable(
+pub(crate) fn is_readable(
     policy: &Policy,
     tmp: &str,
     real: &str,
@@ -318,19 +341,19 @@ pub(crate) fn readable(
     let mut granted =
         policy.ro.iter().map(|p| text(p)).collect::<Vec<_>>();
     granted.extend(write_roots(policy, tmp));
-    if in_any(real, &granted) {
+    if is_in_any(real, &granted) {
         return true;
     }
     let mut closed =
         policy.hidden.iter().map(|p| text(p)).collect::<Vec<_>>();
     closed.push(temp_root());
-    policy.open && !in_any_folded(real, &closed)
+    policy.open && !is_in_any_folded(real, &closed)
 }
 
 /// True when `policy` lets a command with `tmp` as its temp folder
 /// write `real`, a path without links, or with `move` also move or
 /// remove it.
-pub(crate) fn writable(
+pub(crate) fn is_writable(
     policy: &Policy,
     tmp: &str,
     real: &str,
@@ -338,11 +361,11 @@ pub(crate) fn writable(
 ) -> bool {
     let locked =
         policy.locked.iter().map(|p| text(p)).collect::<Vec<_>>();
-    in_any(real, &write_roots(policy, tmp))
-        && !in_any_folded(real, &locked)
+    is_in_any(real, &write_roots(policy, tmp))
+        && !is_in_any_folded(real, &locked)
         && !(moved
             && fixed_roots(policy, tmp).iter().any(|root| {
-                within_text(
+                is_within_text(
                     &canon_text(root).to_lowercase(),
                     &real.to_lowercase(),
                 )
@@ -367,7 +390,7 @@ pub(crate) fn above_roots(policy: &Policy, tmp: &str) -> Vec<String> {
             let real = canon_text(&up);
             if writes
                 .iter()
-                .any(|rw| within_text(&real, rw) && real != *rw)
+                .any(|rw| is_within_text(&real, rw) && real != *rw)
             {
                 above.insert(up.clone());
             }

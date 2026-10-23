@@ -109,7 +109,7 @@ pub(crate) async fn prepare(
             .agents
             .iter()
             .find(|agent| agent.number == r.mayor)
-            .expect("mayor");
+            .expect("a hamlet's mayor is one of its agents");
         let model =
             r.limits.chief.model_of(mayor, true, &settings.model);
         let (provider, model) =

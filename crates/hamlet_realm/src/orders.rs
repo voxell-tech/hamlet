@@ -4,8 +4,8 @@
 use std::path::PathBuf;
 
 use bevy::prelude::*;
-use hamlet_client::realm::{self as agents, Deeds, HOME, Settlement};
-use hamlet_client::{ViewDir, gifts};
+use hamlet_client::realm::{self as agents, Deeds, HOME, HamletId};
+use hamlet_client::{ViewFolder, gifts};
 
 use crate::chief::{Kept, Player, Stands};
 use crate::generator::society::Ground;
@@ -49,7 +49,7 @@ pub fn decree(world: &mut World, agent: Entity, text: String) {
 
 /// Builds a road between two agents at the chief's word.
 fn road(world: &mut World, a: Entity, b: Entity) {
-    if !Deeds::allows(world, "road") {
+    if !Deeds::is_allowed(world, "road") {
         return;
     }
     if let (Some(a_name), Some(b_name)) =
@@ -61,7 +61,7 @@ fn road(world: &mut World, a: Entity, b: Entity) {
 
 /// Takes up the road between two agents at the chief's word.
 pub fn part(world: &mut World, a: Entity, b: Entity) {
-    if !Deeds::allows(world, "unroad") {
+    if !Deeds::is_allowed(world, "unroad") {
         return;
     }
     if let (Some(a_name), Some(b_name)) =
@@ -80,7 +80,7 @@ pub fn introduce(world: &mut World, a: Entity, b: Entity) {
 /// Takes the town of `hamlet` in hand, to be set down with a click
 /// on the ground.
 pub fn carry(world: &mut World, hamlet: Entity) {
-    if !Deeds::allows(world, "move-hamlet") {
+    if !Deeds::is_allowed(world, "move-hamlet") {
         return;
     }
     if let Some(town) = town_of(world, hamlet) {
@@ -93,15 +93,14 @@ pub fn carry(world: &mut World, hamlet: Entity) {
 fn set_down(world: &mut World, set: SetDown) {
     match set.place {
         Ground::Town(town) => {
-            if !Deeds::allows(world, "move-hamlet") {
+            if !Deeds::is_allowed(world, "move-hamlet") {
                 return;
             }
             let Some(hamlet) = hamlet_of(world, town) else {
                 return;
             };
-            let Some(name) = world
-                .get::<Settlement>(hamlet)
-                .map(|settlement| settlement.name.clone())
+            let Some(name) =
+                world.get::<HamletId>(hamlet).map(|id| id.0.clone())
             else {
                 return;
             };
@@ -122,7 +121,7 @@ fn set_down(world: &mut World, set: SetDown) {
             }
         }
         Ground::Library => {
-            if let Some(view) = world.get_resource::<ViewDir>() {
+            if let Some(view) = world.get_resource::<ViewFolder>() {
                 let file = Stood::file(&view.0);
                 let _ = Stands(set.to).write_at(&file);
                 world.resource_mut::<Kept>().library = Some(set.to);
@@ -179,7 +178,7 @@ mod tests {
             .add_message::<Wish>()
             .add_message::<SetDown>()
             .add_plugins(plugin)
-            .insert_resource(ViewDir(dir.to_path_buf()))
+            .insert_resource(ViewFolder(dir.to_path_buf()))
             .init_resource::<Kept>()
             .init_resource::<Stood>();
         app.world_mut().write_message(SetDown {

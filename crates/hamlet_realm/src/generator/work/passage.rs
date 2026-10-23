@@ -40,8 +40,8 @@ impl Passage {
     }
 
     /// True when the robot is gone when it has played.
-    pub(in crate::generator) fn leaves(&self) -> bool {
-        self.act.vanishes()
+    pub(in crate::generator) fn is_leaving(&self) -> bool {
+        self.act.is_vanishing()
     }
 }
 
@@ -73,7 +73,7 @@ pub(in crate::generator) fn pass(
         if !over || (passage.held && !clock.frozen) {
             continue;
         }
-        if passage.act.vanishes() {
+        if passage.act.is_vanishing() {
             commands.entity(entity).try_despawn();
         } else {
             commands.entity(entity).try_remove::<Passage>();

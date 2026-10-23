@@ -565,13 +565,7 @@ async fn to(
 ) -> Result<Option<ServerMessage>> {
     let target = match living(service, said.hamlet(), agent)? {
         Ok(target) => target,
-        Err(words) => {
-            return Ok(Some(answer(
-                said.id,
-                ReplyKind::Error,
-                words,
-            )));
-        }
+        Err(refusal) => return Ok(said.refused(refusal)),
     };
     line(service, harnesses, said.client, said.id, &target, text)
         .await?;
@@ -624,13 +618,7 @@ async fn stop(
     };
     let target = match living(service, said.hamlet(), name)? {
         Ok(target) => target,
-        Err(words) => {
-            return Ok(Some(answer(
-                said.id,
-                ReplyKind::Error,
-                words,
-            )));
-        }
+        Err(refusal) => return Ok(said.refused(refusal)),
     };
     deeds::stop_agent(service, harnesses, &target).await?;
     Ok(said.notice(format!("Stopping {name}.")))
@@ -650,7 +638,11 @@ async fn conversation(
     let later =
         matches!(deed, deeds::Deed::Reflect | deeds::Deed::Retry);
     Ok(match deeds::deed(service, harnesses, &agent, deed).await? {
-        Err(words) => Some(answer(said.id, ReplyKind::Notice, words)),
+        Err(refusal) => Some(answer(
+            said.id,
+            ReplyKind::Notice,
+            refusal.to_string(),
+        )),
         Ok(done) if later => match done.submitted {
             Some((binding, request)) => {
                 owe(
@@ -675,7 +667,7 @@ async fn conversation(
         }) => {
             service.chats.deferred.push(Deferred {
                 client: said.client,
-                id: said.id.to_string(),
+                id: said.id.clone(),
                 binding,
                 request,
                 text,
@@ -775,7 +767,7 @@ async fn answer_wait(
     .await?
     {
         Ok(words) => words,
-        Err(refusal) => refusal.text(),
+        Err(refusal) => refusal.to_string(),
     };
     Ok(Some(answer(said.id, ReplyKind::Notice, words)))
 }
@@ -807,9 +799,11 @@ async fn plain(
                 Ok(words) => {
                     answer(said.id, ReplyKind::Notice, words)
                 }
-                Err(refusal) => {
-                    answer(said.id, ReplyKind::Error, refusal.text())
-                }
+                Err(refusal) => answer(
+                    said.id,
+                    ReplyKind::Error,
+                    refusal.to_string(),
+                ),
             }));
         }
         Some(wait)
@@ -846,7 +840,7 @@ async fn line(
     service: &mut Service,
     harnesses: &mut Harnesses,
     client: u64,
-    id: &str,
+    id: &RequestId,
     agent: &AgentRef,
     text: &str,
 ) -> Result<()> {
@@ -859,7 +853,7 @@ async fn line(
 pub(crate) async fn admit_line(
     service: &mut Service,
     harnesses: &mut Harnesses,
-    id: &str,
+    id: &RequestId,
     agent: &AgentRef,
     text: &str,
 ) -> Result<BindingId> {
@@ -895,7 +889,7 @@ pub(crate) async fn admit_line(
 fn owe(
     service: &mut Service,
     client: u64,
-    id: &str,
+    id: &RequestId,
     binding: BindingId,
     request: &str,
 ) -> Result<()> {
@@ -914,7 +908,7 @@ fn owe(
     } else {
         service.chats.deferred.push(Deferred {
             client,
-            id: id.into(),
+            id: id.clone(),
             binding,
             request: request.into(),
             text: String::new(),
@@ -925,14 +919,13 @@ fn owe(
 }
 
 /// The living agent `text` names from `hamlet`: a name or office,
-/// with `@hamlet` for another hamlet's; else the words that refuse
-/// it.
+/// with `@hamlet` for another hamlet's; else why it is refused.
 pub(super) fn living(
     service: &mut Service,
     hamlet: &str,
     text: &str,
-) -> Result<std::result::Result<AgentRef, String>> {
-    let missing = || Ok(Err(format!("no agent named `{text}`")));
+) -> Result<Refusable<AgentRef>> {
+    let missing = || Ok(Err(Refusal::NoAgent(text.into())));
     let mut parts = text.split('@');
     let (Some(name), place, None) =
         (parts.next(), parts.next(), parts.next())
@@ -955,12 +948,9 @@ pub(super) fn living(
                 hamlet: record.id.clone(),
                 number: agent.number,
             };
-            if let Err(refusal) =
-                service.access(&found.hamlet, "say")?
-            {
-                return Ok(Err(refusal.text()));
-            }
-            return Ok(Ok(found));
+            return Ok(service
+                .access(&found.hamlet, "say")?
+                .map(|_| found));
         }
         if let Some(gone) = record
             .archive
@@ -968,7 +958,7 @@ pub(super) fn living(
             .rev()
             .find(|a| a.back.is_none() && a.agent.name == name)
         {
-            return Ok(Err(record.farewell(gone)));
+            return Ok(Err(Refusal::Invalid(record.farewell(gone))));
         }
     }
     missing()
@@ -1040,7 +1030,8 @@ fn revoke(
             crate::clock::now(),
         )?;
     }
-    let held = service.limits_of(hamlet)?.permits(permission, agent);
+    let held =
+        service.limits_of(hamlet)?.is_granted(permission, agent);
     let permission = gate::word(permission);
     Ok(if held {
         format!(

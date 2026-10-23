@@ -30,7 +30,10 @@ impl Hamlet {
         for agent in &self.agents {
             if agent.number != self.mayor
                 && !roads.iter().any(|r| {
-                    r.joins(End::Office, End::Agent(agent.number))
+                    r.is_between(
+                        End::Office,
+                        End::Agent(agent.number),
+                    )
                 })
             {
                 roads.push(Road::new(
@@ -54,7 +57,10 @@ impl Hamlet {
             }
         };
         a != b
-            && self.roads_of().iter().any(|r| r.joins(end(a), end(b)))
+            && self
+                .roads_of()
+                .iter()
+                .any(|r| r.is_between(end(a), end(b)))
     }
 }
 
@@ -115,7 +121,7 @@ impl RecordOperation {
         if aa == bb {
             return Ok(refuse(Reason::RoadSelf));
         }
-        if r.roads.iter().any(|r| r.joins(aa, bb)) {
+        if r.roads.iter().any(|r| r.is_between(aa, bb)) {
             return Ok(refuse(Reason::RoadExists {
                 a: a.into(),
                 b: b.into(),
@@ -233,7 +239,10 @@ impl RecordOperation {
         }
         let index = r.roads.iter().position(|road| {
             aa.zip(bb).is_some_and(|(a, b)| {
-                road.joins(End::Agent(a.number), End::Agent(b.number))
+                road.is_between(
+                    End::Agent(a.number),
+                    End::Agent(b.number),
+                )
             })
         });
         let Some(index) = index else {
@@ -276,19 +285,22 @@ impl RecordOperation {
         } else {
             End::Agent(to)
         };
-        let index =
-            match r.roads.iter().position(|road| road.joins(a, b)) {
-                Some(index) => index,
-                None => {
-                    let road = r
-                        .roads_of()
-                        .into_iter()
-                        .find(|road| road.joins(a, b))
-                        .expect("checked active road");
-                    r.roads.push(road);
-                    r.roads.len() - 1
-                }
-            };
+        let index = match r
+            .roads
+            .iter()
+            .position(|road| road.is_between(a, b))
+        {
+            Some(index) => index,
+            None => {
+                let road = r
+                    .roads_of()
+                    .into_iter()
+                    .find(|road| road.is_between(a, b))
+                    .expect("checked active road");
+                r.roads.push(road);
+                r.roads.len() - 1
+            }
+        };
         let road = &mut r.roads[index];
         road.messages = road.messages.saturating_add(1);
         road.last_from = Some(a);
@@ -313,11 +325,9 @@ impl RecordOperation {
         }
         let from = r.mayor;
         r.mayor = number;
-        if !r
-            .roads
-            .iter()
-            .any(|road| road.joins(End::Office, End::Agent(from)))
-        {
+        if !r.roads.iter().any(|road| {
+            road.is_between(End::Office, End::Agent(from))
+        }) {
             r.roads.push(Road::new(
                 End::Office,
                 End::Agent(from),

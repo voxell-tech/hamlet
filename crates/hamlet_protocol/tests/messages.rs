@@ -68,7 +68,7 @@ fn hello_carries_the_version_and_token() {
             v: V,
             token: "test-token".into(),
         }),
-        json!({"type": "hello", "v": 0, "token": "test-token"}),
+        json!({"type": "hello", "v": 1, "token": "test-token"}),
     );
 }
 
@@ -187,7 +187,7 @@ fn edits_choose_the_document_and_keep_limits_set_and_whole_distinct()
                 id: id(),
                 hamlet: "home".into(),
                 reason: None,
-                set: EditLimitsSetSet {
+                set: LimitsEdit {
                     section: "budget".into(),
                     key: "cost".into(),
                     value: value.clone(),
@@ -285,7 +285,7 @@ fn logins_start_answer_and_cancel_without_repeating_the_type_tag() {
     client(
         ClientMessage::Login(Login::Start {
             id: id(),
-            start: LoginStartStart {
+            start: LoginStart {
                 provider: "openai".into(),
                 method: LoginMethod::Key,
             },
@@ -295,7 +295,7 @@ fn logins_start_answer_and_cancel_without_repeating_the_type_tag() {
     client(
         ClientMessage::Login(Login::Start {
             id: id(),
-            start: LoginStartStart {
+            start: LoginStart {
                 provider: "chatgpt".into(),
                 method: LoginMethod::Subscription,
             },
@@ -305,7 +305,7 @@ fn logins_start_answer_and_cancel_without_repeating_the_type_tag() {
     client(
         ClientMessage::Login(Login::Reply {
             id: id(),
-            reply: LoginReplyReply {
+            reply: LoginReply {
                 login: "login-1".into(),
                 value: "fake-key".into(),
             },
@@ -504,7 +504,7 @@ fn state_and_every_update_keep_the_servers_ready_made_values() {
     let ServerMessage::State(state) = server(state_wire()) else {
         panic!("Expected state")
     };
-    assert_eq!(state.agents[0].ref_.number, 0);
+    assert_eq!(state.agents[0].agent.number, 0);
     assert_eq!(state.agents[0].activity.doing, Doing::ReadFile);
     assert_eq!(
         state.hamlets[0].limits.pinned["founder"],
@@ -540,7 +540,7 @@ fn state_and_every_update_keep_the_servers_ready_made_values() {
 
 #[test]
 fn turns_keep_every_operation_and_optional_nullable_tool_changes() {
-    let mut ops = vec![
+    let mut operations = vec![
         json!({"op": "add", "item": {"id": "entry:0", "at": 10, "kind": "assistant", "text": "Hi"}}),
         json!({"op": "add", "item": {"id": "entry:1", "at": 10, "kind": "assistant", "text": "Hello"}, "replaces": "entry:0"}),
         json!({"op": "append", "item": "entry:1", "text": " chief"}),
@@ -551,11 +551,11 @@ fn turns_keep_every_operation_and_optional_nullable_tool_changes() {
         json!({"op": "reset"}),
     ];
     for change in [Value::Null, change_wire()] {
-        ops.push(json!({"op": "close", "item": "tool:0", "exit": 0, "ms": null, "failure": null, "change": change}));
+        operations.push(json!({"op": "close", "item": "tool:0", "exit": 0, "ms": null, "failure": null, "change": change}));
     }
-    for op in ops {
+    for operation in operations {
         server(
-            json!({"type": "turn", "chat": {"with": {"hamlet": "home", "agent": "mayor"}}, "number": 2, "ops": [op]}),
+            json!({"type": "turn", "chat": {"with": {"hamlet": "home", "agent": "mayor"}}, "number": 2, "ops": [operation]}),
         );
     }
     server(
@@ -645,7 +645,7 @@ fn unknown_and_missing_nullable_fields_are_refused_at_every_level() {
         );
     }
     for wire in [
-        json!({"type": "hello", "v": 0, "token": "t", "later": 1}),
+        json!({"type": "hello", "v": V, "token": "t", "later": 1}),
         json!({"type": "edit", "id": ID, "doc": "limits", "hamlet": "home", "whole": {}, "later": 1}),
     ] {
         assert!(

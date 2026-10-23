@@ -13,7 +13,7 @@ pub use self::places::{Claim, Ground};
 use super::house::{HouseSettings, Remains};
 use super::land::Land;
 use super::layout::plot;
-use crate::keeper::KState;
+use crate::keeper::KeeperState;
 use crate::keeper::work::Work;
 
 #[derive(
@@ -44,7 +44,7 @@ pub struct Town {
     /// The site it was founded on. Never changes: a town that is
     /// moved takes its site along.
     pub site: usize,
-    pub leader: AgentId,
+    pub mayor: AgentId,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -54,7 +54,7 @@ pub struct Agent {
     /// The plot its house stands on. Changes only when it moves
     /// town.
     pub plot: u32,
-    pub state: KState,
+    pub state: KeeperState,
     /// Its task while it works.
     pub work: Work,
     /// Removed or merged away. Its plot is free for a newcomer.
@@ -96,7 +96,7 @@ impl Pair {
         if a <= b { Self(a, b) } else { Self(b, a) }
     }
 
-    pub fn has(&self, id: AgentId) -> bool {
+    pub fn has_end(&self, id: AgentId) -> bool {
         self.0 == id || self.1 == id
     }
 }
@@ -117,6 +117,14 @@ pub struct Society {
     pub claims: Vec<Claim>,
     next_agent: u32,
     next_town: u32,
+}
+
+/// The outcome of a change asked of the [`Society`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    Changed,
+    /// Nothing was changed: what was asked does not hold.
+    Unchanged,
 }
 
 impl Society {
@@ -154,7 +162,7 @@ impl Society {
     }
 
     /// The living agents of a town.
-    pub fn citizens(
+    pub fn agents_of(
         &self,
         town: TownId,
     ) -> impl Iterator<Item = &Agent> {
@@ -174,7 +182,7 @@ impl Society {
             id,
             town,
             plot,
-            state: KState::Rest,
+            state: KeeperState::Rest,
             work: Work::default(),
             archived: false,
             cleared: false,
@@ -189,7 +197,7 @@ impl Society {
     fn free_plot(&self, land: &Land, town: &Town) -> Option<u32> {
         (0..land.set.town.plots).find(|&k| {
             plot(land, town.site, k).usable
-                && !self.citizens(town.id).any(|a| a.plot == k)
+                && !self.agents_of(town.id).any(|a| a.plot == k)
         })
     }
 
@@ -208,7 +216,7 @@ impl Society {
             .is_some_and(|town| self.free_plot(land, town).is_some())
     }
 
-    /// Adds an agent with a house and a road to its leader. None
+    /// Adds an agent with a house and a road to its mayor. None
     /// when the town has no plot left.
     pub fn add_agent(
         &mut self,
@@ -219,23 +227,23 @@ impl Society {
         let plot = self.free_plot(land, &t)?;
         self.clear(town, plot);
         let id = self.spawn_agent(town, plot);
-        self.add_road(id, t.leader);
+        self.add_road(id, t.mayor);
         Some(id)
     }
 
     /// Lays a dirt road, unless the two already have one.
-    pub fn add_road(&mut self, a: AgentId, b: AgentId) -> bool {
+    pub fn add_road(&mut self, a: AgentId, b: AgentId) -> Outcome {
         let pair = Pair::new(a, b);
         let live = |id| self.agent(id).is_some_and(|a| !a.archived);
         if a == b || !live(a) || !live(b) || self.road(pair).is_some()
         {
-            return false;
+            return Outcome::Unchanged;
         }
         self.roads.push(Road {
             pair,
             level: RoadLevel::Dirt,
         });
-        true
+        Outcome::Changed
     }
 
     pub fn set_level(&mut self, pair: Pair, level: RoadLevel) {
@@ -246,7 +254,7 @@ impl Society {
         }
     }
 
-    pub fn set_state(&mut self, id: AgentId, state: KState) {
+    pub fn set_state(&mut self, id: AgentId, state: KeeperState) {
         if let Some(a) = self.agent_mut(id) {
             a.state = state;
         }
@@ -260,9 +268,9 @@ impl Society {
 
     /// Takes a town out of the world with everyone in it, its hall
     /// and the roads to it. Its site is free to be founded on again.
-    pub(crate) fn remove_town(&mut self, id: TownId) -> bool {
+    pub(crate) fn remove_town(&mut self, id: TownId) -> Outcome {
         if self.town(id).is_none() {
-            return false;
+            return Outcome::Unchanged;
         }
         let gone = self
             .agents
@@ -270,44 +278,45 @@ impl Society {
             .filter(|a| a.town == id)
             .map(|a| a.id)
             .collect::<Vec<_>>();
-        self.roads
-            .retain(|r| !gone.iter().any(|agent| r.pair.has(*agent)));
+        self.roads.retain(|r| {
+            !gone.iter().any(|agent| r.pair.has_end(*agent))
+        });
         self.agents.retain(|a| a.town != id);
         self.towns.retain(|t| t.id != id);
-        true
+        Outcome::Changed
     }
 
     /// Archives an agent: its house becomes a ruin and its roads go.
-    /// A leader cannot be removed.
-    pub fn remove_agent(&mut self, id: AgentId) -> bool {
-        if self.towns.iter().any(|t| t.leader == id) {
-            return false;
+    /// A mayor cannot be removed.
+    pub fn remove_agent(&mut self, id: AgentId) -> Outcome {
+        if self.towns.iter().any(|t| t.mayor == id) {
+            return Outcome::Unchanged;
         }
         let Some(agent) = self.agent_mut(id) else {
-            return false;
+            return Outcome::Unchanged;
         };
         agent.archived = true;
-        self.roads.retain(|r| !r.pair.has(id));
-        true
+        self.roads.retain(|r| !r.pair.has_end(id));
+        Outcome::Changed
     }
 
-    /// Brings an archived agent back, with a road to its leader.
+    /// Brings an archived agent back, with a road to its mayor.
     /// Its house stands where it stood, or on another plot if a
-    /// newcomer has built there since. False when its town has no
+    /// newcomer has built there since. Unchanged when its town has no
     /// plot left for it.
-    pub fn restore(&mut self, land: &Land, id: AgentId) -> bool {
+    pub fn restore(&mut self, land: &Land, id: AgentId) -> Outcome {
         let Some(agent) = self.agent(id).cloned() else {
-            return false;
+            return Outcome::Unchanged;
         };
         let Some(town) = self.town(agent.town).cloned() else {
-            return false;
+            return Outcome::Unchanged;
         };
         let taken =
-            self.citizens(town.id).any(|a| a.plot == agent.plot);
+            self.agents_of(town.id).any(|a| a.plot == agent.plot);
         let plot = if taken || agent.cleared {
             match self.free_plot(land, &town) {
                 Some(plot) => plot,
-                None => return false,
+                None => return Outcome::Unchanged,
             }
         } else {
             agent.plot
@@ -319,8 +328,8 @@ impl Society {
             agent.into = None;
             agent.plot = plot;
         }
-        self.add_road(id, town.leader);
-        true
+        self.add_road(id, town.mayor);
+        Outcome::Changed
     }
 
     /// Undoes a merge: `gone` comes back and `kept` loses the wing.
@@ -330,27 +339,27 @@ impl Society {
         land: &Land,
         kept: AgentId,
         gone: AgentId,
-    ) -> bool {
-        if !self.restore(land, gone) {
-            return false;
+    ) -> Outcome {
+        if self.restore(land, gone) == Outcome::Unchanged {
+            return Outcome::Unchanged;
         }
         if let Some(a) = self.agent_mut(kept) {
             a.wings = a.wings.saturating_sub(1);
         }
-        true
+        Outcome::Changed
     }
 
     /// Merges `gone` into `kept`: `kept` gains a wing and the roads
     /// of both, and `gone`'s house is archived.
-    pub fn merge(&mut self, kept: AgentId, gone: AgentId) -> bool {
-        let leads = |id| self.towns.iter().any(|t| t.leader == id);
-        if kept == gone || leads(gone) {
-            return false;
+    pub fn merge(&mut self, kept: AgentId, gone: AgentId) -> Outcome {
+        let is_mayor = |id| self.towns.iter().any(|t| t.mayor == id);
+        if kept == gone || is_mayor(gone) {
+            return Outcome::Unchanged;
         }
         let moved = self
             .roads
             .iter()
-            .filter(|r| r.pair.has(gone) && !r.pair.has(kept))
+            .filter(|r| r.pair.has_end(gone) && !r.pair.has_end(kept))
             .map(|r| {
                 let other = if r.pair.0 == gone {
                     r.pair.1
@@ -360,8 +369,8 @@ impl Society {
                 (Pair::new(kept, other), r.level)
             })
             .collect::<Vec<_>>();
-        if !self.remove_agent(gone) {
-            return false;
+        if self.remove_agent(gone) == Outcome::Unchanged {
+            return Outcome::Unchanged;
         }
         for (pair, level) in moved {
             match self.roads.iter_mut().find(|r| r.pair == pair) {
@@ -375,6 +384,6 @@ impl Society {
         if let Some(a) = self.agent_mut(gone) {
             a.into = Some(kept);
         }
-        true
+        Outcome::Changed
     }
 }

@@ -1,6 +1,11 @@
 //! The app's icon when it is run outside a bundle: on the Dock of a
 //! Mac, and on the window and the taskbar elsewhere.
 
+#![cfg_attr(
+    target_os = "macos",
+    expect(unsafe_code, reason = "AppKit sets the Dock's icon")
+)]
+
 use bevy_app::{App, PostStartup};
 use bevy_ecs::system::NonSendMarker;
 

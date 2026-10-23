@@ -6,8 +6,8 @@ use std::path::Path;
 use super::Confined;
 use super::path::text;
 use super::policy::{
-    Policy, above_roots, fixed_roots, is_dir, temp_root, within_text,
-    write_roots,
+    Policy, above_roots, fixed_roots, is_dir, is_within_text,
+    temp_root, write_roots,
 };
 
 pub(super) const PROBE: [&str; 6] =
@@ -93,7 +93,7 @@ pub(super) fn command(
         if Path::new(path).exists()
             && writes
                 .iter()
-                .any(|rw| path != rw && within_text(path, rw))
+                .any(|rw| path != rw && is_within_text(path, rw))
         {
             push(&["--bind", path, path]);
         }

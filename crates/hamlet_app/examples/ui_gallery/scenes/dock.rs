@@ -125,7 +125,7 @@ fn rewind_question() -> Ui {
             .get::<Transcript>(session)
             .into_iter()
             .flat_map(|said| said.items().iter().rev())
-            .find(|item| matches!(item.entry, Entry::User { .. }))
+            .find(|item| matches!(item.entry, Entry::Chief { .. }))
             .map(|item| item.id.clone())
             .filter(|_| {
                 *cx.world.resource::<Scene>() == Scene::Rewind

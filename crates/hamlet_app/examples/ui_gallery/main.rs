@@ -96,8 +96,8 @@ const SHOTS: [Shot; 30] = [
         scale: 1.0,
     },
     Shot {
-        name: "rules",
-        scene: Scene::Rules,
+        name: "bylaws",
+        scene: Scene::Bylaws,
         size: UVec2::new(1440, 1500),
         scale: 1.0,
     },
@@ -327,7 +327,7 @@ fn capture(
     mut update: Local<u32>,
     mut exit: MessageWriter<AppExit>,
 ) {
-    if pictures.waiting() {
+    if pictures.is_waiting() {
         return;
     }
     *update += 1;

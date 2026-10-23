@@ -4,9 +4,9 @@ use anyhow::{Context, Result};
 use hamlet_protocol::client::LibrarySkill;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::json;
 
-use super::{Caller, Deed, outcome};
+use super::{Caller, Deed, SocietyOutcome};
 use crate::harness::Harnesses;
 use crate::papers::{NOTES, tree};
 use crate::prompt::shelf;
@@ -34,7 +34,7 @@ struct Consult {
     delivered: bool,
 }
 
-fn valid(name: &str) -> bool {
+fn is_valid(name: &str) -> bool {
     !name.is_empty()
         && name.bytes().all(|b| {
             b.is_ascii_alphanumeric() || b == b'-' || b == b'_'
@@ -45,8 +45,10 @@ fn valid(name: &str) -> bool {
 enum Step {
     /// The consultation goes on.
     Next,
-    /// The call is answered with this outcome, or waits for `None`.
-    Answer(Option<Value>),
+    /// The call fails, saying why.
+    Failed(String),
+    /// The call waits.
+    Waiting,
 }
 
 /// The arguments of `submit_skill`.
@@ -73,7 +75,7 @@ pub(super) async fn consult(
     caller: &Caller<'_>,
     skill: Option<&str>,
     text: &str,
-) -> Result<Option<Value>> {
+) -> Result<Option<SocietyOutcome>> {
     retire(service)?;
     let key = serde_json::to_string(&(
         caller.id.runtime.as_str(),
@@ -88,14 +90,17 @@ pub(super) async fn consult(
         if let Some(snapshot) = &job.snapshot {
             tree::erase_snapshot(service.houses.root(), snapshot)?;
         }
-        return Ok(Some(outcome(result, false)));
+        return Ok(Some(SocietyOutcome::answered(result)));
     }
     if job.prompt.is_empty() {
-        if let Step::Answer(answer) =
-            begin(service, caller, skill, text, &key, &mut job)
-                .await?
+        match begin(service, caller, skill, text, &key, &mut job)
+            .await?
         {
-            return Ok(answer);
+            Step::Next => {}
+            Step::Failed(text) => {
+                return Ok(Some(SocietyOutcome::failed(text)));
+            }
+            Step::Waiting => return Ok(None),
         }
         super::keep(service.db(), "library-consult", &key, &job)?;
     }
@@ -128,7 +133,7 @@ pub(super) async fn consult(
     if let Some(snapshot) = &job.snapshot {
         tree::erase_snapshot(service.houses.root(), snapshot)?;
     }
-    Ok(Some(outcome(&result, false)))
+    Ok(Some(SocietyOutcome::answered(result)))
 }
 
 /// Writes the librarian's prompt for the call of `caller` into `job`:
@@ -144,11 +149,11 @@ async fn begin(
 ) -> Result<Step> {
     let text = text.trim();
     if text.is_empty() {
-        return Ok(Step::Answer(Some(outcome(
+        return Ok(Step::Failed(
             "Say what you are looking for or why the skill would \
-             help others.",
-            true,
-        ))));
+             help others."
+                .into(),
+        ));
     }
     let record = service
         .home
@@ -167,11 +172,11 @@ async fn begin(
         shelf::library(&service.home.layout().root().join("library"))
             .unwrap_or_default();
     if let Some(name) = skill {
-        if let Step::Answer(answer) =
+        if let step @ (Step::Failed(_) | Step::Waiting) =
             offered(service, caller, name, key, text, &library, job)
                 .await?
         {
-            return Ok(Step::Answer(answer));
+            return Ok(step);
         }
     } else {
         job.prompt = format!(
@@ -206,9 +211,8 @@ async fn offered(
     library: &str,
     job: &mut Consult,
 ) -> Result<Step> {
-    let refuse =
-        |text: &str| Ok(Step::Answer(Some(outcome(text, true))));
-    if !valid(name) {
+    let refuse = |text: &str| Ok(Step::Failed(text.into()));
+    if !is_valid(name) {
         return refuse(
             "`skill` is its folder under skills/, in letters, \
              digits, hyphens and underscores.",
@@ -244,7 +248,7 @@ async fn offered(
         service.house_work.offer(caller.id.clone(), async move {
             skill_files(&house, &name).await
         });
-        return Ok(Step::Answer(None));
+        return Ok(Step::Waiting);
     };
     let files = files?;
     let paper = files
@@ -497,8 +501,8 @@ pub(super) fn unshelve(
     rest: &str,
 ) -> Result<Deed> {
     let name = rest.split_whitespace().next().unwrap_or_default();
-    if !valid(name) {
-        return Ok(Err(Refusal::Invalid(
+    if !is_valid(name) {
+        return Ok(Err(Refusal::Usage(
             "usage: /unshelve <skill>".into(),
         )));
     }

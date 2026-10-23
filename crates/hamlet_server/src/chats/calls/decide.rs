@@ -12,12 +12,15 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::super::records::{self, Place};
-use super::{IDENTITY_REFUSAL, NOBODY, OBJECTING, WAITING};
+use super::{
+    IDENTITY_REFUSAL, NOBODY, OBJECTING, Previewed, WAITING,
+};
 use crate::gate::{self, Asked, Standing, TrustKey, Verdict};
 use crate::harness::{Binding, BindingId};
 use crate::oversight::held::{self, CallState};
 use crate::oversight::{ChatPlace, Holding, Raising, WaitKind};
 use crate::record::{AgentRef, Hamlet};
+use crate::sandbox::FileError;
 use crate::service::Service;
 use crate::{OperationId, operation, tools};
 
@@ -45,7 +48,7 @@ pub(super) enum Gate {
 
 /// A file to read before a write's decision.
 pub(crate) struct Reading {
-    pub tools: tools::Session,
+    pub tools: tools::ToolSession,
     pub path: String,
     /// The work document it was read under.
     pub signature: Value,
@@ -100,7 +103,7 @@ pub(super) fn admit<'a>(
         .0
         .into_iter()
         .find(|manifest| manifest.spec.name == tool)
-        .map(|manifest| manifest.net());
+        .map(|manifest| manifest.has_net());
     Ok(Ok(Admitted {
         bound,
         id,
@@ -120,7 +123,7 @@ pub(super) fn allow(
     input: Option<&str>,
     tool: &str,
     arguments: &BTreeMap<String, Value>,
-    preview: Option<&std::result::Result<Option<String>, String>>,
+    preview: Option<&Previewed>,
 ) -> Result<Gate> {
     let call =
         match admit(service, binding, key, input, tool, arguments)? {
@@ -151,7 +154,7 @@ pub(super) fn allow(
 pub(super) fn decide(
     service: &mut Service,
     call: &Admitted<'_>,
-    preview: Option<&std::result::Result<Option<String>, String>>,
+    preview: Option<&Previewed>,
 ) -> Result<Gate> {
     if let Some(decision) = kept(service, &call.id)? {
         return Ok(Gate::Decided(decision));
@@ -196,7 +199,9 @@ pub(super) fn kept(
     }
     Ok(match call.state {
         CallState::Blocked(words) => Some(Decision::Block(words)),
-        CallState::Ruled { ruling, net, .. } if ruling.allows() => {
+        CallState::Ruled { ruling, net, .. }
+            if ruling.is_allowing() =>
+        {
             Some(Decision::Run { net })
         }
         CallState::Ruled {
@@ -224,7 +229,7 @@ pub(super) fn kept(
 fn fresh(
     service: &mut Service,
     call: &Admitted<'_>,
-    preview: Option<&std::result::Result<Option<String>, String>>,
+    preview: Option<&Previewed>,
 ) -> Result<Decision> {
     let (id, binding, input) = (&call.id, call.bound.id, call.input);
     let db = service.db();
@@ -240,7 +245,9 @@ fn fresh(
     let place = conversation.place;
     let reach = match reach(service, call, &place, preview)? {
         Ok(reach) => reach,
-        Err(words) => return Ok(Decision::Block(words)),
+        Err(no_preview) => {
+            return Ok(Decision::Block(no_preview.to_string()));
+        }
     };
     let Some(record) =
         service.home.store().record(&place.agent.hamlet)?
@@ -337,14 +344,24 @@ struct Reach {
     house_edit: bool,
 }
 
+/// The missing preview, without which a write's reach cannot be
+/// made.
+#[derive(Debug, thiserror::Error)]
+enum NoPreview<'a> {
+    #[error(transparent)]
+    Unread(&'a FileError),
+    #[error("The edit preview is not available.")]
+    Unavailable,
+}
+
 /// The reach of `call` made at `place`; the refusal when a write's
 /// preview failed.
-fn reach(
+fn reach<'a>(
     service: &mut Service,
     call: &Admitted<'_>,
     place: &Place,
-    preview: Option<&std::result::Result<Option<String>, String>>,
-) -> Result<std::result::Result<Reach, String>> {
+    preview: Option<&'a Previewed>,
+) -> Result<std::result::Result<Reach, NoPreview<'a>>> {
     let args =
         Value::Object(call.arguments.clone().into_iter().collect());
     let mut classified = match call.hand {
@@ -366,12 +383,10 @@ fn reach(
     {
         let previous = match preview {
             Some(Ok(before)) => before.clone(),
-            Some(Err(words)) => return Ok(Err(words.clone())),
-            None => {
-                return Ok(Err(
-                    "The edit preview is not available.".into()
-                ));
+            Some(Err(unread)) => {
+                return Ok(Err(NoPreview::Unread(unread)));
             }
+            None => return Ok(Err(NoPreview::Unavailable)),
         };
         if let Some(previous) = previous {
             *old = previous;
@@ -400,7 +415,7 @@ fn reach(
             *write && *created,
         ))?;
     service.credentials.scrub(&mut change);
-    let house_edit = tools.house_edit(path);
+    let house_edit = tools.is_house_edit(path);
     Ok(Ok(Reach {
         call: classified,
         change: Some(change),
@@ -430,11 +445,11 @@ pub(super) fn standing(
             session: place.session,
         },
     )?;
-    let manual = work.asks();
+    let manual = work.is_asking();
     Ok(Standing {
         house_edit: false,
         net: allow_net
-            || gate::holds(
+            || gate::has_permission(
                 limits,
                 &grants,
                 by,
@@ -663,7 +678,7 @@ mod tests {
             .home
             .store()
             .once(&marker, &request, |_| {
-                Ok(crate::society::outcome("done", false))
+                Ok(crate::society::SocietyOutcome::answered("done"))
             })
             .unwrap();
         service.home.store().begin_cancel(binding).unwrap();
