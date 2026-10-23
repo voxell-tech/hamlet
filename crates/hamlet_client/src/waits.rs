@@ -16,6 +16,11 @@ pub struct Refused(pub String);
 
 /// A received need and the answers offered by the server.
 #[derive(Component, Clone, Debug)]
+#[component(
+    immutable,
+    on_insert = crate::index::file_wait,
+    on_discard = crate::index::unfile_wait
+)]
 pub struct Waiting {
     pub id: String,
     pub by: String,
@@ -108,12 +113,8 @@ impl ChoiceExt for Choice {
     }
 }
 
-pub(crate) fn find(world: &mut World, id: &str) -> Option<Entity> {
-    world
-        .query::<(Entity, &Waiting)>()
-        .iter(world)
-        .find(|(_, wait)| wait.id == id)
-        .map(|(entity, _)| entity)
+pub(crate) fn find(world: &World, id: &str) -> Option<Entity> {
+    world.get_resource::<crate::index::Index>()?.wait(id)
 }
 
 pub(crate) fn upsert(

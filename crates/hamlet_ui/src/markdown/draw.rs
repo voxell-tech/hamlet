@@ -696,9 +696,8 @@ mod tests {
         .init_resource::<chat::Lines>()
         .init_resource::<chat::Reach>()
         .init_resource::<crate::select::Selecting>()
-        .add_systems(bevy::app::Update, chat::fold_lines);
+        .add_systems(bevy::app::PreUpdate, chat::fold_lines);
         mount::<HamletTheme>(app.world_mut(), chat::transcript());
-        app.update();
         app.update();
         let before = spans(&mut app);
         let last = span(&mut app, "Sec");
@@ -860,7 +859,6 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
-        app.update();
         app.update();
         let found = anchors(&mut app);
         assert!(

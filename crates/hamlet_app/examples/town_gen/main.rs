@@ -29,10 +29,7 @@ use hamlet_realm::generator::{
     self, GenView, Loading, Origin, Phase, Tally,
 };
 use hamlet_realm::sound::SoundSettings;
-use hamlet_realm::{
-    WorldSystems, debug, keeper, palette, play, settings, sky, sound,
-    stage, stock,
-};
+use hamlet_realm::{RealmSystems, scene};
 
 use self::bench::{
     BenchRun, MainTime, main_began, main_ended, run_bench,
@@ -98,17 +95,7 @@ fn main() {
             }),
             // The scene and the generator, without the chief and the
             // core's hamlets.
-            (
-                settings::plugin,
-                palette::plugin,
-                play::plugin,
-                sound::plugin,
-                debug::plugin,
-                sky::plugin,
-                stage::plugin,
-                keeper::plugin,
-                stock::plugin,
-            ),
+            scene::plugin,
             generator::plugin,
         ))
         .insert_resource(effects(
@@ -126,7 +113,9 @@ fn main() {
     if let Some(dir) = shots {
         app.insert_resource(ShotRun::into(dir)).add_systems(
             Update,
-            run_shots.run_if(world_loaded).before(WorldSystems),
+            run_shots
+                .run_if(world_loaded)
+                .in_set(RealmSystems::Steer),
         );
     } else if bench {
         app.insert_resource(BenchRun::of(
@@ -137,7 +126,9 @@ fn main() {
         .add_systems(Last, main_ended)
         .add_systems(
             Update,
-            run_bench.run_if(world_loaded).before(WorldSystems),
+            run_bench
+                .run_if(world_loaded)
+                .in_set(RealmSystems::Steer),
         );
     } else {
         // Heard here, where the app keeps it off until asked.
@@ -153,13 +144,15 @@ fn main() {
             sound.volume = volume;
         }
         app.insert_resource(sound)
-            .add_systems(Update, keys.before(WorldSystems));
+            .add_systems(Update, keys.in_set(RealmSystems::Steer));
         let secs = std::env::var("TOWN_DEMO")
             .ok()
             .and_then(|secs| secs.parse::<f32>().ok());
         if let Some(until) = secs {
-            app.insert_resource(Demo::until(until))
-                .add_systems(Update, demo.before(WorldSystems));
+            app.insert_resource(Demo::until(until)).add_systems(
+                Update,
+                demo.in_set(RealmSystems::Steer),
+            );
         }
     }
     app.run();

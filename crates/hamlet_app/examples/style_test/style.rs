@@ -25,10 +25,7 @@ use hamlet_realm::pick::{
     self, Glide, PickSettings, Thing, hit_box, watch,
 };
 use hamlet_realm::sky::{self, CameraSettings, Looks, Sun};
-use hamlet_realm::{
-    Clock, Sky, Step, Stock, WorldCamera, debug, palette, play,
-    settings, sound, stage, stock,
-};
+use hamlet_realm::{Clock, Sky, Step, Stock, WorldCamera};
 use hamlet_vfx::inlay::{self, InlayExt, InlayMaterial, InlayState};
 
 use self::demo::{Demo, View};
@@ -51,17 +48,7 @@ impl Plugin for StylePlugin {
             ..default()
         });
         // The scene of the realm, without its hamlets.
-        app.add_plugins((
-            settings::plugin,
-            palette::plugin,
-            play::plugin,
-            sound::plugin,
-            debug::plugin,
-            sky::plugin,
-            stage::plugin,
-            keeper::plugin,
-            stock::plugin,
-        ));
+        app.add_plugins(hamlet_realm::scene::plugin);
         app.init_resource::<TagSettings>()
             .init_resource::<Demo>()
             .insert_resource(tag::Anchor(Places::default().knot()))

@@ -16,6 +16,7 @@ use bevy_ecs::system::{Commands, In, ResMut, SystemId};
 use bevy_ecs::world::{FromWorld, World};
 use bevy_log::warn;
 use bevy_time::common_conditions::on_real_timer;
+use hamlet_client::connection::ClientSystems;
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Opener>()
@@ -26,7 +27,12 @@ pub(crate) fn plugin(app: &mut App) {
             Update,
             watch.run_if(on_real_timer(Duration::from_secs(1))),
         )
-        .add_systems(Last, (final_watch, exit).chain());
+        // Before the send, so the saves the last watch queues leave
+        // in the closing update.
+        .add_systems(
+            Last,
+            (final_watch, exit).chain().before(ClientSystems::Send),
+        );
 }
 
 /// Reads the last editor saves before a close is considered.

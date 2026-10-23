@@ -48,17 +48,17 @@ impl Trip {
 
 /// Messages on the road right now.
 #[derive(Resource, Default)]
-pub struct Traffic {
+pub struct Trips {
     pub trips: Vec<Trip>,
 }
 
-impl Traffic {
+impl Trips {
     /// Sends `walker` along its road to the other end and back.
     pub fn send(&mut self, pair: Pair, walker: AgentId) {
         self.send_part(pair, walker, 0.0);
     }
 
-    /// As [`Traffic::send`], with the walker already `part` of the
+    /// As [`Trips::send`], with the walker already `part` of the
     /// way along.
     pub fn send_part(
         &mut self,
@@ -88,7 +88,7 @@ pub(super) fn run_traffic(
     drawn: Res<Drawn>,
     loading: Res<Loading>,
     society: Res<Society>,
-    mut traffic: ResMut<Traffic>,
+    mut traffic: ResMut<Trips>,
 ) {
     let town = |agent| society.agent(agent).map(|a| a.town);
     for trip in &mut traffic.trips {
@@ -196,7 +196,7 @@ pub(super) fn carts(
     mut commands: Commands,
     kit: Res<Kit>,
     drawn: Res<Drawn>,
-    traffic: Res<Traffic>,
+    traffic: Res<Trips>,
     mut carts: Local<HashMap<AgentId, Entity>>,
     mut places: Query<&mut Transform>,
 ) {

@@ -203,9 +203,7 @@ mod tests {
     fn a_lamp_is_lit_while_something_waits_and_rung_as_it_comes() {
         let mut app = App::new();
         let (needs, selection, plain) = panels(&mut app);
-        for _ in 0..3 {
-            step(&mut app);
-        }
+        step(&mut app);
         assert_eq!(lamp_and_flash(&app, needs).0, 0.0);
         // A panel no light falls into has nothing to draw.
         assert!(

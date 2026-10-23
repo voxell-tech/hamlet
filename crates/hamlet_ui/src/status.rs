@@ -3,9 +3,10 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use bevy::app::{App, Update};
+use bevy::app::{App, PreUpdate};
 use bevy::ecs::change_detection::{DetectChanges, Ref};
 use bevy::ecs::resource::Resource;
+use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ui::{AlignItems, Overflow, UiRect, px};
 use bevy_fynix::tokens::Tone;
@@ -15,7 +16,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_client::Connection;
 use hamlet_client::chats::{Status, Usage};
-use hamlet_client::connection::State as ConnectionState;
+use hamlet_client::connection::Contact;
 use hamlet_client::realm::{
     HOME, Sandbox, Settings, Settlement, Treasury,
 };
@@ -26,14 +27,16 @@ use crate::links::Aimed;
 use crate::looks::{hairline, note};
 use crate::me::Me;
 use crate::petition::Queue;
-use crate::{AnyView, Cx, View};
+use crate::{AnyView, Cx, PanelSystems, View};
 
 /// The side of an icon in the bar.
 const MARK: f32 = 12.0;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<Bar>()
-        .add_systems(Update, update_status);
+    app.init_resource::<Bar>().add_systems(
+        PreUpdate,
+        update_status.in_set(PanelSystems::Bind),
+    );
 }
 
 /// The words of the status bar.
@@ -87,16 +90,14 @@ pub(crate) fn update_status(
         },
         running_tone: if busy { Tone::Accent } else { Tone::Dim },
         model: settings.0.model.clone(),
-        link: if connection.state == ConnectionState::Connected {
+        link: if connection.state == Contact::Connected {
             settings.0.link.words.clone().unwrap_or_default()
         } else {
             connection.words.clone()
         },
         link_tone: match connection.state {
-            ConnectionState::Lost | ConnectionState::Refused => {
-                Tone::Critical
-            }
-            ConnectionState::Connected
+            Contact::Lost | Contact::Refused => Tone::Critical,
+            Contact::Connected
                 if settings.0.link.state
                     == protocol::LinkState::Failed =>
             {
@@ -291,16 +292,16 @@ mod tests {
             bevy::time::TimePlugin,
             hamlet_client::ClientPlugin { server: None },
             FynixPlugin::<HamletTheme>::default(),
+            crate::panel_sets,
             crate::me::plugin,
         ));
         crate::theme::insert_theme(
             app.world_mut(),
             HamletTheme::designed(),
         );
-        app.init_resource::<Bar>()
+        app.add_plugins(plugin)
             .init_resource::<Queue>()
-            .init_resource::<Aimed>()
-            .add_systems(Update, update_status);
+            .init_resource::<Aimed>();
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
             status_bar(),
@@ -313,9 +314,7 @@ mod tests {
                 app.world_mut(),
                 protocol::ServerMessage::State(state),
             );
-            for _ in 0..3 {
-                app.update();
-            }
+            app.update();
             let shown = words(&mut app);
             assert!(
                 shown.iter().any(|text| text == sandbox),
@@ -328,7 +327,7 @@ mod tests {
     fn the_bar_shows_received_budget_usage_model_link_and_waits() {
         let mut app = panel_app();
         app.insert_resource(Connection {
-            state: ConnectionState::Connected,
+            state: Contact::Connected,
             words: String::new(),
         });
         let mut state = hamlet_testing::realm::state();
@@ -359,10 +358,8 @@ mod tests {
                 .expect("received usage");
         let session = app.world().resource::<Me>().session;
         app.world_mut().entity_mut(session).insert(Usage(usage));
-        app.init_resource::<Bar>()
-            .init_resource::<Aimed>()
-            .add_plugins(crate::petition::plugin)
-            .add_systems(Update, update_status);
+        app.init_resource::<Aimed>()
+            .add_plugins((plugin, crate::petition::plugin));
         app.update();
         bevy_fynix::mount::<crate::theme::HamletTheme>(
             app.world_mut(),
@@ -386,17 +383,14 @@ mod tests {
     #[test]
     fn the_bar_follows_link_changes_and_shows_connection_words_until_connected()
      {
-        use hamlet_client::Connection;
-        use hamlet_client::connection::State;
         let mut app = panel_app();
-        app.init_resource::<Bar>()
+        app.add_plugins(plugin)
             .init_resource::<Queue>()
-            .init_resource::<Aimed>()
-            .add_systems(Update, update_status);
+            .init_resource::<Aimed>();
         let connected = "Connected to ws://127.0.0.1:4100, which \
                          speaks protocol version 0.";
         app.insert_resource(Connection {
-            state: State::Connected,
+            state: Contact::Connected,
             words: connected.into(),
         });
         bevy_fynix::mount::<crate::theme::HamletTheme>(
@@ -420,9 +414,7 @@ mod tests {
                 }],
             }),
         );
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         assert_eq!(
             app.world().resource::<Bar>().connection,
             connected
@@ -435,16 +427,15 @@ mod tests {
                 .any(|text| text
                     == "Reached two models on the server.")
         );
-        for state in [State::Lost, State::Refused, State::Connecting]
+        for state in
+            [Contact::Lost, Contact::Refused, Contact::Connecting]
         {
             let text = format!("The connection is {state:?}.");
             app.insert_resource(Connection {
                 state,
                 words: text.clone(),
             });
-            for _ in 0..3 {
-                app.update();
-            }
+            app.update();
             let shown = words(&mut app);
             assert!(
                 shown.iter().any(|shown| shown == &text),
@@ -456,12 +447,10 @@ mod tests {
             );
         }
         app.insert_resource(Connection {
-            state: State::Connected,
+            state: Contact::Connected,
             words: "Connected again.".into(),
         });
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         assert!(
             words(&mut app)
                 .iter()

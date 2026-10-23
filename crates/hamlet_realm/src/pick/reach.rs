@@ -18,7 +18,7 @@ pub struct Reach {
 
 /// Works out where the pointer is over the world. A world with no
 /// window, or one shown in no panel, keeps what it was told.
-pub fn aim(
+pub(super) fn aim(
     window: Query<&Window, With<PrimaryWindow>>,
     surfaces: Query<
         (&ComputedNode, &UiGlobalTransform),

@@ -231,7 +231,6 @@ mod tests {
             .spawn((put(0.0), GlobalZIndex(HINT_LAYER)))
             .id();
         step(&mut app);
-        step(&mut app);
         assert_eq!(
             app.world().get::<Node>(hint).unwrap().left,
             px(0.0)

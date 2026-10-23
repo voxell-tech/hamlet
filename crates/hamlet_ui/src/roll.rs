@@ -1,11 +1,12 @@
 //! The count of changes to what the panels show, and the checks a
 //! signal reads again by.
 
-use bevy::app::{App, Update};
+use bevy::app::{App, PreUpdate};
 use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::ecs::name::Name;
 use bevy::ecs::query::{Added, Changed, Or, With};
 use bevy::ecs::resource::Resource;
+use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
 use bevy_fynix::{Signal, derived, resource};
@@ -14,6 +15,8 @@ use hamlet_client::realm::{
     Settlement, Treasury, Works,
 };
 use hamlet_client::waits::Waiting;
+
+use crate::PanelSystems;
 
 type AgentMoved = (
     With<Citizen>,
@@ -48,7 +51,8 @@ type AgentLost<'w, 's> = (
 );
 
 pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<Roll>().add_systems(Update, turn_roll);
+    app.init_resource::<Roll>()
+        .add_systems(PreUpdate, turn_roll.in_set(PanelSystems::Bind));
 }
 
 /// Counts the changes to what the panels show, so a panel reads
@@ -123,7 +127,7 @@ pub fn either(
     }
 }
 
-fn turn_roll(
+pub(crate) fn turn_roll(
     agents: Query<(), AgentMoved>,
     hamlets: Query<(), HamletMoved>,
     waits: Query<(), Changed<Waiting>>,

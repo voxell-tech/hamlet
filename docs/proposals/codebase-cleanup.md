@@ -83,42 +83,45 @@ generator's own `testing` module, which reaches its private items.
 
 ## Phase 4: the Bevy side
 
-1. Order the frame drain. `ClientSystems::Receive` in `PreUpdate` and
-   `Send` in `Last`. The drain runs only for a waiting frame or a
-   non-empty outbox. fynix's system set is private and the vendored
-   fynix does not change, so Hamlet orders itself around fynix by
-   schedule, never by naming its systems. As proof, the 67 settle loops
-   in UI tests become single updates.
-2. Wake on frames. The connect task gets a waker that pokes the reactive
-   event loop after each frame. This is the one place a boxed closure is
-   needed, justified in its PR.
-3. Move gift uploads. The folder walk and file reads leave `orders.rs`
-   for `hamlet_client`, run under `spawn_blocking` and use rustix.
-   `hamlet_realm` drops libc. `orders.rs` keeps deeds and moves, at about
-   300 lines.
-4. Public sets in realm and ui. `RealmSystems` with `Steer`, `Aim`, `Act`
-   and `Bridge` chained before `WorldSystems`, and `PanelSystems` with
-   `Follow` and `Bind` before fynix mounts. The ten
-   `.before(WorldSystems)` edges and the `.after(pick::aim)` edges become
-   `in_set`. The three aim systems are private again.
-5. Index and relationships. An `Index` resource, kept by component hooks,
-   for agents, hamlets, waits, chats and roads replaces every per-lookup
-   query. A road becomes two relationships with linked spawn;
-   `prune_roads` is deleted.
-6. Gate the exclusive systems. `run_if` on `settle`, `models::follow` and
-   `run_committed`. `chats::watch` gives way to add and remove observers.
-7. Time, not frames. `PATIENCE` becomes a `Duration` on real time. The
-   three-frame counters become ordering after the receive set.
-8. Small fixes. Tints as a resource updated when the palette changes; the
-   flag settings cloned from the resource rather than parsed again;
-   `EntityEvent` for the events aimed at a chat or a wait; named
-   `SystemParam` structs for the three fifteen-parameter systems; the
-   three shadowing names renamed; overview's duplicate registration
-   deleted; one `scene::plugin` shared by the realm and the examples.
-   `docs/bevy.md` cites systems that exist.
-
-Done when: a server frame reaches the realm, the roll and fynix in the
-same update, and no UI test needs more than one update to settle.
+Built: a server frame reaches the realm, the roll and a mounted view in
+the update it arrives in, as two tests over a loopback connection show,
+and `testing::settle` is one update. `ClientSystems::Receive` applies
+frames in `PreUpdate` and `ClientSystems::Send` sends the outbox in
+`Last`, each gated on what it waits for, and the connect task and the
+gift reads call `connection::Wake`, the one shared closure, after each
+frame or part, which the window answers through winit's event loop
+proxy. The realm's systems are in `RealmSystems` (`Steer`, `Aim`, `Act`,
+`Bridge`), chained before `WorldSystems`, and the three aim systems are
+private. fynix's sets are private and the vendored fynix does not
+change, so the panels order themselves by schedule:
+`PanelSystems::Follow` and `Bind` run in `PreUpdate`, after the receive,
+the input and the picking, before fynix mounts in `Update`.
+`hamlet_client::gifts` walks and reads a gift's files under
+`spawn_blocking`, opening them with `rustix::fs::openat`, so
+`hamlet_realm` has neither an unsafe block nor libc, `orders.rs` keeps
+the deeds by hand and the moves in 194 lines, and `Deeds::allows` is the
+one check of a deed. An `Index` kept by component hooks finds hamlets,
+agents, waits and chats by protocol id; a road is `RoadFrom` and
+`RoadTo` with linked spawn and goes when an end leaves, so `prune_roads`
+is gone; a chat is opened and closed by observers of its `Chat`.
+`saving::close`, `models::follow` and `welcome::run_committed` run only
+when they have work, and a commit replies in its frame, after Bevy's
+focus events. The remembered selection is looked for ten seconds of real
+time. `Tints` follows the palette, a banner's cloth is made from the
+`FlagSettings` resource, the events aimed at one entity are
+`EntityEvent`s, `step`, `letters` and `sync` take named `SystemParam`
+structs, overview's duplicate registration is gone, `scene::plugin` is
+shared by the realm and the examples, and the colliding names are
+`society::Ground`, `generator::Trips` and `connection::Contact`, with no
+alias ([`bevy.md`](../bevy.md), [`tour.md`](../tour.md)). Left: one
+settle-shaped test loop waits the frames the chat's `read_back` gives
+layout, and the chat field's `Draft.step` still counts frames; an agent
+by name among those that left and the realm's towns are still found by
+query; `Road` keeps `ends` beside its relationships; `light_roads` takes
+14 parameters; `magic::prepare` builds its materials from `Tints` once;
+overview's `record.rs` `refresh` is the one exclusive system still run
+every update with no condition; and the generator's drawn tile is a
+second `Ground` beside `society::Ground`.
 
 ## Phase 5: naming and typing
 
@@ -139,8 +142,8 @@ same update, and no UI test needs more than one update to settle.
    and a pi update; `ref_` and `move_` renamed.
 5. Lint cleanup. The remaining expects reviewed, the Bevy crates' prints
    routed through the log, the server given one diagnostic function. The
-   realm's raw `openat` and the CLI's `kill` switched to rustix, then
-   `unsafe_code` denied, with module-level expects.
+   CLI's `kill` switched to rustix, then `unsafe_code` denied, with
+   module-level expects.
 
 Done when: the lint block passes with no expects outside the listed
 unsafe modules, and no type carries a word from a CONTEXT.md avoid list.

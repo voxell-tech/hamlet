@@ -12,7 +12,7 @@ use bevy::prelude::*;
 use hamlet_realm::generator::land::Land;
 use hamlet_realm::generator::noise::key;
 use hamlet_realm::generator::society::Society;
-use hamlet_realm::generator::{GenOptions, GenView, Tally, Traffic};
+use hamlet_realm::generator::{GenOptions, GenView, Tally, Trips};
 use hamlet_realm::sky::SkySettings;
 use hamlet_realm::{Clock, Hour, Stage};
 
@@ -87,7 +87,7 @@ pub fn run_bench(
     mut view: ResMut<GenView>,
     mut stage: ResMut<Stage>,
     mut clock: ResMut<Clock>,
-    mut traffic: ResMut<Traffic>,
+    mut traffic: ResMut<Trips>,
     mut options: ResMut<GenOptions>,
     mut sky_set: ResMut<SkySettings>,
     mut hour: ResMut<Hour>,

@@ -1,11 +1,12 @@
 //! The agent the chat is with, and the ways to point it at another.
 
-use bevy::app::{App, Update};
+use bevy::app::{App, PreUpdate};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::ecs::name::Name;
 use bevy::ecs::query::{Added, Changed, Or, With};
 use bevy::ecs::resource::Resource;
+use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ecs::world::World;
 use hamlet_client::chats::{Chat, Status, Transcript};
@@ -15,6 +16,7 @@ use hamlet_client::realm::{
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Selected, Thing, select};
 
+use crate::PanelSystems;
 use crate::dock::show_tab;
 
 /// Opens the chat with the first mayor.
@@ -38,10 +40,13 @@ pub(crate) fn plugin(app: &mut App) {
         agent: mayor,
         with: None,
     })
-    .add_systems(Update, chief_name);
+    .add_systems(PreUpdate, chief_name.in_set(PanelSystems::Follow));
 }
 
-fn chief_name(chief: Option<Res<Chief>>, mut me: ResMut<Me>) {
+pub(crate) fn chief_name(
+    chief: Option<Res<Chief>>,
+    mut me: ResMut<Me>,
+) {
     if let Some(chief) = chief
         && me.user != chief.0
     {
@@ -83,11 +88,7 @@ fn watch(world: &mut World, to: protocol::Address) -> Entity {
         with: to,
         past: None,
     };
-    let kept = world
-        .query::<(Entity, &Chat)>()
-        .iter(world)
-        .find(|(_, chat)| chat.0 == reference)
-        .map(|(entity, _)| entity);
+    let kept = hamlet_client::chats::find(world, &reference);
     kept.unwrap_or_else(|| {
         world
             .spawn((
@@ -343,7 +344,10 @@ mod tests {
         use hamlet_testing::realm;
 
         let mut app = panel_app();
-        app.add_systems(Update, reseat.run_if(roster_moved));
+        app.add_systems(
+            PreUpdate,
+            reseat.run_if(roster_moved).in_set(PanelSystems::Follow),
+        );
         let mut state = realm::state();
         state.agents.push(realm::agent("home", 1, "scout"));
         receive(

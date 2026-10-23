@@ -1,7 +1,7 @@
 //! A town at work with nobody at the keys.
 
 use bevy::prelude::*;
-use hamlet_realm::generator::Traffic;
+use hamlet_realm::generator::Trips;
 use hamlet_realm::generator::society::Society;
 use hamlet_realm::keeper::KState;
 use hamlet_realm::sound::{Cue, Hearing, Sound};
@@ -31,7 +31,7 @@ pub fn demo(
     time: Res<Time>,
     mut demo: ResMut<Demo>,
     mut world: ResMut<Society>,
-    mut traffic: ResMut<Traffic>,
+    mut traffic: ResMut<Trips>,
     mut cues: MessageReader<Cue>,
     hearing: Option<Res<State<Hearing>>>,
     voices: Query<(), With<SpatialAudioSink>>,

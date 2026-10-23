@@ -1,7 +1,7 @@
 //! The Workspace page: where agents' commands run and their houses
 //! are kept.
 
-use bevy::app::{App, Update};
+use bevy::app::{App, PreUpdate};
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
@@ -23,12 +23,19 @@ use super::{Pane, field, told};
 use crate::icons::Glyph;
 use crate::looks::{action, bare, note, well};
 use crate::secret::secret_field;
-use crate::{AnyView, View};
+use crate::{AnyView, PanelSystems, View};
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Draft>()
         .add_observer(answered)
-        .add_systems(Update, begin.run_if(resource_changed::<Pane>));
+        // Before fynix mounts the page the pane opens, so its fields
+        // start from the draft.
+        .add_systems(
+            PreUpdate,
+            begin
+                .run_if(resource_changed::<Pane>)
+                .in_set(PanelSystems::Follow),
+        );
 }
 
 const CHOICES: [&str; 2] = ["THIS COMPUTER", "REMOTE SERVER"];

@@ -286,9 +286,7 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         assert!(
             words(&mut app).iter().any(|text| text
                 == "The server says no folder is selected.")

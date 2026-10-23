@@ -39,7 +39,7 @@ use hamlet_realm::hand::Readout;
 use hamlet_realm::needs::NeedTag;
 use hamlet_realm::pick::{NameTag, Sign, WorldSurface};
 use hamlet_realm::sky::SkySettings;
-use hamlet_realm::{Hour, Stage, WorldCamera, WorldSystems};
+use hamlet_realm::{Hour, RealmSystems, Stage, WorldCamera};
 
 use crate::dock::PanelAppExt;
 use crate::icons::Glyph;
@@ -71,11 +71,11 @@ pub(crate) fn plugin(app: &mut App) {
     .add_systems(
         Update,
         (
-            drive.before(WorldSystems),
+            drive.in_set(RealmSystems::Steer),
             pace.run_if(in_state(WorldShown)),
             adopt_tags,
             follow_scale,
-            hold_sky.before(WorldSystems),
+            hold_sky.in_set(RealmSystems::Steer),
         ),
     )
     .add_systems(

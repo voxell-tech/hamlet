@@ -2,7 +2,7 @@
 //! keeps, the look kept between launches, and the chief's page of the
 //! Inspector.
 
-use bevy::app::{App, Startup, Update};
+use bevy::app::{App, PreUpdate, Startup, Update};
 use bevy::color::Color;
 use bevy::ecs::change_detection::{DetectChanges, Ref};
 use bevy::ecs::entity::Entity;
@@ -26,7 +26,7 @@ use hamlet_client::messages::UserMessage;
 use hamlet_realm::chief::{
     self, Beside, Chief, Cloak, Hat, Holds, Kept, Light, Look, Player,
 };
-use hamlet_realm::generator::society::Place as Ground;
+use hamlet_realm::generator::society::Ground;
 use hamlet_realm::library::{Library, Stood};
 use hamlet_realm::moving;
 use hamlet_realm::palette::Palette;
@@ -41,15 +41,23 @@ use crate::looks::{
 use crate::me::Me;
 use crate::platform::DisplayText;
 use crate::roll::{agents_moved, either, moved};
-use crate::{AnyView, Cx, View};
+use crate::{AnyView, Cx, PanelSystems, View};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_observer(spoke)
         .add_systems(Startup, enter)
+        // The chief enters under the name just followed, and is there
+        // before the mascot is sent, which moves only when the chat
+        // or the selection does.
         .add_systems(
-            Update,
-            (enter.run_if(resource_changed::<Me>), keep).chain(),
-        );
+            PreUpdate,
+            enter
+                .run_if(resource_changed::<Me>)
+                .after(crate::me::chief_name)
+                .before(accompany)
+                .in_set(PanelSystems::Follow),
+        )
+        .add_systems(Update, keep);
 }
 
 /// Brings the chief this window belongs to into the world, with the
@@ -476,7 +484,6 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
-        app.update();
         app.update();
         let chief = chief::named(app.world_mut(), "wren").unwrap();
         assert!(app.world().get::<Player>(chief).is_some());

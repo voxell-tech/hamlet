@@ -709,9 +709,7 @@ mod tests {
     fn a_glow_goes_with_its_button() {
         let mut app = app();
         let button = button(&mut app, Mood::Good);
-        for _ in 0..3 {
-            step(&mut app);
-        }
+        step(&mut app);
         assert_eq!(glows(&mut app).len(), 1);
         app.world_mut().entity_mut(button).despawn();
         step(&mut app);

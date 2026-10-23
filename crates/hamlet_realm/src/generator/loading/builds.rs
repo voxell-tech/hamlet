@@ -3,7 +3,9 @@
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::window::RequestRedraw;
-use hamlet_vfx::flag::{FlagMaterial, FlagSettings, Waving, flag};
+use hamlet_vfx::flag::{
+    FlagMaterial, FlagSettings, Waving, cloth, flag,
+};
 
 use super::Loading;
 use crate::Clock;
@@ -55,8 +57,8 @@ pub(in crate::generator) fn finish_loading(
         &society,
         &mut drawn,
         &mut meshes,
-        flags.as_mut().map(|(waving, cloth, set)| {
-            (&mut **waving, &mut **cloth, &**set)
+        flags.as_mut().map(|(waving, materials, set)| {
+            (&mut **waving, &mut **materials, &**set)
         }),
         clock.t,
     );
@@ -121,9 +123,15 @@ fn place_builds(
                 }
             }
         }
-        if let Some(((cloth, at), (waving, flags, set))) =
+        if let Some(((at, colours), (waving, flags, set))) =
             built.banner.zip(flags.as_mut())
         {
+            let mesh = meshes.add(cloth(
+                set,
+                house::BANNER.x,
+                house::BANNER.y,
+                &colours,
+            ));
             let banner = commands
                 .spawn((
                     flag(
@@ -131,7 +139,7 @@ fn place_builds(
                         flags,
                         set,
                         now,
-                        meshes.add(cloth),
+                        mesh,
                         house::BANNER.x,
                     ),
                     Transform::from_translation(at),

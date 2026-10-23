@@ -51,7 +51,7 @@ view layer; the workspace excludes it, and it is not edited here.
 | `harnesses/pi/` | Node pi-durable/pi-ai runtime; conversations, provider calls, compaction and forks |
 | `hamlet_protocol` | Both protocols' types: `client` and `runtime`; `RequestId`, which holds only a hyphenated UUID; `State::apply` for a client's changes; recorded frames, the schema pi reads and the client schema's fingerprint |
 | `hamlet_acceptance` | Real-process protocol, CLI and OAuth scenarios on scratch homes, through the typed `Client`, the `hamlet` command and `hamlet_testing`'s server |
-| `hamlet_client` | Connection, outbox, realm, waits and watched chats as Bevy entities |
+| `hamlet_client` | Connection, outbox, realm, waits and watched chats as Bevy entities, the `Index` that finds them by their protocol ids, and gifts read in parts off the frame |
 | `hamlet_desktop` | File/link openers, editor files, dialogs, wake locks and window icon |
 | `hamlet_assets` | Embedded assets and Bevy asset loading |
 | `hamlet_realm` | Land, hamlets, houses, roads, robots, chief, sound and camera |
@@ -67,15 +67,38 @@ code needs. `hamlet_client`, `hamlet_assets` and `hamlet_desktop` use
 Bevy's parts (`bevy_app`, `bevy_ecs`, `bevy_asset`, ...) rather than
 `bevy`, so `cargo test -p hamlet_assets` builds no renderer.
 
-`RealmPlugin` in `hamlet_realm/src/lib.rs` adds the scene modules, then the
+`hamlet_client/src/connection.rs` applies the server's frames in
+`PreUpdate` (`ClientSystems::Receive`), so the realm and the panels see a
+frame in the update it arrives in, and sends the outbox in `Last`
+(`ClientSystems::Send`). The connect task calls the `Wake` resource after
+each frame it hands over, and a gift's read after each folder walked or
+part read; `hamlet_ui/src/window.rs` inserts one that wakes winit's
+reactive loop, so a frame is drawn at once rather than at the loop's
+next timeout. `connection::Contact` is the window's standing
+with its server: connecting, connected, lost or refused. `index.rs` finds
+a hamlet, an agent, a wait or a chat by its protocol id, kept by the
+components' hooks, and `gifts.rs` walks and reads a gift's files on
+Tokio's blocking threads.
+
+`RealmPlugin` in `hamlet_realm/src/lib.rs` adds the scene, then the
 generator, the chief's interactions and the bridge from client entities.
-Examples that only draw a scene add its module plugins themselves; the
-town generator also adds `generator::plugin` and an `Origin` for its seed.
+`scene::plugin` adds the scene's nine plugins in order; examples that
+only draw a scene add it themselves, and the town generator also adds
+`generator::plugin` and an `Origin` for its seed. The realm's steps
+before the world are `RealmSystems` in `hamlet_realm/src/stage.rs`
+(`Steer`, `Aim`, `Act`, `Bridge`, then `WorldSystems`), and
+[`bevy.md`](bevy.md#order) says what goes in each. In the generator,
+`society::Ground` is what can be picked up and set down (a town, the
+chief's place, the library), and `Trips` the letters on the roads right
+now.
 
 `hamlet_ui/src/screens/` groups the panels drawn from the client's state.
 `widgets/` groups their shared controls: `feel/`, `icons.rs`, `tabs.rs`,
 `platform.rs` and `tuning.rs`. The other panels live beside those folders;
-`theme.rs` and `looks.rs` define their appearance.
+`theme.rs` and `looks.rs` define their appearance. The panels' steps
+before fynix mounts are `PanelSystems` in `hamlet_ui/src/lib.rs`
+(`Follow`, `Bind`), in `PreUpdate`; `panel_sets` orders them, and the
+apps in `testing.rs` add it, so a UI test settles in one update.
 
 ## The server
 
@@ -181,7 +204,8 @@ ordinary tools.
 | CLI process discovery | `hamlet_cli/src/process.rs`; [`cli.md`](cli.md) |
 | Client protocol | `hamlet_protocol/src/client/`, then `V` and `cargo test -p hamlet_protocol` for `client_schema.fingerprint`; [`protocol.md`](protocol.md) |
 | Runtime protocol | `hamlet_protocol/src/runtime/`, then `cargo test -p hamlet_protocol`; [`harness.md`](harness.md) |
-| Received entities | `hamlet_client/src/connection.rs`, `realm.rs`, `waits.rs`, `chats.rs` |
+| Received entities | `hamlet_client/src/connection.rs`, `realm.rs`, `waits.rs`, `chats.rs`, `index.rs` |
+| Gifts of skills and files, their upload in parts | `hamlet_client/src/gifts.rs`; dropped files reach it through `hamlet_realm/src/orders.rs` |
 | A panel or right-click menu | `hamlet_ui/src/screens/`, `world_menu/items.rs` |
 | Panels' colors, controls and icons | `assets/theme.toml`; `hamlet_ui/src/theme.rs`, `looks.rs`, `widgets/feel/`, `widgets/icons.rs` |
 | World colors, size or timing | `assets/palette.toml`, `world.toml`, `vfx.toml`, `ui.toml` |

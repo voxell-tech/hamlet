@@ -1,12 +1,18 @@
 //! The server's address and the window's WebSocket connection.
+//!
+//! Frames are applied in `PreUpdate`, so every system of the update,
+//! the realm's and the panels', sees a frame in the update it arrives
+//! in. Requests leave in `Last`, so one queued anywhere in the update
+//! leaves in that update.
 
 use std::collections::VecDeque;
 use std::future::poll_fn;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::task::Poll;
 use std::time::{Duration, Instant};
 
-use bevy_app::{App, Update};
+use bevy_app::{App, Last, PreUpdate};
 use bevy_ecs::prelude::*;
 use futures::{SinkExt, StreamExt};
 use hamlet_protocol::client as protocol;
@@ -25,20 +31,66 @@ use crate::outbox::Outbox;
 
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
-/// The window's connection and incoming-frame system.
+/// The window's connection, its incoming frames and its requests.
 pub fn plugin(app: &mut App) {
     app.init_resource::<Connection>()
         .init_resource::<Retry>()
         .init_resource::<Heartbeat>()
         .init_resource::<Discovery>()
-        .add_systems(Update, update);
+        .add_systems(
+            PreUpdate,
+            (
+                discover.run_if(is_searching),
+                open.run_if(can_open),
+                receive
+                    .run_if(has_incoming)
+                    .in_set(ClientSystems::Receive),
+            )
+                .chain(),
+        )
+        .add_systems(
+            Last,
+            send.run_if(has_requests).in_set(ClientSystems::Send),
+        );
     if let Some(Server(server)) = app.world().get_resource::<Server>()
     {
         let words = format!("Connecting to {}...", server.url);
         app.insert_resource(Connection {
-            state: State::Connecting,
+            state: Contact::Connecting,
             words,
         });
+    }
+}
+
+/// The connection's systems.
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ClientSystems {
+    /// Applies the frames the connection handed over.
+    Receive,
+    /// Sends the outbox.
+    Send,
+}
+
+/// The call that wakes the window's event loop after the connect task
+/// hands it a frame or a change of the connection, or a gift's read
+/// hands it a walked folder or a part.
+#[derive(Resource, Clone)]
+pub struct Wake(
+    // Shared: the connect task and every gift read hold the one
+    // callable, of a type this crate cannot name, a closure over the
+    // window's event loop.
+    Arc<dyn Fn() + Send + Sync>,
+);
+
+impl Wake {
+    /// A wake that makes the given call.
+    pub fn new(wake: impl Fn() + Send + Sync + 'static) -> Self {
+        Self(Arc::new(wake))
+    }
+
+    /// Wakes the window.
+    pub(crate) fn call(&self) {
+        (self.0)();
     }
 }
 
@@ -103,43 +155,65 @@ enum Incoming {
     Frame(protocol::ServerMessage),
 }
 
+/// The connect task's end of the incoming channel.
+struct Handoff {
+    sender: mpsc::Sender<Incoming>,
+    wake: Option<Wake>,
+}
+
+impl Handoff {
+    async fn send(
+        &self,
+        incoming: Incoming,
+    ) -> Result<(), mpsc::error::SendError<()>> {
+        // The error drops the frame: nobody is left to read it.
+        self.sender
+            .send(incoming)
+            .await
+            .map_err(|_| mpsc::error::SendError(()))?;
+        if let Some(wake) = &self.wake {
+            wake.call();
+        }
+        Ok(())
+    }
+}
+
 #[derive(Resource, Default)]
 struct Discovery {
     next: Option<Instant>,
     delay: Duration,
 }
 
-fn discover(world: &mut World) {
-    if world.contains_resource::<Server>() {
-        return;
-    }
-    let Some(local) = world.get_resource::<LocalServer>() else {
-        return;
-    };
+fn is_searching(
+    local: Option<Res<LocalServer>>,
+    server: Option<Res<Server>>,
+) -> bool {
+    local.is_some() && server.is_none()
+}
+
+fn discover(
+    local: Res<LocalServer>,
+    retry: Res<Retry>,
+    mut discovery: ResMut<Discovery>,
+    mut commands: Commands,
+) {
     let now = Instant::now();
-    if world
-        .resource::<Discovery>()
-        .next
-        .is_some_and(|next| now < next)
-    {
+    if discovery.next.is_some_and(|next| now < next) {
         return;
     }
-    let found = ServerAddress::in_home(&local.0);
-    match found {
+    match ServerAddress::in_home(&local.0) {
         Ok(server) => {
-            world.insert_resource(Connection {
-                state: State::Connecting,
+            commands.insert_resource(Connection {
+                state: Contact::Connecting,
                 words: format!("Connecting to {}...", server.url),
             });
-            world.insert_resource(Server(server));
+            commands.insert_resource(Server(server));
         }
         Err(words) => {
-            world.insert_resource(Connection {
-                state: State::Lost,
+            commands.insert_resource(Connection {
+                state: Contact::Lost,
                 words,
             });
-            let retry = *world.resource::<Retry>();
-            let mut discovery = world.resource_mut::<Discovery>();
             discovery.delay = if discovery.next.is_none() {
                 retry.first
             } else {
@@ -151,32 +225,42 @@ fn discover(world: &mut World) {
     }
 }
 
-fn update(world: &mut World) {
-    discover(world);
-    if !world.contains_resource::<Bridge>() {
-        let (Some(Server(server)), Some(runtime)) = (
-            world.get_resource::<Server>(),
-            world.get_resource::<Tokio>(),
-        ) else {
-            return;
-        };
-        let (frames, incoming) = mpsc::channel(256);
-        let (outgoing, requests) = mpsc::channel(1);
-        let retry = *world.resource::<Retry>();
-        let heartbeat = *world.resource::<Heartbeat>();
-        let task = runtime.0.spawn(connect(
-            server.clone(),
-            frames,
-            requests,
-            retry,
-            heartbeat,
-        ));
-        world.insert_resource(Bridge {
-            incoming,
-            outgoing,
-            task,
-        });
-    }
+fn can_open(
+    server: Option<Res<Server>>,
+    runtime: Option<Res<Tokio>>,
+    bridge: Option<Res<Bridge>>,
+) -> bool {
+    server.is_some() && runtime.is_some() && bridge.is_none()
+}
+
+/// Spawns the connect task, which shares the [`Wake`] if there is
+/// one.
+fn open(world: &mut World) {
+    let (sender, incoming) = mpsc::channel(256);
+    let (outgoing, requests) = mpsc::channel(1);
+    let frames = Handoff {
+        sender,
+        wake: world.get_resource::<Wake>().cloned(),
+    };
+    let server = world.resource::<Server>().0.clone();
+    let retry = *world.resource::<Retry>();
+    let heartbeat = *world.resource::<Heartbeat>();
+    let task = world
+        .resource::<Tokio>()
+        .0
+        .spawn(connect(server, frames, requests, retry, heartbeat));
+    world.insert_resource(Bridge {
+        incoming,
+        outgoing,
+        task,
+    });
+}
+
+fn has_incoming(bridge: Option<Res<Bridge>>) -> bool {
+    bridge.is_some_and(|bridge| !bridge.incoming.is_empty())
+}
+
+fn receive(world: &mut World) {
     world.resource_scope(|world, mut bridge: Mut<Bridge>| {
         while let Ok(incoming) = bridge.incoming.try_recv() {
             match incoming {
@@ -184,7 +268,7 @@ fn update(world: &mut World) {
                     let url = &world.resource::<Server>().0.url;
                     let words = format!("Connected to {url}.");
                     world.insert_resource(Connection {
-                        state: State::Connected,
+                        state: Contact::Connected,
                         words,
                     });
                     if again {
@@ -204,7 +288,7 @@ fn update(world: &mut World) {
                         )
                     };
                     world.insert_resource(Connection {
-                        state: State::Lost,
+                        state: Contact::Lost,
                         words,
                     });
                 }
@@ -215,13 +299,13 @@ fn update(world: &mut World) {
                          {text}"
                     );
                     world.insert_resource(Connection {
-                        state: State::Refused,
+                        state: Contact::Refused,
                         words,
                     });
                 }
                 Incoming::Invalid(words) => {
                     world.insert_resource(Connection {
-                        state: State::Lost,
+                        state: Contact::Lost,
                         words,
                     });
                 }
@@ -236,18 +320,24 @@ fn update(world: &mut World) {
                 }
             }
         }
-        if world.resource::<Connection>().state == State::Connected
-            && let Ok(permit) = bridge.outgoing.try_reserve()
-        {
-            let messages = world
-                .resource_mut::<Outbox>()
-                .drain()
-                .collect::<Vec<_>>();
-            if !messages.is_empty() {
-                permit.send(messages);
-            }
-        }
     });
+}
+
+fn has_requests(outbox: Res<Outbox>) -> bool {
+    !outbox.is_empty()
+}
+
+fn send(
+    connection: Res<Connection>,
+    bridge: Option<Res<Bridge>>,
+    mut outbox: ResMut<Outbox>,
+) {
+    if connection.state == Contact::Connected
+        && let Some(bridge) = bridge
+        && let Ok(permit) = bridge.outgoing.try_reserve()
+    {
+        permit.send(outbox.drain().collect());
+    }
 }
 
 /// Names the protocol version in the words of a connection the server
@@ -260,7 +350,7 @@ fn greeted(world: &mut World) {
         protocol::V
     );
     let connection = world.resource::<Connection>();
-    if connection.state == State::Connected
+    if connection.state == Contact::Connected
         && connection.words != words
     {
         world.resource_mut::<Connection>().words = words;
@@ -269,7 +359,7 @@ fn greeted(world: &mut World) {
 
 async fn connect(
     server: ServerAddress,
-    frames: mpsc::Sender<Incoming>,
+    frames: Handoff,
     mut requests: mpsc::Receiver<Vec<protocol::ClientMessage>>,
     retry: Retry,
     heartbeat: Heartbeat,
@@ -350,7 +440,7 @@ fn wire(message: &protocol::ClientMessage) -> Message {
 )]
 async fn exchange(
     socket: &mut Socket,
-    frames: &mpsc::Sender<Incoming>,
+    frames: &Handoff,
     requests: &mut mpsc::Receiver<Vec<protocol::ClientMessage>>,
     pending: &mut VecDeque<protocol::ClientMessage>,
     reported: &mut bool,
@@ -493,9 +583,10 @@ async fn advance(
     .await
 }
 
-/// The state of the window's connection.
+/// The window's standing with its server: connecting, connected,
+/// lost or refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum State {
+pub enum Contact {
     Connecting,
     Connected,
     Lost,
@@ -505,14 +596,14 @@ pub enum State {
 /// The connection state and words shown to the chief.
 #[derive(Resource, Clone, Debug)]
 pub struct Connection {
-    pub state: State,
+    pub state: Contact,
     pub words: String,
 }
 
 impl Default for Connection {
     fn default() -> Self {
         Self {
-            state: State::Lost,
+            state: Contact::Lost,
             words: "No server selected. Start one with hamlet \
                     server."
                 .into(),
@@ -569,16 +660,54 @@ mod tests {
         let until = Instant::now() + Duration::from_secs(3);
         while Instant::now() < until
             && app.world().resource::<Connection>().state
-                != State::Connected
+                != Contact::Connected
         {
             app.update();
             std::thread::sleep(Duration::from_millis(5));
         }
         assert_eq!(
             app.world().resource::<Connection>().state,
-            State::Connected
+            Contact::Connected
         );
         assert_eq!(app.world().resource::<Server>().0.url, url);
         task.abort();
+    }
+
+    #[test]
+    fn each_frame_handed_over_wakes_the_window_for_one_update_to_apply()
+     {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let url = hamlet_testing::realm::serve(
+            runtime.handle(),
+            vec![protocol::ServerMessage::State(
+                hamlet_testing::realm::state(),
+            )],
+        );
+        let (woke, wakes) = std::sync::mpsc::channel();
+        let mut app = App::new();
+        app.add_plugins(ClientPlugin {
+            server: Some(ServerAddress {
+                url: url.clone(),
+                token: "wake-token".into(),
+            }),
+        })
+        .insert_resource(Tokio(runtime.handle().clone()))
+        .insert_resource(Wake::new(move || {
+            let _ = woke.send(());
+        }));
+        app.update();
+        // One wake for the connection, one for the state.
+        for _ in 0..2 {
+            wakes.recv_timeout(Duration::from_secs(5)).unwrap();
+        }
+        app.update();
+        assert_eq!(
+            app.world().resource::<Connection>().words,
+            format!(
+                "Connected to {url}, which speaks protocol version \
+                 {}.",
+                protocol::V
+            )
+        );
     }
 }

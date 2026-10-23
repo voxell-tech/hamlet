@@ -9,7 +9,7 @@ use hamlet_realm::generator::layout::{Route, plot};
 use hamlet_realm::generator::society::{
     AgentId, Pair, RoadLevel, Society, TownId,
 };
-use hamlet_realm::generator::{GenView, Rehearsal, Traffic, house};
+use hamlet_realm::generator::{GenView, Rehearsal, Trips, house};
 use hamlet_realm::keeper::KState;
 use hamlet_realm::keeper::work::{Chore, routine};
 use hamlet_realm::sky::SkySettings;
@@ -545,7 +545,7 @@ pub fn run_shots(
     mut view: ResMut<GenView>,
     mut stage: ResMut<Stage>,
     mut clock: ResMut<Clock>,
-    mut traffic: ResMut<Traffic>,
+    mut traffic: ResMut<Trips>,
     mut rehearsal: ResMut<Rehearsal>,
     sky_set: Res<SkySettings>,
     mut hour: ResMut<Hour>,

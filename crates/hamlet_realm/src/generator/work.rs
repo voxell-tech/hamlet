@@ -21,7 +21,7 @@ use super::homing::homeward;
 use super::land::Land;
 use super::society::AgentId;
 use super::sync::Drawn;
-use super::traffic::Traffic;
+use super::traffic::Trips;
 use crate::Clock;
 use crate::keeper::work::{Chore, Station, Task, Work, routine};
 use crate::keeper::{self, Act, KState, Keeper, Motion, Stride};
@@ -308,7 +308,7 @@ pub(super) fn work_robots(
     clock: Res<Clock>,
     land: Res<Land>,
     drawn: Res<Drawn>,
-    traffic: Res<Traffic>,
+    traffic: Res<Trips>,
     rehearsal: Res<Rehearsal>,
     voting: Res<Voting>,
     objecting: Option<Res<Objecting>>,

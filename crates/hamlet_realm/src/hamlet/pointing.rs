@@ -8,7 +8,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use hamlet_client::realm::{Left, LivesIn, Mayor, Settlement};
 
-use super::{Housed, Returning, Sited, first, view};
+use super::{Housed, Returning, Sited, first, housing};
 use crate::generator::house::Remains;
 use crate::generator::land::Land;
 use crate::generator::society::AgentId;
@@ -17,7 +17,7 @@ use crate::keeper::Act;
 use crate::pick::{
     self, Footprint, Named, PickSettings, Thing, hit_box,
 };
-use crate::{WorldSystems, adopt};
+use crate::{RealmSystems, adopt};
 
 pub(super) fn plugin(app: &mut App) {
     app.add_systems(
@@ -35,8 +35,10 @@ pub(super) fn plugin(app: &mut App) {
             commons.run_if(any_match_filter::<Added<Common>>),
         )
             .chain()
-            .after(view::aim)
-            .before(WorldSystems),
+            // The agents are known by the Housed that housing gives
+            // them.
+            .after(housing::house)
+            .in_set(RealmSystems::Bridge),
     );
 }
 

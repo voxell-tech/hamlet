@@ -6,6 +6,7 @@ mod towns;
 
 use std::collections::{HashMap, HashSet};
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use super::building::{Builds, Cost, Course};
@@ -145,26 +146,57 @@ impl Pass<'_, '_, '_> {
     }
 }
 
+/// The society, land, kits and settings a pass draws from.
+#[derive(SystemParam)]
+pub(super) struct Makings<'w, 's> {
+    society: Res<'w, Society>,
+    land: Res<'w, Land>,
+    kit: Res<'w, Kit>,
+    robot_kit: Res<'w, keeper::Kit>,
+    sky: Res<'w, SkySettings>,
+    options: Res<'w, GenOptions>,
+    motion: Res<'w, HouseMotion>,
+    clock: Res<'w, Clock>,
+    passing: Query<'w, 's, &'static Passage>,
+}
+
+/// The drawn set, builds under way, tally and assets a pass draws
+/// into.
+#[derive(SystemParam)]
+pub(super) struct Drawing<'w> {
+    drawn: ResMut<'w, Drawn>,
+    loading: ResMut<'w, Loading>,
+    tally: ResMut<'w, Tally>,
+    meshes: ResMut<'w, Assets<Mesh>>,
+    materials: ResMut<'w, Assets<StandardMaterial>>,
+}
+
 /// Brings what is spawned in line with the society: spawns what is
 /// new, rebuilds what changed and despawns what is gone. What each
 /// agent is doing is left to [`tell_states`].
 pub(super) fn sync(
     mut commands: Commands,
-    society: Res<Society>,
-    land: Res<Land>,
-    kit: Res<Kit>,
-    sky: Res<SkySettings>,
-    options: Res<GenOptions>,
-    clock: Res<Clock>,
-    mut drawn: ResMut<Drawn>,
-    mut loading: ResMut<Loading>,
-    mut tally: ResMut<Tally>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    passing: Query<&'static Passage>,
-    robot_kit: Res<keeper::Kit>,
-    motion: Res<HouseMotion>,
+    makings: Makings,
+    drawing: Drawing,
 ) {
+    let Makings {
+        society,
+        land,
+        kit,
+        robot_kit,
+        sky,
+        options,
+        motion,
+        clock,
+        passing,
+    } = makings;
+    let Drawing {
+        mut drawn,
+        mut loading,
+        mut tally,
+        mut meshes,
+        mut materials,
+    } = drawing;
     let mut pass = Pass {
         commands: &mut commands,
         society: &society,

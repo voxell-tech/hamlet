@@ -3,7 +3,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use bevy::app::{App, Update};
+use bevy::app::{App, PreUpdate, Update};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::Changed;
@@ -38,7 +38,7 @@ use crate::looks::{
 };
 use crate::me::Me;
 use crate::theme::HamletTheme;
-use crate::{AnyView, Cx, View, chat, inspector};
+use crate::{AnyView, Cx, PanelSystems, View, chat, inspector};
 
 /// Characters of a title a row shows.
 const TITLE_SHOWN: usize = 90;
@@ -53,12 +53,12 @@ pub(crate) fn plugin(app: &mut App) {
         .add_observer(stale_on_job)
         .add_systems(
             Update,
-            (
-                refresh.run_if(resource_equals(
-                    inspector::Section::History,
-                )),
-                keep_reader,
-            ),
+            refresh
+                .run_if(resource_equals(inspector::Section::History)),
+        )
+        .add_systems(
+            PreUpdate,
+            keep_reader.in_set(PanelSystems::Bind),
         );
 }
 
@@ -640,7 +640,6 @@ mod tests {
             {"number": 1, "current": false, "title": "Count hives", "by": "bob", "began": now - 300000, "modified": now - 300000, "messages": 2, "tokens": 800}
         ]})).unwrap());
         app.update();
-        app.update();
         let shown = words(&mut app);
         assert!(shown.iter().any(|text| text == "2 sessions"));
         assert!(shown.iter().any(|text| text
@@ -688,7 +687,6 @@ mod tests {
             .find(|m| m["type"] == "open" && m["chat"]["past"] == 1)
             .unwrap();
         hamlet_client::receive(app.world_mut(), serde_json::from_value(json!({"type": "transcript", "to": open["id"], "chat": chat, "items": [{"id": "old:0", "at": now, "kind": "assistant", "text": "Seven hives."}], "earlier": null, "last": null, "working": false, "pending": 0, "usage": {"calls": 0, "unreported": 0, "input": 0, "cached": 0, "output": 0, "reasoning": 0, "ms": 0, "micros": 0, "lastInput": 0, "summary": ""}})).unwrap());
-        app.update();
         app.update();
         assert!(
             app.world()

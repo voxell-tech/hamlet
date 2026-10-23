@@ -13,7 +13,7 @@ use bevy::prelude::*;
 use hamlet_assets::tint;
 
 use super::pick::{Hovered, Selected, Thing};
-use super::{WorldCamera, WorldSystems};
+use super::{RealmSystems, WorldCamera};
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<DebugSettings>()
@@ -25,7 +25,7 @@ pub fn plugin(app: &mut App) {
             Update,
             (toggle, apply.run_if(resource_changed::<DebugSettings>))
                 .chain()
-                .before(WorldSystems),
+                .in_set(RealmSystems::Act),
         )
         .add_systems(
             PostUpdate,

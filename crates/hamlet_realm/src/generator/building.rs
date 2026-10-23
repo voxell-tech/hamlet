@@ -7,7 +7,6 @@ use bevy::mesh::Indices;
 use bevy::prelude::*;
 use bevy::tasks::futures_lite::future::poll_once;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on};
-use hamlet_vfx::flag::{FlagSettings, cloth};
 
 use super::house::{self, Remains, TownStyle};
 use super::land::Land;
@@ -60,8 +59,8 @@ pub(super) struct HouseBuilt {
     /// The window panes and where the door lantern hangs. Only a
     /// house that is lived in has them.
     pub fittings: Option<(Mesh, Vec3)>,
-    /// The leader's banner, and where it hangs from.
-    pub banner: Option<(Mesh, Vec3)>,
+    /// The point the leader's banner hangs from, and its colours.
+    pub banner: Option<(Vec3, [Vec3; 2])>,
     pub cost: Cost,
 }
 
@@ -97,15 +96,7 @@ fn build_house(land: &Land, recipe: HouseRecipe) -> HouseBuilt {
         cost: Cost::of(&[&built.body, &built.panes]),
         body: built.body.build(),
         fittings: Some((built.panes.build(), built.lamp)),
-        banner: built.banner.map(|(at, colours)| {
-            let cloth = cloth(
-                &FlagSettings::default(),
-                house::BANNER.x,
-                house::BANNER.y,
-                &colours,
-            );
-            (cloth, at)
-        }),
+        banner: built.banner,
     }
 }
 

@@ -220,7 +220,7 @@ fn firefly_swarm(
 }
 
 /// Makes the effects for the density that is set, and makes them
-/// again when it or their tuning changes.
+/// again when it, their tuning or their tints change.
 fn make(
     mut commands: Commands,
     density: Res<Density>,
@@ -233,7 +233,8 @@ fn make(
     let stale = sparks
         .as_ref()
         .is_none_or(|sparks| sparks.made_for != density.0)
-        || set.is_changed();
+        || set.is_changed()
+        || tints.is_changed();
     if !stale {
         return;
     }

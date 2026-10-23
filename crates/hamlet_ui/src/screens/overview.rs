@@ -5,7 +5,7 @@ mod hamlet;
 mod record;
 mod rows;
 
-use bevy::app::{App, Startup, Update};
+use bevy::app::{App, Update};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::Children;
@@ -20,10 +20,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row, scroll, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
-use hamlet_client::realm::{
-    Activity, Closed, Deeds, HOME, LivesIn, Settlement, Treasury,
-};
-use hamlet_client::waits::Waiting;
+use hamlet_client::realm::{Closed, Deeds, HOME, Settlement};
 use hamlet_realm::pick::{Thing, focus_on, select};
 
 pub use self::hamlet::{Naming, Page, hamlet};
@@ -45,7 +42,6 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Search>()
         .init_resource::<Naming>()
         .init_resource::<Page>()
-        .add_systems(Startup, register)
         .add_systems(Update, (read_search, tabs::mark::<Page>));
 }
 
@@ -56,17 +52,6 @@ pub struct Search(String);
 /// The search field's root, to find its editable child.
 #[derive(Component)]
 pub struct SearchField;
-
-/// Registers the components these views read, so that a shared
-/// reference can query them before anything has them.
-pub fn register(world: &mut World) {
-    hamlet_client::realm::register(world);
-    world.register_component::<Settlement>();
-    world.register_component::<LivesIn>();
-    world.register_component::<Activity>();
-    world.register_component::<Treasury>();
-    world.register_component::<Waiting>();
-}
 
 /// Follows the search as it is typed.
 pub fn read_search(
@@ -417,9 +402,7 @@ mod tests {
         assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/restore-hamlet mill" && s.to.hamlet == "home")));
         press(&mut app, "DELETE FOR GOOD");
         assert!(!app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text.starts_with("/erase-hamlet"))));
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         assert!(
             words(&mut app)
                 .iter()
@@ -428,9 +411,7 @@ mod tests {
         press(&mut app, "DELETE");
         assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/erase-hamlet mill" && s.to.hamlet == "home")));
         app.world_mut().resource_mut::<Deeds>().0.clear();
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         let shown = words(&mut app);
         assert!(
             !shown
@@ -495,7 +476,6 @@ mod tests {
             protocol::ServerMessage::State(state),
         );
         app.update();
-        app.update();
         assert!(
             !words(&mut app)
                 .contains(&"DELETE MILL FOR GOOD?".into())
@@ -523,9 +503,7 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::State(state.clone()),
         );
-        for _ in 0..2 {
-            app.update();
-        }
+        app.update();
         assert!(
             words(&mut app)
                 .iter()
@@ -536,9 +514,7 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
-        for _ in 0..2 {
-            app.update();
-        }
+        app.update();
         assert!(
             words(&mut app)
                 .iter()
@@ -551,7 +527,7 @@ mod tests {
         use hamlet_client::realm::Deeds;
         use hamlet_realm::generator::GenSettings;
         use hamlet_realm::generator::land::Land;
-        use hamlet_realm::generator::society::{Place, Society};
+        use hamlet_realm::generator::society::{Ground, Society};
         use hamlet_realm::hamlet::Sited;
         use hamlet_realm::moving::Carrying;
         use hamlet_realm::palette::Palette;
@@ -577,9 +553,7 @@ mod tests {
             .resource_mut::<Deeds>()
             .0
             .push("move-hamlet".into());
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         assert!(words(&mut app).iter().any(|text| text == "MOVE"));
         let mut land =
             Land::new(1, GenSettings::default(), Palette::default());
@@ -593,7 +567,7 @@ mod tests {
         press(&mut app, "MOVE");
         assert_eq!(
             app.world().resource::<Carrying>().0.unwrap().place,
-            Place::Town(town)
+            Ground::Town(town)
         );
     }
 

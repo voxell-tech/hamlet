@@ -9,9 +9,9 @@ use bevy_fynix::views::{
     text_field,
 };
 use bevy_fynix::{ScopedExt, resource};
-use hamlet_client::realm::HOME;
+use hamlet_client::realm::{Deeds, HOME};
 
-use super::{close, has};
+use super::close;
 use crate::feel::Mood;
 use crate::looks::{brass, lamp, lettered, note, well};
 use crate::platform::DisplayText;
@@ -67,7 +67,7 @@ fn asks(
 /// The form a hamlet is founded with.
 pub(super) fn founding(at: Vec2) -> AnyView {
     AnyView::new(move |cx: &mut crate::Cx| {
-        if !has(cx.world, "found") {
+        if !Deeds::allows(cx.world, "found") {
             return cx.build(frame());
         }
         let body = column((
@@ -103,7 +103,7 @@ pub(super) fn founding(at: Vec2) -> AnyView {
                     .rules(lamp)
                     .tagged(Mood::Good)
                     .on_activate(|world| {
-                        if !has(world, "found") {
+                        if !Deeds::allows(world, "found") {
                             return;
                         }
                         let Some(command) =

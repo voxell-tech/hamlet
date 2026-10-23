@@ -2,7 +2,7 @@
 
 use bevy::picking::Pickable;
 use bevy::prelude::*;
-use hamlet_client::realm::{Mayor, Road};
+use hamlet_client::realm::{self, Mayor, Road, RoadsFrom, RoadsTo};
 
 use super::{
     Hand, Held, Mood, PlaySettings, Wish, free, liftable, met,
@@ -105,6 +105,7 @@ pub(super) fn carry(
     plain: Query<&Robot>,
     agents: Query<(Entity, &Housed, Has<Mayor>)>,
     roads: Query<&Road>,
+    ends: Query<(Option<&RoadsFrom>, Option<&RoadsTo>)>,
     mut robots: Query<(&Robot, &mut Transform, &mut Mood)>,
     (mut played, mut wishes): (
         MessageWriter<Played>,
@@ -196,8 +197,11 @@ pub(super) fn carry(
         };
         if let (Some((other, their)), Some((me, mayor))) = (other, me)
         {
-            let known =
-                roads.iter().any(|r| r.has(me) && r.has(other));
+            let known = ends.get(me).is_ok_and(|(from, to)| {
+                realm::roads(from, to).any(|road| {
+                    roads.get(road).is_ok_and(|road| road.has(other))
+                })
+            });
             let office = mayor
                 || agents.get(other).is_ok_and(|(.., mayor)| mayor);
             if !known && !office {

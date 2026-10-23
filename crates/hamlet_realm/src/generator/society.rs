@@ -9,7 +9,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 
 use bevy::prelude::*;
 
-pub use self::places::{Claim, Place};
+pub use self::places::{Claim, Ground};
 use super::house::{HouseSettings, Remains};
 use super::land::Land;
 use super::layout::plot;

@@ -2,12 +2,13 @@
 //! first and in full, with the answers each one takes. Questions are
 //! answered on their `asking` card.
 
-use bevy::app::{App, Update};
+use bevy::app::{App, PreUpdate, Update};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::{Changed, With};
 use bevy::ecs::resource::Resource;
+use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::Time;
@@ -19,7 +20,7 @@ use bevy_fynix::views::{
     text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, each, resource};
-use hamlet_client::chats::{Chat, Entry, Transcript};
+use hamlet_client::chats::{Entry, Transcript};
 use hamlet_client::messages::{Answer, Veto};
 use hamlet_client::waits::{Choice, ChoiceExt, Waiting};
 use hamlet_protocol::client::{
@@ -34,7 +35,7 @@ use crate::looks::{
     Fills, ICON, bad_action, brass, grim, lamp, marked, note, well,
 };
 use crate::platform::{DisplayText, MonoText, Wraps};
-use crate::{AnyView, Cx, View, asking, chat};
+use crate::{AnyView, Cx, PanelSystems, View, asking, chat};
 
 const EMPTY: &str = "Nothing waits for you. Petitions, objections, \
                      questions and faults come here, oldest first.";
@@ -60,7 +61,8 @@ pub fn plugin(app: &mut App) {
     .init_resource::<Queue>()
     .add_observer(tag_answered)
     .add_observer(tag_opened)
-    .add_systems(Update, (show_new, keep_queue));
+    .add_systems(PreUpdate, keep_queue.in_set(PanelSystems::Bind))
+    .add_systems(Update, show_new);
 }
 
 /// The reason or reply the next answer carries.
@@ -260,11 +262,7 @@ fn held(
     }
     let waiting = world.get::<Waiting>(need.entity)?;
     let session = need.chat.as_ref().and_then(|reference| {
-        world
-            .try_query::<(Entity, &Chat)>()?
-            .iter(world)
-            .find(|(_, chat)| &chat.0 == reference)
-            .map(|(entity, _)| entity)
+        hamlet_client::chats::find(world, reference)
     });
     let open = session
         .and_then(|session| world.get::<Transcript>(session))
@@ -516,9 +514,7 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         assert!(words(&mut app).iter().any(|text| text == "git"));
     }
     #[test]

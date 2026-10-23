@@ -12,7 +12,7 @@ use super::magic::Musing;
 use super::shift::{Part, Shift};
 use super::society::{AgentId, Pair, RoadLevel, Society, TownId};
 use super::sync::Drawn;
-use super::traffic::Traffic;
+use super::traffic::Trips;
 use super::work::{Robot, Voting};
 use super::{House, HouseMotion};
 use crate::keeper::{KState, Keeper};
@@ -93,7 +93,7 @@ pub(super) fn robot_cues(
 /// A door as a robot sets out with a message and as it comes home,
 /// and the letter changing hands where it turns back.
 pub(super) fn traffic_cues(
-    traffic: Res<Traffic>,
+    traffic: Res<Trips>,
     drawn: Res<Drawn>,
     places: Query<&GlobalTransform>,
     mut out: Local<HashMap<AgentId, (bool, Vec3)>>,

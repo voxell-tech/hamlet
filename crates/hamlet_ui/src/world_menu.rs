@@ -23,6 +23,7 @@ use bevy_fynix::views::{
     overlay, popup,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
+use hamlet_client::gifts::GiftReports;
 use hamlet_client::messages::Veto;
 use hamlet_client::realm::{self as agents, Deeds};
 use hamlet_realm::orders;
@@ -107,12 +108,6 @@ pub(crate) fn answer_ask(
     }
 }
 
-fn has(world: &World, deed: &str) -> bool {
-    world
-        .get_resource::<Deeds>()
-        .is_some_and(|deeds| deeds.has(deed))
-}
-
 fn close(world: &mut World) {
     *world.resource_mut::<Open>() = Open::Nothing;
 }
@@ -141,7 +136,7 @@ pub(super) fn open_for(world: &mut World, thing: Thing) {
 
 /// Opens the form a hamlet is founded with, at the pointer.
 pub(super) fn ask_found(world: &mut World) {
-    if !has(world, "found") {
+    if !Deeds::allows(world, "found") {
         return;
     }
     let at = pointer(world);
@@ -156,7 +151,7 @@ pub(crate) fn ask(world: &mut World, deed: Deed) {
 
 /// Brings back `agent`, which was removed or merged away.
 pub(super) fn restore(world: &mut World, agent: Entity) {
-    if !has(world, "restore") {
+    if !Deeds::allows(world, "restore") {
         return;
     }
     let text = format!("/restore {}", agents::name_of(world, agent));
@@ -199,7 +194,7 @@ fn menus() -> AnyView {
             }
             Open::Question(deed, at) => question(deed, at),
             Open::Ground(at) => AnyView::new(move |cx: &mut Cx| {
-                if !has(cx.world, "found") {
+                if !Deeds::allows(cx.world, "found") {
                     return cx.build(frame());
                 }
                 let found =
@@ -227,7 +222,7 @@ fn gift_reports() -> AnyView {
     keyed(
         derived(|world| {
             world
-                .get_resource::<orders::GiftReports>()
+                .get_resource::<GiftReports>()
                 .map(|reports| reports.0.clone())
                 .unwrap_or_default()
         })
@@ -256,7 +251,7 @@ fn gift_reports() -> AnyView {
                         .rules(crate::looks::brass)
                         .on_activate(|world| {
                             world
-                                .resource_mut::<orders::GiftReports>()
+                                .resource_mut::<GiftReports>()
                                 .0
                                 .clear();
                         }),
@@ -321,7 +316,6 @@ mod tests {
         let mut app = app(state.clone());
         app.world_mut().resource_mut::<AskedGround>().0 =
             Some(Vec2::ZERO);
-        app.update();
         app.update();
         assert!(
             !words(&mut app)
@@ -443,7 +437,7 @@ mod tests {
     #[test]
     fn gift_replies_are_shown_in_words_and_can_be_dismissed() {
         let mut app = app(realm::state());
-        app.insert_resource(orders::GiftReports(vec![(
+        app.insert_resource(GiftReports(vec![(
             "The inbox already holds books.".into(),
             true,
         )]));

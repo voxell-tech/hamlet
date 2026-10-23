@@ -316,9 +316,7 @@ mod tests {
                 upload: None,
             }),
         );
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         assert!(
             words(&mut app).iter().any(
                 |s| s == "Scout arrived, and smith was restored."
@@ -337,9 +335,7 @@ mod tests {
                 }],
             }),
         );
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         assert_eq!(app.world().resource::<Outbox>().iter().filter(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/record")).count(), 2);
         state.agents[0].mayor = false;
         state.agents[1].mayor = true;
@@ -355,9 +351,7 @@ mod tests {
                     .collect(),
             }),
         );
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         assert_eq!(app.world().resource::<Outbox>().iter().filter(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/record")).count(), 3);
     }
     #[test]
@@ -422,7 +416,6 @@ mod tests {
                 upload: None,
             }),
         );
-        app.update();
         app.update();
         assert!(
             words(&mut app).contains(&"The record recovered".into())

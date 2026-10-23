@@ -14,11 +14,11 @@ use self::librarian::{ATTENDS, LOOK, STANDS, sage};
 use crate::chief::mascot::{self, Rig};
 use crate::chief::{Chief, Settled, place};
 use crate::generator::land::Land;
-use crate::generator::society::{Claim, Place as Ground, Society};
+use crate::generator::society::{Claim, Ground, Society};
 use crate::lantern::NightLight;
 use crate::palette::Palette;
 use crate::pick::{self, Footprint, Named, Thing, hit_box};
-use crate::{Clock, Sky, Stock};
+use crate::{Clock, RealmSystems, Sky, Stock};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Stood>()
@@ -29,7 +29,8 @@ pub(crate) fn plugin(app: &mut App) {
                 (resettle, raise).chain().in_set(Raising),
                 librarian::tend.before(mascot::stand),
                 shine,
-            ),
+            )
+                .in_set(RealmSystems::Act),
         );
 }
 

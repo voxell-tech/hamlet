@@ -5,13 +5,17 @@ mod home;
 
 use std::collections::BTreeMap;
 
-use bevy::app::{App, Update};
+use bevy::app::{App, PreUpdate};
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
+use bevy::ecs::schedule::common_conditions::{
+    resource_changed, resource_exists_and_changed,
+};
+use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
 use bevy::ecs::system::{Commands, ResMut};
 use bevy::ecs::world::World;
 use hamlet_client::Connection;
-use hamlet_client::connection::State;
+use hamlet_client::connection::Contact;
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
 use hamlet_protocol::client as protocol;
@@ -19,6 +23,8 @@ use hamlet_protocol::client as protocol;
 pub(crate) use self::choice::{of_agent, of_hamlet};
 pub(crate) use self::home::narrowed;
 pub use self::home::{endpoints, shelf};
+use crate::PanelSystems;
+use crate::settings::Pane;
 
 const SHOWN: usize = 40;
 
@@ -32,7 +38,18 @@ pub(crate) fn plugin(app: &mut App) {
                 shelf.asking = false;
             },
         )
-        .add_systems(Update, follow);
+        .add_systems(
+            PreUpdate,
+            follow
+                .run_if(
+                    resource_changed::<Shelf>
+                        .or_eager(resource_changed::<Connection>)
+                        .or_eager(
+                            resource_exists_and_changed::<Pane>,
+                        ),
+                )
+                .in_set(PanelSystems::Follow),
+        );
 }
 
 /// The catalogue last received from the server.
@@ -59,9 +76,8 @@ pub struct Draft {
     narrow: String,
 }
 
-pub fn follow(world: &mut World) {
-    let showing = world.get_resource::<crate::settings::Pane>()
-        == Some(&crate::settings::Pane::Models);
+fn follow(world: &mut World) {
+    let showing = world.get_resource::<Pane>() == Some(&Pane::Models);
     let shelf = world.resource::<Shelf>();
     let read =
         !shelf.asking && (!shelf.loaded || showing && !shelf.showing);
@@ -69,9 +85,7 @@ pub fn follow(world: &mut World) {
         world.resource_mut::<Shelf>().showing = showing;
     }
     if read
-        && world.get_resource::<Connection>().is_some_and(
-            |connection| connection.state == State::Connected,
-        )
+        && world.resource::<Connection>().state == Contact::Connected
     {
         read_models(world, false);
     }
@@ -265,9 +279,7 @@ mod tests {
             .editor_mut()
             .set_text(text);
         app.world_mut().resource_mut::<InputFocus>().clear();
-        for _ in 0..5 {
-            app.update();
-        }
+        app.update();
     }
 
     #[test]
@@ -425,9 +437,7 @@ mod tests {
         assert_eq!(note["set"], json!({"note":"For everyday work."}));
         assert_eq!(note["model"], "far::small");
         app.world_mut().trigger(Reconnected);
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         assert_eq!(sent(&mut app)[0]["what"], "models");
     }
     #[test]
@@ -438,9 +448,7 @@ mod tests {
         connect(&mut app, false);
         let before = sent(&mut app).remove(0);
         app.world_mut().trigger(Reconnected);
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         let after = sent(&mut app);
         assert_eq!(after.len(), 1, "a new catalogue read: {after:?}");
         assert_eq!(after[0]["what"], "models");

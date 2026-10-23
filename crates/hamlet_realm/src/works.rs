@@ -18,7 +18,7 @@ use crate::meshes::Mb;
 use crate::palette::Palette;
 use crate::pick::{self, Footprint, Named, Reads, Thing, hit_box};
 use crate::play::{Play, Played};
-use crate::{Sky, Stock, WorldSystems, adopt};
+use crate::{RealmSystems, Sky, Stock, adopt};
 
 /// Height of the bench's top above the paving.
 const TOP: f32 = 0.91;
@@ -52,7 +52,7 @@ pub(crate) fn plugin(app: &mut App) {
                 ),
             )
                 .chain()
-                .before(WorldSystems),
+                .in_set(RealmSystems::Act),
         );
 }
 
@@ -71,8 +71,9 @@ pub struct WorksSettings {
 }
 
 /// The chief pressed the clockwork of `hamlet`.
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(EntityEvent, Clone, Copy, Debug)]
 pub struct Switched {
+    #[event_target]
     pub hamlet: Entity,
 }
 

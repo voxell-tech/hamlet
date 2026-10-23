@@ -1,7 +1,6 @@
 //! The selected agent's received letters and questions, watched
 //! read-only.
 
-use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, label, scroll,
@@ -39,11 +38,7 @@ fn open(world: &mut World, peer: protocol::ConversationView) {
         }),
         past: None,
     };
-    let kept = world
-        .query::<(Entity, &Chat)>()
-        .iter(world)
-        .find(|(_, chat)| chat.0 == reference)
-        .map(|(entity, _)| entity);
+    let kept = hamlet_client::chats::find(world, &reference);
     let session =
         kept.unwrap_or_else(|| world.spawn(Chat(reference)).id());
     world.resource_mut::<Me>().session = session;
@@ -66,16 +61,9 @@ fn peers(world: &World) -> Vec<protocol::ConversationView> {
 
 fn exchange(peer: protocol::ConversationView) -> AnyView {
     AnyView::new(move |cx: &mut crate::Cx| {
-        let name = cx
-            .world
-            .query::<(Entity, &hamlet_client::realm::Citizen)>()
-            .iter(cx.world)
-            .find(|(entity, citizen)| {
-                citizen.0 == peer.with.number
-                    && address_of(cx.world, *entity)
-                        .is_some_and(|a| a.hamlet == peer.with.hamlet)
-            })
-            .map(|(entity, _)| name_of(cx.world, entity))
+        let name = hamlet_client::realm::agent(cx.world, &peer.with)
+            .filter(|agent| address_of(cx.world, *agent).is_some())
+            .map(|agent| name_of(cx.world, agent))
             .unwrap_or_else(|| {
                 format!("{}#{}", peer.with.hamlet, peer.with.number)
             });

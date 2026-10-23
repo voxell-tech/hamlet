@@ -3345,11 +3345,13 @@ dependencies = [
 name = "hamlet_client"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "bevy_app",
  "bevy_ecs",
  "futures",
  "hamlet_protocol",
  "hamlet_testing",
+ "rustix 1.1.5",
  "serde_json",
  "tokio",
  "tokio-tungstenite",
@@ -3396,7 +3398,6 @@ name = "hamlet_realm"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
  "bevy",
  "chrono",
  "hamlet_assets",
@@ -3404,9 +3405,9 @@ dependencies = [
  "hamlet_protocol",
  "hamlet_testing",
  "hamlet_vfx",
- "libc",
  "serde",
  "serde_json",
+ "tokio",
  "toml",
 ]
 

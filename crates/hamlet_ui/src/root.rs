@@ -279,9 +279,7 @@ mod tests {
                 upload: None,
             }),
         );
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         let shown = crate::testing::words(&mut app);
         assert!(
             shown
@@ -309,9 +307,7 @@ mod tests {
                 text: "No model answered.".into(),
             }),
         );
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         assert!(
             crate::testing::words(&mut app)
                 .iter()

@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use hamlet_realm::generator::land::Land;
 use hamlet_realm::generator::noise::key;
 use hamlet_realm::generator::society::{RoadLevel, Society};
-use hamlet_realm::generator::{GenView, Traffic};
+use hamlet_realm::generator::{GenView, Trips};
 use hamlet_realm::keeper::KState;
 use hamlet_realm::keeper::work::{Paper, Task, Work};
 use hamlet_realm::sky::SkySettings;
@@ -58,7 +58,7 @@ pub fn keys(
     time: Res<Time>,
     mut land: ResMut<Land>,
     mut world: ResMut<Society>,
-    mut traffic: ResMut<Traffic>,
+    mut traffic: ResMut<Trips>,
     mut hand: ResMut<Hand>,
     mut stage: ResMut<Stage>,
     mut view: ResMut<GenView>,

@@ -50,7 +50,7 @@ use self::shift::shift_houses;
 use self::society::{AgentId, Pair, RoadLevel, Society, TownId};
 use self::sync::{Drawn, reshaped, sync, tell_states};
 use self::traffic::run_traffic;
-pub use self::traffic::{Traffic, Trip};
+pub use self::traffic::{Trip, Trips};
 pub use self::view::{Ahead, GenView};
 use self::view::{aim, robot_detail, town_detail};
 pub use self::work::{
@@ -82,9 +82,8 @@ impl Default for Origin {
 }
 
 /// Draws whatever [`Society`] holds, and draws again only what a
-/// change touches. Add it after `palette::plugin`, `sound::plugin`,
-/// `debug::plugin`, `sky::plugin`, `stage::plugin`, `keeper::plugin`
-/// and `stock::plugin`; the app needs Bevy's default plugins.
+/// change touches. Add it after [`crate::scene::plugin`]; the app
+/// needs Bevy's default plugins.
 pub fn plugin(app: &mut App) {
     app.init_resource::<Origin>()
         .init_resource::<DetailSettings>()
@@ -92,15 +91,10 @@ pub fn plugin(app: &mut App) {
         .init_resource::<MagicSettings>();
     let pal = app.world().resource::<Palette>().clone();
     let origin = app.world().resource::<Origin>().clone();
+    app.insert_resource(tints(&pal));
     app.add_plugins((
-        VfxPlugin {
-            tints: Tints {
-                ember: pal.ember,
-                firefly: pal.firefly,
-                rune: pal.rune,
-                wind: pal.wind,
-            },
-        },
+        // It makes its materials at startup, from the tints above.
+        VfxPlugin,
         lights::plugin,
         sounds::plugin,
     ))
@@ -115,14 +109,19 @@ pub fn plugin(app: &mut App) {
     .add_systems(
         Update,
         (
-            (tell_effects, thin_effects, wind::gusts)
+            (
+                tell_effects,
+                thin_effects,
+                tint_effects.run_if(resource_changed::<Palette>),
+                wind::gusts,
+            )
                 .in_set(Step::Scene)
                 .before(VfxSystems),
             fireflies::keep.after(VfxSystems),
         ),
     )
     .init_resource::<Society>()
-    .init_resource::<Traffic>()
+    .init_resource::<Trips>()
     .init_resource::<Drawn>()
     .init_resource::<GenView>()
     .init_resource::<Ahead>()
@@ -190,6 +189,21 @@ pub struct GenSettings {
 /// Tells the effects the scene's time.
 fn tell_effects(clock: Res<Clock>, mut now: ResMut<Now>) {
     now.0 = clock.t;
+}
+
+/// The colours of the palette the effects glow in.
+fn tints(pal: &Palette) -> Tints {
+    Tints {
+        ember: pal.ember,
+        firefly: pal.firefly,
+        rune: pal.rune,
+        wind: pal.wind,
+    }
+}
+
+/// Gives the effects the palette's colours when it changes.
+fn tint_effects(pal: Res<Palette>, mut effects: ResMut<Tints>) {
+    effects.set_if_neq(tints(&pal));
 }
 
 /// Gives the effects the share of particles the quality allows.

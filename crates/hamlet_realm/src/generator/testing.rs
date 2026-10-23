@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use super::land::Land;
 use super::society::AgentId;
 use super::sync::Drawn;
-use super::traffic::Traffic;
+use super::traffic::Trips;
 use super::work::{
     Engine, Lot, Rehearsal, Robot, Voting, pass, work_robots,
 };
@@ -55,7 +55,7 @@ pub(crate) fn rehearse(app: &mut App) {
         .init_resource::<Clock>()
         .init_resource::<crate::Stage>()
         .init_resource::<Drawn>()
-        .init_resource::<Traffic>()
+        .init_resource::<Trips>()
         .init_resource::<Rehearsal>()
         .init_resource::<Voting>()
         .init_resource::<crate::Sky>()

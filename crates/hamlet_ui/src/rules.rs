@@ -3,10 +3,11 @@
 
 use std::collections::BTreeMap;
 
-use bevy::app::{App, Update};
+use bevy::app::{App, PreUpdate};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
+use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, px};
@@ -28,14 +29,14 @@ use crate::looks::{
     well,
 };
 use crate::overview::heading;
-use crate::{AnyView, View, with_cx};
+use crate::{AnyView, PanelSystems, View, with_cx};
 
 const CONTROLS: f32 = 150.0;
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Book>()
         .init_resource::<Part>()
-        .add_systems(Update, follow)
+        .add_systems(PreUpdate, follow.in_set(PanelSystems::Follow))
         .add_observer(answered);
 }
 
@@ -474,11 +475,7 @@ pub fn realm() -> AnyView {
     column((
         fine("The realm's rules live in home's bylaws."),
         action(Glyph::Book, "OPEN HOME'S BYLAWS", |world| {
-            let home = world
-                .query::<(Entity, &Settlement)>()
-                .iter(world)
-                .find(|(_, h)| h.name == HOME)
-                .map(|(e, _)| e);
+            let home = hamlet_client::realm::settlement(world, HOME);
             let Some(home) = home else { return };
             *world.resource_mut::<Part>() = Part::Realm;
             *world.resource_mut::<crate::overview::Page>() =
@@ -711,9 +708,7 @@ mod tests {
             .editor_mut()
             .set_text(value);
         app.world_mut().resource_mut::<InputFocus>().clear();
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
     }
 
     fn edits(app: &App) -> Vec<Value> {
@@ -792,13 +787,9 @@ mod tests {
                 changes: vec![protocol::Update::Hamlet { hamlet }],
             }),
         );
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         press(&mut app, "THE VOTES");
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         enter(&mut app, "Yes votes needed", "3");
         enter(&mut app, "Of every", "4");
         enter(&mut app, "Least voters", "5");
@@ -815,13 +806,9 @@ mod tests {
             json!({"section":"votes", "key":"leastVoters", "value":5})
         );
         *app.world_mut().resource_mut::<Part>() = Part::Front;
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         press(&mut app, "THE REALM");
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         enter(&mut app, "Most hamlets", "8");
         enter(&mut app, "Mayors asking for removal", "2");
         assert_eq!(
@@ -898,9 +885,7 @@ mod tests {
                 upload: None,
             }),
         );
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         assert!(
             words(&mut app)
                 .iter()
@@ -921,9 +906,7 @@ mod tests {
                 changes: vec![protocol::Update::Hamlet { hamlet }],
             }),
         );
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         let field = input(&mut app, "May spend, in dollars");
         assert_eq!(
             app.world().get::<EditableText>(field).unwrap().value(),

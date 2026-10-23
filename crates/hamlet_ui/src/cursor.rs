@@ -5,10 +5,12 @@ mod art;
 #[cfg(test)]
 mod tests;
 
-use bevy::app::{App, PostUpdate, Update};
+use bevy::app::{App, PostUpdate};
 use bevy::asset::{Assets, Handle};
 use bevy::ecs::entity::Entity;
-use bevy::ecs::query::{With, Without};
+use bevy::ecs::lifecycle::Add;
+use bevy::ecs::observer::On;
+use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_exists;
@@ -29,7 +31,7 @@ use hamlet_realm::pick::{Hovered, Pressable, Steer, Taken, Thing};
 
 pub use self::art::{Inks, face, frames, hot, side};
 use crate::theme::{HamletTheme, Look};
-use crate::welcome::Committing;
+use crate::welcome::Welcome;
 
 /// The share of a cursor that is left while the hand carries a thing
 /// of the world, so that the thing is seen through it.
@@ -37,7 +39,7 @@ const FAINT: f32 = 0.4;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_systems(OnEnter(Look::Ready), draw)
-        .add_systems(Update, lend)
+        .add_observer(lend)
         .add_systems(
             PostUpdate,
             dress.run_if(resource_exists::<Cursors>),
@@ -85,6 +87,7 @@ pub enum Mode {
 /// All that the cursor is chosen from.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Facts {
+    /// A request of the first-run page is out.
     pub busy: bool,
     pub grip: Option<Grip>,
     pub steer: Steer,
@@ -250,12 +253,13 @@ pub fn draw(world: &mut World) {
 /// Has every node over the world that takes a click ask for the
 /// pressing cursor, as a button of the panels does.
 pub(crate) fn lend(
+    added: On<Add, Pressable>,
+    lent: Query<(), With<EntityCursor>>,
     mut commands: Commands,
-    nodes: Query<Entity, (With<Pressable>, Without<EntityCursor>)>,
 ) {
-    for node in &nodes {
+    if !lent.contains(added.entity) {
         commands
-            .entity(node)
+            .entity(added.entity)
             .try_insert(EntityCursor(SystemCursorIcon::Pointer));
     }
 }
@@ -266,7 +270,7 @@ pub(crate) fn lend(
 pub(crate) fn dress(
     cursors: Res<Cursors>,
     time: Res<Time<Real>>,
-    pending: Option<Res<Committing>>,
+    welcome: Option<Res<Welcome>>,
     hand: Option<Res<Hand>>,
     steer: Option<Res<Steer>>,
     hovered: Option<Res<Hovered>>,
@@ -296,7 +300,9 @@ pub(crate) fn dress(
         // A robot in the hand is seen through it.
         let faint = grip == Some(Grip::Robot);
         let mode = Mode::choose(&Facts {
-            busy: pending.as_ref().is_some_and(|p| p.waits()),
+            busy: welcome
+                .as_ref()
+                .is_some_and(|welcome| welcome.asking),
             grip,
             steer,
             asked,

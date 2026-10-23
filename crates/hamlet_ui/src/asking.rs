@@ -6,11 +6,12 @@
 
 use std::collections::HashMap;
 
-use bevy::app::{App, Update};
+use bevy::app::{App, PreUpdate};
 use bevy::color::Color;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::ecs::resource::Resource;
+use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, JustifyContent, UiRect, percent, px};
@@ -36,12 +37,18 @@ use crate::looks::{
 };
 use crate::me::Me;
 use crate::theme::HamletTheme;
-use crate::{AnyView, Cx, View};
+use crate::{AnyView, Cx, PanelSystems, View};
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Answering>()
         .init_resource::<OpenQuestion>()
-        .add_systems(Update, (follow, forget));
+        .add_systems(
+            PreUpdate,
+            (
+                forget.in_set(PanelSystems::Follow),
+                follow.in_set(PanelSystems::Bind),
+            ),
+        );
 }
 
 /// Each card's question on show and the answers so far.

@@ -66,6 +66,7 @@ rfd = "0.17"
 ring = "0.17"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
+rustix = "1"
 serde = { version = "1.0.229", features = ["derive"] }
 schemars = "1.2.3"
 serde_json = "1"

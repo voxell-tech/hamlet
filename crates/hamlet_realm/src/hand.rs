@@ -16,19 +16,21 @@ use std::path::PathBuf;
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::window::FileDragAndDrop;
+use hamlet_client::gifts::SkillGiven;
 use hamlet_client::realm::Mayor;
 
-pub use self::given::{gifted, greet};
+use self::given::gifted;
+pub use self::given::greet;
 use self::lift::Fall;
 pub use self::pool::Readout;
 pub use self::touch::Proud;
 use self::touch::{Rest, Tap};
-use crate::WorldSystems;
+use crate::RealmSystems;
 use crate::generator::{Passage, Robot, Thought};
 use crate::hamlet::Housed;
 use crate::keeper::Act;
 use crate::moving::Carrying;
-use crate::pick::{self, Hovered, Reach, Taken, Thing, Travel};
+use crate::pick::{Hovered, Reach, Taken, Thing, Travel};
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<PlaySettings>()
@@ -47,6 +49,14 @@ pub(super) fn plugin(app: &mut App) {
         .add_observer(lift::let_go)
         .add_observer(lift::drag_end)
         .add_observer(touch::finished)
+        .add_observer(
+            |given: On<SkillGiven>, mut commands: Commands| {
+                let agent = given.entity;
+                commands.queue(move |world: &mut World| {
+                    gifted(world, agent);
+                });
+            },
+        )
         .add_systems(Startup, (toys::prepare, pool::gauge::prepare))
         .add_systems(
             Update,
@@ -69,8 +79,7 @@ pub(super) fn plugin(app: &mut App) {
                 (pool::meters, toys::play),
             )
                 .chain()
-                .after(pick::aim)
-                .before(WorldSystems),
+                .in_set(RealmSystems::Act),
         )
         .add_systems(
             PostUpdate,

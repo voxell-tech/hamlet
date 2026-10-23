@@ -174,7 +174,7 @@ fn meadow(land: &Land, s: &Society, town: TownId) -> Vec2 {
         .map(|i| {
             Vec2::from_angle(i as f32) * (260.0 + i as f32 * 3.0)
         })
-        .find(|&p| s.fits(land, Place::Town(town), p).is_ok())
+        .find(|&p| s.fits(land, Ground::Town(town), p).is_ok())
         .unwrap()
 }
 
@@ -275,13 +275,13 @@ fn a_town_is_not_set_down_on_water_or_on_another_place() {
     // founded there.
     let to = meadow(&land, &s, town);
     s.claims.push(Claim {
-        place: Place::Chief,
+        place: Ground::Chief,
         at: to + Vec2::new(10.0, 0.0),
         radius: 12.0,
     });
     refused(&mut s, &mut land, to, Unfit::Crowded);
     assert_eq!(
-        s.fits(&land, Place::Chief, there),
+        s.fits(&land, Ground::Chief, there),
         Err(Unfit::Crowded)
     );
     assert_eq!(land.sites[site], stood[site]);
@@ -296,7 +296,7 @@ fn a_town_is_not_set_down_on_water_or_on_another_place() {
         })
         .unwrap();
     s.claims.push(Claim {
-        place: Place::Chief,
+        place: Ground::Chief,
         at: stood[home].at,
         radius: 12.0,
     });

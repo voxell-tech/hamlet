@@ -28,7 +28,7 @@ use hamlet_realm::library::{Librarian, Library, Stood};
 use hamlet_realm::pick::{Centre, Glide, Orbit};
 use hamlet_realm::sky::{CameraSettings, SkySettings};
 use hamlet_realm::{
-    Clock, Hour, RealmPlugin, Stage, WorldCamera, WorldSystems,
+    Clock, Hour, RealmPlugin, RealmSystems, Stage, WorldCamera,
 };
 
 use self::offscreen::Target;
@@ -270,7 +270,10 @@ fn main() {
     ))
     .add_systems(Startup, people)
     .add_systems(PostStartup, offscreen)
-    .add_systems(Update, (direct, aim).chain().before(WorldSystems));
+    .add_systems(
+        Update,
+        (direct, aim).chain().in_set(RealmSystems::Steer),
+    );
     app.run();
 }
 

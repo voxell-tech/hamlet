@@ -19,6 +19,11 @@ impl Outbox {
         id
     }
 
+    /// True when no request is queued.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     /// The queued requests in sending order.
     pub fn iter(
         &self,

@@ -2,6 +2,8 @@
 
 pub mod chats;
 pub mod connection;
+pub mod gifts;
+mod index;
 pub mod messages;
 pub mod outbox;
 pub mod realm;
@@ -40,9 +42,11 @@ impl Plugin for ClientPlugin {
             .init_resource::<realm::Closed>()
             .init_resource::<realm::Starters>()
             .add_plugins((
+                index::plugin,
                 messages::plugin,
                 chats::plugin,
                 connection::plugin,
+                gifts::plugin,
             ));
     }
 }

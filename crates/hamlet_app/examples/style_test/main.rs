@@ -31,7 +31,7 @@ use bevy::prelude::*;
 use bevy::window::{PresentMode, WindowResolution};
 use bevy::winit::{UpdateMode, WinitSettings};
 use hamlet_realm::debug::DebugSettings;
-use hamlet_realm::{Clock, WorldSystems};
+use hamlet_realm::{Clock, RealmSystems, WorldSystems};
 use hamlet_vfx::inlay::InlayState;
 
 use self::note::note;
@@ -118,7 +118,7 @@ fn main() {
         (
             (keys, show_tag, to_stage, cast, direct)
                 .chain()
-                .before(WorldSystems),
+                .in_set(RealmSystems::Steer),
             aim.after(WorldSystems),
             hud,
         ),

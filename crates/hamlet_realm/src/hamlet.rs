@@ -17,20 +17,16 @@ use crate::chief::Settling;
 use crate::generator::land::Land;
 use crate::generator::society::{AgentId, Pair, Society, TownId};
 use crate::sky::CameraSettings;
-use crate::{WorldSystems, library, pick};
+use crate::{RealmSystems, library};
 
 /// Draws the client's hamlets, agents and roads in the generated
 /// world.
 pub(crate) fn plugin(app: &mut App) {
     app.add_plugins(pointing::plugin)
-        // A chief takes its site before any town is founded, and
-        // the library takes one after the chiefs.
-        .configure_sets(
-            Update,
-            (Settling, library::Raising)
-                .chain()
-                .before(housing::house),
-        )
+        // The library takes its site after the chiefs. Both come
+        // before any town is founded, as the Act step does before the
+        // Bridge.
+        .configure_sets(Update, (Settling, library::Raising).chain())
         .add_observer(housing::leave)
         .add_observer(housing::come_back)
         .add_observer(housing::move_out)
@@ -56,10 +52,10 @@ pub(crate) fn plugin(app: &mut App) {
                         .or_eager(resource_changed::<Land>)
                         .or_eager(resource_changed::<CameraSettings>),
                 ),
-                view::aim.after(pick::Steering),
+                view::aim,
             )
                 .chain()
-                .before(WorldSystems),
+                .in_set(RealmSystems::Bridge),
         );
 }
 

@@ -40,6 +40,11 @@ fn chief_messages_become_requests_with_fresh_uuid_ids_and_wire_addresses()
         past: Some(3),
     };
     let chat = world.spawn(Chat(reference.clone())).id();
+    // A chat is opened as soon as it is watched.
+    assert!(matches!(
+        &world.resource_mut::<Outbox>().drain().collect::<Vec<_>>()[..],
+        [protocol::ClientMessage::Open(_)]
+    ));
     world.trigger(UserMessage {
         to: address(MAYOR),
         text: "hello".into(),
@@ -226,8 +231,15 @@ fn addressed_answers_reach_observers_and_a_rewind_returns_its_removed_words()
     world.flush();
     let requests =
         world.resource_mut::<Outbox>().drain().collect::<Vec<_>>();
-    let protocol::ClientMessage::Rewind(rewind) = &requests[1] else {
-        panic!("rewind request");
+    // The charter read, the chat's open as it was watched, the
+    // rewind.
+    let [
+        protocol::ClientMessage::Read(_),
+        protocol::ClientMessage::Open(_),
+        protocol::ClientMessage::Rewind(rewind),
+    ] = &requests[..]
+    else {
+        panic!("rewind request: {requests:?}");
     };
     receive(
         world,

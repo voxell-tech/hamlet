@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use bevy::app::{App, Update};
+use bevy::app::{App, PreUpdate};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::lifecycle::Remove;
@@ -24,8 +24,8 @@ use hamlet_desktop::open;
 use hamlet_realm::sound::{Cue, Sound};
 
 use crate::me::Me;
-use crate::roll::Roll;
-use crate::sounds;
+use crate::roll::{self, Roll};
+use crate::{PanelSystems, sounds};
 
 /// The most paths whose files are remembered.
 const REMEMBERED: usize = 4096;
@@ -43,10 +43,12 @@ pub fn plugin(app: &mut App) {
         .add_observer(follow)
         .add_observer(forget)
         .add_systems(
-            Update,
+            PreUpdate,
             turn.run_if(
                 resource_changed::<Me>.or_eager(hamlets_turned),
-            ),
+            )
+            .after(roll::turn_roll)
+            .in_set(PanelSystems::Bind),
         );
 }
 

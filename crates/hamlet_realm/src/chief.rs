@@ -56,7 +56,7 @@ pub(super) fn plugin(app: &mut App) {
                 mascot::stand,
             )
                 .chain()
-                .before(crate::WorldSystems),
+                .in_set(crate::RealmSystems::Act),
         )
         .add_systems(
             Update,

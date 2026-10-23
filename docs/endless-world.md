@@ -111,7 +111,7 @@ cannot take is recorded and refused by the world, and the town stays.
 
 ## Another kind of place: the chief's
 
-Moving is built on `society::Place`, a thing that holds a round of ground
+Moving is built on `society::Ground`, a thing that holds a round of ground
 and can be picked up and set down. A town is one kind and the Hearth is
 another. A kind of place needs four things:
 

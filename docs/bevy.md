@@ -32,20 +32,22 @@ trusting memory: the engine moves every release.
 |---|---|---|
 | A fact about one thing | A component | `Citizen`, `Busy`, `Housed` |
 | A fact nothing may edit in place | `#[component(immutable)]`, replaced by inserting it again | Server facts projected into client entities (`docs/tour.md`) |
-| One thing points at another, and the other should know | A relationship | `LivesIn` and `Citizens`, `TalksTo`, `RaisedBy`, `About` |
+| One thing points at another, and the other should know | A relationship | `LivesIn` and `Citizens`, `TalksTo`, `RaisedBy`, and a road's `RoadFrom` and `RoadTo`, which take it with either end |
 | A link kept as a bare `Entity` and found by scanning | Make it a relationship, with `linked_spawn` where one goes with the other | `Sign` and `Signed` |
 | One of a kind for the whole app | A resource | `Society`, `Stage`, `Selected` |
-| Something happened, and whoever cares answers at once | An observer event (`commands.trigger`, `On<E>`) | `UserMessage`, `SessionOutput`, `Carried` |
+| Something happened, and whoever cares answers at once | An observer event (`commands.trigger`, `On<E>`) | `UserMessage`, `Carried`, `Reconnected` |
+| Something happened to one thing | An `EntityEvent` aimed at that entity, observed on it or by all | `Answer`, `SessionOutput`, `TagAnswered`, `SkillGiven` |
 | Something happened, and a system reads it in its turn | A message (`MessageWriter`, `MessageReader`) | `Played`, `Cue`, `SetDown` |
-| A component came or went | `On<Add, T>`, `On<Remove, T>` | Leaving and returning are `Left` |
-| A mode with work on entering and leaving | A state, `OnEnter`, `OnExit`, a computed state | `Layout`, `Showing`, `DayPart`, `Dark` |
-| A result from another thread | A channel in a resource, drained by one system | `Inbox`, `Reviews`, the model tests |
+| A component came or went | `On<Add, T>`, `On<Insert, T>`, `On<Discard, T>` | A chat is opened when its `Chat` is inserted and closed when it is discarded |
+| A map that must follow a component | `on_insert` and `on_discard` hooks on an `immutable` component | `hamlet_client`'s `Index` |
+| A mode with work on entering and leaving | A state, `OnEnter`, `OnExit`, a computed state | `Look`, `WorldShown`, `DayPart`, `Dark` |
+| A result from another thread | A channel in a resource, drained by one system gated on it | `connection::receive`, `pictures::take` |
 | Heavy work off the frame | A task on `AsyncComputeTaskPool`, polled each frame | The mesh builds in `generator/building.rs` |
+| A file read for the window | A task on Tokio's blocking threads, collected by a system gated on it | `gifts::collect` |
 
 An observer runs inside the command that triggered it, and `World::trigger`
 does not flush. Code that triggers from `&mut World` and then reads what the
-observers queued calls `world.flush()` first, as `session::drain` does after
-each message.
+observers queued calls `world.flush()` first.
 
 ## A frame costs what its systems touch
 
@@ -55,8 +57,12 @@ that runs every frame is also work that keeps the app from resting.
 1. **Gate a system on what it waits for.** `run_if(resource_changed::<T>)`,
    a condition on a channel being non-empty, `in_state(..)`. A system that
    begins with `if nothing { return; }` still ran, and if it takes
-   `&mut World` it stopped every other system for that. `session::drain`
-   and `review::hear` run only when their channel holds something.
+   `&mut World` it stopped every other system for that.
+   `connection::receive` runs only when a frame waits on its channel,
+   `connection::send` only when the outbox holds a request,
+   `saving::close` only while the window is closing, and
+   `models::follow` only when the shelf, the connection or the
+   settings pane changed.
 2. **Write only on a difference.** Dereferencing a `Mut`, a `ResMut` or an
    `AssetMut` for writing marks it changed, equal value or not. Everything
    gated on that change then runs: transform propagation, the layout of a
@@ -69,10 +75,16 @@ that runs every frame is also work that keeps the app from resting.
 4. **Do not build a query each call.** `World::query`, `query_filtered` and
    `try_query` make a `QueryState` and match every archetype. In a system
    take a `Query`. In exclusive code that runs often keep a
-   `SystemState`, or run a cached system.
-5. **No file is read in a frame.** A `stat` is the limit (`agents::watch`).
-   Reading and parsing belong to the worker that already has the answer, or
-   to a component written when the file's time moved (`Seen`).
+   `SystemState`, or run a cached system. A hamlet, an agent, a wait or
+   a chat by its protocol id or name is a lookup in `hamlet_client`'s
+   `Index` (`realm::named`, `settlement`, `agent`, `waits::find`,
+   `chats::find`), which component hooks keep.
+5. **No file is read in a frame.** A `stat` is the limit: a picture is
+   read again on the task pool only when its file's time or size moved
+   (`pictures::look_again`). The gifts' folder walks and part reads run
+   on Tokio's blocking threads, and `gifts::collect` runs only while a
+   read is pending. The editor's open files are the exception, read on
+   a one-second timer (`on_real_timer`), never per frame.
 6. **Look for the loop inside the loop.** A closure that calls
    `query.iter().any(..)` inside `for x in &query` is quadratic and reads
    like one line. Index by the entity or by the id the generator already
@@ -90,9 +102,30 @@ that runs every frame is also work that keeps the app from resting.
 
 Systems in one schedule run in any order unless told. Where one writes
 what another reads in the same frame, say so: `.chain()`, `.before(..)`,
-`.after(..)`, or a set (`WorldSystems`, `Step`, `Cues`, `VfxSystems`).
+`.after(..)`, or a set (`ClientSystems`, `RealmSystems`, `WorldSystems`,
+`Step`, `PanelSystems`, `Cues`, `VfxSystems`).
 
-Two orders are easy to get wrong:
+The update has one shape. `ClientSystems::Receive` applies the server's
+frames in `PreUpdate`, so every system after it sees a frame in the
+update it arrives in, and `ClientSystems::Send` sends the outbox in
+`Last`, so a request queued anywhere in the update leaves in it. The
+connect task calls the `Wake` resource after each frame it hands over,
+as a gift's read does after each folder walked or part read, and the
+window's `Wake` wakes winit's reactive loop.
+
+fynix's sets are private to the vendored crate, which does not change,
+so the panels order themselves around it by schedule.
+`PanelSystems::Follow` and then `Bind` run in `PreUpdate`, after
+`ClientSystems::Receive`, `InputSystems` and `PickingSystems::Last`, so
+a server frame, a key and a click reach the panels' state before fynix
+mounts in `Update`. `Follow` holds the systems that bring the panels'
+own state in line with what was received or clicked, and `Bind` the
+values the views read, worked out from both. `panel_sets` orders the
+two, and the test apps add it too, so a UI test settles in one update.
+A system that reads what fynix wrote, such as an `EditableText` or the
+dock, stays in `Update`.
+
+Three orders are easy to get wrong:
 
 - A label placed over the world from a `GlobalTransform` must run after
   `TransformSystems::Propagate`, but the layout that reads the `Node` it
@@ -101,9 +134,20 @@ Two orders are easy to get wrong:
   is that for the world's camera and whatever a label points at, and
   `label::put` moves a label only when its place differs, and
   `label::above` is the corner of one that hangs over a point.
-- A system added with no set next to a chain that is `.before(WorldSystems)`
-  may run on either side of it. The camera's steering is a set,
-  `pick::Steering`, and the bridge's `aim` runs after it.
+- A realm system that runs before the world goes in a step of
+  `RealmSystems`, never next to it with no set, where it may run on
+  either side. The steps are chained before `WorldSystems` in `Update`:
+  `Steer` (the camera moved by hand, and the stage the chief sets),
+  `Aim` (the pointer's place over the world), `Act` (the hand, the
+  things carried, the clockworks, the chief and the library) and
+  `Bridge` (the client's hamlets, agents and roads drawn, then the view
+  framed on them).
+- A field's text reaches its handler only when the field loses focus:
+  Bevy sends `FocusLost` in `PostUpdate`
+  (`InputFocusSystems::FocusChangeEvents`) and fynix's observer commits
+  the text then. Code that clears the focus and reads the text runs
+  after that set, as `welcome::run_committed` does, not a count of
+  frames.
 
 ## Plugins
 
@@ -123,7 +167,7 @@ where a signal reads from. The pattern that fits:
 > `PartialEq` resource only when it differs, and the view binds to that
 > resource.
 
-`Lines`, `Bar`, `Card`, `Offered`, `Roll`, `petition::Queue` and
+`Lines`, `Bar`, `Card`, `Roll`, `petition::Queue` and
 `inspector::Papers` are built this way. A signal on `every_frame()` does
 its whole read each frame, and a dock tab that is not in front still runs
 its signals. A read that has no resource of its own takes its check from
@@ -137,6 +181,7 @@ the chief typed and for what is about the open chat or the whole realm.
 
 A value from the disk, the network, a model or the keyboard is never
 unwrapped. `get` an entity that may have gone (`get_entity`,
-`try_insert`, `try_despawn`), and `world::adopt` a child whose parent may
-have. A send on a channel can fail when the other end has gone: a job
-counted before the send must be uncounted when it does.
+`try_insert`, `try_despawn`), and put a child under a parent that may
+have gone with `hamlet_realm`'s `adopt`. A send on a channel can fail
+when the other end has gone: a job counted before the send must be
+uncounted when it does.

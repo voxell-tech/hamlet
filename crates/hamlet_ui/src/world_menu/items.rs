@@ -6,16 +6,18 @@ use bevy::ecs::world::World;
 use bevy::math::Vec2;
 use bevy_fynix::ViewExt;
 use bevy_fynix::views::{BehaviorExt, label, menu_item};
+use hamlet_client::gifts::{give, offers};
 use hamlet_client::messages::UserMessage;
 use hamlet_client::realm::{
-    self as agents, Busy, HOME, Left, Mayor, Road, Settlement,
+    self as agents, Busy, Deeds, HOME, Left, Mayor, Road, Settlement,
+    road_between, roads_of,
 };
-use hamlet_realm::generator::society::Place as Ground;
+use hamlet_realm::generator::society::Ground;
 use hamlet_realm::pick::{Also, Selected, Thing, focus_on, select};
 use hamlet_realm::{moving, orders};
 
 use super::deed::Deed;
-use super::{Open, close, has, restore, stop};
+use super::{Open, close, restore, stop};
 use crate::inspector::show_prompt;
 use crate::me::{talk_to, talk_to_mayor};
 use crate::{AnyView, chat};
@@ -58,12 +60,8 @@ fn asking(text: String, deed: Deed, at: Vec2) -> AnyView {
 
 /// The agents `agent` has a road to, the mayor aside, by name.
 fn joined(world: &World, agent: Entity) -> Vec<(Entity, String)> {
-    let Some(mut roads) = world.try_query::<&Road>() else {
-        return Vec::new();
-    };
-    let mut peers = roads
-        .iter(world)
-        .filter(|road| road.has(agent))
+    let mut peers = roads_of(world, agent)
+        .filter_map(|road| world.get::<Road>(road))
         .map(|road| match road.ends {
             (a, b) if a == agent => b,
             (a, _) => a,
@@ -92,7 +90,8 @@ fn new_conversation(agent: Entity) -> AnyView {
 }
 
 fn gifts(world: &World, agent: Entity, at: Vec2) -> Vec<AnyView> {
-    if !has(world, "give") || orders::offers(world, agent).is_empty()
+    if !Deeds::allows(world, "give")
+        || offers(world, agent).is_empty()
     {
         return Vec::new();
     }
@@ -122,12 +121,7 @@ fn for_mayor(world: &World, at: Vec2) -> Vec<AnyView> {
             chat::decree(world, HOME, "/undo".into());
         }),
     ];
-    if let Some(mut mayors) = world
-        .try_query_filtered::<Entity, bevy::ecs::query::With<Mayor>>()
-        && let Some(mayor) = mayors.iter(world).find(|agent| {
-            agents::hamlet_of(world, *agent) == Some(HOME)
-        })
-    {
+    if let Some(mayor) = agents::mayor(world) {
         items.insert(1, new_conversation(mayor));
         items.extend(gifts(world, mayor, at));
     }
@@ -135,7 +129,7 @@ fn for_mayor(world: &World, at: Vec2) -> Vec<AnyView> {
 }
 
 fn for_ruin(world: &World, agent: Entity) -> Vec<AnyView> {
-    if has(world, "restore") {
+    if Deeds::allows(world, "restore") {
         vec![item(
             format!("Restore {}", agents::name_of(world, agent)),
             move |world| restore(world, agent),
@@ -187,25 +181,21 @@ fn for_resident(
         .find(|(other, _)| *other != agent);
     let chosen = other.as_ref().map(|(them, _)| *them);
     if let Some((them, other)) = other.clone() {
-        let joined =
-            world.try_query::<&Road>().is_some_and(|mut roads| {
-                roads
-                    .iter(world)
-                    .any(|road| road.has(agent) && road.has(them))
-            });
-        if joined && has(world, "unroad") {
+        let joined = road_between(world, agent, them).is_some();
+        if joined && Deeds::allows(world, "unroad") {
             items.push(item(
                 format!("Remove the road to {other}"),
                 move |w| orders::part(w, agent, them),
             ));
-        } else if !joined && has(world, "road") {
+        } else if !joined && Deeds::allows(world, "road") {
             items.push(item(
                 format!("Build a road to {other}"),
                 move |w| orders::introduce(w, agent, them),
             ));
         }
     }
-    if let Some((them, other)) = other.filter(|_| has(world, "merge"))
+    if let Some((them, other)) =
+        other.filter(|_| Deeds::allows(world, "merge"))
     {
         let into_me = Deed::Merge {
             absorbed: them,
@@ -229,21 +219,21 @@ fn for_resident(
     // The roads it has, besides the one to the other of
     // two that are chosen, which is offered above.
     for (peer, name) in joined(world, agent) {
-        if Some(peer) != chosen && has(world, "unroad") {
+        if Some(peer) != chosen && Deeds::allows(world, "unroad") {
             items.push(item(
                 format!("Remove the road to {name}"),
                 move |w| orders::part(w, agent, peer),
             ));
         }
     }
-    if has(world, "mayor") {
+    if Deeds::allows(world, "mayor") {
         items.push(asking(
             format!("Make {me} Mayor..."),
             Deed::Mayor(agent),
             at,
         ));
     }
-    if has(world, "remove") {
+    if Deeds::allows(world, "remove") {
         items.push(asking(
             format!("Remove {me}..."),
             Deed::Remove(agent),
@@ -267,12 +257,15 @@ fn for_common(
         .get::<Settlement>(hamlet)
         .map(|settlement| settlement.name.clone())
         .unwrap_or_default();
-    if has(world, "move-hamlet") {
+    if Deeds::allows(world, "move-hamlet") {
         items.push(item(format!("Move {name}..."), move |w| {
             orders::carry(w, hamlet);
         }));
     }
-    if !id.is_empty() && id != HOME && has(world, "remove-hamlet") {
+    if !id.is_empty()
+        && id != HOME
+        && Deeds::allows(world, "remove-hamlet")
+    {
         items.push(asking(
             format!("Close Down {name}..."),
             Deed::Close(id),
@@ -307,14 +300,14 @@ fn for_library(thing: Thing) -> Vec<AnyView> {
 
 /// The skills `agent` could be given, each pressed to give it.
 pub(super) fn skills(world: &World, agent: Entity) -> Vec<AnyView> {
-    orders::offers(world, agent)
+    offers(world, agent)
         .into_iter()
         .map(|offer| {
             let text = match &offer.from {
                 Some(from) => format!("{} (of {from})", offer.skill),
                 None => format!("{} (starter)", offer.skill),
             };
-            item(text, move |w| orders::give(w, agent, &offer))
+            item(text, move |w| give(w, agent, &offer))
         })
         .collect()
 }

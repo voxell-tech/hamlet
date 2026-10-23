@@ -20,7 +20,7 @@ pub use self::clip::{Clip, Playing};
 pub use self::kinds::{Family, Sound};
 pub use self::mix::Ears;
 pub use self::synth::RATE;
-use crate::{Step, WorldCamera, WorldSystems};
+use crate::{RealmSystems, Step, WorldCamera};
 
 /// Sound for a world. Does nothing where the app has no audio.
 pub fn plugin(app: &mut App) {
@@ -43,7 +43,7 @@ pub fn plugin(app: &mut App) {
         .init_state::<Hearing>()
         .init_resource::<mix::Heard>()
         .add_systems(Startup, mix::spawn_ears)
-        .add_systems(Update, listen.before(WorldSystems))
+        .add_systems(Update, listen.in_set(RealmSystems::Act))
         .add_systems(OnEnter(Hearing::On), clip::make_clips)
         .add_systems(
             Update,

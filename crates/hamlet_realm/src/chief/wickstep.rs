@@ -5,6 +5,7 @@ mod charm;
 
 use std::f32::consts::{PI, TAU};
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::window::RequestRedraw;
 use hamlet_vfx::magic::chance;
@@ -202,39 +203,107 @@ fn common_of(
         .map(|(_, at)| at.translation().xz())
 }
 
+/// The clock, tuning, land and camera a mascot's steps are measured
+/// by.
+#[derive(SystemParam)]
+pub(super) struct Bearings<'w> {
+    clock: Res<'w, Clock>,
+    set: Res<'w, ChiefSettings>,
+    play: Res<'w, PlaySettings>,
+    quality: Res<'w, Quality>,
+    pal: Res<'w, Palette>,
+    land: Res<'w, Land>,
+    view: Option<Res<'w, GenView>>,
+    hovered: Option<Res<'w, Hovered>>,
+}
+
+/// The places a mascot goes: its chief's place, the agents by their
+/// robots and houses, the commons and the libraries.
+#[derive(SystemParam)]
+pub(super) struct Whereabouts<'w, 's> {
+    chiefs: Query<
+        'w,
+        's,
+        (&'static Beside, &'static Look, &'static Settled),
+    >,
+    places: Query<
+        'w,
+        's,
+        &'static Transform,
+        (With<Place>, Without<Mascot>),
+    >,
+    agents: Query<'w, 's, &'static Housed>,
+    sites: Query<'w, 's, &'static Sited>,
+    commons: Query<
+        'w,
+        's,
+        (&'static Common, &'static GlobalTransform),
+        Without<Mascot>,
+    >,
+    libraries: Query<'w, 's, &'static GlobalTransform, With<Library>>,
+    robots: Query<'w, 's, (&'static Robot, &'static GlobalTransform)>,
+    houses: Query<'w, 's, (&'static House, &'static GlobalTransform)>,
+    free: Query<'w, 's, (Entity, &'static Robot), Without<Passage>>,
+}
+
+/// The wand, marks of light and floor a charm is cast with.
+#[derive(SystemParam)]
+pub(super) struct Casting<'w, 's> {
+    wand: Res<'w, Wand>,
+    materials: ResMut<'w, Assets<MarkMaterial>>,
+    marks: Res<'w, Marks>,
+    floor: Floor<'w, 's>,
+}
+
+/// The messages a step writes: what is played and that a frame is
+/// to be drawn.
+#[derive(SystemParam)]
+pub(super) struct Writers<'w> {
+    played: MessageWriter<'w, Played>,
+    redraw: MessageWriter<'w, RequestRedraw>,
+}
+
 /// Moves each mascot: a Wickstep to whoever its chief talks to and
 /// home again, and on foot between.
 pub(super) fn step(
     mut commands: Commands,
-    (clock, set, play, quality, pal, land, wand): (
-        Res<Clock>,
-        Res<ChiefSettings>,
-        Res<PlaySettings>,
-        Res<Quality>,
-        Res<Palette>,
-        Res<Land>,
-        Res<Wand>,
-    ),
-    view: Option<Res<GenView>>,
-    hovered: Option<Res<Hovered>>,
-    chiefs: Query<(&Beside, &Look, &Settled)>,
-    places: Query<&Transform, (With<Place>, Without<Mascot>)>,
-    (agents, sites, commons, libraries): (
-        Query<&Housed>,
-        Query<&Sited>,
-        Query<(&Common, &GlobalTransform), Without<Mascot>>,
-        Query<&GlobalTransform, With<Library>>,
-    ),
-    robots: Query<(&Robot, &GlobalTransform)>,
-    houses: Query<(&House, &GlobalTransform)>,
-    free: Query<(Entity, &Robot), Without<Passage>>,
+    bearings: Bearings,
+    around: Whereabouts,
+    casting: Casting,
+    writers: Writers,
     mut mascots: Query<(&mut Mascot, &mut Transform)>,
-    mut materials: ResMut<Assets<MarkMaterial>>,
-    marks: Res<Marks>,
-    mut floor: Floor,
-    mut played: MessageWriter<Played>,
-    mut redraw: MessageWriter<RequestRedraw>,
 ) {
+    let Bearings {
+        clock,
+        set,
+        play,
+        quality,
+        pal,
+        land,
+        view,
+        hovered,
+    } = bearings;
+    let Whereabouts {
+        chiefs,
+        places,
+        agents,
+        sites,
+        commons,
+        libraries,
+        robots,
+        houses,
+        free,
+    } = around;
+    let Casting {
+        wand,
+        mut materials,
+        marks,
+        mut floor,
+    } = casting;
+    let Writers {
+        mut played,
+        mut redraw,
+    } = writers;
     let now = clock.t;
     // Toward the camera and to its right, along the ground.
     let yaw = view.map_or(0.0, |view| view.yaw);

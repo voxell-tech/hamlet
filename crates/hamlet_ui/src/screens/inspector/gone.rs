@@ -106,7 +106,7 @@ pub(super) fn library() -> impl View {
             action(Glyph::Move, "MOVE", |world| {
                 hamlet_realm::moving::pick_up(
                     world,
-                    hamlet_realm::generator::society::Place::Library,
+                    hamlet_realm::generator::society::Ground::Library,
                 );
             }),
         ]),

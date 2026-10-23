@@ -5,18 +5,19 @@ mod providers;
 
 use std::collections::BTreeMap;
 
-use bevy::app::{App, Update};
+use bevy::app::{App, PostUpdate, PreUpdate, Update};
 use bevy::ecs::component::Component;
 use bevy::ecs::hierarchy::Children;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
+use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::input_focus::InputFocus;
+use bevy::input_focus::{InputFocus, InputFocusSystems};
 use bevy::text::EditableText;
 use hamlet_client::Connection;
-use hamlet_client::connection::State;
+use hamlet_client::connection::Contact;
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Settings;
@@ -24,6 +25,7 @@ use hamlet_protocol::client as protocol;
 
 pub use self::pages::view;
 pub use self::providers::Browser;
+use crate::PanelSystems;
 
 /// The empty local-model search, referring to the server's machine.
 pub const NOTHING_LOCAL: &str = "No model server answered on the \
@@ -40,7 +42,19 @@ pub(crate) fn plugin(app: &mut App) {
         .add_observer(|_: On<Reconnected>, mut commands: Commands| {
             commands.queue(providers::reconnected);
         })
-        .add_systems(Update, (follow, run_committed, read_narrow));
+        .add_systems(PreUpdate, follow.in_set(PanelSystems::Follow))
+        // After Bevy's text input, in `PreUpdate`, has edited the
+        // field.
+        .add_systems(Update, read_narrow)
+        // After Bevy tells the field commit() unfocused that it lost
+        // focus, and fynix's observer hands its text to the page, so
+        // a commit replies in the frame it was asked for.
+        .add_systems(
+            PostUpdate,
+            run_committed
+                .run_if(|pending: Res<Committing>| pending.waits())
+                .after(InputFocusSystems::FocusChangeEvents),
+        );
 }
 
 /// A page of first-run setup.
@@ -80,31 +94,24 @@ enum Asked {
 
 /// A pending field commit before a button's action.
 #[derive(Resource, Default)]
-pub struct Committing(Option<u8>);
+pub(crate) struct Committing(bool);
 
 impl Committing {
-    pub fn waits(&self) -> bool {
-        self.0.is_some()
+    pub(crate) fn waits(&self) -> bool {
+        self.0
     }
 }
 
 fn run_committed(world: &mut World) {
-    let Some(frames) = world.resource::<Committing>().0 else {
-        return;
-    };
-    if frames > 0 {
-        world.resource_mut::<Committing>().0 = Some(frames - 1);
-    } else {
-        world.resource_mut::<Committing>().0 = None;
-        providers::reply(world);
-    }
+    world.resource_mut::<Committing>().0 = false;
+    providers::reply(world);
 }
 
 fn commit(world: &mut World) {
     if let Some(mut focus) = world.get_resource_mut::<InputFocus>() {
         focus.clear();
     }
-    world.resource_mut::<Committing>().0 = Some(3);
+    world.resource_mut::<Committing>().0 = true;
 }
 
 /// The setup screen from its first page.
@@ -311,13 +318,13 @@ fn answered(response: On<Response>, mut commands: Commands) {
 }
 
 /// Setup visibility and the server's connection words.
-pub fn follow(
+fn follow(
     settings: Res<Settings>,
     connection: Res<Connection>,
     mut welcome: ResMut<Welcome>,
 ) {
     use bevy::ecs::change_detection::DetectChanges;
-    let words = (connection.state != State::Connected)
+    let words = (connection.state != Contact::Connected)
         .then(|| connection.words.clone());
     if welcome.connection != words {
         welcome.connection = words;
@@ -376,7 +383,7 @@ mod server_tests {
 
     use super::*;
     use crate::testing::{
-        all_words, connect, incoming, press_and_update, sent,
+        all_words, connect, incoming, press, press_and_update, sent,
         welcome_app,
     };
     use crate::theme::{self, HamletTheme};
@@ -390,13 +397,11 @@ mod server_tests {
         connect(&mut app, false);
         assert!(!all_words(&mut app).contains("WELCOME TO HAMLET"));
         app.world_mut().insert_resource(Connection {
-            state: State::Refused,
+            state: Contact::Refused,
             words: "The server refused this window: bad token."
                 .into(),
         });
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         let shown = all_words(&mut app);
         assert!(shown.contains("bad token"));
         for command in
@@ -453,7 +458,9 @@ mod server_tests {
             .unwrap()
             .editor_mut()
             .set_text("fake-key");
-        press_and_update(&mut app, "SEND");
+        // The field's text is committed and sent in the same frame.
+        press(&mut app, "SEND");
+        app.update();
         let requests = sent(&mut app);
         assert_eq!(
             requests[0]["reply"],
@@ -617,15 +624,11 @@ mod server_tests {
         let check = sent(&mut app).remove(0);
         assert_eq!(check["what"], "model");
         app.world_mut().resource_mut::<Settings>().0.unset = false;
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         assert!(all_words(&mut app).contains("PICK A MODEL"));
         app.world_mut().resource_mut::<Settings>().0.link.state =
             protocol::LinkState::Connected;
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         incoming(
             &mut app,
             serde_json::json!({"type":"reply", "to":check["id"], "kind":"notice", "text":"Hello"}),
@@ -682,9 +685,7 @@ mod server_tests {
         press_and_update(&mut app, "local::small");
         let edit = sent(&mut app).remove(0);
         app.world_mut().resource_mut::<Settings>().0.unset = false;
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         assert!(
             all_words(&mut app).contains("PICK A MODEL"),
             "a saved choice is not a model answer"
@@ -723,9 +724,7 @@ mod server_tests {
                 models: None,
                 words: Some("That model did not answer.".into()),
             };
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         assert!(
             all_words(&mut app)
                 .contains("That model did not answer.")
@@ -759,9 +758,7 @@ mod server_tests {
         press_and_update(&mut app, "CONTINUE WITH CHATGPT");
         sent(&mut app);
         app.world_mut().trigger(Reconnected);
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         assert!(all_words(&mut app).contains("WELCOME TO HAMLET"));
     }
 

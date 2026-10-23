@@ -1,7 +1,12 @@
-//! Protocol values for tests of the window.
+//! Protocol values for tests of the window, and a loopback server
+//! that sends them.
 
+use futures::{SinkExt, StreamExt};
 use hamlet_protocol::client as protocol;
 use serde_json::json;
+use tokio::net::TcpListener;
+use tokio::runtime::Handle;
+use tokio_tungstenite::tungstenite::Message;
 
 /// A realm with its first hamlet and founder, at revision zero.
 pub fn state() -> protocol::State {
@@ -113,4 +118,28 @@ pub fn deeds(names: &[&str]) -> Vec<protocol::Deed> {
             description: String::new(),
         })
         .collect()
+}
+
+/// A loopback server on `runtime` for one window: it reads the
+/// window's hello, sends `frames` and keeps the connection open. Its
+/// `ws://` address.
+pub fn serve(
+    runtime: &Handle,
+    frames: Vec<protocol::ServerMessage>,
+) -> String {
+    let listener =
+        runtime.block_on(TcpListener::bind("127.0.0.1:0")).unwrap();
+    let url = format!("ws://{}", listener.local_addr().unwrap());
+    runtime.spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut socket =
+            tokio_tungstenite::accept_async(stream).await.unwrap();
+        socket.next().await.unwrap().unwrap();
+        for frame in frames {
+            let text = serde_json::to_string(&frame).unwrap();
+            socket.send(Message::text(text)).await.unwrap();
+        }
+        std::future::pending::<()>().await;
+    });
+    url
 }

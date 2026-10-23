@@ -363,7 +363,6 @@ mod tests {
             );
         let button = app.world_mut().spawn(ButtonBehavior).id();
         app.update();
-        app.update();
         assert!(app.world().get::<TabIndex>(button).is_some());
         assert_eq!(
             app.world().get::<Outline>(button).unwrap().width,

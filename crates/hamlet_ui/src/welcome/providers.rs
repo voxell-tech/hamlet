@@ -113,7 +113,7 @@ pub(super) fn cancel(world: &mut World) {
     if let Some(mut pending) =
         world.get_resource_mut::<super::Committing>()
     {
-        pending.0 = None;
+        pending.0 = false;
     }
 }
 

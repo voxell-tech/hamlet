@@ -487,9 +487,7 @@ mod tests {
             app.world_mut(),
             column((sections(),)).width(px(640.0)).height(px(480.0)),
         );
-        for _ in 0..5 {
-            app.update();
-        }
+        app.update();
         assert_eq!(
             app.world().get::<ComputedNode>(panel).unwrap().size().y,
             480.0
@@ -565,9 +563,7 @@ mod tests {
                 text: "The server could not keep that change.".into(),
             }),
         );
-        for _ in 0..5 {
-            app.update();
-        }
+        app.update();
         assert!(
             words(&mut app).iter().any(|text| text
                 == "The server could not keep that change.")
@@ -624,9 +620,7 @@ mod tests {
                 hamlet_testing::realm::state(),
             ),
         );
-        for _ in 0..2 {
-            app.update();
-        }
+        app.update();
         let world = app.world_mut();
         let stop = world
             .query::<(Entity, &bevy::ui::widget::Text)>()
@@ -690,7 +684,6 @@ mod tests {
             app.world_mut(),
             serde_json::from_value(message).unwrap(),
         );
-        app.update();
         app.update();
     }
 
@@ -984,7 +977,6 @@ mod tests {
             ("QUESTIONS WITH SCOUT", "questions"),
         ] {
             press(&mut app, label);
-            app.update();
             app.update();
             let session = app.world().resource::<Me>().session;
             let chat =

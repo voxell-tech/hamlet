@@ -101,8 +101,9 @@ pub struct UserMessage {
 }
 
 /// A chief's answer to a received need.
-#[derive(Event, Clone, Debug)]
+#[derive(EntityEvent, Clone, Debug)]
 pub struct Answer {
+    #[event_target]
     pub wait: Entity,
     pub choice: Choice,
     pub text: Option<String>,
@@ -122,28 +123,32 @@ pub struct Veto {
 }
 
 /// A request to take a chat back before an item.
-#[derive(Event, Clone, Debug)]
+#[derive(EntityEvent, Clone, Debug)]
 pub struct Rewind {
+    #[event_target]
     pub chat: Entity,
     pub item: String,
 }
 
 /// An operation received for a watched chat.
-#[derive(Event, Clone, Debug)]
+#[derive(EntityEvent, Clone, Debug)]
 pub struct SessionOutput {
+    #[event_target]
     pub chat: Entity,
     pub op: protocol::Op,
 }
 
 /// The end of a watched chat's running work.
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(EntityEvent, Clone, Copy, Debug)]
 pub struct JobFinished {
+    #[event_target]
     pub chat: Entity,
 }
 
 /// The removed chief words returned to a chat's input.
-#[derive(Event, Clone, Debug)]
+#[derive(EntityEvent, Clone, Debug)]
 pub struct Rewound {
+    #[event_target]
     pub chat: Entity,
     pub text: String,
 }

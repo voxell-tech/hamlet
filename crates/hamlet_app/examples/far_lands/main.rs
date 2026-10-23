@@ -20,7 +20,7 @@ use bevy::audio::AudioPlugin;
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use hamlet_realm::generator::land::Land;
-use hamlet_realm::generator::society::{Place, Society, TownId};
+use hamlet_realm::generator::society::{Ground, Society, TownId};
 use hamlet_realm::generator::{GenView, Loading, Tally};
 use hamlet_realm::moving::{self, Carrying};
 use hamlet_realm::pick::Reach;
@@ -344,7 +344,7 @@ fn place(
             .map_or(off, |town| land.sites[town.site].at + off),
         Spot::FitNear(near) => around(near, &|p| {
             society
-                .fits(land, Place::Town(TownId(run.town)), p)
+                .fits(land, Ground::Town(TownId(run.town)), p)
                 .is_ok()
         }),
         Spot::WaterNear(near) => around(near, &|p| land.is_water(p)),
@@ -435,7 +435,7 @@ fn run(
             let to = place(at, &run, &land, &society);
             run.last = to;
             commands.queue(move |world: &mut World| {
-                moving::pick_up(world, Place::Town(TownId(town)));
+                moving::pick_up(world, Ground::Town(TownId(town)));
             });
             // The pointer, over that ground.
             let eye = camera.translation;

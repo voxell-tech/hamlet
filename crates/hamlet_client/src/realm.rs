@@ -1,10 +1,16 @@
 //! The hamlets and agents as the server last sent them.
 
+use std::marker::PhantomData;
+
+use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::name::Name;
 use bevy_ecs::prelude::*;
-use bevy_ecs::system::{SystemParam, SystemState};
+use bevy_ecs::system::SystemParam;
+use bevy_ecs::world::DeferredWorld;
 use hamlet_protocol::client as protocol;
 pub use hamlet_protocol::{HOME, MAYOR};
+
+use crate::index::{self, Index};
 
 /// The server machine's houses folder, excluded from local chat
 /// links.
@@ -29,6 +35,11 @@ impl From<protocol::HamletMode> for Mode {
 
 /// A hamlet identified by its protocol id.
 #[derive(Component, Clone, Debug, PartialEq)]
+#[component(
+    immutable,
+    on_insert = index::file_hamlet,
+    on_discard = index::unfile_hamlet
+)]
 #[require(Spot)]
 pub struct Settlement {
     /// The protocol id, distinct from the shown Name.
@@ -54,6 +65,11 @@ pub struct Treasury(pub protocol::Report);
 
 /// An agent's lifelong number within its hamlet.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[component(
+    immutable,
+    on_insert = index::file_agent,
+    on_discard = index::unfile_agent
+)]
 #[require(Activity, Lived)]
 pub struct Citizen(pub u64);
 
@@ -70,6 +86,10 @@ pub struct Lived {
 
 /// The hamlet an agent belongs to.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+#[component(
+    on_insert = index::file_agent,
+    on_discard = index::unfile_agent
+)]
 #[relationship(relationship_target = Citizens)]
 pub struct LivesIn(pub Entity);
 
@@ -80,6 +100,7 @@ pub struct Citizens(Vec<Entity>);
 
 /// The agent holding its hamlet's office.
 #[derive(Component, Clone, Copy, Debug)]
+#[component(on_insert = index::file_agent, on_discard = index::unseat)]
 pub struct Mayor;
 
 /// An agent with running or queued work.
@@ -217,6 +238,14 @@ impl Deeds {
     pub fn has(&self, name: &str) -> bool {
         self.0.iter().any(|deed| deed == name)
     }
+
+    /// Whether the server supports the deed `name`, as `world` last
+    /// heard: never before its state is received.
+    pub fn allows(world: &World, name: &str) -> bool {
+        world
+            .get_resource::<Deeds>()
+            .is_some_and(|deeds| deeds.has(name))
+    }
 }
 
 /// The last applied server epoch and revision.
@@ -298,32 +327,16 @@ pub fn name_of(world: &World, entity: Entity) -> String {
 /// Lookups of living agents and mayors for systems.
 #[derive(SystemParam)]
 pub struct Roster<'w, 's> {
-    living: Query<
-        'w,
-        's,
-        (Entity, &'static Name),
-        (With<Citizen>, Without<Left>),
-    >,
-    mayors: Query<
-        'w,
-        's,
-        (Entity, &'static LivesIn),
-        (With<Mayor>, Without<Left>),
-    >,
-    settlements: Query<'w, 's, (Entity, &'static Settlement)>,
+    index: Res<'w, Index>,
+    // The `'s` a system's own parameter struct names a Roster with.
+    marker: PhantomData<&'s ()>,
 }
 
 impl Roster<'_, '_> {
     /// A living agent by name, or the first hamlet's mayor by its
     /// office.
     pub fn named(&self, name: &str) -> Option<Entity> {
-        if name == MAYOR {
-            return self.mayor();
-        }
-        self.living
-            .iter()
-            .find(|(_, shown)| shown.as_str() == name)
-            .map(|(entity, _)| entity)
+        self.index.named(name)
     }
 
     /// The first hamlet's current mayor.
@@ -333,46 +346,23 @@ impl Roster<'_, '_> {
 
     /// The current mayor of the named hamlet.
     pub fn mayor_of(&self, name: &str) -> Option<Entity> {
-        let hamlet = self
-            .settlements
-            .iter()
-            .find(|(_, settlement)| settlement.name == name)
-            .map(|(entity, _)| entity)?;
-        self.mayors
-            .iter()
-            .find(|(_, lives)| lives.0 == hamlet)
-            .map(|(entity, _)| entity)
+        self.index.mayor_of(name)
     }
 }
 
-#[derive(Resource, Default)]
-struct Asking(Option<SystemState<Roster<'static, 'static>>>);
-
-fn ask<T>(
-    world: &mut World,
-    question: impl FnOnce(&Roster) -> T,
-) -> Option<T> {
-    let kept = world.get_resource_or_init::<Asking>().0.take();
-    let mut state = kept.unwrap_or_else(|| SystemState::new(world));
-    let answer =
-        state.get(world).ok().map(|roster| question(&roster));
-    world.resource_mut::<Asking>().0 = Some(state);
-    answer
-}
-
 /// A living agent by name, or the first hamlet's mayor by its office.
-pub fn named(world: &mut World, name: &str) -> Option<Entity> {
-    ask(world, |roster| roster.named(name)).flatten()
+pub fn named(world: &World, name: &str) -> Option<Entity> {
+    world.get_resource::<Index>()?.named(name)
 }
 
 /// The first hamlet's current mayor.
-pub fn mayor(world: &mut World) -> Option<Entity> {
+pub fn mayor(world: &World) -> Option<Entity> {
     mayor_of(world, HOME)
 }
 
 /// The current mayor of the named hamlet.
-pub fn mayor_of(world: &mut World, name: &str) -> Option<Entity> {
-    ask(world, |roster| roster.mayor_of(name)).flatten()
+pub fn mayor_of(world: &World, name: &str) -> Option<Entity> {
+    world.get_resource::<Index>()?.mayor_of(name)
 }
 
 /// The protocol id of an agent's hamlet.
@@ -396,17 +386,35 @@ pub fn address_of(
     })
 }
 
-fn settlement(world: &mut World, id: &str) -> Option<Entity> {
-    world
-        .query::<(Entity, &Settlement)>()
-        .iter(world)
-        .find(|(_, settlement)| settlement.name == id)
-        .map(|(entity, _)| entity)
+/// A hamlet by its protocol id.
+pub fn settlement(world: &World, id: &str) -> Option<Entity> {
+    world.get_resource::<Index>()?.hamlet(id)
+}
+
+/// An agent by its reference, living or not.
+pub fn agent(
+    world: &World,
+    reference: &protocol::AgentRef,
+) -> Option<Entity> {
+    world.get_resource::<Index>()?.agent(reference)
 }
 
 /// An agent that has left its hamlet.
 #[derive(Component, Clone, Copy, Debug)]
+#[component(on_insert = Left::on_insert, on_discard = index::come_back)]
 pub struct Left;
+
+impl Left {
+    fn on_insert(mut world: DeferredWorld, context: HookContext) {
+        index::file_agent(world.reborrow(), context);
+        // An agent that left keeps its entity, but none of its roads.
+        let roads =
+            roads_of(&world, context.entity).collect::<Vec<_>>();
+        for road in roads {
+            world.commands().entity(road).try_despawn();
+        }
+    }
+}
 
 pub(crate) fn state(world: &mut World, state: protocol::State) {
     let news = world.contains_resource::<Seen>();
@@ -455,31 +463,23 @@ pub(crate) fn state(world: &mut World, state: protocol::State) {
         .into_iter()
         .map(|wait| crate::waits::upsert(world, wait))
         .collect::<Vec<_>>();
-    let gone = world
-        .query_filtered::<Entity, With<crate::waits::Waiting>>()
-        .iter(world)
+    let index = world.resource::<Index>();
+    let gone = index
+        .waits()
         .filter(|entity| !waits.contains(entity))
+        .chain(
+            index.agents().filter(|entity| !agents.contains(entity)),
+        )
+        .chain(
+            index
+                .hamlets()
+                .filter(|entity| !hamlets.contains(entity)),
+        )
         .collect::<Vec<_>>();
     for entity in gone {
-        world.despawn(entity);
+        // A hamlet's agents go with it, so one may be gone already.
+        world.try_despawn(entity).ok();
     }
-    let gone = world
-        .query_filtered::<Entity, With<Citizen>>()
-        .iter(world)
-        .filter(|entity| !agents.contains(entity))
-        .collect::<Vec<_>>();
-    for entity in gone {
-        world.despawn(entity);
-    }
-    let gone = world
-        .query_filtered::<Entity, With<Settlement>>()
-        .iter(world)
-        .filter(|entity| !hamlets.contains(entity))
-        .collect::<Vec<_>>();
-    for entity in gone {
-        world.despawn(entity);
-    }
-    prune_roads(world);
 }
 
 fn upsert_hamlet(
@@ -507,22 +507,6 @@ fn upsert_hamlet(
         Spot(hamlet.at.map(|at| (at.x as f32, at.z as f32))),
     );
     entity
-}
-
-pub(crate) fn agent(
-    world: &mut World,
-    reference: &protocol::AgentRef,
-) -> Option<Entity> {
-    world
-        .query::<(Entity, &Citizen, &LivesIn)>()
-        .iter(world)
-        .find(|(_, citizen, lives)| {
-            citizen.0 == reference.number
-                && world.get::<Settlement>(lives.0).is_some_and(
-                    |hamlet| hamlet.name == reference.hamlet,
-                )
-        })
-        .map(|(entity, _, _)| entity)
 }
 
 fn upsert_agent(
@@ -663,7 +647,6 @@ pub(crate) fn changes(world: &mut World, changes: protocol::Changes) {
     for hamlet in hamlets {
         society(world, hamlet, true);
     }
-    prune_roads(world);
     world.insert_resource(Seen {
         epoch: changes.epoch,
         revision: changes.revision,
@@ -672,13 +655,23 @@ pub(crate) fn changes(world: &mut World, changes: protocol::Changes) {
 
 fn departures(world: &mut World) {
     let departed = world
-        .query::<(Entity, &Departure)>()
-        .iter(world)
-        .map(|(entity, left)| (entity, left.0.into.clone()))
+        .resource::<Index>()
+        .agents()
+        .filter_map(|entity| {
+            let left = world.get::<Departure>(entity)?;
+            Some((entity, left.0.into.clone()))
+        })
         .collect::<Vec<_>>();
     for (entity, into) in departed {
         let host = into.as_ref().and_then(|into| agent(world, into));
         let mut entity = world.entity_mut(entity);
+        // Only on a difference: `Left` inserted again would file the
+        // agent and look for its roads once more.
+        let merged =
+            entity.get::<MergedInto>().map(|merged| merged.0);
+        if entity.contains::<Left>() && merged == host {
+            continue;
+        }
         if let Some(host) = host {
             entity.insert((MergedInto(host), Left));
         } else {
@@ -728,12 +721,15 @@ fn society(world: &mut World, value: protocol::Hamlet, news: bool) {
         else {
             continue;
         };
+        // An agent that left has no roads, though its hamlet still
+        // lists them.
+        if world.get::<Left>(a).is_some()
+            || world.get::<Left>(b).is_some()
+        {
+            continue;
+        }
         let ends = if a <= b { (a, b) } else { (b, a) };
-        let road = world
-            .query::<(Entity, &Road)>()
-            .iter(world)
-            .find(|(_, road)| road.ends == ends)
-            .map(|(e, _)| e);
+        let road = road_between(world, a, b);
         let before = road
             .and_then(|e| world.get::<Traffic>(e))
             .map_or(0, |t| t.messages);
@@ -761,36 +757,16 @@ fn society(world: &mut World, value: protocol::Hamlet, news: bool) {
             world.trigger(Carried { road: entity, from });
         }
     }
-    let gone = world
-        .query::<(Entity, &Road)>()
-        .iter(world)
-        .filter(|(entity, road)| {
-            !wanted.contains(entity)
-                && [road.ends.0, road.ends.1].iter().any(|end| {
-                    world
-                        .get::<LivesIn>(*end)
-                        .is_some_and(|l| l.0 == hamlet)
-                })
-        })
-        .map(|(e, _)| e)
+    let mut gone = world
+        .get::<Citizens>(hamlet)
+        .into_iter()
+        .flat_map(RelationshipTarget::iter)
+        .flat_map(|agent| roads_of(world, agent))
+        .filter(|road| !wanted.contains(road))
         .collect::<Vec<_>>();
-    for entity in gone {
-        world.despawn(entity);
-    }
-}
-
-fn prune_roads(world: &mut World) {
-    let gone = world
-        .query::<(Entity, &Road)>()
-        .iter(world)
-        .filter(|(_, road)| {
-            [road.ends.0, road.ends.1].iter().any(|end| {
-                world.get::<Citizen>(*end).is_none()
-                    || world.get::<Left>(*end).is_some()
-            })
-        })
-        .map(|(e, _)| e)
-        .collect::<Vec<_>>();
+    // A road between two of the hamlet's agents is met at each end.
+    gone.sort_unstable();
+    gone.dedup();
     for entity in gone {
         world.despawn(entity);
     }
@@ -808,6 +784,7 @@ pub struct Absorbed(Vec<Entity>);
 
 /// A road between two agent entities.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+#[component(immutable, on_insert = Road::on_insert)]
 pub struct Road {
     pub ends: (Entity, Entity),
 }
@@ -817,6 +794,68 @@ impl Road {
     pub fn has(&self, agent: Entity) -> bool {
         self.ends.0 == agent || self.ends.1 == agent
     }
+
+    // Each end holds the road as a relationship, so the road goes
+    // with either end.
+    fn on_insert(mut world: DeferredWorld, context: HookContext) {
+        let Some(&Road { ends: (from, to) }) =
+            world.get::<Road>(context.entity)
+        else {
+            return;
+        };
+        world
+            .commands()
+            .entity(context.entity)
+            .try_insert((RoadFrom(from), RoadTo(to)));
+    }
+}
+
+/// A road's first end.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+#[relationship(relationship_target = RoadsFrom)]
+pub struct RoadFrom(pub Entity);
+
+/// The roads whose first end is this agent.
+#[derive(Component, Default, Debug)]
+#[relationship_target(relationship = RoadFrom, linked_spawn)]
+pub struct RoadsFrom(Vec<Entity>);
+
+/// A road's second end.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+#[relationship(relationship_target = RoadsTo)]
+pub struct RoadTo(pub Entity);
+
+/// The roads whose second end is this agent.
+#[derive(Component, Default, Debug)]
+#[relationship_target(relationship = RoadTo, linked_spawn)]
+pub struct RoadsTo(Vec<Entity>);
+
+/// The roads of an agent with these relationship targets.
+pub fn roads<'a>(
+    from: Option<&'a RoadsFrom>,
+    to: Option<&'a RoadsTo>,
+) -> impl Iterator<Item = Entity> + 'a {
+    let from = from.into_iter().flat_map(RelationshipTarget::iter);
+    from.chain(to.into_iter().flat_map(RelationshipTarget::iter))
+}
+
+/// The roads with an agent at one end.
+pub fn roads_of(
+    world: &World,
+    agent: Entity,
+) -> impl Iterator<Item = Entity> + '_ {
+    roads(world.get(agent), world.get(agent))
+}
+
+/// The road between two agents.
+pub fn road_between(
+    world: &World,
+    a: Entity,
+    b: Entity,
+) -> Option<Entity> {
+    roads_of(world, a).find(|road| {
+        world.get::<Road>(*road).is_some_and(|road| road.has(b))
+    })
 }
 
 /// The drawn level of traffic on a road.
@@ -858,3 +897,51 @@ pub struct Voted {
 /// A town's optional place in the world.
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq)]
 pub struct Spot(pub Option<(f32, f32)>);
+
+#[cfg(test)]
+mod tests {
+    use bevy_app::App;
+    use hamlet_protocol::client as protocol;
+    use hamlet_testing::realm::{agent, reference, road, state};
+
+    use super::{named, road_between, roads_of};
+    use crate::{ClientPlugin, receive};
+
+    #[test]
+    fn a_road_goes_with_an_end_that_left_or_is_gone_and_is_not_laid_again()
+     {
+        let mut app = App::new();
+        app.add_plugins(ClientPlugin { server: None });
+        let mut realm = state();
+        realm.agents.push(agent("home", 1, "scout"));
+        realm.agents.push(agent("home", 2, "miner"));
+        let founder = reference("home", 0);
+        realm.hamlets[0].roads = vec![
+            road(founder.clone(), reference("home", 1), 0),
+            road(founder, reference("home", 2), 0),
+        ];
+        let world = app.world_mut();
+        receive(world, protocol::ServerMessage::State(realm.clone()));
+        let [founder, scout, miner] = ["founder", "scout", "miner"]
+            .map(|name| named(world, name).unwrap());
+        assert_eq!(roads_of(world, founder).count(), 2);
+        realm.agents[1].left = Some(protocol::Left {
+            at: 1,
+            by: "chief".into(),
+            how: protocol::LeftHow::Removed,
+            into: None,
+            reason: String::new(),
+            words: String::new(),
+        });
+        realm.revision += 1;
+        receive(world, protocol::ServerMessage::State(realm.clone()));
+        assert!(world.get_entity(scout).is_ok());
+        assert_eq!(road_between(world, founder, scout), None);
+        let mine = road_between(world, founder, miner).unwrap();
+        realm.agents.pop();
+        realm.revision += 1;
+        receive(world, protocol::ServerMessage::State(realm));
+        assert!(world.get_entity(mine).is_err());
+        assert_eq!(roads_of(world, founder).count(), 0);
+    }
+}

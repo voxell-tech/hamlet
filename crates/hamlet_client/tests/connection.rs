@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use bevy_app::App;
 use bevy_ecs::prelude::*;
 use futures::{SinkExt, StreamExt};
-use hamlet_client::connection::{Connection, State};
+use hamlet_client::connection::{Connection, Contact};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Settlement;
 use hamlet_client::{ClientPlugin, Tokio};
@@ -157,7 +157,7 @@ async fn hello_precedes_the_outbox_and_received_state_fills_the_world()
         assert_eq!(message.text, text);
     }
     let connection = app.world().resource::<Connection>();
-    assert_eq!(connection.state, State::Connected);
+    assert_eq!(connection.state, Contact::Connected);
     assert_eq!(
         connection.words,
         format!(
@@ -245,7 +245,7 @@ async fn a_reconnection_keeps_the_realm_and_sends_offline_requests_after_hello()
         .unwrap();
     close.send(()).unwrap();
     until(&mut app, |world| {
-        world.resource::<Connection>().state == State::Lost
+        world.resource::<Connection>().state == Contact::Lost
     })
     .await;
     assert_eq!(
@@ -285,7 +285,7 @@ async fn a_reconnection_keeps_the_realm_and_sends_offline_requests_after_hello()
     );
     assert_eq!(
         app.world().resource::<Connection>().state,
-        State::Connected
+        Contact::Connected
     );
     drop(app);
     server.await.unwrap();
@@ -337,7 +337,7 @@ async fn a_refused_token_keeps_the_faults_words_and_stops_retrying() {
         cap: Duration::from_millis(200),
     });
     until(&mut app, |world| {
-        world.resource::<Connection>().state == State::Refused
+        world.resource::<Connection>().state == Contact::Refused
     })
     .await;
     assert_eq!(
@@ -352,7 +352,7 @@ async fn a_refused_token_keeps_the_faults_words_and_stops_retrying() {
     server.await.unwrap();
     assert_eq!(
         app.world().resource::<Connection>().state,
-        State::Refused
+        Contact::Refused
     );
     assert_eq!(app.world().resource::<Outbox>().iter().count(), 1);
 }
@@ -366,14 +366,14 @@ async fn an_absent_server_explains_how_to_start_one_and_keeps_requests_in_the_ou
     let mut app = window(&url);
     assert_eq!(
         app.world().resource::<Connection>().state,
-        State::Connecting
+        Contact::Connecting
     );
     assert_eq!(
         app.world().resource::<Connection>().words,
         format!("Connecting to {url}...")
     );
     until(&mut app, |world| {
-        world.resource::<Connection>().state == State::Lost
+        world.resource::<Connection>().state == Contact::Lost
     })
     .await;
     assert_eq!(
@@ -486,7 +486,7 @@ async fn no_selected_server_leaves_the_outbox_alone() {
     assert_eq!(app.world().resource::<Outbox>().iter().count(), 1);
     assert_eq!(
         app.world().resource::<Connection>().state,
-        State::Lost
+        Contact::Lost
     );
     assert_eq!(
         app.world().resource::<Connection>().words,
@@ -588,7 +588,7 @@ async fn a_socket_error_after_state_and_fault_reconnects_instead_of_refusing()
         .await;
     assert_eq!(
         app.world().resource::<Connection>().state,
-        State::Connected
+        Contact::Connected
     );
     assert_eq!(
         app.world_mut()
@@ -640,7 +640,7 @@ async fn a_refusal_is_read_even_while_the_outbox_is_backpressured() {
     });
     let mut app = window(&url);
     until(&mut app, |world| {
-        world.resource::<Connection>().state == State::Connected
+        world.resource::<Connection>().state == Contact::Connected
     })
     .await;
     for _ in 0..32 {
@@ -650,7 +650,7 @@ async fn a_refusal_is_read_even_while_the_outbox_is_backpressured() {
     tokio::time::sleep(Duration::from_millis(30)).await;
     refuse.send(()).unwrap();
     until(&mut app, |world| {
-        world.resource::<Connection>().state == State::Refused
+        world.resource::<Connection>().state == Contact::Refused
     })
     .await;
     assert_eq!(
@@ -727,7 +727,7 @@ async fn only_policy_after_an_unaddressed_fault_refuses() {
         until(&mut app, |world| {
             assert_ne!(
                 world.resource::<Connection>().state,
-                State::Refused,
+                Contact::Refused,
                 "close {code:?}, addressed {addressed:?}"
             );
             world.resource::<Reconnections>().0 == 1
@@ -806,14 +806,14 @@ async fn a_request_fault_after_skipped_state_and_close_retries() {
     until(&mut app, |world| world.contains_resource::<Seen>()).await;
     say(&mut app, "Close the first connection");
     until(&mut app, |world| {
-        world.resource::<Connection>().state == State::Lost
+        world.resource::<Connection>().state == Contact::Lost
     })
     .await;
     say(&mut app, "Queued while away");
     until(&mut app, |world| {
         assert_ne!(
             world.resource::<Connection>().state,
-            State::Refused
+            Contact::Refused
         );
         world.resource::<Reconnections>().0 == 2
     })
@@ -853,7 +853,7 @@ async fn invalid_addresses_stop_in_words_without_attempting_a_socket()
         let mut app = window(&url);
         say(&mut app, "Keep this request");
         until(&mut app, |world| {
-            world.resource::<Connection>().state == State::Lost
+            world.resource::<Connection>().state == Contact::Lost
         })
         .await;
         let connection = app.world().resource::<Connection>();
@@ -928,10 +928,10 @@ async fn pongs_keep_a_socket_alive_and_silence_loses_it() {
     .await;
     assert_eq!(
         app.world().resource::<Connection>().state,
-        State::Connected
+        Contact::Connected
     );
     until(&mut app, |world| {
-        world.resource::<Connection>().state == State::Lost
+        world.resource::<Connection>().state == Contact::Lost
     })
     .await;
     assert_eq!(

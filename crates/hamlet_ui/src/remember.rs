@@ -2,9 +2,10 @@
 //! choices of the View menu, and the selection.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::{Context, Result};
-use bevy::app::{App, Update};
+use bevy::app::{App, PreUpdate, Update};
 use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::name::Name;
@@ -14,7 +15,7 @@ use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
 use bevy::ecs::system::{Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::time::Time;
+use bevy::time::{Real, Time};
 use bevy_fynix::dock::{
     DockAreaStyle, DockLeaf, DockNode, DockRegistry, DockSplit,
     DockTree, NodeId, SplitAxis,
@@ -28,6 +29,7 @@ use hamlet_realm::sky::Quality;
 use hamlet_realm::sound::SoundSettings;
 use serde::{Deserialize, Serialize};
 
+use crate::PanelSystems;
 use crate::me::Me;
 use crate::roll::Roll;
 use crate::theme::HamletTheme;
@@ -37,18 +39,24 @@ use crate::world_view::TimeOfDay;
 /// divider writes once.
 const SETTLE: f32 = 0.8;
 
-/// The frames a remembered selection is looked for before it is given
-/// up: an agent removed since never comes.
-const PATIENCE: u32 = 240;
+/// The time a remembered selection is looked for before it is given
+/// up: an agent removed since never comes. Longer than the first
+/// reconnection tries, for a window opened before its server listens.
+const PATIENCE: Duration = Duration::from_secs(10);
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Pending>()
         .init_resource::<Kept>()
         .add_systems(
+            PreUpdate,
+            reselect
+                .run_if(|pending: Res<Pending>| pending.seeks())
+                .in_set(PanelSystems::Follow),
+        )
+        // After fynix has moved the dock.
+        .add_systems(
             Update,
             (
-                reselect
-                    .run_if(|pending: Res<Pending>| pending.seeks()),
                 note_selected.run_if(
                     resource_changed::<Selected>
                         .or_eager(resource_changed::<Roll>),
@@ -150,8 +158,8 @@ pub enum Chosen {
 #[derive(Resource, Default)]
 pub(crate) struct Pending {
     chosen: Option<Chosen>,
-    /// Frames it has been looked for.
-    tried: u32,
+    /// The real time it was first looked for.
+    began: Option<Duration>,
 }
 
 impl Pending {
@@ -217,11 +225,7 @@ impl Chosen {
                 Thing::Ruin(agent(world, name, true)?)
             }
             Chosen::Hamlet(name) => Thing::Common(
-                world
-                    .query::<(Entity, &Settlement)>()
-                    .iter(world)
-                    .find(|(_, hamlet)| hamlet.name == *name)
-                    .map(|(hamlet, _)| hamlet)?,
+                hamlet_client::realm::settlement(world, name)?,
             ),
             Chosen::Chief | Chosen::Hearth => {
                 let user = world.resource::<Me>().user.clone();
@@ -253,9 +257,9 @@ pub(crate) fn reselect(world: &mut World) {
             world.resource_mut::<Pending>().chosen = None;
         }
         None => {
+            let now = world.resource::<Time<Real>>().elapsed();
             let mut pending = world.resource_mut::<Pending>();
-            pending.tried += 1;
-            if pending.tried > PATIENCE {
+            if now - *pending.began.get_or_insert(now) > PATIENCE {
                 pending.chosen = None;
             }
         }
@@ -432,7 +436,7 @@ pub fn restore(world: &mut World) -> bool {
     *world.resource_mut::<Quality>() = view.quality;
     world.insert_resource(Pending {
         chosen: view.selected.clone(),
-        tried: 0,
+        began: None,
     });
     let registry = world.resource::<DockRegistry<HamletTheme>>();
     let known = |id: &str| registry.get(id).is_some();
@@ -582,7 +586,7 @@ mod tests {
         assert!(!dir.join("view/view.toml").exists());
         app.world_mut()
             .resource_mut::<Time>()
-            .advance_by(std::time::Duration::from_secs(1));
+            .advance_by(Duration::from_secs(1));
         app.update();
         assert!(dir.join("view/view.toml").exists());
         assert!(!dir.join("view.toml").exists());
@@ -628,12 +632,13 @@ mod tests {
     #[test]
     fn what_was_selected_is_selected_again_once_it_is_there() {
         let mut world = World::new();
+        world.init_resource::<Time<Real>>();
         world.init_resource::<Selected>();
         world.init_resource::<hamlet_realm::pick::Also>();
         world.init_resource::<Kept>();
         world.insert_resource(Pending {
             chosen: Some(Chosen::House("scout".into())),
-            tried: 0,
+            began: None,
         });
         // Its agent is not in the world yet: nothing is selected.
         reselect(&mut world);
@@ -655,12 +660,17 @@ mod tests {
         select(&mut world, None);
         world.insert_resource(Pending {
             chosen: Some(Chosen::Agent("nobody".into())),
-            tried: 0,
+            began: None,
         });
-        for _ in 0..=PATIENCE {
-            reselect(&mut world);
-        }
-        assert!(world.resource::<Pending>().chosen.is_none());
+        reselect(&mut world);
+        world.resource_mut::<Time<Real>>().advance_by(PATIENCE);
+        reselect(&mut world);
+        assert!(world.resource::<Pending>().seeks());
+        world
+            .resource_mut::<Time<Real>>()
+            .advance_by(Duration::from_millis(16));
+        reselect(&mut world);
+        assert!(!world.resource::<Pending>().seeks());
         assert_eq!(world.resource::<Selected>().0, None);
     }
 

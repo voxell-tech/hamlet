@@ -11,6 +11,7 @@ description = "The window's components and requests, filled from the server"
 workspace = true
 
 [dependencies]
+base64.workspace = true
 bevy_app.workspace = true
 bevy_ecs.workspace = true
 futures.workspace = true
@@ -18,6 +19,9 @@ hamlet_protocol.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, features = ["fs"] }
 
 [dev-dependencies]
 hamlet_testing.workspace = true

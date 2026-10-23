@@ -401,7 +401,7 @@ fn a_house_can_be_set_to_rest_as_a_bare_plot() {
 fn a_town_set_down_elsewhere_goes_house_by_house_with_its_roads() {
     use std::collections::HashMap;
 
-    use crate::generator::society::{Place, TownId};
+    use crate::generator::society::{Ground, TownId};
 
     let mut app = app(GenSettings::default());
     // Three more towns, one of them with houses.
@@ -436,7 +436,9 @@ fn a_town_set_down_elsewhere_goes_house_by_house_with_its_roads() {
         .map(|i| {
             Vec2::from_angle(i as f32) * (700.0 + i as f32 * 3.0)
         })
-        .find(|&p| society.fits(&land, Place::Town(moved), p).is_ok())
+        .find(|&p| {
+            society.fits(&land, Ground::Town(moved), p).is_ok()
+        })
         .unwrap();
     society.move_town(&mut land, moved, to).unwrap();
     app.insert_resource(land);

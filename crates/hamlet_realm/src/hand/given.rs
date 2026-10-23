@@ -1,6 +1,7 @@
 //! File drops offered to the server, and gifts and introductions in
 //! the world.
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::window::FileDragAndDrop;
 use hamlet_client::realm::{Deeds, Mayor};
@@ -14,25 +15,68 @@ use crate::keeper::Act;
 use crate::pick::{Hovered, Thing};
 use crate::play::{Play, Played};
 
+/// The clocks, tuning, toys and deeds a letter is handed over with.
+#[derive(SystemParam)]
+pub(super) struct Post<'w> {
+    time: Res<'w, Time>,
+    clock: Res<'w, Clock>,
+    set: Res<'w, PlaySettings>,
+    toys: Option<Res<'w, Toys>>,
+    deeds: Option<Res<'w, Deeds>>,
+}
+
+/// The thing under the pointer, and the robots and agents a letter
+/// may go to.
+#[derive(SystemParam)]
+pub(super) struct Addressees<'w, 's> {
+    hovered: Res<'w, Hovered>,
+    boxes: Query<'w, 's, (Entity, &'static Thing, &'static ChildOf)>,
+    plain: Query<'w, 's, &'static Robot>,
+    agents: Query<'w, 's, (Entity, &'static Housed, Has<Mayor>)>,
+    places: Query<
+        'w,
+        's,
+        (&'static Transform, Option<&'static Passage>),
+        With<Robot>,
+    >,
+}
+
+/// The messages a letter handed over writes: the wish to give it, and
+/// what is played.
+#[derive(SystemParam)]
+pub(super) struct Writers<'w> {
+    played: MessageWriter<'w, Played>,
+    wishes: MessageWriter<'w, Wish>,
+}
+
 /// Hands each file dropped on the window to the agent whose robot
 /// or house the pointer is on. One that fell on nothing is let lie.
 pub(super) fn letters(
     mut commands: Commands,
-    time: Res<Time>,
-    clock: Res<Clock>,
-    set: Res<PlaySettings>,
-    toys: Option<Res<Toys>>,
-    hovered: Res<Hovered>,
-    deeds: Option<Res<Deeds>>,
+    post: Post,
+    addressees: Addressees,
+    writers: Writers,
     mut dropped: MessageReader<FileDragAndDrop>,
     mut hand: ResMut<Hand>,
-    boxes: Query<(Entity, &Thing, &ChildOf)>,
-    plain: Query<&Robot>,
-    agents: Query<(Entity, &Housed, Has<Mayor>)>,
-    places: Query<(&Transform, Option<&Passage>), With<Robot>>,
-    mut played: MessageWriter<Played>,
-    mut wishes: MessageWriter<Wish>,
 ) {
+    let Post {
+        time,
+        clock,
+        set,
+        toys,
+        deeds,
+    } = post;
+    let Addressees {
+        hovered,
+        boxes,
+        plain,
+        agents,
+        places,
+    } = addressees;
+    let Writers {
+        mut played,
+        mut wishes,
+    } = writers;
     if !deeds.is_some_and(|deeds| deeds.has("give")) {
         dropped.clear();
         hand.letters.clear();

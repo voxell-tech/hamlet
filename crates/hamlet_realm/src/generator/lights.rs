@@ -11,7 +11,7 @@ use hamlet_vfx::inlay::{
 use super::land::Land;
 use super::society::{Pair, Society};
 use super::sync::Drawn;
-use super::traffic::Traffic;
+use super::traffic::Trips;
 use super::{Kit, state_index};
 use crate::keeper::KState;
 use crate::palette::Palette;
@@ -34,7 +34,7 @@ pub(super) fn light_roads(
     looks: Res<Looks>,
     land: Res<Land>,
     society: Res<Society>,
-    traffic: Res<Traffic>,
+    traffic: Res<Trips>,
     kit: Res<Kit>,
     pal: Res<Palette>,
     drawn: Res<Drawn>,

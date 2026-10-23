@@ -244,9 +244,7 @@ pub fn open_menu() -> impl View {
         bevy_fynix::derived(|world: &World| {
             (
                 world.resource::<OpenMenu>().0,
-                world
-                    .get_resource::<hamlet_client::realm::Deeds>()
-                    .is_some_and(|deeds| deeds.has("found")),
+                hamlet_client::realm::Deeds::allows(world, "found"),
             )
         })
         .when(crate::roll::either(
@@ -285,9 +283,7 @@ mod tests {
             app.world_mut(),
             open_menu(),
         );
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         let shown = crate::testing::all_words(&mut app);
         assert!(shown.contains("Close"), "{shown}");
         assert!(!shown.contains("Run in Background"));
@@ -296,9 +292,7 @@ mod tests {
         app.insert_resource(hamlet_client::realm::Deeds(vec![
             "found".into(),
         ]));
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         assert!(
             crate::testing::words(&mut app)
                 .iter()

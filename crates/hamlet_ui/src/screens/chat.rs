@@ -18,7 +18,7 @@ mod timeline;
 
 use std::collections::HashSet;
 
-use bevy::app::{App, PostUpdate, Update};
+use bevy::app::{App, PostUpdate, PreUpdate, Update};
 use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -64,9 +64,9 @@ pub use self::lines::{
     fold_lines, hide_unseen, read_back, transcript,
 };
 pub use self::rewind::{Rewinds, asked as rewind_asked};
-use crate::View;
 use crate::looks::well;
 use crate::me::{self, Me};
+use crate::{PanelSystems, View};
 
 /// The least width of the field a chief types in.
 const FIELD_LEAST: f32 = 150.0;
@@ -87,15 +87,17 @@ pub fn plugin(app: &mut App) {
         .add_observer(remember_rewind)
         .add_observer(response)
         .add_plugins((rewind::plugin, lines::plugin, reply::plugin))
+        // The rows are folded before fynix mounts them, so a received
+        // reply shows in the update it arrives.
+        .add_systems(
+            PreUpdate,
+            (stick_to_bottom, read_back, fold_lines)
+                .chain()
+                .in_set(PanelSystems::Bind),
+        )
         .add_systems(
             Update,
-            (
-                (stick_to_bottom, read_back, fold_lines).chain(),
-                hide_unseen,
-                break_long_words,
-                show_placeholder,
-                grow,
-            ),
+            (hide_unseen, break_long_words, show_placeholder, grow),
         )
         .add_systems(PostUpdate, refocus);
 }
@@ -546,9 +548,7 @@ mod tests {
             repeat: false,
             window,
         });
-        for _ in 0..4 {
-            app.update();
-        }
+        app.update();
         let text = app
             .world()
             .resource::<Outbox>()
@@ -573,9 +573,7 @@ mod tests {
             chat: session,
             text,
         });
-        for _ in 0..4 {
-            app.update();
-        }
+        app.update();
         assert_eq!(
             app.world().get::<EditableText>(input).unwrap().value(),
             "Digital, please."
@@ -731,9 +729,7 @@ mod tests {
                 repeat: false,
                 window,
             });
-            for _ in 0..4 {
-                app.update();
-            }
+            app.update();
             assert!(crate::testing::words(&mut app).iter().any(
                 |text| text
                     == "Commands are not typed here. Use the menus, \
@@ -804,7 +800,10 @@ mod tests {
             inverse_scale_factor: 1.0,
             ..Default::default()
         });
-        for _ in 0..10 {
+        // One update shows more of the received rows. The page is
+        // asked for once they have had the frames read_back gives
+        // them to add height, which here they never do.
+        for _ in 0..5 {
             app.update();
         }
         let requests = app
@@ -827,9 +826,7 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::Transcript(page),
         );
-        for _ in 0..10 {
-            app.update();
-        }
+        app.update();
         let shown = crate::testing::all_words(&mut app);
         assert!(shown.contains("Line 1."), "{shown}");
         assert!(
@@ -894,9 +891,7 @@ mod tests {
             .get_mut::<ScrollPosition>(scroll)
             .unwrap()
             .y = 0.0;
-        for _ in 0..4 {
-            app.update();
-        }
+        app.update();
         let requests = app
             .world_mut()
             .resource_mut::<Outbox>()
@@ -1056,9 +1051,7 @@ mod tests {
         press(&mut app, "+  Worked, 2 steps, 1 failed");
         press(&mut app, "+  Working, 1 step so far");
         press(&mut app, "+  Thought it over");
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         let shown = words(&mut app);
         for text in [
             "Done",
@@ -1142,9 +1135,7 @@ mod tests {
                 upload: None,
             }),
         );
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
         assert!(
             app.world_mut()
                 .query::<&EditableText>()

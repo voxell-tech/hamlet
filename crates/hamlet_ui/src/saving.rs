@@ -18,7 +18,7 @@ pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Saves>()
         .add_observer(answered)
         .add_observer(reconnected)
-        .add_systems(Update, settle);
+        .add_systems(Update, close.run_if(closing));
 }
 
 #[derive(Resource, Default)]
@@ -80,10 +80,8 @@ fn reconnected(_: On<Reconnected>, mut saves: ResMut<Saves>) {
     }
 }
 
-fn settle(world: &mut World) {
-    if world.resource::<Saves>().closing {
-        close(world);
-    }
+fn closing(saves: Res<Saves>) -> bool {
+    saves.closing
 }
 
 pub(crate) fn screen() -> impl View {

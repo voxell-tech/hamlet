@@ -25,17 +25,17 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 pub use self::camera::{
-    Centre, Following, Glide, Leash, Orbit, Stance, Steer, Steering,
-    focus_on,
+    Centre, Following, Glide, Leash, Orbit, Stance, Steer, focus_on,
 };
-pub use self::reach::{Reach, aim};
+pub use self::reach::Reach;
+use self::reach::aim;
 pub use self::signs::{
     NameTag, Named, NoNameTag, Reads, Sign, Signed,
 };
 use crate::play::Played;
 use crate::sky::CameraSettings;
 use crate::works::Switched;
-use crate::{WorldCamera, WorldSystems};
+use crate::{RealmSystems, WorldCamera};
 
 /// Hover, selection and the camera moved by hand. What can be
 /// pointed at is up to whoever spawns it with [`watch`].
@@ -74,7 +74,10 @@ pub fn plugin(app: &mut App) {
             .after(generate_hovermap)
             .before(pointer_events),
     )
-    .add_systems(Update, (mark_camera, aim.before(WorldSystems)));
+    .add_systems(
+        Update,
+        (mark_camera, aim.in_set(RealmSystems::Aim)),
+    );
 }
 
 /// The room each thing takes for the pointer, its ring and its name.

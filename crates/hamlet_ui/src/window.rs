@@ -4,8 +4,10 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use bevy::app::{App, Update};
+use bevy::app::{App, Startup, Update};
 use bevy::ecs::message::MessageReader;
+use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::common_conditions::resource_exists;
 use bevy::ecs::system::{Local, Res};
 use bevy::state::app::AppExtStates;
 use bevy::state::state::States;
@@ -14,8 +16,11 @@ use bevy::window::{
     ExitCondition, Window, WindowCloseRequested, WindowPlugin,
     WindowResizeConstraints, WindowResized, WindowResolution,
 };
-use bevy::winit::{UpdateMode, WinitSettings};
+use bevy::winit::{
+    EventLoopProxyWrapper, UpdateMode, WinitSettings, WinitUserEvent,
+};
 use hamlet_client::ViewDir;
+use hamlet_client::connection::Wake;
 use hamlet_realm::chief;
 
 use crate::chrome;
@@ -29,6 +34,11 @@ const LEAST_SIZE: (u32, u32) = (1180, 680);
 pub fn plugin(app: &mut App) {
     app.init_state::<WorldShown>()
         .insert_resource(winit_settings())
+        .add_systems(
+            Startup,
+            wake_on_frames
+                .run_if(resource_exists::<EventLoopProxyWrapper>),
+        )
         .add_systems(Update, (intercept_close, remember_size));
 }
 
@@ -122,6 +132,19 @@ pub(crate) fn winit_settings() -> WinitSettings {
             Duration::from_millis(250),
         ),
     }
+}
+
+/// Wakes the reactive loop when the connection hands over a frame,
+/// rather than at the loop's next timeout.
+fn wake_on_frames(
+    proxy: Res<EventLoopProxyWrapper>,
+    mut commands: bevy::ecs::system::Commands,
+) {
+    let proxy = (**proxy).clone();
+    commands.insert_resource(Wake::new(move || {
+        // Fails only once the event loop has ended.
+        let _ = proxy.send_event(WinitUserEvent::WakeUp);
+    }));
 }
 
 fn intercept_close(

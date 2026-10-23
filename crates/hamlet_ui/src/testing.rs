@@ -15,7 +15,7 @@ use bevy::ui_widgets::{Activate, Button, MenuItem};
 use bevy_fynix::FynixPlugin;
 use bevy_fynix::dock::DockTree;
 use hamlet_assets::Tuning;
-use hamlet_client::connection::State;
+use hamlet_client::connection::Contact;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::{ClientPlugin, Connection, receive};
 use hamlet_desktop::awake::KeepAwake;
@@ -35,6 +35,7 @@ pub(crate) fn panel_app() -> App {
         bevy::time::TimePlugin,
         ClientPlugin { server: None },
         FynixPlugin::<HamletTheme>::default(),
+        crate::panel_sets,
     ));
     theme::insert_theme(app.world_mut(), HamletTheme::designed());
     receive(
@@ -66,6 +67,7 @@ pub(crate) fn welcome_app() -> App {
         FynixPlugin::<HamletTheme>::default(),
         crate::welcome::plugin,
         crate::secret::plugin,
+        crate::panel_sets,
     ));
     theme::insert_theme(app.world_mut(), HamletTheme::designed());
     app.insert_resource(Browser(|_, url| {
@@ -75,13 +77,13 @@ pub(crate) fn welcome_app() -> App {
 }
 
 /// Connects and receives the fixture state, its settings unset or
-/// not, and runs the frames the pages take to follow.
+/// not, and runs the update the pages follow it in.
 pub(crate) fn connect(app: &mut App, unset: bool) {
     let mut state = hamlet_testing::realm::state();
     state.settings.unset = unset;
     receive(app.world_mut(), protocol::ServerMessage::State(state));
     app.world_mut().resource_mut::<Connection>().state =
-        State::Connected;
+        Contact::Connected;
     settle(app);
 }
 
@@ -99,11 +101,9 @@ pub(crate) fn settings_page(pane: Pane) -> App {
     app
 }
 
-/// Runs the frames a page takes to follow what it received.
+/// Runs the update a page follows what it received in.
 pub(crate) fn settle(app: &mut App) {
-    for _ in 0..3 {
-        app.update();
-    }
+    app.update();
 }
 
 /// Runs one frame of a sixtieth of a second.
@@ -189,12 +189,10 @@ pub(crate) fn press(app: &mut App, text: &str) {
     world.flush();
 }
 
-/// [`press`], then the frames a page takes to answer it.
+/// [`press`], then the update a page answers it in.
 pub(crate) fn press_and_update(app: &mut App, text: &str) {
     press(app, text);
-    for _ in 0..5 {
-        app.update();
-    }
+    app.update();
 }
 
 /// Takes what the window has sent the server since it was last
@@ -228,8 +226,8 @@ pub(crate) fn requests(app: &mut App) -> Vec<serde_json::Value> {
         .collect()
 }
 
-/// Receives the server message `value` and runs the frames the pages
-/// take to follow.
+/// Receives the server message `value` and runs the update the
+/// pages follow it in.
 pub(crate) fn incoming(app: &mut App, value: serde_json::Value) {
     receive(app.world_mut(), serde_json::from_value(value).unwrap());
     settle(app);

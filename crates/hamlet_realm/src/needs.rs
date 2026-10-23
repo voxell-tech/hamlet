@@ -50,15 +50,17 @@ pub struct TagSettings {
 }
 
 /// The chief answered a tag with its check or its cross.
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(EntityEvent, Clone, Copy, Debug)]
 pub struct TagAnswered {
+    #[event_target]
     pub item: Entity,
     pub agree: bool,
 }
 
 /// The chief clicked a tag's paper, to read it in full.
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(EntityEvent, Clone, Copy, Debug)]
 pub struct TagOpened {
+    #[event_target]
     pub item: Entity,
 }
 

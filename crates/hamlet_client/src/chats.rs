@@ -3,18 +3,16 @@
 
 use std::collections::HashMap;
 
-use bevy_app::{App, PostUpdate};
-use bevy_ecs::name::Name;
+use bevy_app::App;
 use bevy_ecs::prelude::*;
 use hamlet_protocol::client::{self as protocol, transcript};
 
+use crate::index::{Index, Refiled};
 use crate::messages::{
     JobFinished, Reconnected, Response, SessionOutput,
 };
 use crate::outbox::Outbox;
-use crate::realm::{
-    Chief, Citizen, Left, LivesIn, MAYOR, Mayor, Settlement,
-};
+use crate::realm::Chief;
 
 /// Watched chats and their incoming operations.
 pub fn plugin(app: &mut App) {
@@ -27,12 +25,15 @@ pub fn plugin(app: &mut App) {
     world.register_component::<Usage>();
     world.register_component::<ConversationNumber>();
     app.init_resource::<Watches>()
-        .add_systems(PostUpdate, watch)
+        .add_observer(watch)
+        .add_observer(unwatch)
         .add_observer(
-            |_: On<Reconnected>, mut watches: ResMut<Watches>| {
-                watches.reopen = true;
+            |gone: On<Remove, Chat>, mut commands: Commands| {
+                commands.entity(gone.entity).try_remove::<TalksTo>();
             },
         )
+        .add_observer(follow)
+        .add_observer(reopen)
         .add_observer(
             |response: On<Response>, mut watches: ResMut<Watches>| {
                 if matches!(
@@ -48,11 +49,10 @@ pub fn plugin(app: &mut App) {
         );
 }
 
+/// The earlier page each chat waits for.
 #[derive(Resource, Default)]
 struct Watches {
-    chats: HashMap<Entity, protocol::ChatRef>,
     pages: HashMap<Entity, Page>,
-    reopen: bool,
 }
 
 struct Page {
@@ -60,8 +60,8 @@ struct Page {
     stale: bool,
 }
 
-fn open(world: &mut World, chat: protocol::ChatRef) {
-    world.resource_mut::<Outbox>().send(|id| {
+fn open(outbox: &mut Outbox, chat: protocol::ChatRef) {
+    outbox.send(|id| {
         protocol::ClientMessage::Open(protocol::Open {
             id,
             chat,
@@ -70,72 +70,91 @@ fn open(world: &mut World, chat: protocol::ChatRef) {
     });
 }
 
-fn watch(world: &mut World) {
-    let chats = world
-        .query::<(Entity, &Chat)>()
-        .iter(world)
-        .map(|(entity, chat)| (entity, chat.0.clone()))
-        .collect::<HashMap<_, _>>();
-    let mut watches = world.remove_resource::<Watches>().unwrap();
-    for (entity, reference) in &watches.chats {
-        if chats.get(entity) != Some(reference) {
-            if let Ok(mut entity) = world.get_entity_mut(*entity) {
-                entity.remove::<TalksTo>();
-            }
-            world.resource_mut::<Outbox>().send(|_| {
-                protocol::ClientMessage::Close(protocol::Close {
-                    chat: reference.clone(),
-                })
-            });
-        }
+/// Points `chat` at `agent`, writing only on a difference.
+fn talk(
+    commands: &mut Commands,
+    chat: Entity,
+    talks: Option<&TalksTo>,
+    agent: Option<Entity>,
+) {
+    if talks.map(|talks| talks.0) == agent {
+        return;
     }
-    let agents = world
-        .query_filtered::<
-            (Entity, &Name, &LivesIn, Has<Mayor>),
-            (With<Citizen>, Without<Left>),
-        >()
-        .iter(world)
-        .filter_map(|(entity, name, lives, mayor)| {
-            Some((
-                entity,
-                world.get::<Settlement>(lives.0)?.name.clone(),
-                name.as_str().to_string(),
-                mayor,
-            ))
+    let mut chat = commands.entity(chat);
+    match agent {
+        Some(agent) => chat.try_insert(TalksTo(agent)),
+        None => chat.try_remove::<TalksTo>(),
+    };
+}
+
+/// Opens a chat as it is watched, or watches something new.
+fn watch(
+    watched: On<Insert, Chat>,
+    chats: Query<(&Chat, Option<&TalksTo>)>,
+    index: Res<Index>,
+    mut outbox: ResMut<Outbox>,
+    mut watches: ResMut<Watches>,
+    mut commands: Commands,
+) {
+    let Ok((chat, talks)) = chats.get(watched.entity) else {
+        return;
+    };
+    let agent = index.at(&chat.0.with);
+    talk(&mut commands, watched.entity, talks, agent);
+    watches.pages.remove(&watched.entity);
+    open(&mut outbox, chat.0.clone());
+}
+
+/// Closes what a chat watched, removed or replaced.
+fn unwatch(
+    unwatched: On<Discard, Chat>,
+    chats: Query<&Chat>,
+    mut outbox: ResMut<Outbox>,
+    mut watches: ResMut<Watches>,
+) {
+    let Ok(chat) = chats.get(unwatched.entity) else {
+        return;
+    };
+    watches.pages.remove(&unwatched.entity);
+    outbox.send(|_| {
+        protocol::ClientMessage::Close(protocol::Close {
+            chat: chat.0.clone(),
         })
-        .collect::<Vec<_>>();
-    for (entity, reference) in &chats {
-        let agent = agents
-            .iter()
-            .find(|(_, hamlet, name, mayor)| {
-                hamlet == &reference.with.hamlet
-                    && if reference.with.agent == MAYOR {
-                        *mayor
-                    } else {
-                        name == &reference.with.agent
-                    }
-            })
-            .map(|(entity, ..)| *entity);
-        let related =
-            world.get::<TalksTo>(*entity).map(|talks| talks.0);
-        if related != agent {
-            if let Some(agent) = agent {
-                world.entity_mut(*entity).insert(TalksTo(agent));
-            } else {
-                world.entity_mut(*entity).remove::<TalksTo>();
-            }
-        }
-        if watches.reopen
-            || watches.chats.get(entity) != Some(reference)
-        {
-            watches.pages.remove(entity);
-            open(world, reference.clone());
-        }
+    });
+}
+
+/// Points every chat at the agent its address finds now.
+fn follow(
+    _: On<Refiled>,
+    talks: Query<&TalksTo>,
+    index: Res<Index>,
+    mut commands: Commands,
+) {
+    for (chat, reference) in index.chats() {
+        let agent = index.at(&reference.with);
+        talk(&mut commands, chat, talks.get(chat).ok(), agent);
     }
-    watches.pages.retain(|entity, _| chats.contains_key(entity));
-    watches.chats = chats;
-    watches.reopen = false;
-    world.insert_resource(watches);
+}
+
+/// Opens every chat again on a new connection.
+fn reopen(
+    _: On<Reconnected>,
+    index: Res<Index>,
+    mut outbox: ResMut<Outbox>,
+    mut watches: ResMut<Watches>,
+) {
+    for (chat, reference) in index.chats() {
+        watches.pages.remove(&chat);
+        open(&mut outbox, reference.clone());
+    }
+}
+
+/// The chat watching `reference`.
+pub fn find(
+    world: &World,
+    reference: &protocol::ChatRef,
+) -> Option<Entity> {
+    world.get_resource::<Index>()?.chats_at(reference).next()
 }
 
 /// The received transcript or turn for watched chat entities.
@@ -146,10 +165,8 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
         _ => return,
     };
     let chats = world
-        .query::<(Entity, &Chat)>()
-        .iter(world)
-        .filter(|(_, chat)| &chat.0 == reference)
-        .map(|(entity, _)| entity)
+        .resource::<Index>()
+        .chats_at(reference)
         .collect::<Vec<_>>();
     let chief = world.resource::<Chief>().0.clone();
     for chat in chats {
@@ -350,6 +367,11 @@ pub fn earlier(world: &mut World, chat: Entity) {
 
 /// A watched conversation identified by the server.
 #[derive(Component, Clone, Debug, PartialEq)]
+#[component(
+    immutable,
+    on_insert = crate::index::file_chat,
+    on_discard = crate::index::unfile_chat
+)]
 #[require(Transcript, Status)]
 pub struct Chat(pub protocol::ChatRef);
 
@@ -551,5 +573,79 @@ impl Usage {
     /// The input and output tokens reported by the server.
     pub fn tokens(&self) -> u64 {
         self.0.input + self.0.output
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy_app::App;
+    use hamlet_protocol::client as protocol;
+    use hamlet_testing::realm::{agent, state};
+
+    use super::{Chat, TalksTo};
+    use crate::outbox::Outbox;
+    use crate::realm::{self, Left};
+    use crate::{ClientPlugin, receive};
+
+    fn app() -> App {
+        let mut app = App::new();
+        app.add_plugins(ClientPlugin { server: None });
+        app
+    }
+
+    fn with(name: &str) -> protocol::ChatRef {
+        protocol::ChatRef {
+            kind: None,
+            from: None,
+            with: protocol::Address {
+                hamlet: realm::HOME.into(),
+                agent: name.into(),
+            },
+            past: None,
+        }
+    }
+
+    #[test]
+    fn a_chat_added_and_removed_in_one_update_opens_and_closes_once()
+    {
+        let mut app = app();
+        let chat = app.world_mut().spawn(Chat(with("founder"))).id();
+        app.world_mut().despawn(chat);
+        app.update();
+        let sent = app
+            .world_mut()
+            .resource_mut::<Outbox>()
+            .drain()
+            .collect::<Vec<_>>();
+        assert!(
+            matches!(&sent[..], [protocol::ClientMessage::Open(open), protocol::ClientMessage::Close(close)] if open.chat == with("founder") && close.chat == with("founder")),
+            "{sent:?}"
+        );
+    }
+
+    #[test]
+    fn a_chat_watched_before_its_agent_arrives_talks_to_it_when_it_comes()
+     {
+        let mut app = app();
+        let chat = app.world_mut().spawn(Chat(with("scout"))).id();
+        let mut realm = state();
+        receive(
+            app.world_mut(),
+            protocol::ServerMessage::State(realm.clone()),
+        );
+        assert!(app.world().get::<TalksTo>(chat).is_none());
+        realm.agents.push(agent("home", 1, "scout"));
+        realm.revision += 1;
+        receive(
+            app.world_mut(),
+            protocol::ServerMessage::State(realm),
+        );
+        let scout = realm::named(app.world(), "scout").unwrap();
+        assert_eq!(
+            app.world().get::<TalksTo>(chat),
+            Some(&TalksTo(scout))
+        );
+        app.world_mut().entity_mut(scout).insert(Left);
+        assert!(app.world().get::<TalksTo>(chat).is_none());
     }
 }

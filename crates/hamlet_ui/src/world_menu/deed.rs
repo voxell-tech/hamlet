@@ -14,11 +14,11 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt};
 use hamlet_client::messages::Rewind;
 use hamlet_client::realm::{
-    self as agents, Busy, Citizen, Left, LivesIn, Settlement,
+    self as agents, Busy, Citizen, Deeds, Left, LivesIn, Settlement,
 };
 use hamlet_realm::orders;
 
-use super::{close, has};
+use super::close;
 use crate::feel::Mood;
 use crate::looks::{brass, grim, lettered};
 use crate::me::Me;
@@ -121,7 +121,7 @@ impl Deed {
             | Self::DefaultCharter
             | Self::Rewind { .. } => return true,
         };
-        has(world, command)
+        Deeds::allows(world, command)
     }
 
     fn question(&self, world: &World) -> String {
@@ -339,6 +339,11 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
+        // The chief's seat opened the mayor's chat.
+        app.world_mut()
+            .resource_mut::<Outbox>()
+            .drain()
+            .for_each(drop);
         let carder =
             agents::named(app.world_mut(), "carder").unwrap();
         Deed::Remove(carder).run(app.world_mut());

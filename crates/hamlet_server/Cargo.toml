@@ -52,7 +52,7 @@ url = "2"
 uuid.workspace = true
 
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1", features = ["fs", "process"] }
+rustix = { workspace = true, features = ["fs", "process"] }
 
 [dev-dependencies]
 hamlet_testing.workspace = true

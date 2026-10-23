@@ -12,9 +12,7 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
-base64.workspace = true
 hamlet_protocol.workspace = true
-serde_json.workspace = true
 hamlet_client.workspace = true
 hamlet_assets.workspace = true
 hamlet_vfx.workspace = true
@@ -23,8 +21,7 @@ chrono.workspace = true
 serde.workspace = true
 toml.workspace = true
 
-[target.'cfg(unix)'.dependencies]
-libc.workspace = true
-
 [dev-dependencies]
 hamlet_testing.workspace = true
+serde_json.workspace = true
+tokio.workspace = true

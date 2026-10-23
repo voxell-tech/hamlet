@@ -11,10 +11,10 @@ use hamlet_testing::realm;
 use super::{Housed, Laid, Returning, Sited, Unhoused, town_of};
 use crate::generator::land::Land;
 use crate::generator::society::{
-    Agent, Pair, Place, RoadLevel, Society,
+    Agent, Ground, Pair, RoadLevel, Society,
 };
 use crate::generator::{
-    Ahead, GenSettings, GenView, Objecting, Traffic as Trips, Voting,
+    Ahead, GenSettings, GenView, Objecting, Trips, Voting,
 };
 use crate::keeper::KState;
 use crate::keeper::work::Task;
@@ -437,7 +437,7 @@ fn meadow(app: &mut App, hamlet: Entity) -> Vec2 {
         .map(|i| {
             Vec2::from_angle(i as f32) * (260.0 + i as f32 * 3.0)
         })
-        .find(|&p| society.fits(land, Place::Town(town), p).is_ok())
+        .find(|&p| society.fits(land, Ground::Town(town), p).is_ok())
         .unwrap()
 }
 
@@ -546,6 +546,41 @@ fn a_received_realm_houses_the_founder_in_its_hall() {
     assert_eq!(society.towns[0].leader, founder.id);
     assert_eq!(founder.plot, 0);
     assert_eq!(founder.state, KState::Rest);
+}
+
+#[test]
+fn a_frame_from_the_server_houses_the_founder_in_the_update_it_arrives()
+ {
+    use std::time::Duration;
+
+    use hamlet_client::Tokio;
+    use hamlet_client::connection::{Server, Wake};
+    use hamlet_protocol::client::discovery::ServerAddress;
+
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let url = realm::serve(
+        runtime.handle(),
+        vec![protocol::ServerMessage::State(realm::state())],
+    );
+    let (woke, wakes) = std::sync::mpsc::channel();
+    let mut app = bare();
+    app.insert_resource(Server(ServerAddress {
+        url,
+        token: "frame-token".into(),
+    }))
+    .insert_resource(Tokio(runtime.handle().clone()))
+    .insert_resource(Wake::new(move || {
+        let _ = woke.send(());
+    }));
+    app.update();
+    // One wake for the connection, one for the state.
+    let wait = Duration::from_secs(5);
+    wakes.recv_timeout(wait).unwrap();
+    wakes.recv_timeout(wait).unwrap();
+    app.update();
+    let founder = agent(&mut app, 0);
+    assert_eq!(app.world().resource::<Society>().towns.len(), 1);
+    assert_eq!(founder.plot, 0);
 }
 
 #[test]

@@ -35,12 +35,15 @@ mod window;
 mod world_menu;
 mod world_view;
 
-use bevy::app::{App, Plugin, Update};
-use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::app::{App, Plugin, PreUpdate};
 use bevy::ecs::schedule::common_conditions::resource_changed;
+use bevy::ecs::schedule::{IntoScheduleConfigs, SystemSet};
+use bevy::input::InputSystems;
+use bevy::picking::PickingSystems;
 use bevy::state::state::OnEnter;
 use bevy_fynix::dock::DockPlugin;
 use bevy_fynix::{Bevy, FynixPlugin};
+use hamlet_client::connection::ClientSystems;
 use hamlet_realm::pick::Selected;
 
 pub use self::dock::{lit_panel, panel};
@@ -85,6 +88,34 @@ pub(crate) fn with_cx<V: View>(
     })
 }
 
+/// The panels' steps before fynix mounts the views, in order, after
+/// this frame's server frames, input and clicks. They run in
+/// `PreUpdate`: fynix mounts in `Update`, in sets the vendored crate
+/// keeps private and that stay so, and only an earlier schedule can
+/// come before them.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum PanelSystems {
+    /// The panels' state follows what was received, clicked or set:
+    /// the chat's agent, the selection, the setup and the models.
+    Follow,
+    /// The values the views read, worked out from what was received
+    /// and from what Follow set: the roll, the status bar's words and
+    /// the question on show.
+    Bind,
+}
+
+/// Orders [`PanelSystems`].
+pub(crate) fn panel_sets(app: &mut App) {
+    app.configure_sets(
+        PreUpdate,
+        (PanelSystems::Follow, PanelSystems::Bind)
+            .chain()
+            .after(ClientSystems::Receive)
+            .after(InputSystems)
+            .after(PickingSystems::Last),
+    );
+}
+
 /// The app's panels, added after the client's plugin, a
 /// [`hamlet_client::ViewDir`] with the [`Remembered`] view and the
 /// chiefs' [`hamlet_realm::chief::Kept`] files read from it, the
@@ -95,6 +126,7 @@ pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
+            panel_sets,
             me::plugin,
             FynixPlugin::<HamletTheme>::default(),
             DockPlugin::<HamletTheme>::default(),
@@ -136,14 +168,15 @@ impl Plugin for UiPlugin {
             (world_view::attach, dock::seed, root::mount).chain(),
         )
         .add_systems(
-            Update,
+            PreUpdate,
             (
                 me::reseat.run_if(me::roster_moved),
                 inspector::follow_selection
                     .run_if(resource_changed::<Selected>),
                 chief::accompany,
             )
-                .chain(),
+                .chain()
+                .in_set(PanelSystems::Follow),
         );
     }
 }
@@ -201,5 +234,70 @@ mod tests {
             hamlet_realm::chief::Kept::read(&view).unwrap(),
         );
         app.add_plugins(UiPlugin);
+    }
+
+    #[test]
+    fn a_frame_from_the_server_turns_the_roll_and_shows_in_a_view_in_the_update_it_arrives()
+     {
+        use std::time::Duration;
+
+        use bevy_fynix::views::label;
+        use hamlet_assets::Tuning;
+        use hamlet_client::Tokio;
+        use hamlet_client::connection::Wake;
+        use hamlet_client::realm::{
+            HOME, mayor, name_of, settlement,
+        };
+        use hamlet_protocol::client as protocol;
+        use hamlet_protocol::client::discovery::ServerAddress;
+
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let url = hamlet_testing::realm::serve(
+            runtime.handle(),
+            vec![protocol::ServerMessage::State(
+                hamlet_testing::realm::state(),
+            )],
+        );
+        let (woke, wakes) = std::sync::mpsc::channel();
+        let mut app = App::new();
+        app.add_plugins((
+            bevy::time::TimePlugin,
+            ClientPlugin {
+                server: Some(ServerAddress {
+                    url,
+                    token: "frame-token".into(),
+                }),
+            },
+            FynixPlugin::<HamletTheme>::default(),
+            panel_sets,
+            roll::plugin,
+        ))
+        .insert_resource(Tokio(runtime.handle().clone()))
+        .insert_resource(Wake::new(move || {
+            let _ = woke.send(());
+        }));
+        theme::insert_theme(app.world_mut(), HamletTheme::designed());
+        bevy_fynix::mount::<HamletTheme>(
+            app.world_mut(),
+            label(roll::rolled(|world| {
+                mayor(world)
+                    .map(|agent| name_of(world, agent))
+                    .unwrap_or_default()
+            })),
+        );
+        app.update();
+        let before = *app.world().resource::<Roll>();
+        // One wake for the connection, one for the state.
+        let wait = Duration::from_secs(5);
+        wakes.recv_timeout(wait).unwrap();
+        wakes.recv_timeout(wait).unwrap();
+        app.update();
+        assert!(settlement(app.world(), HOME).is_some());
+        assert_ne!(*app.world().resource::<Roll>(), before);
+        let shown = testing::words(&mut app);
+        assert!(
+            shown.iter().any(|text| text == "founder"),
+            "{shown:?}"
+        );
     }
 }

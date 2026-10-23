@@ -191,11 +191,7 @@ pub fn hamlet(hamlet: Entity) -> AnyView {
             .into_iter()
             .find(|row| row.hamlet == hamlet)
             .map(|facts| {
-                let has = |deed| {
-                    world
-                        .get_resource::<Deeds>()
-                        .is_some_and(|deeds| deeds.has(deed))
-                };
+                let has = |deed| Deeds::allows(world, deed);
                 (
                     facts,
                     has("name-hamlet"),

@@ -598,17 +598,50 @@ fn a_file_dropped_on_a_robot_or_its_house_is_handed_to_its_agent() {
     assert!(cast.played_at().is_empty());
 }
 
+/// The client and the orders on `cast`, with letters walked on
+/// `runtime`'s blocking threads.
+fn with_gifts(cast: &mut Cast, runtime: &tokio::runtime::Runtime) {
+    cast.app
+        .add_plugins(ClientPlugin { server: None })
+        .insert_resource(hamlet_client::Tokio(
+            runtime.handle().clone(),
+        ))
+        .add_message::<crate::moving::SetDown>()
+        .add_plugins(crate::orders::plugin);
+}
+
+/// The requests queued once the dropped files are walked off the
+/// frame.
+fn walked(cast: &mut Cast) -> Vec<protocol::ClientMessage> {
+    use hamlet_client::outbox::Outbox;
+    let until = std::time::Instant::now() + Duration::from_secs(10);
+    while cast
+        .app
+        .world()
+        .resource::<Outbox>()
+        .iter()
+        .next()
+        .is_none()
+        && std::time::Instant::now() < until
+    {
+        std::thread::sleep(Duration::from_millis(1));
+        cast.app.update();
+    }
+    cast.app
+        .world_mut()
+        .resource_mut::<Outbox>()
+        .drain()
+        .collect()
+}
+
 #[test]
 fn four_files_dropped_together_send_one_manifest_with_four_roots() {
-    use hamlet_client::outbox::Outbox;
     use hamlet_client::realm::{Citizen, Deeds, LivesIn};
     let dir = hamlet_testing::Scratch::new("hand-four-files");
     let mut cast = Cast::new(1);
-    cast.app
-        .add_plugins(ClientPlugin { server: None })
-        .insert_resource(Deeds(vec!["give".into()]))
-        .add_message::<crate::moving::SetDown>()
-        .add_plugins(crate::orders::plugin);
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    with_gifts(&mut cast, &runtime);
+    cast.app.insert_resource(Deeds(vec!["give".into()]));
     let hamlet = cast
         .app
         .world_mut()
@@ -633,12 +666,7 @@ fn four_files_dropped_together_send_one_manifest_with_four_roots() {
         );
     }
     cast.run(0.1);
-    let messages = cast
-        .app
-        .world_mut()
-        .resource_mut::<Outbox>()
-        .drain()
-        .collect::<Vec<_>>();
+    let messages = walked(&mut cast);
     let [
         protocol::ClientMessage::Give(protocol::Give::Files {
             files,
@@ -876,17 +904,14 @@ fn the_meter_follows_the_budget() {
 #[test]
 fn a_file_dropped_on_the_founder_begins_a_protocol_gift_without_a_house()
  {
-    use hamlet_client::outbox::Outbox;
     use hamlet_testing::Scratch;
 
     let dir = Scratch::new("hand-founder-file");
     let path = dir.join("list.txt");
     std::fs::write(&path, "Dune").unwrap();
     let mut cast = Cast::new(1);
-    cast.app
-        .add_plugins(ClientPlugin { server: None })
-        .add_message::<crate::moving::SetDown>()
-        .add_plugins(crate::orders::plugin);
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    with_gifts(&mut cast, &runtime);
     let mut state = realm::state();
     state.deeds = realm::deeds(&["give"]);
     receive_state(&mut cast.app, state);
@@ -912,12 +937,7 @@ fn a_file_dropped_on_the_founder_begins_a_protocol_gift_without_a_house()
         },
     );
     cast.run(0.1);
-    let messages = cast
-        .app
-        .world_mut()
-        .resource_mut::<Outbox>()
-        .drain()
-        .collect::<Vec<_>>();
+    let messages = walked(&mut cast);
     let [
         protocol::ClientMessage::Give(protocol::Give::Files {
             to,

@@ -10,7 +10,7 @@ use super::{
     Chief, ChiefSettings, Look, Mascot, Place, Settled, Stands, place,
 };
 use crate::generator::land::Land;
-use crate::generator::society::{Claim, Place as Ground, Society};
+use crate::generator::society::{Claim, Ground, Society};
 use crate::generator::{flora, glow};
 use crate::lantern::lantern_glass;
 use crate::library::{self, Library};
