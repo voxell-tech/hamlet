@@ -18,6 +18,9 @@ use bevy_fynix::shortcut::{Chord, Mods};
 use hamlet_engine_api::CommandId;
 use hamlet_engine_api::id::ENGINE;
 
+use crate::keymap::Bindings;
+use crate::shortcuts::Capturing;
+
 pub(crate) fn plugin(app: &mut App) {
     app.add_observer(press);
 }
@@ -37,7 +40,8 @@ pub struct RunCommand {
     pub entity: Entity,
 }
 
-/// A key bound to a command.
+/// A key a command comes bound to, unless the person bound it to
+/// others.
 #[derive(Component, Clone, Debug)]
 #[component(immutable)]
 pub struct Shortcut {
@@ -83,6 +87,41 @@ pub fn parse_chord(keys: &str) -> Option<Chord> {
         mods = mods.with(more);
     }
     Some(Chord { key, mods })
+}
+
+/// The shell's methods on [`Chord`].
+pub trait ChordExt {
+    /// The chord as [`parse_chord`] reads it, the same on every
+    /// platform. `None` for a key it has no name for.
+    fn keys(&self) -> Option<String>;
+}
+
+impl ChordExt for Chord {
+    fn keys(&self) -> Option<String> {
+        let debug = format!("{:?}", self.key);
+        let key = ["Key", "Digit", "Arrow"]
+            .iter()
+            .find_map(|prefix| debug.strip_prefix(prefix))
+            .unwrap_or(&debug);
+        if parse_key(key) != Some(self.key) {
+            return None;
+        }
+        let mut keys = String::new();
+        for (bit, name) in [
+            (Mods::PRIMARY, "Primary"),
+            (Mods::CTRL, "Ctrl"),
+            (Mods::META, "Meta"),
+            (Mods::ALT, "Alt"),
+            (Mods::SHIFT, "Shift"),
+        ] {
+            if self.mods.has(bit) {
+                keys.push_str(name);
+                keys.push('+');
+            }
+        }
+        keys.push_str(key);
+        Some(keys)
+    }
 }
 
 fn parse_key(key: &str) -> Option<KeyCode> {
@@ -235,14 +274,16 @@ impl ShellCommandsExt for Commands<'_, '_> {
 }
 
 /// Runs the command a key press is bound to. A bare key in a text
-/// field is the field's to type.
+/// field is the field's to type, and a key being bound to a command
+/// runs nothing.
 fn press(
     event: On<FocusedInput<KeyboardInput>>,
     windows: Query<(), With<Window>>,
     keys: Option<Res<ButtonInput<KeyCode>>>,
     focus: Res<InputFocus>,
     typing: Query<(), With<EditableText>>,
-    shortcuts: Query<&Shortcut>,
+    bindings: Res<Bindings>,
+    capturing: Res<Capturing>,
     commands: Query<(Entity, &Command)>,
     mut out: Commands,
 ) {
@@ -253,7 +294,11 @@ fn press(
         Some(held) => event.event_target() == held,
         None => windows.contains(event.event_target()),
     };
-    if !first || key.state != ButtonState::Pressed || key.repeat {
+    if !first
+        || key.state != ButtonState::Pressed
+        || key.repeat
+        || capturing.active()
+    {
         return;
     }
     let mods = keys.as_deref().map_or(Mods::NONE, Mods::held);
@@ -266,14 +311,9 @@ fn press(
         key: key.key_code,
         mods,
     };
-    let bound = shortcuts
-        .iter()
-        .filter(|shortcut| shortcut.chord == chord)
-        .find_map(|shortcut| {
-            commands
-                .iter()
-                .find(|(_, command)| command.id == shortcut.command)
-        });
+    let bound = bindings.holders(chord).next().and_then(|id| {
+        commands.iter().find(|(_, command)| command.id == *id)
+    });
     if let Some((entity, _)) = bound {
         out.trigger(RunCommand { entity });
     }

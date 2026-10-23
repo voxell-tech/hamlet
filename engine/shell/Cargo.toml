@@ -18,3 +18,4 @@ fynix.workspace = true
 lenz.workspace = true
 ron.workspace = true
 serde.workspace = true
+toml.workspace = true

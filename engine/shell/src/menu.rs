@@ -10,7 +10,8 @@ use bevy_fynix::views::{
 use bevy_fynix::{Hovered, ModifierExt, ViewExt, keyed, resource};
 use hamlet_engine_api::CommandId;
 
-use crate::command::{Command, MenuEntry, Shortcut};
+use crate::command::{Command, MenuEntry};
+use crate::keymap::Bindings;
 use crate::style::{BottomLight, title_button};
 use crate::{AnyView, Cx, ShellWorldExt, StartRank};
 
@@ -32,15 +33,15 @@ pub(crate) struct MenuBar(pub(crate) Vec<Menu>);
 #[derive(Clone, PartialEq)]
 pub(crate) struct Menu {
     pub(crate) title: String,
-    items: Vec<Item>,
+    pub(crate) items: Vec<Item>,
 }
 
 #[derive(Clone, PartialEq)]
-struct Item {
+pub(crate) struct Item {
     label: String,
     /// The key bound to it, as the platform writes it.
     keys: Option<String>,
-    command: CommandId,
+    pub(crate) command: CommandId,
 }
 
 /// On a menu entry: its plugin's rank, and when it came among all
@@ -204,26 +205,18 @@ fn place(
 fn gather(
     changed: Query<
         (),
-        Or<(
-            Changed<MenuEntry>,
-            Changed<Order>,
-            Changed<Command>,
-            Changed<Shortcut>,
-        )>,
+        Or<(Changed<MenuEntry>, Changed<Order>, Changed<Command>)>,
     >,
     mut gone: RemovedComponents<MenuEntry>,
     mut gone_commands: RemovedComponents<Command>,
-    mut gone_keys: RemovedComponents<Shortcut>,
     entries: Query<(&MenuEntry, &Order)>,
     commands: Query<&Command>,
-    shortcuts: Query<&Shortcut>,
+    bindings: Res<Bindings>,
     mut bar: ResMut<MenuBar>,
     mut open: ResMut<OpenMenu>,
 ) {
-    let went = gone.read().count()
-        + gone_commands.read().count()
-        + gone_keys.read().count();
-    if changed.is_empty() && went == 0 {
+    let went = gone.read().count() + gone_commands.read().count();
+    if changed.is_empty() && went == 0 && !bindings.is_changed() {
         return;
     }
     let mut placed = entries.iter().collect::<Vec<_>>();
@@ -235,13 +228,9 @@ fn gather(
         else {
             continue;
         };
-        let keys = shortcuts
-            .iter()
-            .find(|shortcut| shortcut.command == entry.command)
-            .map(|shortcut| shortcut.chord.to_string());
         let item = Item {
             label: command.label.clone(),
-            keys,
+            keys: bindings.label(&entry.command),
             command: entry.command.clone(),
         };
         match menus.iter_mut().find(|menu| menu.title == entry.menu) {

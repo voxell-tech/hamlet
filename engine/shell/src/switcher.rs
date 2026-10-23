@@ -26,12 +26,11 @@ use bevy_fynix::{
 };
 use hamlet_engine_api::CommandId;
 
-use crate::command::{
-    CTRL, RunCommand, ShellCommandsExt, Shortcut, engine_id,
-};
+use crate::command::{CTRL, RunCommand, ShellCommandsExt, engine_id};
 use crate::fade::{FadeSurface, ScrollFade};
 use crate::fonts::DisplayText;
 use crate::icons::{Glyph, glyph};
+use crate::keymap::Bindings;
 use crate::sounds::{Cue, InterfaceSound};
 use crate::style::{
     Active, Glow, StyleExt, Wraps, field_rules, icon_row, note,
@@ -785,18 +784,12 @@ fn tab_rect(world: &mut World, at: usize) -> Option<Rect> {
 fn follow(
     workspaces: Res<Workspaces>,
     renaming: Res<Renaming>,
-    shortcuts: Query<&Shortcut>,
+    bindings: Res<Bindings>,
     suggested: Query<&SuggestedWorkspace>,
     mut tabs: ResMut<Tabs>,
     mut menu: ResMut<NewMenu>,
 ) {
-    let keys = |id: &str| {
-        let id = engine_id(id);
-        shortcuts
-            .iter()
-            .find(|shortcut| shortcut.command == id)
-            .map(|shortcut| shortcut.chord.to_string())
-    };
+    let keys = |id: &str| bindings.label(&engine_id(id));
     let now = Tabs {
         list: workspaces
             .list()

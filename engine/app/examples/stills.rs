@@ -11,6 +11,8 @@ use std::time::Duration;
 
 use bevy::app::ScheduleRunnerPlugin;
 use bevy::camera::{ImageRenderTarget, RenderTarget};
+use bevy::input::ButtonState;
+use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::picking::PickingSettings;
 use bevy::picking::hover::Hovered as PickingHovered;
 use bevy::prelude::*;
@@ -43,7 +45,8 @@ use hamlet_engine_shell::style::{
 };
 use hamlet_engine_shell::workspace::Workspaces;
 use hamlet_engine_shell::{
-    AnyView, Cx, DockTreeExt, EngineTheme, ShellWorldExt, StyleExt,
+    AnyView, Cx, DockTreeExt, EngineTheme, SettingsPage,
+    ShellWorldExt, StyleExt, keymap,
 };
 
 /// One still: its name, its size in the interface's pixels and the
@@ -54,7 +57,7 @@ struct Shot {
     scale: f32,
 }
 
-const SHOTS: [Shot; 10] = [
+const SHOTS: [Shot; 11] = [
     Shot {
         name: "workspaces_1",
         size: UVec2::new(900, 220),
@@ -105,7 +108,18 @@ const SHOTS: [Shot; 10] = [
         size: UVec2::new(1440, 860),
         scale: 1.0,
     },
+    Shot {
+        name: "shortcuts",
+        size: UVec2::new(1440, 1800),
+        scale: 1.0,
+    },
 ];
+
+/// The person's keys in the still of the Shortcuts page: one command
+/// bound anew, and one sharing a chord with another.
+const SHORTCUTS: &str = "[rebound]\n\"engine/workspace.new\" = \
+                         [\"Primary+Alt+N\"]\n\"engine/workspace.\
+                         rename\" = [\"Ctrl+Tab\"]\n";
 
 /// The update the buttons shown as done are pressed on, the updates
 /// after it the still is taken, and the updates its file is given to
@@ -156,6 +170,11 @@ impl Shot {
     fn draw(&self, out: &Path) {
         let home = out.join("home");
         let _ = std::fs::remove_dir_all(&home);
+        if self.name == "shortcuts" {
+            std::fs::create_dir_all(&home).expect("home folder");
+            std::fs::write(home.join(keymap::FILE), SHORTCUTS)
+                .expect("shortcuts file");
+        }
         let mut app = App::new();
         app.insert_resource(Home::at(&home))
             .insert_resource(hamlet_engine_net::Offline)
@@ -251,11 +270,15 @@ impl Shot {
                     "workspaces_9" => Shell::Workspaces(9),
                     "workspace_hover" => Shell::Hover,
                     "workspace_rename" => Shell::Rename,
+                    "shortcuts" => Shell::Shortcuts,
                     _ => Shell::Panels,
                 };
                 app.insert_resource(scene)
                     .add_systems(Startup, add_plugins)
-                    .add_systems(Update, (arrange, stage));
+                    .add_systems(
+                        Update,
+                        (arrange, stage, press_keys),
+                    );
             }
         }
         app.run();
@@ -285,6 +308,8 @@ enum Shell {
     Hover,
     /// Three workspaces, the second being renamed.
     Rename,
+    /// Settings showing its Shortcuts page.
+    Shortcuts,
 }
 
 /// The names of the workspaces a still of the switcher shows after
@@ -702,7 +727,11 @@ fn add_plugins(mut commands: Commands) {
 }
 
 fn entry(entry: &mut Entry) {
-    entry.panel("orchard", "Orchard", orchard);
+    entry
+        .panel("orchard", "Orchard", orchard)
+        .command("water", "Water the rows", |_, _| {})
+        .menu_entry("Orchard", "water")
+        .shortcut("Primary+Shift+W", "water");
 }
 
 fn orchard(_: Entity) -> AnyView {
@@ -739,6 +768,7 @@ fn arrange(
     still: Res<Still>,
     scene: Res<Shell>,
     mut tree: ResMut<DockTree>,
+    mut commands: Commands,
 ) {
     if still.update != ARRANGE {
         return;
@@ -748,9 +778,74 @@ fn arrange(
         return;
     };
     tree.add_tab(leaf, "hamlet.orchard/orchard");
-    if *scene == Shell::Settings {
-        tree.add_tab(leaf, "engine/settings");
-        tree.open_panel("engine/plugins");
+    match *scene {
+        Shell::Settings => {
+            tree.add_tab(leaf, "engine/settings");
+            tree.open_panel("engine/plugins");
+        }
+        Shell::Shortcuts => {
+            tree.add_tab(leaf, "engine/settings");
+            commands.queue(|world: &mut World| {
+                let page = world
+                    .query::<(Entity, &SettingsPage)>()
+                    .iter(world)
+                    .find(|(_, page)| page.title == "Shortcuts")
+                    .map(|(page, _)| page);
+                if let Some(page) = page {
+                    world.open_settings_page(page);
+                }
+            });
+        }
+        _ => {}
+    }
+}
+
+/// Presses the keys of the first command on the Shortcuts page, then
+/// Control and Tab, which another command has, so the page asks to
+/// swap or replace.
+fn press_keys(
+    still: Res<Still>,
+    scene: Res<Shell>,
+    labels: Query<(Entity, &Text)>,
+    parents: Query<&ChildOf>,
+    buttons: Query<(), With<ButtonBehavior>>,
+    windows: Query<Entity, With<Window>>,
+    mut keys: MessageWriter<KeyboardInput>,
+    mut commands: Commands,
+) {
+    if *scene != Shell::Shortcuts {
+        return;
+    }
+    if still.update == MENU {
+        let first = labels
+            .iter()
+            .find(|(_, text)| text.0 == "None")
+            .and_then(|(label, _)| {
+                parents
+                    .iter_ancestors(label)
+                    .find(|above| buttons.contains(*above))
+            });
+        if let Some(first) = first {
+            commands.trigger(Activate { entity: first });
+        }
+    }
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    if still.update == MENU + 10 {
+        for (key_code, logical_key) in [
+            (KeyCode::ControlLeft, Key::Control),
+            (KeyCode::Tab, Key::Tab),
+        ] {
+            keys.write(KeyboardInput {
+                key_code,
+                logical_key,
+                state: ButtonState::Pressed,
+                text: None,
+                repeat: false,
+                window,
+            });
+        }
     }
 }
 

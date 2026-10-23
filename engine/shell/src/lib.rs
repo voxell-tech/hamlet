@@ -9,6 +9,7 @@ pub mod dock;
 pub mod fade;
 pub mod fonts;
 pub mod icons;
+pub mod keymap;
 mod menu;
 pub mod message;
 pub mod overlay;
@@ -16,6 +17,7 @@ pub mod pointer;
 mod rank;
 mod section;
 pub mod settings;
+mod shortcuts;
 pub mod sounds;
 mod status;
 pub mod stick;
@@ -39,9 +41,11 @@ use hamlet_engine_api::{CommandId, PanelId};
 
 pub use crate::backdrop::Backdrop;
 pub use crate::command::{
-    Command, MenuEntry, RunCommand, ShellCommandsExt, Shortcut,
+    ChordExt, Command, MenuEntry, RunCommand, ShellCommandsExt,
+    Shortcut,
 };
 pub use crate::dock::Panel;
+pub use crate::keymap::{Bindings, Keymap};
 use crate::menu::{MenuBar, OpenMenu};
 pub use crate::overlay::{Overlay, OverlayShown};
 pub use crate::pointer::{NodePointer, PointerMode, ResizeAxis};
@@ -74,7 +78,7 @@ pub fn plugin(app: &mut App) {
         settings::plugin,
         workspace::plugin,
         switcher::plugin,
-        command::plugin,
+        (command::plugin, keymap::plugin, shortcuts::plugin),
         menu::plugin,
         (message::plugin, stick::plugin, fade::plugin),
         status::plugin,

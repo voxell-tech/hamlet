@@ -533,7 +533,8 @@ samples) runs the scripts of hello, notes and board.
   `SettingsFooter`'s content; the page gone through is shown under a
   head whose SETTINGS leads back. `world.open_settings_page(page)`
   (`ShellWorldExt`) shows one and brings Settings to the front. The
-  shell's own is Sound (see [Sound](#sound)).
+  shell's own are Sound (see [Sound](#sound)), Shortcuts (see
+  [Shortcuts](#shortcuts)) and About.
 - **Interface sounds** (`sounds.rs`) are the shell's own (see
   [Sound](#sound)).
 - **Overlays** (`overlay.rs`) are entities with an `Overlay`, as
@@ -635,8 +636,10 @@ buttons, cards, headings, notes, icons and chrome. Dark only.
 - **Stills.** `cargo run -p hamlet_engine --example stills -- --out
   <dir>` draws the widgets in each state, the icons, the shell with
   a menu open or Settings shown, and the workspace switcher with 1, 3
-  and 9 workspaces, a tab under the pointer and one being renamed, into
-  PNGs with no window; `--scene <name>` draws one.
+  and 9 workspaces, a tab under the pointer and one being renamed, and
+  the Shortcuts page with keys of the person's, a chord two commands
+  share and one asking to swap or replace, into PNGs with no window;
+  `--scene <name>` draws one.
 
 ### Pointers
 
@@ -755,12 +758,12 @@ person has one or more, and one is shown at a time.
     `ScrollFade` at each edge into `surface_sunken`, the shown one is
     scrolled into sight, and a chevron at the end lists every
     workspace with its key.
-- **Commands.** New (Cmd+T, Ctrl+T off macOS), rename, duplicate and
+- **Commands.** New (⌘T, Ctrl+T off macOS), rename, duplicate and
   close the shown workspace, next and previous, and Workspace 1 to 9
-  are commands with no menu in the bar: the switcher holds them. Ctrl+Tab
-  shows the next workspace and Ctrl+Shift+Tab the one before, going
-  round; Cmd+1 to Cmd+9 (Ctrl off macOS) show the first nine. The tips
-  write each key as the menus do.
+  are commands with no menu in the bar: the switcher holds them. ⌃⇥
+  (Ctrl+Tab) shows the next workspace and ⌃⇧⇥ (Ctrl+Shift+Tab) the one
+  before, going round; ⌘1 to ⌘9 (Ctrl+1 to Ctrl+9 off macOS) show the
+  first nine. The tips write each key in force as the menus do.
 - **Suggested.** A `SuggestedWorkspace`, as a plugin adds one, is
   offered under "+" while it is there, with its command "Take
   workspace" and its name. Taking it adds a copy, numbered if the name
@@ -774,11 +777,23 @@ person has one or more, and one is shown at a time.
   it. `world.run_command(id)` (`ShellWorldExt`) runs one by id;
   `commands.spawn_command(..)` (`ShellCommandsExt`) spawns one with its
   menu entry and keys as its children.
-- **A shortcut** is an entity with a `Shortcut`: a chord and the id of
-  the command it runs. A key press runs the command of the first
-  shortcut with its chord, unless a bare key goes to a text field being
-  typed in. `parse_chord` reads keys written as `Primary+Shift+H`:
-  Primary is Command on macOS and Control elsewhere.
+- **A shortcut** is an entity with a `Shortcut`: a chord a command
+  comes with and the command's id; a plugin's come from what it
+  declares. `parse_chord` reads keys written as `Primary+Shift+H`:
+  Primary is Command on macOS and Control elsewhere, and
+  `chord.keys()` (`ChordExt`) writes a chord back so.
+- **The keys in force** are `Bindings` (`keymap.rs`), built again as a
+  command, a shortcut or the person's keys change: for each command,
+  its own chords, or the person's in their place. A key press runs the
+  first command bound to its chord, those with shortcuts first, unless
+  a bare key goes to a text field being typed in or a key is being
+  bound on the Shortcuts page. `bindings.label(id)` is a command's
+  first chord as the platform writes it, for menus and tips.
+- **How a chord is written** is fynix's: on macOS in symbols with
+  nothing between, the modifiers in the order ⌃ Control, ⌥ Option,
+  ⇧ Shift, ⌘ Command, then the key, as ⇧⌘T, and special keys too
+  (⏎ ⌫ ⌦ ⎋ ⇥ ⇪ ← → ↑ ↓ ↖ ↘ ⇞ ⇟); elsewhere names joined by `+`, as
+  Ctrl+Shift+T. Inter has every one of these glyphs.
 - **A menu entry** is an entity with a `MenuEntry`: the title of its
   menu and the id of its command. The bar gathers the entries into
   menus, the engine's own first (Hamlet, View) and then the
@@ -786,7 +801,7 @@ person has one or more, and one is shown at a time.
   under itself and stays lit while it is open; a press on another title
   opens that one instead. An entry shows its command's label and first
   key. An entry whose command is not there is left out.
-- **The engine's own.** Run in Background and Quit Hamlet (Cmd+Q,
+- **The engine's own.** Run in Background and Quit Hamlet (⌘Q,
   Ctrl+Q off macOS) in the Hamlet menu, the workspace commands (see
   [Workspaces](#workspaces)), and for each panel a command in
   the View menu that brings it to the front, or opens it in the first
@@ -808,6 +823,38 @@ person has one or more, and one is shown at a time.
   engine runs on, a frame every `[window] hidden_wait` seconds.
   `ShowWindow` shows it again and gives it the focus. The window's
   close button quits.
+
+### Shortcuts
+
+- **The page.** Shortcuts in Settings (`engine/shell/src/shortcuts.rs`,
+  the bolt icon) lists every command, the engine's and the plugins',
+  under the title of its first menu, or else by what added it (the
+  engine's by what their name starts with, as Workspace), each with
+  its keys in force. A search over it keeps the commands whose label
+  holds what was typed.
+- **Rebinding.** A press on a command's keys shows "Press keys"; the
+  next chord pressed, with what is held, is its only one. Escape
+  leaves it as it was, a modifier alone waits for more, and a key
+  `parse_chord` has no name for is passed over. Until that key is up
+  the chord runs no command.
+- **Clear and reset.** The cross takes every key from a command; the
+  arrow turning back, shown on one the person bound, puts its own
+  back; RESET ALL, shown while any is bound, puts back every one.
+- **Conflicts.** A chord pressed that another command has is not
+  bound at once: under the row it says which command has it, with
+  SWAP (the other takes this one's first key in its place), REPLACE
+  (the other loses it) and CANCEL. A chord two commands are bound to
+  anyway, as their own may be, is shown in red with "Also bound to"
+  the other; only the first answers.
+- **Kept** (`Keymap`) in `shortcuts.toml` in the home: under
+  `[rebound]`, each command the person bound by its id, with its
+  chords as `parse_chord` reads them (none for one cleared). Only what
+  differs from a command's own is kept, so a key a command comes with
+  later reaches whoever did not bind it; a binding of a command not
+  there, as one of a plugin that is off, is kept for when it comes.
+  It is written whole as it changes and applies at once. A file that
+  cannot be read is left as it is, the log says so, and the keys are
+  kept only until the engine closes.
 
 ## Plugins
 
