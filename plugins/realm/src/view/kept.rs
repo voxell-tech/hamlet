@@ -1,10 +1,15 @@
 //! What the realm's view keeps between launches, the sky chosen, in
-//! an asset of its own type in the engine's store.
+//! an asset of its own type in the engine's store, and the Realm page
+//! of Settings that sets the quality.
 
 use hamlet_engine_bevy::api::{AssetId, Reply, Ticket};
 use hamlet_engine_bevy::prelude::*;
+use hamlet_engine_bevy::ui::{
+    ButtonStyle, FrameProps, Space, UiExt, button, column,
+    description, keyed, label, resource, row,
+};
 
-use crate::world::sky::{Hour, SkyClock};
+use crate::world::sky::{Hour, Quality, SkyClock};
 
 /// The type of the asset the view is kept in.
 pub const KIND: &str = "realm.view";
@@ -12,8 +17,57 @@ pub const KIND: &str = "realm.view";
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Kept>()
         .init_resource::<Store>()
+        .add_settings_page(
+            "graphics",
+            "Graphics",
+            "How richly the realm is drawn.",
+            "sun",
+            page,
+        )
         .add_systems(Declare, find)
-        .add_systems(Update, (answer, hold_sky, keep).chain());
+        .add_systems(
+            Update,
+            (answer, hold_sky, hold_quality, keep).chain(),
+        );
+}
+
+/// The Graphics page: the quality the realm is drawn at.
+fn page() -> AnyView {
+    let choices =
+        keyed(resource::<Kept, _>(|kept| kept.quality), |now| {
+            let buttons = [
+                (Quality::Low, "LOW"),
+                (Quality::Medium, "MEDIUM"),
+                (Quality::High, "HIGH"),
+            ]
+            .into_iter()
+            .map(|(quality, words)| {
+                button(words)
+                    .style(if quality == *now {
+                        ButtonStyle::Primary
+                    } else {
+                        ButtonStyle::Plain
+                    })
+                    .on_click(move |world| {
+                        world.resource_mut::<Kept>().quality =
+                            quality;
+                    })
+                    .boxed()
+            })
+            .collect::<Vec<_>>();
+            row(buttons).space(Space::Half).boxed()
+        });
+    column((
+        label("Quality"),
+        choices,
+        description(
+            "Low has no particles and no bloom, and draws plain \
+             edges and small shadows. Medium draws fewer particles \
+             and middling shadows.",
+        ),
+    ))
+    .space(Space::Half)
+    .boxed()
 }
 
 /// The hour the sky shows, as the person chose it.
@@ -49,6 +103,7 @@ pub enum SkyChoice {
 #[serde(default)]
 pub struct Kept {
     pub sky: SkyChoice,
+    pub quality: Quality,
 }
 
 /// The asset [`Kept`] is in: the requests yet to be answered, and its
@@ -128,6 +183,13 @@ fn hold_sky(kept: Res<Kept>, mut sky: ResMut<SkyClock>) {
     };
     if sky.hour != hour {
         sky.hour = hour;
+    }
+}
+
+/// Draws the realm at the quality chosen.
+fn hold_quality(kept: Res<Kept>, mut quality: ResMut<Quality>) {
+    if *quality != kept.quality {
+        *quality = kept.quality;
     }
 }
 

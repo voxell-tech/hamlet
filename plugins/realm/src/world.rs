@@ -19,7 +19,7 @@ use crate::world::sky::{
 };
 
 /// The part of the day, the quality the realm is drawn at, and the
-/// sky held at dawn or at dusk.
+/// sky held at dawn or at dusk. The quality is chosen in Settings.
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<DayPart>()
         .init_resource::<Quality>()
@@ -31,24 +31,6 @@ pub(crate) fn plugin(app: &mut App) {
             sky.hold(|set| set.sunset)
         })
         .add_menu_entry("View", "sky_dusk")
-        .add_command(
-            "quality_low",
-            "Quality Low",
-            |mut quality: ResMut<Quality>| *quality = Quality::Low,
-        )
-        .add_menu_entry("View", "quality_low")
-        .add_command(
-            "quality_medium",
-            "Quality Medium",
-            |mut quality: ResMut<Quality>| *quality = Quality::Medium,
-        )
-        .add_menu_entry("View", "quality_medium")
-        .add_command(
-            "quality_high",
-            "Quality High",
-            |mut quality: ResMut<Quality>| *quality = Quality::High,
-        )
-        .add_menu_entry("View", "quality_high")
         .add_systems(PostUpdate, (spend, finish).before(SceneSync));
 }
 

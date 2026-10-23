@@ -293,8 +293,8 @@ pub enum Quality {
     /// No particles, no bloom, plain edges and small shadows.
     Low,
     /// Fewer particles and middling shadows.
-    Medium,
     #[default]
+    Medium,
     High,
 }
 

@@ -97,7 +97,8 @@ pub mod prelude {
         MeshMaterial3d, Pickable, PostPass, SceneAssets, SceneCamera,
         SceneClick, SceneDrop, SceneInput, SceneKey, SceneKeyInput,
         SceneLabel, SceneLight, SceneMove, SceneOut, SceneOver,
-        ScenePress, SceneResize, SceneScroll, Shadows, Visibility,
+        ScenePress, SceneResize, SceneScroll, Shadows, ViewportShown,
+        Visibility,
     };
     pub use crate::ui::{
         AnyView, ScopedExt, ViewExt, description, description_rules,

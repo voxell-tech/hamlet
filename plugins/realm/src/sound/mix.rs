@@ -57,11 +57,14 @@ pub fn spawn_ears(mut commands: Commands) {
 pub fn listen(
     mut commands: Commands,
     camera: Option<Res<Camera>>,
+    in_panel: Query<(), With<ViewportShown>>,
     mut hearing: ResMut<Hearing>,
     voices: Query<Entity, With<Voice>>,
     beds: Query<Entity, With<Ambient>>,
 ) {
-    let shown = camera.is_some_and(|camera| camera.shown());
+    let shown = camera.is_some_and(|camera| {
+        camera.shown() && in_panel.contains(camera.view())
+    });
     if hearing.0 == shown {
         return;
     }

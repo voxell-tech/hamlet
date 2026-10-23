@@ -512,6 +512,10 @@ impl SceneCamera {
     }
 }
 
+/// On a [`SceneCamera`] while a [`viewport`] of a panel shows it.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct ViewportShown;
+
 /// A pass shader run over the image of the [`SceneCamera`] of its
 /// entity, with `params`.
 #[derive(Component, Clone, Debug)]
@@ -1091,11 +1095,26 @@ fn make_instances(
 }
 
 fn show_viewports(
+    mut commands: Commands,
     ui: Res<Ui>,
     mut viewports: ResMut<Viewports>,
     cameras: Query<Ref<HostCamera>>,
+    marked: Query<Entity, With<ViewportShown>>,
 ) {
     viewports.0.retain(|viewport| ui.nodes.has(viewport.node));
+    for camera in &marked {
+        if !viewports.0.iter().any(|v| v.camera == camera) {
+            commands.entity(camera).remove::<ViewportShown>();
+        }
+    }
+    for viewport in &viewports.0 {
+        if !marked.contains(viewport.camera)
+            && let Ok(mut camera) =
+                commands.get_entity(viewport.camera)
+        {
+            camera.insert(ViewportShown);
+        }
+    }
     for viewport in &mut viewports.0 {
         let Ok(camera) = cameras.get(viewport.camera) else {
             continue;
