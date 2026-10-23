@@ -1,0 +1,15 @@
+[package]
+name = "agents"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The agents' plugin: the chat, the Inspector, the skills, the agents' petitions and status items, their settings pages and the first-run card"
+publish = false
+
+[lib]
+# The build is `target/wasm32-wasip2/release/agents.wasm`.
+crate-type = ["cdylib"]
+
+[dependencies]
+hamlet_engine_bevy.workspace = true
+serde.workspace = true

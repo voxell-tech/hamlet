@@ -37,8 +37,8 @@ pub fn plugin(app: &mut App) {
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Admitted;
 
-/// Powers no plugin is ever granted, by the first word of a
-/// capability's name, with what they are.
+/// Powers no plugin is ever granted, by a word of a capability's
+/// name, with what they are.
 const NEVER: [(&str, &str); 6] = [
     ("keys", "reading keys"),
     ("secrets", "reading secrets"),
@@ -49,13 +49,15 @@ const NEVER: [(&str, &str); 6] = [
 ];
 
 /// What the capability `name` is, when it is a power no plugin is
-/// ever granted.
+/// ever granted: any of its words is one of them, as in `keys.read`
+/// or `agents.keys`.
 pub fn never_granted(name: &str) -> Option<&'static str> {
-    let first = name.split('.').next().unwrap_or(name);
-    NEVER
-        .iter()
-        .find(|(word, _)| first.eq_ignore_ascii_case(word))
-        .map(|(_, power)| *power)
+    name.split('.').find_map(|part| {
+        NEVER
+            .iter()
+            .find(|(word, _)| part.eq_ignore_ascii_case(word))
+            .map(|(_, power)| *power)
+    })
 }
 
 /// Whether a plugin may use a capability now.
@@ -123,5 +125,27 @@ fn tell_held(grants: Res<Grants>, mut log: MessageWriter<LogLine>) {
                  closes."
             ),
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_plugin_can_ask_for_keys() {
+        for name in ["agents.keys", "keys.read", "agents.Keys"] {
+            assert_eq!(never_granted(name), Some("reading keys"));
+        }
+        let asked = toml::Value::String("agents.keys".into());
+        assert!(asked.try_into::<Capability>().is_err());
+        for capability in [
+            Capability::AgentsRead,
+            Capability::AgentsChief,
+            Capability::AgentsSettings,
+            Capability::DesktopSettings,
+        ] {
+            assert_eq!(never_granted(capability.name()), None);
+        }
     }
 }

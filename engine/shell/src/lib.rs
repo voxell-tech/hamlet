@@ -1,6 +1,7 @@
 //! The engine's window: its theme and styles, and what is built in
 //! it.
 
+mod about;
 mod backdrop;
 pub mod command;
 mod console;
@@ -83,6 +84,7 @@ pub fn plugin(app: &mut App) {
             pointer::plugin,
             sounds::plugin,
             volumes::plugin,
+            about::plugin,
         ),
     ));
 }

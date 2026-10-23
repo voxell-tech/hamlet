@@ -1,6 +1,7 @@
 //! What a plugin may ask the person for. Powers that are never
 //! granted, such as keys or running processes, have no name here,
-//! so no manifest can ask for them.
+//! so no manifest can ask for them: a key is given on the engine's
+//! own card.
 
 use serde::{Deserialize, Serialize};
 
@@ -39,10 +40,6 @@ pub enum Capability {
     /// Changing the agents' settings, models, charter and limits.
     #[serde(rename = "agents.settings")]
     AgentsSettings,
-    /// Giving or forgetting a key, and signing in. A key is never
-    /// read back.
-    #[serde(rename = "agents.keys")]
-    AgentsKeys,
     /// Opening an `https` address, the target
     /// [`WEB`](crate::desktop::WEB), or a file under one folder, the
     /// target.
@@ -83,7 +80,6 @@ impl Capability {
             Self::AgentsRead => "agents.read",
             Self::AgentsChief => "agents.chief",
             Self::AgentsSettings => "agents.settings",
-            Self::AgentsKeys => "agents.keys",
             Self::DesktopOpen => "desktop.open",
             Self::DesktopSettings => "desktop.settings",
             Self::RenderScene => "render.scene",

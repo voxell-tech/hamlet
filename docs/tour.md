@@ -136,7 +136,7 @@ Paths are under the crate's folder in the table above.
 | The engine's Plugins panel: the list, its search and filter, and each plugin's page | `engine/plugins/src/list.rs`, the page in `list/page.rs`; a section another crate adds to every page is a `PluginPageSection`, as WHAT IT MAY DO in `engine/grants/src/page.rs`; [`engine.md`](engine.md#plugins) |
 | How a plugin's scroll is given the height left in its panel | `HoldsScroll`, `find_scrolls` and `Room` in `engine/wasm/src/retained.rs`; [`engine.md`](engine.md#panels) |
 | The padding of an engine panel, or a plugin's panel without it | `in_panel` and `in_panel_padded` in `engine/shell/src/style.rs`; a plugin's `PanelPadding` in `engine/api/src/contribution.rs`, resolved in `view` in `engine/wasm/src/retained.rs` |
-| The breadcrumb over a page within a panel | `breadcrumb` in `engine/shell/src/style.rs`; a plugin's in `plugins/agents_ui/src/breadcrumb.rs` |
+| The breadcrumb over a page within a panel | `breadcrumb` in `engine/shell/src/style.rs`; a plugin's in `plugins/agents/src/shared/breadcrumb.rs` |
 | What engine plugins share | `engine/assets/` (assets), `engine/bus/` (services and events), `engine/net/` (fetches) |
 | What plugins may ask of the agents | `engine/api/src/agents.rs`, answered in `engine/agents/src/answer.rs`; [`engine.md`](engine.md#the-agents) |
 | What a plugin is told when the agents change | `engine/agents/src/watch.rs` |
@@ -144,9 +144,11 @@ Paths are under the crate's folder in the table above.
 | Run in Background and the window coming back | `engine/shell/src/window.rs`; the second launch in `engine/desktop/src/launch.rs` |
 | What a plugin and the engine say to each other | `engine/wit/hamlet_engine.wit`, the types in `engine/api/` |
 | Writing or testing an engine plugin | `engine/bevy_sdk/`, `engine/samples/`, `engine/harness/` and `plugin_check`; [`engine.md`](engine.md) |
-| A plugin that comes with Hamlet | A crate in `plugins/`, built by `scripts/build_plugins.sh`; where the engine finds them in `engine/core/src/bundle.rs`; [`engine.md`](engine.md#bundled-plugins) |
-| The engine's Settings pages for the agents, Welcome, or the agents' facts on the status line | `plugins/settings/`, `plugins/welcome/`, `plugins/status/` |
-| The engine's chat, Inspector or Skills panels, or the agents' section of Petitions | `plugins/chat/`, `plugins/inspector/`, `plugins/skills/`, `plugins/petitions/`, sharing `plugins/agents_ui/` |
+| A plugin that comes with Hamlet | A crate in `plugins/`, built by `scripts/build_plugins.sh`; where the engine finds them in `engine/core/src/bundle.rs`, with `MERGED`, the old ids of those merged into another; [`engine.md`](engine.md#bundled-plugins) |
+| The engine's Settings pages for the agents, the first-run card, or the agents' facts on the status line | `plugins/agents/src/settings/`, `welcome/` and `status.rs` |
+| The engine's chat, Inspector or Skills panels, or the agents' section of Petitions | `plugins/agents/src/chat/`, `inspector/`, `skills.rs` and `petitions.rs`, sharing `shared/` |
+| Typing a key or signing in to a provider | The engine's key card, `engine/agents/src/keys.rs`; no plugin sees a key |
+| The About page of Settings | `engine/shell/src/about.rs` |
 | The Petitions panel: its heading, its parts and the plugins' petitions | `engine/grants/src/petition.rs`; a section's component in `engine/shell/src/section.rs` |
 | The window's focus: the open conversation and the thing selected | `engine/agents/src/focus.rs`; the chat's data in `conversation.rs`, `archive.rs`, `roster.rs` and `needs.rs` beside it |
 | A widget an engine plugin can show | Its kind and properties in `engine/wit/hamlet_engine.wit`, its element in `engine/bevy_sdk/src/ui/elements.rs`, its widget in `engine/wasm/src/retained.rs`, built from `engine/shell/src/style.rs` |

@@ -21,8 +21,8 @@ use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy_fynix::dock::{DockRegistry, DockTree};
 use hamlet_engine_api::id::ENGINE as ENGINE_OWNER;
 use hamlet_engine_api::{Axis, CommandId, Layout, PanelId};
-use hamlet_engine_core::TuningPlugin;
 use hamlet_engine_core::tuning::{ENGINE, Tuning, TuningFile};
+use hamlet_engine_core::{TuningPlugin, merged_into};
 use serde::{Deserialize, Serialize};
 
 use crate::command::{RunCommand, ShellCommandsExt};
@@ -38,8 +38,8 @@ const FIRST: &str = "Main";
 /// console.
 const REALM: &str = "hamlet.realm/realm";
 const PETITIONS: &str = "engine/petitions";
-const CHAT: &str = "hamlet.chat/chat";
-const INSPECTOR: &str = "hamlet.inspector/inspector";
+const CHAT: &str = "hamlet.agents/chat";
+const INSPECTOR: &str = "hamlet.agents/inspector";
 
 /// The most characters a workspace's name may have.
 const LONGEST_NAME: usize = 40;
@@ -339,8 +339,9 @@ impl Workspaces {
         })
     }
 
-    /// These, with at least one workspace, one of them shown, and
-    /// every one named and with an icon.
+    /// These, with at least one workspace, one of them shown, every
+    /// one named and with an icon, and the panels of a bundled plugin
+    /// merged into another named as they are there.
     fn cleaned(mut self) -> Self {
         if self.list.is_empty() {
             return Self::default();
@@ -356,8 +357,37 @@ impl Workspaces {
                 workspace.icon =
                     Some(icon::suggest(&workspace.name, &taken));
             }
+            workspace.layout.follow_merges();
         }
         self
+    }
+}
+
+/// The workspaces' methods on [`Layout`].
+trait LayoutExt {
+    /// Names each panel of a bundled plugin merged into another by
+    /// its id in that plugin.
+    fn follow_merges(&mut self);
+}
+
+impl LayoutExt for Layout {
+    fn follow_merges(&mut self) {
+        match self {
+            Layout::Tabs { panels, .. } => {
+                for panel in panels {
+                    if let Some(now) = merged_into(panel.owner())
+                        && let Ok(id) =
+                            PanelId::new(now, panel.name())
+                    {
+                        *panel = id;
+                    }
+                }
+            }
+            Layout::Split { first, second, .. } => {
+                first.follow_merges();
+                second.follow_merges();
+            }
+        }
     }
 }
 
@@ -561,6 +591,41 @@ mod tests {
         assert_eq!(icons[0], Some(Glyph::House));
         assert!(icons[1].is_some_and(|icon| icon != Glyph::House));
         assert_eq!(read.shown(), 1);
+        let _ = fs::remove_dir_all(home.root());
+    }
+
+    #[test]
+    fn panels_of_merged_plugins_come_back_under_their_new_ids() {
+        let home = home("merged");
+        let tabs = |panels: &[&str]| Layout::Tabs {
+            panels: panels.iter().map(|id| panel(id)).collect(),
+            shown: 0,
+        };
+        let workspace = |layout| Workspace {
+            name: "Mine".into(),
+            icon: Some(Glyph::House),
+            layout,
+        };
+        let saved = Workspaces {
+            shown: 0,
+            list: vec![workspace(tabs(&[
+                "hamlet.chat/chat",
+                "hamlet.inspector/inspector",
+                "hamlet.notes/page",
+            ]))],
+        };
+        saved.write(&home).unwrap();
+        let Restored::Read(read) = Restored::read(&home) else {
+            panic!("the file was not read");
+        };
+        assert_eq!(
+            read.list(),
+            [workspace(tabs(&[
+                "hamlet.agents/chat",
+                "hamlet.agents/inspector",
+                "hamlet.notes/page",
+            ]))]
+        );
         let _ = fs::remove_dir_all(home.root());
     }
 

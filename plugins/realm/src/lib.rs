@@ -30,7 +30,7 @@ const PANEL: &str = "realm";
 
 /// The Inspector's event that has the realm take a hamlet's town in
 /// hand, its payload the hamlet's name on disk.
-const CARRY: &str = "hamlet.inspector/carry";
+const CARRY: &str = "hamlet.agents/carry";
 
 #[derive(Default)]
 struct RealmPlugin;

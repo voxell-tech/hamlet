@@ -3,12 +3,14 @@
 //! a runtime of its own, with the engine's home as the agents' home.
 //! Plugins reach it with `AgentsRequest`s, each behind an agents
 //! capability, and watch it for `AgentsEvent`s. Keys, tokens and
-//! sign-ins never leave it.
+//! sign-ins never leave it: a key is typed and a sign-in made on its
+//! own card.
 
 mod answer;
 mod archive;
 mod conversation;
 mod focus;
+mod keys;
 mod model_choice;
 mod needs;
 mod roster;
@@ -51,14 +53,18 @@ pub fn plugin(app: &mut App) {
     app.add_plugins(answer::plugin);
     match start(app) {
         Ok(()) => {
-            app.add_plugins((setup::plugin, watch::plugin))
-                .add_plugins((
-                    focus::plugin,
-                    conversation::plugin,
-                    roster::plugin,
-                    needs::plugin,
-                ))
-                .add_systems(Startup, first_test);
+            app.add_plugins((
+                setup::plugin,
+                keys::plugin,
+                watch::plugin,
+            ))
+            .add_plugins((
+                focus::plugin,
+                conversation::plugin,
+                roster::plugin,
+                needs::plugin,
+            ))
+            .add_systems(Startup, first_test);
         }
         Err(why) => {
             app.insert_resource(Unavailable(why))

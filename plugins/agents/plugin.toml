@@ -1,0 +1,32 @@
+id = "hamlet.agents"
+name = "Agents"
+version = "0.1.0"
+api = "0.1.0"
+
+[[asks]]
+capability = "agents.read"
+target = "local"
+reason = "Shows the conversation, the agents and hamlets with their notes, characters, prompts, skills and past sessions, what they wait on you for, their status, settings and models, and selects what you pick"
+
+[[asks]]
+capability = "agents.chief"
+target = "local"
+reason = "Sends your messages and answers, stops agents, chooses their models, gives your commands to hamlets, takes skills out, resumes and deletes past sessions and takes back lasting permissions"
+
+[[asks]]
+capability = "agents.settings"
+target = "local"
+reason = "Changes the default model, the models allowed and their prices, the agents' settings, the charter, the realm's limits and a hamlet's bylaws, and sets up a place for models"
+
+[[asks]]
+capability = "desktop.open"
+target = "https"
+reason = "Opens a web link of the conversation, an agent's papers or the charter in your browser when you click it"
+
+[[asks]]
+capability = "desktop.settings"
+target = "local"
+reason = "Turns Keep awake on or off: whether the computer stays awake while an agent works"
+
+[events]
+sends = [{ name = "carry", payload = "realm.carry" }]

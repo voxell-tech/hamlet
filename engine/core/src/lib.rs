@@ -13,7 +13,7 @@ pub mod tuning;
 use bevy::app::App;
 
 pub use crate::budget::{ActiveLimits, Guards, StartingLimits};
-pub use crate::bundle::Bundle;
+pub use crate::bundle::{Bundle, merged_into};
 pub use crate::file::write_whole;
 pub use crate::home::Home;
 pub use crate::log::{Log, LogLevel, LogLine};

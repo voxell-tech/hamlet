@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use bevy::ecs::resource::Resource;
 use hamlet_engine_api::{Ask, Capability, PluginId};
-use hamlet_engine_core::{Home, write_whole};
+use hamlet_engine_core::{Home, merged_into, write_whole};
 use serde::{Deserialize, Serialize};
 
 /// The file's name in the home.
@@ -130,6 +130,39 @@ struct GrantsFile {
     plugins: BTreeMap<PluginId, Record>,
 }
 
+impl GrantsFile {
+    /// The file `text` holds, leaving out the answers to capabilities
+    /// there are no more of, such as `agents.keys`, and the records
+    /// of plugins that came with Hamlet and were merged into another.
+    fn read(text: &str) -> Result<Self, String> {
+        let message = |e: toml::de::Error| e.message().to_owned();
+        let mut table =
+            toml::from_str::<toml::Table>(text).map_err(message)?;
+        if let Some(toml::Value::Table(plugins)) =
+            table.get_mut("plugins")
+        {
+            plugins.retain(|id, _| merged_into(id).is_none());
+            for (_, record) in plugins.iter_mut() {
+                if let Some(toml::Value::Array(answers)) =
+                    record.get_mut("answers")
+                {
+                    answers.retain(|answered| {
+                        answered
+                            .get("capability")
+                            .cloned()
+                            .is_none_or(|capability| {
+                                capability
+                                    .try_into::<Capability>()
+                                    .is_ok()
+                            })
+                    });
+                }
+            }
+        }
+        table.try_into::<Self>().map_err(message)
+    }
+}
+
 /// The person's answers for every plugin, as the grants file keeps
 /// them.
 #[derive(Resource, Debug)]
@@ -146,8 +179,7 @@ impl Grants {
     pub fn open(home: &Home) -> Self {
         let path = home.path(FILE);
         let read = match fs::read_to_string(&path) {
-            Ok(text) => toml::from_str::<GrantsFile>(&text)
-                .map_err(|e| e.message().to_owned()),
+            Ok(text) => GrantsFile::read(&text),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 Ok(GrantsFile::default())
             }
@@ -266,5 +298,45 @@ mod tests {
             broken
         );
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_file_of_old_plugins_and_capabilities_is_still_read() {
+        let text = r#"
+            [plugins."hamlet.welcome"]
+            allowed = true
+            version = "0.1.0"
+            bundled = true
+            [[plugins."hamlet.welcome".answers]]
+            capability = "agents.keys"
+            target = "local"
+            answer = "allow"
+
+            [plugins."hamlet.weather"]
+            allowed = true
+            version = "0.1.0"
+            [[plugins."hamlet.weather".answers]]
+            capability = "agents.keys"
+            target = "local"
+            answer = "allow"
+            [[plugins."hamlet.weather".answers]]
+            capability = "agents.read"
+            target = "local"
+            answer = "deny"
+        "#;
+        let file = GrantsFile::read(text).unwrap();
+        let weather = PluginId::try_from("hamlet.weather").unwrap();
+        assert_eq!(
+            file.plugins.keys().collect::<Vec<_>>(),
+            [&weather]
+        );
+        assert_eq!(
+            file.plugins[&weather].answers,
+            [Answered {
+                capability: Capability::AgentsRead,
+                target: "local".into(),
+                answer: Answer::Deny,
+            }]
+        );
     }
 }

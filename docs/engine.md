@@ -84,7 +84,7 @@ same types.
 - **Capabilities.** An ask names a capability, its target and a reason in
   the plugin's words: `net.fetch` a host, `assets.read` a type name,
   `services.call` another plugin's service, and `agents.read`,
-  `agents.chief`, `agents.settings` and `agents.keys` the target `local`
+  `agents.chief` and `agents.settings` the target `local`
   (see [The agents](#the-agents)), `desktop.open` the target `https` or
   a folder, and `desktop.settings` the target `local` (see
   [The desktop](#the-desktop)), `render.scene`, `render.shader`
@@ -905,7 +905,7 @@ person has one or more, and one is shown at a time.
 
   ```toml
   [dependencies]
-  "hamlet.inspector" = "^0.1"
+  "hamlet.agents" = "^0.1"
   ```
 
   `^0.1` takes any 0.1.x, so 0.1.0 fits. `Manifest::needs` gives them
@@ -916,7 +916,7 @@ person has one or more, and one is shown at a time.
   `Starting` or `Blocked`) runs only while each plugin it needs is
   there, of a version that fits, switched on, not stopped and able to
   run itself. Else it is `Blocked` with why, the first unmet in id
-  order: "Needs hamlet.inspector ^0.1, which is switched off", "...,
+  order: "Needs hamlet.agents ^0.1, which is switched off", "...,
   which is 0.2.0", "..., which isn't installed", "..., which isn't
   running", "..., which was stopped" or "..., which cannot start". A
   plugin running when it becomes blocked is stopped (`Disable`, its
@@ -1043,8 +1043,8 @@ all they ask (see [Bundled plugins](#bundled-plugins)).
   Allow, Ask next time or Don't allow. Powers that are never granted
   (keys, secrets, answering for the person, the raw home, running
   processes, turning the sandbox off) are refused when a manifest
-  asking for one is read: `never_granted` names them by the first word
-  of a capability.
+  asking for one is read: `never_granted` names them by any word of a
+  capability, so `keys.read` and `agents.keys` are both refused.
 - **Petitions** are questions for the person, each a `Petition` on a
   child of the plugin's entity, so they go with it. The log says when
   one comes, and the Petitions panel is opened in the dock.
@@ -1064,6 +1064,16 @@ all they ask (see [Bundled plugins](#bundled-plugins)).
   `switched_off.toml` and `plugin_limits.toml` of no plugin are never
   looked up; and a workspace's panel that no plugin adds is left out
   of the dock, and out of the layout the next time it is kept.
+- **Merged plugins.** Bundled plugins merged into another are named in
+  `MERGED` (`engine/core/src/bundle.rs`): `hamlet.chat`,
+  `hamlet.inspector`, `hamlet.skills`, `hamlet.petitions`,
+  `hamlet.status`, `hamlet.settings` and `hamlet.welcome`, all now in
+  `hamlet.agents`. A saved workspace's panel of one is read under its
+  new id (`hamlet.chat/chat` as `hamlet.agents/chat`), so it stays in
+  place. The grants file drops their records as it is read, and the
+  answers to a capability there is no more of, such as `agents.keys`,
+  so the rest of the file is still read. What `switched_off.toml` and
+  `plugin_limits.toml` hold for them is an old id, never looked up.
 - **Installing.** A plugin that comes with no answers is asked about:
   its name and version, and each ask with its reason and a choice of
   the three answers, Ask next time to start with. Allow lets it in with
@@ -1350,21 +1360,32 @@ in Rust and from those the person installs.
   running the script again while the engine runs reloads each plugin
   that changed and adds a new one.
 
-`plugins/about` is a panel, About, showing the engine's name and
-version (`ENGINE_VERSION`) and the interface's. Built with the
-script, it is checked by its `steps.toml`:
+Three plugins come with Hamlet: `hamlet.agents`, `hamlet.realm` and
+`hamlet.scene_demo`. The engine's name and version, and the
+interface's, are the About page of Settings (`engine/shell/src/about.rs`).
+
+`plugins/agents` (`hamlet.agents`, asking `agents.read`,
+`agents.chief`, `agents.settings`, `desktop.open https` and
+`desktop.settings`, and sending the event `carry`) is Hamlet's own
+shell over the agents service: the chat, the Inspector, the Skills
+panel, the agents' section of the Petitions panel, their status
+items, their settings pages and the first-run card. It holds no key:
+a key is typed, and a sign-in made, on the engine's key card. Each
+part is a module of its own with its own `plugin`, added by the
+crate's: `chat/`, `inspector/`, `skills.rs`, `petitions.rs`,
+`status.rs`, `settings/` and `welcome/`, and `shared/`, what they
+share. The plugin's views are named in one list, so the section of
+the Petitions panel is `petitions` and the settings page `agents`.
+Built with the script, it is checked by its `steps.toml`, which
+shows each panel, the section, a settings page and the card, and
+opens the form FOUND A HAMLET shows; the harness runs no agents
+service, so only what shows before the agents answer is checked:
 
 ```sh
-cargo run -p hamlet_engine_harness --bin plugin_check -- plugins/dist/hamlet.about --steps plugins/about/steps.toml
+cargo run -p hamlet_engine_harness --bin plugin_check -- plugins/dist/hamlet.agents --steps plugins/agents/steps.toml
 ```
 
-Hamlet's own shell is three plugins over the agents service. None
-holds a key: a key typed in Welcome goes to the service with
-`Connect` and is forgotten.
-
-- **`plugins/settings`** (`hamlet.settings`, asking `agents.read`,
-  `agents.settings`, `agents.chief`, `desktop.settings` and
-  `desktop.open https`) adds five pages to Settings
+- **Settings** (`settings/`) adds five pages to Settings
   and a footer. Endpoints: each endpoint with whether it has a key or
   is the ChatGPT plan, MANAGE USAGE for the plan, REMOVE, and ADD A
   PLACE FOR MODELS, which begins a setup that adds one. Models: the
@@ -1382,27 +1403,23 @@ holds a key: a key typed in Welcome goes to the service with
   and checked against their bounds; a change the plugin or the
   service refuses is shown in red on its page. When a setup that adds
   a place ends, the Models page is shown.
-- **`plugins/welcome`** (`hamlet.welcome`, asking `agents.read`,
-  `agents.settings` and `agents.keys`) is the first-run card, an
-  overlay. It begins a setup at start when no model was chosen, and is
-  shown while a setup is under way (`Setup::begun`), whoever began it.
-  Its steps: the ways in (sign in with OpenRouter, continue with
-  ChatGPT, a key, a model on this computer, or leave), the key with
-  its provider or OTHER and an address, signing in, looking for a
-  local server (LOOK AGAIN), and the models found, narrowed with FIND,
-  of which the one picked is tried. The setup itself, its problems in
-  plain words included, runs in the service.
-- **`plugins/status`** (`hamlet.status`, asking `agents.read`) adds
-  six status items, from the service's `Status`: the sandbox, the
+- **The first-run card** (`welcome/`) is an overlay, `welcome`. It
+  begins a setup at start when no model was chosen, and is shown
+  while a setup is under way (`Setup::begun`), whoever began it. Its
+  steps: the ways in (sign in with OpenRouter, continue with ChatGPT,
+  a key, a model on this computer, or leave), looking for a local
+  server (LOOK AGAIN), and the models found, narrowed with FIND, of
+  which the one picked is tried. A sign-in and a key are handed to
+  the engine's key card with `ShowKeyCard`, which hides once a place
+  answers, showing the card's models. The setup itself, its problems
+  in plain words included, runs in the service.
+- **The status items** (`status.rs`) are six, from the service's `Status`: the sandbox, the
   model, the link (red when not connected), what the open session
   used, the first hamlet's spend, and whether the open session works.
   Between the spend and the work, a growing item shows the address
   under the pointer in the accent, as the desktop service tells its
-  watchers. How many things wait is the Petitions panel's item.
-
-Settings and Welcome have a `steps.toml`; the harness runs no agents
-service, so they check the pages and the card's steps on their own.
-The status items are not read by the harness.
+  watchers. How many things wait is the Petitions panel's item. The
+  harness does not read them.
 
 `plugins/scene_demo` (`hamlet.scene_demo`, asking `render.scene`,
 `render.shader`, `render.compute` and `audio.play`) is the panel Scene, which has
@@ -1422,8 +1439,9 @@ stays across a reload. Its `steps.toml`
 counts the scene and its decal, and clicks a shape and a cube.
 
 `plugins/realm` (`hamlet.realm`, asking `agents.read`, `agents.chief`,
-`render.scene` and `render.shader`, and needing `hamlet.inspector`,
-whose `carry` it hears and whose panel it brings forward) is the
+`render.scene` and `render.shader`, and needing `hamlet.agents`,
+whose Inspector's `carry` it hears and whose Inspector it brings
+forward) is the
 realm, drawn in its panel,
 Realm (`hamlet.realm/realm`, with the globe icon), from the agents
 service's roster, as `crates/hamlet_realm` draws it: the endless land of [`endless-world.md`](endless-world.md) in
@@ -1496,13 +1514,14 @@ Its tuning is `assets/world.toml` and `assets/palette.toml`, built in.
   it fits and red where it does not, a click sends `/move-hamlet` to
   its hamlet as a decree, and the right button puts it back.
 
-The agents' panels are four more, each following the focus the
-agents service keeps, so what one opens or selects the others show.
-They are built with `plugins/agents_ui`, a library and no plugin of
-its own: the service as the panels read it (its `plugin`, which hears
+The panels of `hamlet.agents` each follow the focus the agents
+service keeps, so what one opens or selects the others show. Its
+parts share `shared/`: the service as they read it (its `plugin`,
+which hears
 each reply and event in `PreUpdate`, keeps the focus, the roster, the
 needs and the library's skills as resources and writes what it heard
-as a `Heard` message; `start`, a system for `Declare`; and `ask`),
+as a `Heard` message, a request that failed told in the log once;
+`start`, a system for `Declare`; and `ask`),
 a message, a change, the card of an agent's questions, Markdown as
 labels can set it (headings, paragraphs, items, quotes, code and
 rules; a link is its words, and each `https` link is a button under
@@ -1515,8 +1534,7 @@ in the display face and the tone of a head, and `link_row` and
 `link_rows`, the rows of a list as the Plugins list's: a row button
 with a chevron at its end, a divider between each and the next.
 
-- **`plugins/chat`** (`hamlet.chat`, asking `agents.read`,
-  `agents.chief` and `desktop.open https`) is the panel Chat, apart from the Inspector. Its
+- **The chat** (`chat/`) is the panel Chat, apart from the Inspector. Its
   head names the house and everyone who speaks, with New session,
   asked about first. Its line of time is the open conversation and
   the sessions `Related` gives, in the order said, each run of one
@@ -1539,10 +1557,7 @@ with a chevron at its end, a divider between each and the next.
   is not sent: the chat says why, in its own line of time. The chat
   comes to the front when the open conversation moves to another, or
   a session resumed is read again.
-- **`plugins/inspector`** (`hamlet.inspector`, asking `agents.read`,
-  `agents.chief`, `agents.settings` and `desktop.open https`, and
-  needing `hamlet.chat`, whose panel it brings to the front) shows
-  what is selected. A page under another is headed by a breadcrumb
+- **The Inspector** (`inspector/`) shows what is selected. A page under another is headed by a breadcrumb
   of the pages above it, each pressed to go back to it, fixed over
   what scrolls; names are as stored and a tab is not part of it:
   HAMLETS / the hamlet, HAMLETS / the hamlet / the agent, the same
@@ -1589,23 +1604,18 @@ with a chevron at its end, a divider between each and the next.
   without asking, and its
   most agents and roads, each written with `SetBylaw`) and RECORD.
   The realm's page and the bylaws share the controls of a limit,
-  `agents_ui`'s `whole` and `setting`, and set a yes or a no with a
+  `shared/`'s `whole` and `setting`, and set a yes or a no with a
   `switch` named beside it.
-- **`plugins/skills`** (`hamlet.skills`, asking `agents.read` and
-  `agents.chief`, and needing `hamlet.chat`) is the agent's own skills
+- **The Skills panel** (`skills.rs`) is the agent's own skills
   over the library's, each
   with TAKE OUT, and OPEN CHAT, which brings the chat to the front,
   while the library is empty.
-- **`plugins/petitions`** (`hamlet.petitions`, asking `agents.read`
-  and `agents.chief`) is the AGENTS section of the engine's Petitions
-  panel: the reason field, STOP ALL, and what the agents wait on the
+- **The agents' petitions** (`petitions.rs`) are the AGENTS section of
+  the engine's Petitions panel: the reason field, STOP ALL, and what the agents wait on the
   chief for, oldest first, with the answers each takes; a question's
   card is the one the chat shows. It tells the engine how many wait,
   so it shows while any do, and brings the panel to the front when
   more wait. The plugins' petitions under it stay the engine's own.
-
-Each has a `steps.toml` checking what shows before the agents
-answer; those of the Inspector and Skills bring the chat `with` them.
 
 ## Assets
 
@@ -1724,21 +1734,26 @@ says why and every request fails saying so.
   a key or is the ChatGPT plan, with the link and the listing. Each of
   `SetModel`, `SetReflectEvery`, `SetAllowNet` and `RemoveEndpoint`
   saves the settings; removing an endpoint forgets its key and signs
-  out of ChatGPT. `SetKey` and `ForgetKey` give or forget an endpoint's
-  key by name. `OpenUsage` opens the plan's usage page.
+  out of ChatGPT. `OpenUsage` opens the plan's usage page.
 - **Models.** `TestConnection`, `ListModels`, `Catalogue`,
   `AllowModel`, `PriceModel` (only a model with no price, or the
   person's own) and `TryModel`.
-- **Setting up a place for models**, as Welcome does: `Providers`,
-  `BeginSetup` (adding or not), `Connect` with a provider or an address
-  and a key, `SignIn` to OpenRouter or ChatGPT, `FindLocal`,
-  `PickModel` and `EndSetup`, followed in `Setup`: whether one is
-  under way (`begun`, from `BeginSetup` until it ends), its stage, who
-  answered and with which models, and the problem in plain words. The
-  endpoint being set up, and a key a sign-in gave, stay in the service.
-  An address of its own reaches what the engine can, servers on this
-  computer and its network too, so only a plugin built in or bundled
-  `Connect`s to one; an installed plugin names a provider.
+- **Setting up a place for models**, as the first-run card does:
+  `Providers`, `BeginSetup` (adding or not), `ShowKeyCard`,
+  `FindLocal`, `PickModel` and `EndSetup`, followed in `Setup`:
+  whether one is under way (`begun`, from `BeginSetup` until it ends),
+  its stage, who answered and with which models, and the problem in
+  plain words. The endpoint being set up, and a key a sign-in gave,
+  stay in the service.
+- **The key card** (`keys.rs`) is the engine's own overlay
+  (`engine/keys`), where the person types a key or signs in, so no
+  request carries a key. `ShowKeyCard` shows it while a setup is under
+  way, for a key (USE A KEY: WHO GIVES YOU YOUR MODEL, a provider or
+  OTHER with WHERE YOUR MODEL RUNS, YOUR KEY and CONNECT) or a sign-in
+  to OpenRouter or ChatGPT (SIGN IN, begun as it is shown). BACK hides
+  it. It hides once a place answers, for the plugin's card to pick a
+  model, and a sign-in to OpenRouter that did not finish turns it to
+  the key of OpenRouter.
 - **The charter**: `Charter`, `EditCharter` (the home's own, opened in
   the system's editor) and `ResetCharter`.
 - **The realm's limits**: `Limits`, and `SetLimit` of one key of
@@ -1807,15 +1822,16 @@ says why and every request fails saying so.
 - **Capabilities**, each on the target `local`: `agents.read` for what
   is read and watched, and the focus, `agents.settings` for what
   changes the settings, the catalogue's models, the setup, the
-  charter, the realm's limits and a hamlet's bylaws, `agents.keys` for
-  giving or forgetting a key, connecting and signing in, and
+  charter, the realm's limits and a hamlet's bylaws, and
   `agents.chief` for sending, vetoing, revoking, rewinding, decrees,
   the model an agent runs (`RunModel`), the character, deleting a past
   session and answering what waits. A use answered Ask next time asks
   the
   person first, as the other services do.
-- **Secrets stay in the service.** No reply holds a key, a ChatGPT
-  token or a sign-in; keys are kept in the system's keychain or a
+- **Secrets stay in the service.** No request carries a key and no
+  reply holds one, a ChatGPT token or a sign-in. A manifest asking for
+  `agents.keys`, or any capability with `keys` among its words, is
+  refused as it is read. Keys are kept in the system's keychain or a
   private file of the home, as the app keeps them, but under the
   keychain service `hamlet_engine` (`KEYCHAIN_SERVICE` in
   `engine/core`), so the engine never reads or deletes the app's keys.

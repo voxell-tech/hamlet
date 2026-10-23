@@ -1,8 +1,9 @@
-//! The agents service: the agents' settings, their models, signing
-//! in, the charter, the realm's limits, the lasting permissions, the
-//! status and the sessions. A plugin asks with an [`AgentsRequest`]
-//! and is answered with an [`AgentsReply`]. A key goes in and never
-//! comes out: no reply holds one.
+//! The agents service: the agents' settings, their models, setting
+//! up a place for them, the charter, the realm's limits, the lasting
+//! permissions, the status and the sessions. A plugin asks with an
+//! [`AgentsRequest`] and is answered with an [`AgentsReply`]. No
+//! request carries a key and no reply holds one: a key is typed and a
+//! sign-in made on the engine's own card.
 
 mod conversation;
 mod needs;
@@ -46,11 +47,6 @@ pub enum AgentsRequest {
     /// Takes an endpoint out, forgets its key, and signs out of
     /// ChatGPT if it was the plan's.
     RemoveEndpoint(String),
-    SetKey {
-        endpoint: String,
-        key: String,
-    },
-    ForgetKey(String),
     /// Opens the ChatGPT plan's usage page in the browser.
     OpenUsage,
 
@@ -86,15 +82,9 @@ pub enum AgentsRequest {
     BeginSetup {
         adding: bool,
     },
-    /// Asks a provider, by the endpoint name it has in
-    /// [`Provider`], or the address `url` when it is none, with
-    /// `key`.
-    Connect {
-        provider: Option<String>,
-        url: String,
-        key: String,
-    },
-    SignIn(SignInTo),
+    /// Shows the engine's own card of the setup under way, where the
+    /// person gives a key or signs in as `way` says.
+    ShowKeyCard(KeyWay),
     /// Looks for a model server on this computer.
     FindLocal,
     /// Tries the model `id` of the place that answered, and keeps it
@@ -248,10 +238,6 @@ impl AgentsRequest {
     /// The capability it needs, on [`LOCAL`].
     pub fn capability(&self) -> Capability {
         match self {
-            Self::SetKey { .. }
-            | Self::ForgetKey(_)
-            | Self::Connect { .. }
-            | Self::SignIn(_) => Capability::AgentsKeys,
             Self::SetModel(_)
             | Self::SetReflectEvery(_)
             | Self::SetAllowNet(_)
@@ -263,6 +249,7 @@ impl AgentsRequest {
             | Self::PriceModel { .. }
             | Self::TryModel(_)
             | Self::BeginSetup { .. }
+            | Self::ShowKeyCard(_)
             | Self::FindLocal
             | Self::PickModel(_)
             | Self::EndSetup
@@ -496,6 +483,17 @@ pub enum SignInTo {
     OpenRouter,
     /// For the use of the person's ChatGPT plan.
     ChatGpt,
+}
+
+/// How the person gives a place for models what it needs, on the
+/// engine's own card.
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize,
+)]
+pub enum KeyWay {
+    /// A provider's key, typed.
+    Key,
+    SignIn(SignInTo),
 }
 
 /// The setup of a place for models.

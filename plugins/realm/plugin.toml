@@ -24,9 +24,9 @@ target = "gpu"
 reason = "Draws the roads' grooves and their light, and the rings and runes on the ground, with shaders of its own"
 
 [events]
-hears = [{ event = "hamlet.inspector/carry", payload = "realm.carry" }]
+hears = [{ event = "hamlet.agents/carry", payload = "realm.carry" }]
 
 # It takes a town in hand as the Inspector carries it, and brings the
 # Inspector forward on a click.
 [dependencies]
-"hamlet.inspector" = "^0.1"
+"hamlet.agents" = "^0.1"

@@ -43,7 +43,7 @@ const SEED: u64 = 7;
 const HOME: &str = "home";
 
 /// The Inspector, brought forward when something is chosen here.
-const INSPECTOR: &str = "hamlet.inspector/inspector";
+const INSPECTOR: &str = "hamlet.agents/inspector";
 
 /// The longest frame the realm moves by, in seconds, so a frame that
 /// came late does not throw things far.

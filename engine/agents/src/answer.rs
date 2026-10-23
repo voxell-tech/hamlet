@@ -8,20 +8,20 @@ use bevy::ecs::world::World;
 use hamlet_core::agents;
 use hamlet_core::catalogue::ModelCatalogue;
 use hamlet_core::core::{
-    self, HomeDir, ListModels, SaveSettings, Settings, SignIn,
+    self, HomeDir, ListModels, SaveSettings, Settings,
     TestConnection, Tokio, TryModel,
 };
 use hamlet_core::oversight::grants::Grants as Held;
 use hamlet_core::oversight::{Revoke, Veto};
 use hamlet_core::session::{SessionKey, Transcript, UserMessage};
 use hamlet_engine_api::agents::{
-    AgentsReply, AgentsRequest, LOCAL, Recipient, SignInTo, Stage,
+    AgentsReply, AgentsRequest, LOCAL, Recipient, Stage,
 };
 use hamlet_engine_api::{Failure, Request};
 use hamlet_engine_grants::{
     Decided, FirstUse, Grants, Verdict, Waiting,
 };
-use hamlet_engine_plugins::{Asked, Deliver, PluginInfo, PluginKind};
+use hamlet_engine_plugins::{Asked, Deliver, PluginInfo};
 use hamlet_home::charter;
 use hamlet_home::limits::{self, Permission};
 use hamlet_model::catalogue::{self, Catalogue, Listed, Priced};
@@ -33,6 +33,7 @@ use hamlet_rules::hamlet::HOME;
 use crate::archive::ArchiveWorldExt;
 use crate::conversation::ConversationWorldExt;
 use crate::focus::FocusWorldExt;
+use crate::keys::KeyCardWorldExt;
 use crate::model_choice::ModelChoiceWorldExt;
 use crate::needs::NeedsWorldExt;
 use crate::roster::RosterWorldExt;
@@ -222,32 +223,6 @@ impl AgentsWorldExt for World {
             AgentsRequest::RemoveEndpoint(name) => {
                 self.remove_endpoint(&name)
             }
-            AgentsRequest::SetKey { endpoint, key } => {
-                let key = key.trim().to_string();
-                if key.is_empty() {
-                    return Err(Failure::Refused(
-                        "the key is empty".into(),
-                    ));
-                }
-                self.endpoint_named(&endpoint)?;
-                self.edit_settings(|config| {
-                    for at in &mut config.endpoints {
-                        if at.name == endpoint {
-                            at.api_key = Some(key.clone());
-                        }
-                    }
-                })
-            }
-            AgentsRequest::ForgetKey(endpoint) => {
-                self.endpoint_named(&endpoint)?;
-                self.edit_settings(|config| {
-                    for at in &mut config.endpoints {
-                        if at.name == endpoint {
-                            at.api_key = None;
-                        }
-                    }
-                })
-            }
             AgentsRequest::OpenUsage => {
                 core::browse(chatgpt::USAGE)
                     .map_err(|why| failed(&why))?;
@@ -325,47 +300,13 @@ impl AgentsWorldExt for World {
                 };
                 done
             }
-            AgentsRequest::Connect { provider, url, key } => {
-                // An address reaches whatever the engine can, servers
-                // on this computer and its network too, so only
-                // Hamlet's own setup names one.
-                let own =
-                    self.get::<PluginInfo>(asked.plugin).is_some_and(
-                        |info| info.kind != PluginKind::Installed,
-                    );
-                if provider.is_none() && !own {
+            AgentsRequest::ShowKeyCard(way) => {
+                if !self.resource::<SetupState>().begun {
                     return Err(Failure::Refused(
-                        "only Hamlet's own setup connects to an \
-                         address; name a provider"
-                            .into(),
+                        "no setup is under way".into(),
                     ));
                 }
-                match SetupState::endpoint(
-                    provider.as_deref(),
-                    &url,
-                    &key,
-                ) {
-                    Ok((endpoint, from)) => {
-                        self.ask_endpoint(endpoint, from);
-                        done
-                    }
-                    Err(why) => {
-                        self.resource_mut::<SetupState>().problem =
-                            Some(why.clone());
-                        Err(Failure::Refused(why))
-                    }
-                }
-            }
-            AgentsRequest::SignIn(to) => {
-                let mut setup = self.resource_mut::<SetupState>();
-                setup.stage = Stage::SigningIn(to);
-                setup.signing = Some(to);
-                setup.problem = None;
-                setup.models.clear();
-                self.trigger(match to {
-                    SignInTo::OpenRouter => SignIn::OpenRouter,
-                    SignInTo::ChatGpt => SignIn::ChatGpt,
-                });
+                self.show_key_card(way);
                 done
             }
             AgentsRequest::FindLocal => {

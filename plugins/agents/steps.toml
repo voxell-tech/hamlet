@@ -1,0 +1,31 @@
+# The agents' plugin on its own: each of its panels, its section of
+# the Petitions panel, a settings page and the first-run card shows,
+# and FOUND A HAMLET opens its form. The harness runs no agents
+# service, so only what shows before the agents answer is checked.
+#
+#   scripts/build_plugins.sh
+#   cargo run -p hamlet_engine_harness --bin plugin_check -- plugins/dist/hamlet.agents --steps plugins/agents/steps.toml
+
+[[step]]
+allow = "hamlet.agents"
+
+[[step]]
+expect = { panel = "hamlet.agents/chat", text = "Message" }
+
+[[step]]
+click = { panel = "hamlet.agents/inspector", widget = "FOUND A HAMLET" }
+
+[[step]]
+expect = { panel = "hamlet.agents/found", text = "All three are needed." }
+
+[[step]]
+expect = { panel = "hamlet.agents/skills", text = "THE LIBRARY, SHARED BY ALL" }
+
+[[step]]
+expect = { panel = "hamlet.agents/petitions", text = "STOP ALL" }
+
+[[step]]
+expect = { panel = "hamlet.agents/endpoints", text = "ADD A PLACE FOR MODELS" }
+
+[[step]]
+expect = { panel = "hamlet.agents/welcome", text = "I HAVE A KEY" }
