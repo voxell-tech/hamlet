@@ -3,6 +3,7 @@
 
 use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
+use hamlet_testing::{Home, Script, call, openai, words};
 use serde_json::json;
 
 fn links(c: &Client, from: usize) -> Vec<LinkState> {
@@ -759,7 +760,7 @@ async fn the_chiefs_pin_wins_and_survives_a_held_request_and_restart()
             .collect::<Vec<_>>(),
         ["org/large", "small", "org/large"]
     );
-    s.server.kill().await;
+    s.server.kill();
     let server = s
         .home
         .serve_providers(&[

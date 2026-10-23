@@ -85,7 +85,7 @@ jobs:
 
       - name: Build the Windows window
         if: runner.os == 'Windows'
-        run: cargo build --release --locked -p hamlet --bin hamlet-app --target ${{ matrix.target }}
+        run: cargo build --release --locked -p hamlet_app --bin hamlet-app --target ${{ matrix.target }}
 
       - name: Package
         shell: bash

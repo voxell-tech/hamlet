@@ -3281,7 +3281,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "hamlet"
+name = "hamlet_acceptance"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "futures",
+ "hamlet_protocol",
+ "hamlet_testing",
+ "libc",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite",
+]
+
+[[package]]
+name = "hamlet_app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -3301,25 +3315,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "hamlet_acceptance"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "futures",
- "hamlet_protocol",
- "hamlet_testing",
- "libc",
- "serde",
- "serde_json",
- "tokio",
- "tokio-tungstenite",
-]
-
-[[package]]
 name = "hamlet_assets"
 version = "0.1.0"
 dependencies = [
- "bevy",
+ "bevy_app",
+ "bevy_asset",
+ "bevy_color",
+ "bevy_ecs",
+ "bevy_log",
+ "bevy_math",
+ "bevy_reflect",
  "serde",
  "toml",
 ]
@@ -3358,7 +3363,14 @@ dependencies = [
 name = "hamlet_desktop"
 version = "0.1.0"
 dependencies = [
- "bevy",
+ "bevy_app",
+ "bevy_asset",
+ "bevy_ecs",
+ "bevy_image",
+ "bevy_log",
+ "bevy_time",
+ "bevy_window",
+ "bevy_winit",
  "hamlet_client",
  "hamlet_testing",
  "objc2 0.5.2",
@@ -3409,7 +3421,6 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "futures",
- "hamlet_acceptance",
  "hamlet_protocol",
  "hamlet_testing",
  "hamlet_workspace_wire",
@@ -3437,8 +3448,13 @@ dependencies = [
 name = "hamlet_testing"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "hamlet_protocol",
+ "libc",
+ "serde",
  "serde_json",
+ "tokio",
+ "tokio-tungstenite",
 ]
 
 [[package]]
@@ -3481,6 +3497,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "hamlet_testing",
  "hamlet_workspace_wire",
  "http-body-util",
  "hyper",
@@ -6005,9 +6022,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.45"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "log",
  "once_cell",
@@ -6042,9 +6059,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.15"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -6577,7 +6594,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.5",
  "windows-sys 0.61.2",
@@ -7472,9 +7489,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.9"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
+checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
 dependencies = [
  "rustls-pki-types",
 ]

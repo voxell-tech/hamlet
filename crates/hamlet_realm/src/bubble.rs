@@ -498,11 +498,9 @@ mod tests {
     use crate::generator::society::AgentId;
     use crate::generator::testing::{rehearse, stand_in};
     use crate::hamlet::Housed;
-    use crate::hamlet::tests::{
-        camera, receive_change, receive_state,
-    };
     use crate::pick::PickSettings;
     use crate::sound::Cue;
+    use crate::testing::{camera, receive_change, receive_state};
 
     #[test]
     fn a_received_saying_has_speech_and_short_deed_words() {

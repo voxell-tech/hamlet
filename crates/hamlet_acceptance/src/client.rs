@@ -7,6 +7,7 @@ use base64::prelude::*;
 use futures::{SinkExt, StreamExt};
 use hamlet_protocol::client::*;
 use hamlet_protocol::{HOME, MAYOR};
+use hamlet_testing::Server;
 use serde_json::Value;
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -15,7 +16,6 @@ use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream, connect_async,
 };
 
-use crate::server::Server;
 use crate::{fold, realm};
 
 /// The longest a scenario waits for one thing to happen.

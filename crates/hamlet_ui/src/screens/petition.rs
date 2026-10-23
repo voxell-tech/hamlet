@@ -423,7 +423,7 @@ mod tests {
     use hamlet_protocol::client as protocol;
 
     use super::*;
-    use crate::me::tests::{panel_app, press, words};
+    use crate::testing::{panel_app, press, words};
 
     #[test]
     fn the_tags_check_and_cross_answer_the_received_wait() {

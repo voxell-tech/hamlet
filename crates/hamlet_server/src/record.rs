@@ -7,6 +7,8 @@ mod membership;
 mod names;
 mod refusals;
 mod roads;
+#[cfg(test)]
+mod tests;
 
 use anyhow::{Context, Result, ensure};
 pub use document::{

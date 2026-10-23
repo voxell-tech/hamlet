@@ -168,7 +168,7 @@ mod tests {
     #[test]
     fn closing_after_a_last_editor_save_waits_for_the_servers_receipt()
      {
-        let mut app = crate::me::tests::panel_app();
+        let mut app = crate::testing::panel_app();
         app.add_plugins((
             hamlet_desktop::DesktopPlugin { window: false },
             super::plugin,
@@ -227,8 +227,8 @@ mod tests {
     #[test]
     fn an_in_flight_save_keeps_the_window_open_and_offers_visible_recovery_copies()
      {
-        use crate::me::tests::{press, words};
-        let mut app = crate::me::tests::panel_app();
+        use crate::testing::{all_words, press};
+        let mut app = crate::testing::panel_app();
         app.add_plugins((
             hamlet_desktop::DesktopPlugin { window: false },
             super::plugin,
@@ -264,7 +264,7 @@ mod tests {
             super::screen(),
         );
         app.update();
-        let shown = words(&mut app).join("\n");
+        let shown = all_words(&mut app);
         assert!(shown.contains("Inspect the server document"));
         assert!(shown.contains(file.to_str().unwrap()));
         press(&mut app, "CLOSE WITH COPIES");

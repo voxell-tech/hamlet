@@ -1,12 +1,12 @@
 //! Public sign-in and refresh through the real server and Pi, with
 //! offline providers.
 
-use tokio::net::TcpStream;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+use std::path::Path;
+use std::time::Duration;
 
-use super::*;
+use hamlet_testing::{Home, Scratch, Server, Socket, send};
+use serde_json::{Value, json};
 
-type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 const SECRETS: &[&str] = &[
     "test-oauth-access-before",
     "test-oauth-refresh-before",
@@ -17,58 +17,41 @@ const SECRETS: &[&str] = &[
     "reject-transient-code",
 ];
 
-fn start(home: &Scratch, fixture: &Scratch) -> Server {
-    std::fs::write(home.join("credentials.json"), json!({
+async fn start(home: &mut Home, fixture: &Scratch) -> Server {
+    std::fs::write(home.file("credentials.json"), json!({
         "installationId":"stable-offline-installation", "connection":{"token":"offline-connection"},
         "models": {"openai":{"type":"api_key","key":"test-openai-separate-key"},
             "other":{"type":"api_key","key":"test-other-provider-secret"}}
     }).to_string()).unwrap();
-    let entry = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let entry = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../harnesses/pi/test/fixtures/oauth.ts");
-    Server::start(
-        home,
-        &[
-            ("HAMLET_PI_HARNESS", entry.to_str().unwrap()),
-            ("HAMLET_OAUTH_FIXTURE", fixture.to_str().unwrap()),
-            ("HAMLET_REFLECT_EVERY", "0"),
-            ("HAMLET_MODEL", "chatgpt::offline"),
-            ("OPENAI_API_KEY", "ambient-must-not-be-used"),
-        ],
-    )
+    home.serve_providers(&[
+        ("HAMLET_PI_HARNESS", entry.to_str().unwrap()),
+        ("HAMLET_OAUTH_FIXTURE", fixture.to_str().unwrap()),
+        ("HAMLET_REFLECT_EVERY", "0"),
+        ("HAMLET_MODEL", "chatgpt::offline"),
+        ("OPENAI_API_KEY", "ambient-must-not-be-used"),
+    ])
+    .await
 }
 
-async fn send(socket: &mut Socket, mut value: Value) -> String {
-    let id = uuid::Uuid::new_v4().to_string();
-    value["id"] = id.clone().into();
-    socket
-        .send(Message::Text(value.to_string().into()))
-        .await
-        .unwrap();
-    id
-}
-
+/// [`hamlet_testing::until`], checking that no message on the way
+/// carries a secret.
 async fn until(
     socket: &mut Socket,
-    predicate: impl Fn(&Value) -> bool,
+    check: impl Fn(&Value) -> bool,
 ) -> Value {
-    tokio::time::timeout(Duration::from_secs(15), async {
-        loop {
-            let frame = socket.next().await.unwrap().unwrap();
-            let text = frame.to_text().unwrap();
-            for secret in SECRETS {
-                assert!(
-                    !text.contains(secret),
-                    "secret in public protocol"
-                );
-            }
-            let value = serde_json::from_str::<Value>(text).unwrap();
-            if predicate(&value) {
-                return value;
-            }
+    hamlet_testing::until(socket, |value| {
+        let text = value.to_string();
+        for secret in SECRETS {
+            assert!(
+                !text.contains(secret),
+                "secret in public protocol"
+            );
         }
+        check(value)
     })
     .await
-    .expect("public protocol response")
 }
 
 async fn login(
@@ -122,7 +105,7 @@ async fn reply(
     .await
 }
 
-async fn file(path: &std::path::Path) {
+async fn file(path: &Path) {
     tokio::time::timeout(Duration::from_secs(10), async {
         while !path.exists() {
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -132,14 +115,27 @@ async fn file(path: &std::path::Path) {
     .expect("fixture barrier");
 }
 
-fn stored(home: &Scratch) -> Value {
+/// Waits until `server` refuses connections: it drops its listener
+/// as it takes a signal, before it closes the rest.
+async fn stopped_listening(server: &Server) {
+    let address = server.url.trim_start_matches("ws://");
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while std::net::TcpStream::connect(address).is_ok() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the server stops listening");
+}
+
+fn stored(home: &Path) -> Value {
     serde_json::from_slice(
         &std::fs::read(home.join("credentials.json")).unwrap(),
     )
     .unwrap()
 }
 
-fn no_store_secrets(home: &Scratch) {
+fn no_store_secrets(home: &Path) {
     let mut files = vec![home.join("realm.sqlite")];
     files.extend(
         ["realm.sqlite-wal", "realm.sqlite-shm"]
@@ -173,9 +169,9 @@ fn no_store_secrets(home: &Scratch) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn oauth_is_client_owned_and_prompts_cancel_on_disconnect_and_shutdown()
  {
-    let home = Scratch::new("oauth-login");
+    let mut home = Home::new();
     let fixture = Scratch::new("oauth-login-provider");
-    let mut server = start(&home, &fixture);
+    let mut server = start(&mut home, &fixture).await;
     let (mut owner, state) = server.connect().await;
     let (mut foreign, _) = server.connect().await;
     let providers = state["providers"].as_array().unwrap();
@@ -210,7 +206,7 @@ async fn oauth_is_client_owned_and_prompts_cancel_on_disconnect_and_shutdown()
             .unwrap()
             .contains("[REDACTED]")
     );
-    assert!(stored(&home)["models"]["chatgpt"].is_null());
+    assert!(stored(home.path())["models"]["chatgpt"].is_null());
 
     let pending = login(&mut owner, "cancel", "chatgpt").await;
     send(&mut owner, json!({"type":"login","id":"cancel-request","cancel":pending})).await;
@@ -238,8 +234,7 @@ async fn oauth_is_client_owned_and_prompts_cancel_on_disconnect_and_shutdown()
     .unwrap();
     let _pending =
         login(&mut foreign, "shutdown", "openrouter").await;
-    server.signal(libc::SIGTERM);
-    assert_eq!(server.exit().await, 0);
+    assert_eq!(server.stop().await, Some(0));
     assert_eq!(
         std::fs::read_to_string(fixture.join("login-ended"))
             .unwrap()
@@ -247,17 +242,17 @@ async fn oauth_is_client_owned_and_prompts_cancel_on_disconnect_and_shutdown()
             .count(),
         4
     );
-    assert!(stored(&home)["models"]["chatgpt"].is_null());
-    assert!(stored(&home)["models"]["openrouter"].is_null());
-    no_store_secrets(&home);
+    assert!(stored(home.path())["models"]["chatgpt"].is_null());
+    assert!(stored(home.path())["models"]["openrouter"].is_null());
+    no_store_secrets(home.path());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shutdown_waits_for_a_model_calls_started_rotation_to_persist()
  {
-    let home = Scratch::new("oauth-shutdown");
+    let mut home = Home::new();
     let fixture = Scratch::new("oauth-shutdown-provider");
-    let mut server = start(&home, &fixture);
+    let mut server = start(&mut home, &fixture).await;
     let (mut owner, _) = server.connect().await;
     let pending = login(&mut owner, "sign-in", "chatgpt").await;
     assert_eq!(
@@ -267,28 +262,28 @@ async fn shutdown_waits_for_a_model_calls_started_rotation_to_persist()
     std::fs::write(fixture.join("hold-refresh"), "hold").unwrap();
     send(&mut owner, json!({"type":"say","to":{"hamlet":"home","agent":"mayor"},"text":"Hello"})).await;
     file(&fixture.join("refresh-started")).await;
-    server.signal(libc::SIGTERM);
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    server.terminate();
+    stopped_listening(&server).await;
     assert!(
-        server.child.try_wait().unwrap().is_none(),
+        server.running(),
         "shutdown abandoned a started rotation"
     );
     std::fs::write(fixture.join("release-refresh"), "release")
         .unwrap();
-    assert_eq!(server.exit().await, 0);
+    assert_eq!(server.ended().await, Some(0));
     assert_eq!(
-        stored(&home)["models"]["chatgpt"]["refresh"],
+        stored(home.path())["models"]["chatgpt"]["refresh"],
         "test-oauth-refresh-after"
     );
-    no_store_secrets(&home);
+    no_store_secrets(home.path());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn concurrent_refresh_persists_after_disconnect_and_retired_tokens_never_reach_either_store()
  {
-    let home = Scratch::new("oauth-rotation");
+    let mut home = Home::new();
     let fixture = Scratch::new("oauth-provider");
-    let mut server = start(&home, &fixture);
+    let mut server = start(&mut home, &fixture).await;
     let (mut first, _) = server.connect().await;
     let (mut second, _) = server.connect().await;
     let pending = login(&mut first, "sign-in", "chatgpt").await;
@@ -296,7 +291,7 @@ async fn concurrent_refresh_persists_after_disconnect_and_retired_tokens_never_r
         reply(&mut first, &pending, "expire").await["step"]["done"],
         "chatgpt"
     );
-    let before = stored(&home);
+    let before = stored(home.path());
     assert_eq!(
         before["models"]["chatgpt"]["clientId"],
         "stable-offline-installation"
@@ -330,7 +325,7 @@ async fn concurrent_refresh_persists_after_disconnect_and_retired_tokens_never_r
             .unwrap()
             .contains("OAuth echoed [REDACTED]")
     );
-    let after = stored(&home);
+    let after = stored(home.path());
     assert_eq!(
         after["models"]["chatgpt"]["access"],
         "test-oauth-access-after"
@@ -385,9 +380,8 @@ async fn concurrent_refresh_persists_after_disconnect_and_retired_tokens_never_r
             "test-oauth-refresh-after"
         );
     }
-    no_store_secrets(&home);
+    no_store_secrets(home.path());
     drop(second);
-    server.signal(libc::SIGTERM);
-    assert_eq!(server.exit().await, 0);
-    no_store_secrets(&home);
+    assert_eq!(server.stop().await, Some(0));
+    no_store_secrets(home.path());
 }

@@ -14,7 +14,7 @@ use anyhow::bail;
 pub(crate) use self::env::{
     Env, ExecError, FileError, FileInfo, FileKind,
 };
-pub use self::policy::{Limits, Policy, canon, policy_hash, within};
+pub use self::policy::{Limits, Policy, within};
 pub use self::reach::{closed_policy, open_policy};
 
 /// A command confined to a policy: the program to run and its whole

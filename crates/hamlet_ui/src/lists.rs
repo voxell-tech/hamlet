@@ -146,7 +146,7 @@ mod tests {
     use hamlet_realm::pick::{Selected, Thing};
 
     use super::*;
-    use crate::me::tests::{panel_app, words};
+    use crate::testing::{panel_app, words};
 
     #[test]
     fn the_library_shows_the_clients_empty_shelf_and_received_skills()

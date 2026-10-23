@@ -2,13 +2,12 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use hamlet_acceptance::{
-    Home, QUIET, Script, Server, Wire, chat, fold, mayor, realm,
-};
+use hamlet_acceptance::{QUIET, Wire, chat, fold, mayor, realm};
 pub use hamlet_protocol::MAYOR;
 use hamlet_protocol::client::{
     ClientMessage, Item, RequestId, ServerMessage, State,
 };
+use hamlet_testing::{Home, Script, Server};
 use serde_json::{Value, json};
 
 /// The recorder owns the process and captures both directions in

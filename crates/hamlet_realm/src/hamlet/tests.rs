@@ -8,12 +8,6 @@ use hamlet_client::{ClientPlugin, receive};
 use hamlet_protocol::client as protocol;
 use hamlet_testing::realm;
 
-use super::housing::{
-    close, come_back, house, leave, make_room, move_out, resite,
-};
-use super::roads::{lay, unlay, walk};
-use super::state::{show, vote};
-use super::view::{aim, tether};
 use super::{Housed, Laid, Returning, Sited, Unhoused, town_of};
 use crate::generator::land::Land;
 use crate::generator::society::{
@@ -27,9 +21,14 @@ use crate::keeper::work::Task;
 use crate::palette::Palette;
 use crate::pick::{Centre, Glide, Leash, Orbit, Stance};
 use crate::sky::CameraSettings;
+use crate::testing::{receive_change, receive_state};
 use crate::{Clock, Stage};
 
-/// The world's side of the hamlets, with no hamlet in it.
+/// The world's side of the hamlets, with no hamlet in it: the real
+/// plugin on the client's entities. The resources it reads are
+/// inserted by hand: the plugins that own them need Bevy's default
+/// plugins (generator, pick and sky) or move the clock each frame
+/// (stage).
 fn bare() -> App {
     let mut app = App::new();
     app.add_plugins(ClientPlugin { server: None })
@@ -44,13 +43,6 @@ fn bare() -> App {
             GenSettings::default(),
             Palette::default(),
         ))
-        .add_observer(leave)
-        .add_observer(come_back)
-        .add_observer(move_out)
-        .add_observer(close)
-        .add_observer(unlay)
-        .add_observer(walk)
-        .add_observer(vote)
         .init_resource::<CameraSettings>()
         .init_resource::<Glide>()
         .init_resource::<Orbit>()
@@ -59,11 +51,7 @@ fn bare() -> App {
         .init_resource::<Stance>()
         .init_resource::<GenView>()
         .init_resource::<Ahead>()
-        .add_systems(
-            Update,
-            (make_room, house, resite, lay, show, tether, aim)
-                .chain(),
-        );
+        .add_plugins(super::plugin);
     app
 }
 
@@ -103,23 +91,6 @@ fn a_hamlet_that_is_removed_takes_its_town_with_it() {
     let town = society.towns[0].id;
     assert!(society.agents.iter().all(|a| a.town == town));
     assert!(society.roads.is_empty());
-}
-
-pub(crate) fn receive_state(app: &mut App, state: protocol::State) {
-    receive(app.world_mut(), protocol::ServerMessage::State(state));
-}
-
-pub(crate) fn receive_change(
-    app: &mut App,
-    update: protocol::Update,
-) {
-    let seen = app.world().resource::<hamlet_client::realm::Seen>();
-    let frame = protocol::ServerMessage::Change(protocol::Changes {
-        epoch: seen.epoch,
-        revision: seen.revision + 1,
-        changes: vec![update],
-    });
-    receive(app.world_mut(), frame);
 }
 
 /// A hamlet with its first mayor in office.
@@ -624,33 +595,6 @@ fn the_founders_robot_follows_its_own_work_and_faults() {
     receive_state(&mut app, realm::state());
     app.update();
     assert_eq!(agent(&mut app, 0).state, KState::Rest);
-}
-
-pub(crate) fn camera(app: &mut App, eye: Vec3, target: Vec3) {
-    use bevy::camera::{ComputedCameraValues, RenderTargetInfo};
-
-    let at =
-        Transform::from_translation(eye).looking_at(target, Vec3::Y);
-    app.world_mut().spawn((
-        crate::WorldCamera,
-        Camera {
-            computed: ComputedCameraValues {
-                clip_from_view: Mat4::perspective_infinite_reverse_rh(
-                    std::f32::consts::FRAC_PI_4,
-                    4.0 / 3.0,
-                    0.1,
-                ),
-                target_info: Some(RenderTargetInfo {
-                    physical_size: UVec2::new(800, 600),
-                    scale_factor: 1.0,
-                }),
-                ..default()
-            },
-            ..default()
-        },
-        at,
-        GlobalTransform::from(at),
-    ));
 }
 
 #[test]

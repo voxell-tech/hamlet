@@ -21,11 +21,11 @@ use crate::generator::land::Land;
 use crate::generator::society::{AgentId, TownId};
 use crate::generator::testing::{rehearse, stand_in};
 use crate::hamlet::Sited;
-use crate::hamlet::tests::{camera, receive_change, receive_state};
 use crate::keeper::Keeper;
 use crate::pick::{PickSettings, WorldSurface};
 use crate::play::{Play, Played};
 use crate::sky::CameraSettings;
+use crate::testing::{camera, receive_change, receive_state};
 
 /// The deeds the hand told the world of and its wishes of the core.
 #[derive(Resource, Default)]

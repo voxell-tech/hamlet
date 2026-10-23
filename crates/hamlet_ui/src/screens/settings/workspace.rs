@@ -309,10 +309,10 @@ mod tests {
     use hamlet_protocol::client as protocol;
 
     use super::super::Pane;
-    use super::super::tests::{
-        control, page, requests, settle, words,
+    use crate::testing::{
+        control, press, requests, settings_page, settle,
+        words_and_spans,
     };
-    use crate::me::tests::press;
 
     fn received(
         app: &mut App,
@@ -389,12 +389,12 @@ mod tests {
     fn a_remote_workspace_is_saved_with_its_token_out_of_sight_and_applies_after_a_restart()
      {
         let token = "token-0123456789abcdef";
-        let mut app = page(Pane::Front);
+        let mut app = settings_page(Pane::Front);
         received(&mut app, 2, None, None);
         *app.world_mut().resource_mut::<Pane>() = Pane::Workspace;
         settle(&mut app);
         let said = |app: &mut App, text: &str| {
-            words(app).iter().any(|shown| shown == text)
+            words_and_spans(app).iter().any(|shown| shown == text)
         };
         assert!(!said(
             &mut app,
@@ -411,7 +411,7 @@ mod tests {
         type_into(&mut app, "Access token", token);
         assert!(said(&mut app, &"*".repeat(token.len())));
         assert!(
-            !words(&mut app)
+            !words_and_spans(&mut app)
                 .iter()
                 .any(|shown| shown.contains(token))
         );
@@ -515,12 +515,12 @@ mod tests {
      {
         use protocol::SettingsViewWorkspaceMoveState as State;
         let url = Some("https://workspace.example");
-        let mut app = page(Pane::Front);
+        let mut app = settings_page(Pane::Front);
         received(&mut app, 2, None, None);
         *app.world_mut().resource_mut::<Pane>() = Pane::Workspace;
         settle(&mut app);
         let said = |app: &mut App, text: &str| {
-            words(app).iter().any(|shown| shown == text)
+            words_and_spans(app).iter().any(|shown| shown == text)
         };
         // Nothing waits for a restart, so nothing moves.
         assert!(!said(&mut app, "MOVE HOUSES"));
@@ -577,7 +577,7 @@ mod tests {
         );
         settle(&mut app);
         assert_eq!(
-            words(&mut app)
+            words_and_spans(&mut app)
                 .iter()
                 .filter(|shown| *shown == stopped)
                 .count(),

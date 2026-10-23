@@ -7,11 +7,11 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
-use hamlet_server::record::{
+use hamlet_server::{
     Actor, Admit, Change, End, FoundRecord, Hamlet, Limits,
-    RecordOperation, RoadBudget,
+    OperationId, RecordOperation, Reply, RoadBudget, RuntimeInstance,
+    Store,
 };
-use hamlet_server::{OperationId, Reply, RuntimeInstance, Store};
 use hamlet_testing::{Scratch, strip_overrides};
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{Value, json};

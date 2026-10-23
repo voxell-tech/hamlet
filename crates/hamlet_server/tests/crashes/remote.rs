@@ -8,16 +8,13 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::{fs, thread};
 
-use hamlet_acceptance::{Script, call, words};
+use hamlet_testing::{Script, call, send, words};
 use hamlet_workspace_wire as wire;
 use sha2::{Digest, Sha256};
 
 use super::*;
 
 const TOKEN: &str = "offline-workspace-token-123456";
-type Socket = tokio_tungstenite::WebSocketStream<
-    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
->;
 
 struct Manager {
     files: Scratch,
@@ -55,7 +52,9 @@ impl Manager {
             let mut paused =
                 Vec::<(TcpStream, Value, Option<Value>)>::new();
             while stopped.try_recv().is_err() {
-                if !root.join("hold-request").exists() {
+                if !root.join("hold-request").exists()
+                    && !paused.is_empty()
+                {
                     for (mut stream, request, result) in
                         paused.drain(..)
                     {
@@ -571,38 +570,20 @@ fn perform(
     }
 }
 
-async fn send(socket: &mut Socket, mut message: Value) -> String {
-    let id = uuid::Uuid::new_v4().to_string();
-    message["id"] = id.clone().into();
-    socket
-        .send(Message::Text(message.to_string().into()))
-        .await
-        .unwrap();
-    id
-}
-
+/// [`hamlet_testing::until`], checking that no message on the way
+/// carries the manager's token.
 async fn until(
     socket: &mut Socket,
     check: impl Fn(&Value) -> bool,
 ) -> Value {
-    tokio::time::timeout(Duration::from_secs(20), async {
-        loop {
-            let message = socket.next().await.unwrap().unwrap();
-            let value = serde_json::from_str::<Value>(
-                message.to_text().unwrap(),
-            )
-            .unwrap();
-            assert!(
-                !value.to_string().contains(TOKEN),
-                "credential reached a client"
-            );
-            if check(&value) {
-                break value;
-            }
-        }
+    hamlet_testing::until(socket, |value| {
+        assert!(
+            !value.to_string().contains(TOKEN),
+            "credential reached a client"
+        );
+        check(value)
     })
     .await
-    .expect("expected server response")
 }
 
 async fn request(socket: &mut Socket, message: Value) -> Value {
@@ -626,8 +607,7 @@ async fn remote_houses_prompt_gifts_and_backend_move_do_not_open_host_houses()
     fs::create_dir_all(home.join("houses/home/0")).unwrap();
     fs::write(home.join("houses/home/0/NOTES.md"), "HOST-CANARY")
         .unwrap();
-    let mut server =
-        Server::start_with_script(&home, &[], Some(&script));
+    let mut server = start(&home, &[], Models::Faux(&script)).await;
     let (mut socket, state) = server.connect().await;
     assert_eq!(
         state["settings"]["workspace"]["running"],
@@ -735,11 +715,9 @@ async fn remote_houses_prompt_gifts_and_backend_move_do_not_open_host_houses()
         "Remote notes only"
     );
     assert!(manager.house(0).join("binary").is_file());
-    server.signal(libc::SIGTERM);
-    assert_eq!(server.exit().await, 0);
+    assert_eq!(server.stop().await, Some(0));
     drop(server);
-    let mut server =
-        Server::start_with_script(&home, &[], Some(&script));
+    let mut server = start(&home, &[], Models::Faux(&script)).await;
     let (mut socket, state) = server.connect().await;
     assert!(state["settings"]["workspace"]["running"].is_null());
     let edited = request(&mut socket,json!({"type":"edit","doc":"settings","set":{"workspace":{"url":target.url,"token":TOKEN}}})).await;
@@ -756,8 +734,7 @@ async fn remote_houses_prompt_gifts_and_backend_move_do_not_open_host_houses()
         fs::read(home.join("houses/home/0/binary")).unwrap(),
         [5, 6, 7]
     );
-    server.signal(libc::SIGTERM);
-    assert_eq!(server.exit().await, 0);
+    assert_eq!(server.stop().await, Some(0));
 }
 
 async fn approval(socket: &mut Socket) -> Value {
@@ -808,11 +785,12 @@ async fn remote_notes_do_not_hold_other_clients_disconnect_or_shutdown()
         let side = Scratch::new("remote-dispatch-script");
         let script = side.join("faux.json");
         Script::new().write(&script);
-        let mut server = Server::start_with_script(
+        let mut server = start(
             &home,
             &[("HAMLET_REFLECT_EVERY", "0")],
-            Some(&script),
-        );
+            Models::Faux(&script),
+        )
+        .await;
         let (mut reader, _) = server.connect().await;
         let (mut giver, _) = server.connect().await;
         let upload = request(&mut giver,json!({"type":"give","to":{"hamlet":"home","agent":"mayor"},"files":[{"path":"pending.txt","size":3}]})).await;
@@ -858,8 +836,7 @@ async fn remote_notes_do_not_hold_other_clients_disconnect_or_shutdown()
         })
         .await
         .expect("disconnect did not discard its staged gift");
-        server.signal(libc::SIGTERM);
-        assert_eq!(server.exit().await, 0);
+        assert_eq!(server.stop().await, Some(0));
         if operation == "write" {
             assert_eq!(
                 fs::read_to_string(manager.house(0).join("NOTES.md"))
@@ -888,27 +865,34 @@ async fn remote_startup_signal_releases_the_home_before_manager_ok() {
     .unwrap();
     let script = home.join("faux.json");
     Script::new().write(&script);
-    let mut server = Server {
-        child: strip_overrides(&mut Command::new(env!(
-            "CARGO_BIN_EXE_hamlet-server"
-        )))
+    // Started by hand: this server publishes no address to wait for.
+    let mut command = tokio::process::Command::new(SERVER);
+    strip_overrides(command.as_std_mut());
+    let mut server = command
         .args(["--port", "0", "--faux"])
         .arg(script)
         .env("HAMLET_HOME", home.as_os_str())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
+        .kill_on_drop(true)
         .spawn()
-        .unwrap(),
-        url: String::new(),
-        token: String::new(),
-    };
+        .unwrap();
     received(&manager, |message| {
         message["request"]["operation"]["kind"] == "init_house"
     })
     .await;
     assert!(!home.join("server.json").exists());
-    server.signal(libc::SIGTERM);
-    assert_eq!(server.exit().await, 0);
+    // SAFETY: kill sends a signal to this child's PID.
+    let sent = unsafe {
+        libc::kill(server.id().unwrap() as i32, libc::SIGTERM)
+    };
+    assert_eq!(sent, 0);
+    let ended =
+        tokio::time::timeout(Duration::from_secs(3), server.wait())
+            .await
+            .expect("server failed to stop")
+            .unwrap();
+    assert_eq!(ended.code(), Some(0));
     Home::open(&home).unwrap().close().unwrap();
 }
 
@@ -926,11 +910,12 @@ async fn remote_tools_approve_house_writes_forward_grants_and_cancel_exact_reque
         call("bash",json!({"command":"hold-remote","network":true})),
         words("must not finish the canceled operation"),
     ]).write(&script);
-    let mut server = Server::start_with_script(
+    let mut server = start(
         &home,
         &[("HAMLET_REFLECT_EVERY", "0")],
-        Some(&script),
-    );
+        Models::Faux(&script),
+    )
+    .await;
     let (mut socket, _) = server.connect().await;
     fs::create_dir_all(manager.files.join("home/project")).unwrap();
     let folder = request(&mut socket,json!({"type":"say","to":{"hamlet":"home","agent":"mayor"},"text":"/folder /project"})).await;
@@ -984,8 +969,7 @@ async fn remote_tools_approve_house_writes_forward_grants_and_cancel_exact_reque
         received(&manager, |message| message["kind"] == "cancel")
             .await;
     assert_eq!(cancel["id"], req["id"]);
-    server.signal(libc::SIGTERM);
-    assert_eq!(server.exit().await, 0);
+    assert_eq!(server.stop().await, Some(0));
 }
 
 async fn transcript(
@@ -1016,15 +1000,16 @@ async fn remote_uncertainty_and_host_paths_are_refused_without_fallback_or_retry
         call("read",json!({"path":canary})),
         words("Refusals finished"),
     ]).write(&script);
-    let mut server = Server::start_with_script(
+    let mut server = start(
         &home,
         &[
             ("HAMLET_WORKSPACE_URL", &manager.url),
             ("HAMLET_WORKSPACE_TOKEN", TOKEN),
             ("HAMLET_REFLECT_EVERY", "0"),
         ],
-        Some(&script),
-    );
+        Models::Faux(&script),
+    )
+    .await;
     let (mut socket, _) = server.connect().await;
     send(&mut socket,json!({"type":"say","to":{"hamlet":"home","agent":"mayor"},"text":"Try both operations"})).await;
     let shown = transcript(&mut socket, "mayor", "Refusals finished")
@@ -1067,23 +1052,22 @@ async fn remote_uncertainty_and_host_paths_are_refused_without_fallback_or_retry
             .unwrap(),
         "one effect"
     );
-    server.signal(libc::SIGTERM);
-    assert_eq!(server.exit().await, 0);
-    let mut server = Server::start_with_script(
+    assert_eq!(server.stop().await, Some(0));
+    let mut server = start(
         &home,
         &[
             ("HAMLET_WORKSPACE_URL", &manager.url),
             ("HAMLET_WORKSPACE_TOKEN", TOKEN),
             ("HAMLET_REFLECT_EVERY", "0"),
         ],
-        Some(&script),
-    );
+        Models::Faux(&script),
+    )
+    .await;
     let (mut socket, _) = server.connect().await;
     let recovered =
         transcript(&mut socket, "mayor", "Refusals finished").await;
     assert!(recovered.to_string().contains("Inspect"));
-    server.signal(libc::SIGTERM);
-    assert_eq!(server.exit().await, 0);
+    assert_eq!(server.stop().await, Some(0));
     assert!(!manager.received.try_iter().any(|message| {
         message["request"]["operation"]["kind"] == "write"
             && message["request"]["operation"]["path"]
@@ -1109,15 +1093,16 @@ async fn remote_hand_tools_are_refused_without_running_on_the_host() {
     Script::new()
         .responses([call("mark", json!({})), words("Hand finished")])
         .write(&script);
-    let mut server = Server::start_with_script(
+    let mut server = start(
         &home,
         &[
             ("HAMLET_WORKSPACE_URL", &manager.url),
             ("HAMLET_WORKSPACE_TOKEN", TOKEN),
             ("HAMLET_REFLECT_EVERY", "0"),
         ],
-        Some(&script),
-    );
+        Models::Faux(&script),
+    )
+    .await;
     let (mut socket, _) = server.connect().await;
     send(&mut socket,json!({"type":"say","to":{"hamlet":"home","agent":"mayor"},"text":"Use the hand tool"})).await;
     let shown = transcript(&mut socket, "mayor", "Hand finished")
@@ -1125,8 +1110,7 @@ async fn remote_hand_tools_are_refused_without_running_on_the_host() {
         .to_string();
     assert!(shown.contains("remote workspace"), "{shown}");
     assert!(!canary.exists());
-    server.signal(libc::SIGTERM);
-    assert_eq!(server.exit().await, 0);
+    assert_eq!(server.stop().await, Some(0));
 }
 
 #[tokio::test]
@@ -1144,11 +1128,12 @@ async fn remote_agents_give_merge_split_and_publish_their_skill() {
         call("submit_skill",json!({"skill":"map-iron","reason":"Useful maps"})),
         words("Shared maps"),
     ]).errands([words("ACCEPT Useful maps")]).write(&script);
-    let mut server = Server::start_with_script(
+    let mut server = start(
         &home,
         &[("HAMLET_REFLECT_EVERY", "0")],
-        Some(&script),
-    );
+        Models::Faux(&script),
+    )
+    .await;
     let (mut socket, _) = server.connect().await;
     let mayor = json!({"hamlet":"home","agent":"mayor"});
     send(
@@ -1223,8 +1208,7 @@ async fn remote_agents_give_merge_split_and_publish_their_skill() {
     assert_eq!(removed["kind"], "notice", "{removed}");
     assert!(!home.join("library/map-iron").exists());
     assert!(!home.join("houses").exists());
-    server.signal(libc::SIGTERM);
-    assert_eq!(server.exit().await, 0);
+    assert_eq!(server.stop().await, Some(0));
 }
 
 #[tokio::test]
@@ -1240,11 +1224,12 @@ async fn remote_merge_failure_keeps_listener_record_and_plan_without_replay()
             call("create_agent",json!({"name":"smith","purpose":"Make","reason":"Build"})),
             words("Ready to merge"),
         ]).write(&script);
-        let mut server = Server::start_with_script(
+        let mut server = start(
             &home,
             &[("HAMLET_REFLECT_EVERY", "0")],
-            Some(&script),
-        );
+            Models::Faux(&script),
+        )
+        .await;
         let (mut socket, _) = server.connect().await;
         let mayor = json!({"hamlet":"home","agent":"mayor"});
         send(
@@ -1282,7 +1267,10 @@ async fn remote_merge_failure_keeps_listener_record_and_plan_without_replay()
         .await;
         assert_eq!(stopped["kind"], "notice", "{stopped}");
         fs::remove_file(manager.files.join("fail-request")).unwrap();
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        // The merge wrote a.txt before its answer, and a failed
+        // merge is never retried ("No automatic retry will be
+        // made"), so nothing after the answer writes b.txt or c.txt.
+        assert_eq!(server.stop().await, Some(0));
         assert_eq!(
             fs::read_to_string(manager.house(2).join("a.txt"))
                 .unwrap(),
@@ -1293,8 +1281,6 @@ async fn remote_merge_failure_keeps_listener_record_and_plan_without_replay()
             uncertain
         );
         assert!(!manager.house(2).join("c.txt").exists());
-        server.signal(libc::SIGTERM);
-        assert_eq!(server.exit().await, 0);
         let snapshots = fs::read_dir(home.join(".society-files"))
             .unwrap()
             .count();
@@ -1313,14 +1299,17 @@ async fn remote_merge_failure_keeps_listener_record_and_plan_without_replay()
                 .applied
         );
         stored.close().unwrap();
-        let mut server = Server::start_with_script(
+        let mut server = start(
             &home,
             &[("HAMLET_REFLECT_EVERY", "0")],
-            Some(&script),
-        );
+            Models::Faux(&script),
+        )
+        .await;
         let (_, state) = server.connect().await;
         assert!(state.to_string().contains("smith"));
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        // The server finishes kept merges before it listens, and
+        // nothing retries one later.
+        assert_eq!(server.stop().await, Some(0));
         assert_eq!(
             manager.house(2).join("b.txt").exists(),
             uncertain
@@ -1335,8 +1324,6 @@ async fn remote_merge_failure_keeps_listener_record_and_plan_without_replay()
                 .count(),
             snapshots
         );
-        server.signal(libc::SIGTERM);
-        assert_eq!(server.exit().await, 0);
         assert_eq!(
             manager
                 .received
@@ -1433,11 +1420,12 @@ async fn remote_domain_prompt_and_gate_waits_release_service_dispatch()
             .agent("home:1", [offering, words("Shared")])
             .errands(errands)
             .write(&script);
-        let mut server = Server::start_with_script(
+        let mut server = start(
             &home,
             &[("HAMLET_REFLECT_EVERY", "0")],
-            Some(&script),
-        );
+            Models::Faux(&script),
+        )
+        .await;
         let (mut socket, _) = server.connect().await;
         let mayor = json!({"hamlet":"home","agent":"mayor"});
         send(
@@ -1529,8 +1517,7 @@ async fn remote_domain_prompt_and_gate_waits_release_service_dispatch()
         );
         socket.close(None).await.unwrap();
         drop(socket);
-        server.signal(libc::SIGTERM);
-        assert_eq!(server.exit().await, 0, "{scenario}");
+        assert_eq!(server.stop().await, Some(0), "{scenario}");
         assert_eq!(
             fs::read_to_string(manager.house(0).join("review.txt"))
                 .unwrap(),
@@ -1555,11 +1542,12 @@ async fn remote_merge_completion_preserves_fresh_record_and_rejects_replaced_ide
             call("create_agent",json!({"name":if recreate {"scout"} else {"third"},"purpose":"New identity","reason":"Concurrent edit"})),
             words("Concurrent edit finished"),
         ]).write(&script);
-        let mut server = Server::start_with_script(
+        let mut server = start(
             &home,
             &[("HAMLET_REFLECT_EVERY", "0")],
-            Some(&script),
-        );
+            Models::Faux(&script),
+        )
+        .await;
         let (mut socket, _) = server.connect().await;
         let mayor = json!({"hamlet":"home","agent":"mayor"});
         send(
@@ -1617,8 +1605,7 @@ async fn remote_merge_completion_preserves_fresh_record_and_rejects_replaced_ide
                 "original scout"
             );
         }
-        server.signal(libc::SIGTERM);
-        assert_eq!(server.exit().await, 0);
+        assert_eq!(server.stop().await, Some(0));
         let mut stored = Home::open(&home).unwrap();
         let record = stored.store().record("home").unwrap().unwrap();
         assert_eq!(
@@ -1652,11 +1639,12 @@ async fn remote_completed_merge_write_is_not_replayed_after_lost_reply_and_host_
         call("create_agent",json!({"name":"smith","purpose":"Make","reason":"Build"})),
         words("Built"),
     ]).write(&script);
-    let mut server = Server::start_with_script(
+    let mut server = start(
         &home,
         &[("HAMLET_REFLECT_EVERY", "0")],
-        Some(&script),
-    );
+        Models::Faux(&script),
+    )
+    .await;
     let (mut socket, _) = server.connect().await;
     let mayor = json!({"hamlet":"home","agent":"mayor"});
     send(
@@ -1695,18 +1683,18 @@ async fn remote_completed_merge_write_is_not_replayed_after_lost_reply_and_host_
         request(&mut control, json!({"type":"stop","agent":mayor}))
             .await;
     assert_eq!(stopped["kind"], "notice", "{stopped}");
-    server.signal(libc::SIGKILL);
-    assert!(!server.child.wait().unwrap().success());
+    assert!(!server.kill().success());
     drop(server);
     let snapshots =
         fs::read_dir(home.join(".society-files")).unwrap().count();
     assert!(snapshots > 0);
     fs::remove_file(manager.files.join("hold-request")).unwrap();
-    let mut server = Server::start_with_script(
+    let mut server = start(
         &home,
         &[("HAMLET_REFLECT_EVERY", "0")],
-        Some(&script),
-    );
+        Models::Faux(&script),
+    )
+    .await;
     let (mut socket, _) = server.connect().await;
     let split = request(
         &mut socket,
@@ -1718,9 +1706,9 @@ async fn remote_completed_merge_write_is_not_replayed_after_lost_reply_and_host_
         split["text"].as_str().unwrap().contains("unknown effects"),
         "{split}"
     );
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    server.signal(libc::SIGTERM);
-    assert_eq!(server.exit().await, 0);
+    // The server finishes kept merges before it listens, and
+    // nothing retries one later.
+    assert_eq!(server.stop().await, Some(0));
     assert!(!manager.received.try_iter().any(|message| message
         ["request"]["operation"]["kind"]
         == "write"
@@ -1749,11 +1737,12 @@ async fn remote_preview_rechecks_mode_after_wait_and_same_socket_keeps_order()
         call("write",json!({"path":"/house/review.txt","content":"must be denied"})),
         words("Reviewed"),
     ]).write(&script);
-    let mut server = Server::start_with_script(
+    let mut server = start(
         &home,
         &[("HAMLET_REFLECT_EVERY", "0")],
-        Some(&script),
-    );
+        Models::Faux(&script),
+    )
+    .await;
     let (mut socket, _) = server.connect().await;
     let mayor = json!({"hamlet":"home","agent":"mayor"});
     fs::create_dir_all(manager.files.join("home/project")).unwrap();
@@ -1820,6 +1809,9 @@ async fn remote_preview_rechecks_mode_after_wait_and_same_socket_keeps_order()
     })
     .await;
     let second = send(&mut socket,json!({"type":"read","what":"papers","agent":mayor,"full":true})).await;
+    // Gives a read that overtook its edit time to reach the manager
+    // while the edit is held. A correct server sends nothing after
+    // the read, so no event can end this wait.
     tokio::time::sleep(Duration::from_millis(150)).await;
     assert!(
         !manager.received.try_iter().any(|message| message
@@ -1839,8 +1831,7 @@ async fn remote_preview_rechecks_mode_after_wait_and_same_socket_keeps_order()
     let read =
         until(&mut socket, |value| value["to"] == second).await;
     assert!(read.to_string().contains("ordered edit"), "{read}");
-    server.signal(libc::SIGTERM);
-    assert_eq!(server.exit().await, 0);
+    assert_eq!(server.stop().await, Some(0));
 }
 
 #[tokio::test]
@@ -1856,11 +1847,12 @@ async fn remote_model_merge_finishes_before_a_queued_chief_restore() {
         call("merge_agents",json!({"absorb":"scout","keep":"smith","purpose":"Combined work","reason":"Combine"})),
         words("Model merge finished"),
     ]).errands([words("# Notes\nCombined work")]).write(&script);
-    let mut server = Server::start_with_script(
+    let mut server = start(
         &home,
         &[("HAMLET_REFLECT_EVERY", "0")],
-        Some(&script),
-    );
+        Models::Faux(&script),
+    )
+    .await;
     let (mut socket, _) = server.connect().await;
     let mayor = json!({"hamlet":"home","agent":"mayor"});
     send(
@@ -1892,6 +1884,9 @@ async fn remote_model_merge_finishes_before_a_queued_chief_restore() {
         json!({"type":"say","to":mayor,"text":"/restore scout"}),
     )
     .await;
+    // Gives a restore that ran beside the held merge time to send its
+    // removes. A correct server queues the restore and sends nothing,
+    // so no event can end this wait.
     tokio::time::sleep(Duration::from_millis(150)).await;
     assert!(
         !manager
@@ -1921,6 +1916,5 @@ async fn remote_model_merge_finishes_before_a_queued_chief_restore() {
         fs::read_to_string(manager.house(1).join("a.txt")).unwrap(),
         "source"
     );
-    server.signal(libc::SIGTERM);
-    assert_eq!(server.exit().await, 0);
+    assert_eq!(server.stop().await, Some(0));
 }

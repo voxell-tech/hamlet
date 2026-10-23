@@ -1,15 +1,14 @@
 //! The record's contracts through marker-backed operations.
 
-use hamlet_server::record::{
+use hamlet_testing::Scratch;
+
+use super::{
     Action, Actor, Admit, AgentRef, Amount, Audience, By, Change,
     DecisionKind, Departure, End, FoundRecord, Hamlet, Limits,
     MergeFiles, MergeNotes, NameFallback, OpenVote, Protection,
     Reason, RecordOperation, RecordResult, Refusal, RoadBudget,
 };
-use hamlet_server::{
-    OperationId, Outcome, Reply, RuntimeInstance, Store,
-};
-use hamlet_testing::Scratch;
+use crate::{OperationId, Outcome, Reply, RuntimeInstance, Store};
 
 fn id(key: &str) -> OperationId {
     OperationId {

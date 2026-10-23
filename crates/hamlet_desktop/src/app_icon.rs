@@ -1,8 +1,8 @@
 //! The app's icon when it is run outside a bundle: on the Dock of a
 //! Mac, and on the window and the taskbar elsewhere.
 
-use bevy::app::{App, PostStartup};
-use bevy::ecs::system::NonSendMarker;
+use bevy_app::{App, PostStartup};
+use bevy_ecs::system::NonSendMarker;
 
 /// The logo on its rounded tile, 256 pixels a side.
 const ICON: &[u8] = include_bytes!("icon.png");
@@ -37,13 +37,13 @@ pub fn show(_main: NonSendMarker) {
 #[cfg(not(target_os = "macos"))]
 pub fn show(
     _main: NonSendMarker,
-    windows: bevy::ecs::system::Query<
-        bevy::ecs::entity::Entity,
-        bevy::ecs::query::With<bevy::window::PrimaryWindow>,
+    windows: bevy_ecs::system::Query<
+        bevy_ecs::entity::Entity,
+        bevy_ecs::query::With<bevy_window::PrimaryWindow>,
     >,
 ) {
-    use bevy::asset::RenderAssetUsages;
-    use bevy::image::{
+    use bevy_asset::RenderAssetUsages;
+    use bevy_image::{
         CompressedImageFormats, Image, ImageSampler, ImageType,
     };
 
@@ -65,7 +65,7 @@ pub fn show(
     else {
         return;
     };
-    bevy::winit::WINIT_WINDOWS.with_borrow(|native| {
+    bevy_winit::WINIT_WINDOWS.with_borrow(|native| {
         for window in &windows {
             if let Some(native) = native.get_window(window) {
                 native.set_window_icon(Some(icon.clone()));

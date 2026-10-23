@@ -400,6 +400,7 @@ impl Service {
 
 /// The conversation's charged calls, including attempts and
 /// summaries.
+#[cfg(any(test, feature = "harness"))]
 pub fn usage(
     db: &Connection,
     binding: BindingId,

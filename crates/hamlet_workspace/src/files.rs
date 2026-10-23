@@ -694,29 +694,20 @@ fn described(
 mod tests {
     use std::os::unix::fs::symlink;
 
+    use hamlet_testing::Scratch;
+
     use super::*;
 
-    struct Scratch(PathBuf);
-
-    impl Scratch {
-        fn new() -> Self {
-            let path = std::env::temp_dir().join(format!(
-                "hamlet-files-{}",
-                uuid::Uuid::new_v4()
-            ));
-            fs::create_dir_all(path.join("house")).unwrap();
-            fs::create_dir_all(path.join("outside")).unwrap();
-            fs::write(path.join("outside/secret"), "canary").unwrap();
-            symlink(path.join("outside"), path.join("house/link"))
-                .unwrap();
-            Self(path)
-        }
-    }
-
-    impl Drop for Scratch {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
+    /// A scratch folder holding `house/` and `outside/secret`, with
+    /// `house/link` pointing outside.
+    fn scratch() -> Scratch {
+        let scratch = Scratch::new("files");
+        fs::create_dir_all(scratch.join("house")).unwrap();
+        fs::create_dir_all(scratch.join("outside")).unwrap();
+        fs::write(scratch.join("outside/secret"), "canary").unwrap();
+        symlink(scratch.join("outside"), scratch.join("house/link"))
+            .unwrap();
+        scratch
     }
 
     fn code(reply: &Reply) -> Option<Code> {
@@ -728,8 +719,8 @@ mod tests {
 
     #[test]
     fn house_operations_refuse_a_link_anywhere_and_tools_follow_it() {
-        let scratch = Scratch::new();
-        let root = Root::open(&scratch.0).unwrap();
+        let scratch = scratch();
+        let root = Root::open(&scratch).unwrap();
         let read = |no_follow| {
             root.perform(Operation::Read(Read {
                 path: "/house/link/secret".into(),
@@ -756,9 +747,9 @@ mod tests {
             mode: 0o700,
         }));
         assert_eq!(code(&mode), Some(Code::Invalid));
-        assert!(!scratch.0.join("outside/new").exists());
+        assert!(!scratch.join("outside/new").exists());
         assert_eq!(
-            fs::read_to_string(scratch.0.join("outside/secret"))
+            fs::read_to_string(scratch.join("outside/secret"))
                 .unwrap(),
             "canary"
         );
@@ -769,14 +760,14 @@ mod tests {
             no_follow: true,
         }));
         assert_eq!(code(&removed), None);
-        assert!(!scratch.0.join("house").exists());
-        assert!(scratch.0.join("outside/secret").is_file());
+        assert!(!scratch.join("house").exists());
+        assert!(scratch.join("outside/secret").is_file());
     }
 
     #[test]
     fn tree_writes_are_new_files_whose_folders_take_modes_after() {
-        let scratch = Scratch::new();
-        let root = Root::open(&scratch.0).unwrap();
+        let scratch = scratch();
+        let root = Root::open(&scratch).unwrap();
         let write = || {
             root.perform(Operation::TreeWrite(TreeWrite {
                 path: "/house/a/b/run".into(),
@@ -821,7 +812,7 @@ mod tests {
             Some(format!("{:x}", Sha256::digest([0, 255])).as_str())
         );
         fs::set_permissions(
-            scratch.0.join("house/a"),
+            scratch.join("house/a"),
             fs::Permissions::from_mode(0o755),
         )
         .unwrap();

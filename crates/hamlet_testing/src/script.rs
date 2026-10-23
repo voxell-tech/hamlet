@@ -7,7 +7,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 /// A faux script, written as the JSON file a server reads with
-/// `--faux`. The format is in the crate's README.
+/// `--faux`. The format is in `hamlet_acceptance`'s README.
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Script {
@@ -180,11 +180,6 @@ impl Step {
     /// The same answer, thinking `thought` first.
     pub fn thinking(self, thought: &str) -> Step {
         self.with(|answer| answer.thinking = Some(thought.into()))
-    }
-
-    /// The same answer, with `text` before its calls.
-    pub fn saying(self, text: &str) -> Step {
-        self.with(|answer| answer.text = Some(text.into()))
     }
 
     fn with(self, change: impl FnOnce(&mut Answer)) -> Step {

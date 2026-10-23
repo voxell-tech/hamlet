@@ -372,7 +372,7 @@ mod tests {
 
     use super::{TagAnswered, TagSettings, plugin};
     use crate::WorldCamera;
-    use crate::hamlet::tests::receive_state;
+    use crate::testing::receive_state;
 
     #[derive(Resource, Default)]
     struct Answers(Vec<(Entity, bool)>);

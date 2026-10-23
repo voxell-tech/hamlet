@@ -56,37 +56,29 @@ of every living house's skills from disk, about 1.27 ms with 101 houses.
 
 ## Phase 3: tests and workspace
 
-1. Grow `hamlet_testing`. `Scratch`, the faux `Script`, the OpenAI
-   loopback endpoint, server launch and the override list move there.
-   Delete the three other `Scratch` definitions. `hamlet_server` drops its
-   dependency on `hamlet_acceptance`.
-2. Move tests inline. `tests/record.rs` to `record/tests.rs`,
-   `tests/markers.rs` to `operation/tests.rs`, `tests/protocol.rs` into
-   `protocol`. `limits`, `sandbox`, `record`, `service`, `protocol` and
-   `spend` become `pub(crate)`. The driver binary's body moves into a
-   feature-gated module.
-3. One testing module per crate. `testing.rs` in `hamlet_ui` and
-   `hamlet_realm` holds the helpers that 19 files import from other
-   modules' tests. The realm's `bare()` adds the real plugin instead of a
-   copy.
-4. One gate for Node. `tests/server.rs` splits into a plain server target
-   and a crashes target with `required-features`. `oauth.rs` moves to
-   acceptance, since it needs no fault points.
-5. Move the app. `crates/hamlet_app` holds the binary and the seven
-   examples. The root is a pure workspace without `default-members`.
-   Update xtask's binary list, `release.yml` and `tour.md`.
-6. Bevy features per crate. `default-features = false` on the workspace
-   `bevy` entry. `hamlet_assets` and `hamlet_desktop` switch to Bevy's
-   sub-crates. The app crate enables the product set.
-7. xtask steps CI calls. Steps named `lints`, `test`, `acceptance`,
-   `harness`, `doc` and `node`, which CI runs by name. cargo-deny and
-   typos in `lints`, `cargo doc` with `-D warnings` in xtask.
-8. Fix the sleeps. The two sleeps that wait for an event become `until`
-   polling; the four "did not happen" checks first wait for a later event.
-
-Done when: `cargo test -p hamlet_server --lib` needs no Node and no server
-process, `cargo test -p hamlet_assets` links no renderer, and the test
-tree matches the layout in the convention.
+Built: the fixtures crates share are in `hamlet_testing`: `Scratch`,
+the faux `Script`, the loopback OpenAI endpoint, a server on a scratch
+home and the override list, and no crate depends on
+`hamlet_acceptance`. The server's record, marker and protocol tests sit
+beside their modules, its modules are `pub(crate)`, and the harness
+driver's body is a module behind the `harness` feature. The helpers
+several modules' tests share are in one `testing.rs` in
+`hamlet_server`, `hamlet_ui` and `hamlet_realm`, and the realm's
+`bare()` adds the real `hamlet::plugin`. `tests/server.rs` needs no
+Node; a served home's tests are the `crashes` and `harness` targets,
+behind the `harness` feature; the OAuth scenarios are in acceptance.
+The root is a pure workspace, and `crates/hamlet_app` holds the window
+and its seven examples and turns on the product's Bevy features;
+`hamlet_assets` and `hamlet_desktop` use Bevy's parts, so
+`cargo test -p hamlet_assets` builds no renderer. `cargo xtask check`
+is six steps, `lints`, `test`, `acceptance`, `harness`, `doc` and
+`node`, which CI runs by name, with cargo deny and typos in `lints`.
+The sleeps that waited for an event poll for it
+([`tour.md`](../tour.md), [`AGENTS.md`](../../AGENTS.md)). Left: the
+three sleeps for the tools folder's rescan, which no client sees, and
+the four that check something did not happen where no later event
+exists; the resources `bare()` still inserts by hand; and the
+generator's own `testing` module, which reaches its private items.
 
 ## Phase 4: the Bevy side
 

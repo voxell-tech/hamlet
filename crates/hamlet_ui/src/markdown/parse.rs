@@ -309,18 +309,11 @@ pub fn parse(text: &str) -> Vec<Block> {
 }
 
 #[cfg(test)]
-pub(super) mod tests {
+mod tests {
     use std::time::{Duration, Instant};
 
     use super::*;
-
-    pub fn plain(text: &str) -> Span {
-        Span {
-            text: text.into(),
-            style: Style::default(),
-            link: None,
-        }
-    }
+    use crate::testing::{plain, top};
 
     fn link(text: &str, target: Target) -> Span {
         Span {
@@ -333,15 +326,6 @@ pub(super) mod tests {
         let mut span = plain(text);
         set(&mut span.style);
         span
-    }
-
-    pub fn top(kind: Kind) -> Block {
-        Block {
-            quote: 0,
-            indent: 0,
-            marker: None,
-            kind,
-        }
     }
 
     fn said(block: &Block) -> String {

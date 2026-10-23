@@ -38,7 +38,7 @@ pub use mark::{InputMark, Mail};
 pub use process::Pi;
 use process::{Launch, Process, Received};
 use serde_json::Value;
-use session::{Pending, Session, id_of, parse};
+use session::{Session, id_of, parse};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::credentials::Credentials;
@@ -94,21 +94,6 @@ impl Config {
                 .chain(crate::society::specs())
                 .collect(),
         })
-    }
-
-    /// A configuration whose pi never starts, for a test whose home
-    /// binds no conversation.
-    #[cfg(test)]
-    pub(crate) fn unused() -> Self {
-        Self {
-            pi: Pi {
-                node: "node".into(),
-                entry: "unused".into(),
-                faux: None,
-            },
-            tools: Vec::new(),
-            overrides: Overrides::none(true),
-        }
     }
 }
 
@@ -180,6 +165,8 @@ pub enum Notice {
     Cancelled {
         binding: BindingId,
     },
+    /// A page of a transcript, answering [`Harnesses::history`].
+    #[cfg(feature = "harness")]
     Page {
         binding: BindingId,
         items: Vec<Item>,
@@ -826,6 +813,7 @@ impl Harnesses {
 
     /// Asks for a page of the transcript of `binding` before the
     /// entry `before`, answered with [`Notice::Page`].
+    #[cfg(feature = "harness")]
     pub async fn history(
         &mut self,
         store: &Store,
@@ -839,23 +827,21 @@ impl Harnesses {
         else {
             bail!("The conversation is not made yet.");
         };
-        self.request(index, Pending::History(binding), |v, id| {
-            ServerMessage::History(runtime::History {
-                before,
-                conversation,
-                id,
-                limit,
-                v,
-            })
-        })
+        self.request(
+            index,
+            session::Pending::History(binding),
+            |v, id| {
+                ServerMessage::History(runtime::History {
+                    before,
+                    conversation,
+                    id,
+                    limit,
+                    v,
+                })
+            },
+        )
         .await;
         Ok(())
-    }
-
-    /// The process id of `runtime`, while it runs.
-    pub fn pid(&self, runtime: &RuntimeInstance) -> Option<u32> {
-        let index = self.index(runtime)?;
-        self.runtimes[index].process.as_ref()?.pid()
     }
 
     /// Asks every runtime to stop in order: its running work is

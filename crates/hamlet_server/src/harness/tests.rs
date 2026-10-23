@@ -265,8 +265,12 @@ fn caps_count_once_keep_task_spend_after_reset_and_roll_over_local_days()
     limits.budget.minutes = None;
     limits.budget.period = Period::Day;
     limits.task.cost = Some(0.0005);
-    crate::limits::set(store.connection(), "home", limits.clone())
-        .unwrap();
+    crate::testing::set_limits(
+        store.connection(),
+        "home",
+        limits.clone(),
+    )
+    .unwrap();
     let price = price(2.0, 3.0);
     assert!(
         answers::attempt(
@@ -380,8 +384,12 @@ fn caps_count_once_keep_task_spend_after_reset_and_roll_over_local_days()
         800
     );
     limits.budget.minutes = Some(1);
-    crate::limits::set(store.connection(), "home", limits.clone())
-        .unwrap();
+    crate::testing::set_limits(
+        store.connection(),
+        "home",
+        limits.clone(),
+    )
+    .unwrap();
     assert!(
         spend::can_spend(store.connection(), "home", None, at)
             .unwrap()
@@ -410,7 +418,8 @@ fn caps_count_once_keep_task_spend_after_reset_and_roll_over_local_days()
         .starts_with("This task")
     );
     limits.budget.period = Period::Month;
-    crate::limits::set(store.connection(), "home", limits).unwrap();
+    crate::testing::set_limits(store.connection(), "home", limits)
+        .unwrap();
     assert!(
         spend::can_spend(store.connection(), "home", None, tomorrow)
             .unwrap()
@@ -516,8 +525,12 @@ fn every_attempt_uses_the_current_pin_then_hamlet_then_home_model() {
         hamlet_protocol::MAYOR.to_owned(),
         "endpoint::pinned".to_owned(),
     )]);
-    crate::limits::set(store.connection(), "home", limits.clone())
-        .unwrap();
+    crate::testing::set_limits(
+        store.connection(),
+        "home",
+        limits.clone(),
+    )
+    .unwrap();
     crate::service::save(
         store.connection(),
         "catalogue",
@@ -549,14 +562,19 @@ fn every_attempt_uses_the_current_pin_then_hamlet_then_home_model() {
     let store = Store::open(&scratch.join("realm.sqlite")).unwrap();
     assert_eq!(chosen(&store).model.id, "pinned");
     limits.pinned.clear();
-    crate::limits::set(store.connection(), "home", limits.clone())
-        .unwrap();
+    crate::testing::set_limits(
+        store.connection(),
+        "home",
+        limits.clone(),
+    )
+    .unwrap();
     let hamlet = chosen(&store);
     assert_eq!(hamlet.model.id, "hamlet");
     // Unlisted and unpriced, at the rate of a remote endpoint.
     assert_eq!(hamlet.price, price(1.0, 1.0));
     limits.model = None;
-    crate::limits::set(store.connection(), "home", limits).unwrap();
+    crate::testing::set_limits(store.connection(), "home", limits)
+        .unwrap();
     assert_eq!(chosen(&store).model.id, "home");
 }
 
@@ -613,19 +631,9 @@ fn a_hello_lacking_the_protocol_version_or_a_needed_capability_is_refused()
 
 /// Harnesses that start no runtime.
 fn idle(home: &crate::Home) -> super::Harnesses {
-    use super::{Config, Harnesses, Pi};
-
     let (sender, receiver) = super::mpsc::unbounded_channel();
-    Harnesses {
-        config: Config {
-            pi: Pi {
-                node: "node".into(),
-                entry: "unused".into(),
-                faux: None,
-            },
-            tools: vec![],
-            overrides: crate::Overrides::none(false),
-        },
+    super::Harnesses {
+        config: crate::testing::config(crate::Overrides::none(false)),
         hand_tools: vec![],
         layout: home.layout().clone(),
         runtimes: vec![],
@@ -694,7 +702,8 @@ async fn a_new_conversation_runs_the_model_chosen_for_its_agent() {
 
 #[tokio::test]
 async fn a_bad_created_reply_is_answered_and_its_runtime_goes_on() {
-    use super::{Event, Inner, Notice, Pending, Phase, Received};
+    use super::session::Pending;
+    use super::{Event, Inner, Notice, Phase, Received};
 
     let scratch = Scratch::new("bad-created");
     let home = crate::Home::open(&scratch.join("layout")).unwrap();

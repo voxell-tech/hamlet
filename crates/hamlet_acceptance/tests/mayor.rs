@@ -8,6 +8,9 @@ use std::time::Duration;
 
 use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
+use hamlet_testing::{
+    Home, Script, Step, call, calls, failure, words,
+};
 use serde_json::json;
 
 /// An approval's words after its agent's name.
@@ -1143,7 +1146,7 @@ async fn keeps_a_wait_and_the_chat_across_a_crash() {
     let mut home = Home::new();
     let dir = home.side().join("work");
     std::fs::create_dir_all(&dir).unwrap();
-    let server = home
+    let mut server = home
         .serve(
             &Script::new().responses([
                 words("Before the crash."),
@@ -1173,7 +1176,7 @@ async fn keeps_a_wait_and_the_chat_across_a_crash() {
             )
         })
         .await;
-    server.kill().await;
+    server.kill();
     let server = home
         .serve(
             &Script::new().responses([words("After restart.")]),
@@ -1239,7 +1242,7 @@ async fn ends_at_once_at_a_second_ctrl_c() {
 async fn stops_in_order(interrupt: bool) {
     let mut home = Home::new();
     let running = home.file("houses/home/0/running");
-    let server = home
+    let mut server = home
         .serve(
             &Script::new().responses([call(
                 "bash",
@@ -1261,7 +1264,6 @@ async fn stops_in_order(interrupt: bool) {
         })
         .await;
     let code = if interrupt {
-        let mut server = server;
         server.interrupt();
         server.ended().await
     } else {
@@ -1733,7 +1735,7 @@ async fn keeps_edit_trust_and_network_refusal_across_restart_but_not_resume()
             )
         })
         .await;
-    s.server.kill().await;
+    s.server.kill();
     let server = s
         .home
         .serve(

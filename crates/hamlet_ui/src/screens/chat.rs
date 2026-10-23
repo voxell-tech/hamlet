@@ -450,7 +450,7 @@ mod tests {
     use super::*;
 
     fn sounding_chat() -> App {
-        let mut app = me::tests::panel_app();
+        let mut app = crate::testing::panel_app();
         app.add_message::<Cue>()
             .init_resource::<crate::menu::OpenMenu>()
             .init_resource::<crate::world_menu::Open>()
@@ -484,7 +484,7 @@ mod tests {
         use bevy::window::{PrimaryWindow, Window};
         use hamlet_client::chats::{Entry, Item, Transcript};
 
-        use crate::me::tests::panel_app;
+        use crate::testing::panel_app;
 
         let mut app = panel_app();
         app.add_plugins((
@@ -581,7 +581,7 @@ mod tests {
             "Digital, please."
         );
         assert!(
-            me::tests::words(&mut app)
+            crate::testing::words(&mut app)
                 .iter()
                 .any(|text| text.starts_with("Replying to "))
         );
@@ -600,7 +600,7 @@ mod tests {
         );
         app.update();
         assert!(
-            me::tests::words(&mut app).iter().any(|text| text
+            crate::testing::words(&mut app).iter().any(|text| text
                 == "The server could not keep that change.")
         );
         assert_eq!(heard(&mut app), [Sound::Error]);
@@ -658,8 +658,10 @@ mod tests {
             hamlet_client::receive(app.world_mut(), message);
             app.update();
             assert!(
-                me::tests::words(&mut app).iter().any(|text| text
-                    == "This conversation cannot do that.")
+                crate::testing::words(&mut app)
+                    .iter()
+                    .any(|text| text
+                        == "This conversation cannot do that.")
             );
             assert_eq!(heard(&mut app), [Sound::Error]);
             app.update();
@@ -682,8 +684,10 @@ mod tests {
             }),
         );
         app.update();
-        assert!(!me::tests::words(&mut app).iter().any(|text| text
-            == "Only the settings panel should show this."));
+        assert!(
+            !crate::testing::words(&mut app).iter().any(|text| text
+                == "Only the settings panel should show this.")
+        );
         assert_eq!(heard(&mut app), []);
     }
 
@@ -730,7 +734,7 @@ mod tests {
             for _ in 0..4 {
                 app.update();
             }
-            assert!(me::tests::words(&mut app).iter().any(
+            assert!(crate::testing::words(&mut app).iter().any(
                 |text| text
                     == "Commands are not typed here. Use the menus, \
                         or right-click an agent or a hamlet."
@@ -776,7 +780,7 @@ mod tests {
     fn a_chat_shorter_than_the_viewport_reads_earlier_pages_without_scrolling()
      {
         use hamlet_client::outbox::Outbox;
-        let mut app = me::tests::panel_app();
+        let mut app = crate::testing::panel_app();
         app.add_plugins(plugin);
         app.update();
         let pages = paging_pages();
@@ -826,7 +830,7 @@ mod tests {
         for _ in 0..10 {
             app.update();
         }
-        let shown = me::tests::words(&mut app).join("\n");
+        let shown = crate::testing::all_words(&mut app);
         assert!(shown.contains("Line 1."), "{shown}");
         assert!(
             !shown.contains("Earlier lines. Scroll up to read them.")
@@ -838,7 +842,7 @@ mod tests {
     fn scrolling_back_pages_once_and_shows_the_received_page_above() {
         use hamlet_client::outbox::Outbox;
 
-        use crate::me::tests::{panel_app, words};
+        use crate::testing::{panel_app, words};
         let mut app = panel_app();
         app.add_plugins(plugin);
         app.update();
@@ -997,7 +1001,7 @@ mod tests {
     fn received_items_show_tool_outcomes_folded_steps_and_notices() {
         use hamlet_client::chats::{Entry, Item, Transcript};
 
-        use crate::me::tests::{panel_app, press, words};
+        use crate::testing::{panel_app, press, words};
         let mut app = panel_app();
         app.add_plugins(plugin);
         let session = app.world().resource::<Me>().session;
@@ -1076,7 +1080,7 @@ mod tests {
         use hamlet_client::chats::{Entry, Item, Transcript};
         use hamlet_client::outbox::Outbox;
 
-        use crate::me::tests::{panel_app, press};
+        use crate::testing::{panel_app, press};
         let mut app = panel_app();
         app.add_plugins(plugin)
             .init_resource::<crate::world_menu::Open>();

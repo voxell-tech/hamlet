@@ -3,15 +3,11 @@
 pub mod cli;
 pub mod client;
 pub mod fold;
-pub mod openai;
 pub mod realm;
-pub mod script;
-pub mod server;
 
 pub use cli::{Cli, Ended};
 pub use client::{Client, Ending, Wire, chat, mayor, to};
-pub use script::{Script, Step, call, calls, failure, words};
-pub use server::{Home, Server};
+use hamlet_testing::{Home, Script, Server, openai};
 
 /// A home, its server and the chief's connection to it.
 pub struct Session {

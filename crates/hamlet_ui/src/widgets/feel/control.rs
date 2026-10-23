@@ -531,8 +531,8 @@ mod tests {
     use bevy_fynix::Theme;
     use hamlet_assets::Tuning;
 
-    use super::super::tests::step;
     use super::*;
+    use crate::testing::step;
     use crate::theme::HamletTheme;
 
     fn app() -> App {

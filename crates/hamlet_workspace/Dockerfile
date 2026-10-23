@@ -22,8 +22,6 @@ WORKDIR /src
 # to load the workspace, but only this crate and its dependencies are
 # compiled. `--locked` refuses to build if Cargo.lock would change.
 COPY Cargo.toml Cargo.lock ./
-COPY src src
-COPY examples examples
 COPY crates crates
 RUN cargo build --locked --release -p hamlet_workspace \
         --bin hamlet-workspace \

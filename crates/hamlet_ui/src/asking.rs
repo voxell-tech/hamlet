@@ -483,7 +483,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::me::tests::{panel_app, press, words};
+    use crate::testing::{panel_app, press, words};
 
     #[test]
     fn received_questions_share_answers_between_chat_and_petition() {

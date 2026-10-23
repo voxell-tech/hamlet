@@ -397,7 +397,7 @@ mod tests {
     use hamlet_protocol::client as protocol;
 
     use super::*;
-    use crate::me::tests::{panel_app, press, words};
+    use crate::testing::{panel_app, press, words};
 
     /// fynix's own layout tests use this same headless camera;
     /// text is measured here too, including an empty notice label.

@@ -28,25 +28,41 @@ server's state. `hamlet_client` turns `state`, `change`, `transcript` and
 
 ## The crates and packages
 
-Rust crates live under `crates/`. The root package `hamlet` supplies
+Rust crates live under `crates/`. The root `Cargo.toml` is only the
+workspace: it holds no package, so `cargo build`, `cargo test` and
+`cargo clippy` there cover every crate. `crates/hamlet_app` supplies
 `hamlet-app` and the visual examples.
+
+`xtask/` is a workspace of its own, run as `cargo xtask`. Its `check`
+is six steps, `lints`, `test`, `acceptance`, `harness`, `doc` and
+`node`, each a task of its own; `.github/workflows/rust.yml` runs them
+by name, and spells out only the Windows window's clippy. `deny.toml`
+and `_typos.toml` at the root configure cargo deny and typos, which
+`lints` runs.
 
 | Crate or package | Owns |
 |---|---|
 | `hamlet_cli` | `hamlet`: process lifecycle, terminal chat, editors and login, without Bevy |
 | `hamlet_server` | `hamlet-server`: realm, permissions, tools, records, credentials and harness supervision |
+| `hamlet_app` | `hamlet-app`, the window, and the seven examples that draw the world and the panels |
 | `harnesses/pi/` | Node pi-durable/pi-ai runtime; conversations, provider calls, compaction and forks |
 | `hamlet_protocol` | Both protocols' types: `client` and `runtime`; `RequestId`, which holds only a hyphenated UUID; `State::apply` for a client's changes; recorded frames, the schema pi reads and the client schema's fingerprint |
-| `hamlet_acceptance` | Real-process protocol and CLI scenarios on scratch homes |
+| `hamlet_acceptance` | Real-process protocol, CLI and OAuth scenarios on scratch homes, through the typed `Client`, the `hamlet` command and `hamlet_testing`'s server |
 | `hamlet_client` | Connection, outbox, realm, waits and watched chats as Bevy entities |
 | `hamlet_desktop` | File/link openers, editor files, dialogs, wake locks and window icon |
 | `hamlet_assets` | Embedded assets and Bevy asset loading |
 | `hamlet_realm` | Land, hamlets, houses, roads, robots, chief, sound and camera |
 | `hamlet_ui` | Panels, menus, chat and pointer |
 | `hamlet_vfx` | Visual effects |
-| `hamlet_testing` | Offline fixture values and scratch directories |
+| `hamlet_testing` | Fixtures shared by tests: scratch folders, protocol values, faux scripts, the loopback OpenAI endpoint, and a server process on a scratch home with a raw connection to it (`send`, `until`, `answers`) |
 | `hamlet_workspace` | Linux remote-workspace manager/worker reached through the server's workspace-v1 client |
 | `hamlet_workspace_wire` | Workspace protocol v1 for both sides: one type per operation with its reply, error codes, limits, the walk order and the shared fixture |
+
+The workspace's `bevy` entry turns on no feature: `hamlet_app` turns on
+the product's set, and every other crate names only the ones its own
+code needs. `hamlet_client`, `hamlet_assets` and `hamlet_desktop` use
+Bevy's parts (`bevy_app`, `bevy_ecs`, `bevy_asset`, ...) rather than
+`bevy`, so `cargo test -p hamlet_assets` builds no renderer.
 
 `RealmPlugin` in `hamlet_realm/src/lib.rs` adds the scene modules, then the
 generator, the chief's interactions and the bridge from client entities.
@@ -62,20 +78,26 @@ town generator also adds `generator::plugin` and an `Origin` for its seed.
 
 Paths below are under `crates/hamlet_server/src/`. Modules use a file and
 same-named directory rather than `mod.rs`. Most domain APIs are internal;
-the public test boundary is the client protocol or the process command line.
+the crate exports only `serve`, the types its process tests seed a home
+with, and, with the `harness` feature, the test driver's body. Its unit
+tests sit beside their modules; `tests/server.rs` runs the executable
+where it refuses to start, which needs no Node, and the `harness`
+feature adds `tests/crashes` (a served home: crashes, fault points,
+signals, remote workspaces and the society) and `tests/harness` (the pi
+harness).
 
 | Module | Responsibility and interface |
 |---|---|
 | `home.rs`, `claim.rs` | `Home::open` claims a path, opens its `Store` and checks the `realm.id` pair. `connection()` reads its database without the store's transactions. `Layout` names storage, credentials and harness directories |
 | `store.rs` | The schema, composed from `spend.sql` and the `schema.sql` in `record/`, `harness/`, `chats/` and `society/`, and the `realm.sqlite` connection, with WAL, FULL sync and foreign keys; a store of another version is refused; `changes` counts the rows changed since it opened |
-| `operation.rs` | `OperationId` identifies runtime plus call key. Owns every marker: `Store::run` commits an operation's result marker with its record effects; `Store::once` and `once` mark any outcome with its request digest, alone or in the caller's transaction, and refuse a changed request under a used key |
+| `operation.rs` | `OperationId` identifies runtime plus call key. Owns every marker: `Store::run` commits an operation's result marker with its record effects; `Store::once` and `once` mark any outcome with its request digest, alone or in the caller's transaction, and refuse a changed request under a used key; its tests, crashes at the commit included, are in `operation/tests.rs` |
 | `service.rs` | `Service` owns the claimed home, credentials, houses, models, chats and uploads; `db()` is the home's open database, and a write that needs a transaction takes `home.store()`; `edit_document` and `read` answer the chief's documents |
 | `serve.rs` | `serve` from start to stop: claims the home, probes the sandbox, starts the harness and model providers, publishes `server.json`, and closes in order |
 | `connection.rs` | The WebSocket connections: accepting, each one's read and write task, its queue of waiting messages, and the close codes |
 | `requests.rs` | The hello, then one match over `ClientMessage` naming the owner that answers each request; a handler that errs or panics ends only its request, with a `fault` |
 | `runtime.rs` | `Serving`, the serve loop's state: its events, settle, refresh, and recovering from a failed event. A 50 ms tick only checks memory and the skills on disk unless the state may have changed, as `Since` defines: an event, a tick that found work, a clock turn (a road overgrowing, a budget's share gone moving), a house move's progress or an overdue provider answer. Every two seconds the tools folder is read again |
-| `protocol.rs` | `Protocol::parse` validates client input against the client protocol's schema and correlates a fault to the message's `id` when it is a `RequestId`; reply and fault rendering |
-| `record.rs`, `record/` | Agent identity, membership, names, roads, office, models, constraints and typed refusals. `RecordOperation` is a transactional change, and every change to a hamlet's record is one of its `Change`s |
+| `protocol.rs` | `Protocol::parse` validates client input against the client protocol's schema and correlates a fault to the message's `id` when it is a `RequestId`; reply and fault rendering; its tests are in `protocol/tests.rs` |
+| `record.rs`, `record/` | Agent identity, membership, names, roads, office, models, constraints and typed refusals. `RecordOperation` is a transactional change, and every change to a hamlet's record is one of its `Change`s; its tests are in `record/tests.rs` |
 | `documents.rs`, `settings.rs`, `limits.rs` | Chief edits and reads. `Service` reads each document once into a typed `Work`, `Settings` (stored settings plus process overrides) or `Limits`. A hamlet's limits live only in its record, with the schema's defaults filled in; `Limits::model_of` picks each agent's model |
 | `chats.rs`, `chats/` | Chief and peer watches, durable inputs, follow-up work, reflection, stop, retry, resume and rewind. `Chats::next` yields each tool call or preparation as it ends, a panicked one as a failed outcome |
 | `chats/calls.rs`, `chats/calls/` | The one tool gate: `decide.rs` admits a call by its request digest and keeps the gate's decision, `ask.rs` raises a question, `answer.rs` validates a chief's answer and makes all its writes in one transaction, `tasks.rs` runs the calls. Marked outcomes survive replay; changed requests are refused |
@@ -87,7 +109,7 @@ the public test boundary is the client protocol or the process command line.
 | `harness/tools.rs` | The tools a runtime offers its conversations, run in this server as operations |
 | `harness/process.rs`, `harness/bindings.rs` | The pi launch profile and processes; runtimes, bindings and inputs with their `InputStatus` in `realm.sqlite` |
 | `harness/mark.rs` | `InputMark`, the typed kind and data of each input (chief line, retry, reflection, notice, mail, errand), converted to a protocol `Mark` at the edge |
-| `chats/driver.rs`, `bin/hamlet-harness-driver.rs` | With the `harness` feature: the test driver's reach into the chats' gate, waits and stop, for the real-process suite in `tests/harness` |
+| `chats/driver.rs`, `harness_driver.rs`, `bin/hamlet-harness-driver.rs` | With the `harness` feature: the test driver's reach into the chats' gate, waits and stop; the driver's body; and the binary, only `main`, for the real-process suite in `tests/harness` |
 | `tools.rs`, `tools/`, `hand.rs` | `tools::Session` runs every tool call on the backend `Houses::tools` chose: built-in tools over `environment::Reach` (this machine under the sandbox, or a remote workspace), and hand-added manifests, which only run here |
 | `sandbox.rs`, `sandbox/` | Bubblewrap/Seatbelt policies, subprocess limits and termination |
 | `papers.rs` | `Houses` picks the local or remote backend once at startup. Callers get its houses (`house`, `reader`, `tools`), its `Capability` refusals and whether it `confirms` each change; no caller branches on the backend |
@@ -101,6 +123,7 @@ the public test boundary is the client protocol or the process command line.
 | `spend.rs` | Budget reservations and usage charges deduplicated by model attempt, plus agent/task/hamlet accounting |
 | `society.rs`, `society/` | `SocietyTool` names each society tool, its role and schema; letters/questions, instructions/objections, votes, library and recoverable merge/departure work. The sweeps run on the ticks that rebuild the state, and read only due votes and reviews; finished ones are kept under `votes-done` and `review-done` |
 | `realm.rs`, `realm/` | Living/closed places, cross-hamlet addresses, founding, agreements and pending house moves |
+| `testing.rs` | For unit tests: `config`, a harness configuration that starts nothing, and `set_limits`, which writes a hamlet's limits |
 | `state.rs` | Composes protocol state from the owning records and live activity, with the instant one of its views next changes with the clock alone; `skills_moved` tells whether skills on disk differ from the state's |
 
 `realm.sqlite` holds server-owned records, chief and society documents,
@@ -161,6 +184,7 @@ ordinary tools.
 | Ground, houses and roads | `hamlet_realm/src/generator/`; `LandData::surface` is the drawn surface |
 | Robot motion | `hamlet_realm/src/keeper/acts/`; [`robots.md`](robots.md) |
 | Wizard, Hearth, camera or sound | `hamlet_realm/src/chief/`, `pick/camera.rs`, `sound/` |
+| Helpers several modules' tests share | `testing.rs` in `hamlet_server`, `hamlet_ui` and `hamlet_realm`; fixtures crates share in `hamlet_testing` |
 | Window state or editor saves | `hamlet_ui/src/remember.rs`, `window.rs`, `saving.rs`; `hamlet_desktop/src/editor.rs` |
 
 `hamlet_realm/src/hamlet.rs` bridges received entities to the generator's
@@ -185,7 +209,7 @@ reports an error and keeps the last good values.
 
 | Command | Output |
 |---|---|
-| `cargo run --example ui_gallery -- --scene <name> --out <dir>` | Panel scenes listed in `examples/ui_gallery/main.rs` |
+| `cargo run --example ui_gallery -- --scene <name> --out <dir>` | Panel scenes listed in `crates/hamlet_app/examples/ui_gallery/main.rs` |
 | `cargo run --release --example far_lands -- --out <dir>` | Land and town images; `--bench` measures it |
 | `cargo run --example chief_sheet -- --out <dir>` | Wizard, Wickstep and library |
 | `cargo run --example cursor_sheet` | Cursor sheet |

@@ -26,8 +26,8 @@
 ## Running safely
 
 The Rust binaries are `hamlet` in `crates/hamlet_cli`, `hamlet-server` in
-`crates/hamlet_server`, and the window `hamlet-app`. Use the Node version
-in `harnesses/pi/.nvmrc` and install the harness with
+`crates/hamlet_server`, and the window `hamlet-app` in `crates/hamlet_app`.
+Use the Node version in `harnesses/pi/.nvmrc` and install the harness with
 `npm ci --prefix harnesses/pi`. No global npm command is needed.
 For local work:
 
@@ -62,8 +62,18 @@ window ends only its process; agents keep working on the server. Stop
 All four must be clean before a commit. `rust-toolchain.toml` pins the
 stable toolchain plain `cargo` runs. Formatting needs a nightly, because
 `rustfmt.toml` uses unstable options: the dated one named in `rust-nightly`,
-which CI uses too. `cargo xtask check` runs these and the feature-gated and
-Node checks below. `cargo xtask fmt` formats Rust and pi.
+which CI uses too. `cargo xtask check` runs every check a commit needs,
+as six steps in this order, each of which `cargo xtask <step>` runs alone
+and CI calls by name: `lints` (formatting, clippy with `-D warnings` on
+the workspace and on xtask, `cargo deny check`, `typos`), `test`
+(`cargo build --all-targets`, then `cargo test`, doc tests included),
+`acceptance` and `harness` (the two suites below), `doc` (`cargo doc`
+with `-D warnings`) and `node` (pi's checks). `lints` needs cargo-deny
+and typos: `cargo install --locked cargo-deny typos-cli`. `deny.toml`
+holds the allowed licences and the ignored advisories, each with its
+reason; `_typos.toml` the words typos must accept. With `CI` set, as on
+GitHub, the steps pass `--locked` to cargo. `cargo xtask fmt` formats
+Rust and pi.
 
 ```sh
 cargo +$(cat rust-nightly) fmt
@@ -80,7 +90,7 @@ or remote-infrastructure tests unless the owner explicitly asks.
 
 `harnesses/pi/` is a Node package. Run `npm ci` in it, then these checks
 with the Node version in `harnesses/pi/.nvmrc`. They must be clean before
-a commit too:
+a commit too. `cargo xtask node` runs both; by hand, in that folder:
 
 ```sh
 npm run check   # TypeScript and Biome
@@ -92,7 +102,7 @@ processes on scratch homes and drives them through the client protocol, so plain
 `cargo test` compiles none of it. It needs the built CLI and server,
 and `npm ci --prefix harnesses/pi`. It must be clean before a commit too. It never
 contacts a model server or the internet: models are faux, or a loopback
-fake of its own. `cargo xtask check` runs it; by hand, at the root:
+fake of its own. `cargo xtask acceptance` runs it; by hand, at the root:
 
 ```sh
 cargo build -p hamlet_cli -p hamlet_server
@@ -102,13 +112,13 @@ cargo test -p hamlet_acceptance --features acceptance
 
 The pi harness in `harnesses/pi/` is a Node package of its own, on the
 same Node, with the same two checks run in that folder. The server's
-tests that start it as a real process, crashes included, are compiled only
-with the `harness` feature, so plain `cargo test` needs no Node. They need
-`npm ci --prefix harnesses/pi`, never contact a model server or the
-internet, and must be clean before a commit too. They build the server
-with fault points, so run them after the acceptance suite, which needs the
-plain one, as a command of their own. `cargo xtask check` runs them; by
-hand, at the root:
+tests that start it serving a home, crashes included, are its `crashes`
+and `harness` targets, compiled only with the `harness` feature, so plain
+`cargo test` needs no Node. They need `npm ci --prefix harnesses/pi`,
+never contact a model server or the internet, and must be clean before a
+commit too. They build the server with fault points, so run them after
+the acceptance suite, which needs the plain one, as a command of their
+own. `cargo xtask harness` runs them; by hand, at the root:
 
 ```sh
 cargo clippy -p hamlet_server --all-targets --features harness

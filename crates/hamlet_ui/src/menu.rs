@@ -275,7 +275,7 @@ mod tests {
     #[test]
     fn the_app_menu_closes_only_the_window_and_offers_founding_only_when_supported()
      {
-        let mut app = crate::me::tests::panel_app();
+        let mut app = crate::testing::panel_app();
         app.add_plugins(plugin).add_message::<bevy::app::AppExit>();
         app.insert_resource(OpenMenu::under(
             Menu::App,
@@ -288,7 +288,7 @@ mod tests {
         for _ in 0..3 {
             app.update();
         }
-        let shown = crate::me::tests::words(&mut app).join("\n");
+        let shown = crate::testing::all_words(&mut app);
         assert!(shown.contains("Close"), "{shown}");
         assert!(!shown.contains("Run in Background"));
         assert!(!shown.contains("Quit Hamlet"));
@@ -300,11 +300,11 @@ mod tests {
             app.update();
         }
         assert!(
-            crate::me::tests::words(&mut app)
+            crate::testing::words(&mut app)
                 .iter()
                 .any(|text| text == "Found a Hamlet...")
         );
-        crate::me::tests::press(&mut app, "Close");
+        crate::testing::press(&mut app, "Close");
         assert!(app.world_mut().resource_mut::<bevy::ecs::message::Messages<bevy::app::AppExit>>().drain().any(|exit| exit == bevy::app::AppExit::Success));
     }
 

@@ -4,6 +4,7 @@
 
 use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
+use hamlet_testing::{Script, words};
 use serde_json::json;
 
 fn kind_text(reply: &Reply) -> (&ReplyKind, &str) {

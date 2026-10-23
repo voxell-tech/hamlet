@@ -6,14 +6,14 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
-use hamlet_server::{
-    Held, Home, Operation, OperationId, Outcome, Reply,
-    RuntimeInstance,
-};
 use hamlet_testing::Scratch;
 use rusqlite::{Connection, params};
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize, Serializer};
+use serde_json::json;
+
+use super::*;
+use crate::{Held, Home};
 
 const CHILD_HOME: &str = "HAMLET_SERVER_TEST_HOME";
 const CHILD_PAUSE: &str = "HAMLET_SERVER_TEST_PAUSE";
@@ -420,7 +420,12 @@ fn crashed(tag: &str, pause: &str) -> (Scratch, Home) {
     home.close().unwrap();
     let paused = paused_file(&dir);
     let mut child = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "child", "--ignored", "--nocapture"])
+        .args([
+            "--exact",
+            "operation::tests::child",
+            "--ignored",
+            "--nocapture",
+        ])
         .env(CHILD_HOME, &*dir)
         .env(CHILD_PAUSE, pause)
         .stdout(Stdio::null())
@@ -479,4 +484,39 @@ fn pause_at(point: &str) {
             std::thread::sleep(Duration::from_secs(1));
         }
     }
+}
+
+#[test]
+fn a_changed_request_under_a_used_key_runs_nothing() {
+    let scratch = Scratch::new("operation-changed");
+    let mut store =
+        Store::open(&scratch.join("realm.sqlite")).unwrap();
+    let id = OperationId {
+        runtime: RuntimeInstance::new("pi-1").unwrap(),
+        key: "7".into(),
+    };
+    let asked = |name: &str| {
+        Request::tool("set_model", &json!({"name": name})).unwrap()
+    };
+    let first = store
+        .once(&id, &asked("ana"), |_| Ok("ana's model".to_owned()))
+        .unwrap();
+    assert_eq!(first.as_deref(), Some("ana's model"));
+    let again = store
+        .once(&id, &asked("ana"), |_| -> Result<String> {
+            panic!("a marked call ran again")
+        })
+        .unwrap();
+    assert_eq!(again.as_deref(), Some("ana's model"));
+    let changed = store
+        .once(&id, &asked("bo"), |_| -> Result<String> {
+            panic!("a changed request ran under a used key")
+        })
+        .unwrap();
+    assert_eq!(changed, None);
+    assert_eq!(
+        marked::<String>(store.connection(), &id, &asked("bo"))
+            .unwrap(),
+        Some(Marked::Conflict)
+    );
 }

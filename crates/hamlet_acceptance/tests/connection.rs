@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
+use hamlet_testing::{Home, Script};
 use serde_json::json;
 
 fn fault(text: &str, to: Option<&RequestId>) -> ServerMessage {
@@ -226,7 +227,7 @@ async fn sends_every_connection_the_realms_changes() {
 
 #[tokio::test]
 async fn closes_its_connections_with_going_away_when_it_stops() {
-    let s = Session::start(Script::new()).await;
+    let mut s = Session::start(Script::new()).await;
     let chief = s.join().await;
     let mut wire = chief.into_wire();
     assert_eq!(s.server.stop().await, Some(0));
@@ -257,7 +258,7 @@ async fn publishes_its_address_without_the_token() {
 #[tokio::test]
 async fn keeps_its_token_and_refuses_a_second_server_on_one_home() {
     let mut home = Home::new();
-    let first = home.serve(&Script::new(), QUIET).await;
+    let mut first = home.serve(&Script::new(), QUIET).await;
     let token = first.token.clone();
     let second = home.try_serve(&Script::new(), QUIET).await;
     assert!(

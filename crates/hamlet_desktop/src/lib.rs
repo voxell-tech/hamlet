@@ -10,7 +10,7 @@ pub mod editor;
 pub mod folder;
 pub mod open;
 
-use bevy::app::{App, Plugin};
+use bevy_app::{App, Plugin};
 
 /// The machine's part in every mode, as an agent works in each.
 /// `window` adds what only a window uses: the app's icon and the

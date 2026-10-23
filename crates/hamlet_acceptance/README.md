@@ -28,7 +28,9 @@ CARGO_INCREMENTAL=0 cargo test -p hamlet_acceptance --features acceptance
 ```
 
 They never contact a model server or the internet. Models are faux, or the
-loopback endpoint in `src/openai.rs`.
+loopback endpoint in `hamlet_testing`'s `src/openai.rs`. The server
+launcher, the faux scripts and the endpoint are `hamlet_testing`'s, which
+the server's own process tests share.
 
 | Variable | Selects |
 |---|---|
@@ -209,7 +211,7 @@ OpenAI fixture supplies fixed usage for exact billing assertions.
 
 ### Loopback endpoint
 
-`src/openai.rs` lists `org/large` with a 32000-token context by default.
+`hamlet_testing`'s `src/openai.rs` lists `org/large` with a 32000-token context by default.
 `list` replaces its `/models` response. `enqueue` queues completion
 responses in request-arrival order, consumed before any hold. An empty
 queue answers `Hello.`. Responses can set HTTP status, text, finish reason
@@ -237,12 +239,14 @@ in the client protocol, but can be checked in the next model request when needed
 | `tests/models.rs` | Model checks, grants, key logins, changing listings and catalogue persistence, model selection and pins, retry, usage, compaction and the actual prompt |
 | `tests/cli.rs` | `hamlet chat` on stdin and stdout, approvals across a crash, switching agents and hamlets, `hamlet edit`, `hamlet models`, `hamlet login` |
 | `tests/sandbox.rs` | Linux read/write/network confinement, symlinks and missing roots, house versus project files, resource limits, timeout cleanup and hand-added tools |
+| `tests/oauth.rs` | Subscription sign-ins through pi's offline providers: their codes, scrubbed failures, prompts cancelled on disconnect and shutdown, refreshes kept across a disconnect, and a key kept beside an OAuth credential |
 
 ## Known gaps
 
 What a client of the client protocol or `hamlet` could observe but no scenario
 checks yet, grouped by what checking it needs. Process-crash controls at
-exact commit boundaries live in `crates/hamlet_server/tests/`.
+exact commit boundaries live in `hamlet_server`: the marker ones in
+`src/operation/tests.rs`, the fault-point ones in `tests/crashes`.
 
 - **Nothing new: the suite can drive these today.**
   - Mayor: a house `NOTES.md` edit not held in manual mode; the gate's
@@ -290,8 +294,6 @@ exact commit boundaries live in `crates/hamlet_server/tests/`.
   refusals in another chief's hamlet, joined waits, per-chief chats and
   queues, and a home keeping its chief when `HAMLET_USER` or `USER`
   changes.
-- **An OAuth fake.** Subscription sign-ins, their codes and scrubbed
-  failures, and a key kept beside an OAuth credential.
 - **A pty.** The tty prompt, Ctrl-D, the terminal editor and hidden key
   input.
 - **Other environments.** A real graphical window and platform bundles; a

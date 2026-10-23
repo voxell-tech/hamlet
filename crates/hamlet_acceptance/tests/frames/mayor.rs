@@ -1,5 +1,5 @@
 use base64::prelude::*;
-use hamlet_acceptance::{
+use hamlet_testing::{
     Home, Script, call, calls, failure, openai, words,
 };
 use serde_json::{Value, json};

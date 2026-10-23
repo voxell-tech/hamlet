@@ -1,18 +1,12 @@
 //! Process-crash controls at society's record/file boundaries.
 
-use hamlet_acceptance::{Script, call, words};
-use hamlet_server::record::{
-    Actor, Admit, Change, FoundRecord, RecordOperation,
-};
 use hamlet_server::{
-    OperationId, Outcome, Reply, RuntimeInstance, Store,
+    Actor, Admit, Change, FoundRecord, OperationId, Outcome,
+    RecordOperation, Reply, RuntimeInstance, Store,
 };
+use hamlet_testing::{Script, call, send, until, words};
 
 use super::*;
-
-type Socket = tokio_tungstenite::WebSocketStream<
-    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
->;
 
 fn seed(home: &Scratch) {
     let mut store = Store::open(&home.join("realm.sqlite")).unwrap();
@@ -61,36 +55,6 @@ fn seed(home: &Scratch) {
     }
 }
 
-async fn send(socket: &mut Socket, mut message: Value) -> String {
-    let id = uuid::Uuid::new_v4().to_string();
-    message["id"] = id.clone().into();
-    socket
-        .send(Message::Text(message.to_string().into()))
-        .await
-        .unwrap();
-    id
-}
-
-async fn until(
-    socket: &mut Socket,
-    matches: impl Fn(&Value) -> bool,
-) -> Value {
-    tokio::time::timeout(Duration::from_secs(20), async {
-        loop {
-            let message = socket.next().await.unwrap().unwrap();
-            let value = serde_json::from_str::<Value>(
-                message.to_text().unwrap(),
-            )
-            .unwrap();
-            if matches(&value) {
-                break value;
-            }
-        }
-    })
-    .await
-    .expect("the server did not send the expected result")
-}
-
 async fn say(socket: &mut Socket, text: &str) {
     let id = send(socket, json!({"type":"say","to":{"hamlet":"home","agent":"mayor"},"text":text})).await;
     let reply = until(socket, |value| {
@@ -128,7 +92,7 @@ async fn merge_recovers_before_files_between_files_and_after_notes() {
             ("HAMLET_FAULT_DIR", side.to_str().unwrap()),
         ];
         let mut server =
-            Server::start_with_script(&home, &env, Some(&script));
+            start(&home, &env, Models::Faux(&script)).await;
         let (mut socket, _) = server.connect().await;
         std::fs::write(
             home.join("houses/home/1/NOTES.md"),
@@ -151,13 +115,13 @@ async fn merge_recovers_before_files_between_files_and_after_notes() {
             .unwrap();
         send(&mut socket, json!({"type":"say","to":{"hamlet":"home","agent":"mayor"},"text":"/merge gone into kept"})).await;
         paused(&side).await;
-        server.child.kill().unwrap();
-        server.child.wait().unwrap();
-        let server = Server::start_with_script(
+        server.kill();
+        let server = start(
             &home,
             &[("HAMLET_REFLECT_EVERY", "0")],
-            Some(&script),
-        );
+            Models::Faux(&script),
+        )
+        .await;
         let (mut socket, _) = server.connect().await;
         let kept = home.join("houses/home/1");
         assert_eq!(
@@ -225,8 +189,7 @@ async fn library_publication_recovers_without_rejudging_or_partial_files()
         ("HAMLET_FAULT", "after_library_publish"),
         ("HAMLET_FAULT_DIR", side.to_str().unwrap()),
     ];
-    let mut server =
-        Server::start_with_script(&home, &env, Some(&script));
+    let mut server = start(&home, &env, Models::Faux(&script)).await;
     let source = home.join("houses/home/0/skills/artifact");
     std::fs::create_dir_all(source.join("scripts")).unwrap();
     let paper = "---\nname: artifact\ndescription: Make \
@@ -254,19 +217,17 @@ async fn library_publication_recovers_without_rejudging_or_partial_files()
         .unwrap(),
         "print('artifact')"
     );
-    server.child.kill().unwrap();
-    server.child.wait().unwrap();
+    server.kill();
     Script::new()
         .agent("home:0", [words("Shelved")])
-        .errands([hamlet_acceptance::failure(
-            "Must not consult twice",
-        )])
+        .errands([hamlet_testing::failure("Must not consult twice")])
         .write(&script);
-    let _server = Server::start_with_script(
+    let _server = start(
         &home,
         &[("HAMLET_REFLECT_EVERY", "0")],
-        Some(&script),
-    );
+        Models::Faux(&script),
+    )
+    .await;
     tokio::time::timeout(Duration::from_secs(20), async {
         while source.exists() {
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -297,20 +258,19 @@ async fn erased_record_precedes_file_deletion_and_finishes_on_restart()
         ("HAMLET_FAULT", "after_agent_erasure"),
         ("HAMLET_FAULT_DIR", side.to_str().unwrap()),
     ];
-    let mut server =
-        Server::start_with_script(&home, &env, Some(&script));
+    let mut server = start(&home, &env, Models::Faux(&script)).await;
     let (mut socket, _) = server.connect().await;
     say(&mut socket, "/remove gone").await;
     send(&mut socket, json!({"type":"say","to":{"hamlet":"home","agent":"mayor"},"text":"/erase gone"})).await;
     paused(&side).await;
     assert!(home.join("houses/home/2").exists());
-    server.child.kill().unwrap();
-    server.child.wait().unwrap();
-    let server = Server::start_with_script(
+    server.kill();
+    let server = start(
         &home,
         &[("HAMLET_REFLECT_EVERY", "0")],
-        Some(&script),
-    );
+        Models::Faux(&script),
+    )
+    .await;
     let (mut socket, _) = server.connect().await;
     assert!(!home.join("houses/home/2").exists());
     let id = send(&mut socket, json!({"type":"say","to":{"hamlet":"home","agent":"mayor"},"text":"/restore gone"})).await;
@@ -360,15 +320,16 @@ async fn withdrawal_recovers_after_ruling_before_cancellation() {
             ],
         )
         .write(&script);
-    let mut server = Server::start_with_script(
+    let mut server = start(
         &home,
         &[
             ("HAMLET_REFLECT_EVERY", "0"),
             ("HAMLET_FAULT", "after_instruction_withdrawal"),
             ("HAMLET_FAULT_DIR", side.to_str().unwrap()),
         ],
-        Some(&script),
-    );
+        Models::Faux(&script),
+    )
+    .await;
     let (mut socket, _) = server.connect().await;
     send(&mut socket, json!({"type":"say","to":{"hamlet":"home","agent":"kept"},"text":"Remove it"})).await;
     let state = state_until(&server, |s| {
@@ -385,13 +346,13 @@ async fn withdrawal_recovers_after_ruling_before_cancellation() {
         .unwrap();
     send(&mut socket, json!({"type":"answer","wait":wait["id"],"choice":"withdraw","text":"Keep it"})).await;
     paused(&side).await;
-    server.child.kill().unwrap();
-    server.child.wait().unwrap();
-    let server = Server::start_with_script(
+    server.kill();
+    let server = start(
         &home,
         &[("HAMLET_REFLECT_EVERY", "0")],
-        Some(&script),
-    );
+        Models::Faux(&script),
+    )
+    .await;
     let (mut socket, _) = server.connect().await;
     send(&mut socket, json!({"type":"open","chat":{"with":{"hamlet":"home","agent":"kept"}}})).await;
     until(&mut socket, |value| {
@@ -418,15 +379,16 @@ async fn overturn_commits_the_office_and_vote_together() {
         call("cast_ballot", json!({"choice":"yes","reason":"A new direction","evidence":""})),
         call("cast_ballot", json!({"choice":"yes","reason":"A new direction","evidence":""})),
     ]).write(&script);
-    let mut server = Server::start_with_script(
+    let mut server = start(
         &home,
         &[
             ("HAMLET_REFLECT_EVERY", "0"),
             ("HAMLET_FAULT", "after_vote_overturn"),
             ("HAMLET_FAULT_DIR", side.to_str().unwrap()),
         ],
-        Some(&script),
-    );
+        Models::Faux(&script),
+    )
+    .await;
     let (mut socket, _) = server.connect().await;
     say(&mut socket, "/vote kept A new direction").await;
     state_until(&server, |s| {
@@ -439,13 +401,13 @@ async fn overturn_commits_the_office_and_vote_together() {
     .await;
     send(&mut socket, json!({"type":"say","to":{"hamlet":"home","agent":"mayor"},"text":"/overturn 1 Back"})).await;
     paused(&side).await;
-    server.child.kill().unwrap();
-    server.child.wait().unwrap();
-    let server = Server::start_with_script(
+    server.kill();
+    let server = start(
         &home,
         &[("HAMLET_REFLECT_EVERY", "0")],
-        Some(&script),
-    );
+        Models::Faux(&script),
+    )
+    .await;
     let (mut socket, state) = server.connect().await;
     assert!(
         state["agents"]
@@ -474,15 +436,16 @@ async fn an_unowned_snapshot_is_removed_after_a_crash_without_following_links()
     seed(&home);
     let script = side.join("faux.json");
     Script::new().write(&script);
-    let mut server = Server::start_with_script(
+    let mut server = start(
         &home,
         &[
             ("HAMLET_REFLECT_EVERY", "0"),
             ("HAMLET_FAULT", "after_society_snapshot"),
             ("HAMLET_FAULT_DIR", side.to_str().unwrap()),
         ],
-        Some(&script),
-    );
+        Models::Faux(&script),
+    )
+    .await;
     let (mut socket, _) = server.connect().await;
     std::fs::write(home.join("houses/home/2/copy.txt"), "original")
         .unwrap();
@@ -490,19 +453,19 @@ async fn an_unowned_snapshot_is_removed_after_a_crash_without_following_links()
     paused(&side).await;
     let snapshots = home.join(".society-files");
     assert_eq!(std::fs::read_dir(&snapshots).unwrap().count(), 1);
-    server.child.kill().unwrap();
-    server.child.wait().unwrap();
+    server.kill();
     std::fs::write(side.join("untouched"), "outside").unwrap();
     std::os::unix::fs::symlink(
         &*side,
         snapshots.join("outside-link"),
     )
     .unwrap();
-    let server = Server::start_with_script(
+    let server = start(
         &home,
         &[("HAMLET_REFLECT_EVERY", "0")],
-        Some(&script),
-    );
+        Models::Faux(&script),
+    )
+    .await;
     let (_, state) = server.connect().await;
     assert_eq!(std::fs::read_dir(snapshots).unwrap().count(), 0);
     assert_eq!(

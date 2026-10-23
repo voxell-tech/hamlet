@@ -6,16 +6,16 @@ use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{fs, io};
 
-use bevy::app::{App, AppExit, Last, Update};
-use bevy::ecs::event::Event;
-use bevy::ecs::message::MessageReader;
-use bevy::ecs::observer::On;
-use bevy::ecs::resource::Resource;
-use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Commands, In, ResMut, SystemId};
-use bevy::ecs::world::{FromWorld, World};
-use bevy::log::warn;
-use bevy::time::common_conditions::on_real_timer;
+use bevy_app::{App, AppExit, Last, Update};
+use bevy_ecs::event::Event;
+use bevy_ecs::message::MessageReader;
+use bevy_ecs::observer::On;
+use bevy_ecs::resource::Resource;
+use bevy_ecs::schedule::IntoScheduleConfigs;
+use bevy_ecs::system::{Commands, In, ResMut, SystemId};
+use bevy_ecs::world::{FromWorld, World};
+use bevy_log::warn;
+use bevy_time::common_conditions::on_real_timer;
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Opener>()
@@ -255,9 +255,9 @@ mod tests {
     use std::path::Path;
     use std::time::Duration;
 
-    use bevy::app::AppExit;
-    use bevy::ecs::system::ResMut;
-    use bevy::time::{TimePlugin, TimeUpdateStrategy};
+    use bevy_app::AppExit;
+    use bevy_ecs::system::ResMut;
+    use bevy_time::{TimePlugin, TimeUpdateStrategy};
 
     use super::*;
     use crate::DesktopPlugin;

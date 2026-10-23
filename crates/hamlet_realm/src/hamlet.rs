@@ -7,7 +7,7 @@ mod pointing;
 mod roads;
 mod state;
 #[cfg(test)]
-pub(crate) mod tests;
+mod tests;
 mod view;
 
 use bevy::prelude::*;

@@ -4,7 +4,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use hamlet_acceptance::{Cli, Home, Script, openai, server};
+use hamlet_acceptance::Cli;
+use hamlet_testing::{Home, Script, cli, openai};
 use serde_json::Value;
 
 struct Local(Home);
@@ -125,7 +126,7 @@ async fn dev_uses_binary_overrides_and_stops_the_server_at_ctrl_c() {
     let app = app(home);
     let capture = home.side().join("capture");
     let selected = home.side().join("selected-server");
-    let binary = server::cli().with_file_name("hamlet-server");
+    let binary = cli().with_file_name("hamlet-server");
     let server = executable(
         home,
         "chosen-server",
@@ -167,7 +168,7 @@ async fn dev_launches_cargos_reported_server_and_window() {
     let app = app(home);
     let capture = home.side().join("capture");
     let selected = home.side().join("selected-server");
-    let binary = server::cli().with_file_name("hamlet-server");
+    let binary = cli().with_file_name("hamlet-server");
     let server = executable(
         home,
         "built-server",

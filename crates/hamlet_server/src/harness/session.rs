@@ -16,6 +16,8 @@ pub(super) enum Pending {
     Create(BindingId),
     Submit(BindingId, String),
     Cancel(BindingId),
+    // Only the driver reads history.
+    #[cfg(feature = "harness")]
     History(BindingId),
     /// A page read to catch up on entries kept while the server did
     /// not hear of them.

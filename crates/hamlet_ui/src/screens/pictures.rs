@@ -456,9 +456,9 @@ fn look_again(
 mod tests {
     use bevy::math::UVec2;
 
-    use super::load::tests::png;
     use super::*;
     use crate::links::Roots;
+    use crate::testing::png;
 
     fn ready(side: u32) -> State {
         State::Ready(Drawn {
@@ -551,7 +551,7 @@ mod tests {
             hamlet_testing::Scratch::new("absolute-picture");
         let file = scratch.join("pear.png");
         std::fs::write(&file, png(UVec2::new(4, 4))).unwrap();
-        let mut app = crate::me::tests::panel_app();
+        let mut app = crate::testing::panel_app();
         app.init_resource::<Assets<Image>>()
             .init_resource::<ChatSettings>()
             .add_plugins(plugin);

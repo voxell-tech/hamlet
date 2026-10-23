@@ -3,6 +3,7 @@
 
 use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
+use hamlet_testing::{Script, call, failure, openai, words};
 use serde_json::json;
 
 /// The mayor's first turn: it creates scout (1), smith (2, with a
@@ -996,7 +997,7 @@ async fn carries_a_question_across_a_crash_without_asking_twice() {
              the tests pass?",
         )
         .await;
-    s.server.kill().await;
+    s.server.kill();
     let server = s
         .home
         .serve(
@@ -1231,10 +1232,22 @@ async fn a_mayor_review_holds_the_next_step_across_restart() {
         assert_eq!(answers, &[Choice::Go, Choice::Withdraw]);
         assert!(about.contains("Keep the only copy."));
         std::fs::write(s.home.side().join("step"), "").unwrap();
+        let scout = chat(to("home", "scout"));
+        s.chief
+            .until("the held step's call", |c| {
+                c.items(&scout).iter().any(|item| {
+                    item.tool.as_ref().is_some_and(|tool| {
+                        tool.summary.contains("second.txt")
+                    })
+                })
+            })
+            .await;
+        // The answer that holds the call reaches no client, so only
+        // time shows that a write let through would have landed.
         tokio::time::sleep(std::time::Duration::from_millis(150))
             .await;
         assert!(!house.join("second.txt").exists());
-        s.server.kill().await;
+        s.server.kill();
         let script = Script::new().agent("home:1", [
             call("write", json!({"path":"second.txt","content":"second"})),
             words("Finished reviewed work"),
@@ -1508,7 +1521,7 @@ async fn a_stopped_library_offer_releases_its_claim_and_uses_librarian_notes()
         assert!(source.join("SKILL.md").exists());
         assert!(!s.home.file("library/artifact").exists());
         if restart {
-            s.server.kill().await;
+            s.server.kill();
             s.server = s
                 .home
                 .serve_providers(&[

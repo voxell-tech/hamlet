@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
+use hamlet_testing::{Script, call, openai, words};
 use serde_json::json;
 
 /// An EDITOR that copies what it was given to `seen`, then runs
@@ -213,11 +214,11 @@ async fn asks_for_approvals_and_keeps_them_across_a_crash() {
     let wait = s.chief.waits().remove(0);
     let Session {
         mut home,
-        server,
+        mut server,
         chief,
     } = s;
     drop(chief);
-    server.kill().await;
+    server.kill();
     // The command ends when its server goes.
     assert_eq!(chat.wait().await.code(), Some(1));
     let again = home

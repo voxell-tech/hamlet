@@ -187,21 +187,25 @@ fn answered(response: On<Response>, mut commands: Commands) {
 }
 #[cfg(test)]
 mod tests {
+    use bevy::ecs::entity::Entity;
+    use bevy::input_focus::{FocusCause, InputFocus};
+    use bevy::text::EditableText;
     use bevy_fynix::mount;
     use serde_json::json;
 
     use super::*;
-    use crate::theme::HamletTheme;
-    use crate::welcome::server_tests::{
-        app, incoming, sent, show, words,
+    use crate::testing::{
+        all_words, connect, incoming, press_and_update, sent,
+        welcome_app,
     };
+    use crate::theme::HamletTheme;
 
     #[test]
     fn the_models_page_reads_the_catalogue_and_shows_the_servers_prices_and_notes()
      {
-        let mut app = app();
+        let mut app = welcome_app();
         app.add_plugins(plugin);
-        show(&mut app, false);
+        connect(&mut app, false);
         let requests = sent(&mut app);
         assert_eq!(
             requests.len(),
@@ -216,10 +220,10 @@ mod tests {
             ]}),
         );
         mount::<HamletTheme>(app.world_mut(), shelf());
-        let shown = words(&mut app);
+        let shown = all_words(&mut app);
         assert!(
             app.world_mut()
-                .query::<&bevy::text::EditableText>()
+                .query::<&EditableText>()
                 .iter(app.world())
                 .any(|text| text.value() == "For hard questions.")
         );
@@ -229,9 +233,9 @@ mod tests {
         }
     }
     fn with_catalogue() -> App {
-        let mut app = app();
+        let mut app = welcome_app();
         app.add_plugins((plugin, crate::roll::plugin));
-        show(&mut app, false);
+        connect(&mut app, false);
         let read = sent(&mut app).remove(0);
         incoming(
             &mut app,
@@ -241,15 +245,37 @@ mod tests {
         );
         app
     }
+    /// Types `text` into the field that holds `was`, as the chief
+    /// does: focus, edit, then leave it.
+    fn type_field(app: &mut App, was: &str, text: &str) {
+        let input = app
+            .world_mut()
+            .query::<(Entity, &EditableText)>()
+            .iter(app.world())
+            .find(|(_, value)| value.value() == was)
+            .map(|(entity, _)| entity)
+            .expect("editable field");
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(input, FocusCause::Pressed);
+        app.update();
+        app.world_mut()
+            .get_mut::<EditableText>(input)
+            .unwrap()
+            .editor_mut()
+            .set_text(text);
+        app.world_mut().resource_mut::<InputFocus>().clear();
+        for _ in 0..5 {
+            app.update();
+        }
+    }
 
     #[test]
     fn allowance_refresh_and_a_refused_catalogue_edit_go_through_the_server()
      {
-        use bevy::ecs::entity::Entity;
         use bevy::ecs::query::With;
         use bevy::ui_widgets::{Checkbox, ValueChange};
 
-        use crate::welcome::server_tests::press;
         let mut app = with_catalogue();
         mount::<HamletTheme>(app.world_mut(), shelf());
         let toggle = app
@@ -272,10 +298,10 @@ mod tests {
             json!({"type":"reply", "to":edit["id"], "kind":"error", "text":"The catalogue could not be saved."}),
         );
         assert!(
-            words(&mut app)
+            all_words(&mut app)
                 .contains("The catalogue could not be saved.")
         );
-        press(&mut app, "LIST MODELS");
+        press_and_update(&mut app, "LIST MODELS");
         let read = sent(&mut app).remove(0);
         assert_eq!(read["what"], "models");
         assert_eq!(read["refresh"], true);
@@ -283,13 +309,12 @@ mod tests {
 
     #[test]
     fn the_mayors_model_is_pinned_by_its_office() {
-        use crate::welcome::server_tests::press;
         let mut app = with_catalogue();
         let founder =
             hamlet_client::realm::mayor(app.world_mut()).unwrap();
         mount::<HamletTheme>(app.world_mut(), of_agent(founder));
-        press(&mut app, "faux::faux-1");
-        press(&mut app, "far::small");
+        press_and_update(&mut app, "faux::faux-1");
+        press_and_update(&mut app, "far::small");
         let edit = sent(&mut app).remove(0);
         assert_eq!(edit["doc"], "limits");
         assert_eq!(edit["hamlet"], "home");
@@ -301,12 +326,13 @@ mod tests {
             &mut app,
             json!({"type":"reply", "to":edit["id"], "kind":"error", "text":"This pin was refused."}),
         );
-        assert!(words(&mut app).contains("This pin was refused."));
+        assert!(
+            all_words(&mut app).contains("This pin was refused.")
+        );
     }
 
     #[test]
     fn an_agents_model_is_pinned_by_its_name() {
-        use crate::welcome::server_tests::press;
         let mut app = with_catalogue();
         incoming(
             &mut app,
@@ -317,8 +343,8 @@ mod tests {
             hamlet_client::realm::named(app.world_mut(), "scout")
                 .unwrap();
         mount::<HamletTheme>(app.world_mut(), of_agent(scout));
-        press(&mut app, "faux::faux-1");
-        press(&mut app, "far::small");
+        press_and_update(&mut app, "faux::faux-1");
+        press_and_update(&mut app, "far::small");
         let edit = sent(&mut app).remove(0);
         assert_eq!(
             edit["set"],
@@ -329,11 +355,9 @@ mod tests {
     #[test]
     fn a_hamlets_list_and_default_keep_the_rest_of_its_received_limits()
      {
-        use bevy::ecs::entity::Entity;
         use bevy::ecs::query::With;
         use bevy::ui_widgets::{Checkbox, ValueChange};
 
-        use crate::welcome::server_tests::press;
         let mut app = with_catalogue();
         let founder =
             hamlet_client::realm::mayor(app.world_mut()).unwrap();
@@ -363,10 +387,11 @@ mod tests {
             json!({"type":"reply", "to":edit["id"], "kind":"error", "text":"This model list was refused."}),
         );
         assert!(
-            words(&mut app).contains("This model list was refused.")
+            all_words(&mut app)
+                .contains("This model list was refused.")
         );
-        press(&mut app, "faux::faux-1");
-        press(&mut app, "far::small");
+        press_and_update(&mut app, "faux::faux-1");
+        press_and_update(&mut app, "far::small");
         let edit = sent(&mut app).remove(0);
         assert_eq!(edit["whole"]["model"], "far::small");
         assert_eq!(edit["whole"]["mostAgents"], 12);
@@ -374,7 +399,6 @@ mod tests {
     #[test]
     fn prices_and_notes_are_catalogue_edits_and_success_reads_the_server_again()
      {
-        use crate::welcome::server_tests::type_field;
         let mut app = with_catalogue();
         mount::<HamletTheme>(app.world_mut(), shelf());
         type_field(&mut app, "0.00", "0.25");
@@ -409,9 +433,9 @@ mod tests {
     #[test]
     fn reconnecting_reads_again_even_if_a_catalogue_answer_was_lost()
     {
-        let mut app = app();
+        let mut app = welcome_app();
         app.add_plugins(plugin);
-        show(&mut app, false);
+        connect(&mut app, false);
         let before = sent(&mut app).remove(0);
         app.world_mut().trigger(Reconnected);
         for _ in 0..3 {

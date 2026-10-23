@@ -26,6 +26,8 @@ pub mod screens;
 pub mod select;
 mod sounds;
 mod status;
+#[cfg(test)]
+mod testing;
 pub mod theme;
 pub mod welcome;
 pub mod widgets;

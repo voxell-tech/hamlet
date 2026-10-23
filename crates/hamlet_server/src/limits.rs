@@ -171,37 +171,6 @@ pub(crate) fn of(
     Ok(*record.limits.chief)
 }
 
-/// Sets the limits of `hamlet` as its first chief would.
-#[cfg(test)]
-pub(crate) fn set(
-    db: &rusqlite::Connection,
-    hamlet: &str,
-    limits: Limits,
-) -> Result<()> {
-    let record =
-        record::read(db, hamlet)?.expect("a hamlet to limit");
-    let operation = record::RecordOperation {
-        hamlet: hamlet.into(),
-        actor: record::Actor::Chief(record.chiefs[0].clone()),
-        at: 0,
-        reason: String::new(),
-        task: None,
-        change: record::Change::SetLimits {
-            limits: record::Limits {
-                chief: Box::new(limits),
-                road_budget: record.limits.road_budget,
-            },
-            runs: Vec::new(),
-        },
-    };
-    let outcome = crate::operation::change(db, &operation)?;
-    anyhow::ensure!(
-        matches!(outcome, crate::Outcome::Done(_)),
-        "the limits were refused"
-    );
-    Ok(())
-}
-
 pub(crate) struct Rules {
     validator: jsonschema::Validator,
 }

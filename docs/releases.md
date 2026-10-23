@@ -59,7 +59,7 @@ argument for the profile directory, defaults to `release`, and respects
 `npm ci --omit=dev`, and writes the archive under `dist/`. It does not
 compile TypeScript.
 
-For Windows, build only `cargo build --release --locked -p hamlet --bin
+For Windows, build only `cargo build --release --locked -p hamlet_app --bin
 hamlet-app --target x86_64-pc-windows-msvc`, then run the script in Bash with
 that target. This branch needs 7-Zip, not Node or npm. It packages only the
 window; no Windows server build is attempted.

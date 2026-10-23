@@ -649,7 +649,7 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
-    use crate::me::tests::panel_app;
+    use crate::testing::panel_app;
 
     fn page(part: Part) -> (App, Entity) {
         let mut app = panel_app();
@@ -730,7 +730,7 @@ mod tests {
      {
         use hamlet_realm::pick::{Also, Selected, Thing};
 
-        use crate::me::tests::press;
+        use crate::testing::press;
         let mut app = panel_app();
         app.add_plugins((
             plugin,
@@ -781,7 +781,7 @@ mod tests {
 
     #[test]
     fn vote_and_realm_controls_send_the_received_sections_and_keys() {
-        use crate::me::tests::press;
+        use crate::testing::press;
         let (mut app, _) = page(Part::Front);
         let hamlet = hamlet_testing::realm::hamlet("home");
         hamlet_client::receive(
@@ -836,7 +836,7 @@ mod tests {
 
     #[test]
     fn only_home_offers_the_realms_bylaws() {
-        use crate::me::tests::words;
+        use crate::testing::words;
         let mut app = panel_app();
         app.add_plugins(plugin);
         let mut state = hamlet_testing::realm::state();
@@ -884,7 +884,7 @@ mod tests {
     fn a_refused_edit_restores_the_received_value_beside_its_words() {
         use hamlet_protocol::client as protocol;
 
-        use crate::me::tests::words;
+        use crate::testing::words;
         let (mut app, _) = page(Part::Budget);
         enter(&mut app, "May spend, in dollars", "2");
         let to =
@@ -953,7 +953,7 @@ mod tests {
 
     #[test]
     fn period_is_text_and_a_free_road_is_not_an_uncapped_meter() {
-        use crate::me::tests::press;
+        use crate::testing::press;
         let (mut app, _) = page(Part::Budget);
         press(&mut app, "A MONTH");
         enter(&mut app, "Price of a road, in dollars", "0");

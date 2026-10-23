@@ -238,7 +238,7 @@ mod tests {
     use hamlet_protocol::client as protocol;
 
     use super::*;
-    use crate::me::tests::{panel_app, press, words};
+    use crate::testing::{panel_app, press, words};
 
     #[test]
     fn votes_and_the_record_reply_come_from_the_server_and_commands_reach_its_mayor()

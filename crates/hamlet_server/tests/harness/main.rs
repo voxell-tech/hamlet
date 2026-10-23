@@ -804,15 +804,15 @@ fn a_real_endpoint_gets_the_credential_the_server_hands_over_and_nothing_keeps_i
  {
     let tokio = tokio::runtime::Runtime::new().unwrap();
     let mut endpoint =
-        tokio.block_on(hamlet_acceptance::openai::Endpoint::start());
+        tokio.block_on(hamlet_testing::openai::Endpoint::start());
     let realm = Realm::new("endpoint");
     endpoint.enqueue([
-        hamlet_acceptance::openai::Response {
+        hamlet_testing::openai::Response {
             status: 503,
             text: "Busy".into(),
             ..Default::default()
         },
-        hamlet_acceptance::openai::Response {
+        hamlet_testing::openai::Response {
             text: "Hello sk-held.".into(),
             ..Default::default()
         },
@@ -856,11 +856,9 @@ fn a_real_endpoint_gets_the_credential_the_server_hands_over_and_nothing_keeps_i
     let db =
         rusqlite::Connection::open(realm.home.join("realm.sqlite"))
             .unwrap();
-    let usage = hamlet_server::spend::usage(
-        &db,
-        hamlet_server::harness::BindingId(binding),
-    )
-    .unwrap();
+    let usage =
+        hamlet_server::usage(&db, hamlet_server::BindingId(binding))
+            .unwrap();
     assert_eq!(
         (usage.input, usage.output, usage.micros),
         (100, 20, 1500)
@@ -881,7 +879,7 @@ fn a_real_endpoint_gets_the_credential_the_server_hands_over_and_nothing_keeps_i
 
 #[test]
 fn cutoff_recovery_survives_crashes_before_abort_and_after_summary() {
-    use hamlet_acceptance::openai::{Endpoint, Response};
+    use hamlet_testing::openai::{Endpoint, Response};
 
     let tokio = tokio::runtime::Runtime::new().unwrap();
     for point in ["before_recovery_stop", "after_summary"] {

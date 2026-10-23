@@ -1,10 +1,6 @@
 **
 !Cargo.toml
 !Cargo.lock
-!src/
-!src/**
-!examples/
-!examples/**
 !crates/
 !crates/**
 **/target/

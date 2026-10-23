@@ -606,7 +606,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::me::tests::{panel_app, press, words};
+    use crate::testing::{panel_app, press, words};
 
     #[test]
     fn history_reads_received_rows_searches_and_opens_a_numbered_chat()

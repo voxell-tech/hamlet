@@ -2,6 +2,7 @@
 
 use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
+use hamlet_testing::{Home, Script, call, words};
 use serde_json::json;
 
 #[tokio::test]
@@ -11,7 +12,7 @@ async fn structured_questions_survive_restart_and_only_valid_answers_settle()
     let env =
         [("HAMLET_REFLECT_EVERY", "0"), ("HAMLET_API_KEY", secret)];
     let mut home = Home::new();
-    let server = home.serve(&Script::new().responses([
+    let mut server = home.serve(&Script::new().responses([
         call("ask_chief", json!({"message": "Before planting", "questions": [
             {"question": "Which grain?", "description": secret,
              "options": [{"title": "Wheat", "description": "Winter crop"}, "Oats"], "text_input": false},
@@ -48,8 +49,8 @@ async fn structured_questions_survive_restart_and_only_valid_answers_settle()
     let again = Client::join(&server).await;
     assert_eq!(again.waits(), std::slice::from_ref(&wait));
     again.close().await;
-    server.kill().await;
-    let server = home
+    server.kill();
+    let mut server = home
         .serve(
             &Script::new().responses([words("Oats, two acres.")]),
             &env,

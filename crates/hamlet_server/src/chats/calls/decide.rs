@@ -711,7 +711,8 @@ mod tests {
         let (mut service, binding, _) = served(&scratch);
         let mut limits = service.limits_of("home").unwrap();
         limits.mayor.build_roads = false;
-        crate::limits::set(service.db(), "home", limits).unwrap();
+        crate::testing::set_limits(service.db(), "home", limits)
+            .unwrap();
         let road = |b: &str| {
             BTreeMap::from([
                 ("a".to_owned(), json!("founder")),

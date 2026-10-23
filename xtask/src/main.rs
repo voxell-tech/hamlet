@@ -4,9 +4,9 @@
 //! It is a workspace of its own, so it builds before the main
 //! workspace's dependencies are fetched.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, ExitCode};
-use std::{env, fs};
+use std::{env, fs, io};
 
 const USAGE: &str = "\
 Usage: cargo xtask <task> [args]
@@ -19,16 +19,27 @@ Usage: cargo xtask <task> [args]
   uninstall        remove all three from ~/.cargo/bin
   dev              try this checkout on a scratch home (HAMLET_HOME \
                      picks it)
-  check            every check a commit needs
+  check            every check a commit needs: the six steps below, \
+                     in order
+  lints            formatting, clippy, cargo deny and typos
+  test             build every target, then cargo test
+  acceptance       the acceptance suite, on the plain CLI and server
+  harness          the server's tests that start pi, built with \
+                     fault points
+  doc              the documentation, with warnings as errors
+  node             pi's TypeScript, Biome and tests
   fmt              format Rust, with the nightly named in \
                      rust-nightly, and pi
   workspace-image  build the remote workspace image; args go to \
                      docker build
 
-Every task first installs pi's packages when they are missing or
-stale. The installed server finds pi in this checkout, so keep it
-where it was installed from, and run `cargo xtask install` again
-after pulling.";
+Tasks that build, run or check pi first install its packages when
+they are missing or stale. The installed server finds pi in this
+checkout, so keep it where it was installed from, and run `cargo
+xtask install` again after pulling.
+
+lints needs cargo-deny and typos: `cargo install --locked cargo-deny
+typos-cli`. With CI set, the steps pass --locked to cargo.";
 
 /// This crate's manifest, outside the main workspace.
 const XTASK: &str = "xtask/Cargo.toml";
@@ -36,11 +47,30 @@ const XTASK: &str = "xtask/Cargo.toml";
 /// The file naming the nightly that formats Rust, which CI reads too.
 const NIGHTLY: &str = "rust-nightly";
 
+/// The command that installs the tools `lints` runs.
+const INSTALL: &str = "cargo install --locked cargo-deny typos-cli";
+
+/// A step of `check`, run in the folder holding the workspace.
+type Step = fn(&Path) -> Result<(), String>;
+
+/// The steps of `check`, in the order it runs them.
+const STEPS: [(&str, Step); 6] = [
+    ("lints", lints),
+    ("test", test),
+    ("acceptance", acceptance),
+    // The harness tests rebuild the server with fault points, so
+    // they run after the acceptance suite, which needs the plain
+    // one.
+    ("harness", harness),
+    ("doc", doc),
+    ("node", node),
+];
+
 /// The binaries a chief runs, with the packages that hold them.
 const BINARIES: [(&str, &str); 3] = [
     ("hamlet_cli", "hamlet"),
     ("hamlet_server", "hamlet-server"),
-    ("hamlet", "hamlet-app"),
+    ("hamlet_app", "hamlet-app"),
 ];
 
 fn main() -> ExitCode {
@@ -62,6 +92,11 @@ fn run(task: &str, rest: &[String]) -> Result<(), String> {
         .ok_or("xtask has no parent folder")?
         .to_path_buf();
     env::set_current_dir(&root).map_err(|error| error.to_string())?;
+    if let Some((_, step)) =
+        STEPS.iter().find(|(name, _)| *name == task)
+    {
+        return step(&root);
+    }
     match task {
         "build" => {
             prepare(&root)?;
@@ -90,11 +125,7 @@ fn run(task: &str, rest: &[String]) -> Result<(), String> {
         "install" => {
             prepare(&root)?;
             for (package, binary) in BINARIES {
-                let path = if package == "hamlet" {
-                    PathBuf::from(".")
-                } else {
-                    Path::new("crates").join(package)
-                };
+                let path = Path::new("crates").join(package);
                 status(
                     cargo(&[
                         "install", "--locked", "--force", "--path",
@@ -119,10 +150,7 @@ fn run(task: &str, rest: &[String]) -> Result<(), String> {
                     .args(rest),
             )
         }
-        "check" => {
-            prepare(&root)?;
-            check(&root)
-        }
+        "check" => STEPS.iter().try_for_each(|(_, step)| step(&root)),
         "fmt" => {
             prepare(&root)?;
             let nightly = nightly(&root)?;
@@ -144,17 +172,50 @@ fn run(task: &str, rest: &[String]) -> Result<(), String> {
     }
 }
 
-fn check(root: &Path) -> Result<(), String> {
+fn lints(root: &Path) -> Result<(), String> {
+    for tool in ["cargo-deny", "typos"] {
+        if let Err(error) =
+            Command::new(tool).arg("--version").output()
+            && error.kind() == io::ErrorKind::NotFound
+        {
+            return Err(format!("no `{tool}`; run `{INSTALL}`"));
+        }
+    }
     let nightly = nightly(root)?;
-    let steps: [&[&str]; 10] = [
-        &[&nightly, "fmt", "--check"],
-        &[&nightly, "fmt", "--check", "--manifest-path", XTASK],
-        &["clippy", "--manifest-path", XTASK, "--", "-D", "warnings"],
-        &["build", "--all-targets"],
-        &["clippy", "--all-targets", "--", "-D", "warnings"],
-        &["test"],
+    status(&mut cargo(&[&nightly, "fmt", "--check"]))?;
+    status(&mut cargo(&[
+        &nightly,
+        "fmt",
+        "--check",
+        "--manifest-path",
+        XTASK,
+    ]))?;
+    status(&mut locked(
+        "clippy",
+        &["--manifest-path", XTASK, "--", "-D", "warnings"],
+    ))?;
+    status(&mut locked(
+        "clippy",
+        &["--all-targets", "--", "-D", "warnings"],
+    ))?;
+    status(&mut locked("deny", &["check"]))?;
+    status(&mut Command::new("typos"))
+}
+
+fn test(_: &Path) -> Result<(), String> {
+    status(&mut locked("build", &["--all-targets"]))?;
+    status(&mut locked("test", &[]))
+}
+
+fn acceptance(root: &Path) -> Result<(), String> {
+    prepare(root)?;
+    status(&mut locked(
+        "build",
+        &["-p", "hamlet_cli", "-p", "hamlet_server"],
+    ))?;
+    status(&mut locked(
+        "clippy",
         &[
-            "clippy",
             "-p",
             "hamlet_acceptance",
             "--all-targets",
@@ -164,15 +225,18 @@ fn check(root: &Path) -> Result<(), String> {
             "-D",
             "warnings",
         ],
+    ))?;
+    status(&mut locked(
+        "test",
+        &["-p", "hamlet_acceptance", "--features", "acceptance"],
+    ))
+}
+
+fn harness(root: &Path) -> Result<(), String> {
+    prepare(root)?;
+    status(&mut locked(
+        "clippy",
         &[
-            "test",
-            "-p",
-            "hamlet_acceptance",
-            "--features",
-            "acceptance",
-        ],
-        &[
-            "clippy",
             "-p",
             "hamlet_server",
             "--all-targets",
@@ -182,11 +246,30 @@ fn check(root: &Path) -> Result<(), String> {
             "-D",
             "warnings",
         ],
-        &["test", "-p", "hamlet_server", "--features", "harness"],
-    ];
-    for step in steps {
-        status(&mut cargo(step))?;
-    }
+    ))?;
+    status(&mut locked(
+        "test",
+        &["-p", "hamlet_server", "--features", "harness"],
+    ))
+}
+
+fn doc(_: &Path) -> Result<(), String> {
+    status(
+        locked(
+            "doc",
+            &[
+                "--workspace",
+                "--all-features",
+                "--no-deps",
+                "--document-private-items",
+            ],
+        )
+        .env("RUSTDOCFLAGS", "-D warnings"),
+    )
+}
+
+fn node(root: &Path) -> Result<(), String> {
+    prepare(root)?;
     status(&mut npm(&["run", "check"]))?;
     status(&mut npm(&["test"]))
 }
@@ -244,6 +327,17 @@ fn modified(path: &Path) -> Option<std::time::SystemTime> {
 /// binary in `CARGO`, so that a `+toolchain` argument works.
 fn cargo(args: &[&str]) -> Command {
     let mut command = Command::new("cargo");
+    command.args(args);
+    command
+}
+
+/// [`cargo`] running `subcommand`, with `--locked` when `CI` is set,
+/// so CI fails on a stale `Cargo.lock` that a local run updates.
+fn locked(subcommand: &str, args: &[&str]) -> Command {
+    let mut command = cargo(&[subcommand]);
+    if env::var_os("CI").is_some() {
+        command.arg("--locked");
+    }
     command.args(args);
     command
 }

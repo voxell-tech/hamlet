@@ -280,7 +280,7 @@ mod tests {
     use hamlet_testing::realm;
 
     use super::*;
-    use crate::me::tests::{panel_app, press, words};
+    use crate::testing::{panel_app, press, words};
 
     fn app(state: protocol::State) -> App {
         let mut app = panel_app();

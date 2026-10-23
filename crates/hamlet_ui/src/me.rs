@@ -263,69 +263,9 @@ impl Me {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+mod tests {
     use super::*;
-    pub(crate) fn panel_app() -> App {
-        use bevy_fynix::FynixPlugin;
-        use hamlet_assets::Tuning;
-
-        use crate::theme::HamletTheme;
-        let mut app = App::new();
-        app.add_plugins((
-            bevy::time::TimePlugin,
-            hamlet_client::ClientPlugin { server: None },
-            FynixPlugin::<HamletTheme>::default(),
-        ));
-        crate::theme::insert_theme(
-            app.world_mut(),
-            HamletTheme::designed(),
-        );
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::State(
-                hamlet_testing::realm::state(),
-            ),
-        );
-        app.add_plugins((
-            plugin,
-            crate::roll::plugin,
-            crate::asking::plugin,
-        ));
-        app.init_resource::<bevy_fynix::dock::DockTree>()
-            .init_resource::<crate::select::Selecting>()
-            .add_message::<crate::theme::ThemeChanged>();
-        app
-    }
-
-    pub(crate) fn words(app: &mut App) -> Vec<String> {
-        app.world_mut()
-            .query::<&bevy::ui::widget::Text>()
-            .iter(app.world())
-            .map(|text| text.0.clone())
-            .collect()
-    }
-
-    pub(crate) fn press(app: &mut App, text: &str) {
-        use bevy::ecs::hierarchy::ChildOf;
-        use bevy::ui_widgets::{Activate, Button, MenuItem};
-        let world = app.world_mut();
-        let mut entity = world
-            .query::<(Entity, &bevy::ui::widget::Text)>()
-            .iter(world)
-            .find(|(_, shown)| shown.0 == text)
-            .unwrap_or_else(|| panic!("no button says {text}"))
-            .0;
-        while world.get::<Button>(entity).is_none()
-            && world.get::<MenuItem>(entity).is_none()
-        {
-            entity = world
-                .get::<ChildOf>(entity)
-                .expect("a button above its label")
-                .parent();
-        }
-        world.trigger(Activate { entity });
-        world.flush();
-    }
+    use crate::testing::{panel_app, press};
 
     #[test]
     fn the_first_chat_watches_the_received_mayor_and_sends_to_it() {

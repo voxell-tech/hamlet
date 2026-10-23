@@ -8,7 +8,7 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinSet;
 
 use super::{Serving, Since};
-use crate::harness::{Config, Harnesses};
+use crate::harness::Harnesses;
 use crate::protocol::Protocol;
 use crate::record::{
     Actor, Admit, Change, FoundRecord, RecordOperation,
@@ -105,7 +105,7 @@ fn serving(tag: &str, agents: usize) -> (Scratch, Serving) {
     let (harnesses, notices) = Harnesses::start(
         &layout,
         service.home.store(),
-        Config::unused(),
+        crate::testing::config(Overrides::none(true)),
     )
     .unwrap();
     assert!(notices.is_empty());

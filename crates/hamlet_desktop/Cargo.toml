@@ -10,9 +10,13 @@ description = "The machine the app runs on: kept awake while an agent works, its
 [lints]
 workspace = true
 
+# Bevy's parts, not the whole: nothing here draws.
 [dependencies]
 hamlet_client.workspace = true
-bevy.workspace = true
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+bevy_log.workspace = true
+bevy_time.workspace = true
 rfd.workspace = true
 tokio.workspace = true
 
@@ -21,7 +25,14 @@ objc2.workspace = true
 objc2-app-kit.workspace = true
 objc2-foundation.workspace = true
 
+# The icon goes on the window through winit.
 [target.'cfg(not(target_os = "macos"))'.dependencies]
+bevy_asset.workspace = true
+bevy_image = { workspace = true, features = ["png"] }
+bevy_window.workspace = true
+# winit builds on Linux only with a display protocol named; the app
+# adds Wayland.
+bevy_winit = { workspace = true, features = ["x11"] }
 winit.workspace = true
 
 [dev-dependencies]

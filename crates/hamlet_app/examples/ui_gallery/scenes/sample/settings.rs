@@ -25,7 +25,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     world.init_resource::<hamlet_realm::sky::Quality>();
     if scene == Scene::Charter {
         world.insert_resource(settings::Charter {
-            text: include_str!("../../../../assets/charter.md")
+            text: include_str!("../../../../../../assets/charter.md")
                 .into(),
             own: true,
         });

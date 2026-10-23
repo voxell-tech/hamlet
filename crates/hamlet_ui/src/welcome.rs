@@ -366,95 +366,29 @@ pub(crate) fn read_narrow(
     }
 }
 #[cfg(test)]
-pub(crate) mod server_tests {
+mod server_tests {
     use bevy::color::Alpha;
     use bevy::ecs::entity::Entity;
-    use bevy::ecs::hierarchy::ChildOf;
-    use bevy::ui::widget::Text;
-    use bevy::ui_widgets::{Activate, Button};
     use bevy_fynix::{FynixPlugin, mount};
     use hamlet_assets::Tuning;
-    use hamlet_client::{ClientPlugin, receive};
+    use hamlet_client::ClientPlugin;
     use hamlet_protocol::client as protocol;
 
     use super::*;
+    use crate::testing::{
+        all_words, connect, incoming, press_and_update, sent,
+        welcome_app,
+    };
     use crate::theme::{self, HamletTheme};
-
-    pub(crate) fn app() -> App {
-        let mut app = App::new();
-        app.add_plugins((
-            bevy::time::TimePlugin,
-            bevy::input::InputPlugin,
-            bevy::input_focus::InputFocusPlugin,
-            bevy::ui_widgets::MenuPlugin,
-            ClientPlugin { server: None },
-            FynixPlugin::<HamletTheme>::default(),
-            plugin,
-            crate::secret::plugin,
-        ));
-        theme::insert_theme(app.world_mut(), HamletTheme::designed());
-        app.insert_resource(Browser(|_, url| {
-            panic!("unexpected browser URL: {url}")
-        }));
-        app
-    }
-
-    pub(crate) fn show(app: &mut App, unset: bool) {
-        let mut state = hamlet_testing::realm::state();
-        state.settings.unset = unset;
-        receive(
-            app.world_mut(),
-            protocol::ServerMessage::State(state),
-        );
-        app.world_mut().resource_mut::<Connection>().state =
-            State::Connected;
-        for _ in 0..3 {
-            app.update();
-        }
-    }
-
-    pub(crate) fn words(app: &mut App) -> String {
-        app.world_mut()
-            .query::<&Text>()
-            .iter(app.world())
-            .map(|text| text.0.clone())
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
-
-    pub(crate) fn press(app: &mut App, text: &str) {
-        let world = app.world_mut();
-        let entity = world
-            .query::<(Entity, &Text)>()
-            .iter(world)
-            .filter(|(_, shown)| shown.0 == text)
-            .find_map(|(mut entity, _)| {
-                loop {
-                    if world.get::<Button>(entity).is_some()
-                        || world
-                            .get::<bevy::ui_widgets::MenuItem>(entity)
-                            .is_some()
-                    {
-                        return Some(entity);
-                    }
-                    entity = world.get::<ChildOf>(entity)?.parent();
-                }
-            })
-            .unwrap_or_else(|| panic!("no button {text}"));
-        world.trigger(Activate { entity });
-        for _ in 0..5 {
-            app.update();
-        }
-    }
 
     #[test]
     fn received_settings_and_connection_choose_the_welcome_page() {
-        let mut app = app();
-        show(&mut app, true);
+        let mut app = welcome_app();
+        connect(&mut app, true);
         mount::<HamletTheme>(app.world_mut(), view());
-        assert!(words(&mut app).contains("WELCOME TO HAMLET"));
-        show(&mut app, false);
-        assert!(!words(&mut app).contains("WELCOME TO HAMLET"));
+        assert!(all_words(&mut app).contains("WELCOME TO HAMLET"));
+        connect(&mut app, false);
+        assert!(!all_words(&mut app).contains("WELCOME TO HAMLET"));
         app.world_mut().insert_resource(Connection {
             state: State::Refused,
             words: "The server refused this window: bad token."
@@ -463,7 +397,7 @@ pub(crate) mod server_tests {
         for _ in 0..3 {
             app.update();
         }
-        let shown = words(&mut app);
+        let shown = all_words(&mut app);
         assert!(shown.contains("bad token"));
         for command in
             ["hamlet server", "hamlet window", "hamlet dev"]
@@ -471,24 +405,6 @@ pub(crate) mod server_tests {
             assert!(shown.contains(command), "{shown}");
         }
     }
-    pub(crate) fn sent(app: &mut App) -> Vec<serde_json::Value> {
-        app.world_mut()
-            .resource_mut::<Outbox>()
-            .drain()
-            .map(|message| serde_json::to_value(message).unwrap())
-            .collect()
-    }
-
-    pub(crate) fn incoming(app: &mut App, value: serde_json::Value) {
-        receive(
-            app.world_mut(),
-            serde_json::from_value(value).unwrap(),
-        );
-        for _ in 0..3 {
-            app.update();
-        }
-    }
-
     fn providers(app: &mut App) {
         incoming(
             app,
@@ -501,12 +417,12 @@ pub(crate) mod server_tests {
 
     #[test]
     fn a_providers_key_uses_the_servers_secret_prompt_and_answers() {
-        let mut app = app();
-        show(&mut app, true);
+        let mut app = welcome_app();
+        connect(&mut app, true);
         providers(&mut app);
         mount::<HamletTheme>(app.world_mut(), view());
-        press(&mut app, "I HAVE A KEY");
-        press(&mut app, "OpenRouter");
+        press_and_update(&mut app, "I HAVE A KEY");
+        press_and_update(&mut app, "OpenRouter");
         let requests = sent(&mut app);
         let start = &requests[0];
         assert_eq!(start["type"], "login");
@@ -518,7 +434,7 @@ pub(crate) mod server_tests {
             &mut app,
             serde_json::json!({"type":"login", "to":start["id"], "login":"key-login", "step":{"prompt":"Paste your key", "secret":true}}),
         );
-        assert!(words(&mut app).contains("Paste your key"));
+        assert!(all_words(&mut app).contains("Paste your key"));
         let (input, ink) = app
             .world_mut()
             .query::<(Entity, &EditableText, &bevy::text::TextColor)>(
@@ -537,7 +453,7 @@ pub(crate) mod server_tests {
             .unwrap()
             .editor_mut()
             .set_text("fake-key");
-        press(&mut app, "SEND");
+        press_and_update(&mut app, "SEND");
         let requests = sent(&mut app);
         assert_eq!(
             requests[0]["reply"],
@@ -547,8 +463,10 @@ pub(crate) mod server_tests {
             &mut app,
             serde_json::json!({"type":"login", "to":start["id"], "login":"key-login", "step":{"failed":"That key was refused."}}),
         );
-        assert!(words(&mut app).contains("That key was refused."));
-        assert!(!words(&mut app).contains("fake-key"));
+        assert!(
+            all_words(&mut app).contains("That key was refused.")
+        );
+        assert!(!all_words(&mut app).contains("fake-key"));
     }
 
     #[derive(Resource, Default)]
@@ -557,15 +475,15 @@ pub(crate) mod server_tests {
     #[test]
     fn subscription_steps_open_the_browser_show_codes_and_cancel_on_the_server()
      {
-        let mut app = app();
+        let mut app = welcome_app();
         app.init_resource::<Opened>();
         app.world_mut().insert_resource(Browser(|world, url| {
             world.resource_mut::<Opened>().0.push(url.into());
         }));
-        show(&mut app, true);
+        connect(&mut app, true);
         providers(&mut app);
         mount::<HamletTheme>(app.world_mut(), view());
-        press(&mut app, "CONTINUE WITH CHATGPT");
+        press_and_update(&mut app, "CONTINUE WITH CHATGPT");
         let start = sent(&mut app).remove(0);
         assert_eq!(
             start["start"],
@@ -583,7 +501,7 @@ pub(crate) mod server_tests {
             &mut app,
             serde_json::json!({"type":"login", "to":start["id"], "login":"plan-login", "step":{"progress":"Waiting for approval"}}),
         );
-        let shown = words(&mut app);
+        let shown = all_words(&mut app);
         for text in [
             "https://login.example/authorize",
             "ABCD-EFGH",
@@ -596,9 +514,9 @@ pub(crate) mod server_tests {
             app.world().resource::<Opened>().0,
             ["https://login.example/authorize"]
         );
-        press(&mut app, "CANCEL SIGN-IN");
+        press_and_update(&mut app, "CANCEL SIGN-IN");
         assert_eq!(sent(&mut app)[0]["cancel"], "plan-login");
-        press(&mut app, "SIGN IN WITH OPENROUTER");
+        press_and_update(&mut app, "SIGN IN WITH OPENROUTER");
         assert_eq!(
             sent(&mut app)[0]["start"],
             serde_json::json!({"provider":"openrouter", "method":"subscription"})
@@ -608,16 +526,16 @@ pub(crate) mod server_tests {
     #[test]
     fn login_urls_open_only_https_or_loopback_http_and_always_show_the_steps_words()
      {
-        let mut app = app();
+        let mut app = welcome_app();
         app.init_resource::<Opened>().insert_resource(Browser(
             |world, url| {
                 world.resource_mut::<Opened>().0.push(url.into());
             },
         ));
-        show(&mut app, true);
+        connect(&mut app, true);
         providers(&mut app);
         mount::<HamletTheme>(app.world_mut(), view());
-        press(&mut app, "CONTINUE WITH CHATGPT");
+        press_and_update(&mut app, "CONTINUE WITH CHATGPT");
         let start = sent(&mut app).remove(0);
         for url in [
             "file:///Applications/Calculator.app",
@@ -635,7 +553,7 @@ pub(crate) mod server_tests {
                 &mut app,
                 serde_json::json!({"type":"login", "to":start["id"], "login":"plan-login", "step":{"url":url, "instructions":"Follow these steps yourself."}}),
             );
-            let shown = words(&mut app);
+            let shown = all_words(&mut app);
             assert!(shown.contains(url), "{shown}");
             assert!(shown.contains("Follow these steps yourself."));
         }
@@ -653,10 +571,10 @@ pub(crate) mod server_tests {
     #[test]
     fn local_search_lists_the_servers_models_and_checks_a_saved_choice()
      {
-        let mut app = app();
-        show(&mut app, true);
+        let mut app = welcome_app();
+        connect(&mut app, true);
         mount::<HamletTheme>(app.world_mut(), view());
-        press(&mut app, "I RUN MY OWN MODEL");
+        press_and_update(&mut app, "I RUN MY OWN MODEL");
         let requests = sent(&mut app);
         assert_eq!(requests[0]["what"], "connection");
         assert_eq!(requests[1]["what"], "models");
@@ -665,10 +583,10 @@ pub(crate) mod server_tests {
             &mut app,
             serde_json::json!({"type":"read", "to":requests[1]["id"], "models":[]}),
         );
-        assert!(words(&mut app).contains(
+        assert!(all_words(&mut app).contains(
             "No model server answered on the server's machine."
         ));
-        press(&mut app, "LOOK AGAIN");
+        press_and_update(&mut app, "LOOK AGAIN");
         let requests = sent(&mut app);
         app.world_mut().resource_mut::<Settings>().0.endpoints.push(
             protocol::SettingsViewEndpoints {
@@ -684,8 +602,8 @@ pub(crate) mod server_tests {
                 {"name":"unconfigured::far", "price":null, "priced":"unknown", "context":null, "allowed":false, "note":""}
             ]}),
         );
-        assert!(!words(&mut app).contains("unconfigured::far"));
-        press(&mut app, "local::small");
+        assert!(!all_words(&mut app).contains("unconfigured::far"));
+        press_and_update(&mut app, "local::small");
         let edit = sent(&mut app).remove(0);
         assert_eq!(edit["doc"], "settings");
         assert_eq!(
@@ -702,7 +620,7 @@ pub(crate) mod server_tests {
         for _ in 0..3 {
             app.update();
         }
-        assert!(words(&mut app).contains("PICK A MODEL"));
+        assert!(all_words(&mut app).contains("PICK A MODEL"));
         app.world_mut().resource_mut::<Settings>().0.link.state =
             protocol::LinkState::Connected;
         for _ in 0..3 {
@@ -712,18 +630,18 @@ pub(crate) mod server_tests {
             &mut app,
             serde_json::json!({"type":"reply", "to":check["id"], "kind":"notice", "text":"Hello"}),
         );
-        assert!(!words(&mut app).contains("PICK A MODEL"));
+        assert!(!all_words(&mut app).contains("PICK A MODEL"));
     }
 
     #[test]
     fn completed_login_moves_to_its_own_models_and_a_refused_edit_stays_open()
      {
-        let mut app = app();
-        show(&mut app, true);
+        let mut app = welcome_app();
+        connect(&mut app, true);
         providers(&mut app);
         mount::<HamletTheme>(app.world_mut(), view());
-        press(&mut app, "I HAVE A KEY");
-        press(&mut app, "OpenRouter");
+        press_and_update(&mut app, "I HAVE A KEY");
+        press_and_update(&mut app, "OpenRouter");
         let start = sent(&mut app).remove(0);
         incoming(
             &mut app,
@@ -738,36 +656,37 @@ pub(crate) mod server_tests {
                 {"name":"other::large", "price":null, "priced":"unknown", "context":null, "allowed":false, "note":""}
             ]}),
         );
-        assert!(!words(&mut app).contains("other::large"));
-        press(&mut app, "openrouter::small");
+        assert!(!all_words(&mut app).contains("other::large"));
+        press_and_update(&mut app, "openrouter::small");
         let edit = sent(&mut app).remove(0);
         incoming(
             &mut app,
             serde_json::json!({"type":"reply", "to":edit["id"], "kind":"error", "text":"That model cannot be chosen."}),
         );
         assert!(
-            words(&mut app).contains("That model cannot be chosen.")
+            all_words(&mut app)
+                .contains("That model cannot be chosen.")
         );
         assert!(sent(&mut app).is_empty());
     }
     #[test]
     fn a_previous_connection_check_does_not_finish_a_model_trial() {
-        let mut app = app();
-        show(&mut app, true);
+        let mut app = welcome_app();
+        connect(&mut app, true);
         app.world_mut().resource_mut::<Settings>().0.link.state =
             protocol::LinkState::Connected;
         app.world_mut().resource_mut::<Welcome>().step = Step::Models;
         app.world_mut().resource_mut::<Welcome>().models =
             vec!["local::small".into()];
         mount::<HamletTheme>(app.world_mut(), view());
-        press(&mut app, "local::small");
+        press_and_update(&mut app, "local::small");
         let edit = sent(&mut app).remove(0);
         app.world_mut().resource_mut::<Settings>().0.unset = false;
         for _ in 0..3 {
             app.update();
         }
         assert!(
-            words(&mut app).contains("PICK A MODEL"),
+            all_words(&mut app).contains("PICK A MODEL"),
             "a saved choice is not a model answer"
         );
         incoming(
@@ -775,41 +694,19 @@ pub(crate) mod server_tests {
             serde_json::json!({"type":"reply", "to":edit["id"], "kind":"notice", "text":"Saved."}),
         );
         assert_eq!(sent(&mut app)[0]["what"], "model");
-        assert!(words(&mut app).contains("PICK A MODEL"));
+        assert!(all_words(&mut app).contains("PICK A MODEL"));
     }
 
-    pub(crate) fn type_field(app: &mut App, was: &str, text: &str) {
-        let input = app
-            .world_mut()
-            .query::<(Entity, &EditableText)>()
-            .iter(app.world())
-            .find(|(_, value)| value.value() == was)
-            .map(|(entity, _)| entity)
-            .expect("editable field");
-        app.world_mut()
-            .resource_mut::<InputFocus>()
-            .set(input, bevy::input_focus::FocusCause::Pressed);
-        app.update();
-        app.world_mut()
-            .get_mut::<EditableText>(input)
-            .unwrap()
-            .editor_mut()
-            .set_text(text);
-        app.world_mut().resource_mut::<InputFocus>().clear();
-        for _ in 0..5 {
-            app.update();
-        }
-    }
     #[test]
     fn a_model_failure_received_after_its_check_reply_stays_on_the_page()
      {
-        let mut app = app();
-        show(&mut app, true);
+        let mut app = welcome_app();
+        connect(&mut app, true);
         app.world_mut().resource_mut::<Welcome>().step = Step::Models;
         app.world_mut().resource_mut::<Welcome>().models =
             vec!["local::small".into()];
         mount::<HamletTheme>(app.world_mut(), view());
-        press(&mut app, "local::small");
+        press_and_update(&mut app, "local::small");
         let edit = sent(&mut app).remove(0);
         incoming(
             &mut app,
@@ -830,41 +727,42 @@ pub(crate) mod server_tests {
             app.update();
         }
         assert!(
-            words(&mut app).contains("That model did not answer.")
+            all_words(&mut app)
+                .contains("That model did not answer.")
         );
     }
 
     #[test]
     fn a_cancel_before_the_first_login_step_cancels_it_when_its_id_arrives()
      {
-        let mut app = app();
-        show(&mut app, true);
+        let mut app = welcome_app();
+        connect(&mut app, true);
         providers(&mut app);
         mount::<HamletTheme>(app.world_mut(), view());
-        press(&mut app, "CONTINUE WITH CHATGPT");
+        press_and_update(&mut app, "CONTINUE WITH CHATGPT");
         let start = sent(&mut app).remove(0);
-        press(&mut app, "CANCEL SIGN-IN");
+        press_and_update(&mut app, "CANCEL SIGN-IN");
         incoming(
             &mut app,
             serde_json::json!({"type":"login", "to":start["id"], "login":"late-login", "step":{"url":"https://must-not-open.example"}}),
         );
         assert_eq!(sent(&mut app)[0]["cancel"], "late-login");
-        assert!(words(&mut app).contains("WELCOME TO HAMLET"));
+        assert!(all_words(&mut app).contains("WELCOME TO HAMLET"));
     }
 
     #[test]
     fn reconnecting_returns_a_cancelled_login_to_the_first_page() {
-        let mut app = app();
-        show(&mut app, true);
+        let mut app = welcome_app();
+        connect(&mut app, true);
         providers(&mut app);
         mount::<HamletTheme>(app.world_mut(), view());
-        press(&mut app, "CONTINUE WITH CHATGPT");
+        press_and_update(&mut app, "CONTINUE WITH CHATGPT");
         sent(&mut app);
         app.world_mut().trigger(Reconnected);
         for _ in 0..3 {
             app.update();
         }
-        assert!(words(&mut app).contains("WELCOME TO HAMLET"));
+        assert!(all_words(&mut app).contains("WELCOME TO HAMLET"));
     }
 
     #[test]
@@ -882,6 +780,6 @@ pub(crate) mod server_tests {
             ..Default::default()
         });
         mount::<HamletTheme>(app.world_mut(), view());
-        assert!(words(&mut app).contains("USE A KEY"));
+        assert!(all_words(&mut app).contains("USE A KEY"));
     }
 }

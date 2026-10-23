@@ -1,0 +1,34 @@
+# typos, which `cargo xtask lints` runs.
+
+[files]
+extend-exclude = [
+    "target/",
+    "xtask/target/",
+    "node_modules/",
+    "assets/",
+    "brand/",
+    "Cargo.lock",
+    "*.png",
+    "*.svg",
+    "*.fingerprint",
+    # Generated from the runtime protocol's types.
+    "harnesses/pi/src/protocol-schema.ts",
+    # Recorded faux sessions.
+    "crates/hamlet_protocol/frames/",
+]
+
+[default]
+extend-ignore-re = [
+    # A streamed word cut in two.
+    '"Hel"',
+    '"ond \*grows\*"',
+]
+
+[default.extend-identifiers]
+# The pi runtime's sign-ins under way.
+signins = "signins"
+# rustix's open flag for writing only.
+WRONLY = "WRONLY"
+# A vector from one point to another, and a cell's grid index.
+ba = "ba"
+iz = "iz"

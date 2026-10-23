@@ -16,37 +16,47 @@ mod fault;
 mod gate;
 mod gifts;
 mod hand;
-pub mod harness;
+mod harness;
+#[cfg(feature = "harness")]
+pub mod harness_driver;
 mod home;
-pub mod limits;
+mod limits;
 mod models;
 mod operation;
 mod oversight;
 mod papers;
 mod prompt;
-pub mod protocol;
+mod protocol;
 mod realm;
-pub mod record;
+mod record;
 mod requests;
 mod runtime;
-pub mod sandbox;
+mod sandbox;
 mod scrub;
 pub mod serve;
-pub mod service;
+mod service;
 mod settings;
 mod society;
-pub mod spend;
+mod spend;
 mod starters;
 mod state;
 mod store;
+#[cfg(test)]
+mod testing;
 mod tools;
 mod workspace;
 
 pub use claim::Held;
-pub use credentials::Credentials;
-pub use home::{Home, Layout};
-pub use operation::{
-    Operation, OperationId, Outcome, Reply, RuntimeInstance,
+pub use home::Home;
+use home::Layout;
+use operation::Operation;
+pub use operation::{OperationId, Outcome, Reply, RuntimeInstance};
+pub use record::{
+    Actor, Admit, Change, End, FoundRecord, Hamlet, Limits,
+    RecordOperation, RoadBudget,
 };
-pub use settings::Overrides;
+use settings::Overrides;
 pub use store::Store;
+// The harness tests read a conversation's charges.
+#[cfg(feature = "harness")]
+pub use {harness::BindingId, spend::usage};

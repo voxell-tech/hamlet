@@ -665,9 +665,9 @@ mod tests {
     use crate::generator::society::TownId;
     use crate::generator::testing::rehearse;
     use crate::hamlet::Sited;
-    use crate::hamlet::tests::{receive_change, receive_state};
     use crate::palette::Palette;
     use crate::pick::Reads;
+    use crate::testing::{receive_change, receive_state};
 
     fn rotations(app: &mut App) -> Vec<(Entity, Quat)> {
         let world = app.world_mut();

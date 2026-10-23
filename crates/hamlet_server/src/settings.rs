@@ -101,6 +101,7 @@ impl Overrides {
     /// None from the environment, so a test's server is the same
     /// whatever its shell carries. `faux` still puts the faux model
     /// over the settings' one.
+    #[cfg(test)]
     pub fn none(faux: bool) -> Self {
         Self {
             faux,

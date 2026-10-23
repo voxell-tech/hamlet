@@ -1,4 +1,4 @@
-use hamlet_acceptance::{Script, call, words};
+use hamlet_testing::{Script, call, words};
 use serde_json::json;
 
 use super::capture::{Capture, MAYOR};

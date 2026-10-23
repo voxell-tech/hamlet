@@ -404,6 +404,7 @@ impl Harnesses {
         page: runtime::Page,
     ) -> Result<Vec<Notice>> {
         match self.session.reply(&page.re) {
+            #[cfg(feature = "harness")]
             Some(Pending::History(binding)) => {
                 Ok(vec![Notice::Page {
                     binding,

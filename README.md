@@ -125,9 +125,11 @@ cargo test
 ```
 
 `rust-toolchain.toml` pins stable; `rust-nightly` names the dated nightly
-that formats. `cargo xtask check` also runs the real-process harness and
-acceptance suites.
-`cargo xtask help` lists every task.
+that formats. `cargo xtask check` runs all of it, plus the acceptance and
+harness suites, cargo deny, typos and the docs, as steps CI runs by name:
+`lints`, `test`, `acceptance`, `harness`, `doc` and `node`. `lints` needs
+`cargo install --locked cargo-deny typos-cli`. `cargo xtask help` lists
+every task.
 
 [`docs/tour.md`](docs/tour.md) is the map of the code,
 [`docs/`](docs/README.md) lists every page, and [`AGENTS.md`](AGENTS.md)

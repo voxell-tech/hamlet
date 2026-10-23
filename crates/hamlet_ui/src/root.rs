@@ -192,7 +192,7 @@ mod tests {
     #[test]
     fn the_full_layout_keeps_connection_controls_out_of_the_status_area()
      {
-        let mut app = crate::me::tests::panel_app();
+        let mut app = crate::testing::panel_app();
         app.add_plugins(bevy_fynix::dock::DockPlugin::<HamletTheme>::default())
             .init_resource::<ConnectionTest>()
             .init_resource::<bevy::asset::Assets<bevy::image::Image>>()
@@ -212,7 +212,7 @@ mod tests {
         );
         app.update();
         assert!(
-            !crate::me::tests::words(&mut app)
+            !crate::testing::words(&mut app)
                 .iter()
                 .any(|text| text == "TEST CONNECTION")
         );
@@ -220,7 +220,7 @@ mod tests {
 
     #[test]
     fn opening_the_window_checks_the_servers_connection() {
-        let mut app = crate::me::tests::panel_app();
+        let mut app = crate::testing::panel_app();
         app.add_plugins(plugin);
         app.update();
         assert!(app.world().resource::<Outbox>().iter().any(
@@ -235,7 +235,7 @@ mod tests {
     #[test]
     fn the_connection_test_button_sends_a_check_and_shows_only_its_reply()
      {
-        let mut app = crate::me::tests::panel_app();
+        let mut app = crate::testing::panel_app();
         app.add_plugins(plugin);
         app.update();
         app.world_mut()
@@ -247,7 +247,7 @@ mod tests {
             crate::models::endpoints(),
         );
         app.update();
-        crate::me::tests::press(&mut app, "TEST CONNECTION");
+        crate::testing::press(&mut app, "TEST CONNECTION");
         let sent = app
             .world_mut()
             .resource_mut::<Outbox>()
@@ -282,7 +282,7 @@ mod tests {
         for _ in 0..3 {
             app.update();
         }
-        let shown = crate::me::tests::words(&mut app);
+        let shown = crate::testing::words(&mut app);
         assert!(
             shown
                 .iter()
@@ -290,7 +290,7 @@ mod tests {
             "{shown:?}"
         );
         assert!(!shown.iter().any(|text| text == "Not this test"));
-        crate::me::tests::press(&mut app, "TEST CONNECTION");
+        crate::testing::press(&mut app, "TEST CONNECTION");
         let id = app
             .world_mut()
             .resource_mut::<Outbox>()
@@ -313,7 +313,7 @@ mod tests {
             app.update();
         }
         assert!(
-            crate::me::tests::words(&mut app)
+            crate::testing::words(&mut app)
                 .iter()
                 .any(|text| text == "No model answered.")
         );

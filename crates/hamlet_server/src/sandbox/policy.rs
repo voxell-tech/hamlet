@@ -161,10 +161,6 @@ pub(crate) fn within_text(path: &str, parent: &str) -> bool {
 /// name in the case its volume keeps. Every symbolic link on the way
 /// is followed, also one whose chain ends at a missing file. The part
 /// that does not exist yet is kept as written.
-pub fn canon(path: &Path) -> PathBuf {
-    PathBuf::from(canon_text(&text(path)))
-}
-
 pub(crate) fn canon_text(path: &str) -> String {
     let mut rest = path::resolve(".", path)
         .split('/')

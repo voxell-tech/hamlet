@@ -137,7 +137,7 @@ mod tests {
     use hamlet_testing::realm;
 
     use super::*;
-    use crate::me::tests::{panel_app, press};
+    use crate::testing::{panel_app, press};
 
     #[test]
     fn founding_goes_to_the_first_mayor_even_from_another_chat() {

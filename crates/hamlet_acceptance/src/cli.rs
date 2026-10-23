@@ -5,12 +5,12 @@ use std::path::Path;
 use std::process::{ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
+use hamlet_testing::cli;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::mpsc;
 
 use crate::client::PATIENCE;
-use crate::server::cli;
 
 /// Which stream a piece of output came on.
 #[derive(Clone, Copy)]

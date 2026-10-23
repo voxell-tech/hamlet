@@ -2,10 +2,10 @@
 
 use std::process::{Child, Command, Stdio};
 
-use bevy::app::{App, Update};
-use bevy::ecs::query::With;
-use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Local, Query, Res, ResMut};
+use bevy_app::{App, Update};
+use bevy_ecs::query::With;
+use bevy_ecs::resource::Resource;
+use bevy_ecs::system::{Local, Query, Res, ResMut};
 use hamlet_client::realm::Busy;
 
 pub(crate) fn plugin(app: &mut App) {
@@ -121,7 +121,7 @@ pub fn hold(
 
 #[cfg(all(test, unix))]
 mod tests {
-    use bevy::prelude::*;
+    use bevy_app::App;
     use hamlet_client::realm::Busy;
 
     use super::{Holder, KeepAwake, plugin};

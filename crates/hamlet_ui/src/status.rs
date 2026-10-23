@@ -277,7 +277,7 @@ pub fn status_bar() -> AnyView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::me::tests::{panel_app, words};
+    use crate::testing::{panel_app, words};
 
     #[test]
     fn the_mounted_bar_follows_received_sandbox_changes() {

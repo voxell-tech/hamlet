@@ -47,6 +47,11 @@ pub struct Refusal {
 /// The reason a record cannot change.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
+#[expect(
+    clippy::enum_variant_names,
+    reason = "ReasonEmpty refuses an operation given no reason; its \
+              kind is kept as `reason-empty`"
+)]
 pub enum Reason {
     AgentMissing {
         name: String,

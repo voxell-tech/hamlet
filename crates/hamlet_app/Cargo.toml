@@ -1,0 +1,63 @@
+[package]
+name = "hamlet_app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "The window client, and the examples that draw the world and the panels"
+
+[[bin]]
+name = "hamlet-app"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+# Named for the `hot-reload` feature; only the examples use it.
+hamlet_assets.workspace = true
+hamlet_client.workspace = true
+hamlet_desktop.workspace = true
+hamlet_protocol.workspace = true
+hamlet_ui.workspace = true
+hamlet_realm.workspace = true
+anyhow.workspace = true
+# The product's Bevy: each library names only what its own code
+# needs. `system_clipboard` has copy and paste in a text box use the
+# system's clipboard, not one inside the app.
+bevy = { workspace = true, features = ["2d", "3d", "ui", "mesh_picking", "default_platform", "system_clipboard", "bevy_audio", "bevy_dev_tools", "debug", "serialize"] }
+bevy_app.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+hamlet_testing.workspace = true
+hamlet_vfx.workspace = true
+bevy_fynix.workspace = true
+serde_json.workspace = true
+
+[features]
+# A saved change to a file under assets/ reaches the running app:
+# `cargo run -p hamlet_app --features hot-reload`.
+hot-reload = ["hamlet_assets/hot-reload"]
+
+[[example]]
+name = "style_test"
+
+[[example]]
+name = "town_gen"
+
+[[example]]
+name = "far_lands"
+
+[[example]]
+name = "ui_gallery"
+
+[[example]]
+name = "cursor_sheet"
+
+[[example]]
+name = "sound_sheet"
+
+[[example]]
+name = "chief_sheet"

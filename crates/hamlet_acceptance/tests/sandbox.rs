@@ -7,6 +7,9 @@ use std::time::Duration;
 
 use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
+use hamlet_testing::{
+    Home, Script, Step, call, calls, openai, words,
+};
 use serde_json::json;
 
 fn command(text: &str) -> Step {
@@ -277,7 +280,7 @@ async fn refuses_a_work_root_replaced_by_a_link_or_removed() {
 #[tokio::test]
 async fn refuses_a_linked_houses_root_at_startup() {
     let mut home = Home::new();
-    let server = home.serve(&Script::new(), QUIET).await;
+    let mut server = home.serve(&Script::new(), QUIET).await;
     assert_eq!(server.stop().await, Some(0));
     let outside = home.side().join("outside");
     fs::create_dir(&outside).unwrap();
@@ -324,6 +327,8 @@ async fn bounds_commands_and_kills_timed_out_children() {
     assert_eq!(limits[0], 60);
     assert!(limits[1] <= 4096);
     assert_eq!(&limits[2..], &[524288, 0]);
+    // An escaped child writes two seconds after it began; a killed
+    // one leaves nothing to wait for, so only time shows it is gone.
     tokio::time::sleep(Duration::from_millis(2200)).await;
     assert!(!s.home.file("houses/home/0/late").exists());
 }

@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
+use hamlet_testing::Scratch;
 use serde_json::json;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
@@ -148,21 +149,6 @@ struct Harness {
     manager: Manager<Fake, Fabric>,
     router: mpsc::UnboundedReceiver<Forwarded>,
     tasks: JoinSet<Completion>,
-}
-
-struct Scratch(PathBuf);
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
-
-fn scratch() -> Scratch {
-    let path = std::env::temp_dir()
-        .join(format!("hamlet-manager-{}", uuid::Uuid::new_v4()));
-    fs::create_dir_all(&path).expect("scratch");
-    Scratch(path)
 }
 
 fn config(state: &Path) -> Configuration {
@@ -323,8 +309,8 @@ impl Harness {
 
 #[tokio::test]
 async fn cancellation_before_admission_survives_restart() {
-    let scratch = scratch();
-    let mut harness = open(&scratch.0, Fake::default());
+    let scratch = Scratch::new("manager");
+    let mut harness = open(&scratch, Fake::default());
     let cancelled = id();
     let answer = harness
         .send(Message::Cancel {
@@ -335,7 +321,7 @@ async fn cancellation_before_admission_survives_restart() {
     let answer = harness.send(execute(&cancelled)).await;
     assert_eq!(code(&answer.await.expect("execute")), "aborted");
     drop(harness);
-    let mut harness = open(&scratch.0, Fake::default());
+    let mut harness = open(&scratch, Fake::default());
     let answer = harness.send(execute(&cancelled)).await;
     assert_eq!(
         code(&answer.await.expect("execute after restart")),
@@ -384,9 +370,9 @@ async fn cancellation_before_admission_survives_restart() {
 
 #[tokio::test]
 async fn lost_create_reply_is_adopted_without_a_second_actor() {
-    let dir = scratch();
+    let dir = Scratch::new("manager");
     let mut h = open(
-        &dir.0,
+        &dir,
         Fake {
             lose: Some("create"),
             ..Fake::default()
@@ -407,8 +393,8 @@ async fn lost_create_reply_is_adopted_without_a_second_actor() {
 
 #[tokio::test]
 async fn missing_or_replaced_actor_is_reported_not_recreated() {
-    let dir = scratch();
-    let mut h = open(&dir.0, Fake::default());
+    let dir = Scratch::new("manager");
+    let mut h = open(&dir, Fake::default());
     h.run(Reply::ok(json!({}))).await;
     let replaced =
         h.manager.actors.actors.remove(&name()).expect("actor");
@@ -438,8 +424,8 @@ async fn missing_or_replaced_actor_is_reported_not_recreated() {
 
 #[tokio::test]
 async fn idle_suspension_waits_for_operations_and_requests_resume() {
-    let dir = scratch();
-    let mut h = open(&dir.0, Fake::default());
+    let dir = Scratch::new("manager");
+    let mut h = open(&dir, Fake::default());
     h.run(Reply::ok(json!({}))).await;
 
     let answer = h.send(execute(&id())).await;
@@ -462,8 +448,8 @@ async fn idle_suspension_waits_for_operations_and_requests_resume() {
 
 #[tokio::test]
 async fn uncertain_suspension_is_reconciled_on_next_request() {
-    let dir = scratch();
-    let mut h = open(&dir.0, Fake::default());
+    let dir = Scratch::new("manager");
+    let mut h = open(&dir, Fake::default());
     h.run(Reply::ok(json!({}))).await;
     h.manager.actors.lose = Some("suspend");
     h.idle(later(60)).await;
@@ -477,8 +463,8 @@ async fn uncertain_suspension_is_reconciled_on_next_request() {
 
 #[tokio::test]
 async fn resume_of_a_replaced_actor_is_refused() {
-    let dir = scratch();
-    let mut h = open(&dir.0, Fake::default());
+    let dir = Scratch::new("manager");
+    let mut h = open(&dir, Fake::default());
     h.run(Reply::ok(json!({}))).await;
     h.idle(later(60)).await;
     h.manager
@@ -495,10 +481,10 @@ async fn resume_of_a_replaced_actor_is_refused() {
 
 #[tokio::test]
 async fn restart_reconciles_by_status_and_never_replays() {
-    let dir = scratch();
+    let dir = Scratch::new("manager");
     let operation = id();
     {
-        let mut h = open(&dir.0, Fake::default());
+        let mut h = open(&dir, Fake::default());
         h.run(Reply::ok(json!({}))).await;
         let _answer = h.send(execute(&operation)).await;
         let _lost = h.worker().await;
@@ -506,7 +492,7 @@ async fn restart_reconciles_by_status_and_never_replays() {
     let mut fake = Fake::default();
     fake.create(&name()).await.expect("actor");
     fake.set(&name(), ActorState::Running);
-    let mut h = open(&dir.0, fake);
+    let mut h = open(&dir, fake);
     assert!(h.manager.pending.contains_key(&ticket(&operation)));
     h.manager.reconcile(&mut h.tasks, None);
 
@@ -545,8 +531,8 @@ async fn restart_reconciles_by_status_and_never_replays() {
 
 #[tokio::test]
 async fn untrusted_status_answers_keep_the_operation_unknown() {
-    let dir = scratch();
-    let mut h = open(&dir.0, Fake::default());
+    let dir = Scratch::new("manager");
+    let mut h = open(&dir, Fake::default());
     h.run(Reply::ok(json!({}))).await;
     let operation = id();
     let answer = h.send(execute(&operation)).await;
@@ -581,7 +567,7 @@ async fn untrusted_status_answers_keep_the_operation_unknown() {
 
 #[tokio::test]
 async fn unsettled_records_are_kept_and_foreign_ones_refused() {
-    let dir = scratch();
+    let dir = Scratch::new("manager");
     let operation = id();
     let binding = json!({
         "name": name(),
@@ -589,17 +575,17 @@ async fn unsettled_records_are_kept_and_foreign_ones_refused() {
         "lifecycle": "active",
     });
     fs::write(
-        control::binding_path(&dir.0, &key()),
+        control::binding_path(&dir, &key()),
         binding.to_string(),
     )
     .expect("binding");
     let path =
-        dir.0.join(format!("homes/home/request-{operation}.json"));
+        dir.join(format!("homes/home/request-{operation}.json"));
     fs::create_dir_all(path.parent().expect("folder"))
         .expect("folder");
     fs::write(&path, unsettled("space/uid-1")).expect("record");
 
-    let mut h = open(&dir.0, Fake::default());
+    let mut h = open(&dir, Fake::default());
     assert_eq!(h.manager.pending[&ticket(&operation)], "space/uid-1");
     h.idle(later(60)).await;
     let (route, message, _) = h.worker().await;
@@ -611,28 +597,28 @@ async fn unsettled_records_are_kept_and_foreign_ones_refused() {
     fs::write(&path, unsettled("elsewhere/uid-1")).expect("record");
     let (send, _router) = mpsc::unbounded_channel();
     assert!(
-        Manager::open(&config(&dir.0), Fake::default(), Fabric(send))
+        Manager::open(&config(&dir), Fake::default(), Fabric(send))
             .is_err()
     );
 
     // A single-home manager's record names no home.
     fs::remove_file(&path).expect("record");
     fs::write(
-        dir.0.join(format!("request-{operation}.json")),
+        dir.join(format!("request-{operation}.json")),
         unsettled("space/uid-1"),
     )
     .expect("record");
     let (send, _router) = mpsc::unbounded_channel();
     assert!(
-        Manager::open(&config(&dir.0), Fake::default(), Fabric(send))
+        Manager::open(&config(&dir), Fake::default(), Fabric(send))
             .is_err()
     );
 }
 
 #[tokio::test]
 async fn each_home_has_its_own_actors_and_operations() {
-    let dir = scratch();
-    let mut h = open(&dir.0, Fake::default());
+    let dir = Scratch::new("manager");
+    let mut h = open(&dir, Fake::default());
     let operation = id();
     let answer = h.send(execute(&operation)).await;
     let ((home, mine), _, worker) = h.worker().await;
@@ -681,34 +667,30 @@ async fn each_home_has_its_own_actors_and_operations() {
 
 #[tokio::test]
 async fn deletion_checks_uid_recovers_and_keeps_its_tombstone() {
-    let dir = scratch();
-    let mut h = open(&dir.0, Fake::default());
+    let dir = Scratch::new("manager");
+    let mut h = open(&dir, Fake::default());
     h.run(Reply::ok(json!({}))).await;
     let Harness { manager, .. } = h;
     let mut fake = manager.actors;
 
-    assert!(
-        remove(&mut fake, &dir.0, &key(), "uid-2").await.is_err()
-    );
+    assert!(remove(&mut fake, &dir, &key(), "uid-2").await.is_err());
     assert!(!fake.log.contains(&"delete"));
 
     fake.lose = Some("delete");
-    assert!(
-        remove(&mut fake, &dir.0, &key(), "uid-1").await.is_err()
-    );
-    let path = control::binding_path(&dir.0, &key());
+    assert!(remove(&mut fake, &dir, &key(), "uid-1").await.is_err());
+    let path = control::binding_path(&dir, &key());
     let binding =
         control::load(&path).expect("load").expect("binding");
     assert_eq!(binding.deletion, Some(Deletion::Requested));
 
-    remove(&mut fake, &dir.0, &key(), "uid-1")
+    remove(&mut fake, &dir, &key(), "uid-1")
         .await
         .expect("recovered");
     let binding =
         control::load(&path).expect("load").expect("binding");
     assert_eq!(binding.deletion, Some(Deletion::Completed));
 
-    let mut h = open(&dir.0, fake);
+    let mut h = open(&dir, fake);
     h.manager.actors.log.clear();
     let answer = h.send(execute(&id())).await;
     assert_eq!(code(&answer.await.expect("answer")), "not_found");

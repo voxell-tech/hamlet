@@ -26,6 +26,8 @@ pub mod stock;
 pub mod works;
 
 mod label;
+#[cfg(test)]
+mod testing;
 
 use bevy::prelude::*;
 

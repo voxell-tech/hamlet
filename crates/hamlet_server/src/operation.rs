@@ -1,6 +1,9 @@
 //! Operations a harness asks of the realm, each made once per
 //! identity and kept with the marker of its outcome.
 
+#[cfg(test)]
+mod tests;
+
 use anyhow::{Result, ensure};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::de::DeserializeOwned;
@@ -389,52 +392,5 @@ pub(crate) fn canonical(value: &Value, out: &mut String) {
             out.push(']');
         }
         scalar => out.push_str(&scalar.to_string()),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use hamlet_testing::Scratch;
-    use serde_json::json;
-
-    use super::*;
-
-    #[test]
-    fn a_changed_request_under_a_used_key_runs_nothing() {
-        let scratch = Scratch::new("operation-changed");
-        let mut store =
-            Store::open(&scratch.join("realm.sqlite")).unwrap();
-        let id = OperationId {
-            runtime: RuntimeInstance::new("pi-1").unwrap(),
-            key: "7".into(),
-        };
-        let asked = |name: &str| {
-            Request::tool("set_model", &json!({"name": name}))
-                .unwrap()
-        };
-        let first =
-            store
-                .once(&id, &asked("ana"), |_| {
-                    Ok("ana's model".to_owned())
-                })
-                .unwrap();
-        assert_eq!(first.as_deref(), Some("ana's model"));
-        let again = store
-            .once(&id, &asked("ana"), |_| -> Result<String> {
-                panic!("a marked call ran again")
-            })
-            .unwrap();
-        assert_eq!(again.as_deref(), Some("ana's model"));
-        let changed = store
-            .once(&id, &asked("bo"), |_| -> Result<String> {
-                panic!("a changed request ran under a used key")
-            })
-            .unwrap();
-        assert_eq!(changed, None);
-        assert_eq!(
-            marked::<String>(store.connection(), &id, &asked("bo"))
-                .unwrap(),
-            Some(Marked::Conflict)
-        );
     }
 }

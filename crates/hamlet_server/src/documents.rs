@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use hamlet_protocol::client::{
     Address, Edit, EditLimits, Papers, Read, ReadResult,
     ReadResultCharterCharter, RequestId, ServerMessage,
@@ -505,20 +505,8 @@ pub(crate) fn prepare_read(
                 }),
             )));
         }
-        Read::Models { id, .. } => {
-            return service
-                .catalogue_read(&id)
-                .map(|read| Reading::Ready(Box::new(read)));
-        }
-        Read::History { agent, id } => {
-            let error = service
-                .agent(&agent, "read or edit papers")?
-                .err()
-                .unwrap_or(Refusal::Unsupported("conversations"));
-            return Ok(Reading::Ready(Box::new(reply(
-                &id,
-                Err(error),
-            ))));
+        Read::Models { .. } | Read::History { .. } => {
+            bail!("the models and the chats answer this read")
         }
         Read::Papers { agent, id, full } => {
             (agent, id, full.unwrap_or(false), false)

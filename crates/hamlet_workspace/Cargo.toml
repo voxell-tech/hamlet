@@ -35,6 +35,9 @@ prost-types = "0.14"
 tonic = { version = "0.14", features = ["tls-ring", "tls-native-roots"] }
 tonic-prost = "0.14"
 
+[dev-dependencies]
+hamlet_testing.workspace = true
+
 [build-dependencies]
 tonic-prost-build = "0.14"
 prost-build = "0.14"

@@ -543,11 +543,11 @@ mod tests {
     use hamlet_assets::Tuning;
     use hamlet_client::chats::Item;
 
-    use super::super::parse::tests::{plain, top};
     use super::*;
     use crate::chat;
     use crate::links::Roots;
     use crate::me::Me;
+    use crate::testing::{plain, top};
     use crate::theme::{self, HamletTheme};
 
     fn app() -> App {

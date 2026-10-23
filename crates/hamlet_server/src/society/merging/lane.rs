@@ -731,7 +731,6 @@ mod tests {
     use hamlet_testing::Scratch;
 
     use super::*;
-    use crate::harness::Config;
     use crate::record::{Change, RecordOperation};
     use crate::{Home, Overrides};
 
@@ -750,7 +749,7 @@ mod tests {
         let (mut harnesses, _) = Harnesses::start(
             &layout,
             service.home.store(),
-            Config::unused(),
+            crate::testing::config(Overrides::none(true)),
         )
         .unwrap();
         let origin = Origin::Chief {

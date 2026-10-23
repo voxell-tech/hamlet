@@ -3,7 +3,10 @@
 //! writes it back as `"#rrggbbaa"`, and `tint::linear` reads the
 //! linear RGB a mesh is coloured with.
 
-use bevy::prelude::*;
+use bevy_color::{
+    Color, ColorToComponents, ColorToPacked, LinearRgba, Srgba,
+};
+use bevy_math::Vec3;
 use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serializer};
 

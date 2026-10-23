@@ -380,13 +380,13 @@ mod tests {
     use hamlet_protocol::client as protocol;
 
     use super::*;
-    use crate::me::tests::{panel_app, words};
+    use crate::testing::{panel_app, words};
 
     #[test]
     fn closed_hamlets_restore_and_need_confirmation_to_erase() {
         use hamlet_client::outbox::Outbox;
 
-        use crate::me::tests::press;
+        use crate::testing::press;
         let mut app = panel_app();
         app.add_plugins(plugin);
         let mut state = hamlet_testing::realm::state();
@@ -442,7 +442,7 @@ mod tests {
     #[test]
     fn restoring_or_leaving_the_closed_list_disarms_permanent_deletion()
      {
-        use crate::me::tests::press;
+        use crate::testing::press;
         let mut app = panel_app();
         app.add_plugins(plugin);
         let mut state = hamlet_testing::realm::state();
@@ -557,7 +557,7 @@ mod tests {
         use hamlet_realm::palette::Palette;
         use hamlet_realm::play::Played;
 
-        use crate::me::tests::press;
+        use crate::testing::press;
 
         let mut app = panel_app();
         app.add_plugins(plugin);

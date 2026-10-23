@@ -623,8 +623,6 @@ pub fn screen() -> AnyView {
 
 #[cfg(test)]
 mod tests {
-    use bevy::ecs::entity::Entity;
-    use bevy::ecs::hierarchy::{ChildOf, Children};
     use bevy::text::EditableText;
     use bevy::ui::Checked;
     use bevy::ui_widgets::{Checkbox, ValueChange};
@@ -632,84 +630,14 @@ mod tests {
     use hamlet_protocol::client as protocol;
 
     use super::*;
-    use crate::me::tests::panel_app;
-
-    pub(super) fn words(app: &mut App) -> Vec<String> {
-        let mut shown = crate::me::tests::words(app);
-        shown.extend(
-            app.world_mut()
-                .query::<&bevy::text::TextSpan>()
-                .iter(app.world())
-                .map(|span| span.0.clone()),
-        );
-        shown
-    }
-
-    pub(super) fn page(pane: Pane) -> App {
-        let mut app = panel_app();
-        app.add_plugins((plugin, crate::secret::plugin))
-            .init_resource::<KeepAwake>()
-            .insert_resource(pane);
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
-            app.world_mut(),
-            screen(),
-        );
-        settle(&mut app);
-        app
-    }
-
-    pub(super) fn settle(app: &mut App) {
-        for _ in 0..3 {
-            app.update();
-        }
-    }
-
-    pub(super) fn control<T: bevy::ecs::component::Component>(
-        app: &mut App,
-        name: &str,
-    ) -> Entity {
-        let world = app.world_mut();
-        let label = world
-            .query::<(Entity, &bevy::ui::widget::Text)>()
-            .iter(world)
-            .find(|(_, text)| text.0 == name)
-            .unwrap_or_else(|| panic!("no field says {name}"))
-            .0;
-        let mut pending =
-            vec![world.get::<ChildOf>(label).unwrap().parent()];
-        while let Some(entity) = pending.pop() {
-            if world.get::<T>(entity).is_some() {
-                return entity;
-            }
-            if let Some(children) = world.get::<Children>(entity) {
-                pending.extend(children.iter());
-            }
-        }
-        panic!("no control under {name}");
-    }
-
-    pub(super) fn requests(app: &mut App) -> Vec<serde_json::Value> {
-        app.world_mut()
-            .resource_mut::<Outbox>()
-            .drain()
-            .map(|message| serde_json::to_value(message).unwrap())
-            .filter(|message| message["type"] != "open")
-            .map(|mut message| {
-                assert!(
-                    message["id"]
-                        .as_str()
-                        .is_some_and(|id| id.len() == 36)
-                );
-                message.as_object_mut().unwrap().remove("id");
-                message
-            })
-            .collect()
-    }
+    use crate::testing::{
+        control, requests, settings_page, settle, words_and_spans,
+    };
 
     #[test]
     fn agent_controls_send_only_the_changed_setting_and_follow_received_changes()
      {
-        let mut app = page(Pane::Agents);
+        let mut app = settings_page(Pane::Agents);
         let network =
             control::<Checkbox>(&mut app, "Tools network access");
         app.world_mut().trigger(ValueChange {
@@ -783,14 +711,14 @@ mod tests {
             "7"
         );
         assert!(
-            words(&mut app).iter().any(|text| text
+            words_and_spans(&mut app).iter().any(|text| text
                 == "Agents' commands can reach the internet.")
         );
     }
     #[test]
     fn received_grants_show_the_giver_and_revoke_through_the_mayor() {
-        let mut app = page(Pane::Agents);
-        assert!(words(&mut app).iter().any(|text| text
+        let mut app = settings_page(Pane::Agents);
+        assert!(words_and_spans(&mut app).iter().any(|text| text
             == "None yet. Choosing Always Allow on a petition \
                 adds one."));
         let grant = protocol::Grant {
@@ -814,9 +742,9 @@ mod tests {
             }),
         );
         settle(&mut app);
-        assert!(words(&mut app).iter().any(|text| text
+        assert!(words_and_spans(&mut app).iter().any(|text| text
             == "founder may use: network (given by chief)"));
-        crate::me::tests::press(&mut app, "REVOKE");
+        crate::testing::press(&mut app, "REVOKE");
         assert_eq!(
             requests(&mut app),
             [serde_json::json!({
@@ -828,7 +756,7 @@ mod tests {
     #[test]
     fn limits_permissions_belong_to_bylaws_and_cannot_be_revoked_here()
      {
-        let mut app = page(Pane::Agents);
+        let mut app = settings_page(Pane::Agents);
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::Change(protocol::Changes {
@@ -846,7 +774,7 @@ mod tests {
             }),
         );
         settle(&mut app);
-        let shown = words(&mut app).join("\n");
+        let shown = words_and_spans(&mut app).join("\n");
         assert!(
             shown.contains(
                 "None yet. Choosing Always Allow on a petition adds \
@@ -861,7 +789,7 @@ mod tests {
     #[test]
     fn the_charter_page_reads_the_server_text_and_whether_the_home_keeps_its_own()
      {
-        let mut app = page(Pane::Charter);
+        let mut app = settings_page(Pane::Charter);
         let sent = app
             .world()
             .resource::<Outbox>()
@@ -886,7 +814,7 @@ mod tests {
             ),
         );
         settle(&mut app);
-        let shown = words(&mut app);
+        let shown = words_and_spans(&mut app);
         assert!(
             shown.iter().any(|text| text == "Keep the orchard kind."),
             "{shown:?}"
@@ -909,7 +837,7 @@ mod tests {
     fn charter_edit_saves_and_confirmed_reset_go_to_the_server_and_refusals_stay_by_the_buttons()
      {
         use hamlet_desktop::editor::{Edit, Edited};
-        let mut app = page(Pane::Charter);
+        let mut app = settings_page(Pane::Charter);
         let id = app
             .world()
             .resource::<Outbox>()
@@ -941,7 +869,7 @@ mod tests {
         );
         settle(&mut app);
         requests(&mut app);
-        crate::me::tests::press(&mut app, "EDIT");
+        crate::testing::press(&mut app, "EDIT");
         let edits = &app.world().resource::<Edits>().0;
         assert_eq!(edits.len(), 1);
         assert_eq!(edits[0].key, "charter");
@@ -987,7 +915,7 @@ mod tests {
         );
         settle(&mut app);
         assert!(
-            words(&mut app)
+            words_and_spans(&mut app)
                 .iter()
                 .any(|text| text == "The charter was refused.")
         );
@@ -997,11 +925,11 @@ mod tests {
             app.world_mut(),
             world_menu::view(),
         );
-        crate::me::tests::press(&mut app, "BACK TO THE DEFAULT");
+        crate::testing::press(&mut app, "BACK TO THE DEFAULT");
         settle(&mut app);
         assert!(requests(&mut app).is_empty());
-        assert!(words(&mut app).iter().any(|text| text == "GO BACK TO THE DEFAULT CHARTER?"));
-        crate::me::tests::press(&mut app, "USE THE DEFAULT");
+        assert!(words_and_spans(&mut app).iter().any(|text| text == "GO BACK TO THE DEFAULT CHARTER?"));
+        crate::testing::press(&mut app, "USE THE DEFAULT");
         let id = app
             .world()
             .resource::<Outbox>()
@@ -1052,7 +980,7 @@ mod tests {
             ),
         );
         settle(&mut app);
-        let shown = words(&mut app);
+        let shown = words_and_spans(&mut app);
         assert!(
             shown.iter().any(|text| text == "The default charter.")
         );
@@ -1073,7 +1001,7 @@ mod tests {
     #[test]
     fn reconnecting_reads_the_open_charter_again_and_shows_a_read_refusal()
      {
-        let mut app = page(Pane::Charter);
+        let mut app = settings_page(Pane::Charter);
         requests(&mut app);
         app.world_mut().trigger(Reconnected);
         app.world_mut().flush();
@@ -1097,7 +1025,7 @@ mod tests {
         );
         settle(&mut app);
         assert!(
-            words(&mut app)
+            words_and_spans(&mut app)
                 .iter()
                 .any(|text| text == "Cannot read the charter.")
         );

@@ -324,7 +324,7 @@ mod tests {
 
     #[test]
     fn a_deed_goes_to_the_mayor_of_the_agents_received_hamlet() {
-        let mut app = crate::me::tests::panel_app();
+        let mut app = crate::testing::panel_app();
         app.add_plugins(chat::plugin);
         let mut state = hamlet_testing::realm::state();
         state.deeds = hamlet_testing::realm::deeds(&["remove"]);
