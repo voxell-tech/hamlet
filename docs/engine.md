@@ -1574,7 +1574,9 @@ answer; those of the Inspector and Skills bring the chat `with` them.
 `openrouter.ai` and `skills.sh`, `agents.read`, `agents.settings`,
 `agents.chief` and `desktop.open https`) is the panel Agent Bazaar
 (`hamlet.bazaar/bazaar`, with the coins icon), with Open the Agent
-Bazaar and Browse the Models in the Hamlet menu. A tab for each of
+Bazaar and Browse the Models in the Hamlet menu, and Browse the
+Agents, the Plugins, the Skills and the Hamlets as commands
+(`agents`, `plugins`, `skills`, `hamlets`). A tab for each of
 its five stalls, MODELS, AGENTS, PLUGINS, SKILLS and HAMLETS, is over
 the stall shown, which is kept across a reload.
 

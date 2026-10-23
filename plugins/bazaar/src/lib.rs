@@ -37,6 +37,15 @@ const STALL_CLICKED: &str = "hamlet.realm/stall";
 /// The event sent after a purchase, with the stall's name.
 const TRADED: &str = "traded";
 
+/// The commands that show a stall besides the Models', with their
+/// labels.
+const BROWSE: [(&str, &str, Stall); 4] = [
+    ("agents", "Browse the Agents", Stall::Community),
+    ("plugins", "Browse the Plugins", Stall::Plugins),
+    ("skills", "Browse the Skills", Stall::Skills),
+    ("hamlets", "Browse the Hamlets", Stall::Hamlets),
+];
+
 #[derive(Default)]
 struct Bazaar;
 
@@ -84,6 +93,11 @@ impl Plugin for Bazaar {
             ]),
         )
         .add_systems(Update, receive);
+        for (name, label, stall) in BROWSE {
+            app.add_command(name, label, move |world: &mut World| {
+                world.show(stall);
+            });
+        }
     }
 }
 
