@@ -121,7 +121,10 @@ ref_as_ptr = "warn"
 [profile.dev]
 opt-level = 1
 
-# Enable a large amount of optimization in the dev profile for dependencies.
+# Dependencies are optimized, and carry no debug info: with it, the
+# feature sets the checks build fill target/debug/deps with over
+# 100 GB of objects.
 [profile.dev.package."*"]
 opt-level = 3
+debug = false
 
