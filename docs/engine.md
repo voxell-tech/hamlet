@@ -1670,8 +1670,9 @@ then AGENTS and HAMLETS. The stall shown is kept across a reload.
   page, turning on its plinth: the realm's `diorama` is asked for it
   a part at a time as the page is shown, and it is built in a scene of
   the bazaar's own, in the realm's looks and daylight, under a camera
-  that frames the whole plinth in a view of the page's width and
-  turns about it once in 20 seconds while the view has room. "Laying
+  that frames the whole plinth in a view of the page's width, 240
+  pixels tall, and turns about it once in 20 seconds while the view
+  has room. "Laying
   out the town..." is shown until the last part has come, and one
   line saying the realm is not running when it is not. All of it is
   let go when the page closes. The rows of the shelf have none.
