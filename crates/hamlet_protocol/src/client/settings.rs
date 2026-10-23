@@ -164,7 +164,6 @@ pub struct Price {
 pub enum Check {
     #[serde(rename = "model")]
     Model {
-        #[schemars(extend("format" = "uuid"))]
         id: RequestId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[serde(deserialize_with = "crate::client::present")]
@@ -172,10 +171,7 @@ pub enum Check {
         model: Option<String>,
     },
     #[serde(rename = "connection")]
-    Connection {
-        #[schemars(extend("format" = "uuid"))]
-        id: RequestId,
-    },
+    Connection { id: RequestId },
 }
 
 #[derive(
@@ -183,7 +179,6 @@ pub enum Check {
 )]
 #[serde(deny_unknown_fields)]
 pub struct MoveHouses {
-    #[schemars(extend("format" = "uuid"))]
     pub id: RequestId,
 }
 
@@ -193,18 +188,15 @@ pub struct MoveHouses {
 #[serde(untagged, deny_unknown_fields)]
 pub enum Login {
     Start {
-        #[schemars(extend("format" = "uuid"))]
         id: RequestId,
         start: LoginStartStart,
     },
     Reply {
-        #[schemars(extend("format" = "uuid"))]
         id: RequestId,
         reply: LoginReplyReply,
     },
     Cancel {
         cancel: String,
-        #[schemars(extend("format" = "uuid"))]
         id: RequestId,
     },
 }
@@ -246,7 +238,7 @@ pub struct LoginProgress {
     pub step: LoginStep,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]
-    #[schemars(with = "RequestId", extend("format" = "uuid"))]
+    #[schemars(with = "RequestId")]
     pub to: Option<RequestId>,
 }
 

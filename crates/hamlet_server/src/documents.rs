@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use hamlet_protocol::client::{
     Address, Edit, EditLimits, Papers, Read, ReadResult,
-    ReadResultCharterCharter, ServerMessage,
+    ReadResultCharterCharter, RequestId, ServerMessage,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -49,12 +49,7 @@ impl Service {
                     .map(Value::String)
                     .unwrap_or(Value::Null);
                 self.credentials.scrub(&mut own);
-                save(
-                    self.home.store().connection(),
-                    "charter",
-                    "home",
-                    &own,
-                )?;
+                save(self.db(), "charter", "home", &own)?;
             }
             Edit::Character { agent, text, .. } => {
                 return self.edit_papers(&agent, &text, true).await;
@@ -165,7 +160,7 @@ impl Service {
             || set.allow_net.is_some()
             || set.endpoints.is_some();
         if edits || workspace.is_none() {
-            let db = self.home.store().connection();
+            let db = self.db();
             let mut settings = crate::settings::stored(db)?;
             if let Some(model) = &set.model {
                 settings.model = self.credentials.scrub_text(model);
@@ -196,10 +191,7 @@ impl Service {
             {
                 return Ok(Err(Refusal::Invalid(error.to_string())));
             }
-            crate::settings::keep(
-                self.home.store().connection(),
-                &settings,
-            )?;
+            crate::settings::keep(self.db(), &settings)?;
         }
         if let Some(workspace) = workspace {
             self.credentials.choose_workspace(workspace)?;
@@ -275,11 +267,7 @@ impl Service {
     }
 
     pub(crate) fn charter(&mut self) -> Result<(String, bool)> {
-        let own = document(
-            self.home.store().connection(),
-            "charter",
-            "home",
-        )?;
+        let own = document(self.db(), "charter", "home")?;
         Ok(match own.and_then(|v| v.as_str().map(String::from)) {
             Some(text) => (text, true),
             None => (CHARTER.into(), false),
@@ -305,12 +293,7 @@ impl Service {
     }
 
     fn keep_work(&mut self, hamlet: &str, work: &Work) -> Result<()> {
-        save(
-            self.home.store().connection(),
-            "work",
-            hamlet,
-            &serde_json::to_value(work)?,
-        )
+        save(self.db(), "work", hamlet, &serde_json::to_value(work)?)
     }
 
     /// Points the hamlet at the folder `tail` names, at none, or
@@ -461,13 +444,13 @@ pub(crate) async fn read(
 pub(crate) enum Reading {
     Ready(Box<ServerMessage>),
     Papers {
-        id: String,
+        id: RequestId,
         character: String,
         reader: crate::papers::Reader,
         full: bool,
     },
     Prompt {
-        id: String,
+        id: RequestId,
         prompt: crate::prompt::Prepared,
     },
 }
@@ -582,7 +565,7 @@ pub(crate) fn prepare_read(
         &home,
     );
     let instructions = crate::chats::records::instructions(
-        service.home.store().connection(),
+        service.db(),
         &address.hamlet,
     )?;
     let sandbox = service.chats.sandbox.name().to_owned();

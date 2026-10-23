@@ -336,7 +336,7 @@ fn call(
         .record(hamlet)?
         .context("the voting hamlet has no record")?;
     let limits = service.limits_of(hamlet)?;
-    let mut votes = read(service.home.store().connection(), hamlet)?;
+    let mut votes = read(service.db(), hamlet)?;
     let now = crate::clock::now();
     let open_ms = limits.vote_open_ms();
     for v in &mut votes {
@@ -444,7 +444,7 @@ pub(super) async fn operation(
         &caller.id.key,
     ))?;
     let known = super::document::<Option<u64>>(
-        service.home.store().connection(),
+        service.db(),
         "vote-call",
         &key,
     )?;
@@ -478,7 +478,7 @@ pub(super) async fn operation(
     if service.house_work.founding(hamlet, id) {
         return Ok(None);
     }
-    let v = read(service.home.store().connection(), hamlet)?
+    let v = read(service.db(), hamlet)?
         .into_iter()
         .find(|v| v.id == id)
         .context("the called vote has no record")?;
@@ -501,7 +501,7 @@ pub(super) fn ballot(
     caller: &Caller<'_>,
     args: Cast,
 ) -> Result<Value> {
-    let db = service.home.store().connection();
+    let db = service.db();
     let owner = db
         .query_row(
             "SELECT owner FROM society_binding WHERE binding=?1 AND \
@@ -608,9 +608,7 @@ async fn cancel_errands(
     vote: u64,
 ) -> Result<()> {
     let bindings = service
-        .home
-        .store()
-        .connection()
+        .db()
         .prepare(&format!(
             "SELECT s.binding FROM society_binding s JOIN \
              harness_input i ON i.binding=s.binding WHERE s.errand \
@@ -631,23 +629,21 @@ async fn cancel_errands(
     Ok(())
 }
 
-/// Moves on every vote still open or not yet reported.
+/// Moves on every vote still open or not yet reported. False when
+/// there was none.
 pub(crate) async fn sweep(
     service: &mut Service,
     harnesses: &mut Harnesses,
-) -> Result<()> {
+) -> Result<bool> {
     let hamlets = service
-        .home
-        .store()
-        .connection()
+        .db()
         .prepare("SELECT key FROM society_document WHERE kind = ?1")?
         .query_map([DUE], |row| row.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     if hamlets.is_empty() {
-        return Ok(());
+        return Ok(false);
     }
-    let realm =
-        crate::realm::read(service.home.store().connection())?;
+    let realm = crate::realm::read(service.db())?;
     for hamlet in hamlets {
         if realm.lives(&hamlet) {
             sweep_hamlet(service, harnesses, &hamlet).await?;
@@ -655,7 +651,7 @@ pub(crate) async fn sweep(
             close_hamlet(service, harnesses, &hamlet).await?;
         }
     }
-    Ok(())
+    Ok(true)
 }
 
 /// Closes the due votes of `hamlet`, which no longer lives.
@@ -664,11 +660,8 @@ async fn close_hamlet(
     harnesses: &mut Harnesses,
     hamlet: &str,
 ) -> Result<()> {
-    let mut votes = super::document::<Vec<Vote>>(
-        service.home.store().connection(),
-        DUE,
-        hamlet,
-    )?;
+    let mut votes =
+        super::document::<Vec<Vote>>(service.db(), DUE, hamlet)?;
     for vote in &mut votes {
         if vote.standing == Standing::Open {
             vote.standing =
@@ -677,7 +670,7 @@ async fn close_hamlet(
         cancel_errands(service, harnesses, hamlet, vote.id).await?;
         vote.reported = true;
     }
-    save(service.home.store().connection(), hamlet, &votes)
+    save(service.db(), hamlet, &votes)
 }
 
 /// Moves on the due votes of the living `hamlet`: each is announced,
@@ -688,11 +681,8 @@ async fn sweep_hamlet(
     harnesses: &mut Harnesses,
     hamlet: &str,
 ) -> Result<()> {
-    let mut votes = super::document::<Vec<Vote>>(
-        service.home.store().connection(),
-        DUE,
-        hamlet,
-    )?;
+    let mut votes =
+        super::document::<Vec<Vote>>(service.db(), DUE, hamlet)?;
     let limits = service.limits_of(hamlet)?;
     let r = service
         .home
@@ -741,7 +731,7 @@ async fn sweep_hamlet(
         }
         votes[index] = v;
     }
-    save(service.home.store().connection(), hamlet, &votes)
+    save(service.db(), hamlet, &votes)
 }
 
 /// Moves on the open vote `v`: it lapses past its time, else is
@@ -880,7 +870,7 @@ async fn corpus(
     agent: &AgentRef,
     owner: &Value,
 ) -> Result<String> {
-    let db = service.home.store().connection();
+    let db = service.db();
     if let Some(saved) = super::document::<Option<String>>(
         db,
         "ballot-corpus",
@@ -893,16 +883,10 @@ async fn corpus(
         .read_notes(&agent.hamlet, agent.number)
         .await
         .unwrap_or_default();
-    for binding in crate::chats::records::conversations_of(
-        service.home.store().connection(),
-        agent,
-    )? {
-        if super::errand_of(
-            service.home.store().connection(),
-            binding,
-        )?
-        .is_some()
-        {
+    for binding in
+        crate::chats::records::conversations_of(service.db(), agent)?
+    {
+        if super::errand_of(service.db(), binding)?.is_some() {
             continue;
         }
         for item in
@@ -913,7 +897,7 @@ async fn corpus(
         }
     }
     super::keep(
-        service.home.store().connection(),
+        service.db(),
         "ballot-corpus",
         &owner.to_string(),
         &corpus,
@@ -1062,9 +1046,7 @@ pub(super) async fn changed(
 ) -> Result<()> {
     super::reconfigure(service, harnesses).await?;
     let owners = service
-        .home
-        .store()
-        .connection()
+        .db()
         .prepare(
             "SELECT runtime,key FROM society_call WHERE \
              tool='call_vote'",
@@ -1126,7 +1108,7 @@ pub(super) async fn deed(
                 }),
         ));
     }
-    let mut votes = read(service.home.store().connection(), hamlet)?;
+    let mut votes = read(service.db(), hamlet)?;
     let r = service
         .home
         .store()
@@ -1235,11 +1217,7 @@ pub(super) async fn deed(
                 },
             )
             .await?;
-            super::leaving::lapse(
-                service.home.store().connection(),
-                &r.id,
-                agent.number,
-            )?;
+            super::leaving::lapse(service.db(), &r.id, agent.number)?;
         }
     }
     super::reconfigure(service, harnesses).await?;

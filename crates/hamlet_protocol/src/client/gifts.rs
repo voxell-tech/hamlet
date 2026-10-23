@@ -12,12 +12,10 @@ use crate::client::{Address, RequestId};
 pub enum Give {
     Files {
         files: Vec<GiveFilesFiles>,
-        #[schemars(extend("format" = "uuid"))]
         id: RequestId,
         to: Address,
     },
     Skill {
-        #[schemars(extend("format" = "uuid"))]
         id: RequestId,
         skill: GiveSkillSkill,
         to: Address,
@@ -49,7 +47,6 @@ pub enum GiveSkillSkill {
 #[serde(deny_unknown_fields)]
 pub struct GivePart {
     pub data: String,
-    #[schemars(extend("format" = "uuid"))]
     pub id: RequestId,
     pub offset: u64,
     pub path: String,

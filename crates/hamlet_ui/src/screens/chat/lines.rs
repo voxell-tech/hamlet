@@ -446,7 +446,7 @@ pub fn fold_lines(
 #[derive(Resource, Default)]
 pub struct Reading {
     held: Option<(f32, f32, u8)>,
-    page: Option<(String, protocol::ChatRef)>,
+    page: Option<(protocol::RequestId, protocol::ChatRef)>,
     at_top: bool,
 }
 

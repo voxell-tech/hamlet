@@ -36,7 +36,7 @@ Rust crates live under `crates/`. The root package `hamlet` supplies
 | `hamlet_cli` | `hamlet`: process lifecycle, terminal chat, editors and login, without Bevy |
 | `hamlet_server` | `hamlet-server`: realm, permissions, tools, records, credentials and harness supervision |
 | `harnesses/pi/` | Node pi-durable/pi-ai runtime; conversations, provider calls, compaction and forks |
-| `hamlet_protocol` | Both protocols' types: `client` and `runtime`; `State::apply` for a client's changes; recorded frames, the schema pi reads and the client schema's fingerprint |
+| `hamlet_protocol` | Both protocols' types: `client` and `runtime`; `RequestId`, which holds only a hyphenated UUID; `State::apply` for a client's changes; recorded frames, the schema pi reads and the client schema's fingerprint |
 | `hamlet_acceptance` | Real-process protocol and CLI scenarios on scratch homes |
 | `hamlet_client` | Connection, outbox, realm, waits and watched chats as Bevy entities |
 | `hamlet_desktop` | File/link openers, editor files, dialogs, wake locks and window icon |
@@ -66,15 +66,15 @@ the public test boundary is the client protocol or the process command line.
 
 | Module | Responsibility and interface |
 |---|---|
-| `home.rs`, `claim.rs` | `Home::open` claims a path, opens its `Store` and checks the `realm.id` pair. `Layout` names storage, credentials and harness directories |
-| `store.rs` | The schema, composed from `spend.sql` and the `schema.sql` in `record/`, `harness/`, `chats/` and `society/`, and the `realm.sqlite` connection, with WAL, FULL sync and foreign keys; a store of another version is refused |
+| `home.rs`, `claim.rs` | `Home::open` claims a path, opens its `Store` and checks the `realm.id` pair. `connection()` reads its database without the store's transactions. `Layout` names storage, credentials and harness directories |
+| `store.rs` | The schema, composed from `spend.sql` and the `schema.sql` in `record/`, `harness/`, `chats/` and `society/`, and the `realm.sqlite` connection, with WAL, FULL sync and foreign keys; a store of another version is refused; `changes` counts the rows changed since it opened |
 | `operation.rs` | `OperationId` identifies runtime plus call key. Owns every marker: `Store::run` commits an operation's result marker with its record effects; `Store::once` and `once` mark any outcome with its request digest, alone or in the caller's transaction, and refuse a changed request under a used key |
-| `service.rs` | `Service` owns the claimed home, credentials, houses, models, chats and uploads; `edit_document` and `read` answer the chief's documents |
+| `service.rs` | `Service` owns the claimed home, credentials, houses, models, chats and uploads; `db()` is the home's open database, and a write that needs a transaction takes `home.store()`; `edit_document` and `read` answer the chief's documents |
 | `serve.rs` | `serve` from start to stop: claims the home, probes the sandbox, starts the harness and model providers, publishes `server.json`, and closes in order |
 | `connection.rs` | The WebSocket connections: accepting, each one's read and write task, its queue of waiting messages, and the close codes |
 | `requests.rs` | The hello, then one match over `ClientMessage` naming the owner that answers each request; a handler that errs or panics ends only its request, with a `fault` |
-| `runtime.rs` | `Serving`, the serve loop's state: its events, settle, refresh, and recovering from a failed event |
-| `protocol.rs` | `Protocol::parse` validates client input against the client protocol's schema; reply and fault rendering |
+| `runtime.rs` | `Serving`, the serve loop's state: its events, settle, refresh, and recovering from a failed event. A 50 ms tick only checks memory and the skills on disk unless the state may have changed, as `Since` defines: an event, a tick that found work, a clock turn (a road overgrowing, a budget's share gone moving), a house move's progress or an overdue provider answer. Every two seconds the tools folder is read again |
+| `protocol.rs` | `Protocol::parse` validates client input against the client protocol's schema and correlates a fault to the message's `id` when it is a `RequestId`; reply and fault rendering |
 | `record.rs`, `record/` | Agent identity, membership, names, roads, office, models, constraints and typed refusals. `RecordOperation` is a transactional change, and every change to a hamlet's record is one of its `Change`s |
 | `documents.rs`, `settings.rs`, `limits.rs` | Chief edits and reads. `Service` reads each document once into a typed `Work`, `Settings` (stored settings plus process overrides) or `Limits`. A hamlet's limits live only in its record, with the schema's defaults filled in; `Limits::model_of` picks each agent's model |
 | `chats.rs`, `chats/` | Chief and peer watches, durable inputs, follow-up work, reflection, stop, retry, resume and rewind. `Chats::next` yields each tool call or preparation as it ends, a panicked one as a failed outcome |
@@ -99,9 +99,9 @@ the public test boundary is the client protocol or the process command line.
 | `starters.rs` | Shipped starter content from `crates/hamlet_server/assets/starters/` |
 | `models.rs`, `credentials.rs`, `scrub.rs` | Catalogue and provider requests, the model each attempt runs (`Choices`), atomic credential files, sign-ins and secret removal before publication or harness persistence |
 | `spend.rs` | Budget reservations and usage charges deduplicated by model attempt, plus agent/task/hamlet accounting |
-| `society.rs`, `society/` | `SocietyTool` names each society tool, its role and schema; letters/questions, instructions/objections, votes, library and recoverable merge/departure work. The 50 ms sweeps read only due votes and reviews; finished ones are kept under `votes-done` and `review-done` |
+| `society.rs`, `society/` | `SocietyTool` names each society tool, its role and schema; letters/questions, instructions/objections, votes, library and recoverable merge/departure work. The sweeps run on the ticks that rebuild the state, and read only due votes and reviews; finished ones are kept under `votes-done` and `review-done` |
 | `realm.rs`, `realm/` | Living/closed places, cross-hamlet addresses, founding, agreements and pending house moves |
-| `state.rs` | Composes protocol state from the owning records and live activity |
+| `state.rs` | Composes protocol state from the owning records and live activity, with the instant one of its views next changes with the clock alone; `skills_moved` tells whether skills on disk differ from the state's |
 
 `realm.sqlite` holds server-owned records, chief and society documents,
 bindings, inputs, waits, charges and operation markers. It does not hold
@@ -144,7 +144,7 @@ ordinary tools.
 | Questions and their answer cards | `hamlet_server/src/chats/asking.rs`, `chats/calls/ask.rs`, `chats/calls/answer.rs`, `hamlet_ui/src/asking.rs` |
 | Approvals, grants and waits | `hamlet_server/src/gate.rs`, `chats/calls/decide.rs`, `oversight.rs`, `oversight/held.rs` |
 | Selecting, quoting and replying to chat text | `hamlet_ui/src/select.rs`, `screens/chat/quote.rs`, `screens/chat/reply.rs` |
-| Agent creation, model choice, departure and merge | `hamlet_server/src/society/agents.rs`, `leaving.rs`, `merging.rs`, whose `merging/lane.rs` runs every merge and split; rules in `record/` |
+| Agent creation, model choice, departure and merge | `hamlet_server/src/society/agents.rs`, `leaving.rs`, `merging.rs`, whose `merging/lane.rs` runs every merge and split, one at a time; a chief's merge that fails lets the lane and the chief's connection go; rules in `record/` |
 | Letters, questions, votes and library | `hamlet_server/src/society/letters.rs`, `votes.rs`, `library.rs` |
 | Instructions and objections | `hamlet_server/src/society/objections.rs`, `reviews.rs` |
 | Founding and cross-hamlet agreements | `hamlet_server/src/realm/deeds.rs`, `dealings.rs` |

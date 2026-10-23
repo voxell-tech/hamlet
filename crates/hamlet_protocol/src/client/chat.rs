@@ -11,7 +11,6 @@ use crate::client::{Address, AgentRef, RequestId, UsageView};
 )]
 #[serde(deny_unknown_fields)]
 pub struct Say {
-    #[schemars(extend("format" = "uuid"))]
     pub id: RequestId,
     pub text: String,
     pub to: Address,
@@ -26,7 +25,6 @@ pub struct Stop {
     #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "Address")]
     pub agent: Option<Address>,
-    #[schemars(extend("format" = "uuid"))]
     pub id: RequestId,
 }
 
@@ -36,7 +34,6 @@ pub struct Stop {
 #[serde(deny_unknown_fields)]
 pub struct Rewind {
     pub chat: ChatRef,
-    #[schemars(extend("format" = "uuid"))]
     pub id: RequestId,
     pub item: String,
 }
@@ -46,7 +43,6 @@ pub struct Rewind {
 )]
 #[serde(deny_unknown_fields)]
 pub struct New {
-    #[schemars(extend("format" = "uuid"))]
     pub id: RequestId,
     pub to: Address,
 }
@@ -56,7 +52,6 @@ pub struct New {
 )]
 #[serde(deny_unknown_fields)]
 pub struct Resume {
-    #[schemars(extend("format" = "uuid"))]
     pub id: RequestId,
     pub number: i64,
     pub to: Address,
@@ -67,7 +62,6 @@ pub struct Resume {
 )]
 #[serde(deny_unknown_fields)]
 pub struct Retry {
-    #[schemars(extend("format" = "uuid"))]
     pub id: RequestId,
     pub to: Address,
 }
@@ -82,7 +76,6 @@ pub struct Open {
     #[schemars(with = "String")]
     pub before: Option<String>,
     pub chat: ChatRef,
-    #[schemars(extend("format" = "uuid"))]
     pub id: RequestId,
 }
 
@@ -155,7 +148,7 @@ pub struct Transcript {
     pub pending: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]
-    #[schemars(with = "RequestId", extend("format" = "uuid"))]
+    #[schemars(with = "RequestId")]
     pub to: Option<RequestId>,
     pub usage: UsageView,
     pub working: bool,

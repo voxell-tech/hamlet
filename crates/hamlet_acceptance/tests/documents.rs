@@ -12,7 +12,7 @@ fn kind_text(reply: &Reply) -> (&ReplyKind, &str) {
 
 async fn edit(
     c: &mut Client,
-    make: impl FnOnce(String) -> Edit,
+    make: impl FnOnce(RequestId) -> Edit,
 ) -> Reply {
     c.request(|id| ClientMessage::Edit(make(id))).await
 }

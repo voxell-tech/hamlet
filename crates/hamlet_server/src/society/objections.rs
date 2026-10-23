@@ -32,7 +32,7 @@ pub(crate) fn object(
             crate::harness::answers::STOPPED_WORDS.into(),
         ));
     }
-    let db = service.home.store().connection();
+    let db = service.db();
     let id = OperationId {
         runtime: binding.runtime.clone(),
         key: key.into(),
@@ -77,7 +77,7 @@ pub(crate) fn object(
             true,
         ));
     };
-    let db = service.home.store().connection();
+    let db = service.db();
     let task = task.as_str();
     let owner = format!("{}:{task}", binding.id.0);
     let prior = super::document::<Value>(db, "objection", &owner)?;

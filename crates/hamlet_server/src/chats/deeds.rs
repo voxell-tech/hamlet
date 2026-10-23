@@ -122,7 +122,7 @@ async fn start(
 ) -> Result<(BindingId, String)> {
     let previous = super::current(service, harnesses, agent).await?;
     let chief = service.chief.clone();
-    let db = service.home.store().connection();
+    let db = service.db();
     let number = records::sessions(db, agent, &chief)?
         .iter()
         .map(|session| session.number)
@@ -142,7 +142,7 @@ async fn start(
     )
     .await?;
     records::point(
-        service.home.store().connection(),
+        service.db(),
         agent,
         &chief,
         number,
@@ -163,11 +163,7 @@ async fn retire(
     previous: BindingId,
 ) -> Result<()> {
     if follow::reflect_every(service)? != 0 {
-        records::set_retiring(
-            service.home.store().connection(),
-            previous,
-            true,
-        )?;
+        records::set_retiring(service.db(), previous, true)?;
         follow::request_reflection(
             service,
             harnesses,
@@ -188,7 +184,7 @@ async fn resume(
     number: i64,
 ) -> Result<std::result::Result<(BindingId, String), String>> {
     let chief = service.chief.clone();
-    let db = service.home.store().connection();
+    let db = service.db();
     let Some(session) = records::session(db, agent, &chief, number)?
     else {
         return Ok(Err(format!(
@@ -196,7 +192,7 @@ async fn resume(
         )));
     };
     let previous = super::current(service, harnesses, agent).await?;
-    let db = service.home.store().connection();
+    let db = service.db();
     records::select(db, agent, &chief, number)?;
     records::set_retiring(db, session.binding, false)?;
     gate::reset_trust(
@@ -365,14 +361,14 @@ pub(super) async fn rewind(
             _ => {}
         }
     }
-    let db = service.home.store().connection();
+    let db = service.db();
     let reflecting = follow::reserved(db, binding)?;
     if busy(service, binding)? || reflecting {
         return refused(
             "A turn is running here. Stop it, then rewind.",
         );
     }
-    let db = service.home.store().connection();
+    let db = service.db();
     let Some(conversation) = records::kept(db, binding)? else {
         return refused(
             "The current conversation changed. Try again.",
@@ -402,7 +398,7 @@ pub(super) async fn rewind(
                 .fork(service.home.store(), binding, &previous.entry)
                 .await?;
             records::keep(
-                service.home.store().connection(),
+                service.db(),
                 fork,
                 &place,
                 Some(binding),
@@ -422,7 +418,7 @@ pub(super) async fn rewind(
         }
     };
     records::point(
-        service.home.store().connection(),
+        service.db(),
         &agent,
         &chief,
         session,
@@ -432,7 +428,7 @@ pub(super) async fn rewind(
     Ok(ServerMessage::Reply(hamlet_protocol::client::Reply {
         kind: ReplyKind::Rewound,
         text,
-        to: id.into(),
+        to: rewind.id.clone(),
         upload: None,
     }))
 }
@@ -445,7 +441,7 @@ pub(super) async fn stop(
     agent: Option<&Address>,
 ) -> Result<Refusable<String>> {
     let Some(address) = agent else {
-        for record in hamlets(service.home.store().connection())? {
+        for record in hamlets(service.db())? {
             if service.access(&record.id, "stop")?.is_err() {
                 continue;
             }
@@ -480,10 +476,7 @@ pub(crate) async fn stop_agent(
     agent: &AgentRef,
 ) -> Result<()> {
     let mut stopped = false;
-    for binding in records::conversations_of(
-        service.home.store().connection(),
-        agent,
-    )? {
+    for binding in records::conversations_of(service.db(), agent)? {
         if busy(service, binding)? {
             stop_turn(service, harnesses, binding).await?;
             stopped = true;
@@ -515,7 +508,7 @@ async fn end_waits(
     agent: &AgentRef,
 ) -> Result<()> {
     let woken = oversight::stop(
-        service.home.store().connection(),
+        service.db(),
         agent,
         &service.chief,
         crate::clock::now(),

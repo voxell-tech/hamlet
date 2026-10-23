@@ -295,7 +295,7 @@ pub(crate) fn tools_of(
     service: &mut Service,
     binding: BindingId,
 ) -> Result<ConfigureTools> {
-    let db = service.home.store().connection();
+    let db = service.db();
     if let Some(kind) = errand_of(db, binding)? {
         return Ok(ConfigureTools::Only {
             only: SocietyTool::ALL
@@ -316,9 +316,7 @@ pub(crate) fn tools_of(
         .store()
         .record(&place.agent.hamlet)?
         .is_some_and(|record| record.mayor == place.agent.number);
-    let realm =
-        crate::realm::live(service.home.store().connection())?.len()
-            > 1;
+    let realm = crate::realm::live(service.db())?.len() > 1;
     let allowed = |tool: SocietyTool| match tool.role() {
         Role::Every => true,
         Role::Instructed => place.chief.is_some(),
@@ -344,7 +342,7 @@ pub(crate) fn withheld(
     binding: BindingId,
     tool: &str,
 ) -> Result<bool> {
-    let db = service.home.store().connection();
+    let db = service.db();
     Ok(errand_of(db, binding)?.is_some_and(|kind| {
         !(kind == "ballot"
             && SocietyTool::named(tool)
@@ -370,10 +368,10 @@ pub(crate) async fn reconfigure(
     service: &mut Service,
     harnesses: &mut Harnesses,
 ) -> Result<()> {
-    let db = service.home.store().connection();
+    let db = service.db();
     let live = crate::realm::live(db)?;
     for binding in records::all(db)? {
-        let db = service.home.store().connection();
+        let db = service.db();
         let Some(kept) = records::kept(db, binding)? else {
             continue;
         };
@@ -439,7 +437,7 @@ pub(crate) async fn operation(
     tool: &str,
     arguments: &BTreeMap<String, Value>,
 ) -> Result<Answer> {
-    let db = service.home.store().connection();
+    let db = service.db();
     let place = match records::kept(db, binding.id)? {
         Some(kept) => kept.place,
         None => records::Place {
@@ -560,9 +558,7 @@ async fn answer(
         SocietyTool::CallVote => {
             let given = parsed(name, args)?;
             service
-                .home
-                .store()
-                .connection()
+                .db()
                 .execute(
                     "INSERT INTO society_call \
                      (runtime,key,binding,tool,input,data) VALUES \

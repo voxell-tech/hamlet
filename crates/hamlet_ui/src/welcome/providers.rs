@@ -39,10 +39,10 @@ impl Default for Browser {
 #[derive(Resource, Default)]
 pub(super) struct Login {
     pub provider: Option<String>,
-    start: Option<String>,
+    start: Option<protocol::RequestId>,
     id: Option<String>,
-    abandoned: BTreeSet<String>,
-    replies: BTreeSet<String>,
+    abandoned: BTreeSet<protocol::RequestId>,
+    replies: BTreeSet<protocol::RequestId>,
     urls: Vec<String>,
     instructions: Vec<String>,
     code: Option<String>,

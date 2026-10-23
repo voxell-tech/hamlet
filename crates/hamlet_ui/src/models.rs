@@ -43,7 +43,7 @@ pub struct Shelf {
     loaded: bool,
     showing: bool,
     problem: Option<String>,
-    requests: BTreeMap<String, Asked>,
+    requests: BTreeMap<protocol::RequestId, Asked>,
 }
 
 #[derive(Clone, Copy)]
@@ -95,7 +95,7 @@ fn read_models(world: &mut World, refresh: bool) {
 
 fn edit(
     world: &mut World,
-    make: impl FnOnce(String) -> protocol::Edit,
+    make: impl FnOnce(protocol::RequestId) -> protocol::Edit,
 ) {
     let id = world
         .resource_mut::<Outbox>()

@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
-use chrono::{Datelike, Local, TimeZone, Timelike};
+use chrono::{Datelike, Local, Timelike};
 use hamlet_protocol::client::{
     self as protocol, Period, Report, ReportCaps, UsageView,
 };
@@ -70,10 +70,7 @@ pub(crate) fn books(
     task: Option<&str>,
     at: i64,
 ) -> Result<Books> {
-    let date = Local
-        .timestamp_millis_opt(at)
-        .single()
-        .context("budget date")?;
+    let date = crate::clock::local(at)?;
     let today = date.format("%Y-%m-%d").to_string();
     let first = match period {
         Period::Month => date.format("%Y-%m-01").to_string(),
@@ -127,12 +124,8 @@ pub(crate) fn books(
         if task.is_some() && own_task.as_deref() == task {
             result.task.add(amount);
         }
-        let day = Local
-            .timestamp_millis_opt(time)
-            .single()
-            .context("charge date")?
-            .format("%Y-%m-%d")
-            .to_string();
+        let day =
+            crate::clock::local(time)?.format("%Y-%m-%d").to_string();
         if payer != hamlet
             || day < first
             || day > today
@@ -281,7 +274,7 @@ impl Service {
         let at = Local::now();
         let period = &limits.budget.period;
         let books = books(
-            self.home.store().connection(),
+            self.db(),
             hamlet,
             period,
             None,
@@ -392,7 +385,7 @@ impl Service {
     /// Starts the budget period of `hamlet` again from now, keeping
     /// the ledger; gives the words of `/reset-budget`.
     pub fn reset_budget(&mut self, hamlet: &str) -> Result<String> {
-        self.home.store().connection().execute(
+        self.db().execute(
             "INSERT INTO spend_reset(hamlet,at,by,models,roads) \
              VALUES (?1,?2,?3,(SELECT COALESCE(MAX(ordinal),0) FROM \
              harness_usage),(SELECT COALESCE(MAX(id),0) FROM \

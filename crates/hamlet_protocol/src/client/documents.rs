@@ -14,7 +14,6 @@ use crate::client::{
 pub enum Edit {
     #[serde(rename = "charter")]
     Charter {
-        #[schemars(extend("format" = "uuid"))]
         id: RequestId,
         #[serde(deserialize_with = "Option::deserialize")]
         text: Option<String>,
@@ -22,28 +21,21 @@ pub enum Edit {
     #[serde(rename = "character")]
     Character {
         agent: Address,
-        #[schemars(extend("format" = "uuid"))]
         id: RequestId,
         text: String,
     },
     #[serde(rename = "notes")]
     Notes {
         agent: Address,
-        #[schemars(extend("format" = "uuid"))]
         id: RequestId,
         text: String,
     },
     #[serde(rename = "limits")]
     Limits(EditLimits),
     #[serde(rename = "settings")]
-    Settings {
-        #[schemars(extend("format" = "uuid"))]
-        id: RequestId,
-        set: EditSettingsSet,
-    },
+    Settings { id: RequestId, set: EditSettingsSet },
     #[serde(rename = "catalogue")]
     Catalogue {
-        #[schemars(extend("format" = "uuid"))]
         id: RequestId,
         model: String,
         set: EditCatalogueSet,
@@ -57,7 +49,6 @@ pub enum Edit {
 pub enum EditLimits {
     Set {
         hamlet: String,
-        #[schemars(extend("format" = "uuid"))]
         id: RequestId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[serde(deserialize_with = "crate::client::present")]
@@ -67,7 +58,6 @@ pub enum EditLimits {
     },
     Whole {
         hamlet: String,
-        #[schemars(extend("format" = "uuid"))]
         id: RequestId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[serde(deserialize_with = "crate::client::present")]
@@ -150,20 +140,11 @@ pub struct EditCatalogueSet {
 #[serde(tag = "what", deny_unknown_fields)]
 pub enum Read {
     #[serde(rename = "prompt")]
-    Prompt {
-        agent: Address,
-        #[schemars(extend("format" = "uuid"))]
-        id: RequestId,
-    },
+    Prompt { agent: Address, id: RequestId },
     #[serde(rename = "history")]
-    History {
-        agent: Address,
-        #[schemars(extend("format" = "uuid"))]
-        id: RequestId,
-    },
+    History { agent: Address, id: RequestId },
     #[serde(rename = "models")]
     Models {
-        #[schemars(extend("format" = "uuid"))]
         id: RequestId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[serde(deserialize_with = "crate::client::present")]
@@ -177,14 +158,10 @@ pub enum Read {
         #[serde(deserialize_with = "crate::client::present")]
         #[schemars(with = "bool")]
         full: Option<bool>,
-        #[schemars(extend("format" = "uuid"))]
         id: RequestId,
     },
     #[serde(rename = "charter")]
-    Charter {
-        #[schemars(extend("format" = "uuid"))]
-        id: RequestId,
-    },
+    Charter { id: RequestId },
 }
 
 #[derive(
@@ -194,27 +171,22 @@ pub enum Read {
 pub enum ReadResult {
     Prompt {
         prompt: String,
-        #[schemars(extend("format" = "uuid"))]
         to: RequestId,
     },
     History {
         history: Vec<Past>,
-        #[schemars(extend("format" = "uuid"))]
         to: RequestId,
     },
     Models {
         models: Vec<Listed>,
-        #[schemars(extend("format" = "uuid"))]
         to: RequestId,
     },
     Papers {
         papers: Papers,
-        #[schemars(extend("format" = "uuid"))]
         to: RequestId,
     },
     Charter {
         charter: ReadResultCharterCharter,
-        #[schemars(extend("format" = "uuid"))]
         to: RequestId,
     },
 }

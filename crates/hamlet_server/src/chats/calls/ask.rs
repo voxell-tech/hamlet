@@ -29,7 +29,7 @@ pub(super) fn ask(
         ));
     }
     let answered = |text: &str| Ok(Answer::result(text, false));
-    let db = service.home.store().connection();
+    let db = service.db();
     match held::decision(db, &call.id)?.map(|kept| kept.state) {
         Some(CallState::Blocked(words)) => {
             return Ok(Answer::Refusal(words));
@@ -74,7 +74,7 @@ pub(super) fn ask(
     let questions = serde_json::from_value::<Questions>(questions)?;
     let most =
         service.limits_of(&place.agent.hamlet)?.asking.questions;
-    let db = service.home.store().connection();
+    let db = service.db();
     let mut asked = crate::gate::Asked::of(db, binding, call.input)?;
     if asked.questions >= most {
         let times = if most == 1 {
@@ -95,7 +95,7 @@ pub(super) fn ask(
         return answered(NO_CHIEF);
     };
     held::raise(
-        service.home.store().connection(),
+        service.db(),
         Raising {
             about: asking::about(&questions),
             kind: WaitKind::Question(questions),

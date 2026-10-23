@@ -20,8 +20,15 @@ use crate::requests::{BEGIN, NotesWritten, PapersRead};
 use crate::serve::Signals;
 use crate::service::Service;
 
+#[cfg(test)]
+mod tests;
+
 pub(crate) const FAILED: &str =
     "The server could not complete this request.";
+
+/// How often the tools folder is read again for what a chief changed
+/// in it by hand, to send ready runtimes the tools that changed.
+const RESCAN: Duration = Duration::from_secs(2);
 
 /// The request of connection `client` a failed handler was
 /// answering, attached to its error as context.
@@ -69,6 +76,40 @@ pub(crate) struct Serving {
     pub(crate) ready: VecDeque<(u64, String)>,
 }
 
+/// What a tick knows of the state since it last built it, so an idle
+/// tick neither builds it nor reads the store.
+///
+/// What `state()` reads changes through the store, the clock, files
+/// edited by hand, or the owners in memory: the service's settings,
+/// chief, credentials, houses, models, chats and house move. The
+/// state may have changed since a tick built it when an event was
+/// handled, since the store and the owners change only in the loop
+/// while it handles one; when the tick's own steps found work or
+/// changed a row; when the clock passed `turns`, where a road
+/// overgrows or a budget's share gone moves or its period ends; when
+/// the skills in the library or a house differ from the state's; when
+/// a house move's task sent other progress; or when a provider's
+/// answer is overdue.
+struct Since {
+    /// An event was handled.
+    stale: bool,
+    /// The steps of the last tick found work, or changed a row.
+    busy: bool,
+    /// When a view of the state next changes with the clock alone.
+    turns: i64,
+}
+
+impl Since {
+    /// Nothing known yet: the first tick builds the state.
+    fn new() -> Self {
+        Self {
+            stale: true,
+            busy: false,
+            turns: 0,
+        }
+    }
+}
+
 /// The next message due: one a busy connection held back, else the
 /// next event of a connection.
 async fn next_event(
@@ -92,10 +133,14 @@ impl Serving {
     ) -> Result<()> {
         let mut tick =
             tokio::time::interval(Duration::from_millis(50));
+        let mut rescan = tokio::time::interval(RESCAN);
+        let mut since = Since::new();
         loop {
             // False when the event was dealt with in full, with
             // nothing to settle after it.
             let mut settles = true;
+            // True for the timers, whose turn handles no event.
+            let mut timed = false;
             let handled = tokio::select! {
                 biased;
                 _ = signals.next() => break,
@@ -112,7 +157,15 @@ impl Serving {
                         .await
                         .map(|then| settles = then)
                 }
-                _ = tick.tick() => self.on_tick().await,
+                _ = tick.tick() => {
+                    timed = true;
+                    self.on_tick(&mut since).await
+                }
+                _ = rescan.tick() => {
+                    timed = true;
+                    self.harnesses.refresh_tools().await;
+                    Ok(())
+                }
                 event = self.harnesses.next() => {
                     self
                         .on_harness(event)
@@ -154,6 +207,7 @@ impl Serving {
                 }
                 Some(_) = self.tasks.join_next() => Ok(()),
             };
+            since.stale |= !timed;
             let settled = handled.and_then(|()| {
                 if settles { self.settle() } else { Ok(()) }
             });
@@ -244,18 +298,38 @@ impl Serving {
                 .any(|(owner, _)| *owner == id)
     }
 
-    async fn on_tick(&mut self) -> Result<()> {
+    /// Moves on the house work, votes, reviews and merges, answers
+    /// overdue provider requests and sends what changed, unless
+    /// `since` and the skills on disk show nothing could have. The
+    /// skills on disk are compared on every tick, so one a chief puts
+    /// in a house or the library by hand shows within a tick.
+    async fn on_tick(&mut self, since: &mut Since) -> Result<()> {
         use crate::society::{merging, reviews, votes};
+        self.service.gifts.expire();
+        let expired = self.service.models.expired();
+        let due = since.stale
+            || since.busy
+            || !expired.is_empty()
+            || crate::clock::now() >= since.turns
+            || self.service.moving.view()
+                != self.state.settings.workspace.move_;
+        if !due
+            && !crate::state::skills_moved(
+                &mut self.service,
+                &self.state,
+            )?
+        {
+            return Ok(());
+        }
         let service = &mut self.service;
-        service.gifts.expire();
-        service
-            .house_work
-            .retire(service.home.store().connection())?;
-        votes::sweep(service, &mut self.harnesses).await?;
-        reviews::sweep(service, &mut self.harnesses).await?;
-        merging::lane::advance(service, &mut self.harnesses).await?;
-        self.harnesses.refresh_tools().await;
-        for result in self.service.models.expired() {
+        let before = service.home.store().changes();
+        service.house_work.retire(service.home.connection())?;
+        let mut busy =
+            votes::sweep(service, &mut self.harnesses).await?;
+        busy |= reviews::sweep(service, &mut self.harnesses).await?;
+        busy |= merging::lane::advance(service, &mut self.harnesses)
+            .await?;
+        for result in expired {
             for (id, answer) in
                 self.service.provider_result(result)?
             {
@@ -263,7 +337,13 @@ impl Serving {
             }
         }
         flush_models(&mut self.service, &mut self.harnesses).await?;
-        self.refresh()
+        busy |= self.service.home.store().changes() != before;
+        since.busy = busy;
+        // A rebuild that fails is tried again on the next tick.
+        since.stale = true;
+        since.turns = self.rebuild()?;
+        since.stale = false;
+        Ok(())
     }
 
     pub(crate) async fn on_harness(
@@ -482,13 +562,22 @@ impl Serving {
     /// Sends welcomed clients what changed in the state since they
     /// were last sent it.
     pub(crate) fn refresh(&mut self) -> Result<()> {
-        let mut after = self
-            .service
-            .state(self.state.epoch, self.state.revision)?;
+        self.rebuild().map(drop)
+    }
+
+    /// Refreshes, and gives the instant one of the state's views
+    /// next changes with the clock alone.
+    fn rebuild(&mut self) -> Result<i64> {
+        let built = crate::state::build(
+            &mut self.service,
+            self.state.epoch,
+            self.state.revision,
+        )?;
+        let mut after = built.state;
         let mut endings = HashMap::new();
         for wait in &self.state.waits {
             if !after.waits.iter().any(|w| w.id == wait.id) {
-                let db = self.service.home.store().connection();
+                let db = self.service.db();
                 endings.insert(
                     wait.id.clone(),
                     crate::oversight::ended(db, &wait.id)?,
@@ -516,7 +605,7 @@ impl Serving {
         // Gone follows the client's last admitted message, even when
         // it no longer reads replies.
         self.clients.retain(|_, c| !c.refused);
-        Ok(())
+        Ok(built.turns)
     }
 }
 

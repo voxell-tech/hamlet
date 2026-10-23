@@ -11,6 +11,7 @@ mod chat;
 mod documents;
 mod gifts;
 mod limits;
+mod request_id;
 mod settings;
 mod state;
 mod waits;
@@ -19,13 +20,14 @@ pub use chat::*;
 pub use documents::*;
 pub use gifts::*;
 pub use limits::*;
+pub use request_id::*;
 pub use settings::*;
 pub use state::*;
 pub use waits::*;
 
 impl ClientMessage {
     /// The id of this request, if it has one.
-    pub fn id(&self) -> Option<&str> {
+    pub fn id(&self) -> Option<&RequestId> {
         match self {
             Self::Hello(_) | Self::Close(_) => None,
             Self::Say(Say { id, .. })
@@ -73,12 +75,12 @@ impl ClientMessage {
 
 impl ServerMessage {
     /// The request this message answers, if any.
-    pub fn to(&self) -> Option<&str> {
+    pub fn to(&self) -> Option<&RequestId> {
         match self {
             Self::Reply(reply) => Some(&reply.to),
-            Self::Fault(fault) => fault.to.as_deref(),
-            Self::Transcript(transcript) => transcript.to.as_deref(),
-            Self::Login(login) => login.to.as_deref(),
+            Self::Fault(fault) => fault.to.as_ref(),
+            Self::Transcript(transcript) => transcript.to.as_ref(),
+            Self::Login(login) => login.to.as_ref(),
             Self::Read(
                 ReadResult::Prompt { to, .. }
                 | ReadResult::History { to, .. }
@@ -158,8 +160,6 @@ pub enum ServerMessage {
     Fault(Fault),
 }
 
-pub type RequestId = String;
-
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
@@ -177,7 +177,6 @@ pub struct Hello {
 pub struct Reply {
     pub kind: ReplyKind,
     pub text: String,
-    #[schemars(extend("format" = "uuid"))]
     pub to: RequestId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "present")]
@@ -205,7 +204,7 @@ pub struct Fault {
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "present")]
-    #[schemars(with = "RequestId", extend("format" = "uuid"))]
+    #[schemars(with = "RequestId")]
     pub to: Option<RequestId>,
 }
 

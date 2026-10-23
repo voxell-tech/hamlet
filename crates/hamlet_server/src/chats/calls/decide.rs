@@ -93,12 +93,7 @@ pub(super) fn admit<'a>(
         &mut canonical,
     );
     let digest = Sha256::digest(canonical);
-    if !held::reserve(
-        service.home.store().connection(),
-        &id,
-        binding,
-        &digest,
-    )? {
+    if !held::reserve(service.db(), &id, binding, &digest)? {
         return Ok(Err(Unadmitted::Changed));
     }
     let hand = crate::hand::load(service.home.layout().root())
@@ -187,7 +182,7 @@ pub(super) fn kept(
     service: &mut Service,
     id: &OperationId,
 ) -> Result<Option<Decision>> {
-    let db = service.home.store().connection();
+    let db = service.db();
     let Some(call) = held::decision(db, id)? else {
         return Ok(None);
     };
@@ -232,21 +227,14 @@ fn fresh(
     preview: Option<&std::result::Result<Option<String>, String>>,
 ) -> Result<Decision> {
     let (id, binding, input) = (&call.id, call.bound.id, call.input);
-    let db = service.home.store().connection();
+    let db = service.db();
     let Some(conversation) = records::kept(db, binding)? else {
         held::allow(db, id, binding, input, false, None)?;
         return Ok(Decision::Run { net: false });
     };
     if service.home.store().cancelling(binding)? {
         let words = crate::harness::answers::STOPPED_WORDS;
-        held::block(
-            service.home.store().connection(),
-            id,
-            binding,
-            input,
-            words,
-            None,
-        )?;
+        held::block(service.db(), id, binding, input, words, None)?;
         return Ok(Decision::Block(words.into()));
     }
     let place = conversation.place;
@@ -267,7 +255,7 @@ fn fresh(
     let about = service
         .credentials
         .scrub_text(&gate::call_text(&reach.call));
-    let db = service.home.store().connection();
+    let db = service.db();
     let asked = Asked::of(db, binding, input)?;
     let verdict = gate::rule(
         &reach.call,
@@ -310,7 +298,7 @@ fn fresh(
         && super::reflecting(service, binding, input)?
     {
         held::block(
-            service.home.store().connection(),
+            service.db(),
             id,
             binding,
             input,
@@ -320,7 +308,7 @@ fn fresh(
         return Ok(Decision::Block(NOBODY.into()));
     }
     held::raise(
-        service.home.store().connection(),
+        service.db(),
         Raising {
             kind: WaitKind::Approval(danger),
             by,
@@ -430,7 +418,7 @@ pub(super) fn standing(
     let work = service.work(hamlet)?;
     let limits = &record.limits.chief;
     let allow_net = service.settings()?.allow_net;
-    let db = service.home.store().connection();
+    let db = service.db();
     let grants = gate::grants(db)?;
     let by = record.address_of(place.agent.number);
     let chief = place.chief.clone().unwrap_or_default();
@@ -723,12 +711,7 @@ mod tests {
         let (mut service, binding, _) = served(&scratch);
         let mut limits = service.limits_of("home").unwrap();
         limits.mayor.build_roads = false;
-        crate::limits::set(
-            service.home.store().connection(),
-            "home",
-            limits,
-        )
-        .unwrap();
+        crate::limits::set(service.db(), "home", limits).unwrap();
         let road = |b: &str| {
             BTreeMap::from([
                 ("a".to_owned(), json!("founder")),
@@ -765,7 +748,7 @@ mod tests {
             number: 0,
         };
         gate::give(
-            service.home.store().connection(),
+            service.db(),
             &agent,
             "mayor",
             &Permission::Network,
@@ -783,7 +766,7 @@ mod tests {
             Decision::Run { net: true }
         ));
         gate::revoke(
-            service.home.store().connection(),
+            service.db(),
             &agent,
             &Permission::Network,
             "chief",

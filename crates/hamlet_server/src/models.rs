@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use hamlet_protocol::client::{
     Check, ClientMessage, EditCatalogueSet, Link, LinkState, Listed,
     ListedPriced, Login, LoginMethod, LoginProgress, LoginStep,
-    Price as ListedPrice, ProviderView, Read, ReadResult,
+    Price as ListedPrice, ProviderView, Read, ReadResult, RequestId,
     ServerMessage,
 };
 use hamlet_protocol::runtime::{
@@ -43,8 +43,9 @@ pub(crate) struct Models {
 }
 
 struct Pending {
-    client: Option<u64>,
-    id: String,
+    /// The connection and request it answers; unset when the server
+    /// asked.
+    from: Option<(u64, RequestId)>,
     provider: String,
     action: ProviderRequestAction,
     login: Option<String>,
@@ -53,9 +54,15 @@ struct Pending {
 }
 struct SignIn {
     client: u64,
-    id: String,
+    id: RequestId,
     scope: String,
     prompt: Option<String>,
+}
+
+impl Pending {
+    fn client(&self) -> Option<u64> {
+        self.from.as_ref().map(|(client, _)| *client)
+    }
 }
 
 impl Models {
@@ -82,19 +89,19 @@ impl Models {
     }
 
     pub fn starting(&self) -> bool {
-        self.pending.values().any(|p| p.client.is_none())
+        self.pending.values().any(|p| p.from.is_none())
     }
 
     pub fn disconnect(&mut self, client: u64) {
         for (scope, _) in self
             .pending
             .iter()
-            .filter(|(_, s)| s.client == Some(client))
+            .filter(|(_, s)| s.client() == Some(client))
         {
             self.controls.push(control(scope, None, None));
         }
         self.logins.retain(|_, s| s.client != client);
-        self.pending.retain(|_, s| s.client != Some(client));
+        self.pending.retain(|_, s| s.client() != Some(client));
     }
 
     pub(crate) fn base_url(
@@ -136,7 +143,6 @@ impl Service {
         self.ask_provider(
             None,
             "",
-            "",
             ProviderRequestAction::Describe,
             None,
             None,
@@ -147,7 +153,6 @@ impl Service {
             for endpoint in &settings.endpoints {
                 self.ask_provider(
                     None,
-                    "",
                     &endpoint.name,
                     ProviderRequestAction::Refresh,
                     None,
@@ -159,14 +164,9 @@ impl Service {
         Ok(())
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the fields of one provider request"
-    )]
     fn ask_provider(
         &mut self,
-        client: Option<u64>,
-        id: &str,
+        from: Option<(u64, &RequestId)>,
         provider: &str,
         action: ProviderRequestAction,
         model: Option<String>,
@@ -192,8 +192,7 @@ impl Service {
         self.models.pending.insert(
             key.clone(),
             Pending {
-                client,
-                id: id.into(),
+                from: from.map(|(client, id)| (client, id.clone())),
                 provider: provider.into(),
                 action: action.clone(),
                 login,
@@ -267,8 +266,7 @@ impl Service {
                 };
                 self.model_link(LinkState::Testing, None, None)?;
                 self.ask_provider(
-                    Some(client),
-                    id,
+                    Some((client, id)),
                     &provider,
                     action,
                     Some(model),
@@ -282,8 +280,7 @@ impl Service {
                     let endpoints = settings.endpoints;
                     for endpoint in &endpoints {
                         self.ask_provider(
-                            Some(client),
-                            id,
+                            Some((client, id)),
                             &endpoint.name,
                             ProviderRequestAction::Refresh,
                             None,
@@ -328,8 +325,7 @@ impl Service {
                         )?);
                     } else {
                         self.ask_provider(
-                            Some(client),
-                            id,
+                            Some((client, id)),
                             &start.provider,
                             ProviderRequestAction::Login,
                             None,
@@ -496,11 +492,9 @@ impl Service {
                 },
                 Some(failed) => LoginStep::Failed { failed },
             };
-            if let Some(client) = pending.client {
-                answers.push((
-                    client,
-                    login_step(&pending.id, &login, step)?,
-                ));
+            if let Some((client, id)) = &pending.from {
+                answers
+                    .push((*client, login_step(id, &login, step)?));
             }
             return Ok(answers);
         }
@@ -572,18 +566,18 @@ impl Service {
             },
             Some(&words),
         )?;
-        if let Some(client) = pending.client {
+        if let Some((client, id)) = &pending.from {
             if pending.read {
-                if !self.models.pending.values().any(|p| {
-                    p.client == Some(client) && p.id == pending.id
-                }) {
-                    answers.push((
-                        client,
-                        self.catalogue_read(&pending.id)?,
-                    ));
+                if !self
+                    .models
+                    .pending
+                    .values()
+                    .any(|p| p.from == pending.from)
+                {
+                    answers.push((*client, self.catalogue_read(id)?));
                 }
             } else {
-                answers.push((client, reply(&pending.id, Ok(words))));
+                answers.push((*client, reply(id, Ok(words))));
             }
         }
         Ok(answers)
@@ -629,7 +623,7 @@ impl Service {
         count: Option<i64>,
         words: Option<&str>,
     ) -> Result<()> {
-        let db = self.home.store().connection();
+        let db = self.db();
         let mut settings = crate::settings::stored(db)?;
         settings.link = Link {
             state,
@@ -692,7 +686,7 @@ impl Service {
         provider: &str,
         list: &[Value],
     ) -> Result<()> {
-        let db = self.home.store().connection();
+        let db = self.db();
         let mut cards = catalogue(db)?;
         for model in list {
             let name = format!(
@@ -756,13 +750,12 @@ impl Service {
 
     pub(crate) fn catalogue_read(
         &mut self,
-        id: &str,
+        id: &RequestId,
     ) -> Result<ServerMessage> {
-        let cards = catalogue(self.home.store().connection())?
-            .into_values()
-            .collect::<Vec<_>>();
+        let cards =
+            catalogue(self.db())?.into_values().collect::<Vec<_>>();
         Ok(ServerMessage::Read(ReadResult::Models {
-            to: id.into(),
+            to: id.clone(),
             models: cards,
         }))
     }
@@ -783,7 +776,7 @@ impl Service {
                 "a cost is a number of zero or more".into(),
             )));
         }
-        let db = self.home.store().connection();
+        let db = self.db();
         let mut cards = catalogue(db)?;
         let Some(card) = cards.get_mut(name) else {
             return Ok(Err(Refusal::Invalid(format!(
@@ -827,12 +820,12 @@ fn control(
 }
 
 fn login_step(
-    id: &str,
+    id: &RequestId,
     login: &str,
     step: LoginStep,
 ) -> Result<ServerMessage> {
     Ok(ServerMessage::Login(LoginProgress {
-        to: Some(id.into()),
+        to: Some(id.clone()),
         login: login.into(),
         step,
     }))

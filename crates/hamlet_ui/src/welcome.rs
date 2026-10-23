@@ -68,7 +68,7 @@ pub struct Welcome {
     narrow: String,
     manual: bool,
     trying: bool,
-    requests: BTreeMap<String, Asked>,
+    requests: BTreeMap<protocol::RequestId, Asked>,
 }
 
 #[derive(Clone)]

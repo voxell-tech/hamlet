@@ -996,7 +996,7 @@ async fn admits_a_line_sent_twice_with_one_id_once() {
     let mayor_chat = chat(mayor());
     s.chief.open(&mayor_chat).await;
     let line = ClientMessage::Say(Say {
-        id: id(),
+        id: RequestId::new(),
         to: mayor(),
         text: "Only once.".into(),
     });

@@ -49,16 +49,11 @@ pub fn chat(with: Address) -> ChatRef {
     }
 }
 
-/// A fresh request ID.
-pub fn id() -> String {
-    uuid::Uuid::new_v4().to_string()
-}
-
 /// An authenticated connection and everything it received.
 pub struct Client {
     wire: Wire,
     log: Vec<ServerMessage>,
-    pages: HashSet<String>,
+    pages: HashSet<RequestId>,
 }
 
 impl Client {
@@ -161,15 +156,15 @@ impl Client {
     /// the message that answers it.
     pub async fn ask(
         &mut self,
-        make: impl FnOnce(String) -> ClientMessage,
+        make: impl FnOnce(RequestId) -> ClientMessage,
     ) -> ServerMessage {
-        let id = id();
+        let id = RequestId::new();
         self.send(make(id.clone())).await;
         self.answer(&id).await
     }
 
     /// Waits for the message answering the request `id`.
-    pub async fn answer(&mut self, id: &str) -> ServerMessage {
+    pub async fn answer(&mut self, id: &RequestId) -> ServerMessage {
         let found = |log: &[ServerMessage]| {
             log.iter().find(|m| m.to() == Some(id)).cloned()
         };
@@ -187,8 +182,12 @@ impl Client {
     }
 
     /// Sends a chief's line without waiting, giving its request ID.
-    pub async fn tell(&mut self, to: Address, text: &str) -> String {
-        let id = id();
+    pub async fn tell(
+        &mut self,
+        to: Address,
+        text: &str,
+    ) -> RequestId {
+        let id = RequestId::new();
         self.send(ClientMessage::Say(Say {
             id: id.clone(),
             to,
@@ -199,7 +198,7 @@ impl Client {
     }
 
     /// Waits for the reply to the request `id`.
-    pub async fn reply(&mut self, id: &str) -> Reply {
+    pub async fn reply(&mut self, id: &RequestId) -> Reply {
         match self.answer(id).await {
             ServerMessage::Reply(reply) => reply,
             other => panic!("{id} got {other:?}, not a reply"),
@@ -209,7 +208,7 @@ impl Client {
     /// Sends a request that answers with a reply.
     pub async fn request(
         &mut self,
-        make: impl FnOnce(String) -> ClientMessage,
+        make: impl FnOnce(RequestId) -> ClientMessage,
     ) -> Reply {
         match self.ask(make).await {
             ServerMessage::Reply(reply) => reply,
@@ -301,7 +300,7 @@ impl Client {
         chat: &ChatRef,
         before: &str,
     ) -> ServerMessage {
-        let id = id();
+        let id = RequestId::new();
         self.pages.insert(id.clone());
         self.send(ClientMessage::Open(Open {
             id: id.clone(),
@@ -315,7 +314,7 @@ impl Client {
     /// Reads `what`, built from a fresh ID.
     pub async fn read(
         &mut self,
-        make: impl FnOnce(String) -> Read,
+        make: impl FnOnce(RequestId) -> Read,
     ) -> ServerMessage {
         self.ask(|id| ClientMessage::Read(make(id))).await
     }

@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result};
 use hamlet_protocol::client::{
-    ClientMessage, Fault, Reply, ReplyKind, ServerMessage,
+    ClientMessage, Fault, Reply, ReplyKind, RequestId, ServerMessage,
 };
 use jsonschema::JsonType;
 use jsonschema::error::{TypeKind, ValidationErrorKind};
@@ -33,6 +33,9 @@ impl Refusal {
     }
 }
 
+/// The answer to request `id`. An `id` that is not a request id,
+/// which only a defect passes, is answered with a fault for no
+/// request.
 pub(crate) fn reply(
     id: &str,
     result: Refusable<String>,
@@ -41,20 +44,25 @@ pub(crate) fn reply(
         Ok(text) => (ReplyKind::Notice, text),
         Err(refusal) => (ReplyKind::Error, refusal.text()),
     };
-    ServerMessage::Reply(Reply {
-        to: id.into(),
-        kind,
-        text,
-        upload: None,
-    })
+    match id.parse() {
+        Ok(to) => ServerMessage::Reply(Reply {
+            to,
+            kind,
+            text,
+            upload: None,
+        }),
+        Err(_) => fault(None, text),
+    }
 }
 
+/// A fault answering request `to`, or none when `to` is not a
+/// request's id.
 pub(crate) fn fault(
     to: Option<&str>,
     text: impl Into<String>,
 ) -> ServerMessage {
     ServerMessage::Fault(Fault {
-        to: to.map(String::from),
+        to: to.and_then(|to| to.parse().ok()),
         text: text.into(),
     })
 }
@@ -116,8 +124,7 @@ impl Protocol {
         };
         let to = value["id"]
             .as_str()
-            .filter(|id| valid_id(id))
-            .map(String::from);
+            .and_then(|id| id.parse::<RequestId>().ok());
         let fail = |text| {
             Err(Fault {
                 to: to.clone(),
@@ -216,10 +223,6 @@ fn whole_numbers(value: &mut Value) {
         }
         _ => {}
     }
-}
-
-fn valid_id(id: &str) -> bool {
-    id.len() == 36 && uuid::Uuid::try_parse(id).is_ok()
 }
 
 fn resolve<'a>(form: &'a Value, schema: &'a Value) -> &'a Value {
@@ -429,6 +432,38 @@ mod tests {
                     .to,
                 None
             );
+        }
+    }
+
+    #[test]
+    fn the_schema_takes_as_an_id_just_what_request_id_does() {
+        let protocol = Protocol::new().unwrap();
+        let id = "0f8fad5b-d9cb-469f-a165-70867728950e";
+        for text in [
+            id.to_owned(),
+            id.to_uppercase(),
+            id.replace('-', ""),
+            format!("{{{id}}}"),
+            format!("urn:uuid:{id}"),
+            id.replacen('-', "", 1) + "0",
+            id.replace('e', "g"),
+            format!("{}\u{e9}", &id[..34]),
+            String::new(),
+        ] {
+            let message =
+                serde_json::json!({"type": "stop", "id": text})
+                    .to_string();
+            match protocol.parse(&message) {
+                Ok(_) => assert!(text.parse::<RequestId>().is_ok()),
+                Err(fault) => {
+                    assert!(text.parse::<RequestId>().is_err());
+                    assert_eq!(
+                        fault.text,
+                        "This `stop` message does not fit the \
+                         protocol: `id` must be a UUID."
+                    );
+                }
+            }
         }
     }
 

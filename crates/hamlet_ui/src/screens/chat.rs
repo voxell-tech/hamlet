@@ -131,7 +131,7 @@ fn fault(
 }
 
 #[derive(Resource, Default)]
-struct Requests(HashSet<String>);
+struct Requests(HashSet<protocol::RequestId>);
 
 fn remember_said(message: On<UserMessage>, mut commands: Commands) {
     let message = message.event().clone();
@@ -173,7 +173,9 @@ fn remember_rewind(
 
 fn remember(
     world: &mut World,
-    request: impl Fn(&protocol::ClientMessage) -> Option<String>,
+    request: impl Fn(
+        &protocol::ClientMessage,
+    ) -> Option<protocol::RequestId>,
 ) {
     let ids = world
         .resource::<Outbox>()

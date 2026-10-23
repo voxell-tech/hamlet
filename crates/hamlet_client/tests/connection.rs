@@ -90,7 +90,7 @@ async fn window_closed(socket: &mut WebSocketStream<TcpStream>) {
     .expect("Closing the window left its connection running.");
 }
 
-fn say(app: &mut App, text: &str) -> String {
+fn say(app: &mut App, text: &str) -> protocol::RequestId {
     app.world_mut().resource_mut::<Outbox>().send(|id| {
         protocol::ClientMessage::Say(protocol::Say {
             id,
@@ -690,7 +690,7 @@ async fn only_policy_after_an_unaddressed_fault_refuses() {
                 send(
                     &mut socket,
                     protocol::ServerMessage::Fault(protocol::Fault {
-                        to: addressed.then(|| "a-request".into()),
+                        to: addressed.then(protocol::RequestId::new),
                         text: "The work failed, not the token".into(),
                     }),
                 )

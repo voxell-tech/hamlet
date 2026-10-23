@@ -5,6 +5,10 @@ use serde_json::{Value, json};
 
 const ID: &str = "00000000-0000-4000-8000-000000000001";
 
+fn id() -> RequestId {
+    ID.parse().unwrap()
+}
+
 fn client(message: ClientMessage, wire: Value) {
     assert_eq!(serde_json::to_value(&message).unwrap(), wire);
     assert_eq!(
@@ -28,7 +32,7 @@ fn catalogue_edits_preserve_missing_null_and_assigned_prices() {
     ] {
         client(
             ClientMessage::Edit(Edit::Catalogue {
-                id: ID.into(),
+                id: id(),
                 model: "faux/test".into(),
                 set: EditCatalogueSet {
                     allowed: None,
@@ -72,7 +76,7 @@ fn hello_carries_the_version_and_token() {
 fn chief_requests_carry_addresses_ids_and_choices() {
     client(
         ClientMessage::Say(Say {
-            id: ID.into(),
+            id: id(),
             to: address(),
             text: "Hello".into(),
         }),
@@ -80,7 +84,7 @@ fn chief_requests_carry_addresses_ids_and_choices() {
     );
     client(
         ClientMessage::Answer(Answer {
-            id: ID.into(),
+            id: id(),
             wait: "wait-1".into(),
             choice: Choice::Allow,
             text: None,
@@ -90,7 +94,7 @@ fn chief_requests_carry_addresses_ids_and_choices() {
     );
     client(
         ClientMessage::Answer(Answer {
-            id: ID.into(),
+            id: id(),
             wait: "wait-1".into(),
             choice: Choice::Reply,
             text: Some("Yes".into()),
@@ -100,21 +104,21 @@ fn chief_requests_carry_addresses_ids_and_choices() {
     );
     client(
         ClientMessage::Stop(Stop {
-            id: ID.into(),
+            id: id(),
             agent: None,
         }),
         json!({"type": "stop", "id": ID}),
     );
     client(
         ClientMessage::Stop(Stop {
-            id: ID.into(),
+            id: id(),
             agent: Some(address()),
         }),
         json!({"type": "stop", "id": ID, "agent": {"hamlet": "home", "agent": "mayor"}}),
     );
     client(
         ClientMessage::Rewind(Rewind {
-            id: ID.into(),
+            id: id(),
             chat: chat(),
             item: "entry:0".into(),
         }),
@@ -122,14 +126,14 @@ fn chief_requests_carry_addresses_ids_and_choices() {
     );
     client(
         ClientMessage::New(New {
-            id: ID.into(),
+            id: id(),
             to: address(),
         }),
         json!({"type": "new", "id": ID, "to": {"hamlet": "home", "agent": "mayor"}}),
     );
     client(
         ClientMessage::Resume(Resume {
-            id: ID.into(),
+            id: id(),
             to: address(),
             number: 2,
         }),
@@ -137,7 +141,7 @@ fn chief_requests_carry_addresses_ids_and_choices() {
     );
     client(
         ClientMessage::Retry(Retry {
-            id: ID.into(),
+            id: id(),
             to: address(),
         }),
         json!({"type": "retry", "id": ID, "to": {"hamlet": "home", "agent": "mayor"}}),
@@ -149,21 +153,21 @@ fn edits_choose_the_document_and_keep_limits_set_and_whole_distinct()
 {
     client(
         ClientMessage::Edit(Edit::Charter {
-            id: ID.into(),
+            id: id(),
             text: None,
         }),
         json!({"type": "edit", "id": ID, "doc": "charter", "text": null}),
     );
     client(
         ClientMessage::Edit(Edit::Charter {
-            id: ID.into(),
+            id: id(),
             text: Some("Be kind".into()),
         }),
         json!({"type": "edit", "id": ID, "doc": "charter", "text": "Be kind"}),
     );
     client(
         ClientMessage::Edit(Edit::Character {
-            id: ID.into(),
+            id: id(),
             agent: address(),
             text: "Careful".into(),
         }),
@@ -171,7 +175,7 @@ fn edits_choose_the_document_and_keep_limits_set_and_whole_distinct()
     );
     client(
         ClientMessage::Edit(Edit::Notes {
-            id: ID.into(),
+            id: id(),
             agent: address(),
             text: "Remember".into(),
         }),
@@ -180,7 +184,7 @@ fn edits_choose_the_document_and_keep_limits_set_and_whole_distinct()
     for value in [json!(2.0), Value::Null] {
         client(
             ClientMessage::Edit(Edit::Limits(EditLimits::Set {
-                id: ID.into(),
+                id: id(),
                 hamlet: "home".into(),
                 reason: None,
                 set: EditLimitsSetSet {
@@ -194,7 +198,7 @@ fn edits_choose_the_document_and_keep_limits_set_and_whole_distinct()
     }
     client(
         ClientMessage::Edit(Edit::Limits(EditLimits::Whole {
-            id: ID.into(),
+            id: id(),
             hamlet: "home".into(),
             reason: Some("Room to grow".into()),
             whole: std::collections::BTreeMap::from([(
@@ -206,7 +210,7 @@ fn edits_choose_the_document_and_keep_limits_set_and_whole_distinct()
     );
     client(
         ClientMessage::Edit(Edit::Settings {
-            id: ID.into(),
+            id: id(),
             set: EditSettingsSet {
                 model: Some("faux/test".into()),
                 reflect_every: Some(10),
@@ -222,7 +226,7 @@ fn edits_choose_the_document_and_keep_limits_set_and_whole_distinct()
     );
     client(
         ClientMessage::Edit(Edit::Settings {
-            id: ID.into(),
+            id: id(),
             set: EditSettingsSet {
                 model: None,
                 reflect_every: None,
@@ -235,7 +239,7 @@ fn edits_choose_the_document_and_keep_limits_set_and_whole_distinct()
     );
     client(
         ClientMessage::Edit(Edit::Catalogue {
-            id: ID.into(),
+            id: id(),
             model: "faux/test".into(),
             set: EditCatalogueSet {
                 allowed: Some(true),
@@ -251,7 +255,7 @@ fn edits_choose_the_document_and_keep_limits_set_and_whole_distinct()
 fn watches_open_pages_and_close_without_a_request_id() {
     client(
         ClientMessage::Open(Open {
-            id: ID.into(),
+            id: id(),
             chat: chat(),
             before: Some("entry:0".into()),
         }),
@@ -259,7 +263,7 @@ fn watches_open_pages_and_close_without_a_request_id() {
     );
     client(
         ClientMessage::Open(Open {
-            id: ID.into(),
+            id: id(),
             chat: ChatRef {
                 kind: None,
                 from: None,
@@ -280,7 +284,7 @@ fn watches_open_pages_and_close_without_a_request_id() {
 fn logins_start_answer_and_cancel_without_repeating_the_type_tag() {
     client(
         ClientMessage::Login(Login::Start {
-            id: ID.into(),
+            id: id(),
             start: LoginStartStart {
                 provider: "openai".into(),
                 method: LoginMethod::Key,
@@ -290,7 +294,7 @@ fn logins_start_answer_and_cancel_without_repeating_the_type_tag() {
     );
     client(
         ClientMessage::Login(Login::Start {
-            id: ID.into(),
+            id: id(),
             start: LoginStartStart {
                 provider: "chatgpt".into(),
                 method: LoginMethod::Subscription,
@@ -300,7 +304,7 @@ fn logins_start_answer_and_cancel_without_repeating_the_type_tag() {
     );
     client(
         ClientMessage::Login(Login::Reply {
-            id: ID.into(),
+            id: id(),
             reply: LoginReplyReply {
                 login: "login-1".into(),
                 value: "fake-key".into(),
@@ -310,7 +314,7 @@ fn logins_start_answer_and_cancel_without_repeating_the_type_tag() {
     );
     client(
         ClientMessage::Login(Login::Cancel {
-            id: ID.into(),
+            id: id(),
             cancel: "login-1".into(),
         }),
         json!({"type": "login", "id": ID, "cancel": "login-1"}),
@@ -321,53 +325,53 @@ fn logins_start_answer_and_cancel_without_repeating_the_type_tag() {
 fn checks_and_reads_select_what_the_chief_requested() {
     client(
         ClientMessage::Check(Check::Model {
-            id: ID.into(),
+            id: id(),
             model: Some("faux/test".into()),
         }),
         json!({"type": "check", "id": ID, "what": "model", "model": "faux/test"}),
     );
     client(
         ClientMessage::Check(Check::Model {
-            id: ID.into(),
+            id: id(),
             model: None,
         }),
         json!({"type": "check", "id": ID, "what": "model"}),
     );
     client(
-        ClientMessage::Check(Check::Connection { id: ID.into() }),
+        ClientMessage::Check(Check::Connection { id: id() }),
         json!({"type": "check", "id": ID, "what": "connection"}),
     );
     client(
         ClientMessage::Read(Read::Prompt {
-            id: ID.into(),
+            id: id(),
             agent: address(),
         }),
         json!({"type": "read", "id": ID, "what": "prompt", "agent": {"hamlet": "home", "agent": "mayor"}}),
     );
     client(
         ClientMessage::Read(Read::History {
-            id: ID.into(),
+            id: id(),
             agent: address(),
         }),
         json!({"type": "read", "id": ID, "what": "history", "agent": {"hamlet": "home", "agent": "mayor"}}),
     );
     client(
         ClientMessage::Read(Read::Models {
-            id: ID.into(),
+            id: id(),
             refresh: Some(true),
         }),
         json!({"type": "read", "id": ID, "what": "models", "refresh": true}),
     );
     client(
         ClientMessage::Read(Read::Models {
-            id: ID.into(),
+            id: id(),
             refresh: None,
         }),
         json!({"type": "read", "id": ID, "what": "models"}),
     );
     client(
         ClientMessage::Read(Read::Papers {
-            id: ID.into(),
+            id: id(),
             agent: address(),
             full: Some(true),
         }),
@@ -375,14 +379,14 @@ fn checks_and_reads_select_what_the_chief_requested() {
     );
     client(
         ClientMessage::Read(Read::Papers {
-            id: ID.into(),
+            id: id(),
             agent: address(),
             full: None,
         }),
         json!({"type": "read", "id": ID, "what": "papers", "agent": {"hamlet": "home", "agent": "mayor"}}),
     );
     client(
-        ClientMessage::Read(Read::Charter { id: ID.into() }),
+        ClientMessage::Read(Read::Charter { id: id() }),
         json!({"type": "read", "id": ID, "what": "charter"}),
     );
 }
@@ -678,7 +682,7 @@ fn society_and_realm_fields_round_trip_without_losing_departures_or_ballots()
 fn a_peer_watch_selects_questions() {
     client(
         ClientMessage::Open(Open {
-            id: ID.into(),
+            id: id(),
             chat: ChatRef {
                 from: Some(AgentRef {
                     hamlet: "home".into(),

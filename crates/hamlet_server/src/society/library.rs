@@ -80,7 +80,7 @@ pub(super) async fn consult(
         &caller.id.key,
     ))?;
     let mut job = super::document::<Consult>(
-        service.home.store().connection(),
+        service.db(),
         "library-consult",
         &key,
     )?;
@@ -97,12 +97,7 @@ pub(super) async fn consult(
         {
             return Ok(answer);
         }
-        super::keep(
-            service.home.store().connection(),
-            "library-consult",
-            &key,
-            &job,
-        )?;
+        super::keep(service.db(), "library-consult", &key, &job)?;
     }
     let Some(answer) = super::errands::run(
         service,
@@ -129,12 +124,7 @@ pub(super) async fn consult(
         None => answer,
     };
     job.result = Some(result.clone());
-    super::keep(
-        service.home.store().connection(),
-        "library-consult",
-        &key,
-        &job,
-    )?;
+    super::keep(service.db(), "library-consult", &key, &job)?;
     if let Some(snapshot) = &job.snapshot {
         tree::erase_snapshot(service.houses.root(), snapshot)?;
     }
@@ -231,7 +221,7 @@ async fn offered(
              does something else"
         ));
     }
-    let claimed = service.home.store().connection().query_row(
+    let claimed = service.db().query_row(
         "SELECT EXISTS (SELECT 1 FROM society_document WHERE \
          kind='library-consult' AND key != ?1 AND \
          json_extract(value,'$.skill')=?2 AND \
@@ -341,7 +331,7 @@ async fn judged(
         // the library has its record, even after a crash between the
         // two.
         super::keep(
-            service.home.store().connection(),
+            service.db(),
             "library-shelved",
             name,
             &Shelved {
@@ -353,12 +343,7 @@ async fn judged(
         tree::publish(&staging, &library, name, &files)?;
         crate::fault::point("after_library_publish");
         job.delivered = true;
-        super::keep(
-            service.home.store().connection(),
-            "library-consult",
-            key,
-            &job,
-        )?;
+        super::keep(service.db(), "library-consult", key, &job)?;
     }
     let Some(unchanged) = service.house_work.take_cleaned(&caller.id)
     else {
@@ -405,9 +390,7 @@ async fn clean(
 
 pub(super) fn retire(service: &mut Service) -> Result<()> {
     let jobs = service
-        .home
-        .store()
-        .connection()
+        .db()
         .prepare(
             "SELECT key,value FROM society_document WHERE \
              kind='library-consult'",
@@ -422,7 +405,7 @@ pub(super) fn retire(service: &mut Service) -> Result<()> {
             let (runtime, call) =
                 serde_json::from_str::<(String, String)>(&key)?;
             if crate::oversight::held::unfinished(
-                service.home.store().connection(),
+                service.db(),
                 &runtime,
                 &call,
             )? {
@@ -434,9 +417,7 @@ pub(super) fn retire(service: &mut Service) -> Result<()> {
                     .into(),
             );
             let bindings = service
-                .home
-                .store()
-                .connection()
+                .db()
                 .prepare(
                     "SELECT binding FROM society_binding WHERE \
                      errand='librarian' AND \
@@ -450,12 +431,7 @@ pub(super) fn retire(service: &mut Service) -> Result<()> {
             for binding in bindings {
                 service.home.store().begin_cancel(binding)?;
             }
-            super::keep(
-                service.home.store().connection(),
-                "library-consult",
-                &key,
-                &job,
-            )?;
+            super::keep(service.db(), "library-consult", &key, &job)?;
         }
         if let Some(snapshot) = job.snapshot {
             tree::erase_snapshot(service.houses.root(), &snapshot)?;
@@ -486,7 +462,7 @@ pub(crate) fn views(
 ) -> Result<Vec<LibrarySkill>> {
     let found =
         shelf::shelf(&service.home.layout().root().join("library"));
-    let db = service.home.store().connection();
+    let db = service.db();
     found
         .into_iter()
         .map(|skill| {
@@ -536,7 +512,7 @@ pub(super) fn unshelve(
     tree::erase(&library, name)?;
     let chief = service.chief.clone();
     super::keep(
-        service.home.store().connection(),
+        service.db(),
         "library-unshelved",
         name,
         &json!({"by":chief,"reason":rest,"at":crate::clock::now()}),

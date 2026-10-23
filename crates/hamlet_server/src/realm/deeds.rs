@@ -45,7 +45,7 @@ pub(crate) async fn deed(
     {
         return bad(words);
     }
-    let mut realm = read(service.home.store().connection())?;
+    let mut realm = read(service.db())?;
     if deed == "hamlets" {
         return Ok(Some(Ok(realm
             .live()
@@ -204,9 +204,7 @@ pub(crate) async fn deed(
             }
             for agent in &r.agents {
                 if service
-                    .home
-                    .store()
-                    .connection()
+                    .db()
                     .query_row(
                         "SELECT 1 FROM record_name WHERE name = ?1",
                         [&agent.name],

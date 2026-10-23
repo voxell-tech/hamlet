@@ -869,7 +869,7 @@ fn another_transcript_keeps_the_page_outstanding_but_stale() {
             );
         }
         let mut replacement = pages[0].clone();
-        replacement.to = (!reset).then(|| "another-open".into());
+        replacement.to = (!reset).then(protocol::RequestId::new);
         replacement.items.truncate(2);
         replacement.items[1].id = "latest:0".into();
         replacement.earlier = Some("replacement-cursor".into());

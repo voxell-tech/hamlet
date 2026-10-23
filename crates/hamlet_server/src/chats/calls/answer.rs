@@ -25,7 +25,7 @@ pub(in crate::chats) async fn answer_words(
     text: &str,
     picks: Option<&[Pick]>,
 ) -> Result<Refusable<String>> {
-    let db = service.home.store().connection();
+    let db = service.db();
     let Some(wait) = oversight::find(db, id)? else {
         return Ok(Ok(NOTHING.into()));
     };
@@ -137,10 +137,10 @@ fn rule(
         WaitKind::Approval(danger) => Some(danger),
         _ => None,
     };
-    let db = service.home.store().connection();
+    let db = service.db();
     let mut ruled = Vec::new();
     for call in held::unruled(db, &wait.id)? {
-        let db = service.home.store().connection();
+        let db = service.db();
         let Some(conversation) = records::kept(db, call.binding)?
         else {
             continue;
@@ -289,7 +289,7 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(gate, Gate::Decided(Decision::Wait(_))));
-        let db = service.home.store().connection();
+        let db = service.db();
         let wait = oversight::open(db).unwrap().remove(0);
         db.execute_batch(
             "CREATE TEMP TRIGGER crash BEFORE UPDATE OF open ON \
@@ -299,7 +299,7 @@ mod tests {
         assert!(
             rule(&mut service, &wait, Ruling::Always, "").is_err()
         );
-        let db = service.home.store().connection();
+        let db = service.db();
         assert!(
             gate::grants(db).unwrap().is_empty(),
             "a grant stands for a wait that is still open"
@@ -311,7 +311,7 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
-        let db = service.home.store().connection();
+        let db = service.db();
         assert_eq!(gate::grants(db).unwrap().len(), 1);
     }
 }

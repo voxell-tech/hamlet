@@ -23,9 +23,7 @@ pub(super) async fn start(
 ) -> Result<BindingId> {
     let owner = owner.to_string();
     let known = service
-        .home
-        .store()
-        .connection()
+        .db()
         .query_row(
             "SELECT binding FROM society_binding WHERE errand=?1 \
              AND owner=?2",
@@ -64,7 +62,7 @@ pub(super) async fn start(
     } else {
         let (binding, _) =
             harnesses.bind(service.home.store(), agent, true).await?;
-        let db = service.home.store().connection();
+        let db = service.db();
         records::keep(
             db,
             binding,
@@ -116,11 +114,9 @@ pub(super) fn answer(
         return Ok(None);
     };
     match standing.status {
-        Some(InputStatus::Done) => super::letters::answer_of(
-            service.home.store().connection(),
-            binding,
-            "errand",
-        ),
+        Some(InputStatus::Done) => {
+            super::letters::answer_of(service.db(), binding, "errand")
+        }
         Some(InputStatus::Unanswered) => Ok(Some(format!(
             "It could not finish: {}",
             standing.reason.as_deref().unwrap_or("the model failed")
@@ -152,9 +148,7 @@ pub(crate) async fn sweep(
     harnesses: &mut Harnesses,
 ) -> Result<()> {
     let owners = service
-        .home
-        .store()
-        .connection()
+        .db()
         .prepare(&format!(
             "SELECT owner FROM society_binding s WHERE errand IS \
              NOT NULL AND EXISTS (SELECT 1 FROM harness_input i \

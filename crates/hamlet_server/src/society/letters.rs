@@ -183,7 +183,7 @@ pub(super) async fn tell(
     caller: &Caller<'_>,
     given: Message,
 ) -> Result<Value> {
-    let db = service.home.store().connection();
+    let db = service.db();
     if let Some(sent) =
         sent_by(db, caller.id.runtime.as_str(), &caller.id.key)?
     {
@@ -242,7 +242,7 @@ pub(crate) async fn ask(
     caller: &Caller<'_>,
     given: Message,
 ) -> Result<Option<Value>> {
-    let db = service.home.store().connection();
+    let db = service.db();
     let known =
         sent_by(db, caller.id.runtime.as_str(), &caller.id.key)?;
     let place = &caller.place.agent;
@@ -313,7 +313,7 @@ async fn question(
             .store()
             .standing(sent.receiver, &sent.request)?
             .is_some();
-        let db = service.home.store().connection();
+        let db = service.db();
         if !asked && let Some(address) = cycle(db, &sent)? {
             // It was counted on its road, and is not asked.
             db.execute(
@@ -408,7 +408,7 @@ pub(super) async fn request_road(
             "The mayor builds roads with build_road.",
         )));
     }
-    let db = service.home.store().connection();
+    let db = service.db();
     let target = match realm::resolve(db, &place.hamlet, &given.to)? {
         Ok(target) => target,
         Err(failure) => {
@@ -446,7 +446,7 @@ pub(super) async fn request_road(
             }
             Asked::Answered(text) => text,
         };
-    let db = service.home.store().connection();
+    let db = service.db();
     if connected(db, &place, &target.agent)? {
         return Ok(Some(refused(&format!(
             "The mayor built the road. You can now ask_agent `{to}`."
@@ -580,7 +580,7 @@ async fn prepare(
 ) -> Result<std::result::Result<Sent, Unsent>> {
     let runtime = caller.id.runtime.as_str();
     let key = caller.id.key.as_str();
-    let db = service.home.store().connection();
+    let db = service.db();
     if let Some(sent) = sent_by(db, runtime, key)? {
         return Ok(Ok(sent));
     }
@@ -666,7 +666,7 @@ async fn peer(
     kind: Kind,
     from: &AgentRef,
 ) -> Result<BindingId> {
-    let db = service.home.store().connection();
+    let db = service.db();
     let known = db
         .query_row(
             "SELECT binding FROM society_peer WHERE hamlet = ?1 AND \
@@ -697,7 +697,7 @@ async fn peer(
         0,
     )
     .await?;
-    let db = service.home.store().connection();
+    let db = service.db();
     db.execute(
         "INSERT INTO society_peer (hamlet, number, kind, \
          from_hamlet, from_number, binding) VALUES (?1, ?2, ?3, ?4, \
@@ -759,7 +759,7 @@ async fn submit(
     harnesses: &mut Harnesses,
     sent: &Sent,
 ) -> Result<()> {
-    let db = service.home.store().connection();
+    let db = service.db();
     let (from, address) = sender(db, sent)?;
     let message = Mail {
         from,
@@ -830,7 +830,7 @@ pub(crate) async fn sweep(
     service: &mut Service,
     harnesses: &mut Harnesses,
 ) -> Result<()> {
-    let db = service.home.store().connection();
+    let db = service.db();
     for sent in every(db, "answer IS NULL AND failure IS NULL")? {
         let Some(standing) = service
             .home
@@ -839,7 +839,7 @@ pub(crate) async fn sweep(
         else {
             continue;
         };
-        let db = service.home.store().connection();
+        let db = service.db();
         let (answer, failure) = match standing.status {
             Some(InputStatus::Done) => {
                 match answer_of(db, sent.receiver, &sent.request)? {
@@ -859,7 +859,7 @@ pub(crate) async fn sweep(
         };
         let mut words = json!({"answer": answer, "failure": failure});
         service.credentials.scrub(&mut words);
-        service.home.store().connection().execute(
+        service.db().execute(
             "UPDATE society_message SET answer = ?2, failure = ?3 \
              WHERE request = ?1",
             params![
@@ -875,7 +875,7 @@ pub(crate) async fn sweep(
             harnesses.wake(&asker.runtime, &sent.key).await;
         }
     }
-    let db = service.home.store().connection();
+    let db = service.db();
     for sent in every(
         db,
         "kind = 'letter' AND replied = 0 AND (answer IS NOT NULL OR \
@@ -893,10 +893,10 @@ async fn reply(
     harnesses: &mut Harnesses,
     mut sent: Sent,
 ) -> Result<()> {
-    let db = service.home.store().connection();
+    let db = service.db();
     let forget =
         |service: &mut Service, request: &str| -> Result<()> {
-            service.home.store().connection().execute(
+            service.db().execute(
                 "UPDATE society_message SET replied = 1 WHERE \
                  request = ?1",
                 [request],
@@ -1014,9 +1014,9 @@ pub(crate) async fn resume(
     service: &mut Service,
     harnesses: &mut Harnesses,
 ) -> Result<()> {
-    let db = service.home.store().connection();
+    let db = service.db();
     for sent in every(db, "answer IS NULL AND failure IS NULL")? {
-        let db = service.home.store().connection();
+        let db = service.db();
         if delivery_agent(db, sent.receiver)?.is_some() {
             submit(service, harnesses, &sent).await?;
         }

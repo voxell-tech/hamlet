@@ -206,7 +206,7 @@ pub(crate) async fn complete(
         Completed::Offered { id, result } => {
             service.house_work.pending.remove(&id);
             if crate::oversight::held::unfinished(
-                service.home.store().connection(),
+                service.db(),
                 id.runtime.as_str(),
                 &id.key,
             )? {
@@ -217,7 +217,7 @@ pub(crate) async fn complete(
         Completed::Cleaned { id, result } => {
             service.house_work.pending.remove(&id);
             if crate::oversight::held::unfinished(
-                service.home.store().connection(),
+                service.db(),
                 id.runtime.as_str(),
                 &id.key,
             )? {

@@ -7,13 +7,9 @@ use anyhow::{Context, Result, bail};
 use hamlet_protocol::client::{transcript, *};
 use hamlet_protocol::{HOME, MAYOR};
 use tokio::io::{AsyncBufReadExt, BufReader};
-use uuid::Uuid;
 
 use crate::client::{self, Client, ServerAddress};
 
-fn id() -> String {
-    Uuid::new_v4().to_string()
-}
 fn address_key(address: &Address) -> String {
     format!("{}@{}", address.agent, address.hamlet)
 }
@@ -113,7 +109,7 @@ pub async fn run(address: &ServerAddress, to: &str) -> Result<()> {
         pinned: HashSet::new(),
     };
     let chat = chat_ref(session.target.clone());
-    session.open(id(), chat).await?;
+    session.open(RequestId::new(), chat).await?;
     let mut input = BufReader::new(tokio::io::stdin()).lines();
     loop {
         tokio::select! {
@@ -139,16 +135,16 @@ struct Session {
     screen: Screen,
     interactive: bool,
     /// The opens whose failure ends the chat.
-    opens: HashSet<String>,
+    opens: HashSet<RequestId>,
     prompted: bool,
     /// The open sent at the end of input, once it is sent.
-    last: Option<String>,
+    last: Option<RequestId>,
     /// Whether the open sent at the end of input was answered.
     ending: bool,
     /// The open that ends the chat once its transcript arrives.
-    final_id: Option<String>,
+    final_id: Option<RequestId>,
     /// The lines said and not yet answered.
-    pending: HashSet<String>,
+    pending: HashSet<RequestId>,
     /// The current conversation's number, by agent.
     numbers: HashMap<String, i64>,
     /// The past conversations opened to finish their turns.
@@ -159,7 +155,7 @@ impl Session {
     /// Opens `chat`, ending the chat if the server refuses.
     async fn open(
         &mut self,
-        id: String,
+        id: RequestId,
         chat: ChatRef,
     ) -> Result<()> {
         self.opens.insert(id.clone());
@@ -175,7 +171,7 @@ impl Session {
     /// Takes a line the chief typed, or the end of input.
     async fn on_line(&mut self, line: Option<String>) -> Result<()> {
         let Some(line) = line else {
-            let barrier = id();
+            let barrier = RequestId::new();
             self.open(barrier.clone(), chat_ref(self.target.clone()))
                 .await?;
             self.last = Some(barrier);
@@ -189,7 +185,7 @@ impl Session {
             .split_once(char::is_whitespace)
             .unwrap_or((trimmed, ""));
         if command != "/agent" && command != "/hamlet" {
-            let id = id();
+            let id = RequestId::new();
             self.pending.insert(id.clone());
             let to = self.target.clone();
             return self
@@ -202,8 +198,11 @@ impl Session {
             Ok(next) => {
                 if next != self.target {
                     self.target = next;
-                    self.open(id(), chat_ref(self.target.clone()))
-                        .await?;
+                    self.open(
+                        RequestId::new(),
+                        chat_ref(self.target.clone()),
+                    )
+                    .await?;
                 }
                 let whom = match command {
                     "/agent" => "agent",
@@ -267,7 +266,7 @@ impl Session {
             && self.pending.is_empty()
             && self.final_id.is_none()
         {
-            let barrier = id();
+            let barrier = RequestId::new();
             self.open(barrier.clone(), chat_ref(self.target.clone()))
                 .await?;
             self.final_id = Some(barrier);
@@ -304,7 +303,7 @@ impl Session {
                     let mut chat =
                         chat_ref(transcript.chat.with.clone());
                     chat.past = Some(previous);
-                    self.open(id(), chat).await?;
+                    self.open(RequestId::new(), chat).await?;
                 }
             }
             _ => {}

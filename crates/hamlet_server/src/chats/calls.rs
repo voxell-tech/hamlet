@@ -72,11 +72,7 @@ pub(crate) async fn finished(
     match finished {
         Finished::Ran { id, res, outcome } => {
             // Kept before any answer, as the call may not run again.
-            operation::settle(
-                service.home.store().connection(),
-                &id,
-                &outcome,
-            )?;
+            operation::settle(service.db(), &id, &outcome)?;
             for re in res {
                 harnesses.answer(re, outcome.clone().into()).await;
             }
@@ -475,7 +471,7 @@ fn operation(
         )));
     }
     let request = Request::tool(tool, arguments)?;
-    let db = service.home.store().connection();
+    let db = service.db();
     match operation::marked::<tools::Outcome>(db, &call.id, &request)?
     {
         Some(Marked::Begun) => {
@@ -561,7 +557,7 @@ fn run(
     request: &Request,
     net: bool,
 ) -> Result<()> {
-    let db = service.home.store().connection();
+    let db = service.db();
     let change = crate::oversight::held::decision(db, &call.id)?
         .and_then(|kept| kept.change);
     if UNSAFE.contains(&call.tool) || call.hand.is_some() {
@@ -609,7 +605,7 @@ fn prompt(
     };
     if bound.errand {
         let text = crate::society::errands::instructions(
-            service.home.store().connection(),
+            service.db(),
             binding,
         )?;
         return Ok(crate::prompt::Prepared::fixed(
@@ -627,11 +623,7 @@ fn prompt(
     if let (Some(input), Some(InputMark::Reflection { .. })) =
         (input, &mark)
     {
-        records::enter(
-            service.home.store().connection(),
-            binding,
-            input,
-        )?;
+        records::enter(service.db(), binding, input)?;
     }
     let task =
         mark.as_ref().and_then(InputMark::task).map(String::from);
@@ -652,10 +644,8 @@ fn prompt(
         record.mayor == agent.number,
         &service.settings()?.model,
     );
-    let instructions = records::instructions(
-        service.home.store().connection(),
-        &agent.hamlet,
-    )?;
+    let instructions =
+        records::instructions(service.db(), &agent.hamlet)?;
     let sandbox = service.chats.sandbox.name().to_owned();
     let subject = crate::prompt::Subject {
         hamlet: &agent.hamlet,
@@ -669,11 +659,7 @@ fn prompt(
     let mut prepared = crate::prompt::prepare(service, &subject)?;
     let held = input
         .map(|input| {
-            records::budget_words(
-                service.home.store().connection(),
-                binding,
-                input,
-            )
+            records::budget_words(service.db(), binding, input)
         })
         .transpose()?
         .flatten();
@@ -683,7 +669,7 @@ fn prompt(
             let words = crate::prompt::budget(service, &subject)?;
             if let Some(input) = input {
                 records::keep_budget_words(
-                    service.home.store().connection(),
+                    service.db(),
                     binding,
                     input,
                     &words,
@@ -767,12 +753,7 @@ fn verdict(
         EMPTY.into()
     };
     if let Some(input) = input {
-        follow::fail_answer(
-            service.home.store().connection(),
-            binding,
-            input,
-            &words,
-        )?;
+        follow::fail_answer(service.db(), binding, input, &words)?;
     }
     Ok(Answer::Verdict {
         notice: Some((&InputMark::notice(&words)).into()),

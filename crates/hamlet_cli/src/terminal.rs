@@ -53,10 +53,6 @@ pub async fn run(
     result
 }
 
-fn id() -> String {
-    Uuid::new_v4().to_string()
-}
-
 fn checked(message: ServerMessage) -> Result<ServerMessage> {
     match message {
         ServerMessage::Fault(fault) => bail!("{}", fault.text),
@@ -74,7 +70,7 @@ async fn models(
     action: &str,
     model: Option<String>,
 ) -> Result<()> {
-    let id = id();
+    let id = RequestId::new();
     let message = if action == "try" {
         ClientMessage::Check(Check::Model {
             id: id.clone(),
@@ -172,7 +168,7 @@ async fn edit(
             )
         }
         _ => {
-            let id = id();
+            let id = RequestId::new();
             let read = if doc == "charter" {
                 Read::Charter { id: id.clone() }
             } else {
@@ -206,7 +202,7 @@ async fn edit(
         }
     };
     let text = in_editor(doc, &text).await?;
-    let id = id();
+    let id = RequestId::new();
     let message = match doc {
         "charter" => Edit::Charter {
             id: id.clone(),
@@ -263,7 +259,8 @@ async fn in_editor(doc: &str, text: &str) -> Result<String> {
         .ok()
         .filter(|s| !s.is_empty())
         .context("Set EDITOR to the editor to open.")?;
-    let path = env::temp_dir().join(format!("hamlet-edit-{}", id()));
+    let path = env::temp_dir()
+        .join(format!("hamlet-edit-{}", Uuid::new_v4()));
     #[cfg(unix)]
     fs::DirBuilder::new().mode(0o700).create(&path)?;
     #[cfg(not(unix))]
@@ -419,7 +416,7 @@ async fn login(
     let mut input = BufReader::new(tokio::io::stdin()).lines();
     client
         .send(ClientMessage::Login(Login::Start {
-            id: id(),
+            id: RequestId::new(),
             start: LoginStartStart {
                 provider,
                 method: if key {
@@ -462,7 +459,7 @@ async fn login(
                 };
                 client
                     .send(ClientMessage::Login(Login::Reply {
-                        id: id(),
+                        id: RequestId::new(),
                         reply: LoginReplyReply {
                             login: message.login,
                             value,

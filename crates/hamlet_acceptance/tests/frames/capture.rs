@@ -3,11 +3,11 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use hamlet_acceptance::{
-    Home, QUIET, Script, Server, Wire, chat, fold, id, mayor, realm,
+    Home, QUIET, Script, Server, Wire, chat, fold, mayor, realm,
 };
 pub use hamlet_protocol::MAYOR;
 use hamlet_protocol::client::{
-    ClientMessage, Item, ServerMessage, State,
+    ClientMessage, Item, RequestId, ServerMessage, State,
 };
 use serde_json::{Value, json};
 
@@ -19,7 +19,7 @@ pub struct Capture {
     wire: Wire,
     frames: Vec<Value>,
     messages: Vec<ServerMessage>,
-    pages: HashSet<String>,
+    pages: HashSet<RequestId>,
     secrets: Vec<String>,
 }
 
@@ -50,18 +50,29 @@ impl Capture {
         result
     }
 
-    pub async fn send(&mut self, mut value: Value) -> String {
-        if !matches!(value["type"].as_str(), Some("hello" | "close"))
-        {
-            value["id"] = id().into();
+    /// Sends `value`, with a fresh id unless it is a hello or a
+    /// close; gives that id.
+    pub async fn send(
+        &mut self,
+        mut value: Value,
+    ) -> Option<RequestId> {
+        let request = (!matches!(
+            value["type"].as_str(),
+            Some("hello" | "close")
+        ))
+        .then(RequestId::new);
+        if let Some(request) = &request {
+            value["id"] = request.as_str().into();
         }
         if value["type"] == "login"
             && let Some(secret) = value["reply"]["value"].as_str()
         {
             self.secrets.push(secret.into());
         }
-        let request = value["id"].as_str().unwrap_or("").to_owned();
-        if value["type"] == "open" && !value["before"].is_null() {
+        if value["type"] == "open"
+            && !value["before"].is_null()
+            && let Some(request) = &request
+        {
             self.pages.insert(request.clone());
         }
         let message =
@@ -103,7 +114,8 @@ impl Capture {
     }
 
     pub async fn ask(&mut self, value: Value) -> Value {
-        let request = self.send(value).await;
+        let request =
+            self.send(value).await.expect("a request has an id");
         self.until(|c| {
             c.messages.iter().any(|m| m.to() == Some(&request))
         })

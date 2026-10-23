@@ -12,7 +12,7 @@ use hamlet_protocol::client::*;
 pub fn items(
     log: &[ServerMessage],
     chat: &ChatRef,
-    pages: &HashSet<String>,
+    pages: &HashSet<RequestId>,
 ) -> Vec<Item> {
     let mut items = Vec::<Item>::new();
     for message in log {

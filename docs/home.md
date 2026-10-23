@@ -19,6 +19,9 @@ development. `crates/hamlet_server/src/home.rs` defines `Home` and `Layout`.
 | `tools/` | Hand-added tool manifests and scripts |
 | `.gifts/`, `.society-files/`, `.library-staging/` | Private staging and recoverable file snapshots, outside agents' reach |
 
+The server reads `tools/` again every two seconds, so a tool a chief puts
+there by hand reaches the agents within that.
+
 The first hamlet is `home`, its founder agent 0, named `founder`.
 `mayor` addresses the current office. Characters are server records;
 authoritative transcripts belong to the harness, not house files.

@@ -174,13 +174,11 @@ async fn deal(
             make(db, &mut realm, from, reason)
         },
     )?;
-    if let Some(pending) =
-        read(service.home.store().connection())?.pending
-    {
+    if let Some(pending) = read(service.db())?.pending {
         crate::chats::stop_agent(service, harnesses, &pending.to)
             .await?;
         for binding in crate::chats::records::conversations_of(
-            service.home.store().connection(),
+            service.db(),
             &pending.to,
         )? {
             harnesses.cancel(service.home.store(), binding).await?;
@@ -574,11 +572,11 @@ fn moving(
 }
 
 pub(crate) fn finish(service: &mut Service) -> Result<()> {
-    let mut realm = read(service.home.store().connection())?;
+    let mut realm = read(service.db())?;
     if let Some(pending) = &realm.pending {
         service.houses.move_house(&pending.from, &pending.to)?;
         realm.pending = None;
-        write(service.home.store().connection(), &realm)?;
+        write(service.db(), &realm)?;
     }
     Ok(())
 }

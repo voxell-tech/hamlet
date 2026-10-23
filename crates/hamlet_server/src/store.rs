@@ -82,6 +82,13 @@ impl Store {
         &self.db
     }
 
+    /// The rows inserted, updated or deleted since the store opened,
+    /// counting those of statements that rolled back. Only this
+    /// connection writes the store, so it moves with every change.
+    pub(crate) fn changes(&self) -> u64 {
+        self.db.total_changes()
+    }
+
     /// A transaction that takes the write lock at its first write.
     pub(crate) fn transaction(&mut self) -> Result<Transaction<'_>> {
         Ok(self.db.transaction()?)

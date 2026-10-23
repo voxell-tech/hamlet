@@ -52,7 +52,7 @@ pub(crate) fn held(
     else {
         return Ok(false);
     };
-    let db = service.home.store().connection();
+    let db = service.db();
     let instruction = super::document::<Instruction>(
         db,
         "instruction-ruling",
@@ -84,7 +84,7 @@ pub(crate) async fn prepare(
         return Ok(());
     };
     let task = task.as_str();
-    let db = service.home.store().connection();
+    let db = service.db();
     if super::document::<Option<Review>>(db, DUE, task)?.is_some()
         || super::document::<Option<Review>>(db, DONE, task)?
             .is_some()
@@ -130,7 +130,7 @@ pub(crate) async fn prepare(
         }
     }
     if crate::spend::can_spend(
-        service.home.store().connection(),
+        service.db(),
         &r.id,
         Some(task),
         crate::clock::now(),
@@ -182,12 +182,7 @@ pub(crate) async fn prepare(
         done: false,
         wait: None,
     };
-    super::keep(
-        service.home.store().connection(),
-        DUE,
-        task,
-        &review,
-    )?;
+    super::keep(service.db(), DUE, task, &review)?;
     super::errands::start(
         service,
         harnesses,
@@ -203,14 +198,13 @@ pub(crate) async fn prepare(
 
 /// Moves on every review still waiting for the mayor or for its
 /// work to end, then tells each withdrawn instruction's conversation.
+/// False when there was neither.
 pub(crate) async fn sweep(
     service: &mut Service,
     harnesses: &mut Harnesses,
-) -> Result<()> {
+) -> Result<bool> {
     let jobs = service
-        .home
-        .store()
-        .connection()
+        .db()
         .prepare(
             "SELECT key,value FROM society_document WHERE kind=?1",
         )?
@@ -218,11 +212,12 @@ pub(crate) async fn sweep(
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let due = !jobs.is_empty();
     for (task, value) in jobs {
         let review = serde_json::from_str::<Review>(&value)?;
         sweep_review(service, harnesses, &task, review).await?;
     }
-    withdraw(service, harnesses).await
+    Ok(withdraw(service, harnesses).await? || due)
 }
 
 /// Raises the mayor's objection of `review` once its errand answers,
@@ -250,11 +245,8 @@ async fn sweep_review(
             return Ok(());
         };
         review.done = true;
-        let ended = crate::harness::working_on(
-            service.home.store().connection(),
-            task,
-        )?
-        .is_empty();
+        let ended = crate::harness::working_on(service.db(), task)?
+            .is_empty();
         let tx = service.home.store().transaction()?;
         if let Some(reason) = objection(&answer) {
             object(&tx, task, &mut review, reason, ended)?;
@@ -262,7 +254,7 @@ async fn sweep_review(
         super::keep(&tx, DUE, task, &review)?;
         tx.commit()?;
     }
-    let db = service.home.store().connection();
+    let db = service.db();
     let ended = || {
         Ok::<_, anyhow::Error>(
             crate::harness::working_on(db, task)?.is_empty(),
@@ -360,15 +352,13 @@ fn object(
 }
 
 /// Stops the work of each instruction the chief withdrew and tells
-/// its conversation, once.
+/// its conversation, once. False when there was none.
 async fn withdraw(
     service: &mut Service,
     harnesses: &mut Harnesses,
-) -> Result<()> {
+) -> Result<bool> {
     let withdrawals = service
-        .home
-        .store()
-        .connection()
+        .db()
         .prepare(
             "SELECT key,value FROM society_document WHERE \
              kind='instruction-ruling' AND \
@@ -379,21 +369,18 @@ async fn withdraw(
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let due = !withdrawals.is_empty();
     for (task, value) in withdrawals {
         let mut instruction =
             serde_json::from_str::<Instruction>(&value)?;
-        for binding in crate::harness::working_on(
-            service.home.store().connection(),
-            &task,
-        )? {
+        for binding in
+            crate::harness::working_on(service.db(), &task)?
+        {
             crate::chats::stop_tools(service, binding);
-            let waits = held::waits_holding(
-                service.home.store().connection(),
-                binding,
-            )?;
+            let waits = held::waits_holding(service.db(), binding)?;
             for wait in waits {
                 if let Some((_, woken)) = oversight::settle(
-                    service.home.store().connection(),
+                    service.db(),
                     &wait,
                     Ruling::Stopped,
                     "The chief withdrew the instruction.",
@@ -421,13 +408,13 @@ async fn withdraw(
         .await?;
         instruction.notified = true;
         super::keep(
-            service.home.store().connection(),
+            service.db(),
             "instruction-ruling",
             &task,
             &instruction,
         )?;
     }
-    Ok(())
+    Ok(due)
 }
 
 pub(crate) fn settle(

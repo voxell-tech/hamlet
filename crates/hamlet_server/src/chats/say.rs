@@ -3,7 +3,8 @@
 
 use anyhow::Result;
 use hamlet_protocol::client::{
-    Address, Choice, Deed, Permission, ReplyKind, Say, ServerMessage,
+    Address, Choice, Deed, Permission, ReplyKind, RequestId, Say,
+    ServerMessage,
 };
 use serde_json::Value;
 
@@ -366,7 +367,7 @@ fn read_command(
 /// A chief's line, as `say` hands it to a command's handler.
 struct Said<'a> {
     client: u64,
-    id: &'a str,
+    id: &'a RequestId,
     to: &'a Address,
     /// The line, with every secret removed.
     text: String,
@@ -674,7 +675,7 @@ async fn conversation(
         }) => {
             service.chats.deferred.push(Deferred {
                 client: said.client,
-                id: said.id.into(),
+                id: said.id.to_string(),
                 binding,
                 request,
                 text,
@@ -709,11 +710,8 @@ fn own_wait(
     agent: &AgentRef,
 ) -> Result<Option<oversight::Wait>> {
     let chief = service.chief.clone();
-    let number = records::current_number(
-        service.home.store().connection(),
-        agent,
-        &chief,
-    )?;
+    let number =
+        records::current_number(service.db(), agent, &chief)?;
     Ok(oversight::for_chat(waits, agent, &chief)
         .find(|wait| {
             wait.chat.as_ref().map(|chat| chat.session) == number
@@ -730,7 +728,7 @@ fn queue(
     if let Err(refusal) = present(service, said)? {
         return Ok(said.refused(refusal));
     }
-    let waits = oversight::open(service.home.store().connection())?;
+    let waits = oversight::open(service.db())?;
     let now = crate::clock::now();
     Ok(said.notice(if waits.is_empty() {
         "Nothing waits for you.".into()
@@ -762,7 +760,7 @@ async fn answer_wait(
         Ok(agent) => agent,
         Err(refusal) => return Ok(said.refused(refusal)),
     };
-    let waits = oversight::open(service.home.store().connection())?;
+    let waits = oversight::open(service.db())?;
     let own = match &agent {
         Some(agent) => own_wait(service, &waits, agent)?,
         None => None,
@@ -793,7 +791,7 @@ async fn plain(
         Ok(agent) => agent,
         Err(refusal) => return Ok(said.refused(refusal)),
     };
-    let waits = oversight::open(service.home.store().connection())?;
+    let waits = oversight::open(service.db())?;
     match own_wait(service, &waits, &agent)? {
         Some(wait) if matches!(wait.kind, WaitKind::Question(_)) => {
             let outcome = super::calls::answer_words(
@@ -869,14 +867,7 @@ pub(crate) async fn admit_line(
     let chief = service.chief.clone();
     let at = crate::clock::now();
     let task = format!("chief:{}:{id}", binding.0);
-    records::instruct(
-        service.home.store().connection(),
-        agent,
-        &task,
-        &chief,
-        text,
-        at,
-    )?;
+    records::instruct(service.db(), agent, &task, &chief, text, at)?;
     let mark = InputMark::Chief {
         chief,
         text: text.into(),
@@ -951,7 +942,7 @@ pub(super) fn living(
     if name.is_empty() || place == Some("") {
         return missing();
     }
-    for record in hamlets(service.home.store().connection())? {
+    for record in hamlets(service.db())? {
         let wanted = match place {
             Some(place) => record.id == place,
             None => name != "mayor" || record.id == hamlet,
@@ -998,7 +989,7 @@ fn grants(service: &mut Service, hamlet: &str) -> Result<String> {
             ));
         }
     }
-    for grant in gate::grants(service.home.store().connection())?
+    for grant in gate::grants(service.db())?
         .into_iter()
         .filter(|grant| grant.agent.hamlet == hamlet)
     {
@@ -1025,7 +1016,7 @@ fn revoke(
     permission: &Permission,
 ) -> Result<String> {
     let record = service.home.store().record(hamlet)?;
-    let db = service.home.store().connection();
+    let db = service.db();
     let target = record
         .and_then(|record| {
             record.named(agent).map(|a| AgentRef {
@@ -1042,7 +1033,7 @@ fn revoke(
     let chief = service.chief.clone();
     if let Some(target) = target {
         gate::revoke(
-            service.home.store().connection(),
+            service.db(),
             &target,
             permission,
             &chief,
@@ -1096,11 +1087,15 @@ fn sessions(
     })
 }
 
-fn answer(id: &str, kind: ReplyKind, text: String) -> ServerMessage {
+fn answer(
+    id: &RequestId,
+    kind: ReplyKind,
+    text: String,
+) -> ServerMessage {
     ServerMessage::Reply(hamlet_protocol::client::Reply {
         kind,
         text,
-        to: id.into(),
+        to: id.clone(),
         upload: None,
     })
 }

@@ -4,7 +4,7 @@ use anyhow::{Context, Result, bail};
 use futures::{SinkExt, StreamExt};
 pub use hamlet_protocol::client::discovery::ServerAddress;
 use hamlet_protocol::client::{
-    ClientMessage, Hello, ServerMessage, State, V,
+    ClientMessage, Hello, RequestId, ServerMessage, State, V,
 };
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -71,7 +71,7 @@ impl Client {
     /// of the result.
     pub async fn request(
         &mut self,
-        id: &str,
+        id: &RequestId,
         message: ClientMessage,
     ) -> Result<ServerMessage> {
         self.send(message).await?;

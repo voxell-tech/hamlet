@@ -119,11 +119,7 @@ pub(super) async fn remove(
             },
         )
         .await?;
-        lapse(
-            service.home.store().connection(),
-            &agent.hamlet,
-            number,
-        )?;
+        lapse(service.db(), &agent.hamlet, number)?;
     }
     Ok(value)
 }
@@ -254,10 +250,7 @@ pub(super) async fn deed(
             op.reason = String::new();
             op.change = Change::Erase { archive: entry.id };
             if let Outcome::Refused(refusal) =
-                crate::operation::change(
-                    service.home.store().connection(),
-                    &op,
-                )?
+                crate::operation::change(service.db(), &op)?
             {
                 return Ok(Some(Err(Refusal::Invalid(
                     refusal.text(Audience::Chief),
@@ -301,7 +294,7 @@ pub(super) async fn deed(
                 },
             )
             .await?;
-            lapse(service.home.store().connection(), hamlet, number)?;
+            lapse(service.db(), hamlet, number)?;
             Ok(value["text"].as_str().unwrap_or_default().into())
         }
         // The merge lane splits a restored merge's files.
@@ -322,10 +315,8 @@ pub(crate) async fn recover(
     service: &mut Service,
     harnesses: &mut Harnesses,
 ) -> Result<()> {
-    let live = crate::realm::live(service.home.store().connection())?;
-    for r in
-        crate::service::records(service.home.store().connection())?
-    {
+    let live = crate::realm::live(service.db())?;
+    for r in crate::service::records(service.db())? {
         let mut retired = r
             .archive
             .iter()
@@ -350,14 +341,14 @@ pub(crate) async fn recover(
             crate::chats::stop_agent(service, harnesses, &agent)
                 .await?;
             for binding in crate::chats::records::conversations_of(
-                service.home.store().connection(),
+                service.db(),
                 &agent,
             )? {
                 harnesses
                     .cancel(service.home.store(), binding)
                     .await?;
             }
-            lapse(service.home.store().connection(), &r.id, number)?;
+            lapse(service.db(), &r.id, number)?;
         }
     }
     Ok(())

@@ -25,13 +25,7 @@ impl Service {
             chief: Some(self.chief.clone()),
             session: 1,
         };
-        records::keep(
-            self.home.store().connection(),
-            binding,
-            &place,
-            None,
-            0,
-        )?;
+        records::keep(self.db(), binding, &place, None, 0)?;
         Ok((binding, notices))
     }
 
@@ -53,7 +47,7 @@ impl Service {
         key: &str,
     ) -> Result<Option<String>> {
         crate::oversight::held::open_wait_of(
-            self.home.store().connection(),
+            self.db(),
             &crate::OperationId {
                 runtime: runtime.clone(),
                 key: key.into(),
@@ -83,9 +77,8 @@ impl Service {
         harnesses: &mut Harnesses,
         binding: BindingId,
     ) -> Result<()> {
-        let kept =
-            records::kept(self.home.store().connection(), binding)?
-                .context("a chat's conversation")?;
+        let kept = records::kept(self.db(), binding)?
+            .context("a chat's conversation")?;
         deeds::stop_conversation(
             self,
             harnesses,

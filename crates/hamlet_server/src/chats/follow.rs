@@ -120,8 +120,7 @@ pub(crate) async fn follow(
         raise_fault(service, &kept.place, chief, about)?;
     }
     report_answer_failures(service, binding)?;
-    let pending =
-        reserved(service.home.store().connection(), binding)?;
+    let pending = reserved(service.db(), binding)?;
     if last != "stopped" || pending {
         request_reflection(
             service,
@@ -159,7 +158,7 @@ fn raise_fault(
         return Ok(());
     };
     oversight::raise_fault(
-        service.home.store().connection(),
+        service.db(),
         record.address_of(agent.number).to_owned(),
         agent.clone(),
         Some(ChatPlace {
@@ -212,7 +211,7 @@ fn report_answer_failures(
     service: &mut Service,
     binding: BindingId,
 ) -> Result<()> {
-    let db = service.home.store().connection();
+    let db = service.db();
     let Some(kept) = records::kept(db, binding)? else {
         return Ok(());
     };
@@ -229,7 +228,7 @@ fn report_answer_failures(
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     for (input, about) in words {
-        service.home.store().connection().execute(
+        service.db().execute(
             "UPDATE chat_answer SET reported = 1 WHERE binding = ?1 \
              AND input = ?2",
             params![binding.0, input],
@@ -265,7 +264,7 @@ pub(crate) async fn request_reflection(
     mode: Mode,
 ) -> Result<Option<String>> {
     let every = reflect_every(service)?;
-    let db = service.home.store().connection();
+    let db = service.db();
     let Some(kept) = records::kept(db, binding)? else {
         return Ok(None);
     };
@@ -322,10 +321,7 @@ pub(crate) async fn request_reflection(
                 ),
             )
             .await?;
-            reservations = self::reservations(
-                service.home.store().connection(),
-                binding,
-            )?;
+            reservations = self::reservations(service.db(), binding)?;
         }
     }
     let mayor = service

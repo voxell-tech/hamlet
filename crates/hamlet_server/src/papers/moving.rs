@@ -65,21 +65,17 @@ impl Service {
             return refuse("The houses are already moving.");
         }
         let to = to.cloned();
-        let live =
-            crate::realm::live(self.home.store().connection())?;
-        let agents =
-            crate::service::records(self.home.store().connection())?
-                .into_iter()
-                .filter(|record| live.contains(&record.id))
-                .flat_map(|record| {
-                    record.agents.into_iter().map(move |agent| {
-                        AgentRef {
-                            hamlet: record.id.clone(),
-                            number: agent.number,
-                        }
-                    })
+        let live = crate::realm::live(self.db())?;
+        let agents = crate::service::records(self.db())?
+            .into_iter()
+            .filter(|record| live.contains(&record.id))
+            .flat_map(|record| {
+                record.agents.into_iter().map(move |agent| AgentRef {
+                    hamlet: record.id.clone(),
+                    number: agent.number,
                 })
-                .collect::<Vec<_>>();
+            })
+            .collect::<Vec<_>>();
         let root = self.home.layout().root();
         let source = Houses::open(root, from.cloned())?;
         let target = Houses::open(root, to.clone())?;

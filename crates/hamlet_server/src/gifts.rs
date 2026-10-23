@@ -688,7 +688,7 @@ impl Skill {
     /// Keeps the gift in the record.
     fn record(self, service: &mut Service) -> Result<String> {
         crate::record::give_skill(
-            service.home.store().connection(),
+            service.db(),
             &service.chief,
             &self.target.hamlet,
             self.target.number,

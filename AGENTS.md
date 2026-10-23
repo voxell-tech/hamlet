@@ -128,8 +128,9 @@ command; otherwise it tests the default `hamlet server` path.
 The client protocol, between the window or CLI and the server, is defined
 by the Rust types in `hamlet_protocol::client`, one module per area. Their
 `#[schemars(...)]` attributes carry the limits serde cannot check, such as
-a request id's UUID format; the server checks every client message against
-the schema derived from them. Update `docs/protocol.md` when the protocol
+a list's length; a rule a type can hold, such as `RequestId`'s UUID form,
+is in the type. The server checks every client message against the
+schema derived from them. Update `docs/protocol.md` when the protocol
 changes. Move `V` in `hamlet_protocol::client` when a message's shape
 changes: `cargo test -p hamlet_protocol` fails until it moves, then
 rewrites `crates/hamlet_protocol/client_schema.fingerprint` and fails

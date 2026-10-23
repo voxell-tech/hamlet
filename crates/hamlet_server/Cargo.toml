@@ -58,6 +58,8 @@ rustix = { version = "1", features = ["fs", "process"] }
 hamlet_acceptance.workspace = true
 hamlet_testing.workspace = true
 libc.workspace = true
+# The trace hook counts the statements an idle tick runs.
+rusqlite = { workspace = true, features = ["trace"] }
 
 [[test]]
 name = "harness"

@@ -38,9 +38,8 @@ impl Service {
     pub fn new(mut home: Home, overrides: Overrides) -> Result<Self> {
         let root = home.layout().root().to_owned();
         let credentials = Credentials::open(&root)?;
-        overrides.apply(crate::settings::stored(
-            home.store().connection(),
-        )?)?;
+        overrides
+            .apply(crate::settings::stored(home.connection())?)?;
         let workspace = overrides
             .workspace
             .as_ref()
@@ -87,8 +86,7 @@ impl Service {
             );
         }
         let houses = Houses::open(&root, workspace)?;
-        let mut realm =
-            crate::realm::read(home.store().connection())?;
+        let mut realm = crate::realm::read(home.connection())?;
         for place in realm.hamlets.iter().filter(|place| place.erased)
         {
             if houses.allows(Capability::EraseHamlet).is_ok() {
@@ -102,17 +100,17 @@ impl Service {
                  local backend. Remote houses were not changed."
             );
             for binding in crate::chats::records::conversations_of(
-                home.store().connection(),
+                home.connection(),
                 &pending.to,
             )? {
                 home.store().begin_cancel(binding)?;
             }
             houses.move_house(&pending.from, &pending.to)?;
             realm.pending = None;
-            crate::realm::write(home.store().connection(), &realm)?;
+            crate::realm::write(home.connection(), &realm)?;
         }
-        let live = crate::realm::live(home.store().connection())?;
-        for record in records(home.store().connection())? {
+        let live = crate::realm::live(home.connection())?;
+        for record in records(home.connection())? {
             if !live.contains(&record.id) {
                 continue;
             }
@@ -145,6 +143,12 @@ impl Service {
         })
     }
 
+    /// The home's open database. A write that needs a transaction
+    /// takes `home.store()`.
+    pub(crate) fn db(&self) -> &Connection {
+        self.home.connection()
+    }
+
     /// The state visible to a newly authenticated client.
     pub fn state(
         &mut self,
@@ -169,11 +173,10 @@ impl Service {
         hamlet: &str,
         operation: &str,
     ) -> Result<Refusable<record::Hamlet>> {
-        if let Some(place) =
-            crate::realm::read(self.home.store().connection())?
-                .hamlets
-                .iter()
-                .find(|h| h.id == hamlet)
+        if let Some(place) = crate::realm::read(self.db())?
+            .hamlets
+            .iter()
+            .find(|h| h.id == hamlet)
             && (place.removed.is_some() || place.erased)
         {
             return Ok(Err(Refusal::Invalid(format!(
@@ -232,8 +235,7 @@ impl Service {
 
     /// The home's settings, with the process's overrides.
     pub(crate) fn settings(&mut self) -> Result<Settings> {
-        let stored =
-            crate::settings::stored(self.home.store().connection())?;
+        let stored = crate::settings::stored(self.db())?;
         self.overrides.apply(stored)
     }
 
@@ -255,9 +257,8 @@ impl Service {
         reason = "stderr is the server's log"
     )]
     pub(crate) async fn initialize_houses(&mut self) -> Result<()> {
-        let live =
-            crate::realm::live(self.home.store().connection())?;
-        for record in records(self.home.store().connection())? {
+        let live = crate::realm::live(self.db())?;
+        for record in records(self.db())? {
             if !live.contains(&record.id) {
                 continue;
             }
@@ -282,12 +283,12 @@ impl Service {
         &mut self,
         hamlet: &str,
     ) -> Result<crate::limits::Limits> {
-        crate::limits::of(self.home.store().connection(), hamlet)
+        crate::limits::of(self.db(), hamlet)
     }
 
     /// What the hamlet works on, and how its agents ask.
     pub(crate) fn work(&mut self, hamlet: &str) -> Result<Work> {
-        Ok(document(self.home.store().connection(), "work", hamlet)?
+        Ok(document(self.db(), "work", hamlet)?
             .map(serde_json::from_value)
             .transpose()?
             .unwrap_or_default())

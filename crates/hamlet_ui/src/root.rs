@@ -129,7 +129,7 @@ fn open(world: &mut World) {
 
 #[derive(Resource, Default)]
 struct ConnectionTest {
-    request: Option<String>,
+    request: Option<protocol::RequestId>,
     words: String,
 }
 
@@ -264,7 +264,7 @@ mod tests {
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::Reply(protocol::Reply {
-                to: "another-request".into(),
+                to: protocol::RequestId::new(),
                 kind: protocol::ReplyKind::Notice,
                 text: "Not this test".into(),
                 upload: None,

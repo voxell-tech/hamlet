@@ -80,7 +80,6 @@ pub enum Lasting {
 #[serde(deny_unknown_fields)]
 pub struct Answer {
     pub choice: Choice,
-    #[schemars(extend("format" = "uuid"))]
     pub id: RequestId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]

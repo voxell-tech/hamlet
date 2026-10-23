@@ -172,8 +172,11 @@ async fn finish_login(
         login: login.into(),
         value: value.into(),
     };
-    c.send(ClientMessage::Login(Login::Reply { id: id(), reply }))
-        .await;
+    c.send(ClientMessage::Login(Login::Reply {
+        id: RequestId::new(),
+        reply,
+    }))
+    .await;
     let ended = |c: &Client| {
         c.messages().iter().find_map(|m| match m {
             ServerMessage::Login(p)
@@ -1171,7 +1174,8 @@ async fn estimates_unreported_usage_from_history_and_tool_definitions()
     let tool = s.home.file("tools/large");
     std::fs::create_dir_all(&tool).unwrap();
     std::fs::write(tool.join("manifest.json"), json!({"name":"large_tool", "description":"t".repeat(40000), "exec":["true"]}).to_string()).unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+    // The server reads the tools folder every two seconds.
+    tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
     s.chief.say(mayor(), &"a".repeat(20000)).await;
     let first =
         s.join().await.agent("home", "founder").unwrap().spent;

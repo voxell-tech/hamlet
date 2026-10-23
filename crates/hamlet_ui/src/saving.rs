@@ -23,11 +23,11 @@ pub(crate) fn plugin(app: &mut App) {
 
 #[derive(Resource, Default)]
 pub(crate) struct Saves {
-    pending: HashMap<String, Option<String>>,
+    pending: HashMap<protocol::RequestId, Option<String>>,
     closing: bool,
 }
 
-pub(crate) fn track(world: &mut World, id: String) {
+pub(crate) fn track(world: &mut World, id: protocol::RequestId) {
     world
         .get_resource_or_init::<Saves>()
         .pending

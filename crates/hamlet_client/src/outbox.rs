@@ -3,19 +3,18 @@
 use bevy_ecs::prelude::*;
 use hamlet_protocol::client as protocol;
 pub use protocol::RequestId;
-use uuid::Uuid;
 
 /// Requests queued for the connection to send.
 #[derive(Resource, Default)]
 pub struct Outbox(Vec<protocol::ClientMessage>);
 
 impl Outbox {
-    /// A queued request with a fresh UUID, returned to its caller.
+    /// A queued request with a fresh id, returned to its caller.
     pub fn send(
         &mut self,
         message: impl FnOnce(RequestId) -> protocol::ClientMessage,
     ) -> RequestId {
-        let id = Uuid::new_v4().to_string();
+        let id = RequestId::new();
         self.0.push(message(id.clone()));
         id
     }

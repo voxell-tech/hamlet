@@ -95,6 +95,21 @@ impl Config {
                 .collect(),
         })
     }
+
+    /// A configuration whose pi never starts, for a test whose home
+    /// binds no conversation.
+    #[cfg(test)]
+    pub(crate) fn unused() -> Self {
+        Self {
+            pi: Pi {
+                node: "node".into(),
+                entry: "unused".into(),
+                faux: None,
+            },
+            tools: Vec::new(),
+            overrides: Overrides::none(true),
+        }
+    }
 }
 
 /// Something that happened that the host may show or act on.

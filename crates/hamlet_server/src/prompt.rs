@@ -225,7 +225,7 @@ fn realm_brief(
     hamlet: &str,
     number: u64,
 ) -> Result<Option<String>> {
-    let db = service.home.store().connection();
+    let db = service.db();
     let realm = crate::realm::read(db)?;
     if realm.live().count() < 2
         || crate::record::read(db, hamlet)?
@@ -271,7 +271,7 @@ fn company(
     subject: &Subject,
     number: u64,
 ) -> Result<brief::Company> {
-    let db = service.home.store().connection();
+    let db = service.db();
     let peer = match subject.conversation {
         Some(binding) => {
             crate::society::letters::sender_of(db, binding)?
@@ -350,7 +350,7 @@ pub(crate) fn budget(
         ));
     }
     let books = books(
-        service.home.store().connection(),
+        service.db(),
         subject.hamlet,
         &limits.budget.period,
         subject.task,

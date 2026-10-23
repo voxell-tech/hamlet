@@ -41,10 +41,10 @@ struct Draft {
     /// Never received: the server keeps it and shows only the
     /// address.
     token: String,
-    saving: Option<String>,
+    saving: Option<protocol::RequestId>,
     saved: bool,
     /// The move of the houses asked for and not yet answered.
-    moving: Option<String>,
+    moving: Option<protocol::RequestId>,
     refusal: String,
 }
 

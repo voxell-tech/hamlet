@@ -15,6 +15,7 @@ use crate::harness::Harnesses;
 use crate::papers::tree;
 use crate::protocol::{Refusal, reply};
 use crate::record::{Actor, AgentRef};
+use crate::runtime::Asked;
 use crate::service::Service;
 use crate::society::{self, Caller, Deed};
 
@@ -117,6 +118,16 @@ impl Merges {
             .is_some_and(|active| active.origin.call() == Some(id))
     }
 
+    /// The request the lane works on: set when a request begins and
+    /// held until it is released, once it is answered or the call or
+    /// chief that asked is gone. So each step of a begun request
+    /// finds it.
+    fn active_mut(&mut self) -> &mut Active {
+        self.active.as_mut().expect(
+            "a begun request holds the lane until its release",
+        )
+    }
+
     fn release(&mut self) {
         self.active = None;
     }
@@ -129,10 +140,8 @@ pub(super) fn offer(
 ) -> Result<()> {
     let origin = Origin::Call(caller.id.clone());
     if service.house_work.hold(caller.id.clone()) {
-        let actor = society::actor(
-            service.home.store().connection(),
-            &caller.place.agent,
-        )?;
+        let actor =
+            society::actor(service.db(), &caller.place.agent)?;
         service.merges.queue.push_back(Request {
             origin,
             hamlet: caller.place.agent.hamlet.clone(),
@@ -202,16 +211,19 @@ pub(crate) fn chief(
     Ok(())
 }
 
+/// Releases the active request once its call ended, then begins the
+/// next. False when it did neither.
 pub(crate) async fn advance(
     service: &mut Service,
     harnesses: &mut Harnesses,
-) -> Result<()> {
+) -> Result<bool> {
+    let released = service.merges.active.is_some();
     if let Some(active) = &service.merges.active {
         if let Origin::Call(id) = &active.origin
             && !active.applying
             && !service.house_work.pending(id)
             && !crate::oversight::held::unfinished(
-                service.home.store().connection(),
+                service.db(),
                 id.runtime.as_str(),
                 &id.key,
             )?
@@ -221,15 +233,24 @@ pub(crate) async fn advance(
             }
             service.merges.release();
         } else {
-            return Ok(());
+            return Ok(false);
         }
     }
     let Some(request) = service.merges.queue.pop_front() else {
-        return Ok(());
+        return Ok(released);
     };
+    begin(service, harnesses, request).await?;
+    Ok(true)
+}
+
+async fn begin(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    request: Request,
+) -> Result<()> {
     let allowed = match &request.origin {
         Origin::Call(id) => crate::oversight::held::unfinished(
-            service.home.store().connection(),
+            service.db(),
             id.runtime.as_str(),
             &id.key,
         )?,
@@ -254,7 +275,7 @@ pub(crate) async fn advance(
                     &id.key,
                 ))?;
                 if let Some(plan) = society::document::<Option<Plan>>(
-                    service.home.store().connection(),
+                    service.db(),
                     "merge-plan",
                     &key,
                 )? {
@@ -262,9 +283,7 @@ pub(crate) async fn advance(
                         vec![plan.kept.clone(), plan.gone.clone()];
                     service
                         .merges
-                        .active
-                        .as_mut()
-                        .expect("merge lane")
+                        .active_mut()
                         .held
                         .clone_from(&held);
                     for agent in &held {
@@ -314,9 +333,7 @@ pub(crate) async fn advance(
                             .collect::<Vec<_>>();
                     service
                         .merges
-                        .active
-                        .as_mut()
-                        .expect("merge lane")
+                        .active_mut()
                         .held
                         .clone_from(&held);
                     for agent in &held {
@@ -360,7 +377,7 @@ pub(crate) async fn advance(
                 .cloned();
             if let Some(entry) = &entry
                 && society::document::<Option<bool>>(
-                    service.home.store().connection(),
+                    service.db(),
                     "remote-merge-attempt",
                     &format!("{}:{}", request.hamlet, entry.id),
                 )? == Some(true)
@@ -390,13 +407,7 @@ pub(crate) async fn advance(
                         number,
                     })
                     .collect::<Vec<_>>();
-                service
-                    .merges
-                    .active
-                    .as_mut()
-                    .expect("split lane")
-                    .held
-                    .clone_from(&held);
+                service.merges.active_mut().held.clone_from(&held);
                 for agent in &held {
                     crate::chats::stop_agent(
                         service, harnesses, agent,
@@ -483,7 +494,7 @@ fn start_apply(
         return Ok(false);
     };
     let plan = society::document::<Option<Plan>>(
-        service.home.store().connection(),
+        service.db(),
         "merge",
         &format!("{hamlet}:{archive}"),
     )?
@@ -494,14 +505,13 @@ fn start_apply(
     }
     if !service.houses.confirms() {
         society::keep(
-            service.home.store().connection(),
+            service.db(),
             "remote-merge-attempt",
             &format!("{hamlet}:{archive}"),
             &true,
         )?;
     }
-    service.merges.active.as_mut().expect("merge lane").applying =
-        true;
+    service.merges.active_mut().applying = true;
     service.merges.tasks.spawn(async move {
         let result = work.run().await;
         Completed {
@@ -516,7 +526,31 @@ fn start_apply(
     Ok(true)
 }
 
+/// Takes in the lane's finished background work. When that fails
+/// for a chief, it lets the lane and the chief's request go, and
+/// names the request so the serve loop faults it and frees the
+/// connection: no later step would answer it.
 pub(crate) async fn complete(
+    service: &mut Service,
+    harnesses: &mut Harnesses,
+    completed: Completed,
+) -> Result<()> {
+    let origin = completed.origin.clone();
+    let done = finish(service, harnesses, completed).await;
+    match (done, origin) {
+        (Err(error), Origin::Chief { owner, id }) => {
+            service.merges.release();
+            service.merges.clients.remove(&(owner, id.clone()));
+            Err(error.context(Asked {
+                client: owner,
+                request: Some(id),
+            }))
+        }
+        (done, _) => done,
+    }
+}
+
+async fn finish(
     service: &mut Service,
     harnesses: &mut Harnesses,
     completed: Completed,
@@ -526,7 +560,7 @@ pub(crate) async fn complete(
             Origin::Call(id) => {
                 service.house_work.release(id);
                 if crate::oversight::held::unfinished(
-                    service.home.store().connection(),
+                    service.db(),
                     id.runtime.as_str(),
                     &id.key,
                 )? {
@@ -623,7 +657,7 @@ pub(crate) async fn complete(
                             .is_none_or(|failure| failure.uncertain);
                     if !service.houses.confirms() {
                         society::keep(
-                            service.home.store().connection(),
+                            service.db(),
                             "remote-merge-attempt",
                             &key,
                             &uncertain,
@@ -672,7 +706,7 @@ async fn respond(
                     society::outcome(&error.text(), true);
                 service.credentials.scrub(&mut outcome);
                 crate::operation::settle(
-                    service.home.store().connection(),
+                    service.db(),
                     &id,
                     &outcome,
                 )?;
@@ -690,4 +724,90 @@ async fn respond(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_testing::Scratch;
+
+    use super::*;
+    use crate::harness::Config;
+    use crate::record::{Change, RecordOperation};
+    use crate::{Home, Overrides};
+
+    #[tokio::test]
+    async fn a_chief_merge_that_fails_to_complete_frees_the_lane() {
+        let scratch = Scratch::new(&format!(
+            "failed-merge-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let mut service = Service::new(
+            Home::open(&scratch).unwrap(),
+            Overrides::none(true),
+        )
+        .unwrap();
+        let layout = service.home.layout().clone();
+        let (mut harnesses, _) = Harnesses::start(
+            &layout,
+            service.home.store(),
+            Config::unused(),
+        )
+        .unwrap();
+        let origin = Origin::Chief {
+            owner: 7,
+            id: "merge".into(),
+        };
+        service.merges.clients.insert((7, "merge".into()));
+        service.merges.active = Some(Active {
+            origin: origin.clone(),
+            held: Vec::new(),
+            applying: false,
+        });
+        let limits = service
+            .home
+            .store()
+            .record("home")
+            .unwrap()
+            .unwrap()
+            .limits;
+        let mayor = AgentRef {
+            hamlet: "home".into(),
+            number: 0,
+        };
+        // A plan whose change is no departure, so its commit fails.
+        let plan = Plan {
+            operation: RecordOperation {
+                hamlet: "home".into(),
+                actor: Actor::Chief(service.chief.clone()),
+                at: 0,
+                reason: "a test".into(),
+                task: None,
+                change: Change::SetLimits {
+                    limits,
+                    runs: Vec::new(),
+                },
+            },
+            snapshot: "none".into(),
+            gone: mayor.clone(),
+            kept: mayor,
+            prompt: None,
+        };
+        let error = complete(
+            &mut service,
+            &mut harnesses,
+            Completed {
+                origin,
+                result: Finished::Prepared(Ok(plan)),
+            },
+        )
+        .await
+        .unwrap_err();
+        let asked = error.downcast_ref::<Asked>().unwrap();
+        assert_eq!(
+            (asked.client, asked.request.as_deref()),
+            (7, Some("merge"))
+        );
+        assert!(service.merges.active.is_none());
+        assert!(!service.merges.busy(7));
+    }
 }

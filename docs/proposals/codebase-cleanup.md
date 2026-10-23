@@ -41,25 +41,18 @@ fynix is a git dependency pinned to a commit.
 
 ## Phase 2: server seams
 
-The one request match, the client schema's fingerprint, `State::apply`
-and the split of the serve loop's files are described in
-[`tour.md`](../tour.md) and [`protocol.md`](../protocol.md). What
-remains:
-
-1. Rules into types. `RequestId` as a UUID newtype, and a non-empty
-   string wrapper, so Rust cannot build a message the validator refuses.
-   The schema check stays at the edge as ADR 0004 asks.
-   `serde_path_to_error` gives the field path in fault words, so the
-   schema-walking text builders shrink.
-2. Refresh only when something changed. `Store::run` and the chats move a
-   revision counter; refresh rebuilds state only when it moved. Rescan the
-   tools folder on a two-second timer. Measure the tick before and after
-   with a hundred agents.
-3. Narrow `Service` in steps. `Service::db()`. The five `expect`
-   invariants in `merging/lane.rs` move onto a `Merges::active_mut()`
-   method. Stop there unless Phase 5 shows more pain. No rewrite.
-
-Done when: the server runs no SQLite read on an idle tick.
+Built: one match names each request's owner, the client schema has a
+fingerprint, and a client applies changes with `State::apply`.
+`RequestId` holds only a hyphenated UUID, so Rust cannot build a request
+id the schema refuses; the schema check stays at the edge. An idle tick
+runs no SQLite read: it rebuilds the state only when it may have
+changed, as `Since` in `runtime.rs` defines, and the tools folder is
+read every two seconds. `Service::db()` is the home's database, and
+`Merges::active_mut()` holds the lane's invariant
+([`tour.md`](../tour.md), [`protocol.md`](../protocol.md)). Left: the
+non-empty string wrapper; `serde_path_to_error`, which finds no path
+through the internally tagged `ClientMessage`; and the idle tick's read
+of every living house's skills from disk, about 1.27 ms with 101 houses.
 
 ## Phase 3: tests and workspace
 
@@ -141,6 +134,9 @@ same update, and no UI test needs more than one update to settle.
    to `Workspace`.
 2. Typed values. Society tools return a typed outcome, and `once`
    serializes it at the marker. The two `.expect` calls on marker JSON go.
+   The request ids the serve loop, the gifts and the merge lane still
+   carry as `String` become `RequestId`, so `reply` and `fault` take the
+   type and lose their fallback for an id that is not one.
 3. Refusals. `Error` and `Display` on `protocol::Refusal` through
    `thiserror`, variants for the recurring cases, and the 32
    `Result<_, String>` helpers turned into small enums.
@@ -163,7 +159,7 @@ unsafe modules, and no type carries a word from a CONTEXT.md avoid list.
   `hamlet_protocol`. Two consumers do not justify them.
 - No `Service` rewrite and no trait for local versus remote. Enum
   dispatch is right for two closed variants. The five parallel enums
-  shrink to two only if Phase 2 step 3 leaves them painful.
+  shrink to two only if Phase 5 finds them painful.
 - No change to the schema check beyond moving rules into types, because
   ADR 0004 chose it.
 - No reformat: width 70 and the nightly options stay.

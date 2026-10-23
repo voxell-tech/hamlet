@@ -49,7 +49,7 @@ pub struct Book {
 
 #[derive(Default)]
 struct Field {
-    pending: Option<String>,
+    pending: Option<protocol::RequestId>,
     problem: Option<String>,
 }
 
@@ -887,7 +887,8 @@ mod tests {
         use crate::me::tests::words;
         let (mut app, _) = page(Part::Budget);
         enter(&mut app, "May spend, in dollars", "2");
-        let to = edits(&app)[0]["id"].as_str().unwrap().to_string();
+        let to =
+            edits(&app)[0]["id"].as_str().unwrap().parse().unwrap();
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::Reply(protocol::Reply {

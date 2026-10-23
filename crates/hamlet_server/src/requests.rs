@@ -85,7 +85,7 @@ impl Serving {
                 return Ok(false);
             }
         };
-        let request = message.id().map(str::to_owned);
+        let request = message.id().map(ToString::to_string);
         let taken = self.take(id, message).await;
         taken.with_context(|| Asked {
             client: id,

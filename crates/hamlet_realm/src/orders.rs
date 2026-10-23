@@ -169,7 +169,7 @@ pub fn give(world: &mut World, agent: Entity, offer: &Offer) {
     queue(
         world,
         protocol::ClientMessage::Give(protocol::Give::Skill {
-            id: String::new(),
+            id: RequestId::new(),
             to,
             skill: offer.source.clone(),
         }),
@@ -333,7 +333,7 @@ fn letter(world: &mut World, agent: Entity, paths: &[PathBuf]) {
     queue(
         world,
         protocol::ClientMessage::Give(protocol::Give::Files {
-            id: String::new(),
+            id: RequestId::new(),
             to,
             files,
         }),
@@ -346,8 +346,10 @@ fn queue(
     mut message: protocol::ClientMessage,
     gift: Gift,
 ) {
+    // The message is measured with a stand-in id as long as the
+    // outbox's.
     if serde_json::to_vec(&message)
-        .map_or(true, |bytes| bytes.len() + 36 >= 1024 * 1024)
+        .map_or(true, |bytes| bytes.len() >= 1024 * 1024)
     {
         report(
             world,
@@ -485,7 +487,7 @@ fn answered(world: &mut World, response: Response) {
     queue(
         world,
         protocol::ClientMessage::GivePart(protocol::GivePart {
-            id: String::new(),
+            id: RequestId::new(),
             upload,
             path,
             offset,
@@ -651,7 +653,7 @@ mod tests {
     }
     fn reply(
         app: &mut App,
-        to: String,
+        to: RequestId,
         kind: protocol::ReplyKind,
         text: &str,
         upload: Option<&str>,

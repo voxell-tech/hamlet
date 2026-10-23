@@ -18,8 +18,8 @@ use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 use hamlet_protocol::client::{
-    Address, Answer, ChatRef, Close, Doing, New, Op, Open, Resume,
-    Retry, Rewind, Say, ServerMessage, Stop, Turn, UsageView,
+    Address, Answer, ChatRef, Close, Doing, New, Op, Open, RequestId,
+    Resume, Retry, Rewind, Say, ServerMessage, Stop, Turn, UsageView,
 };
 
 use self::activity::Activity;
@@ -172,7 +172,10 @@ pub(crate) enum Request<'a> {
     Rewind(&'a Rewind),
     Stop(&'a Stop),
     Answer(&'a Answer),
-    History { agent: &'a Address, id: &'a str },
+    History {
+        agent: &'a Address,
+        id: &'a RequestId,
+    },
 }
 
 /// Handles a client's request about conversations; `None` when it is
@@ -265,7 +268,7 @@ pub(crate) async fn heard(
     match notice {
         Notice::Kept { binding, mut item } => {
             crate::society::letters::authored(
-                service.home.store().connection(),
+                service.db(),
                 std::slice::from_mut(&mut item),
             )?;
             let loaded =
@@ -388,12 +391,8 @@ pub(crate) async fn close(
         return Ok(Vec::new());
     }
     let mut waits = Vec::new();
-    for binding in records::all(service.home.store().connection())? {
-        let Some(kept) = records::kept(
-            service.home.store().connection(),
-            binding,
-        )?
-        else {
+    for binding in records::all(service.db())? {
+        let Some(kept) = records::kept(service.db(), binding)? else {
             continue;
         };
         if kept.place.chief.is_none() {
@@ -433,7 +432,7 @@ pub(crate) fn work(
     service: &mut Service,
     agent: &AgentRef,
 ) -> Result<Work> {
-    let db = service.home.store().connection();
+    let db = service.db();
     let bindings = records::conversations_of(db, agent)?;
     let current = records::current(db, agent, &service.chief)?
         .map(|session| session.binding);
@@ -479,7 +478,7 @@ pub(crate) fn work(
 
 /// Loads every conversation an agent has, so what it is doing shows.
 pub(crate) fn load(service: &mut Service) -> Result<()> {
-    for binding in records::all(service.home.store().connection())? {
+    for binding in records::all(service.db())? {
         conversation(service, binding)?;
     }
     Ok(())
@@ -491,10 +490,7 @@ fn conversation(
 ) -> Result<&mut Conversation> {
     if !service.chats.conversations.contains_key(&binding) {
         let mut items = service.home.store().items(binding)?;
-        crate::society::letters::authored(
-            service.home.store().connection(),
-            &mut items,
-        )?;
+        crate::society::letters::authored(service.db(), &mut items)?;
         service.chats.conversations.insert(
             binding,
             Conversation {
@@ -530,19 +526,15 @@ fn broadcast(
     } else {
         None
     };
-    let number =
-        records::kept(service.home.store().connection(), binding)?
-            .map(|kept| kept.place.session);
+    let number = records::kept(service.db(), binding)?
+        .map(|kept| kept.place.session);
     let conversation = conversation(service, binding)?;
     let mut ops = conversation.fold.take();
     let stale = std::mem::take(&mut conversation.fold.stale);
     if stale {
         ops.push(Op::Reset {});
         let mut items = service.home.store().items(binding)?;
-        crate::society::letters::authored(
-            service.home.store().connection(),
-            &mut items,
-        )?;
+        crate::society::letters::authored(service.db(), &mut items)?;
         let conversation = self::conversation(service, binding)?;
         let mut fold = Fold::of(&items)?;
         fold.working = conversation.running;
@@ -687,7 +679,7 @@ fn usage(
     service: &mut Service,
     binding: BindingId,
 ) -> Result<UsageView> {
-    let db = service.home.store().connection();
+    let db = service.db();
     crate::spend::usage_of(db, &records::lineage(db, binding)?)
 }
 
@@ -712,11 +704,9 @@ pub(crate) async fn current(
     agent: &AgentRef,
 ) -> Result<BindingId> {
     let chief = service.chief.clone();
-    if let Some(session) = records::current(
-        service.home.store().connection(),
-        agent,
-        &chief,
-    )? {
+    if let Some(session) =
+        records::current(service.db(), agent, &chief)?
+    {
         return Ok(session.binding);
     }
     let binding = begin(
@@ -732,7 +722,7 @@ pub(crate) async fn current(
     )
     .await?;
     records::point(
-        service.home.store().connection(),
+        service.db(),
         agent,
         &chief,
         1,
@@ -754,7 +744,7 @@ pub(crate) async fn begin(
         .bind(service.home.store(), &place.agent, false)
         .await?;
     records::keep(
-        service.home.store().connection(),
+        service.db(),
         binding,
         place,
         previous,

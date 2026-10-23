@@ -56,7 +56,7 @@ struct Watches {
 }
 
 struct Page {
-    id: String,
+    id: protocol::RequestId,
     stale: bool,
 }
 

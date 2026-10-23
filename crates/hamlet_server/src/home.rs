@@ -5,7 +5,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, ensure};
-use rusqlite::OptionalExtension;
+use rusqlite::{Connection, OptionalExtension};
 
 use crate::claim::Claim;
 use crate::operation::RuntimeInstance;
@@ -95,6 +95,12 @@ impl Home {
     /// The claimed home's realm store.
     pub fn store(&mut self) -> &mut Store {
         &mut self.store
+    }
+
+    /// The realm store's open database, reached without the
+    /// store's transactions.
+    pub(crate) fn connection(&self) -> &Connection {
+        self.store.connection()
     }
 
     /// Closes the store, then lets the home go.

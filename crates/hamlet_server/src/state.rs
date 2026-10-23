@@ -1,10 +1,14 @@
 //! Protocol views of the record and the chief's settings.
 
 use anyhow::{Context, Result};
+use chrono::{
+    Datelike, Local, LocalResult, NaiveDateTime, NaiveTime,
+    TimeDelta, TimeZone,
+};
 use hamlet_protocol::client::{
     Agent, AgentActivity, AgentRef, AgentSaying, AgentSpent, Changes,
     ClosedHamlet, Doing, Grant, GrantSource, Hamlet, Left, LeftHow,
-    Permission, Road, ServerMessage, SettingsView,
+    Period, Permission, Road, ServerMessage, SettingsView,
     SettingsViewEndpoints, SettingsViewWorkspace, State, TownAt,
     Update,
 };
@@ -12,15 +16,33 @@ use hamlet_protocol::client::{
 use crate::record::{self, End};
 use crate::service::{Service, records};
 
+/// A state, with the first instant after it was built when one of
+/// its views changes with the clock alone: a road overgrows, or a
+/// budget's share gone moves on a step, the last of which starts its
+/// next period and its books.
+pub(crate) struct Built {
+    pub(crate) state: State,
+    pub(crate) turns: i64,
+}
+
 pub(crate) fn state(
     service: &mut Service,
     epoch: i64,
     revision: i64,
 ) -> Result<State> {
+    Ok(build(service, epoch, revision)?.state)
+}
+
+pub(crate) fn build(
+    service: &mut Service,
+    epoch: i64,
+    revision: i64,
+) -> Result<Built> {
+    let now = crate::clock::now();
+    let mut turns = i64::MAX;
     let settings = service.settings()?;
-    let records = records(service.home.store().connection())?;
-    let realm =
-        crate::realm::read(service.home.store().connection())?;
+    let records = records(service.db())?;
+    let realm = crate::realm::read(service.db())?;
     let closed = realm
         .hamlets
         .iter()
@@ -37,17 +59,16 @@ pub(crate) fn state(
         .collect();
     let mut hamlets = Vec::new();
     let mut agents = Vec::new();
-    let mut grants =
-        crate::gate::grants(service.home.store().connection())?
-            .into_iter()
-            .map(|grant| Grant {
-                agent: Some(grant.agent.into()),
-                name: grant.name,
-                permission: grant.permission,
-                by: Some(grant.by),
-                source: GrantSource::Grant,
-            })
-            .collect::<Vec<_>>();
+    let mut grants = crate::gate::grants(service.db())?
+        .into_iter()
+        .map(|grant| Grant {
+            agent: Some(grant.agent.into()),
+            name: grant.name,
+            permission: grant.permission,
+            by: Some(grant.by),
+            source: GrantSource::Grant,
+        })
+        .collect::<Vec<_>>();
     let root = service.home.layout().root().to_owned();
     let mut kept = Vec::new();
     for record in records {
@@ -57,8 +78,16 @@ pub(crate) fn state(
         };
         let limits = &record.limits.chief;
         let grows = limits.road.grows_over_days;
+        turns = turns.min(budget_step(now, &limits.budget.period)?);
         let work = service.work(&record.id)?;
-        let now = crate::clock::now();
+        let mut overgrows = |last_used: i64| {
+            let at = last_used
+                .saturating_add(crate::clock::days(grows))
+                .saturating_add(1);
+            if last_used > 0 && at > now {
+                turns = turns.min(at);
+            }
+        };
         let reference = |number| AgentRef {
             hamlet: record.id.clone(),
             number,
@@ -72,6 +101,7 @@ pub(crate) fn state(
         let mut roads = record
             .roads_of()
             .iter()
+            .inspect(|r| overgrows(r.last_used))
             .map(|r| Road {
                 a: end(r.a),
                 b: end(r.b),
@@ -86,11 +116,12 @@ pub(crate) fn state(
             })
             .collect::<Vec<_>>();
         roads.extend(
-            crate::realm::roads(service.home.store().connection())?
+            crate::realm::roads(service.db())?
                 .into_iter()
                 .filter(|r| {
                     r.a.hamlet == record.id || r.b.hamlet == record.id
                 })
+                .inspect(|r| overgrows(r.last_used))
                 .map(|r| Road {
                     level: record::level(
                         r.last_used,
@@ -105,11 +136,11 @@ pub(crate) fn state(
                 }),
         );
         let books = crate::spend::books(
-            service.home.store().connection(),
+            service.db(),
             &record.id,
             &limits.budget.period,
             None,
-            crate::clock::now(),
+            now,
         )?;
         hamlets.push(Hamlet {
             id: record.id.clone(),
@@ -120,7 +151,7 @@ pub(crate) fn state(
             at: place.at.map(|at| TownAt { x: at.x, z: at.z }),
             roads,
             votes: crate::society::votes::views(
-                service.home.store().connection(),
+                service.db(),
                 &record,
             )?,
             folder: work.folder,
@@ -170,14 +201,7 @@ pub(crate) fn state(
                 .unwrap_or_default();
             let skills = match left {
                 Some(_) => Vec::new(),
-                None => service.houses.skill_names(
-                    &record.id,
-                    agent.number,
-                    &root
-                        .join("houses")
-                        .join(&record.id)
-                        .join(agent.number.to_string()),
-                )?,
+                None => skills(service, &record.id, agent.number)?,
             };
             let left = left
                 .map(|left| {
@@ -232,11 +256,11 @@ pub(crate) fn state(
                 },
                 skills,
                 consulting: crate::society::library::consulting(
-                    service.home.store().connection(),
+                    service.db(),
                     &reference_of,
                 )?,
                 conversations: crate::society::letters::views(
-                    service.home.store().connection(),
+                    service.db(),
                     &reference_of,
                 )?,
                 left,
@@ -266,15 +290,13 @@ pub(crate) fn state(
         kept.push(record);
     }
     let mut waits = Vec::new();
-    for wait in
-        crate::oversight::open(service.home.store().connection())?
-    {
+    for wait in crate::oversight::open(service.db())? {
         let record = wait.chat.as_ref().and_then(|chat| {
             kept.iter().find(|r| r.id == chat.hamlet)
         });
         let current = match &wait.chat {
             Some(chat) => crate::chats::records::current_number(
-                service.home.store().connection(),
+                service.db(),
                 &record::AgentRef {
                     hamlet: chat.hamlet.clone(),
                     number: chat.number,
@@ -294,7 +316,7 @@ pub(crate) fn state(
             key: service.credentials.configured(&e.name),
         })
         .collect();
-    Ok(State {
+    let state = State {
         epoch,
         revision,
         chief: service.chief.clone(),
@@ -333,7 +355,93 @@ pub(crate) fn state(
                 move_: service.moving.view(),
             },
         },
-    })
+    };
+    Ok(Built { state, turns })
+}
+
+/// The first instant after `now` at the local wall-clock time `at`.
+/// A time the clock skips is looked at again in a minute.
+fn instant(at: NaiveDateTime, now: i64) -> i64 {
+    match Local.from_local_datetime(&at) {
+        LocalResult::Single(at) => at.timestamp_millis(),
+        LocalResult::Ambiguous(first, second) => {
+            let first = first.timestamp_millis();
+            if first > now {
+                first
+            } else {
+                second.timestamp_millis()
+            }
+        }
+        LocalResult::None => now.saturating_add(60_000),
+    }
+}
+
+/// The next instant after `now` when the share gone of a budget of
+/// `period` may move, the period's end among them. `spend`'s report
+/// counts it in steps of 1/200 of the period's wall-clock seconds;
+/// its division can show a step a second late, so the step's own
+/// second is followed by the next.
+fn budget_step(now: i64, period: &Period) -> Result<i64> {
+    let at = crate::clock::local(now)?.naive_local();
+    let (first, step) = match period {
+        Period::Day => (at.date(), 432),
+        Period::Month => (
+            at.date().with_day(1).context("the month's first day")?,
+            i64::from(at.date().num_days_in_month()) * 432,
+        ),
+    };
+    let start = first.and_time(NaiveTime::MIN);
+    let gone = (at - start).num_seconds();
+    let next = if gone % step == 0 {
+        gone + 1
+    } else {
+        (gone / step + 1) * step
+    };
+    Ok(instant(start + TimeDelta::seconds(next), now))
+}
+
+/// The skills in the house of agent `number` of `hamlet`.
+fn skills(
+    service: &mut Service,
+    hamlet: &str,
+    number: u64,
+) -> Result<Vec<String>> {
+    let house = service
+        .home
+        .layout()
+        .root()
+        .join("houses")
+        .join(hamlet)
+        .join(number.to_string());
+    service.houses.skill_names(hamlet, number, &house)
+}
+
+/// Whether the skills in the library or in a living agent's house
+/// differ from those `state` shows. A chief may put them there by
+/// hand, which no event tells.
+pub(crate) fn skills_moved(
+    service: &mut Service,
+    state: &State,
+) -> Result<bool> {
+    let library = crate::prompt::shelf::shelf(
+        &service.home.layout().root().join("library"),
+    );
+    if library.len() != state.library.len()
+        || library.iter().zip(&state.library).any(|(found, shown)| {
+            found.folder != shown.name
+                || found.description != shown.description
+        })
+    {
+        return Ok(true);
+    }
+    for agent in state.agents.iter().filter(|a| a.left.is_none()) {
+        let found =
+            skills(service, &agent.ref_.hamlet, agent.ref_.number)?;
+        if found != agent.skills {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 pub(crate) fn changed(
@@ -415,4 +523,64 @@ pub(crate) fn changed(
             changes,
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{Local, NaiveDateTime, TimeZone};
+    use hamlet_protocol::client::Period;
+
+    use super::budget_step;
+
+    /// The instant of the local wall-clock time `text`, on a day the
+    /// clock neither skips nor repeats.
+    fn at(text: &str) -> i64 {
+        let naive =
+            NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S")
+                .unwrap();
+        Local
+            .from_local_datetime(&naive)
+            .single()
+            .unwrap()
+            .timestamp_millis()
+    }
+
+    #[test]
+    fn a_day_budget_steps_every_two_hundredth_of_the_day() {
+        // 10:03:00 is 83.75 steps of 432 seconds into the day.
+        assert_eq!(
+            budget_step(at("2026-06-10 10:03:00"), &Period::Day)
+                .unwrap(),
+            at("2026-06-10 10:04:48")
+        );
+        assert_eq!(
+            budget_step(at("2026-06-10 23:59:00"), &Period::Day)
+                .unwrap(),
+            at("2026-06-11 00:00:00")
+        );
+    }
+
+    #[test]
+    fn a_month_budget_steps_every_two_hundredth_of_the_month() {
+        // A step of June is 30 * 432 seconds, 3.6 hours.
+        assert_eq!(
+            budget_step(at("2026-06-10 10:03:00"), &Period::Month)
+                .unwrap(),
+            at("2026-06-10 10:48:00")
+        );
+        assert_eq!(
+            budget_step(at("2026-06-30 23:00:00"), &Period::Month)
+                .unwrap(),
+            at("2026-07-01 00:00:00")
+        );
+    }
+
+    #[test]
+    fn a_budget_on_its_step_is_looked_at_again_a_second_later() {
+        assert_eq!(
+            budget_step(at("2026-06-10 10:04:48"), &Period::Day)
+                .unwrap(),
+            at("2026-06-10 10:04:49")
+        );
+    }
 }

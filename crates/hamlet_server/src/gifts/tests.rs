@@ -153,7 +153,7 @@ async fn begin(service: &mut Service, to: &Address) -> String {
 
 fn part(upload: &str) -> GivePart {
     GivePart {
-        id: "part".into(),
+        id: hamlet_protocol::client::RequestId::new(),
         upload: upload.into(),
         path: "note".into(),
         offset: 0,

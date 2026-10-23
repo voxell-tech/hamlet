@@ -58,7 +58,7 @@ closes clients with **1001**. These rules are in
 | `Address` | `{hamlet: string, agent: string}`. An agent's name, with `agent: "mayor"` for the office's current holder. |
 | `AgentRef` | `{hamlet: string, number: integer}`. Stable identity, independent of name or office. |
 | `ChatRef` | `{with: Address, past?: integer, from?: AgentRef, kind?: "letters" \| "questions"}`. |
-| `RequestId` | A UUID string. |
+| `RequestId` | A UUID in its 36-character hyphenated form, in either case, such as `0f8fad5b-d9cb-469f-a165-70867728950e`. The braced, URN and 32-digit forms are refused. |
 | `Choice` | `allow`, `always`, `deny`, `go`, `withdraw`, `reply`, `dismiss`. Use the choices advertised by the wait. |
 | `Endpoint` | `{name: string, baseUrl: string}`. |
 | `Price` | `{input: number, output: number}`: dollars per million tokens. |
@@ -343,10 +343,12 @@ refusal.
 ## Changing the protocol
 
 1. Edit the types in `crates/hamlet_protocol/src/client/`, the authority for both
-   directions. The crate has no server-domain dependencies. A limit serde
-   cannot check, such as a request id's UUID format or a list's length,
-   goes in a `#[schemars(...)]` attribute: the server checks every client
-   message against the JSON Schema derived from these types.
+   directions. The crate has no server-domain dependencies. A rule a
+   type can hold goes in the type, as `RequestId` holds its UUID form,
+   so Rust cannot build a message the schema refuses. A limit serde
+   cannot check, such as a list's length, goes in a `#[schemars(...)]`
+   attribute: the server checks every client message against the JSON
+   Schema derived from these types.
 2. Move `V` in `crates/hamlet_protocol/src/client.rs` when a message's
    shape changes.
    `cargo test -p hamlet_protocol` keeps a sha256 of the client schema

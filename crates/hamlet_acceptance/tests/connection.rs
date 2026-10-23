@@ -7,10 +7,10 @@ use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
 use serde_json::json;
 
-fn fault(text: &str, to: Option<&str>) -> ServerMessage {
+fn fault(text: &str, to: Option<&RequestId>) -> ServerMessage {
     ServerMessage::Fault(Fault {
         text: text.into(),
-        to: to.map(String::from),
+        to: to.cloned(),
     })
 }
 
@@ -36,7 +36,7 @@ async fn refuses_a_message_before_hello_and_closes() {
     let mut wire = Wire::open(&s.server.url).await;
     wire.send_text(
         &serde_json::to_string(
-            &json!({"type": "read", "id": id(), "what": "charter"}),
+            &json!({"type": "read", "id": RequestId::new(), "what": "charter"}),
         )
         .unwrap(),
     )
@@ -147,12 +147,12 @@ async fn answers_malformed_messages_with_faults_and_stays_open() {
         ),
     ];
     for (message, text, answered) in cases {
-        let request = id();
+        let request = RequestId::new();
         let raw = message
             .to_string()
             .replace("\"ID\"", &format!("\"{request}\""));
         chief_send_raw(&mut chief, &raw).await;
-        let to = answered.then_some(request.as_str());
+        let to = answered.then_some(&request);
         chief
             .until(text, |c| c.messages().contains(&fault(text, to)))
             .await;
@@ -183,7 +183,7 @@ async fn closes_a_connection_that_sends_more_than_a_mebibyte() {
     let s = Session::start(Script::new()).await;
     let mut chief = s.join().await;
     let text = "x".repeat(1_048_576);
-    let message = json!({"type": "say", "id": id(), "to": mayor(), "text": text});
+    let message = json!({"type": "say", "id": RequestId::new(), "to": mayor(), "text": text});
     chief.send_raw(&message.to_string()).await;
     let (got, ending) = chief.into_wire().rest().await;
     assert!(

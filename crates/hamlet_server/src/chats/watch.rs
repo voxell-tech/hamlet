@@ -3,8 +3,8 @@
 
 use anyhow::Result;
 use hamlet_protocol::client::{
-    Address, ChatRef, ChatRefKind, Open, ReadResult, ServerMessage,
-    Transcript,
+    Address, ChatRef, ChatRefKind, Open, ReadResult, RequestId,
+    ServerMessage, Transcript,
 };
 use hamlet_protocol::runtime;
 
@@ -109,18 +109,13 @@ pub(super) async fn resolve(
             hamlet: from.hamlet.clone(),
             number: from.number,
         };
-        return Ok(peer_of(
-            service.home.store().connection(),
-            &agent,
-            kind,
-            &from,
-        )?
-        .ok_or_else(|| {
-            Refusal::Invalid(
-                "There is no conversation with that agent here."
-                    .into(),
-            )
-        }));
+        return Ok(peer_of(service.db(), &agent, kind, &from)?
+            .ok_or_else(|| {
+                Refusal::Invalid(
+                    "There is no conversation with that agent here."
+                        .into(),
+                )
+            }));
     }
     let agent = match service.agent(&chat.with, "watch chat")? {
         Ok(agent) => agent,
@@ -137,12 +132,8 @@ pub(super) async fn resolve(
     };
     let chief = service.chief.clone();
     Ok(
-        match records::session(
-            service.home.store().connection(),
-            &agent,
-            &chief,
-            number,
-        )? {
+        match records::session(service.db(), &agent, &chief, number)?
+        {
             Some(session) => Ok(session.binding),
             None => Err(Refusal::Invalid(format!(
                 "There is no past session `{number}` here."
@@ -158,12 +149,11 @@ pub(super) fn transcript(
     binding: BindingId,
     chat: &ChatRef,
     before: Option<&str>,
-    to: Option<&str>,
+    to: Option<&RequestId>,
 ) -> Result<ServerMessage> {
     let usage = super::usage(service, binding)?;
-    let number =
-        records::kept(service.home.store().connection(), binding)?
-            .map(|kept| kept.place.session);
+    let number = records::kept(service.db(), binding)?
+        .map(|kept| kept.place.session);
     let conversation = super::conversation(service, binding)?;
     let fold = &conversation.fold;
     let end = match before {
@@ -174,7 +164,7 @@ pub(super) fn transcript(
                 Some(end) => end,
                 None => {
                     return Ok(fault(
-                        to,
+                        to.map(RequestId::as_str),
                         format!("There is no item `{before}` here."),
                     ));
                 }
@@ -189,7 +179,7 @@ pub(super) fn transcript(
         last: fold.last.clone(),
         number: chat.from.is_none().then_some(number).flatten(),
         pending: fold.pending,
-        to: to.map(String::from),
+        to: to.cloned(),
         usage,
         working: fold.working,
     }))
@@ -201,7 +191,7 @@ pub(super) async fn history(
     service: &mut Service,
     _harnesses: &mut Harnesses,
     address: &Address,
-    id: &str,
+    id: &RequestId,
 ) -> Result<ServerMessage> {
     let agent = match service.agent(address, "read or edit papers")? {
         Ok(agent) => agent,
@@ -212,7 +202,7 @@ pub(super) async fn history(
         number: agent.number,
     };
     Ok(ServerMessage::Read(ReadResult::History {
-        to: id.into(),
+        to: id.clone(),
         history: pasts(service, &agent)?,
     }))
 }
@@ -224,7 +214,7 @@ pub(super) fn pasts(
     agent: &crate::record::AgentRef,
 ) -> Result<Vec<hamlet_protocol::client::Past>> {
     let chief = service.chief.clone();
-    let db = service.home.store().connection();
+    let db = service.db();
     let current = records::current_number(db, agent, &chief)?;
     let mut history = Vec::new();
     for session in records::sessions(db, agent, &chief)? {

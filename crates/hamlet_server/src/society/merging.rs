@@ -572,19 +572,14 @@ pub(super) async fn operation(
         &caller.id.key,
     ))?;
     let mut plan = match super::document::<Option<Plan>>(
-        service.home.store().connection(),
+        service.db(),
         "merge-plan",
         &key,
     )? {
         Some(plan) => plan,
         None => match ready.context("completed merge preparation")? {
             Ok(plan) => {
-                super::keep(
-                    service.home.store().connection(),
-                    "merge-plan",
-                    &key,
-                    &plan,
-                )?;
+                super::keep(service.db(), "merge-plan", &key, &plan)?;
                 plan
             }
             Err(unplanned) => {
@@ -623,7 +618,7 @@ pub(super) async fn operation(
         crate::chats::stop_agent(service, harnesses, &plan.gone)
             .await?;
         super::leaving::lapse(
-            service.home.store().connection(),
+            service.db(),
             &plan.gone.hamlet,
             plan.gone.number,
         )?;
@@ -778,7 +773,7 @@ impl Applied {
                 archive: self.entry.id.clone(),
             },
         };
-        let db = service.home.store().connection();
+        let db = service.db();
         if let Outcome::Refused(refusal) =
             crate::operation::change(db, &operation)?
         {
@@ -799,7 +794,7 @@ fn let_go(
     archive: &str,
     snapshot: &str,
 ) -> Result<()> {
-    service.home.store().connection().execute(
+    service.db().execute(
         "DELETE FROM society_document WHERE \
          kind='remote-merge-attempt' AND key=?1",
         [format!("{hamlet}:{archive}")],
@@ -812,16 +807,14 @@ fn let_go(
 /// kept.
 pub(crate) async fn finish(service: &mut Service) -> Result<()> {
     super::library::retire(service)?;
-    for r in
-        crate::service::records(service.home.store().connection())?
-    {
+    for r in crate::service::records(service.db())? {
         for entry in &r.archive {
             let Some(merge) = &entry.merge else {
                 continue;
             };
             let key = format!("{}:{}", r.id, entry.id);
             let Some(plan) = super::document::<Option<Plan>>(
-                service.home.store().connection(),
+                service.db(),
                 "merge",
                 &key,
             )?
@@ -836,7 +829,7 @@ pub(crate) async fn finish(service: &mut Service) -> Result<()> {
             // every house change is known to have happened or not.
             if !service.houses.confirms() {
                 if super::document::<Option<bool>>(
-                    service.home.store().connection(),
+                    service.db(),
                     "remote-merge-attempt",
                     &key,
                 )?
@@ -845,7 +838,7 @@ pub(crate) async fn finish(service: &mut Service) -> Result<()> {
                     continue;
                 }
                 super::keep(
-                    service.home.store().connection(),
+                    service.db(),
                     "remote-merge-attempt",
                     &key,
                     &true,
@@ -862,9 +855,7 @@ pub(crate) async fn finish(service: &mut Service) -> Result<()> {
         }
     }
     let kept = service
-        .home
-        .store()
-        .connection()
+        .db()
         .prepare(
             "SELECT json_extract(value,'$.snapshot') FROM \
              society_document WHERE kind IN \

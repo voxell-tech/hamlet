@@ -420,7 +420,8 @@ async fn reloads_hand_additions_edits_and_removals() {
             "mark",
             json!({"name":"mark", "exec":["sh","-c",format!("echo {version} > '{}/version'", output.display())], "sandbox":{"fs_rw":[output]}}),
         );
-        tokio::time::sleep(Duration::from_millis(700)).await;
+        // The server reads the tools folder every two seconds.
+        tokio::time::sleep(Duration::from_millis(2500)).await;
         s.chief.say(mayor(), "Mark.").await;
         assert_eq!(
             fs::read_to_string(output.join("version")).unwrap(),
@@ -429,7 +430,7 @@ async fn reloads_hand_additions_edits_and_removals() {
     }
     fs::remove_dir_all(s.home.file("tools/mark")).unwrap();
     fs::remove_file(output.join("version")).unwrap();
-    tokio::time::sleep(Duration::from_millis(700)).await;
+    tokio::time::sleep(Duration::from_millis(2500)).await;
     s.chief.say(mayor(), "Mark again.").await;
     let page = s.chief.open(&chat(mayor())).await;
     assert!(

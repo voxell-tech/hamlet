@@ -334,8 +334,8 @@ pub struct Charter {
 
 #[derive(Resource, Default)]
 struct CharterRequests {
-    read: Option<String>,
-    edit: Option<String>,
+    read: Option<protocol::RequestId>,
+    edit: Option<protocol::RequestId>,
     error: String,
     loaded: bool,
 }

@@ -33,7 +33,7 @@ pub(super) fn plugin(app: &mut App) {
 #[derive(Resource, Default)]
 pub struct Annals {
     hamlet: Option<Entity>,
-    pending: Option<String>,
+    pending: Option<protocol::RequestId>,
     revision: Option<Seen>,
     text: String,
     available: bool,
