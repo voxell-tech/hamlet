@@ -25,8 +25,8 @@ use hamlet_engine_plugins::{
 };
 use hamlet_engine_shell::style::{caption, description};
 use hamlet_engine_shell::{
-    AnyView, Cx, EngineTheme, Overlay, Panel, PanelSection,
-    SettingsFooter, SettingsPage,
+    EngineTheme, Overlay, Panel, PanelSection, SettingsFooter,
+    SettingsPage, View, themed,
 };
 
 use crate::WasmCommandsExt;
@@ -84,17 +84,15 @@ pub(crate) enum Work {
 pub(crate) struct Moving;
 
 /// That a plugin was stopped, and why.
-pub(crate) fn stopped(why: String) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+pub(crate) fn stopped(why: String) -> impl View {
+    themed(move |cx| {
         let gap = cx.theme().space.gap;
-        cx.build(
-            column((
-                caption("STOPPED", Tone::Critical),
-                label("The plugin was stopped."),
-                description(why),
-            ))
-            .gap(gap),
-        )
+        column((
+            caption("STOPPED", Tone::Critical),
+            label("The plugin was stopped."),
+            description(why),
+        ))
+        .gap(gap)
     })
 }
 

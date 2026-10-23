@@ -74,7 +74,8 @@ use hamlet_engine_shell::{
     AnyView, CardClosed, CardPlace, Cx, EngineTheme, FloatCard,
     FloatMenu, MenuClosed, MenuRow, NodePointer, Overlay,
     OverlayShown, Panel, PanelSection, PointerMode, ResizeAxis,
-    SettingsPage, ShellWorldExt, StatusItem, StyleExt, menu_rows,
+    SettingsPage, ShellWorldExt, StatusItem, StyleExt, View,
+    menu_rows, themed,
 };
 
 use crate::WasmCommandsExt;
@@ -727,7 +728,7 @@ struct Travel {
 /// The content of a WASM plugin's panel, inside the panel's padding
 /// or the one it declared.
 pub(crate) fn view(surface: Entity) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let inset =
             cx.world.get::<PanelInset>(surface).map(|inset| inset.0);
         let space = &cx.theme().space;
@@ -738,14 +739,11 @@ pub(crate) fn view(surface: Entity) -> AnyView {
             }
             Some(PanelPadding::Pixels(pixels)) => pixels,
         };
-        cx.build(
-            shown(surface)
-                .within(
-                    column(()).gap(0.0).grow(1.0).min_height(px(0.0)),
-                )
-                .in_panel_padded(padding),
-        )
+        shown(surface)
+            .within(column(()).gap(0.0).grow(1.0).min_height(px(0.0)))
+            .in_panel_padded(padding)
     })
+    .boxed()
 }
 
 /// The content of a WASM plugin's settings page, footer, overlay or
@@ -761,7 +759,7 @@ fn shown(surface: Entity) -> Keyed<EngineTheme, Option<String>> {
         shown.and_then(|shown| shown.stopped.clone())
     });
     keyed(stopped_why, move |why| match why {
-        Some(why) => stopped(why.clone()),
+        Some(why) => stopped(why.clone()).boxed(),
         None => root(surface),
     })
 }
@@ -847,7 +845,7 @@ fn widget(
                 }
             };
             if holds && style == ButtonStyle::Row {
-                row_button(holder, plugin, click)
+                row_button(holder, plugin, click).boxed()
             } else if holds {
                 content_button(
                     style,
@@ -868,7 +866,7 @@ fn widget(
         (Kind::Icon, Shape::Icon { name, tinted }) => {
             let icon = inked(icon(name), holder, *tinted);
             if place == Place::Button {
-                raised(icon)
+                raised(icon).boxed()
             } else {
                 beside_words(icon, parent)
             }
@@ -888,8 +886,9 @@ fn widget(
                     on,
                     change,
                 )
+                .boxed()
             } else {
-                switch(on, change)
+                switch(on, change).boxed()
             }
         }
         (Kind::Field, Shape::Field { placeholder, lines }) => {
@@ -911,12 +910,14 @@ fn widget(
                     tell(NodeInput::Submit),
                     tell(NodeInput::Commit),
                 )
+                .boxed()
             } else {
                 field(
                     text,
                     placeholder.clone(),
                     tell(NodeInput::Commit),
                 )
+                .boxed()
             }
         }
         (Kind::List, _) => kids(holder, plugin, Place::List)
@@ -935,7 +936,7 @@ fn widget(
                 area
             }
         }
-        (Kind::Divider, _) => divider(),
+        (Kind::Divider, _) => divider().boxed(),
         (Kind::Dropdown, Shape::Dropdown { options }) => dropdown(
             options.clone(),
             read(holder, |props| props.selected as usize),
@@ -946,7 +947,8 @@ fn widget(
                     input: NodeInput::Pick(at as u32),
                 });
             },
-        ),
+        )
+        .boxed(),
         _ => column(()).boxed(),
     };
     let built = around(built, holder, plugin, key, &child.around);
@@ -958,7 +960,7 @@ fn widget(
         kids.and_then(|kids| kids.0.first())
             .is_some_and(|first| first.holder != holder)
     });
-    list_row(built, divided)
+    list_row(built, divided).boxed()
 }
 
 /// A label reading the node of `holder`, its tone, size and boldness
@@ -1022,21 +1024,19 @@ fn row_button(
     holder: Entity,
     plugin: Entity,
     click: impl Fn(&mut World) + Send + Sync + 'static,
-) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+) -> impl View {
+    themed(move |cx| {
         let section = cx.theme().space.section;
-        cx.build(
-            kids(holder, plugin, Place::Frame)
-                .within(
-                    row(())
-                        .gap(section)
-                        .grow(1.0)
-                        .align(AlignItems::Center)
-                        .justify(JustifyContent::SpaceBetween),
-                )
-                .styled(ButtonStyle::Row)
-                .on_activate(click),
-        )
+        kids(holder, plugin, Place::Frame)
+            .within(
+                row(())
+                    .gap(section)
+                    .grow(1.0)
+                    .align(AlignItems::Center)
+                    .justify(JustifyContent::SpaceBetween),
+            )
+            .styled(ButtonStyle::Row)
+            .on_activate(click)
     })
 }
 
@@ -1048,8 +1048,8 @@ fn frame(
     plugin: Entity,
     fill: wit::Fill,
     padding: wit::Space,
-) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+) -> impl View {
+    themed(move |cx| {
         let space = &cx.theme().space;
         let colors = &cx.theme().colors;
         let room = gap_of(padding, space.gap);
@@ -1096,7 +1096,7 @@ fn frame(
                 .min_width(px(0.0))
                 .max_width(percent(100.0)),
         };
-        cx.build(kids(holder, plugin, Place::Frame).within(frame))
+        kids(holder, plugin, Place::Frame).within(frame)
     })
 }
 
@@ -1142,7 +1142,7 @@ impl Room {
 /// `view`, the frame of the node of `holder`, laid out by its
 /// [`Room`].
 fn roomy(
-    view: AnyView,
+    view: impl View,
     holder: Entity,
     parent: Entity,
     place: Place,

@@ -28,7 +28,7 @@ use crate::fade::{FadeSurface, ScrollFade};
 use crate::fonts::DisplayText;
 use crate::icons::{Glyph, glyph};
 use crate::theme::EngineTheme;
-use crate::{AnyView, Cx, View};
+use crate::{AnyView, Cx, View, themed};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_observer(pulse)
@@ -353,17 +353,17 @@ pub trait StyleExt: View + Sized {
     }
 
     /// The icon `which` before this view.
-    fn with_icon(self, which: Glyph) -> AnyView {
-        AnyView::new(move |cx: &mut Cx| {
+    fn with_icon(self, which: Glyph) -> impl View {
+        themed(move |cx| {
             let size = cx.theme().space.icon;
-            cx.build(icon_row((raised(glyph(which, size)), self)))
+            icon_row((raised(glyph(which, size)), self))
         })
     }
 
     /// A tab showing this view, lit and underlined across its width
     /// while `shown`.
-    fn in_tab(self, shown: bool) -> AnyView {
-        AnyView::new(move |cx: &mut Cx| {
+    fn in_tab(self, shown: bool) -> impl View {
+        themed(move |cx| {
             let theme = cx.theme();
             let (line, under, pad) = (
                 theme.space.underline,
@@ -386,39 +386,37 @@ pub trait StyleExt: View + Sized {
             .styled(ButtonStyle::Tab)
             .tagged(BottomLight::new(shown));
             if shown {
-                cx.build(tab.tagged(Active))
+                tab.tagged(Active).boxed()
             } else {
-                cx.build(tab)
+                tab.boxed()
             }
         })
     }
 
     /// A panel's content: this view, inside the panel's padding on a
     /// surface that shades toward its bottom, cut at the padding.
-    fn in_panel(self) -> AnyView {
-        AnyView::new(move |cx: &mut Cx| {
+    fn in_panel(self) -> impl View {
+        themed(move |cx| {
             let padding = cx.theme().space.panel;
-            cx.build(self.in_panel_padded(padding))
+            self.in_panel_padded(padding)
         })
     }
 
     /// A panel's content as [`StyleExt::in_panel`] has it, inside
     /// `padding` in place of the panel's.
-    fn in_panel_padded(self, padding: f32) -> AnyView {
-        AnyView::new(move |cx: &mut Cx| {
+    fn in_panel_padded(self, padding: f32) -> impl View {
+        themed(move |cx| {
             let fill = *cx.theme().colors.background;
-            cx.build(
-                column((self,))
-                    .grow(1.0)
-                    .min_width(px(0.0))
-                    .min_height(px(0.0))
-                    .padding(UiRect::all(px(padding)))
-                    .gap(0.0)
-                    .fill(fill)
-                    .overflow(Overflow::clip())
-                    .tagged(BottomGradient)
-                    .tagged(ClipInside),
-            )
+            column((self,))
+                .grow(1.0)
+                .min_width(px(0.0))
+                .min_height(px(0.0))
+                .padding(UiRect::all(px(padding)))
+                .gap(0.0)
+                .fill(fill)
+                .overflow(Overflow::clip())
+                .tagged(BottomGradient)
+                .tagged(ClipInside)
         })
     }
 }
@@ -447,24 +445,22 @@ pub fn icon_button(
 }
 
 /// `children` in a row as an icon and its text are set out.
-pub fn icon_row<C>(children: C) -> AnyView
+pub fn icon_row<C>(children: C) -> impl View
 where
     C: bevy_fynix::ViewSeq<bevy_fynix::Bevy, EngineTheme> + 'static,
 {
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let gap = cx.theme().space.icon_gap;
-        cx.build(row(children).gap(gap).align(AlignItems::Center))
+        row(children).gap(gap).align(AlignItems::Center)
     })
 }
 
 /// `icon` set a little high to sit on the middle of the display
 /// face's capitals.
-pub fn raised(icon: impl View) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+pub fn raised(icon: impl View) -> impl View {
+    themed(move |cx| {
         let offset = cx.theme().space.icon_offset;
-        cx.build(
-            row((icon,)).gap(0.0).padding(UiRect::bottom(px(offset))),
-        )
+        row((icon,)).gap(0.0).padding(UiRect::bottom(px(offset)))
     })
 }
 
@@ -497,14 +493,13 @@ pub fn content_button(
 pub fn title_button(
     text: impl Into<Prop<String>>,
     held: bool,
-) -> AnyView {
+) -> impl View {
     column((label(text).wrap(false).tagged(DisplayText),))
         .gap(0.0)
         .height(percent(100.0))
         .justify(JustifyContent::Center)
         .styled(ButtonStyle::Title)
         .tagged(BottomLight::new(held))
-        .boxed()
 }
 
 /// A text field showing `value`, handing what was typed to `commit`,
@@ -513,12 +508,12 @@ pub fn field(
     value: impl Into<Prop<String>>,
     placeholder: String,
     commit: impl Fn(&mut World, String) + Send + Sync + 'static,
-) -> AnyView {
+) -> impl View {
     let field = text_field(value, commit).rules(field_rules());
-    if placeholder.is_empty() {
-        return field.boxed();
-    }
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
+        if placeholder.is_empty() {
+            return field.boxed();
+        }
         let inset = cx.theme().space.gap + cx.theme().space.border;
         let words =
             row((label(placeholder).tone(Tone::Dim).wrap(false),))
@@ -532,9 +527,8 @@ pub fn field(
                 .align(AlignItems::Center)
                 .tagged(Placeholder)
                 .tagged(Pickable::IGNORE);
-        cx.build(column((field, words)).gap(0.0))
+        column((field, words)).gap(0.0).boxed()
     })
-    .boxed()
 }
 
 /// The rules of a field: a floor sunk into the panel, framed in a
@@ -570,7 +564,7 @@ pub fn field_rules() -> impl FnOnce(&mut Cx) + Send + Sync + 'static {
 pub fn switch(
     on: impl Into<Prop<bool>>,
     change: impl Fn(&mut World, bool) + Send + Sync + 'static,
-) -> AnyView {
+) -> impl View {
     switch_of(on.into(), None, change)
 }
 
@@ -579,7 +573,7 @@ pub fn labelled_switch(
     text: impl Into<Prop<String>>,
     on: impl Into<Prop<bool>>,
     change: impl Fn(&mut World, bool) + Send + Sync + 'static,
-) -> AnyView {
+) -> impl View {
     switch_of(on.into(), Some(text.into()), change)
 }
 
@@ -587,7 +581,7 @@ fn switch_of(
     on: Prop<bool>,
     text: Option<Prop<String>>,
     change: impl Fn(&mut World, bool) + Send + Sync + 'static,
-) -> AnyView {
+) -> impl View {
     AnyView::new(move |cx: &mut Cx| {
         let theme = cx.theme();
         let (space, colors) = (&theme.space, &theme.colors);
@@ -679,7 +673,6 @@ fn switch_of(
         let on = world.get::<Checked>(node).is_some();
         change(world, !on);
     })
-    .boxed()
 }
 
 /// One of `options`, the one at `selected`, which opens a list of
@@ -689,60 +682,49 @@ pub fn dropdown(
     options: Vec<String>,
     selected: impl Into<Prop<usize>>,
     pick: impl Fn(&mut World, usize) + Send + Sync + 'static,
-) -> AnyView {
+) -> impl View {
     let selected = selected.into();
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let size = cx.theme().space.icon;
-        cx.build(
-            choose(
-                options,
-                selected,
-                Glyph::ChevronUp.image(size),
-                pick,
-            )
+        choose(options, selected, Glyph::ChevronUp.image(size), pick)
             .width(percent(100.0))
-            .max_width(percent(100.0)),
-        )
+            .max_width(percent(100.0))
     })
 }
 
 /// The name at the head of a page.
-pub fn heading(text: impl Into<Prop<String>>) -> AnyView {
+pub fn heading(text: impl Into<Prop<String>>) -> impl View {
     let text = text.into();
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let size = cx.theme().text.title;
-        cx.build(
-            label(text)
-                .size(size)
-                .bold(true)
-                .wrap(false)
-                .tagged(DisplayText),
-        )
+        label(text)
+            .size(size)
+            .bold(true)
+            .wrap(false)
+            .tagged(DisplayText)
     })
 }
 
 /// The name of a part of a panel: small, in the display face.
-pub fn section(text: impl Into<Prop<String>>) -> AnyView {
+pub fn section(text: impl Into<Prop<String>>) -> impl View {
     let text = text.into();
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let size = cx.theme().text.small;
-        cx.build(
-            label(text)
-                .size(size)
-                .bold(true)
-                .tone(Tone::Faint)
-                .tagged(DisplayText),
-        )
+        label(text)
+            .size(size)
+            .bold(true)
+            .tone(Tone::Faint)
+            .tagged(DisplayText)
     })
 }
 
 /// Small words that stand back, too short to be a description: a
 /// value, or what an empty list says.
-pub fn note(text: impl Into<Prop<String>>) -> AnyView {
+pub fn note(text: impl Into<Prop<String>>) -> impl View {
     let text = text.into();
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let size = cx.theme().text.small;
-        cx.build(label(text).size(size).tone(Tone::Dim))
+        label(text).size(size).tone(Tone::Dim)
     })
 }
 
@@ -760,16 +742,16 @@ pub fn description_rules(cx: &mut Cx) {
 }
 
 /// `text` as a long description, in [`description_rules`].
-pub fn description(text: impl Into<Prop<String>>) -> AnyView {
-    label(text).rules(description_rules).boxed()
+pub fn description(text: impl Into<Prop<String>>) -> impl View {
+    label(text).rules(description_rules)
 }
 
 /// `content` in a card: a shade above the panel, in a frame.
-pub fn card<C>(content: C) -> AnyView
+pub fn card<C>(content: C) -> impl View
 where
     C: bevy_fynix::ViewSeq<bevy_fynix::Bevy, EngineTheme> + 'static,
 {
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let theme = cx.theme();
         let (padding_x, padding_y, border, line, radius, fill, gap) = (
             theme.space.card_padding_x,
@@ -780,47 +762,43 @@ where
             *theme.colors.surface,
             theme.space.gap / 2.0,
         );
-        cx.build(
-            column(content)
-                .gap(gap)
-                .padding(UiRect::axes(px(padding_x), px(padding_y)))
-                .border(border)
-                .border_color(line)
-                .radius(radius)
-                .fill(fill),
-        )
+        column(content)
+            .gap(gap)
+            .padding(UiRect::axes(px(padding_x), px(padding_y)))
+            .border(border)
+            .border_color(line)
+            .radius(radius)
+            .fill(fill)
     })
 }
 
 /// A line across, between two parts.
-pub fn divider() -> AnyView {
+pub fn divider() -> impl View {
     line(true.into())
 }
 
 /// A divider, taking no room while not `shown`.
-fn line(shown: Prop<bool>) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+fn line(shown: Prop<bool>) -> impl View {
+    themed(move |cx| {
         let theme = cx.theme();
         let (line, colour) =
             (theme.space.divider, *theme.colors.border);
         let display = shown.map(|shown| {
             if shown { Display::Flex } else { Display::None }
         });
-        cx.build(
-            frame().height(px(line)).fill(colour).display(display),
-        )
+        frame().height(px(line)).fill(colour).display(display)
     })
 }
 
 /// `rows` as one list, each padded, a divider between each and the
 /// next.
-pub fn list(rows: Vec<AnyView>) -> AnyView {
+pub fn list(rows: Vec<AnyView>) -> impl View {
     let rows = rows
         .into_iter()
         .enumerate()
-        .map(|(at, one)| list_row(one, at > 0))
+        .map(|(at, one)| list_row(one, at > 0).boxed())
         .collect::<Vec<_>>();
-    column(rows).gap(0.0).boxed()
+    column(rows).gap(0.0)
 }
 
 /// A row of a [`list`]: `content` padded, under a divider while
@@ -828,19 +806,17 @@ pub fn list(rows: Vec<AnyView>) -> AnyView {
 pub fn list_row(
     content: impl View,
     divided: impl Into<Prop<bool>>,
-) -> AnyView {
+) -> impl View {
     let divided = divided.into();
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let pad = cx.theme().space.row_padding;
-        cx.build(
-            column((
-                line(divided),
-                column((content,))
-                    .gap(0.0)
-                    .padding(UiRect::vertical(px(pad))),
-            ))
-            .gap(0.0),
-        )
+        column((
+            line(divided),
+            column((content,))
+                .gap(0.0)
+                .padding(UiRect::vertical(px(pad))),
+        ))
+        .gap(0.0)
     })
 }
 
@@ -848,7 +824,7 @@ pub fn list_row(
 /// reach past its sides, but what scrolls is cut at its top and
 /// bottom, so it never shows over what is above or below it. Its
 /// edges fade into the panel's background while more lies past them.
-pub fn scroll_area<C>(children: C) -> AnyView
+pub fn scroll_area<C>(children: C) -> impl View
 where
     C: bevy_fynix::ViewSeq<bevy_fynix::Bevy, EngineTheme> + 'static,
 {
@@ -856,54 +832,54 @@ where
 }
 
 /// A [`scroll_area`] on `surface`, its edges fading into it.
-pub fn scroll_area_on<C>(surface: FadeSurface, children: C) -> AnyView
+pub fn scroll_area_on<C>(
+    surface: FadeSurface,
+    children: C,
+) -> impl View
 where
     C: bevy_fynix::ViewSeq<bevy_fynix::Bevy, EngineTheme> + 'static,
 {
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let gap = cx.theme().space.gap;
-        cx.build(
-            column((scroll(children)
-                .gap(gap)
-                .grow(1.0)
-                .min_height(px(0.0))
-                .tagged(GlowMargin)
-                .tagged(ScrollFade { surface }),))
-            .gap(0.0)
+        column((scroll(children)
+            .gap(gap)
             .grow(1.0)
             .min_height(px(0.0))
-            .overflow(Overflow::clip_y()),
-        )
+            .tagged(GlowMargin)
+            .tagged(ScrollFade { surface }),))
+        .gap(0.0)
+        .grow(1.0)
+        .min_height(px(0.0))
+        .overflow(Overflow::clip_y())
     })
 }
 
 /// The line over a card that waits for the person: small capitals
 /// in `tone`.
-pub fn caption(text: impl Into<Prop<String>>, tone: Tone) -> AnyView {
+pub fn caption(
+    text: impl Into<Prop<String>>,
+    tone: Tone,
+) -> impl View {
     let text = text.into();
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let size = cx.theme().text.caption;
-        cx.build(
-            label(text)
-                .size(size)
-                .bold(true)
-                .tone(tone)
-                .tagged(DisplayText),
-        )
+        label(text)
+            .size(size)
+            .bold(true)
+            .tone(tone)
+            .tagged(DisplayText)
     })
 }
 
 /// `buttons` in a row that wraps, so a narrow panel never cuts one
 /// off.
-pub fn buttons(buttons: Vec<AnyView>) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+pub fn buttons(buttons: Vec<AnyView>) -> impl View {
+    themed(move |cx| {
         let gap = cx.theme().space.gap;
-        cx.build(
-            row(buttons)
-                .gap(gap)
-                .align(AlignItems::Center)
-                .tagged(Wraps),
-        )
+        row(buttons)
+            .gap(gap)
+            .align(AlignItems::Center)
+            .tagged(Wraps)
     })
 }
 
@@ -914,9 +890,9 @@ pub fn link_row(
     which: Glyph,
     title: impl Into<Prop<String>>,
     holds: Option<String>,
-) -> AnyView {
+) -> impl View {
     let title = title.into();
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let theme = cx.theme();
         let (gap, icon, section) =
             (theme.space.gap, theme.space.icon, theme.space.section);
@@ -925,37 +901,33 @@ pub fn link_row(
                 .bold(true)
                 .wrap(false)
                 .tagged(DisplayText)
-                .with_icon(which),
+                .with_icon(which)
+                .boxed(),
         ];
         if let Some(holds) = holds {
-            lines.push(description(holds));
+            lines.push(description(holds).boxed());
         }
-        cx.build(
-            row((
-                column(lines)
-                    .gap(gap / 2.0)
-                    .grow(1.0)
-                    .min_width(px(0.0)),
-                glyph(Glyph::ChevronRight, icon).tone(Tone::Dim),
-            ))
-            .gap(section)
-            .grow(1.0)
-            .align(AlignItems::Center)
-            .styled(ButtonStyle::Row),
-        )
+        row((
+            column(lines).gap(gap / 2.0).grow(1.0).min_width(px(0.0)),
+            glyph(Glyph::ChevronRight, icon).tone(Tone::Dim),
+        ))
+        .gap(section)
+        .grow(1.0)
+        .align(AlignItems::Center)
+        .styled(ButtonStyle::Row)
     })
 }
 
 /// `rows` as one list, a divider between each and the next.
-pub fn link_rows(rows: Vec<AnyView>) -> AnyView {
+pub fn link_rows(rows: Vec<AnyView>) -> impl View {
     let mut parts = Vec::new();
     for row in rows {
         if !parts.is_empty() {
-            parts.push(divider());
+            parts.push(divider().boxed());
         }
         parts.push(row);
     }
-    column(parts).gap(0.0).boxed()
+    column(parts).gap(0.0)
 }
 
 /// A row of [`link_rows`] built on its own, as each row of an `each`
@@ -963,8 +935,8 @@ pub fn link_rows(rows: Vec<AnyView>) -> AnyView {
 pub fn divided_row(
     row: impl View + 'static,
     divided: impl Into<Prop<bool>>,
-) -> AnyView {
-    column((line(divided.into()), row)).gap(0.0).boxed()
+) -> impl View {
+    column((line(divided.into()), row)).gap(0.0)
 }
 
 /// The head of a page reached through a link row: the way back to
@@ -974,24 +946,22 @@ pub fn page_head(
     back: impl Fn(&mut World) + Send + Sync + 'static,
     which: Glyph,
     name: impl Into<Prop<String>>,
-) -> AnyView {
+) -> impl View {
     let (front, name) = (front.into(), name.into());
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let section = cx.theme().space.section;
-        cx.build(
-            row((
-                icon_button(ButtonStyle::Quiet, Glyph::Back, front)
-                    .on_activate(back),
-                label(name)
-                    .bold(true)
-                    .wrap(false)
-                    .tone(Tone::Faint)
-                    .tagged(DisplayText)
-                    .with_icon(which),
-            ))
-            .gap(section)
-            .align(AlignItems::Center),
-        )
+        row((
+            icon_button(ButtonStyle::Quiet, Glyph::Back, front)
+                .on_activate(back),
+            label(name)
+                .bold(true)
+                .wrap(false)
+                .tone(Tone::Faint)
+                .tagged(DisplayText)
+                .with_icon(which),
+        ))
+        .gap(section)
+        .align(AlignItems::Center)
     })
 }
 
@@ -1003,12 +973,12 @@ pub fn breadcrumb<F>(
     trail: Vec<String>,
     current: impl Into<Prop<String>>,
     go: F,
-) -> AnyView
+) -> impl View
 where
     F: Fn(&mut World, usize) + Clone + Send + Sync + 'static,
 {
     let current = current.into();
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let theme = cx.theme();
         let (gap, size) = (theme.space.gap, theme.text.small);
         let mut parts = Vec::new();
@@ -1048,12 +1018,7 @@ where
                 .tagged(DisplayText)
                 .boxed(),
         );
-        cx.build(
-            row(parts)
-                .gap(gap)
-                .align(AlignItems::Center)
-                .tagged(Wraps),
-        )
+        row(parts).gap(gap).align(AlignItems::Center).tagged(Wraps)
     })
 }
 
@@ -1064,7 +1029,7 @@ pub fn choices<F>(
     labels: Vec<String>,
     picked: usize,
     pick: F,
-) -> AnyView
+) -> impl View
 where
     F: Fn(&mut World, usize) + Clone + Send + Sync + 'static,
 {
@@ -1079,14 +1044,12 @@ where
                 .boxed()
         })
         .collect::<Vec<_>>();
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let gap = cx.theme().space.gap / 2.0;
-        cx.build(
-            row(options)
-                .gap(gap)
-                .align(AlignItems::Center)
-                .tagged(Wraps),
-        )
+        row(options)
+            .gap(gap)
+            .align(AlignItems::Center)
+            .tagged(Wraps)
     })
 }
 

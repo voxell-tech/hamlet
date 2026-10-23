@@ -20,7 +20,7 @@ use hamlet_engine_core::{Log, LogLevel};
 use crate::icons::{Glyph, glyph};
 use crate::style::{note, raised};
 use crate::workspace::Workspaces;
-use crate::{AnyView, Cx, StartRank};
+use crate::{StartRank, View, themed};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<StatusLine>()
@@ -75,8 +75,8 @@ struct StatusLine {
 }
 
 /// The status line, for the bottom of the window.
-pub fn view() -> AnyView {
-    AnyView::new(|cx: &mut Cx| {
+pub fn view() -> impl View {
+    themed(|cx| {
         let theme = cx.theme();
         let space = &theme.space;
         let (padding_x, padding_y, gap, fill) = (
@@ -104,7 +104,7 @@ pub fn view() -> AnyView {
                         .overflow(Overflow::clip())
                         .boxed()
                 } else {
-                    item
+                    item.boxed()
                 };
                 if tip.is_empty() {
                     return item;
@@ -160,20 +160,18 @@ pub fn view() -> AnyView {
                         .map(|(_, text)| one_line(text))
                         .unwrap_or_default()
                 });
-                item(Some(which), text, tone)
+                item(Some(which), text, tone).boxed()
             },
         );
-        cx.build(
-            row((row((items, workspace, last))
-                .gap(gap)
-                .grow(1.0)
-                .align(AlignItems::Center)
-                .min_width(px(0.0))
-                .overflow(Overflow::clip()),))
+        row((row((items, workspace, last))
+            .gap(gap)
+            .grow(1.0)
             .align(AlignItems::Center)
-            .padding(UiRect::axes(px(padding_x), px(padding_y)))
-            .fill(fill),
-        )
+            .min_width(px(0.0))
+            .overflow(Overflow::clip()),))
+        .align(AlignItems::Center)
+        .padding(UiRect::axes(px(padding_x), px(padding_y)))
+        .fill(fill)
     })
 }
 
@@ -187,9 +185,9 @@ fn item(
     which: Option<Glyph>,
     text: impl Into<Prop<String>>,
     tone: Tone,
-) -> AnyView {
+) -> impl View {
     let text = text.into();
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let theme = cx.theme();
         let (side, gap, size) = (
             theme.space.status_icon,
@@ -198,12 +196,13 @@ fn item(
         );
         let words = label(text).size(size).tone(tone).wrap(false);
         match which {
-            Some(which) => cx.build(
+            Some(which) => {
                 row((raised(glyph(which, side).tone(tone)), words))
                     .gap(gap)
-                    .align(AlignItems::Center),
-            ),
-            None => cx.build(row((words,)).align(AlignItems::Center)),
+                    .align(AlignItems::Center)
+                    .boxed()
+            }
+            None => row((words,)).align(AlignItems::Center).boxed(),
         }
     })
 }

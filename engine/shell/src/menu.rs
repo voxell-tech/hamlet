@@ -13,7 +13,7 @@ use hamlet_engine_api::CommandId;
 use crate::command::{Command, MenuEntry};
 use crate::keymap::Bindings;
 use crate::style::{BottomLight, title_button};
-use crate::{AnyView, Cx, ShellWorldExt, StartRank};
+use crate::{ShellWorldExt, StartRank, View, themed};
 
 /// The engine's own menus, first and in this order.
 const OWN: [&str; 2] = ["Hamlet", "View"];
@@ -63,7 +63,7 @@ pub(crate) struct OpenMenu(pub(crate) Option<(Menu, Rect)>);
 struct MenuTitle(String);
 
 /// The titles of the menus, for the bar.
-pub fn view() -> AnyView {
+pub fn view() -> impl View {
     // Built again only as a menu comes or goes; an open menu reads
     // its entries as it opens.
     let titles = resource::<MenuBar, _>(|bar| {
@@ -78,13 +78,12 @@ pub fn view() -> AnyView {
             .height(percent(100.0))
             .boxed()
     })
-    .boxed()
 }
 
 /// The title of the menu `name`. It sits over the backdrop of an open
 /// menu, so it still takes the pointer while one is open: a press
 /// opens its menu, or closes it if it is the one open.
-fn title(name: &str) -> AnyView {
+fn title(name: &str) -> impl View {
     let name = name.to_owned();
     title_button(name.to_uppercase(), false)
         .tagged(MenuTitle(name.clone()))
@@ -101,7 +100,6 @@ fn title(name: &str) -> AnyView {
                 world.open_menu(&name, node);
             }
         })
-        .boxed()
 }
 
 /// While a menu is open, opens the menu of the title the pointer
@@ -125,51 +123,46 @@ fn follow_pointer(
 }
 
 /// The open menu's list, over everything, while one is open.
-pub fn open_view() -> AnyView {
+pub fn open_view() -> impl View {
     keyed(resource::<OpenMenu, _>(Clone::clone), |open| {
         let Some((menu, anchor)) = open.0.clone() else {
             return frame().boxed();
         };
         let items = menu.items.iter().map(item).collect::<Vec<_>>();
-        AnyView::new(move |cx: &mut Cx| {
+        themed(move |cx| {
             let width = cx.theme().space.menu_width;
-            cx.build(
-                popup(anchor, items)
-                    // A press anywhere but a title, or Escape, closes
-                    // it.
-                    .on_dismiss(|world, _| {
-                        world.resource_mut::<OpenMenu>().0 = None
-                    })
-                    .min_width(px(width)),
-            )
+            popup(anchor, items)
+                // A press anywhere but a title, or Escape, closes it.
+                .on_dismiss(|world, _| {
+                    world.resource_mut::<OpenMenu>().0 = None
+                })
+                .min_width(px(width))
         })
+        .boxed()
     })
     .within(overlay(()))
-    .boxed()
 }
 
 /// An entry: its command's label, and its first key at the end.
-fn item(item: &Item) -> AnyView {
+fn item(item: &Item) -> impl View {
     let command = item.command.clone();
     let words = item.label.clone();
     let keys = item.keys.clone().unwrap_or_default();
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let gap = cx.theme().space.menu_gap;
-        cx.build(
-            menu_item(
-                row((
-                    label(words).wrap(false).grown(1.0),
-                    label(keys).wrap(false).tone(Tone::Dim),
-                ))
-                .gap(gap)
-                .grow(1.0)
-                .align(AlignItems::Center),
-            )
-            .on_activate(move |world| {
-                world.resource_mut::<OpenMenu>().0 = None;
-                world.run_command(&command);
-            }),
+        menu_item(
+            row((
+                label(words).wrap(false).grown(1.0),
+                label(keys).wrap(false).tone(Tone::Dim),
+            ))
+            .gap(gap)
+            .grow(1.0)
+            .align(AlignItems::Center),
         )
+        .on_activate(move |world| {
+            world.resource_mut::<OpenMenu>().0 = None;
+            world.run_command(&command);
+        })
     })
 }
 

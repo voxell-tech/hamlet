@@ -26,7 +26,7 @@ use hamlet_engine_shell::style::{
     ButtonStyle, Wraps, action, buttons, choices, description,
     icon_button, list, note, section,
 };
-use hamlet_engine_shell::{AnyView, Cx, SettingsPage};
+use hamlet_engine_shell::{AnyView, Cx, SettingsPage, View, themed};
 
 use crate::GrantsWorldExt;
 use crate::file::{Answer, Grants};
@@ -128,7 +128,8 @@ impl Said {
             return description(format!(
                 "{}. It asks for nothing.",
                 self.state
-            ));
+            ))
+            .boxed();
         }
         let asks = self
             .asks
@@ -136,30 +137,28 @@ impl Said {
             .map(|(what, reason, answer)| {
                 let (what, answer) = (what.clone(), *answer);
                 let reason = description(reason.clone());
-                AnyView::new(move |cx: &mut Cx| {
+                themed(move |cx| {
                     let gap = cx.theme().space.gap;
-                    cx.build(
-                        column((
-                            row((
-                                label(what)
-                                    .tone(Tone::Dim)
-                                    .grown(1.0),
-                                label(answer).wrap(false),
-                            ))
-                            .gap(gap)
-                            .align(AlignItems::Center),
-                            reason,
+                    column((
+                        row((
+                            label(what).tone(Tone::Dim).grown(1.0),
+                            label(answer).wrap(false),
                         ))
-                        .gap(gap / 2.0),
-                    )
+                        .gap(gap)
+                        .align(AlignItems::Center),
+                        reason,
+                    ))
+                    .gap(gap / 2.0)
                 })
+                .boxed()
             })
             .collect::<Vec<_>>();
         let state = description(format!("{}.", self.state));
-        AnyView::new(move |cx: &mut Cx| {
+        themed(move |cx| {
             let gap = cx.theme().space.gap / 2.0;
-            cx.build(column((state, list(asks))).gap(gap))
+            column((state, list(asks))).gap(gap)
         })
+        .boxed()
     }
 }
 
@@ -189,7 +188,7 @@ fn view(_: Entity) -> AnyView {
             shown.plugins.iter().find(|line| line.id == *id)
         });
         let body = if shown.plugins.is_empty() {
-            note("No plugin is installed.")
+            note("No plugin is installed.").boxed()
         } else if shown.by_capability {
             by_capability(&shown.plugins)
         } else if let Some(line) = only {
@@ -199,13 +198,14 @@ fn view(_: Entity) -> AnyView {
                 })
                 .boxed();
             groups(vec![
-                by_plugin(std::slice::from_ref(line)),
-                buttons(vec![all]),
+                by_plugin(std::slice::from_ref(line)).boxed(),
+                buttons(vec![all]).boxed(),
             ])
+            .boxed()
         } else {
-            by_plugin(&shown.plugins)
+            by_plugin(&shown.plugins).boxed()
         };
-        groups(vec![by, body])
+        groups(vec![by.boxed(), body]).boxed()
     })
     .boxed()
 }
@@ -228,17 +228,23 @@ fn may_do(plugin: Entity) -> AnyView {
             Said::view,
         )
         .within(column(()).gap(0.0));
-        let mut parts = vec![section("WHAT IT MAY DO"), said.boxed()];
+        let mut parts =
+            vec![section("WHAT IT MAY DO").boxed(), said.boxed()];
         if installed {
-            parts.push(buttons(vec![
-                icon_button(
-                    ButtonStyle::Plain,
-                    Glyph::Shield,
-                    "CHANGE IN PERMISSIONS",
-                )
-                .on_activate(move |world| world.show_permissions(&id))
+            parts.push(
+                buttons(vec![
+                    icon_button(
+                        ButtonStyle::Plain,
+                        Glyph::Shield,
+                        "CHANGE IN PERMISSIONS",
+                    )
+                    .on_activate(move |world| {
+                        world.show_permissions(&id)
+                    })
+                    .boxed(),
+                ])
                 .boxed(),
-            ]));
+            );
         }
         let gap = cx.theme().space.gap / 2.0;
         cx.build(column(parts).gap(gap))
@@ -246,10 +252,10 @@ fn may_do(plugin: Entity) -> AnyView {
 }
 
 /// `parts` one under another, a part of a panel apart.
-fn groups(parts: Vec<AnyView>) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+fn groups(parts: Vec<AnyView>) -> impl View {
+    themed(move |cx| {
         let gap = cx.theme().space.panel;
-        cx.build(column(parts).gap(gap))
+        column(parts).gap(gap)
     })
 }
 
@@ -258,18 +264,19 @@ fn group(
     name: String,
     said: Option<&str>,
     answers: Vec<AnyView>,
-) -> AnyView {
-    let said = said.map_or_else(|| frame().boxed(), description);
-    AnyView::new(move |cx: &mut Cx| {
+) -> impl View + use<> {
+    let said = said.map_or_else(
+        || frame().boxed(),
+        |text| description(text).boxed(),
+    );
+    themed(move |cx| {
         let gap = cx.theme().space.gap / 2.0;
-        cx.build(
-            column((section(name), said, column(answers).gap(gap)))
-                .gap(gap),
-        )
+        column((section(name), said, column(answers).gap(gap)))
+            .gap(gap)
     })
 }
 
-fn by_plugin(plugins: &[Line]) -> AnyView {
+fn by_plugin(plugins: &[Line]) -> impl View + use<> {
     let groups_of = plugins
         .iter()
         .map(|line| {
@@ -298,9 +305,11 @@ fn by_plugin(plugins: &[Line]) -> AnyView {
                         target,
                         *answer,
                     )
+                    .boxed()
                 })
                 .collect::<Vec<_>>();
             group(line.name.to_uppercase(), Some(state), answers)
+                .boxed()
         })
         .collect::<Vec<_>>();
     groups(groups_of)
@@ -316,7 +325,7 @@ fn by_capability(plugins: &[Line]) -> AnyView {
     capabilities.sort();
     capabilities.dedup();
     if capabilities.is_empty() {
-        return note("No plugin asks for anything.");
+        return note("No plugin asks for anything.").boxed();
     }
     let groups_of = capabilities
         .into_iter()
@@ -338,13 +347,15 @@ fn by_capability(plugins: &[Line]) -> AnyView {
                                 target,
                                 *answer,
                             )
+                            .boxed()
                         })
                 })
                 .collect::<Vec<_>>();
             group(capability.name().to_uppercase(), None, answers)
+                .boxed()
         })
         .collect::<Vec<_>>();
-    groups(groups_of)
+    groups(groups_of).boxed()
 }
 
 /// One answer of the plugin of `line`, under `what`, with the three
@@ -355,7 +366,7 @@ fn answer_view(
     capability: Capability,
     target: &str,
     answer: Answer,
-) -> AnyView {
+) -> impl View + use<> {
     let (id, target) = (line.id.clone(), target.to_owned());
     let picked =
         Answer::ALL.iter().position(|a| *a == answer).unwrap_or(1);
@@ -375,15 +386,14 @@ fn answer_view(
                 }
             },
         )
+        .boxed()
     };
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let gap = cx.theme().space.gap;
-        cx.build(
-            row((label(what).tone(Tone::Dim).grown(1.0), answers))
-                .gap(gap)
-                .align(AlignItems::Center)
-                .tagged(Wraps),
-        )
+        row((label(what).tone(Tone::Dim).grown(1.0), answers))
+            .gap(gap)
+            .align(AlignItems::Center)
+            .tagged(Wraps)
     })
 }
 

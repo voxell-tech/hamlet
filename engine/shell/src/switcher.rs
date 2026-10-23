@@ -42,7 +42,7 @@ use crate::workspace::icon::PICKS;
 use crate::workspace::{
     SuggestedWorkspace, WorkspaceTuning, Workspaces,
 };
-use crate::{AnyView, Cx, ShellWorldExt};
+use crate::{AnyView, Cx, ShellWorldExt, View, themed};
 
 /// The keys that show the first nine workspaces, with the primary
 /// key.
@@ -116,6 +116,8 @@ enum Opened {
     All { anchor: Rect },
     /// The ways to add a workspace.
     New { anchor: Rect },
+    /// The question of closing the workspace at `at`.
+    Close { at: usize, anchor: Rect },
 }
 
 /// The tab last clicked and when, in seconds.
@@ -155,8 +157,8 @@ struct TabIcon(usize);
 struct RenameField;
 
 /// The switcher, for the bar: a divider, then the track.
-pub fn view() -> AnyView {
-    AnyView::new(|cx: &mut Cx| {
+pub fn view() -> impl View {
+    themed(|cx| {
         let theme = cx.theme();
         let (space, colors) = (&theme.space, &theme.colors);
         let divider = frame()
@@ -204,14 +206,12 @@ pub fn view() -> AnyView {
             .border_color(*colors.border)
             .radius(space.track_radius)
             .align(AlignItems::Stretch);
-        cx.build(
-            row((divider, track))
-                .gap(space.section)
-                .grow(1.0)
-                .min_width(px(0.0))
-                .height(percent(100.0))
-                .align(AlignItems::Center),
-        )
+        row((divider, track))
+            .gap(space.section)
+            .grow(1.0)
+            .min_width(px(0.0))
+            .height(percent(100.0))
+            .align(AlignItems::Center)
     })
 }
 
@@ -241,6 +241,9 @@ pub fn popup_view() -> AnyView {
                     let menu = cx.world.resource::<NewMenu>().clone();
                     (anchor, column(new_items(&menu, false)).boxed())
                 }
+                Opened::Close { at, anchor } => {
+                    (anchor, close_view(at))
+                }
             };
             let width = cx.theme().space.menu_width;
             cx.build(
@@ -260,33 +263,33 @@ pub fn popup_view() -> AnyView {
 /// The row of tabs, over the raised segment under the shown one.
 fn tabs_view(tabs: &Tabs) -> AnyView {
     let tabs = tabs.clone();
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let shown = cx.world.resource::<Workspaces>().shown();
         let count = tabs.list.len();
-        let mut views = vec![indicator()];
+        let mut views = vec![indicator().boxed()];
         for (at, (name, icon, keys)) in tabs.list.iter().enumerate() {
             views.push(if tabs.renaming == Some(at) {
-                renaming_tab(at, name, *icon)
+                renaming_tab(at, name, *icon).boxed()
             } else {
                 tab(at, name, *icon, keys.clone(), at == shown, count)
+                    .boxed()
             });
         }
         let gap = cx.theme().space.track_padding;
-        cx.build(
-            row(views)
-                .gap(gap)
-                .height(percent(100.0))
-                .shrink(0.0)
-                .align(AlignItems::Stretch)
-                .tagged(TabRow),
-        )
+        row(views)
+            .gap(gap)
+            .height(percent(100.0))
+            .shrink(0.0)
+            .align(AlignItems::Stretch)
+            .tagged(TabRow)
     })
+    .boxed()
 }
 
 /// The raised segment under the shown tab, lit inside from below
 /// and underlined with a glowing line, placed by `motion::glide`.
-fn indicator() -> AnyView {
-    AnyView::new(|cx: &mut Cx| {
+fn indicator() -> impl View {
+    themed(|cx| {
         let theme = cx.theme();
         let (space, colors, glow) =
             (&theme.space, &theme.colors, &theme.glow);
@@ -316,22 +319,20 @@ fn indicator() -> AnyView {
             .height(px(space.underline))
             .fill(*colors.accent)
             .tagged(halo);
-        cx.build(
-            column((line,))
-                .position(PositionType::Absolute)
-                .inset(UiRect {
-                    left: px(0.0),
-                    right: Val::Auto,
-                    top: px(0.0),
-                    bottom: px(0.0),
-                })
-                .display(Display::None)
-                .fill(*colors.fill)
-                .radius(radius)
-                .tagged(inner)
-                .tagged(Indicator)
-                .tagged(Pickable::IGNORE),
-        )
+        column((line,))
+            .position(PositionType::Absolute)
+            .inset(UiRect {
+                left: px(0.0),
+                right: Val::Auto,
+                top: px(0.0),
+                bottom: px(0.0),
+            })
+            .display(Display::None)
+            .fill(*colors.fill)
+            .radius(radius)
+            .tagged(inner)
+            .tagged(Indicator)
+            .tagged(Pickable::IGNORE)
     })
 }
 
@@ -361,7 +362,7 @@ fn segment_rules() -> impl FnOnce(&mut Cx) + Send + Sync + 'static {
 }
 
 /// `content` as a segment of the track, `pad` either side.
-fn segment(content: impl crate::View, pad: f32) -> AnyView {
+fn segment(content: impl crate::View, pad: f32) -> impl View {
     button(
         row((content,))
             .height(percent(100.0))
@@ -370,7 +371,6 @@ fn segment(content: impl crate::View, pad: f32) -> AnyView {
     )
     .rules(segment_rules())
     .tagged(Glow::Inner)
-    .boxed()
 }
 
 /// The tab of the workspace at `at`, one of `count`.
@@ -381,9 +381,9 @@ fn tab(
     keys: Option<String>,
     shown: bool,
     count: usize,
-) -> AnyView {
+) -> impl View {
     let name = name.to_uppercase();
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let (pad, size) =
             (cx.theme().space.tab_padding, cx.theme().space.icon);
         let content = icon_row((
@@ -393,7 +393,7 @@ fn tab(
         let content = if count > 1 {
             row((content, close_mark(at))).boxed()
         } else {
-            content
+            content.boxed()
         };
         let tab = segment(content, pad)
             .tagged(WorkspaceTab(at))
@@ -411,7 +411,7 @@ fn tab(
             }
             None => tab,
         };
-        cx.build(tab.context_menu(move || tab_items(at, count)))
+        tab.context_menu(move || tab_items(at, count))
     })
 }
 
@@ -446,49 +446,72 @@ fn tab_items(at: usize, count: usize) -> Vec<AnyView> {
     if count > 1 {
         items.push(
             menu_item(label("Close").tone(Tone::Critical))
-                .on_activate(move |world| {
-                    world.resource_mut::<Workspaces>().delete(at);
-                })
+                .on_activate(move |world| ask_close(world, at))
                 .boxed(),
         );
     }
     items
 }
 
+/// Asks whether to close the workspace at `at`, under its tab,
+/// unless it is the last one.
+fn ask_close(world: &mut World, at: usize) {
+    if world.resource::<Workspaces>().list().len() < 2 {
+        return;
+    }
+    let anchor = tab_rect(world, at).unwrap_or_default();
+    *world.resource_mut::<Opened>() = Opened::Close { at, anchor };
+}
+
+/// The question of closing the workspace at `at`, called `name`.
+fn close_view(at: usize) -> AnyView {
+    column((
+        note("Are you sure?"),
+        menu_item(label("Close").tone(Tone::Critical)).on_activate(
+            move |world| {
+                *world.resource_mut::<Opened>() = Opened::Nothing;
+                world.resource_mut::<Workspaces>().delete(at);
+            },
+        ),
+        menu_item(label("Cancel")).on_activate(|world| {
+            *world.resource_mut::<Opened>() = Opened::Nothing;
+        }),
+    ))
+    .boxed()
+}
+
 /// The "x" that closes a tab's workspace, shown in place of its icon
 /// while the pointer is on the tab.
-fn close_mark(at: usize) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+fn close_mark(at: usize) -> impl View {
+    themed(move |cx| {
         let space = &cx.theme().space;
         let (size, offset) = (space.icon, space.icon_offset);
-        cx.build(
-            row((glyph(Glyph::Cross, size),))
-                .position(PositionType::Absolute)
-                .inset(UiRect {
-                    left: px(0.0),
-                    right: Val::Auto,
-                    top: px(0.0),
-                    bottom: px(offset),
-                })
-                .align(AlignItems::Center)
-                .rules(
-                    style::<EngineTheme>()
-                        .tone(Tone::Dim)
-                        .hovered(|s| s.tone(Tone::Accent))
-                        .transition(Motion::Interact)
-                        .bundle(),
-                )
-                .tagged(CloseMark(at))
-                .tagged(Visibility::Hidden),
-        )
+        row((glyph(Glyph::Cross, size),))
+            .position(PositionType::Absolute)
+            .inset(UiRect {
+                left: px(0.0),
+                right: Val::Auto,
+                top: px(0.0),
+                bottom: px(offset),
+            })
+            .align(AlignItems::Center)
+            .rules(
+                style::<EngineTheme>()
+                    .tone(Tone::Dim)
+                    .hovered(|s| s.tone(Tone::Accent))
+                    .transition(Motion::Interact)
+                    .bundle(),
+            )
+            .tagged(CloseMark(at))
+            .tagged(Visibility::Hidden)
     })
 }
 
 /// The tab of the workspace at `at` while it is renamed: a field
 /// over it, the tab as wide as before under it.
-fn renaming_tab(at: usize, name: &str, icon: Glyph) -> AnyView {
+fn renaming_tab(at: usize, name: &str, icon: Glyph) -> impl View {
     let (name, shown) = (name.to_owned(), name.to_uppercase());
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let theme = cx.theme();
         let (pad, size, inset) = (
             theme.space.tab_padding,
@@ -531,19 +554,17 @@ fn renaming_tab(at: usize, name: &str, icon: Glyph) -> AnyView {
             .wrap(false)
             .tagged(DisplayText)
             .with_icon(icon);
-        cx.build(
-            row((
-                row((room,)).tagged(Visibility::Hidden),
-                row((field,))
-                    .position(PositionType::Absolute)
-                    .inset(UiRect::all(px(0.0))),
-            ))
-            .height(percent(100.0))
-            .shrink(0.0)
-            .padding(UiRect::axes(px(pad), px(0.0)))
-            .align(AlignItems::Center)
-            .tagged(WorkspaceTab(at)),
-        )
+        row((
+            row((room,)).tagged(Visibility::Hidden),
+            row((field,))
+                .position(PositionType::Absolute)
+                .inset(UiRect::all(px(0.0))),
+        ))
+        .height(percent(100.0))
+        .shrink(0.0)
+        .padding(UiRect::axes(px(pad), px(0.0)))
+        .align(AlignItems::Center)
+        .tagged(WorkspaceTab(at))
     })
 }
 
@@ -552,7 +573,7 @@ fn renaming_tab(at: usize, name: &str, icon: Glyph) -> AnyView {
 /// "+" does.
 fn new_view(menu: &NewMenu) -> AnyView {
     let menu = menu.clone();
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let theme = cx.theme();
         let (icon, small, pad) =
             (theme.space.icon, theme.text.small, theme.space.gap);
@@ -579,8 +600,9 @@ fn new_view(menu: &NewMenu) -> AnyView {
             *world.resource_mut::<Opened>() = Opened::New { anchor };
         })
         .tooltip(|| note("New from layout"));
-        cx.build(row((plus, more)).gap(0.0).height(percent(100.0)))
+        row((plus, more)).gap(0.0).height(percent(100.0))
     })
+    .boxed()
 }
 
 /// The ways to add a workspace: blank, or from each layout in
@@ -602,7 +624,7 @@ fn new_items(menu: &NewMenu, nested: bool) -> Vec<AnyView> {
             .boxed(),
         ];
     }
-    let mut items = vec![blank, section("NEW FROM LAYOUT")];
+    let mut items = vec![blank, section("NEW FROM LAYOUT").boxed()];
     items.extend(layout_items(menu));
     items
 }
@@ -610,7 +632,7 @@ fn new_items(menu: &NewMenu, nested: bool) -> Vec<AnyView> {
 /// A row for each layout in `menu`, which adds a workspace from it.
 fn layout_items(menu: &NewMenu) -> Vec<AnyView> {
     if menu.layouts.is_empty() {
-        return vec![note("No plugin offers a layout")];
+        return vec![note("No plugin offers a layout").boxed()];
     }
     menu.layouts
         .iter()
@@ -628,21 +650,19 @@ fn layout_items(menu: &NewMenu) -> Vec<AnyView> {
 
 /// The chevron at the end of the track that lists every workspace,
 /// shown while they do not fit.
-fn more_view() -> AnyView {
-    AnyView::new(|cx: &mut Cx| {
+fn more_view() -> impl View {
+    themed(|cx| {
         let (small, pad) =
             (cx.theme().text.small, cx.theme().space.gap / 2.0);
-        cx.build(
-            segment(glyph(Glyph::ChevronRight, small), pad)
-                .tagged(MoreButton)
-                .on_activate_with(|world, node| {
-                    let anchor =
-                        world.node_rect(node).unwrap_or_default();
-                    *world.resource_mut::<Opened>() =
-                        Opened::All { anchor };
-                })
-                .tooltip(|| note("All workspaces")),
-        )
+        segment(glyph(Glyph::ChevronRight, small), pad)
+            .tagged(MoreButton)
+            .on_activate_with(|world, node| {
+                let anchor =
+                    world.node_rect(node).unwrap_or_default();
+                *world.resource_mut::<Opened>() =
+                    Opened::All { anchor };
+            })
+            .tooltip(|| note("All workspaces"))
     })
 }
 
@@ -662,30 +682,24 @@ fn all_view(tabs: &Tabs, shown: usize) -> AnyView {
             let (name, keys) =
                 (name.clone(), keys.clone().unwrap_or_default());
             let icon = *icon;
-            AnyView::new(move |cx: &mut Cx| {
+            themed(move |cx| {
                 let theme = cx.theme();
                 let (size, gap) =
                     (theme.space.icon, theme.space.menu_gap);
-                cx.build(
-                    menu_item(
-                        row((
-                            glyph(icon, size).tone(tone),
-                            label(name)
-                                .wrap(false)
-                                .tone(tone)
-                                .grown(1.0),
-                            label(keys).wrap(false).tone(Tone::Dim),
-                        ))
-                        .gap(gap)
-                        .grow(1.0)
-                        .align(AlignItems::Center),
-                    )
-                    .on_activate(move |world| {
-                        *world.resource_mut::<Opened>() =
-                            Opened::Nothing;
-                        world.resource_mut::<Workspaces>().show(at);
-                    }),
+                menu_item(
+                    row((
+                        glyph(icon, size).tone(tone),
+                        label(name).wrap(false).tone(tone).grown(1.0),
+                        label(keys).wrap(false).tone(Tone::Dim),
+                    ))
+                    .gap(gap)
+                    .grow(1.0)
+                    .align(AlignItems::Center),
                 )
+                .on_activate(move |world| {
+                    *world.resource_mut::<Opened>() = Opened::Nothing;
+                    world.resource_mut::<Workspaces>().show(at);
+                })
             })
         })
         .collect::<Vec<_>>();
@@ -698,39 +712,36 @@ fn icons_view(at: usize, current: Option<Glyph>) -> AnyView {
         .into_iter()
         .map(|pick| {
             let lit = Some(pick) == current;
-            AnyView::new(move |cx: &mut Cx| {
+            themed(move |cx| {
                 let size = cx.theme().space.icon;
-                cx.build(
-                    button(glyph(pick, size))
-                        .rules(pick_rules(lit))
-                        .tagged(Glow::Inner)
-                        .on_activate(move |world| {
-                            *world.resource_mut::<Opened>() =
-                                Opened::Nothing;
-                            world
-                                .resource_mut::<Workspaces>()
-                                .set_icon(at, pick);
-                        }),
-                )
+                button(glyph(pick, size))
+                    .rules(pick_rules(lit))
+                    .tagged(Glow::Inner)
+                    .on_activate(move |world| {
+                        *world.resource_mut::<Opened>() =
+                            Opened::Nothing;
+                        world
+                            .resource_mut::<Workspaces>()
+                            .set_icon(at, pick);
+                    })
             })
         })
         .collect::<Vec<_>>();
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let space = &cx.theme().space;
         let (side, gap) = (space.row, space.gap / 2.0);
         let across = PICKS_ACROSS as f32;
-        cx.build(
-            column((
-                section("ICON"),
-                row(picks)
-                    .gap(gap)
-                    .width(px(across * side + (across - 1.0) * gap))
-                    .tagged(Wraps),
-            ))
-            .gap(space.gap)
-            .padding(UiRect::all(px(space.gap))),
-        )
+        column((
+            section("ICON"),
+            row(picks)
+                .gap(gap)
+                .width(px(across * side + (across - 1.0) * gap))
+                .tagged(Wraps),
+        ))
+        .gap(space.gap)
+        .padding(UiRect::all(px(space.gap)))
     })
+    .boxed()
 }
 
 /// The rules of an icon to pick: a square, the one `lit` framed in
@@ -913,12 +924,14 @@ fn press_close(
 fn click_close(
     mut click: On<Pointer<Click>>,
     marks: Query<&CloseMark>,
-    mut workspaces: ResMut<Workspaces>,
+    mut commands: Commands,
 ) {
     if let Ok(mark) = marks.get(click.event_target()) {
         click.propagate(false);
         if click.button == PointerButton::Primary {
-            workspaces.delete(mark.0);
+            let at = mark.0;
+            commands
+                .queue(move |world: &mut World| ask_close(world, at));
         }
     }
 }
@@ -1049,9 +1062,7 @@ fn add_commands(mut commands: Commands) {
             None,
             &[],
         )
-        .observe(on_shown(|world, at| {
-            world.resource_mut::<Workspaces>().delete(at);
-        }));
+        .observe(on_shown(ask_close));
     commands
         .spawn_command(
             engine_id("workspace.next"),

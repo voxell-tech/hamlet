@@ -19,7 +19,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ViewExt, each, resource};
 
 use crate::overlay::Shown as OverlayOpen;
-use crate::{AnyView, Cx, EngineTheme};
+use crate::{AnyView, Cx, EngineTheme, View};
 
 /// The layer of a card beside the pointer: over the panels, under the
 /// menus.
@@ -216,7 +216,7 @@ struct MenuAnchor {
 }
 
 /// The cards and menus floating over the window.
-pub fn view() -> AnyView {
+pub fn view() -> impl View {
     overlay((
         each(
             resource::<Floating, _>(|floating| {
@@ -236,7 +236,6 @@ pub fn view() -> AnyView {
             |&menu| menu_view(menu),
         ),
     ))
-    .boxed()
 }
 
 fn card_view(card: Entity, mode: Mode) -> AnyView {

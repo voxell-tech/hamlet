@@ -34,7 +34,7 @@ use hamlet_engine_shell::style::{
     ButtonStyle, Wraps, buttons, description_rules, divided_row,
     dropdown, field, icon_button, note, scroll_area, switch,
 };
-use hamlet_engine_shell::{AnyView, Cx, Panel, StyleExt};
+use hamlet_engine_shell::{AnyView, Panel, StyleExt, View, themed};
 
 use crate::limits::ChosenLimits;
 pub use crate::list::page::PluginPageSection;
@@ -239,7 +239,7 @@ fn bound<T: Default + 'static>(
 
 /// The switch that turns `plugin`, of the id `id`, on or off. It
 /// asks first when that moves other plugins too.
-fn plugin_switch(plugin: Entity, id: PluginId) -> AnyView {
+fn plugin_switch(plugin: Entity, id: PluginId) -> impl View {
     switch(bound(plugin, |row| row.on), move |world, on| {
         let rows = world.resource::<Rows>();
         let asks = rows.of(plugin).is_some_and(|row| {
@@ -286,15 +286,16 @@ fn open(mut commands: Commands) {
 /// The list, or the page of the plugin shown.
 fn view(_: Entity) -> AnyView {
     keyed(resource::<Shown, _>(Clone::clone), |shown| match shown {
-        Shown::List => list_view(),
-        Shown::Plugin(id) => page_view(id.clone()),
+        Shown::List => list_view().boxed(),
+        Shown::Plugin(id) => page_view(id.clone()).boxed(),
     })
     .within(column(()).gap(0.0).grow(1.0).min_height(px(0.0)))
     .in_panel()
+    .boxed()
 }
 
 /// ADD PLUGIN... and a search with a filter over the list of plugins.
-fn list_view() -> AnyView {
+fn list_view() -> impl View {
     let add =
         icon_button(ButtonStyle::Plain, Glyph::Plus, "ADD PLUGIN...")
             .on_activate(|world| world.trigger(AddPlugin));
@@ -333,10 +334,10 @@ fn list_view() -> AnyView {
         }),
         |&(none, unmatched)| {
             if none {
-                return note("No plugins.");
+                return note("No plugins.").boxed();
             }
             if unmatched {
-                return note("No plugin matches.");
+                return note("No plugin matches.").boxed();
             }
             each(
                 resource::<Rows, _>(|rows| {
@@ -352,7 +353,7 @@ fn list_view() -> AnyView {
                 }),
                 |(plugin, ..)| *plugin,
                 |(plugin, id, bundled)| {
-                    row_view(*plugin, id.clone(), *bundled)
+                    row_view(*plugin, id.clone(), *bundled).boxed()
                 },
             )
             .within(column(()).gap(0.0))
@@ -360,7 +361,7 @@ fn list_view() -> AnyView {
         },
     )
     .within(column(()).gap(0.0));
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let theme = cx.theme();
         let (gap, section, side) =
             (theme.space.gap, theme.space.section, theme.space.row);
@@ -370,16 +371,14 @@ fn list_view() -> AnyView {
         ))
         .gap(gap)
         .align(AlignItems::Center);
-        cx.build(
-            column((
-                buttons(vec![add.boxed()]),
-                finding,
-                scroll_area((rows,)),
-            ))
-            .gap(section)
-            .grow(1.0)
-            .min_height(px(0.0)),
-        )
+        column((
+            buttons(vec![add.boxed()]),
+            finding,
+            scroll_area((rows,)),
+        ))
+        .gap(section)
+        .grow(1.0)
+        .min_height(px(0.0))
     })
 }
 
@@ -387,12 +386,16 @@ fn list_view() -> AnyView {
 /// and state, which opens its page, with its switch beside them, all
 /// but the switch dim while it is off. It follows the plugin in
 /// place, under a divider unless it is the first shown.
-fn row_view(plugin: Entity, id: PluginId, bundled: bool) -> AnyView {
+fn row_view(
+    plugin: Entity,
+    id: PluginId,
+    bundled: bool,
+) -> impl View {
     let switch = plugin_switch(plugin, id.clone());
     let divided = resource::<Rows, _>(move |rows| {
         rows.shown().next().is_some_and(|row| row.plugin != plugin)
     });
-    let content = AnyView::new(move |cx: &mut Cx| {
+    let content = themed(move |cx| {
         let theme = cx.theme();
         let (gap, size, icon, section) = (
             theme.space.gap,
@@ -440,22 +443,20 @@ fn row_view(plugin: Entity, id: PluginId, bundled: bool) -> AnyView {
         let head = row((name, column(()).grow(1.0), switch))
             .gap(gap)
             .align(AlignItems::Center);
-        cx.build(
-            row((
-                column((head, row(facts).gap(gap).tagged(Wraps)))
-                    .gap(gap / 2.0)
-                    .grow(1.0)
-                    .min_width(px(0.0)),
-                glyph(Glyph::ChevronRight, icon).tone(Tone::Dim),
-            ))
-            .gap(section)
-            .grow(1.0)
-            .align(AlignItems::Center)
-            .styled(ButtonStyle::Row)
-            .on_activate(move |world| {
-                world.show(Shown::Plugin(id.clone()));
-            }),
-        )
+        row((
+            column((head, row(facts).gap(gap).tagged(Wraps)))
+                .gap(gap / 2.0)
+                .grow(1.0)
+                .min_width(px(0.0)),
+            glyph(Glyph::ChevronRight, icon).tone(Tone::Dim),
+        ))
+        .gap(section)
+        .grow(1.0)
+        .align(AlignItems::Center)
+        .styled(ButtonStyle::Row)
+        .on_activate(move |world| {
+            world.show(Shown::Plugin(id.clone()));
+        })
     });
     let asked = keyed(
         resource::<Rows, _>(move |rows| {
@@ -466,12 +467,11 @@ fn row_view(plugin: Entity, id: PluginId, bundled: bool) -> AnyView {
                 return column(()).boxed();
             };
             let asked = confirmation(row_of, *question);
-            AnyView::new(move |cx: &mut Cx| {
+            themed(move |cx| {
                 let gap = cx.theme().space.gap;
-                cx.build(
-                    column((asked,)).padding(UiRect::bottom(px(gap))),
-                )
+                column((asked,)).padding(UiRect::bottom(px(gap)))
             })
+            .boxed()
         },
     );
     divided_row(column((content, asked)).gap(0.0), divided)

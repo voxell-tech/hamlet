@@ -27,7 +27,9 @@ use hamlet_engine_shell::style::{
     ButtonStyle, action, buttons, description, field, icon_button,
     icon_row, raised, section,
 };
-use hamlet_engine_shell::{AnyView, Cx, Overlay, OverlayShown};
+use hamlet_engine_shell::{
+    AnyView, Overlay, OverlayShown, View, themed,
+};
 use hamlet_model::config::providers::{OPENROUTER, PROVIDERS};
 
 use crate::AgentsWorldExt;
@@ -169,47 +171,47 @@ impl KeyCardWorldExt for World {
 
 fn view(_: Entity) -> AnyView {
     keyed(resource::<KeyCard, _>(|card| card.way), |way| match way {
-        Some(KeyWay::Key) => key(),
-        Some(KeyWay::SignIn(to)) => signing_in(*to),
+        Some(KeyWay::Key) => key().boxed(),
+        Some(KeyWay::SignIn(to)) => signing_in(*to).boxed(),
         None => column(()).boxed(),
     })
     .boxed()
 }
 
 /// `parts` one under another, as far apart as the card's steps are.
-fn spaced(parts: Vec<AnyView>) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+fn spaced(parts: Vec<AnyView>) -> impl View {
+    themed(move |cx| {
         let gap = cx.theme().space.gap * 2.0;
-        cx.build(column(parts).gap(gap))
+        column(parts).gap(gap)
     })
 }
 
 /// `parts` one under another, close together.
-fn close(parts: Vec<AnyView>) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+fn close(parts: Vec<AnyView>) -> impl View {
+    themed(move |cx| {
         let gap = cx.theme().space.gap / 2.0;
-        cx.build(column(parts).gap(gap))
+        column(parts).gap(gap)
     })
 }
 
-fn title(which: Glyph, text: &'static str) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+fn title(which: Glyph, text: &'static str) -> impl View {
+    themed(move |cx| {
         let (icon, size) =
             (cx.theme().space.icon, cx.theme().text.heading);
-        cx.build(icon_row((
+        icon_row((
             raised(glyph(which, icon).tone(Tone::Accent)),
             label(text).size(size).bold(true).tagged(DisplayText),
-        )))
+        ))
     })
 }
 
-fn said(text: &'static str) -> AnyView {
-    label(text).tone(Tone::Dim).boxed()
+fn said(text: &'static str) -> impl View {
+    label(text).tone(Tone::Dim)
 }
 
 /// The head of the card: the way back to the plugin's card, and its
 /// name.
-fn head(which: Glyph, text: &'static str) -> AnyView {
+fn head(which: Glyph, text: &'static str) -> impl View {
     row((
         icon_button(ButtonStyle::Quiet, Glyph::Back, "BACK")
             .on_activate(|world| {
@@ -219,12 +221,11 @@ fn head(which: Glyph, text: &'static str) -> AnyView {
         title(which, text),
     ))
     .align(AlignItems::Center)
-    .boxed()
 }
 
 /// The news of the last thing asked: that it is awaited, or why it
 /// did not work.
-fn news(waiting: &'static str) -> AnyView {
+fn news(waiting: &'static str) -> impl View {
     keyed(
         resource::<SetupState, _>(|setup| {
             let busy = matches!(
@@ -234,22 +235,21 @@ fn news(waiting: &'static str) -> AnyView {
             (busy, setup.problem.clone())
         }),
         move |(busy, problem)| match problem {
-            _ if *busy => said(waiting),
+            _ if *busy => said(waiting).boxed(),
             Some(why) => {
                 label(why.clone()).tone(Tone::Critical).boxed()
             }
             None => column(()).boxed(),
         },
     )
-    .boxed()
 }
 
-fn key() -> AnyView {
+fn key() -> impl View {
     spaced(vec![
-        head(Glyph::Globe, "USE A KEY"),
+        head(Glyph::Globe, "USE A KEY").boxed(),
         keyed(
             resource::<KeyCard, _>(|card| card.provider),
-            |chosen| key_form(*chosen),
+            |chosen| key_form(*chosen).boxed(),
         )
         .boxed(),
     ])
@@ -257,7 +257,7 @@ fn key() -> AnyView {
 
 /// The provider's key, and for an address of the person's own, the
 /// address.
-fn key_form(chosen: usize) -> AnyView {
+fn key_form(chosen: usize) -> impl View {
     let names = PROVIDERS
         .iter()
         .map(|provider| provider.name.to_uppercase())
@@ -288,39 +288,49 @@ fn key_form(chosen: usize) -> AnyView {
                  empty if it needs none."
             .into(),
     };
-    let mut parts = vec![close(vec![
-        section("WHO GIVES YOU YOUR MODEL"),
-        buttons(names),
-    ])];
+    let mut parts = vec![
+        close(vec![
+            section("WHO GIVES YOU YOUR MODEL").boxed(),
+            buttons(names).boxed(),
+        ])
+        .boxed(),
+    ];
     if known.is_none() {
-        parts.push(close(vec![
-            section("WHERE YOUR MODEL RUNS"),
-            field(
-                resource::<KeyCard, _>(|card| card.url.clone()),
-                "https://".into(),
-                |world, text| {
-                    world.resource_mut::<KeyCard>().url = text
-                },
-            ),
-            description(
-                "The web address your provider gave you. It usually \
-                 ends in /v1.",
-            ),
-        ]));
+        parts.push(
+            close(vec![
+                section("WHERE YOUR MODEL RUNS").boxed(),
+                field(
+                    resource::<KeyCard, _>(|card| card.url.clone()),
+                    "https://".into(),
+                    |world, text| {
+                        world.resource_mut::<KeyCard>().url = text
+                    },
+                )
+                .boxed(),
+                description(
+                    "The web address your provider gave you. It \
+                     usually ends in /v1.",
+                )
+                .boxed(),
+            ])
+            .boxed(),
+        );
     }
     parts.extend([
         close(vec![
-            section("YOUR KEY"),
+            section("YOUR KEY").boxed(),
             field(
                 resource::<KeyCard, _>(|card| card.key.clone()),
                 "Paste your key".into(),
                 |world, text| {
                     world.resource_mut::<KeyCard>().key = text
                 },
-            ),
-            description(help),
-        ]),
-        news("Asking for its models..."),
+            )
+            .boxed(),
+            description(help).boxed(),
+        ])
+        .boxed(),
+        news("Asking for its models...").boxed(),
         row((icon_button(
             ButtonStyle::Primary,
             Glyph::Check,
@@ -333,7 +343,7 @@ fn key_form(chosen: usize) -> AnyView {
 }
 
 /// The page shown while the person signs in in the browser.
-fn signing_in(to: SignInTo) -> AnyView {
+fn signing_in(to: SignInTo) -> impl View {
     let asked = match to {
         SignInTo::ChatGpt => {
             "Sign in to ChatGPT in your browser and allow Hamlet to \
@@ -345,12 +355,13 @@ fn signing_in(to: SignInTo) -> AnyView {
         }
     };
     spaced(vec![
-        head(Glyph::Signal, "SIGN IN"),
-        said(asked),
-        news("Asking for its models..."),
+        head(Glyph::Signal, "SIGN IN").boxed(),
+        said(asked).boxed(),
+        news("Asking for its models...").boxed(),
         description(
             "Nothing opened? Go back and choose I Have a Key \
              instead.",
-        ),
+        )
+        .boxed(),
     ])
 }

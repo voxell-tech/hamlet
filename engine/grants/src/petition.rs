@@ -43,8 +43,9 @@ use hamlet_engine_shell::style::{
     heading, icon_button, scroll_area, section,
 };
 use hamlet_engine_shell::{
-    AnyView, Cx, DockTreeExt, Panel, PanelSection, SettingsPage,
-    ShellWorldExt, StatusItem, StyleExt, section_content,
+    AnyView, DockTreeExt, Panel, PanelSection, SettingsPage,
+    ShellWorldExt, StatusItem, StyleExt, View, section_content,
+    themed,
 };
 
 use crate::Admitted;
@@ -533,7 +534,7 @@ fn view(_: Entity) -> AnyView {
         resource::<Waiting, _>(|waiting| waiting.0 == 0),
         |&none| {
             if none {
-                description(EMPTY)
+                description(EMPTY).boxed()
             } else {
                 column(()).boxed()
             }
@@ -547,6 +548,7 @@ fn view(_: Entity) -> AnyView {
                 .iter()
                 .map(|at| {
                     part(at.head.clone(), section_content(at.section))
+                        .boxed()
                 })
                 .collect::<Vec<_>>();
             column(shown).gap(0.0).boxed()
@@ -557,50 +559,52 @@ fn view(_: Entity) -> AnyView {
             if rows.0.is_empty() {
                 return column(()).boxed();
             }
-            let cards =
-                rows.0.iter().map(row_view).collect::<Vec<_>>();
+            let cards = rows
+                .0
+                .iter()
+                .map(|one| row_view(one).boxed())
+                .collect::<Vec<_>>();
             part(
                 "PLUGINS".to_owned(),
-                AnyView::new(move |cx: &mut Cx| {
+                themed(move |cx| {
                     let gap = cx.theme().space.gap;
-                    cx.build(column(cards).gap(gap))
-                }),
+                    column(cards).gap(gap)
+                })
+                .boxed(),
             )
+            .boxed()
         })
         .within(column(()).gap(0.0));
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let gap = cx.theme().space.section;
-        cx.build(
-            column((
-                count,
-                scroll_area((
-                    column((empty, sections, petitions)).gap(0.0),
-                )),
-            ))
-            .gap(gap)
-            .grow(1.0)
-            .min_height(px(0.0)),
-        )
+        column((
+            count,
+            scroll_area((
+                column((empty, sections, petitions)).gap(0.0),
+            )),
+        ))
+        .gap(gap)
+        .grow(1.0)
+        .min_height(px(0.0))
     })
     .in_panel()
+    .boxed()
 }
 
 /// A part of the Petitions panel: `content` under its `head`.
-fn part(head: String, content: AnyView) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+fn part(head: String, content: AnyView) -> impl View + use<> {
+    themed(move |cx| {
         let space = &cx.theme().space;
         let (gap, below) = (space.gap, space.section);
-        cx.build(
-            column((section(head), content))
-                .gap(gap)
-                .padding(UiRect::bottom(px(below))),
-        )
+        column((section(head), content))
+            .gap(gap)
+            .padding(UiRect::bottom(px(below)))
     })
 }
 
 /// A petition's card: what it is, about which plugin, what it asks
 /// and its answers.
-fn row_view(row_of: &Row) -> AnyView {
+fn row_view(row_of: &Row) -> impl View + use<> {
     let petition = row_of.petition;
     let head = caption(row_of.caption.clone(), Tone::Accent);
     let title = row_of.title.clone();
@@ -629,8 +633,10 @@ fn row_view(row_of: &Row) -> AnyView {
                                     petition, at, picked,
                                 )
                             },
-                        ),
+                        )
+                        .boxed(),
                     )
+                    .boxed()
                 })
                 .collect::<Vec<_>>();
             let answers = buttons(vec![
@@ -681,32 +687,33 @@ fn row_view(row_of: &Row) -> AnyView {
                     .boxed()
                 })
                 .collect::<Vec<_>>();
-            (vec![ask_view(ask, frame().boxed())], buttons(answers))
+            (
+                vec![ask_view(ask, frame().boxed()).boxed()],
+                buttons(answers),
+            )
         }
     };
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let theme = cx.theme();
         let (size, gap) = (theme.text.heading, theme.space.gap);
-        cx.build(card((
+        card((
             head,
             label(title).size(size),
             column(asks).gap(gap),
             answers,
-        )))
+        ))
     })
 }
 
 /// An ask, its reason in the plugin's words, and `answers` under it.
-fn ask_view(ask: &Ask, answers: AnyView) -> AnyView {
+fn ask_view(ask: &Ask, answers: AnyView) -> impl View + use<> {
     let (what, why) = (
         format!("{} {}", ask.capability.name(), ask.target),
         ask.reason.clone(),
     );
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let gap = cx.theme().space.gap / 2.0;
-        cx.build(
-            column((label(what), description(why), answers)).gap(gap),
-        )
+        column((label(what), description(why), answers)).gap(gap)
     })
 }
 

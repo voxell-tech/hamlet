@@ -24,7 +24,7 @@ use bevy_fynix::{Prop, ScopedExt};
 use crate::pointer::{NodePointer, PointerMode};
 use crate::sounds::{Cue, InterfaceSound};
 use crate::style::{Placeholder, field_rules};
-use crate::{AnyView, Cx};
+use crate::{AnyView, Cx, View};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_systems(Update, grow);
@@ -48,7 +48,7 @@ pub fn message_field(
     most: u32,
     send: impl Fn(&mut World, String) + Clone + Send + Sync + 'static,
     keep: impl Fn(&mut World, String) + Clone + Send + Sync + 'static,
-) -> AnyView {
+) -> impl View {
     let value = value.into();
     AnyView::new(move |cx: &mut Cx| {
         let theme = cx.theme();

@@ -6,9 +6,9 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::system::Commands;
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, percent};
-use bevy_fynix::resource;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{FrameProps, column, label, row, slider};
+use bevy_fynix::{ViewExt, resource};
 use hamlet_engine_api::PanelId;
 use hamlet_engine_api::audio::Category;
 use hamlet_engine_api::id::ENGINE;
@@ -16,7 +16,7 @@ use hamlet_engine_audio::{Level, SoundSettings};
 
 use crate::icons::Glyph;
 use crate::style::{note, switch};
-use crate::{AnyView, Cx, SettingsPage};
+use crate::{AnyView, SettingsPage, View, themed};
 
 /// The name of the Sound page.
 pub(crate) const SOUND: &str = "sound";
@@ -36,17 +36,21 @@ fn add(mut commands: Commands) {
 }
 
 fn view(_: Entity) -> AnyView {
-    let mut parts = vec![volume("Master", None)];
+    let mut parts = vec![volume("Master", None).boxed()];
     for category in Category::ALL {
-        parts.push(volume(category.name(), Some(category)));
+        parts.push(volume(category.name(), Some(category)).boxed());
     }
-    parts.push(note(
-        "A plugin's own sounds are muted on its page in Plugins.",
-    ));
-    AnyView::new(move |cx: &mut Cx| {
+    parts.push(
+        note(
+            "A plugin's own sounds are muted on its page in Plugins.",
+        )
+        .boxed(),
+    );
+    themed(move |cx| {
         let gap = cx.theme().space.panel;
-        cx.build(column(parts).gap(gap))
+        column(parts).gap(gap)
     })
+    .boxed()
 }
 
 /// The master volume, or the volume of a category.
@@ -68,7 +72,7 @@ fn set(
 
 /// A kind of sound's name over its switch and the slider of its
 /// level, dim while it is off.
-fn volume(name: &'static str, of: Option<Category>) -> AnyView {
+fn volume(name: &'static str, of: Option<Category>) -> impl View {
     let on = switch(
         resource::<SoundSettings, _>(move |settings| {
             level(settings, of).on
@@ -90,17 +94,15 @@ fn volume(name: &'static str, of: Option<Category>) -> AnyView {
             Tone::Dim
         }
     });
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let gap = cx.theme().space.gap;
-        cx.build(
-            column((
-                label(name).tone(tone),
-                row((on, slid))
-                    .gap(gap)
-                    .width(percent(100.0))
-                    .align(AlignItems::Center),
-            ))
-            .gap(gap / 2.0),
-        )
+        column((
+            label(name).tone(tone),
+            row((on, slid))
+                .gap(gap)
+                .width(percent(100.0))
+                .align(AlignItems::Center),
+        ))
+        .gap(gap / 2.0)
     })
 }

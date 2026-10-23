@@ -18,7 +18,7 @@ use hamlet_engine_api::PanelId;
 
 use crate::fade::FadeSurface;
 use crate::style::scroll_area_on;
-use crate::{AnyView, Cx};
+use crate::{AnyView, View, themed};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Shown>().add_systems(Update, follow);
@@ -42,12 +42,12 @@ pub struct OverlayShown;
 pub(crate) struct Shown(pub(crate) Option<Entity>);
 
 /// The overlay shown, over everything but the menus, or nothing.
-pub fn view() -> AnyView {
+pub fn view() -> impl View {
     keyed(resource::<Shown, _>(|shown| shown.0), |shown| {
         let Some(shown) = *shown else {
             return frame().boxed();
         };
-        AnyView::new(move |cx: &mut Cx| {
+        themed(move |cx| {
             let content = cx
                 .world
                 .get::<Overlay>(shown)
@@ -89,19 +89,17 @@ pub fn view() -> AnyView {
             // Filled, so no press reaches what is under it. A row, so
             // the card is as tall as its words once they wrap to its
             // width.
-            cx.build(
-                row((card,))
-                    .width(percent(100.0))
-                    .height(percent(100.0))
-                    .padding(UiRect::all(px(inset)))
-                    .align(AlignItems::Center)
-                    .justify(JustifyContent::Center)
-                    .fill(backdrop),
-            )
+            row((card,))
+                .width(percent(100.0))
+                .height(percent(100.0))
+                .padding(UiRect::all(px(inset)))
+                .align(AlignItems::Center)
+                .justify(JustifyContent::Center)
+                .fill(backdrop)
         })
+        .boxed()
     })
     .within(overlay(()))
-    .boxed()
 }
 
 /// Finds the overlay to show again when one is shown, hidden or

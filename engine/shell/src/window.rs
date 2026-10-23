@@ -34,7 +34,7 @@ use crate::command::{RunCommand, ShellCommandsExt, engine_id};
 use crate::style::BottomGradient;
 use crate::theme::{EngineTheme, ThemeChanged};
 use crate::{
-    AnyView, Cx, View, float, menu, overlay, status, switcher,
+    Cx, View, float, menu, overlay, status, switcher, themed,
 };
 
 pub(crate) fn plugin(app: &mut App) {
@@ -196,39 +196,37 @@ fn show(
     }
 }
 
-fn root() -> AnyView {
-    AnyView::new(|cx: &mut Cx| {
+fn root() -> impl View {
+    themed(|cx| {
         let theme = cx.theme();
         let (background, separator, line) = (
             *theme.colors.background,
             *theme.colors.separator,
             theme.space.divider,
         );
-        cx.build(
-            column((
-                bar(cx),
-                column((dock::<EngineTheme>(),))
-                    .grow(1.0)
-                    .min_height(px(0.0))
-                    .gap(0.0),
-                frame().height(px(line)).fill(separator),
-                status::view(),
-                float::view(),
-                overlay::view(),
-                menu::open_view(),
-                switcher::popup_view(),
-            ))
-            .width(percent(100.0))
-            .height(percent(100.0))
-            .fill(background)
-            .gap(0.0),
-        )
+        column((
+            bar(cx),
+            column((dock::<EngineTheme>(),))
+                .grow(1.0)
+                .min_height(px(0.0))
+                .gap(0.0),
+            frame().height(px(line)).fill(separator),
+            status::view(),
+            float::view(),
+            overlay::view(),
+            menu::open_view(),
+            switcher::popup_view(),
+        ))
+        .width(percent(100.0))
+        .height(percent(100.0))
+        .fill(background)
+        .gap(0.0)
     })
 }
 
 /// The bar across the top, the menus then the workspaces, on a
 /// surface that shades toward its bottom, over a separator.
-fn bar(cx: &Cx) -> impl View {
+fn bar(cx: &Cx) -> impl View + use<> {
     let theme = cx.theme();
     let colors = &theme.colors;
     column((

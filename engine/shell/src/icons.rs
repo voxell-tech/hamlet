@@ -14,7 +14,7 @@ use bevy_fynix::views::{Icon, icon};
 use crate::icons::Shape::{
     Arc, Curve, Dot, Fill, Line, Loop, Path, Ring, Round,
 };
-use crate::{AnyView, Cx};
+use crate::{View, themed};
 
 /// The side of the square every icon is drawn in, in its own units.
 const GRID: f32 = 16.0;
@@ -577,10 +577,10 @@ pub fn glyph(which: Glyph, size: f32) -> Icon {
 }
 
 /// `which` at the side of an icon beside text, in `tone`.
-pub fn side(which: Glyph, tone: Tone) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+pub fn side(which: Glyph, tone: Tone) -> impl View {
+    themed(move |cx| {
         let size = cx.theme().space.icon;
-        cx.build(glyph(which, size).tone(tone))
+        glyph(which, size).tone(tone)
     })
 }
 

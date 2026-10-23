@@ -22,7 +22,7 @@ use crate::icons::Glyph;
 use crate::style::{
     StyleExt, link_row, link_rows, note, page_head, scroll_area,
 };
-use crate::{AnyView, Cx, StartRank};
+use crate::{AnyView, StartRank, View, themed};
 
 /// The name of the Settings panel.
 pub const SETTINGS: &str = "settings";
@@ -108,28 +108,26 @@ fn view(_: Entity) -> AnyView {
                 listed.icon,
                 listed.title.to_uppercase(),
             );
-            return AnyView::new(move |cx: &mut Cx| {
+            return themed(move |cx| {
                 let gap = cx.theme().space.panel;
-                cx.build(
-                    column((
-                        page_head(
-                            "SETTINGS",
-                            |world| {
-                                world
-                                    .resource_mut::<Pages>()
-                                    .chosen = None;
-                            },
-                            icon,
-                            title,
-                        ),
-                        content_of(page),
-                    ))
-                    .gap(gap),
-                )
-            });
+                column((
+                    page_head(
+                        "SETTINGS",
+                        |world| {
+                            world.resource_mut::<Pages>().chosen =
+                                None;
+                        },
+                        icon,
+                        title,
+                    ),
+                    content_of(page),
+                ))
+                .gap(gap)
+            })
+            .boxed();
         }
         if pages.list.is_empty() && pages.footers.is_empty() {
-            return note("No settings.");
+            return note("No settings.").boxed();
         }
         let rows = link_rows(
             pages
@@ -153,31 +151,31 @@ fn view(_: Entity) -> AnyView {
                 .collect(),
         );
         let footers = pages.footers.clone();
-        AnyView::new(move |cx: &mut Cx| {
+        themed(move |cx| {
             let gap = cx.theme().space.gap;
-            let mut parts = vec![rows];
+            let mut parts = vec![rows.boxed()];
             parts.extend(footers.iter().map(|&footer| {
                 column((content_of(footer),))
                     .gap(0.0)
                     .padding(UiRect::top(px(gap)))
                     .boxed()
             }));
-            cx.build(column(parts).gap(0.0))
+            column(parts).gap(0.0)
         })
+        .boxed()
     })
     .within(column(()).gap(0.0));
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let width = cx.theme().space.page_width;
-        cx.build(scroll_area((column((page,))
-            .gap(0.0)
-            .max_width(px(width)),)))
+        scroll_area((column((page,)).gap(0.0).max_width(px(width)),))
     })
     .in_panel()
+    .boxed()
 }
 
 /// The content of the page or footer `at`, as its owner builds it.
-fn content_of(at: Entity) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+fn content_of(at: Entity) -> impl View {
+    themed(move |cx| {
         let content = cx
             .world
             .get::<SettingsPage>(at)
@@ -188,8 +186,8 @@ fn content_of(at: Entity) -> AnyView {
                     .map(|footer| footer.content)
             });
         match content {
-            Some(content) => cx.build(content(at)),
-            None => cx.build(column(())),
+            Some(content) => content(at),
+            None => column(()).boxed(),
         }
     })
 }

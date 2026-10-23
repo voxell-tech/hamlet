@@ -14,7 +14,7 @@ use hamlet_engine_core::StartingLimits;
 use hamlet_engine_shell::style::{
     dropdown, field, labelled_switch, note, section,
 };
-use hamlet_engine_shell::{AnyView, Cx};
+use hamlet_engine_shell::{View, themed};
 
 use crate::list::ListWorldExt;
 
@@ -77,21 +77,24 @@ pub(super) fn limits_view(
     id: &PluginId,
     limits: &Limits,
     refused: Option<(LimitKind, String)>,
-) -> AnyView {
+) -> impl View + use<> {
     let none = LimitKind::ALL
         .iter()
         .all(|&kind| !limits.get(kind).is_some_and(|limit| limit.on));
     let limits = limits.clone();
     let id = id.clone();
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let starting = cx.world.resource::<StartingLimits>().clone();
         let gap = cx.theme().space.gap;
-        let mut parts = vec![section("LIMITS")];
+        let mut parts = vec![section("LIMITS").boxed()];
         if none {
-            parts.push(note(
-                "None is on, so nothing holds it back. Switch one \
-                 on to hold it to that.",
-            ));
+            parts.push(
+                note(
+                    "None is on, so nothing holds it back. Switch \
+                     one on to hold it to that.",
+                )
+                .boxed(),
+            );
         }
         for kind in LimitKind::ALL {
             let limit = limits.get(kind).unwrap_or(Limit {
@@ -102,15 +105,12 @@ pub(super) fn limits_view(
                 .as_ref()
                 .filter(|(at, _)| *at == kind)
                 .map(|(_, why)| why.clone());
-            parts.push(limit_row(
-                plugin,
-                id.clone(),
-                kind,
-                limit,
-                why,
-            ));
+            parts.push(
+                limit_row(plugin, id.clone(), kind, limit, why)
+                    .boxed(),
+            );
         }
-        cx.build(column(parts).gap(gap / 2.0))
+        column(parts).gap(gap / 2.0)
     })
 }
 
@@ -122,7 +122,7 @@ fn limit_row(
     kind: LimitKind,
     limit: Limit,
     refused: Option<String>,
-) -> AnyView {
+) -> impl View {
     let switched_for = id.clone();
     let switch =
         labelled_switch(kind.name(), limit.on, move |world, on| {
@@ -191,14 +191,16 @@ fn limit_row(
                     }
                 },
             )
+            .boxed()
         }
         None => note(match kind.unit() {
             LimitUnit::Milliseconds => "ms",
             _ => "",
-        }),
+        })
+        .boxed(),
     };
     let refused = refused.map(|why| label(why).tone(Tone::Critical));
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let theme = cx.theme();
         let (gap, side) = (theme.space.gap, theme.space.row);
         let line = row((
@@ -210,6 +212,6 @@ fn limit_row(
         .align(AlignItems::Center);
         let mut parts = vec![line.boxed()];
         parts.extend(refused.map(|why| why.boxed()));
-        cx.build(column(parts).gap(gap / 2.0))
+        column(parts).gap(gap / 2.0)
     })
 }

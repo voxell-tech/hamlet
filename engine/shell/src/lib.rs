@@ -117,6 +117,28 @@ pub trait View:
 
 impl<V: bevy_fynix::View<Bevy, EngineTheme> + 'static> View for V {}
 
+/// A view made once it is built, from what its [`Cx`] holds: the
+/// theme, or the world. Keeps the type of the view `make` returns,
+/// where [`AnyView::new`] would erase it.
+pub fn themed<V: View>(
+    make: impl for<'a, 'b> FnOnce(&'b mut Cx<'a>) -> V + 'static,
+) -> impl View {
+    Themed(make)
+}
+
+struct Themed<F>(F);
+
+impl<V, F> bevy_fynix::View<Bevy, EngineTheme> for Themed<F>
+where
+    V: View,
+    F: for<'a, 'b> FnOnce(&'b mut Cx<'a>) -> V,
+{
+    fn build(self, cx: &mut Cx<'_>) -> Entity {
+        let view = (self.0)(cx);
+        cx.build(view)
+    }
+}
+
 /// The shell's methods on [`World`].
 pub trait ShellWorldExt {
     /// Runs the command `id`, if there is one.

@@ -22,9 +22,9 @@ use hamlet_engine_shell::style::{
     section,
 };
 use hamlet_engine_shell::{
-    AnyView, Command, Cx, MenuEntry, Overlay, Panel, PanelSection,
+    AnyView, Command, MenuEntry, Overlay, Panel, PanelSection,
     SettingsFooter, SettingsPage, Shortcut, StatusItem,
-    SuggestedWorkspace,
+    SuggestedWorkspace, View, themed,
 };
 
 use crate::PluginKind;
@@ -112,22 +112,17 @@ impl Kind {
 
 impl Added {
     /// Its name, with what kind of thing it is beside it.
-    fn view(&self) -> AnyView {
+    fn view(&self) -> impl View + use<> {
         let (kind, name) = (self.kind.name(), self.name.clone());
-        AnyView::new(move |cx: &mut Cx| {
+        themed(move |cx| {
             let theme = cx.theme();
             let (gap, size) = (theme.space.gap, theme.text.small);
-            cx.build(
-                row((
-                    label(name).grown(1.0),
-                    label(kind)
-                        .size(size)
-                        .tone(Tone::Dim)
-                        .wrap(false),
-                ))
-                .gap(gap)
-                .align(AlignItems::Center),
-            )
+            row((
+                label(name).grown(1.0),
+                label(kind).size(size).tone(Tone::Dim).wrap(false),
+            ))
+            .gap(gap)
+            .align(AlignItems::Center)
         })
     }
 }
@@ -215,7 +210,7 @@ pub(super) fn added(
 
 /// The page of the plugin `id`: the breadcrumb, and under it what
 /// scrolls.
-pub(super) fn page_view(id: PluginId) -> AnyView {
+pub(super) fn page_view(id: PluginId) -> impl View {
     let named = id.clone();
     let trail = breadcrumb(
         vec!["PLUGINS".into()],
@@ -235,39 +230,38 @@ pub(super) fn page_view(id: PluginId) -> AnyView {
         }),
         move |found| {
             let Some((plugin, kind)) = *found else {
-                return note("No such plugin.");
+                return note("No such plugin.").boxed();
             };
             let head = head(plugin, id.clone(), kind);
             let id = id.clone();
             let rest = keyed(
                 resource::<Rows, _>(move |rows| Page::of(rows, &id)),
                 |page| match page {
-                    Some(page) => body(page),
-                    None => note("No such plugin."),
+                    Some(page) => body(page).boxed(),
+                    None => note("No such plugin.").boxed(),
                 },
             )
             .within(column(()).gap(0.0));
-            AnyView::new(move |cx: &mut Cx| {
+            themed(move |cx| {
                 let gap = cx.theme().space.panel;
-                cx.build(column((head, rest)).gap(gap))
+                column((head, rest)).gap(gap)
             })
+            .boxed()
         },
     )
     .within(column(()).gap(0.0));
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let section = cx.theme().space.section;
-        cx.build(
-            column((trail, scroll_area((content,))))
-                .gap(section)
-                .grow(1.0)
-                .min_height(px(0.0)),
-        )
+        column((trail, scroll_area((content,))))
+            .gap(section)
+            .grow(1.0)
+            .min_height(px(0.0))
     })
 }
 
 /// The limits, what it adds, the other sections and UNINSTALL, a
 /// part of a panel apart.
-fn body(page: &Page) -> AnyView {
+fn body(page: &Page) -> impl View + use<> {
     let row_of = &page.row;
     let plugin = row_of.plugin;
     let limits = limits_view(
@@ -276,28 +270,29 @@ fn body(page: &Page) -> AnyView {
         &row_of.limits,
         page.refused.clone(),
     );
-    let asked =
-        page.asked.map(|question| confirmation(row_of, question));
-    let adds = adds(row_of);
-    let needs = needs(row_of);
-    let needed_by = needed_by(row_of);
+    let asked = page
+        .asked
+        .map(|question| confirmation(row_of, question).boxed());
+    let adds = adds(row_of).boxed();
+    let needs = needs(row_of).boxed();
+    let needed_by = needed_by(row_of).boxed();
     let uninstall = (row_of.kind == PluginKind::Installed)
         .then(|| uninstall(row_of, page.uninstalling));
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let gap = cx.theme().space.panel;
         let mut parts = asked.into_iter().collect::<Vec<_>>();
-        parts.push(limits);
+        parts.push(limits.boxed());
         parts.extend([adds, needs, needed_by]);
         parts.extend(sections(cx.world, plugin));
         parts.extend(uninstall);
-        cx.build(column(parts).gap(gap))
+        column(parts).gap(gap)
     })
 }
 
 /// The name of `plugin`, of the id `id` and the kind `kind`, over
 /// what it is about, where it comes from and its state, with its
 /// switch beside them. It follows the plugin in place.
-fn head(plugin: Entity, id: PluginId, kind: PluginKind) -> AnyView {
+fn head(plugin: Entity, id: PluginId, kind: PluginKind) -> impl View {
     let switch = plugin_switch(plugin, id);
     let from = match kind {
         PluginKind::BuiltIn => "Built into the engine",
@@ -311,7 +306,7 @@ fn head(plugin: Entity, id: PluginId, kind: PluginKind) -> AnyView {
             Tone::Dim
         }
     });
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let theme = cx.theme();
         let (gap, size, section) =
             (theme.space.gap, theme.text.small, theme.space.section);
@@ -326,40 +321,41 @@ fn head(plugin: Entity, id: PluginId, kind: PluginKind) -> AnyView {
         .gap(gap)
         .tagged(Wraps);
         let name = heading(bound(plugin, |row| row.name.clone()));
-        cx.build(
-            row((
-                column((name, about, facts))
-                    .gap(gap / 2.0)
-                    .grow(1.0)
-                    .min_width(px(0.0)),
-                switch,
-            ))
-            .gap(section)
-            .align(AlignItems::Start),
-        )
+        row((
+            column((name, about, facts))
+                .gap(gap / 2.0)
+                .grow(1.0)
+                .min_width(px(0.0)),
+            switch,
+        ))
+        .gap(section)
+        .align(AlignItems::Start)
     })
 }
 
 /// WHAT IT ADDS over a list of it, which is empty while it is off.
-fn adds(row_of: &Row) -> AnyView {
+fn adds(row_of: &Row) -> impl View + use<> {
     let listed = if !row_of.on {
-        note("Nothing while it is off.")
+        note("Nothing while it is off.").boxed()
     } else if row_of.added.is_empty() {
-        note("Nothing.")
+        note("Nothing.").boxed()
     } else {
-        list(row_of.added.iter().map(Added::view).collect())
+        list(
+            row_of.added.iter().map(|it| it.view().boxed()).collect(),
+        )
+        .boxed()
     };
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let gap = cx.theme().space.gap / 2.0;
-        cx.build(column((section("WHAT IT ADDS"), listed)).gap(gap))
+        column((section("WHAT IT ADDS"), listed)).gap(gap)
     })
 }
 
 /// NEEDS over each plugin it needs with the versions that fit, and
 /// whether it is there.
-fn needs(row_of: &Row) -> AnyView {
+fn needs(row_of: &Row) -> impl View + use<> {
     let listed = if row_of.needs.is_empty() {
-        note("Nothing.")
+        note("Nothing.").boxed()
     } else {
         list(
             row_of
@@ -370,18 +366,19 @@ fn needs(row_of: &Row) -> AnyView {
                         Some(unmet) => (unmet.clone(), Tone::Accent),
                         None => ("Met".into(), Tone::Dim),
                     };
-                    fact_row(needed.clone(), state, tone)
+                    fact_row(needed.clone(), state, tone).boxed()
                 })
                 .collect(),
         )
+        .boxed()
     };
     titled("NEEDS", listed)
 }
 
 /// NEEDED BY over the plugins that need it.
-fn needed_by(row_of: &Row) -> AnyView {
+fn needed_by(row_of: &Row) -> impl View + use<> {
     let listed = if row_of.needed_by.is_empty() {
-        note("Nothing.")
+        note("Nothing.").boxed()
     } else {
         list(
             row_of
@@ -390,33 +387,32 @@ fn needed_by(row_of: &Row) -> AnyView {
                 .map(|name| label(name.clone()).boxed())
                 .collect(),
         )
+        .boxed()
     };
     titled("NEEDED BY", listed)
 }
 
 /// `name` with `state` at its end in `tone`.
-fn fact_row(name: String, state: String, tone: Tone) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+fn fact_row(name: String, state: String, tone: Tone) -> impl View {
+    themed(move |cx| {
         let gap = cx.theme().space.gap;
-        cx.build(
-            row((
-                label(name).grown(1.0),
-                label(state)
-                    .tone(tone)
-                    .wrap(false)
-                    .rules(description_rules),
-            ))
-            .gap(gap)
-            .align(AlignItems::Center),
-        )
+        row((
+            label(name).grown(1.0),
+            label(state)
+                .tone(tone)
+                .wrap(false)
+                .rules(description_rules),
+        ))
+        .gap(gap)
+        .align(AlignItems::Center)
     })
 }
 
 /// `title` as a section's head over `content`.
-fn titled(title: &'static str, content: AnyView) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+fn titled(title: &'static str, content: impl View) -> impl View {
+    themed(move |cx| {
         let gap = cx.theme().space.gap / 2.0;
-        cx.build(column((section(title), content)).gap(gap))
+        column((section(title), content)).gap(gap)
     })
 }
 
@@ -425,7 +421,7 @@ fn titled(title: &'static str, content: AnyView) -> AnyView {
 pub(super) fn confirmation(
     row_of: &Row,
     question: Question,
-) -> AnyView {
+) -> impl View + use<> {
     let (plugin, id) = (row_of.plugin, row_of.id.clone());
     let (said, mut sure) = match question {
         Question::Off => (
@@ -486,9 +482,9 @@ pub(super) fn confirmation(
             .boxed(),
     );
     let (said, sure) = (description(said), buttons(sure));
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let gap = cx.theme().space.gap;
-        cx.build(column((said, sure)).gap(gap))
+        column((said, sure)).gap(gap)
     })
 }
 
@@ -525,7 +521,8 @@ fn uninstall(row_of: &Row, asked: bool) -> AnyView {
                     world.confirm_uninstall(Some(plugin));
                 })
                 .boxed(),
-        ]);
+        ])
+        .boxed();
     }
     let mut said = format!(
         "Uninstall {}? Its files go, and what you answered for it.",
@@ -549,8 +546,9 @@ fn uninstall(row_of: &Row, asked: bool) -> AnyView {
             .on_activate(|world| world.confirm_uninstall(None))
             .boxed(),
     ]);
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let gap = cx.theme().space.gap;
-        cx.build(column((said, sure)).gap(gap))
+        column((said, sure)).gap(gap)
     })
+    .boxed()
 }

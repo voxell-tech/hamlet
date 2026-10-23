@@ -33,7 +33,7 @@ use crate::style::{
     ButtonStyle, action, buttons, content_button, description, field,
     list, note, section,
 };
-use crate::{AnyView, Cx, SettingsPage};
+use crate::{AnyView, SettingsPage, View, themed};
 
 /// The name of the Shortcuts page.
 pub(crate) const SHORTCUTS: &str = "shortcuts";
@@ -147,10 +147,10 @@ fn view(_: Entity) -> AnyView {
         .within(row(()).gap(0.0));
     let groups = keyed(resource::<Rows, _>(Clone::clone), |rows| {
         if rows.groups.is_empty() {
-            return note("No command matches.");
+            return note("No command matches.").boxed();
         }
         let groups = rows.groups.clone();
-        AnyView::new(move |cx: &mut Cx| {
+        themed(move |cx| {
             let gap = cx.theme().space.gap;
             let parts = groups
                 .iter()
@@ -162,7 +162,7 @@ fn view(_: Entity) -> AnyView {
                                 .rows
                                 .iter()
                                 .cloned()
-                                .map(line)
+                                .map(|one| line(one).boxed())
                                 .collect(),
                         ),
                     ))
@@ -170,36 +170,33 @@ fn view(_: Entity) -> AnyView {
                     .boxed()
                 })
                 .collect::<Vec<_>>();
-            cx.build(column(parts).gap(cx.theme().space.panel))
+            column(parts).gap(cx.theme().space.panel)
         })
+        .boxed()
     })
     .within(column(()).gap(0.0));
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let theme = cx.theme();
         let (gap, panel) = (theme.space.gap, theme.space.panel);
-        cx.build(
-            column((
-                description(
-                    "Press a shortcut, then the keys to run its \
-                     command with. Escape leaves it as it was.",
-                ),
-                row((
-                    column((search,)).gap(0.0).grow(1.0),
-                    reset_all,
-                ))
+        column((
+            description(
+                "Press a shortcut, then the keys to run its command \
+                 with. Escape leaves it as it was.",
+            ),
+            row((column((search,)).gap(0.0).grow(1.0), reset_all))
                 .gap(gap)
                 .align(AlignItems::Center),
-                groups,
-            ))
-            .gap(panel),
-        )
+            groups,
+        ))
+        .gap(panel)
     })
+    .boxed()
 }
 
 /// A command's row: its label, its keys to press to bind it, and
 /// buttons to clear it and to put it back. Under it, a chord another
 /// command has, with the ways out.
-fn line(line: Line) -> AnyView {
+fn line(line: Line) -> impl View {
     let command = line.command.clone();
     let (keys, tone) = if line.capturing {
         ("Press keys".to_owned(), Tone::Accent)
@@ -230,41 +227,52 @@ fn line(line: Line) -> AnyView {
     ];
     if !line.keys.is_empty() {
         let command = command.clone();
-        items.push(icon(Glyph::Cross, "Clear", move |world| {
-            world.resource_mut::<Clash>().0 = None;
-            world.resource_scope(|world, mut keymap: Mut<Keymap>| {
-                keymap.bind(
-                    world.resource::<Bindings>(),
-                    &command,
-                    Vec::new(),
+        items.push(
+            icon(Glyph::Cross, "Clear", move |world| {
+                world.resource_mut::<Clash>().0 = None;
+                world.resource_scope(
+                    |world, mut keymap: Mut<Keymap>| {
+                        keymap.bind(
+                            world.resource::<Bindings>(),
+                            &command,
+                            Vec::new(),
+                        );
+                    },
                 );
-            });
-        }));
+            })
+            .boxed(),
+        );
     }
     if line.rebound {
         let command = command.clone();
-        items.push(icon(Glyph::Restore, "Reset", move |world| {
-            world.resource_mut::<Clash>().0 = None;
-            world.resource_mut::<Keymap>().reset(&command);
-        }));
+        items.push(
+            icon(Glyph::Restore, "Reset", move |world| {
+                world.resource_mut::<Clash>().0 = None;
+                world.resource_mut::<Keymap>().reset(&command);
+            })
+            .boxed(),
+        );
     }
     let shared = line.shared.clone();
     let clash = line.clash.clone();
-    AnyView::new(move |cx: &mut Cx| {
+    themed(move |cx| {
         let gap = cx.theme().space.gap;
         let mut parts = vec![
             row(items).gap(gap).align(AlignItems::Center).boxed(),
         ];
         if let Some(other) = &shared {
-            parts.push(warning(format!("Also bound to {other}.")));
+            parts.push(
+                warning(format!("Also bound to {other}.")).boxed(),
+            );
         }
         if let Some((chord, other)) = &clash {
-            parts.push(warning(format!(
-                "{chord} already runs {other}."
-            )));
-            parts.push(choices(other));
+            parts.push(
+                warning(format!("{chord} already runs {other}."))
+                    .boxed(),
+            );
+            parts.push(choices(other).boxed());
         }
-        cx.build(column(parts).gap(gap / 2.0))
+        column(parts).gap(gap / 2.0)
     })
 }
 
@@ -274,26 +282,25 @@ fn icon(
     which: Glyph,
     tip: &'static str,
     press: impl Fn(&mut World) + Send + Sync + 'static,
-) -> AnyView {
-    let shown = AnyView::new(move |cx: &mut Cx| {
+) -> impl View {
+    let shown = themed(move |cx| {
         let size = cx.theme().space.icon;
-        cx.build(glyph(which, size).tone(Tone::Dim))
+        glyph(which, size).tone(Tone::Dim)
     });
     content_button(ButtonStyle::Quiet, shown)
         .on_activate(press)
         .tooltip(move || note(tip))
-        .boxed()
 }
 
-fn warning(text: String) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+fn warning(text: String) -> impl View {
+    themed(move |cx| {
         let size = cx.theme().text.small;
-        cx.build(label(text).size(size).tone(Tone::Critical))
+        label(text).size(size).tone(Tone::Critical)
     })
 }
 
 /// Swap, Replace and Cancel, for a chord `other` has.
-fn choices(other: &str) -> AnyView {
+fn choices(other: &str) -> impl View {
     let settle = |swap: bool| {
         move |world: &mut World| {
             let Some(clashing) =

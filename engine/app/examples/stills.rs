@@ -46,7 +46,7 @@ use hamlet_engine_shell::style::{
 use hamlet_engine_shell::workspace::Workspaces;
 use hamlet_engine_shell::{
     AnyView, Cx, DockTreeExt, EngineTheme, SettingsPage,
-    ShellWorldExt, StyleExt, keymap,
+    ShellWorldExt, StyleExt, View, keymap,
 };
 
 /// One still: its name, its size in the interface's pixels and the
@@ -410,13 +410,13 @@ fn reach_in(
 #[derive(Component, Clone, Copy)]
 struct HoldInside(Held);
 
-/// The stills' methods on [`AnyView`].
+/// The stills' methods on any view.
 trait StillViewExt {
     /// This view with its first field or button held as `held`.
     fn held_inside(self, held: Held) -> AnyView;
 }
 
-impl StillViewExt for AnyView {
+impl<V: View> StillViewExt for V {
     fn held_inside(self, held: Held) -> AnyView {
         row((self,)).tagged(HoldInside(held)).boxed()
     }
@@ -498,6 +498,7 @@ fn tab(which: Glyph, name: &'static str, shown: bool) -> AnyView {
         .tagged(DisplayText)
         .with_icon(which)
         .in_tab(shown)
+        .boxed()
 }
 
 fn tabs() -> AnyView {
@@ -551,7 +552,8 @@ fn the_rest() -> AnyView {
                     Glyph::Sliders,
                     "PERMISSIONS",
                     Some("What each plugin may do.".into()),
-                ),
+                )
+                .boxed(),
                 link_row(Glyph::Globe, "NETWORK", None)
                     .tagged(Held::Hover)
                     .boxed(),
@@ -759,6 +761,7 @@ fn orchard(_: Entity) -> AnyView {
         )
     })
     .in_panel()
+    .boxed()
 }
 
 /// Sets out the panels of a still of the shell: the plugin's panel
