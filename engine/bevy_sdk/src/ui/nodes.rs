@@ -247,6 +247,7 @@ impl Property {
             Property::Padding(_) => 21,
             Property::Grow(_) => 22,
             Property::Pointer(_) => 23,
+            Property::Height(_) => 24,
         };
         1 << at
     }
@@ -273,7 +274,9 @@ impl Property {
             Property::Align(align) => *align == Align::Start,
             Property::Fill(fill) => *fill == Fill::None,
             Property::Padding(space) => *space == Space::None,
-            Property::Grow(grow) => *grow == 0.0,
+            Property::Grow(grow) | Property::Height(grow) => {
+                *grow == 0.0
+            }
             Property::Pointer(pointer) => pointer.is_none(),
             Property::Menu(menu) => menu.items.is_empty(),
             Property::Offset(offset) => *offset == (0.0, 0.0),

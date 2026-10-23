@@ -69,6 +69,11 @@ pub struct Frame {
     /// Its share of the room left along what holds it, none at 0.
     #[elem(default = 0.0, patch = SetGrow)]
     pub grow: Prop<World, f32>,
+    /// Its height in pixels, what it holds laid out in it; at 0 it
+    /// is as tall as what it holds and its share of the room make
+    /// it.
+    #[elem(default = 0.0, patch = SetHeight)]
+    pub height: Prop<World, f32>,
     #[elem(default = 1.0, patch = SetOpacity, blend = blend)]
     pub opacity: Prop<World, f32>,
     #[elem(default = (0.0, 0.0), patch = SetOffset, blend = shift)]
@@ -786,6 +791,7 @@ patch!(SetAlign, Align, |align: &Align| Property::Align(*align));
 patch!(SetFill, Fill, |fill: &Fill| Property::Fill(*fill));
 patch!(SetPadding, Space, |space: &Space| Property::Padding(*space));
 patch!(SetGrow, f32, |grow: &f32| Property::Grow(*grow));
+patch!(SetHeight, f32, |height: &f32| Property::Height(*height));
 patch!(SetFolder, String, |title: &String| {
     Property::Folder(title.clone())
 });

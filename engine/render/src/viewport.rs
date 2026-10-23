@@ -25,7 +25,7 @@ use bevy::picking::pointer::PointerId;
 use bevy::render::render_resource::Extent3d;
 use bevy::ui::widget::ImageNode;
 use bevy::ui::{
-    ComputedNode, Node, RelativeCursorPosition, percent, px,
+    ComputedNode, Node, RelativeCursorPosition, Val, percent, px,
 };
 use bevy::window::{PrimaryWindow, Window};
 use hamlet_engine_core::TuningPlugin;
@@ -53,7 +53,8 @@ pub(crate) fn plugin(app: &mut App) {
 #[derive(Resource, Clone, PartialEq, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RenderTuning {
-    /// The least height of a viewport, in the interface's pixels.
+    /// The least height of a viewport, in the interface's pixels,
+    /// but for one in a frame of a set height, which it fills.
     pub viewport_least: f32,
     /// The widest and tallest image a camera draws into, in pixels.
     pub viewport_most: u32,
@@ -105,7 +106,8 @@ const BUTTONS: [(MouseButton, PointerButton); 3] = [
 ];
 
 /// Shows each new viewport's image, filling it, and has what holds
-/// it grow so it has room.
+/// it grow so it has room, or fills the frame of a set height that
+/// holds it.
 fn show(
     viewports: Query<(Entity, &Viewport), Added<Viewport>>,
     cameras: Query<&SceneCamera>,
@@ -123,11 +125,9 @@ fn show(
             continue;
         };
         commands.entity(shown).insert(ImageNode::new(image));
-        if let Ok(mut node) = nodes.get_mut(shown) {
-            node.flex_grow = 1.0;
-            node.width = percent(100.0);
-            node.min_height = px(tuning.viewport_least);
-        }
+        // The frames above it grow to give it room, up to the first
+        // that grows already or one of a set height, which it fills.
+        let mut held = false;
         let mut at = shown;
         for _ in 0..tuning.grow_levels {
             let Ok(parent) = parents.get(at) else {
@@ -137,10 +137,22 @@ fn show(
             let Ok(mut node) = nodes.get_mut(at) else {
                 break;
             };
+            if matches!(node.height, Val::Px(_)) {
+                held = true;
+                break;
+            }
             if node.flex_grow > 0.0 {
                 break;
             }
             node.flex_grow = 1.0;
+        }
+        if let Ok(mut node) = nodes.get_mut(shown) {
+            node.flex_grow = 1.0;
+            node.width = percent(100.0);
+            node.min_height = match held {
+                true => px(0.0),
+                false => px(tuning.viewport_least),
+            };
         }
     }
 }

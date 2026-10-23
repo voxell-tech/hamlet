@@ -217,6 +217,8 @@ struct Props {
     fill: wit::Fill,
     padding: wit::Space,
     grow: f32,
+    /// Its height in pixels; 0 for as tall as it is laid out.
+    height: f32,
     menu: Menu,
     /// The title of the dialog a folder is chosen in, if it opens
     /// one.
@@ -267,6 +269,7 @@ impl Props {
             fill: wit::Fill::None,
             padding: wit::Space::None,
             grow: 0.0,
+            height: 0.0,
             menu: Menu::default(),
             folder: String::new(),
             pointer: None,
@@ -348,6 +351,7 @@ impl Props {
             Property::Fill(fill) => self.fill = fill,
             Property::Padding(space) => self.padding = space,
             Property::Grow(grow) => self.grow = grow,
+            Property::Height(height) => self.height = height,
             Property::Pointer(pointer) => {
                 self.pointer = pointer.map(|pointer| NodePointer {
                     mode: pointer.mode.into(),
@@ -371,6 +375,7 @@ const BOLD: u32 = 1 << 3;
 const OPACITY: u32 = 1 << 5;
 const OFFSET: u32 = 1 << 11;
 const GROW: u32 = 1 << 22;
+const HEIGHT: u32 = 1 << 24;
 
 impl Property {
     /// The bit of the property this sets, in the order the WIT names
@@ -401,6 +406,7 @@ impl Property {
             Property::Padding(_) => 21,
             Property::Grow(_) => 22,
             Property::Pointer(_) => 23,
+            Property::Height(_) => 24,
         };
         1 << at
     }
@@ -1106,6 +1112,8 @@ struct Room {
     /// Its share of the room left.
     grow: f32,
     min_height: Val,
+    /// Its height, when the plugin gave it one.
+    height: Val,
 }
 
 impl Room {
@@ -1127,14 +1135,24 @@ impl Room {
             && world.get::<Props>(parent).is_none_or(|props| {
                 props.direction == FlexDirection::Column
             });
-        let grow = match world.get::<Props>(holder) {
+        let props = world.get::<Props>(holder);
+        let grow = match props {
             Some(props) if props.has(GROW) => props.grow,
             _ if scrolls && along => 1.0,
             _ => 0.0,
         };
+        let height = props
+            .filter(|props| props.has(HEIGHT) && props.height > 0.0)
+            .map_or(Val::Auto, |props| px(props.height));
+        let min_height = match height {
+            Val::Px(_) => height,
+            _ if scrolls => px(0.0),
+            _ => Val::Auto,
+        };
         Self {
             grow,
-            min_height: if scrolls { px(0.0) } else { Val::Auto },
+            min_height,
+            height,
         }
     }
 }
@@ -1168,6 +1186,10 @@ fn roomy(
             if let Some(mut laid) = world.get_mut::<Node>(node) {
                 laid.flex_grow = room.grow;
                 laid.min_height = room.min_height;
+                // A frame of a height is that tall, whatever its
+                // share of the room left.
+                laid.height = room.height;
+                laid.max_height = room.height;
             }
         });
         node

@@ -18,6 +18,10 @@ use crate::surfaces::SurfaceChange;
 /// way, so the layout's sums stay finite.
 const MOST_OFFSET: f32 = 100_000.0;
 
+/// The tallest a frame is set, in pixels, so the layout's sums stay
+/// finite.
+const MOST_HEIGHT: f32 = 100_000.0;
+
 /// A node of a retained panel, as the plugin holds it.
 pub struct UiNode;
 
@@ -158,7 +162,8 @@ impl Kind {
             | Property::Align(_)
             | Property::Fill(_)
             | Property::Padding(_)
-            | Property::Grow(_) => self == Self::Frame,
+            | Property::Grow(_)
+            | Property::Height(_) => self == Self::Frame,
             Property::Placeholder(_) | Property::Lines(_) => {
                 self == Self::Field
             }
@@ -172,8 +177,9 @@ impl Kind {
 }
 
 impl Property {
-    /// It with an opacity from 0 to 1 and an offset within
-    /// [`MOST_OFFSET`], a value that is not finite taken as the
+    /// It with an opacity from 0 to 1, an offset within
+    /// [`MOST_OFFSET`], a grow of 0 or more and a height from 0 to
+    /// [`MOST_HEIGHT`], a value that is not finite taken as the
     /// first.
     fn bounded(self) -> Self {
         let within = |value: f32, first: f32, most: f32| {
@@ -194,6 +200,9 @@ impl Property {
             Self::Grow(grow) => {
                 Self::Grow(within(grow, 0.0, f32::MAX).max(0.0))
             }
+            Self::Height(height) => Self::Height(
+                within(height, 0.0, MOST_HEIGHT).max(0.0),
+            ),
             other => other,
         }
     }

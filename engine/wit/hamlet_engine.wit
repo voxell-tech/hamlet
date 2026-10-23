@@ -318,6 +318,10 @@ interface ui {
         /// or what it holds, unless what it holds asks for another,
         /// or none to leave it to what holds the node.
         pointer(option<node-pointer>),
+        /// Of a frame: its height in the interface's pixels, which
+        /// what it holds is laid out in. At 0 it is as tall as what
+        /// it holds and its share of the room left make it.
+        height(f32),
     }
 
     /// What an item of the status line shows.

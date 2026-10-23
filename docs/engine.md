@@ -189,7 +189,10 @@ types, so the WIT names nothing twice.
   roles; a filled frame is padded and no wider than what holds it),
   `padding` (a frame's room about what it holds, by the same roles as
   `space`, past what its fill pads it by), `grow` (a frame's share of
-  the room left along what holds it, none at 0) and
+  the room left along what holds it, none at 0), `height` (a frame's
+  height in the interface's pixels, whatever room is left; at 0 it is
+  laid out as tall as what it holds makes it, and a height under 0 or
+  not finite is taken as 0) and
   `space` (a frame's), `placeholder` and `lines` (a field's: the most
   lines it grows to, one to start with), `on` (a toggle's), and
   `options` and `selected` (a dropdown's). A field of more than one
@@ -325,7 +328,8 @@ hamlet_engine_bevy::export!(Hello);
   `toggle` (and `switch`, one with words beside it), `field`,
   `dropdown`, `divider`, and the holders `column`,
   `row`, `list` and `scroll`; a column or row's `grow` has it take
-  the room left; `keyed` builds a view again when its
+  the room left, and its `height` makes it that many pixels tall;
+  `keyed` builds a view again when its
   key changes, and `each` a view per item of a list. `on_click`,
   `on_toggle`, `on_commit`, `on_submit`, `on_pick` and `on_top` run a
   handler with the whole world, so it can change resources, make
@@ -1231,6 +1235,8 @@ written here by their names in `[budgets]`.
   (`flex_grow` 1), as an engine panel's columns do, so the scroll is
   given the panel's height and not its content's. A frame with no
   scroll under it keeps its height, and a `grow` the plugin set wins.
+  A frame given a `height` is that tall (its `height`, `min_height`
+  and `max_height`), however much room is left.
 - **Moved by the engine.** A tone, size, opacity, space or offset set
   over a motion is moved from where it is shown over the theme's curve
   for it, a tone as its colour. A role is filled in from the theme as
@@ -1952,7 +1958,9 @@ none of them imports none of them.
 - **A viewport** is a frame of the plugin's panel that `show-in` gives
   a camera of target `viewport`: its widget shows the image the camera
   draws into, sized to the room the layout gives it (the frames above
-  it grow, `[render] grow_levels` at most), and the camera draws only
+  it grow, `[render] grow_levels` at most, up to one given a `height`,
+  which it fills; it is otherwise `[render] viewport_least` tall at
+  least), and the camera draws only
   while one shows it with room: a viewport in a tab behind another is
   kept, laid out with none, and told so as `resized`, its image kept
   at its last size. The camera draws before the interface, so an image
