@@ -230,9 +230,11 @@ pnpm db:seed --reset      # removes all mock data first, then seeds again
 ```
 
 - Every seller is a mock user (GitHub id `mock-<login>`) with a session
-  whose token is `hms_mock_<login>`. Sellers of paid listings get a fake
-  Stripe account (`acct_mock_<login>`) with payouts on, so the store shows
-  them as verified.
+  whose token is `hms_mock_<login>`. Sellers of paid listings are paid
+  through the platform's own Stripe account (`acct_staff_<login>`) with
+  payouts on, so the store shows them as verified and their listings can be
+  bought in Stripe's test mode: a sale of theirs is taken with no
+  transfer, and the whole amount stays with the platform.
 - Listings, versions and publishing go through the HTTP API, so packages
   are checked and their meta derived as for anyone. A plugin's old
   changelog becomes its versions.

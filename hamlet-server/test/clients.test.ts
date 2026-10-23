@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createGitHub } from "../src/github.ts";
+import { STAFF_ACCOUNT } from "../src/payouts.ts";
 import { checkoutParams, platformCheckoutParams, toPaymentEvent } from "../src/stripe.ts";
 
 type Call = { url: string; init: RequestInit | undefined };
@@ -104,6 +105,23 @@ describe("Stripe requests", () => {
       metadata: { purchaseId: "p_1" },
       success_url: "https://bazaar/checkout/success",
       cancel_url: "https://bazaar/checkout/cancel",
+    });
+  });
+
+  it("keeps the whole of a staff seller's sale with the platform", () => {
+    const params = checkoutParams({
+      purchaseId: "p_2",
+      listingId: "l_2",
+      buyerId: "u_1",
+      title: "Study Buddy",
+      amountCents: 300,
+      feeCents: 30,
+      destinationAccountId: `${STAFF_ACCOUNT}learnwell`,
+      successUrl: "https://bazaar/checkout/success",
+      cancelUrl: "https://bazaar/checkout/cancel",
+    });
+    expect(params.payment_intent_data).toEqual({
+      metadata: { purchaseId: "p_2", listingId: "l_2", buyerId: "u_1" },
     });
   });
 

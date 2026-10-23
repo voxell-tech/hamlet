@@ -7,6 +7,7 @@ import type {
   PlatformCheckoutRequest,
 } from "./services.ts";
 import { CURRENCY } from "./money.ts";
+import { isStaffAccount } from "./payouts.ts";
 
 export interface StripeSecrets {
   secretKey: string | undefined;
@@ -96,11 +97,13 @@ export function checkoutParams(request: CheckoutRequest): Stripe.Checkout.Sessio
         },
       },
     ],
-    payment_intent_data: {
-      application_fee_amount: request.feeCents,
-      transfer_data: { destination: request.destinationAccountId },
-      metadata,
-    },
+    payment_intent_data: isStaffAccount(request.destinationAccountId)
+      ? { metadata }
+      : {
+          application_fee_amount: request.feeCents,
+          transfer_data: { destination: request.destinationAccountId },
+          metadata,
+        },
     client_reference_id: request.purchaseId,
     metadata,
     success_url: request.successUrl,

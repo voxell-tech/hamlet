@@ -12,6 +12,7 @@ import { sha256Hex } from "../src/ids.ts";
 import { MAX_PRICE_CENTS, MIN_PAID_CENTS, isValidPrice, platformFeeCents } from "../src/money.ts";
 import type { Package, PackageFile } from "../src/package/schema.ts";
 import { NAME_PATTERN } from "../src/package/paths.ts";
+import { STAFF_ACCOUNT } from "../src/payouts.ts";
 import { compareVersions, parseVersion } from "../src/versionNumber.ts";
 import { ROOT } from "./migrationFiles.ts";
 
@@ -457,7 +458,7 @@ export function mockSellers(listings: MockListing[]): MockUser[] {
 }
 
 function payouts(login: string) {
-  return { payoutsEnabled: true, stripeAccountId: `acct_mock_${login}` };
+  return { payoutsEnabled: true, stripeAccountId: `${STAFF_ACCOUNT}${login}` };
 }
 
 /** The session token the seed script uses for `seller`; only its hash is stored. */
