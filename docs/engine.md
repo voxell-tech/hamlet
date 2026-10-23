@@ -1426,8 +1426,8 @@ in Rust and from those the person installs.
   running the script again while the engine runs reloads each plugin
   that changed and adds a new one.
 
-Three plugins come with Hamlet: `hamlet.agents`, `hamlet.realm` and
-`hamlet.scene_demo`. The engine's name and version, and the
+Two plugins come with Hamlet: `hamlet.agents` and `hamlet.realm`.
+The engine's name and version, and the
 interface's, are the About page of Settings (`engine/shell/src/about.rs`).
 
 `plugins/agents` (`hamlet.agents`, asking `agents.read`,
@@ -1486,23 +1486,6 @@ cargo run -p hamlet_engine_harness --bin plugin_check -- plugins/dist/hamlet.age
   under the pointer in the accent, as the desktop service tells its
   watchers. How many things wait is the Petitions panel's item. The
   harness does not read them.
-
-`plugins/scene_demo` (`hamlet.scene_demo`, asking `render.scene`,
-`render.shader`, `render.compute` and `audio.play`) is the panel Scene, which has
-no padding: a line of its own padding over a viewport that reaches
-the panel's edges, of a lit scene, under a sun with shadows, of a ground, a sphere
-on a pool of light laid as a decal of its own picture, a
-ring in a material of its own WGSL (`ring.wgsl`), a six-sided pyramid
-of its own mesh with a colour at each vertex, and a field of 400
-cubes as copies of one, lifted in waves by compute (`waves.wgsl`)
-through the material that draws them (`field.wgsl`), with a pass that
-darkens the view's edges (`edges.wgsl`). Dragging turns the camera
-about the middle and the wheel brings it nearer; the shape or cube
-under the pointer lights up, and a click names what it hit over the
-view and plays a chime of its own samples where it hit, a spatial
-sound on a note of the scale by what it hit. Where its camera is
-stays across a reload. Its `steps.toml`
-counts the scene and its decal, and clicks a shape and a cube.
 
 `plugins/realm` (`hamlet.realm`, asking `agents.read`, `agents.chief`,
 `render.scene` and `render.shader`, and needing `hamlet.agents`,
