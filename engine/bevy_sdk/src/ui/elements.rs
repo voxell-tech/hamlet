@@ -489,7 +489,27 @@ impl MenuItem {
         self.critical = true;
         self
     }
+
+    /// The items as the engine has them, and what choosing each runs.
+    pub(crate) fn split(items: Vec<Self>) -> (Vec<Item>, Choices) {
+        let mut runs = Vec::with_capacity(items.len());
+        let items = items
+            .into_iter()
+            .map(|item| {
+                runs.push(item.run);
+                Item {
+                    text: item.text,
+                    group: item.group,
+                    critical: item.critical,
+                }
+            })
+            .collect();
+        (items, runs)
+    }
 }
+
+/// What choosing each item of a menu runs, by its place.
+pub(crate) type Choices = Vec<Box<dyn Fn(&mut World) + Send + Sync>>;
 
 /// A view whose root node opens a menu.
 pub struct Menued<V> {
@@ -501,19 +521,7 @@ pub struct Menued<V> {
 impl<T, V: View<Hamlet, T>> View<Hamlet, T> for Menued<V> {
     fn build(self, cx: &mut Cx<'_, Hamlet, T>) -> Key {
         let node = self.inner.build(cx);
-        let mut runs = Vec::with_capacity(self.items.len());
-        let items = self
-            .items
-            .into_iter()
-            .map(|item| {
-                runs.push(item.run);
-                Item {
-                    text: item.text,
-                    group: item.group,
-                    critical: item.critical,
-                }
-            })
-            .collect();
+        let (items, runs) = MenuItem::split(self.items);
         let menu = Menu {
             items,
             click: self.click,

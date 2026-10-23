@@ -6,11 +6,14 @@
 use core::fmt;
 use std::collections::HashMap;
 
+use bevy::math::Vec2;
+use hamlet_engine_shell::{CardLook, CardPlace};
 use wasmtime::component::Resource;
 
 use crate::instance::State;
 use crate::instance::ui_bindings::hamlet::engine::ui::{
-    Host, HostNode, Kind, Motion, Property, StatusItem,
+    CardLook as WitCardLook, CardPlace as WitCardPlace, Host,
+    HostNode, Kind, MenuItem, Motion, Property, StatusItem,
 };
 use crate::surfaces::SurfaceChange;
 
@@ -47,14 +50,28 @@ pub enum NodeChange {
         press: bool,
     },
     Drop(u32),
+    /// A card floating over the window, its frame `node`.
+    Card {
+        node: u32,
+        key: u32,
+        look: CardLook,
+        widest: f32,
+    },
+    /// A card shown or hidden; a place takes it down from where it
+    /// hung.
+    Place {
+        node: u32,
+        place: CardPlace,
+    },
 }
 
-/// A node the plugin holds: its kind, and how deep it sits under its
-/// panel's root.
+/// A node the plugin holds: its kind, how deep it sits under its
+/// panel's root, and whether it is the frame of a card.
 #[derive(Clone, Copy, Debug)]
 struct Held {
     kind: Kind,
     depth: usize,
+    card: bool,
 }
 
 /// The nodes a plugin holds, and what it did to them in the call
@@ -77,7 +94,17 @@ impl Nodes {
         Resource::new_own(self.number(Held {
             kind: Kind::Frame,
             depth: 0,
+            card: false,
         }))
+    }
+
+    /// Fails unless `node` is the frame of a card the plugin holds.
+    pub(crate) fn card(&self, node: u32) -> wasmtime::Result<()> {
+        match self.held.get(&node) {
+            Some(held) if held.card => Ok(()),
+            Some(_) => Err(wasmtime::Error::new(NodeError::Property)),
+            None => Err(wasmtime::Error::new(NodeError::Unknown)),
+        }
     }
 
     fn number(&mut self, held: Held) -> u32 {
@@ -264,6 +291,68 @@ impl Host for State {
         self.surfaces.push(SurfaceChange::Open(name));
         Ok(())
     }
+
+    fn open_menu(
+        &mut self,
+        key: u32,
+        items: Vec<MenuItem>,
+    ) -> wasmtime::Result<()> {
+        self.nodes.count();
+        self.surfaces.push(SurfaceChange::Menu { key, items });
+        Ok(())
+    }
+
+    fn make_card(
+        &mut self,
+        key: u32,
+        look: WitCardLook,
+        widest: f32,
+    ) -> wasmtime::Result<Resource<UiNode>> {
+        self.nodes.count();
+        let node = self.nodes.number(Held {
+            kind: Kind::Frame,
+            depth: 0,
+            card: true,
+        });
+        let widest = if widest.is_finite() {
+            widest.clamp(0.0, MOST_OFFSET)
+        } else {
+            0.0
+        };
+        self.nodes.changes.push(NodeChange::Card {
+            node,
+            key,
+            look: match look {
+                WitCardLook::Plain => CardLook::Plain,
+                WitCardLook::Card => CardLook::Card,
+                WitCardLook::Tag => CardLook::Tag,
+                WitCardLook::Menu => CardLook::Menu,
+            },
+            widest,
+        });
+        Ok(Resource::new_own(node))
+    }
+
+    fn place_card(
+        &mut self,
+        card: Resource<UiNode>,
+        place: WitCardPlace,
+    ) -> wasmtime::Result<()> {
+        self.nodes.count();
+        self.nodes.card(card.rep())?;
+        // A card placed here opens where the pointer is as the call
+        // ends.
+        let place = match place {
+            WitCardPlace::Hidden => CardPlace::Hidden,
+            WitCardPlace::Pointer => CardPlace::Pointer,
+            WitCardPlace::Here => CardPlace::Here(Vec2::ZERO),
+        };
+        self.nodes.changes.push(NodeChange::Place {
+            node: card.rep(),
+            place,
+        });
+        Ok(())
+    }
 }
 
 impl HostNode for State {
@@ -286,6 +375,7 @@ impl HostNode for State {
         let node = self.nodes.number(Held {
             kind,
             depth: above.depth + 1,
+            card: false,
         });
         self.nodes.changes.push(NodeChange::Make {
             node,

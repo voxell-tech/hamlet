@@ -351,6 +351,48 @@ interface ui {
     /// id to the front, of any plugin, if there is one.
     open: func(name: string);
 
+    /// Opens a menu of `items` at the pointer, over everything. The
+    /// item chosen is a `chose` of `key`, by its place; the menu
+    /// closed by a press elsewhere or Escape is a `closed` of `key`.
+    open-menu: func(key: u32, items: list<menu-item>);
+
+    /// What a card is drawn on.
+    enum card-look {
+        /// Nothing: what it holds as it is.
+        plain,
+        /// The panels' card in the frame of what floats, as a card of
+        /// what is under the pointer.
+        card,
+        /// The panels' card in the frame of what waits for the
+        /// person, as a tag hung in the world.
+        tag,
+        /// A menu's surface.
+        menu,
+    }
+
+    /// Where a card is shown.
+    enum card-place {
+        hidden,
+        /// Beside the pointer, out of its way, following it; the
+        /// pointer reaches what is under it.
+        pointer,
+        /// Where the pointer is now, over everything, as a menu
+        /// opens: a press elsewhere or Escape closes it, a `closed`
+        /// of its key.
+        here,
+    }
+
+    /// A card of the plugin's own nodes, floating over the window:
+    /// the frame its nodes are made under, hidden until it is
+    /// placed. `key` names it in the events it is given. It is
+    /// `widest` pixels wide at most. Dropping the frame takes it
+    /// away.
+    make-card: func(key: u32, look: card-look, widest: f32) -> node;
+
+    /// Shows `card`, a frame `make-card` gave, at `place`, or hides
+    /// it.
+    place-card: func(card: borrow<node>, place: card-place);
+
     /// A node of a panel. Dropping it takes it away, and every node
     /// under it.
     resource node {
@@ -400,6 +442,9 @@ interface ui-guest {
         /// The folder chosen in the dialog a button opened, by its
         /// path.
         chosen(string),
+        /// A menu `open-menu` opened, or a card placed `here`, closed
+        /// with nothing chosen.
+        closed,
     }
 
     /// What the person did to the node the plugin named `key`.
@@ -698,12 +743,76 @@ interface scene {
         set-shadows: func(cast: bool, receive: bool);
 
         /// Words shown over the entity in each view of the scene.
-        set-label: func(text: option<string>);
+        set-label: func(label: option<label>);
+
+        /// A balloon over the entity in each view of the scene. It
+        /// pops in as it comes and shrinks away as it goes.
+        set-balloon: func(balloon: option<balloon>);
+
+        /// Hangs `card`, a frame `make-card` gave, `gap` pixels over
+        /// the entity in the first view of the scene that shows it,
+        /// cut where the view ends, or takes it down. Placing the
+        /// card takes it down too.
+        hang-card: func(card: option<borrow<node>>, gap: f32);
 
         /// Tells the plugin when the pointer comes over it or leaves,
         /// if `hover`, and when it is clicked, if `click`.
         watch: func(hover: bool, click: bool);
     }
+
+    /// How words over an entity look.
+    enum label-look {
+        /// Small words of the interface's colour.
+        plain,
+        /// A sign, as over a named thing, in a dark box with a dim
+        /// gold edge.
+        sign,
+        /// A name tag, as over what the pointer is on: larger, in a
+        /// brighter gold edge.
+        tag,
+    }
+
+    /// Words over an entity, centred over it.
+    record label {
+        text: string,
+        look: label-look,
+        /// Pixels between the entity and the label's foot.
+        gap: f32,
+        /// The farthest the camera is from the entity for it to be
+        /// shown, in the world's units, or any distance at 0.
+        far: f32,
+    }
+
+    /// A balloon of speech or thought, its point on the entity.
+    record balloon {
+        /// Its words, or, with none, dots that swell in turn.
+        text: string,
+        /// Dimmer, trailing rounds in place of a point.
+        thought: bool,
+        /// Pixels between the entity and the balloon's point.
+        gap: f32,
+        /// The farthest the camera is from the entity for it to be
+        /// shown, in the world's units, or any distance at 0.
+        far: f32,
+    }
+
+    /// Words beside the pointer while it is over a view of the
+    /// plugin's.
+    record pointer-label {
+        text: string,
+        /// The colour of the words, and of what they are on.
+        color: rgba,
+        back: rgba,
+        /// The size of the words, in the interface's pixels.
+        size: f32,
+        /// Where its top left is from the pointer, in the interface's
+        /// pixels.
+        x: f32,
+        y: f32,
+    }
+
+    /// Shows `label` beside the pointer, or none.
+    set-pointer-label: func(label: option<pointer-label>);
 
     /// Copies of one mesh in one material, drawn together, under
     /// `parent` or at the scene's root. Copy `i` is tagged `i` for a
@@ -752,6 +861,22 @@ interface scene-guest {
         middle,
     }
 
+    /// The buttons held down.
+    flags buttons {
+        primary,
+        secondary,
+        middle,
+    }
+
+    /// The keys held with what the person did. `meta` is Command on
+    /// macOS and the system's key elsewhere.
+    flags modifiers {
+        shift,
+        control,
+        alt,
+        meta,
+    }
+
     /// The pointer over a camera's view: the key of the camera's
     /// entity, where in the view's pixels from its top left, and how
     /// far it moved.
@@ -761,6 +886,8 @@ interface scene-guest {
         y: f32,
         dx: f32,
         dy: f32,
+        buttons: buttons,
+        modifiers: modifiers,
     }
 
     record press {
@@ -769,6 +896,51 @@ interface scene-guest {
         down: bool,
         x: f32,
         y: f32,
+        modifiers: modifiers,
+    }
+
+    /// A press let go over a watched entity, as near as a click is to
+    /// where it began.
+    record click {
+        hit: hit,
+        button: mouse-button,
+        modifiers: modifiers,
+    }
+
+    /// A key of the keyboard, by where it is.
+    enum key-code {
+        a, b, c, d, e, f, g, h, i, j, k, l, m,
+        n, o, p, q, r, s, t, u, v, w, x, y, z,
+        digit0, digit1, digit2, digit3, digit4,
+        digit5, digit6, digit7, digit8, digit9,
+        f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12,
+        escape, enter, space, tab, backspace, delete,
+        up, down, left, right, home, end, page-up, page-down,
+        comma, period, slash, backslash, semicolon, quote,
+        backquote, minus, equal, bracket-left, bracket-right,
+    }
+
+    /// A key pressed or let go while the pointer is over a view, or
+    /// a view was the last pressed. A key typed in a field, one bound
+    /// to a shortcut of the engine's, and one pressed while a menu or
+    /// a card placed `here` is open are not told.
+    record key {
+        view: u32,
+        code: key-code,
+        down: bool,
+        modifiers: modifiers,
+    }
+
+    /// A file of the person's dropped on a view, told to a plugin
+    /// allowed `desktop.drop`.
+    record dropped {
+        view: u32,
+        x: f32,
+        y: f32,
+        /// The engine's number for the drop, by which a service is
+        /// handed the file.
+        id: u32,
+        path: string,
     }
 
     /// The wheel turned over a view, in lines.
@@ -783,12 +955,14 @@ interface scene-guest {
         over(hit),
         /// The pointer left the watched entity of this key and copy.
         out(tuple<u32, u32>),
-        click(hit),
+        click(click),
         moved(pointer),
         pressed(press),
         turned(wheel),
         /// A view's new size: its camera's key, width and height.
         resized(tuple<u32, f32, f32>),
+        key(key),
+        dropped(dropped),
     }
 
     /// What the person did in the plugin's views.

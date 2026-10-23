@@ -27,16 +27,21 @@ use bevy::post_process::bloom::{Bloom as Glow, BloomPrefilter};
 use bevy::render::render_resource::Face;
 use bevy::render::view::Msaa;
 use bevy::transform::components::Transform as Placed;
+use bevy::input::keyboard::KeyCode as Key;
 use hamlet_engine_render::{
-    CameraSetup, Hit as Met, PointerButton, SceneEvent, SceneLight,
+    Balloon, CameraSetup, Hit as Met, LabelLook as Look, Modifiers,
+    PointerButton, PointerLabel, SceneEvent, SceneLight, WorldLabel,
 };
 
 use crate::scene::scene_bindings::exports::hamlet::engine::scene_guest::{
-    Hit, MouseButton, Pointer, Press, SceneInput, Wheel,
+    Buttons, Click, Dropped, Hit, Key as Typed, KeyCode,
+    Modifiers as Held, MouseButton, Pointer, Press, SceneInput, Wheel,
 };
 use crate::scene::scene_bindings::hamlet::engine::scene::{
-    AlphaMode, CameraSettings, Decal, FogFalloff, Light, MeshData,
-    Pbr, Projection, Rgba, Shape, Tonemapping, Transform,
+    AlphaMode, Balloon as WitBalloon, CameraSettings, Decal,
+    FogFalloff, Label, LabelLook, Light, MeshData, Pbr,
+    PointerLabel as WitPointerLabel, Projection, Rgba, Shape,
+    Tonemapping, Transform,
 };
 
 /// A mesh, and the GPU memory it takes.
@@ -441,6 +446,47 @@ pub(crate) fn camera(
     })
 }
 
+/// Words over an entity, of finite sizes.
+pub(crate) fn label(label: Label) -> Option<WorldLabel> {
+    finite(&[label.gap, label.far]).then_some(WorldLabel {
+        text: label.text,
+        look: match label.look {
+            LabelLook::Plain => Look::Plain,
+            LabelLook::Sign => Look::Sign,
+            LabelLook::Tag => Look::Tag,
+        },
+        gap: label.gap,
+        far: label.far,
+    })
+}
+
+/// A balloon over an entity, of finite sizes.
+pub(crate) fn balloon(balloon: WitBalloon) -> Option<Balloon> {
+    finite(&[balloon.gap, balloon.far]).then_some(Balloon {
+        text: balloon.text,
+        thought: balloon.thought,
+        gap: balloon.gap,
+        far: balloon.far,
+    })
+}
+
+/// Words beside the pointer, of finite colours and sizes, their size
+/// above zero.
+pub(crate) fn pointer_label(
+    label: WitPointerLabel,
+) -> Option<PointerLabel> {
+    if !positive(&[label.size]) || !finite(&[label.x, label.y]) {
+        return None;
+    }
+    Some(PointerLabel {
+        text: label.text,
+        color: Color::LinearRgba(color(label.color)?),
+        back: Color::LinearRgba(color(label.back)?),
+        size: label.size,
+        offset: bevy::math::Vec2::new(label.x, label.y),
+    })
+}
+
 fn hit(met: Met) -> Hit {
     Hit {
         key: met.key,
@@ -450,38 +496,87 @@ fn hit(met: Met) -> Hit {
     }
 }
 
-/// What the person did, as the plugin is told it.
-pub(crate) fn input(event: SceneEvent) -> SceneInput {
-    match event {
+fn button(button: PointerButton) -> MouseButton {
+    match button {
+        PointerButton::Primary => MouseButton::Primary,
+        PointerButton::Secondary => MouseButton::Secondary,
+        PointerButton::Middle => MouseButton::Middle,
+    }
+}
+
+fn modifiers(mods: Modifiers) -> Held {
+    let mut held = Held::empty();
+    for (on, flag) in [
+        (mods.shift, Held::SHIFT),
+        (mods.control, Held::CONTROL),
+        (mods.alt, Held::ALT),
+        (mods.meta, Held::META),
+    ] {
+        if on {
+            held |= flag;
+        }
+    }
+    held
+}
+
+/// What the person did, as the plugin is told it, or none for a key
+/// the interface does not name. A file dropped is told by
+/// [`dropped`].
+pub(crate) fn input(event: SceneEvent) -> Option<SceneInput> {
+    Some(match event {
         SceneEvent::Over(met) => SceneInput::Over(hit(met)),
         SceneEvent::Out { key, index } => {
             SceneInput::Out((key, index))
         }
-        SceneEvent::Click(met) => SceneInput::Click(hit(met)),
-        SceneEvent::Moved { view, at, by } => {
+        SceneEvent::Click {
+            hit: met,
+            button: which,
+            mods,
+        } => SceneInput::Click(Click {
+            hit: hit(met),
+            button: button(which),
+            modifiers: modifiers(mods),
+        }),
+        SceneEvent::Moved {
+            view,
+            at,
+            by,
+            held,
+            mods,
+        } => {
+            let mut buttons = Buttons::empty();
+            for (down, flag) in held.into_iter().zip([
+                Buttons::PRIMARY,
+                Buttons::SECONDARY,
+                Buttons::MIDDLE,
+            ]) {
+                if down {
+                    buttons |= flag;
+                }
+            }
             SceneInput::Moved(Pointer {
                 view,
                 x: at.x,
                 y: at.y,
                 dx: by.x,
                 dy: by.y,
+                buttons,
+                modifiers: modifiers(mods),
             })
         }
         SceneEvent::Pressed {
             view,
-            button,
+            button: which,
             down,
             at,
+            mods,
         } => SceneInput::Pressed(Press {
             view,
-            button: match button {
-                PointerButton::Primary => MouseButton::Primary,
-                PointerButton::Secondary => MouseButton::Secondary,
-                PointerButton::Middle => MouseButton::Middle,
-            },
+            button: button(which),
             down,
             x: at.x,
             y: at.y,
+            modifiers: modifiers(mods),
         }),
         SceneEvent::Turned { view, by } => {
             SceneInput::Turned(Wheel {
@@ -493,5 +588,121 @@ pub(crate) fn input(event: SceneEvent) -> SceneInput {
         SceneEvent::Resized { view, size } => {
             SceneInput::Resized((view, size.x, size.y))
         }
-    }
+        SceneEvent::Key {
+            view,
+            key,
+            down,
+            mods,
+        } => SceneInput::Key(Typed {
+            view,
+            code: code(key)?,
+            down,
+            modifiers: modifiers(mods),
+        }),
+        SceneEvent::Dropped { .. } => return None,
+    })
+}
+
+/// A file dropped on `view` at `at`, handed over as `id`.
+pub(crate) fn dropped(
+    view: u32,
+    at: bevy::math::Vec2,
+    id: u32,
+    path: String,
+) -> SceneInput {
+    SceneInput::Dropped(Dropped {
+        view,
+        x: at.x,
+        y: at.y,
+        id,
+        path,
+    })
+}
+
+/// The interface's name of `key`, if it has one.
+fn code(key: Key) -> Option<KeyCode> {
+    const LETTERS: [(Key, KeyCode); 26] = [
+        (Key::KeyA, KeyCode::A),
+        (Key::KeyB, KeyCode::B),
+        (Key::KeyC, KeyCode::C),
+        (Key::KeyD, KeyCode::D),
+        (Key::KeyE, KeyCode::E),
+        (Key::KeyF, KeyCode::F),
+        (Key::KeyG, KeyCode::G),
+        (Key::KeyH, KeyCode::H),
+        (Key::KeyI, KeyCode::I),
+        (Key::KeyJ, KeyCode::J),
+        (Key::KeyK, KeyCode::K),
+        (Key::KeyL, KeyCode::L),
+        (Key::KeyM, KeyCode::M),
+        (Key::KeyN, KeyCode::N),
+        (Key::KeyO, KeyCode::O),
+        (Key::KeyP, KeyCode::P),
+        (Key::KeyQ, KeyCode::Q),
+        (Key::KeyR, KeyCode::R),
+        (Key::KeyS, KeyCode::S),
+        (Key::KeyT, KeyCode::T),
+        (Key::KeyU, KeyCode::U),
+        (Key::KeyV, KeyCode::V),
+        (Key::KeyW, KeyCode::W),
+        (Key::KeyX, KeyCode::X),
+        (Key::KeyY, KeyCode::Y),
+        (Key::KeyZ, KeyCode::Z),
+    ];
+    const OTHERS: [(Key, KeyCode); 49] = [
+        (Key::Digit0, KeyCode::Digit0),
+        (Key::Digit1, KeyCode::Digit1),
+        (Key::Digit2, KeyCode::Digit2),
+        (Key::Digit3, KeyCode::Digit3),
+        (Key::Digit4, KeyCode::Digit4),
+        (Key::Digit5, KeyCode::Digit5),
+        (Key::Digit6, KeyCode::Digit6),
+        (Key::Digit7, KeyCode::Digit7),
+        (Key::Digit8, KeyCode::Digit8),
+        (Key::Digit9, KeyCode::Digit9),
+        (Key::F1, KeyCode::F1),
+        (Key::F2, KeyCode::F2),
+        (Key::F3, KeyCode::F3),
+        (Key::F4, KeyCode::F4),
+        (Key::F5, KeyCode::F5),
+        (Key::F6, KeyCode::F6),
+        (Key::F7, KeyCode::F7),
+        (Key::F8, KeyCode::F8),
+        (Key::F9, KeyCode::F9),
+        (Key::F10, KeyCode::F10),
+        (Key::F11, KeyCode::F11),
+        (Key::F12, KeyCode::F12),
+        (Key::Escape, KeyCode::Escape),
+        (Key::Enter, KeyCode::Enter),
+        (Key::Space, KeyCode::Space),
+        (Key::Tab, KeyCode::Tab),
+        (Key::Backspace, KeyCode::Backspace),
+        (Key::Delete, KeyCode::Delete),
+        (Key::ArrowUp, KeyCode::Up),
+        (Key::ArrowDown, KeyCode::Down),
+        (Key::ArrowLeft, KeyCode::Left),
+        (Key::ArrowRight, KeyCode::Right),
+        (Key::Home, KeyCode::Home),
+        (Key::End, KeyCode::End),
+        (Key::PageUp, KeyCode::PageUp),
+        (Key::PageDown, KeyCode::PageDown),
+        (Key::Comma, KeyCode::Comma),
+        (Key::Period, KeyCode::Period),
+        (Key::Slash, KeyCode::Slash),
+        (Key::Backslash, KeyCode::Backslash),
+        (Key::Semicolon, KeyCode::Semicolon),
+        (Key::Quote, KeyCode::Quote),
+        (Key::Backquote, KeyCode::Backquote),
+        (Key::Minus, KeyCode::Minus),
+        (Key::Equal, KeyCode::Equal),
+        (Key::BracketLeft, KeyCode::BracketLeft),
+        (Key::BracketRight, KeyCode::BracketRight),
+        (Key::NumpadEnter, KeyCode::Enter),
+        (Key::NumpadComma, KeyCode::Comma),
+    ];
+    LETTERS
+        .iter()
+        .chain(&OTHERS)
+        .find(|(bevy, _)| *bevy == key)
+        .map(|(_, code)| *code)
 }

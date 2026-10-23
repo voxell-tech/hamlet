@@ -125,3 +125,35 @@ bottom_press = 0.2
 [motion]
 interact = 0.14
 expand = 0.22
+
+[world]
+sign = "#010a13d8"
+sign_edge = "#463714ff"
+sign_text = "#cdbe91ff"
+sign_size = 11.0
+sign_padding_x = 6.0
+sign_padding_y = 1.0
+name_tag = "#010a13ff"
+name_tag_edge = "#785a28ff"
+name_tag_text = "#f0e6d2ff"
+name_tag_size = 12.0
+name_tag_padding_x = 8.0
+name_tag_padding_y = 3.0
+balloon_width = 220.0
+balloon_size = 13.0
+balloon_padding_x = 10.0
+balloon_padding_y = 7.0
+thought = "#120e0aee"
+balloon_arrive = 0.22
+balloon_leave = 0.18
+card_padding_x = 12.0
+card_padding_y = 9.0
+tag_padding_x = 8.0
+tag_padding_y = 5.0
+card_in = 0.1
+card_out = 0.08
+card_from = 0.95
+card_right = 18.0
+card_below = 20.0
+card_back = 12.0
+card_margin = 4.0

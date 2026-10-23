@@ -86,7 +86,8 @@ same types.
   `services.call` another plugin's service, and `agents.read`,
   `agents.chief` and `agents.settings` the target `local`
   (see [The agents](#the-agents)), `desktop.open` the target `https` or
-  a folder, and `desktop.settings` the target `local` (see
+  a folder, `desktop.drop` the target `files` (the files dropped on
+  its views), and `desktop.settings` the target `local` (see
   [The desktop](#the-desktop)), `render.scene`, `render.shader`
   and `render.compute` the target `gpu` (see
   [Scenes and GPU work](#scenes-and-gpu-work)), and `audio.play` the
@@ -212,7 +213,9 @@ types, so the WIT names nothing twice.
   sticks scrolled to its top, or holding too little to scroll, once
   for each height of what it holds (`reached-top`), and an item of a
   node's menu chosen (`chose`, by its place), and the folder chosen
-  in the dialog a button opened (`chosen`, by its path).
+  in the dialog a button opened (`chosen`, by its path), and a menu
+  opened at the pointer or a card placed `here` closed with nothing
+  chosen (`closed`).
 - **Scenes and sounds** are the worlds `scene-view` (see
   [Scenes and GPU work](#scenes-and-gpu-work)) and `sounds` (see
   [Sound](#sound)), which `render-plugin` includes with `ui-plugin`.
@@ -313,10 +316,18 @@ hamlet_engine_bevy::export!(Hello);
   go in `Last`, and the engine takes it away once nothing draws with
   it. Despawning an entity takes it away in the engine. What the
   person does over a view comes as `SceneOver`, `SceneOut`,
-  `SceneClick`, `ScenePointer`, `ScenePress`, `SceneWheel` and
-  `SceneResize`, and each again as a `SceneInput` in the order it
-  came, and `viewport(camera)` shows a camera in a panel
-  (see [Scenes and GPU work](#scenes-and-gpu-work)).
+  `SceneClick` (its `Hit` with the button and `Modifiers`),
+  `ScenePointer`, `ScenePress`, `SceneWheel`, `SceneResize` and
+  `SceneKeyInput`, and each again as a `SceneInput` in the order it
+  came, and a file dropped as `SceneDrop`; `viewport(camera)` shows a
+  camera in a panel (see [Scenes and GPU work](#scenes-and-gpu-work)).
+  `SceneLabel` with a `LabelStyle`, `SceneBalloon` and the
+  `PointerWords` resource show words and balloons over the scene. A
+  `Card` (a view built given its entity) is shown at its `CardPlace`,
+  `Pointer`, `Here` or `Over` an entity, a `CardClosed` when one
+  placed here is closed; `open_menu` (`MenuExt` on the `World` and
+  `Commands`) opens a menu of `menu_item`s at the pointer, and
+  `MenuShown` holds while it is open (`hamlet_engine_bevy::float`).
 - **Sounds** are Bevy's audio as the SDK has it
   (`hamlet_engine_bevy::audio`): `Sound::new(samples, channels,
   rate)` makes a clip in the engine, kept in `SoundAssets` while a
@@ -2021,18 +2032,58 @@ none of them imports none of them.
   and the interface is drawn over the scene without clearing it, so
   the scene shows where the dock has no panel. The plugin is told the
   window's size as `resized`, as a viewport's is told its own.
-- **The pointer.** Over a view, its moves, buttons and wheel are told
-  to the plugin with the key of the camera's entity, in the
-  interface's pixels; behind the dock, only where no UI node is under
-  it. A press begun over a view is let go anywhere. A ray from the
-  camera through the pointer finds the nearest watched entity of the
-  plugin's (Bevy's mesh ray casting): `over` and `out` as it changes,
-  `click` on a press let go within `[render] click_slop`, each with the
-  point hit and its normal, and the copy of instances.
-- **Words over the world** (`set-label`) are texts of the interface
-  kept where the camera sees the entity: over each viewport, or behind
-  the dock on a layer of their own under every root of the interface
-  (`label.rs`), so the dock's panels cover them.
+- **The pointer.** Over a view, its moves (with the buttons held),
+  buttons and wheel are told to the plugin with the key of the
+  camera's entity, in the interface's pixels, each with the keys held
+  (`modifiers`: shift, control, alt, meta); behind the dock, only
+  where no UI node is under it, and over a viewport only where no
+  card, menu or popup covers it. A press begun over a view is let go
+  anywhere. A ray from the camera through the pointer finds the
+  nearest watched entity of the plugin's (Bevy's mesh ray casting):
+  `over` and `out` as it changes, `click` on a press of any button
+  let go within `[render] click_slop`, with the button and the keys
+  held, each with the point hit and its normal, and the copy of
+  instances.
+- **Keys.** A key pressed or let go (`key`, by its `key-code`) is
+  told to the plugin of the view under the pointer, or else of the
+  view pressed last, until a press elsewhere. The shell keeps its
+  own (`ShellKeys`): a key typed in a field, one bound to a command,
+  and any pressed while a menu, a popup or an overlay is open or a
+  shortcut is being set, so Escape closes what is open first.
+- **Files dropped** on the window (`dropped`) go to the plugin of
+  the view the pointer is seen over within `[render] drop_wait`
+  seconds, the system not moving the pointer while it drags; one
+  that falls on no view is let lie. Only a plugin allowed
+  `desktop.drop` on `files` is told, with the path and a number;
+  answered Ask next time, the drop waits for the person. The number
+  is kept in the grants' `DroppedFiles`, so a service hands over the
+  file the person dropped by it, never a path a plugin names.
+- **Words over the world** (`set-label`) are nodes of the interface
+  centred `gap` pixels over the entity where the camera sees it,
+  hidden past `far`: over each viewport, or behind the dock on a
+  layer of their own under every root of the interface (`label.rs`),
+  so the dock's panels cover them. A label is `plain` (small words),
+  a `sign` or a name `tag`, each a box of the theme's `[world]`.
+- **Balloons** (`set-balloon`) of speech or thought are kept over an
+  entity as words are (`balloon.rs`): the surface in the frame of
+  what floats with a point for speech, or a dimmer one with trailing
+  rounds for a thought, dots that swell in turn while it has no
+  words. One pops in over `[world] balloon_arrive` and shrinks away
+  over `balloon_leave` once taken off.
+- **Words beside the pointer** (`set-pointer-label`) follow it, in
+  the plugin's colours and size, while it is over one of the
+  plugin's views.
+- **Menus and cards.** `ui.open-menu` opens a menu at the pointer,
+  the shell's own context menu with its groups and critical items;
+  the item chosen is a `chose` of its key, a menu closed otherwise a
+  `closed`. `ui.make-card` gives a frame the plugin builds a card
+  under; `place-card` shows it beside the pointer (out of its way,
+  fading in, the pointer passing through), `here` (where the pointer
+  is, over everything, as a menu opens; a press elsewhere or Escape
+  closes it, a `closed`), or hides it, and `entity.hang-card` hangs it
+  `gap` pixels over an entity in the first view of the scene shown,
+  cut where the view ends (`float.rs` in the shell). A card is
+  `plain`, a `card`, a `tag` or a `menu`, at most `widest` pixels.
 
 ### Layer two: the plugin's own GPU work
 

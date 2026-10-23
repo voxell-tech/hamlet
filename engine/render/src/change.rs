@@ -13,6 +13,8 @@ use bevy::post_process::bloom::Bloom;
 use bevy::render::view::Msaa;
 use bevy::transform::components::Transform;
 
+use crate::balloon::Balloon;
+use crate::label::{PointerLabel, WorldLabel};
 use crate::shader::CheckedShader;
 
 #[derive(Clone)]
@@ -57,8 +59,14 @@ pub enum SceneChange {
     },
     Label {
         id: u32,
-        text: Option<String>,
+        label: Option<WorldLabel>,
     },
+    Balloon {
+        id: u32,
+        balloon: Option<Balloon>,
+    },
+    /// The words beside the pointer over the owner's views.
+    PointerLabel(Option<PointerLabel>),
     Watch {
         id: u32,
         hover: bool,

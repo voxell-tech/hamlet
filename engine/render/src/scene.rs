@@ -48,7 +48,7 @@ use crate::change::{CameraSetup, SceneChange, SceneLight};
 use crate::compute::ComputeJob;
 use crate::decal::{DecalMaterial, DrawsDecals, ShadedDecal};
 use crate::guard::{GpuInfo, TimedSlots};
-use crate::label::WorldLabel;
+use crate::label::{PointerLabel, WorldLabel};
 use crate::material::{self, ShadedMaterial};
 use crate::pass::ScenePass;
 use crate::pick::Watched;
@@ -413,12 +413,20 @@ impl Scene {
                     self.insert(world, id, NotShadowReceiver);
                 }
             }
-            SceneChange::Label { id, text } => match text {
-                Some(text) => {
-                    self.insert(world, id, WorldLabel(text))
-                }
+            SceneChange::Label { id, label } => match label {
+                Some(label) => self.insert(world, id, label),
                 None => self.remove::<WorldLabel>(world, id),
             },
+            SceneChange::Balloon { id, balloon } => {
+                self.balloon(world, id, balloon);
+            }
+            SceneChange::PointerLabel(label) => {
+                let mut root = world.entity_mut(root);
+                match label {
+                    Some(label) => root.insert(label),
+                    None => root.remove::<PointerLabel>(),
+                };
+            }
             SceneChange::Watch { id, hover, click } => {
                 let watched = Watched { hover, click };
                 if let Some(copies) = self.instances.get_mut(&id) {

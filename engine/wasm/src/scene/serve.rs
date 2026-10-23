@@ -11,12 +11,16 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::ecs::query::{Added, Changed, With, Without};
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Commands, Local, Query, Res};
+use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::Time;
+use hamlet_engine_api::Capability;
 use hamlet_engine_api::capability::GPU;
+use hamlet_engine_api::desktop::FILES;
 use hamlet_engine_core::{ActiveLimits, Guards, LogLine};
-use hamlet_engine_grants::{Decided, FirstUse, Grants, Verdict};
+use hamlet_engine_grants::{
+    Decided, DroppedFiles, FirstUse, Grants, Verdict,
+};
 use hamlet_engine_plugins::{Asked, PluginInfo};
 use hamlet_engine_render::{
     GpuInfo, GpuLost, SceneEvent, SceneInput, SceneWorldExt, Scenes,
@@ -29,7 +33,8 @@ use crate::budget::Spending;
 use crate::host::WasmTuning;
 use crate::instance::{Caps, Fault, Instance, Spent};
 use crate::panel::{Moving, serve};
-use crate::retained::{Holders, NodeOf};
+use crate::retained::{Holders, NodeOf, WasmWorldExt};
+use crate::scene::scene_bindings::exports::hamlet::engine::scene_guest::SceneInput as Told;
 use crate::scene::{Powers, convert};
 
 pub(crate) fn plugin(app: &mut App) {
@@ -45,9 +50,9 @@ pub(crate) fn plugin(app: &mut App) {
 }
 
 /// On a running plugin: what the person did in its scenes' views,
-/// oldest first.
+/// oldest first, as it is told.
 #[derive(Component, Default)]
-pub struct SceneInbox(pub VecDeque<SceneEvent>);
+pub(crate) struct SceneInbox(pub(crate) VecDeque<Told>);
 
 /// On the holder of a frame: the number of the plugin's camera it
 /// shows.
@@ -147,22 +152,100 @@ fn lose(
 }
 
 /// Puts what the person did in a scene's views in its owner's inbox.
+/// A file dropped is handed only to a plugin allowed `desktop.drop`;
+/// one answered Ask next time keeps it until the person answers.
+#[allow(clippy::too_many_arguments)]
 fn route(
     mut inputs: MessageReader<SceneInput>,
-    mut plugins: Query<Option<&mut SceneInbox>, With<Instance>>,
+    mut plugins: Query<
+        (&PluginInfo, Option<&mut SceneInbox>),
+        With<Instance>,
+    >,
+    grants: Option<Res<Grants>>,
+    mut files: Option<ResMut<DroppedFiles>>,
+    mut decided: MessageReader<Decided>,
+    mut first_use: MessageWriter<FirstUse>,
+    mut held: Local<HashMap<Entity, Vec<SceneEvent>>>,
+    mut answered: Local<HashMap<Entity, bool>>,
     mut commands: Commands,
 ) {
+    for decision in decided.read() {
+        if decision.capability == Capability::DesktopDrop {
+            answered.insert(decision.plugin, decision.allowed);
+        }
+    }
+    answered.retain(|plugin, _| plugins.contains(*plugin));
+    held.retain(|plugin, _| plugins.contains(*plugin));
+    let mut events = inputs
+        .read()
+        .map(|input| (input.owner, input.event.clone()))
+        .collect::<Vec<_>>();
+    // Drops kept for an answer go once it comes.
+    held.retain(|plugin, drops| match answered.get(plugin) {
+        Some(true) => {
+            events
+                .extend(drops.drain(..).map(|drop| (*plugin, drop)));
+            false
+        }
+        Some(false) => false,
+        None => true,
+    });
     // The inboxes of plugins told of something for the first time.
-    let mut first = HashMap::<Entity, VecDeque<SceneEvent>>::new();
-    for input in inputs.read() {
-        let Ok(inbox) = plugins.get_mut(input.owner) else {
+    let mut first = HashMap::<Entity, VecDeque<Told>>::new();
+    for (owner, event) in events {
+        let Ok((info, inbox)) = plugins.get_mut(owner) else {
             continue;
         };
-        let events = match inbox {
-            Some(inbox) => &mut inbox.into_inner().0,
-            None => first.entry(input.owner).or_default(),
+        let told = match event {
+            SceneEvent::Dropped { view, at, path } => {
+                let verdict = grants.as_ref().map_or(
+                    Verdict::Refused,
+                    |grants| {
+                        grants.verdict(
+                            info,
+                            Capability::DesktopDrop,
+                            FILES,
+                        )
+                    },
+                );
+                let allowed = verdict == Verdict::Allowed
+                    || answered.get(&owner) == Some(&true);
+                if !allowed {
+                    if verdict == Verdict::Asking
+                        && !answered.contains_key(&owner)
+                    {
+                        let waiting = held.entry(owner).or_default();
+                        if waiting.is_empty() {
+                            first_use.write(FirstUse {
+                                plugin: owner,
+                                capability: Capability::DesktopDrop,
+                                target: FILES.into(),
+                            });
+                        }
+                        waiting.push(SceneEvent::Dropped {
+                            view,
+                            at,
+                            path,
+                        });
+                    }
+                    continue;
+                }
+                let Some(files) = files.as_mut() else {
+                    continue;
+                };
+                let shown = path.to_string_lossy().into_owned();
+                let id = files.give(owner, path);
+                convert::dropped(view, at, id, shown)
+            }
+            event => match convert::input(event) {
+                Some(told) => told,
+                None => continue,
+            },
         };
-        events.push_back(input.event.clone());
+        match inbox {
+            Some(inbox) => inbox.into_inner().0.push_back(told),
+            None => first.entry(owner).or_default().push_back(told),
+        }
     }
     for (plugin, events) in first {
         commands.entity(plugin).insert(SceneInbox(events));
@@ -198,11 +281,7 @@ fn play(
             && !inbox.0.is_empty()
             && spending.may_call(limits)
         {
-            let inputs = inbox
-                .0
-                .drain(..)
-                .map(convert::input)
-                .collect::<Vec<_>>();
+            let inputs = inbox.0.drain(..).collect::<Vec<_>>();
             calls.push(instance.scene_input(&caps, &inputs));
         }
         if calls.iter().all(|(done, _)| done.is_ok())
@@ -268,11 +347,17 @@ pub(crate) fn apply(
         let since = scene.since;
         let changes = std::mem::take(&mut scene.changes);
         let shown = std::mem::take(&mut scene.shown);
+        let hangs = std::mem::take(&mut scene.hangs);
         if !changes.is_empty() || applied.get(&plugin) != Some(&since)
         {
             applied.insert(plugin, since);
             commands.queue(move |world: &mut World| {
                 world.apply_scene(plugin, since, changes);
+            });
+        }
+        if !hangs.is_empty() {
+            commands.queue(move |world: &mut World| {
+                world.hang_cards(plugin, hangs);
             });
         }
         for (camera, node) in shown {
@@ -333,9 +418,15 @@ fn attach(
 /// Takes away the scenes of plugins that no longer run.
 fn forget(
     plugins: Query<Entity, (With<Scenes>, Without<Instance>)>,
+    files: Option<ResMut<DroppedFiles>>,
     mut commands: Commands,
 ) {
+    let mut files = files;
     for plugin in &plugins {
+        // The files dropped on its views go with its scene.
+        if let Some(files) = files.as_mut() {
+            files.forget(plugin);
+        }
         commands.queue(move |world: &mut World| {
             world.clear_scene(plugin)
         });

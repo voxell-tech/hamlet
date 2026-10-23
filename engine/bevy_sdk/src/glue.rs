@@ -19,6 +19,7 @@ use crate::bindings::exports::hamlet::engine::ui_guest::{
     Motions, UiEvent,
 };
 use crate::bindings::hamlet::engine::ui::Node;
+use crate::float::{Card, CardMounts};
 use crate::scene::Animate;
 use crate::ui::panels::Panels;
 use crate::ui::{AnyView, ViewExt, column};
@@ -44,6 +45,8 @@ impl Guest {
             crate::host::plugin,
             crate::ui::plugin,
             crate::scene::plugin,
+            crate::float::plugin,
+            crate::marks::plugin,
             crate::audio::plugin,
         ));
         app.add_plugins(P::default());
@@ -65,7 +68,22 @@ impl Guest {
         world.resource_mut::<Time>().advance_by(delta);
         self.app.update();
         self.updated = true;
-        self.panels.update(self.app.world_mut(), moved)
+        let world = self.app.world_mut();
+        let mounts =
+            core::mem::take(&mut *world.resource_mut::<CardMounts>());
+        for name in mounts.gone {
+            self.panels.unmount(world, &name);
+        }
+        for (name, key, root, entity) in mounts.made {
+            let Some(view) = world
+                .get::<Card>(entity)
+                .map(|card| (card.view)(entity))
+            else {
+                continue;
+            };
+            self.panels.mount_card(world, name, key, root, view);
+        }
+        self.panels.update(world, moved)
     }
 
     fn world(&mut self) -> &mut World {

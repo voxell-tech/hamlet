@@ -38,6 +38,7 @@ use bevy::ui::{
     AlignItems, FlexDirection, JustifyContent, Node, UiRect, Val,
     percent, px,
 };
+use bevy::window::Window;
 use bevy_fynix::patch::{PatchInk, PatchOpacity};
 use bevy_fynix::scroll::ScrollGoal;
 use bevy_fynix::tokens::{
@@ -46,7 +47,7 @@ use bevy_fynix::tokens::{
 use bevy_fynix::transition::blend_color;
 use bevy_fynix::views::{
     BehaviorExt, ContextMenuExt, FrameProps, TooltipExt, column,
-    label, menu_item, row, submenu,
+    label, row,
 };
 use bevy_fynix::{
     Bevy, Each, Keyed, ReducedMotion, Signal, ViewExt, component,
@@ -58,6 +59,7 @@ use hamlet_engine_api::{PanelId, PanelPadding};
 use hamlet_engine_plugins::{
     ContributedBy, Contributions, PluginInfo,
 };
+use hamlet_engine_render::{HangsOn, SceneWorldExt};
 use hamlet_engine_shell::dock::PanelInset;
 use hamlet_engine_shell::fonts::DisplayText;
 use hamlet_engine_shell::icons::{Glyph, glyph};
@@ -69,9 +71,10 @@ use hamlet_engine_shell::style::{
     switch,
 };
 use hamlet_engine_shell::{
-    AnyView, Cx, EngineTheme, NodePointer, Overlay, OverlayShown,
-    Panel, PanelSection, PointerMode, ResizeAxis, SettingsPage,
-    ShellWorldExt, StatusItem, StyleExt,
+    AnyView, CardClosed, CardPlace, Cx, EngineTheme, FloatCard,
+    FloatMenu, MenuClosed, MenuRow, NodePointer, Overlay,
+    OverlayShown, Panel, PanelSection, PointerMode, ResizeAxis,
+    SettingsPage, ShellWorldExt, StatusItem, StyleExt, menu_rows,
 };
 
 use crate::WasmCommandsExt;
@@ -82,11 +85,14 @@ use crate::instance::ui_bindings::hamlet::engine::ui::{
 use crate::instance::{Instance, NodeInput, Spent};
 use crate::nodes::NodeChange;
 use crate::panel::{Inbox, Surface, Work, serve, stopped};
+use crate::scene::Hang;
 use crate::surfaces::SurfaceChange;
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<NodeStats>()
         .add_message::<NodeAction>()
+        .add_observer(card_closed)
+        .add_observer(menu_closed)
         .add_systems(
             Update,
             (offer_roots, lose_roots, hovers, route)
@@ -469,34 +475,30 @@ impl Around {
 /// A node's menu, as its widget builds it.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 struct Menu {
-    items: Vec<MenuItem>,
+    items: Vec<MenuRow>,
     /// It opens on a click too.
     click: bool,
-}
-
-#[derive(Clone, PartialEq, Eq, Debug)]
-struct MenuItem {
-    text: String,
-    /// The item it is under, or none if empty.
-    group: String,
-    critical: bool,
 }
 
 impl From<wit::Menu> for Menu {
     fn from(menu: wit::Menu) -> Self {
         Self {
-            items: menu
-                .items
-                .into_iter()
-                .map(|item| MenuItem {
-                    text: item.text,
-                    group: item.group,
-                    critical: item.critical,
-                })
-                .collect(),
+            items: rows_of(menu.items),
             click: menu.click,
         }
     }
+}
+
+/// The items of a menu, as the shell builds them.
+fn rows_of(items: Vec<wit::MenuItem>) -> Vec<MenuRow> {
+    items
+        .into_iter()
+        .map(|item| MenuRow {
+            text: item.text,
+            group: item.group,
+            critical: item.critical,
+        })
+        .collect()
 }
 
 /// What a node's widget is built as, past what it reads from its
@@ -1204,8 +1206,8 @@ fn menued(
 ) -> AnyView {
     let click = menu.click;
     let items = menu.items;
-    let opened =
-        view.context_menu(move || menu_rows(&items, plugin, key));
+    let opened = view
+        .context_menu(move || node_menu_rows(&items, plugin, key));
     AnyView::new(move |cx: &mut Cx| {
         let node = cx.build(opened);
         if click {
@@ -1215,58 +1217,90 @@ fn menued(
     })
 }
 
-/// The rows of a menu of `items`: each item, or a row opening those
-/// of a group beside it, in the order they first come.
-fn menu_rows(
-    items: &[MenuItem],
+/// The rows of a menu of `items` of the node `key` of `plugin`.
+fn node_menu_rows(
+    items: &[MenuRow],
     plugin: Entity,
     key: u32,
 ) -> Vec<AnyView> {
-    let row = move |at: usize, item: &MenuItem| {
-        let tone = if item.critical {
-            Tone::Critical
-        } else {
-            Tone::Body
-        };
-        let at = u32::try_from(at).unwrap_or(u32::MAX);
-        menu_item(label(item.text.clone()).tone(tone))
-            .on_activate(move |world| {
-                world.write_message(NodeAction {
-                    plugin,
-                    key,
-                    input: NodeInput::Chose(at),
-                });
-            })
-            .boxed()
-    };
-    let mut rows = Vec::new();
-    let mut groups = Vec::<&str>::new();
-    for (at, item) in items.iter().enumerate() {
-        if item.group.is_empty() {
-            rows.push(row(at, item));
-            continue;
-        }
-        if groups.contains(&item.group.as_str()) {
-            continue;
-        }
-        groups.push(&item.group);
-        let under = items
-            .iter()
-            .enumerate()
-            .filter(|(_, one)| one.group == item.group)
-            .map(|(at, one)| (at, one.clone()))
-            .collect::<Vec<_>>();
-        rows.push(
-            submenu(label(item.group.clone()), move || {
-                under
-                    .iter()
-                    .map(|(at, one)| row(*at, one))
-                    .collect::<Vec<_>>()
-            })
-            .boxed(),
-        );
+    menu_rows(items, move |world, at| {
+        world.write_message(NodeAction {
+            plugin,
+            key,
+            input: NodeInput::Chose(at),
+        });
+    })
+}
+
+/// On a menu a plugin opened at the pointer: whose, and the key its
+/// choice is told to.
+#[derive(Component, Clone, Copy, Debug)]
+struct MenuOf {
+    plugin: Entity,
+    key: u32,
+}
+
+/// Tells the plugin of a menu it opened which item was chosen.
+fn chose(world: &mut World, menu: Entity, at: u32) {
+    if let Some(&MenuOf { plugin, key }) = world.get::<MenuOf>(menu) {
+        world.write_message(NodeAction {
+            plugin,
+            key,
+            input: NodeInput::Chose(at),
+        });
     }
-    rows
+}
+
+/// On the frame of a card of a plugin's: whose, and its key.
+#[derive(Component, Clone, Copy, Debug)]
+pub(crate) struct CardOf {
+    plugin: Entity,
+    key: u32,
+}
+
+/// What a card of a plugin's holds: the widgets of its nodes.
+fn card_content(card: Entity) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let plugin = cx
+            .world
+            .get::<CardOf>(card)
+            .map_or(Entity::PLACEHOLDER, |of| of.plugin);
+        cx.build(
+            kids(card, plugin, Place::Frame)
+                .within(column(()).gap(0.0)),
+        )
+    })
+}
+
+/// Tells the plugin of a card placed here that it was closed.
+fn card_closed(
+    closed: On<CardClosed>,
+    cards: Query<&CardOf>,
+    mut actions: MessageWriter<NodeAction>,
+) {
+    if let Ok(card) = cards.get(closed.entity) {
+        actions.write(NodeAction {
+            plugin: card.plugin,
+            key: card.key,
+            input: NodeInput::Closed,
+        });
+    }
+}
+
+/// Tells the plugin of a menu it opened that it was closed with
+/// nothing chosen.
+fn menu_closed(
+    closed: On<MenuClosed>,
+    menus: Query<&MenuOf>,
+    mut actions: MessageWriter<NodeAction>,
+) {
+    if let Ok(menu) = menus.get(closed.entity) {
+        actions.write(NodeAction {
+            plugin: menu.plugin,
+            key: menu.key,
+            input: NodeInput::Closed,
+        });
+    }
 }
 
 /// Opens the menu of the node clicked as a right-click would.
@@ -1485,6 +1519,14 @@ pub(crate) trait WasmWorldExt {
         changes: Vec<SurfaceChange>,
     );
 
+    /// Where the pointer is in the window, or its top left without
+    /// one.
+    fn pointer(&mut self) -> Vec2;
+
+    /// Hangs each of `plugin`'s cards over the entity of its scene
+    /// `hangs` names, or takes it down and hides it.
+    fn hang_cards(&mut self, plugin: Entity, hangs: Vec<Hang>);
+
     /// What `plugin` added under the name `name`, of the kind `C`
     /// names, by the id `id` reads from it.
     fn added_named<C: Component>(
@@ -1515,7 +1557,57 @@ impl WasmWorldExt for World {
         }
         self.resource_scope::<EngineTheme, _>(|world, theme| {
             for change in changes {
-                world.change_node(&theme, &mut holders, change);
+                match change {
+                    NodeChange::Card {
+                        node,
+                        key,
+                        look,
+                        widest,
+                    } => {
+                        let card = world
+                            .spawn((
+                                Kids::default(),
+                                CardOf { plugin, key },
+                                FloatCard {
+                                    look,
+                                    widest,
+                                    content: card_content,
+                                },
+                            ))
+                            .id();
+                        holders.0.insert(
+                            node,
+                            Holder {
+                                entity: card,
+                                root: false,
+                            },
+                        );
+                    }
+                    NodeChange::Place { node, place } => {
+                        let Some(holder) = holders.0.get(&node)
+                        else {
+                            continue;
+                        };
+                        let place = match place {
+                            CardPlace::Here(_) => {
+                                CardPlace::Here(world.pointer())
+                            }
+                            place => place,
+                        };
+                        if let Ok(mut card) =
+                            world.get_entity_mut(holder.entity)
+                        {
+                            card.remove::<HangsOn>().insert(place);
+                        }
+                    }
+                    change => {
+                        world.change_node(
+                            &theme,
+                            &mut holders,
+                            change,
+                        );
+                    }
+                }
             }
         });
         self.entity_mut(plugin).insert(holders);
@@ -1607,6 +1699,8 @@ impl WasmWorldExt for World {
                 props.hover |= hover;
                 props.press |= press;
             }
+            // Made by `build_nodes`, which knows the plugin.
+            NodeChange::Card { .. } | NodeChange::Place { .. } => {}
             NodeChange::Drop(node) => {
                 let Some(holder) = holders.0.remove(&node) else {
                     return;
@@ -1760,6 +1854,17 @@ impl WasmWorldExt for World {
                         overlay.remove::<OverlayShown>();
                     }
                 }
+                SurfaceChange::Menu { key, items } => {
+                    let at = self.pointer();
+                    self.spawn((
+                        MenuOf { plugin, key },
+                        FloatMenu {
+                            at,
+                            items: rows_of(items),
+                            choose: chose,
+                        },
+                    ));
+                }
                 SurfaceChange::Section { name, holds } => {
                     let Some(at) = self.added_named::<PanelSection>(
                         plugin,
@@ -1809,6 +1914,57 @@ impl WasmWorldExt for World {
                         self.open_panel(&panel);
                     }
                 }
+            }
+        }
+    }
+
+    fn pointer(&mut self) -> Vec2 {
+        self.try_query::<&Window>()
+            .and_then(|mut windows| {
+                windows.iter(self).find_map(Window::cursor_position)
+            })
+            .unwrap_or_default()
+    }
+
+    fn hang_cards(&mut self, plugin: Entity, hangs: Vec<Hang>) {
+        for Hang { id, card, gap } in hangs {
+            let entity = self
+                .scene_of(plugin)
+                .and_then(|scene| scene.entity(id));
+            let holders = self.get::<Holders>(plugin);
+            let cards = holders
+                .map(|holders| {
+                    holders
+                        .0
+                        .values()
+                        .map(|holder| holder.entity)
+                        .filter(|&holder| {
+                            self.get::<CardOf>(holder).is_some()
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let hung = card.and_then(|card| {
+                self.get::<Holders>(plugin)?
+                    .0
+                    .get(&card)
+                    .map(|h| h.entity)
+            });
+            // A card hung over this entity before is taken down.
+            for other in cards {
+                let over_it = self
+                    .get::<HangsOn>(other)
+                    .is_some_and(|on| Some(on.entity) == entity);
+                if over_it && Some(other) != hung {
+                    self.entity_mut(other)
+                        .remove::<HangsOn>()
+                        .insert(CardPlace::Hidden);
+                }
+            }
+            if let (Some(hung), Some(entity)) = (hung, entity)
+                && let Ok(mut card) = self.get_entity_mut(hung)
+            {
+                card.insert(HangsOn { entity, gap });
             }
         }
     }

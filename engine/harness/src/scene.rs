@@ -4,7 +4,8 @@
 use bevy::math::Vec3;
 use hamlet_engine_plugins::PluginInfo;
 use hamlet_engine_render::{
-    Hit, SceneEvent, SceneInput, SceneWorldExt,
+    Hit, Modifiers, PointerButton, SceneEvent, SceneInput,
+    SceneWorldExt,
 };
 
 use crate::Harness;
@@ -57,12 +58,16 @@ impl Harness {
             .ok_or_else(|| format!("there is no plugin {plugin}"))?;
         world.write_message(SceneInput {
             owner,
-            event: SceneEvent::Click(Hit {
-                key,
-                index,
-                point: Vec3::ZERO,
-                normal: Vec3::Y,
-            }),
+            event: SceneEvent::Click {
+                hit: Hit {
+                    key,
+                    index,
+                    point: Vec3::ZERO,
+                    normal: Vec3::Y,
+                },
+                button: PointerButton::Primary,
+                mods: Modifiers::default(),
+            },
         });
         Ok(())
     }

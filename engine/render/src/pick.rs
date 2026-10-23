@@ -2,11 +2,15 @@
 //! the watched entity under the pointer, found by casting a ray
 //! through the camera at the meshes.
 
+use std::path::PathBuf;
+
 use bevy::camera::Camera;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::message::{Message, MessageWriter};
 use bevy::ecs::system::Query;
+use bevy::input::ButtonInput;
+use bevy::input::keyboard::KeyCode;
 use bevy::math::{Vec2, Vec3};
 use bevy::picking::mesh_picking::ray_cast::{
     MeshRayCast, MeshRayCastSettings, RayCastVisibility,
@@ -34,17 +38,40 @@ pub enum SceneEvent {
         key: u32,
         index: u32,
     },
-    Click(Hit),
+    /// A press let go over a watched entity within the click's slop.
+    Click {
+        hit: Hit,
+        button: PointerButton,
+        mods: Modifiers,
+    },
     Moved {
         view: u32,
         at: Vec2,
         by: Vec2,
+        /// The buttons held, primary, secondary and middle.
+        held: [bool; 3],
+        mods: Modifiers,
     },
     Pressed {
         view: u32,
         button: PointerButton,
         down: bool,
         at: Vec2,
+        mods: Modifiers,
+    },
+    /// A key pressed or let go over the view, or while it was the
+    /// last pressed.
+    Key {
+        view: u32,
+        key: KeyCode,
+        down: bool,
+        mods: Modifiers,
+    },
+    /// A file dropped on the view.
+    Dropped {
+        view: u32,
+        at: Vec2,
+        path: PathBuf,
     },
     /// The wheel turned, in lines.
     Turned {
@@ -71,6 +98,35 @@ pub enum PointerButton {
     Primary,
     Secondary,
     Middle,
+}
+
+/// The keys held with what the person did. `meta` is Command on
+/// macOS and the system's key elsewhere.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub struct Modifiers {
+    pub shift: bool,
+    pub control: bool,
+    pub alt: bool,
+    pub meta: bool,
+}
+
+impl Modifiers {
+    /// Those `keys` holds.
+    pub(crate) fn held(keys: Option<&ButtonInput<KeyCode>>) -> Self {
+        let Some(keys) = keys else {
+            return Self::default();
+        };
+        let any = |pair: [KeyCode; 2]| keys.any_pressed(pair);
+        Self {
+            shift: any([KeyCode::ShiftLeft, KeyCode::ShiftRight]),
+            control: any([
+                KeyCode::ControlLeft,
+                KeyCode::ControlRight,
+            ]),
+            alt: any([KeyCode::AltLeft, KeyCode::AltRight]),
+            meta: any([KeyCode::SuperLeft, KeyCode::SuperRight]),
+        }
+    }
 }
 
 /// On an entity of a scene whose owner is told when the pointer
@@ -146,13 +202,13 @@ pub(crate) fn pick(
             }
             pointer.hovered = now;
         }
-        if std::mem::take(&mut pointer.click)
+        if let Some((button, mods)) = pointer.click.take()
             && let Some((entity, hit)) = found
             && watched.get(entity).is_ok_and(|(seen, _)| seen.click)
         {
             inputs.write(SceneInput {
                 owner,
-                event: SceneEvent::Click(hit),
+                event: SceneEvent::Click { hit, button, mods },
             });
         }
     }

@@ -39,7 +39,7 @@ pub struct OverlayShown;
 
 /// The overlay shown: the first that is, by its entity.
 #[derive(Resource, Clone, Copy, PartialEq, Default)]
-struct Shown(Option<Entity>);
+pub(crate) struct Shown(pub(crate) Option<Entity>);
 
 /// The overlay shown, over everything but the menus, or nothing.
 pub fn view() -> AnyView {

@@ -30,7 +30,9 @@ use bevy_math::Vec3;
 use bevy_transform::components::Transform;
 
 use crate::audio::SoundsEnding;
-pub use crate::bindings::exports::hamlet::engine::scene_guest::MouseButton;
+pub use crate::bindings::exports::hamlet::engine::scene_guest::{
+    Buttons, KeyCode, Modifiers, MouseButton,
+};
 use crate::bindings::exports::hamlet::engine::scene_guest::{
     Hit as WitHit, SceneInput as WitInput,
 };
@@ -46,8 +48,9 @@ use crate::bindings::hamlet::engine::scene::{
 };
 pub use crate::bindings::hamlet::engine::scene::{
     AlphaMode, Bloom, CameraSettings, Decal, DirectionalLight, Fog,
-    FogFalloff, Light, Material, Mesh, MeshData, Pbr, PointLight,
-    Projection, Rgba, Shape, SpotLight, Target, Tonemapping,
+    FogFalloff, LabelLook, Light, Material, Mesh, MeshData, Pbr,
+    PointLight, Projection, Rgba, Shape, SpotLight, Target,
+    Tonemapping,
 };
 use crate::ui::{AnyView, Cx, Key, Ui, column};
 
@@ -66,6 +69,8 @@ pub(crate) fn plugin(app: &mut App) {
         .add_message::<ScenePress>()
         .add_message::<SceneWheel>()
         .add_message::<SceneResize>()
+        .add_message::<SceneKeyInput>()
+        .add_message::<SceneDrop>()
         .add_message::<SceneInput>()
         .add_observer(forget_entity)
         .add_observer(forget_instances)
@@ -434,10 +439,33 @@ pub enum Visibility {
     Hidden,
 }
 
-/// Words shown over an entity in each view of the scene.
+/// Words shown over an entity in each view of the scene, centred
+/// over it, as its [`LabelStyle`] says.
 #[derive(Component, Clone, Debug)]
 #[require(Transform)]
 pub struct SceneLabel(pub String);
+
+/// How a [`SceneLabel`] looks; plain, on the entity and at any
+/// distance without one.
+#[derive(Component, Clone, Copy, PartialEq, Debug)]
+pub struct LabelStyle {
+    pub look: LabelLook,
+    /// Pixels between the entity and the label's foot.
+    pub gap: f32,
+    /// The farthest the camera is from the entity for it to be
+    /// shown, in the world's units, or any distance at 0.
+    pub far: f32,
+}
+
+impl Default for LabelStyle {
+    fn default() -> Self {
+        Self {
+            look: LabelLook::Plain,
+            gap: 0.0,
+            far: 0.0,
+        }
+    }
+}
 
 /// What the engine tells of an entity or of [`Instances`]: the
 /// pointer coming over it and leaving, as [`SceneOver`] and
@@ -497,6 +525,10 @@ pub struct Hit {
     pub index: u32,
     pub point: Vec3,
     pub normal: Vec3,
+    /// The button of a click, `Primary` as the pointer comes over.
+    pub button: MouseButton,
+    /// The keys held with a click, none as the pointer comes over.
+    pub modifiers: Modifiers,
 }
 
 /// The pointer came over a [`Pickable`].
@@ -522,6 +554,9 @@ pub struct ScenePointer {
     pub y: f32,
     pub dx: f32,
     pub dy: f32,
+    /// The buttons held.
+    pub buttons: Buttons,
+    pub modifiers: Modifiers,
 }
 
 #[derive(Message, Clone, Copy, Debug)]
@@ -531,6 +566,31 @@ pub struct ScenePress {
     pub down: bool,
     pub x: f32,
     pub y: f32,
+    pub modifiers: Modifiers,
+}
+
+/// A key pressed or let go while the pointer is over the view of the
+/// camera of `view`, or that view was pressed last. A key typed in a
+/// field, one bound to a shortcut, or pressed while a menu or a card
+/// placed [`CardPlace::Here`](crate::float::CardPlace::Here) is open
+/// is not told.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct SceneKeyInput {
+    pub view: Entity,
+    pub code: KeyCode,
+    pub down: bool,
+    pub modifiers: Modifiers,
+}
+
+/// A file the person dropped on a view, with `desktop.drop` allowed
+/// on `files`. A service is handed it by its `id`.
+#[derive(Message, Clone, Debug)]
+pub struct SceneDrop {
+    pub view: Entity,
+    pub x: f32,
+    pub y: f32,
+    pub id: u32,
+    pub path: String,
 }
 
 /// The wheel turned over a view, in lines.
@@ -560,6 +620,7 @@ pub enum SceneInput {
     Press(ScenePress),
     Wheel(SceneWheel),
     Resize(SceneResize),
+    Key(SceneKeyInput),
 }
 
 /// A frame of a panel showing the image of the [`SceneCamera`] of
@@ -826,14 +887,24 @@ fn shadow(
 
 fn label(
     labelled: Query<
-        (&HostEntity, &SceneLabel),
-        Or<(Changed<SceneLabel>, Added<HostEntity>)>,
+        (&HostEntity, &SceneLabel, Option<&LabelStyle>),
+        Or<(
+            Changed<SceneLabel>,
+            Changed<LabelStyle>,
+            Added<HostEntity>,
+        )>,
     >,
     hosts: Query<&HostEntity>,
     mut unlabelled: RemovedComponents<SceneLabel>,
 ) {
-    for (host, label) in &labelled {
-        host.entity.set_label(Some(&label.0));
+    for (host, label, style) in &labelled {
+        let style = style.copied().unwrap_or_default();
+        host.entity.set_label(Some(&wit::Label {
+            text: label.0.clone(),
+            look: style.look,
+            gap: style.gap,
+            far: style.far,
+        }));
     }
     for entity in unlabelled.read() {
         if let Ok(host) = hosts.get(entity) {
@@ -1065,22 +1136,53 @@ pub(crate) fn deliver(world: &mut World, input: WitInput) {
     let entity = |world: &World, key: u32| {
         world.resource::<SceneKeys>().get(key)
     };
-    let hit = |world: &World, hit: WitHit| {
+    let hit = |world: &World,
+               hit: WitHit,
+               button: MouseButton,
+               modifiers: Modifiers| {
         Some(Hit {
             entity: entity(world, hit.key)?,
             index: hit.index,
             point: hit.point.into(),
             normal: hit.normal.into(),
+            button,
+            modifiers,
         })
     };
     let input = match input {
-        WitInput::Over(at) => hit(world, at).map(SceneInput::Over),
+        WitInput::Over(at) => {
+            hit(world, at, MouseButton::Primary, Modifiers::empty())
+                .map(SceneInput::Over)
+        }
         WitInput::Out((key, index)) => {
             entity(world, key).map(|entity| {
                 SceneInput::Out(SceneOut { entity, index })
             })
         }
-        WitInput::Click(at) => hit(world, at).map(SceneInput::Click),
+        WitInput::Click(click) => {
+            hit(world, click.hit, click.button, click.modifiers)
+                .map(SceneInput::Click)
+        }
+        WitInput::Key(key) => entity(world, key.view).map(|view| {
+            SceneInput::Key(SceneKeyInput {
+                view,
+                code: key.code,
+                down: key.down,
+                modifiers: key.modifiers,
+            })
+        }),
+        WitInput::Dropped(dropped) => {
+            if let Some(view) = entity(world, dropped.view) {
+                world.write_message(SceneDrop {
+                    view,
+                    x: dropped.x,
+                    y: dropped.y,
+                    id: dropped.id,
+                    path: dropped.path,
+                });
+            }
+            return;
+        }
         WitInput::Moved(pointer) => {
             entity(world, pointer.view).map(|view| {
                 SceneInput::Pointer(ScenePointer {
@@ -1089,6 +1191,8 @@ pub(crate) fn deliver(world: &mut World, input: WitInput) {
                     y: pointer.y,
                     dx: pointer.dx,
                     dy: pointer.dy,
+                    buttons: pointer.buttons,
+                    modifiers: pointer.modifiers,
                 })
             })
         }
@@ -1100,6 +1204,7 @@ pub(crate) fn deliver(world: &mut World, input: WitInput) {
                     down: press.down,
                     x: press.x,
                     y: press.y,
+                    modifiers: press.modifiers,
                 })
             })
         }
@@ -1145,6 +1250,9 @@ pub(crate) fn deliver(world: &mut World, input: WitInput) {
         }
         SceneInput::Resize(resize) => {
             world.write_message(resize);
+        }
+        SceneInput::Key(key) => {
+            world.write_message(key);
         }
     }
     world.write_message(input);

@@ -49,6 +49,10 @@ pub enum Capability {
     /// [`LOCAL`](crate::agents::LOCAL).
     #[serde(rename = "desktop.settings")]
     DesktopSettings,
+    /// Being handed the path of each file the person drops on one of
+    /// the plugin's views, on [`FILES`](crate::desktop::FILES).
+    #[serde(rename = "desktop.drop")]
+    DesktopDrop,
     /// Building scenes the engine draws, on [`GPU`].
     #[serde(rename = "render.scene")]
     RenderScene,
@@ -82,6 +86,7 @@ impl Capability {
             Self::AgentsSettings => "agents.settings",
             Self::DesktopOpen => "desktop.open",
             Self::DesktopSettings => "desktop.settings",
+            Self::DesktopDrop => "desktop.drop",
             Self::RenderScene => "render.scene",
             Self::RenderShader => "render.shader",
             Self::RenderCompute => "render.compute",

@@ -52,9 +52,7 @@ use crate::reload::{Loaded, Reloading};
 use crate::retained::{Holders, Kids, WasmWorldExt};
 pub use crate::retained::{NodeAction, NodeOf, NodeStats, UiRoot};
 pub use crate::run::Compiling;
-pub use crate::scene::{
-    Powers, SceneCaps, SceneError, SceneInbox, ShowsCamera,
-};
+pub use crate::scene::{Powers, SceneCaps, SceneError, ShowsCamera};
 use crate::surfaces::SurfaceChange;
 
 pub fn plugin(app: &mut App) {

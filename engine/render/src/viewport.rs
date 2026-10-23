@@ -3,6 +3,7 @@
 //! scene's owner.
 
 use std::collections::HashSet;
+use std::path::PathBuf;
 
 use bevy::app::{App, Update};
 use bevy::asset::Assets;
@@ -17,31 +18,38 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_exists;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::image::Image;
-use bevy::input::ButtonInput;
+use bevy::input::keyboard::{KeyCode, KeyboardInput};
 use bevy::input::mouse::{MouseButton, MouseScrollUnit, MouseWheel};
+use bevy::input::{ButtonInput, ButtonState};
 use bevy::math::Vec2;
 use bevy::picking::hover::HoverMap;
 use bevy::picking::pointer::PointerId;
 use bevy::render::render_resource::Extent3d;
+use bevy::time::Time;
 use bevy::ui::widget::ImageNode;
 use bevy::ui::{
     ComputedNode, Node, RelativeCursorPosition, percent, px,
 };
-use bevy::window::{PrimaryWindow, Window};
+use bevy::window::{FileDragAndDrop, PrimaryWindow, Window};
 use hamlet_engine_core::TuningPlugin;
 use hamlet_engine_core::tuning::{ENGINE, Tuning, TuningFile};
+use hamlet_engine_shell::ShellKeys;
 use serde::Deserialize;
 
-use crate::pick::{PointerButton, SceneEvent, SceneInput, pick};
+use crate::pick::{
+    Modifiers, PointerButton, SceneEvent, SceneInput, pick,
+};
 use crate::scene::SceneCamera;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_plugins(TuningPlugin::<RenderTuning>::default())
+        .init_resource::<ViewFocus>()
+        .init_resource::<Drops>()
         .add_systems(
             Update,
             (
                 (show, size, size_behind, activate).chain(),
-                (track, pick).chain().run_if(
+                (track, pick, type_keys, drop_files).chain().run_if(
                     resource_exists::<ButtonInput<MouseButton>>,
                 ),
             )
@@ -68,6 +76,10 @@ pub struct RenderTuning {
     /// Computes and passes of all plugins timed on the GPU at once,
     /// read as the engine starts.
     pub timed_slots: u32,
+    /// Seconds a file dropped on the window waits for the pointer to
+    /// be seen over a view, which the system may not move while it
+    /// drags, before it is let lie.
+    pub drop_wait: f32,
 }
 
 impl Tuning for RenderTuning {
@@ -91,12 +103,24 @@ pub(crate) struct ViewPointer {
     /// The interface's pixels for one of [`ViewPointer::at`].
     scale: f32,
     pub(crate) hovered: Option<Entity>,
-    /// A click to pick at [`ViewPointer::at`].
-    pub(crate) click: bool,
+    /// A click to pick at [`ViewPointer::at`], of a button with the
+    /// keys held.
+    pub(crate) click: Option<(PointerButton, Modifiers)>,
     down: [bool; 3],
-    down_at: Vec2,
+    /// Where each button went down.
+    down_at: [Vec2; 3],
     size: Vec2,
 }
+
+/// The camera whose view was pressed last, which is told of keys
+/// while the pointer is over no view.
+#[derive(Resource, Default, Debug)]
+struct ViewFocus(Option<Entity>);
+
+/// Files dropped on the window not yet told, with the seconds each
+/// may still wait for the pointer to be seen over a view.
+#[derive(Resource, Default, Debug)]
+struct Drops(Vec<(PathBuf, f32)>);
 
 const BUTTONS: [(MouseButton, PointerButton); 3] = [
     (MouseButton::Left, PointerButton::Primary),
@@ -253,6 +277,7 @@ fn activate(
 /// pointer where no UI node is under it.
 fn track(
     viewports: Query<(
+        Entity,
         &Viewport,
         &RelativeCursorPosition,
         &ComputedNode,
@@ -266,6 +291,8 @@ fn track(
         &mut ViewPointer,
     )>,
     buttons: Res<ButtonInput<MouseButton>>,
+    keys: Option<Res<ButtonInput<KeyCode>>>,
+    mut focus: ResMut<ViewFocus>,
     mut wheels: MessageReader<MouseWheel>,
     tuning: Res<RenderTuning>,
     mut inputs: MessageWriter<SceneInput>,
@@ -277,24 +304,30 @@ fn track(
             MouseScrollUnit::Pixel => by / tuning.wheel_line,
         }
     });
-    let window_free = hovers.is_none_or(|hovers| {
-        hovers
-            .get(&PointerId::Mouse)
-            .is_none_or(|over| over.is_empty())
-    });
+    let hovered = hovers
+        .as_ref()
+        .and_then(|hovers| hovers.get(&PointerId::Mouse))
+        .filter(|over| !over.is_empty());
     let cursor = windows
         .single()
         .ok()
         .and_then(Window::cursor_position)
-        .filter(|_| window_free);
+        .filter(|_| hovered.is_none());
+    let mods = Modifiers::held(keys.as_deref());
+    let held = BUTTONS.map(|(button, _)| buttons.pressed(button));
+    let mut pressed_any = false;
     for (entity, camera, scene_camera, mut pointer) in &mut cameras {
         let over = if scene_camera.image.is_some() {
             viewports
                 .iter()
-                .find(|(viewport, ..)| viewport.camera == entity)
-                .and_then(|(_, relative, computed)| {
+                .find(|(_, viewport, ..)| viewport.camera == entity)
+                .and_then(|(node, _, relative, computed)| {
                     let at = relative.normalized?;
-                    relative.cursor_over.then(|| {
+                    // A card, a menu or a popup over the view takes
+                    // the pointer.
+                    let reached = hovered
+                        .is_none_or(|over| over.contains_key(&node));
+                    (relative.cursor_over && reached).then(|| {
                         (
                             (at + 0.5) * computed.size(),
                             computed.inverse_scale_factor(),
@@ -320,12 +353,13 @@ fn track(
                     && buttons.just_released(*button)
                 {
                     pointer.down[index] = false;
-                    let at = pointer.down_at * pointer.scale;
+                    let at = pointer.down_at[index] * pointer.scale;
                     tell(SceneEvent::Pressed {
                         view,
                         button: *which,
                         down: false,
                         at,
+                        mods,
                     });
                 }
             }
@@ -340,39 +374,132 @@ fn track(
                 view,
                 at: shown,
                 by,
+                held,
+                mods,
             });
         }
         pointer.at = Some(at);
         pointer.scale = scale;
         for (index, (button, which)) in BUTTONS.iter().enumerate() {
             if buttons.just_pressed(*button) {
+                pressed_any = true;
+                focus.0 = Some(entity);
                 pointer.down[index] = true;
-                if index == 0 {
-                    pointer.down_at = at;
-                }
+                pointer.down_at[index] = at;
                 tell(SceneEvent::Pressed {
                     view,
                     button: *which,
                     down: true,
                     at: shown,
+                    mods,
                 });
             } else if pointer.down[index]
                 && buttons.just_released(*button)
             {
                 pointer.down[index] = false;
-                let still = (at - pointer.down_at).length() * scale
+                let still = (at - pointer.down_at[index]).length()
+                    * scale
                     <= tuning.click_slop;
-                pointer.click |= index == 0 && still;
+                if still {
+                    pointer.click = Some((*which, mods));
+                }
                 tell(SceneEvent::Pressed {
                     view,
                     button: *which,
                     down: false,
                     at: shown,
+                    mods,
                 });
             }
         }
         if turned != Vec2::ZERO {
             tell(SceneEvent::Turned { view, by: turned });
         }
+    }
+    // A press anywhere else takes the keys from the view pressed
+    // last.
+    if !pressed_any && buttons.get_just_pressed().next().is_some() {
+        focus.0 = None;
+    }
+}
+
+/// Tells the owner of the view under the pointer, or else of the
+/// view pressed last, of each key the shell does not take.
+fn type_keys(
+    mut typed: MessageReader<KeyboardInput>,
+    cameras: Query<(Entity, &Camera, &SceneCamera, &ViewPointer)>,
+    focus: Res<ViewFocus>,
+    shell: ShellKeys,
+    keys: Option<Res<ButtonInput<KeyCode>>>,
+    mut inputs: MessageWriter<SceneInput>,
+) {
+    let over = cameras
+        .iter()
+        .find(|(.., pointer)| pointer.at.is_some())
+        .or_else(|| {
+            focus
+                .0
+                .and_then(|focused| cameras.get(focused).ok())
+                .filter(|(_, camera, ..)| camera.is_active)
+        });
+    let mods = Modifiers::held(keys.as_deref());
+    for key in typed.read() {
+        let Some((_, _, scene_camera, _)) = over else {
+            continue;
+        };
+        let down = key.state == ButtonState::Pressed;
+        if key.repeat || (down && shell.takes(key.key_code)) {
+            continue;
+        }
+        inputs.write(SceneInput {
+            owner: scene_camera.owner,
+            event: SceneEvent::Key {
+                view: scene_camera.key,
+                key: key.key_code,
+                down,
+                mods,
+            },
+        });
+    }
+}
+
+/// Tells the owner of the view a file was dropped on of it, once the
+/// pointer is seen over a view. One that falls on none is let lie.
+fn drop_files(
+    mut dropped: MessageReader<FileDragAndDrop>,
+    cameras: Query<(&SceneCamera, &ViewPointer)>,
+    tuning: Res<RenderTuning>,
+    time: Res<Time>,
+    mut drops: ResMut<Drops>,
+    mut inputs: MessageWriter<SceneInput>,
+) {
+    for drop in dropped.read() {
+        if let FileDragAndDrop::DroppedFile { path_buf, .. } = drop {
+            drops.0.push((path_buf.clone(), tuning.drop_wait));
+        }
+    }
+    if drops.0.is_empty() {
+        return;
+    }
+    let over = cameras.iter().find_map(|(camera, pointer)| {
+        Some((camera, pointer.at? * pointer.scale))
+    });
+    let Some((camera, at)) = over else {
+        let dt = time.delta_secs();
+        drops.0.retain_mut(|(_, left)| {
+            *left -= dt;
+            *left > 0.0
+        });
+        return;
+    };
+    for (path, _) in drops.0.drain(..) {
+        inputs.write(SceneInput {
+            owner: camera.owner,
+            event: SceneEvent::Dropped {
+                view: camera.key,
+                at,
+                path,
+            },
+        });
     }
 }

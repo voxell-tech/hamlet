@@ -407,6 +407,9 @@ pub enum NodeInput {
     Chose(u32),
     /// The folder chosen in the dialog a button opened.
     Chosen(String),
+    /// A menu it opened, or a card it placed here, closed with
+    /// nothing chosen.
+    Closed,
 }
 
 impl Instance {
@@ -519,6 +522,7 @@ impl Instance {
                     NodeInput::Chosen(folder) => {
                         Action::Chosen(folder)
                     }
+                    NodeInput::Closed => Action::Closed,
                 },
             })
             .collect::<Vec<_>>();

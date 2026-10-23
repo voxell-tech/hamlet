@@ -6,6 +6,7 @@
 //! time. The owner is an entity; this crate knows nothing of how it
 //! runs.
 
+mod balloon;
 mod change;
 mod compute;
 mod decal;
@@ -26,11 +27,17 @@ use bevy::pbr::StandardMaterial;
 use bevy::render::storage::ShaderBuffer;
 use bevy::shader::Shader;
 
+pub use crate::balloon::Balloon;
 pub use crate::change::{CameraSetup, SceneChange, SceneLight};
 pub use crate::guard::{GpuInfo, GpuLost, Throttled};
+pub use crate::label::{
+    HangsOn, LabelLook, PointerLabel, WorldLabel,
+};
 pub use crate::material::ShadedMaterial;
 pub use crate::pass::ScenePass;
-pub use crate::pick::{Hit, PointerButton, SceneEvent, SceneInput};
+pub use crate::pick::{
+    Hit, Modifiers, PointerButton, SceneEvent, SceneInput,
+};
 pub use crate::scene::{
     Scene, SceneCamera, SceneOf, ScenePart, SceneWorldExt, Scenes,
 };

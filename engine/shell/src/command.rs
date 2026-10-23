@@ -8,21 +8,69 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::event::EntityEvent;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
-use bevy::ecs::system::{Commands, EntityCommands, Query, Res};
+use bevy::ecs::system::{
+    Commands, EntityCommands, Query, Res, SystemParam,
+};
 use bevy::input::keyboard::{KeyCode, KeyboardInput};
 use bevy::input::{ButtonInput, ButtonState};
 use bevy::input_focus::{FocusedInput, InputFocus};
 use bevy::text::EditableText;
+use bevy::ui_widgets::{MenuFocusState, MenuPopup};
 use bevy::window::Window;
-use bevy_fynix::shortcut::{Chord, Mods};
+use bevy_fynix::shortcut::{Chord, Mods, Scope};
+use bevy_fynix::views::POPUP;
 use hamlet_engine_api::CommandId;
 use hamlet_engine_api::id::ENGINE;
 
 use crate::keymap::Bindings;
+use crate::overlay::Shown as OverlayShown;
 use crate::shortcuts::Capturing;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_observer(press);
+}
+
+/// What decides whether a key is the shell's: one typed in a field,
+/// one bound to a command, one pressed while a menu, a popup or an
+/// overlay is open, or while a shortcut is being set.
+#[derive(SystemParam)]
+pub struct ShellKeys<'w, 's> {
+    keys: Option<Res<'w, ButtonInput<KeyCode>>>,
+    focus: Option<Res<'w, InputFocus>>,
+    typing: Query<'w, 's, (), With<EditableText>>,
+    bindings: Option<Res<'w, Bindings>>,
+    capturing: Option<Res<'w, Capturing>>,
+    menus: Query<'w, 's, &'static MenuFocusState, With<MenuPopup>>,
+    scopes: Query<'w, 's, &'static Scope>,
+    overlay: Option<Res<'w, OverlayShown>>,
+}
+
+impl ShellKeys<'_, '_> {
+    /// Whether the shell takes `key`, pressed with the keys held now.
+    pub fn takes(&self, key: KeyCode) -> bool {
+        let typing = self
+            .focus
+            .as_ref()
+            .and_then(|focus| focus.get())
+            .is_some_and(|held| self.typing.contains(held));
+        let mods =
+            self.keys.as_deref().map_or(Mods::NONE, Mods::held);
+        let bound = self.bindings.as_ref().is_some_and(|bindings| {
+            bindings.holders(Chord { key, mods }).next().is_some()
+        });
+        let open =
+            self.menus.iter().any(|state| {
+                !matches!(state, MenuFocusState::Closed)
+            }) || self.scopes.iter().any(|scope| scope.0 == POPUP)
+                || self
+                    .overlay
+                    .as_ref()
+                    .is_some_and(|shown| shown.0.is_some());
+        typing
+            || bound
+            || open
+            || self.capturing.as_ref().is_some_and(|c| c.active())
+    }
 }
 
 /// Something the person can run, from a menu or by a key.

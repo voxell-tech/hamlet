@@ -7,6 +7,7 @@ pub mod command;
 mod console;
 pub mod dock;
 pub mod fade;
+pub mod float;
 pub mod fonts;
 pub mod icons;
 pub mod keymap;
@@ -42,9 +43,13 @@ use hamlet_engine_api::{CommandId, PanelId};
 pub use crate::backdrop::Backdrop;
 pub use crate::command::{
     ChordExt, Command, MenuEntry, RunCommand, ShellCommandsExt,
-    Shortcut,
+    ShellKeys, Shortcut,
 };
 pub use crate::dock::Panel;
+pub use crate::float::{
+    CardClosed, CardLook, CardPlace, FloatCard, FloatMenu, Hung,
+    MenuClosed, MenuRow, menu_rows,
+};
 pub use crate::keymap::{Bindings, Keymap};
 use crate::menu::{MenuBar, OpenMenu};
 pub use crate::overlay::{Overlay, OverlayShown};
@@ -84,6 +89,7 @@ pub fn plugin(app: &mut App) {
         status::plugin,
         (
             overlay::plugin,
+            float::plugin,
             backdrop::plugin,
             pointer::plugin,
             sounds::plugin,

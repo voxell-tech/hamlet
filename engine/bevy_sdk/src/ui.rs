@@ -120,6 +120,7 @@ pub(crate) enum Handler {
     Top(Box<dyn Fn(&mut World) + Send + Sync>),
     Chose(Box<dyn Fn(&mut World, u32) + Send + Sync>),
     Folder(Box<dyn Fn(&mut World, String) + Send + Sync>),
+    Closed(Box<dyn Fn(&mut World) + Send + Sync>),
 }
 
 /// The nodes of the plugin's panels and what runs on them.
@@ -186,7 +187,8 @@ impl Handler {
     fn run(&self, world: &mut World, action: &Action) {
         match (self, action) {
             (Handler::Click(run), Action::Click)
-            | (Handler::Top(run), Action::ReachedTop) => run(world),
+            | (Handler::Top(run), Action::ReachedTop)
+            | (Handler::Closed(run), Action::Closed) => run(world),
             (Handler::Toggle(run), Action::Toggled(on)) => {
                 run(world, *on)
             }

@@ -35,6 +35,7 @@ pub struct EngineTheme {
     pub shadow: Shadow,
     pub glow: Glow,
     pub motion: Timing,
+    pub world: WorldLooks,
 }
 
 impl Tuning for EngineTheme {
@@ -312,6 +313,58 @@ pub struct Timing {
     pub interact: f32,
     /// Something opening or folding away.
     pub expand: f32,
+}
+
+/// What is drawn over the views of plugins' scenes: words over their
+/// entities, balloons, and cards floating over the window.
+#[derive(Clone, PartialEq, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorldLooks {
+    /// A sign over a named thing: what it is on, its edge, its words
+    /// and their size, and the space across and down inside it.
+    pub sign: ThemeColor,
+    pub sign_edge: ThemeColor,
+    pub sign_text: ThemeColor,
+    pub sign_size: f32,
+    pub sign_padding_x: f32,
+    pub sign_padding_y: f32,
+    /// A name tag over what the pointer is on, as a sign is.
+    pub name_tag: ThemeColor,
+    pub name_tag_edge: ThemeColor,
+    pub name_tag_text: ThemeColor,
+    pub name_tag_size: f32,
+    pub name_tag_padding_x: f32,
+    pub name_tag_padding_y: f32,
+    /// The widest a balloon grows, the size of its words, and the
+    /// space across and down inside it.
+    pub balloon_width: f32,
+    pub balloon_size: f32,
+    pub balloon_padding_x: f32,
+    pub balloon_padding_y: f32,
+    /// What a thought is on. Speech is on the surface, in the frame
+    /// of what floats.
+    pub thought: ThemeColor,
+    /// Seconds a balloon takes to pop in, and to shrink away.
+    pub balloon_arrive: f32,
+    pub balloon_leave: f32,
+    /// The space across and down inside a card of the pointer, and
+    /// inside a tag.
+    pub card_padding_x: f32,
+    pub card_padding_y: f32,
+    pub tag_padding_x: f32,
+    pub tag_padding_y: f32,
+    /// Seconds a card of the pointer takes to fade in and out, and
+    /// the share of its size it grows from.
+    pub card_in: f32,
+    pub card_out: f32,
+    pub card_from: f32,
+    /// Where a card of the pointer sits: right of and below it, or,
+    /// where the window ends, back from it; and the least room
+    /// between it and the window's edge.
+    pub card_right: f32,
+    pub card_below: f32,
+    pub card_back: f32,
+    pub card_margin: f32,
 }
 
 /// A saved theme replaced the one the views were built with, so they

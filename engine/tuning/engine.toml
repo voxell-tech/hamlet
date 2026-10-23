@@ -77,6 +77,7 @@ click_slop = 4.0
 wheel_line = 20.0
 grow_levels = 8
 timed_slots = 256
+drop_wait = 3.0
 
 [harness]
 patience = 1_000

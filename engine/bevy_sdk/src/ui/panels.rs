@@ -79,6 +79,26 @@ impl Panels {
         self.mounted.insert(name, Shown { mounted, root });
     }
 
+    /// Builds `view` as the card `name` under `root`, its frame, as
+    /// the node `key`.
+    pub(crate) fn mount_card(
+        &mut self,
+        world: &mut World,
+        name: String,
+        key: Key,
+        root: Node,
+        view: AnyView,
+    ) {
+        self.unmount(world, &name);
+        world.resource_mut::<Ui>().nodes.adopt_as(key, root);
+        let mut mounted = Mounted::default();
+        {
+            let mut cx = Cx::new(world, &self.theme, &mut mounted);
+            cx.under(key, |cx| view.build(cx));
+        }
+        self.mounted.insert(name, Shown { mounted, root: key });
+    }
+
     pub(crate) fn unmount(&mut self, world: &mut World, name: &str) {
         if let Some(shown) = self.mounted.remove(name) {
             world.resource_mut::<Ui>().despawn(shown.root);

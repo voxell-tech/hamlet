@@ -4,6 +4,7 @@
 //! comes with Hamlet is allowed all it asks. The answers are kept in
 //! the grants file, and changed on the Permissions page.
 
+mod dropped;
 mod file;
 mod page;
 mod petition;
@@ -18,6 +19,7 @@ use hamlet_engine_api::Capability;
 use hamlet_engine_core::{Home, LogLine};
 use hamlet_engine_plugins::{PluginInfo, PluginKind, Uninstall};
 
+pub use crate::dropped::DroppedFiles;
 pub use crate::file::{Answer, Answered, FILE, Grants, Record};
 pub use crate::petition::{
     Decided, FirstUse, GrantsCommandsExt, GrantsWorldExt, PETITIONS,
@@ -28,6 +30,7 @@ pub use crate::waiting::Waiting;
 pub fn plugin(app: &mut App) {
     let home = app.world().resource::<Home>().clone();
     app.insert_resource(Grants::open(&home))
+        .init_resource::<DroppedFiles>()
         .add_observer(forget)
         .add_systems(Startup, tell_held)
         .add_plugins((petition::plugin, page::plugin));

@@ -1,7 +1,9 @@
 //! What a WASM plugin shows outside its panels and settings pages,
 //! as it changes it in a call: kept to be made once the call ends.
 
-use crate::instance::ui_bindings::hamlet::engine::ui::StatusItem;
+use crate::instance::ui_bindings::hamlet::engine::ui::{
+    MenuItem, StatusItem,
+};
 
 /// A change to something a plugin added, named by its name within
 /// the plugin.
@@ -16,4 +18,7 @@ pub enum SurfaceChange {
     /// Its panel or settings page brought to the front, or the panel
     /// of a full id, any plugin's.
     Open(String),
+    /// A menu of `items` opened at the pointer, its choice told to
+    /// `key`.
+    Menu { key: u32, items: Vec<MenuItem> },
 }

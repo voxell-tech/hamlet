@@ -33,7 +33,9 @@ use serde::Deserialize;
 use crate::command::{RunCommand, ShellCommandsExt, engine_id};
 use crate::style::BottomGradient;
 use crate::theme::{EngineTheme, ThemeChanged};
-use crate::{AnyView, Cx, View, menu, overlay, status, switcher};
+use crate::{
+    AnyView, Cx, View, float, menu, overlay, status, switcher,
+};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_plugins(TuningPlugin::<WindowTuning>::default())
@@ -211,6 +213,7 @@ fn root() -> AnyView {
                     .gap(0.0),
                 frame().height(px(line)).fill(separator),
                 status::view(),
+                float::view(),
                 overlay::view(),
                 menu::open_view(),
                 switcher::popup_view(),

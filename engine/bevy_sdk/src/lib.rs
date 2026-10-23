@@ -31,9 +31,11 @@
 
 mod app;
 pub mod audio;
+pub mod float;
 #[doc(hidden)]
 pub mod glue;
 mod host;
+pub mod marks;
 pub mod scene;
 pub mod ui;
 
@@ -86,12 +88,16 @@ pub mod prelude {
         AudioPlayer, FadeTo, PlaybackMode, PlaybackSettings, Sound,
         SoundAssets, SpatialListener,
     };
+    pub use crate::float::{
+        Card, CardClosed, CardLook, CardPlace, MenuExt, MenuShown,
+    };
+    pub use crate::marks::{PointerWords, SceneBalloon};
     pub use crate::scene::{
-        Animate, ForwardDecal, Handle, Instances, Mesh3d,
+        Animate, ForwardDecal, Handle, Instances, LabelStyle, Mesh3d,
         MeshMaterial3d, Pickable, PostPass, SceneAssets, SceneCamera,
-        SceneClick, SceneInput, SceneKey, SceneLabel, SceneLight,
-        SceneOut, SceneOver, ScenePointer, ScenePress, SceneResize,
-        SceneWheel, Shadows, Visibility,
+        SceneClick, SceneDrop, SceneInput, SceneKey, SceneKeyInput,
+        SceneLabel, SceneLight, SceneOut, SceneOver, ScenePointer,
+        ScenePress, SceneResize, SceneWheel, Shadows, Visibility,
     };
     pub use crate::ui::{
         AnyView, ScopedExt, ViewExt, description, description_rules,

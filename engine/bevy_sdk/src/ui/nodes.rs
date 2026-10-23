@@ -65,8 +65,19 @@ impl Nodes {
     /// Takes `node`, made by the engine, as a node of the plugin's.
     pub fn adopt(&mut self, node: Node) -> Key {
         let key = self.key();
-        self.entries.insert(key, Entry::new(None, Some(node)));
+        self.adopt_as(key, node);
         key
+    }
+
+    /// A key no node has, for what the engine names by a key before
+    /// there is a node of it.
+    pub fn reserve(&mut self) -> Key {
+        self.key()
+    }
+
+    /// Takes `node` as the plugin's node `key`, a key reserved.
+    pub fn adopt_as(&mut self, key: Key, node: Node) {
+        self.entries.insert(key, Entry::new(None, Some(node)));
     }
 
     /// The engine's node of `key`, if it was built in a panel.

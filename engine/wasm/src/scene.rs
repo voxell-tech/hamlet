@@ -22,7 +22,7 @@ use wasmtime::component::Resource;
 
 use crate::instance::State;
 use crate::nodes::UiNode;
-pub use crate::scene::serve::{SceneInbox, ShowsCamera};
+pub use crate::scene::serve::ShowsCamera;
 pub(crate) use crate::scene::serve::{apply as apply_scenes, plugin};
 
 pub(crate) mod scene_bindings {
@@ -46,9 +46,10 @@ pub(crate) mod scene_bindings {
 }
 
 use crate::scene::scene_bindings::hamlet::engine::scene::{
-    CameraSettings, Decal, Host, HostCamera, HostEntity,
-    HostInstances, HostMaterial, HostMesh, Light, MeshData, Pbr,
-    Shape, Target, Transform,
+    Balloon as WitBalloon, CameraSettings, Decal, Host, HostCamera,
+    HostEntity, HostInstances, HostMaterial, HostMesh, Label, Light,
+    MeshData, Pbr, PointerLabel as WitPointerLabel, Shape, Target,
+    Transform,
 };
 
 /// The interfaces of scenes and GPU work a plugin may import.
@@ -241,6 +242,8 @@ pub(crate) struct SceneState {
     pub(crate) changes: Vec<SceneChange>,
     /// Cameras to show in frames, by their numbers.
     pub(crate) shown: Vec<(u32, u32)>,
+    /// Cards hung over entities, or taken down.
+    pub(crate) hangs: Vec<Hang>,
     pub(crate) animate: bool,
     /// What it may use now, and what waits for the person.
     pub(crate) powers: Powers,
@@ -293,6 +296,7 @@ impl SceneState {
             caps,
             changes: Vec::new(),
             shown: Vec::new(),
+            hangs: Vec::new(),
             animate: false,
             powers: Powers::default(),
             asking: Powers::default(),
@@ -521,6 +525,29 @@ impl Host for State {
         self.scene.animate = on;
         Ok(())
     }
+
+    fn set_pointer_label(
+        &mut self,
+        label: Option<WitPointerLabel>,
+    ) -> wasmtime::Result<()> {
+        let label = label
+            .map(|label| {
+                convert::pointer_label(label)
+                    .ok_or_else(|| trap(SceneError::Invalid))
+            })
+            .transpose()?;
+        self.scene.change(SceneChange::PointerLabel(label))
+    }
+}
+
+/// A card hung over the entity `id`, or taken down: what a call
+/// asked, made once it ends.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Hang {
+    pub(crate) id: u32,
+    /// The node of the card.
+    pub(crate) card: Option<u32>,
+    pub(crate) gap: f32,
 }
 
 impl HostMesh for State {
@@ -832,11 +859,52 @@ impl HostEntity for State {
     fn set_label(
         &mut self,
         at: Resource<EntityHandle>,
-        text: Option<String>,
+        label: Option<Label>,
     ) -> wasmtime::Result<()> {
         let id = at.rep();
         self.scene.held(id, entity)?;
-        self.scene.change(SceneChange::Label { id, text })
+        let label = label
+            .map(|label| {
+                convert::label(label)
+                    .ok_or_else(|| trap(SceneError::Invalid))
+            })
+            .transpose()?;
+        self.scene.change(SceneChange::Label { id, label })
+    }
+
+    fn set_balloon(
+        &mut self,
+        at: Resource<EntityHandle>,
+        balloon: Option<WitBalloon>,
+    ) -> wasmtime::Result<()> {
+        let id = at.rep();
+        self.scene.held(id, entity)?;
+        let balloon = balloon
+            .map(|balloon| {
+                convert::balloon(balloon)
+                    .ok_or_else(|| trap(SceneError::Invalid))
+            })
+            .transpose()?;
+        self.scene.change(SceneChange::Balloon { id, balloon })
+    }
+
+    fn hang_card(
+        &mut self,
+        at: Resource<EntityHandle>,
+        card: Option<Resource<UiNode>>,
+        gap: f32,
+    ) -> wasmtime::Result<()> {
+        let id = at.rep();
+        self.scene.held(id, entity)?;
+        if !gap.is_finite() {
+            return Err(trap(SceneError::Invalid));
+        }
+        let card = card.map(|card| card.rep());
+        if let Some(card) = card {
+            self.nodes.card(card)?;
+        }
+        self.scene.hangs.push(Hang { id, card, gap });
+        Ok(())
     }
 
     fn watch(

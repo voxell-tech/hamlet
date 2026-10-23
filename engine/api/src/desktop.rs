@@ -13,6 +13,9 @@ use crate::capability::Capability;
 /// folders may be opened.
 pub const WEB: &str = "https";
 
+/// The target of `desktop.drop`: the files the person drops.
+pub const FILES: &str = "files";
+
 /// What a plugin asks of the desktop service.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum DesktopRequest {
