@@ -1600,8 +1600,8 @@ then AGENTS and HAMLETS. The stall shown is kept across a reload.
   (`Cost`) at its end, one word a line. A page is its title and meta
   line, one box it is had from (`action_box`: its price, the primary
   action first, and what that does), then its sections, each under
-  the theme's section heading, room between them. A label in a
-  button is bold, so a row's steps are of size and tone.
+  the theme's section heading, room between them. Of a row only the
+  name is bold.
 - **Asked for once.** A stall's listings are fetched the first time
   it is shown and again on LOOK AGAIN, never on their own; what came
   is kept in the plugin's world and its views read it by change

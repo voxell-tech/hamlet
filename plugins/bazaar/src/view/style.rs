@@ -13,7 +13,7 @@ use hamlet_engine_bevy::ui::{
 
 /// The most characters of what a listing is for, on its row: two
 /// lines at the narrowest the panel is.
-const PURPOSE_MOST: usize = 60;
+const PURPOSE_MOST: usize = 56;
 
 /// The most characters of a page's title, which does not wrap.
 const TITLE_MOST: usize = 28;
@@ -63,19 +63,24 @@ impl Cost {
 
 impl Line {
     /// The row, a button that runs `open`. A label in a button is
-    /// bold and small unless it sets another size, so the steps here
-    /// are of size and tone.
+    /// small, bold and in the button's tone unless it says otherwise,
+    /// so each here does.
     pub fn view(
         self,
         open: impl Fn(&mut World) + Send + Sync + 'static,
     ) -> AnyView {
-        let mut head =
-            vec![label(self.name).size(Size::Heading).boxed()];
+        let mut head = vec![
+            label(self.name)
+                .size(Size::Body)
+                .bold(true)
+                .tone(Tone::Body)
+                .boxed(),
+        ];
         head.extend(self.mark);
         let mut named = vec![row(head).space(Space::Half).boxed()];
         if !self.purpose.is_empty() {
             named.push(
-                meta(short(&self.purpose, PURPOSE_MOST)).boxed(),
+                aside(short(&self.purpose, PURPOSE_MOST)).boxed(),
             );
         }
         let mut text = vec![column(named).space(Space::None).boxed()];
@@ -103,12 +108,12 @@ fn cover(which: &'static str) -> AnyView {
 /// Words about words: a listing's standing, a count, how a shelf
 /// stands.
 pub(crate) fn meta(text: impl Into<Prop<World, String>>) -> Label {
-    label(text).size(Size::Small).tone(Tone::Dim)
+    label(text).size(Size::Small).bold(false).tone(Tone::Dim)
 }
 
 /// A paragraph of what a page is about.
 pub(crate) fn prose(text: impl Into<Prop<World, String>>) -> Label {
-    label(text)
+    label(text).size(Size::Body).bold(false).tone(Tone::Body)
 }
 
 /// A paragraph that stands behind [`prose`], or a line of a section.
@@ -133,7 +138,7 @@ pub(crate) fn named(
 /// is for under it.
 fn price(cost: Cost) -> AnyView {
     let mut parts =
-        vec![label(cost.amount).tone(Tone::Accent).boxed()];
+        vec![prose(cost.amount).tone(Tone::Accent).boxed()];
     if !cost.per.is_empty() {
         parts.push(meta(cost.per).boxed());
     }
