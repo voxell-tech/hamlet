@@ -11,9 +11,9 @@
 [![CI](https://github.com/voxell-tech/hamlet/workflows/CI/badge.svg)](https://github.com/voxell-tech/hamlet/actions)
 [![Discord](https://img.shields.io/discord/442334985471655946.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/Mhnyp6VYEQ)
 
-**Hamlet** is an agent orchestrator. You lead a team of AI agents, and
-watch them work as a hamlet: a small 3D world where each agent has a house
-and a robot. Free and open-source forever.
+**Hamlet** is an agent orchestrator. You lead a hamlet of AI agents and
+watch them work in a small 3D world where each agent has a house and a
+robot. Free and open-source forever.
 
 <p align="center">
   <img src="brand/hamlet-window.png" alt="The Hamlet window: petitions for the chief on the left, a realm of four hamlets joined by roads across a river in the middle, and the list of hamlets with their agents and budgets on the right" width="860">
@@ -22,8 +22,8 @@ and a robot. Free and open-source forever.
 ## Features
 
 - **One lead, many agents**: You are the chief and talk to the mayor, the
-  lead agent. It creates the agents the work needs, each with its own
-  notes, skills and log.
+  agent that creates the others the work needs and lays the roads. Each
+  agent has its own notes, skills and log.
 - **Agents that grow**: An agent starts with a sandboxed shell, a file
   editor and a notes file, and writes its own skills from there.
 - **Agents talk to each other**: Messages travel along roads the mayor
@@ -114,6 +114,10 @@ turn, and scroll to zoom. Click a robot or a house to talk to its agent,
 and right-click anything for what can be done to it.
 
 ## Working on the code
+
+`vendor/fynix` is a git submodule: clone with `--recurse-submodules`, or
+run `git submodule update --init vendor/fynix` once. `cargo xtask`
+fetches it itself.
 
 ```sh
 npm ci --prefix harnesses/pi

@@ -61,19 +61,23 @@ window ends only its process; agents keep working on the server. Stop
 
 All four must be clean before a commit. `rust-toolchain.toml` pins the
 stable toolchain plain `cargo` runs. Formatting needs a nightly, because
-`rustfmt.toml` uses unstable options: the dated one named in `rust-nightly`,
-which CI uses too. `cargo xtask check` runs every check a commit needs,
-as six steps in this order, each of which `cargo xtask <step>` runs alone
-and CI calls by name: `lints` (formatting, clippy with `-D warnings` on
-the workspace and on xtask, `cargo deny check`, `typos`), `test`
-(`cargo build --all-targets`, then `cargo test`, doc tests included),
-`acceptance` and `harness` (the two suites below), `doc` (`cargo doc`
-with `-D warnings`) and `node` (pi's checks). `lints` needs cargo-deny
-and typos: `cargo install --locked cargo-deny typos-cli`. `deny.toml`
-holds the allowed licences and the ignored advisories, each with its
-reason; `_typos.toml` the words typos must accept. With `CI` set, as on
-GitHub, the steps pass `--locked` to cargo. `cargo xtask fmt` formats
-Rust and pi.
+`rustfmt.toml` uses unstable options: the dated one named in
+`rust-nightly`, which CI uses too. The workspace depends on
+`vendor/fynix`, a git submodule: clone with `--recurse-submodules` or
+run `git submodule update --init vendor/fynix` once; `cargo xtask`
+fetches it itself. Nothing inside it changes. `cargo xtask check` runs
+every check a commit needs, as six steps in this order, each of which
+`cargo xtask <step>` runs alone and CI calls by name: `lints`
+(formatting, clippy with `-D warnings` on the workspace and on xtask,
+`cargo deny check`, `typos`), `test` (`cargo build --all-targets`, then
+`cargo test`, doc tests included), `acceptance` and `harness` (the two
+suites below), `doc` (`cargo doc` with `-D warnings`) and `node` (pi's
+checks). `lints` needs cargo-deny and typos:
+`cargo install --locked cargo-deny typos-cli`. `deny.toml` holds the
+allowed licences and the ignored advisories, each with its reason;
+`_typos.toml` the words typos must accept. With `CI` set, as on GitHub,
+the steps pass `--locked` to cargo. `cargo xtask fmt` formats Rust and
+pi.
 
 ```sh
 cargo +$(cat rust-nightly) fmt
@@ -110,15 +114,14 @@ cargo clippy -p hamlet_acceptance --all-targets --features acceptance
 cargo test -p hamlet_acceptance --features acceptance
 ```
 
-The pi harness in `harnesses/pi/` is a Node package of its own, on the
-same Node, with the same two checks run in that folder. The server's
-tests that start it serving a home, crashes included, are its `crashes`
-and `harness` targets, compiled only with the `harness` feature, so plain
-`cargo test` needs no Node. They need `npm ci --prefix harnesses/pi`,
-never contact a model server or the internet, and must be clean before a
-commit too. They build the server with fault points, so run them after
-the acceptance suite, which needs the plain one, as a command of their
-own. `cargo xtask harness` runs them; by hand, at the root:
+The server's tests that start pi serving a home, crashes included, are
+its `crashes` and `harness` targets, compiled only with the `harness`
+feature, so plain `cargo test` needs no Node. They need
+`npm ci --prefix harnesses/pi`, never contact a model server or the
+internet, and must be clean before a commit too. They build the server
+with fault points, so run them after the acceptance suite, which needs
+the plain one, as a command of their own. `cargo xtask harness` runs
+them; by hand, at the root:
 
 ```sh
 cargo clippy -p hamlet_server --all-targets --features harness

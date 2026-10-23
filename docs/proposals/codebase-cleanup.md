@@ -37,7 +37,8 @@ Built: a failed request or pi line ends only itself
 the one override list is `hamlet_testing::OVERRIDES`, the `faults`
 feature refuses a release build, CI runs the acceptance and harness
 steps apart on three operating systems with pinned toolchains, and
-fynix is a git dependency pinned to a commit.
+fynix is the vendored submodule `vendor/fynix`, a path dependency
+pinned to one commit, which xtask fetches and CI checks out.
 
 ## Phase 2: server seams
 
@@ -60,7 +61,7 @@ Built: the fixtures crates share are in `hamlet_testing`: `Scratch`,
 the faux `Script`, the loopback OpenAI endpoint, a server on a scratch
 home and the override list, and no crate depends on
 `hamlet_acceptance`. The server's record, marker and protocol tests sit
-beside their modules, its modules are `pub(crate)`, and the harness
+beside their modules, its modules are crate-private, and the harness
 driver's body is a module behind the `harness` feature. The helpers
 several modules' tests share are in one `testing.rs` in
 `hamlet_server`, `hamlet_ui` and `hamlet_realm`, and the realm's
@@ -84,9 +85,10 @@ generator's own `testing` module, which reaches its private items.
 
 1. Order the frame drain. `ClientSystems::Receive` in `PreUpdate` and
    `Send` in `Last`. The drain runs only for a waiting frame or a
-   non-empty outbox. Make fynix's system set public upstream and move
-   the pinned rev to it. As proof, the 67 settle loops in UI tests
-   become single updates.
+   non-empty outbox. fynix's system set is private and the vendored
+   fynix does not change, so Hamlet orders itself around fynix by
+   schedule, never by naming its systems. As proof, the 67 settle loops
+   in UI tests become single updates.
 2. Wake on frames. The connect task gets a waker that pokes the reactive
    event loop after each frame. This is the one place a boxed closure is
    needed, justified in its PR.

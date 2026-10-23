@@ -40,6 +40,9 @@ by name, and spells out only the Windows window's clippy. `deny.toml`
 and `_typos.toml` at the root configure cargo deny and typos, which
 `lints` runs.
 
+`vendor/fynix` is the submodule that supplies `bevy_fynix`, the panels'
+view layer; the workspace excludes it, and it is not edited here.
+
 | Crate or package | Owns |
 |---|---|
 | `hamlet_cli` | `hamlet`: process lifecycle, terminal chat, editors and login, without Bevy |
@@ -76,15 +79,16 @@ town generator also adds `generator::plugin` and an `Origin` for its seed.
 
 ## The server
 
-Paths below are under `crates/hamlet_server/src/`. Modules use a file and
-same-named directory rather than `mod.rs`. Most domain APIs are internal;
-the crate exports only `serve`, the types its process tests seed a home
-with, and, with the `harness` feature, the test driver's body. Its unit
-tests sit beside their modules; `tests/server.rs` runs the executable
-where it refuses to start, which needs no Node, and the `harness`
-feature adds `tests/crashes` (a served home: crashes, fault points,
-signals, remote workspaces and the society) and `tests/harness` (the pi
-harness).
+Paths below are under `crates/hamlet_server/src/`. Modules use a file
+and same-named directory rather than `mod.rs`. Most domain APIs are
+internal; the crate exports only `serve`, the types its process tests
+seed a home with, and, with the `harness` feature, the test driver's
+body and what its tests read a conversation's charges with (`BindingId`,
+`usage`). Its unit tests sit beside their modules; `tests/server.rs`
+runs the executable where it refuses to start, which needs no Node, and
+the `harness` feature adds `tests/crashes` (a served home: crashes,
+fault points, signals, remote workspaces and the society) and
+`tests/harness` (the pi harness).
 
 | Module | Responsibility and interface |
 |---|---|
@@ -130,7 +134,7 @@ harness).
 bindings, inputs, waits, charges and operation markers. It does not hold
 pi's authoritative transcript. Each runtime opens only its own store under
 `harnesses/<instance>/`; the server consumes committed updates through the
-link. House files stay files. See [`home.md`](home.md).
+runtime protocol. House files stay files. See [`home.md`](home.md).
 
 ## The pi harness
 
