@@ -247,13 +247,13 @@ pub enum AgentsRequest {
         skill: String,
         from: Option<String>,
     },
-    /// Puts a copy of the file or folder at the absolute `path` in
-    /// the inbox of the living agent `agent`, and tells it so in the
-    /// chief's conversation with it. Only a plugin built in or
-    /// bundled may.
+    /// Puts a copy of the file or folder the person dropped on the
+    /// plugin's views, by the number it was told as, in the inbox of
+    /// the living agent `agent`, and tells it so in the chief's
+    /// conversation with it.
     Hand {
         agent: String,
-        path: String,
+        drop: u32,
     },
     /// The chief at this window: [`AgentsReply::Chief`].
     Chief,

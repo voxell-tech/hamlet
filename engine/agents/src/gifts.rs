@@ -1,7 +1,7 @@
 //! The chief's gifts to an agent, as the app gives them by hand: a
 //! skill for its house, or a file for its inbox.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
@@ -10,6 +10,7 @@ use hamlet_core::core::HomeDir;
 use hamlet_core::session::UserMessage;
 use hamlet_engine_api::Failure;
 use hamlet_engine_api::agents::{Gift, Recipient};
+use hamlet_engine_grants::DroppedFiles;
 use hamlet_rules::gifts;
 use hamlet_rules::hamlet::{HOME, Hamlet};
 
@@ -37,6 +38,14 @@ pub(crate) trait GiftsWorldExt {
         skill: &str,
         from: Option<&str>,
     ) -> Result<(), Failure>;
+
+    /// The file the person dropped on the views of `plugin`, which
+    /// was told of it as `id`.
+    fn dropped(
+        &self,
+        plugin: Entity,
+        id: u32,
+    ) -> Result<PathBuf, Failure>;
 
     /// Puts a copy of what is at `path` in the inbox of the agent
     /// `name`, and tells it so in the chief's conversation with it.
@@ -112,6 +121,21 @@ impl GiftsWorldExt for World {
             )));
         }
         Ok(())
+    }
+
+    fn dropped(
+        &self,
+        plugin: Entity,
+        id: u32,
+    ) -> Result<PathBuf, Failure> {
+        self.get_resource::<DroppedFiles>()
+            .and_then(|files| files.get(plugin, id))
+            .map(Path::to_path_buf)
+            .ok_or_else(|| {
+                Failure::Refused(
+                    "no such file was dropped on its views".into(),
+                )
+            })
     }
 
     fn hand(

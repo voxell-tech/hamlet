@@ -2,13 +2,15 @@
 //! and each part of the scene kept in step with them, a little each
 //! frame within what the engine allows.
 
+use std::path::Path;
+
 use bevy_ecs::system::SystemParam;
 use glam::{Vec2, Vec3, Vec3Swizzles};
 use hamlet_engine_bevy::api::agents::{
     AgentsEvent, AgentsReply, AgentsRequest, Focus, Roster, Selected,
 };
 use hamlet_engine_bevy::prelude::*;
-use hamlet_engine_bevy::scene::{Animate, MouseButton};
+use hamlet_engine_bevy::scene::{Animate, KeyCode, MouseButton};
 use hamlet_engine_bevy::ui::{NodePointer, PointerMode, open};
 use hamlet_engine_bevy::{Reply, decode};
 
@@ -41,10 +43,10 @@ const SEED: u64 = 7;
 
 /// The first hamlet, the home itself, whose mayor the window's own
 /// chat is with.
-const HOME: &str = "home";
+pub const HOME: &str = "home";
 
 /// The Inspector, brought forward when something is chosen here.
-const INSPECTOR: &str = "hamlet.agents/inspector";
+pub const INSPECTOR: &str = "hamlet.agents/inspector";
 
 /// The longest frame the realm moves by, in seconds, so a frame that
 /// came late does not throw things far.
@@ -57,6 +59,7 @@ pub(crate) fn plugin(app: &mut App) {
         .init_resource::<Upload>()
         .init_resource::<Carrying>()
         .init_resource::<Following>()
+        .init_resource::<Signs>()
         .init_resource::<SkyClock>()
         .init_resource::<ChiefFocus>()
         .add_message::<SetDown>()
@@ -102,7 +105,6 @@ pub(crate) fn plugin(app: &mut App) {
                 build_library,
                 lay_rings,
                 show_footprint,
-                show_signs,
                 settle,
             )
                 .chain()
@@ -117,7 +119,7 @@ pub(crate) fn plugin(app: &mut App) {
 /// What the realm hears: the agents service, the Inspector and the
 /// person over its view.
 #[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
-struct Hear;
+pub struct Hear;
 
 /// A frame of the realm: the sky, the camera, and each part of the
 /// scene a step further.
@@ -196,8 +198,8 @@ pub struct Now {
 
 /// The name the chief at this window signs in with.
 #[derive(Resource, Default)]
-struct ChiefFocus {
-    chief: String,
+pub struct ChiefFocus {
+    pub chief: String,
 }
 
 /// The pointer over the realm's view.
@@ -207,13 +209,13 @@ pub struct Pointer(pub Option<NodePointer>);
 /// The things of the realm and where they are.
 #[derive(SystemParam)]
 pub struct Things<'w> {
-    tuning: Res<'w, WorldTuning>,
-    land: Res<'w, Land>,
-    society: Res<'w, Society>,
-    bridge: Res<'w, Bridge>,
-    robots: Res<'w, Robots>,
-    chief: Res<'w, Chief>,
-    library: Res<'w, Library>,
+    pub tuning: Res<'w, WorldTuning>,
+    pub land: Res<'w, Land>,
+    pub society: Res<'w, Society>,
+    pub bridge: Res<'w, Bridge>,
+    pub robots: Res<'w, Robots>,
+    pub chief: Res<'w, Chief>,
+    pub library: Res<'w, Library>,
 }
 
 /// The realm with no hamlets yet, its camera drawing into the
@@ -261,7 +263,6 @@ fn made(draw: &mut Draw) -> Result<(), String> {
     let footprint =
         Footprint::make(&land, &pal, &tuning.carry, draw)?;
     let picking = Picking::make(&marks, draw)?;
-    let signs = Signs::make(draw);
     let commands = &mut draw.commands;
     commands.insert_resource(Bridge::default());
     commands.insert_resource(stock);
@@ -276,7 +277,6 @@ fn made(draw: &mut Draw) -> Result<(), String> {
     commands.insert_resource(robots);
     commands.insert_resource(footprint);
     commands.insert_resource(picking);
-    commands.insert_resource(signs);
     commands.insert_resource(society);
     commands.insert_resource(land);
     commands.insert_resource(pal);
@@ -366,11 +366,13 @@ fn follow_focus(
         // A hamlet, the Hearth or the library chosen elsewhere is
         // brought into view.
         if let Some(
-            Thing::Common(_) | Thing::Hearth | Thing::Library,
+            thing @ (Thing::Common(_)
+            | Thing::Hearth
+            | Thing::Library),
         ) = picking.follow(focus, &things.bridge)
         {
             things.focus_on(
-                &picking,
+                thing,
                 &mut camera,
                 &mut following,
                 false,
@@ -389,7 +391,8 @@ fn put_up_signs(
     mut draw: Draw,
 ) {
     if signs.stale {
-        signs.put_up(things.sign_words(&focus.chief), &mut draw);
+        let far = things.tuning.pick.signs_far;
+        signs.put_up(things.sign_words(&focus.chief), far, &mut draw);
     }
 }
 
@@ -458,7 +461,7 @@ pub fn pick_up(
 }
 
 /// Answers what the person did over the view.
-fn steer(
+pub fn steer(
     mut inputs: MessageReader<SceneInput>,
     keys: Query<&SceneKey>,
     tuning: Res<WorldTuning>,
@@ -468,12 +471,34 @@ fn steer(
     mut picking: ResMut<Picking>,
     mut carrying: ResMut<Carrying>,
     mut hand: ResMut<Hand>,
+    mut following: ResMut<Following>,
+    mut commands: Commands,
 ) {
     let thing = |entity: Entity| {
         keys.get(entity).ok().and_then(|key| Thing::of(key.0))
     };
     let set = &tuning.camera;
     for input in inputs.read() {
+        if let SceneInput::Key(key) = input {
+            if key.down && key.code == KeyCode::Escape {
+                // Escape lets go of one thing at a time: the place in
+                // hand, what is followed, then what is selected.
+                if carrying.carry.is_some() {
+                    carrying.carry = None;
+                } else if camera.following.is_some() {
+                    camera.following = None;
+                    following.0 = None;
+                } else if picking.selected().is_some()
+                    || picking.also().is_some()
+                {
+                    picking.clear();
+                    commands.agents(&AgentsRequest::Select(
+                        Selected::Nothing,
+                    ));
+                }
+            }
+            continue;
+        }
         // A robot in the hand holds the ground still, and the release
         // that sets it down is the hand's.
         let input = &match carrying.carry {
@@ -640,16 +665,11 @@ fn lay_rings(
     mut picking: ResMut<Picking>,
     mut draw: Draw,
 ) {
-    let rings = [picking.hovered(), picking.selected()]
-        .map(|thing| thing.and_then(|thing| things.ring(thing)));
+    let rings =
+        [picking.hovered(), picking.selected(), picking.also()]
+            .map(|thing| thing.and_then(|thing| things.ring(thing)));
     let floor = Floor::new(&things.land, &now.lots);
-    picking.lay(
-        rings[0],
-        rings[1],
-        &floor,
-        &things.tuning.pick,
-        &mut draw,
-    );
+    picking.lay(rings, &floor, &things.tuning.pick, &mut draw);
 }
 
 /// Follows the pointer with the place in hand, and shows where it
@@ -659,8 +679,10 @@ fn show_footprint(
     land: Res<Land>,
     society: Res<Society>,
     camera: Res<Camera>,
+    pal: Res<Palette>,
     mut carrying: ResMut<Carrying>,
     mut footprint: ResMut<Footprint>,
+    mut words: ResMut<PointerWords>,
     mut draw: Draw,
 ) {
     let ray = camera.ray(&tuning.camera);
@@ -672,30 +694,20 @@ fn show_footprint(
             carry.reach(&land, &society, ray);
         }
     }
+    let said = carrying
+        .carry
+        .as_ref()
+        .map(|carry| carry.words(&tuning.carry, &pal));
+    if words.0.as_ref().map(|now| &now.text)
+        != said.as_ref().map(|said| &said.text)
+    {
+        words.0 = said;
+    }
     footprint.show(
         carrying.carry.as_ref(),
         &land,
         &society,
         &tuning.carry,
-        &mut draw,
-    );
-}
-
-/// Shows the signs near the camera, and the tag over the thing under
-/// the pointer.
-fn show_signs(
-    things: Things,
-    picking: Res<Picking>,
-    camera: Res<Camera>,
-    focus: Res<ChiefFocus>,
-    mut signs: ResMut<Signs>,
-    mut draw: Draw,
-) {
-    let tag = things.tag(picking.hovered(), &focus.chief);
-    signs.show(
-        camera.eye(&things.land),
-        things.tuning.pick.signs_far,
-        tag,
         &mut draw,
     );
 }
@@ -788,9 +800,10 @@ pub fn focus_on_selected(
 ) {
     if let (Some(things), Some(picking), Some(mut camera)) =
         (things, picking, camera)
+        && let Some(thing) = picking.selected()
     {
         things.focus_on(
-            &picking,
+            thing,
             &mut camera,
             &mut following,
             *stay,
@@ -799,10 +812,31 @@ pub fn focus_on_selected(
     }
 }
 
+/// Brings `thing` to the middle of the view, and stays on it if
+/// `stay`.
+pub fn focus_on_thing(
+    focus: In<(Thing, bool)>,
+    things: Option<Things>,
+    camera: Option<ResMut<Camera>>,
+    mut following: ResMut<Following>,
+    mut cues: MessageWriter<Cue>,
+) {
+    let (thing, stay) = *focus;
+    if let (Some(things), Some(mut camera)) = (things, camera) {
+        things.focus_on(
+            thing,
+            &mut camera,
+            &mut following,
+            stay,
+            &mut cues,
+        );
+    }
+}
+
 impl Things<'_> {
     /// True when `agent` holds the office of the first hamlet, the
     /// one the window's own chat is with.
-    fn first_mayor(&self, agent: AgentId) -> bool {
+    pub fn first_mayor(&self, agent: AgentId) -> bool {
         self.bridge
             .town(HOME)
             .and_then(|town| self.society.town(town))
@@ -858,6 +892,31 @@ impl Things<'_> {
                 ));
             }
         }
+        // A workbench is signed with the folder its hamlet works on.
+        for town in &self.society.towns {
+            let folder = self
+                .bridge
+                .record(town.id)
+                .and_then(|hamlet| hamlet.folder.as_deref())
+                .map(|folder| {
+                    Path::new(folder).file_name().map_or_else(
+                        || folder.to_owned(),
+                        |name| name.to_string_lossy().into_owned(),
+                    )
+                });
+            if let Some(folder) = folder {
+                let works = &self.tuning.works;
+                let at = works.bench(land, town.site)
+                    + Vec3::Y * works.bench_room().1;
+                signs.push((
+                    Thing::Workbench(town.id),
+                    Words {
+                        at,
+                        says: folder.to_uppercase(),
+                    },
+                ));
+            }
+        }
         if let Some(at) = self.chief.hearth() {
             let says = format!("{chief}'s Hearth").to_uppercase();
             let at = at + Vec3::Y * set.house.1;
@@ -869,41 +928,6 @@ impl Things<'_> {
             signs.push((Thing::Library, Words { at, says }));
         }
         signs
-    }
-
-    /// The words over `hovered`, the thing under the pointer, when it
-    /// has no sign of its own.
-    fn tag(
-        &self,
-        hovered: Option<Thing>,
-        chief: &str,
-    ) -> Option<Words> {
-        let (pick, set) = (&self.tuning.pick, &self.tuning.chief);
-        let (at, says) = match hovered? {
-            Thing::Robot(agent) => {
-                let says = if self.first_mayor(agent) {
-                    "The Mayor".to_owned()
-                } else {
-                    self.bridge.named(agent)?.0.clone()
-                };
-                (
-                    self.robots.at(agent)?
-                        + Vec3::Y * pick.robot_box.y,
-                    says,
-                )
-            }
-            Thing::Mascot => (
-                self.chief.mascot()? + Vec3::Y * set.mascot_box.y,
-                format!("{chief}, Chief"),
-            ),
-            Thing::House(_)
-            | Thing::Common(_)
-            | Thing::Hearth
-            | Thing::Library => {
-                return None;
-            }
-        };
-        Some(Words { at, says })
     }
 
     /// The ground a ring about `thing` lies on, and its radius.
@@ -921,6 +945,10 @@ impl Things<'_> {
             }
             Thing::Hearth => set.house.0,
             Thing::Library => library::SIZE.0,
+            Thing::Workbench(_) => self.tuning.works.bench_room().0,
+            Thing::Clockwork(_) => {
+                self.tuning.works.clockwork_radius()
+            }
         };
         let ground =
             self.land.on_ground(at) + Vec3::Y * pick.ring_lift;
@@ -928,7 +956,7 @@ impl Things<'_> {
     }
 
     /// The place of `thing` on the ground.
-    fn place(&self, thing: Thing) -> Option<Vec2> {
+    pub fn place(&self, thing: Thing) -> Option<Vec2> {
         match thing {
             // An agent without a robot, as one that is gone, is at
             // its house.
@@ -945,25 +973,40 @@ impl Things<'_> {
                 .society
                 .town(town)
                 .map(|town| self.land.sites[town.site].at),
+            Thing::Workbench(town) => {
+                let town = self.society.town(town)?;
+                Some(
+                    self.tuning
+                        .works
+                        .bench(&self.land, town.site)
+                        .xz(),
+                )
+            }
+            Thing::Clockwork(town) => {
+                let town = self.society.town(town)?;
+                Some(
+                    self.tuning
+                        .works
+                        .clockwork(&self.land, town.site)
+                        .xz(),
+                )
+            }
             Thing::Mascot => self.chief.mascot().map(|at| at.xz()),
             Thing::Hearth => self.chief.hearth().map(|at| at.xz()),
             Thing::Library => self.library.at().map(|at| at.xz()),
         }
     }
 
-    /// Brings the thing `picking` has selected to the middle of the
-    /// view, and stays on it if `stay`.
+    /// Brings `thing` to the middle of the view, and stays on it if
+    /// `stay`.
     fn focus_on(
         &self,
-        picking: &Picking,
+        thing: Thing,
         camera: &mut Camera,
         following: &mut Following,
         stay: bool,
         cues: &mut MessageWriter<Cue>,
     ) {
-        let Some(thing) = picking.selected() else {
-            return;
-        };
         if let Some(at) = self.place(thing) {
             camera.focus_on(&self.tuning.camera, at, stay);
             following.0 = stay.then_some(thing);

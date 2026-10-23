@@ -4,8 +4,10 @@
 //! service's roster. Clicking a robot, a house or a common selects it
 //! in the window's focus and brings the Inspector forward.
 
+mod ask;
 mod bridge;
 mod build;
+mod cards;
 mod folk;
 mod fx;
 mod places;
@@ -23,10 +25,7 @@ use hamlet_engine_bevy::ui::{
     FrameProps, Space, Tone, UiExt, column, label, resource,
 };
 
-use crate::realm::{
-    Pointer, focus_on_selected, pick_up, reset_camera,
-};
-use crate::society::Place;
+use crate::realm::{Pointer, focus_on_selected, reset_camera};
 use crate::view::camera::Camera;
 use crate::view::kept::{Kept, SkyChoice};
 
@@ -79,19 +78,11 @@ impl Plugin for RealmPlugin {
                 |mut kept: ResMut<Kept>| kept.sky = SkyChoice::Night,
             )
             .add_menu_entry("View", "sky_night")
-            .add_command(
-                "move_hearth",
-                "Move the Hearth...",
-                (|| Place::Chief).pipe(pick_up),
-            )
-            .add_command(
-                "move_library",
-                "Move the Library...",
-                (|| Place::Library).pipe(pick_up),
-            )
             .add_systems(Declare, watch)
             .add_plugins((
                 realm::plugin,
+                ask::plugin,
+                cards::plugin,
                 folk::plugin,
                 world::plugin,
                 fx::plugin,

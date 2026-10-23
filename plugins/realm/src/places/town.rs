@@ -11,13 +11,13 @@ mod flag;
 mod kit;
 mod lights;
 mod meter;
-mod works;
+pub mod works;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use glam::{Quat, Vec2, Vec3};
 use hamlet_engine_bevy::prelude::*;
-use hamlet_engine_bevy::scene::{Mesh, SceneClick};
+use hamlet_engine_bevy::scene::{Mesh, MouseButton, SceneClick};
 
 use crate::bridge::Bridge;
 use crate::build::frame::Frame;
@@ -37,7 +37,7 @@ use crate::places::yard::Yard;
 use crate::realm::{Ctx, Shared};
 use crate::society::{Agent, AgentId, Society, Town, TownId};
 use crate::sound::{Cue, Sound};
-use crate::view::pick::Thing;
+use crate::view::pick::{ModifiersExt, Thing};
 use crate::world::land::{Land, LandData};
 use crate::world::layout::{HALL_PLOT, plot};
 use crate::world::palette::Palette;
@@ -1112,13 +1112,24 @@ pub fn build_towns(
     mut draw: Draw,
 ) {
     for click in clicks.read() {
-        if let Ok(key) = keys.get(click.0.entity)
-            && works::switch(key.0, &bridge, &mut draw.commands)
-        {
+        let hit = &click.0;
+        // With Shift the click chooses the hamlet instead.
+        let Some(Thing::Clockwork(town)) = keys
+            .get(hit.entity)
+            .ok()
+            .and_then(|key| Thing::of(key.0))
+            .filter(|_| {
+                hit.button == MouseButton::Primary
+                    && !hit.modifiers.shift()
+            })
+        else {
+            continue;
+        };
+        if works::switch(town, &bridge, &mut draw.commands) {
             cues.write(Cue {
                 sound: Sound::Clockwork,
-                at: click.0.position,
-                turn: key.0,
+                at: hit.position,
+                turn: town.0,
             });
         }
     }

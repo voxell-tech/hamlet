@@ -2,6 +2,7 @@
 //! cheered, and two robots introduced, which builds a road between
 //! their agents.
 
+mod letters;
 mod lift;
 mod notice;
 mod touch;
@@ -18,6 +19,7 @@ use hamlet_engine_bevy::scene::{MouseButton, SceneMove};
 
 use crate::bridge::Bridge;
 use crate::build::upload::Draw;
+pub use crate::folk::hand::letters::{Letters, hand_letters};
 use crate::folk::hand::lift::Fall;
 pub use crate::folk::hand::toys::Toys;
 use crate::folk::keeper::{Act, Robot, Robots};
@@ -28,7 +30,7 @@ use crate::realm::{Clock, Now};
 use crate::society::{AgentId, Society};
 use crate::tuning::WorldTuning;
 use crate::view::camera::Camera;
-use crate::view::pick::{Picking, Thing};
+use crate::view::pick::{ModifiersExt, Picking, Thing};
 use crate::world::land::Land;
 use crate::world::palette::Palette;
 
@@ -98,6 +100,9 @@ pub struct PlaySettings {
     /// of the room about its light that a pointer can hit.
     pub nudge_pin: f32,
     pub nudge_room: f32,
+    /// Seconds a file dropped waits for the pointer to be seen on an
+    /// agent.
+    pub letter_wait: f32,
 }
 
 /// A robot's handling of late. Times are the realm's clock.
@@ -142,6 +147,11 @@ impl Default for Mood {
 }
 
 impl Mood {
+    /// True while a click cheers it, its work having just ended.
+    pub fn proud(&self, now: f32) -> bool {
+        self.proud_until.is_some_and(|until| now < until)
+    }
+
     pub fn sulks(&self, now: f32) -> bool {
         now < self.sulks_until
     }
@@ -213,7 +223,6 @@ pub struct Hand {
 impl Hand {
     /// True while a nudge holds the thought of `agent` open in its
     /// balloon.
-    #[expect(dead_code, reason = "read by the balloons")]
     pub fn pinned(&self, agent: AgentId) -> bool {
         self.pins.contains_key(&agent)
     }
@@ -273,6 +282,7 @@ impl Hand {
                 } else {
                     self.down = false;
                     if self.travel <= click_slop
+                        && !press.modifiers.shift()
                         && let Some(agent) = over
                     {
                         self.taps.push(agent);

@@ -1901,11 +1901,12 @@ says why and every request fails saying so.
   its choice, and each veto as `Vetoed`.
 - **Gifts** (`gifts.rs`): `Offers` is the skills a living agent
   could be given from another agent of its hamlet; `Give` gives one
-  as the chief's `/give` does, failing unless it arrived. `Hand` puts a copy of a file or folder at an absolute
-  path in an agent's inbox, with the app's checks (32 MB at most),
-  and tells the agent in the chief's conversation with it; it reads
-  what the person can, so only a plugin built in or bundled hands a
-  file over, and nothing of the home is handed.
+  as the chief's `/give` does, failing unless it arrived. `Hand` puts a copy of a file or folder the person dropped
+  on the plugin's views (the number of its `SceneDrop`, kept in the
+  grants' `DroppedFiles`) in an agent's inbox, with the app's checks
+  (32 MB at most), and tells the agent in the chief's conversation
+  with it; a plugin names no path, and nothing of the home is
+  handed.
 - **The chief's records** (`chief.rs`), in the app's files under
   the home: `Chief` is the chief's name, look (`chiefs/<user>.toml`),
   the spot its Hearth was set down on (`chiefs/<user>.place`) and

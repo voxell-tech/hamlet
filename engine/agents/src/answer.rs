@@ -1,8 +1,6 @@
 //! The requests of plugins: each checked against what the person
 //! allowed, asked about on its first use, and answered.
 
-use std::path::Path;
-
 use bevy::app::{App, PostUpdate};
 use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::ecs::system::{Commands, Local, Query, Res};
@@ -23,7 +21,7 @@ use hamlet_engine_api::{Failure, Request};
 use hamlet_engine_grants::{
     Decided, FirstUse, Grants, Verdict, Waiting,
 };
-use hamlet_engine_plugins::{Asked, Deliver, PluginInfo, PluginKind};
+use hamlet_engine_plugins::{Asked, Deliver, PluginInfo};
 use hamlet_home::charter;
 use hamlet_home::limits::{self, Permission};
 use hamlet_model::catalogue::{self, Catalogue, Listed, Priced};
@@ -549,20 +547,9 @@ impl AgentsWorldExt for World {
             AgentsRequest::Give { agent, skill, from } => {
                 self.give(&agent, &skill, from.as_deref()).and(done)
             }
-            AgentsRequest::Hand { agent, path } => {
-                // It reads whatever the person can, so only Hamlet's
-                // own plugins hand a file over.
-                let own =
-                    self.get::<PluginInfo>(asked.plugin).is_some_and(
-                        |info| info.kind != PluginKind::Installed,
-                    );
-                if !own {
-                    return Err(Failure::Refused(
-                        "only Hamlet's own plugins hand a file over"
-                            .into(),
-                    ));
-                }
-                self.hand(&agent, Path::new(&path)).and(done)
+            AgentsRequest::Hand { agent, drop } => {
+                let path = self.dropped(asked.plugin, drop)?;
+                self.hand(&agent, &path).and(done)
             }
             AgentsRequest::Chief => Ok(AgentsReply::Chief(
                 self.resource::<Kept>().0.clone(),

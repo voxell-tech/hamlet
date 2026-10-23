@@ -5,7 +5,7 @@
 use glam::{Vec3, Vec3Swizzles};
 use hamlet_engine_bevy::api::agents::{Focus, Selected};
 use hamlet_engine_bevy::prelude::*;
-use hamlet_engine_bevy::scene::{MouseButton, Shader};
+use hamlet_engine_bevy::scene::{Modifiers, MouseButton, Shader};
 
 use crate::bridge::Bridge;
 use crate::build::mark::{Mark, Shape};
@@ -19,9 +19,12 @@ const CANDLE: Vec3 = Vec3::new(1.0, 0.64, 0.25);
 const HOVER_GLOW: f32 = 1.7;
 const CHOSEN_GLOW: f32 = 6.5;
 
+const ALSO_GLOW: f32 = 4.0;
+
 /// Keys of the rings' entities.
 const HOVER_RING: u32 = 4;
 const CHOSEN_RING: u32 = 5;
+const ALSO_RING: u32 = 8;
 
 /// The room each thing takes for the pointer, its ring and its name.
 #[derive(Clone, PartialEq, Debug, serde::Deserialize)]
@@ -46,6 +49,18 @@ pub struct PickSettings {
     pub signs_far: f32,
 }
 
+/// The realm's methods on [`Modifiers`].
+pub trait ModifiersExt {
+    /// True when Shift is held, which makes a click a second choice.
+    fn shift(&self) -> bool;
+}
+
+impl ModifiersExt for Modifiers {
+    fn shift(&self) -> bool {
+        *self & Modifiers::SHIFT != Modifiers::empty()
+    }
+}
+
 /// A thing in the realm that can be pointed at.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Thing {
@@ -61,6 +76,11 @@ pub enum Thing {
     Hearth,
     /// The library every agent shares.
     Library,
+    /// The workbench on a hamlet's common, which stands for its
+    /// folder.
+    Workbench(TownId),
+    /// The clockwork on a hamlet's workbench, which sets its mode.
+    Clockwork(TownId),
 }
 
 /// The bits of a key that say which kind of thing it is.
@@ -76,6 +96,8 @@ impl Thing {
             Self::Mascot => (4, 0),
             Self::Hearth => (5, 0),
             Self::Library => (6, 0),
+            Self::Workbench(town) => (7, town.0),
+            Self::Clockwork(town) => (8, town.0),
         };
         (kind << KIND) | (id & ((1 << KIND) - 1))
     }
@@ -90,8 +112,21 @@ impl Thing {
             4 => Self::Mascot,
             5 => Self::Hearth,
             6 => Self::Library,
+            7 => Self::Workbench(TownId(id)),
+            8 => Self::Clockwork(TownId(id)),
             _ => return None,
         })
+    }
+
+    /// The thing a click on it chooses: a hamlet's common for the
+    /// workbench and the clockwork on it.
+    pub fn chosen(self) -> Self {
+        match self {
+            Self::Workbench(town) | Self::Clockwork(town) => {
+                Self::Common(town)
+            }
+            other => other,
+        }
     }
 
     /// What the window's focus selects for it: an agent for its robot
@@ -106,7 +141,9 @@ impl Thing {
             Self::Robot(agent) | Self::House(agent) => bridge
                 .named(agent)
                 .map(|(name, _)| Selected::Agent(name.clone())),
-            Self::Common(town) => {
+            Self::Common(town)
+            | Self::Workbench(town)
+            | Self::Clockwork(town) => {
                 society.town(town)?;
                 bridge
                     .hamlet(town)
@@ -194,16 +231,24 @@ pub struct Picking {
     /// The robot whose box the pointer is over.
     robot: Option<Thing>,
     selected: Option<Thing>,
+    /// A second thing, chosen with Shift held, for what takes two.
+    also: Option<Thing>,
     /// The left button let go over the view without moving, until a
     /// thing says it was clicked.
     loose: bool,
     /// The click of a release that was taken for something else, to
     /// be passed over until the left button next goes down.
     passed: bool,
+    /// The right button let go over the view without moving, until a
+    /// thing says it was clicked.
+    asking: bool,
     /// What the person chose, to tell the window's focus: a thing,
     /// or nothing for the bare ground.
     chosen: Option<Option<Thing>>,
-    rings: [Ring; 2],
+    /// What the person asked about with the right button: a thing,
+    /// or nothing for the bare ground.
+    asked: Option<Option<Thing>>,
+    rings: [Ring; 3],
 }
 
 impl Picking {
@@ -216,12 +261,16 @@ impl Picking {
             hovered: None,
             robot: None,
             selected: None,
+            also: None,
             loose: false,
             passed: false,
+            asking: false,
             chosen: None,
+            asked: None,
             rings: [
                 Ring::make(HOVER_RING, HOVER_GLOW, shader, draw)?,
                 Ring::make(CHOSEN_RING, CHOSEN_GLOW, shader, draw)?,
+                Ring::make(ALSO_RING, ALSO_GLOW, shader, draw)?,
             ],
         })
     }
@@ -235,6 +284,10 @@ impl Picking {
 
     pub fn selected(&self) -> Option<Thing> {
         self.selected
+    }
+
+    pub fn also(&self) -> Option<Thing> {
+        self.also
     }
 
     /// The agent of the robot whose box the pointer is over.
@@ -258,14 +311,23 @@ impl Picking {
             if self.robot.is_some() {
                 self.selected = self.robot;
             }
+            self.also = None;
             self.chosen = Some(self.robot);
         }
         self.chosen.take()
     }
 
+    /// Takes what the person asked about since it was last taken.
+    pub fn take_ask(&mut self) -> Option<Option<Thing>> {
+        if std::mem::take(&mut self.asking) {
+            self.asked = Some(self.robot);
+        }
+        self.asked.take()
+    }
+
     /// Answers the pointer over the view. `still` is true while the
-    /// left button has not moved far enough since it went down to be
-    /// a drag. `thing` is the thing an entity draws.
+    /// button has not moved far enough since it went down to be a
+    /// drag. `thing` is the thing an entity draws.
     pub fn input(
         &mut self,
         input: &SceneInput,
@@ -279,30 +341,66 @@ impl Picking {
                     self.hovered = None;
                 }
             }
-            SceneInput::Press(press)
-                if press.button == MouseButton::Primary =>
-            {
-                if press.down {
+            SceneInput::Press(press) => match press.button {
+                MouseButton::Primary if press.down => {
                     self.passed = false;
-                } else if still {
-                    self.loose = true;
                 }
-            }
-            SceneInput::Click(_) if self.passed => {
+                MouseButton::Primary => self.loose = still,
+                MouseButton::Secondary if press.down => {
+                    self.asking = false;
+                }
+                MouseButton::Secondary => self.asking = still,
+                MouseButton::Middle => {}
+            },
+            SceneInput::Click(hit)
+                if self.passed
+                    && hit.button == MouseButton::Primary =>
+            {
                 self.passed = false
             }
             SceneInput::Click(hit) => {
-                self.loose = false;
                 // A robot behind what took the click is the one
                 // meant.
-                if let Some(thing) =
-                    self.robot.or_else(|| thing(hit.entity))
-                {
-                    self.selected = Some(thing);
-                    self.chosen = Some(Some(thing));
+                let thing = self.robot.or_else(|| thing(hit.entity));
+                match hit.button {
+                    MouseButton::Primary => {
+                        self.loose = false;
+                        if still && let Some(thing) = thing {
+                            self.choose(thing, hit.modifiers);
+                        }
+                    }
+                    MouseButton::Secondary => {
+                        self.asking = false;
+                        if still {
+                            self.asked =
+                                Some(thing.map(Thing::chosen));
+                        }
+                    }
+                    MouseButton::Middle => {}
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Chooses `thing` for a click with `modifiers` held: the
+    /// selection, or with Shift the second choice, which the same
+    /// click lets go again. The clockwork is the town's to turn
+    /// unless Shift is held.
+    fn choose(&mut self, thing: Thing, modifiers: Modifiers) {
+        let shift = modifiers.shift();
+        if matches!(thing, Thing::Clockwork(_)) && !shift {
+            return;
+        }
+        let thing = thing.chosen();
+        if shift {
+            let free = self.also != Some(thing)
+                && self.selected != Some(thing);
+            self.also = free.then_some(thing);
+        } else {
+            self.selected = Some(thing);
+            self.also = None;
+            self.chosen = Some(Some(thing));
         }
     }
 
@@ -330,23 +428,34 @@ impl Picking {
             return None;
         }
         self.selected = now;
+        self.also = None;
         now
     }
 
-    /// Lays the rings on `floor` about the thing under the pointer
-    /// and the one chosen, each given as its ground and its radius.
+    /// Lets go of the selection and the second choice.
+    pub fn clear(&mut self) {
+        self.selected = None;
+        self.also = None;
+    }
+
+    /// Lays the rings on `floor` about the thing under the pointer,
+    /// the one chosen and the second choice, each given as its
+    /// ground and its radius.
     pub fn lay(
         &mut self,
-        hovered: Option<(Vec3, f32)>,
-        selected: Option<(Vec3, f32)>,
+        [hovered, selected, also]: [Option<(Vec3, f32)>; 3],
         floor: &Floor,
         set: &PickSettings,
         draw: &mut Draw,
     ) {
-        let hovered =
-            hovered.filter(|_| self.hovered() != self.selected);
-        let [hover, chosen] = &mut self.rings;
+        let hovered = hovered.filter(|_| {
+            self.hovered() != self.selected
+                && self.hovered() != self.also
+        });
+        let also = also.filter(|_| self.also != self.selected);
+        let [hover, chosen, second] = &mut self.rings;
         hover.lay(hovered, floor, set, draw);
         chosen.lay(selected, floor, set, draw);
+        second.lay(also, floor, set, draw);
     }
 }

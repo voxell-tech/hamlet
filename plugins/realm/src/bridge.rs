@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use glam::Vec2;
 use hamlet_engine_bevy::api::agents::{
-    Budget, RoadUse, Roster, RosterAgent,
+    Budget, RoadUse, Roster, RosterAgent, RosterHamlet,
 };
 use hamlet_engine_bevy::prelude::*;
 
@@ -58,6 +58,8 @@ pub struct Bridge {
     modes: HashMap<String, Option<Mode>>,
     /// Each hamlet's budget, by its name on disk.
     budgets: HashMap<String, Budget>,
+    /// The roster as it was last told.
+    roster: Roster,
 }
 
 /// The way a hamlet's agents work on its folder.
@@ -162,6 +164,64 @@ impl Bridge {
         self.modes.get(self.hamlet(town)?).copied().flatten()
     }
 
+    /// The roster's record of the hamlet whose town is `town`.
+    pub fn record(&self, town: TownId) -> Option<&RosterHamlet> {
+        let id = self.hamlet(town)?;
+        self.roster.hamlets.iter().find(|hamlet| hamlet.id == id)
+    }
+
+    /// The roster's record of the agent `agent` is drawn for.
+    pub fn agent(&self, agent: AgentId) -> Option<&RosterAgent> {
+        let who = self
+            .housed
+            .iter()
+            .find(|(_, drawn)| **drawn == agent)
+            .map(|(who, _)| who)?;
+        self.roster.agents.iter().find(|a| a.who() == *who)
+    }
+
+    /// The agents the roster has living in the hamlet whose town is
+    /// `town`.
+    pub fn living(
+        &self,
+        town: TownId,
+    ) -> impl Iterator<Item = &RosterAgent> {
+        let hamlet = self.hamlet(town).map(str::to_owned);
+        self.roster.agents.iter().filter(move |agent| {
+            !agent.gone && Some(&agent.hamlet) == hamlet.as_ref()
+        })
+    }
+
+    /// The agents the roster has a road to from `agent`, by name.
+    pub fn peers(
+        &self,
+        agent: AgentId,
+    ) -> Vec<(AgentId, &RosterAgent)> {
+        let Some(me) = self.agent(agent) else {
+            return Vec::new();
+        };
+        let me = me.who();
+        let mut peers = self
+            .roster
+            .roads
+            .iter()
+            .filter_map(|road| {
+                let [a, b] = &road.ends;
+                let other = if *a == me {
+                    b
+                } else if *b == me {
+                    a
+                } else {
+                    return None;
+                };
+                let drawn = self.housed.get(other).copied()?;
+                Some((drawn, self.agent(drawn)?))
+            })
+            .collect::<Vec<_>>();
+        peers.sort_by(|a, b| a.1.name.cmp(&b.1.name));
+        peers
+    }
+
     /// Brings the society in line with `roster`, and says what befell
     /// the agents it had met.
     pub fn follow(
@@ -171,6 +231,7 @@ impl Bridge {
         society: &mut Society,
     ) -> Vec<Moment> {
         let mut moments = Vec::new();
+        self.roster.clone_from(roster);
         self.titles = roster
             .hamlets
             .iter()

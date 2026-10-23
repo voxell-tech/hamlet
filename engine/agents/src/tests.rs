@@ -1,8 +1,11 @@
+use bevy::ecs::world::World;
 use hamlet_core::core::{Link, Listing, Settings};
 use hamlet_engine_api::agents::AgentsReply;
 use hamlet_engine_api::{Reply, encode};
+use hamlet_engine_grants::DroppedFiles;
 use hamlet_model::config::{Config, Endpoint};
 
+use crate::gifts::GiftsWorldExt;
 use crate::setup::SetupState;
 use crate::views;
 
@@ -70,4 +73,20 @@ fn a_plugin_writes_only_one_plain_limit() {
         None
     );
     assert_eq!(views::unwritable("", "most_agents", None), None);
+}
+
+#[test]
+fn a_plugin_hands_over_only_a_file_dropped_on_its_views() {
+    let mut world = World::new();
+    let (ours, other) =
+        (world.spawn_empty().id(), world.spawn_empty().id());
+    let mut files = DroppedFiles::default();
+    let id = files.give(ours, "/dropped/letter.txt".into());
+    world.insert_resource(files);
+    assert_eq!(
+        world.dropped(ours, id).unwrap(),
+        std::path::PathBuf::from("/dropped/letter.txt")
+    );
+    assert!(world.dropped(other, id).is_err());
+    assert!(world.dropped(ours, id + 1).is_err());
 }

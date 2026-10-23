@@ -26,7 +26,7 @@ use crate::folk::chief::hearth::Hearth;
 pub use crate::folk::chief::homing::Walking;
 use crate::folk::chief::look::Look;
 use crate::folk::chief::wickstep::With;
-pub use crate::folk::chief::wickstep::chance;
+pub use crate::folk::chief::wickstep::{Company, chance};
 use crate::folk::keeper::{Act, Passage, Robots};
 use crate::folk::sounds::FolkCue;
 use crate::places::library::Library;

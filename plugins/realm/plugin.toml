@@ -14,6 +14,11 @@ target = "local"
 reason = "Sets a hamlet down where you carry it"
 
 [[asks]]
+capability = "desktop.drop"
+target = "files"
+reason = "Hands the file you drop on an agent's robot or house to that agent"
+
+[[asks]]
 capability = "render.scene"
 target = "gpu"
 reason = "Draws the realm in its panel"

@@ -20,6 +20,7 @@ use crate::build::upload::Draw;
 use crate::places::lantern::lantern_frame;
 use crate::places::town::kit::{Kit, Part};
 use crate::places::town::lights::{CURRENT, Glow, SIGNAL};
+use crate::realm::INSPECTOR;
 use crate::society::TownId;
 use crate::view::pick::Thing;
 use crate::world::land::Land;
@@ -45,13 +46,14 @@ const WHEELS: [(Vec3, f32, usize); COGS] = [
     (Vec3::new(0.614, 1.022, -0.15), 0.08, 7),
 ];
 
-/// The key of a town's clockwork: a kind of its own past the realm's
-/// things, with the town's number.
-const CLOCKWORK: u32 = 15 << 28;
-const TOWN: u32 = (1 << 28) - 1;
+/// The box of the room the workbench's top takes, in the bench's
+/// frame.
+const TOP_BOX: Vec3 = Vec3::new(2.1, TOP + 0.1, 1.1);
 
-/// The Inspector, brought forward when a hamlet is chosen here.
-const INSPECTOR: &str = "hamlet.inspector/inspector";
+/// The box and the middle of the room the clockwork takes, in the
+/// bench's frame.
+const CLOCK_BOX: Vec3 = Vec3::new(0.95, 0.7, 0.45);
+const CLOCK_AT: Vec3 = Vec3::new(0.52, TOP + 0.36, -0.1);
 
 /// The workbench of a common.
 #[derive(Clone, PartialEq, Debug, serde::Deserialize)]
@@ -65,6 +67,39 @@ pub struct WorksSettings {
     pub lamp_glow: f32,
     pub lumens: f32,
     pub reach: f32,
+}
+
+impl WorksSettings {
+    /// Where the workbench of the common at `site` stands, on the
+    /// ground.
+    pub fn bench(&self, land: &Land, site: usize) -> Vec3 {
+        let set = &land.set.town;
+        land.common_frame(site).point(Vec3::new(
+            set.bench.0.x,
+            set.plaza_lift,
+            set.bench.0.y,
+        ))
+    }
+
+    /// Where the clockwork of the common at `site` stands.
+    pub fn clockwork(&self, land: &Land, site: usize) -> Vec3 {
+        let set = &land.set.town;
+        land.common_frame(site).point(
+            Vec3::new(set.bench.0.x, set.plaza_lift, set.bench.0.y)
+                + CLOCK_AT * self.size,
+        )
+    }
+
+    /// The radius and the height over the ground of the room the
+    /// workbench takes.
+    pub fn bench_room(&self) -> (f32, f32) {
+        (1.2 * self.size, (TOP + 0.7) * self.size)
+    }
+
+    /// The radius of the room the clockwork takes.
+    pub fn clockwork_radius(&self) -> f32 {
+        CLOCK_BOX.x.max(CLOCK_BOX.z) * 0.62
+    }
 }
 
 /// The section of `assets/world.toml` the workbenches read.
@@ -204,23 +239,23 @@ impl Benches {
         let beacon = part(Part::BenchLamp, &self.dark, 0);
         let wheels =
             [0, 1, 2].map(|k| part(Part::Cog(k), &stock.brass, 0));
-        // The top answers as the common, and the clockwork as itself.
-        let top =
-            part(Part::Box, &self.unseen, Thing::Common(town).key());
+        let top = part(
+            Part::Box,
+            &self.unseen,
+            Thing::Workbench(town).key(),
+        );
         let clockwork = part(
             Part::Box,
             &self.unseen,
-            CLOCKWORK | (town.0 & TOWN),
+            Thing::Clockwork(town).key(),
         );
         draw.place(
             top,
-            Frame::at(Vec3::Y * (TOP + 0.1) * 0.5)
-                .with_size(Vec3::new(2.1, TOP + 0.1, 1.1)),
+            Frame::at(Vec3::Y * (TOP + 0.1) * 0.5).with_size(TOP_BOX),
         );
         draw.place(
             clockwork,
-            Frame::at(Vec3::new(0.52, TOP + 0.36, -0.1))
-                .with_size(Vec3::new(0.95, 0.7, 0.45)),
+            Frame::at(CLOCK_AT).with_size(CLOCK_BOX),
         );
         for boxed in [top, clockwork] {
             draw.watch(boxed);
@@ -300,18 +335,14 @@ impl Benches {
     }
 }
 
-/// Switches the mode of the hamlet whose clockwork has `key`. One
-/// that works on no folder is chosen instead, so that one can be
-/// chosen for it. True when the mode was switched.
+/// Switches the mode of the hamlet whose town is `town`. One that
+/// works on no folder is chosen instead, so that one can be chosen
+/// for it. True when the mode was switched.
 pub fn switch(
-    key: u32,
+    town: TownId,
     bridge: &Bridge,
     commands: &mut Commands,
 ) -> bool {
-    if key & !TOWN != CLOCKWORK {
-        return false;
-    }
-    let town = TownId(key & TOWN);
     let Some(hamlet) = bridge.hamlet(town) else {
         return false;
     };

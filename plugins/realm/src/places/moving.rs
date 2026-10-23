@@ -6,9 +6,10 @@
 use std::f32::consts::TAU;
 
 use glam::{Vec2, Vec3, Vec3Swizzles};
+use hamlet_engine_bevy::marks::PointerLabel;
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::scene::{
-    Material, Mesh, Shape, StandardMaterial,
+    Material, Mesh, Rgba, Shape, StandardMaterial,
 };
 
 use crate::build::frame::Frame;
@@ -23,7 +24,7 @@ use crate::world::palette::Palette;
 const FOOTPRINT: u32 = 6;
 
 /// A place in a chief's hand: how the footprint that shows where it
-/// would stand is drawn. Its words stand over its middle.
+/// would stand is drawn, and the words beside the pointer.
 #[derive(Clone, PartialEq, Debug, serde::Deserialize)]
 pub struct CarrySettings {
     /// Height of the footprint over the ground.
@@ -41,6 +42,11 @@ pub struct CarrySettings {
     pub beam: (f32, f32),
     /// Thickness of the mark where a house would stand.
     pub pad: f32,
+    /// Where the words beside the pointer start from it, their size,
+    /// and what they are on.
+    pub word_at: (f32, f32),
+    pub word_size: f32,
+    pub word_back: Rgba,
 }
 
 /// A place in a chief's hand.
@@ -90,13 +96,10 @@ pub struct Footprint {
     /// Each part, the mesh it draws, and whether it is lit as
     /// fitting while it is shown.
     marks: Vec<(Mark, Entity, usize, Option<bool>)>,
-    /// The few words on what a click would do, over its middle.
-    words: Entity,
     meshes: [Handle<Mesh>; 3],
     fits: Handle<Material>,
     unfit: Handle<Material>,
     shown: bool,
-    said: Option<&'static str>,
 }
 
 /// The point the ray from `eye` along `way` meets the ground at.
@@ -138,6 +141,38 @@ impl Carry {
             Some(to) => society.fits(land, self.place, to),
             None => Err(Unfit::Crowded),
         };
+    }
+
+    /// The few words beside the pointer on what a click would do, or
+    /// why it cannot be set down.
+    pub fn words(
+        &self,
+        set: &CarrySettings,
+        pal: &Palette,
+    ) -> PointerLabel {
+        let (text, colour) = match (self.to, self.fits) {
+            (None, _) => ("Point at the ground", pal.place_unfit),
+            (_, Ok(())) => {
+                ("Click to set down. Esc to put back", pal.place_fits)
+            }
+            (_, Err(Unfit::Water)) => {
+                ("Not in the water", pal.place_unfit)
+            }
+            (_, Err(Unfit::Steep)) => {
+                ("Too steep here", pal.place_unfit)
+            }
+            (_, Err(Unfit::Crowded)) => {
+                ("Too close to another place", pal.place_unfit)
+            }
+        };
+        PointerLabel {
+            text: text.to_owned(),
+            color: rgba(colour),
+            back: set.word_back,
+            size: set.word_size,
+            x: set.word_at.0,
+            y: set.word_at.1,
+        }
     }
 
     /// Where it would be set down: where it is held, if it fits
@@ -190,26 +225,19 @@ impl Footprint {
                 (mark, entity, mesh, None)
             })
             .collect::<Vec<_>>();
-        let words = draw.spawn(Some(root), FOOTPRINT);
-        draw.place(words, Frame::at(Vec3::Y * set.beam.1));
         Ok(Self {
             root,
             marks,
-            words,
             meshes,
             fits,
             unfit,
             shown: false,
-            said: None,
         })
     }
 
     /// Draws the footprint where `carry` would stand: its rim, a
     /// light over its middle, and for a town its common and the
-    /// ground of each of its houses, with a few words on what a click
-    /// would do. With the pointer off the ground, the words alone
-    /// stand over the place where it is. Hidden with nothing in
-    /// hand.
+    /// ground of each of its houses. Hidden with nothing in hand.
     pub fn show(
         &mut self,
         carry: Option<&Carry>,
@@ -322,21 +350,6 @@ impl Footprint {
                     }
                 }
             }
-        }
-        let says = match (carry.to, carry.fits) {
-            (None, _) => "Point at the ground",
-            (_, Ok(())) => {
-                "Click to set down. Right-click to put back"
-            }
-            (_, Err(Unfit::Water)) => "Not in the water",
-            (_, Err(Unfit::Steep)) => "Too steep here",
-            (_, Err(Unfit::Crowded)) => "Too close to another place",
-        };
-        if self.said != Some(says) {
-            draw.commands
-                .entity(self.words)
-                .insert(SceneLabel(says.to_owned()));
-            self.said = Some(says);
         }
     }
 }

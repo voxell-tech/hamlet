@@ -9,7 +9,7 @@ use glam::{Vec3, Vec3Swizzles};
 use hamlet_engine_bevy::api::agents::Doing;
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::scene::{
-    AlphaMode, Material, Shader, StandardMaterial,
+    AlphaMode, Material, MouseButton, Shader, StandardMaterial,
 };
 
 use crate::build::frame::Frame;
@@ -22,6 +22,7 @@ use crate::fx::ready;
 use crate::places::shift::Part;
 use crate::realm::{Clock, Now};
 use crate::society::{AgentId, Society};
+use crate::sound::{Cue, Sound};
 use crate::tuning::VfxTuning;
 use crate::world::land::Land;
 use crate::world::layout::plot;
@@ -461,6 +462,7 @@ fn muse(
     mut out: MessageReader<SceneOut>,
     mut clicks: MessageReader<SceneClick>,
     mut nudged: MessageWriter<Nudged>,
+    mut cues: MessageWriter<Cue>,
     mut magic: ResMut<Magic>,
     mut draw: Draw,
 ) {
@@ -483,7 +485,10 @@ fn muse(
                 && agent.state == KState::Working
         })
     };
-    for click in clicks.read() {
+    for click in clicks
+        .read()
+        .filter(|click| click.0.button == MouseButton::Primary)
+    {
         if let Some((agent, _)) = magic
             .muses
             .iter()
@@ -539,6 +544,11 @@ fn muse(
         draw.draw(room, motes.ball(), &magic.room);
         draw.shadows(room, false, false);
         draw.watch(room);
+        cues.write(Cue {
+            sound: Sound::Muse,
+            at: home(&land, &society, agent.id).unwrap_or_default(),
+            turn: agent.id.0,
+        });
         magic.muses.insert(
             agent.id,
             Muse {

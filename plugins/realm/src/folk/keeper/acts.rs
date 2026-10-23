@@ -43,7 +43,6 @@ pub enum Act {
     Carry,
     #[expect(dead_code, reason = "no robot hands a letter over yet")]
     HandOver,
-    #[expect(dead_code, reason = "no robot is handed a letter yet")]
     Receive,
     #[expect(dead_code, reason = "no two robots talk yet")]
     Talk,
