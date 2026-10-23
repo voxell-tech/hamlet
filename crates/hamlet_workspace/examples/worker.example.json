@@ -1,6 +1,7 @@
 {
-  "listen": "0.0.0.0:80",
+  "listen": "127.0.0.1:7420",
   "root": "/workspace",
-  "actor_uid_file": "/run/ate/actor-uid",
-  "public_key": "REPLACE_WITH_THE_BASE64_PUBLIC_KEY_PRINTED_BY_KEYGEN="
+  "homes": {
+    "REPLACE_WITH_THE_HOME_NAME": "REPLACE_WITH_A_NEW_RANDOM_TOKEN"
+  }
 }

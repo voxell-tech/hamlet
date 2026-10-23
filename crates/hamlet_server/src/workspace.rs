@@ -27,7 +27,7 @@ pub(crate) struct Policy {
     pub read_only: bool,
 }
 
-/// The authenticated connection to a workspace manager.
+/// The authenticated connection to a workspace worker.
 #[derive(Clone)]
 pub(crate) struct Transport {
     client: reqwest::Client,

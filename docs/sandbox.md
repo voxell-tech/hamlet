@@ -130,11 +130,11 @@ short is finished at the next start. A remote one records its attempt
 first: if a reply is lost, the server keeps its record, plan and snapshot
 and does not replay the batch on ticks or restart. Earlier files may
 already have changed even when a later request is definitely refused.
-Unknown effects also prevent restoration: inspect the remote houses
-through the workspace manager and the preserved record and plan. There is
-no safe resume or clear command for an unconfirmed batch.
+Unknown effects also prevent restoration: inspect the remote houses on
+the worker's machine and the preserved record and plan. There is no safe
+resume or clear command for an unconfirmed batch.
 
-`hamlet_workspace` supplies the separate Linux manager/worker. Its APIs,
-configuration, restrictions and experimental deployment notes
-are in [`crates/hamlet_workspace/README.md`](../crates/hamlet_workspace/README.md),
-with the design in [the proposal](proposals/remote-workspaces.md).
+`hamlet_workspace` supplies the Linux worker the server connects to. Its
+configuration, restrictions and deployment notes are in
+[`crates/hamlet_workspace/README.md`](../crates/hamlet_workspace/README.md),
+and what remains to build in [the proposal](proposals/remote-workspaces.md).

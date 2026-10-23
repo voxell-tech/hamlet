@@ -1,6 +1,6 @@
-//! Workspace protocol v1, independent of Substrate identities: the
-//! messages Hamlet posts, each operation with the reply it gets, and
-//! the limits both sides hold to.
+//! Workspace protocol v1: the messages Hamlet posts to the worker,
+//! each operation with the reply it gets, and the limits both sides
+//! hold to.
 
 mod bytes;
 mod walk;
@@ -34,24 +34,15 @@ pub const LIBRARY_FILES: usize = 1024;
 pub enum Message {
     Execute { request: Request },
     Cancel { id: String },
-    Status { id: String },
 }
 
 impl Message {
     pub fn id(&self) -> &str {
         match self {
             Self::Execute { request } => &request.id,
-            Self::Cancel { id } | Self::Status { id } => id,
+            Self::Cancel { id } => id,
         }
     }
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Envelope {
-    pub home: String,
-    pub actor_uid: String,
-    pub message: Message,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -309,7 +300,7 @@ pub struct Found {
     pub size: u64,
 }
 
-/// The answer to a status or a cancellation.
+/// The answer to a cancellation.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize,
 )]
@@ -323,9 +314,11 @@ pub struct Progress {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum State {
-    Running,
+    /// The operation is running and is being stopped.
     Cancelling,
+    /// The operation was never admitted and never will be.
     Cancelled,
+    /// The operation had already ended.
     Completed,
 }
 

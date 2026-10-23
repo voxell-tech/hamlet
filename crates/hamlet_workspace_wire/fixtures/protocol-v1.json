@@ -1,6 +1,6 @@
 {
   "protocol": 1,
-  "description": "Workspace protocol v1 messages as Hamlet posts them to the manager's POST /v1, each with the reply expected when the cases run in order against one fresh workspace. Request ids are never reused by a real client: the replay case shows the manager refusing a repeated id. Each write's data is the base64 of content_utf8 or of the bytes in content_hex.",
+  "description": "Workspace protocol v1 messages as Hamlet posts them to the worker's POST /v1, each with the reply expected when the cases run in order against one fresh workspace. Request ids are never reused by a real client: the replay case shows the worker refusing a repeated id. Each write's data is the base64 of content_utf8 or of the bytes in content_hex.",
   "cases": [
     {
       "name": "cancel_before_admission",
@@ -80,14 +80,6 @@
         }
       },
       "content_hex": "00fffe800a",
-      "reply": { "kind": "ok", "value": null }
-    },
-    {
-      "name": "status_after_write",
-      "message": {
-        "kind": "status",
-        "id": "250b2dc7-b129-421c-8fee-d8d68588c401"
-      },
       "reply": { "kind": "ok", "value": null }
     },
     {

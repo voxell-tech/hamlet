@@ -93,7 +93,7 @@ The default home is ~/.hamlet. For a disposable trial, set HAMLET_HOME to a new
 scratch directory and HAMLET_VIEW to a scratch window directory. hamlet stop
 stops the home's server; closing its window does not.
 
-Windows has no server. Remote workspaces need a separately configured manager.
+Windows has no server. Remote workspaces need a separately run workspace worker.
 INFO
 
 case $target in

@@ -1,179 +1,116 @@
 # Remote workspaces behind existing tools
 
-What remains to build and prove for remote workspaces. What works now,
-locally, is in [`sandbox.md`](../sandbox.md#remote-workspaces); nothing
-has run on GKE yet. ADR 0003 and S12 place tool execution behind one
-interface; the remote workspace must preserve the applicable C18-C21, S3 and
-S7 contracts.
+What remains to build and prove for remote workspaces. What works now is
+in [`sandbox.md`](../sandbox.md#remote-workspaces) and the worker's
+[README](../../crates/hamlet_workspace/README.md). ADR 0003 and S12 place
+tool execution behind one interface; the remote workspace must preserve
+the applicable C18-C21, S3 and S7 contracts.
 
 ## Outcome
 
-Agents use the existing bash, read, write, edit, find and search tools. File
-and process operations reach the same remote filesystem. Agents never see
-Substrate, actor identities, or lifecycle tools. Hamlet's server has no
-Substrate lifecycle client or Kubernetes credentials.
+Agents use the existing bash, read, write, edit, find and search tools.
+File and process operations reach the same remote filesystem. Agents
+never see the machine, the worker or its tokens. Hamlet's server holds
+only the worker's address and its home's token, and no cloud
+credentials.
 
-A separate Rust workspace service manages the actor. One crate,
-`hamlet_workspace`, contains the service and an in-actor worker.
-The worker performs file/process operations; it is not another control-plane
-service. Keep the local workspace as the default.
+One crate, `hamlet_workspace`, holds the worker: one process on a Linux
+machine the chief runs, which Hamlet's server talks to directly. Keep
+the local workspace as the default.
 
-Local evidence informs the implementation; live validation is required
-before its isolation guarantees are accepted.
+An earlier prototype put each hamlet in a Substrate actor behind a
+separate manager that created, suspended and resumed it. It was
+dropped; its code is in the git history.
 
 ## Ownership
 
-- Hamlet owns conversations, agents, permissions, prompts, model credentials,
-  and the domain behavior of houses, skills, gifts and archives.
-- The workspace service owns authentication, workspace routing, Substrate
-  lifecycle and active-operation tracking. It understands files and processes,
-  not agent conversations, gifts or archives.
-- The worker enforces each operation's approved filesystem and network reach.
-  Model-authored arguments cannot choose another workspace, actor, house, or
-  permission grant.
-- Substrate owns placement and checkpoint/restore mechanics.
+- Hamlet owns conversations, agents, permissions, prompts, model
+  credentials, and the domain behavior of houses, skills, gifts and
+  archives.
+- The worker owns the homes' authentication, the operation journal and
+  each operation's filesystem and network reach. It understands files
+  and processes, not agent conversations, gifts or archives.
+  Model-authored arguments cannot choose another home, workspace, house
+  or permission grant.
+- The operator owns the machine, its storage and backups, TLS in front
+  of the worker, and its network's private ranges.
 
-The server's ExecutionEnv adapter is infrastructure plumbing. It must not
-expose a second set of agent tools or silently fall back to host file access.
+The server's adapter must not expose a second set of agent tools or
+silently fall back to host file access.
 
-## Initial workspace model
+## Workspace model
 
-Use one actor per hamlet as a conditional candidate: one shared project and
-separate private agent houses. Use a stable workspace identity independent of
-the server's absolute home path. Persist the actor's immutable UID as well as
-its name. A missing actor is not permission to replace lost files with a new,
-empty workspace.
+One folder per hamlet on the worker: one shared project and separate
+private agent houses, named by the home and the hamlet, never by a path
+on the chief's machine. Server records, conversations and model
+credentials remain in Hamlet. Prompt readers, chief edits, gifts and
+archive operations address the same files as the tools; their domain
+logic stays in Hamlet. No background local-folder synchronization or
+credential copying is part of this work.
 
-Agent-visible files have one authoritative remote location. Server records,
-conversations and model credentials remain in Hamlet. Prompt readers, chief
-edits, gifts and archive operations must address the same files as the tools;
-their domain logic stays in Hamlet. No background local-folder synchronization
-or credential copying is part of this work.
+Operations the protocol cannot do safely remotely, such as founding,
+moving, removing, restoring or erasing a hamlet and moving a house, are
+refused as capabilities of the workspace rather than done on stale local
+copies.
 
-Remote paths must not be represented as paths on the chief's machine. During
-incremental development, unsupported house or lifecycle operations must be
-explicitly unavailable rather than silently using stale local copies.
+## What remains
 
-## Service contract
+- An automated end-to-end check: the real server, pi with a faux model
+  and the real worker, through the existing tools: write, execute/read,
+  edit and read back. Today the server is tested against a loopback
+  double and the worker on its own.
+- The worker outside Docker, and Docker hosts with AppArmor: which user
+  namespace, AppArmor and seccomp settings it needs.
+- Telling an emptied `root` from a new one. A missing root stops the
+  worker, but an emptied one gives agents empty houses.
+- A way to inspect an uncertain operation by its request id. The
+  journal records it; nothing reads it for the chief.
+- Pruning the journal, which keeps every operation's marker and reply.
+- The isolation requirements below on each host the worker runs on.
 
-Define a small versioned workspace protocol for the operations existing tools
-need: text and binary files, metadata, directories, mutations, command output,
-status and cancellation. Preserve the existing tool-visible results, bounds,
-scrubbing, output-spill behavior and error meanings. Shared wire fixtures keep
-the server and the workspace aligned.
+## Isolation requirements
 
-Hamlet authenticates for an authorized workspace. File/process requests do
-not expose actor templates or lifecycle verbs. A first authorized operation
-may cause the manager to create the workspace's actor automatically. There is
-no manual provisioning script in the product path.
+- Filesystem reach enforced for both file helpers and arbitrary shell
+  commands, including traversal, symlinks, root replacement, proc access
+  and inherited FDs.
+- A denied command cannot reach network endpoints. Transport to the
+  worker is infrastructure traffic, not an agent's network grant.
+- Network-enabled commands cannot reach the worker's own endpoint or
+  acquire infrastructure credentials.
+- Bounded output and cancellation of all descendants, with a completion
+  barrier before reporting that a process tree is gone.
 
-The manager uses the pinned Substrate control protocol directly, not kubectl
-subprocesses. Request-triggered resume is already implemented by atenet; reuse
-it rather than adding a competing resume scheduler. All worker requests must
-be authenticated and authorized, including ones received on loopback.
+The Docker check in the worker's README covers house and project reach,
+hidden host paths and the two network cases on one host. It does not
+cover the rest of this list, or resource limits, which are the
+machine's.
 
-Choose and record the smallest protocol needed for the first end-to-end slice
-before allowing another implementation owner to change either end. Avoid a
-multi-provider framework or a standalone SDK project.
+If a required boundary cannot be enforced, fail closed and report the
+blocked contract. Do not silently relabel the remote workspace safe or
+replace isolation with agent naming conventions. Any weaker trust model
+or different layout needs a chief decision.
 
 ## Lifecycle and recovery
 
-Start with one manager replica and small durable manager storage. SQLite on a
-dedicated persistent volume is the current proposal, not a reason to modify
-Substrate's PostgreSQL schema. Prevent overlapping manager instances from
-acting on the same state.
-
-Persist workspace bindings, actor UID, lifecycle intent and enough operation
-state to reconcile interruptions. Assign operation IDs before mutations.
-Never automatically repeat a command or uncertain write after a timeout,
-disconnect or restart. Reconcile its known outcome or return an uncertain
-result with safe recovery advice.
-
-Each operation holds the workspace active. After an idle interval, initially
-five minutes, the manager may suspend it only when operations and descendant
-processes are quiescent. Serialize suspension against new operations. A request
-during a transition waits for the transition to resolve.
-
-Hamlet shutdown or client disconnection never deletes the workspace. Deletion
-is an explicit administrative action with actor-identity protection. Automatic
-destructive retention and persistent background jobs are out of scope.
-
-Successful suspension must preserve files across resume. A successful write is
-not necessarily a completed checkpoint. Unexpected worker loss can lose changes
-since the last successful snapshot; do not promise synchronous storage durability.
-
-## Isolation evidence and outstanding requirements
-
-The pinned runtime was exercised locally in an OCI fixture. Independent
-reproduction matched all 13 expected outcomes, including failing controls:
-private direct house access, shared project writes, read-only shared files,
-denial of a reachable parent-loopback listener, and cleanup of detached
-descendants on cancellation and normal command completion.
-
-Default capabilities were insufficient. The candidate grants SETFCAP to the
-trusted worker, creates a separate user/network namespace for denied commands,
-and drops all capabilities before running untrusted code. It did not need
-SYS_ADMIN or a privileged host helper in those local experiments. This does
-not authorize changing a deployed actor template.
-
-The implementation must establish:
-
-- Filesystem reach enforced for both file helpers and arbitrary shell commands,
-  including traversal, symlinks, root replacement, proc access and inherited FDs.
-- A denied command cannot reach network endpoints. Transport to the workspace
-  is infrastructure traffic, not an agent's network grant.
-- Network-enabled commands cannot invoke unauthorized worker/control operations
-  or acquire infrastructure credentials.
-- Bounded output, actor resource limits and cancellation of all descendants.
-- A completion barrier before reporting that a process tree is gone. A delayed
-  marker test is not proof of zero post-completion writes; the inspected gVisor
-  source has an explicit task-teardown waiting TODO.
-- Actual GKE networking, durable mounts and suspend/resume preserve these rules.
-
-Pinned upstream includes EgressPolicy and credential injection. Google's GKE
-documentation lists those capabilities as unsupported. Our deployment has an
-egress gateway configured, but enforcement has not been established. Actor-wide
-egress also cannot replace per-command grants for agents sharing an actor.
-
-If a required boundary cannot be enforced, fail closed and report the blocked
-contract. Do not silently relabel the remote workspace safe or replace isolation with
-agent naming conventions. Any weaker trust model or different actor layout
-needs a chief decision.
-
-## Acceptance and delivery
-
-The first slice is a real Hamlet Harness with a faux model calling existing
-tools through a real workspace service and worker: write, execute/read, edit,
-and read back the result. Run locally first using disposable data and the same
-worker implementation intended for the actor. This is not evidence of GKE
-behavior until the approved live run succeeds.
-
-Extend the existing ExecutionEnv/tool behavior tests. Keep filesystem and
-execution real; doubles may stand in for the external Substrate control/router
-protocol in offline tests. Test through public interfaces, not private call
-sequences. Live GKE tests remain explicit opt-in and must not call a model API.
-
-Subsequent slices cover isolation, lifecycle recovery, consistent house file
-consumers, archive/restore/moves, and final integrated acceptance. Evidence must
-distinguish local, simulated control-plane, and actual GKE results.
-
-The coordinator owns plan changes, integration and live cloud actions. One
-implementation owner builds the first vertical slice. At most two disjoint
-owners work in parallel once the protocol is settled. Existing prototype work
-is preserved as reference, not extended as the target interface.
+Assign operation IDs before mutations. Never automatically repeat a
+command or uncertain write after a timeout, disconnect or restart.
+Reconcile its known outcome or return an uncertain result with safe
+recovery advice. Hamlet shutdown or client disconnection never deletes
+a workspace; deletion is an operator's action on the worker's machine.
+The worker runs continuously; there is no suspension.
 
 ## Out of scope
 
-- Deploying the Hamlet server itself to GKE.
-- Multiple manager replicas, multiple regions, node autoscaling or new clusters.
-- A general multi-provider framework, automatic local-folder synchronization,
-  or automatic git/model/cloud credential injection.
-- Persistent background jobs, automatic destructive retention, or new agent tools.
-- Rewriting houses, skills, gifts or archives as workspace-service concepts.
+- Deploying the Hamlet server itself remotely.
+- Several workers for one home, or a scheduler that starts and stops
+  them.
+- Automatic local-folder synchronization, or automatic git, model or
+  cloud credential injection.
+- Persistent background jobs, automatic destructive retention, or new
+  agent tools.
+- Rewriting houses, skills, gifts or archives as worker concepts.
 
 ## Sources
 
 - [ADR 0003](../adr/0003-agents-and-their-tools-run-apart.md)
 - [Core requirements](../spec/core.md) and [server requirements](../spec/server.md)
-- [Pinned Substrate](https://github.com/agent-substrate/substrate/tree/756c2a53741121e728f4cc3066c8a19e575b4919)
-- [GKE limitations](https://docs.cloud.google.com/kubernetes-engine/ai-ml/about-agent-substrate?hl=en)

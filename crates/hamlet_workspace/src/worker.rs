@@ -1,5 +1,8 @@
-//! Signed actor operations confined to one house and its optional
-//! shared project.
+//! Authenticated operations of each home's agents, confined to one
+//! house and its optional shared project.
+
+#[cfg(test)]
+mod tests;
 
 use std::collections::HashMap;
 use std::fs;
@@ -7,56 +10,57 @@ use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result, bail};
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD;
-use ring::signature::{ED25519, UnparsedPublicKey};
 use rustix::fs::{FlockOperation, flock};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixListener;
 use tokio::process::Command;
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 
-use crate::control::save;
 use crate::wire::{
-    Code, Envelope, LIBRARY_FILES, Library, MAX_BODY, MAX_FILE,
-    Message, Progress, Reply, Request, State, is_valid_id,
-    is_valid_name,
+    Code, LIBRARY_FILES, Library, MAX_BODY, MAX_FILE, Message,
+    Progress, Reply, Request, State, is_valid_id, is_valid_name,
 };
 use crate::{http, proxy};
+
+/// What a journal marker holds when its operation was cancelled
+/// before it was admitted. An admitted operation's marker is empty.
+const CANCELLED: &[u8] = b"cancelled";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Configuration {
     listen: String,
     root: PathBuf,
-    public_key: String,
-    actor_uid_file: PathBuf,
+    /// Each home's name and the bearer token its Hamlet sends.
+    homes: HashMap<String, String>,
 }
 
 pub async fn run(config: Configuration) -> Result<()> {
-    fs::create_dir_all(&config.root)?;
-    let root = fs::canonicalize(config.root)?;
+    let homes = tokens(&config.homes)?;
+    // A missing root is a missing volume, never a new workspace.
+    let root = fs::canonicalize(&config.root).with_context(|| {
+        format!(
+            "The worker's root {} is missing",
+            config.root.display()
+        )
+    })?;
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
-    let lock = fs::File::create(root.join("lock"))?;
+    // A dot keeps the control root apart from every valid home name.
+    let control = root.join(".control");
+    fs::create_dir_all(&control)?;
+    fs::set_permissions(&control, fs::Permissions::from_mode(0o700))?;
+    let lock = fs::File::create(control.join("lock"))?;
     // The lock is held while this event loop runs.
     if flock(&lock, FlockOperation::NonBlockingLockExclusive).is_err()
     {
         bail!("Worker data is already open");
     }
-    let key = STANDARD.decode(config.public_key)?;
-    if key.len() != 32 {
-        bail!("Invalid worker verification key");
-    }
-    let key = UnparsedPublicKey::new(&ED25519, key);
-    // A dot keeps the control root apart from every valid home name.
-    let control = root.join(".control");
-    fs::create_dir_all(&control)?;
-    fs::set_permissions(&control, fs::Permissions::from_mode(0o700))?;
     let network = control.join("network.sock");
     if fs::symlink_metadata(&network).is_ok() {
         fs::remove_file(&network)?;
@@ -68,8 +72,7 @@ pub async fn run(config: Configuration) -> Result<()> {
     let mut calls = http::listen(&config.listen).await?;
     let mut worker = Worker {
         root,
-        key,
-        actor_uid_file: config.actor_uid_file,
+        homes,
         network,
         running: HashMap::new(),
         tasks: JoinSet::new(),
@@ -97,8 +100,8 @@ pub async fn run(config: Configuration) -> Result<()> {
 /// What the worker's loop holds between calls.
 struct Worker {
     root: PathBuf,
-    key: UnparsedPublicKey<Vec<u8>>,
-    actor_uid_file: PathBuf,
+    /// Each home by [`bearer`] of its authorization.
+    homes: HashMap<[u8; 32], String>,
     network: PathBuf,
     /// The cancel switch of each running operation, by home and id.
     running: HashMap<String, watch::Sender<bool>>,
@@ -108,48 +111,44 @@ struct Worker {
 }
 
 impl Worker {
-    /// Answers one signed call, or starts the operation that will.
+    /// Answers one authenticated call, or starts the operation that
+    /// will.
     fn on_call(&mut self, call: http::Call) -> Result<()> {
-        let envelope = match self.verified(&call) {
-            Ok(envelope) => envelope,
+        let (home_name, message) = match self.admitted(&call) {
+            Ok(admitted) => admitted,
             Err(refused) => {
                 let _ = call.reply.send(refused);
                 return Ok(());
             }
         };
-        let home = self.root.join(&envelope.home);
+        let home = self.root.join(&home_name);
         let journal = home.join("operations");
         fs::create_dir_all(&journal)?;
-        let id = envelope.message.id().to_owned();
+        let id = message.id().to_owned();
         let marker = journal.join(&id);
         let result = journal.join(format!("{id}.json"));
-        let active_key = format!("{}:{id}", envelope.home);
-        match envelope.message {
-            Message::Status { .. } => {
-                let reply = if self.running.contains_key(&active_key)
-                {
-                    Reply::ok(Progress {
-                        state: State::Running,
-                    })
-                } else {
-                    fs::read(&result)
-                        .ok()
-                        .and_then(|bytes| {
-                            serde_json::from_slice(&bytes).ok()
-                        })
-                        .unwrap_or_else(Reply::uncertain)
-                };
-                let _ = call.reply.send(reply);
-            }
+        let active_key = format!("{home_name}:{id}");
+        match message {
             Message::Cancel { .. } => {
-                if let Some(cancel) = self.running.get(&active_key) {
+                let state = if let Some(cancel) =
+                    self.running.get(&active_key)
+                {
                     let _ = cancel.send(true);
-                } else if !marker.exists() {
-                    fs::File::create(&marker)?.sync_all()?;
-                }
-                let _ = call.reply.send(Reply::ok(Progress {
-                    state: State::Cancelling,
-                }));
+                    Some(State::Cancelling)
+                } else if is_cancelled(&marker)
+                    || mark(&journal, &marker, CANCELLED).is_ok()
+                {
+                    // Marked before this reply, so the id is never
+                    // admitted, even after a restart.
+                    Some(State::Cancelled)
+                } else {
+                    marker.exists().then_some(State::Completed)
+                };
+                let _ = call.reply.send(
+                    state.map_or_else(Reply::uncertain, |state| {
+                        Reply::ok(Progress { state })
+                    }),
+                );
             }
             Message::Execute { request } => {
                 if request.version != 1
@@ -157,7 +156,8 @@ impl Worker {
                 {
                     let _ = call.reply.send(Reply::error(
                         Code::NotSupported,
-                        "Only protocol 1 is supported.",
+                        "This workspace service supports protocol 1 \
+                         only.",
                         false,
                     ));
                     return Ok(());
@@ -171,19 +171,21 @@ impl Worker {
                     ));
                     return Ok(());
                 }
-                let created = fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(marker);
-                match created {
-                    Ok(file) => {
-                        file.sync_all()?;
-                        fs::File::open(&journal)?.sync_all()?;
-                    }
-                    Err(_) => {
-                        let _ = call.reply.send(Reply::uncertain());
-                        return Ok(());
-                    }
+                // An id is admitted once; a repeated one is never run
+                // again.
+                if mark(&journal, &marker, &[]).is_err() {
+                    let _ =
+                        call.reply.send(if is_cancelled(&marker) {
+                            Reply::error(
+                                Code::Aborted,
+                                "Workspace operation cancelled \
+                                 before admission. Nothing was run.",
+                                false,
+                            )
+                        } else {
+                            Reply::uncertain()
+                        });
+                    return Ok(());
                 }
                 let (cancel, cancelled) = watch::channel(false);
                 self.running.insert(active_key.clone(), cancel);
@@ -216,59 +218,94 @@ impl Worker {
         Ok(())
     }
 
-    /// The envelope of `call` when its signature is fresh and valid
-    /// and it names this actor, else the reply that refuses it.
-    fn verified(&self, call: &http::Call) -> Result<Envelope, Reply> {
-        let fresh = call.timestamp.parse::<u64>().ok().is_some_and(
-            |seconds| {
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .is_ok_and(|now| {
-                        now.as_secs().abs_diff(seconds) <= 180
-                    })
-            },
-        );
-        let signed =
-            [call.timestamp.as_bytes(), b"\n", &call.body].concat();
-        let signature =
-            STANDARD.decode(&call.signature).unwrap_or_default();
-        if !fresh || self.key.verify(&signed, &signature).is_err() {
-            return Err(Reply::error(
-                Code::PermissionDenied,
-                "Invalid workspace signature.",
+    /// The home and message of `call` when its token is a home's,
+    /// else the reply that refuses it.
+    fn admitted(
+        &self,
+        call: &http::Call,
+    ) -> Result<(String, Message), Reply> {
+        let home = self
+            .homes
+            .get(&bearer(&call.authorization))
+            .ok_or_else(|| {
+                Reply::error(
+                    Code::PermissionDenied,
+                    "Workspace authentication failed. Ask the chief \
+                     to check the connection.",
+                    false,
+                )
+            })?;
+        match serde_json::from_slice::<Message>(&call.body) {
+            Ok(message) if is_valid_id(message.id()) => {
+                Ok((home.clone(), message))
+            }
+            _ => Err(Reply::error(
+                Code::Invalid,
+                "Invalid workspace request.",
                 false,
-            ));
+            )),
         }
-        let envelope =
-            match serde_json::from_slice::<Envelope>(&call.body) {
-                Ok(envelope)
-                    if is_valid_name(&envelope.home)
-                        && is_valid_id(envelope.message.id()) =>
-                {
-                    envelope
-                }
-                _ => {
-                    return Err(Reply::error(
-                        Code::Invalid,
-                        "Invalid signed workspace request.",
-                        false,
-                    ));
-                }
-            };
-        // SystemInfo is refreshed on restore; memory may still hold
-        // the snapshot source's UID.
-        let actor = fs::read_to_string(&self.actor_uid_file);
-        if envelope.actor_uid.is_empty()
-            || !actor.is_ok_and(|uid| uid == envelope.actor_uid)
-        {
-            return Err(Reply::error(
-                Code::PermissionDenied,
-                "Workspace actor identity does not match.",
-                false,
-            ));
-        }
-        Ok(envelope)
     }
+}
+
+/// Each home by the digest of the authorization header its Hamlet
+/// sends, so a token is never compared byte by byte.
+fn tokens(
+    homes: &HashMap<String, String>,
+) -> Result<HashMap<[u8; 32], String>> {
+    if homes.is_empty() {
+        bail!("The worker serves no home");
+    }
+    let mut tokens = HashMap::new();
+    for (home, token) in homes {
+        if !is_valid_name(home) || token.len() < 16 {
+            bail!("Invalid name or token of home {home:?}");
+        }
+        if tokens
+            .insert(bearer(&format!("Bearer {token}")), home.clone())
+            .is_some()
+        {
+            bail!("Two homes share a token");
+        }
+    }
+    Ok(tokens)
+}
+
+fn bearer(authorization: &str) -> [u8; 32] {
+    Sha256::digest(authorization).into()
+}
+
+/// Creates the journal's `marker` holding `contents`, durably. Fails
+/// when it already exists.
+fn mark(
+    journal: &Path,
+    marker: &Path,
+    contents: &[u8],
+) -> std::io::Result<()> {
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(marker)?;
+    file.write_all(contents)?;
+    file.sync_all()?;
+    fs::File::open(journal)?.sync_all()
+}
+
+/// Whether `marker`'s operation was cancelled before admission.
+fn is_cancelled(marker: &Path) -> bool {
+    fs::read(marker).is_ok_and(|contents| contents == CANCELLED)
+}
+
+/// Replaces the file at `path` with `reply`, durably.
+fn save(path: &Path, reply: &Reply) -> Result<()> {
+    let temporary = path.with_extension("pending");
+    let mut file = fs::File::create(&temporary)?;
+    file.write_all(&serde_json::to_vec(reply)?)?;
+    file.sync_all()?;
+    fs::rename(temporary, path)?;
+    fs::File::open(path.parent().context("Journal has no folder")?)?
+        .sync_all()?;
+    Ok(())
 }
 
 /// Runs one operation under a trusted PID 1 in fresh namespaces. Only

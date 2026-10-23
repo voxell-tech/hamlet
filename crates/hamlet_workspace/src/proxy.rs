@@ -41,7 +41,7 @@ async fn forward(mut client: UnixStream) -> Result<()> {
         bail!("Invalid proxy version");
     }
     let tunnel = method == "CONNECT";
-    let url = reqwest::Url::parse(&if tunnel {
+    let url = url::Url::parse(&if tunnel {
         format!("https://{target}/")
     } else {
         target.to_owned()
@@ -142,8 +142,6 @@ fn is_public_v4(address: Ipv4Addr) -> bool {
     !matches!(
         (a, b, c),
         (0 | 10 | 127 | 224..=255, _, _)
-            // GKE reserves 34.118.224.0/20 for internal Services.
-            | (34, 118, 224..=239)
             | (100, 64..=127, _)
             | (169, 254, _)
             | (172, 16..=31, _)
@@ -165,9 +163,6 @@ mod tests {
         for address in [
             "127.0.0.1",
             "10.2.3.4",
-            "34.118.224.0",
-            "34.118.226.61",
-            "34.118.239.255",
             "169.254.169.254",
             "100.64.1.2",
             "172.31.2.3",
@@ -189,8 +184,6 @@ mod tests {
         }
         for address in [
             "8.8.4.4",
-            "34.118.223.255",
-            "34.118.240.0",
             "172.32.0.1",
             "100.128.0.1",
             "2606:4700:4700::1111",

@@ -38,7 +38,7 @@ to a remote server's WebSocket URL through an SSH tunnel and `HAMLET_TOKEN`
 to its connection token, then run the window. Keep the token private.
 Windows has no supported server sandbox; this is a remote client, not a
 local server installation. Neither packaging nor Linux tests prove macOS or Windows
-behavior. Remote workspaces require a separately configured workspace manager;
+behavior. Remote workspaces require a separately run workspace worker;
 it is not included in these archives.
 
 ## Building an archive

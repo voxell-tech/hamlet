@@ -1,4 +1,4 @@
-//! Public server requests against an offline workspace-v1 manager
+//! Public server requests against an offline workspace-v1 worker
 //! double.
 
 use std::io::{Read, Write};
@@ -16,28 +16,28 @@ use super::*;
 
 const TOKEN: &str = "offline-workspace-token-123456";
 
-struct Manager {
+struct Worker {
     files: Scratch,
     url: String,
     received: mpsc::Receiver<Value>,
     stop: mpsc::Sender<()>,
-    worker: Option<thread::JoinHandle<()>>,
+    serving: Option<thread::JoinHandle<()>>,
 }
 
-impl Drop for Manager {
+impl Drop for Worker {
     fn drop(&mut self) {
         let _ = self.stop.send(());
-        let result = self.worker.take().unwrap().join();
+        let result = self.serving.take().unwrap().join();
         if !thread::panicking() {
             result.unwrap();
         }
     }
 }
 
-impl Manager {
+impl Worker {
     fn start() -> Self {
         let files = Scratch::new(&format!(
-            "remote-manager-{}",
+            "remote-worker-{}",
             uuid::Uuid::new_v4()
         ));
         let root = files.to_path_buf();
@@ -47,7 +47,7 @@ impl Manager {
         listener.set_nonblocking(true).unwrap();
         let (sent, received) = mpsc::channel();
         let (stop, stopped) = mpsc::channel();
-        let worker = thread::spawn(move || {
+        let serving = thread::spawn(move || {
             let mut held = Vec::<(String, TcpStream)>::new();
             let mut paused =
                 Vec::<(TcpStream, Value, Option<Value>)>::new();
@@ -140,7 +140,7 @@ impl Manager {
                         == "write")
                         .then(|| performed(&root, request));
                     // Control requests must progress without the
-                    // manager's help, even after a write took effect.
+                    // worker's help, even after a write took effect.
                     paused.push((stream, request.clone(), result));
                     continue;
                 }
@@ -161,7 +161,7 @@ impl Manager {
                     }
                     answer(
                         &mut stream,
-                        json!({"kind":"error","code":"permission_denied","message":"controlled manager refusal","uncertain":failure["uncertain"]}),
+                        json!({"kind":"error","code":"permission_denied","message":"controlled worker refusal","uncertain":failure["uncertain"]}),
                     );
                     continue;
                 }
@@ -190,7 +190,7 @@ impl Manager {
             url,
             received,
             stop,
-            worker: Some(worker),
+            serving: Some(serving),
         }
     }
 
@@ -199,12 +199,12 @@ impl Manager {
     }
 }
 
-/// The manager's reply to `request`, which must be a typed one.
+/// The worker's reply to `request`, which must be a typed one.
 fn performed(root: &Path, request: &Value) -> Value {
     let reply = match perform(root, request) {
         Ok(value) => wire::Reply::Ok { value },
         Err(code) => {
-            wire::Reply::error(code, "manager refused path", false)
+            wire::Reply::error(code, "worker refused path", false)
         }
     };
     serde_json::to_value(reply).unwrap()
@@ -343,7 +343,7 @@ fn tree(
 }
 
 /// Takes the request's library as the worker does: by its digest,
-/// with its files only where this manager does not hold them yet.
+/// with its files only where this worker does not hold them yet.
 fn library(
     root: &Path,
     request: &wire::Request,
@@ -373,7 +373,7 @@ fn ok(value: impl serde::Serialize) -> Result<Value, wire::Code> {
     Ok(serde_json::to_value(value).unwrap())
 }
 
-/// `request` carried out on the manager's files, as protocol v1
+/// `request` carried out on the worker's files, as protocol v1
 /// types it.
 fn perform(
     root: &Path,
@@ -571,7 +571,7 @@ fn perform(
 }
 
 /// [`hamlet_testing::until`], checking that no message on the way
-/// carries the manager's token.
+/// carries the worker's token.
 async fn until(
     socket: &mut Socket,
     check: impl Fn(&Value) -> bool,
@@ -598,9 +598,9 @@ fn credentials(home: &Scratch, url: &str) {
 #[tokio::test]
 async fn remote_houses_prompt_gifts_and_workspace_move_do_not_open_host_houses()
  {
-    let manager = Manager::start();
+    let worker = Worker::start();
     let home = Scratch::new("remote-houses");
-    credentials(&home, &manager.url);
+    credentials(&home, &worker.url);
     let side = Scratch::new("remote-script");
     let script = side.join("faux.json");
     Script::new().write(&script);
@@ -609,10 +609,7 @@ async fn remote_houses_prompt_gifts_and_workspace_move_do_not_open_host_houses()
         .unwrap();
     let mut server = start(&home, &[], Models::Faux(&script)).await;
     let (mut socket, state) = server.connect().await;
-    assert_eq!(
-        state["settings"]["workspace"]["running"],
-        manager.url
-    );
+    assert_eq!(state["settings"]["workspace"]["running"], worker.url);
     let mayor = json!({"hamlet":"home","agent":"mayor"});
     let edited = request(&mut socket,json!({"type":"edit","doc":"notes","agent":mayor,"text":"Remote notes only"})).await;
     assert_eq!(edited["kind"], "notice", "{edited}");
@@ -621,14 +618,14 @@ async fn remote_houses_prompt_gifts_and_workspace_move_do_not_open_host_houses()
     let gift = request(&mut socket,json!({"type":"give","to":mayor,"skill":{"starter":"weather"}})).await;
     assert_eq!(gift["kind"], "notice", "{gift}");
     assert!(
-        manager.house(0).join("skills/weather/SKILL.md").is_file()
+        worker.house(0).join("skills/weather/SKILL.md").is_file()
     );
     let upload = request(&mut socket,json!({"type":"give","to":mayor,"files":[{"path":"gift.bin","size":3}]})).await;
     assert_eq!(upload["kind"], "notice", "{upload}");
     let given = request(&mut socket,json!({"type":"give-part","upload":upload["upload"],"path":"gift.bin","offset":0,"data":"/wAB"})).await;
     assert_eq!(given["kind"], "notice", "{given}");
     assert_eq!(
-        fs::read(manager.house(0).join("inbox/gift.bin")).unwrap(),
+        fs::read(worker.house(0).join("inbox/gift.bin")).unwrap(),
         [255, 0, 1]
     );
     let too_big = request(&mut socket,json!({"type":"give","to":mayor,"files":[{"path":"oversize","size":4194305}]})).await;
@@ -659,17 +656,17 @@ async fn remote_houses_prompt_gifts_and_workspace_move_do_not_open_host_houses()
     )
     .await;
     assert_eq!(refused["kind"], "error", "{refused}");
-    fs::create_dir_all(manager.house(0).join("empty/deep")).unwrap();
-    fs::write(manager.house(0).join("binary"), [0, 255, 128, 1])
+    fs::create_dir_all(worker.house(0).join("empty/deep")).unwrap();
+    fs::write(worker.house(0).join("binary"), [0, 255, 128, 1])
         .unwrap();
     fs::set_permissions(
-        manager.house(0).join("binary"),
+        worker.house(0).join("binary"),
         fs::Permissions::from_mode(0o751),
     )
     .unwrap();
-    symlink("/irrelevant", manager.house(0).join("left-link"))
+    symlink("/irrelevant", worker.house(0).join("left-link"))
         .unwrap();
-    let target = Manager::start();
+    let target = Worker::start();
     let edited = request(&mut socket,json!({"type":"edit","doc":"settings","set":{"workspace":{"url":target.url,"token":TOKEN}}})).await;
     assert_eq!(edited["kind"], "notice", "{edited}");
     let moved =
@@ -691,10 +688,7 @@ async fn remote_houses_prompt_gifts_and_workspace_move_do_not_open_host_houses()
     );
     assert!(!target.house(0).join("left-link").exists());
     let (_, state) = server.connect().await;
-    assert_eq!(
-        state["settings"]["workspace"]["running"],
-        manager.url
-    );
+    assert_eq!(state["settings"]["workspace"]["running"], worker.url);
     assert_eq!(state["settings"]["workspace"]["url"], target.url);
     assert_eq!(
         state["settings"]["workspace"]["move"]["state"],
@@ -714,7 +708,7 @@ async fn remote_houses_prompt_gifts_and_workspace_move_do_not_open_host_houses()
             .unwrap(),
         "Remote notes only"
     );
-    assert!(manager.house(0).join("binary").is_file());
+    assert!(worker.house(0).join("binary").is_file());
     assert_eq!(server.stop().await, Some(0));
     drop(server);
     let mut server = start(&home, &[], Models::Faux(&script)).await;
@@ -758,12 +752,12 @@ async fn approval(socket: &mut Socket) -> Value {
 }
 
 async fn received(
-    manager: &Manager,
+    worker: &Worker,
     check: impl Fn(&Value) -> bool,
 ) -> Value {
     tokio::time::timeout(Duration::from_secs(20), async {
         loop {
-            for message in manager.received.try_iter() {
+            for message in worker.received.try_iter() {
                 if check(&message) {
                     return message;
                 }
@@ -772,16 +766,16 @@ async fn received(
         }
     })
     .await
-    .expect("manager did not receive request")
+    .expect("worker did not receive request")
 }
 
 #[tokio::test]
 async fn remote_notes_do_not_hold_other_clients_disconnect_or_shutdown()
  {
     for operation in ["read", "write"] {
-        let manager = Manager::start();
+        let worker = Worker::start();
         let home = Scratch::new("remote-dispatch");
-        credentials(&home, &manager.url);
+        credentials(&home, &worker.url);
         let side = Scratch::new("remote-dispatch-script");
         let script = side.join("faux.json");
         Script::new().write(&script);
@@ -800,7 +794,7 @@ async fn remote_notes_do_not_hold_other_clients_disconnect_or_shutdown()
             1
         );
         fs::write(
-            manager.files.join("hold-request"),
+            worker.files.join("hold-request"),
             json!({"kind":operation,"path":"/house/NOTES.md"})
                 .to_string(),
         )
@@ -811,7 +805,7 @@ async fn remote_notes_do_not_hold_other_clients_disconnect_or_shutdown()
             json!({"type":"edit","doc":"notes","agent":{"hamlet":"home","agent":"mayor"},"text":"# Notes\nheld write"})
         };
         send(&mut reader, message).await;
-        received(&manager, |message| {
+        received(&worker, |message| {
             message["request"]["operation"]["kind"] == operation
                 && message["request"]["operation"]["path"]
                     == "/house/NOTES.md"
@@ -839,12 +833,12 @@ async fn remote_notes_do_not_hold_other_clients_disconnect_or_shutdown()
         assert_eq!(server.stop().await, Some(0));
         if operation == "write" {
             assert_eq!(
-                fs::read_to_string(manager.house(0).join("NOTES.md"))
+                fs::read_to_string(worker.house(0).join("NOTES.md"))
                     .unwrap(),
                 "# Notes\nheld write"
             );
             assert!(
-                !manager.received.try_iter().any(|message| message
+                !worker.received.try_iter().any(|message| message
                     ["request"]["operation"]["kind"]
                     == "write"),
                 "the uncertain write was replayed"
@@ -854,12 +848,13 @@ async fn remote_notes_do_not_hold_other_clients_disconnect_or_shutdown()
 }
 
 #[tokio::test]
-async fn remote_startup_signal_releases_the_home_before_manager_ok() {
-    let manager = Manager::start();
+async fn remote_startup_signal_releases_the_home_before_the_worker_answers()
+ {
+    let worker = Worker::start();
     let home = Scratch::new("remote-startup-signal");
-    credentials(&home, &manager.url);
+    credentials(&home, &worker.url);
     fs::write(
-        manager.files.join("hold-request"),
+        worker.files.join("hold-request"),
         json!({"kind":"init_house"}).to_string(),
     )
     .unwrap();
@@ -877,7 +872,7 @@ async fn remote_startup_signal_releases_the_home_before_manager_ok() {
         .kill_on_drop(true)
         .spawn()
         .unwrap();
-    received(&manager, |message| {
+    received(&worker, |message| {
         message["request"]["operation"]["kind"] == "init_house"
     })
     .await;
@@ -896,10 +891,10 @@ async fn remote_startup_signal_releases_the_home_before_manager_ok() {
 #[tokio::test]
 async fn remote_tools_approve_house_writes_forward_grants_and_cancel_exact_request()
  {
-    let manager = Manager::start();
+    let worker = Worker::start();
     let home = Scratch::new("remote-tools");
     let side = Scratch::new("remote-tool-script");
-    credentials(&home, &manager.url);
+    credentials(&home, &worker.url);
     let script = side.join("faux.json");
     Script::new().responses([
         call("write",json!({"path":"/house/result.txt","content":"approved remotely"})),
@@ -914,13 +909,13 @@ async fn remote_tools_approve_house_writes_forward_grants_and_cancel_exact_reque
     )
     .await;
     let (mut socket, _) = server.connect().await;
-    fs::create_dir_all(manager.files.join("home/project")).unwrap();
+    fs::create_dir_all(worker.files.join("home/project")).unwrap();
     let folder = request(&mut socket,json!({"type":"say","to":{"hamlet":"home","agent":"mayor"},"text":"/folder /project"})).await;
     assert_eq!(folder["kind"], "notice", "{folder}");
     send(&mut socket,json!({"type":"say","to":{"hamlet":"home","agent":"mayor"},"text":"Work remotely"})).await;
     let wait = approval(&mut socket).await;
     assert_eq!(wait["detail"]["danger"], "edit", "{wait}");
-    assert!(!manager.house(0).join("result.txt").exists());
+    assert!(!worker.house(0).join("result.txt").exists());
     send(
         &mut socket,
         json!({"type":"answer","wait":wait["id"],"choice":"allow"}),
@@ -929,7 +924,7 @@ async fn remote_tools_approve_house_writes_forward_grants_and_cancel_exact_reque
     let wait = approval(&mut socket).await;
     assert_eq!(wait["detail"]["danger"], "network", "{wait}");
     assert_eq!(
-        fs::read_to_string(manager.house(0).join("result.txt"))
+        fs::read_to_string(worker.house(0).join("result.txt"))
             .unwrap(),
         "approved remotely"
     );
@@ -939,7 +934,7 @@ async fn remote_tools_approve_house_writes_forward_grants_and_cancel_exact_reque
         json!({"type":"answer","wait":wait["id"],"choice":"allow"}),
     )
     .await;
-    let execute = received(&manager, |message| {
+    let execute = received(&worker, |message| {
         message["request"]["operation"]["argv"][2] == "hold-remote"
     })
     .await;
@@ -951,7 +946,7 @@ async fn remote_tools_approve_house_writes_forward_grants_and_cancel_exact_reque
     assert_eq!(req["read_only"], false);
     assert_eq!(req["operation"]["cwd"], "/project");
     assert!(req["library"]["sha256"].is_string());
-    let library = manager.files.join("home/library");
+    let library = worker.files.join("home/library");
     assert!(library.join("weather/SKILL.md").is_file());
     assert!(!fs::read_dir(&library).unwrap().any(|entry| {
         entry
@@ -963,7 +958,7 @@ async fn remote_tools_approve_house_writes_forward_grants_and_cancel_exact_reque
     let stopped = request(&mut socket,json!({"type":"stop","agent":{"hamlet":"home","agent":"mayor"}})).await;
     assert_eq!(stopped["kind"], "notice", "{stopped}");
     let cancel =
-        received(&manager, |message| message["kind"] == "cancel")
+        received(&worker, |message| message["kind"] == "cancel")
             .await;
     assert_eq!(cancel["id"], req["id"]);
     assert_eq!(server.stop().await, Some(0));
@@ -986,7 +981,7 @@ async fn transcript(
 #[tokio::test]
 async fn remote_uncertainty_and_host_paths_are_refused_without_fallback_or_retry()
  {
-    let manager = Manager::start();
+    let worker = Worker::start();
     let home = Scratch::new("remote-refusals");
     let side = Scratch::new("remote-refusals-script");
     let canary = side.join("host-only.txt");
@@ -1000,7 +995,7 @@ async fn remote_uncertainty_and_host_paths_are_refused_without_fallback_or_retry
     let mut server = start(
         &home,
         &[
-            ("HAMLET_WORKSPACE_URL", &manager.url),
+            ("HAMLET_WORKSPACE_URL", &worker.url),
             ("HAMLET_WORKSPACE_TOKEN", TOKEN),
             ("HAMLET_REFLECT_EVERY", "0"),
         ],
@@ -1017,8 +1012,8 @@ async fn remote_uncertainty_and_host_paths_are_refused_without_fallback_or_retry
         "{shown}"
     );
     assert!(!shown.contains("PRIVATE-HOST-CANARY"));
-    assert!(shown.contains("manager refused path"), "{shown}");
-    let requests = manager.received.try_iter().collect::<Vec<_>>();
+    assert!(shown.contains("worker refused path"), "{shown}");
+    let requests = worker.received.try_iter().collect::<Vec<_>>();
     assert_eq!(
         requests
             .iter()
@@ -1045,7 +1040,7 @@ async fn remote_uncertainty_and_host_paths_are_refused_without_fallback_or_retry
             .contains(TOKEN)
     );
     assert_eq!(
-        fs::read_to_string(manager.house(0).join("uncertain"))
+        fs::read_to_string(worker.house(0).join("uncertain"))
             .unwrap(),
         "one effect"
     );
@@ -1053,7 +1048,7 @@ async fn remote_uncertainty_and_host_paths_are_refused_without_fallback_or_retry
     let mut server = start(
         &home,
         &[
-            ("HAMLET_WORKSPACE_URL", &manager.url),
+            ("HAMLET_WORKSPACE_URL", &worker.url),
             ("HAMLET_WORKSPACE_TOKEN", TOKEN),
             ("HAMLET_REFLECT_EVERY", "0"),
         ],
@@ -1065,7 +1060,7 @@ async fn remote_uncertainty_and_host_paths_are_refused_without_fallback_or_retry
         transcript(&mut socket, "mayor", "Refusals finished").await;
     assert!(recovered.to_string().contains("Inspect"));
     assert_eq!(server.stop().await, Some(0));
-    assert!(!manager.received.try_iter().any(|message| {
+    assert!(!worker.received.try_iter().any(|message| {
         message["request"]["operation"]["kind"] == "write"
             && message["request"]["operation"]["path"]
                 == "/house/uncertain"
@@ -1074,7 +1069,7 @@ async fn remote_uncertainty_and_host_paths_are_refused_without_fallback_or_retry
 
 #[tokio::test]
 async fn remote_hand_tools_are_refused_without_running_on_the_host() {
-    let manager = Manager::start();
+    let worker = Worker::start();
     let home = Scratch::new("remote-hand");
     let side = Scratch::new("remote-hand-script");
     let canary = side.join("ran");
@@ -1093,7 +1088,7 @@ async fn remote_hand_tools_are_refused_without_running_on_the_host() {
     let mut server = start(
         &home,
         &[
-            ("HAMLET_WORKSPACE_URL", &manager.url),
+            ("HAMLET_WORKSPACE_URL", &worker.url),
             ("HAMLET_WORKSPACE_TOKEN", TOKEN),
             ("HAMLET_REFLECT_EVERY", "0"),
         ],
@@ -1112,9 +1107,9 @@ async fn remote_hand_tools_are_refused_without_running_on_the_host() {
 
 #[tokio::test]
 async fn remote_agents_give_merge_split_and_publish_their_skill() {
-    let manager = Manager::start();
+    let worker = Worker::start();
     let home = Scratch::new("remote-society");
-    credentials(&home, &manager.url);
+    credentials(&home, &worker.url);
     let side = Scratch::new("remote-society-script");
     let script = side.join("faux.json");
     Script::new().agent("home:0",[
@@ -1139,9 +1134,9 @@ async fn remote_agents_give_merge_split_and_publish_their_skill() {
     )
     .await;
     transcript(&mut socket, "mayor", "Society built").await;
-    assert!(manager.house(1).join("NOTES.md").is_file());
-    assert!(manager.house(2).join("NOTES.md").is_file());
-    let skill = manager.house(1).join("skills/map-iron");
+    assert!(worker.house(1).join("NOTES.md").is_file());
+    assert!(worker.house(2).join("NOTES.md").is_file());
+    let skill = worker.house(1).join("skills/map-iron");
     fs::create_dir_all(&skill).unwrap();
     fs::write(
         skill.join("SKILL.md"),
@@ -1156,30 +1151,30 @@ async fn remote_agents_give_merge_split_and_publish_their_skill() {
     assert!(home.join("library/map-iron/SKILL.md").is_file());
     assert!(!skill.exists());
     assert!(
-        manager.house(2).join("skills/map-iron/SKILL.md").is_file()
+        worker.house(2).join("skills/map-iron/SKILL.md").is_file()
     );
-    fs::write(manager.house(1).join("clash.txt"), "from scout")
+    fs::write(worker.house(1).join("clash.txt"), "from scout")
         .unwrap();
-    fs::write(manager.house(2).join("clash.txt"), "kept smith")
+    fs::write(worker.house(2).join("clash.txt"), "kept smith")
         .unwrap();
-    fs::write(manager.house(1).join("NOTES.md"), "scout notes")
+    fs::write(worker.house(1).join("NOTES.md"), "scout notes")
         .unwrap();
     let merged = request(&mut socket,json!({"type":"say","to":mayor,"text":"/merge scout into smith"})).await;
     assert_eq!(merged["kind"], "notice", "{merged}");
     assert_eq!(
         fs::read_to_string(
-            manager.house(2).join("merged/scout/clash.txt")
+            worker.house(2).join("merged/scout/clash.txt")
         )
         .unwrap(),
         "from scout"
     );
     assert_eq!(
-        fs::read_to_string(manager.house(2).join("clash.txt"))
+        fs::read_to_string(worker.house(2).join("clash.txt"))
             .unwrap(),
         "kept smith"
     );
     assert!(
-        fs::read_to_string(manager.house(2).join("NOTES.md"))
+        fs::read_to_string(worker.house(2).join("NOTES.md"))
             .unwrap()
             .contains("scout notes")
     );
@@ -1189,11 +1184,9 @@ async fn remote_agents_give_merge_split_and_publish_their_skill() {
     )
     .await;
     assert_eq!(split["kind"], "notice", "{split}");
-    assert!(
-        !manager.house(2).join("merged/scout/clash.txt").exists()
-    );
+    assert!(!worker.house(2).join("merged/scout/clash.txt").exists());
     assert_eq!(
-        fs::read_to_string(manager.house(1).join("clash.txt"))
+        fs::read_to_string(worker.house(1).join("clash.txt"))
             .unwrap(),
         "from scout"
     );
@@ -1212,9 +1205,9 @@ async fn remote_agents_give_merge_split_and_publish_their_skill() {
 async fn remote_merge_failure_keeps_listener_record_and_plan_without_replay()
  {
     for uncertain in [false, true] {
-        let manager = Manager::start();
+        let worker = Worker::start();
         let home = Scratch::new("remote-merge-failure");
-        credentials(&home, &manager.url);
+        credentials(&home, &worker.url);
         let script = home.join("faux.json");
         Script::new().agent("home:0", [
             call("create_agent",json!({"name":"scout","purpose":"Find","reason":"Explore"})),
@@ -1235,16 +1228,16 @@ async fn remote_merge_failure_keeps_listener_record_and_plan_without_replay()
         )
         .await;
         transcript(&mut socket, "mayor", "Ready to merge").await;
-        fs::write(manager.house(1).join("a.txt"), "first effect")
+        fs::write(worker.house(1).join("a.txt"), "first effect")
             .unwrap();
-        fs::write(manager.house(1).join("b.txt"), "second effect")
+        fs::write(worker.house(1).join("b.txt"), "second effect")
             .unwrap();
         fs::write(
-            manager.house(1).join("c.txt"),
+            worker.house(1).join("c.txt"),
             "must not follow failure",
         )
         .unwrap();
-        fs::write(manager.files.join("fail-request"), json!({"operation":{"kind":"tree_write","path":"/house/b.txt"},"uncertain":uncertain}).to_string()).unwrap();
+        fs::write(worker.files.join("fail-request"), json!({"operation":{"kind":"tree_write","path":"/house/b.txt"},"uncertain":uncertain}).to_string()).unwrap();
         let failed = request(&mut socket,json!({"type":"say","to":mayor,"text":"/merge scout into smith"})).await;
         assert_eq!(failed["kind"], "error", "{failed}");
         assert!(
@@ -1263,21 +1256,18 @@ async fn remote_merge_failure_keeps_listener_record_and_plan_without_replay()
         )
         .await;
         assert_eq!(stopped["kind"], "notice", "{stopped}");
-        fs::remove_file(manager.files.join("fail-request")).unwrap();
+        fs::remove_file(worker.files.join("fail-request")).unwrap();
         // The merge wrote a.txt before its answer, and a failed
         // merge is never retried ("No automatic retry will be
         // made"), so nothing after the answer writes b.txt or c.txt.
         assert_eq!(server.stop().await, Some(0));
         assert_eq!(
-            fs::read_to_string(manager.house(2).join("a.txt"))
+            fs::read_to_string(worker.house(2).join("a.txt"))
                 .unwrap(),
             "first effect"
         );
-        assert_eq!(
-            manager.house(2).join("b.txt").exists(),
-            uncertain
-        );
-        assert!(!manager.house(2).join("c.txt").exists());
+        assert_eq!(worker.house(2).join("b.txt").exists(), uncertain);
+        assert!(!worker.house(2).join("c.txt").exists());
         let snapshots = fs::read_dir(home.join(".society-files"))
             .unwrap()
             .count();
@@ -1307,12 +1297,9 @@ async fn remote_merge_failure_keeps_listener_record_and_plan_without_replay()
         // The server finishes kept merges before it listens, and
         // nothing retries one later.
         assert_eq!(server.stop().await, Some(0));
-        assert_eq!(
-            manager.house(2).join("b.txt").exists(),
-            uncertain
-        );
+        assert_eq!(worker.house(2).join("b.txt").exists(), uncertain);
         assert!(
-            !manager.house(2).join("c.txt").exists(),
+            !worker.house(2).join("c.txt").exists(),
             "restart silently continued an unconfirmed merge"
         );
         assert_eq!(
@@ -1322,7 +1309,7 @@ async fn remote_merge_failure_keeps_listener_record_and_plan_without_replay()
             snapshots
         );
         assert_eq!(
-            manager
+            worker
                 .received
                 .try_iter()
                 .filter(|message| message["request"]["operation"]
@@ -1354,9 +1341,9 @@ async fn remote_domain_prompt_and_gate_waits_release_service_dispatch()
         "prompt",
         "gate",
     ] {
-        let manager = Manager::start();
+        let worker = Worker::start();
         let home = Scratch::new(&format!("remote-held-{scenario}"));
-        credentials(&home, &manager.url);
+        credentials(&home, &worker.url);
         let script = home.join("faux.json");
         let next = match scenario {
             "create" => call(
@@ -1431,16 +1418,16 @@ async fn remote_domain_prompt_and_gate_waits_release_service_dispatch()
         )
         .await;
         transcript(&mut socket, "mayor", "Built").await;
-        fs::create_dir_all(manager.house(1).join("skills/maps"))
+        fs::create_dir_all(worker.house(1).join("skills/maps"))
             .unwrap();
         fs::write(
-            manager.house(1).join("skills/maps/SKILL.md"),
+            worker.house(1).join("skills/maps/SKILL.md"),
             "---\nname: maps\ndescription: Read maps.\n---\nRead \
              the map.\n",
         )
         .unwrap();
-        fs::write(manager.house(1).join("a.txt"), "source").unwrap();
-        fs::write(manager.house(0).join("review.txt"), "unchanged")
+        fs::write(worker.house(1).join("a.txt"), "source").unwrap();
+        fs::write(worker.house(0).join("review.txt"), "unchanged")
             .unwrap();
         if scenario == "split" {
             let result = request(&mut socket,json!({"type":"say","to":mayor,"text":"/merge scout into smith"})).await;
@@ -1485,15 +1472,15 @@ async fn remote_domain_prompt_and_gate_waits_release_service_dispatch()
             ),
             _ => unreachable!(),
         };
-        manager.received.try_iter().for_each(drop);
+        worker.received.try_iter().for_each(drop);
         fs::write(
-            manager.files.join("hold-request"),
+            worker.files.join("hold-request"),
             hold.to_string(),
         )
         .unwrap();
         eprintln!("holding {scenario}: {hold}");
         send(&mut socket, message).await;
-        received(&manager, |message| {
+        received(&worker, |message| {
             hold.as_object().unwrap().iter().all(|(key, value)| {
                 message["request"]["operation"][key] == *value
             })
@@ -1516,7 +1503,7 @@ async fn remote_domain_prompt_and_gate_waits_release_service_dispatch()
         drop(socket);
         assert_eq!(server.stop().await, Some(0), "{scenario}");
         assert_eq!(
-            fs::read_to_string(manager.house(0).join("review.txt"))
+            fs::read_to_string(worker.house(0).join("review.txt"))
                 .unwrap(),
             "unchanged"
         );
@@ -1528,9 +1515,9 @@ async fn remote_domain_prompt_and_gate_waits_release_service_dispatch()
 async fn remote_merge_completion_preserves_fresh_record_and_rejects_replaced_identity()
  {
     for recreate in [false, true] {
-        let manager = Manager::start();
+        let worker = Worker::start();
         let home = Scratch::new("remote-merge-race");
-        credentials(&home, &manager.url);
+        credentials(&home, &worker.url);
         let script = home.join("faux.json");
         Script::new().agent("home:0", [
             call("create_agent",json!({"name":"scout","purpose":"Find","reason":"Explore"})),
@@ -1553,21 +1540,21 @@ async fn remote_merge_completion_preserves_fresh_record_and_rejects_replaced_ide
         )
         .await;
         transcript(&mut socket, "mayor", "Built").await;
-        fs::write(manager.house(1).join("a.txt"), "original scout")
+        fs::write(worker.house(1).join("a.txt"), "original scout")
             .unwrap();
         let hold = if recreate {
             json!({"kind":"tree_list","path":"/house"})
         } else {
             json!({"kind":"tree_write","path":"/house/a.txt"})
         };
-        manager.received.try_iter().for_each(drop);
+        worker.received.try_iter().for_each(drop);
         fs::write(
-            manager.files.join("hold-request"),
+            worker.files.join("hold-request"),
             hold.to_string(),
         )
         .unwrap();
         let merging = send(&mut socket,json!({"type":"say","to":mayor,"text":"/merge scout into smith"})).await;
-        received(&manager, |message| {
+        received(&worker, |message| {
             hold.as_object().unwrap().iter().all(|(key, value)| {
                 message["request"]["operation"][key] == *value
             })
@@ -1581,7 +1568,7 @@ async fn remote_merge_completion_preserves_fresh_record_and_rejects_replaced_ide
         send(&mut control,json!({"type":"say","to":mayor,"text":"Create new identity"})).await;
         transcript(&mut control, "mayor", "Concurrent edit finished")
             .await;
-        fs::remove_file(manager.files.join("hold-request")).unwrap();
+        fs::remove_file(worker.files.join("hold-request")).unwrap();
         let merged =
             until(&mut socket, |value| value["to"] == merging).await;
         if recreate {
@@ -1593,11 +1580,11 @@ async fn remote_merge_completion_preserves_fresh_record_and_rejects_replaced_ide
                     .contains("No replacement agent was merged"),
                 "{merged}"
             );
-            assert!(!manager.house(2).join("a.txt").exists());
+            assert!(!worker.house(2).join("a.txt").exists());
         } else {
             assert_eq!(merged["kind"], "notice", "{merged}");
             assert_eq!(
-                fs::read_to_string(manager.house(2).join("a.txt"))
+                fs::read_to_string(worker.house(2).join("a.txt"))
                     .unwrap(),
                 "original scout"
             );
@@ -1627,9 +1614,9 @@ async fn remote_merge_completion_preserves_fresh_record_and_rejects_replaced_ide
 #[tokio::test]
 async fn remote_completed_merge_write_is_not_replayed_after_lost_reply_and_host_crash()
  {
-    let manager = Manager::start();
+    let worker = Worker::start();
     let home = Scratch::new("remote-merge-crash");
-    credentials(&home, &manager.url);
+    credentials(&home, &worker.url);
     let script = home.join("faux.json");
     Script::new().agent("home:0", [
         call("create_agent",json!({"name":"scout","purpose":"Find","reason":"Explore"})),
@@ -1650,23 +1637,23 @@ async fn remote_completed_merge_write_is_not_replayed_after_lost_reply_and_host_
     )
     .await;
     transcript(&mut socket, "mayor", "Built").await;
-    fs::write(manager.house(1).join("NOTES.md"), "scout's knowledge")
+    fs::write(worker.house(1).join("NOTES.md"), "scout's knowledge")
         .unwrap();
     fs::write(
-        manager.files.join("hold-request"),
+        worker.files.join("hold-request"),
         json!({"kind":"write","path":"/house/NOTES.md"}).to_string(),
     )
     .unwrap();
-    manager.received.try_iter().for_each(drop);
+    worker.received.try_iter().for_each(drop);
     send(&mut socket,json!({"type":"say","to":mayor,"text":"/merge scout into smith"})).await;
-    received(&manager, |message| {
+    received(&worker, |message| {
         message["request"]["operation"]["kind"] == "write"
             && message["request"]["operation"]["path"]
                 == "/house/NOTES.md"
     })
     .await;
     tokio::time::timeout(Duration::from_secs(3), async {
-        while !fs::read_to_string(manager.house(2).join("NOTES.md"))
+        while !fs::read_to_string(worker.house(2).join("NOTES.md"))
             .unwrap()
             .contains("scout's knowledge")
         {
@@ -1685,7 +1672,7 @@ async fn remote_completed_merge_write_is_not_replayed_after_lost_reply_and_host_
     let snapshots =
         fs::read_dir(home.join(".society-files")).unwrap().count();
     assert!(snapshots > 0);
-    fs::remove_file(manager.files.join("hold-request")).unwrap();
+    fs::remove_file(worker.files.join("hold-request")).unwrap();
     let mut server = start(
         &home,
         &[("HAMLET_REFLECT_EVERY", "0")],
@@ -1706,7 +1693,7 @@ async fn remote_completed_merge_write_is_not_replayed_after_lost_reply_and_host_
     // The server finishes kept merges before it listens, and
     // nothing retries one later.
     assert_eq!(server.stop().await, Some(0));
-    assert!(!manager.received.try_iter().any(|message| message
+    assert!(!worker.received.try_iter().any(|message| message
         ["request"]["operation"]["kind"]
         == "write"
         && message["request"]["operation"]["path"]
@@ -1726,9 +1713,9 @@ async fn remote_completed_merge_write_is_not_replayed_after_lost_reply_and_host_
 #[tokio::test]
 async fn remote_preview_rechecks_mode_after_wait_and_same_socket_keeps_order()
  {
-    let manager = Manager::start();
+    let worker = Worker::start();
     let home = Scratch::new("remote-gate-order");
-    credentials(&home, &manager.url);
+    credentials(&home, &worker.url);
     let script = home.join("faux.json");
     Script::new().responses([
         call("write",json!({"path":"/house/review.txt","content":"must be denied"})),
@@ -1742,7 +1729,7 @@ async fn remote_preview_rechecks_mode_after_wait_and_same_socket_keeps_order()
     .await;
     let (mut socket, _) = server.connect().await;
     let mayor = json!({"hamlet":"home","agent":"mayor"});
-    fs::create_dir_all(manager.files.join("home/project")).unwrap();
+    fs::create_dir_all(worker.files.join("home/project")).unwrap();
     let folder = request(
         &mut socket,
         json!({"type":"say","to":mayor,"text":"/folder /project"}),
@@ -1755,10 +1742,10 @@ async fn remote_preview_rechecks_mode_after_wait_and_same_socket_keeps_order()
     )
     .await;
     assert_eq!(mode["kind"], "notice", "{mode}");
-    fs::write(manager.house(0).join("review.txt"), "old text")
+    fs::write(worker.house(0).join("review.txt"), "old text")
         .unwrap();
     fs::write(
-        manager.files.join("hold-request"),
+        worker.files.join("hold-request"),
         json!({"kind":"read","path":"/house/review.txt"}).to_string(),
     )
     .unwrap();
@@ -1767,7 +1754,7 @@ async fn remote_preview_rechecks_mode_after_wait_and_same_socket_keeps_order()
         json!({"type":"say","to":mayor,"text":"Write"}),
     )
     .await;
-    received(&manager, |message| {
+    received(&worker, |message| {
         message["request"]["operation"]["kind"] == "read"
             && message["request"]["operation"]["path"]
                 == "/house/review.txt"
@@ -1780,7 +1767,7 @@ async fn remote_preview_rechecks_mode_after_wait_and_same_socket_keeps_order()
     )
     .await;
     assert_eq!(mode["kind"], "notice", "{mode}");
-    fs::remove_file(manager.files.join("hold-request")).unwrap();
+    fs::remove_file(worker.files.join("hold-request")).unwrap();
     let wait = approval(&mut socket).await;
     assert_eq!(wait["detail"]["danger"], "edit", "{wait}");
     request(
@@ -1790,35 +1777,35 @@ async fn remote_preview_rechecks_mode_after_wait_and_same_socket_keeps_order()
     .await;
     transcript(&mut socket, "mayor", "Reviewed").await;
     assert_eq!(
-        fs::read_to_string(manager.house(0).join("review.txt"))
+        fs::read_to_string(worker.house(0).join("review.txt"))
             .unwrap(),
         "old text"
     );
-    manager.received.try_iter().for_each(drop);
+    worker.received.try_iter().for_each(drop);
     fs::write(
-        manager.files.join("hold-request"),
+        worker.files.join("hold-request"),
         json!({"kind":"write","path":"/house/NOTES.md"}).to_string(),
     )
     .unwrap();
     let first = send(&mut socket,json!({"type":"edit","doc":"notes","agent":mayor,"text":"# Notes\nordered edit"})).await;
-    received(&manager, |message| {
+    received(&worker, |message| {
         message["request"]["operation"]["kind"] == "write"
     })
     .await;
     let second = send(&mut socket,json!({"type":"read","what":"papers","agent":mayor,"full":true})).await;
-    // Gives a read that overtook its edit time to reach the manager
+    // Gives a read that overtook its edit time to reach the worker
     // while the edit is held. A correct server sends nothing after
     // the read, so no event can end this wait.
     tokio::time::sleep(Duration::from_millis(150)).await;
     assert!(
-        !manager.received.try_iter().any(|message| message
-            ["request"]["operation"]["kind"]
+        !worker.received.try_iter().any(|message| message["request"]
+            ["operation"]["kind"]
             == "read"
             && message["request"]["operation"]["path"]
                 == "/house/NOTES.md"),
         "same-socket read overtook its edit"
     );
-    fs::remove_file(manager.files.join("hold-request")).unwrap();
+    fs::remove_file(worker.files.join("hold-request")).unwrap();
     let written = until(&mut socket, |value| {
         value["to"] == first || value["to"] == second
     })
@@ -1833,9 +1820,9 @@ async fn remote_preview_rechecks_mode_after_wait_and_same_socket_keeps_order()
 
 #[tokio::test]
 async fn remote_model_merge_finishes_before_a_queued_chief_restore() {
-    let manager = Manager::start();
+    let worker = Worker::start();
     let home = Scratch::new("remote-model-merge");
-    credentials(&home, &manager.url);
+    credentials(&home, &worker.url);
     let script = home.join("faux.json");
     Script::new().agent("home:0", [
         call("create_agent",json!({"name":"scout","purpose":"Find","reason":"Explore"})),
@@ -1858,19 +1845,19 @@ async fn remote_model_merge_finishes_before_a_queued_chief_restore() {
     )
     .await;
     transcript(&mut socket, "mayor", "Built").await;
-    fs::write(manager.house(1).join("a.txt"), "source").unwrap();
+    fs::write(worker.house(1).join("a.txt"), "source").unwrap();
     fs::write(
-        manager.files.join("hold-request"),
+        worker.files.join("hold-request"),
         json!({"kind":"tree_list","path":"/house"}).to_string(),
     )
     .unwrap();
-    manager.received.try_iter().for_each(drop);
+    worker.received.try_iter().for_each(drop);
     send(
         &mut socket,
         json!({"type":"say","to":mayor,"text":"Merge"}),
     )
     .await;
-    received(&manager, |message| {
+    received(&worker, |message| {
         message["request"]["operation"]["kind"] == "tree_list"
             && message["request"]["operation"]["path"] == "/house"
     })
@@ -1886,13 +1873,13 @@ async fn remote_model_merge_finishes_before_a_queued_chief_restore() {
     // so no event can end this wait.
     tokio::time::sleep(Duration::from_millis(150)).await;
     assert!(
-        !manager
+        !worker
             .received
             .try_iter()
             .any(|message| message["request"]["operation"]["kind"]
                 == "remove")
     );
-    fs::remove_file(manager.files.join("hold-request")).unwrap();
+    fs::remove_file(worker.files.join("hold-request")).unwrap();
     let restored =
         until(&mut control, |value| value["to"] == restoring).await;
     assert_eq!(restored["kind"], "notice", "{restored}");
@@ -1908,9 +1895,9 @@ async fn remote_model_merge_finishes_before_a_queued_chief_restore() {
                 && item["tool"]["exit"] == 0),
         "{shown}"
     );
-    assert!(!manager.house(2).join("a.txt").exists());
+    assert!(!worker.house(2).join("a.txt").exists());
     assert_eq!(
-        fs::read_to_string(manager.house(1).join("a.txt")).unwrap(),
+        fs::read_to_string(worker.house(1).join("a.txt")).unwrap(),
         "source"
     );
     assert_eq!(server.stop().await, Some(0));

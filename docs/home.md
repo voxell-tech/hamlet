@@ -77,7 +77,7 @@ a settings edit that would leave it unlisted.
 Settings selects the workspace for the next start. The active connection
 and its token stay fixed until restart, even after Settings changes.
 `HAMLET_WORKSPACE_URL` and `HAMLET_WORKSPACE_TOKEN` override that selection
-for this process. Remote houses live at the workspace manager; records,
+for this process. Remote houses live on the workspace worker; records,
 credentials, transcripts and the shared library remain under this home.
 Moving houses copies the living agents' files to the selected target;
 restart selects it. See [remote workspaces](sandbox.md#remote-workspaces).

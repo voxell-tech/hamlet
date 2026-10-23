@@ -58,7 +58,7 @@ view layer; the workspace excludes it, and it is not edited here.
 | `hamlet_ui` | Panels, menus, chat and pointer |
 | `hamlet_vfx` | Visual effects |
 | `hamlet_testing` | Fixtures shared by tests: scratch folders, protocol values, faux scripts, the loopback OpenAI endpoint, and a server process on a scratch home with a raw connection to it (`send`, `until`, `answers`) |
-| `hamlet_workspace` | Linux remote-workspace manager/worker reached through the server's workspace-v1 client |
+| `hamlet_workspace` | The Linux remote-workspace worker the server's workspace-v1 client connects to |
 | `hamlet_workspace_wire` | Workspace protocol v1 for both sides: one type per operation with its reply, error codes, limits, the walk order and the shared fixture |
 
 The workspace's `bevy` entry turns on no feature: `hamlet_app` turns on
@@ -143,7 +143,7 @@ fault points, signals, remote workspaces and the society) and
 | `papers.rs` | `Houses` picks the local or remote `Workspace` once at startup. Callers get its houses (`house`, `reader`, `tools`), its `Capability` refusals and whether it `can_confirm` each change; no caller branches on the workspace |
 | `papers/files.rs`, `papers/tree.rs`, `papers/remote.rs` | `Files`, one async house tree for both workspaces: local work runs off the runtime through descriptor-relative no-follow calls, remote work as typed requests |
 | `papers/copy.rs`, `papers/moving.rs` | `Snapshot`: the one verified tree write with claimed-path rollback, used by gifts and house moves; copies to the next-start workspace |
-| `workspace.rs` | `Transport` to the manager with typed `Failure` codes; `WorkspaceSession` of one agent's requests under a `Policy`, sending the library by digest, cancelling on drop and naming uncertain outcomes |
+| `workspace.rs` | `Transport` to the worker with typed `Failure` codes; `WorkspaceSession` of one agent's requests under a `Policy`, sending the library by digest, cancelling on drop and naming uncertain outcomes |
 | `gifts.rs`, `gifts/` | Connection-owned upload staging and manifest limits; skill and file gifts resolved, snapshotted, delivered and recorded apart from the service loop |
 | `prompt.rs`, `prompt/` | `sections` composes charter, machine, project, character, notes, shelf, hamlet and realm |
 | `starters.rs` | Shipped starter content from `crates/hamlet_server/assets/starters/` |

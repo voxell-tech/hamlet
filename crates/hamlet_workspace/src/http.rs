@@ -16,8 +16,6 @@ use crate::wire::{Code, MAX_BODY, Reply};
 
 pub struct Call {
     pub authorization: String,
-    pub signature: String,
-    pub timestamp: String,
     pub body: Vec<u8>,
     pub reply: oneshot::Sender<Reply>,
 }
@@ -57,14 +55,12 @@ async fn serve(
     {
         Reply::error(Code::Invalid, "Use POST /v1.", false)
     } else {
-        let header = |name: &str| {
-            parts
-                .headers
-                .get(name)
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or_default()
-                .to_owned()
-        };
+        let authorization = parts
+            .headers
+            .get(hyper::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_owned();
         match tokio::time::timeout(
             std::time::Duration::from_secs(10),
             Limited::new(body, MAX_BODY).collect(),
@@ -74,9 +70,7 @@ async fn serve(
             Ok(Ok(bytes)) => {
                 let (reply, receive) = oneshot::channel();
                 let call = Call {
-                    authorization: header("authorization"),
-                    signature: header("x-workspace-signature"),
-                    timestamp: header("x-workspace-time"),
+                    authorization,
                     body: bytes.to_bytes().to_vec(),
                     reply,
                 };

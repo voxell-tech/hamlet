@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
 #
-# One image for both roles of hamlet_workspace: the manager and the
-# in-actor worker. Build it from the repository root, because Cargo
-# needs the whole workspace and its Cargo.lock to resolve this crate:
+# The image of the hamlet_workspace worker. Build it from the
+# repository root, because Cargo needs the whole workspace and its
+# Cargo.lock to resolve this crate:
 #
 #   docker build -f crates/hamlet_workspace/Dockerfile \
 #     -t hamlet-workspace:local .
@@ -30,12 +30,12 @@ RUN cargo build --locked --release -p hamlet_workspace \
         /out/hamlet-workspace
 
 FROM ${RUNTIME_IMAGE}
-# bubblewrap is pinned to the Debian 12 build used by the local runsc
-# isolation probes; the build fails rather than silently changing it.
-# The worker runs commands with /bin/bash -c, and only /usr, /bin,
-# /lib and /lib64 are visible inside a command, so the ordinary tools
-# agents use must be installed here. ca-certificates is for the
-# manager's HTTPS and gRPC clients.
+# bubblewrap is pinned to one Debian 12 build; the build fails rather
+# than silently changing it. The worker runs commands with
+# /bin/bash -c, and only /usr, /bin, /lib and /lib64 are visible
+# inside a command, so the ordinary tools agents use must be installed
+# here. ca-certificates is the trust bundle network-granted commands
+# see.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         bubblewrap=0.8.0-2+deb12u1 \
@@ -61,6 +61,6 @@ RUN apt-get update \
         xz-utils \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/hamlet-workspace /usr/local/bin/hamlet-workspace
-# No default role: choose `manager CONFIG` or `worker CONFIG`
-# explicitly. Without arguments the binary prints its usage.
+# No default arguments: pass `worker CONFIG`. Without arguments the
+# binary prints its usage.
 ENTRYPOINT ["/usr/local/bin/hamlet-workspace"]
