@@ -83,7 +83,7 @@ pub mod prelude {
     pub use bevy_transform::components::Transform;
 
     pub use crate::audio::{
-        AudioPlayer, PlaybackMode, PlaybackSettings, Sound,
+        AudioPlayer, FadeTo, PlaybackMode, PlaybackSettings, Sound,
         SoundAssets, SpatialListener,
     };
     pub use crate::scene::{

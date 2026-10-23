@@ -3,20 +3,26 @@
 //! a passage it plays once, on its way into the realm or out of it,
 //! holds its work meanwhile.
 
+use std::collections::HashMap;
 use std::f32::consts::PI;
 
 use glam::{EulerRot, Quat, Vec3, Vec3Swizzles};
 use hamlet_engine_bevy::api::agents::Doing;
 
 use crate::build::frame::Frame;
+use crate::folk::hand::Mood;
 use crate::folk::keeper::acts::Act;
+use crate::folk::keeper::homing::homeward;
 use crate::folk::keeper::lot::{Lot, footing};
 use crate::folk::keeper::rig::Rig;
 use crate::folk::keeper::trip::{Stride, Trip};
 use crate::folk::keeper::work::{Chore, routine};
 use crate::folk::keeper::{KState, Motion};
+use crate::folk::sounds::{FolkCue, FolkSound};
 use crate::places::yard::Station;
+use crate::society::AgentId;
 use crate::world::land::Land;
+use crate::world::layout::Route;
 
 /// One chore: the walk to its station, then the chore itself.
 #[derive(Debug)]
@@ -27,6 +33,8 @@ struct Job {
     /// Clock time the step that asked for it began.
     began: f32,
     leg: Trip,
+    /// True when its way runs on a road, whose surface it keeps to.
+    by_road: bool,
     /// The spot it stands at for the chore, and the way it faces.
     to: (Vec3, f32),
 }
@@ -46,6 +54,7 @@ impl Job {
             since,
             began: since,
             leg,
+            by_road: false,
             to,
         }
     }
@@ -75,14 +84,16 @@ impl Job {
 }
 
 /// A motion a robot plays once, whatever its work: on its way out of
-/// the realm or back into it.
+/// the realm or back into it, or at a chief's hand.
 #[derive(Clone, Copy, Debug)]
-pub(super) struct Passage {
+pub struct Passage {
     act: Act,
     /// Clock time it begins.
     from: f32,
     /// True once it has begun.
     begun: bool,
+    /// True when it lasts until it is taken off.
+    held: bool,
 }
 
 impl Passage {
@@ -92,12 +103,23 @@ impl Passage {
             act,
             from,
             begun: false,
+            held: false,
+        }
+    }
+
+    /// `act`, kept up from clock time `from` until the passage is
+    /// taken off the robot.
+    pub fn hold(act: Act, from: f32) -> Self {
+        Self {
+            held: true,
+            ..Self::new(act, from)
         }
     }
 }
 
 /// An agent's robot: how it is drawn and what it does.
-pub(super) struct Robot {
+pub struct Robot {
+    pub agent: AgentId,
     pub rig: Rig,
     pub lot: Lot,
     pub state: KState,
@@ -106,6 +128,8 @@ pub(super) struct Robot {
     /// the robot is made anew.
     pub sig: (usize, glam::Vec2, u32, u8, bool),
     pub passage: Option<Passage>,
+    /// Its handling by the chief of late.
+    pub mood: Mood,
     /// Its doing about its house. None before it has been placed.
     job: Option<Job>,
     /// The motion last asked of it, and the clock time it began.
@@ -120,10 +144,14 @@ pub(super) struct Robot {
     /// The speed of its next walk about its house, when it is in a
     /// hurry.
     haste: Option<f32>,
+    /// Seconds its engine has run since it reached it, while it
+    /// works the engine.
+    ran: Option<f32>,
 }
 
 impl Robot {
     pub fn new(
+        agent: AgentId,
         rig: Rig,
         lot: Lot,
         state: KState,
@@ -131,12 +159,14 @@ impl Robot {
         sig: (usize, glam::Vec2, u32, u8, bool),
     ) -> Self {
         Self {
+            agent,
             rig,
             lot,
             state,
             work,
             sig,
             passage: None,
+            mood: Mood::default(),
             job: None,
             playing: None,
             step: 0,
@@ -144,11 +174,25 @@ impl Robot {
             queued: None,
             placed: false,
             haste: None,
+            ran: None,
         }
     }
 
-    /// Takes up what its agent does now.
-    pub fn follow(&mut self, state: KState, work: Doing, now: f32) {
+    /// Takes up what its agent does now. For `cheer` seconds after
+    /// its work ends, a click on it cheers it.
+    pub fn follow(
+        &mut self,
+        state: KState,
+        work: Doing,
+        now: f32,
+        cheer: f32,
+    ) {
+        self.mood.follow(
+            state == KState::Working,
+            self.state == KState::Working,
+            now,
+            cheer,
+        );
         if state == KState::Working && work != self.work {
             // A new step: a tool is seen in use even if it is over
             // at once.
@@ -166,12 +210,85 @@ impl Robot {
         self.work = work;
     }
 
+    /// Tells `cue` of the sound its motion makes as its count passes
+    /// a whole number since `last` heard it, and notes the count in
+    /// `heard`. A robot first heard, or one whose count has leapt,
+    /// makes no sound.
+    pub fn listen(
+        &self,
+        now: f32,
+        last: &HashMap<AgentId, (FolkSound, f32)>,
+        heard: &mut HashMap<AgentId, (FolkSound, f32)>,
+        cue: &mut impl FnMut(FolkCue),
+    ) {
+        let Some((sound, count)) = self.rig.beat(now) else {
+            return;
+        };
+        if let Some(&(was, before)) = last.get(&self.agent)
+            && was == sound
+            && count.floor() > before.floor()
+            && count - before < 1.5
+        {
+            cue(FolkCue {
+                sound,
+                at: self.rig.at.at,
+                turn: self.agent.0 ^ count as u32,
+            });
+        }
+        heard.insert(self.agent, (sound, count));
+    }
+
     /// Forgets the chore it was at, so that it takes its work up
-    /// again from wherever it stands.
-    fn put_down(&mut self, haste: Option<f32>) {
+    /// again from wherever it stands, at `haste` a second if given.
+    pub fn put_down(&mut self, haste: Option<f32>) {
         self.job = None;
         self.playing = None;
         self.haste = haste;
+    }
+
+    /// True when it is about its house, where a hand can reach it.
+    pub fn at_home(&self) -> bool {
+        self.job.is_some()
+    }
+
+    /// True when it can be given a motion to play now: about its
+    /// house, and in nothing it must finish.
+    pub fn free(&self) -> bool {
+        self.at_home()
+            && self.passage.is_none_or(|passage| {
+                matches!(
+                    passage.act,
+                    Act::Wave
+                        | Act::Wiggle
+                        | Act::Startle
+                        | Act::Land
+                        | Act::Greet
+                        | Act::Receive
+                        | Act::Celebrate
+                )
+            })
+    }
+
+    /// True while a hand holds it or it falls from one.
+    pub fn handled(&self) -> bool {
+        self.passage.is_some_and(|passage| passage.held)
+            || self.mood.fall.is_some()
+    }
+
+    /// The spot it stands at with nothing to do.
+    pub fn porch(&self) -> Vec3 {
+        self.lot.porch
+    }
+
+    /// Seconds its engine has run since it reached it, while it
+    /// works the engine.
+    pub fn ran(&self) -> Option<f32> {
+        self.ran
+    }
+
+    /// The ground a robot stands on at `p`.
+    pub fn ground(land: &Land, p: glam::Vec2) -> f32 {
+        footing(land, p)
     }
 
     /// True while it waits, unseen, for a passage that brings it into
@@ -195,7 +312,9 @@ impl Robot {
             self.rig.play(passage.act, passage.from);
         }
         let (act, from) = (passage.act, passage.from);
-        if act.length().is_some_and(|l| now - from < l) {
+        if passage.held
+            || act.length().is_some_and(|l| now - from < l)
+        {
             return false;
         }
         if act.vanishes() {
@@ -285,17 +404,23 @@ impl Robot {
     }
 
     /// Has the robot do its chore about its house a frame `dt`
-    /// seconds on, at clock time `now`.
+    /// seconds on, at clock time `now`. `objects` is true when its
+    /// wait is an objection, which it argues. From away it comes
+    /// home over the land or by `roads`.
     pub fn work(
         &mut self,
         land: &Land,
+        roads: &[&Route],
         motion: &Motion,
+        objects: bool,
         now: f32,
         dt: f32,
     ) {
         if self.passage.is_some() {
             return;
         }
+        self.ran = None;
+        let mut ran = None;
         let seed = self.rig.who().seed;
         // A robot's first moment shows the settled state.
         let live = self.placed;
@@ -322,30 +447,41 @@ impl Robot {
                 want.station(),
                 first_beat(want, seed),
             ) {
-                Some(to) if lot.away(land, from) => {
-                    // From far off, as after its town was carried, it
-                    // is simply at its door again.
-                    self.rig.place(
-                        Frame::at(lot.porch).with_turn(
-                            Quat::from_rotation_y(lot.yaw),
-                        ),
-                    );
-                    Job::new(
-                        want,
-                        now,
-                        lot.way(land, lot.porch, to.0),
-                        to,
-                        motion,
-                    )
-                }
                 Some(to) => {
-                    let mut job = Job::new(
-                        want,
-                        now,
-                        lot.way(land, from, to.0),
-                        to,
-                        motion,
-                    );
+                    // From away it finds a way to its house first.
+                    let (way, by_road) = if lot.away(land, from) {
+                        let near = lot.approach(land, to.0);
+                        let Some(home) = homeward(
+                            land,
+                            roads,
+                            from.xz(),
+                            near.xz(),
+                            lot.origin.xz(),
+                            |p| footing(land, p),
+                        ) else {
+                            // With no dry way it is at its door
+                            // again, unfolding there.
+                            self.rig.place(
+                                Frame::at(lot.porch).with_turn(
+                                    Quat::from_rotation_y(lot.yaw),
+                                ),
+                            );
+                            self.put_down(None);
+                            self.passage =
+                                Some(Passage::new(Act::Appear, now));
+                            return;
+                        };
+                        let mut way = home.way;
+                        way[0] = from;
+                        way.pop();
+                        way.extend(lot.way(land, near, to.0));
+                        (way, home.by_road)
+                    } else {
+                        (lot.way(land, from, to.0), false)
+                    };
+                    let mut job =
+                        Job::new(want, now, way, to, motion);
+                    job.by_road = by_road;
                     if let Some(haste) = self.haste.take() {
                         job.leg.speed = haste;
                     }
@@ -372,8 +508,19 @@ impl Robot {
         let lot = &self.lot;
         let ease = live.then_some(now);
         let (p, yaw) = if job.chore == Chore::Stand {
-            // Its state picks the motion.
-            self.rig.state = self.state;
+            let objects = objects && self.state == KState::Waiting;
+            if objects {
+                if self.rig.act() != Act::Object {
+                    self.rig.play(Act::Object, now);
+                }
+            } else if self.rig.act() == Act::Object
+                && self.state == KState::Waiting
+            {
+                self.rig.play(Act::Wait, now);
+            } else {
+                // Its state picks the motion.
+                self.rig.state = self.state;
+            }
             self.rig.stride(Some(Stride::default()));
             self.playing = None;
             job.to
@@ -389,7 +536,13 @@ impl Robot {
                 // above it.
                 let ground = footing(land, s.at.xz());
                 let paved = ground + lot.yard.shape.terrace.max(0.0);
-                let p = s.at.with_y(s.at.y.clamp(ground, paved));
+                // A road it goes home by may be a bridge.
+                let top = if job.by_road {
+                    paved.max(s.at.y)
+                } else {
+                    paved
+                };
+                let p = s.at.with_y(s.at.y.clamp(ground, top));
                 (p, s.yaw, act, job.since, s.stride())
             } else {
                 let spent = now - job.began.max(arrive);
@@ -399,6 +552,9 @@ impl Robot {
                     seed,
                     self.step,
                 );
+                if job.chore == Chore::Run {
+                    ran = Some(spent);
+                }
                 let (p, yaw) = match bit.beat {
                     Some(b) => {
                         let (p, out) = lot
@@ -441,6 +597,7 @@ impl Robot {
             to
         };
         self.rig.place(Frame::at(p).with_turn(turn));
+        self.ran = ran;
     }
 }
 

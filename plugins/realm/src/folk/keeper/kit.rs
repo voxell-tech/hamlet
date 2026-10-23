@@ -103,7 +103,7 @@ impl Shape {
 /// The meshes every robot is made from, by their places in the kit,
 /// and the paints. Robots share them, so a town of robots draws in a
 /// few batches. A place whose part has no mesh stays empty.
-pub(super) struct Kit {
+pub struct Kit {
     pub paints: [Handle<Material>; 7],
     pub torso: Pair,
     pub key: usize,

@@ -159,6 +159,11 @@ impl Roads {
         })
     }
 
+    /// The line of every road drawn.
+    pub fn routes(&self) -> Vec<&Route> {
+        self.drawn.values().map(|road| &road.route).collect()
+    }
+
     /// Brings what is drawn in line with the society, while the call
     /// has room.
     pub fn update(&mut self, ctx: &Ctx, draw: &mut Draw) {

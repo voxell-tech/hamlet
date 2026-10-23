@@ -22,7 +22,7 @@ Each depends only on those above it, and each adds one Bevy plugin,
 |---|---|---|
 | `engine/api` | `hamlet_engine_api` | The names the engine and plugins share. serde only, no Bevy |
 | `engine/core` | `hamlet_engine_core` | The tuning files, the home, the bundle's folder, the log, the guards and the limits a plugin is held to |
-| `engine/audio` | `hamlet_engine_audio` | Sound on Bevy's audio: clips handed over as samples, played unplaced or placed, by category, scaled by the person's volumes |
+| `engine/audio` | `hamlet_engine_audio` | Sound on Bevy's audio: clips handed over as samples, whole or in parts as they play, played unplaced or placed, by category, scaled by the person's volumes |
 | `engine/shell` | `hamlet_engine_shell` | The window, its theme, the dock and its panels, workspaces, commands, shortcuts, the menu bar and the status line |
 | `engine/plugins` | `hamlet_engine_plugins` | Plugins as entities, what they add, switching them on and off, the Plugins panel, and the mail between plugins and services |
 | `engine/grants` | `hamlet_engine_grants` | What the person lets plugins do: petitions, the grants file, the Permissions page |
@@ -326,8 +326,16 @@ hamlet_engine_bevy::export!(Hello);
   `PostUpdate`. A spatial one plays at its entity, an entity of the
   scene, following its `Transform`, heard from the
   `SpatialListener`, else from the first `SceneCamera`. Changing its
-  settings changes its volume and speed; taking its player away or
-  despawning it stops it (see [Sound](#sound)).
+  settings changes its volume and speed, a `FadeTo` moves its volume
+  evenly over seconds in the engine, and taking its player away or
+  despawning it stops it; one that does not loop ends when the
+  engine says it ended. A sound's samples are handed over in parts
+  of a quarter of a MiB in `PostUpdate`, so a sound of any length is
+  made at once and may play while it is still handed over.
+  `Sound::open(channels, rate)` is filled with `SoundAssets::append`
+  until `SoundAssets::close`; `Sound::stream(channels, rate)` is
+  filled the same way and played once, its samples let go of in the
+  engine as they are heard, for music (see [Sound](#sound)).
 - **Views** are written with fynix (`hamlet_engine_bevy::ui`) over the
   plugin's Bevy `World`. `Hamlet` is fynix's backend: a node is made
   in the engine as fynix spawns it, of the kind of its element, and a
@@ -2159,13 +2167,24 @@ and come to their end all the same, and nothing is heard.
   -1 or 1 is held to it; one that is not finite, a count that is not
   whole frames, another number of channels or another rate is
   refused. No file is decoded.
+- **A clip filled** is opened empty and has samples appended until
+  it is closed. A sound may play it while it is filled: it plays
+  from a copy of its own, sent each part appended over a channel to
+  the output thread, and past the samples it has it waits in
+  silence. It loops only once closed. A clip opened `once` is played
+  by one sound once, not looped: its samples go to that sound, the
+  output thread lets go of each part once played, and the plugin's
+  audio memory counts them only until they are heard, by the time
+  played. Its sound ends when the clip is closed and heard to its
+  end.
 - **A sound** is a clip playing, an entity with a `Sounding` and
   Bevy's player: unplaced, heard the same wherever the listener is,
   or placed at a point or at an entity, following it. Its volume (0
   to 1) and speed (1/4 to 4, its pitch moving with it) can change as
-  it plays; it plays once or loops, and stops when it is stopped or
-  taken away. One that does not loop is taken away at its end, by
-  the time it played at its speeds.
+  it plays, and its volume can fade evenly to another over seconds,
+  moved each frame; it plays once or loops, and stops when it is
+  stopped or taken away. One that does not loop is taken away at its
+  end, by the time it played at its speeds.
 - **Heard from a listener.** A plugin names the entity of its scene
   its placed sounds are heard from; without one, its scene's origin.
   Bevy hears every sound from one listener, so each placed sound is
@@ -2200,19 +2219,26 @@ and come to their end all the same, and nothing is heard.
   many sounds as it likes. Only when the person set its audio memory
   are the bytes of the samples of its clips held (four a sample; a
   clip let go of while a sound plays it stays counted until none
-  does); a make past it fails, saying why.
+  does); a make past it fails, saying why, and an append past it
+  fails as `full`, appending nothing, for the plugin to append the
+  same samples later.
 - **The interface** `audio` in the WIT, in the world `sounds`, which
   `render-plugin` includes: the resource `clip` (`make` with the
-  samples, the channels and the rate), the resource `sound` (`play`,
-  `play-at` a point and `play-on` an entity of the plugin's scene,
-  each with a `playback`: its category, volume, speed and whether it
-  loops; `set` its volume and speed; `stop`; dropping it stops it)
-  and `listen` at an entity of its scene or none. A number that is
-  not finite fails the call. The host keeps each plugin's clips and
-  sounds in a `Ledger` as it calls, and makes
-  them in the world as the call ends (`engine/wasm/src/audio.rs`);
-  each frame the ledger hears which sounds came to their end, and a
-  plugin numbering anew, after a reload, has its sounds stopped.
+  samples, the channels and the rate; `open` with the channels, the
+  rate and whether it is played `once`; `append` samples, failing as
+  `full` or `refused` with why; `close`), the resource `sound`
+  (`play`, `play-at` a point and `play-on` an entity of the plugin's
+  scene, each with a `playback`: its category, volume, speed and
+  whether it loops; `set` its volume and speed; `fade` its volume
+  over seconds; `playing`, false once it ended or was stopped;
+  `stop`; dropping it stops it) and `listen` at an entity of its
+  scene or none. A number that is not finite fails the call. The
+  host keeps each plugin's clips and sounds in a `Ledger` as it
+  calls, and makes them in the world as the call ends
+  (`engine/wasm/src/audio.rs`); each frame the ledger hears which
+  sounds came to their end and the bytes heard of each clip played
+  once, and a plugin numbering anew, after a reload, has its sounds
+  stopped.
 
 ### The interface's sounds
 

@@ -17,11 +17,12 @@ use crate::folk::chief::look::Look;
 use crate::folk::chief::mascot::{Rig, parts, wick};
 use crate::folk::chief::place::{self, Built};
 use crate::folk::chief::wickstep::{
-    Charm, Mascot, Phase, Whereabouts,
+    Charm, Mascot, Phase, Whereabouts, With,
 };
+use crate::folk::sounds::{FolkCue, FolkSound};
 use crate::places::lantern::lantern_glass;
 use crate::realm::Ctx;
-use crate::society::{Claim, Place, Society};
+use crate::society::{AgentId, Claim, Place, Society};
 use crate::view::pick::Thing;
 use crate::world::flora;
 use crate::world::land::Land;
@@ -235,8 +236,19 @@ impl Hearth {
         self.frame.point(Vec3::new(house.x, 0.0, house.y))
     }
 
-    /// Builds what is left to build, and moves and lights the mascot.
-    pub fn update(&mut self, ctx: &Ctx, dt: f32, draw: &mut Draw) {
+    /// Builds what is left to build, and moves and lights the mascot
+    /// in the company `with`, beside the camera turned `yaw`. The
+    /// sounds of its Wicksteps are told to `cue`. The agent it came
+    /// to keep company with.
+    pub fn update(
+        &mut self,
+        ctx: &Ctx,
+        with: Option<With>,
+        (yaw, hovered): (f32, bool),
+        dt: f32,
+        cue: &mut impl FnMut(FolkCue),
+        draw: &mut Draw,
+    ) -> Option<AgentId> {
         self.hand_over(ctx, draw);
         let now = ctx.clock;
         let candle = ctx.sky.look.candle;
@@ -256,11 +268,23 @@ impl Hearth {
         let about = Whereabouts {
             land: ctx.land,
             home: &self.frame,
-            beside: ctx.beside,
-            eye: ctx.eye,
+            with,
+            yaw,
+            hovered,
             fastest: self.fastest,
         };
-        for end in self.mascot.step(&self.set, &about, now, dt) {
+        let stepped = self.mascot.step(&self.set, &about, now, dt);
+        for end in stepped.ends {
+            let sound = if end.arrives {
+                FolkSound::WickIn
+            } else {
+                FolkSound::WickOut
+            };
+            cue(FolkCue {
+                sound,
+                at: end.ground,
+                turn: self.mascot.turn,
+            });
             self.charm.cast(
                 &self.set,
                 self.light,
@@ -306,6 +330,7 @@ impl Hearth {
             );
             self.lumens = Some(lumens);
         }
+        stepped.came
     }
 
     /// The meshes of step `step` of the place and the mascot, to hand

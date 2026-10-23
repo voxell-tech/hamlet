@@ -2,24 +2,34 @@
 //! drawn without having drawn the one before.
 
 mod chores;
+mod handled;
 mod lives;
 mod meeting;
 mod parts;
 mod plain;
 
+use std::f32::consts::{PI, TAU};
+
 use crate::folk::keeper::KState;
 use crate::folk::keeper::acts::chores::{
-    celebrate, crank, done, hammer, kite, read, recall, stow, tend,
-    think, write,
+    celebrate, crank, done, hammer, kite, lift, read, recall, stow,
+    tend, think, write,
+};
+use crate::folk::keeper::acts::handled::{
+    dangle, land, startle, sulk, wiggle,
 };
 use crate::folk::keeper::acts::lives::{
     appear, leave, merge_host, merge_into,
 };
-use crate::folk::keeper::acts::meeting::listen;
+use crate::folk::keeper::acts::meeting::{
+    PASS, greet, hand_over, listen, receive, talk, wave,
+};
 use crate::folk::keeper::acts::plain::{
-    Gait, idle, reflect, wait, walk,
+    Gait, idle, object, reflect, wait, walk,
 };
 use crate::folk::keeper::pose::{Pose, dice};
+use crate::folk::sounds::FolkSound;
+use crate::places::yard::RING_EVERY;
 
 /// One motion a robot can play.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -31,11 +41,26 @@ pub enum Act {
     Walk,
     /// Walking with a letter.
     Carry,
+    #[expect(dead_code, reason = "no robot hands a letter over yet")]
+    HandOver,
+    #[expect(dead_code, reason = "no robot is handed a letter yet")]
+    Receive,
+    #[expect(dead_code, reason = "no two robots talk yet")]
+    Talk,
     /// Listening at its door for an agent's answer.
     Listen,
     Think,
+    #[expect(
+        dead_code,
+        reason = "no robot hammers off its bench yet"
+    )]
+    Hammer,
+    #[expect(dead_code, reason = "no robot lifts a block yet")]
+    Lift,
     /// Holding a request up for the human.
     Wait,
+    /// Arguing against an instruction while it waits for the reply.
+    Object,
     /// Its first moments.
     Appear,
     /// Its last.
@@ -69,6 +94,20 @@ pub enum Act {
     Tinker,
     /// Tipping its hat over finished work.
     Done,
+    /// Poked: a start, a look up at whoever did it, and a wave.
+    Startle,
+    /// Poked once too often: arms crossed, and a huff.
+    Sulk,
+    /// Patted: a happy wiggle.
+    Wiggle,
+    /// Held up off the ground, kicking.
+    Dangle,
+    /// Set down: a bounce, and a shake of the head.
+    Land,
+    /// Meeting another robot: a wave and a bow.
+    Greet,
+    /// A wave to whoever is passing.
+    Wave,
 }
 
 /// Speed of a worked wheel, in radians a second.
@@ -98,10 +137,22 @@ impl Act {
             | Self::Appear
             | Self::Leave
             | Self::Celebrate
-            | Self::Done => KState::Rest,
+            | Self::Done
+            | Self::Startle
+            | Self::Sulk
+            | Self::Wiggle
+            | Self::Dangle
+            | Self::Land
+            | Self::Greet
+            | Self::Wave => KState::Rest,
             Self::Carry
+            | Self::HandOver
+            | Self::Receive
+            | Self::Talk
             | Self::Listen
             | Self::Think
+            | Self::Hammer
+            | Self::Lift
             | Self::MergeInto
             | Self::MergeHost
             | Self::Amble
@@ -115,7 +166,7 @@ impl Act {
             | Self::Recall
             | Self::Stow
             | Self::Tinker => KState::Working,
-            Self::Wait => KState::Waiting,
+            Self::Wait | Self::Object => KState::Waiting,
         }
     }
 
@@ -123,6 +174,8 @@ impl Act {
     /// repeats.
     pub fn length(self) -> Option<f32> {
         match self {
+            Self::HandOver => Some(1.9),
+            Self::Receive => Some(1.9),
             Self::Appear => Some(3.2),
             Self::Leave => Some(3.6),
             Self::MergeInto => Some(1.8),
@@ -130,6 +183,12 @@ impl Act {
             Self::Celebrate => Some(2.5),
             Self::Stow => Some(3.4),
             Self::Done => Some(2.0),
+            Self::Startle => Some(2.4),
+            Self::Sulk => Some(3.6),
+            Self::Wiggle => Some(1.5),
+            Self::Land => Some(0.9),
+            Self::Greet => Some(2.0),
+            Self::Wave => Some(1.6),
             _ => None,
         }
     }
@@ -137,10 +196,17 @@ impl Act {
     /// The motion that follows a finished one by itself.
     pub fn then(self) -> Option<Self> {
         match self {
-            Self::Appear
+            Self::HandOver
+            | Self::Appear
             | Self::MergeHost
             | Self::Celebrate
-            | Self::Done => Some(Self::Idle),
+            | Self::Done
+            | Self::Startle
+            | Self::Sulk
+            | Self::Wiggle
+            | Self::Land
+            | Self::Greet
+            | Self::Wave => Some(Self::Idle),
             Self::Stow => Some(Self::Think),
             _ => None,
         }
@@ -164,6 +230,12 @@ impl Act {
     pub(super) fn easing(self, from: Self) -> (f32, f32) {
         match (from, self) {
             (_, Self::Appear) => (0.0, 0.0),
+            (_, Self::Startle) => (0.1, 0.0),
+            // A hand takes it and lets it go at once.
+            (_, Self::Dangle) => (0.18, 0.0),
+            (_, Self::Land) => (0.06, 0.0),
+            (Self::Talk, Self::Listen)
+            | (Self::Listen, Self::Talk) => (0.4, 0.2),
             (a, b) if a.walks() && b.walks() => (0.3, 0.0),
             _ => (0.45, 1.0),
         }
@@ -234,15 +306,76 @@ pub(super) fn pose(act: Act, c: &Ctx) -> Pose {
         Act::Kite => kite(c),
         Act::Recall => recall(c),
         Act::Stow => stow(c),
-        Act::Tinker => hammer(c),
+        Act::Tinker => hammer(c, true),
         Act::Done => done(c),
+        Act::HandOver => hand_over(c),
+        Act::Receive => receive(c),
+        Act::Talk => talk(c),
         Act::Listen => listen(c),
         Act::Think => think(c),
+        Act::Hammer => hammer(c, false),
+        Act::Lift => lift(c),
         Act::Wait => wait(c),
+        Act::Object => object(c),
         Act::Appear => appear(c),
         Act::Leave => leave(c),
         Act::MergeInto => merge_into(c),
         Act::MergeHost => merge_host(c),
         Act::Celebrate => celebrate(c),
+        Act::Startle => startle(c),
+        Act::Sulk => sulk(c),
+        Act::Wiggle => wiggle(c),
+        Act::Dangle => dangle(c),
+        Act::Land => land(c),
+        Act::Greet => greet(c),
+        Act::Wave => wave(c),
     }
+}
+
+/// The sound a motion makes, and a count that passes a whole number
+/// each time it makes it.
+pub(super) fn beat(act: Act, c: &Ctx) -> Option<(FolkSound, f32)> {
+    let steps = c.gait / PI - 0.5;
+    let once = |at: f32| f32::from(c.tau >= at);
+    Some(match act {
+        // A robot on its wheels takes no steps.
+        _ if act.walks() && (c.pace <= 0.3 || c.roll > 0.5) => {
+            return None;
+        }
+        Act::Walk | Act::Amble | Act::Pace => {
+            (FolkSound::Step, steps)
+        }
+        Act::Carry => (FolkSound::RoadStep, steps),
+        Act::Hammer | Act::Tinker => {
+            (FolkSound::Hammer, c.t / 0.95 - 0.68)
+        }
+        Act::Crank => (FolkSound::Wheel, c.tau * CRANK_RATE / TAU),
+        Act::Tend => (FolkSound::Steam, c.tau / RING_EVERY - 0.05),
+        Act::Write => {
+            // Some lines it dips the quill or reads the page over.
+            let line = c.t / 1.9;
+            if dice(line.floor() as i32 + 419, c.q.seed) < 0.36 {
+                return None;
+            }
+            (FolkSound::Quill, line - 0.06)
+        }
+        Act::Jot => (FolkSound::Quill, c.t / 1.9),
+        Act::Read => {
+            let span = c.t / 4.4;
+            if dice(span.floor() as i32 + 211, c.q.seed) < 0.24 {
+                return None;
+            }
+            (FolkSound::Letter, span - 0.03)
+        }
+        Act::Kite => {
+            (FolkSound::Kite, ((c.tau - 1.2) / 3.4).max(-0.5))
+        }
+        Act::Stow => (FolkSound::Hammer, once(2.05)),
+        Act::HandOver => (FolkSound::Letter, once(PASS)),
+        // A door for one that comes into the realm or goes out of it.
+        Act::Appear | Act::Leave | Act::MergeInto => {
+            (FolkSound::Door, once(0.2))
+        }
+        _ => return None,
+    })
 }

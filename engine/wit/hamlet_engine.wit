@@ -919,12 +919,37 @@ interface audio {
         looped: bool,
     }
 
+    /// Why samples were not appended to a clip.
+    variant append-error {
+        /// Past the audio memory the person set for the plugin.
+        /// Nothing was appended; the same samples may be appended
+        /// once more of the clip was heard.
+        full,
+        /// Not whole finite frames, or the clip is closed or its
+        /// sound played to its end.
+        refused(string),
+    }
+
     /// Samples as floats from -1 to 1, interleaved: `channels` (1, or
     /// 2 with the left first) a frame, `rate` frames a second, from
     /// 8,000 to 96,000. Held to the plugin's bytes of clips, four a
     /// sample.
     resource clip {
         make: static func(samples: list<f32>, channels: u8, rate: u32) -> result<clip, string>;
+
+        /// An empty clip, filled by `append` until `close`. A sound
+        /// may play it while it is filled: past the samples appended
+        /// it waits in silence for more, and it loops only once
+        /// closed. With `once`, one sound plays it once, not looped,
+        /// and its samples count against the bytes of clips only
+        /// until they are heard.
+        open: static func(channels: u8, rate: u32, once: bool) -> result<clip, string>;
+
+        /// Adds `samples`, whole frames, at its end.
+        append: func(samples: list<f32>) -> result<_, append-error>;
+
+        /// No more samples come: a sound playing it ends at its end.
+        close: func();
     }
 
     /// A clip playing. Dropping it stops it; one that is not looped
@@ -941,6 +966,14 @@ interface audio {
 
         /// Its volume and speed from now on.
         set: func(volume: f32, speed: f32);
+
+        /// Moves its volume evenly to `volume` over `seconds`, each
+        /// frame in the engine.
+        fade: func(volume: f32, seconds: f32);
+
+        /// Whether it still plays: false once it was stopped or came
+        /// to its end, as the engine last heard.
+        playing: func() -> bool;
 
         stop: func();
     }

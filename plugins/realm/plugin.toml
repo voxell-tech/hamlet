@@ -23,6 +23,15 @@ capability = "render.shader"
 target = "gpu"
 reason = "Draws the roads' grooves and their light, and the rings and runes on the ground, with shaders of its own"
 
+[[asks]]
+capability = "audio.play"
+target = "output"
+reason = "Plays the realm's sounds: birds, crickets and wind, robots at work, houses rising and falling, and the calls for you"
+
+# The sky chosen, kept between launches.
+[assets]
+makes = [{ name = "realm.view", version = 1 }]
+
 [events]
 hears = [{ event = "hamlet.agents/carry", payload = "realm.carry" }]
 

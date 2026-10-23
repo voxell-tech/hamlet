@@ -73,6 +73,12 @@ pub enum AudioChange {
         id: u32,
         clip: Clip,
     },
+    /// Samples, checked, added at the end of a clip being filled.
+    Append {
+        id: u32,
+        samples: Vec<f32>,
+    },
+    Close(u32),
     DropClip(u32),
     Play {
         id: u32,
@@ -85,10 +91,37 @@ pub enum AudioChange {
         volume: f32,
         speed: f32,
     },
+    Fade {
+        id: u32,
+        volume: f32,
+        seconds: f32,
+    },
     Stop(u32),
     /// The entity of the owner's scene its placed sounds are heard
     /// from, or none for its scene's origin.
     Listen(Option<u32>),
+}
+
+/// Why samples were not appended to a clip.
+#[derive(Clone, PartialEq, Debug)]
+pub enum AppendError {
+    /// Past a budget for now; the same samples may come later.
+    Full,
+    Refused(String),
+}
+
+/// A clip a plugin holds, as its ledger counts it.
+#[derive(Clone, Copy, Debug)]
+struct Held {
+    /// Bytes of its samples still counted.
+    bytes: u64,
+    channels: u16,
+    filling: bool,
+    once: bool,
+    /// Played once, by a sound.
+    played: bool,
+    /// Played once, to its end.
+    spent: bool,
 }
 
 /// One plugin's clips and sounds, counted against its [`AudioCaps`].
@@ -98,11 +131,10 @@ pub struct Ledger {
     /// stopped first.
     pub since: Instant,
     next: u32,
-    /// The bytes of each clip held.
-    clips: HashMap<u32, u64>,
+    clips: HashMap<u32, Held>,
     /// Clips let go of while a sound still plays them, counted until
     /// none does.
-    gone: HashMap<u32, u64>,
+    gone: HashMap<u32, Held>,
     /// The clip each sound playing plays.
     sounds: HashMap<u32, u32>,
     bytes: u64,
@@ -151,35 +183,95 @@ impl Ledger {
         self.next
     }
 
-    /// Holds `clip`, numbered, if it may and it fits; why not
-    /// otherwise.
+    /// The audio memory switched on that `bytes` more would pass.
+    fn past(&self, bytes: u64) -> Option<u64> {
+        self.caps
+            .clip_bytes
+            .filter(|most| self.bytes.saturating_add(bytes) > *most)
+    }
+
+    /// Holds `clip`, whole or to be filled, numbered, if it may and
+    /// it fits; why not otherwise.
     pub fn make_clip(&mut self, clip: Clip) -> Result<u32, String> {
         self.may()?;
         let bytes = clip.bytes();
-        if let Some(most) = self.caps.clip_bytes
-            && self.bytes.saturating_add(bytes) > most
-        {
+        if let Some(most) = self.past(bytes) {
             return Err(format!(
                 "a plugin's clips hold {most} bytes at most"
             ));
         }
         self.bytes = self.bytes.saturating_add(bytes);
         let id = self.number();
-        self.clips.insert(id, bytes);
+        self.clips.insert(
+            id,
+            Held {
+                bytes,
+                channels: clip.channels(),
+                filling: clip.filling(),
+                once: clip.once(),
+                played: false,
+                spent: false,
+            },
+        );
         self.changes.push(AudioChange::Clip { id, clip });
         Ok(id)
     }
 
-    /// Lets go of the clip `id`. Its bytes stay counted while a sound
-    /// plays it.
+    /// Adds `samples` at the end of the clip `id`, if it may, it is
+    /// filled and they fit.
+    pub fn append(
+        &mut self,
+        id: u32,
+        samples: Vec<f32>,
+    ) -> Result<(), AppendError> {
+        self.may().map_err(AppendError::Refused)?;
+        let Some(held) = self.clips.get(&id).copied() else {
+            return Err(AppendError::Refused("no such clip".into()));
+        };
+        if !held.filling {
+            return Err(AppendError::Refused(
+                "the clip is closed".into(),
+            ));
+        }
+        if held.spent {
+            return Err(AppendError::Refused(
+                "the clip's sound played to its end".into(),
+            ));
+        }
+        let samples = Clip::checked(samples, held.channels)
+            .map_err(AppendError::Refused)?;
+        let bytes = size_of_val(samples.as_slice()) as u64;
+        if self.past(bytes).is_some() {
+            return Err(AppendError::Full);
+        }
+        self.bytes = self.bytes.saturating_add(bytes);
+        if let Some(held) = self.clips.get_mut(&id) {
+            held.bytes = held.bytes.saturating_add(bytes);
+        }
+        self.changes.push(AudioChange::Append { id, samples });
+        Ok(())
+    }
+
+    /// Ends the filling of the clip `id`.
+    pub fn close(&mut self, id: u32) {
+        if let Some(held) = self.clips.get_mut(&id)
+            && held.filling
+        {
+            held.filling = false;
+            self.changes.push(AudioChange::Close(id));
+        }
+    }
+
+    /// Lets go of the clip `id`, which ends its filling. Its bytes
+    /// stay counted while a sound plays it.
     pub fn drop_clip(&mut self, id: u32) {
-        let Some(bytes) = self.clips.remove(&id) else {
+        let Some(held) = self.clips.remove(&id) else {
             return;
         };
         if self.sounds.values().any(|clip| *clip == id) {
-            self.gone.insert(id, bytes);
+            self.gone.insert(id, held);
         } else {
-            self.bytes -= bytes;
+            self.bytes -= held.bytes;
         }
         self.changes.push(AudioChange::DropClip(id));
     }
@@ -187,6 +279,11 @@ impl Ledger {
     /// Whether `id` is a clip it holds.
     pub fn holds(&self, id: u32) -> bool {
         self.clips.contains_key(&id)
+    }
+
+    /// Whether `id` is a sound playing, as the world last told.
+    pub fn playing(&self, id: u32) -> bool {
+        self.sounds.contains_key(&id)
     }
 
     /// Plays the clip `clip`, numbered, if it may and it fits; why
@@ -198,6 +295,17 @@ impl Ledger {
         place: Place,
     ) -> Result<u32, String> {
         self.may()?;
+        if let Some(held) = self.clips.get(&clip)
+            && held.once
+            && (held.played || playback.looped)
+        {
+            return Err("a clip filled to be played once is played \
+                        once, not looped"
+                .into());
+        }
+        if let Some(held) = self.clips.get_mut(&clip) {
+            held.played = true;
+        }
         let id = self.number();
         self.sounds.insert(id, clip);
         self.changes.push(AudioChange::Play {
@@ -214,6 +322,17 @@ impl Ledger {
     pub fn set(&mut self, id: u32, volume: f32, speed: f32) {
         if self.sounds.contains_key(&id) {
             self.changes.push(AudioChange::Set { id, volume, speed });
+        }
+    }
+
+    /// Moves the volume of the sound `id` to `volume` over `seconds`.
+    pub fn fade(&mut self, id: u32, volume: f32, seconds: f32) {
+        if self.sounds.contains_key(&id) {
+            self.changes.push(AudioChange::Fade {
+                id,
+                volume,
+                seconds,
+            });
         }
     }
 
@@ -235,16 +354,48 @@ impl Ledger {
         }
     }
 
-    /// Forgets the sound `id`, and frees its clip if it was let go
-    /// of and no other sound plays it: whether it was playing.
+    /// Stops counting the bytes of the clips played once that were
+    /// heard: each clip's number and its bytes heard.
+    pub fn heard(
+        &mut self,
+        heard: impl IntoIterator<Item = (u32, u64)>,
+    ) {
+        for (clip, bytes) in heard {
+            self.free(clip, bytes);
+        }
+    }
+
+    /// Stops counting up to `bytes` of the clip `clip`.
+    fn free(&mut self, clip: u32, bytes: u64) {
+        let Some(held) = self
+            .clips
+            .get_mut(&clip)
+            .or_else(|| self.gone.get_mut(&clip))
+        else {
+            return;
+        };
+        let bytes = bytes.min(held.bytes);
+        held.bytes -= bytes;
+        self.bytes -= bytes;
+    }
+
+    /// Forgets the sound `id`; frees its clip if it was played once,
+    /// or if it was let go of and no other sound plays it: whether
+    /// it was playing.
     fn end(&mut self, id: u32) -> bool {
         let Some(clip) = self.sounds.remove(&id) else {
             return false;
         };
-        if !self.sounds.values().any(|other| *other == clip)
-            && let Some(bytes) = self.gone.remove(&clip)
+        if let Some(held) = self.clips.get_mut(&clip)
+            && held.once
         {
-            self.bytes -= bytes;
+            held.spent = true;
+            self.free(clip, u64::MAX);
+        }
+        if !self.sounds.values().any(|other| *other == clip)
+            && let Some(held) = self.gone.remove(&clip)
+        {
+            self.bytes -= held.bytes;
         }
         true
     }
@@ -300,5 +451,32 @@ mod tests {
         assert!(ledger.make_clip(clip(500)).is_err());
         ledger.ended([first]);
         assert!(ledger.make_clip(clip(500)).is_ok());
+    }
+
+    #[test]
+    fn a_clip_played_once_is_counted_until_heard() {
+        let mut ledger = ledger();
+        let open = Clip::open(1, 32_000, true).unwrap();
+        let fed = ledger.make_clip(open).unwrap();
+        ledger.append(fed, vec![0.0; 600]).unwrap();
+        assert_eq!(
+            ledger.append(fed, vec![0.0; 500]),
+            Err(AppendError::Full)
+        );
+        let sound = ledger.play(fed, ONCE, Place::Unplaced).unwrap();
+        assert!(ledger.play(fed, ONCE, Place::Unplaced).is_err());
+
+        // What was heard makes room for more.
+        ledger.heard([(fed, 4 * 200)]);
+        ledger.append(fed, vec![0.0; 500]).unwrap();
+        assert!(ledger.append(fed, vec![0.0; 200]).is_err());
+
+        // At its end its bytes are let go of, and nothing more comes.
+        ledger.ended([sound]);
+        assert!(ledger.make_clip(clip(1_000)).is_ok());
+        assert!(matches!(
+            ledger.append(fed, vec![0.0; 1]),
+            Err(AppendError::Refused(_))
+        ));
     }
 }

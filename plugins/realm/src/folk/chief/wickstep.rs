@@ -13,9 +13,8 @@ use crate::folk::chief::ChiefSettings;
 use crate::folk::chief::homing::Walking;
 use crate::folk::chief::mascot::{Doing, Pose};
 use crate::folk::chief::place::{self, Pastime};
-pub use crate::folk::chief::wickstep::charm::Charm;
-use crate::folk::chief::wickstep::charm::chance;
-use crate::society::AgentId;
+pub use crate::folk::chief::wickstep::charm::{Charm, chance};
+use crate::society::{AgentId, TownId};
 use crate::world::land::Land;
 
 /// Farthest the spot a mascot walks to may move before its way is
@@ -43,12 +42,21 @@ pub enum Phase {
     },
 }
 
+/// What a mascot keeps company with.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Company {
+    Agent(AgentId),
+    /// A hamlet's common.
+    Common(TownId),
+    Library,
+}
+
 /// A mascot's whereabouts.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Stay {
     Home,
-    /// Beside this agent.
-    With(AgentId),
+    /// Beside this company.
+    With(Company),
 }
 
 /// One end of a Wickstep, for its circle and motes to be cast: where
@@ -59,17 +67,37 @@ pub struct End {
     pub arrives: bool,
 }
 
-/// What a mascot is told each frame: where it lives, who the chief
-/// talks to, and where the camera is.
+/// The company a mascot keeps: what it is, the spot it is stood by,
+/// and the middle of the common it looks at, for a common.
+#[derive(Clone, Copy, Debug)]
+pub struct With {
+    pub company: Company,
+    pub at: Vec3,
+    pub gaze: Option<Vec2>,
+}
+
+/// What a mascot is told each frame: where it lives, the company its
+/// chief has it keep, and the camera's turn.
 pub struct Whereabouts<'a> {
     pub land: &'a Land,
     /// The frame of its place.
     pub home: &'a Frame,
-    /// The agent the chief talks to, and where its robot stands.
-    pub beside: Option<(AgentId, Vec3)>,
-    pub eye: Vec3,
+    pub with: Option<With>,
+    /// The camera's turn about Y, from which the way toward it is
+    /// found.
+    pub yaw: f32,
+    /// True while the pointer rests on it.
+    pub hovered: bool,
     /// The fastest it hurries after an agent that gets ahead.
     pub fastest: f32,
+}
+
+/// What came of a frame of a mascot: the ends of a Wickstep that
+/// began, and the agent it came to keep company with.
+#[derive(Default)]
+pub struct Stepped {
+    pub ends: Vec<End>,
+    pub came: Option<AgentId>,
 }
 
 /// A chief's mascot.
@@ -98,7 +126,7 @@ pub struct Mascot {
     spot: usize,
     until: f32,
     /// Counts its Wicksteps and its choices of a spot.
-    turn: u32,
+    pub turn: u32,
 }
 
 /// The rotation about Y that turns +Z to face along `way`.
@@ -167,21 +195,21 @@ impl Mascot {
     }
 
     /// Moves it a frame `dt` seconds on, at clock time `now`: a
-    /// Wickstep to whoever its chief talks to and home again, and on
-    /// foot between. The ends of a Wickstep that began.
+    /// Wickstep to the company its chief has it keep and home again,
+    /// and on foot between.
     pub fn step(
         &mut self,
         set: &ChiefSettings,
         about: &Whereabouts,
         now: f32,
         dt: f32,
-    ) -> Vec<End> {
-        let mut ends = Vec::new();
+    ) -> Stepped {
+        let mut stepped = Stepped::default();
         let land = about.land;
         let here = self.at;
         // Toward the camera and to its right, along the ground.
-        let back = (about.eye - here).xz().normalize_or(Vec2::Y);
-        let right = Vec2::new(back.y, -back.x);
+        let back = Vec2::new(about.yaw.sin(), about.yaw.cos());
+        let right = Vec2::new(about.yaw.cos(), -about.yaw.sin());
         let spots = place::spots(set);
         let spot_at = |i: usize| {
             about
@@ -189,15 +217,21 @@ impl Mascot {
                 .point(Vec3::new(spots[i].at.x, 0.0, spots[i].at.y))
                 .xz()
         };
-        // An agent that is nowhere to be found is not stood by.
-        let of = |agent: AgentId| {
+        // Company that is nowhere to be found is not stood by.
+        let of = |company: Company| {
             about
-                .beside
-                .filter(|(them, _)| *them == agent)
-                .map(|(_, at)| at)
+                .with
+                .filter(|with| with.company == company)
+                .map(|with| with.at)
         };
-        let wanted = match about.beside {
-            Some((agent, _)) => Stay::With(agent),
+        let gaze = |company: Company| {
+            about
+                .with
+                .filter(|with| with.company == company)
+                .and_then(|with| with.gaze)
+        };
+        let wanted = match about.with {
+            Some(with) => Stay::With(with.company),
             None => Stay::Home,
         };
         let side = right * set.beside + back * set.before;
@@ -247,11 +281,19 @@ impl Mascot {
                                 self.side = stand - them;
                             }
                         }
-                        (
-                            them + self.side,
-                            Doing::Attend,
-                            them + back * set.cheat,
-                        )
+                        match gaze(agent) {
+                            // It looks at the common.
+                            Some(middle) => (
+                                them + self.side,
+                                Doing::Gaze,
+                                middle,
+                            ),
+                            None => (
+                                them + self.side,
+                                Doing::Attend,
+                                them + back * set.cheat,
+                            ),
+                        }
                     }
                     Stay::Home => {
                         if now >= self.until {
@@ -369,7 +411,12 @@ impl Mascot {
                         self.until =
                             now + least + (most - least) * roll;
                     }
-                    self.act(rest, now);
+                    if about.hovered {
+                        way = back;
+                        self.act(Doing::Wave, now);
+                    } else {
+                        self.act(rest, now);
+                    }
                 }
                 if way.length_squared() > 1e-6 {
                     self.yaw = turned(
@@ -386,7 +433,13 @@ impl Mascot {
                 };
             }
             Phase::Dark { began, long } if now - began >= long => {
-                // Sets it down where `wanted` has it.
+                // Sets it down where `wanted` has it. Its agent waves
+                // as it comes.
+                if let Stay::With(Company::Agent(agent)) = wanted
+                    && self.stay != wanted
+                {
+                    stepped.came = Some(agent);
+                }
                 self.stay = wanted;
                 self.way.clear();
                 self.yaw = match wanted {
@@ -416,7 +469,7 @@ impl Mascot {
                 };
                 self.changed = f32::MIN;
                 self.turn = self.turn.wrapping_add(1);
-                ends.push(End {
+                stepped.ends.push(End {
                     ground: self.at,
                     arrives: true,
                 });
@@ -432,11 +485,11 @@ impl Mascot {
         if let Phase::Out { began, .. } = self.phase
             && began == now
         {
-            ends.push(End {
+            stepped.ends.push(End {
                 ground: here,
                 arrives: false,
             });
         }
-        ends
+        stepped
     }
 }

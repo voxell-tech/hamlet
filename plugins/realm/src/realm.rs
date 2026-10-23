@@ -5,8 +5,7 @@
 use bevy_ecs::system::SystemParam;
 use glam::{Vec2, Vec3, Vec3Swizzles};
 use hamlet_engine_bevy::api::agents::{
-    AgentsEvent, AgentsReply, AgentsRequest, Focus, Recipient,
-    Roster, Selected,
+    AgentsEvent, AgentsReply, AgentsRequest, Focus, Roster, Selected,
 };
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::scene::{Animate, MouseButton};
@@ -18,19 +17,21 @@ use crate::build::mark;
 use crate::build::stock::Stock;
 use crate::build::upload::{Draw, Upload};
 use crate::folk::chief::{Chief, move_chief};
+use crate::folk::hand::Hand;
 use crate::folk::keeper::{Floor, Lot, Robots, move_robots};
 use crate::places::house::Remains;
 use crate::places::library::{self, Library, build_library};
-use crate::places::moving::{Carry, Carrying, Footprint};
+use crate::places::moving::{Carry, Carrying, Footprint, SetDown};
 use crate::places::road::{Roads, build_roads};
 use crate::places::town::{Towns, build_towns};
-use crate::society::{AgentId, Society};
+use crate::society::{AgentId, Place, Society};
+use crate::sound::{Cue, Cues, Mix, Sound};
 use crate::tuning::WorldTuning;
 use crate::view::camera::{Camera, Following};
 use crate::view::pick::{Picking, Thing};
 use crate::view::signs::{Signs, Words};
 use crate::world::ground::{Ground, Sight, build_ground};
-use crate::world::land::{Land, Unfit};
+use crate::world::land::Land;
 use crate::world::layout::plot;
 use crate::world::palette::Palette;
 use crate::world::sky::{Lights, Sky, SkyClock};
@@ -58,10 +59,17 @@ pub(crate) fn plugin(app: &mut App) {
         .init_resource::<Following>()
         .init_resource::<SkyClock>()
         .init_resource::<ChiefFocus>()
+        .add_message::<SetDown>()
+        .add_plugins((
+            crate::sound::plugin,
+            crate::view::kept::plugin,
+        ))
         .add_systems(Startup, make)
+        // What is played is played in the call it is heard in, a
+        // frame of the realm or not.
         .configure_sets(
             Update,
-            (Hear, Tick.run_if(ticked))
+            (Hear, Tick.run_if(ticked), Cues.run_if(ticked), Mix)
                 .chain()
                 .run_if(resource_exists::<Land>),
         )
@@ -81,6 +89,7 @@ pub(crate) fn plugin(app: &mut App) {
             Update,
             (
                 advance,
+                set_down,
                 crate::world::sky::light,
                 glide,
                 look,
@@ -129,8 +138,6 @@ pub struct Ctx<'a> {
     pub clock: f32,
     /// Where the camera stands.
     pub eye: Vec3,
-    /// The agent the chief talks to, and where its robot stands.
-    pub beside: Option<(AgentId, Vec3)>,
 }
 
 /// The resources a [`Ctx`] is made of.
@@ -163,7 +170,6 @@ impl Shared<'_> {
             sky: &self.sky,
             clock: self.clock.now,
             eye: self.now.eye,
-            beside: self.now.beside,
         }
     }
 }
@@ -181,7 +187,6 @@ pub struct Clock {
 #[derive(Resource, Default)]
 pub struct Now {
     pub eye: Vec3,
-    pub beside: Option<(AgentId, Vec3)>,
     /// The ground of each robot's yard.
     pub lots: Vec<Lot>,
     /// The sight of the ground of the camera's view, and of the one
@@ -189,11 +194,9 @@ pub struct Now {
     pub sights: Vec<Sight>,
 }
 
-/// Who the chief talks to, and the name the chief at this window
-/// signs in with.
+/// The name the chief at this window signs in with.
 #[derive(Resource, Default)]
 struct ChiefFocus {
-    with: Option<Recipient>,
     chief: String,
 }
 
@@ -342,6 +345,7 @@ fn follow_focus(
     mut picking: ResMut<Picking>,
     mut camera: ResMut<Camera>,
     mut following: ResMut<Following>,
+    mut cues: MessageWriter<Cue>,
 ) {
     let replied = replies.read().filter_map(|replied| match &replied
         .reply
@@ -355,7 +359,6 @@ fn follow_focus(
     });
     for focus in replied.chain(told).collect::<Vec<&Focus>>() {
         sky.offset = focus.offset;
-        chief_focus.with = Some(focus.with.clone());
         if chief_focus.chief != focus.chief {
             chief_focus.chief.clone_from(&focus.chief);
             signs.stale = true;
@@ -371,6 +374,7 @@ fn follow_focus(
                 &mut camera,
                 &mut following,
                 false,
+                &mut cues,
             );
         }
     }
@@ -394,23 +398,62 @@ fn put_up_signs(
 fn take_carry(
     mut events: MessageReader<EventReceived>,
     bridge: Res<Bridge>,
+    land: Res<Land>,
+    society: Res<Society>,
     mut carrying: ResMut<Carrying>,
+    mut cues: MessageWriter<Cue>,
 ) {
     for event in events.read() {
         match decode::<String>(&event.payload) {
             Ok(hamlet) => {
-                carrying.carry =
-                    bridge.town(&hamlet).map(|town| Carry {
-                        town,
-                        hamlet,
-                        to: None,
-                        fits: Err(Unfit::Crowded),
-                    });
+                if let Some(town) = bridge.town(&hamlet) {
+                    lift(
+                        Place::Town(town),
+                        &land,
+                        &society,
+                        &mut carrying,
+                        &mut cues,
+                    );
+                }
             }
             Err(why) => {
                 hamlet_engine_bevy::warn(&format!("carry: {why}"))
             }
         }
+    }
+}
+
+/// Takes `place` in hand, to be set down with the next click on the
+/// ground.
+fn lift(
+    place: Place,
+    land: &Land,
+    society: &Society,
+    carrying: &mut Carrying,
+    cues: &mut MessageWriter<Cue>,
+) {
+    let Some((at, _)) = society.stands(land, place) else {
+        return;
+    };
+    carrying.carry = Some(Carry::new(place));
+    cues.write(Cue {
+        sound: Sound::Lift,
+        at: land.on_ground(at),
+        turn: at.x.to_bits(),
+    });
+}
+
+/// Takes the chief's Hearth or the library in hand, to be set down
+/// with the next click on the ground.
+pub fn pick_up(
+    place: In<Place>,
+    land: Option<Res<Land>>,
+    society: Option<Res<Society>>,
+    mut carrying: ResMut<Carrying>,
+    mut cues: MessageWriter<Cue>,
+) {
+    if let (Some(land), Some(society)) = (land, society) {
+        lift(*place, &land, &society, &mut carrying, &mut cues);
     }
 }
 
@@ -424,12 +467,32 @@ fn steer(
     mut camera: ResMut<Camera>,
     mut picking: ResMut<Picking>,
     mut carrying: ResMut<Carrying>,
+    mut hand: ResMut<Hand>,
 ) {
     let thing = |entity: Entity| {
         keys.get(entity).ok().and_then(|key| Thing::of(key.0))
     };
     let set = &tuning.camera;
     for input in inputs.read() {
+        // A robot in the hand holds the ground still, and the release
+        // that sets it down is the hand's.
+        let input = &match carrying.carry {
+            Some(_) => *input,
+            None => match hand.input(
+                input,
+                picking.hovered_robot(),
+                set.click_slop,
+            ) {
+                Some(input) => input,
+                None => {
+                    // The camera still hears the button let go, or
+                    // it slides on with the pointer after the drop.
+                    camera.input(set, input);
+                    picking.pass_click();
+                    continue;
+                }
+            },
+        };
         camera.input(set, input);
         let still = camera.travel <= set.click_slop;
         let carrying = &mut *carrying;
@@ -437,7 +500,7 @@ fn steer(
             picking.input(input, still, thing);
             continue;
         };
-        // A town in hand takes the clicks: the left button sets it
+        // A place in hand takes the clicks: the left button sets it
         // down where it fits, the right puts it back. The pointer is
         // still followed.
         let SceneInput::Press(press) = input else {
@@ -449,9 +512,8 @@ fn steer(
         match (press.button, press.down) {
             (MouseButton::Primary, false) if still => {
                 carry.reach(&land, &society, camera.ray(set));
-                if let Some(command) = carry.command() {
-                    carrying.set_down =
-                        Some((carry.hamlet.clone(), command));
+                if let Some(set_down) = carry.set_down() {
+                    carrying.set_down = Some(set_down);
                     carrying.carry = None;
                     picking.pass_click();
                 }
@@ -468,6 +530,41 @@ fn steer(
 fn advance(time: Res<Time>, mut clock: ResMut<Clock>) {
     clock.dt = time.delta_secs().min(LONGEST_FRAME);
     clock.now += clock.dt;
+}
+
+/// Tells where a place was set down: a town to its hamlet as a
+/// chief's command, the Hearth and the library as a [`SetDown`].
+fn set_down(
+    mut commands: Commands,
+    land: Res<Land>,
+    bridge: Res<Bridge>,
+    mut carrying: ResMut<Carrying>,
+    mut set_downs: MessageWriter<SetDown>,
+    mut cues: MessageWriter<Cue>,
+) {
+    let Some(set) = carrying.set_down.take() else {
+        return;
+    };
+    match set.place {
+        Place::Town(town) => {
+            let Some(hamlet) = bridge.hamlet(town) else {
+                return;
+            };
+            let (x, z) = (set.to.x, set.to.y);
+            commands.agents(&AgentsRequest::Decree {
+                text: format!("/move-hamlet {hamlet} {x:.1} {z:.1}"),
+                hamlet: hamlet.to_owned(),
+            });
+        }
+        Place::Chief | Place::Library => {
+            set_downs.write(set);
+        }
+    }
+    cues.write(Cue {
+        sound: Sound::Drop,
+        at: land.on_ground(set.to),
+        turn: set.to.x.to_bits(),
+    });
 }
 
 /// Points the camera, on the thing followed until the ground is slid
@@ -495,13 +592,11 @@ fn glide(
     );
 }
 
-/// Looks about as the frame begins: where the camera stands, who the
-/// chief talks to, the yards and the ground in sight, and what the
-/// frame may hand over.
+/// Looks about as the frame begins: where the camera stands, the
+/// yards and the ground in sight, and what the frame may hand over.
 fn look(
     things: Things,
     camera: Res<Camera>,
-    focus: Res<ChiefFocus>,
     mut upload: ResMut<Upload>,
     mut now: ResMut<Now>,
 ) {
@@ -510,13 +605,6 @@ fn look(
     let (view, ahead) = camera.views();
     *now = Now {
         eye: camera.eye(land),
-        beside: focus
-            .with
-            .as_ref()
-            .and_then(|with| things.talking_to(with))
-            .and_then(|agent| {
-                Some((agent, things.robots.at(agent)?))
-            }),
         lots: things.robots.lots(),
         sights: [Some(view), ahead]
             .into_iter()
@@ -564,7 +652,7 @@ fn lay_rings(
     );
 }
 
-/// Follows the pointer with the town in hand, and shows where it
+/// Follows the pointer with the place in hand, and shows where it
 /// would stand.
 fn show_footprint(
     tuning: Res<WorldTuning>,
@@ -577,8 +665,8 @@ fn show_footprint(
 ) {
     let ray = camera.ray(&tuning.camera);
     if let Some(carry) = &mut carrying.carry {
-        // A town that is gone is in nobody's hand.
-        if society.town(carry.town).is_none() {
+        // A place that is gone is in nobody's hand.
+        if society.stands(&land, carry.place).is_none() {
             carrying.carry = None;
         } else {
             carry.reach(&land, &society, ray);
@@ -612,30 +700,36 @@ fn show_signs(
     );
 }
 
-/// Tells the agents what the person chose and where a town was set
-/// down.
+/// Tells the agents what the person chose.
 fn settle(
     mut commands: Commands,
-    society: Res<Society>,
-    bridge: Res<Bridge>,
+    things: Things,
     mut picking: ResMut<Picking>,
-    mut carrying: ResMut<Carrying>,
+    mut cues: MessageWriter<Cue>,
+    mut turn: Local<u32>,
 ) {
-    let choice =
-        picking.take_choice().and_then(|thing| match thing {
-            None => Some(Selected::Nothing),
-            Some(thing) => thing.selects(&society, &bridge),
+    let Some(chosen) = picking.take_choice() else {
+        return;
+    };
+    let selected = match chosen {
+        None => Some(Selected::Nothing),
+        Some(thing) => thing.selects(&things.society, &things.bridge),
+    };
+    if let Some(at) = chosen.and_then(|thing| things.place(thing)) {
+        *turn = turn.wrapping_add(1);
+        cues.write(Cue {
+            sound: Sound::Select,
+            at: things.land.on_ground(at),
+            turn: *turn,
         });
-    if let Some(selected) = choice {
+    }
+    if let Some(selected) = selected {
         // The bare ground only clears what was selected.
         let something = selected != Selected::Nothing;
         commands.agents(&AgentsRequest::Select(selected));
         if something {
             open(INSPECTOR);
         }
-    }
-    if let Some((hamlet, text)) = carrying.set_down.take() {
-        commands.agents(&AgentsRequest::Decree { hamlet, text });
     }
 }
 
@@ -647,6 +741,7 @@ fn point(
     carrying: Res<Carrying>,
     camera: Res<Camera>,
     picking: Res<Picking>,
+    hand: Res<Hand>,
     mut pointer: ResMut<Pointer>,
 ) {
     let now = match &carrying.carry {
@@ -654,8 +749,15 @@ fn point(
             Ok(()) => NodePointer::new(PointerMode::Carry).faint(),
             Err(_) => NodePointer::new(PointerMode::Refuse),
         }),
+        // A robot in the hand is seen through it.
+        None if hand.lifted().is_some() => {
+            Some(NodePointer::new(PointerMode::Carry).faint())
+        }
         None => match camera.dragging(&tuning.camera) {
             Some(mode) => Some(NodePointer::new(mode)),
+            None if hand.ready() => {
+                Some(NodePointer::new(PointerMode::Grab))
+            }
             None => picking
                 .hovered()
                 .map(|_| NodePointer::new(PointerMode::Pick)),
@@ -666,14 +768,11 @@ fn point(
     }
 }
 
-/// Goes back to the framing of every hamlet.
-pub fn reset_camera(
-    camera: Option<ResMut<Camera>>,
-    mut following: ResMut<Following>,
-) {
+/// Goes back to the framing of every hamlet, or of the thing
+/// followed.
+pub fn reset_camera(camera: Option<ResMut<Camera>>) {
     if let Some(mut camera) = camera {
         camera.reset();
-        following.0 = None;
     }
 }
 
@@ -685,26 +784,22 @@ pub fn focus_on_selected(
     picking: Option<Res<Picking>>,
     camera: Option<ResMut<Camera>>,
     mut following: ResMut<Following>,
+    mut cues: MessageWriter<Cue>,
 ) {
     if let (Some(things), Some(picking), Some(mut camera)) =
         (things, picking, camera)
     {
-        things.focus_on(&picking, &mut camera, &mut following, *stay);
+        things.focus_on(
+            &picking,
+            &mut camera,
+            &mut following,
+            *stay,
+            &mut cues,
+        );
     }
 }
 
 impl Things<'_> {
-    /// The agent of the society `with` is drawn as.
-    fn talking_to(&self, with: &Recipient) -> Option<AgentId> {
-        match with {
-            Recipient::Agent(name) => self.bridge.find(name),
-            Recipient::Mayor(hamlet) => {
-                let town = self.bridge.town(hamlet)?;
-                self.society.town(town).map(|town| town.leader)
-            }
-        }
-    }
-
     /// True when `agent` holds the office of the first hamlet, the
     /// one the window's own chat is with.
     fn first_mayor(&self, agent: AgentId) -> bool {
@@ -864,6 +959,7 @@ impl Things<'_> {
         camera: &mut Camera,
         following: &mut Following,
         stay: bool,
+        cues: &mut MessageWriter<Cue>,
     ) {
         let Some(thing) = picking.selected() else {
             return;
@@ -871,6 +967,11 @@ impl Things<'_> {
         if let Some(at) = self.place(thing) {
             camera.focus_on(&self.tuning.camera, at, stay);
             following.0 = stay.then_some(thing);
+            cues.write(Cue {
+                sound: Sound::Focus,
+                at: Vec3::new(at.x, 0.0, at.y),
+                turn: 0,
+            });
         }
     }
 }

@@ -5,6 +5,7 @@
 use hamlet_engine_bevy::prelude::{Resource, bevy_ecs};
 
 use crate::folk::chief::ChiefSettings;
+use crate::folk::hand::PlaySettings;
 use crate::folk::keeper::Motion;
 use crate::places::house::HouseSettings;
 use crate::places::moving::CarrySettings;
@@ -34,17 +35,8 @@ pub struct WorldTuning {
     pub pick: PickSettings,
     pub chief: ChiefSettings,
     pub carry: CarrySettings,
-    pub play: Play,
+    pub play: PlaySettings,
     pub generator: GenSettings,
-}
-
-/// What the chief's hand plays with. Only what the realm draws is
-/// read.
-#[derive(Clone, Debug, serde::Deserialize)]
-pub struct Play {
-    /// The fastest a robot scurries, which a mascot hurrying after
-    /// its agent keeps up with.
-    pub scurry_fastest: f32,
 }
 
 /// Everything the generated world is shaped by.

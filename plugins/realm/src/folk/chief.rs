@@ -3,6 +3,7 @@
 //! chief talks to. The chief looks as a chief does who never chose a
 //! look, and its place stands where the land puts it.
 
+mod company;
 mod hearth;
 mod homing;
 pub mod look;
@@ -15,11 +16,21 @@ use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::scene::Shader;
 
 use crate::build::upload::Draw;
+use crate::folk::chief::company::whereabouts;
+pub use crate::folk::chief::company::{Keeping, follow_company};
 use crate::folk::chief::hearth::Hearth;
+pub use crate::folk::chief::homing::Walking;
 use crate::folk::chief::look::Look;
+use crate::folk::chief::wickstep::With;
+pub use crate::folk::chief::wickstep::chance;
+use crate::folk::keeper::{Act, Passage, Robots};
+use crate::folk::sounds::FolkCue;
+use crate::places::library::Library;
 use crate::realm::{Ctx, Shared};
-use crate::society::Society;
+use crate::society::{AgentId, Society};
 use crate::tuning::WorldTuning;
+use crate::view::camera::Camera;
+use crate::view::pick::{Picking, Thing};
 use crate::world::land::Land;
 use crate::world::palette::Palette;
 
@@ -56,11 +67,21 @@ impl Chief {
     }
 
     /// Builds what is left to build, and moves the mascot a frame
-    /// `dt` seconds further.
-    pub fn update(&mut self, ctx: &Ctx, dt: f32, draw: &mut Draw) {
-        if let Some(hearth) = &mut self.hearth {
-            hearth.update(ctx, dt, draw);
-        }
+    /// `dt` seconds further in the company `with`, beside the camera
+    /// turned `yaw`, waving while `hovered`. The agent it came to
+    /// keep company with.
+    pub fn update(
+        &mut self,
+        ctx: &Ctx,
+        with: Option<With>,
+        (yaw, hovered): (f32, bool),
+        dt: f32,
+        cue: &mut impl FnMut(FolkCue),
+        draw: &mut Draw,
+    ) -> Option<AgentId> {
+        self.hearth.as_mut().and_then(|hearth| {
+            hearth.update(ctx, with, (yaw, hovered), dt, cue, draw)
+        })
     }
 
     /// Where the mascot stands.
@@ -79,10 +100,49 @@ impl Chief {
 pub fn move_chief(
     mut chief: ResMut<Chief>,
     shared: Shared,
+    keeping: Res<Keeping>,
+    (camera, picking, library): (
+        Res<Camera>,
+        Res<Picking>,
+        Res<Library>,
+    ),
+    mut robots: ResMut<Robots>,
+    mut cues: MessageWriter<FolkCue>,
     mut draw: Draw,
 ) {
     let floor = shared.floor();
-    chief.update(&shared.ctx(&floor), shared.clock.dt, &mut draw);
+    let ctx = shared.ctx(&floor);
+    let with = keeping.with.and_then(|company| {
+        whereabouts(
+            company,
+            ctx.clock,
+            ctx.tuning.chief.stroll,
+            (ctx.land, ctx.society),
+            &robots,
+            &library,
+        )
+    });
+    let yaw = camera.views().0.yaw;
+    let hovered = picking.hovered() == Some(Thing::Mascot);
+    let came = chief.update(
+        &ctx,
+        with,
+        (yaw, hovered),
+        shared.clock.dt,
+        &mut |cue| {
+            cues.write(cue);
+        },
+        &mut draw,
+    );
+    // Its agent waves as it comes, unless it is in the middle of a
+    // motion of its own.
+    if let Some(robot) =
+        came.and_then(|agent| robots.robot_mut(agent))
+        && robot.passage.is_none()
+        && robot.at_home()
+    {
+        robot.passage = Some(Passage::new(Act::Wave, ctx.clock));
+    }
 }
 
 /// A chief's place, its mascot and the Wickstep that carries it.

@@ -1,6 +1,8 @@
 //! Seeing the realm and choosing in it: the camera, what the pointer
-//! hits and the names shown over things.
+//! hits, the names shown over things, and what the view keeps
+//! between launches.
 
 pub mod camera;
+pub mod kept;
 pub mod pick;
 pub mod signs;

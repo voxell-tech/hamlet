@@ -76,6 +76,8 @@ anyhow ="1"
 base64 = "0.22"
 bytes = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# Samples sent to the audio output's thread; the version Bevy uses.
+crossbeam-channel = "0.5"
 futures = "0.3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 interprocess = "2"

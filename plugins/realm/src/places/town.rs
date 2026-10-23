@@ -13,14 +13,13 @@ mod lights;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use glam::{Quat, Vec2, Vec3};
-use hamlet_engine_bevy::api::agents::Doing;
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::scene::Mesh;
 
 use crate::build::frame::Frame;
 use crate::build::mesh::Mb;
 use crate::build::upload::{Draw, Unsent};
-use crate::folk::keeper::KState;
+use crate::folk::keeper::{KState, Robot, Robots};
 use crate::places::house::{self, TownStyle};
 use crate::places::shift::{Part, Shift, Way};
 use crate::places::town::build::{Built, FlagSettings, Recipe};
@@ -166,7 +165,12 @@ impl Towns {
 
     /// Brings what is drawn in line with the society, while the call
     /// has room.
-    pub fn update(&mut self, ctx: &Ctx, draw: &mut Draw) {
+    pub fn update(
+        &mut self,
+        ctx: &Ctx,
+        robots: &Robots,
+        draw: &mut Draw,
+    ) {
         self.lamps.light(ctx.pal, ctx.sky, ctx.clock, draw);
         if !self.kit.fill(ctx.pal, &ctx.tuning.generator.yard, draw) {
             return;
@@ -182,7 +186,7 @@ impl Towns {
         self.shift(ctx, draw);
         self.detail(ctx, draw);
         self.states(ctx, draw);
-        self.engines(ctx, draw);
+        self.engines(robots, draw);
         self.spill(ctx, draw);
     }
 
@@ -647,33 +651,24 @@ impl Towns {
         }
     }
 
-    /// Turns the wheel of each engine whose agent runs a command, and
-    /// sends up its steam.
-    fn engines(&mut self, ctx: &Ctx, draw: &mut Draw) {
-        let now = ctx.clock;
+    /// Turns the wheel of each engine whose robot works it, from when
+    /// the robot reached it, and sends up its steam.
+    fn engines(&mut self, robots: &Robots, draw: &mut Draw) {
         for house in self.houses.values_mut() {
             let Some(engine) = &mut house.engine else {
                 continue;
             };
-            let running =
-                ctx.society.agent(house.agent).is_some_and(|a| {
-                    a.state == KState::Working && a.work == Doing::Run
-                });
             let yard = house.yard;
-            match (running, engine.ran) {
-                (true, None) => engine.ran = Some(now),
-                (false, Some(_)) => {
-                    engine.ran = None;
-                    for ring in engine.rings {
-                        draw.show(ring, false);
-                    }
+            let ran = robots.robot(house.agent).and_then(Robot::ran);
+            if ran.is_none() && engine.ran.is_some() {
+                for ring in engine.rings {
+                    draw.show(ring, false);
                 }
-                _ => {}
             }
-            let Some(began) = engine.ran else {
+            engine.ran = ran;
+            let Some(x) = ran else {
                 continue;
             };
-            let x = now - began;
             engine.turn = x * CRANK_RATE;
             draw.place(engine.wheel, yard.wheel(engine.turn));
             for (i, ring) in engine.rings.into_iter().enumerate() {
@@ -938,9 +933,10 @@ fn far_mesh(
 /// Brings the towns drawn in line with the society.
 pub fn build_towns(
     mut towns: ResMut<Towns>,
+    robots: Res<Robots>,
     shared: Shared,
     mut draw: Draw,
 ) {
     let floor = shared.floor();
-    towns.update(&shared.ctx(&floor), &mut draw);
+    towns.update(&shared.ctx(&floor), &robots, &mut draw);
 }

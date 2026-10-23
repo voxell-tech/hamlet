@@ -3,7 +3,7 @@ name = "hamlet_engine_audio"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The audio service: clips handed over as samples, played unplaced or placed, by category, scaled by the person's settings"
+description = "The audio service: clips handed over as samples, whole or in parts as they play, played unplaced or placed, by category, scaled by the person's settings"
 
 [lints]
 workspace = true
@@ -12,5 +12,6 @@ workspace = true
 hamlet_engine_api.workspace = true
 hamlet_engine_core.workspace = true
 bevy.workspace = true
+crossbeam-channel.workspace = true
 serde.workspace = true
 toml.workspace = true

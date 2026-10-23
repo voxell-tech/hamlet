@@ -140,6 +140,22 @@ impl Lot {
         }
     }
 
+    /// The point a robot coming home from far off comes in by, on its
+    /// way to `to`: clear of the house, toward the corner it turns
+    /// round or toward `to` itself.
+    pub(super) fn approach(&self, land: &Land, to: Vec3) -> Vec3 {
+        let town = &land.set.town;
+        let toward = if self.yard.holds(self.local(to)) {
+            self.world(land, self.yard.gate())
+        } else {
+            to
+        };
+        let out = (toward - self.origin).xz().normalize_or(Vec2::Y)
+            * (town.house_radius + town.robot_clearance);
+        let at = self.origin.xz() + out;
+        Vec3::new(at.x, footing(land, at), at.y)
+    }
+
     /// True when `p` is away from the house, too far to walk to it
     /// about the yard.
     pub(super) fn away(&self, land: &Land, p: Vec3) -> bool {

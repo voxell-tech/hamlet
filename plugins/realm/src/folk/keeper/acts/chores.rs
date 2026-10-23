@@ -48,14 +48,18 @@ pub(super) fn set_crook_aside(p: &mut Pose) {
     p.pole_at = Vec3::new(0.46, POLE_FOOT - 0.03, -0.08);
 }
 
-/// Hammering at the height of a bench top.
-pub(super) fn hammer(c: &Ctx) -> Pose {
+/// `bench` raises the blow to the height of a bench top.
+pub(super) fn hammer(c: &Ctx, bench: bool) -> Pose {
     let mut p = Pose::stand();
     blink(&mut p, c);
     set_crook_aside(&mut p);
     let u = (c.t / 0.95).fract();
     // A slow lift, a fast blow, and a rest on the work.
-    let (top, hit, rest) = (2.9, 1.5, 1.62);
+    let (top, hit, rest) = if bench {
+        (2.9, 1.5, 1.62)
+    } else {
+        (2.7, 0.8, 0.95)
+    };
     let (lift, angle) = if u < 0.55 {
         let k = ramp(0.0, 0.55, u);
         (k, rest + (top - rest) * k)
@@ -82,6 +86,36 @@ pub(super) fn hammer(c: &Ctx) -> Pose {
     p.prop = Prop::Mallet;
     p.prop_size = 1.0;
     p.glow = current(LIT * (0.7 + 0.6 * blow));
+    p.key = c.t * 5.0;
+    p
+}
+
+pub(super) fn lift(c: &Ctx) -> Pose {
+    let mut p = Pose::stand();
+    blink(&mut p, c);
+    set_crook_aside(&mut p);
+    let u = (c.t / 4.2).fract();
+    let squat = pulse(0.0, 0.15, 0.28, 0.42, u);
+    let strain = pulse(0.15, 0.19, 0.27, 0.31, u);
+    let heave = pulse(0.28, 0.36, 0.4, 0.5, u);
+    let up = ramp(0.28, 0.45, u) - ramp(0.86, 0.97, u);
+    let place = pulse(0.68, 0.8, 0.85, 0.95, u);
+    let carry = up * (1.0 - place);
+    let reach = 0.55 + 0.85 * up + 0.3 * place;
+    p.arm_l = arm_l(0.42, reach);
+    p.arm_r = arm_r(0.42, reach);
+    p.hips.y = -0.11 * squat + 0.02 * place;
+    p.hips.x = 0.004 * strain * (c.t * 60.0).sin();
+    p.hips.z = 0.03 * place - 0.02 * carry;
+    p.body = rz(0.03 * carry * (c.t * 3.0).sin())
+        * rx(0.45 * squat - 0.15 * carry + 0.2 * place);
+    p.squash = 1.0 - 0.06 * squat + 0.05 * heave;
+    p.head = rx(0.3 * squat - 0.1 * carry);
+    p.hat_lift = 0.02 * heave;
+    p.lids *= 1.0 - 0.6 * strain;
+    p.prop = Prop::Block;
+    p.prop_size = ramp(0.01, 0.1, u) * (1.0 - ramp(0.87, 0.94, u));
+    p.glow = current(LIT * (0.75 + 0.35 * strain + 0.2 * heave));
     p.key = c.t * 5.0;
     p
 }

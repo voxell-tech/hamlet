@@ -1,5 +1,6 @@
 //! The audio service, on Bevy's audio. A clip is samples handed over
-//! as they are to be heard; a sound plays one unplaced, or placed at
+//! as they are to be heard, whole or a part at a time while it
+//! plays; a sound plays one unplaced, or placed at
 //! a point or an entity and heard from its owner's listener. Each is
 //! of a [`Category`] the person's settings scale, under a master
 //! volume, and a plugin's are kept by its [`Ledger`].
@@ -18,7 +19,8 @@ use bevy::audio::{AddAudioSource, AudioPlugin};
 
 pub use crate::clip::{Clip, RATES};
 pub use crate::ledger::{
-    AudioCaps, AudioChange, Ledger, Place, Playback, SPEEDS,
+    AppendError, AudioCaps, AudioChange, Ledger, Place, Playback,
+    SPEEDS,
 };
 pub use crate::play::{
     Audio, AudioCommandsExt, AudioWorldExt, Placed, Sounding,

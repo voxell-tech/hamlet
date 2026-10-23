@@ -4,9 +4,11 @@
 
 use std::f32::consts::TAU;
 
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 use hamlet_engine_bevy::prelude::*;
-use hamlet_engine_bevy::scene::{Material, Mesh, Pbr};
+use hamlet_engine_bevy::scene::{
+    Light, Material, Mesh, Pbr, PointLight,
+};
 
 use crate::build::frame::Frame;
 use crate::build::stock::{Stock, rgba};
@@ -16,12 +18,13 @@ use crate::folk::keeper::kit::Kit;
 use crate::folk::keeper::kit::body::{KEY_AT, LAMP_DROP};
 use crate::folk::keeper::kit::hats::SPIRE;
 use crate::folk::keeper::pose::{
-    self, FACE, HAT_AT, HIP, HOOK, NECK, Pose, Prop, SHOULDER, arc,
-    ramp, rx, ry, rz,
+    self, FACE, HAT_AT, HIP, HOOK, LIT, NECK, Pose, Prop, SHOULDER,
+    arc, ramp, rx, ry, rz,
 };
 use crate::folk::keeper::trip::Stride;
 use crate::folk::keeper::who::Who;
 use crate::folk::keeper::{KState, Motion};
+use crate::folk::sounds::FolkSound;
 use crate::world::tint::to_linear;
 
 /// A clock time long before any, for a motion that has already
@@ -32,6 +35,11 @@ const LONG_AGO: f32 = -1000.0;
 /// sRGB.
 const GLASS_OUT: Vec3 = Vec3::new(0.16, 0.15, 0.14);
 const GLASS_LIT: Vec3 = Vec3::new(0.5, 0.46, 0.38);
+
+/// How far the carried lantern's light reaches, and the size of its
+/// flame.
+const LANTERN_REACH: f32 = 5.0;
+const LANTERN_FLAME: f32 = 0.05;
 
 /// The parts a pose moves, in the order their last transforms are
 /// kept.
@@ -81,12 +89,14 @@ struct Parts {
     key: Entity,
     flag: Option<Entity>,
     ring: Entity,
+    /// The light of the carried lantern.
+    light: Entity,
     prop: Entity,
     glint: Entity,
 }
 
 /// One robot as it is drawn: its parts, its motion and how it moves.
-pub(super) struct Rig {
+pub struct Rig {
     pub state: KState,
     who: Who,
     quirk: Quirk,
@@ -106,12 +116,19 @@ pub(super) struct Rig {
     seen: Option<f32>,
     /// The walk someone else moves it along.
     strode: Option<Stride>,
+    /// Turn and lift of its head toward something it watches, on top
+    /// of its motion.
+    look: Vec2,
     /// Where it stands in the realm.
     pub at: Frame,
     parts: Parts,
     /// The material of both lanterns and the ring.
     lit: Handle<Material>,
     lit_as: Vec3,
+    /// The lumens its lantern's light was last given at full
+    /// strength, and the glow it was given for. None while it has
+    /// no light.
+    lantern: Option<(f32, Vec3)>,
     /// The prop shown, and whether each part that shows or hides is
     /// shown.
     shown_prop: Prop,
@@ -366,6 +383,12 @@ impl Rig {
             draw,
         );
         draw.show(ring, false);
+        // The light goes with the carried lantern, which leads.
+        let light = draw.spawn(Some(lamp), key);
+        draw.place(
+            light,
+            Frame::at(LAMP_DROP + Vec3::new(0.0, 0.0, 0.12)),
+        );
         let prop = piece(
             arms[0],
             key,
@@ -393,6 +416,7 @@ impl Rig {
             roll: 0.0,
             seen: None,
             strode: None,
+            look: Vec2::ZERO,
             at,
             parts: Parts {
                 root,
@@ -413,11 +437,13 @@ impl Rig {
                 key: key_part,
                 flag,
                 ring,
+                light,
                 prop,
                 glint,
             },
             lit,
             lit_as: Vec3::splat(-1.0),
+            lantern: None,
             shown_prop: Prop::None,
             on: [false, false],
             visible: true,
@@ -427,6 +453,51 @@ impl Rig {
 
     pub fn who(&self) -> Who {
         self.who
+    }
+
+    pub fn act(&self) -> Act {
+        self.act
+    }
+
+    /// Has its carried lantern throw light, `lumens` strong when it
+    /// burns lit up, as its glow last was; none takes the light away.
+    pub fn lantern(&mut self, lumens: Option<f32>, draw: &mut Draw) {
+        let want = lumens.map(|lumens| (lumens, self.lit_as));
+        if self.lantern == want {
+            return;
+        }
+        self.lantern = want;
+        let entity = self.parts.light;
+        match want {
+            Some((lumens, glow)) => {
+                let strength = glow.max_element().max(0.0);
+                let hue = glow / strength.max(1e-4);
+                draw.commands.entity(entity).insert(SceneLight(
+                    Light::Point(PointLight {
+                        color: rgba(hue),
+                        intensity: strength / LIT * lumens,
+                        range: LANTERN_REACH,
+                        radius: LANTERN_FLAME,
+                        shadows: false,
+                    }),
+                ));
+            }
+            None => {
+                draw.commands.entity(entity).remove::<SceneLight>();
+            }
+        }
+    }
+
+    /// Turns its head by `turn` and lifts it by `lift`, in radians,
+    /// on top of whatever its motion does. Zero looks nowhere.
+    pub fn look(&mut self, turn: f32, lift: f32) {
+        self.look = Vec2::new(turn, lift);
+    }
+
+    /// The sound its motion makes, and a count that passes a whole
+    /// number each time it makes it.
+    pub fn beat(&self, now: f32) -> Option<(FolkSound, f32)> {
+        acts::beat(self.act, &self.ctx(now))
     }
 
     /// Begins a motion at clock time `now`, easing out of the pose it
@@ -496,7 +567,12 @@ impl Rig {
     }
 
     fn eval(&self, now: f32) -> Pose {
-        let p = acts::pose(self.act, &self.ctx(now));
+        let mut p = acts::pose(self.act, &self.ctx(now));
+        if self.look != Vec2::ZERO {
+            // The eyes go a little further than the head.
+            p.head = ry(self.look.x) * p.head * rx(-self.look.y);
+            p.gaze.x += 0.25 * self.look.x;
+        }
         let Some((from, was)) = &self.from else {
             return p;
         };

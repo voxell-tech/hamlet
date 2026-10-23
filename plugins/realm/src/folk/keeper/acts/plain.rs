@@ -10,7 +10,7 @@ use crate::folk::keeper::acts::parts::{
     shift_weight, signal,
 };
 use crate::folk::keeper::pose::{
-    LIT, Pose, Prop, arc, moon, pulse, rx, ry, rz,
+    LIT, Pose, Prop, arc, moon, pulse, ring, rx, ry, rz,
 };
 
 pub(super) fn idle(c: &Ctx) -> Pose {
@@ -162,5 +162,48 @@ pub(super) fn wait(c: &Ctx) -> Pose {
     p.prop = Prop::Warrant;
     p.prop_size = 1.0;
     p.glow = signal(LIT * (0.8 + 0.2 * (c.t * PI * 0.8).sin()));
+    p
+}
+
+pub(super) fn object(c: &Ctx) -> Pose {
+    let mut p = Pose::stand();
+    breathe(&mut p, c, 1.0);
+    blink(&mut p, c);
+    // The crook comes up and down once, hard.
+    let raise = pulse(0.0, 0.3, 0.38, 0.46, c.tau);
+    let thump = ring(c.tau - 0.46, 16.0, 6.0);
+    let knock = if c.tau >= 0.46 {
+        (-(c.tau - 0.46) * 6.0).exp()
+    } else {
+        0.0
+    };
+    p.plant = 1.0 - raise;
+    p.slide = -0.06;
+    p.arm_r = rx(-1.05 - 0.25 * raise);
+    p.squash *= 1.0 - 0.05 * knock;
+    p.hat_lift = 0.03 * knock * thump.abs();
+    p.swing = Vec2::new(0.22 * thump, 0.0);
+
+    const EVERY: f32 = 4.6;
+    let f = (c.tau / EVERY).fract() * EVERY;
+    let shake = pulse(0.5, 0.7, 1.6, 1.9, f);
+    let tap =
+        pulse(2.4, 2.5, 3.5, 3.6, f) * (c.t * 9.0).sin().max(0.0);
+    p.body = rx(-0.1);
+    p.hips.z = -0.015;
+    p.head = ry(0.36 * shake * (f * 10.5).sin())
+        * rz(0.1 * (1.0 - shake))
+        * rx(-0.12);
+    p.lids *= 0.62;
+    // The instruction, held out for a second look.
+    p.arm_l = arm_l(0.3, 1.5 + 0.1 * shake * (f * 5.25).sin());
+    p.prop = Prop::Warrant;
+    p.prop_size = 1.0;
+    p.leg_l = -0.2 * tap;
+    p.lift_l = 0.012 * tap;
+    // Two beats and a pause.
+    let g = (c.t / 1.5).fract();
+    let beat = arc(0.0, 0.16, g) + arc(0.24, 0.4, g);
+    p.glow = signal(LIT * (0.6 + 0.45 * beat));
     p
 }

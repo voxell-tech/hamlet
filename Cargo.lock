@@ -3726,6 +3726,7 @@ name = "hamlet_engine_audio"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "crossbeam-channel",
  "hamlet_engine_api",
  "hamlet_engine_core",
  "serde",

@@ -84,6 +84,11 @@ impl Bridge {
         self.names.get(&agent)
     }
 
+    /// The agent of the society `who` is drawn as.
+    pub fn housed(&self, who: &Who) -> Option<AgentId> {
+        self.housed.get(who).copied()
+    }
+
     /// The agent of the society the agent `name` is drawn as: the
     /// one of the latest, when an agent of that name lived before.
     pub fn find(&self, name: &str) -> Option<AgentId> {

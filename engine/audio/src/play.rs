@@ -23,6 +23,7 @@ use bevy::math::Vec3;
 use bevy::time::Time;
 use bevy::transform::TransformSystems;
 use bevy::transform::components::{GlobalTransform, Transform};
+use crossbeam_channel::Sender;
 
 use crate::clip::Clip;
 use crate::ledger::{AudioChange, Place, Playback};
@@ -60,9 +61,16 @@ pub struct Sounding {
     pub id: u32,
     pub playback: Playback,
     pub placed: Placed,
-    /// Seconds of the clip played, and its length.
+    /// Seconds of the clip played, and its length so far.
     played: f32,
     length: f32,
+    /// Its clip is still filled: it waits at its end for more.
+    filling: bool,
+    /// The volume it moves to, and by how much a second.
+    fade: Option<(f32, f32)>,
+    /// For a clip played once: the owner's number of the clip, its
+    /// bytes a second, and the bytes heard told of.
+    once: Option<(u32, f32, u64)>,
 }
 
 /// On a plugin: its clips and sounds by its numbers, the entity its
@@ -72,9 +80,14 @@ pub struct Sounding {
 pub struct Audio {
     since: Option<Instant>,
     clips: HashMap<u32, Handle<Clip>>,
+    /// The sounds playing each clip still filled, and where its
+    /// samples are sent to each.
+    feeds: HashMap<u32, Vec<(u32, Sender<Vec<f32>>)>>,
     sounds: HashMap<u32, Entity>,
     listener: Option<Entity>,
     ended: Vec<u32>,
+    /// Bytes heard of each clip played once.
+    heard: Vec<(u32, u64)>,
 }
 
 impl Audio {
@@ -92,6 +105,25 @@ impl Audio {
         } else {
             Vec::new()
         }
+    }
+
+    /// The bytes heard of the clips played once of the numbering
+    /// `since`, since this was last asked.
+    pub fn take_heard(&mut self, since: Instant) -> Vec<(u32, u64)> {
+        let heard = std::mem::take(&mut self.heard);
+        if self.since == Some(since) {
+            heard
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Forgets the sound `id`, which no longer plays.
+    fn forget(&mut self, id: u32) -> Option<Entity> {
+        for feeds in self.feeds.values_mut() {
+            feeds.retain(|(sound, _)| *sound != id);
+        }
+        self.sounds.remove(&id)
     }
 }
 
@@ -115,8 +147,9 @@ impl AudioCommandsExt for Commands<'_, '_> {
         playback: Playback,
         placed: Placed,
     ) -> Entity {
-        self.spawn(sounding(None, 0, clip, length, playback, placed))
-            .id()
+        let sounding =
+            Sounding::new(None, 0, length, playback, placed);
+        self.spawn(sounding.player(clip, playback.looped)).id()
     }
 }
 
@@ -187,6 +220,9 @@ trait AudioChangeExt {
         change: AudioChange,
         entity: &impl Fn(&World, u32) -> Option<Entity>,
     );
+
+    /// Ends the filling of the clip `id` for the sounds playing it.
+    fn close_feeds(&mut self, audio: &mut Audio, id: u32);
 }
 
 impl AudioChangeExt for World {
@@ -203,7 +239,47 @@ impl AudioChangeExt for World {
                     self.resource_mut::<Assets<Clip>>().add(clip);
                 audio.clips.insert(id, handle);
             }
+            AudioChange::Append { id, samples } => {
+                let Some(handle) = audio.clips.get(&id) else {
+                    return;
+                };
+                let Some(seconds) = self
+                    .resource::<Assets<Clip>>()
+                    .get(handle)
+                    .map(|clip| clip.seconds_of(samples.len()))
+                else {
+                    return;
+                };
+                let feeds = audio
+                    .feeds
+                    .get(&id)
+                    .map_or(&[][..], Vec::as_slice);
+                for (sound, sender) in feeds {
+                    let _ = sender.send(samples.clone());
+                    if let Some(&sound) = audio.sounds.get(sound)
+                        && let Some(mut sounding) =
+                            self.get_mut::<Sounding>(sound)
+                    {
+                        sounding.length += seconds;
+                    }
+                }
+                let mut clips = self.resource_mut::<Assets<Clip>>();
+                if let Some(mut clip) = clips.get_mut(handle) {
+                    clip.append(&samples);
+                }
+            }
+            AudioChange::Close(id) => {
+                if let Some(handle) = audio.clips.get(&id)
+                    && let Some(mut clip) = self
+                        .resource_mut::<Assets<Clip>>()
+                        .get_mut(handle)
+                {
+                    clip.close();
+                }
+                self.close_feeds(audio, id);
+            }
             AudioChange::DropClip(id) => {
+                self.close_feeds(audio, id);
                 audio.clips.remove(&id);
             }
             AudioChange::Play {
@@ -216,26 +292,56 @@ impl AudioChangeExt for World {
                 else {
                     return;
                 };
-                let length = self
-                    .resource::<Assets<Clip>>()
-                    .get(&handle)
-                    .map_or(0.0, Clip::seconds);
+                let Some(made) =
+                    self.resource::<Assets<Clip>>().get(&handle)
+                else {
+                    return;
+                };
+                let length = made.seconds();
+                let once = made.once().then(|| {
+                    let rate = made.rate() as f32;
+                    let bytes =
+                        rate * f32::from(made.channels()) * 4.0;
+                    (clip, bytes, 0)
+                });
+                let filling = made.filling();
+                // A clip still filled is played from a copy of its
+                // own, sent the rest as it comes.
+                let (handle, looped) = if filling {
+                    let mut clips =
+                        self.resource_mut::<Assets<Clip>>();
+                    let Some((fed, sender)) = clips
+                        .get_mut(&handle)
+                        .map(|mut made| made.fed(playback.looped))
+                    else {
+                        return;
+                    };
+                    audio
+                        .feeds
+                        .entry(clip)
+                        .or_default()
+                        .push((id, sender));
+                    (clips.add(fed), false)
+                } else {
+                    (handle, playback.looped)
+                };
                 let placed = match place {
                     Place::Unplaced => Placed::Unplaced,
                     Place::Point(point) => Placed::Point(point),
                     Place::Entity(number) => entity(self, number)
                         .map_or(Placed::Unplaced, Placed::Entity),
                 };
-                let made = self
-                    .spawn(sounding(
-                        Some(owner),
-                        id,
-                        handle,
-                        length,
-                        playback,
-                        placed,
-                    ))
-                    .id();
+                let mut sounding = Sounding::new(
+                    Some(owner),
+                    id,
+                    length,
+                    playback,
+                    placed,
+                );
+                sounding.filling = filling;
+                sounding.once = once;
+                let made =
+                    self.spawn(sounding.player(handle, looped)).id();
                 audio.sounds.insert(id, made);
             }
             AudioChange::Set { id, volume, speed } => {
@@ -245,10 +351,31 @@ impl AudioChangeExt for World {
                 {
                     sounding.playback.volume = volume;
                     sounding.playback.speed = speed;
+                    sounding.fade = None;
+                }
+            }
+            AudioChange::Fade {
+                id,
+                volume,
+                seconds,
+            } => {
+                if let Some(&sound) = audio.sounds.get(&id)
+                    && let Some(mut sounding) =
+                        self.get_mut::<Sounding>(sound)
+                {
+                    let away =
+                        (volume - sounding.playback.volume).abs();
+                    if seconds > 0.0 {
+                        sounding.fade =
+                            Some((volume, away / seconds));
+                    } else {
+                        sounding.playback.volume = volume;
+                        sounding.fade = None;
+                    }
                 }
             }
             AudioChange::Stop(id) => {
-                if let Some(sound) = audio.sounds.remove(&id) {
+                if let Some(sound) = audio.forget(id) {
                     let _ = self.try_despawn(sound);
                 }
             }
@@ -258,56 +385,91 @@ impl AudioChangeExt for World {
             }
         }
     }
+
+    fn close_feeds(&mut self, audio: &mut Audio, id: u32) {
+        // Dropping the senders tells each playing that no more come.
+        for (sound, _) in audio.feeds.remove(&id).unwrap_or_default()
+        {
+            if let Some(&sound) = audio.sounds.get(&sound)
+                && let Some(mut sounding) =
+                    self.get_mut::<Sounding>(sound)
+            {
+                sounding.filling = false;
+            }
+        }
+    }
 }
 
-/// A sound's entity: its player, which Bevy starts in [`PostUpdate`]
-/// once [`mix`] gave it its volume.
-fn sounding(
-    owner: Option<Entity>,
-    id: u32,
-    clip: Handle<Clip>,
-    length: f32,
-    playback: Playback,
-    placed: Placed,
-) -> (Sounding, AudioPlayer<Clip>, PlaybackSettings) {
-    let mode = if playback.looped {
-        PlaybackMode::Loop
-    } else {
-        PlaybackMode::Once
-    };
-    let settings = PlaybackSettings {
-        mode,
-        volume: Volume::SILENT,
-        speed: playback.speed,
-        spatial: placed != Placed::Unplaced,
-        ..PlaybackSettings::ONCE
-    };
-    let sounding = Sounding {
-        owner,
-        id,
-        playback,
-        placed,
-        played: 0.0,
-        length,
-    };
-    (sounding, AudioPlayer(clip), settings)
+impl Sounding {
+    fn new(
+        owner: Option<Entity>,
+        id: u32,
+        length: f32,
+        playback: Playback,
+        placed: Placed,
+    ) -> Self {
+        Self {
+            owner,
+            id,
+            playback,
+            placed,
+            played: 0.0,
+            length,
+            filling: false,
+            fade: None,
+            once: None,
+        }
+    }
+
+    /// Its entity: its player, which Bevy starts in [`PostUpdate`]
+    /// once [`mix`] gave it its volume, `looped` by Bevy or not.
+    fn player(
+        self,
+        clip: Handle<Clip>,
+        looped: bool,
+    ) -> (Self, AudioPlayer<Clip>, PlaybackSettings) {
+        let mode = if looped {
+            PlaybackMode::Loop
+        } else {
+            PlaybackMode::Once
+        };
+        let settings = PlaybackSettings {
+            mode,
+            volume: Volume::SILENT,
+            speed: self.playback.speed,
+            spatial: self.placed != Placed::Unplaced,
+            ..PlaybackSettings::ONCE
+        };
+        (self, AudioPlayer(clip), settings)
+    }
 }
 
-/// Gives each sound its volume and speed: its own, times the
-/// engine's and the person's volume of its category, and none for a
-/// muted plugin's.
+/// Gives each sound its volume and speed: its own, moved on by its
+/// fade, times the engine's and the person's volume of its category,
+/// and none for a muted plugin's.
 fn mix(
+    time: Res<Time>,
     tuning: Res<SoundTuning>,
     settings: Res<SoundSettings>,
     owners: Query<Has<Muted>>,
     mut sounds: Query<(
-        &Sounding,
+        &mut Sounding,
         &mut PlaybackSettings,
         Option<&mut AudioSink>,
         Option<&mut SpatialAudioSink>,
     )>,
 ) {
-    for (sounding, mut started, sink, spatial) in &mut sounds {
+    let dt = time.delta_secs();
+    for (mut sounding, mut started, sink, spatial) in &mut sounds {
+        if let Some((to, rate)) = sounding.fade {
+            let from = sounding.playback.volume;
+            let step = rate * dt;
+            sounding.playback.volume =
+                from + (to - from).clamp(-step, step);
+            if sounding.playback.volume == to {
+                sounding.fade = None;
+            }
+        }
         let playback = sounding.playback;
         let muted = sounding
             .owner
@@ -350,7 +512,7 @@ fn set(
 }
 
 /// Takes away each sound that is not looped at its end, and tells its
-/// owner.
+/// owner, with the bytes heard of each clip played once.
 fn finish(
     time: Res<Time>,
     mut sounds: Query<(Entity, &mut Sounding)>,
@@ -362,15 +524,32 @@ fn finish(
         if sounding.playback.looped {
             continue;
         }
-        sounding.played += dt * sounding.playback.speed;
-        if sounding.played < sounding.length {
+        let played = sounding.played + dt * sounding.playback.speed;
+        // A sound of a clip still filled waits at its end for more.
+        sounding.played = if sounding.filling {
+            played.min(sounding.length)
+        } else {
+            played
+        };
+        let mut owner = sounding
+            .owner
+            .and_then(|owner| owners.get_mut(owner).ok());
+        let played = sounding.played;
+        if let Some((clip, rate, told)) = &mut sounding.once {
+            let heard = (played * *rate) as u64;
+            if heard > *told
+                && let Some(audio) = owner.as_mut()
+            {
+                audio.heard.push((*clip, heard - *told));
+                *told = heard;
+            }
+        }
+        if sounding.filling || sounding.played < sounding.length {
             continue;
         }
         commands.entity(entity).despawn();
-        if let Some(mut audio) = sounding
-            .owner
-            .and_then(|owner| owners.get_mut(owner).ok())
-            && audio.sounds.remove(&sounding.id).is_some()
+        if let Some(mut audio) = owner
+            && audio.forget(sounding.id).is_some()
         {
             audio.ended.push(sounding.id);
         }

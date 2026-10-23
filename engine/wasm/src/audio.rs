@@ -17,7 +17,7 @@ use bevy::math::Vec3;
 use hamlet_engine_api::Capability;
 use hamlet_engine_api::audio::{Category, OUTPUT};
 use hamlet_engine_audio::{
-    Audio, AudioWorldExt, Clip, Place, Playback,
+    AppendError, Audio, AudioWorldExt, Clip, Place, Playback,
 };
 use hamlet_engine_grants::{Decided, FirstUse, Grants, Verdict};
 use hamlet_engine_plugins::PluginInfo;
@@ -25,7 +25,8 @@ use hamlet_engine_render::SceneWorldExt;
 use wasmtime::component::Resource;
 
 use crate::audio::audio_bindings::hamlet::engine::audio::{
-    Category as Kind, Host, HostClip, HostSound, Playback as Asked,
+    AppendError as Unappended, Category as Kind, Host, HostClip,
+    HostSound, Playback as Asked,
 };
 use crate::instance::{Instance, State};
 use crate::panel::serve;
@@ -145,6 +146,42 @@ impl HostClip for State {
         Ok(self.audio.make_clip(clip).map(Resource::new_own))
     }
 
+    fn open(
+        &mut self,
+        channels: u8,
+        rate: u32,
+        once: bool,
+    ) -> wasmtime::Result<Result<Resource<ClipHandle>, String>> {
+        let clip = match Clip::open(channels.into(), rate, once) {
+            Ok(clip) => clip,
+            Err(why) => return Ok(Err(why)),
+        };
+        Ok(self.audio.make_clip(clip).map(Resource::new_own))
+    }
+
+    fn append(
+        &mut self,
+        clip: Resource<ClipHandle>,
+        samples: Vec<f32>,
+    ) -> wasmtime::Result<Result<(), Unappended>> {
+        let id = clip.rep();
+        if !self.audio.holds(id) {
+            return Err(wasmtime::Error::new(SceneError::Unknown));
+        }
+        Ok(self.audio.append(id, samples).map_err(|e| match e {
+            AppendError::Full => Unappended::Full,
+            AppendError::Refused(why) => Unappended::Refused(why),
+        }))
+    }
+
+    fn close(
+        &mut self,
+        clip: Resource<ClipHandle>,
+    ) -> wasmtime::Result<()> {
+        self.audio.close(clip.rep());
+        Ok(())
+    }
+
     fn drop(
         &mut self,
         clip: Resource<ClipHandle>,
@@ -201,6 +238,30 @@ impl HostSound for State {
         let bounded = playback(asked)?;
         self.audio.set(sound.rep(), bounded.volume, bounded.speed);
         Ok(())
+    }
+
+    fn fade(
+        &mut self,
+        sound: Resource<SoundHandle>,
+        volume: f32,
+        seconds: f32,
+    ) -> wasmtime::Result<()> {
+        if !(volume.is_finite() && seconds.is_finite()) {
+            return Err(wasmtime::Error::new(NotFinite));
+        }
+        self.audio.fade(
+            sound.rep(),
+            volume.clamp(0.0, 1.0),
+            seconds.max(0.0),
+        );
+        Ok(())
+    }
+
+    fn playing(
+        &mut self,
+        sound: Resource<SoundHandle>,
+    ) -> wasmtime::Result<bool> {
+        Ok(self.audio.playing(sound.rep()))
     }
 
     fn stop(
@@ -265,6 +326,7 @@ fn grant(
         if let Some(mut audio) = audio {
             let ended = audio.take_ended(ledger.since);
             ledger.ended(ended);
+            ledger.heard(audio.take_heard(ledger.since));
         }
     }
 }

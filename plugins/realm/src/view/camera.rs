@@ -200,6 +200,8 @@ pub struct Camera {
     /// pixels.
     size: Vec2,
     pointer: Option<Vec2>,
+    /// True while its view has room in the panel, and so is shown.
+    room: bool,
     /// Where the camera was last put.
     shown: Frame,
     /// The place followed, until the ground is slid by hand.
@@ -237,6 +239,7 @@ impl Camera {
             travel: 0.0,
             size: SIZE,
             pointer: None,
+            room: true,
             shown: Frame::IDENTITY,
             following: None,
             lit: None,
@@ -262,6 +265,16 @@ impl Camera {
             Steer::Turn => Some(PointerMode::Turn),
             Steer::Still => None,
         }
+    }
+
+    /// True while its view is shown in the panel.
+    pub fn shown(&self) -> bool {
+        self.room
+    }
+
+    /// Where the camera stands and the way it is turned.
+    pub fn stand(&self) -> Frame {
+        self.shown
     }
 
     /// The view shown, and the one it is going to while it glides.
@@ -379,10 +392,10 @@ impl Camera {
         self.following = stay.then_some(at);
     }
 
-    /// Goes back to the framing of every hamlet.
+    /// Goes back to the framing of every hamlet, or of the thing
+    /// followed.
     pub fn reset(&mut self) {
         self.orbit = Orbit::default();
-        self.following = None;
     }
 
     /// Answers what the person did over the view.
@@ -431,6 +444,8 @@ impl Camera {
                 .clamp(least, most.max(least));
             }
             SceneInput::Resize(resize) if resize.view == self.at => {
+                // A view behind another tab is laid out with none.
+                self.room = resize.width > 0.0 && resize.height > 0.0;
                 self.size = Vec2::new(resize.width, resize.height)
                     .max(Vec2::ONE);
             }

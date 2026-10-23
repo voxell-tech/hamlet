@@ -1,7 +1,7 @@
-//! A town picked up and set down somewhere else
-//! (docs/endless-world.md). Setting it down changes nothing here: it
-//! is told to the town's hamlet as a chief's command, and the realm
-//! moves the town when the roster says it moved.
+//! A place picked up and set down somewhere else
+//! (docs/endless-world.md): a town, the chief's Hearth or the
+//! library. Setting down changes nothing here: it is told as a
+//! [`SetDown`], and a town is moved when the roster says it moved.
 
 use std::f32::consts::TAU;
 
@@ -12,7 +12,7 @@ use hamlet_engine_bevy::scene::{Material, Mesh, Pbr, Shape};
 use crate::build::frame::Frame;
 use crate::build::stock::rgba;
 use crate::build::upload::Draw;
-use crate::society::{Place, Society, TownId};
+use crate::society::{Place, Society};
 use crate::world::land::{Land, Unfit};
 use crate::world::layout::plot;
 use crate::world::palette::Palette;
@@ -21,8 +21,7 @@ use crate::world::palette::Palette;
 const FOOTPRINT: u32 = 6;
 
 /// A place in a chief's hand: how the footprint that shows where it
-/// would stand is drawn. Its words stand over its middle, so those of
-/// the words beside the pointer are not read.
+/// would stand is drawn. Its words stand over its middle.
 #[derive(Clone, PartialEq, Debug, serde::Deserialize)]
 pub struct CarrySettings {
     /// Height of the footprint over the ground.
@@ -42,46 +41,55 @@ pub struct CarrySettings {
     pub pad: f32,
 }
 
-/// A town in a chief's hand.
-#[derive(Clone, Debug, PartialEq)]
+/// A place in a chief's hand.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Carry {
-    pub town: TownId,
-    /// The hamlet's name on disk.
-    pub hamlet: String,
+    pub place: Place,
     /// The ground under the pointer, while the pointer is over any.
     pub to: Option<Vec2>,
     /// `Ok` when it could be set down there.
     pub fits: Result<(), Unfit>,
 }
 
-/// A part of the footprint.
-#[derive(Clone, Copy, PartialEq)]
-enum Mark {
-    /// One of the lights about the round of ground the town holds.
-    Rim(u32),
-    /// The town's common.
-    Common,
-    /// A light that stands over its middle.
-    Beam,
-    /// The ground one house of the town takes.
-    House(u32),
-}
-
-/// The town in a chief's hand, and the command that set one down,
-/// until it is sent: the hamlet and the command.
+/// The place in a chief's hand, and where one was set down, until
+/// the realm's frame tells it.
 #[derive(Resource, Default)]
 pub struct Carrying {
     pub carry: Option<Carry>,
-    pub set_down: Option<(String, String)>,
+    pub set_down: Option<SetDown>,
 }
 
-/// The footprint of a carried town, where it would stand.
+/// A chief set a place down at `to`, where it fits, written early in
+/// the realm's frame. A town is moved by its hamlet's command, the
+/// Hearth and the library by whoever draws them.
+#[derive(Message, Clone, Copy, Debug, PartialEq)]
+pub struct SetDown {
+    pub place: Place,
+    pub to: Vec2,
+}
+
+/// A part of the footprint.
+#[derive(Clone, Copy, PartialEq)]
+enum Mark {
+    /// One of the lights about the round of ground the place holds.
+    Rim(u32),
+    /// A town's common.
+    Common,
+    /// A light that stands over its middle.
+    Beam,
+    /// The ground one house of a town takes.
+    House(u32),
+}
+
+/// The footprint of a carried place, where it would stand.
 #[derive(Resource)]
 pub struct Footprint {
     root: Entity,
     /// Each part, the mesh it draws, and whether it is lit as
     /// fitting while it is shown.
     marks: Vec<(Mark, Entity, usize, Option<bool>)>,
+    /// The few words on what a click would do, over its middle.
+    words: Entity,
     meshes: [Handle<Mesh>; 3],
     fits: Handle<Material>,
     unfit: Handle<Material>,
@@ -105,8 +113,17 @@ fn ground_under(land: &Land, eye: Vec3, way: Vec3) -> Option<Vec2> {
 }
 
 impl Carry {
-    /// Follows the ray from the eye with the town, and finds whether
-    /// it fits where it meets the ground.
+    /// `place` in hand, not yet over the ground.
+    pub fn new(place: Place) -> Self {
+        Self {
+            place,
+            to: None,
+            fits: Err(Unfit::Crowded),
+        }
+    }
+
+    /// Follows the ray from the eye with the place, and finds
+    /// whether it fits where it meets the ground.
     pub fn reach(
         &mut self,
         land: &Land,
@@ -116,20 +133,19 @@ impl Carry {
         self.to =
             ray.and_then(|(eye, way)| ground_under(land, eye, way));
         self.fits = match self.to {
-            Some(to) => {
-                society.fits(land, Place::Town(self.town), to)
-            }
+            Some(to) => society.fits(land, self.place, to),
             None => Err(Unfit::Crowded),
         };
     }
 
-    /// The chief's command that sets it down where it is held.
-    pub fn command(&self) -> Option<String> {
+    /// Where it would be set down: where it is held, if it fits
+    /// there.
+    pub fn set_down(&self) -> Option<SetDown> {
         let to = self.to.filter(|_| self.fits.is_ok())?;
-        Some(format!(
-            "/move-hamlet {} {:.1} {:.1}",
-            self.hamlet, to.x, to.y
-        ))
+        Some(SetDown {
+            place: self.place,
+            to,
+        })
     }
 }
 
@@ -172,9 +188,12 @@ impl Footprint {
                 (mark, entity, mesh, None)
             })
             .collect::<Vec<_>>();
+        let words = draw.spawn(Some(root), FOOTPRINT);
+        draw.place(words, Frame::at(Vec3::Y * set.beam.1));
         Ok(Self {
             root,
             marks,
+            words,
             meshes,
             fits,
             unfit,
@@ -184,9 +203,11 @@ impl Footprint {
     }
 
     /// Draws the footprint where `carry` would stand: its rim, a
-    /// light over its middle, its common and the ground of each
-    /// of its houses, with a few words on what a click would do.
-    /// Hidden with nothing in hand.
+    /// light over its middle, and for a town its common and the
+    /// ground of each of its houses, with a few words on what a click
+    /// would do. With the pointer off the ground, the words alone
+    /// stand over the place where it is. Hidden with nothing in
+    /// hand.
     pub fn show(
         &mut self,
         carry: Option<&Carry>,
@@ -196,12 +217,10 @@ impl Footprint {
         draw: &mut Draw,
     ) {
         let shown = carry.and_then(|carry| {
-            let (_, radius) =
-                society.stands(land, Place::Town(carry.town))?;
-            let town = society.town(carry.town)?;
-            Some((carry, carry.to?, radius, town))
+            let (at, radius) = society.stands(land, carry.place)?;
+            Some((carry, at, radius))
         });
-        let Some((carry, to, radius, town)) = shown else {
+        let Some((carry, at, radius)) = shown else {
             if self.shown {
                 draw.show(self.root, false);
                 self.shown = false;
@@ -215,14 +234,23 @@ impl Footprint {
         let level = land.set.land.site_y;
         // Over the ground as it lies now and as it would be levelled.
         let over = |p: Vec2| land.surface(p).max(level) + set.lift;
+        let to = carry.to.unwrap_or(at);
         let middle = Vec3::new(to.x, over(to), to.y);
         draw.place(self.root, Frame::at(middle));
+        let town = match carry.place {
+            Place::Town(id) => society.town(id),
+            Place::Chief | Place::Library => None,
+        };
         // The plots as they would lie there.
-        let mut there = land.clone();
-        there.move_site(town.site, to);
+        let there = town.map(|town| {
+            let mut there = land.clone();
+            there.move_site(town.site, to);
+            (there, town)
+        });
         for (mark, entity, mesh, lit) in &mut self.marks {
             let mut good = carry.fits.is_ok();
             let place = match *mark {
+                _ if carry.to.is_none() => None,
                 // Each lies on the ground under it, so the rim shows
                 // on a slope too.
                 Mark::Rim(i) => {
@@ -242,21 +270,21 @@ impl Footprint {
                 Mark::Beam => {
                     Some(Frame::at(Vec3::Y * set.beam.1 * 0.5))
                 }
-                Mark::Common => {
+                Mark::Common => town.map(|_| {
                     let r = land.set.town.plaza_radius;
-                    Some(
-                        Frame::IDENTITY
-                            .with_size(Vec3::new(r, 1.0, r)),
-                    )
-                }
-                Mark::House(k) => society
-                    .agents
-                    .iter()
-                    .any(|a| {
-                        a.town == town.id && a.plot == k && !a.cleared
+                    Frame::IDENTITY.with_size(Vec3::new(r, 1.0, r))
+                }),
+                Mark::House(k) => there
+                    .as_ref()
+                    .filter(|(_, town)| {
+                        society.agents.iter().any(|a| {
+                            a.town == town.id
+                                && a.plot == k
+                                && !a.cleared
+                        })
                     })
-                    .then(|| {
-                        let spot = plot(&there, town.site, k);
+                    .map(|(there, town)| {
+                        let spot = plot(there, town.site, k);
                         good &= spot.usable;
                         let r = land.set.town.house_radius;
                         Frame::at(Vec3::new(
@@ -293,22 +321,19 @@ impl Footprint {
                 }
             }
         }
-        let says = match carry.fits {
-            Ok(()) => "Click to set down. Right-click to put back",
-            Err(Unfit::Water) => "Not in the water",
-            Err(Unfit::Steep) => "Too steep here",
-            Err(Unfit::Crowded) => "Too close to another place",
+        let says = match (carry.to, carry.fits) {
+            (None, _) => "Point at the ground",
+            (_, Ok(())) => {
+                "Click to set down. Right-click to put back"
+            }
+            (_, Err(Unfit::Water)) => "Not in the water",
+            (_, Err(Unfit::Steep)) => "Too steep here",
+            (_, Err(Unfit::Crowded)) => "Too close to another place",
         };
         if self.said != Some(says) {
-            if let Some((_, beam, ..)) = self
-                .marks
-                .iter()
-                .find(|(mark, ..)| *mark == Mark::Beam)
-            {
-                draw.commands
-                    .entity(*beam)
-                    .insert(SceneLabel(says.to_owned()));
-            }
+            draw.commands
+                .entity(self.words)
+                .insert(SceneLabel(says.to_owned()));
             self.said = Some(says);
         }
     }
