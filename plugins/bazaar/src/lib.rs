@@ -3,6 +3,7 @@
 //! from skills.sh, founds hamlets from templates, and looks at agents
 //! to hire and plugins to install, which come with the marketplace.
 
+mod diorama;
 mod errand;
 mod hamlets;
 mod models;
@@ -53,6 +54,7 @@ impl Plugin for Bazaar {
     fn build(&self, app: &mut App) {
         app.add_plugins((
             agents_ui::plugin,
+            diorama::plugin,
             errand::plugin,
             models::plugin,
             skills::plugin,
@@ -81,6 +83,7 @@ impl Plugin for Bazaar {
         )
         .add_menu_entry("Hamlet", "open")
         .add_menu_entry("Hamlet", "models")
+        .add_menu_entry("Hamlet", "hamlets")
         .add_subscription(STALL_CLICKED)
         .add_systems(
             Declare,

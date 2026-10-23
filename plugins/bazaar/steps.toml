@@ -1,6 +1,7 @@
 # The Agent Bazaar on its own. The harness sends no fetch and runs no
 # agents service: OpenRouter is answered here with one model, skills.sh
-# is left asking, and the samples show.
+# is left asking, and the samples show. Without the realm, a hamlet's
+# page says its town cannot be shown.
 #
 #   scripts/build_plugins.sh
 #   cargo run -p hamlet_engine_harness --bin plugin_check -- plugins/dist/hamlet.bazaar --steps plugins/bazaar/steps.toml
@@ -49,3 +50,6 @@ click = { panel = "hamlet.bazaar/bazaar", widget = "Indie SaaS Launch Team" }
 
 [[step]]
 expect = { panel = "hamlet.bazaar/bazaar", text = "FOUND THIS HAMLET" }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "The realm is not running, so its town cannot be shown." }

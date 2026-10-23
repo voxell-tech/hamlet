@@ -51,7 +51,7 @@ impl Part {
         }
     }
 
-    fn build(self, pal: &Palette, yard: &YardSettings) -> Mb {
+    pub fn build(self, pal: &Palette, yard: &YardSettings) -> Mb {
         match self {
             Self::Desk => yard::desk(pal, yard),
             Self::Engine => yard::engine(pal, yard),

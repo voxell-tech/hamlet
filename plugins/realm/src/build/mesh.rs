@@ -468,6 +468,25 @@ impl Mb {
         }
     }
 
+    /// Adds everything of `other`, placed by `xf` and its colours
+    /// times `tint`.
+    pub fn put(&mut self, other: &Mb, xf: Affine3A, tint: Vec3) {
+        let first = self.pos.len() as u32;
+        let xf = self.xf * xf;
+        for (k, p) in other.pos.iter().enumerate() {
+            let n = xf
+                .transform_vector3(Vec3::from(other.nor[k]))
+                .normalize_or_zero();
+            let [r, g, b, a] = other.col[k];
+            self.pos
+                .push(xf.transform_point3(Vec3::from(*p)).to_array());
+            self.nor.push(n.to_array());
+            self.col.push([r * tint.x, g * tint.y, b * tint.z, a]);
+            self.uv.push(other.uv[k]);
+        }
+        self.idx.extend(other.idx.iter().map(|i| i + first));
+    }
+
     /// The mesh as the engine takes it, without UVs if none were
     /// given.
     pub fn data(mut self) -> MeshData {

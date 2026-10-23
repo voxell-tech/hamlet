@@ -159,7 +159,15 @@ impl Handed {
     }
 }
 
-impl Built {
+/// A house's meshes before they are handed over: the body, and for a
+/// house that is lived in its window panes and where its door lantern
+/// hangs.
+pub struct Made {
+    pub body: Mb,
+    pub fittings: Option<(Mb, Vec3)>,
+}
+
+impl Made {
     /// The meshes of the house `recipe` makes.
     pub fn of(
         land: &Land,
@@ -167,14 +175,14 @@ impl Built {
         recipe: Recipe,
     ) -> Self {
         if let Some(remains) = recipe.remains {
-            let rest = match remains {
+            let body = match remains {
                 Remains::Ruin => {
                     house::ruin(land, recipe.agent, recipe.hall)
                 }
                 Remains::Bare => Mb::new(),
             };
             return Self {
-                body: Handed::Waiting(rest.data()),
+                body,
                 fittings: None,
             };
         }
@@ -198,11 +206,25 @@ impl Built {
             );
         }
         Self {
-            body: Handed::Waiting(body.data()),
-            fittings: Some((
-                Handed::Waiting(built.panes.data()),
-                built.lamp,
-            )),
+            body,
+            fittings: Some((built.panes, built.lamp)),
+        }
+    }
+}
+
+impl Built {
+    /// The meshes of the house `recipe` makes.
+    pub fn of(
+        land: &Land,
+        flag: &FlagSettings,
+        recipe: Recipe,
+    ) -> Self {
+        let made = Made::of(land, flag, recipe);
+        Self {
+            body: Handed::Waiting(made.body.data()),
+            fittings: made.fittings.map(|(panes, lamp)| {
+                (Handed::Waiting(panes.data()), lamp)
+            }),
         }
     }
 

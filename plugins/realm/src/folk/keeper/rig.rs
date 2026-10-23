@@ -633,14 +633,20 @@ impl Rig {
         }
         if (p.glow - self.lit_as).abs().max_element() > 2e-3 {
             self.lit_as = p.glow;
-            let lit = (p.glow.max_element() / 2.0).clamp(0.0, 1.0);
-            let glass = to_linear(GLASS_OUT.lerp(GLASS_LIT, lit));
-            self.lit.set(Pbr {
-                emissive: rgba(p.glow),
-                roughness: 0.4,
-                ..Pbr::colored(rgba(glass))
-            });
+            self.lit.set(lights(p.glow));
         }
+    }
+}
+
+/// The look of a robot's lights, both lanterns and the ring, giving
+/// off `glow`.
+pub(super) fn lights(glow: Vec3) -> Pbr {
+    let lit = (glow.max_element() / 2.0).clamp(0.0, 1.0);
+    let glass = to_linear(GLASS_OUT.lerp(GLASS_LIT, lit));
+    Pbr {
+        emissive: rgba(glow),
+        roughness: 0.4,
+        ..Pbr::colored(rgba(glass))
     }
 }
 

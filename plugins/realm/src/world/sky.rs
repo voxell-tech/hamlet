@@ -60,6 +60,12 @@ pub struct Looks {
 }
 
 impl Look {
+    /// The direction the fill light travels: from the other side of
+    /// the key light, and from above.
+    pub fn fill_dir(&self) -> Vec3 {
+        Vec3::new(-self.sun_dir.x, -0.5, -self.sun_dir.z * 0.4 - 0.5)
+    }
+
     /// This look, `k` of the way to `to`. The key light's direction
     /// stays its own.
     pub fn toward(&self, to: &Look, k: f32) -> Look {
@@ -428,13 +434,8 @@ impl Lights {
             look.fill_lux,
             false,
         ));
-        let dir = Vec3::new(
-            -look.sun_dir.x,
-            -0.5,
-            -look.sun_dir.z * 0.4 - 0.5,
-        );
         self.fill.set_transform(
-            Frame::looking_to(Vec3::ZERO, dir).scene(),
+            Frame::looking_to(Vec3::ZERO, look.fill_dir()).scene(),
         );
     }
 }

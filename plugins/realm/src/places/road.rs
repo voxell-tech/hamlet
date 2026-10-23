@@ -13,6 +13,7 @@ use glam::{Vec2, Vec3Swizzles};
 use hamlet_engine_sdk::scene::{Entity, Mesh};
 
 use crate::build::frame::Frame;
+use crate::build::mesh::Mb;
 use crate::build::upload::Upload;
 use crate::places::road::build::{Build, Built};
 use crate::places::road::groove::Grooves;
@@ -126,6 +127,26 @@ impl Society {
             plot: agent.plot,
         })
     }
+}
+
+/// The number of the road of `pair`, which settles its small
+/// differences.
+fn salt(pair: Pair) -> u64 {
+    (u64::from(pair.0.0) << 32) | u64::from(pair.1.0)
+}
+
+/// The surface and the groove of the road of `level` between the
+/// houses of `pair`, two agents of one town, laid at once: what the
+/// realm lays a step at a time. The groove is its bed, without its
+/// light. None when either is not in `society`.
+pub fn laid_in_town(
+    land: &Land,
+    society: &Society,
+    pair: Pair,
+    level: RoadLevel,
+) -> Option<(Mb, Mb)> {
+    let ends = (society.end_of(pair.0)?, society.end_of(pair.1)?);
+    Some(build::at_once(land, ends, level, salt(pair)))
 }
 
 /// The roads drawn.
@@ -277,8 +298,7 @@ impl Roads {
             }
         }
         for (pair, level, course, met) in lay {
-            let salt =
-                (u64::from(pair.0.0) << 32) | u64::from(pair.1.0);
+            let salt = salt(pair);
             self.jobs.insert(
                 pair,
                 Job {

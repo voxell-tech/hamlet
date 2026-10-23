@@ -11,6 +11,7 @@ use hamlet_engine_bevy::ui::{
 use crate::hamlets::{self, Founding, Most, full, owns};
 use crate::samples::Price;
 use crate::samples::hamlets::{Settler, Template};
+use crate::view::diorama;
 use crate::view::listings::{rating, seller_words, share};
 use crate::view::shelf::Shown;
 use crate::view::style::{
@@ -77,6 +78,7 @@ impl Shown for Template {
             self.agents.iter().map(|one| settler(one, false)),
         );
         sections(vec![
+            diorama::view(self),
             deal(self),
             prose(self.description).boxed(),
             section("COMES WITH", lines(team)),

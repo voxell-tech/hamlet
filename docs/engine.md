@@ -1394,12 +1394,13 @@ between agents with their bridges and lit grooves, and the chief's
 Hearth with its mascot, which goes by a Wickstep to the agent the
 chief talks to, and the Agent Bazaar beside it. The sky follows the
 chief's clock (`Focus::offset`). Its tuning is `assets/world.toml`,
-`assets/palette.toml` and the bazaar's own
-`plugins/realm/assets/bazaar.toml`, built in.
+`assets/palette.toml`, and its own `plugins/realm/assets/bazaar.toml`
+and `diorama.toml`, built in. It exports the service `diorama`.
 - **The source** is grouped by what it is: `world/` the land and its
   look, `places/` what stands on it, `folk/` the robots and the chief,
   `view/` the camera, the pointer and the signs, and `build/` the
   meshes, materials and transforms handed over within its budgets.
+  `diorama.rs` and `diorama/` are its service.
   `realm.rs`, `bridge.rs`, `society.rs` and `tuning.rs` stand at the
   root.
 - **The panel** has no padding, and is a viewport filling it to its
@@ -1458,6 +1459,28 @@ chief's clock (`Focus::offset`). Its tuning is `assets/world.toml`,
   hand, its footprint follows the pointer over the ground, gold where
   it fits and red where it does not, a click sends `/move-hamlet` to
   its hamlet as a decree, and the right button puts it back.
+- **The diorama** (`diorama.rs`): its service `diorama`, argument
+  `realm.diorama_ask` (`Ask`: a template's name, its agents besides
+  the mayor and the part wanted) and result `realm.diorama_part`
+  (`Part`), hands over the town of a hamlet template as the realm
+  would found it, on a land of its own grown from the template's
+  name, so a template is always the same town. The common, a house,
+  a yard and a robot standing still on its porch for the mayor and
+  each agent, the hall first, the dirt road from each house to the
+  hall, a few trees and a plinth of the land's own ground cut round
+  over soil and a wooden base are made by the realm's own builders
+  (`diorama/town.rs`, `diorama/plinth.rs`, the robots by
+  `folk/keeper/kit/statue.rs`), in the common's frame. The town is
+  built whole when a part of it is asked for and it is not kept,
+  some 80 ms for four houses, and answered a part a call: a few
+  things whole, their meshes merged by look, at most 640 KB of
+  meshes as the engine counts them and under 300 KB on the wire, the
+  first part with the `Stage`, the looks, the plinth's size and the
+  light of the realm's day. It is let go once its last part is
+  answered. `diorama/wire.rs` holds the types, which the bazaar
+  includes as they are; their parts and their sameness have tests of
+  their own. Its `steps.toml` brings the bazaar too, opens a
+  template's page there and counts the scene the bazaar builds.
 
 The agents' panels are four more, each following the focus the
 agents service keeps, so what one opens or selects the others show.
@@ -1572,11 +1595,12 @@ answer; those of the Inspector and Skills bring the chat `with` them.
 
 `plugins/bazaar` (`hamlet.bazaar`, asking `net.fetch` on
 `openrouter.ai` and `skills.sh`, `agents.read`, `agents.settings`,
-`agents.chief` and `desktop.open https`) is the panel Agent Bazaar
+`agents.chief`, `desktop.open https`, `services.call` on
+`hamlet.realm/diorama` and `render.scene`) is the panel Agent Bazaar
 (`hamlet.bazaar/bazaar`, with the coins icon), with Open the Agent
-Bazaar and Browse the Models in the Hamlet menu, and Browse the
-Agents, the Plugins, the Skills and the Hamlets as commands
-(`agents`, `plugins`, `skills`, `hamlets`). A tab for each of
+Bazaar, Browse the Models and Browse the Hamlets in the Hamlet menu,
+and Browse the Agents, the Plugins and the Skills as commands too
+(`agents`, `plugins`, `skills`). A tab for each of
 its five stalls is over the stall shown, on two lines so a narrow
 panel cuts none: MODELS, SKILLS and PLUGINS, what the agents use,
 then AGENTS and HAMLETS. The stall shown is kept across a reload.
@@ -1642,6 +1666,15 @@ then AGENTS and HAMLETS. The stall shown is kept across a reload.
   founded for nothing. One founded is selected and the realm brought
   to the front, and one the roster has is marked Yours with GO TO
   THE HAMLET.
+- **A template's town** (`diorama.rs`, `view/diorama.rs`) heads its
+  page, turning on its plinth: the realm's `diorama` is asked for it
+  a part at a time as the page is shown, and it is built in a scene of
+  the bazaar's own, in the realm's looks and daylight, under a camera
+  that frames the whole plinth in a view of the page's width and
+  turns about it once in 20 seconds while the view has room. "Laying
+  out the town..." is shown until the last part has come, and one
+  line saying the realm is not running when it is not. All of it is
+  let go when the page closes. The rows of the shelf have none.
 - **Events.** It hears the realm's `stall` (payload type
   `bazaar.stall`, the stall's name: `models`, `community`, `plugins`,
   `skills` or `hamlets`), shows that stall and brings its panel to
@@ -1649,7 +1682,8 @@ then AGENTS and HAMLETS. The stall shown is kept across a reload.
   is added, a skill taken or a hamlet founded.
 
 Its `steps.toml` answers OpenRouter with one model, opens it, and
-shows each stall offline: skills.sh asking, the samples on theirs.
+shows each stall offline: skills.sh asking, the samples on theirs,
+and a hamlet's page saying the realm is not running.
 The parsing of OpenRouter's and skills.sh's answers, the shelf and
 the paths of a skill's files have tests of their own (`cargo test -p
 bazaar` in `plugins/`).

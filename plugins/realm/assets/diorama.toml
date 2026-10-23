@@ -1,0 +1,14 @@
+# The town of a hamlet template drawn small on a plinth, which the realm
+# hands the Agent Bazaar through its `diorama` service. What each value
+# means is beside its field in src/diorama.rs.
+
+[diorama]
+margin = 3.2
+soil = 1.4
+base = 0.7
+lip = 0.45
+brass = 0.06
+rings = 22
+segments = 96
+trees = 6
+robot_scale = 1.4

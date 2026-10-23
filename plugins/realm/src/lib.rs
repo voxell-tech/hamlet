@@ -5,10 +5,12 @@
 //! in the window's focus and brings the Inspector forward. Clicking a
 //! stall of the Agent Bazaar sends `stall` with the stall's short
 //! name, and a `traded` of `hamlet.bazaar` with one has the stall
-//! show the sale.
+//! show the sale. Its service `diorama` hands over the town of a
+//! hamlet template, for the Agent Bazaar to show on a plinth.
 
 mod bridge;
 mod build;
+mod diorama;
 mod folk;
 mod places;
 mod realm;
@@ -30,6 +32,7 @@ use hamlet_engine_sdk::{
     encode, error, subscribe, warn,
 };
 
+use crate::diorama::Dioramas;
 use crate::realm::Realm;
 use crate::world::sky::Hour;
 
@@ -51,6 +54,9 @@ const STALL: &str = "stall";
 /// payload the stall's short name.
 const TRADED: &str = "hamlet.bazaar/traded";
 
+/// The service that hands over the town of a hamlet template.
+const DIORAMA: &str = "diorama";
+
 /// The longest frame the realm moves by, in seconds, so a frame that
 /// came late does not throw things far.
 const LONGEST_FRAME: f32 = 0.1;
@@ -59,6 +65,7 @@ const LONGEST_FRAME: f32 = 0.1;
 struct RealmPlugin {
     /// True once the realm could not be made.
     broken: bool,
+    dioramas: Dioramas,
 }
 
 impl Plugin for RealmPlugin {
@@ -163,6 +170,19 @@ impl Plugin for RealmPlugin {
                 realm.focus(&focus);
             }
             _ => {}
+        }
+    }
+
+    fn serve(
+        &mut self,
+        service: &str,
+        _: &str,
+        argument: &[u8],
+        _: &mut World,
+    ) -> Result<Vec<u8>, String> {
+        match service {
+            DIORAMA => self.dioramas.serve(argument),
+            _ => Err(format!("there is no service {service}")),
         }
     }
 

@@ -39,23 +39,32 @@ pub fn glow(colour: Vec3, strength: f32) -> Pbr {
 
 impl Stock {
     pub fn make(pal: &Palette) -> Result<Self, String> {
-        let white = rgba(Vec3::ONE);
         Ok(Self {
-            matte: Material::make(Pbr {
-                roughness: 0.92,
-                ..Pbr::colored(white)
-            })?,
-            brass: Material::make(Pbr {
-                metallic: 0.75,
-                roughness: 0.42,
-                ..Pbr::colored(white)
-            })?,
+            matte: Material::make(Self::matte())?,
+            brass: Material::make(Self::brass())?,
             windows: Material::make(Self::pane(pal, 0.0))?,
         })
     }
 
+    /// The look of matte things.
+    pub fn matte() -> Pbr {
+        Pbr {
+            roughness: 0.92,
+            ..Pbr::colored(rgba(Vec3::ONE))
+        }
+    }
+
+    /// The look of brass things.
+    pub fn brass() -> Pbr {
+        Pbr {
+            metallic: 0.75,
+            roughness: 0.42,
+            ..Pbr::colored(rgba(Vec3::ONE))
+        }
+    }
+
     /// A window pane with candles burning `candle` strong behind it.
-    fn pane(pal: &Palette, candle: f32) -> Pbr {
+    pub fn pane(pal: &Palette, candle: f32) -> Pbr {
         let glow = to_linear(CANDLE) * EMBER * candle;
         let base = if candle > 0.0 {
             pal.pane_lit

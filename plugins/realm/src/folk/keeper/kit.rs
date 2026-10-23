@@ -4,6 +4,7 @@
 pub(super) mod body;
 pub(super) mod hats;
 mod props;
+pub(super) mod statue;
 
 use glam::Vec3;
 use hamlet_engine_sdk::scene::{Material, Mesh, MeshData, Pbr};

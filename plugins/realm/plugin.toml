@@ -32,6 +32,11 @@ hears = [
     { event = "hamlet.bazaar/traded", payload = "bazaar.stall" },
 ]
 
+# It hands over the town of a hamlet template, a part a call, for the
+# Agent Bazaar to show on a plinth.
+[services]
+exports = [{ name = "diorama", argument = "realm.diorama_ask", result = "realm.diorama_part" }]
+
 # It takes a town in hand as the Inspector carries it, and brings the
 # Inspector forward on a click.
 [dependencies]

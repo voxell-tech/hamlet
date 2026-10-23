@@ -1,6 +1,7 @@
 //! The looks that tell one robot from another.
 
 use crate::folk::keeper::pose::dice;
+use crate::society::AgentId;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Hat {
@@ -87,6 +88,14 @@ pub struct Who {
 }
 
 impl Who {
+    /// The robot of `agent`, which leads its town when `leader`.
+    pub fn of(agent: AgentId, leader: bool) -> Self {
+        match leader {
+            true => Self::leader(),
+            false => Self::citizen(agent.0 * 7 + 3),
+        }
+    }
+
     pub fn leader() -> Self {
         Self {
             seed: 0,

@@ -33,6 +33,21 @@ capability = "desktop.open"
 target = "https"
 reason = "Opens a skill's source, or a link in it, in your browser when you click it"
 
+[[asks]]
+capability = "services.call"
+target = "hamlet.realm/diorama"
+reason = "Shows the town of a hamlet template on its page, as the realm builds it"
+
+[[asks]]
+capability = "render.scene"
+target = "gpu"
+reason = "Draws the town of a hamlet template turning on a plinth on its page"
+
+# It asks the realm for the town of a template, a part at a time. The
+# realm need not run: the page then says so.
+[services]
+imports = [{ service = "hamlet.realm/diorama", argument = "realm.diorama_ask", result = "realm.diorama_part" }]
+
 [events]
 sends = [{ name = "traded", payload = "bazaar.stall" }]
 hears = [{ event = "hamlet.realm/stall", payload = "bazaar.stall" }]

@@ -3,6 +3,7 @@
 //! its listings, with a page of its own for one of them, out of the
 //! pieces of [`style`](crate::view::style).
 
+mod diorama;
 mod hamlets;
 mod listings;
 mod models;

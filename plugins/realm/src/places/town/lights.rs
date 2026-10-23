@@ -81,12 +81,7 @@ type Spill = (Vec3, KState, f32);
 
 impl Lamps {
     pub fn make(pal: &Palette) -> Result<Self, String> {
-        let glass = |_| {
-            Material::make(Pbr {
-                roughness: 0.4,
-                ..Pbr::colored(rgba(pal.glass_lit))
-            })
-        };
+        let glass = |_| Material::make(Self::glass(pal));
         let [a, b, c, d, e] = STATES.map(glass);
         let spills = (0..SPILLS)
             .map(|_| Entity::make(None, SPILL_KEY).map(|e| (e, None)))
@@ -96,6 +91,14 @@ impl Lamps {
             shown: [Vec3::NAN; 5],
             spills,
         })
+    }
+
+    /// The look of a lantern's glass before it is lit.
+    pub fn glass(pal: &Palette) -> Pbr {
+        Pbr {
+            roughness: 0.4,
+            ..Pbr::colored(rgba(pal.glass_lit))
+        }
     }
 
     /// The material of a lantern of `state`.
@@ -118,8 +121,7 @@ impl Lamps {
                 self.shown[i] = glow;
                 self.glass[i].set(Pbr {
                     emissive: rgba(glow),
-                    roughness: 0.4,
-                    ..Pbr::colored(rgba(pal.glass_lit))
+                    ..Self::glass(pal)
                 });
             }
         }

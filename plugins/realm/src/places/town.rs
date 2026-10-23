@@ -6,9 +6,9 @@
 //! another stands up as the other goes.
 
 pub mod build;
-mod common;
-mod kit;
-mod lights;
+pub mod common;
+pub mod kit;
+pub mod lights;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -866,7 +866,7 @@ impl House {
 impl LandData {
     /// The frame of the common of the town at `site`, about its
     /// middle.
-    fn common_frame(&self, site: usize) -> Frame {
+    pub fn common_frame(&self, site: usize) -> Frame {
         let centre = self.sites[site].at;
         Frame::at(Vec3::new(centre.x, self.set.land.site_y, centre.y))
             .with_turn(Quat::from_rotation_y(-self.sites[site].turn))

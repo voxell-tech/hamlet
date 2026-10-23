@@ -21,6 +21,7 @@ use crate::build::frame::Frame;
 use crate::build::upload::Upload;
 use crate::folk::keeper::acts::Act;
 use crate::folk::keeper::kit::Kit;
+pub use crate::folk::keeper::kit::statue::Statue;
 use crate::folk::keeper::lot::Lot;
 pub use crate::folk::keeper::lot::{Floor, Pad};
 use crate::folk::keeper::rig::Rig;
@@ -195,11 +196,7 @@ impl Robots {
             agent.wings,
         );
         let lot = Lot::new(land, &spot, yard);
-        let who = if sig.4 {
-            Who::leader()
-        } else {
-            Who::citizen(agent.id.0 * 7 + 3)
-        };
+        let who = Who::of(agent.id, sig.4);
         let at = Frame::at(lot.porch)
             .with_turn(Quat::from_rotation_y(lot.yaw));
         let rig = Rig::make(

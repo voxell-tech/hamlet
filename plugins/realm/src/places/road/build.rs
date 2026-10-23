@@ -2,15 +2,15 @@
 //! ground along its line, the rows of its surface, its meshes, and
 //! their pieces handed to the engine.
 
-use glam::Vec3Swizzles;
+use glam::{Affine3A, Vec3, Vec3Swizzles};
 use hamlet_engine_sdk::scene::{Mesh, MeshData};
 
-use crate::build::mesh::Line;
+use crate::build::mesh::{Line, Mb};
 use crate::build::upload::{Unsent, Upload};
 use crate::places::road::mesh::{self, Rows, Span, Stretch};
 use crate::realm::Ctx;
 use crate::society::RoadLevel;
-use crate::world::land::Search;
+use crate::world::land::{Land, Search};
 use crate::world::layout::{End, Route};
 
 /// Crossings of the corridors looked at in one step.
@@ -270,6 +270,55 @@ impl Build {
         self.stage = Some(stage);
         Ok(None)
     }
+}
+
+/// The surface and the groove of a road of `level` between two plots
+/// of one town, laid at once.
+pub(super) fn at_once(
+    land: &Land,
+    ends: (End, End),
+    level: RoadLevel,
+    salt: u64,
+) -> (Mb, Mb) {
+    let (a, b) = if ends.0 <= ends.1 {
+        ends
+    } else {
+        (ends.1, ends.0)
+    };
+    let line = Line::spline(&Route::way(land, a, b, &[]), 0.5);
+    let ground =
+        line.pts.iter().map(|p| land.surface(p.xz())).collect();
+    let route = Route::over(land, line, ground, [a.site, b.site]);
+    let mut rows = Rows::new(land, &route, level);
+    rows.fill(land, &route, usize::MAX);
+    let mut surface = Mb::new();
+    let mut groove = Mb::new();
+    for stretch in rows.stretches(usize::MAX) {
+        let laid = [
+            (
+                &mut surface,
+                mesh::surface(
+                    land,
+                    &route,
+                    &rows,
+                    level,
+                    salt,
+                    &[],
+                    stretch,
+                ),
+            ),
+            (
+                &mut groove,
+                mesh::groove(
+                    land, &route, &rows, level, salt, stretch,
+                ),
+            ),
+        ];
+        for (whole, piece) in laid {
+            whole.put(&piece, Affine3A::IDENTITY, Vec3::ONE);
+        }
+    }
+    (surface, groove)
 }
 
 /// The road's methods on [`MeshData`].
