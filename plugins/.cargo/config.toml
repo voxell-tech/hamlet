@@ -1,0 +1,5 @@
+# The plugins run in wasmtime, which runs 128-bit SIMD, so they are
+# built to use it: the compiler vectorises loops with it and glam's
+# vectors take its instructions.
+[target.wasm32-wasip2]
+rustflags = ["-C", "target-feature=+simd128"]

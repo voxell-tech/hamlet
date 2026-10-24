@@ -4,7 +4,7 @@
 [workspace]
 resolver = "3"
 members = ["*"]
-exclude = ["dist", "target"]
+exclude = [".cargo", "dist", "target"]
 
 [workspace.package]
 version = "0.1.0"
