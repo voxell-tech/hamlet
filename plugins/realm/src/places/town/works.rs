@@ -10,7 +10,6 @@ use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::scene::{
     AlphaMode, Material, StandardMaterial,
 };
-use hamlet_engine_bevy::ui::open;
 
 use crate::bridge::{Bridge, Mode};
 use crate::build::frame::Frame;
@@ -20,7 +19,6 @@ use crate::build::upload::Draw;
 use crate::places::lantern::lantern_frame;
 use crate::places::town::kit::{Kit, Part};
 use crate::places::town::lights::{CURRENT, Glow, SIGNAL};
-use crate::realm::INSPECTOR;
 use crate::society::TownId;
 use crate::view::pick::Thing;
 use crate::world::land::Land;
@@ -352,7 +350,6 @@ pub fn switch(
             commands.agents(&AgentsRequest::Select(
                 Selected::Hamlet(hamlet),
             ));
-            open(INSPECTOR);
             false
         }
         Some(mode) => {

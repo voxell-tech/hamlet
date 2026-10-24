@@ -11,7 +11,7 @@ use hamlet_engine_bevy::api::agents::{
 };
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::scene::{Animate, KeyCode, MouseButton};
-use hamlet_engine_bevy::ui::{NodePointer, PointerMode, open};
+use hamlet_engine_bevy::ui::{NodePointer, PointerMode};
 use hamlet_engine_bevy::{Reply, decode};
 
 use crate::bridge::Bridge;
@@ -737,12 +737,8 @@ fn settle(
         });
     }
     if let Some(selected) = selected {
-        // The bare ground only clears what was selected.
-        let something = selected != Selected::Nothing;
+        // A panel that shows it follows without coming to the front.
         commands.agents(&AgentsRequest::Select(selected));
-        if something {
-            open(INSPECTOR);
-        }
     }
 }
 
