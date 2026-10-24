@@ -98,6 +98,7 @@ pub struct Hearth {
     glass: Entity,
     orb: Entity,
     trees: [Entity; 3],
+    orb_look: Handle<Material>,
     ring_look: Handle<Material>,
     glass_look: Handle<Material>,
     flame: Handle<Material>,
@@ -189,6 +190,7 @@ impl Hearth {
             glass,
             orb,
             trees,
+            orb_look,
             ring_look,
             glass_look,
             flame,
@@ -275,6 +277,39 @@ impl Hearth {
             let again = self.build_place(land, pal, draw);
             self.pending.extend(again);
         }
+    }
+
+    /// Dresses the place and the mascot in `look`: the lights take
+    /// their colour at once, and the meshes that wear the look are
+    /// built again, a few a frame, over the ones that are drawn.
+    pub fn restyle(
+        &mut self,
+        look: Look,
+        pal: &Palette,
+        draw: &mut Draw,
+    ) {
+        if look == self.look {
+            return;
+        }
+        self.look = look;
+        self.light = look.light.colour(pal);
+        draw.set_material(
+            &self.orb_look,
+            lit(self.light, self.set.orb_light),
+        );
+        draw.set_material(
+            &self.ring_look,
+            glow(self.light, self.set.waystone_light),
+        );
+        draw.set_material(
+            &self.flame,
+            lit(self.light, self.set.wick_light),
+        );
+        // The lamp is lit again in the new colour.
+        self.lumens = None;
+        self.built = 0;
+        self.pending.clear();
+        self.meshes = Meshes::default();
     }
 
     /// Where the mascot stands.

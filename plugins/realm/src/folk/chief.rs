@@ -103,6 +103,18 @@ impl Chief {
         }
     }
 
+    /// Dresses the chief's place and mascot in `look`.
+    pub fn restyle(
+        &mut self,
+        look: Look,
+        pal: &Palette,
+        draw: &mut Draw,
+    ) {
+        if let Some(hearth) = &mut self.hearth {
+            hearth.restyle(look, pal, draw);
+        }
+    }
+
     /// Where the mascot stands.
     pub fn mascot(&self) -> Option<Vec3> {
         self.hearth.as_ref().map(Hearth::mascot)
@@ -114,6 +126,11 @@ impl Chief {
     }
 }
 
+/// The look the chief's record keeps, which the wardrobe shows as
+/// chosen.
+#[derive(Resource, Default, Clone, Copy, PartialEq)]
+pub struct Wearing(pub Look);
+
 /// What the chief's place is stood anew with.
 type Grounds<'w> =
     (Res<'w, Palette>, ResMut<'w, Land>, ResMut<'w, Society>);
@@ -122,6 +139,7 @@ type Grounds<'w> =
 /// frame further.
 pub fn move_chief(
     mut chief: ResMut<Chief>,
+    mut wearing: ResMut<Wearing>,
     mut world: ParamSet<(Shared, Grounds)>,
     keeping: Res<Keeping>,
     (camera, picking, library): (
@@ -138,18 +156,26 @@ pub fn move_chief(
 ) {
     // The spot the chief's record has the Hearth at, or where the
     // chief set it down, which the home keeps.
-    let mut spot = None;
+    let (mut spot, mut kept) = (None, None);
     for replied in replies.read() {
         if let Ok(Reply::Agents(AgentsReply::Chief(record))) =
             &replied.reply
         {
             spot = record.hearth.or(spot);
+            kept = Some(Look::from(record.look));
         }
     }
     for event in events.read() {
         if let AgentsEvent::Chief(record) = &event.event {
             spot = record.hearth.or(spot);
+            kept = Some(Look::from(record.look));
         }
+    }
+    if let Some(look) = kept {
+        if wearing.0 != look {
+            wearing.0 = look;
+        }
+        chief.restyle(look, &world.p1().0, &mut draw);
     }
     let mut spot = spot.map(|(x, z)| Vec2::new(x, z));
     for set in set_downs.read() {

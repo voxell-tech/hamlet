@@ -18,7 +18,7 @@ use crate::bridge::Bridge;
 use crate::build::mark;
 use crate::build::stock::Stock;
 use crate::build::upload::{Draw, Upload};
-use crate::folk::chief::{Chief, move_chief};
+use crate::folk::chief::{Chief, Wearing, move_chief};
 use crate::folk::hand::Hand;
 use crate::folk::keeper::{Floor, Lot, Robots, move_robots};
 use crate::places::house::Remains;
@@ -62,6 +62,7 @@ pub(crate) fn plugin(app: &mut App) {
         .init_resource::<Signs>()
         .init_resource::<SkyClock>()
         .init_resource::<ChiefFocus>()
+        .init_resource::<Wearing>()
         .add_message::<SetDown>()
         .add_plugins((
             crate::sound::plugin,

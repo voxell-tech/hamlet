@@ -2,6 +2,7 @@
 //! what is in its hand.
 
 use glam::Vec3;
+use hamlet_engine_bevy::api::agents as api;
 use serde::Deserialize;
 
 use crate::world::palette::Palette;
@@ -78,4 +79,66 @@ pub struct Look {
     pub light: Light,
     pub hat: Hat,
     pub holds: Holds,
+}
+
+/// The choices of a look and what each is called, one macro for the
+/// four of them and their kind in the engine's records.
+macro_rules! choices {
+    ($($kind:ident: $($name:ident => $word:literal),+;)+) => {$(
+        impl $kind {
+            /// Every choice, the first being the one a chief has
+            /// until they choose.
+            pub const ALL: &[Self] = &[$(Self::$name),+];
+
+            pub fn name(self) -> &'static str {
+                match self {$(Self::$name => $word),+}
+            }
+        }
+
+        impl From<api::$kind> for $kind {
+            fn from(kind: api::$kind) -> Self {
+                match kind {$(api::$kind::$name => Self::$name),+}
+            }
+        }
+
+        impl From<$kind> for api::$kind {
+            fn from(kind: $kind) -> Self {
+                match kind {$($kind::$name => Self::$name),+}
+            }
+        }
+    )+};
+}
+
+choices! {
+    Cloak: River => "river", Ember => "ember", Moss => "moss",
+        Plum => "plum", Mustard => "mustard", Rose => "rose",
+        Slate => "slate", Cream => "cream";
+    Light: Candle => "candle", Rune => "rune", Rosy => "rosy",
+        Leaf => "leaf", Moon => "moon";
+    Hat: Pointed => "pointed", Hood => "hood", Crown => "crown",
+        Wreath => "wreath", Bare => "bare";
+    Holds: Quill => "quill", Teacup => "teacup", Book => "book",
+        Nothing => "nothing";
+}
+
+impl From<api::Look> for Look {
+    fn from(look: api::Look) -> Self {
+        Self {
+            cloak: look.cloak.into(),
+            light: look.light.into(),
+            hat: look.hat.into(),
+            holds: look.holds.into(),
+        }
+    }
+}
+
+impl From<Look> for api::Look {
+    fn from(look: Look) -> Self {
+        Self {
+            cloak: look.cloak.into(),
+            light: look.light.into(),
+            hat: look.hat.into(),
+            holds: look.holds.into(),
+        }
+    }
 }
