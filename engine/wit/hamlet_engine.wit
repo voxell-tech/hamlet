@@ -622,6 +622,26 @@ interface scene {
         color: rgba,
         illuminance: f32,
         shadow-maps-enabled: bool,
+        /// How its shadows are split by distance from the camera;
+        /// none is the engine's own split.
+        cascade-shadow-config: option<cascade-shadow-config>,
+    }
+
+    /// The cascades of a directional light's shadow, each covering
+    /// a stretch of the view and the nearer ones sharper. The
+    /// distances are from the camera, in the world's units, and
+    /// `minimum-distance < first-cascade-far-bound <
+    /// maximum-distance`.
+    record cascade-shadow-config {
+        /// From one to eight.
+        num-cascades: u32,
+        minimum-distance: f32,
+        maximum-distance: f32,
+        /// Where the first cascade ends.
+        first-cascade-far-bound: f32,
+        /// The share, from 0 up to but not including 1, that a
+        /// cascade overlaps the next by.
+        overlap-proportion: f32,
     }
 
     /// Light from the entity, in lumens, reaching `range`.

@@ -10,7 +10,8 @@ use bevy::camera::{
 use bevy::color::{Color, LinearRgba};
 use bevy::core_pipeline::tonemapping::Tonemapping as Mapping;
 use bevy::light::{
-    AmbientLight, DirectionalLight, PointLight, ShadowFilteringMethod,
+    AmbientLight, CascadeShadowConfig, CascadeShadowConfigBuilder,
+    DirectionalLight, PointLight, ShadowFilteringMethod,
     SpotLight,
 };
 use bevy::material::AlphaMode as Blend;
@@ -39,7 +40,8 @@ use crate::scene::scene_bindings::exports::hamlet::engine::scene_guest::{
     Modifiers as Held, MouseButton, Pointer, Press, SceneInput, Scroll,
 };
 use crate::scene::scene_bindings::hamlet::engine::scene::{
-    AlphaMode, Balloon as WitBalloon, CameraSettings, Decal,
+    AlphaMode, Balloon as WitBalloon, CameraSettings,
+    CascadeShadowConfig as WitCascades, Decal,
     FogFalloff, Label, LabelLook, Light, MeshData, Msaa as WitMsaa,
     PointerLabel as WitPointerLabel, Projection, Rgba,
     ShadowFilteringMethod as WitShadowFiltering, Shape,
@@ -272,18 +274,55 @@ pub(crate) fn decal(decal: Decal) -> Option<(StandardMaterial, f32)> {
     Some((material, decal.depth_fade_factor))
 }
 
+/// The split of a directional light's shadow, none unless its
+/// distances grow and its overlap is a share short of the whole.
+fn cascades(split: WitCascades) -> Option<CascadeShadowConfig> {
+    let distances = [
+        split.minimum_distance,
+        split.first_cascade_far_bound,
+        split.maximum_distance,
+    ];
+    if !finite(&distances)
+        || !finite(&[split.overlap_proportion])
+        || !(1..=8).contains(&split.num_cascades)
+        || distances[0] < 0.0
+        || distances[0] >= distances[1]
+        || distances[1] >= distances[2]
+        || !(0.0..1.0).contains(&split.overlap_proportion)
+    {
+        return None;
+    }
+    Some(
+        CascadeShadowConfigBuilder {
+            num_cascades: split.num_cascades as usize,
+            minimum_distance: distances[0],
+            first_cascade_far_bound: distances[1],
+            maximum_distance: distances[2],
+            overlap_proportion: split.overlap_proportion,
+        }
+        .build(),
+    )
+}
+
 pub(crate) fn light(light: Light) -> Option<SceneLight> {
     Some(match light {
         Light::Directional(light) => {
             if !finite(&[light.illuminance]) {
                 return None;
             }
-            SceneLight::Directional(DirectionalLight {
-                color: Color::LinearRgba(color(light.color)?),
-                illuminance: light.illuminance.max(0.0),
-                shadow_maps_enabled: light.shadow_maps_enabled,
-                ..DirectionalLight::default()
-            })
+            let cascades = match light.cascade_shadow_config {
+                Some(split) => Some(cascades(split)?),
+                None => None,
+            };
+            SceneLight::Directional(
+                DirectionalLight {
+                    color: Color::LinearRgba(color(light.color)?),
+                    illuminance: light.illuminance.max(0.0),
+                    shadow_maps_enabled: light.shadow_maps_enabled,
+                    ..DirectionalLight::default()
+                },
+                cascades,
+            )
         }
         Light::Point(light) => {
             if !finite(&[light.intensity, light.range, light.radius])

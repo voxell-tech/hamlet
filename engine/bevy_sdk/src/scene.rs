@@ -50,10 +50,10 @@ use crate::bindings::hamlet::engine::scene::{
 };
 pub use crate::bindings::hamlet::engine::scene::{
     AlphaMode, AmbientLight, Bloom, BloomPrefilter, CameraSettings,
-    Decal, DirectionalLight, DistanceFog, Exposure, FogFalloff,
-    LabelLook, Light, Material, Mesh, MeshData, Msaa, PointLight,
-    Projection, Rgba, ShadowFilteringMethod, Shape, SpotLight,
-    StandardMaterial, Target, Tonemapping,
+    CascadeShadowConfig, Decal, DirectionalLight, DistanceFog,
+    Exposure, FogFalloff, LabelLook, Light, Material, Mesh, MeshData,
+    Msaa, PointLight, Projection, Rgba, ShadowFilteringMethod, Shape,
+    SpotLight, StandardMaterial, Target, Tonemapping,
 };
 pub use crate::scene::effects::{
     AtmosphereSettings, ColorGrading, ColorGradingGlobal,

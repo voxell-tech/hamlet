@@ -5,8 +5,8 @@ use bevy::anti_alias::smaa::Smaa;
 use bevy::camera::{ClearColorConfig, Exposure, Projection};
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::light::{
-    AmbientLight, DirectionalLight, FogVolume, PointLight,
-    ShadowFilteringMethod, SpotLight, VolumetricFog,
+    AmbientLight, CascadeShadowConfig, DirectionalLight, FogVolume,
+    PointLight, ShadowFilteringMethod, SpotLight, VolumetricFog,
 };
 use bevy::material::AlphaMode;
 use bevy::mesh::Mesh;
@@ -205,7 +205,9 @@ pub enum SceneChange {
 
 #[derive(Clone, Debug)]
 pub enum SceneLight {
-    Directional(DirectionalLight),
+    /// With how its shadows are split by distance, none leaving the
+    /// split it has.
+    Directional(DirectionalLight, Option<CascadeShadowConfig>),
     Point(PointLight),
     Spot(SpotLight),
 }

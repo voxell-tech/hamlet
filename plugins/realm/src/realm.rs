@@ -239,7 +239,11 @@ fn made(draw: &mut Draw) -> Result<(), String> {
     let stock = Stock::make(&pal, draw)?;
     let mut camera = Camera::make(&tuning.camera, &sky.look, draw);
     let lights = Lights::make(draw);
-    lights.show(&sky.look, draw);
+    lights.show(
+        &sky.look,
+        tuning.camera.cascades(tuning.camera.distance),
+        draw,
+    );
     stock.light_windows(&pal, sky.look.candle, draw);
     // The engine keeps the shader while a mark draws with it.
     let marks = mark::shader(draw)?;

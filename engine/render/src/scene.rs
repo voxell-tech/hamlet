@@ -378,11 +378,17 @@ impl Scene {
             // shadow maps are kept.
             SceneChange::Light { id, light } => {
                 match light {
-                    Some(SceneLight::Directional(light)) => {
+                    Some(SceneLight::Directional(
+                        light,
+                        cascades,
+                    )) => {
                         self.remove::<(PointLight, SpotLight)>(
                             world, id,
                         );
                         self.insert(world, id, light);
+                        if let Some(cascades) = cascades {
+                            self.insert(world, id, cascades);
+                        }
                     }
                     Some(SceneLight::Point(light)) => {
                         self.remove::<(DirectionalLight, SpotLight)>(

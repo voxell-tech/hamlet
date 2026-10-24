@@ -7,9 +7,10 @@ use glam::{Mat3, Vec3};
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::scene::{
     self as engine, AmbientLight, AtmosphereSettings, Bloom,
-    BloomPrefilter, ColorGrading, ColorGradingGlobal, DepthOfField,
-    DepthOfFieldMode, DirectionalLight, DirectionalLightShadowMap,
-    DistanceFog, Exposure, FogFalloff, FogVolume, Light, Projection,
+    BloomPrefilter, CascadeShadowConfig, ColorGrading,
+    ColorGradingGlobal, DepthOfField, DepthOfFieldMode,
+    DirectionalLight, DirectionalLightShadowMap, DistanceFog,
+    Exposure, FogFalloff, FogVolume, Light, Projection,
     ScreenSpaceAmbientOcclusion, Tonemapping, VolumetricFog,
     VolumetricLight,
 };
@@ -391,6 +392,20 @@ pub struct CameraSettings {
 }
 
 impl CameraSettings {
+    /// The split of the sun's shadows with the camera `dist` from
+    /// what it looks at: the range follows the zoom, so shadows stay
+    /// sharp up close and still reach the ground when pulled back.
+    pub fn cascades(&self, dist: f32) -> CascadeShadowConfig {
+        let (from, split, end) = self.shadow_range;
+        CascadeShadowConfig {
+            num_cascades: 2,
+            minimum_distance: dist * from,
+            first_cascade_far_bound: dist * split,
+            maximum_distance: dist * end,
+            overlap_proportion: 0.2,
+        }
+    }
+
     /// Gives the camera `at` the lens for `look` with it `dist` from
     /// what it looks at, with the grading of the look and the blur
     /// of the distance.
@@ -570,20 +585,29 @@ impl Lights {
         }
     }
 
-    /// Lights the realm as `look` has it.
-    pub fn show(&self, look: &Look, draw: &mut Draw) {
+    /// Lights the realm as `look` has it, the sun's shadows split as
+    /// `cascades` has them.
+    pub fn show(
+        &self,
+        look: &Look,
+        cascades: CascadeShadowConfig,
+        draw: &mut Draw,
+    ) {
         let light =
-            |color: Vec3, lux: f32, shadow_maps_enabled: bool| {
+            |color: Vec3,
+             lux: f32,
+             cascades: Option<CascadeShadowConfig>| {
                 SceneLight(Light::Directional(DirectionalLight {
                     color: (color.x, color.y, color.z, 1.0),
                     illuminance: lux,
-                    shadow_maps_enabled,
+                    shadow_maps_enabled: cascades.is_some(),
+                    cascade_shadow_config: cascades,
                 }))
             };
         draw.commands.entity(self.sun).insert(light(
             look.sun,
             look.sun_lux,
-            true,
+            Some(cascades),
         ));
         draw.place(
             self.sun,
@@ -592,7 +616,7 @@ impl Lights {
         draw.commands.entity(self.fill).insert(light(
             look.fill,
             look.fill_lux,
-            false,
+            None,
         ));
         let dir = Vec3::new(
             -look.sun_dir.x,
@@ -619,14 +643,25 @@ pub fn light(
     clock: Res<SkyClock>,
     stock: Res<Stock>,
     lights: Res<Lights>,
+    camera: Res<Camera>,
     mut sky: ResMut<Sky>,
     mut part: ResMut<DayPart>,
+    mut zoom: Local<f32>,
     mut draw: Draw,
 ) {
     let hour = clock.hour.now(&tuning.sky, clock.offset);
     let next = Sky::at(&tuning.looks, &tuning.sky, hour);
+    // The sun's shadows reach as far as the camera is pulled back.
+    let dist = camera.views().0.dist;
+    if next.look != sky.look || dist != *zoom {
+        *zoom = dist;
+        lights.show(
+            &next.look,
+            tuning.camera.cascades(dist),
+            &mut draw,
+        );
+    }
     if next.look != sky.look {
-        lights.show(&next.look, &mut draw);
         if next.look.candle != sky.look.candle {
             stock.light_windows(&pal, next.look.candle, &draw);
         }
