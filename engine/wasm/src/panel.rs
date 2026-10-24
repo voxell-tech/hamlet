@@ -36,6 +36,7 @@ use crate::host::WasmTuning;
 use crate::instance::{Caps, Fault, Instance, NodeInput, Spent};
 use crate::mail::deliver;
 use crate::retained::NodeStats;
+use crate::surfaces::SurfaceChange;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_message::<Serve>()
@@ -215,6 +216,9 @@ pub(crate) fn serve(
             // A call of its views, which says whether they still
             // move.
             let mut viewed = None;
+            // Only a press, a choice or a keystroke of the person may
+            // bring a panel to the front.
+            let by_person = matches!(work, Work::Node(..));
             let ((done, spent), depth) = match work {
                 Work::Run(name) => (instance.run(&caps, &name), 0),
                 Work::Mail(message, depth) => {
@@ -259,10 +263,13 @@ pub(crate) fn serve(
             // Any call may change the plugin's nodes, and what it
             // shows outside its panels.
             let changes = instance.take_node_changes();
-            commands.apply_surface_changes(
-                plugin,
-                instance.take_surface_changes(),
-            );
+            let mut surfaces = instance.take_surface_changes();
+            if !by_person {
+                surfaces.retain(|change| {
+                    !matches!(change, SurfaceChange::Open(_))
+                });
+            }
+            commands.apply_surface_changes(plugin, surfaces);
             let done = match viewed {
                 Some((done, root)) => {
                     commands
@@ -300,10 +307,12 @@ pub(crate) fn serve(
             let (done, spent) = instance.frame(&caps, micros);
             let changes = instance.take_node_changes();
             commands.apply_node_changes(plugin, None, changes);
-            commands.apply_surface_changes(
-                plugin,
-                instance.take_surface_changes(),
-            );
+            // A frame is not the person's doing.
+            let mut surfaces = instance.take_surface_changes();
+            surfaces.retain(|change| {
+                !matches!(change, SurfaceChange::Open(_))
+            });
+            commands.apply_surface_changes(plugin, surfaces);
             stats.count(&spent);
             spending.charge(spent);
             match done {
