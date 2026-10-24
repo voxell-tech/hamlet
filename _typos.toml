@@ -1,4 +1,4 @@
-# typos, which `cargo xtask lints` runs.
+# typos, which `cargo xtask typos` runs.
 
 [files]
 extend-exclude = [

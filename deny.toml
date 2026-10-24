@@ -1,4 +1,4 @@
-# cargo deny check, which `cargo xtask lints` runs.
+# cargo deny check, which `cargo xtask deny` runs.
 
 [advisories]
 # Vulnerabilities fail; so do crates their authors gave up.
