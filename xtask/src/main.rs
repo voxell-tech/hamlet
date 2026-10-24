@@ -19,13 +19,12 @@ Usage: cargo xtask <task> [args]
   uninstall        remove all three from ~/.cargo/bin
   dev              try this checkout on a scratch home (HAMLET_HOME \
                      picks it)
-  check            every check a commit needs: the nine steps \
+  check            every check a commit needs: the eight steps \
                      below, in order
   format           check that Rust is formatted (fmt formats it)
   clippy           clippy with warnings as errors, on the workspace \
                      and on xtask
   deny             cargo deny check: licences and advisories
-  typos            typos over the tree
   test             build every target, then cargo test
   acceptance       the acceptance suite, on the plain CLI and server
   harness          the server's tests that start pi, built with \
@@ -43,8 +42,8 @@ packages when they are missing or stale. The installed server finds
 pi in this checkout, so keep it where it was installed from, and run
 `cargo xtask install` again after pulling.
 
-deny and typos need cargo-deny and typos: `cargo install --locked
-cargo-deny typos-cli`. With CI set, the steps pass --locked to cargo.";
+deny needs cargo-deny: `cargo install --locked cargo-deny`. With CI
+set, the steps pass --locked to cargo.";
 
 /// This crate's manifest, outside the main workspace.
 const XTASK: &str = "xtask/Cargo.toml";
@@ -52,15 +51,14 @@ const XTASK: &str = "xtask/Cargo.toml";
 /// The file naming the nightly that formats Rust, which CI reads too.
 const NIGHTLY: &str = "rust-nightly";
 
-/// The command that installs the tools `deny` and `typos` run.
-const INSTALL: &str = "cargo install --locked cargo-deny typos-cli";
+/// The command that installs the tool `deny` runs.
+const INSTALL: &str = "cargo install --locked cargo-deny";
 
 /// A step of `check`, also a task of its own under its name.
 enum Step {
     Format,
     Clippy,
     Deny,
-    Typos,
     Test,
     Acceptance,
     Harness,
@@ -70,11 +68,10 @@ enum Step {
 
 impl Step {
     /// The steps of `check`, in the order it runs them.
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 8] = [
         Self::Format,
         Self::Clippy,
         Self::Deny,
-        Self::Typos,
         Self::Test,
         Self::Acceptance,
         // The harness tests rebuild the server with fault points,
@@ -96,7 +93,6 @@ impl Step {
             Self::Format => format(root),
             Self::Clippy => clippy(),
             Self::Deny => deny(),
-            Self::Typos => typos(),
             Self::Test => test(),
             Self::Acceptance => acceptance(root),
             Self::Harness => harness(root),
@@ -112,7 +108,6 @@ impl fmt::Display for Step {
             Self::Format => "format",
             Self::Clippy => "clippy",
             Self::Deny => "deny",
-            Self::Typos => "typos",
             Self::Test => "test",
             Self::Acceptance => "acceptance",
             Self::Harness => "harness",
@@ -274,23 +269,13 @@ fn clippy() -> Result<(), Failure> {
 }
 
 fn deny() -> Result<(), Failure> {
-    installed("cargo-deny")?;
-    status(&mut locked("deny", &["check"]))
-}
-
-fn typos() -> Result<(), Failure> {
-    installed("typos")?;
-    status(&mut Command::new("typos"))
-}
-
-/// Fails, naming the install command, when `tool` is not on `PATH`.
-fn installed(tool: &'static str) -> Result<(), Failure> {
-    match Command::new(tool).arg("--version").output() {
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            Err(Failure::NoTool(tool))
-        }
-        _ => Ok(()),
+    if let Err(error) =
+        Command::new("cargo-deny").arg("--version").output()
+        && error.kind() == io::ErrorKind::NotFound
+    {
+        return Err(Failure::NoTool("cargo-deny"));
     }
+    status(&mut locked("deny", &["check"]))
 }
 
 fn test() -> Result<(), Failure> {

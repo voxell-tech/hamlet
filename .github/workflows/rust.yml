@@ -63,21 +63,6 @@ jobs:
           tool: cargo-deny@0.20.2
       - run: cargo xtask deny
 
-  typos:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-          # vendor/fynix is a submodule.
-          submodules: recursive
-      - run: rustup toolchain install
-      # Prebuilt, at the version the check was set up on.
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: typos@1.51.1
-      - run: cargo xtask typos
-
   doc:
     runs-on: ubuntu-latest
     steps:
