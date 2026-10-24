@@ -4,7 +4,8 @@
 # engine/core/src/tuning.rs, [log] in log.rs, [guards] in budget.rs,
 # [limits] in engine/api/src/limits.rs, [sound] in
 # engine/audio/src/settings.rs,
-# [window] in engine/shell/src/window.rs, [workspaces] in workspace.rs,
+# [window] in engine/shell/src/window.rs, [dock] in dock.rs,
+# [workspaces] in workspace.rs,
 # [interface_sounds] in sounds.rs,
 # [wasm] in engine/wasm/src/host.rs, [render] in
 # engine/render/src/viewport.rs, [harness] in
@@ -58,6 +59,9 @@ height = 800
 least_width = 720
 least_height = 480
 hidden_wait = 0.5
+
+[dock]
+least_panel = 300.0
 
 [workspaces]
 save_after = 0.5

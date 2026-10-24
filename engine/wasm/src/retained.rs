@@ -66,9 +66,9 @@ use hamlet_engine_shell::icons::{Glyph, glyph};
 use hamlet_engine_shell::message::message_field;
 use hamlet_engine_shell::stick::{ReachedTop, StickToEnd};
 use hamlet_engine_shell::style::{
-    ButtonStyle, action, content_button, divider, dropdown, field,
-    icon_row, labelled_switch, list_row, note, raised, scroll_area,
-    switch,
+    ButtonStyle, WrapsInRow, action, content_button, divider,
+    dropdown, field, icon_row, labelled_switch, list_row, note,
+    raised, scroll_area, switch,
 };
 use hamlet_engine_shell::{
     AnyView, CardClosed, CardPlace, Cx, EngineTheme, FloatCard,
@@ -1058,7 +1058,8 @@ fn frame(
             .gap(read(holder, |props| props.gap))
             .align(read(holder, |props| props.align))
             .justify(read(holder, |props| props.justify))
-            .padding(UiRect::all(px(room)));
+            .padding(UiRect::all(px(room)))
+            .with(WrapsInRow);
         let card = UiRect::axes(
             px(space.card_padding_x + room),
             px(space.card_padding_y + room),

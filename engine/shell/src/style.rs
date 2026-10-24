@@ -43,6 +43,7 @@ pub(crate) fn plugin(app: &mut App) {
                     .chain(),
                 gradient,
                 wrap,
+                wrap_in_row,
                 clip_inside,
                 glow_margin,
                 show_placeholders,
@@ -122,6 +123,11 @@ pub struct Placeholder;
 /// for them.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Wraps;
+
+/// A frame of a plugin that wraps while it lies in a row, so its
+/// buttons go on to a line below in a narrow panel.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct WrapsInRow;
 
 /// A surface that cuts what it holds at the outer edge of its
 /// padding.
@@ -520,11 +526,13 @@ pub fn field(
                 .position(PositionType::Absolute)
                 .inset(UiRect {
                     left: px(inset),
-                    right: Val::Auto,
+                    right: px(inset),
                     top: px(0.0),
                     bottom: px(0.0),
                 })
                 .align(AlignItems::Center)
+                // A hint longer than the field is cut at its edge.
+                .overflow(Overflow::clip())
                 .tagged(Placeholder)
                 .tagged(Pickable::IGNORE);
         column((field, words)).gap(0.0).boxed()
@@ -843,6 +851,7 @@ where
         let gap = cx.theme().space.gap;
         column((scroll(children)
             .gap(gap)
+            .overflow(Overflow::scroll_y())
             .grow(1.0)
             .min_height(px(0.0))
             .tagged(GlowMargin)
@@ -1417,6 +1426,27 @@ fn wrap(mut rows: Query<&mut Node, Added<Wraps>>) {
     for mut row in &mut rows {
         row.flex_wrap = FlexWrap::Wrap;
         row.row_gap = row.column_gap;
+    }
+}
+
+/// Lets each [`WrapsInRow`] frame wrap while it lies in a row, and
+/// not while it lies in a column.
+fn wrap_in_row(
+    mut frames: Query<&mut Node, (With<WrapsInRow>, Changed<Node>)>,
+) {
+    for mut frame in &mut frames {
+        let row = frame.flex_direction == FlexDirection::Row;
+        let want = if row {
+            FlexWrap::Wrap
+        } else {
+            FlexWrap::NoWrap
+        };
+        if frame.flex_wrap != want {
+            frame.flex_wrap = want;
+            if row {
+                frame.row_gap = frame.column_gap;
+            }
+        }
     }
 }
 
