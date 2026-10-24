@@ -1,11 +1,11 @@
 //! The Hamlets stall drawn: each hamlet as a row, and its page with
 //! who comes with it and the way to found it.
 
-use agents_ui::{Rostered, either, moved};
+use agents_ui::{Rostered, either, markdown, moved};
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::ui::{
-    AnyView, ButtonProps, ButtonStyle, Tone, UiExt, ViewExt, column,
-    derived, icon_button, keyed,
+    AnyView, Tone, UiExt, ViewExt, column, derived, description,
+    icon_button, keyed,
 };
 
 use crate::hamlets::{self, Founding, Most, full, owns};
@@ -13,23 +13,24 @@ use crate::samples::Price;
 use crate::samples::hamlets::{Settler, Template};
 use crate::view::diorama;
 use crate::view::listings::{rating, seller_words, share};
-use crate::view::shelf::Shown;
-use crate::view::style::{
-    Line, action_box, lines, meta, named, notice, owned, prose,
-    section, sections,
+use crate::view::parts::{
+    Line, deal, fact, mark, page_head, problem, rows, section,
+    sections, told, top,
 };
+use crate::view::shelf::{Shown, said};
 use crate::view::words::grouped;
 
 impl Shown for Template {
     const BACK: &'static str = "HAMLETS";
+    const ABOUT: &'static str = "Whole hamlets, to found at once.";
     const NOUN: &'static str = "hamlets";
     const FIND: &'static str = "Search hamlets";
 
-    fn heading() -> AnyView {
+    fn notice() -> AnyView {
         let full = derived(full)
             .when(either(moved::<Rostered>(), moved::<Most>()));
         keyed(full, |full| match full {
-            Some(why) => notice(why.clone(), true),
+            Some(why) => problem(why.clone()),
             None => column(()).boxed(),
         })
         .boxed()
@@ -39,60 +40,64 @@ impl Shown for Template {
         self.title.to_string()
     }
 
-    fn byline(&self) -> String {
-        format!(
-            "{}, {} own it, by {}",
-            rating(self.standing),
-            grouped(self.standing.owners.into()),
-            seller_words(&self.seller)
-        )
-    }
-
     fn row(&self) -> Line {
-        let name = self.name;
-        let mark = keyed(
-            derived(move |world: &World| owns(world, name))
-                .when(moved::<Rostered>()),
-            |has| match has {
-                true => owned("Yours"),
-                false => column(()).boxed(),
-            },
-        );
         Line {
-            cover: "house",
             name: self.title.to_string(),
+            price: self.price.words(),
             purpose: self.kind.to_string(),
             meta: format!(
                 "{} agents, {}",
                 self.agents.len() + 1,
                 rating(self.standing)
             ),
-            cost: self.price.cost(),
-            mark: Some(mark.boxed()),
+            mark: Some(yours(self.name)),
         }
     }
 
     fn page(&self) -> AnyView {
+        let head = page_head(
+            self.title,
+            description(self.description).boxed(),
+            format!(
+                "{}, {} own it, by {}",
+                rating(self.standing),
+                grouped(self.standing.owners.into()),
+                seller_words(&self.seller)
+            ),
+            Some(yours(self.name)),
+        );
         let mut team = vec![settler(&self.mayor, true)];
         team.extend(
             self.agents.iter().map(|one| settler(one, false)),
         );
         sections(vec![
-            diorama::view(self),
-            deal(self),
-            prose(self.description).boxed(),
-            section("COMES WITH", lines(team)),
+            top(vec![head, diorama::view(self), founding(self)]),
+            section(
+                "WHAT IT IS FOR",
+                markdown(self.purpose, Tone::Body),
+            ),
+            section("COMES WITH", rows(team)),
         ])
     }
 }
 
+/// The accent line of a hamlet in the realm.
+fn yours(name: &'static str) -> AnyView {
+    keyed(
+        derived(move |world: &World| owns(world, name))
+            .when(moved::<Rostered>()),
+        |has| match has {
+            true => mark("This hamlet is yours"),
+            false => column(()).boxed(),
+        },
+    )
+    .boxed()
+}
+
 /// One who comes with the hamlet: its name and what it does.
 fn settler(settler: &Settler, mayor: bool) -> AnyView {
-    let name = match mayor {
-        true => format!("{}, the mayor", settler.name),
-        false => settler.name.to_string(),
-    };
-    named(name, settler.purpose.to_string())
+    let role = if mayor { "Mayor" } else { "" };
+    told(fact(settler.name, role), settler.purpose)
 }
 
 /// The state of a hamlet at the stall, for its buttons.
@@ -106,8 +111,9 @@ enum Deal {
     Owned,
 }
 
-/// The way to found `template`, or to see it once it is the chief's.
-fn deal(template: &Template) -> AnyView {
+/// The way to found `template`, or to go to it once it is the
+/// chief's.
+fn founding(template: &Template) -> AnyView {
     let Template {
         name,
         title,
@@ -137,12 +143,12 @@ fn deal(template: &Template) -> AnyView {
          realm, with all they know.",
         template.mayor.name
     );
-    keyed(now, move |deal| match deal {
+    let buttons = keyed(now, move |deal_now| match deal_now {
         Deal::Open(full) => {
-            let mut notes = vec![meta(comes.clone()).boxed()];
+            let mut notes = vec![description(comes.clone()).boxed()];
             if price != Price::Free {
                 notes.push(
-                    meta(format!(
+                    description(format!(
                         "Paying comes with the marketplace, where \
                          {} Until then it is founded for nothing.",
                         share(&seller)
@@ -150,16 +156,11 @@ fn deal(template: &Template) -> AnyView {
                     .boxed(),
                 );
             }
-            if let Some(full) = full {
-                notes.push(
-                    prose(full.clone()).tone(Tone::Critical).boxed(),
-                );
-            }
-            action_box(
-                Some(price.cost()),
+            notes.extend(full.clone().map(problem));
+            deal(
+                None,
                 vec![
                     icon_button("house", "FOUND THIS HAMLET")
-                        .style(ButtonStyle::Primary)
                         .on_click(move |world| {
                             hamlets::buy(world, name)
                         })
@@ -168,15 +169,14 @@ fn deal(template: &Template) -> AnyView {
                 notes,
             )
         }
-        Deal::Founding => action_box(
+        Deal::Founding => deal(
             None,
             Vec::new(),
-            vec![meta(format!("Founding {title}...")).boxed()],
+            vec![description(format!("Founding {title}...")).boxed()],
         ),
-        Deal::Owned => action_box(
+        Deal::Owned => deal(
             None,
             vec![
-                owned("This hamlet is yours"),
                 icon_button("aim", "GO TO THE HAMLET")
                     .on_click(move |world| {
                         hamlets::visit(world, name)
@@ -185,6 +185,10 @@ fn deal(template: &Template) -> AnyView {
             ],
             Vec::new(),
         ),
-    })
-    .boxed()
+    });
+    deal(
+        Some(price.words()),
+        Vec::new(),
+        vec![buttons.boxed(), said::<Template>()],
+    )
 }

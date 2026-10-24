@@ -22,7 +22,7 @@ expect = { panel = "hamlet.bazaar/bazaar", text = "Wick" }
 click = { panel = "hamlet.bazaar/bazaar", widget = "Wick" }
 
 [[step]]
-expect = { panel = "hamlet.bazaar/bazaar", text = "MAKE IT THE DEFAULT" }
+expect = { panel = "hamlet.bazaar/bazaar", text = "MAKE DEFAULT" }
 
 [[step]]
 click = { panel = "hamlet.bazaar/bazaar", widget = "SKILLS" }

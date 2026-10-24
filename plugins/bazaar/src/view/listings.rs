@@ -1,26 +1,25 @@
 //! The Agents and Plugins stalls drawn: a listing's row, the kinds
-//! it is narrowed to, and its page with its maker, what chiefs say of
-//! it and the box it is had from. Hiring and installing come with the
-//! marketplace, so the box says so and nothing is had.
+//! it is narrowed to, and its page with its maker, what it does and
+//! what chiefs say of it. Hiring and installing come with the
+//! marketplace, so its page says so and nothing is had.
 
+use agents_ui::markdown;
 use hamlet_engine_bevy::ui::{
-    AnyView, FrameProps, Space, Tone, ViewExt, column, icon, row,
+    AnyView, Tone, ViewExt, description, label,
 };
 
 use crate::samples::agents::{Craft, Hireling};
-use crate::samples::plugins::{
-    Addition, Contraption, Kind, Part, Permission,
-};
+use crate::samples::plugins::{Addition, Contraption, Kind};
 use crate::samples::{Price, SELLERS_SHARE, Seller, Standing};
-use crate::view::shelf::{Shown, kinds};
-use crate::view::style::{
-    Cost, Line, action_box, aside, lines, meta, named, prose,
-    section, sections,
+use crate::view::parts::{
+    Line, deal, fact, page_head, rows, section, sections, told, top,
 };
-use crate::view::words::count;
+use crate::view::shelf::{Shown, kinds};
+use crate::view::words::{count, grouped};
 
 impl Shown for Hireling {
     const BACK: &'static str = "AGENTS";
+    const ABOUT: &'static str = "Agents other chiefs made, to hire.";
     const NOUN: &'static str = "agents";
     const FIND: &'static str = "Search agents";
 
@@ -36,54 +35,72 @@ impl Shown for Hireling {
         self.name.to_string()
     }
 
-    fn byline(&self) -> String {
-        format!(
-            "{}, by {}",
-            rating(self.standing),
-            seller_words(&self.maker)
-        )
-    }
-
     fn row(&self) -> Line {
         Line {
-            cover: craft_cover(self.craft),
             name: self.name.to_string(),
+            price: self.price.words(),
             purpose: self.purpose.to_string(),
             meta: format!(
                 "{}, by {}",
                 rating(self.standing),
                 self.maker.name
             ),
-            cost: self.price.cost(),
             mark: None,
         }
     }
 
     fn page(&self) -> AnyView {
-        let mut parts = vec![
-            deal(
-                self.price,
-                &self.maker,
-                "Hiring comes with the marketplace. Nobody moves in \
-                 yet, and nothing is paid.",
+        let head = page_head(
+            self.name,
+            description(self.purpose).boxed(),
+            format!(
+                "{}, by {}",
+                rating(self.standing),
+                seller_words(&self.maker)
             ),
-            prose(self.purpose).boxed(),
-            section("HOW IT WORKS", aside(self.character).boxed()),
-            section("SKILLS", aside(self.skills.join(", ")).boxed()),
-            section("TAGS", aside(self.tags.join(", ")).boxed()),
+            None,
+        );
+        let mut parts = vec![
+            top(vec![
+                head,
+                later(
+                    self.price,
+                    &self.maker,
+                    "Hiring comes with the marketplace. Nobody \
+                     moves in yet, and nothing is paid.",
+                ),
+            ]),
+            section(
+                "HOW IT WORKS",
+                markdown(self.character, Tone::Body),
+            ),
+            section(
+                "DETAILS",
+                rows(vec![
+                    fact("Kind", self.craft.name()),
+                    fact("Skills", self.skills.join(", ")),
+                    fact("Tags", self.tags.join(", ")),
+                    fact(
+                        "Hired by",
+                        grouped(self.standing.owners.into()),
+                    ),
+                    fact("Updated", self.updated),
+                ]),
+            ),
         ];
-        if let Some(review) = self.reviews.first() {
-            parts.push(section(
-                "WHAT USERS SAY",
-                column((
-                    prose(format!("\"{}\"", review.words)),
-                    meta(format!(
+        if !self.reviews.is_empty() {
+            let said = self.reviews.iter().map(|review| {
+                told(
+                    label(format!("\"{}\"", review.words)).boxed(),
+                    format!(
                         "{} of 5, from {}",
                         review.stars, review.by
-                    )),
-                ))
-                .space(Space::Half)
-                .boxed(),
+                    ),
+                )
+            });
+            parts.push(section(
+                "WHAT OWNERS SAY",
+                rows(said.collect()),
             ));
         }
         sections(parts)
@@ -92,6 +109,7 @@ impl Shown for Hireling {
 
 impl Shown for Contraption {
     const BACK: &'static str = "PLUGINS";
+    const ABOUT: &'static str = "What others made to add to Hamlet.";
     const NOUN: &'static str = "plugins";
     const FIND: &'static str = "Search plugins";
 
@@ -107,89 +125,85 @@ impl Shown for Contraption {
         self.name.to_string()
     }
 
-    fn byline(&self) -> String {
-        format!(
-            "{}, {} installs, by {}",
-            rating(self.standing),
-            count(self.standing.owners.into()),
-            seller_words(&self.publisher)
-        )
-    }
-
     fn row(&self) -> Line {
         Line {
-            cover: kind_cover(self.kind),
             name: self.name.to_string(),
+            price: self.price.words(),
             purpose: self.summary.to_string(),
             meta: format!(
                 "{}, {} installs",
                 rating(self.standing),
                 count(self.standing.owners.into())
             ),
-            cost: self.price.cost(),
             mark: None,
         }
     }
 
     fn page(&self) -> AnyView {
-        let mut parts = vec![
-            deal(
-                self.price,
-                &self.publisher,
-                "Installing comes with the marketplace. Hamlet \
-                 gains nothing yet, and nothing is paid.",
+        let head = page_head(
+            self.name,
+            description(self.summary).boxed(),
+            format!(
+                "{}, {} installs, by {}",
+                rating(self.standing),
+                count(self.standing.owners.into()),
+                seller_words(&self.publisher)
             ),
-            prose(self.summary).boxed(),
-            aside(self.description).boxed(),
+            None,
+        );
+        let mut parts = vec![
+            top(vec![
+                head,
+                later(
+                    self.price,
+                    &self.publisher,
+                    "Installing comes with the marketplace. Hamlet \
+                     gains nothing yet, and nothing is paid.",
+                ),
+            ]),
+            section("ABOUT", markdown(self.description, Tone::Body)),
             section(
-                "ADDS",
-                lines(self.adds.iter().map(addition).collect()),
+                "WHAT IT ADDS",
+                rows(self.adds.iter().map(addition).collect()),
             ),
         ];
         if !self.asks.is_empty() {
-            let asks = self.asks.iter().map(|asks| permission(*asks));
-            parts.push(section("PERMISSIONS", lines(asks.collect())));
+            let asks = self.asks.iter().map(|asks| {
+                let tone = if asks.grave() {
+                    Tone::Critical
+                } else {
+                    Tone::Body
+                };
+                label(asks.words()).tone(tone).boxed()
+            });
+            parts.push(section(
+                "WHAT IT MAY DO",
+                rows(asks.collect()),
+            ));
         }
         let (version, words) = self.latest;
         parts.push(section(
-            "LATEST VERSION",
-            aside(format!("{version}: {words}")).boxed(),
+            "DETAILS",
+            rows(vec![
+                fact("Kind", self.kind.name()),
+                told(fact("Version", version), words),
+                fact("Updated", self.updated),
+            ]),
         ));
         sections(parts)
     }
 }
 
 impl Price {
-    /// The price as a row or a page shows it.
-    pub(crate) fn cost(self) -> Cost {
+    /// The price in a few words.
+    pub(crate) fn words(self) -> String {
         match self {
-            Price::Free => Cost::free(),
-            Price::Once(dollars) => {
-                Cost::new(format!("${dollars:.2}"), "once")
-            }
+            Price::Free => "Free".into(),
+            Price::Once(dollars) => format!("${dollars:.2} once"),
             Price::Monthly(dollars) => {
-                Cost::new(format!("${dollars:.2}"), "monthly")
+                format!("${dollars:.2} monthly")
             }
         }
-    }
-}
-
-fn craft_cover(craft: Craft) -> &'static str {
-    match craft {
-        Craft::Writing => "pencil",
-        Craft::Code => "page",
-        Craft::Research => "lens",
-        Craft::Trade => "coins",
-        Craft::Household => "clock",
-        Craft::Teaching => "book",
-    }
-}
-
-fn kind_cover(kind: Kind) -> &'static str {
-    match kind {
-        Kind::Drawing => "pencil",
-        Kind::Planning => "check_all",
-        Kind::Maps => "signal",
     }
 }
 
@@ -214,48 +228,22 @@ pub(crate) fn share(seller: &Seller) -> String {
     format!("{} receives {SELLERS_SHARE}% of each sale.", seller.name)
 }
 
-/// The box a listing is had from: its price, who is paid, and what
-/// having it is for now, `later`.
-fn deal(
+/// The price of a listing that comes with the marketplace, who is
+/// paid, and what having it is for now, `later`.
+fn later(
     price: Price,
     seller: &Seller,
     later: &'static str,
 ) -> AnyView {
-    let mut notes = vec![meta(later).boxed()];
+    let mut notes = vec![description(later).boxed()];
     if price != Price::Free {
-        notes.push(meta(share(seller)).boxed());
+        notes.push(description(share(seller)).boxed());
     }
-    action_box(Some(price.cost()), Vec::new(), notes)
+    deal(Some(price.words()), Vec::new(), notes)
 }
 
-/// One thing a plugin adds, behind the mark of its part.
+/// One thing a plugin adds: its name, the part of Hamlet it is, and
+/// what it does.
 fn addition(addition: &Addition) -> AnyView {
-    let mark = match addition.part {
-        Part::Panel => "menu",
-        Part::Tool => "robot",
-        Part::Command => "play",
-        Part::InChat => "speech",
-    };
-    row((
-        icon(mark).tone(Tone::Faint),
-        named(
-            addition.name,
-            format!("{}: {}", addition.part.name(), addition.words),
-        ),
-    ))
-    .space(Space::Gap)
-    .boxed()
-}
-
-/// Something a plugin asks to do; what could change what is the
-/// chief's in red.
-fn permission(asks: Permission) -> AnyView {
-    let tone = if asks.grave() {
-        Tone::Critical
-    } else {
-        Tone::Body
-    };
-    row((icon("shield").tone(tone), prose(asks.words()).tone(tone)))
-        .space(Space::Gap)
-        .boxed()
+    told(fact(addition.name, addition.part.name()), addition.words)
 }

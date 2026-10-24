@@ -6,9 +6,8 @@ use agents_ui::{AgentsWorldExt, either, moved};
 use hamlet_engine_bevy::api::agents::AgentsRequest;
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::ui::{
-    AnyView, ButtonProps, ButtonStyle, Fill, FrameProps, Space, Tone,
-    UiExt, ViewExt, button, column, derived, icon_button, keyed,
-    open, resource, row, switch,
+    AnyView, ButtonStyle, UiExt, ViewExt, button, column, derived,
+    description, icon_button, keyed, open, resource, switch,
 };
 
 use crate::models::openrouter::Serving;
@@ -17,10 +16,12 @@ use crate::models::{
     Ware, WareId, acquire, added, endpoint_of, is_default,
 };
 use crate::shelf::{Arranged, Listing, Shelf, Stock};
-use crate::view::shelf::{Shown, browse, choice, counted, summary};
-use crate::view::style::{
-    Cost, Line, action_box, aside, lines, meta, named, owned, prose,
-    section, sections,
+use crate::view::parts::{
+    self, Line, deal, fact, mark, note, page_head, problem, rows,
+    section, sections, told, top,
+};
+use crate::view::shelf::{
+    Shown, browse, choice, counted, said, summary,
 };
 use crate::view::words::{dollars, tokens};
 
@@ -42,47 +43,13 @@ const PROVIDERS: usize = 3;
 
 impl Shown for Ware {
     const BACK: &'static str = "MODELS";
+    const ABOUT: &'static str = "Models to add to your catalogue.";
     const NOUN: &'static str = "models";
     const FIND: &'static str = "Search models";
     const FROM: Option<&'static str> = Some("OpenRouter");
 
-    fn heading() -> AnyView {
-        let waiting = derived(|world: &World| {
-            world.resource::<Buying>().waiting.is_some()
-        })
-        .when(moved::<Buying>());
-        keyed(waiting, |waiting| {
-            if !*waiting {
-                return column(()).boxed();
-            }
-            column((
-                prose("You have no OpenRouter endpoint yet.")
-                    .tone(Tone::Critical),
-                aside(
-                    "OpenRouter's models run through an endpoint of \
-                     your own, under Endpoints in Settings. Set one \
-                     up, and the model is added once you have.",
-                ),
-                row((icon_button("signal", "SET UP OPENROUTER")
-                    .style(ButtonStyle::Primary)
-                    .on_click(models::set_up),)),
-                row((
-                    icon_button("sliders", "OPEN SETTINGS")
-                        .on_click(|_| open(SETTINGS)),
-                    button("CANCEL")
-                        .style(ButtonStyle::Quiet)
-                        .on_click(|world| {
-                            world.resource_mut::<Buying>().waiting =
-                                None
-                        }),
-                ))
-                .space(Space::Half),
-            ))
-            .fill(Fill::Card)
-            .space(Space::Gap)
-            .boxed()
-        })
-        .boxed()
+    fn notice() -> AnyView {
+        waiting()
     }
 
     fn controls() -> Vec<AnyView> {
@@ -150,6 +117,11 @@ impl Shown for Ware {
         world.ask(AgentsRequest::ListModels);
     }
 
+    fn again_words() -> String {
+        "Asks OpenRouter and your endpoints for their models again."
+            .into()
+    }
+
     fn summary(world: &World) -> String {
         let source = &world.resource::<Shelf<Ware>>().filter.source;
         let Source::Endpoint(name) = source else {
@@ -161,46 +133,42 @@ impl Shown for Ware {
             .items
             .iter()
             .any(|ware| ware.source == *source);
-        let listing = world
+        let asking = world
             .resource::<Configured>()
             .0
             .as_ref()
-            .map(|settings| settings.listing.clone())
-            .unwrap_or_default();
-        let said = listing
+            .is_some_and(|settings| settings.listing.asking > 0);
+        match any {
+            false if asking => format!("Asking {name}..."),
+            false => format!("No models from {name} yet."),
+            true => {
+                format!("{} from {name}.", counted::<Ware>(found))
+            }
+        }
+    }
+
+    fn trouble(world: &World) -> Option<String> {
+        let source = &world.resource::<Shelf<Ware>>().filter.source;
+        let Source::Endpoint(name) = source else {
+            return world.resource::<Stock<Ware>>().problem.clone();
+        };
+        let settings = world.resource::<Configured>().0.as_ref()?;
+        let listed = settings
+            .listing
             .said
             .iter()
-            .find(|listed| listed.endpoint == *name);
-        match said.map(|listed| &listed.models) {
-            Some(Err(why)) => {
-                format!(
-                    "{name} could not be asked: {why} Check it in \
-                     Settings, then press Look again."
-                )
-            }
-            _ if !any && listing.asking > 0 => {
-                format!("Asking {name}...")
-            }
-            _ if !any => {
-                format!(
-                    "No models from {name} yet. Press Look again to \
-                     ask it."
-                )
-            }
-            _ => format!("{} from {name}.", counted::<Ware>(found)),
+            .find(|listed| listed.endpoint == *name)?;
+        match &listed.models {
+            Err(why) => Some(format!(
+                "{name} could not be asked: {why} Check it in \
+                 Settings."
+            )),
+            Ok(_) => None,
         }
     }
 
     fn title(&self) -> String {
         made(&self.title).1.to_string()
-    }
-
-    fn byline(&self) -> String {
-        match made(&self.title) {
-            (Some(maker), _) => format!("By {maker}, {}", self.id),
-            (None, name) if name != self.id => self.id.clone(),
-            (None, _) => String::new(),
-        }
     }
 
     fn row(&self) -> Line {
@@ -209,23 +177,41 @@ impl Shown for Ware {
             maker.map(str::to_string).into_iter().collect::<Vec<_>>();
         told.extend(facts(self));
         Line {
-            cover: "chip",
             name: name.to_string(),
-            purpose: lead(self).unwrap_or_default(),
+            price: row_price(self),
+            purpose: String::new(),
             meta: told.join(", "),
-            cost: row_cost(self),
             mark: Some(badge(self.id())),
         }
     }
 
     fn page(&self) -> AnyView {
-        let mut parts = vec![deals(self)];
-        if let Some(first) = self.description.split("\n\n").next()
-            && !first.trim().is_empty()
-        {
-            parts.push(prose(first.trim().to_string()).boxed());
+        let (maker, name) = made(&self.title);
+        let facts = match maker {
+            Some(maker) => format!("By {maker}, {}", self.id),
+            None => self.id.clone(),
+        };
+        let about = match self.description.split("\n\n").next() {
+            Some(first) if !first.trim().is_empty() => {
+                description(first.trim().to_string()).boxed()
+            }
+            _ => column(()).boxed(),
+        };
+        let mut head = vec![page_head(
+            name,
+            about,
+            facts,
+            Some(badge(self.id())),
+        )];
+        if self.tools == Some(false) {
+            head.push(problem(
+                "This model can't use tools, so agents can only \
+                 chat with it.",
+            ));
         }
-        parts.push(section("DETAILS", details(self)));
+        head.push(deals(self));
+        let mut parts =
+            vec![top(head), section("DETAILS", details(self))];
         if self.source == Source::OpenRouter {
             parts.push(section(
                 "PROVIDERS",
@@ -274,48 +260,77 @@ fn made(title: &str) -> (Option<&str>, &str) {
     }
 }
 
-/// The first sentence of what a ware is told to be.
-fn lead(ware: &Ware) -> Option<String> {
-    let first = ware.description.lines().next()?.trim();
-    let first = first.split_once(". ").map_or(first, |(one, _)| one);
-    let first = first.trim_end_matches('.');
-    (!first.is_empty()).then(|| format!("{first}."))
-}
-
 /// A ware's price on its row: a million tokens in, as wares are
 /// ordered by it.
-fn row_cost(ware: &Ware) -> Cost {
+fn row_price(ware: &Ware) -> String {
     match ware.input.zip(ware.output) {
-        None => Cost::new("Varies", ""),
-        Some((0.0, 0.0)) => Cost::free(),
-        Some((input, _)) => Cost::new(dollars(input), "input"),
+        None => "Varies".into(),
+        Some((0.0, 0.0)) => "Free".into(),
+        Some((input, _)) => format!("{} in", dollars(input)),
     }
 }
 
 /// A ware's price on its page.
-fn page_cost(ware: &Ware) -> Cost {
+fn page_price(ware: &Ware) -> String {
     match ware.input.zip(ware.output) {
-        None => Cost::new("Price varies", "by provider"),
-        Some((0.0, 0.0)) => Cost::free(),
-        Some((input, output)) => Cost::new(
-            format!("{} in, {} out", dollars(input), dollars(output)),
-            "per million tokens",
+        None => "Price varies by provider".into(),
+        Some((0.0, 0.0)) => "Free".into(),
+        Some((input, output)) => format!(
+            "{} in, {} out per million tokens",
+            dollars(input),
+            dollars(output)
         ),
     }
 }
 
-/// In your catalogue, beside a ware the home allows.
+/// The accent line of a ware the home allows, and of the default.
 fn badge(id: WareId) -> AnyView {
     keyed(
-        derived(move |world: &World| added(world, &id)).when(either(
-            moved::<Catalogued>(),
-            moved::<Configured>(),
-        )),
-        |added| match added {
-            true => owned("In your catalogue"),
-            false => column(()).boxed(),
+        derived(move |world: &World| {
+            (added(world, &id), is_default(world, &id))
+        })
+        .when(either(moved::<Catalogued>(), moved::<Configured>())),
+        |now| match now {
+            (_, true) => mark("Your default model"),
+            (true, false) => mark("In your catalogue"),
+            (false, false) => column(()).boxed(),
         },
     )
+    .boxed()
+}
+
+/// What waits while a ware is to be added from OpenRouter and there
+/// is no OpenRouter endpoint yet.
+fn waiting() -> AnyView {
+    let waiting = derived(|world: &World| {
+        world.resource::<Buying>().waiting.is_some()
+    })
+    .when(moved::<Buying>());
+    keyed(waiting, |waiting| {
+        if !*waiting {
+            return column(()).boxed();
+        }
+        parts::waiting(
+            "NO OPENROUTER ENDPOINT YET",
+            "OpenRouter's models run through an endpoint of your \
+             own, under Endpoints in Settings. Set one up, and the \
+             model is added once you have.",
+            vec![
+                icon_button("signal", "SET UP")
+                    .on_click(models::set_up)
+                    .boxed(),
+                icon_button("sliders", "SETTINGS")
+                    .on_click(|_| open(SETTINGS))
+                    .boxed(),
+                button("CANCEL")
+                    .style(ButtonStyle::Quiet)
+                    .on_click(|world| {
+                        world.resource_mut::<Buying>().waiting = None
+                    })
+                    .boxed(),
+            ],
+        )
+    })
     .boxed()
 }
 
@@ -337,109 +352,112 @@ fn facts(ware: &Ware) -> Vec<String> {
     facts
 }
 
-/// The box a ware is had from: its price, adding it and making it the
-/// default.
+/// The way a ware is had: its price, adding it and making it the
+/// default, what adding does, and what came of it.
 fn deals(ware: &Ware) -> AnyView {
     let id = ware.id();
     let read = id.clone();
-    let blind = ware.tools == Some(false);
-    let cost = page_cost(ware);
+    let price = page_price(ware);
     let now = derived(move |world: &World| {
         (added(world, &read), is_default(world, &read))
     })
     .when(either(moved::<Catalogued>(), moved::<Configured>()));
-    keyed(now, move |(added, default)| {
-        let deal = |then: Then| {
+    let buttons = keyed(now, move |(added, default)| {
+        let having = |then: Then| {
             let id = id.clone();
             move |world: &mut World| acquire(world, &id, then)
         };
-        let mut actions = Vec::new();
-        if *added {
-            actions.push(owned("In your catalogue"));
-        } else {
-            actions.push(
-                icon_button("plus", "ADD TO THE CATALOGUE")
-                    .style(ButtonStyle::Primary)
-                    .on_click(deal(Then::Keep))
-                    .boxed(),
-            );
-        }
-        if *default {
-            actions.push(owned("Your default model"));
-        } else {
-            actions.push(
-                icon_button("sliders", "MAKE IT THE DEFAULT")
-                    .on_click(deal(Then::MakeDefault))
-                    .boxed(),
-            );
-        }
-        let mut notes = Vec::new();
-        if blind {
-            notes.push(
-                prose(
-                    "This model can't use tools, so agents can only \
-                     chat with it.",
-                )
-                .tone(Tone::Critical)
-                .boxed(),
-            );
-        }
+        let mut buttons = Vec::new();
         if !*added {
-            notes.push(
-                meta(
+            buttons.push(
+                icon_button("plus", "ADD")
+                    .on_click(having(Then::Keep))
+                    .boxed(),
+            );
+        }
+        if !*default {
+            buttons.push(
+                icon_button("sliders", "MAKE DEFAULT")
+                    .on_click(having(Then::MakeDefault))
+                    .boxed(),
+            );
+        }
+        let notes = match added {
+            true => Vec::new(),
+            false => vec![
+                description(
                     "Adding it puts it in your catalogue, where you \
                      can give it to any agent.",
                 )
                 .boxed(),
-            );
-        }
-        action_box(Some(cost.clone()), actions, notes)
-    })
-    .boxed()
+            ],
+        };
+        deal(None, buttons, notes)
+    });
+    deal(
+        Some(price),
+        Vec::new(),
+        vec![buttons.boxed(), waiting(), said::<Ware>()],
+    )
 }
 
-/// What a ware's page tells of it past its price, a line each.
+/// What a ware's page tells of it past its price, a fact a line.
 fn details(ware: &Ware) -> AnyView {
     let mut all = Vec::new();
     if let Some(context) = ware.context {
-        all.push(format!("{} tokens of context", tokens(context)));
-    }
-    if !ware.inputs.is_empty() {
-        all.push(format!("Reads {}", ware.inputs.join(", ")));
-    }
-    if ware.reasoning == Some(true) {
-        all.push("Reasons before it answers".into());
-    }
-    if let Some(index) = ware.intelligence {
-        all.push(format!(
-            "Scores {index:.0} of 100 on Artificial Analysis's index"
+        all.push(fact(
+            "Context",
+            format!("{} tokens", tokens(context)),
         ));
     }
-    lines(all.into_iter().map(|line| aside(line).boxed()).collect())
+    if !ware.inputs.is_empty() {
+        all.push(fact("Reads", ware.inputs.join(", ")));
+    }
+    if let Some(tools) = ware.tools {
+        all.push(fact(
+            "Uses tools",
+            if tools { "Yes" } else { "No" },
+        ));
+    }
+    if ware.reasoning == Some(true) {
+        all.push(fact("Reasons", "Before it answers"));
+    }
+    if let Some(index) = ware.intelligence {
+        all.push(told(
+            fact("Intelligence", format!("{index:.0} of 100")),
+            "On Artificial Analysis's index.",
+        ));
+    }
+    if all.is_empty() {
+        return note("Nothing more is told of it.").boxed();
+    }
+    rows(all)
 }
 
-/// One provider that serves the ware.
+/// One provider that serves the ware: its name, how often it is up,
+/// and what it charges and holds.
 fn serving(serving: &Serving) -> AnyView {
-    let mut told = Vec::new();
-    if let Some(uptime) = serving.uptime {
-        told.push(format!("{uptime:.1}% up over a day"));
-    }
+    let mut about = Vec::new();
     if let (Some(input), Some(output)) =
         (serving.input, serving.output)
     {
-        told.push(format!(
+        about.push(format!(
             "{} in, {} out",
             dollars(input),
             dollars(output)
         ));
     }
     if let Some(context) = serving.context {
-        told.push(format!("{} context", tokens(context)));
+        about.push(format!("{} context", tokens(context)));
     }
     if let Some(quantization) = &serving.quantization {
-        told.push(quantization.clone());
+        about.push(quantization.clone());
     }
-    named(serving.provider.clone(), told.join(", "))
+    let up = serving
+        .uptime
+        .map(|uptime| format!("{uptime:.1}% up"))
+        .unwrap_or_default();
+    told(fact(serving.provider.clone(), up), about.join(", "))
 }
 
 /// The providers that serve the ware `id` through OpenRouter.
@@ -449,15 +467,14 @@ fn providers(id: String) -> AnyView {
     })
     .when(moved::<Providers>());
     keyed(known, |known| match known {
-        None | Some(None) => aside("Asking OpenRouter...").boxed(),
-        Some(Some(Err(why))) => aside(format!(
+        None | Some(None) => note("Asking OpenRouter...").boxed(),
+        Some(Some(Err(why))) => problem(format!(
             "OpenRouter could not say who serves it: {why}"
-        ))
-        .boxed(),
+        )),
         Some(Some(Ok(servings))) if servings.is_empty() => {
-            aside("No provider serves it now.").boxed()
+            note("No provider serves it now.").boxed()
         }
-        Some(Some(Ok(servings))) => lines(
+        Some(Some(Ok(servings))) => rows(
             servings
                 .iter()
                 .take(PROVIDERS)

@@ -1,29 +1,33 @@
-//! The shelf every stall is drawn as: what it is searched by, its
-//! order and filters, a word of how many there are, its rows a page
-//! at a time, and one listing on a page of its own.
+//! The shelf every stall is drawn as, the way the Inspector shows its
+//! hamlets: the stall's head, what it is searched by, its order and
+//! filters, a word of how many there are, its rows a page at a time,
+//! and one listing on a page of its own under a breadcrumb.
 
 use agents_ui::{breadcrumb, either, moved, short};
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::ui::{
     AnyView, ButtonProps, ButtonStyle, FrameProps, Space, UiExt,
-    ViewExt, column, derived, dropdown, each, field, icon_button,
-    keyed, list, resource, row, scroll,
+    ViewExt, column, derived, description, dropdown, each, field,
+    icon_button, keyed, list, resource, row, scroll,
 };
 
 use crate::shelf::{Arranged, Listing, PAGES, Said, Shelf, Stock};
-use crate::view::style::{
-    Line, controls, meta, notice, page_head, prose, sections,
-    status_line,
-};
+use crate::view::parts::{Line, outcome, problem, shelf_head};
 use crate::view::words::ago;
 
 /// The most characters of a page's name on its breadcrumb.
 const CRUMB_MOST: usize = 24;
 
+/// The controls laid on one line under the search.
+const CONTROLS_A_LINE: usize = 2;
+
 /// A stall's listings as the panel draws them.
 pub(crate) trait Shown: Listing {
-    /// The stall's name on the way back to it.
+    /// The stall's name, at the head of its shelf and on the way back
+    /// to it.
     const BACK: &'static str;
+    /// What the stall sells, beside its name.
+    const ABOUT: &'static str;
     /// What the stall lists, for the words of how many there are:
     /// the plural, ending in `s`.
     const NOUN: &'static str;
@@ -32,13 +36,13 @@ pub(crate) trait Shown: Listing {
     /// Where the listings are asked for, where they are.
     const FROM: Option<&'static str> = None;
 
-    /// Over the shelf.
-    fn heading() -> AnyView {
+    /// Under the head of the shelf, what waits for the chief.
+    fn notice() -> AnyView {
         column(()).boxed()
     }
 
-    /// The controls past the words and the order, laid after the
-    /// order a few to a line.
+    /// The controls past the words: the order and the filters, laid
+    /// under the search a few to a line.
     fn controls() -> Vec<AnyView> {
         Vec::new()
     }
@@ -46,22 +50,30 @@ pub(crate) trait Shown: Listing {
     /// Asks for the listings again.
     fn again(_world: &mut World) {}
 
+    /// What asking again does, beside the button that does it.
+    fn again_words() -> String {
+        Self::FROM.map_or_else(String::new, |from| {
+            format!("Asks {from} for its {} again.", Self::NOUN)
+        })
+    }
+
     /// The words of how many there are.
     fn summary(world: &World) -> String {
         summary::<Self>(world)
     }
 
+    /// Why the listings could not be asked for, last time.
+    fn trouble(world: &World) -> Option<String> {
+        world.resource::<Stock<Self>>().problem.clone()
+    }
+
     /// Its name, at the head of its page.
     fn title(&self) -> String;
 
-    /// The meta line under its title on its page.
-    fn byline(&self) -> String {
-        String::new()
-    }
-
     fn row(&self) -> Line;
 
-    /// What its page shows under its head.
+    /// Its page under the breadcrumb: its head, the way it is had,
+    /// and its parts.
     fn page(&self) -> AnyView;
 
     /// Asks for what its page shows.
@@ -130,6 +142,10 @@ where
     )
 }
 
+/// The shelf of `L`, as the Inspector shows its hamlets: the head,
+/// the search with the order and the filters under it, how many
+/// there are, the rows, and the way to ask for them again at its
+/// foot.
 fn shelf<L: Shown>() -> AnyView {
     let orders = choice::<L>(
         L::ORDERS.iter().map(|(_, name)| name.to_string()).collect(),
@@ -153,12 +169,6 @@ fn shelf<L: Shown>() -> AnyView {
     narrow.extend(L::controls());
     let counted = derived(L::summary)
         .when(either(moved::<Stock<L>>(), moved::<Arranged<L>>()));
-    let again = L::FROM.map(|_| {
-        icon_button("restore", "LOOK AGAIN")
-            .style(ButtonStyle::Quiet)
-            .on_click(L::again)
-            .boxed()
-    });
     let rows = list((each(
         resource::<Arranged<L>, _>(|arranged| arranged.rows.clone()),
         |(listing, batch): &(L, u32)| (listing.id(), *batch),
@@ -169,13 +179,49 @@ fn shelf<L: Shown>() -> AnyView {
         |more| more_rows::<L>(*more),
     );
     column((
-        L::heading(),
-        said::<L>(),
+        shelf_head(L::BACK, L::ABOUT),
+        L::notice(),
         find,
         controls(narrow),
-        status_line(counted, again),
+        description(counted),
+        said::<L>(),
         scroll((rows, more)),
+        again::<L>(),
     ))
+    .boxed()
+}
+
+/// `controls` laid a few to a line, each an even share of it.
+fn controls(controls: Vec<AnyView>) -> AnyView {
+    let mut lines = Vec::new();
+    let mut controls = controls.into_iter().peekable();
+    while controls.peek().is_some() {
+        let line = controls
+            .by_ref()
+            .take(CONTROLS_A_LINE)
+            .map(|control| column((control,)).grow(1.0).boxed())
+            .collect::<Vec<_>>();
+        lines.push(row(line).space(Space::Half).boxed());
+    }
+    column(lines).space(Space::Half).boxed()
+}
+
+/// LOOK AGAIN at the foot of a shelf that is asked for, with what it
+/// does beside it, or why asking failed in red.
+fn again<L: Shown>() -> AnyView {
+    if L::FROM.is_none() {
+        return column(()).boxed();
+    }
+    let trouble = derived(L::trouble).when(moved::<Stock<L>>());
+    let beside = keyed(trouble, move |trouble| match trouble {
+        Some(why) => problem(why.clone()),
+        None => description(L::again_words()).boxed(),
+    });
+    row((
+        icon_button("restore", "LOOK AGAIN").on_click(L::again),
+        column((beside,)).grow(1.0),
+    ))
+    .space(Space::Gap)
     .boxed()
 }
 
@@ -188,7 +234,7 @@ fn more_rows<L: Shown>(more: usize) -> AnyView {
     keyed(
         resource::<Shelf<L>, _>(|shelf| shelf.pages >= PAGES),
         move |all| match all {
-            true => meta(format!(
+            true => description(format!(
                 "{more} more. Type a few words to narrow them."
             ))
             .boxed(),
@@ -203,44 +249,25 @@ fn more_rows<L: Shown>(more: usize) -> AnyView {
     .boxed()
 }
 
-/// The words of how many listings there are, and how fresh, or why
-/// there are none.
+/// The words of how many listings there are, and how fresh.
 pub(crate) fn summary<L: Shown>(world: &World) -> String {
     let stock = world.resource::<Stock<L>>();
     let found = world.resource::<Arranged<L>>().found;
-    let none = || {
-        format!(
+    match L::FROM {
+        Some(from) if stock.asking => format!("Asking {from}..."),
+        Some(_) if stock.items.is_empty() => {
+            format!("No {} yet.", L::NOUN)
+        }
+        _ if found == 0 => format!(
             "No {} match your search. Try fewer words, or another \
              filter.",
             L::NOUN
-        )
-    };
-    match L::FROM {
-        Some(from) if stock.asking => format!("Asking {from}..."),
-        Some(from) if stock.items.is_empty() => {
-            stock.problem.as_ref().map_or_else(
-                || {
-                    format!(
-                        "No {} yet. Press Look again to ask {from}.",
-                        L::NOUN
-                    )
-                },
-                |why| format!("{why} Press Look again to try again."),
-            )
-        }
-        Some(_) if found == 0 => none(),
-        Some(from) => {
-            let mut words = format!(
-                "{} from {from}, fetched {}.",
-                counted::<L>(found),
-                ago(stock.fetched)
-            );
-            if let Some(why) = &stock.problem {
-                words = format!("{words} Asking again failed: {why}");
-            }
-            words
-        }
-        None if found == 0 => none(),
+        ),
+        Some(from) => format!(
+            "{} from {from}, fetched {}.",
+            counted::<L>(found),
+            ago(stock.fetched)
+        ),
         None => format!("{}.", counted::<L>(found)),
     }
 }
@@ -275,16 +302,10 @@ fn page<L: Shown>(id: L::Id) -> AnyView {
             browse::<L>(world, |shelf| shelf.open = None);
         };
         let (title, body) = match known {
-            Some(listing) => (
-                listing.title(),
-                sections(vec![
-                    page_head(&listing.title(), listing.byline()),
-                    listing.page(),
-                ]),
-            ),
+            Some(listing) => (listing.title(), listing.page()),
             None => (
                 "...".to_string(),
-                prose(format!(
+                description(format!(
                     "This {} is no longer listed. Go back to the {} \
                      to choose another.",
                     L::NOUN.trim_end_matches('s'),
@@ -299,7 +320,6 @@ fn page<L: Shown>(id: L::Id) -> AnyView {
                 short(&title, CRUMB_MOST),
                 back,
             ),
-            said::<L>(),
             // Room inside the scroll, as a wrapped paragraph can be
             // laid a little wider than the scroll is.
             scroll((column((body,)).padding(Space::Half),)),
@@ -309,11 +329,11 @@ fn page<L: Shown>(id: L::Id) -> AnyView {
     .boxed()
 }
 
-/// The outcome of the last thing done at the stall of `L`.
-fn said<L: Listing>() -> AnyView {
+/// What came of the last thing done at the stall of `L`.
+pub(crate) fn said<L: Listing>() -> AnyView {
     keyed(resource::<Said<L>, _>(|said| said.0.clone()), |said| {
         match said {
-            Some((words, wrong)) => notice(words.clone(), *wrong),
+            Some((words, wrong)) => outcome(words.clone(), *wrong),
             None => column(()).boxed(),
         }
     })

@@ -1,15 +1,15 @@
 //! The bazaar's panel: a tab to each stall over what the stall shown
 //! sells. Each stall is drawn as one [`shelf`](crate::view::shelf) of
 //! its listings, with a page of its own for one of them, out of the
-//! pieces of [`style`](crate::view::style).
+//! [`parts`](crate::view::parts) Hamlet's own panels are made of.
 
 mod diorama;
 mod hamlets;
 mod listings;
 mod models;
+mod parts;
 mod shelf;
 mod skills;
-mod style;
 mod words;
 
 use hamlet_engine_bevy::prelude::*;
@@ -56,6 +56,7 @@ pub(crate) fn bazaar(world: &mut World) -> AnyView {
             wares(*stall)
         }),
     ))
+    .space(Space::Double)
     .boxed()
 }
 

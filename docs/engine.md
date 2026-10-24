@@ -1606,26 +1606,31 @@ panel cuts none: MODELS, SKILLS and PLUGINS, what the agents use,
 then AGENTS and HAMLETS. The stall shown is kept across a reload.
 
 - **One shelf** (`shelf.rs`, drawn by `view/shelf.rs`) for every
-  stall, over a `Listing` with a typed id, filter and order: the
-  search field, on a line of its own, keeps those that hold every
-  word typed, of any case, a dropdown puts them in order, the
-  stall's own controls narrow them, two to a line with the order,
-  one quiet line over the rows says how many there are and how
-  fresh, and the rows come 30 at a time with SHOW MORE, 120 at most.
-  A row opens its listing on a page of its own under the breadcrumb
-  back to the shelf, and what was done last is said over it, in red
-  where it went wrong. What each shelf is searched for and the page
-  open are kept across a reload.
-- **One style** (`view/style.rs`) every stall is drawn with, so each
-  reads the same: the body face at three steps, content, meta (small
-  and dim) and the accent of a price, and the display face only for
-  a page's title. A row (`Line`) is a cover, the listing's name over
-  what it is for, cut to two lines, and a meta line, with its price
-  (`Cost`) at its end, one word a line. A page is its title and meta
-  line, one box it is had from (`action_box`: its price, the primary
-  action first, and what that does), then its sections, each under
-  the theme's section heading, room between them. Of a row only the
-  name is bold.
+  stall, over a `Listing` with a typed id, filter and order, laid out
+  as the Inspector lays out its hamlets: the stall's name with what it
+  sells beside it, what waits for the chief, the search field on a
+  line of its own, which keeps those that hold every word typed, of
+  any case, the order and the stall's own controls under it, two to
+  a line, each an even share, a dim line of how many there are and
+  how fresh, and the rows, 30 at a time with SHOW MORE, 120 at most.
+  A stall that is asked for has LOOK AGAIN at its foot, with what it
+  does beside it, or why asking failed, in red. A row opens its
+  listing on a page of its own under the breadcrumb back to the
+  shelf. What each shelf is searched for and the page open are kept
+  across a reload.
+- **Hamlet's own parts** (`view/parts.rs`), and nothing of the
+  bazaar's own: a row (`Line`) is drawn as the Plugins list draws a
+  plugin's, its bold name with its price at the end where a plugin's
+  switch is, dim lines under it of what it is for and its standing,
+  the accent line of what is already the chief's, and a chevron. A
+  page is drawn as the Plugins panel draws a plugin's: its title, a
+  dim line of what it is, its facts and accent line; then how it is
+  had (`deal`): its price as a bold line, its buttons in a row as the
+  Inspector lays a hamlet's, the one that has it first, what they do
+  in dim words and what came of them, small and in red where it went
+  wrong; then its parts, each under a section name, as lists of
+  facts with a divider between each, or as Markdown. What waits for
+  the chief is a card as Petitions shows one.
 - **Asked for once.** A stall's listings are fetched the first time
   it is shown and again on LOOK AGAIN, never on their own; what came
   is kept in the plugin's world and its views read it by change
@@ -1637,25 +1642,25 @@ then AGENTS and HAMLETS. The stall shown is kept across a reload.
   price and to those that use tools, and ordered by newest, price,
   context, Artificial Analysis's index or name. A model's page shows
   who serves it through OpenRouter (`/api/v1/models/<id>/endpoints`),
-  ADD TO THE CATALOGUE (`AddModel` to the endpoint at OpenRouter's
-  address, or the endpoint it came from) and MAKE IT THE DEFAULT
-  (`SetModel`, after adding it). A row shows a model by its name
-  without its maker, which its meta line names, and its price in.
-  One the catalogue allows is marked In your catalogue. With no
-  OpenRouter endpoint, the stall says so with SET UP OPENROUTER,
-  which begins a setup as Welcome shows it, and OPEN SETTINGS; the
-  model is added once the settings have one.
+  ADD (`AddModel` to the endpoint at OpenRouter's address, or the
+  endpoint it came from) and MAKE DEFAULT (`SetModel`, after adding
+  it). A row shows a model by its name without its maker, which its
+  meta line names, and its price in. One the catalogue allows is
+  marked In your catalogue, and the default Your default model. With
+  no OpenRouter endpoint, a card says so with SET UP, which begins a
+  setup as Welcome shows it, and SETTINGS; the model is added once
+  the settings have one.
 - **Skills** (`skills.rs`, `skills/skills_sh.rs`): skills.sh's most
   installed of all time, three pages of 200, and SEARCH SKILLS.SH
   past them for the words typed. A skill's page fetches its files
   (`/api/download/<owner>/<repo>/<skill>`), shows its SKILL.md as
-  Markdown, and TAKE INTO THE LIBRARY hands them over with
+  Markdown, and ADD TO LIBRARY hands them over with
   `TakeSkill`. A file whose path would leave the skill's folder fails
   it whole; one too large, or not text, is left out and named. One
   the library has is marked In your library.
 - **Agents and Plugins** (`samples/agents.rs`, `samples/plugins.rs`)
   are made-up listings, narrowed by kind with a dropdown, with a
-  page each of what it does, its price, who is paid and what users
+  page each of what it does, its price, who is paid and what owners
   say. Hiring and installing come with the marketplace, as the page
   says; nothing is had or paid.
 - **Hamlets** (`hamlets.rs`, `samples/hamlets.rs`) are made-up
@@ -1664,10 +1669,10 @@ then AGENTS and HAMLETS. The stall shown is kept across a reload.
   already holds the most hamlets its limits allow, which the stall
   says; a price is paid with the marketplace, so for now it is
   founded for nothing. One founded is selected and the realm brought
-  to the front, and one the roster has is marked Yours with GO TO
-  THE HAMLET.
-- **A template's town** (`diorama.rs`, `view/diorama.rs`) heads its
-  page, turning on its plinth: the realm's `diorama` is asked for it
+  to the front, and one the roster has is marked This hamlet is
+  yours, with GO TO THE HAMLET.
+- **A template's town** (`diorama.rs`, `view/diorama.rs`) is under
+  the head of its page, turning on its plinth: the realm's `diorama` is asked for it
   a part at a time as the page is shown, and it is built in a scene of
   the bazaar's own, in the realm's looks and daylight, under a camera
   that frames the whole plinth in a view of the page's width, 240
