@@ -17,7 +17,7 @@ use crate::view::parts::{
     Line, deal, fact, page_head, rows, section, sections, told, top,
 };
 use crate::view::shelf::{Shown, kinds};
-use crate::view::trade::samples_notice;
+use crate::view::trade::{samples_foot, samples_notice};
 use crate::view::words::{count, grouped};
 
 impl Shown for Hireling {
@@ -28,6 +28,10 @@ impl Shown for Hireling {
 
     fn notice() -> AnyView {
         samples_notice()
+    }
+
+    fn foot() -> AnyView {
+        samples_foot()
     }
 
     fn controls() -> Vec<AnyView> {
@@ -123,6 +127,10 @@ impl Shown for Contraption {
 
     fn notice() -> AnyView {
         samples_notice()
+    }
+
+    fn foot() -> AnyView {
+        samples_foot()
     }
 
     fn controls() -> Vec<AnyView> {

@@ -1,31 +1,52 @@
-//! The bazaar's own listings drawn: a listing's row with how it
-//! stands with the chief, and its page with its cover, its maker,
-//! what it holds, what owners say and the box it is had from.
+//! The bazaar's own listings drawn as the samples are: a listing's
+//! row, and its page with its cover, or a hamlet's town, under its
+//! head, the way it is had, what it holds, its details and what
+//! owners say.
 
-use agents_ui::{moved, name, note};
+use agents_ui::{markdown, moved};
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::ui::{
-    AnyView, FrameProps, Space, Tone, ViewExt, column, derived,
-    description, icon, keyed, label, row,
+    AnyView, Tone, ViewExt, column, derived, description, keyed,
+    label,
 };
 
+use crate::BazaarWorldExt;
 use crate::listings::{Agents, Hamlets, Sells, Tools, Wares};
 use crate::market::lot::{
-    AgentMeta, HamletMeta, Kind, Lot, PluginMeta, Said, price_words,
+    AgentMeta, HamletMeta, Kind, Lot, Maker, PluginMeta, Said,
+    price_words,
 };
 use crate::market::{self, Market};
 use crate::view::covers::{PAGE, cover};
 use crate::view::parts::{
-    Line, page_head, section as part, sections, top,
+    Line, fact, page_head, rows, section, sections, told, top,
 };
-use crate::view::shelf::{Shown, kinds};
-use crate::view::trade;
+use crate::view::shelf::{Shown, browse, kinds};
 use crate::view::words::count;
+use crate::view::{Desk, diorama, trade};
+
+/// The most reviews a page shows.
+const REVIEWS_SHOWN: usize = 5;
 
 /// What a listing of `K` shows that others do not.
 pub(crate) trait Shows: Sells {
-    /// Under its words, on its page.
+    /// The dim line of its row under what it is for.
+    fn row_meta(lot: &Lot) -> String {
+        format!("{}, by {}", rating(lot), lot.seller.shown())
+    }
+
+    /// Under the head of its page, in place of its cover.
+    fn head(_lot: &Lot) -> Option<AnyView> {
+        None
+    }
+
+    /// The parts of its page of what it holds.
     fn inside(lot: &Lot) -> Vec<AnyView>;
+
+    /// Its details past those every listing has.
+    fn facts(_lot: &Lot) -> Vec<AnyView> {
+        Vec::new()
+    }
 }
 
 impl<K: Shows> Shown for Wares<K> {
@@ -34,6 +55,10 @@ impl<K: Shows> Shown for Wares<K> {
     const NOUN: &'static str = K::NOUN;
     const FIND: &'static str = K::FIND;
     const FROM: Option<&'static str> = Some("the bazaar");
+
+    fn notice() -> AnyView {
+        trade::selling(K::KIND)
+    }
 
     fn controls() -> Vec<AnyView> {
         match K::CATEGORIES.is_empty() {
@@ -52,92 +77,62 @@ impl<K: Shows> Shown for Wares<K> {
         market::ask_shelves(world);
     }
 
+    fn foot() -> AnyView {
+        trade::account("to buy, and to sell what you made.")
+    }
+
     fn title(&self) -> String {
         self.0.title.clone()
     }
 
     fn row(&self) -> Line {
         let lot = &self.0;
-        let meta = match lot.kind {
-            Kind::Hamlet => {
-                let meta = lot.meta::<HamletMeta>();
-                format!(
-                    "{}, {} agents, by {}",
-                    rating(lot),
-                    meta.agents.len() + 1,
-                    lot.seller.shown()
-                )
-            }
-            _ => {
-                format!("{}, by {}", rating(lot), lot.seller.shown())
-            }
-        };
         Line {
             name: lot.title.clone(),
             price: price(lot.price_cents),
             purpose: lot.summary.clone(),
-            meta,
+            meta: K::row_meta(lot),
             mark: Some(trade::mark(lot.id.clone())),
         }
     }
 
     fn page(&self) -> AnyView {
         let lot = &self.0;
-        let seller = match lot.seller.verified {
-            true => {
-                format!("{}, verified seller", lot.seller.shown())
-            }
-            false => format!("{}, not verified", lot.seller.shown()),
-        };
         let head = page_head(
             &lot.title,
             description(lot.summary.clone()).boxed(),
             format!(
-                "{}, {} own it, by {seller}",
+                "{}, {} own it, by {}",
                 rating(lot),
-                count(lot.owners.into())
+                count(lot.owners.into()),
+                seller_words(&lot.seller)
             ),
             Some(trade::mark(lot.id.clone())),
         );
-        let mut top_parts = vec![head];
-        top_parts.extend(
-            lot.cover_url
-                .as_ref()
-                .map(|url| cover(url.clone(), PAGE)),
-        );
-        top_parts.push(trade::deal(
+        let mut first = vec![head];
+        match K::head(lot) {
+            Some(shown) => first.push(shown),
+            None => first.extend(
+                lot.cover_url
+                    .as_ref()
+                    .map(|url| cover(url.clone(), PAGE)),
+            ),
+        }
+        first.push(trade::deal(
             lot.kind,
             lot.id.clone(),
             lot.price_cents,
             lot.seller.shown().to_string(),
         ));
-        let mut parts = vec![top(top_parts)];
+        let mut parts = vec![top(first)];
         if !lot.description.trim().is_empty() {
-            parts.push(description(lot.description.clone()).boxed());
+            parts.push(section(
+                "ABOUT",
+                markdown(&lot.description, Tone::Body),
+            ));
         }
         parts.extend(K::inside(lot));
-        if !lot.tags.is_empty() {
-            parts.push(part(
-                "TAGS",
-                note(lot.tags.join(", ")).boxed(),
-            ));
-        }
-        if let Some(latest) = &lot.latest {
-            let words = match latest.changes.trim() {
-                "" => {
-                    format!("{}, {}", latest.version, lot.updated())
-                }
-                changes => format!(
-                    "{}, {}: {changes}",
-                    latest.version,
-                    lot.updated()
-                ),
-            };
-            parts.push(part(
-                "LATEST VERSION",
-                description(words).boxed(),
-            ));
-        }
+        parts.push(section("DETAILS", details::<K>(lot)));
         parts.push(reviews(lot.id.clone()));
         sections(parts)
     }
@@ -152,92 +147,145 @@ impl<K: Shows> Shown for Wares<K> {
 
 impl Shows for Agents {
     fn inside(lot: &Lot) -> Vec<AnyView> {
-        let meta = lot.meta::<AgentMeta>();
-        let mut parts = Vec::new();
-        if !meta.character.trim().is_empty() {
-            parts.push(part(
+        let agent = lot.meta::<AgentMeta>();
+        match agent.character.trim() {
+            "" => Vec::new(),
+            character => vec![section(
                 "HOW IT WORKS",
-                description(meta.character.clone()).boxed(),
+                markdown(character, Tone::Body),
+            )],
+        }
+    }
+
+    fn facts(lot: &Lot) -> Vec<AnyView> {
+        let agent = lot.meta::<AgentMeta>();
+        let mut facts = Vec::new();
+        if !agent.skills.is_empty() {
+            facts.push(fact("Skills", agent.skills.join(", ")));
+        }
+        if agent.notes {
+            facts.push(told(
+                fact("Notes", "Included"),
+                "It comes with the notes its maker's agent kept.",
             ));
         }
-        if !meta.skills.is_empty() {
-            parts.push(part(
-                "SKILLS",
-                note(meta.skills.join(", ")).boxed(),
-            ));
-        }
-        if meta.notes {
-            parts.push(
-                description(
-                    "It comes with the notes its maker's agent kept.",
-                )
-                .boxed(),
-            );
-        }
-        parts
+        facts
     }
 }
 
 impl Shows for Tools {
+    fn row_meta(lot: &Lot) -> String {
+        format!(
+            "{}, {} installs",
+            rating(lot),
+            count(lot.owners.into())
+        )
+    }
+
     fn inside(lot: &Lot) -> Vec<AnyView> {
         let tools = lot.meta::<PluginMeta>().tools;
         if tools.is_empty() {
             return Vec::new();
         }
-        let all = tools
+        let adds = tools
             .iter()
             .map(|tool| {
-                let asks = tool
-                    .permissions
-                    .iter()
-                    .map(|asks| permission(asks))
-                    .collect::<Vec<_>>();
-                column((
-                    label(tool.name.clone()).bold(true),
-                    description(tool.description.clone()),
-                    column(asks).space(Space::None),
-                ))
-                .space(Space::None)
-                .boxed()
+                told(
+                    fact(tool.name.clone(), "Tool"),
+                    &tool.description,
+                )
             })
-            .collect::<Vec<_>>();
-        vec![part("TOOLS", column(all).space(Space::Half).boxed())]
-    }
-}
-
-impl Shows for Hamlets {
-    fn inside(lot: &Lot) -> Vec<AnyView> {
-        let meta = lot.meta::<HamletMeta>();
-        let settler = |agent: &AgentMeta, mayor: bool| {
-            let name = match mayor {
-                true => format!("{}, the mayor", agent.name),
-                false => agent.name.clone(),
-            };
-            column((
-                label(name).bold(true),
-                description(agent.purpose.clone()),
-            ))
-            .space(Space::None)
-            .boxed()
-        };
-        let mut team = vec![settler(&meta.mayor, true)];
-        team.extend(
-            meta.agents.iter().map(|agent| settler(agent, false)),
-        );
-        let mut parts = Vec::new();
-        if !meta.kind.trim().is_empty() {
-            parts.push(note(meta.kind.clone()).boxed());
+            .collect();
+        let mut asks = Vec::<&str>::new();
+        for asked in tools.iter().flat_map(|tool| &tool.permissions) {
+            if !asks.contains(&asked.as_str()) {
+                asks.push(asked);
+            }
         }
-        parts.push(part(
-            "COMES WITH",
-            column(team).space(Space::Half).boxed(),
-        ));
+        let mut parts = vec![section("WHAT IT ADDS", rows(adds))];
+        if !asks.is_empty() {
+            parts.push(section(
+                "WHAT IT MAY DO",
+                rows(asks.into_iter().map(permission).collect()),
+            ));
+        }
         parts
     }
 }
 
+impl Shows for Hamlets {
+    fn row_meta(lot: &Lot) -> String {
+        let hamlet = lot.meta::<HamletMeta>();
+        let agents = match hamlet.agents.len() {
+            0 => format!("1 agent, {}", rating(lot)),
+            more => format!("{} agents, {}", more + 1, rating(lot)),
+        };
+        match hamlet.kind.trim() {
+            "" => agents,
+            kind => format!("{kind}, {agents}"),
+        }
+    }
+
+    fn head(lot: &Lot) -> Option<AnyView> {
+        let agents = lot.meta::<HamletMeta>().agents.len() as u32;
+        Some(diorama::view(lot.id.clone(), agents))
+    }
+
+    fn inside(lot: &Lot) -> Vec<AnyView> {
+        let hamlet = lot.meta::<HamletMeta>();
+        let settler = |agent: &AgentMeta, mayor: bool| {
+            let role = if mayor { "Mayor" } else { "" };
+            told(fact(agent.name.clone(), role), &agent.purpose)
+        };
+        let mut team = vec![settler(&hamlet.mayor, true)];
+        team.extend(
+            hamlet.agents.iter().map(|agent| settler(agent, false)),
+        );
+        vec![section("COMES WITH", rows(team))]
+    }
+}
+
+/// The details of `lot`, a fact a line: its kind, what is told of it
+/// as a listing of `K`, its tags, its newest version and when it
+/// changed.
+fn details<K: Shows>(lot: &Lot) -> AnyView {
+    let mut all = Vec::new();
+    if !lot.category.trim().is_empty() {
+        all.push(fact("Kind", lot.category.clone()));
+    }
+    all.extend(K::facts(lot));
+    if !lot.tags.is_empty() {
+        all.push(fact("Tags", lot.tags.join(", ")));
+    }
+    if let Some(latest) = &lot.latest {
+        all.push(told(
+            fact("Version", latest.version.clone()),
+            latest.changes.trim(),
+        ));
+    }
+    all.push(fact("Updated", lot.updated()));
+    rows(all)
+}
+
+/// Opens the page of `lot` at its stall, from wherever the panel is.
+pub(crate) fn open_lot(world: &mut World, lot: &Lot) {
+    match lot.kind {
+        Kind::Agent => open::<Agents>(world, lot),
+        Kind::Plugin => open::<Tools>(world, lot),
+        Kind::Hamlet => open::<Hamlets>(world, lot),
+    }
+}
+
+fn open<K: Shows>(world: &mut World, lot: &Lot) {
+    world.resource_mut::<Desk>().page = None;
+    world.show(market::stall_of(lot.kind));
+    let id = lot.id.clone();
+    browse::<Wares<K>>(world, |shelf| shelf.open = Some(id.clone()));
+    <Wares<K> as Shown>::opened(world, &id);
+}
+
 /// A price in a few words.
-fn price(cents: u32) -> String {
+pub(crate) fn price(cents: u32) -> String {
     match cents {
         0 => "Free".into(),
         cents => format!("{} once", price_words(cents)),
@@ -249,15 +297,22 @@ fn rating(lot: &Lot) -> String {
     match lot.reviews {
         0 => "No reviews yet".into(),
         reviews => format!(
-            "{:.1} of 5 from {} reviews",
+            "{:.1} from {} reviews",
             lot.stars,
             count(reviews.into())
         ),
     }
 }
 
-/// What a tool asks to be let do; what could change what is the
-/// chief's in red.
+fn seller_words(seller: &Maker) -> String {
+    match seller.verified {
+        true => format!("{}, verified seller", seller.shown()),
+        false => format!("{}, not verified", seller.shown()),
+    }
+}
+
+/// What a tool asks to be let do, as the samples say it; what could
+/// change what is the chief's in red.
 fn permission(asks: &str) -> AnyView {
     let (words, grave) = match asks {
         "run_program" => ("Runs a program on this computer", true),
@@ -267,12 +322,7 @@ fn permission(asks: &str) -> AnyView {
         other => (other, false),
     };
     let tone = if grave { Tone::Critical } else { Tone::Body };
-    row((
-        icon("shield").tone(tone),
-        label(words.to_string()).tone(tone),
-    ))
-    .space(Space::Half)
-    .boxed()
+    label(words.to_string()).tone(tone).boxed()
 }
 
 /// What owners said of the listing `id`, once its page has asked.
@@ -292,25 +342,18 @@ fn reviews(id: String) -> AnyView {
         }
         let all = said
             .iter()
-            .take(5)
+            .take(REVIEWS_SHOWN)
             .map(|said| {
-                column((
-                    label(format!("\"{}\"", said.words)),
-                    note(format!(
-                        "{} of 5, {}",
+                told(
+                    label(format!("\"{}\"", said.words)).boxed(),
+                    format!(
+                        "{} of 5, from {}",
                         said.stars, said.by.login
-                    )),
-                ))
-                .space(Space::None)
-                .boxed()
+                    ),
+                )
             })
             .collect::<Vec<_>>();
-        column((
-            name("WHAT OWNERS SAY"),
-            column(all).space(Space::Half),
-        ))
-        .space(Space::Half)
-        .boxed()
+        section("WHAT OWNERS SAY", rows(all))
     })
     .boxed()
 }

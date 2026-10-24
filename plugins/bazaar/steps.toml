@@ -56,19 +56,16 @@ expect = { panel = "hamlet.bazaar/bazaar", text = "FOUND THIS HAMLET" }
 expect = { panel = "hamlet.bazaar/bazaar", text = "The realm is not running, so its town cannot be shown." }
 
 # The bazaar's server is not reached here: the stalls of what chiefs
-# make say their listings are samples, and offer the sign-in.
+# make say their listings are samples, and where the bazaar is asked.
 
 [[step]]
 click = { panel = "hamlet.bazaar/bazaar", widget = "AGENTS" }
 
 [[step]]
-expect = { panel = "hamlet.bazaar/bazaar", text = "SAMPLES" }
+expect = { panel = "hamlet.bazaar/bazaar", text = "Samples, made up to show the stall" }
 
 [[step]]
 expect = { panel = "hamlet.bazaar/bazaar", text = "http://localhost:8787" }
-
-[[step]]
-expect = { panel = "hamlet.bazaar/bazaar", text = "SIGN IN WITH GITHUB" }
 
 # The seller's desk opens signed out, and says what the form lacks.
 
@@ -76,41 +73,44 @@ expect = { panel = "hamlet.bazaar/bazaar", text = "SIGN IN WITH GITHUB" }
 run = "hamlet.bazaar/sell"
 
 [[step]]
-expect = { panel = "hamlet.bazaar/bazaar", text = "SELL AN AGENT" }
+expect = { panel = "hamlet.bazaar/bazaar", text = "Sell an agent" }
 
 [[step]]
 expect = { panel = "hamlet.bazaar/bazaar", text = "The realm has no agents to sell." }
 
 [[step]]
-write = { panel = "hamlet.bazaar/bazaar", widget = "Title", text = "Wick" }
+write = { panel = "hamlet.bazaar/bazaar", widget = "What it is called", text = "Wick" }
 
 [[step]]
 click = { panel = "hamlet.bazaar/bazaar", widget = "PUT UP FOR SALE" }
 
 [[step]]
-expect = { panel = "hamlet.bazaar/bazaar", text = "A summary is 1 to 140 letters." }
+expect = { panel = "hamlet.bazaar/bazaar", text = "Write a summary, a line of at most 140 letters." }
 
 [[step]]
 click = { panel = "hamlet.bazaar/bazaar", widget = "TOOLS" }
 
 [[step]]
-expect = { panel = "hamlet.bazaar/bazaar", text = "SELL TOOLS" }
+expect = { panel = "hamlet.bazaar/bazaar", text = "Sell tools" }
 
 [[step]]
-click = { panel = "hamlet.bazaar/bazaar", widget = "BACK" }
+click = { panel = "hamlet.bazaar/bazaar", widget = "AGENTS" }
 
 [[step]]
 expect = { panel = "hamlet.bazaar/bazaar", text = "PR Reviewer" }
 
-# The bazaar's server answers with a listing that has a cover. The
-# cover is fetched as its page opens, and one that is not a picture is
-# not shown.
+# The bazaar's server answers with a listing that has a cover: its
+# shelf offers the sign-in at its foot. The cover is fetched as the
+# listing's page opens, and one that is not a picture is not shown.
 
 [[step]]
 reply = { url = "http://localhost:8787/v1/listings?limit=100&offset=0", body = '{"items": [{"id": "l_1", "kind": "agent", "title": "Wick Lantern", "summary": "Keeps a light.", "category": "Writing", "priceCents": 0, "status": "listed", "seller": {"login": "maker"}, "coverUrl": "/v1/listings/l_1/cover?v=1"}], "total": 1}' }
 
 [[step]]
 expect = { panel = "hamlet.bazaar/bazaar", text = "Wick Lantern" }
+
+[[step]]
+expect = { panel = "hamlet.bazaar/bazaar", text = "With GitHub, to buy, and to sell what you made." }
 
 [[step]]
 click = { panel = "hamlet.bazaar/bazaar", widget = "Wick Lantern" }

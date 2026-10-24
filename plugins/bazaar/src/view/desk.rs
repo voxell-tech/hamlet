@@ -1,15 +1,18 @@
-//! The seller's desk: a form to put an agent, a hamlet or tools up
-//! for sale, or to change a listing, its cover and upload a new
-//! version of it, and the page of what the chief sells and has
-//! bought.
+//! The seller's desk, laid out as Settings lays out its pages: a
+//! form to put an agent, a hamlet or tools up for sale, or to change
+//! a listing, its cover and upload a new version of it, and the page
+//! of what the chief sells and has bought, listed as the Inspector
+//! lists its hamlets.
 
-use agents_ui::{Rostered, either, moved, name, note};
+use agents_ui::{
+    Rostered, breadcrumb, either, link_rows, moved, part, setting,
+};
 use hamlet_engine_bevy::api::agents::{HousedTool, Packing};
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::ui::{
-    AnyView, ButtonProps, ButtonStyle, FrameProps, Space, Tone,
-    UiExt, ViewExt, button, column, derived, description, dropdown,
-    field, icon_button, keyed, label, resource, row, scroll, switch,
+    AnyView, ButtonStyle, FrameProps, Space, UiExt, ViewExt, button,
+    column, derived, description, dropdown, field, icon_button,
+    keyed, resource, row, scroll, switch,
 };
 use serde::{Deserialize, Serialize};
 
@@ -28,8 +31,12 @@ use crate::picture::{MOST_BYTES, MOST_SIDE};
 use crate::samples::agents::Craft;
 use crate::samples::plugins::Kind as Shelf;
 use crate::view::covers::{chosen, now_of};
-use crate::view::parts::section as part;
+use crate::view::parts::{
+    Line, mark as accent, outcome, page_head, problem, section,
+    sections,
+};
 use crate::view::trade;
+use crate::view::wares::{open_lot, price as price_of};
 
 /// The longest a title, a summary, a description and a category may
 /// be, in letters, and the most tags and letters of each.
@@ -125,6 +132,20 @@ enum Field {
 }
 
 impl Field {
+    /// What is in it while it is empty.
+    fn placeholder(self) -> &'static str {
+        match self {
+            Field::Title => "What it is called",
+            Field::Summary => "What it does, in a line",
+            Field::Description => "All a buyer should know",
+            Field::Category => "Such as Publishing house",
+            Field::Tags => "Words it is found by",
+            Field::Price => "Free, or such as 4.99",
+            Field::Version => "Such as 1.0.0",
+            Field::Changes => "What is new in it",
+        }
+    }
+
     fn of(self, form: &mut Form) -> &mut String {
         match self {
             Field::Title => &mut form.title,
@@ -210,14 +231,15 @@ fn close(world: &mut World) {
 }
 
 /// The desk's page open, if one is, else the stall's page `stall`
-/// makes.
+/// makes. `back` names the stall on the way back to it.
 pub(crate) fn or(
+    back: &'static str,
     stall: impl Fn() -> AnyView + Send + Sync + 'static,
 ) -> AnyView {
     let page = resource::<Desk, _>(|desk| desk.page);
     keyed(page, move |page| match page {
-        Some(Page::Form) => form(),
-        Some(Page::Yours) => yours(),
+        Some(Page::Form) => form(back),
+        Some(Page::Yours) => yours(back),
         None => stall(),
     })
     .boxed()
@@ -307,13 +329,18 @@ pub(crate) fn cents(price: &str) -> Result<u32, String> {
         .parse::<f64>()
         .ok()
         .filter(|dollars| dollars.is_finite() && *dollars >= 0.0)
-        .ok_or("The price is a number of dollars, such as 4.99.")?;
+        .ok_or(
+            "Write the price as a number of dollars, such as 4.99.",
+        )?;
     match (dollars * 100.0).round() as u32 {
         0 => Ok(0),
         cents if (LEAST_CENTS..=MOST_CENTS).contains(&cents) => {
             Ok(cents)
         }
-        _ => Err("A price is free, or from $0.50 to $500.".into()),
+        _ => {
+            Err("Make it free, or price it from $0.50 to $500."
+                .into())
+        }
     }
 }
 
@@ -326,12 +353,14 @@ pub(crate) fn tags(typed: &str) -> Result<Vec<String>, String> {
             continue;
         }
         if tag.chars().count() > TAG {
-            return Err(format!("A tag is at most {TAG} letters."));
+            return Err(format!(
+                "Shorten each tag to at most {TAG} letters."
+            ));
         }
         all.push(tag);
     }
     if all.len() > TAGS {
-        return Err(format!("At most {TAGS} tags."));
+        return Err(format!("Give it at most {TAGS} tags."));
     }
     Ok(all)
 }
@@ -385,14 +414,19 @@ pub(crate) fn offer(
     let summary = form.summary.trim();
     let category = form.category.trim();
     if title.is_empty() || title.chars().count() > TITLE {
-        return Err(format!("A title is 1 to {TITLE} letters."));
+        return Err(format!(
+            "Give it a title of at most {TITLE} letters."
+        ));
     }
     if summary.is_empty() || summary.chars().count() > SUMMARY {
-        return Err(format!("A summary is 1 to {SUMMARY} letters."));
+        return Err(format!(
+            "Write a summary, a line of at most {SUMMARY} letters."
+        ));
     }
     if form.description.chars().count() > DESCRIPTION {
         return Err(format!(
-            "A description is at most {DESCRIPTION} letters."
+            "Shorten the description to at most {DESCRIPTION} \
+             letters."
         ));
     }
     if category.is_empty() || category.chars().count() > CATEGORY {
@@ -401,9 +435,7 @@ pub(crate) fn offer(
                 "Say what kind of hamlet it is, in at most \
                  {CATEGORY} letters."
             ),
-            _ => format!(
-                "Choose a category of at most {CATEGORY} letters."
-            ),
+            _ => "Choose a category.".into(),
         });
     }
     let price_cents = cents(&form.price)?;
@@ -415,9 +447,9 @@ pub(crate) fn offer(
     let wares = match form.upload {
         false => None,
         true if semver(form.version.trim()).is_none() => {
-            return Err(
-                "A version is three numbers, such as 1.0.0.".into()
-            );
+            return Err("Write the version as three numbers, such \
+                        as 1.0.0."
+                .into());
         }
         true => Some(wares(form, choices, category)?),
     };
@@ -486,36 +518,52 @@ fn edit(world: &mut World, change: impl FnOnce(&mut Form)) {
     change(&mut world.resource_mut::<Desk>().form);
 }
 
-/// A line of the form: its name over a field.
+/// A field of the form, as Settings has a setting: its name over it,
+/// and what goes in it, dim, under it.
 fn line(
     name_of: &'static str,
     which: Field,
-    hint: &'static str,
+    hint: impl Into<String>,
 ) -> AnyView {
     let value = resource::<Desk, _>(move |desk| {
         let mut form = desk.form.clone();
         which.of(&mut form).clone()
     });
-    let lines = if which == Field::Description { 4 } else { 1 };
-    let mut parts = vec![
-        field(value)
-            .placeholder(name_of)
-            .lines(lines)
-            .on_commit(move |world, typed| {
-                edit(world, |form| *which.of(form) = typed)
-            })
-            .boxed(),
-    ];
-    if !hint.is_empty() {
-        parts.push(description(hint).boxed());
-    }
-    part(
-        &name_of.to_uppercase(),
-        column(parts).space(Space::None).boxed(),
+    let lines_of = if which == Field::Description { 4 } else { 1 };
+    let typed = field(value)
+        .placeholder(which.placeholder())
+        .lines(lines_of)
+        .on_commit(move |world, typed| {
+            edit(world, |form| *which.of(form) = typed)
+        })
+        .boxed();
+    let hint = hint.into();
+    setting(
+        name_of,
+        typed,
+        (!hint.is_empty()).then_some(hint.as_str()),
     )
 }
 
-/// A button of a row of choices, lit when it is the one chosen.
+/// The settings of a part of the form, as Settings lays a page's.
+fn fields(parts: Vec<AnyView>) -> AnyView {
+    column(parts).boxed()
+}
+
+/// A part of the form under its head, as Settings heads the parts of
+/// a page: its icon and its name, over `settings`.
+fn part_of(
+    which: &str,
+    title: &str,
+    settings: Vec<AnyView>,
+) -> AnyView {
+    let mut all = vec![part(which, title)];
+    all.extend(settings);
+    column(all).boxed()
+}
+
+/// A button of a row of choices, lit when it is the one chosen, as
+/// Welcome offers who gives the model.
 fn chip(
     text: &str,
     on: bool,
@@ -525,36 +573,130 @@ fn chip(
         .style(if on {
             ButtonStyle::Primary
         } else {
-            ButtonStyle::Quiet
+            ButtonStyle::Plain
         })
         .on_click(then)
         .boxed()
 }
 
-/// The form to put up or change a listing.
-fn form() -> AnyView {
-    let head = keyed(
-        resource::<Desk, _>(|desk| {
-            (desk.form.id.is_some(), desk.form.kind)
-        }),
-        |(editing, kind)| {
-            let words = match (editing, kind) {
-                (true, _) => "CHANGE A LISTING",
-                (false, Kind::Agent) => "SELL AN AGENT",
-                (false, Kind::Hamlet) => "SELL A HAMLET",
-                (false, Kind::Plugin) => "SELL TOOLS",
-            };
-            row((
-                icon_button("back", "BACK")
-                    .style(ButtonStyle::Quiet)
-                    .on_click(close),
-                name(words),
-            ))
-            .space(Space::Half)
-            .boxed()
-        },
-    );
-    let kinds = keyed(
+/// The way back to the stall `back` from the desk's page `here`.
+fn crumb(back: &'static str, here: &str) -> AnyView {
+    breadcrumb(
+        vec![back.to_string()],
+        here.to_string(),
+        |world, _| close(world),
+    )
+}
+
+/// A page of the desk: the way back, then `body` in a scroll.
+fn desk_page(
+    back: &'static str,
+    here: &str,
+    body: AnyView,
+) -> AnyView {
+    column((
+        crumb(back, here),
+        // Room inside the scroll, as a wrapped paragraph can be laid
+        // a little wider than the scroll is.
+        scroll((column((body,)).padding(Space::Half),)),
+    ))
+    .boxed()
+}
+
+/// The form to put up or change a listing, as Settings lays out a
+/// page: its head, its parts each under a section name, and the
+/// buttons that send it at its end.
+fn form(back: &'static str) -> AnyView {
+    let now = derived(|world: &World| {
+        let form = &world.resource::<Desk>().form;
+        let changed = form.id.as_ref().map(|id| {
+            world
+                .resource::<Market>()
+                .lot(id)
+                .map_or(String::new(), |lot| lot.title.clone())
+        });
+        (changed, form.kind)
+    })
+    .when(either(moved::<Desk>(), moved::<Market>()));
+    keyed(now, move |(changed, kind)| {
+        let editing = changed.is_some();
+        let (here, head, about) = match (changed, kind) {
+            (Some(title), _) => (
+                "CHANGE",
+                format!("Change {title}"),
+                "Change how it is listed, or upload a new version \
+                 of it.",
+            ),
+            (None, kind) => {
+                let head = match kind {
+                    Kind::Agent => "Sell an agent",
+                    Kind::Hamlet => "Sell a hamlet",
+                    Kind::Plugin => "Sell tools",
+                };
+                (
+                    "SELL",
+                    head.to_string(),
+                    "Put up what you made, for other chiefs to buy \
+                     at the bazaar.",
+                )
+            }
+        };
+        let mut parts = vec![
+            page_head(
+                &head,
+                description(about).boxed(),
+                String::new(),
+                None,
+            ),
+            part_of("tray", "WHAT YOU SELL", vec![kinds(), sold()]),
+            part_of(
+                "pencil",
+                "HOW IT IS LISTED",
+                vec![
+                    line(
+                        "Title",
+                        Field::Title,
+                        "At most 60 letters.",
+                    ),
+                    line(
+                        "Summary",
+                        Field::Summary,
+                        "One line of at most 140 letters, on its \
+                         row.",
+                    ),
+                    line(
+                        "Description",
+                        Field::Description,
+                        "On its page, under the summary.",
+                    ),
+                    category(),
+                    line(
+                        "Tags",
+                        Field::Tags,
+                        "Separated by commas, at most 8.",
+                    ),
+                ],
+            ),
+            part_of("page", "COVER", vec![cover()]),
+            part_of("coins", "PRICE", vec![price()]),
+        ];
+        if editing {
+            parts.push(part_of(
+                "book",
+                "ON THE SHELVES",
+                vec![shelves()],
+            ));
+        }
+        parts.push(footer());
+        parts.push(trade::account("to put it up."));
+        desk_page(back, here, sections(parts))
+    })
+    .boxed()
+}
+
+/// The kind of listing put up, while it is a new one.
+fn kinds() -> AnyView {
+    keyed(
         resource::<Desk, _>(|desk| {
             (desk.form.kind, desk.form.id.is_some())
         }),
@@ -566,8 +708,9 @@ fn form() -> AnyView {
                 .into_iter()
                 .map(|kind| {
                     let words = match kind {
+                        Kind::Agent => "An agent",
+                        Kind::Hamlet => "A hamlet",
                         Kind::Plugin => "Tools",
-                        kind => kind.name(),
                     };
                     chip(words, *chosen == kind, move |world| {
                         if kind == Kind::Plugin {
@@ -582,38 +725,9 @@ fn form() -> AnyView {
                     })
                 })
                 .collect::<Vec<_>>();
-            part("WHAT YOU SELL", row(all).space(Space::Half).boxed())
+            setting("Kind", row(all).space(Space::Half).boxed(), None)
         },
-    );
-    scroll((column((
-        head,
-        kinds,
-        sold(),
-        line(
-            "Title",
-            Field::Title,
-            "What it is called, at most 60 letters.",
-        ),
-        line(
-            "Summary",
-            Field::Summary,
-            "What it does, in a line of at most 140 letters.",
-        ),
-        line(
-            "Description",
-            Field::Description,
-            "All a buyer should know.",
-        ),
-        category(),
-        line(
-            "Tags",
-            Field::Tags,
-            "Words it is found by, separated by commas.",
-        ),
-        cover(),
-        price(),
-        send_box(),
-    )),))
+    )
     .boxed()
 }
 
@@ -668,31 +782,33 @@ fn sold() -> AnyView {
             );
         }
         if !now.upload {
-            return column(parts).space(Space::Half).boxed();
+            return fields(parts);
         }
         if now.names.is_empty() {
-            let words = match (now.kind, &now.problem) {
-                (_, Some(why)) => {
-                    format!("The tools could not be had: {why}")
-                }
+            parts.push(match (now.kind, &now.problem) {
+                (_, Some(why)) => problem(format!(
+                    "The tools could not be had: {why}"
+                )),
                 (Kind::Agent, _) => {
-                    "The realm has no agents to sell.".into()
+                    description("The realm has no agents to sell.")
+                        .boxed()
                 }
                 (Kind::Hamlet, _) => {
-                    "The realm has no hamlets to sell.".into()
+                    description("The realm has no hamlets to sell.")
+                        .boxed()
                 }
-                (Kind::Plugin, _) => "No agent has a tool of its \
-                                      own to sell: a folder with a \
-                                      manifest.json in the tools of \
-                                      its house."
-                    .into(),
-            };
-            parts.push(description(words).boxed());
-            return column(parts).space(Space::Half).boxed();
+                (Kind::Plugin, _) => description(
+                    "No agent has a tool of its own to sell: a \
+                     folder with a manifest.json in the tools of \
+                     its house.",
+                )
+                .boxed(),
+            });
+            return fields(parts);
         }
         match now.kind {
             Kind::Plugin => {
-                let all = now
+                let tools = now
                     .names
                     .iter()
                     .enumerate()
@@ -711,17 +827,18 @@ fn sold() -> AnyView {
                             .boxed()
                     })
                     .collect::<Vec<_>>();
-                parts.push(part(
-                    "ITS TOOLS",
-                    column(all).space(Space::Half).boxed(),
+                parts.push(setting(
+                    "The tools",
+                    column(tools).space(Space::Half).boxed(),
+                    None,
                 ));
             }
             kind => {
                 let at = now.chosen.first().copied().unwrap_or(0);
-                parts.push(part(
+                parts.push(setting(
                     match kind {
-                        Kind::Agent => "THE AGENT",
-                        _ => "THE HAMLET",
+                        Kind::Agent => "The agent",
+                        _ => "The hamlet",
                     },
                     dropdown(now.names.clone(), at as u32)
                         .on_pick(|world, at| {
@@ -730,28 +847,34 @@ fn sold() -> AnyView {
                             })
                         })
                         .boxed(),
+                    None,
                 ));
-                parts.push(
-                    column((
-                        switch("Include notes", now.notes).on_toggle(
-                            |world, on| {
-                                edit(world, |form| form.notes = on)
-                            },
-                        ),
-                        description(
-                            "Notes are what an agent remembers. \
-                             Read them before you sell: anything \
-                             private in them goes to every buyer.",
-                        ),
-                    ))
-                    .space(Space::None)
-                    .boxed(),
-                );
+                parts.push(setting(
+                    "Its notes",
+                    switch("Include its notes", now.notes)
+                        .on_toggle(|world, on| {
+                            edit(world, |form| form.notes = on)
+                        })
+                        .boxed(),
+                    Some(
+                        "Notes are what an agent remembers. Read \
+                         them before you sell: anything private in \
+                         them goes to every buyer.",
+                    ),
+                ));
             }
         }
-        parts.push(line("Version", Field::Version, "Such as 1.0.0."));
-        parts.push(line("What changed", Field::Changes, ""));
-        column(parts).space(Space::Half).boxed()
+        parts.push(line(
+            "Version",
+            Field::Version,
+            "Three numbers, higher than the last.",
+        ));
+        parts.push(line(
+            "What changed",
+            Field::Changes,
+            "Said beside the version on its page.",
+        ));
+        fields(parts)
     })
     .boxed()
 }
@@ -772,11 +895,12 @@ enum Covering {
 fn cover() -> AnyView {
     let address = field(resource::<Pick, _>(|pick| pick.url.clone()))
         .placeholder("Address of a picture")
-        .on_commit(pick);
+        .on_commit(pick)
+        .boxed();
     let hint = format!(
         "A PNG, JPEG or WebP of at most {} KB and {MOST_SIDE} \
          pixels a side, at an address on {PICTURE_HOST} or the \
-         bazaar's server. 640 by 360 pixels shows best. A plugin \
+         bazaar's server; 640 by 360 pixels shows best. A plugin \
          cannot read your files, so there is none to choose: give \
          the address of the picture.",
         MOST_BYTES / 1024
@@ -805,7 +929,9 @@ fn cover() -> AnyView {
         Covering::None => column(()).boxed(),
         Covering::Kept => column((
             chosen(),
-            note("Its cover now. Give an address to change it."),
+            description(
+                "Its cover now. Give an address to change it.",
+            ),
         ))
         .space(Space::Half)
         .boxed(),
@@ -813,25 +939,23 @@ fn cover() -> AnyView {
         Covering::Got(size) => column((
             chosen(),
             row((
-                note(size.clone()),
-                icon_button("cross", "CLEAR")
+                column((description(size.clone()),)).grow(1.0),
+                button("CLEAR")
                     .style(ButtonStyle::Quiet)
                     .on_click(|world| pick(world, String::new())),
             ))
-            .space(Space::Half),
+            .space(Space::Gap),
         ))
         .space(Space::Half)
         .boxed(),
-        Covering::Failed(why) => {
-            label(why.clone()).tone(Tone::Critical).boxed()
-        }
+        Covering::Failed(why) => problem(format!(
+            "{why} Give the address of another picture."
+        )),
     });
-    part(
-        "COVER",
-        column((address, description(hint), state))
-            .space(Space::Half)
-            .boxed(),
-    )
+    fields(vec![
+        setting("Picture", address, Some(hint.as_str())),
+        state.boxed(),
+    ])
 }
 
 /// The choice of the shelf it sits on, or the kind of hamlet it is.
@@ -848,25 +972,30 @@ fn category() -> AnyView {
                     return line(
                         "Kind of hamlet",
                         Field::Category,
-                        "Such as Publishing house, in a few words.",
+                        "In a few words, at most 32 letters.",
                     );
                 }
             };
-            let all = names
-                .into_iter()
-                .map(|name| {
-                    chip(
-                        name,
-                        chosen.eq_ignore_ascii_case(name),
-                        move |world| {
-                            edit(world, |form| {
-                                form.category = name.into()
-                            })
-                        },
-                    )
-                })
-                .collect::<Vec<_>>();
-            part("CATEGORY", row(all).space(Space::Half).boxed())
+            let at = names
+                .iter()
+                .position(|name| chosen.eq_ignore_ascii_case(name))
+                .unwrap_or(0);
+            let pick = dropdown(
+                names
+                    .iter()
+                    .map(|name| name.to_string())
+                    .collect::<Vec<_>>(),
+                at as u32,
+            )
+            .on_pick(move |world, at| {
+                let name = names[at as usize];
+                edit(world, |form| form.category = name.into())
+            });
+            setting(
+                "Category",
+                pick.boxed(),
+                Some("The shelf it is found on."),
+            )
         },
     )
     .boxed()
@@ -883,9 +1012,14 @@ fn price() -> AnyView {
     .when(either(moved::<Desk>(), moved::<Market>()));
     let state =
         keyed(now, |(cents, payouts)| payout_words(cents, *payouts));
-    column((line("Price in dollars", Field::Price, ""), state))
-        .space(Space::None)
-        .boxed()
+    fields(vec![
+        line(
+            "Price in dollars",
+            Field::Price,
+            "Leave it empty, or 0, to give it for free.",
+        ),
+        state.boxed(),
+    ])
 }
 
 fn payout_words(
@@ -893,12 +1027,8 @@ fn payout_words(
     payouts: Option<Payouts>,
 ) -> AnyView {
     let words = match cents {
-        Err(why) => {
-            return label(why.clone()).tone(Tone::Critical).boxed();
-        }
-        Ok(0) => {
-            return description("Free. Leave it empty or 0.").boxed();
-        }
+        Err(why) => return problem(why.clone()),
+        Ok(0) => return column(()).boxed(),
         Ok(cents) => format!(
             "You receive {} of each sale, {SELLERS_SHARE}%.",
             price_words(cents * SELLERS_SHARE / 100)
@@ -908,23 +1038,21 @@ fn payout_words(
     if !payouts.is_some_and(|payouts| payouts.enabled) {
         let started =
             payouts.is_some_and(|payouts| payouts.connected);
-        parts.push(
-            label(match started {
-                true => {
-                    "Stripe has not finished checking your account \
-                     yet."
-                }
-                false => "To be paid, set up payouts with Stripe.",
-            })
-            .tone(Tone::Critical)
-            .boxed(),
-        );
+        parts.push(problem(match started {
+            true => {
+                "Stripe has not finished checking your account yet. \
+                 Check again once it has."
+            }
+            false => {
+                "To be paid, set up payouts with Stripe, or make it \
+                 free."
+            }
+        }));
         parts.push(
             row((
                 icon_button("coins", "SET UP PAYOUTS")
-                    .style(ButtonStyle::Primary)
                     .on_click(set_up_payouts),
-                icon_button("restore", "CHECK AGAIN")
+                button("CHECK AGAIN")
                     .style(ButtonStyle::Quiet)
                     .on_click(ask_account),
             ))
@@ -935,8 +1063,54 @@ fn payout_words(
     column(parts).space(Space::Half).boxed()
 }
 
-/// The buttons that send the form, and how sending goes.
-fn send_box() -> AnyView {
+/// How the listing changed stands on the shelves, and the way to take
+/// it off them.
+fn shelves() -> AnyView {
+    let now = derived(|world: &World| {
+        let id = world.resource::<Desk>().form.id.clone()?;
+        let lot = world.resource::<Market>().lot(&id)?;
+        Some((id, lot.status, status_words(lot)))
+    })
+    .when(either(moved::<Desk>(), moved::<Market>()));
+    keyed(now, |now| {
+        let Some((id, status, words)) = now.clone() else {
+            return column(()).boxed();
+        };
+        let mut parts = vec![description(words).boxed()];
+        if status == Status::Listed {
+            parts.push(
+                row((icon_button(
+                    "cross",
+                    "TAKE IT OFF THE SHELVES",
+                )
+                .on_click(move |world| {
+                    market::shelve(world, &id, false)
+                }),))
+                .boxed(),
+            );
+        }
+        column(parts).space(Space::Half).boxed()
+    })
+    .boxed()
+}
+
+/// Where `lot` the chief sells stands, in a few words.
+fn status_words(lot: &Lot) -> String {
+    let version = match lot.version() {
+        "" => "no version yet".to_string(),
+        version => format!("version {version}"),
+    };
+    format!(
+        "{}, {version}, {} own it.",
+        lot.status.words(),
+        lot.owners
+    )
+}
+
+/// The end of the form, as Settings has its footer: what sending does
+/// over the buttons that send it, then how sending goes and what came
+/// of it.
+fn footer() -> AnyView {
     let now = derived(|world: &World| {
         let desk = world.resource::<Desk>();
         let step = world
@@ -947,7 +1121,7 @@ fn send_box() -> AnyView {
         (desk.form.problem.clone(), step, desk.form.id.is_some())
     })
     .when(either(moved::<Desk>(), moved::<Selling>()));
-    keyed(now, |(problem, step, editing)| {
+    keyed(now, |(problem_now, step, editing)| {
         let going = match step {
             Some(Step::Packing) => Some("Packing it...".to_string()),
             Some(Step::Saving) => {
@@ -967,26 +1141,48 @@ fn send_box() -> AnyView {
             }
             _ => None,
         };
-        let mut parts = vec![match going {
-            Some(going) => description(going).boxed(),
-            None => row((
-                icon_button("coins", "PUT UP FOR SALE")
-                    .style(ButtonStyle::Primary)
-                    .on_click(|world| send(world, true)),
-                icon_button(
-                    "page",
-                    if *editing { "SAVE" } else { "SAVE AS DRAFT" },
-                )
-                .on_click(|world| send(world, false)),
-            ))
-            .space(Space::Half)
-            .boxed(),
-        }];
-        if let Some(why) = problem {
-            parts.push(
-                label(why.clone()).tone(Tone::Critical).boxed(),
+        let mut buttons = Vec::new();
+        let mut parts = Vec::new();
+        match going {
+            Some(going) => parts.push(description(going).boxed()),
+            None => {
+                parts.push(
+                    description(
+                        "A draft is kept at the bazaar, off the \
+                         shelves, until you list it.",
+                    )
+                    .boxed(),
+                );
+                buttons.push(
+                    icon_button("coins", "PUT UP FOR SALE")
+                        .on_click(|world| send(world, true))
+                        .boxed(),
+                );
+                buttons.push(
+                    icon_button(
+                        "page",
+                        if *editing {
+                            "SAVE THE CHANGES"
+                        } else {
+                            "SAVE AS A DRAFT"
+                        },
+                    )
+                    .on_click(|world| send(world, false))
+                    .boxed(),
+                );
+            }
+        }
+        if let Some(Step::Done(..)) = step {
+            buttons.push(
+                icon_button("book", "YOURS")
+                    .on_click(open_yours)
+                    .boxed(),
             );
         }
+        if !buttons.is_empty() {
+            parts.push(row(buttons).space(Space::Half).boxed());
+        }
+        parts.extend(problem_now.clone().map(problem));
         match step {
             Some(Step::Done(title, status)) => {
                 let words = match status {
@@ -998,19 +1194,11 @@ fn send_box() -> AnyView {
                          yet."
                     ),
                 };
-                parts.push(
-                    row((
-                        label(words).tone(Tone::Accent),
-                        icon_button("book", "SEE YOURS")
-                            .on_click(open_yours),
-                    ))
-                    .space(Space::Half)
-                    .boxed(),
-                );
+                parts.push(outcome(words, false));
             }
-            Some(Step::Failed(why)) => parts.push(
-                label(why.clone()).tone(Tone::Critical).boxed(),
-            ),
+            Some(Step::Failed(why)) => {
+                parts.push(problem(why.clone()))
+            }
             _ => {}
         }
         column(parts).space(Space::Half).boxed()
@@ -1018,119 +1206,108 @@ fn send_box() -> AnyView {
     .boxed()
 }
 
-/// What the chief sells and has bought.
-fn yours() -> AnyView {
+/// What the chief sells and has bought, as the Inspector lists its
+/// hamlets: a row each, which opens it.
+fn yours(back: &'static str) -> AnyView {
     let now = derived(|world: &World| {
         let market = world.resource::<Market>();
+        let bought = market
+            .library
+            .iter()
+            .map(|lot| (lot.clone(), kept_words(market, lot)))
+            .collect::<Vec<_>>();
         (
             market.mine.clone(),
-            market.library.clone(),
-            market.user().is_some(),
+            bought,
+            market.user().map(|user| user.login.clone()),
         )
     })
     .when(moved::<Market>());
-    let body = keyed(now, |(mine, bought, signed)| {
-        if !*signed {
-            return description(
-                "Sign in with GitHub to see what you sell and own.",
-            )
-            .boxed();
+    let body = keyed(now, |(mine, bought, login)| {
+        let about = match login {
+            Some(login) => {
+                format!("What @{login} sells and has bought.")
+            }
+            None => "What you sell and have bought, once you sign \
+                     in."
+            .into(),
+        };
+        let mut parts = vec![page_head(
+            "Yours",
+            description(about).boxed(),
+            String::new(),
+            None,
+        )];
+        if login.is_some() {
+            let selling = match mine.is_empty() {
+                true => description(
+                    "You sell nothing yet. SELL AN AGENT, SELL A \
+                     HAMLET or SELL TOOLS puts up what you made.",
+                )
+                .boxed(),
+                false => {
+                    link_rows(mine.iter().map(sold_row).collect())
+                }
+            };
+            let owned = match bought.is_empty() {
+                true => description("You have bought nothing yet.")
+                    .boxed(),
+                false => link_rows(
+                    bought
+                        .iter()
+                        .map(|(lot, kept)| bought_row(lot, kept))
+                        .collect(),
+                ),
+            };
+            parts.push(section("FOR SALE BY YOU", selling));
+            parts.push(section("BOUGHT BY YOU", owned));
         }
-        let mut selling =
-            mine.iter().map(sold_row).collect::<Vec<_>>();
-        if selling.is_empty() {
-            selling
-                .push(description("You sell nothing yet.").boxed());
-        }
-        let mut owned =
-            bought.iter().map(bought_row).collect::<Vec<_>>();
-        if owned.is_empty() {
-            owned.push(
-                description("You have bought nothing yet.").boxed(),
-            );
-        }
-        column((
-            part("FOR SALE BY YOU", column(selling).boxed()),
-            part("BOUGHT", column(owned).boxed()),
-        ))
-        .boxed()
+        parts.push(trade::account("to see what you sell and own."));
+        sections(parts)
     });
-    column((
-        row((
-            icon_button("back", "BACK")
-                .style(ButtonStyle::Quiet)
-                .on_click(close),
-            name("YOURS"),
-        ))
-        .space(Space::Half),
-        scroll((body,)),
-    ))
-    .boxed()
+    desk_page(back, "YOURS", body.boxed())
 }
 
-/// The name of `lot` and what it is.
-fn named(lot: &Lot) -> AnyView {
-    row((label(lot.title.clone()).bold(true), note(lot.kind.name())))
-        .space(Space::Half)
-        .boxed()
+/// How the bought `lot` stands in the home, in a few words, if it is
+/// installed.
+fn kept_words(market: &Market, lot: &Lot) -> Option<String> {
+    let kept = market.bought.get(&lot.id)?;
+    let latest = lot.version();
+    Some(match semver(latest) > semver(&kept.version) {
+        true => format!("Version {latest} is out"),
+        false => format!("Installed, version {}", kept.version),
+    })
 }
 
-/// One listing the chief bought, with the box it is installed from.
-fn bought_row(lot: &Lot) -> AnyView {
-    let deal = trade::deal(
-        lot.kind,
-        lot.id.clone(),
-        lot.price_cents,
-        lot.seller.shown().to_string(),
-    );
-    column((named(lot), deal)).space(Space::Half).boxed()
+/// One listing the chief bought, which opens its page, where it is
+/// installed; `kept` says how it stands in the home.
+fn bought_row(lot: &Lot, kept: &Option<String>) -> AnyView {
+    let opened = lot.clone();
+    Line {
+        name: lot.title.clone(),
+        price: String::new(),
+        purpose: lot.summary.clone(),
+        meta: format!(
+            "{}, by {}",
+            lot.kind.name(),
+            lot.seller.shown()
+        ),
+        mark: kept.as_deref().map(accent),
+    }
+    .view(move |world| open_lot(world, &opened))
 }
 
-/// One listing the chief sells, with the ways to change it.
+/// One listing the chief sells, which opens it to be changed.
 fn sold_row(lot: &Lot) -> AnyView {
     let id = lot.id.clone();
-    let mut acts = vec![{
-        let id = id.clone();
-        icon_button("pencil", "EDIT")
-            .on_click(move |world| open_edit(world, &id))
-            .boxed()
-    }];
-    match lot.status {
-        Status::Listed => acts.push(
-            icon_button("cross", "UNLIST")
-                .style(ButtonStyle::Quiet)
-                .on_click(move |world| {
-                    market::shelve(world, &id, false)
-                })
-                .boxed(),
-        ),
-        Status::Draft | Status::Unlisted => acts.push(
-            icon_button("coins", "LIST")
-                .style(ButtonStyle::Primary)
-                .on_click(move |world| {
-                    market::shelve(world, &id, true)
-                })
-                .boxed(),
-        ),
-        Status::Removed => {}
+    Line {
+        name: lot.title.clone(),
+        price: price_of(lot.price_cents),
+        purpose: lot.summary.clone(),
+        meta: status_words(lot),
+        mark: None,
     }
-    let version = match lot.version() {
-        "" => "no version yet".to_string(),
-        version => format!("version {version}"),
-    };
-    column((
-        named(lot),
-        note(format!(
-            "{}, {}, {}, {} own it",
-            lot.status.words(),
-            price_words(lot.price_cents),
-            version,
-            lot.owners
-        )),
-        row(acts).space(Space::Half),
-    ))
-    .space(Space::None)
-    .boxed()
+    .view(move |world| open_edit(world, &id))
 }
 
 #[cfg(test)]

@@ -1657,7 +1657,8 @@ shown is kept across a reload.
   a line, each an even share, a dim line of how many there are and
   how fresh, and the rows, 30 at a time with SHOW MORE, 120 at most.
   A stall that is asked for has LOOK AGAIN at its foot, with what it
-  does beside it, or why asking failed, in red. A row opens its
+  does beside it, or why asking failed, in red, and a stall may have
+  more under it, such as the sign-in. A row opens its
   listing on a page of its own under the breadcrumb back to the
   shelf. What each shelf is searched for and the page open are kept
   across a reload.
@@ -1705,11 +1706,27 @@ shown is kept across a reload.
   bazaar's server, hamlet-server (`hamlet-server/`, its routes in
   `hamlet-server/docs/api.md`): agents, an agent's tools (the
   server's `plugin` kind) and whole hamlets (`listings.rs`, drawn by
-  `view/wares.rs`). Over each, who is signed in, with SIGN IN WITH
-  GITHUB, or SELL, YOURS and SIGN OUT (`view/trade.rs`). The server's
-  listings, of every kind, are asked for the first time one of these
-  stalls is shown, 100 at a time; a listing's page asks for its
-  reviews and whether it is owned.
+  `view/wares.rs`), each laid out as the samples are. At the foot of
+  the shelf, under LOOK AGAIN, is SIGN IN with what it is for beside
+  it, as the Inspector has YOUR HEARTH, or SIGN OUT beside who is
+  signed in, and what came of the last thing asked of the server
+  over it; signed in, SELL AN AGENT (or A HAMLET, or TOOLS) and YOURS
+  are under the stall's head, as FOUND A HAMLET is under the
+  Inspector's (`view/trade.rs`). The server's listings, of every
+  kind, are asked for the first time one of these stalls is shown,
+  100 at a time; a listing's page asks for its reviews and whether it
+  is owned. A listing's row is a `Line` as a sample's is, its accent
+  line Installed, You own this or You sell this. Its page has its
+  head, its cover under it (a hamlet's town in its place), and the
+  way it is had (`deal`): its price while it is for sale, where it
+  goes, as the Inspector chooses an agent's model, and one button,
+  GET IT FOR FREE, BUY FOR and its price, INSTALL, UPDATE TO and its
+  newest version, CHANGE THIS LISTING, or SIGN IN while signed out;
+  while it goes, one dim line, with OPEN THE PAYMENT PAGE while it
+  waits for Stripe. Then ABOUT, what it holds (HOW IT WORKS of an
+  agent, WHAT IT ADDS and WHAT IT MAY DO of tools, COMES WITH of a
+  hamlet), DETAILS (its kind, skills, tags, version and what changed
+  in it, when it was updated) and WHAT OWNERS SAY.
 - **Covers** (`covers.rs`, drawn by `view/covers.rs`): a listing's
   cover is shown on its page, under its head, fetched from the server
   as the page opens, one at a time, 15 a minute at most, through the
@@ -1723,8 +1740,10 @@ shown is kept across a reload.
   so a call stays within `bytes_per_call`; one that waits for room is
   shown in the next.
 - **Samples.** Until the server's listings come, and where it cannot
-  be reached, these stalls show made-up listings (`samples/`) under
-  SAMPLES, which says why, with ASK THE BAZAAR AGAIN. Agents and
+  be reached, these stalls show made-up listings (`samples/`), a dim
+  line under the head saying they are samples, and at the foot where
+  the bazaar is asked, or why it could not be reached, in red, over
+  ASK AGAIN. Agents and
   plugins are narrowed by kind with a dropdown, with a page each of
   what it does, its price, who would be paid and what owners say;
   nothing there is had or paid. A sample hamlet is a template, a
@@ -1736,7 +1755,10 @@ shown is kept across a reload.
   roster has is marked This hamlet is yours, with GO TO THE
   HAMLET.
 - **A template's town** (`diorama.rs`, `view/diorama.rs`) is under
-  the head of its page, turning on its plinth: the realm's `diorama` is asked for it
+  the head of its page, a sample's or a hamlet's of the server, which
+  is grown from the listing's id with the agents its package names,
+  or the mayor alone where it names none; turning on its plinth: the
+  realm's `diorama` is asked for it
   a part at a time as the page is shown, and it is built in a scene of
   the bazaar's own, in the realm's looks and daylight, under a camera
   that frames the whole plinth in a view of the page's width, 240
@@ -1754,7 +1776,10 @@ shown is kept across a reload.
   later. Each is remembered by its ticket as the stalls' are.
 - **Signing in** (`market/account.rs`): the server begins GitHub's
   device flow, the bazaar opens GitHub's page and shows the code to
-  enter, and asks the server each interval GitHub gives (five seconds
+  enter on a page in place of the stall, as Welcome shows its
+  sign-in: what to do, the code in a heading, OPEN GITHUB and CANCEL,
+  and a dim line of how it goes. It asks the server each interval
+  GitHub gives (five seconds
   more when told to slow down) until it is approved, refused or runs
   out. The token is kept in the plugin's asset store, an asset of
   `bazaar.session` holding the server's address and the token, read
@@ -1764,7 +1789,8 @@ shown is kept across a reload.
   what they sell. A token the server refuses signs out.
 - **Buying** (`market/deal.rs`), one deal at a time, each step sent
   once the one before is answered: GET or BUY asks the server for the
-  purchase; a free one, or one owned already, is downloaded at once;
+  purchase (GET IT FOR FREE, or BUY FOR and its price); a free one, or
+  one owned already (INSTALL), is downloaded at once;
   a paid one opens Stripe's page in the browser and asks after the
   purchase every five seconds for half an hour. The package is
   streamed a part (`PACKAGE_PART`, 384 KB) at a time: each part is
@@ -1774,24 +1800,35 @@ shown is kept across a reload.
   answers `Done` for each part but the last, and settles the whole
   with the last: it founds a hamlet in the realm, moves an agent into
   the hamlet chosen, or puts tools in the house of the agent chosen;
-  GOES chooses where. The agents service's `Bought` says what was
-  written, at which version: such a listing is marked INSTALLED, and
-  UPDATE settles its newest version where the last went. A package is
-  at most the server's 10 MB.
+  Goes to chooses where. The agents service's `Bought` says what was
+  written, at which version: such a listing is marked Installed, and
+  UPDATE TO and its newest version settles that where the last went.
+  A package is at most the server's 10 MB.
 - **Selling** (`market/sell.rs`, the desk in `view/desk.rs`): SELL
-  opens the form in place of the stall, for an agent or a hamlet of
-  the roster, with its notes or not, or tools of the agents' houses
-  (`Tools`), with a title, summary, description, category (a hamlet's
-  kind in its seller's words), tags, price and version. The agents
+  AN AGENT opens the form in place of the stall, under the
+  breadcrumb back to it (a tab goes back too), for an agent or a
+  hamlet of the roster, with its notes or not, or tools of the agents'
+  houses (`Tools`), laid out as Settings lays out a page: its head,
+  then WHAT YOU SELL, HOW IT IS LISTED (a title, summary,
+  description, category, a hamlet's kind in its seller's words, and
+  tags), COVER and PRICE, each headed with its icon and its name as
+  Settings heads the parts of a page, each field a setting, its name
+  over it and what goes in it dim under it; and at
+  its end, as Settings' footer, what sending does over the buttons
+  that send it, and what to fix when the form cannot be sent. The agents
   service packs it (`Pack`) and holds it; the listing is put up (or
   changed); the package is streamed to the server a part at a time,
   each read from the service (`PackedPart`) and uploaded before the
   next is read, and the parts made a version; and PUT
-  UP FOR SALE puts it on the shelves, SAVE AS DRAFT does not. A price
-  needs payouts: SET UP PAYOUTS opens Stripe's page and CHECK AGAIN
-  asks the server how it stands. YOURS lists what the chief sells,
-  with EDIT, LIST and UNLIST, and what they bought, with the box it is
-  installed from. COVER takes the address of a picture, which a
+  UP FOR SALE puts it on the shelves, SAVE AS A DRAFT does not. A
+  price needs payouts: SET UP PAYOUTS opens Stripe's page and CHECK
+  AGAIN asks the server how it stands. A listing changed says how it
+  stands ON THE SHELVES, with TAKE IT OFF THE SHELVES while it is on
+  them. YOURS lists, as the Inspector lists its hamlets, a row each,
+  what the chief sells, each opening the form to change it, and what
+  they bought, marked Installed or with its newer version, each
+  opening its page, where it is installed. COVER takes
+  the address of a picture, which a
   plugin fetches as it cannot read files: on
   `raw.githubusercontent.com` or the bazaar's server, checked as a
   listing's cover is and shown as it will be, then uploaded after the
@@ -1804,10 +1841,11 @@ shown is kept across a reload.
 
 Its `steps.toml` answers OpenRouter with one model, opens it, and
 shows each stall offline: skills.sh asking, the samples on theirs,
-said to be samples, with the sign-in, and a hamlet's page saying the
-realm is not running; then the seller's desk, which says what its
-form lacks; then the bazaar's server answering with a listing whose
-cover is fetched and, not being a picture, not shown, and a cover
+said to be samples, and a hamlet's page saying the realm is not
+running; then the seller's desk, which says what its form lacks;
+then the bazaar's server answering with a listing, its shelf
+offering the sign-in, whose cover is fetched as its page opens and,
+not being a picture, not shown, and a cover
 chosen at the desk that is not one either. The parsing of
 OpenRouter's, skills.sh's and the bazaar's server's answers, the
 shelf, the paths of a skill's files, a deal's steps part by part, the

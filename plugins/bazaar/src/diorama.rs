@@ -1,7 +1,8 @@
 //! The town of a hamlet template on a plinth, turning at the top of
-//! its page: asked of the realm's `diorama` service a part at a time
-//! when the page is shown, built in a scene of the bazaar's own, and
-//! let go when the page closes.
+//! its page, a sample's or one sold at the bazaar's server: asked of
+//! the realm's `diorama` service a part at a time when the page is
+//! shown, built in a scene of the bazaar's own, and let go when the
+//! page closes.
 
 // Shared with the realm, which writes what is read here.
 #[path = "../../realm/src/diorama/wire.rs"]
@@ -21,6 +22,7 @@ use hamlet_engine_bevy::{
 };
 
 use crate::diorama::wire::{Ask, Part, Piece, Stage, Sun};
+use crate::listings::HamletWares;
 use crate::samples::hamlets::Template;
 use crate::shelf::Shelf;
 use crate::{Stall, StallShown};
@@ -46,6 +48,10 @@ const ASPECT: f32 = 2.6;
 /// Points about each round of the plinth that the camera keeps in
 /// view.
 const RIM: usize = 24;
+
+/// The most agents a town is asked for, its mayor aside: the most the
+/// realm builds one for.
+const MOST_AGENTS: u32 = 48;
 
 /// What is cleared behind the town: nothing, so the panel shows.
 const CLEAR: (f32, f32, f32, f32) = (0.0, 0.0, 0.0, 0.0);
@@ -110,18 +116,19 @@ impl Diorama {
 
 /// The diorama's methods on [`World`].
 pub(crate) trait DioramaWorldExt {
-    /// Asks the realm for the town of `template` unless it is the
-    /// one shown, letting go of any other.
-    fn show_town(&mut self, template: &Template);
+    /// Asks the realm for the town of the template `name`, a mayor
+    /// and `agents` more, unless it is the one shown, letting go of
+    /// any other. A sample is named by its template, a listing of the
+    /// server's by its id.
+    fn show_town(&mut self, name: &str, agents: u32);
 
     /// Takes away the town shown and everything of its scene.
     fn let_go(&mut self);
 }
 
 impl DioramaWorldExt for World {
-    fn show_town(&mut self, template: &Template) {
-        let (name, agents) =
-            (template.name, template.agents.len() as u32);
+    fn show_town(&mut self, name: &str, agents: u32) {
+        let agents = agents.min(MOST_AGENTS);
         if self
             .resource::<Diorama>()
             .shown
@@ -387,8 +394,13 @@ fn keep(world: &mut World) {
         return;
     };
     let open = world.resource::<StallShown>().0 == Stall::Hamlets
-        && world.resource::<Shelf<Template>>().open.as_deref()
-            == Some(template.as_str());
+        && (world.resource::<Shelf<Template>>().open.as_deref()
+            == Some(template.as_str())
+            || world
+                .resource::<Shelf<HamletWares>>()
+                .open
+                .as_deref()
+                == Some(template.as_str()));
     if !open {
         world.let_go();
     }

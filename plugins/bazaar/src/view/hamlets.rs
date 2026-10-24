@@ -19,7 +19,7 @@ use crate::view::parts::{
     sections, told, top,
 };
 use crate::view::shelf::{Shown, said};
-use crate::view::trade::samples_notice;
+use crate::view::trade::{samples_foot, samples_notice};
 use crate::view::words::grouped;
 
 impl Shown for Template {
@@ -30,6 +30,10 @@ impl Shown for Template {
 
     fn notice() -> AnyView {
         column((samples_notice(), full_notice())).boxed()
+    }
+
+    fn foot() -> AnyView {
+        samples_foot()
     }
 
     fn title(&self) -> String {
@@ -67,7 +71,14 @@ impl Shown for Template {
             self.agents.iter().map(|one| settler(one, false)),
         );
         sections(vec![
-            top(vec![head, diorama::view(self), founding(self)]),
+            top(vec![
+                head,
+                diorama::view(
+                    self.name.into(),
+                    self.agents.len() as u32,
+                ),
+                founding(self),
+            ]),
             section(
                 "WHAT IT IS FOR",
                 markdown(self.purpose, Tone::Body),

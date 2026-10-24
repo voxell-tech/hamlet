@@ -82,7 +82,11 @@ fn tabs() -> AnyView {
                         } else {
                             ButtonStyle::Quiet
                         })
-                        .on_click(move |world| world.show(stall))
+                        .on_click(move |world| {
+                            // A tab leaves the seller's desk too.
+                            world.resource_mut::<Desk>().page = None;
+                            world.show(stall);
+                        })
                         .boxed()
                 })
                 .collect::<Vec<_>>();
