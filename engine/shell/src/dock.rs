@@ -20,6 +20,7 @@ use hamlet_engine_core::tuning::{ENGINE, Tuning, TuningFile};
 use serde::Deserialize;
 
 use crate::icons::Glyph;
+use crate::notes::glowing;
 use crate::{AnyView, EngineTheme};
 
 /// The name of the engine's plugin list, which the plugins module
@@ -156,9 +157,10 @@ fn offer(
         return;
     };
     let content = panel.content;
+    let id = panel.id.as_str().to_string();
     let mut kind =
         DockWindowKind::new(panel.title.to_uppercase(), move || {
-            content(entity)
+            glowing(id.clone(), content(entity))
         });
     if let Some(PanelIcon(which)) = icon {
         kind = kind.icon(which.image(theme.space.icon));

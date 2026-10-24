@@ -17,7 +17,9 @@ use hamlet_engine_bevy::api::agents::{
 };
 use hamlet_engine_bevy::bevy_ecs::message::MessageCursor;
 use hamlet_engine_bevy::prelude::*;
-use hamlet_engine_bevy::ui::{AnyView, ViewExt, derived, keyed};
+use hamlet_engine_bevy::ui::{
+    AnyView, Note, ViewExt, derived, keyed, notify,
+};
 
 use crate::inspector::founding::FOUND;
 use crate::shared::{
@@ -144,7 +146,14 @@ fn inspector() -> AnyView {
 fn receive(
     world: &mut World,
     mut cursor: Local<MessageCursor<Heard>>,
+    mut shown: Local<Option<Page>>,
 ) {
+    // A page that changed lights the panel's top, whether or not
+    // the panel is the one in front.
+    let now = page(world);
+    if shown.replace(now.clone()) != Some(now) && shown.is_some() {
+        notify("inspector", Note::Updated);
+    }
     for told in world.heard(&mut cursor) {
         match &told {
             Heard::Reply(_, AgentsReply::Focus(_))

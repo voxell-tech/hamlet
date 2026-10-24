@@ -8,9 +8,9 @@ use hamlet_engine_bevy::api::agents::{
 use hamlet_engine_bevy::bevy_ecs::message::MessageCursor;
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::ui::{
-    AnyView, ButtonProps, ButtonStyle, Face, Fill, FrameProps, Size,
-    Space, Tone, UiExt, ViewExt, column, description, each, field,
-    icon_button, label, resource, row, set_section,
+    AnyView, ButtonProps, ButtonStyle, Face, Fill, FrameProps, Note,
+    Size, Space, Tone, UiExt, ViewExt, column, description, each,
+    field, icon_button, label, notify, resource, row, set_section,
 };
 use serde::{Deserialize, Serialize};
 
@@ -26,9 +26,7 @@ const PETITIONS: &str = "engine/petitions";
 const SECTION: &str = "petitions";
 
 pub(crate) fn plugin(app: &mut App) {
-    // What waited before a reload is not new.
     app.init_saved_resource::<Reason>()
-        .init_saved_resource::<Seen>()
         .add_panel_section(PETITIONS, SECTION, "Agents", section)
         .add_systems(Declare, start(&[AgentsRequest::Needs]))
         .add_systems(Update, receive);
@@ -37,10 +35,6 @@ pub(crate) fn plugin(app: &mut App) {
 /// The reason or reply the next answer carries.
 #[derive(Resource, Default, Serialize, Deserialize)]
 struct Reason(String);
-
-/// How many waited when the panel last looked.
-#[derive(Resource, Default, Serialize, Deserialize)]
-struct Seen(usize);
 
 /// Sends the chief's answer to `need`, with the reason typed.
 fn answer(world: &mut World, need: u64, choice: Choice) {
@@ -180,17 +174,17 @@ fn receive(
         if let Heard::Reply(_, AgentsReply::Needs(_))
         | Heard::Event(AgentsEvent::Needs(_)) = &told
         {
-            // Something new that waits brings the panel to the front,
-            // so it is not missed.
+            // The panel burns a lamp and its tab glows while
+            // something waits, without coming to the front.
             let now = world.resource::<Waits>().0.len();
             set_section(
                 SECTION,
                 u32::try_from(now).unwrap_or(u32::MAX),
             );
-            if now > world.resource::<Seen>().0 {
-                hamlet_engine_bevy::ui::open(PETITIONS);
-            }
-            world.resource_mut::<Seen>().0 = now;
+            notify(
+                PETITIONS,
+                if now > 0 { Note::Attention } else { Note::None },
+            );
         }
     }
 }

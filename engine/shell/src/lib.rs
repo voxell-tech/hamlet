@@ -13,6 +13,7 @@ pub mod icons;
 pub mod keymap;
 mod menu;
 pub mod message;
+mod notes;
 pub mod overlay;
 pub mod pointer;
 mod rank;
@@ -52,6 +53,8 @@ pub use crate::float::{
 };
 pub use crate::keymap::{Bindings, Keymap};
 use crate::menu::{MenuBar, OpenMenu};
+use crate::notes::Notes;
+pub use crate::notes::PanelNote;
 pub use crate::overlay::{Overlay, OverlayShown};
 pub use crate::pointer::{NodePointer, PointerMode, ResizeAxis};
 pub use crate::rank::StartRank;
@@ -90,6 +93,7 @@ pub fn plugin(app: &mut App) {
             overlay::plugin,
             float::plugin,
             backdrop::plugin,
+            notes::plugin,
             pointer::plugin,
             sounds::plugin,
             volumes::plugin,
@@ -163,6 +167,10 @@ pub trait ShellWorldExt {
     /// Shows the settings page `page` in Settings, and brings
     /// Settings to the front.
     fn open_settings_page(&mut self, page: Entity);
+
+    /// Tells the person `note` of the panel `id`, without bringing
+    /// it to the front.
+    fn note_panel(&mut self, id: &PanelId, note: PanelNote);
 }
 
 impl ShellWorldExt for World {
@@ -227,6 +235,10 @@ impl ShellWorldExt for World {
         if let Some(mut tree) = self.get_resource_mut::<DockTree>() {
             tree.open_panel(id.as_str());
         }
+    }
+
+    fn note_panel(&mut self, id: &PanelId, note: PanelNote) {
+        self.resource_mut::<Notes>().tell(id, note);
     }
 
     fn open_settings_page(&mut self, page: Entity) {

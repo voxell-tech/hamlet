@@ -35,7 +35,7 @@ use hamlet_engine_api::{DesktopRequest, encode};
 
 use crate::bindings::exports::hamlet::engine::ui_guest::Action;
 pub use crate::bindings::hamlet::engine::ui::{
-    Align, ButtonStyle, Direction, Face, Fill, NodePointer,
+    Align, ButtonStyle, Direction, Face, Fill, NodePointer, Note,
     PointerMode, Size, Space, StatusItem, Tone,
 };
 pub use crate::ui::elements::{
@@ -288,6 +288,13 @@ pub fn set_section(name: &str, holds: u32) {
 /// brings the panel of that id to the front, of any plugin.
 pub fn open(name: &str) {
     crate::bindings::hamlet::engine::ui::open(name);
+}
+
+/// Tells the person `note` of the plugin's panel `name`, or of the
+/// panel of a full id, `plugin.id/name`, without bringing it to the
+/// front.
+pub fn notify(name: &str, note: Note) {
+    crate::bindings::hamlet::engine::ui::notify(name, note);
 }
 
 /// A view of `build(&key)`, built again whenever the key changes to

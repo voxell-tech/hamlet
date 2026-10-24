@@ -351,6 +351,24 @@ interface ui {
     /// id to the front, of any plugin, if there is one.
     open: func(name: string);
 
+    /// What a panel tells the person without coming to the front.
+    enum note {
+        /// What it shows changed: a teal light crosses its top once,
+        /// and its tab flashes while it is behind another.
+        updated,
+        /// Something in it needs the person: a lamp stays lit over
+        /// it and a glowing badge sits on its tab while it is behind
+        /// another, until the plugin says `none`.
+        attention,
+        /// Nothing: puts out the lamp and the badge.
+        none,
+    }
+
+    /// Tells the person `note` of the plugin's panel `name`, or of
+    /// the panel of a full id, `plugin.id/name`, of any plugin. A
+    /// panel that is not there is left alone.
+    notify: func(name: string, note: note);
+
     /// Opens a menu of `items` at the pointer, over everything. The
     /// item chosen is a `chose` of `key`, by its place; the menu
     /// closed by a press elsewhere or Escape is a `closed` of `key`.

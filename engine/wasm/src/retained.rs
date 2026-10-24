@@ -73,9 +73,9 @@ use hamlet_engine_shell::style::{
 use hamlet_engine_shell::{
     AnyView, CardClosed, CardPlace, Cx, EngineTheme, FloatCard,
     FloatMenu, MenuClosed, MenuRow, NodePointer, Overlay,
-    OverlayShown, Panel, PanelSection, PointerMode, ResizeAxis,
-    SettingsPage, ShellWorldExt, StatusItem, StyleExt, View,
-    menu_rows, themed,
+    OverlayShown, Panel, PanelNote, PanelSection, PointerMode,
+    ResizeAxis, SettingsPage, ShellWorldExt, StatusItem, StyleExt,
+    View, menu_rows, themed,
 };
 
 use crate::WasmCommandsExt;
@@ -1879,6 +1879,30 @@ impl WasmWorldExt for World {
                         && section.holds != holds
                     {
                         section.holds = holds;
+                    }
+                }
+                SurfaceChange::Notify { name, note } => {
+                    let note = match note {
+                        wit::Note::Updated => PanelNote::Updated,
+                        wit::Note::Attention => PanelNote::Attention,
+                        wit::Note::None => PanelNote::None,
+                    };
+                    // A full id names a panel of any plugin.
+                    let id = PanelId::try_from(name.as_str())
+                        .ok()
+                        .or_else(|| {
+                            self.added_named::<Panel>(
+                                plugin,
+                                &name,
+                                |panel| &panel.id,
+                            )
+                            .and_then(|panel| {
+                                self.get::<Panel>(panel)
+                            })
+                            .map(|panel| panel.id.clone())
+                        });
+                    if let Some(id) = id {
+                        self.note_panel(&id, note);
                     }
                 }
                 SurfaceChange::Open(name) => {

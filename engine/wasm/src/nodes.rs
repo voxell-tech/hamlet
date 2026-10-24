@@ -13,7 +13,7 @@ use wasmtime::component::Resource;
 use crate::instance::State;
 use crate::instance::ui_bindings::hamlet::engine::ui::{
     CardLook as WitCardLook, CardPlace as WitCardPlace, Host,
-    HostNode, Kind, MenuItem, Motion, Property, StatusItem,
+    HostNode, Kind, MenuItem, Motion, Note, Property, StatusItem,
 };
 use crate::surfaces::SurfaceChange;
 
@@ -289,6 +289,16 @@ impl Host for State {
     fn open(&mut self, name: String) -> wasmtime::Result<()> {
         self.nodes.count();
         self.surfaces.push(SurfaceChange::Open(name));
+        Ok(())
+    }
+
+    fn notify(
+        &mut self,
+        name: String,
+        note: Note,
+    ) -> wasmtime::Result<()> {
+        self.nodes.count();
+        self.surfaces.push(SurfaceChange::Notify { name, note });
         Ok(())
     }
 

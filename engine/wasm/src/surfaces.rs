@@ -2,7 +2,7 @@
 //! as it changes it in a call: kept to be made once the call ends.
 
 use crate::instance::ui_bindings::hamlet::engine::ui::{
-    MenuItem, StatusItem,
+    MenuItem, Note, StatusItem,
 };
 
 /// A change to something a plugin added, named by its name within
@@ -18,6 +18,8 @@ pub enum SurfaceChange {
     /// Its panel or settings page brought to the front, or the panel
     /// of a full id, any plugin's.
     Open(String),
+    /// Its panel, or the panel of a full id, told `note`.
+    Notify { name: String, note: Note },
     /// A menu of `items` opened at the pointer, its choice told to
     /// `key`.
     Menu { key: u32, items: Vec<MenuItem> },
