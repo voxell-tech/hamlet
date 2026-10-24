@@ -8,7 +8,7 @@ use bevy::prelude::*;
 
 use super::land::Land;
 use super::noise::{key, unit};
-use crate::meshes::{Mb, Rng, smoothstep};
+use crate::meshes::{Meshing, Rng, smoothstep};
 use crate::palette::Palette;
 
 /// Tree meshes there are: broadleaves first, then conifers.
@@ -26,13 +26,13 @@ pub struct Tree {
 /// the origin.
 pub fn mesh(pal: &Palette, kind: usize) -> Mesh {
     let mut rng = Rng::seeded(&format!("tree kind {kind}"));
-    let mut mb = Mb::new();
+    let mut meshing = Meshing::new();
     let bark = pal.bark;
     if kind < BROADLEAVES {
         let height = rng.range(1.5, 2.0);
         let bend = Vec3::new(rng.sym(0.2), 0.0, rng.sym(0.2));
         let top = Vec3::Y * height + bend;
-        mb.tube(-Vec3::Y * 0.4, top, 0.2, 0.11, 7, bark, false);
+        meshing.tube(-Vec3::Y * 0.4, top, 0.2, 0.11, 7, bark, false);
         let (light, shade) = if kind == BROADLEAVES - 1 {
             (pal.autumn, pal.autumn_shade)
         } else {
@@ -53,7 +53,7 @@ pub fn mesh(pal: &Palette, kind: usize) -> Mesh {
                 );
             let r = rng.range(0.8, 1.02);
             let tint = rng.value(0.06);
-            mb.blob(
+            meshing.blob(
                 c,
                 Vec3::new(r, r * 0.86, r),
                 6,
@@ -68,7 +68,7 @@ pub fn mesh(pal: &Palette, kind: usize) -> Mesh {
     } else {
         let snowy = kind == KINDS - 1;
         let (dark, mid) = (pal.conifer, pal.foliage_shade);
-        mb.tube(
+        meshing.tube(
             -Vec3::Y * 0.4,
             Vec3::Y * 1.0,
             0.14,
@@ -84,7 +84,7 @@ pub fn mesh(pal: &Palette, kind: usize) -> Mesh {
             let r = 1.05 * (1.0 - k * 0.62) * rng.range(0.9, 1.1);
             let h = 1.45 - k * 0.3;
             let tip = if snowy { pal.conifer_snow } else { mid };
-            mb.lathe(
+            meshing.lathe(
                 Vec3::Y * base,
                 &[(r, 0.0), (r * 0.55, h * 0.45), (0.0, h)],
                 8,
@@ -95,7 +95,7 @@ pub fn mesh(pal: &Palette, kind: usize) -> Mesh {
             );
         }
     }
-    mb.build()
+    meshing.build()
 }
 
 /// The trees that stand between `lo` and `hi`, one in `every` of
@@ -127,7 +127,7 @@ pub fn trees(
                 continue;
             }
             if land.site_dist(p) < land.set.town.radius + 1.5
-                || land.holds(p, 1.5)
+                || land.is_held(p, 1.5)
             {
                 continue;
             }
@@ -194,7 +194,7 @@ pub(crate) fn canopy(
     trees: &[Tree],
     crowns: bool,
 ) -> Mesh {
-    let mut mb = Mb::new();
+    let mut meshing = Meshing::new();
     for tree in trees {
         let (light, shade) = leaves(pal, tree.kind);
         let s = tree.scale;
@@ -212,7 +212,8 @@ pub(crate) fn canopy(
                 }
                 (false, false) => (3.4, &[(1.5, 1.7)], 4),
             };
-        let top = mb.v(tree.at + Vec3::Y * tip * s, Vec3::Y, light);
+        let top =
+            meshing.v(tree.at + Vec3::Y * tip * s, Vec3::Y, light);
         let mut above = vec![top; sides];
         for (k, &(radius, height)) in rings.iter().enumerate() {
             let shown = (k + 1) as f32 / rings.len() as f32;
@@ -222,7 +223,7 @@ pub(crate) fn canopy(
                     let turn =
                         tree.yaw + i as f32 / sides as f32 * TAU;
                     let out = Vec3::new(turn.cos(), 0.0, turn.sin());
-                    mb.v(
+                    meshing.v(
                         tree.at
                             + (out * radius + Vec3::Y * height) * s,
                         (out + Vec3::Y * 0.35).normalize(),
@@ -233,15 +234,16 @@ pub(crate) fn canopy(
             for i in 0..sides {
                 let j = (i + 1) % sides;
                 if k == 0 {
-                    mb.tri(top, ring[j], ring[i]);
+                    meshing.tri(top, ring[j], ring[i]);
                 } else {
-                    mb.quad(above[i], above[j], ring[j], ring[i]);
+                    meshing
+                        .quad(above[i], above[j], ring[j], ring[i]);
                 }
             }
             above = ring;
         }
     }
-    mb.build()
+    meshing.build()
 }
 
 #[cfg(test)]

@@ -17,8 +17,10 @@ use bevy_fynix::tokens::{TextTokens, Tone};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, label, row,
 };
-use bevy_fynix::{EntityCursor, Signal, ViewExt, component, each};
-use hamlet_core::session::{Entry, Transcript, reply_in};
+use bevy_fynix::{
+    EntityCursor, Signal, ViewExt, component, derived, each, keyed,
+};
+use hamlet_client::chats::{Entry, Transcript};
 
 use super::parse::{parse, plain};
 use super::picture::picture_view;
@@ -32,23 +34,25 @@ use crate::select::Area;
 use crate::theme::Palette;
 use crate::{AnyView, Cx, View};
 
-fn words(world: &World, session: Entity, id: u64) -> Option<&str> {
-    match world.get::<Transcript>(session)?.get(id)? {
+fn words<'a>(
+    world: &'a World,
+    session: Entity,
+    id: &str,
+) -> Option<&'a str> {
+    match &world.get::<Transcript>(session)?.item(id)?.entry {
         Entry::Assistant(text) | Entry::Agent { text, .. } => {
             Some(text)
         }
-        // An agent's reply, carried back to whoever wrote it.
-        Entry::User { user, text } => reply_in(user, text),
         _ => None,
     }
 }
 
 /// True while the entry `id` is the last of its conversation and
 /// may have more words to come.
-fn growing(world: &World, session: Entity, id: u64) -> bool {
+fn is_growing(world: &World, session: Entity, id: &str) -> bool {
     world.get::<Transcript>(session).is_some_and(|transcript| {
-        transcript.answering()
-            && transcript.items().last().map(|item| item.id)
+        transcript.is_answering()
+            && transcript.items().last().map(|item| item.id.as_str())
                 == Some(id)
     })
 }
@@ -77,15 +81,19 @@ fn unsettle(blocks: &mut [Block]) {
 
 /// The blocks of an entry of a transcript, parsed again only when
 /// that entry's own text has changed or has stopped growing.
-pub(crate) fn entry(session: Entity, id: u64) -> Signal<Vec<Block>> {
+pub(crate) fn entry(
+    session: Entity,
+    id: String,
+) -> Signal<Vec<Block>> {
     let mut moved = component::<Transcript, _>(session, |_| ());
     let mut seen = None::<(String, bool)>;
+    let read_id = id.clone();
     Signal::new(
         move |world: &World| {
-            let mut blocks = words(world, session, id)
+            let mut blocks = words(world, session, &read_id)
                 .map(parse)
                 .unwrap_or_default();
-            if growing(world, session, id) {
+            if is_growing(world, session, &read_id) {
                 unsettle(&mut blocks);
             }
             blocks
@@ -94,8 +102,8 @@ pub(crate) fn entry(session: Entity, id: u64) -> Signal<Vec<Block>> {
             if !moved.changed(world) {
                 return false;
             }
-            let now = words(world, session, id);
-            let grows = growing(world, session, id);
+            let now = words(world, session, &id);
+            let grows = is_growing(world, session, &id);
             if seen
                 .as_ref()
                 .map(|(text, grew)| (text.as_str(), *grew))
@@ -164,79 +172,94 @@ fn anchored(
 /// line it runs over.
 pub(super) fn rich(spans: &[Span], ink: Ink) -> AnyView {
     let spans = spans.to_vec();
-    AnyView::new(move |cx: &mut Cx| {
-        let spans = anchored(cx.world, spans);
-        let theme = cx.theme();
-        let size = ink.size.unwrap_or(theme.text.body);
-        let root = cx.build(label("").size(size));
-        let mono =
-            cx.world.get_resource::<Mono>().map(|m| m.0.clone());
-        let display = cx
-            .world
-            .get_resource::<DisplayFace>()
-            .map(|d| d.0.clone());
-        for (span, anchor) in spans {
-            let Style {
-                bold,
-                italic,
-                code,
-                strike,
-            } = span.style;
-            let tone = match anchor {
-                Some(_) => Tone::Accent,
-                None => ink.tone,
-            };
-            let face = match (code, ink.face) {
-                (true, _) => mono.clone(),
-                (false, Face::Heading) => display.clone(),
-                _ => None,
-            };
-            let font = TextFont {
-                font: face.map(FontSource::from).unwrap_or_default(),
-                font_size: FontSize::Px(if code {
-                    size - 1.0
-                } else {
-                    size
-                }),
-                weight: if bold || ink.face != Face::Body {
-                    FontWeight::BOLD
-                } else {
-                    FontWeight::NORMAL
-                },
-                style: if italic {
-                    FontStyle::Italic
-                } else {
-                    FontStyle::Normal
-                },
-                ..TextFont::default()
-            };
-            let mut entity = cx.world.spawn((
-                TextSpan(span.text),
-                font,
-                TextColor(theme.tone(tone)),
-                ChildOf(root),
-            ));
-            if code {
-                entity.insert((
-                    MonoText,
-                    TextBackgroundColor(theme.palette.plate),
-                ));
-            } else if ink.face == Face::Heading {
-                entity.insert(DisplayText);
-            }
-            if let Some(anchor) = anchor {
-                entity.insert((
-                    anchor,
-                    Underline,
-                    EntityCursor(SystemCursorIcon::Pointer),
-                ));
-            }
-            if strike {
-                entity.insert(Strikethrough);
-            }
-        }
-        root
-    })
+    keyed(
+        derived(|world: &World| {
+            world.get_resource::<crate::links::Roots>().cloned()
+        })
+        .when(crate::roll::moved::<crate::links::Roots>()),
+        move |_| {
+            let spans = spans.clone();
+            AnyView::new(move |cx: &mut Cx| {
+                let spans = anchored(cx.world, spans);
+                let theme = cx.theme();
+                let size = ink.size.unwrap_or(theme.text.body);
+                let root = cx.build(label("").size(size));
+                let mono = cx
+                    .world
+                    .get_resource::<Mono>()
+                    .map(|m| m.0.clone());
+                let display = cx
+                    .world
+                    .get_resource::<DisplayFace>()
+                    .map(|d| d.0.clone());
+                for (span, anchor) in spans {
+                    let Style {
+                        bold,
+                        italic,
+                        code,
+                        strike,
+                    } = span.style;
+                    let tone = match anchor {
+                        Some(_) => Tone::Accent,
+                        None => ink.tone,
+                    };
+                    let face = match (code, ink.face) {
+                        (true, _) => mono.clone(),
+                        (false, Face::Heading) => display.clone(),
+                        _ => None,
+                    };
+                    let font = TextFont {
+                        font: face
+                            .map(FontSource::from)
+                            .unwrap_or_default(),
+                        font_size: FontSize::Px(if code {
+                            size - 1.0
+                        } else {
+                            size
+                        }),
+                        weight: if bold || ink.face != Face::Body {
+                            FontWeight::BOLD
+                        } else {
+                            FontWeight::NORMAL
+                        },
+                        style: if italic {
+                            FontStyle::Italic
+                        } else {
+                            FontStyle::Normal
+                        },
+                        ..TextFont::default()
+                    };
+                    let mut entity = cx.world.spawn((
+                        TextSpan(span.text),
+                        font,
+                        TextColor(theme.tone(tone)),
+                        ChildOf(root),
+                    ));
+                    if code {
+                        entity.insert((
+                            MonoText,
+                            TextBackgroundColor(theme.palette.plate),
+                        ));
+                    } else if ink.face == Face::Heading {
+                        entity.insert(DisplayText);
+                    }
+                    if let Some(anchor) = anchor {
+                        entity.insert((
+                            anchor,
+                            Underline,
+                            EntityCursor(SystemCursorIcon::Pointer),
+                        ));
+                    }
+                    if strike {
+                        entity.insert(Strikethrough);
+                    }
+                }
+                root
+            })
+        },
+    )
+    .within(bare())
+    .boxed()
 }
 
 fn code_view(cx: &Cx, lang: &str, text: &str) -> impl View {
@@ -518,15 +541,13 @@ mod tests {
     use bevy::ui::widget::Text;
     use bevy_fynix::{FynixPlugin, mount};
     use hamlet_assets::Tuning;
-    use hamlet_core::agent::Event as AgentEvent;
-    use hamlet_core::session::Reply;
-    use serde_json::json;
+    use hamlet_client::chats::Item;
 
-    use super::super::parse::tests::{plain, top};
     use super::*;
     use crate::chat;
     use crate::links::Roots;
     use crate::me::Me;
+    use crate::testing::{plain, top};
     use crate::theme::{self, HamletTheme};
 
     fn app() -> App {
@@ -541,26 +562,57 @@ mod tests {
     }
 
     /// A session where each of `replies` answers a message.
-    fn talk(app: &mut App, replies: &[&str]) -> (Entity, Vec<u64>) {
-        let log = replies
+    fn talk(
+        app: &mut App,
+        replies: &[&str],
+    ) -> (Entity, Vec<String>) {
+        let items = replies
             .iter()
-            .flat_map(|reply| {
+            .enumerate()
+            .flat_map(|(at, reply)| {
                 [
-                    json!({"type": "user", "user": "a", "content": "go"}),
-                    json!({"type": "assistant", "message": {"content": reply}}),
+                    Item {
+                        id: format!("{at}:user"),
+                        at: 0,
+                        entry: Entry::Chief {
+                            name: "a".into(),
+                            text: "go".into(),
+                        },
+                    },
+                    Item {
+                        id: format!("{at}:reply"),
+                        at: 0,
+                        entry: Entry::Assistant((*reply).into()),
+                    },
                 ]
             })
             .collect::<Vec<_>>();
-        let transcript = Transcript::from_log(&log);
-        let ids = transcript.ids();
-        (app.world_mut().spawn(transcript).id(), ids)
+        let ids = items.iter().map(|item| item.id.clone()).collect();
+        (
+            app.world_mut()
+                .spawn(
+                    Transcript::from_items(items)
+                        .with_answering(true),
+                )
+                .id(),
+            ids,
+        )
     }
 
     fn grow(app: &mut App, session: Entity, more: &str) {
-        app.world_mut()
-            .get_mut::<Transcript>(session)
-            .unwrap()
-            .apply(&Reply::Event(AgentEvent::Text(more.into())));
+        let transcript =
+            app.world().get::<Transcript>(session).unwrap();
+        let mut items = transcript.items().to_vec();
+        if let Some(Item {
+            entry: Entry::Assistant(text),
+            ..
+        }) = items.last_mut()
+        {
+            text.push_str(more);
+        }
+        app.world_mut().entity_mut(session).insert(
+            Transcript::from_items(items).with_answering(true),
+        );
     }
 
     /// Every text span in the world, with what it says.
@@ -592,7 +644,7 @@ mod tests {
         );
         mount::<HamletTheme>(
             app.world_mut(),
-            document(entry(session, ids[1]), Tone::Body),
+            document(entry(session, ids[1].clone()), Tone::Body),
         );
         app.update();
 
@@ -644,9 +696,8 @@ mod tests {
         .init_resource::<chat::Lines>()
         .init_resource::<chat::Reach>()
         .init_resource::<crate::select::Selecting>()
-        .add_systems(bevy::app::Update, chat::fold_lines);
+        .add_systems(bevy::app::PreUpdate, chat::fold_lines);
         mount::<HamletTheme>(app.world_mut(), chat::transcript());
-        app.update();
         app.update();
         let before = spans(&mut app);
         let last = span(&mut app, "Sec");
@@ -676,25 +727,13 @@ mod tests {
         std::fs::write(folder.join("plan.md"), "").unwrap();
         let mut app = app();
         app.insert_resource(Roots::new([folder.to_path_buf()]));
-        let (session, ids) = talk(&mut app, &[]);
-        assert!(ids.is_empty());
-        let mut transcript =
-            app.world_mut().get_mut::<Transcript>(session).unwrap();
-        for event in [
-            AgentEvent::Question {
-                from: "a".into(),
-                text: "go".into(),
-                at: 0,
-            },
-            AgentEvent::Text(
-                "Read plan.md and gone.md, then plan.md".into(),
-            ),
-        ] {
-            transcript.apply(&Reply::Event(event));
-        }
+        let (session, ids) = talk(
+            &mut app,
+            &["Read plan.md and gone.md, then plan.md"],
+        );
         mount::<HamletTheme>(
             app.world_mut(),
-            document(entry(session, 1), Tone::Body),
+            document(entry(session, ids[1].clone()), Tone::Body),
         );
         app.update();
         let said = |app: &mut App| {
@@ -718,10 +757,15 @@ mod tests {
             ]
         );
 
-        app.world_mut()
-            .get_mut::<Transcript>(session)
+        let items = app
+            .world()
+            .get::<Transcript>(session)
             .unwrap()
-            .apply(&Reply::Done(String::new()));
+            .items()
+            .to_vec();
+        app.world_mut()
+            .entity_mut(session)
+            .insert(Transcript::from_items(items));
         app.update();
         assert_eq!(
             said(&mut app),
@@ -738,8 +782,8 @@ mod tests {
     fn only_the_entry_that_changed_is_read_again() {
         let mut app = app();
         let (session, ids) = talk(&mut app, &["old", "new"]);
-        let mut old = entry(session, ids[1]);
-        let mut new = entry(session, ids[3]);
+        let mut old = entry(session, ids[1].clone());
+        let mut new = entry(session, ids[3].clone());
         assert!(old.changed(app.world()));
         assert!(new.changed(app.world()));
 
@@ -749,6 +793,79 @@ mod tests {
         assert_eq!(
             new.get(app.world()),
             [top(Kind::Paragraph(vec![plain("new words")]))]
+        );
+    }
+
+    #[test]
+    fn received_folders_and_absolute_local_files_link_but_house_paths_stay_text()
+     {
+        use hamlet_client::{ClientPlugin, receive};
+        use hamlet_protocol::client as protocol;
+        let scratch =
+            hamlet_testing::Scratch::new("client-markdown-links");
+        let first = scratch.join("first");
+        let second = scratch.join("second");
+        let house = scratch.join("house");
+        for folder in [&first, &second, &house] {
+            std::fs::create_dir_all(folder).unwrap();
+        }
+        for folder in [&first, &second] {
+            std::fs::write(folder.join("plan.md"), "").unwrap();
+        }
+        std::fs::write(house.join("NOTES.md"), "").unwrap();
+        std::fs::create_dir_all(house.join("skills")).unwrap();
+        let absolute = scratch.join("local.md");
+        std::fs::write(&absolute, "").unwrap();
+        let mut app = app();
+        app.add_plugins(ClientPlugin { server: None });
+        let mut state = hamlet_testing::realm::state();
+        state.hamlets[0].folder =
+            Some(first.to_string_lossy().into_owned());
+        receive(
+            app.world_mut(),
+            protocol::ServerMessage::State(state.clone()),
+        );
+        app.add_plugins((
+            crate::me::plugin,
+            crate::roll::plugin,
+            crate::links::plugin,
+        ));
+        app.update();
+        mount::<HamletTheme>(
+            app.world_mut(),
+            fixed(
+                &format!(
+                    "Read {} and plan.md, NOTES.md and skills/.",
+                    absolute.display()
+                ),
+                Tone::Body,
+            ),
+        );
+        app.update();
+        let anchors = |app: &mut App| {
+            app.world_mut()
+                .query::<&Anchor>()
+                .iter(app.world())
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        let found = anchors(&mut app);
+        assert!(found.contains(&Anchor::File(absolute)));
+        assert!(found.contains(&Anchor::File(first.join("plan.md"))));
+        assert_eq!(found.len(), 2);
+        state.hamlets[0].folder =
+            Some(second.to_string_lossy().into_owned());
+        receive(
+            app.world_mut(),
+            protocol::ServerMessage::State(state),
+        );
+        app.update();
+        let found = anchors(&mut app);
+        assert!(
+            found.contains(&Anchor::File(second.join("plan.md")))
+        );
+        assert!(
+            !found.contains(&Anchor::File(first.join("plan.md")))
         );
     }
 }

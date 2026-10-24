@@ -13,7 +13,7 @@ use bevy::shader::ShaderRef;
 use bevy::time::Time;
 use bevy::ui::ComputedNode;
 use bevy::ui_render::prelude::{MaterialNode, UiMaterial};
-use hamlet_core::oversight::Waiting;
+use hamlet_client::waits::Waiting;
 
 use super::{FeelSettings, MagicColors, ease, linear};
 use crate::me::Me;
@@ -95,7 +95,6 @@ pub(super) fn tint(
 /// Lights a panel's lamp while something waits, turns it up for a
 /// moment as something new comes, and flashes a panel when the agent
 /// it shows changes.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn light(
     time: Res<Time>,
     set: Res<FeelSettings>,
@@ -150,9 +149,9 @@ mod tests {
     use bevy_fynix::Theme;
     use hamlet_assets::Tuning;
 
-    use super::super::tests::step;
     use super::*;
     use crate::me::Me;
+    use crate::testing::step;
     use crate::theme::HamletTheme;
 
     /// A world with one panel of each kind, and their backdrops.
@@ -187,14 +186,15 @@ mod tests {
         app.world_mut()
             .spawn(Waiting {
                 id: String::new(),
-                kind: hamlet_core::oversight::Kind::Question,
                 by: String::new(),
                 about: String::new(),
-                since: std::time::Instant::now(),
-                order: 0,
+                subject: String::new(),
+                since: 0,
+                change: None,
                 asked: 1,
                 answers: Vec::new(),
-                session: None,
+                chat: None,
+                detail: hamlet_protocol::client::WaitDetail::Fault {},
             })
             .id()
     }
@@ -203,9 +203,7 @@ mod tests {
     fn a_lamp_is_lit_while_something_waits_and_rung_as_it_comes() {
         let mut app = App::new();
         let (needs, selection, plain) = panels(&mut app);
-        for _ in 0..3 {
-            step(&mut app);
-        }
+        step(&mut app);
         assert_eq!(lamp_and_flash(&app, needs).0, 0.0);
         // A panel no light falls into has nothing to draw.
         assert!(

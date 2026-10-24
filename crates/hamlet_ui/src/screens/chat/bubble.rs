@@ -16,7 +16,7 @@ use bevy_fynix::views::{
     label, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, component, keyed, resource};
-use hamlet_core::session::{Entry, Transcript, reply_in};
+use hamlet_client::chats::{Entry, Transcript};
 
 use super::entry::entry_view;
 use super::lines::{Lines, Row, fold_view};
@@ -161,7 +161,7 @@ enum Words {
 
 /// One message: a bubble at the right for the chief's own, and at
 /// the left by its speaker's picture for anyone else's.
-fn said(line: Line, session: Entity, id: u64) -> AnyView {
+fn said(line: Line, session: Entity, id: String) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let cast = cx.world.resource::<Lines>().cast();
         let who = cast.get(line.by).cloned().unwrap_or_default();
@@ -174,11 +174,9 @@ fn said(line: Line, session: Entity, id: u64) -> AnyView {
         let entry = cx
             .world
             .get::<Transcript>(session)
-            .and_then(|t| t.get(id));
+            .and_then(|t| t.item(&id).map(|item| &item.entry));
         let (words, typed) = match entry {
-            Some(Entry::User { user, text })
-                if reply_in(user, text).is_none() =>
-            {
+            Some(Entry::Chief { text, .. }) => {
                 (Words::Plain, text.as_str())
             }
             Some(Entry::Answered(said)) => {
@@ -193,12 +191,16 @@ fn said(line: Line, session: Entity, id: u64) -> AnyView {
             None => (None, typed),
         };
         let replies = words != Words::Fault
-            && entry.is_some_and(reply::answerable);
+            && entry.is_some_and(reply::can_reply_to);
         let mine = who.kind == Kind::Me;
         // The chief's own words in its own conversation with the
         // agent are what that conversation can be taken back to.
-        let back = mine
-            && matches!(entry, Some(Entry::User { .. }))
+        let back = cx
+            .world
+            .get::<hamlet_client::chats::Chat>(session)
+            .is_none_or(|chat| chat.0.from.is_none())
+            && mine
+            && matches!(entry, Some(Entry::Chief { .. }))
             && words == Words::Plain
             && session == cx.world.resource::<Me>().session;
         let palette = &cx.theme().palette;
@@ -244,13 +246,14 @@ fn said(line: Line, session: Entity, id: u64) -> AnyView {
                     .boxed(),
             );
         }
+        let typed_id = id.clone();
         let reserve = if time.is_empty() { "" } else { RESERVE };
         // The words of a message, selected as one, with the quote
         // button at the end of what is selected.
         let selectable = |said: AnyView| match replies {
             true => column((
                 said,
-                select::quote_button(session, id).boxed(),
+                select::quote_button(session, id.clone()).boxed(),
             ))
             .min_width(px(0.0))
             .max_width(percent(100.0))
@@ -262,7 +265,7 @@ fn said(line: Line, session: Entity, id: u64) -> AnyView {
                 .boxed(),
         };
         // Words with a link in them are set once, span by span.
-        let linked = match quote::quotes(typed) {
+        let linked = match quote::has_quote(typed) {
             true => {
                 Some(quote::drawn(typed, reserve, palette.brass_4))
             }
@@ -283,8 +286,10 @@ fn said(line: Line, session: Entity, id: u64) -> AnyView {
                 let said = linked.unwrap_or_else(|| {
                     label(component::<Transcript, _>(
                         session,
-                        move |t| match t.and_then(|t| t.get(id)) {
-                            Some(Entry::User { text, .. }) => {
+                        move |t| match t.and_then(|t| {
+                            t.item(&typed_id).map(|item| &item.entry)
+                        }) {
+                            Some(Entry::Chief { text, .. }) => {
                                 format!(
                                     "{}{reserve}",
                                     reply::rest(text)
@@ -315,9 +320,9 @@ fn said(line: Line, session: Entity, id: u64) -> AnyView {
             // under any other.
             Words::Markdown | Words::Fault => {
                 let body = match words {
-                    Words::Fault => entry_view(session, id),
+                    Words::Fault => entry_view(session, id.clone()),
                     _ => markdown::document(
-                        markdown::entry(session, id),
+                        markdown::entry(session, id.clone()),
                         Tone::Body,
                     )
                     .boxed(),
@@ -333,7 +338,9 @@ fn said(line: Line, session: Entity, id: u64) -> AnyView {
                 ));
             }
         }
-        let ends = move |lines: &Lines| lines.ends_run(key);
+        let ends_key = key.clone();
+        let ends = move |lines: &Lines| lines.is_run_end(&ends_key);
+        let corner_ends = ends.clone();
         let bubble = column(inside)
             .gap(2.0)
             .padding(UiRect::axes(px(10.0), px(6.0)))
@@ -349,7 +356,8 @@ fn said(line: Line, session: Entity, id: u64) -> AnyView {
                 palette.seam
             })
             .corners(resource::<Lines, _>(move |lines| {
-                let tail = px(if ends(lines) { TAIL } else { ROUND });
+                let tail =
+                    px(if corner_ends(lines) { TAIL } else { ROUND });
                 let round = BorderRadius::all(px(ROUND));
                 if mine {
                     BorderRadius {
@@ -366,14 +374,16 @@ fn said(line: Line, session: Entity, id: u64) -> AnyView {
         let above = px(if line.lead { RUN } else { 0.0 });
         let (replying, reply_room) = match replies {
             true => (
-                reply::mark(session, id, who.name.clone()),
+                reply::mark(session, id.clone(), who.name.clone()),
                 reply::ROOM,
             ),
             false => (frame().boxed(), 0.0),
         };
         let view = if mine {
             let (mark, room) = match back {
-                true => (rewind::mark(session, id), rewind::ROOM),
+                true => {
+                    (rewind::mark(session, id.clone()), rewind::ROOM)
+                }
                 false => (frame().boxed(), 0.0),
             };
             row((replying, mark, bubble))
@@ -419,7 +429,10 @@ fn said(line: Line, session: Entity, id: u64) -> AnyView {
             built.insert(Hovered::default());
         }
         if back {
-            built.insert(Rewinds { session, entry: id });
+            built.insert(Rewinds {
+                session,
+                at: line.at,
+            });
         }
         if replies {
             built.insert((Replies, Quotable { session, entry: id }));
@@ -432,12 +445,12 @@ fn said(line: Line, session: Entity, id: u64) -> AnyView {
 pub(super) fn line_view(line: &Line) -> AnyView {
     match &line.row {
         Row::Entry { session, id } => {
-            said(line.clone(), *session, *id)
+            said(line.clone(), *session, id.clone())
         }
         // A turn's steps are the agent's own, so they sit where its
         // bubbles do.
         Row::Fold { session, first, .. } => {
-            row((fold_view(line.key(), *session, *first),))
+            row((fold_view(line.key(), *session, first.clone()),))
                 .padding(UiRect::new(
                     px(GUTTER),
                     px(0.0),

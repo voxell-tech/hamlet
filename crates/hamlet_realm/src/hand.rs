@@ -16,19 +16,21 @@ use std::path::PathBuf;
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::window::FileDragAndDrop;
-use hamlet_core::agents::Mayor;
+use hamlet_client::gifts::SkillGiven;
+use hamlet_client::realm::Mayor;
 
-pub use self::given::{gifted, greet};
+use self::given::gifted;
+pub use self::given::greet;
 use self::lift::Fall;
 pub use self::pool::Readout;
 pub use self::touch::Proud;
 use self::touch::{Rest, Tap};
-use crate::WorldSystems;
+use crate::RealmSystems;
 use crate::generator::{Passage, Robot, Thought};
 use crate::hamlet::Housed;
 use crate::keeper::Act;
 use crate::moving::Carrying;
-use crate::pick::{self, Hovered, Reach, Taken, Thing, Travel};
+use crate::pick::{Hovered, Reach, Taken, Thing, Travel};
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<PlaySettings>()
@@ -47,6 +49,14 @@ pub(super) fn plugin(app: &mut App) {
         .add_observer(lift::let_go)
         .add_observer(lift::drag_end)
         .add_observer(touch::finished)
+        .add_observer(
+            |given: On<SkillGiven>, mut commands: Commands| {
+                let agent = given.entity;
+                commands.queue(move |world: &mut World| {
+                    gifted(world, agent);
+                });
+            },
+        )
         .add_systems(Startup, (toys::prepare, pool::gauge::prepare))
         .add_systems(
             Update,
@@ -69,8 +79,7 @@ pub(super) fn plugin(app: &mut App) {
                 (pool::meters, toys::play),
             )
                 .chain()
-                .after(pick::aim)
-                .before(WorldSystems),
+                .in_set(RealmSystems::Act),
         )
         .add_systems(
             PostUpdate,
@@ -172,7 +181,7 @@ pub struct PlaySettings {
     pub gift_stays: f32,
 }
 
-/// Something a chief asked of the core by hand.
+/// A deed the chief asked of the server by hand.
 #[derive(Message, Clone, Debug, PartialEq)]
 pub enum Wish {
     /// A road between two agents.
@@ -219,7 +228,7 @@ impl Default for Mood {
 }
 
 impl Mood {
-    pub(crate) fn sulks(&self, now: f32) -> bool {
+    pub(crate) fn is_sulking(&self, now: f32) -> bool {
         now < self.sulks_until
     }
 }
@@ -287,8 +296,8 @@ fn yaw_of(rotation: Quat) -> f32 {
 
 /// True when a robot can be given a motion to play now: about its
 /// house, and in nothing it must finish.
-fn free(robot: &Robot, passage: Option<&Passage>) -> bool {
-    robot.at_home()
+fn is_free(robot: &Robot, passage: Option<&Passage>) -> bool {
+    robot.is_at_house()
         && passage.is_none_or(|passage| {
             matches!(
                 passage.act(),
@@ -309,7 +318,7 @@ fn robot_of(
     boxes: &Query<(Entity, &Thing, &ChildOf)>,
     robots: &Query<&Robot>,
 ) -> Option<Entity> {
-    if !matches!(thing, Thing::Keeper | Thing::Resident(_)) {
+    if !matches!(thing, Thing::Keeper | Thing::Agent(_)) {
         return None;
     }
     boxes
@@ -340,9 +349,9 @@ fn liftable(
     thing
         .and_then(|thing| robot_of(thing, boxes, robots))
         .filter(|robot| {
-            robots
-                .get(*robot)
-                .is_ok_and(|of| free(of, passages.get(*robot).ok()))
+            robots.get(*robot).is_ok_and(|of| {
+                is_free(of, passages.get(*robot).ok())
+            })
         })
 }
 
@@ -400,7 +409,7 @@ fn met(
         )
     };
     match thing {
-        Thing::Resident(agent) | Thing::ResidentHouse(agent) => {
+        Thing::Agent(agent) | Thing::House(agent) => {
             Some((agent, robot_for(agent)))
         }
         Thing::Keeper | Thing::Cottage => {

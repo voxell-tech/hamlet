@@ -1,4 +1,4 @@
-use bevy::app::{App, PostUpdate, Update};
+use bevy::app::{App, PostUpdate};
 use bevy::ecs::hierarchy::ChildOf;
 use bevy::picking::backend::HitData;
 use bevy::picking::hover::HoverMap;
@@ -81,7 +81,7 @@ fn no_picture_is_cut_by_the_edge_of_its_square() {
 
 #[test]
 fn each_fact_gives_way_to_the_ones_before_it() {
-    let agent = Thing::Resident(Entity::PLACEHOLDER);
+    let agent = Thing::Agent(Entity::PLACEHOLDER);
     let panel = Facts {
         asked: Some(SystemCursorIcon::Pointer),
         over: Some(agent),
@@ -212,7 +212,7 @@ fn a_node_over_the_world_that_takes_a_click_shows_it() {
     let (mut app, window) = app();
     app.add_plugins(bevy_fynix::CursorPlugin)
         .init_resource::<HoverMap>()
-        .add_systems(Update, lend);
+        .add_observer(lend);
     let tag = app.world_mut().spawn(Pressable).id();
     let check = app.world_mut().spawn(ChildOf(tag)).id();
     // The mouse is on the check, which hides the world's surface
@@ -223,7 +223,6 @@ fn a_node_over_the_world_that_takes_a_click_shows_it() {
         .entry(PointerId::Mouse)
         .or_default()
         .insert(check, hit);
-    app.update();
     app.update();
     assert_eq!(shown(&app, window).0, picture(&app, Mode::Press));
 }

@@ -2,6 +2,7 @@
 //! is.
 
 mod agent;
+mod conversations;
 mod gone;
 mod papers;
 
@@ -13,13 +14,12 @@ use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
 use bevy::ecs::world::World;
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::{ViewExt, derived, every_frame, keyed};
-use hamlet_core::agents::Left;
+use hamlet_client::realm::Left;
 use hamlet_realm::pick::{Selected, Thing};
 
+pub(crate) use self::agent::show_prompt;
 pub use self::agent::{Briefing, Section};
-pub(crate) use self::agent::{now, show_prompt};
 pub(crate) use self::gone::{of_agent, skills_screen};
-pub(crate) use self::papers::house;
 pub use self::papers::{Papers, keep_papers};
 use crate::dock::{PanelAppExt, lit_panel, panel, show_tab};
 use crate::feel::Lit;
@@ -51,6 +51,9 @@ pub fn plugin(app: &mut App) {
     .init_resource::<Section>()
     .init_resource::<Papers>()
     .init_resource::<Briefing>()
+    .init_resource::<papers::Requests>()
+    .add_observer(papers::response)
+    .add_observer(papers::edited)
     .add_observer(papers::papers_on_job)
     .add_systems(
         Update,
@@ -82,7 +85,6 @@ enum Showing {
 fn showing(world: &World) -> Showing {
     let selected = world.get_resource::<Selected>().and_then(|s| s.0);
     match selected {
-        None => Showing::Overview,
         Some(Thing::Library) => Showing::Library,
         Some(Thing::Common(hamlet))
             if world.get_entity(hamlet).is_ok() =>
@@ -100,7 +102,8 @@ fn showing(world: &World) -> Showing {
         {
             Showing::Chief(chief)
         }
-        Some(
+        None
+        | Some(
             Thing::Common(_)
             | Thing::Ruin(_)
             | Thing::Chief(_)
@@ -135,14 +138,12 @@ pub(crate) fn follow_selection(world: &mut World) {
     }
     let agent = match selected.0 {
         Some(Thing::Keeper | Thing::Cottage) => {
-            match hamlet_core::agents::mayor(world) {
+            match hamlet_client::realm::mayor(world) {
                 Some(mayor) => mayor,
                 None => return,
             }
         }
-        Some(
-            Thing::Resident(agent) | Thing::ResidentHouse(agent),
-        ) => agent,
+        Some(Thing::Agent(agent) | Thing::House(agent)) => agent,
         // A hamlet, one that is gone, or nothing at all.
         _ => return show_tab(world, "agent"),
     };

@@ -9,11 +9,11 @@ use hamlet_assets::tint;
 
 use super::generator::land::{Land, Unfit};
 use super::generator::layout::plot;
-use super::generator::society::{Place, Society};
+use super::generator::society::{Ground, Society};
 use super::palette::Palette;
-use super::pick::{self, Reach, Taken, Travel, WorldSurface};
+use super::pick::{Reach, Taken, Travel, WorldSurface};
 use super::play::{Play, Played};
-use super::{WorldSystems, label};
+use super::{RealmSystems, label};
 use crate::sky::CameraSettings;
 
 pub(super) fn plugin(app: &mut App) {
@@ -40,8 +40,7 @@ pub(super) fn plugin(app: &mut App) {
                 ),
             )
                 .chain()
-                .after(pick::aim)
-                .before(WorldSystems),
+                .in_set(RealmSystems::Act),
         );
 }
 
@@ -76,7 +75,7 @@ pub(crate) struct CarrySettings {
 /// A place in a chief's hand.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Carry {
-    pub place: Place,
+    pub place: Ground,
     /// The ground under the pointer, while the pointer is over any.
     pub to: Option<Vec2>,
     /// `Ok` when it could be set down there.
@@ -90,13 +89,13 @@ pub struct Carrying(pub Option<Carry>);
 /// A chief set a place down at `to`, where it fits.
 #[derive(Message, Clone, Copy, Debug, PartialEq)]
 pub struct SetDown {
-    pub place: Place,
+    pub place: Ground,
     pub to: Vec2,
 }
 
 /// Takes `place` in hand, to be set down with the next click on the
 /// ground.
-pub fn pick_up(world: &mut World, place: Place) {
+pub fn pick_up(world: &mut World, place: Ground) {
     let at = world.get_resource::<Land>().and_then(|land| {
         let society = world.get_resource::<Society>()?;
         let (at, _) = society.stands(land, place)?;
@@ -286,7 +285,7 @@ fn show(
     let over = |p: Vec2| land.surface(p).max(level) + set.lift;
     *at = Transform::from_xyz(to.x, over(to), to.y);
     let town = match carry.place {
-        Place::Town(id) => society.town(id),
+        Ground::Town(id) => society.town(id),
         _ => None,
     };
     // The plots as they would lie there.
@@ -470,13 +469,16 @@ fn keys(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::generator::GenSettings;
+    use crate::generator::GeneratorSettings;
     use crate::generator::society::TownId;
 
     fn app() -> (App, TownId) {
         let mut app = App::new();
-        let mut land =
-            Land::new(1, GenSettings::default(), Palette::default());
+        let mut land = Land::new(
+            1,
+            GeneratorSettings::default(),
+            Palette::default(),
+        );
         let mut society = Society::default();
         let town = society.found_town(&mut land);
         society.found_town(&mut land);
@@ -558,7 +560,7 @@ mod tests {
     #[test]
     fn a_town_follows_the_pointer_and_a_click_sets_it_down() {
         let (mut app, town) = app();
-        let place = Place::Town(town);
+        let place = Ground::Town(town);
         pick_up(app.world_mut(), place);
         let to = meadow(&app);
         point(&mut app, to);
@@ -582,7 +584,7 @@ mod tests {
     #[test]
     fn it_is_not_set_down_on_water_or_on_another_town() {
         let (mut app, town) = app();
-        pick_up(app.world_mut(), Place::Town(town));
+        pick_up(app.world_mut(), Ground::Town(town));
         let land = app.world().resource::<Land>().clone();
         let river = (0..4000)
             .map(|i| Vec2::new(i as f32 * 0.5 - 1000.0, 40.0))
@@ -603,7 +605,7 @@ mod tests {
         // The right button puts it back, and so does Escape.
         press(&mut app, PointerButton::Secondary);
         assert_eq!(carried(&app), None);
-        pick_up(app.world_mut(), Place::Town(town));
+        pick_up(app.world_mut(), Ground::Town(town));
         let mut keys = ButtonInput::<KeyCode>::default();
         keys.press(KeyCode::Escape);
         app.insert_resource(keys);
@@ -619,7 +621,7 @@ mod tests {
     #[test]
     fn a_drag_is_no_click() {
         let (mut app, town) = app();
-        pick_up(app.world_mut(), Place::Town(town));
+        pick_up(app.world_mut(), Ground::Town(town));
         let to = meadow(&app);
         point(&mut app, to);
         app.world_mut().resource_mut::<Travel>().0 = 40.0;

@@ -6,11 +6,12 @@
 
 use std::collections::HashMap;
 
-use bevy::app::{App, Update};
+use bevy::app::{App, PreUpdate};
 use bevy::color::Color;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::ecs::resource::Resource;
+use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, JustifyContent, UiRect, percent, px};
@@ -19,12 +20,15 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, frame, label, row,
     text_field,
 };
-use bevy_fynix::{ScopedExt, ViewExt, keyed, resource, style};
-use hamlet_core::oversight::{
-    Answer, Answered, Asks, RaisedBy, Waiting,
+use bevy_fynix::{
+    ScopedExt, ViewExt, component, keyed, resource, style,
 };
-use hamlet_rules::chief::asking::{Offer, Pick, Questions, letter};
-use hamlet_rules::chief::rulings::Choice;
+use hamlet_client::chats::Chat;
+use hamlet_client::messages::{Answer, Answered};
+use hamlet_client::waits::{
+    Asks, Choice, RaisedBy, Refused, Waiting,
+};
+use hamlet_protocol::client::{Offer, Pick, Questions};
 
 use crate::feel::Mood;
 use crate::icons::{Glyph, glyph};
@@ -33,12 +37,18 @@ use crate::looks::{
 };
 use crate::me::Me;
 use crate::theme::HamletTheme;
-use crate::{AnyView, Cx, View};
+use crate::{AnyView, Cx, PanelSystems, View};
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Answering>()
         .init_resource::<OpenQuestion>()
-        .add_systems(Update, (follow, forget));
+        .add_systems(
+            PreUpdate,
+            (
+                forget.in_set(PanelSystems::Follow),
+                follow.in_set(PanelSystems::Bind),
+            ),
+        );
 }
 
 /// Each card's question on show and the answers so far.
@@ -84,16 +94,20 @@ pub struct OpenQuestion(Option<(Entity, Questions)>);
 /// chat is with, or by a turn of the chat's own session.
 fn follow(
     me: Res<Me>,
+    chats: Query<&Chat>,
     waiting: Query<(Entity, &Waiting, &Asks, Option<&RaisedBy>)>,
     mut open: ResMut<OpenQuestion>,
 ) {
     let now = waiting
         .iter()
         .filter(|(_, waits, _, by)| {
-            waits.session == Some(me.session)
-                || by.is_some_and(|by| by.0 == me.agent)
+            waits.chat.as_ref().is_some_and(|reference| {
+                chats
+                    .get(me.session)
+                    .is_ok_and(|chat| &chat.0 == reference)
+            }) || by.is_some_and(|by| by.0 == me.agent)
         })
-        .min_by_key(|(_, waits, ..)| waits.order)
+        .min_by_key(|(_, waits, ..)| (waits.since, waits.id.as_str()))
         .map(|(card, _, asks, _)| (card, asks));
     let was = open.0.as_ref().map(|(card, _)| *card);
     if was != now.map(|(card, _)| card) {
@@ -125,7 +139,7 @@ pub fn choose(
     let mut answering = world.resource_mut::<Answering>();
     let sheet = answering.sheet(card, count);
     let onward =
-        matches!(pick, Some(Pick::Offer(_))) && at + 1 < count;
+        matches!(pick, Some(Pick::Offer { .. })) && at + 1 < count;
     sheet.picks[at] = pick;
     if onward {
         sheet.at = at + 1;
@@ -144,8 +158,8 @@ fn write(
     let text = text.trim().to_string();
     let was = world.resource::<Answering>().pick(card, at);
     let pick = match (text.is_empty(), was) {
-        (false, _) => Some(Pick::Words(text)),
-        (true, Some(Pick::Offer(offer))) => Some(Pick::Offer(offer)),
+        (false, _) => Some(Pick::Words { text }),
+        (true, Some(offer @ Pick::Offer { .. })) => Some(offer),
         (true, _) => None,
     };
     world.resource_mut::<Answering>().sheet(card, count).picks[at] =
@@ -174,11 +188,9 @@ fn submit(world: &mut World, card: Entity, count: usize) {
     match picks.iter().position(Option::is_none) {
         Some(open) => turn(world, card, count, open),
         None => {
-            let chief = world.resource::<Me>().user.clone();
             world.trigger(Answered {
                 entity: card,
                 picks: picks.into_iter().flatten().collect(),
-                chief,
             });
             world.flush();
         }
@@ -186,12 +198,10 @@ fn submit(world: &mut World, card: Entity, count: usize) {
 }
 
 fn dismiss(world: &mut World, card: Entity) {
-    let chief = world.resource::<Me>().user.clone();
     world.trigger(Answer {
-        entity: card,
+        wait: card,
         choice: Choice::Dismiss,
-        text: String::new(),
-        chief,
+        text: None,
     });
     world.flush();
 }
@@ -238,16 +248,19 @@ fn options(
         .iter()
         .enumerate()
         .map(|(n, offer)| {
-            let chosen = *pick == Some(Pick::Offer(n));
-            let mark = column((label(letter(n).to_string())
-                .size(12.0)
-                .bold(true)
-                .wrap(false)
-                .tone(if chosen {
-                    Tone::Accent
-                } else {
-                    Tone::Faint
-                }),))
+            let index = n as u64;
+            let chosen = *pick == Some(Pick::Offer { index });
+            let mark = column((label(
+                char::from(b'a' + n as u8).to_string(),
+            )
+            .size(12.0)
+            .bold(true)
+            .wrap(false)
+            .tone(if chosen {
+                Tone::Accent
+            } else {
+                Tone::Faint
+            }),))
             .width(px(12.0))
             .shrink(0.0);
             let tick = match chosen {
@@ -272,7 +285,7 @@ fn options(
                 true => (picked, Mood::Good),
                 false => (option, Mood::Quiet),
             };
-            let then = (!chosen).then_some(Pick::Offer(n));
+            let then = (!chosen).then_some(Pick::Offer { index });
             button(line)
                 .width(percent(100.0))
                 .justify(JustifyContent::FlexStart)
@@ -280,7 +293,7 @@ fn options(
                 .rules(rules)
                 .tagged(mood)
                 .on_activate(move |world| {
-                    choose(world, card, count, at, then.clone())
+                    choose(world, card, count, at, then.clone());
                 })
                 .boxed()
         })
@@ -344,7 +357,7 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
     if one.text_input {
         let typed = resource::<Answering, _>(move |a| {
             match a.pick(card, at) {
-                Some(Pick::Words(words)) => words,
+                Some(Pick::Words { text }) => text,
                 _ => String::new(),
             }
         });
@@ -356,7 +369,7 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
             row((
                 label(name).size(12.0).wrap(false).tone(Tone::Dim),
                 text_field(typed, move |world, text| {
-                    write(world, card, count, at, text)
+                    write(world, card, count, at, text);
                 })
                 .fills_width()
                 .rules(well)
@@ -373,7 +386,7 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
             .rules(brass)
             .tagged(Mood::Plain)
             .on_activate(move |world| {
-                turn(world, card, count, at + 1)
+                turn(world, card, count, at + 1);
             })
             .boxed(),
         false => marked(Glyph::Check, "SUBMIT")
@@ -386,7 +399,6 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
         format!("{} of {count} answered", a.answered(card))
     }))
     .size(11.0)
-    .wrap(false)
     .tone(Tone::Dim);
     parts.push(
         row((
@@ -416,7 +428,24 @@ pub fn card(card: Entity, asked: Questions) -> AnyView {
         move |at| page(card, &asked, *at),
     )
     .within(bare());
-    column((message, pages)).gap(8.0).boxed()
+    // The server checks the answers; its refusal stays until the
+    // next.
+    #[expect(
+        clippy::redundant_closure_for_method_calls,
+        reason = "Option::cloned is not general over the lifetime"
+    )]
+    let refused = keyed(
+        component::<Refused, _>(card, |refused| refused.cloned()),
+        |refused| match refused {
+            Some(Refused(text)) => label(text.clone())
+                .size(12.0)
+                .tone(Tone::Critical)
+                .boxed(),
+            None => frame().boxed(),
+        },
+    )
+    .within(bare());
+    column((message, pages, refused)).gap(8.0).boxed()
 }
 
 /// The card the agent of the open chat waits on, over the field.
@@ -450,4 +479,115 @@ pub fn in_chat() -> impl View {
         })
     })
     .within(bare())
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::ecs::query::With;
+    use bevy::text::EditableText;
+    use hamlet_client::outbox::Outbox;
+    use hamlet_protocol::client as protocol;
+    use serde_json::json;
+
+    use super::*;
+    use crate::testing::{panel_app, press, words};
+
+    #[test]
+    fn received_questions_share_answers_between_chat_and_petition() {
+        let mut app = panel_app();
+        app.add_plugins(crate::petition::plugin);
+        let session = app.world().resource::<Me>().session;
+        let chat =
+            app.world().get::<Chat>(session).unwrap().0.clone();
+        let question = |id: &str, since, chat: &protocol::ChatRef| {
+            serde_json::from_value::<protocol::Wait>(json!({
+                "id": id, "agent": null, "by": "founder",
+                "about": "Choose", "subject": "Choose",
+                "change": null, "answers": ["reply", "dismiss"],
+                "since": since, "asked": 1, "chat": chat,
+                "detail": {"kind": "question", "questions": {"message": id, "questions": [
+                    {"question": "Which format?", "description": "",
+                     "options": [{"title": "Paper", "description": "Printed"},
+                                 {"title": "Digital", "description": "Download"}],
+                     "text_input": false},
+                    {"question": "Where?", "description": "",
+                     "options": [], "text_input": true}
+                ]}}
+            })).unwrap()
+        };
+        let mut other = chat.clone();
+        other.with.agent = "scout".into();
+        let mut state = hamlet_testing::realm::state();
+        state.waits = vec![
+            question("later", 20, &chat),
+            question("unrelated", 1, &other),
+            question("oldest", 10, &chat),
+        ];
+        hamlet_client::receive(
+            app.world_mut(),
+            protocol::ServerMessage::State(state),
+        );
+        app.update();
+        bevy_fynix::mount::<HamletTheme>(app.world_mut(), in_chat());
+        app.update();
+        let shown = words(&mut app);
+        assert!(shown.iter().any(|text| text == "oldest"));
+        assert!(
+            !shown
+                .iter()
+                .any(|text| text == "later" || text == "unrelated")
+        );
+        press(&mut app, "Digital");
+        app.update();
+        let field = app
+            .world_mut()
+            .query_filtered::<Entity, With<EditableText>>()
+            .single(app.world())
+            .unwrap();
+        app.world_mut().trigger(bevy::input_focus::FocusGained {
+            entity: field,
+            cause: bevy::input_focus::FocusCause::Pressed,
+        });
+        app.world_mut()
+            .get_mut::<EditableText>(field)
+            .unwrap()
+            .editor_mut()
+            .set_text("  Library desk  ");
+        app.world_mut()
+            .trigger(bevy::input_focus::FocusLost { entity: field });
+        app.update();
+        bevy_fynix::mount::<HamletTheme>(
+            app.world_mut(),
+            crate::petition::screen(),
+        );
+        app.update();
+        let shown = words(&mut app);
+        assert_eq!(
+            shown
+                .iter()
+                .filter(|text| text.as_str() == "2 of 2 answered")
+                .count(),
+            2
+        );
+        press(&mut app, "SUBMIT");
+        let answer = app
+            .world()
+            .resource::<Outbox>()
+            .iter()
+            .find_map(|message| match message {
+                protocol::ClientMessage::Answer(answer) => {
+                    Some(answer)
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(answer.wait, "oldest");
+        assert_eq!(answer.choice, Choice::Reply);
+        assert_eq!(
+            serde_json::to_value(&answer.picks).unwrap(),
+            json!([
+                {"kind": "offer", "index": 1}, {"kind": "words", "text": "Library desk"}
+            ])
+        );
+    }
 }

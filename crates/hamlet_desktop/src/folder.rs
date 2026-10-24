@@ -2,13 +2,13 @@
 
 use std::path::PathBuf;
 
-use bevy::app::{App, Update};
-use bevy::ecs::entity::Entity;
-use bevy::ecs::event::Event;
-use bevy::ecs::observer::On;
-use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Commands, NonSendMarker, Res, ResMut};
-use hamlet_core::core::Tokio;
+use bevy_app::{App, Update};
+use bevy_ecs::entity::Entity;
+use bevy_ecs::event::Event;
+use bevy_ecs::observer::On;
+use bevy_ecs::resource::Resource;
+use bevy_ecs::system::{Commands, NonSendMarker, Res, ResMut};
+use hamlet_client::Tokio;
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
 };

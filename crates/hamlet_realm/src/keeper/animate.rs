@@ -62,7 +62,7 @@ pub(crate) fn animate(
             let s = trip.at(t);
             root.translation = s.at;
             root.rotation = ry(s.yaw);
-            busy |= !trip.arrived(t);
+            busy |= !trip.has_arrived(t);
             s.stride()
         } else {
             // Without a stride it walks on the spot.
@@ -108,7 +108,7 @@ pub(crate) fn animate(
         if !seen {
             continue;
         }
-        busy |= keeper.busy(t) || !keeper.act.rests();
+        busy |= keeper.is_busy(t) || !keeper.act.is_resting();
 
         let p = keeper.eval(t);
         let placed = p.place(keeper.who.size);

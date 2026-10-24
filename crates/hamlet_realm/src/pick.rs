@@ -25,17 +25,17 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 pub use self::camera::{
-    Centre, Following, Glide, Leash, Orbit, Stance, Steer, Steering,
-    focus_on,
+    Centre, Following, Glide, Leash, Orbit, Stance, Steer, focus_on,
 };
-pub use self::reach::{Reach, aim};
+pub use self::reach::Reach;
+use self::reach::aim;
 pub use self::signs::{
     NameTag, Named, NoNameTag, Reads, Sign, Signed,
 };
 use crate::play::Played;
 use crate::sky::CameraSettings;
 use crate::works::Switched;
-use crate::{WorldCamera, WorldSystems};
+use crate::{RealmSystems, WorldCamera};
 
 /// Hover, selection and the camera moved by hand. What can be
 /// pointed at is up to whoever spawns it with [`watch`].
@@ -74,7 +74,10 @@ pub fn plugin(app: &mut App) {
             .after(generate_hovermap)
             .before(pointer_events),
     )
-    .add_systems(Update, (mark_camera, aim.before(WorldSystems)));
+    .add_systems(
+        Update,
+        (mark_camera, aim.in_set(RealmSystems::Aim)),
+    );
 }
 
 /// The room each thing takes for the pointer, its ring and its name.
@@ -104,9 +107,9 @@ pub enum Thing {
     Keeper,
     /// An agent besides the mayor: the entity that carries its
     /// `Name`.
-    Resident(Entity),
+    Agent(Entity),
     /// The house of that agent.
-    ResidentHouse(Entity),
+    House(Entity),
     /// The remains of the house of an agent that was removed or
     /// merged.
     Ruin(Entity),
@@ -131,7 +134,7 @@ pub enum Thing {
 
 impl Thing {
     pub fn name(self, names: &Query<&Name>) -> String {
-        let resident = |agent: Entity| {
+        let named = |agent: Entity| {
             names
                 .get(agent)
                 .map(|name| name.as_str().to_string())
@@ -139,29 +142,29 @@ impl Thing {
         };
         match self {
             Thing::Keeper => "The Mayor".into(),
-            Thing::Resident(agent) => resident(agent),
-            Thing::ResidentHouse(agent) => {
-                format!("{}'s House", resident(agent))
+            Thing::Agent(agent) => named(agent),
+            Thing::House(agent) => {
+                format!("{}'s House", named(agent))
             }
             Thing::Ruin(agent) => {
-                format!("{}'s Ruin", resident(agent))
+                format!("{}'s Ruin", named(agent))
             }
             Thing::Cottage => "The Mayor's House".into(),
             Thing::Common(hamlet) => {
-                format!("The Common of {}", resident(hamlet))
+                format!("The Common of {}", named(hamlet))
             }
             Thing::Chief(chief) => {
-                format!("{}, Chief", resident(chief))
+                format!("{}, Chief", named(chief))
             }
             Thing::ChiefPlace(chief) => {
-                format!("{}'s Hearth", resident(chief))
+                format!("{}'s Hearth", named(chief))
             }
             Thing::Library => "The Library".into(),
             Thing::Clockwork(hamlet) => {
-                format!("The Clockwork of {}", resident(hamlet))
+                format!("The Clockwork of {}", named(hamlet))
             }
             Thing::Workbench(hamlet) => {
-                format!("The Workbench of {}", resident(hamlet))
+                format!("The Workbench of {}", named(hamlet))
             }
         }
     }
@@ -169,8 +172,8 @@ impl Thing {
 
 impl Thing {
     /// True when it is an agent.
-    fn agent(self) -> bool {
-        matches!(self, Thing::Keeper | Thing::Resident(_))
+    fn is_agent(self) -> bool {
+        matches!(self, Thing::Keeper | Thing::Agent(_))
     }
 
     /// The thing a click on it chooses.
@@ -187,13 +190,11 @@ impl Thing {
     fn sign(self, names: &Query<&Name>) -> String {
         match self {
             Thing::Cottage => "Mayor".into(),
-            Thing::ResidentHouse(agent) | Thing::Ruin(agent) => {
-                Thing::Resident(agent).name(names)
+            Thing::House(agent) | Thing::Ruin(agent) => {
+                Thing::Agent(agent).name(names)
             }
             // A hamlet is known by the name over its common.
-            Thing::Common(hamlet) => {
-                Thing::Resident(hamlet).name(names)
-            }
+            Thing::Common(hamlet) => Thing::Agent(hamlet).name(names),
             other => other.name(names),
         }
     }
@@ -337,7 +338,7 @@ fn hover(
     let agent = |ray: Ray3d| {
         boxes
             .iter()
-            .filter(|(_, thing, ..)| thing.agent())
+            .filter(|(_, thing, ..)| thing.is_agent())
             .filter_map(|(entity, _, room, at)| {
                 let room =
                     Aabb3d::new(room.center, room.half_extents);
@@ -370,7 +371,6 @@ fn hover(
 
 /// The left button selects, or with Shift chooses a second thing.
 /// The right button asks what can be done with a thing.
-#[allow(clippy::too_many_arguments)]
 fn click(
     click: On<Pointer<Click>>,
     things: Query<&Thing>,
@@ -393,7 +393,7 @@ fn click(
     }
     // An agent behind what took the click is the one meant.
     let thing =
-        hovered.0.filter(|over| over.agent()).unwrap_or(thing);
+        hovered.0.filter(|over| over.is_agent()).unwrap_or(thing);
     if travel.0 > camera.click_slop {
         return;
     }
@@ -431,7 +431,6 @@ fn click(
 
 /// A click on the bare world clears the selection, and the right
 /// button there asks what can be done with the ground.
-#[allow(clippy::too_many_arguments)]
 fn click_surface(
     click: On<Pointer<Click>>,
     surfaces: Query<(), With<WorldSurface>>,

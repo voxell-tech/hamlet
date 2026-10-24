@@ -1,0 +1,8 @@
+CREATE TABLE spend_reset (
+    id INTEGER PRIMARY KEY,
+    hamlet TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    by TEXT NOT NULL,
+    models INTEGER NOT NULL,
+    roads INTEGER NOT NULL
+) STRICT;

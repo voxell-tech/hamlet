@@ -15,9 +15,10 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, ghost, label, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, component, keyed, resource};
-use hamlet_core::session::{Entry, Transcript};
-use hamlet_core::tools::Change;
-use hamlet_core::tools::change::{Line, Mark};
+use hamlet_client::chats::{Entry, Transcript};
+use hamlet_protocol::client::{
+    Change, ChangeLines as Line, ChangeLinesMark as Mark,
+};
 
 use super::entry::state;
 use crate::looks::{Fills, bare, note};
@@ -49,8 +50,8 @@ pub struct ChatSettings {
 /// their conversation and entry.
 #[derive(Resource, Default)]
 pub struct Changes {
-    shut: Vec<(Entity, u64)>,
-    whole: Vec<(Entity, u64)>,
+    shut: Vec<(Entity, String)>,
+    whole: Vec<(Entity, String)>,
 }
 
 /// The part of a change that is drawn.
@@ -63,10 +64,10 @@ enum Extent {
 }
 
 impl Changes {
-    fn extent(&self, change: (Entity, u64)) -> Extent {
-        if self.shut.contains(&change) {
+    fn extent(&self, change: &(Entity, String)) -> Extent {
+        if self.shut.contains(change) {
             Extent::Shut
-        } else if self.whole.contains(&change) {
+        } else if self.whole.contains(change) {
             Extent::Whole
         } else {
             Extent::Cut
@@ -75,7 +76,7 @@ impl Changes {
 }
 
 /// Adds `one` to `all`, or takes it out if it is there.
-fn flip(all: &mut Vec<(Entity, u64)>, one: (Entity, u64)) {
+fn flip(all: &mut Vec<(Entity, String)>, one: (Entity, String)) {
     match all.iter().position(|kept| *kept == one) {
         Some(at) => {
             all.remove(at);
@@ -90,17 +91,17 @@ fn block(lines: &[Line]) -> AnyView {
     let mut runs = Vec::<(Mark, String)>::new();
     for (at, line) in lines.iter().enumerate() {
         let lead = match line.mark {
-            Mark::Same => "  ",
-            Mark::Out => "- ",
-            Mark::In => "+ ",
+            Mark::Space => "  ",
+            Mark::Minus => "- ",
+            Mark::Plus => "+ ",
         };
         let end = if at + 1 == lines.len() { "" } else { "\n" };
         let text = format!("{lead}{}{end}", line.text);
         match runs.last_mut() {
             Some((mark, run)) if *mark == line.mark => {
-                run.push_str(&text)
+                run.push_str(&text);
             }
-            _ => runs.push((line.mark, text)),
+            _ => runs.push((line.mark.clone(), text)),
         }
     }
     AnyView::new(move |cx: &mut Cx| {
@@ -110,12 +111,12 @@ fn block(lines: &[Line]) -> AnyView {
             cx.world.get_resource::<Mono>().map(|m| m.0.clone());
         for (mark, text) in runs {
             let (ink, plate) = match mark {
-                Mark::Same => (theme.tone(Tone::Dim), None),
-                Mark::Out => (
+                Mark::Space => (theme.tone(Tone::Dim), None),
+                Mark::Minus => (
                     theme.tone(Tone::Critical),
                     Some(theme.palette.red_deep),
                 ),
-                Mark::In => (
+                Mark::Plus => (
                     theme.palette.moss,
                     Some(theme.palette.moss_deep),
                 ),
@@ -163,7 +164,8 @@ fn plate(
     let mut parts = vec![block(shown)];
     parts.extend(more);
     // Past what a transcript keeps of a change.
-    let lost = change.total.saturating_sub(change.lines.len());
+    let lost =
+        (change.total as usize).saturating_sub(change.lines.len());
     if most >= change.lines.len() && lost > 0 {
         parts.push(note(format!("... {lost} more lines")).boxed());
     }
@@ -179,11 +181,10 @@ fn plate(
 
 /// The end of a tool call's entry, and the words for an edit that
 /// changed nothing.
-fn ended(entry: Option<&Entry>) -> (Option<i32>, Option<String>) {
+fn ended(entry: Option<&Entry>) -> (Option<i64>, Option<String>) {
     match entry {
-        Some(Entry::Tool { exit, change, .. }) => {
-            let why =
-                change.as_ref().and_then(|c| c.failure.as_ref());
+        Some(Entry::Tool { exit, failure, .. }) => {
+            let why = failure.as_ref();
             let refused = match (exit, why) {
                 (Some(0) | None, _) => None,
                 (Some(_), Some(why)) => {
@@ -201,19 +202,23 @@ fn ended(entry: Option<&Entry>) -> (Option<i32>, Option<String>) {
 /// count and how the call ended, over its lines.
 pub(crate) fn change_view(
     session: Entity,
-    id: u64,
+    id: String,
     change: Change,
 ) -> AnyView {
-    let key = (session, id);
-    let entry = move |world: &World| {
-        ended(
-            world.get::<Transcript>(session).and_then(|t| t.get(id)),
-        )
-    };
+    let key = (session, id.clone());
+    let entry_id = id.clone();
+    let entry =
+        move |world: &World| {
+            ended(world.get::<Transcript>(session).and_then(|t| {
+                t.item(&entry_id).map(|item| &item.entry)
+            }))
+        };
     let verb = if change.created { "Create" } else { "Edit" };
+    let fold_key = key.clone();
+    let toggle_key = key.clone();
     let fold = button(
         label(resource::<Changes, _>(move |changes| {
-            let mark = match changes.extent(key) {
+            let mark = match changes.extent(&fold_key) {
                 Extent::Shut => "+",
                 _ => "-",
             };
@@ -225,14 +230,17 @@ pub(crate) fn change_view(
     )
     .rules(ghost)
     .on_activate(move |world| {
-        flip(&mut world.resource_mut::<Changes>().shut, key);
+        flip(
+            &mut world.resource_mut::<Changes>().shut,
+            toggle_key.clone(),
+        );
     });
     // The file is looked for again once the turn has ended, when a
     // new one is there.
     let path = change.path.clone();
     let file = keyed(
         component::<Transcript, _>(session, |t| {
-            t.is_some_and(Transcript::answering)
+            t.is_some_and(Transcript::is_answering)
         }),
         move |_| {
             markdown::typed(&path, "")
@@ -247,10 +255,14 @@ pub(crate) fn change_view(
     let mut moved = component::<Transcript, _>(session, |_| ());
     let mut turned = resource::<Changes, _>(|_| ());
     let mut seen = None;
+    let read_key = key.clone();
+    let check_key = key.clone();
+    let read_entry = entry.clone();
     let drawn = bevy_fynix::Signal::new(
         move |world: &World| {
-            let extent = world.resource::<Changes>().extent(key);
-            (extent, entry(world).1)
+            let extent =
+                world.resource::<Changes>().extent(&read_key);
+            (extent, read_entry(world).1)
         },
         move |world: &World| {
             // Both are asked, so that neither is left unread.
@@ -259,7 +271,8 @@ pub(crate) fn change_view(
             if !stirred {
                 return false;
             }
-            let extent = world.resource::<Changes>().extent(key);
+            let extent =
+                world.resource::<Changes>().extent(&check_key);
             let now = Some((extent, entry(world).1));
             let differs = seen != now;
             seen = now;
@@ -267,7 +280,7 @@ pub(crate) fn change_view(
         },
     );
     let body = keyed(drawn, move |(extent, refused)| {
-        let mut parts = vec![note(change.count()).boxed()];
+        let mut parts = vec![note(change.count.clone()).boxed()];
         if let Some(refused) = refused {
             parts.push(
                 label(refused.clone())
@@ -277,7 +290,7 @@ pub(crate) fn change_view(
             );
         }
         if *extent != Extent::Shut && !change.lines.is_empty() {
-            parts.push(lines_view(key, &change, *extent));
+            parts.push(lines_view(key.clone(), &change, *extent));
         }
         column(parts)
             .gap(4.0)
@@ -291,7 +304,7 @@ pub(crate) fn change_view(
 /// The lines of `change` as far as `extent` goes, with the button
 /// that shows the rest or puts it away.
 fn lines_view(
-    key: (Entity, u64),
+    key: (Entity, String),
     change: &Change,
     extent: Extent,
 ) -> AnyView {
@@ -304,7 +317,7 @@ fn lines_view(
         } else {
             format!(
                 "... {} more lines",
-                change.total.saturating_sub(most)
+                (change.total as usize).saturating_sub(most)
             )
         };
         let more = (change.lines.len() > most).then(|| {
@@ -313,7 +326,7 @@ fn lines_view(
                 .on_activate(move |world| {
                     flip(
                         &mut world.resource_mut::<Changes>().whole,
-                        key,
+                        key.clone(),
                     );
                 })
                 .boxed()

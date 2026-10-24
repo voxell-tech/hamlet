@@ -70,7 +70,7 @@ camera has been or how many towns there are. Houses and robots are drawn
 only within `DetailSettings::town_far` and `robots_far`. What the society
 holds is bounded by the society.
 
-On the owner's machine a frame takes 2 to 3.5 ms from 8 towns seen near to
+On a 10-core Mac a frame takes 2 to 3.5 ms from 8 towns seen near to
 42 towns at the widest view. The settings are in `assets/world.toml`, and
 each is explained beside its field.
 
@@ -111,7 +111,7 @@ cannot take is recorded and refused by the world, and the town stays.
 
 ## Another kind of place: the chief's
 
-Moving is built on `society::Place`, a thing that holds a round of ground
+Moving is built on `society::Ground`, a thing that holds a round of ground
 and can be picked up and set down. A town is one kind and the Hearth is
 another. A kind of place needs four things:
 

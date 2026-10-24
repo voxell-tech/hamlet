@@ -7,7 +7,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row, scroll,
 };
 use bevy_fynix::{ViewExt, keyed, resource};
-use hamlet_core::agents::{LivesIn, MergedInto, Purpose};
+use hamlet_client::realm::{LivesIn, MergedInto, Purpose};
 use hamlet_realm::pick::{Selected, Thing, select};
 
 use super::agent::dim;
@@ -26,7 +26,7 @@ use crate::{AnyView, Cx, View, lists, overview};
 pub(super) fn ruin(agent: Entity) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let named = |agent: Entity| {
-            hamlet_core::agents::name_of(cx.world, agent)
+            hamlet_client::realm::name_of(cx.world, agent)
         };
         let name = named(agent);
         let fate = match cx.world.get::<MergedInto>(agent) {
@@ -55,14 +55,17 @@ pub(super) fn ruin(agent: Entity) -> AnyView {
                         Glyph::Restore,
                         "RESTORE",
                         move |world| {
-                            world_menu::restore(world, agent)
+                            world_menu::restore(world, agent);
                         },
                     ),
                     bad_action(
                         Glyph::Delete,
                         "DELETE FOR GOOD",
                         move |world| {
-                            world_menu::ask(world, Deed::Erase(agent))
+                            world_menu::ask(
+                                world,
+                                Deed::Erase(agent),
+                            );
                         },
                     ),
                     action(
@@ -97,14 +100,14 @@ pub(super) fn library() -> impl View {
         // is narrow.
         crate::looks::buttons(vec![
             crate::looks::back("ALL HAMLETS", |world| {
-                select(world, None)
+                select(world, None);
             })
             .boxed(),
             action(Glyph::Move, "MOVE", |world| {
                 hamlet_realm::moving::pick_up(
                     world,
-                    hamlet_realm::generator::society::Place::Library,
-                )
+                    hamlet_realm::generator::society::Ground::Library,
+                );
             }),
         ]),
         dim("Every agent shares these skills. An agent offers one \

@@ -2,8 +2,10 @@
 //! choices of the View menu, and the selection.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use bevy::app::{App, Update};
+use anyhow::{Context, Result};
+use bevy::app::{App, PreUpdate, Update};
 use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::name::Name;
@@ -13,13 +15,13 @@ use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
 use bevy::ecs::system::{Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::time::Time;
+use bevy::time::{Real, Time};
 use bevy_fynix::dock::{
     DockAreaStyle, DockLeaf, DockNode, DockRegistry, DockSplit,
     DockTree, NodeId, SplitAxis,
 };
-use hamlet_core::agents::{Citizen, Left, Settlement};
-use hamlet_core::core::HomeDir;
+use hamlet_client::ViewFolder;
+use hamlet_client::realm::{AgentNumber, HamletId, Left};
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_realm::chief;
 use hamlet_realm::pick::{Selected, Thing, select};
@@ -27,6 +29,7 @@ use hamlet_realm::sky::Quality;
 use hamlet_realm::sound::SoundSettings;
 use serde::{Deserialize, Serialize};
 
+use crate::PanelSystems;
 use crate::me::Me;
 use crate::roll::Roll;
 use crate::theme::HamletTheme;
@@ -36,18 +39,24 @@ use crate::world_view::TimeOfDay;
 /// divider writes once.
 const SETTLE: f32 = 0.8;
 
-/// The frames a remembered selection is looked for before it is given
-/// up: an agent removed since never comes.
-const PATIENCE: u32 = 240;
+/// The time a remembered selection is looked for before it is given
+/// up: an agent removed since never comes. Longer than the first
+/// reconnection tries, for a window opened before its server listens.
+const PATIENCE: Duration = Duration::from_secs(10);
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Pending>()
         .init_resource::<Kept>()
         .add_systems(
+            PreUpdate,
+            reselect
+                .run_if(|pending: Res<Pending>| pending.is_seeking())
+                .in_set(PanelSystems::Follow),
+        )
+        // After fynix has moved the dock.
+        .add_systems(
             Update,
             (
-                reselect
-                    .run_if(|pending: Res<Pending>| pending.seeks()),
                 note_selected.run_if(
                     resource_changed::<Selected>
                         .or_eager(resource_changed::<Roll>),
@@ -68,10 +77,8 @@ enum Part {
         tabs: Vec<String>,
         /// The place of the tab in front.
         front: usize,
-        #[serde(default)]
         headless: bool,
         /// It stays when its last tab is closed.
-        #[serde(default)]
         kept: bool,
     },
     Split {
@@ -88,24 +95,42 @@ enum Part {
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct View {
     sky: TimeOfDay,
-    // On where the file says nothing of them.
-    #[serde(default = "on")]
     sound_on: bool,
-    #[serde(default = "on")]
     music_on: bool,
-    #[serde(default = "full")]
     sound_level: f32,
-    #[serde(default = "full")]
     music_level: f32,
-    #[serde(default = "on")]
     keep_awake: bool,
-    #[serde(default)]
     quality: Quality,
-    #[serde(default)]
     dock: Vec<Part>,
     /// The selection when the window closed.
-    #[serde(default)]
     selected: Option<Chosen>,
+}
+
+/// The view kept in the window's folder, as read at launch; none
+/// before the first launch.
+#[derive(Resource, Clone, Debug, Default)]
+pub struct Remembered(Option<View>);
+
+impl Remembered {
+    /// The view `view` keeps; an error naming the file when it does
+    /// not parse.
+    pub fn read(view: &Path) -> Result<Self> {
+        let file = file(view);
+        let text = match std::fs::read_to_string(&file) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Self(None));
+            }
+            Err(e) => {
+                return Err(e).with_context(|| {
+                    format!("reading {}", file.display())
+                });
+            }
+        };
+        toml::from_str::<View>(&text)
+            .map(|view| Self(Some(view)))
+            .map_err(|e| chief::unparsed(&file, e.message()))
+    }
 }
 
 /// Something that was selected, by a name that lasts from one
@@ -133,13 +158,13 @@ pub enum Chosen {
 #[derive(Resource, Default)]
 pub(crate) struct Pending {
     chosen: Option<Chosen>,
-    /// Frames it has been looked for.
-    tried: u32,
+    /// The real time it was first looked for.
+    began: Option<Duration>,
 }
 
 impl Pending {
     /// A remembered selection is still looked for.
-    pub(crate) fn seeks(&self) -> bool {
+    pub(crate) fn is_seeking(&self) -> bool {
         self.chosen.is_some()
     }
 }
@@ -148,7 +173,7 @@ impl Chosen {
     /// `thing` by the names it will still have at the next launch.
     fn of(
         names: &Query<&Name>,
-        hamlets: &Query<&Settlement>,
+        hamlets: &Query<&HamletId>,
         thing: Thing,
     ) -> Option<Chosen> {
         let name = |of: Entity| {
@@ -157,13 +182,11 @@ impl Chosen {
         Some(match thing {
             Thing::Keeper => Chosen::Mayor,
             Thing::Cottage => Chosen::Hall,
-            Thing::Resident(agent) => Chosen::Agent(name(agent)?),
-            Thing::ResidentHouse(agent) => {
-                Chosen::House(name(agent)?)
-            }
+            Thing::Agent(agent) => Chosen::Agent(name(agent)?),
+            Thing::House(agent) => Chosen::House(name(agent)?),
             Thing::Ruin(agent) => Chosen::Ruin(name(agent)?),
             Thing::Common(hamlet) => {
-                Chosen::Hamlet(hamlets.get(hamlet).ok()?.name.clone())
+                Chosen::Hamlet(hamlets.get(hamlet).ok()?.0.clone())
             }
             Thing::Chief(_) => Chosen::Chief,
             Thing::ChiefPlace(_) => Chosen::Hearth,
@@ -180,7 +203,7 @@ impl Chosen {
         // An agent by its name, living or gone as asked.
         let agent = |world: &mut World, name: &str, gone: bool| {
             world
-                .query_filtered::<(Entity, &Name, Has<Left>), With<Citizen>>()
+                .query_filtered::<(Entity, &Name, Has<Left>), With<AgentNumber>>()
                 .iter(world)
                 .find(|(_, called, left)| {
                     called.as_str() == name && *left == gone
@@ -191,24 +214,20 @@ impl Chosen {
             Chosen::Mayor => Thing::Keeper,
             Chosen::Hall => Thing::Cottage,
             Chosen::Agent(name) => {
-                Thing::Resident(agent(world, name, false)?)
+                Thing::Agent(agent(world, name, false)?)
             }
             Chosen::House(name) => {
-                Thing::ResidentHouse(agent(world, name, false)?)
+                Thing::House(agent(world, name, false)?)
             }
             Chosen::Ruin(name) => {
                 Thing::Ruin(agent(world, name, true)?)
             }
             Chosen::Hamlet(name) => Thing::Common(
-                world
-                    .query::<(Entity, &Settlement)>()
-                    .iter(world)
-                    .find(|(_, hamlet)| hamlet.name == *name)
-                    .map(|(hamlet, _)| hamlet)?,
+                hamlet_client::realm::hamlet(world, name)?,
             ),
             Chosen::Chief | Chosen::Hearth => {
-                let user = world.resource::<Me>().user.clone();
-                let chief = chief::named(world, &user)?;
+                let name = world.resource::<Me>().name.clone();
+                let chief = chief::named(world, &name)?;
                 match self {
                     Chosen::Chief => Thing::Chief(chief),
                     _ => Thing::ChiefPlace(chief),
@@ -236,25 +255,17 @@ pub(crate) fn reselect(world: &mut World) {
             world.resource_mut::<Pending>().chosen = None;
         }
         None => {
+            let now = world.resource::<Time<Real>>().elapsed();
             let mut pending = world.resource_mut::<Pending>();
-            pending.tried += 1;
-            if pending.tried > PATIENCE {
+            if now - *pending.began.get_or_insert(now) > PATIENCE {
                 pending.chosen = None;
             }
         }
     }
 }
 
-fn on() -> bool {
-    true
-}
-
-fn full() -> f32 {
-    1.0
-}
-
-fn file(home: &Path) -> PathBuf {
-    home.join("view.toml")
+fn file(view: &Path) -> PathBuf {
+    view.join("view.toml")
 }
 
 /// Writes the node `id` and all under it to `parts`, and gives its
@@ -407,17 +418,18 @@ fn rebuilt(
     Some(tree)
 }
 
-fn read(home: &Path) -> Option<View> {
-    let text = std::fs::read_to_string(file(home)).ok()?;
-    toml::from_str::<View>(&text).ok()
+/// Whether a kept dock was put back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Restored {
+    Dock,
+    /// None was kept, or the one kept cannot be built again.
+    NoDock,
 }
 
-/// Puts back the kept View choices and the kept dock. False when
-/// there is no dock to put back.
-pub fn restore(world: &mut World) -> bool {
-    let home = world.resource::<HomeDir>().0.root.clone();
-    let Some(view) = read(&home) else {
-        return false;
+/// Puts back the kept View choices and the kept dock.
+pub fn restore(world: &mut World) -> Restored {
+    let Some(view) = world.resource::<Remembered>().0.clone() else {
+        return Restored::NoDock;
     };
     *world.resource_mut::<TimeOfDay>() = view.sky;
     let mut sound = world.resource_mut::<SoundSettings>();
@@ -429,15 +441,15 @@ pub fn restore(world: &mut World) -> bool {
     *world.resource_mut::<Quality>() = view.quality;
     world.insert_resource(Pending {
         chosen: view.selected.clone(),
-        tried: 0,
+        began: None,
     });
     let registry = world.resource::<DockRegistry<HamletTheme>>();
     let known = |id: &str| registry.get(id).is_some();
     let Some(tree) = rebuilt(&view.dock, &known) else {
-        return false;
+        return Restored::NoDock;
     };
     *world.resource_mut::<DockTree>() = tree;
-    true
+    Restored::Dock
 }
 
 /// The selection, by the names it is kept under.
@@ -448,7 +460,7 @@ pub(crate) struct Kept(Option<Chosen>);
 pub(crate) fn note_selected(
     selected: Res<Selected>,
     names: Query<&Name>,
-    hamlets: Query<&Settlement>,
+    hamlets: Query<&HamletId>,
     mut kept: ResMut<Kept>,
 ) {
     let chosen = selected
@@ -460,10 +472,9 @@ pub(crate) fn note_selected(
 }
 
 /// Writes the view once it has changed and then stood still.
-#[allow(clippy::too_many_arguments)]
 pub fn keep(
     time: Res<Time>,
-    home: Res<HomeDir>,
+    folder: Res<ViewFolder>,
     tree: Res<DockTree>,
     sky: Res<TimeOfDay>,
     sound: Res<SoundSettings>,
@@ -502,8 +513,10 @@ pub fn keep(
     if written.as_ref() == Some(&view) {
         return;
     }
-    if let Ok(text) = toml::to_string(&view) {
-        let _ = std::fs::write(file(&home.0.root), text);
+    if let Ok(text) = toml::to_string(&view)
+        && std::fs::create_dir_all(&folder.0).is_ok()
+    {
+        let _ = std::fs::write(file(&folder.0), text);
     }
     *written = Some(view);
 }
@@ -532,22 +545,113 @@ mod tests {
     }
 
     #[test]
+    fn a_changed_dock_and_view_choices_return_from_the_view_folder() {
+        use bevy_fynix::ViewExt;
+        use bevy_fynix::dock::DockWindowKind;
+        use bevy_fynix::views::column;
+        use hamlet_client::ViewFolder;
+        use hamlet_testing::Scratch;
+
+        let dir = Scratch::new("view-dock");
+        let make = || {
+            let mut app = App::new();
+            app.insert_resource(ViewFolder(dir.join("view")))
+                .init_resource::<Time>()
+                .init_resource::<Selected>()
+                .init_resource::<Roll>()
+                .init_resource::<DockTree>()
+                .init_resource::<TimeOfDay>()
+                .init_resource::<SoundSettings>()
+                .init_resource::<Quality>()
+                .init_resource::<KeepAwake>()
+                .init_resource::<DockRegistry<HamletTheme>>()
+                .add_plugins(plugin);
+            for name in ["world", "needs", "agent", "skills"] {
+                app.world_mut()
+                    .resource_mut::<DockRegistry<HamletTheme>>()
+                    .register(
+                        name,
+                        DockWindowKind::new(name, || {
+                            column(()).boxed()
+                        }),
+                    );
+            }
+            app
+        };
+        let mut app = make();
+        app.update();
+        *app.world_mut().resource_mut::<DockTree>() = dock();
+        *app.world_mut().resource_mut::<TimeOfDay>() =
+            TimeOfDay::Night;
+        app.world_mut().resource_mut::<SoundSettings>().music_on =
+            false;
+        *app.world_mut().resource_mut::<Quality>() = Quality::Medium;
+        app.world_mut().resource_mut::<KeepAwake>().0 = false;
+        app.update();
+        assert!(!dir.join("view/view.toml").exists());
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_secs(1));
+        app.update();
+        assert!(dir.join("view/view.toml").exists());
+        assert!(!dir.join("view.toml").exists());
+
+        let mut relaunched = make();
+        relaunched.insert_resource(
+            Remembered::read(&dir.join("view")).unwrap(),
+        );
+        assert_eq!(restore(relaunched.world_mut()), Restored::Dock);
+        assert_eq!(
+            *relaunched.world().resource::<TimeOfDay>(),
+            TimeOfDay::Night
+        );
+        assert!(
+            !relaunched.world().resource::<SoundSettings>().music_on
+        );
+        assert_eq!(
+            *relaunched.world().resource::<Quality>(),
+            Quality::Medium
+        );
+        assert!(!relaunched.world().resource::<KeepAwake>().0);
+        let tree = relaunched.world().resource::<DockTree>();
+        let needs = tree.find_leaf_with_window("needs").unwrap();
+        assert_eq!(
+            tree.get(tree.parent_of(needs).unwrap())
+                .unwrap()
+                .as_split()
+                .unwrap()
+                .fraction,
+            0.2
+        );
+        let side = tree.find_leaf_with_window("agent").unwrap();
+        assert_eq!(
+            tree.leaf(side)
+                .unwrap()
+                .tabs()
+                .map(|(name, _)| name)
+                .collect::<Vec<_>>(),
+            ["agent", "skills"]
+        );
+    }
+
+    #[test]
     fn what_was_selected_is_selected_again_once_it_is_there() {
         let mut world = World::new();
+        world.init_resource::<Time<Real>>();
         world.init_resource::<Selected>();
         world.init_resource::<hamlet_realm::pick::Also>();
         world.init_resource::<Kept>();
         world.insert_resource(Pending {
             chosen: Some(Chosen::House("scout".into())),
-            tried: 0,
+            began: None,
         });
         // Its agent is not in the world yet: nothing is selected.
         reselect(&mut world);
         assert_eq!(world.resource::<Selected>().0, None);
         let scout =
-            world.spawn((Name::new("scout"), Citizen(1))).id();
+            world.spawn((Name::new("scout"), AgentNumber(1))).id();
         reselect(&mut world);
-        let house = Thing::ResidentHouse(scout);
+        let house = Thing::House(scout);
         assert_eq!(world.resource::<Selected>().0, Some(house));
         assert!(world.resource::<Pending>().chosen.is_none());
         // And it is kept under the same name for the next launch.
@@ -561,12 +665,17 @@ mod tests {
         select(&mut world, None);
         world.insert_resource(Pending {
             chosen: Some(Chosen::Agent("nobody".into())),
-            tried: 0,
+            began: None,
         });
-        for _ in 0..=PATIENCE {
-            reselect(&mut world);
-        }
-        assert!(world.resource::<Pending>().chosen.is_none());
+        reselect(&mut world);
+        world.resource_mut::<Time<Real>>().advance_by(PATIENCE);
+        reselect(&mut world);
+        assert!(world.resource::<Pending>().is_seeking());
+        world
+            .resource_mut::<Time<Real>>()
+            .advance_by(Duration::from_millis(16));
+        reselect(&mut world);
+        assert!(!world.resource::<Pending>().is_seeking());
         assert_eq!(world.resource::<Selected>().0, None);
     }
 
@@ -586,12 +695,6 @@ mod tests {
         let text = toml::to_string(&view).unwrap();
         let read = toml::from_str::<View>(&text).unwrap();
         assert_eq!(read, view);
-        // A view that says nothing of sound or music has both.
-        let before = text
-            .replace("sound_on = false\n", "")
-            .replace("music_on = false\n", "");
-        let before = toml::from_str::<View>(&before).unwrap();
-        assert!(before.sound_on && before.music_on);
 
         let tree = rebuilt(&read.dock, &|_| true).unwrap();
         assert_eq!(noted(&tree), view.dock);
@@ -600,6 +703,28 @@ mod tests {
         let leaf = tree.leaf(side).unwrap();
         assert_eq!(leaf.tabs().count(), 2);
         assert_eq!(leaf.tab_index(front), Some(0));
+    }
+
+    #[test]
+    fn a_view_that_does_not_parse_is_refused_and_left() {
+        use hamlet_testing::Scratch;
+
+        let dir = Scratch::new("view-unparsed");
+        assert!(Remembered::read(&dir).unwrap().0.is_none());
+        let text = "sky = \"night\"\n";
+        std::fs::write(file(&dir), text).unwrap();
+        let error = Remembered::read(&dir).unwrap_err().to_string();
+        assert!(
+            error.starts_with(&format!(
+                "{} does not parse",
+                file(&dir).display()
+            )),
+            "{error}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(file(&dir)).unwrap(),
+            text
+        );
     }
 
     #[test]

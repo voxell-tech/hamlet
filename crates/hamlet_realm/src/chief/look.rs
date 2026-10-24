@@ -154,8 +154,7 @@ impl Holds {
     }
 }
 
-/// A chief's look. A choice a file leaves out is the first of its
-/// kind.
+/// A chief's look.
 #[derive(
     Component,
     Clone,
@@ -167,7 +166,6 @@ impl Holds {
     Serialize,
     Deserialize,
 )]
-#[serde(default)]
 pub struct Look {
     pub cloak: Cloak,
     pub light: Light,
@@ -206,38 +204,19 @@ impl Look {
         )
     }
 
-    /// The file the look of the chief `user` is kept in, under the
-    /// home at `home`.
-    pub fn file(home: &Path, user: &str) -> PathBuf {
-        let name = user
-            .chars()
-            .map(|c| {
-                if c.is_alphanumeric() || c == '-' || c == '_' {
-                    c
-                } else {
-                    '_'
-                }
-            })
-            .collect::<String>();
-        home.join("chiefs").join(format!("{name}.toml"))
+    /// The file for the chief's look under the window's folder.
+    pub fn file(view: &Path, name: &str) -> PathBuf {
+        view.join("chiefs")
+            .join(format!("{}.toml", kept_name(name)))
     }
 
-    /// The kept look of `user`, or the first look where none is
-    /// kept or it cannot be read.
-    pub fn read(home: &Path, user: &str) -> Look {
-        std::fs::read_to_string(Self::file(home, user))
-            .ok()
-            .and_then(|text| toml::from_str::<Look>(&text).ok())
-            .unwrap_or_default()
-    }
-
-    /// Keeps the look of `user`.
+    /// Keeps the look of the chief `name`.
     pub fn write(
         self,
-        home: &Path,
-        user: &str,
+        view: &Path,
+        name: &str,
     ) -> std::io::Result<()> {
-        let file = Self::file(home, user);
+        let file = Self::file(view, name);
         if let Some(folder) = file.parent() {
             std::fs::create_dir_all(folder)?;
         }
@@ -245,4 +224,18 @@ impl Look {
             toml::to_string(&self).map_err(std::io::Error::other)?;
         std::fs::write(file, text)
     }
+}
+
+/// The name the files of the chief `name` are kept under in the
+/// window's folder.
+pub(crate) fn kept_name(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }

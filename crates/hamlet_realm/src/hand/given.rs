@@ -1,12 +1,13 @@
-//! Letters handed to an agent, and the gift and the introduction the
-//! core's answer shows.
+//! File drops offered to the server, and gifts and introductions in
+//! the world.
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::window::FileDragAndDrop;
-use hamlet_core::agents::Mayor;
+use hamlet_client::realm::{Deeds, Mayor};
 
 use super::toys::{self, Kind, Toys};
-use super::{Hand, Mood, PlaySettings, Wish, free, met, toward};
+use super::{Hand, Mood, PlaySettings, Wish, is_free, met, toward};
 use crate::Clock;
 use crate::generator::{Passage, Robot};
 use crate::hamlet::Housed;
@@ -14,24 +15,73 @@ use crate::keeper::Act;
 use crate::pick::{Hovered, Thing};
 use crate::play::{Play, Played};
 
+/// The clocks, tuning, toys and deeds a letter is handed over with.
+#[derive(SystemParam)]
+pub(super) struct Post<'w> {
+    time: Res<'w, Time>,
+    clock: Res<'w, Clock>,
+    set: Res<'w, PlaySettings>,
+    toys: Option<Res<'w, Toys>>,
+    deeds: Option<Res<'w, Deeds>>,
+}
+
+/// The thing under the pointer, and the robots and agents a letter
+/// may go to.
+#[derive(SystemParam)]
+pub(super) struct Addressees<'w, 's> {
+    hovered: Res<'w, Hovered>,
+    boxes: Query<'w, 's, (Entity, &'static Thing, &'static ChildOf)>,
+    plain: Query<'w, 's, &'static Robot>,
+    agents: Query<'w, 's, (Entity, &'static Housed, Has<Mayor>)>,
+    places: Query<
+        'w,
+        's,
+        (&'static Transform, Option<&'static Passage>),
+        With<Robot>,
+    >,
+}
+
+/// The messages a letter handed over writes: the wish to give it, and
+/// what is played.
+#[derive(SystemParam)]
+pub(super) struct Writers<'w> {
+    played: MessageWriter<'w, Played>,
+    wishes: MessageWriter<'w, Wish>,
+}
+
 /// Hands each file dropped on the window to the agent whose robot
 /// or house the pointer is on. One that fell on nothing is let lie.
 pub(super) fn letters(
     mut commands: Commands,
-    time: Res<Time>,
-    clock: Res<Clock>,
-    set: Res<PlaySettings>,
-    toys: Option<Res<Toys>>,
-    hovered: Res<Hovered>,
+    post: Post,
+    addressees: Addressees,
+    writers: Writers,
     mut dropped: MessageReader<FileDragAndDrop>,
     mut hand: ResMut<Hand>,
-    boxes: Query<(Entity, &Thing, &ChildOf)>,
-    plain: Query<&Robot>,
-    agents: Query<(Entity, &Housed, Has<Mayor>)>,
-    places: Query<(&Transform, Option<&Passage>), With<Robot>>,
-    mut played: MessageWriter<Played>,
-    mut wishes: MessageWriter<Wish>,
 ) {
+    let Post {
+        time,
+        clock,
+        set,
+        toys,
+        deeds,
+    } = post;
+    let Addressees {
+        hovered,
+        boxes,
+        plain,
+        agents,
+        places,
+    } = addressees;
+    let Writers {
+        mut played,
+        mut wishes,
+    } = writers;
+    if !deeds.is_some_and(|deeds| deeds.is_supported("give")) {
+        dropped.clear();
+        hand.letters.clear();
+        return;
+    }
     for drop in dropped.read() {
         if let FileDragAndDrop::DroppedFile { path_buf, .. } = drop {
             hand.letters.push((path_buf.clone(), set.letter_wait));
@@ -56,7 +106,7 @@ pub(super) fn letters(
     let caught = robot.and_then(|robot| {
         let (place, passage) = places.get(robot).ok()?;
         let of = plain.get(robot).ok()?;
-        Some((robot, place.translation, free(of, passage)))
+        Some((robot, place.translation, is_free(of, passage)))
     });
     for (i, (path, _)) in hand.letters.drain(..).enumerate() {
         wishes.write(Wish::Letter { to, path });
@@ -107,7 +157,7 @@ fn cue(
     let (robot, at) = robot_for(world, agent)?;
     let free = world
         .get::<Robot>(robot)
-        .is_some_and(|of| free(of, world.get::<Passage>(robot)));
+        .is_some_and(|of| is_free(of, world.get::<Passage>(robot)));
     let now = world.resource::<Clock>().t;
     if free && let Some(mut mood) = world.get_mut::<Mood>(robot) {
         mood.joins = Some((now, act));

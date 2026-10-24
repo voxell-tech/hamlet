@@ -19,7 +19,7 @@ pub struct Clip {
 
 /// A [`Clip`] being played.
 pub struct Playing {
-    left: std::vec::IntoIter<f32>,
+    left: vec::IntoIter<f32>,
     channels: u16,
     long: Duration,
 }

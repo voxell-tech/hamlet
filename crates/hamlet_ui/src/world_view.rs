@@ -1,5 +1,5 @@
 //! The world in the window: the 3D scene drawn into a dock panel, the
-//! sky's hour, and the mayor's state on the stage.
+//! sky's hour.
 
 use bevy::app::{App, PostUpdate, PreUpdate, Update};
 use bevy::asset::{Assets, RenderAssetUsages};
@@ -32,21 +32,18 @@ use bevy_fynix::ViewExt;
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::views::{BehaviorExt, FrameProps, column, frame};
 use chrono::Timelike;
-use hamlet_core::agents::Busy;
-use hamlet_core::oversight::Waiting;
-use hamlet_core::session::{Entry, Status, Transcript};
+use hamlet_client::realm::Busy;
+use hamlet_client::waits::Waiting;
 use hamlet_realm::bubble::Bubble;
 use hamlet_realm::hand::Readout;
-use hamlet_realm::keeper::KState;
 use hamlet_realm::needs::NeedTag;
 use hamlet_realm::pick::{NameTag, Sign, WorldSurface};
 use hamlet_realm::sky::SkySettings;
-use hamlet_realm::{Hour, Stage, WorldCamera, WorldSystems};
+use hamlet_realm::{Hour, RealmSystems, Stage, WorldCamera};
 
 use crate::dock::PanelAppExt;
 use crate::icons::Glyph;
 use crate::looks::{Fills, ICON};
-use crate::me::Me;
 use crate::window::WorldShown;
 use crate::{AnyView, Cx};
 
@@ -74,11 +71,11 @@ pub(crate) fn plugin(app: &mut App) {
     .add_systems(
         Update,
         (
-            drive.before(WorldSystems),
+            drive.in_set(RealmSystems::Steer),
             pace.run_if(in_state(WorldShown)),
             adopt_tags,
             follow_scale,
-            hold_sky.before(WorldSystems),
+            hold_sky.in_set(RealmSystems::Steer),
         ),
     )
     .add_systems(
@@ -121,13 +118,13 @@ pub(crate) enum TimeOfDay {
 }
 
 impl TimeOfDay {
-    fn night(self, set: &SkySettings) -> bool {
+    fn is_night(self, set: &SkySettings) -> bool {
         match self {
             Self::Day => false,
             Self::Night => true,
             Self::Clock => {
                 let now = chrono::Local::now();
-                set.night(
+                set.is_night(
                     now.hour() as f32 + now.minute() as f32 / 60.0,
                 )
             }
@@ -168,7 +165,7 @@ pub(crate) fn attach(world: &mut World) {
         .query_filtered::<&Window, With<PrimaryWindow>>()
         .iter(world)
         .next()
-        .map_or(1.0, |w| w.scale_factor());
+        .map_or(1.0, Window::scale_factor);
     let mut image = Image::new_uninit(
         Default::default(),
         TextureDimension::D2,
@@ -293,7 +290,6 @@ pub fn view() -> AnyView {
 
 /// Hangs every label placed in the camera's viewport off the panel
 /// that shows it.
-#[allow(clippy::type_complexity)]
 pub(crate) fn adopt_tags(
     mut commands: Commands,
     panel: Query<Entity, With<WorldPanel>>,
@@ -328,51 +324,30 @@ pub(crate) fn adopt_tags(
     }
 }
 
-/// Sets the stage from the session this window talks to.
-#[allow(clippy::too_many_arguments)]
+/// The sky's night state.
 pub(crate) fn drive(
-    me: Res<Me>,
     sky: Res<TimeOfDay>,
     sky_set: Res<SkySettings>,
-    sessions: Query<(&Status, &Transcript)>,
     mut stage: ResMut<Stage>,
 ) {
-    let (working, failed) = match sessions.get(me.mayor) {
-        Ok((status, transcript)) => (
-            status.working(),
-            matches!(transcript.last(), Some(Entry::Error(_))),
-        ),
-        Err(_) => (false, false),
-    };
-    let kstate = match (working, failed) {
-        (true, _) => KState::Working,
-        (false, true) => KState::Fault,
-        (false, false) => KState::Rest,
-    };
-    let next = Stage {
-        night: sky.night(&sky_set),
-        kstate,
-        ..stage.clone()
-    };
-    if *stage != next {
-        *stage = next;
+    let night = sky.is_night(&sky_set);
+    if stage.night != night {
+        stage.night = night;
     }
 }
 
 /// Draws every frame while something moves, and at the window's slow
 /// tick otherwise.
 pub fn pace(
-    stage: Res<Stage>,
     busy: Query<(), With<Busy>>,
     waiting: Query<(), With<Waiting>>,
     mut winit: ResMut<WinitSettings>,
 ) {
-    let moving =
-        stage.animating() || !busy.is_empty() || !waiting.is_empty();
+    let moving = !busy.is_empty() || !waiting.is_empty();
     let mode = if moving {
         UpdateMode::Continuous
     } else {
-        crate::window::winit_settings(false).focused_mode
+        crate::window::winit_settings().focused_mode
     };
     if winit.focused_mode != mode {
         winit.focused_mode = mode;
@@ -390,5 +365,43 @@ pub fn draw(mut cameras: WorldCameras) {
 pub fn rest(mut cameras: WorldCameras) {
     for mut camera in &mut cameras {
         camera.is_active = false;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_protocol::client as protocol;
+
+    use super::*;
+
+    #[test]
+    fn drawing_pace_follows_received_work_and_waits_without_a_stage()
+    {
+        let mut app = App::new();
+        app.add_plugins(hamlet_client::ClientPlugin { server: None });
+        app.insert_resource(crate::window::winit_settings());
+        app.add_systems(Update, pace);
+        let idle = crate::window::winit_settings().focused_mode;
+        for (busy, waiting, expected) in [
+            (false, false, idle),
+            (true, false, UpdateMode::Continuous),
+            (false, true, UpdateMode::Continuous),
+            (false, false, idle),
+        ] {
+            let mut state = hamlet_testing::realm::state();
+            state.agents[0].busy = busy;
+            if waiting {
+                state.waits.push(hamlet_testing::realm::wait("pace"));
+            }
+            hamlet_client::receive(
+                app.world_mut(),
+                protocol::ServerMessage::State(state),
+            );
+            app.update();
+            assert_eq!(
+                app.world().resource::<WinitSettings>().focused_mode,
+                expected
+            );
+        }
     }
 }

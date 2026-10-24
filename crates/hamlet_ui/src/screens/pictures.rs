@@ -24,8 +24,8 @@ use bevy::render::render_resource::{
     Extent3d, TextureDimension, TextureFormat,
 };
 use bevy::tasks::{AsyncComputeTaskPool, TaskPool};
-use hamlet_core::core::Tokio;
-use hamlet_core::session::JobFinished;
+use hamlet_client::Tokio;
+use hamlet_client::messages::JobFinished;
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
 };
@@ -169,7 +169,7 @@ impl Pictures {
     }
 
     /// True while a picture is being read.
-    pub fn waiting(&self) -> bool {
+    pub fn is_waiting(&self) -> bool {
         self.loading > 0
     }
 
@@ -317,7 +317,7 @@ fn settings(world: &World) -> ChatSettings {
 
 /// True when the name of `file` says it is a picture that can be
 /// read.
-fn pictured(file: &Path) -> bool {
+fn is_picture_file(file: &Path) -> bool {
     file.extension()
         .and_then(|ending| ending.to_str())
         .is_some_and(|ending| {
@@ -339,8 +339,8 @@ pub(crate) fn find(
             host(address).map(|_| Source::Web(address.clone()))
         }
         Target::Path(path) => {
-            let file =
-                seek(world, path).filter(|file| pictured(file))?;
+            let file = seek(world, path)
+                .filter(|file| is_picture_file(file))?;
             let bounds = bounds(&settings(world));
             world
                 .get_resource_or_init::<Pictures>()
@@ -456,9 +456,9 @@ fn look_again(
 mod tests {
     use bevy::math::UVec2;
 
-    use super::load::tests::png;
     use super::*;
     use crate::links::Roots;
+    use crate::testing::png;
 
     fn ready(side: u32) -> State {
         State::Ready(Drawn {
@@ -535,6 +535,54 @@ mod tests {
         assert_eq!(pictures.state(&file), State::Loading);
         pictures.settle(file.clone(), now, ready(2));
         assert_eq!(pictures.state(&file), ready(2));
-        assert!(!pictures.waiting());
+        assert!(!pictures.is_waiting());
+    }
+
+    #[test]
+    fn an_absolute_local_picture_loads_without_a_house_or_work_folder()
+     {
+        use std::time::{Duration, Instant};
+
+        use bevy::ui::widget::ImageNode;
+        use bevy_fynix::tokens::Tone;
+
+        use crate::theme::HamletTheme;
+        let scratch =
+            hamlet_testing::Scratch::new("absolute-picture");
+        let file = scratch.join("pear.png");
+        std::fs::write(&file, png(UVec2::new(4, 4))).unwrap();
+        let mut app = crate::testing::panel_app();
+        app.init_resource::<Assets<Image>>()
+            .init_resource::<ChatSettings>()
+            .add_plugins(plugin);
+        bevy_fynix::mount::<HamletTheme>(
+            app.world_mut(),
+            crate::markdown::fixed(
+                &format!("![pear]({})", file.display()),
+                Tone::Body,
+            ),
+        );
+        let start = Instant::now();
+        loop {
+            app.update();
+            let image = app
+                .world_mut()
+                .query::<&ImageNode>()
+                .iter(app.world())
+                .find_map(|node| {
+                    app.world()
+                        .resource::<Assets<Image>>()
+                        .get(&node.image)
+                });
+            if let Some(image) = image {
+                assert_eq!(image.size(), UVec2::new(4, 4));
+                break;
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(5),
+                "picture did not load"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
 }

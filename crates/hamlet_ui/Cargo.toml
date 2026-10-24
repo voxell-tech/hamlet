@@ -3,20 +3,21 @@ name = "hamlet_ui"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
 description = "The command center window: the dock, the panels, the menus and the pointer around the world"
 
 [lints]
 workspace = true
 
 [dependencies]
+anyhow.workspace = true
+hamlet_client.workspace = true
 hamlet_assets.workspace = true
-hamlet_core.workspace = true
 hamlet_desktop.workspace = true
-hamlet_home.workspace = true
-hamlet_model.workspace = true
-hamlet_rules.workspace = true
+hamlet_protocol.workspace = true
 hamlet_realm.workspace = true
-bevy.workspace = true
+bevy = { workspace = true, features = ["bevy_asset", "bevy_camera", "bevy_clipboard", "bevy_color", "bevy_image", "bevy_input_focus", "bevy_log", "bevy_picking", "bevy_render", "bevy_shader", "bevy_state", "bevy_text", "bevy_ui", "bevy_ui_render", "bevy_ui_widgets", "bevy_window", "bevy_winit", "custom_cursor", "default_font"] }
 bevy_fynix.workspace = true
 chrono.workspace = true
 image.workspace = true

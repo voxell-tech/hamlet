@@ -1,4 +1,4 @@
-//! The parts every robot has, and the leader's dress.
+//! The parts every robot has, and the mayor's dress.
 
 use bevy::prelude::*;
 
@@ -6,7 +6,7 @@ use super::Piece;
 use crate::keeper::Emblem;
 use crate::keeper::pose::{FACE, HOOK, NECK, POLE_FOOT, WHEEL};
 use crate::lantern;
-use crate::meshes::Mb;
+use crate::meshes::Meshing;
 use crate::palette::Palette;
 
 /// Near white, so the paint material gives the colour.
@@ -52,9 +52,9 @@ pub(super) fn torso(pal: &Palette) -> Piece {
 }
 
 /// The winding key in its back, about its own axis.
-pub(super) fn key(pal: &Palette) -> Mb {
-    let mut mb = Mb::new();
-    mb.tube(
+pub(super) fn key(pal: &Palette) -> Meshing {
+    let mut meshing = Meshing::new();
+    meshing.tube(
         Vec3::Z * -0.2,
         Vec3::Z * -0.36,
         0.018,
@@ -63,17 +63,24 @@ pub(super) fn key(pal: &Palette) -> Mb {
         pal.brass,
         false,
     );
-    mb.torus(Vec3::Z * -0.42, Vec3::X, 0.065, 0.016, 14, pal.brass);
-    mb
+    meshing.torus(
+        Vec3::Z * -0.42,
+        Vec3::X,
+        0.065,
+        0.016,
+        14,
+        pal.brass,
+    );
+    meshing
 }
 
 pub(in crate::keeper) const KEY_AT: Vec3 = Vec3::new(0.0, 0.25, 0.0);
 
-pub(super) fn emblem(which: Emblem, pal: &Palette) -> Mb {
-    let mut mb = Mb::new();
+pub(super) fn emblem(which: Emblem, pal: &Palette) -> Meshing {
+    let mut meshing = Meshing::new();
     let at = Vec3::new(0.0, 0.21, 0.25);
     let mut bar = |c: Vec3, half: Vec2, turn: f32| {
-        mb.rbox(
+        meshing.rbox(
             at + c,
             Vec3::new(half.x, half.y, 0.006),
             0.003,
@@ -85,7 +92,7 @@ pub(super) fn emblem(which: Emblem, pal: &Palette) -> Mb {
     match which {
         Emblem::Keyhole => {
             bar(Vec3::Y * -0.015, Vec2::new(0.007, 0.022), 0.0);
-            mb.blob(
+            meshing.blob(
                 at + Vec3::Y * 0.015,
                 Vec3::new(0.016, 0.016, 0.008),
                 4,
@@ -94,7 +101,7 @@ pub(super) fn emblem(which: Emblem, pal: &Palette) -> Mb {
                 |_| pal.ink,
             );
         }
-        Emblem::Dot => mb.blob(
+        Emblem::Dot => meshing.blob(
             at,
             Vec3::new(0.024, 0.024, 0.008),
             5,
@@ -118,7 +125,7 @@ pub(super) fn emblem(which: Emblem, pal: &Palette) -> Mb {
             bar(Vec3::X * 0.014, Vec2::new(0.024, 0.008), -0.7);
         }
     }
-    mb
+    meshing
 }
 
 pub(super) fn arm(pal: &Palette) -> Piece {
@@ -171,11 +178,11 @@ pub(super) fn leg(pal: &Palette) -> Piece {
 
 /// The two wheels of one foot, about their axle. A bar across each
 /// shows it turning.
-pub(super) fn wheels(pal: &Palette) -> Mb {
-    let mut mb = Mb::new();
+pub(super) fn wheels(pal: &Palette) -> Meshing {
+    let mut meshing = Meshing::new();
     for side in [-1.0f32, 1.0] {
         let at = |x: f32| Vec3::X * (side * x);
-        mb.tube(
+        meshing.tube(
             at(0.082),
             at(0.106),
             WHEEL,
@@ -184,9 +191,17 @@ pub(super) fn wheels(pal: &Palette) -> Mb {
             pal.pewter * 0.55,
             true,
         );
-        mb.tube(at(0.1), at(0.114), 0.02, 0.016, 6, pal.brass, true);
+        meshing.tube(
+            at(0.1),
+            at(0.114),
+            0.02,
+            0.016,
+            6,
+            pal.brass,
+            true,
+        );
         let bar = Vec3::Y * (WHEEL - 0.008);
-        mb.tube(
+        meshing.tube(
             at(0.107) - bar,
             at(0.107) + bar,
             0.007,
@@ -196,25 +211,25 @@ pub(super) fn wheels(pal: &Palette) -> Mb {
             false,
         );
     }
-    mb
+    meshing
 }
 
-pub(super) fn head(pal: &Palette) -> Mb {
-    let mut mb = Mb::new();
+pub(super) fn head(pal: &Palette) -> Meshing {
+    let mut meshing = Meshing::new();
     lantern::lantern_cage(
-        &mut mb,
+        &mut meshing,
         Vec3::Y * FACE,
         0.145,
         0.22,
         pal.brass,
     );
-    mb
+    meshing
 }
 
 /// One dark eye on the glass, set in front of the head's axis.
-pub(super) fn eye(pal: &Palette) -> Mb {
-    let mut mb = Mb::new();
-    mb.blob(
+pub(super) fn eye(pal: &Palette) -> Meshing {
+    let mut meshing = Meshing::new();
+    meshing.blob(
         Vec3::new(0.0, 0.015, 0.142),
         Vec3::new(0.021, 0.034, 0.012),
         5,
@@ -222,7 +237,7 @@ pub(super) fn eye(pal: &Palette) -> Mb {
         0.0,
         |_| pal.ink,
     );
-    mb
+    meshing
 }
 
 pub(super) fn pole(pal: &Palette) -> Piece {
@@ -263,9 +278,9 @@ pub(in crate::keeper) const LAMP_DROP: Vec3 =
     Vec3::new(0.0, -0.26, 0.0);
 
 /// The carried lantern's frame and chain, hanging from the origin.
-pub(super) fn lamp(pal: &Palette) -> Mb {
-    let mut mb = Mb::new();
-    mb.tube(
+pub(super) fn lamp(pal: &Palette) -> Meshing {
+    let mut meshing = Meshing::new();
+    meshing.tube(
         Vec3::ZERO,
         LAMP_DROP + Vec3::Y * 0.2,
         0.006,
@@ -274,13 +289,19 @@ pub(super) fn lamp(pal: &Palette) -> Mb {
         pal.brass,
         false,
     );
-    lantern::lantern_frame(&mut mb, LAMP_DROP, 0.08, 0.15, pal.brass);
-    mb
+    lantern::lantern_frame(
+        &mut meshing,
+        LAMP_DROP,
+        0.08,
+        0.15,
+        pal.brass,
+    );
+    meshing
 }
 
-/// The leader's short cape, over the shoulders of the body.
-pub(super) fn mantle(pal: &Palette) -> Mb {
-    let mut mb = Mb::new();
+/// The mayor's short cape, over the shoulders of the body.
+pub(super) fn mantle(pal: &Palette) -> Meshing {
+    let mut meshing = Meshing::new();
     let cloth = pal.mantle;
     let cape = [
         (0.258, 0.322),
@@ -289,11 +310,11 @@ pub(super) fn mantle(pal: &Palette) -> Mb {
         (0.212, 0.428),
         (0.125, 0.452),
     ];
-    mb.lathe(Vec3::ZERO, &cape, 18, |r, s| {
+    meshing.lathe(Vec3::ZERO, &cape, 18, |r, s| {
         // A scalloped hem.
         cloth * if r == 0 && s % 2 == 0 { 0.8 } else { 1.0 }
     });
-    mb.blob(
+    meshing.blob(
         Vec3::new(0.0, 0.41, 0.225),
         Vec3::new(0.03, 0.03, 0.014),
         4,
@@ -301,26 +322,26 @@ pub(super) fn mantle(pal: &Palette) -> Mb {
         0.0,
         |_| pal.brass * 0.8,
     );
-    mb
+    meshing
 }
 
-/// The leader's pennant, streaming back from the origin. Both faces
+/// The mayor's pennant, streaming back from the origin. Both faces
 /// are drawn.
-pub(super) fn pennant(pal: &Palette) -> Mb {
-    let mut mb = Mb::new();
+pub(super) fn pennant(pal: &Palette) -> Meshing {
+    let mut meshing = Meshing::new();
     let cloth = pal.mantle;
     let pts =
         [Vec3::ZERO, Vec3::Y * -0.13, Vec3::new(0.0, -0.065, -0.27)];
     for n in [Vec3::X, Vec3::NEG_X] {
-        let v = pts.map(|p| mb.v(p + n * 0.001, n, cloth));
-        mb.tri(v[0], v[1], v[2]);
+        let v = pts.map(|p| meshing.v(p + n * 0.001, n, cloth));
+        meshing.tri(v[0], v[1], v[2]);
         let stripe = [
             Vec3::new(0.0, -0.035, -0.06),
             Vec3::new(0.0, -0.095, -0.06),
             Vec3::new(0.0, -0.065, -0.17),
         ]
-        .map(|p| mb.v(p + n * 0.002, n, pal.ink));
-        mb.tri(stripe[0], stripe[1], stripe[2]);
+        .map(|p| meshing.v(p + n * 0.002, n, pal.ink));
+        meshing.tri(stripe[0], stripe[1], stripe[2]);
     }
-    mb
+    meshing
 }

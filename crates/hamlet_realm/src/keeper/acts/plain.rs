@@ -5,7 +5,7 @@ use std::f32::consts::PI;
 use bevy::prelude::*;
 use hamlet_vfx::inlay::{self, EMBER, LIT};
 
-use super::Ctx;
+use super::Context;
 use super::parts::{
     arm_high, arm_l, blink, breathe, current, flicker, look_about,
     moon, shift_weight, signal,
@@ -15,7 +15,7 @@ use crate::keeper::pose::{
     ry, rz,
 };
 
-pub(super) fn idle(c: &Ctx) -> Pose {
+pub(super) fn idle(c: &Context) -> Pose {
     let mut p = Pose::stand();
     breathe(&mut p, c, 1.0);
     blink(&mut p, c);
@@ -29,7 +29,7 @@ pub(super) fn idle(c: &Ctx) -> Pose {
     p
 }
 
-pub(super) fn sleep(c: &Ctx) -> Pose {
+pub(super) fn sleep(c: &Context) -> Pose {
     let mut p = Pose::stand();
     let b = (c.t * 0.9).sin();
     // The head sinks, then starts awake.
@@ -51,7 +51,7 @@ pub(super) fn sleep(c: &Ctx) -> Pose {
     p
 }
 
-pub(super) fn reflect(c: &Ctx) -> Pose {
+pub(super) fn reflect(c: &Context) -> Pose {
     let mut p = Pose::stand();
     breathe(&mut p, c, 1.3);
     blink(&mut p, c);
@@ -79,7 +79,7 @@ pub(super) enum Gait {
     Pace,
 }
 
-pub(super) fn walk(c: &Ctx, kind: Gait) -> Pose {
+pub(super) fn walk(c: &Context, kind: Gait) -> Pose {
     let mut p = Pose::stand();
     blink(&mut p, c);
     look_about(&mut p, c, 0.35);
@@ -159,7 +159,7 @@ pub(super) fn walk(c: &Ctx, kind: Gait) -> Pose {
     p
 }
 
-pub(super) fn wait(c: &Ctx) -> Pose {
+pub(super) fn wait(c: &Context) -> Pose {
     let mut p = Pose::stand();
     breathe(&mut p, c, 0.8);
     blink(&mut p, c);
@@ -189,7 +189,7 @@ pub(super) fn wait(c: &Ctx) -> Pose {
     p
 }
 
-pub(super) fn object(c: &Ctx) -> Pose {
+pub(super) fn object(c: &Context) -> Pose {
     let mut p = Pose::stand();
     breathe(&mut p, c, 1.0);
     blink(&mut p, c);
@@ -232,7 +232,7 @@ pub(super) fn object(c: &Ctx) -> Pose {
     p
 }
 
-pub(super) fn fault(c: &Ctx) -> Pose {
+pub(super) fn fault(c: &Context) -> Pose {
     let mut p = Pose::stand();
     let t = c.t;
     // Tics at odd moments.
@@ -275,7 +275,7 @@ pub(super) fn fault(c: &Ctx) -> Pose {
     p
 }
 
-pub(super) fn failed(c: &Ctx) -> Pose {
+pub(super) fn failed(c: &Context) -> Pose {
     let mut p = Pose::stand();
     let x = c.tau;
     let reel = (1.0 - ramp(0.0, 0.55, x)) * (x * 14.0).sin();

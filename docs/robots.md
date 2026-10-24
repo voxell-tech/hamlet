@@ -79,7 +79,7 @@ changes.
 ## Telling robots apart
 
 `Who` holds a robot's hat, paint, emblem, size and seed, and
-`Who::citizen(seed)` picks all of them from the seed.
+`Who::agent(seed)` picks all of them from the seed.
 
 - **Hat** is the main one, because it changes the outline and reads at 40
   pixels.
@@ -87,14 +87,14 @@ changes.
   means something stays in the light.
 - **Emblem** on the chest plate is only readable close up.
 
-**The leader** is the one robot with the brass dome hat, a pennant, a
-cream mantle and a larger size. Cream is kept for the leader.
+**The mayor** (`Who::mayor()`) is the one robot with the brass dome hat,
+a pennant, a cream mantle and a larger size. Cream is kept for the mayor.
 
 ## Using it
 
 ```rust
 let robot = spawn_agent(&mut commands, &kit, &mut materials,
-    Who::citizen(7), at, Some(clock.t)); // Some: it plays Appear
+    Who::agent(7), at, Some(clock.t)); // Some: it plays Appear
 keeper.play(Act::Think, clock.t);
 commands.entity(robot).insert(Trip::new(road_points, clock.t, &motion));
 ```
@@ -104,7 +104,6 @@ commands.entity(robot).insert(Trip::new(road_points, clock.t, &motion));
 - A letter: both robots face each other `TALK_GAP` apart, then `HandOver`
   on one and `Receive` on the other at the same clock time.
 - A merge: `MERGE_GAP` apart, `MergeInto` and `MergeHost` together.
-- `keeper.gone(now)` says when a robot that left can be despawned.
 
 ## Houses coming in and going out
 

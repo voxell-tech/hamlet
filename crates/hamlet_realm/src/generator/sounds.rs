@@ -12,10 +12,10 @@ use super::magic::Musing;
 use super::shift::{Part, Shift};
 use super::society::{AgentId, Pair, RoadLevel, Society, TownId};
 use super::sync::Drawn;
-use super::traffic::Traffic;
+use super::traffic::Trips;
 use super::work::{Robot, Voting};
 use super::{House, HouseMotion};
-use crate::keeper::{KState, Keeper};
+use crate::keeper::{Keeper, KeeperState};
 use crate::sound::{Cue, Cues, Ears, Sound, SoundSettings};
 use crate::{Clock, Step};
 
@@ -93,7 +93,7 @@ pub(super) fn robot_cues(
 /// A door as a robot sets out with a message and as it comes home,
 /// and the letter changing hands where it turns back.
 pub(super) fn traffic_cues(
-    traffic: Res<Traffic>,
+    traffic: Res<Trips>,
     drawn: Res<Drawn>,
     places: Query<&GlobalTransform>,
     mut out: Local<HashMap<AgentId, (bool, Vec3)>>,
@@ -125,7 +125,7 @@ pub(super) fn traffic_cues(
                 cue(Sound::RoadGlow, at, trip.walker.0);
             }
             Some((false, _)) if trip.back => {
-                cue(Sound::Letter, at, trip.walker.0)
+                cue(Sound::Letter, at, trip.walker.0);
             }
             Some(_) => {}
         }
@@ -138,15 +138,15 @@ pub(super) fn state_cues(
     society: Res<Society>,
     drawn: Res<Drawn>,
     places: Query<&GlobalTransform>,
-    mut known: Local<HashMap<AgentId, KState>>,
+    mut known: Local<HashMap<AgentId, KeeperState>>,
     mut cues: MessageWriter<Cue>,
 ) {
     known.retain(|id, _| society.agent(*id).is_some());
     for agent in &society.agents {
         let was = known.insert(agent.id, agent.state);
         let sound = match agent.state {
-            KState::Waiting => Sound::Chime,
-            KState::Fault => Sound::Fault,
+            KeeperState::Waiting => Sound::Chime,
+            KeeperState::Fault => Sound::Fault,
             _ => continue,
         };
         // An agent first seen in a state did not just enter it.
@@ -244,10 +244,10 @@ pub(super) fn life_cues(
 
     lives.towns.retain(|id, _| society.town(*id).is_some());
     for town in &society.towns {
-        match lives.towns.insert(town.id, town.leader) {
+        match lives.towns.insert(town.id, town.mayor) {
             None => cue(Sound::Founded, Vec3::ZERO, town.id.0),
-            Some(was) if was != town.leader => {
-                cue(Sound::Mayor, Vec3::ZERO, town.leader.0)
+            Some(was) if was != town.mayor => {
+                cue(Sound::Mayor, Vec3::ZERO, town.mayor.0);
             }
             Some(_) => {}
         }
@@ -283,7 +283,6 @@ type Due = (f32, Sound, Vec3, u32);
 /// as it rises, a thump as it settles and the agent's own notes
 /// after; a rattle, a thud and embers as it falls; or its motes
 /// going over to the house it was merged into.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn house_cues(
     clock: Res<Clock>,
     motion: Res<HouseMotion>,

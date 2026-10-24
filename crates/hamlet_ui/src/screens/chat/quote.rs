@@ -44,7 +44,7 @@ pub(super) fn parts(text: &str) -> Vec<(bool, String)> {
 }
 
 /// True when `text` quotes a line.
-pub(super) fn quotes(text: &str) -> bool {
+pub(super) fn has_quote(text: &str) -> bool {
     parts(text).iter().any(|(quoted, _)| *quoted)
 }
 
@@ -110,8 +110,8 @@ mod tests {
             ]
         );
         // Only `> ` quotes, as in the chat apps.
-        assert!(!quotes(">no space"));
-        assert!(quotes("a\n> b"));
+        assert!(!has_quote(">no space"));
+        assert!(has_quote("a\n> b"));
     }
 
     #[test]

@@ -10,17 +10,15 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, label, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt};
-use hamlet_core::agents::{
-    Account, Activity, Busy, Citizen, Left, LivesIn, Mayor,
-    MergedInto, Purpose, Settlement, Treasury,
+use hamlet_client::realm::{
+    Account, Activity, AgentNumber, Busy, HOME, HamletId, Left,
+    LivesIn, Mayor, MergedInto, Purpose, Treasury,
 };
-use hamlet_core::oversight::Waiting;
+use hamlet_client::waits::Waiting;
 use hamlet_realm::pick::Thing;
-use hamlet_rules::hamlet::HOME;
 
 use super::{Naming, Search};
 use crate::icons::Glyph;
-use crate::inspector::now;
 use crate::looks::{note, plate, stated};
 use crate::platform::DisplayText;
 use crate::roll::Roll;
@@ -113,7 +111,7 @@ pub(super) struct AgentRow {
 
 type Told<'a> = (
     Entity,
-    &'a Citizen,
+    &'a AgentNumber,
     &'a Name,
     &'a LivesIn,
     Option<&'a Purpose>,
@@ -142,14 +140,14 @@ pub(super) fn agent_rows(
         })
         .unwrap_or_default();
     let named =
-        |agent: Entity| hamlet_core::agents::name_of(world, agent);
+        |agent: Entity| hamlet_client::realm::name_of(world, agent);
     let mut rows = agents
         .iter(world)
         .filter(|told| hamlet.is_none_or(|h| told.3.0 == h))
         .map(
             |(
                 agent,
-                citizen,
+                number,
                 name,
                 _,
                 purpose,
@@ -164,14 +162,11 @@ pub(super) fn agent_rows(
                         format!("Merged into {}", named(host.0))
                     }
                     (true, None) => "Removed".to_string(),
-                    _ => now(
-                        busy,
-                        activity.copied().unwrap_or_default(),
-                    ),
+                    _ => activity.cloned().unwrap_or_default().words,
                 };
                 AgentRow {
                     agent,
-                    number: citizen.0,
+                    number: number.0,
                     waiting: waits
                         .iter()
                         .filter(|by| **by == name)
@@ -190,7 +185,7 @@ pub(super) fn agent_rows(
                     busy,
                     gone,
                     account: account
-                        .map(|a| a.0.summary())
+                        .map(Account::summary)
                         .unwrap_or_default(),
                 }
             },
@@ -203,7 +198,7 @@ pub(super) fn agent_rows(
 pub(super) fn hamlet_rows(world: &World) -> Vec<HamletRow> {
     let Some(mut hamlets) = world.try_query::<(
         Entity,
-        &Settlement,
+        &HamletId,
         &Name,
         Option<&Treasury>,
     )>() else {
@@ -214,7 +209,7 @@ pub(super) fn hamlet_rows(world: &World) -> Vec<HamletRow> {
         |agent: Entity| world.get::<LivesIn>(agent).map(|l| l.0);
     let mut rows = hamlets
         .iter(world)
-        .map(|(hamlet, settlement, name, treasury)| {
+        .map(|(hamlet, id, name, treasury)| {
             let here = everyone
                 .iter()
                 .filter(|row| lives(row.agent) == Some(hamlet))
@@ -225,7 +220,7 @@ pub(super) fn hamlet_rows(world: &World) -> Vec<HamletRow> {
                 .collect::<Vec<_>>();
             HamletRow {
                 hamlet,
-                id: settlement.name.clone(),
+                id: id.0.clone(),
                 title: name.as_str().to_string(),
                 mayor: living
                     .iter()
@@ -237,7 +232,7 @@ pub(super) fn hamlet_rows(world: &World) -> Vec<HamletRow> {
                 waiting: living.iter().map(|row| row.waiting).sum(),
                 gone: here.len() - living.len(),
                 account: treasury
-                    .map(|t| t.0.summary())
+                    .map(|t| t.0.summary.clone())
                     .unwrap_or_default(),
             }
         })

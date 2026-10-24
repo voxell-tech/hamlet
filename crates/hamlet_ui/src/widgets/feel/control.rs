@@ -117,7 +117,7 @@ pub(super) fn hover_tick(
     mut turn: Local<u32>,
 ) {
     let heard = |(hovered, mood): (&Hovered, Option<&Mood>)| {
-        hovered.0 && mood.is_some_and(|mood| mood.ticks())
+        hovered.0 && mood.is_some_and(|mood| mood.has_tick())
     };
     if buttons.iter().any(heard) {
         sounds::write(&mut cues, &mut turn, Sound::Tick);
@@ -531,8 +531,8 @@ mod tests {
     use bevy_fynix::Theme;
     use hamlet_assets::Tuning;
 
-    use super::super::tests::step;
     use super::*;
+    use crate::testing::step;
     use crate::theme::HamletTheme;
 
     fn app() -> App {
@@ -601,7 +601,7 @@ mod tests {
         world.query::<&Ember>().iter(world).count()
     }
 
-    fn at_rest(app: &App, button: Entity) -> bool {
+    fn is_at_rest(app: &App, button: Entity) -> bool {
         *app.world().get::<UiTransform>(button).unwrap()
             == UiTransform::IDENTITY
     }
@@ -635,7 +635,7 @@ mod tests {
         for _ in 0..80 {
             step(&mut app);
         }
-        assert!(at_rest(&app, button));
+        assert!(is_at_rest(&app, button));
         assert!(glows(&mut app).is_empty());
     }
 
@@ -666,7 +666,7 @@ mod tests {
             step(&mut app);
         }
         assert_eq!(sparks(&mut app), 0, "every spark dies");
-        assert!(at_rest(&app, button));
+        assert!(is_at_rest(&app, button));
     }
 
     #[test]
@@ -701,7 +701,7 @@ mod tests {
         for _ in 0..200 {
             step(&mut app);
         }
-        assert!(at_rest(&app, button));
+        assert!(is_at_rest(&app, button));
         assert!(glows(&mut app).is_empty());
     }
 
@@ -709,9 +709,7 @@ mod tests {
     fn a_glow_goes_with_its_button() {
         let mut app = app();
         let button = button(&mut app, Mood::Good);
-        for _ in 0..3 {
-            step(&mut app);
-        }
+        step(&mut app);
         assert_eq!(glows(&mut app).len(), 1);
         app.world_mut().entity_mut(button).despawn();
         step(&mut app);

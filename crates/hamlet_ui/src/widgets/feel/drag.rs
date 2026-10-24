@@ -107,7 +107,7 @@ pub(super) fn dress_drag(
         );
         match grown {
             Some(mut grown) if grown.scale != size => {
-                grown.scale = size
+                grown.scale = size;
             }
             Some(_) => {}
             None => {
@@ -164,8 +164,8 @@ mod tests {
     use bevy_fynix::Theme;
     use hamlet_assets::Tuning;
 
-    use super::super::tests::step;
     use super::*;
+    use crate::testing::step;
     use crate::theme::HamletTheme;
 
     #[test]
@@ -230,7 +230,6 @@ mod tests {
             .world_mut()
             .spawn((put(0.0), GlobalZIndex(HINT_LAYER)))
             .id();
-        step(&mut app);
         step(&mut app);
         assert_eq!(
             app.world().get::<Node>(hint).unwrap().left,

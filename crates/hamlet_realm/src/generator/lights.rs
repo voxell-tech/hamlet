@@ -11,9 +11,9 @@ use hamlet_vfx::inlay::{
 use super::land::Land;
 use super::society::{Pair, Society};
 use super::sync::Drawn;
-use super::traffic::Traffic;
+use super::traffic::Trips;
 use super::{Kit, state_index};
-use crate::keeper::KState;
+use crate::keeper::KeeperState;
 use crate::palette::Palette;
 use crate::sky::{Looks, SkySettings};
 use crate::{Clock, Sky};
@@ -34,7 +34,7 @@ pub(super) fn light_roads(
     looks: Res<Looks>,
     land: Res<Land>,
     society: Res<Society>,
-    traffic: Res<Traffic>,
+    traffic: Res<Trips>,
     kit: Res<Kit>,
     pal: Res<Palette>,
     drawn: Res<Drawn>,
@@ -51,14 +51,14 @@ pub(super) fn light_roads(
     wanted.clear();
     for agent in society.agents.iter().filter(|a| !a.archived) {
         let (hue, mode, reach) = match agent.state {
-            KState::Waiting => (inlay::signal(), 3.0, 4.5),
-            KState::Fault => (inlay::fault(), 4.0, 7.0),
+            KeeperState::Waiting => (inlay::signal(), 3.0, 4.5),
+            KeeperState::Fault => (inlay::fault(), 4.0, 7.0),
             _ => continue,
         };
         let Some(town) = society.town(agent.town) else {
             continue;
         };
-        let pair = Pair::new(agent.id, town.leader);
+        let pair = Pair::new(agent.id, town.mayor);
         let Some(road) = drawn.roads.get(&pair) else {
             continue;
         };
@@ -149,32 +149,28 @@ pub(super) fn light_roads(
 
 /// A door lantern's hue and strength for the state of the agent
 /// inside.
-fn lantern(state: KState, t: f32) -> (Vec3, f32) {
+fn lantern(state: KeeperState, t: f32) -> (Vec3, f32) {
     match state {
-        KState::Rest => (inlay::candle(), inlay::EMBER * 1.4),
-        KState::Working => (inlay::current(), inlay::LIT),
-        KState::Waiting => (
+        KeeperState::Rest => (inlay::candle(), inlay::EMBER * 1.4),
+        KeeperState::Working => (inlay::current(), LIT),
+        KeeperState::Waiting => (
             inlay::signal(),
-            inlay::LIT
-                * (0.8 + 0.2 * (t * std::f32::consts::PI).sin()),
+            LIT * (0.8 + 0.2 * (t * std::f32::consts::PI).sin()),
         ),
-        KState::Fault => {
+        KeeperState::Fault => {
             let tick = (t * 2.6).floor();
             let drop =
                 ((tick * 12.9898).sin() * 43758.547).fract().abs()
                     < 0.4;
-            (
-                inlay::fault(),
-                if drop { inlay::LIT * 0.08 } else { inlay::LIT },
-            )
+            (inlay::fault(), if drop { LIT * 0.08 } else { LIT })
         }
-        KState::Failed => (Vec3::ZERO, 0.0),
+        KeeperState::Failed => (Vec3::ZERO, 0.0),
     }
 }
 
 /// A lantern that shows an agent's state.
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
-pub(super) struct Lamp(pub(super) KState);
+pub(super) struct Lamp(pub(super) KeeperState);
 
 /// The light a lantern throws on the ground after dark. A child of
 /// its lantern.
@@ -196,7 +192,7 @@ impl Spill {
     }
 }
 
-fn spill_colour(state: KState) -> Color {
+fn spill_colour(state: KeeperState) -> Color {
     let hue = lantern(state, 0.0).0;
     Color::linear_rgb(hue.x, hue.y, hue.z)
 }
@@ -239,8 +235,9 @@ pub(super) fn show_spill(
     else {
         return;
     };
-    let state =
-        lamps.get(lamp.parent()).map_or(KState::Rest, |lamp| lamp.0);
+    let state = lamps
+        .get(lamp.parent())
+        .map_or(KeeperState::Rest, |lamp| lamp.0);
     light.color = spill_colour(state);
     light.intensity = set.door_lumens * sky.look.candle;
     if light.intensity > 0.0 {
@@ -282,10 +279,12 @@ pub(super) fn light_lanterns(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let look = &sky.look;
-    for (state, handle) in KState::ALL.into_iter().zip(&kit.lamps) {
+    for (state, handle) in
+        KeeperState::ALL.into_iter().zip(&kit.lamps)
+    {
         let (hue, strength) = lantern(state, clock.t);
         // A lantern at rest is a candle: lit only after dark.
-        let strength = if state == KState::Rest {
+        let strength = if state == KeeperState::Rest {
             strength * look.candle
         } else {
             strength

@@ -1,4 +1,4 @@
-# Release builds of Hamlet for macOS, Windows and Linux.
+# Complete installations for macOS/Linux and the Windows remote-client window.
 #
 # Runs when a version tag is pushed (v0.1.0) and when started by hand
 # from the Actions tab, and at no other time. A tag publishes a GitHub
@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -32,21 +32,42 @@ jobs:
           - name: macOS (Apple Silicon)
             os: macos-14
             target: aarch64-apple-darwin
-          - name: Windows (x64)
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
           - name: Linux (x64)
             os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+          - name: Windows (x64, window only)
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
     steps:
       - uses: actions/checkout@v4
         with:
+          persist-credentials: false
           # vendor/fynix is a submodule.
           submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@stable
+      # A tag publishes the version Cargo.toml names, and no other.
+      - name: Check the tag is the version
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          set -eu
+          version=$(sed -n '/^version = "/{s/^version = "\([^"]*\)".*/\1/p;q;}' Cargo.toml)
+          if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+            echo "The tag $GITHUB_REF_NAME is not v$version, the version in Cargo.toml." >&2
+            exit 1
+          fi
+
+      # The stable toolchain rust-toolchain.toml names.
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install
+          rustup target add "${{ matrix.target }}"
+
+      - uses: actions/setup-node@v4
+        if: runner.os != 'Windows'
         with:
-          targets: ${{ matrix.target }}
+          node-version-file: harnesses/pi/.nvmrc
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -61,7 +82,12 @@ jobs:
             libwayland-dev libxkbcommon-dev
 
       - name: Build
-        run: cargo build --release --locked -p hamlet --target ${{ matrix.target }}
+        if: runner.os != 'Windows'
+        run: cargo xtask build --target ${{ matrix.target }}
+
+      - name: Build the Windows window
+        if: runner.os == 'Windows'
+        run: cargo build --release --locked -p hamlet_app --bin hamlet-app --target ${{ matrix.target }}
 
       - name: Package
         shell: bash
@@ -78,6 +104,8 @@ jobs:
     if: github.ref_type == 'tag'
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:

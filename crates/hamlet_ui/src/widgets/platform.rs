@@ -207,7 +207,6 @@ pub fn apply_glow(
 }
 
 /// Sets the monospace face on tagged labels.
-#[allow(clippy::type_complexity)]
 pub fn apply_mono(
     mono: Res<Mono>,
     mut labels: Query<
@@ -364,7 +363,6 @@ mod tests {
             );
         let button = app.world_mut().spawn(ButtonBehavior).id();
         app.update();
-        app.update();
         assert!(app.world().get::<TabIndex>(button).is_some());
         assert_eq!(
             app.world().get::<Outline>(button).unwrap().width,
@@ -373,7 +371,7 @@ mod tests {
 
         app.world_mut()
             .resource_mut::<InputFocus>()
-            .set(button, bevy::input_focus::FocusCause::Pressed);
+            .set(button, FocusCause::Pressed);
         app.update();
         assert_eq!(
             app.world().get::<Outline>(button).unwrap().width,

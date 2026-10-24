@@ -1,4 +1,4 @@
-//! The panels that draw from the core's state alone.
+//! The panels that draw from the client's state.
 
 pub mod chat;
 pub mod inspector;

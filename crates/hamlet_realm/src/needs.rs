@@ -8,9 +8,8 @@ use bevy::render::render_resource::{
 };
 use bevy::ui::UiSystems;
 use hamlet_assets::tint;
-use hamlet_core::agents::Mayor;
-use hamlet_core::oversight::{RaisedBy, Waiting};
-use hamlet_rules::chief::rulings::Choice;
+use hamlet_client::realm::Mayor;
+use hamlet_client::waits::{Choice, ChoiceExt, RaisedBy, Waiting};
 
 use super::label::{self, Lens};
 use super::pick::{Footprint, Named, Pressable, Thing};
@@ -51,15 +50,17 @@ pub struct TagSettings {
 }
 
 /// The chief answered a tag with its check or its cross.
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(EntityEvent, Clone, Copy, Debug)]
 pub struct TagAnswered {
+    #[event_target]
     pub item: Entity,
     pub agree: bool,
 }
 
 /// The chief clicked a tag's paper, to read it in full.
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(EntityEvent, Clone, Copy, Debug)]
 pub struct TagOpened {
+    #[event_target]
     pub item: Entity,
 }
 
@@ -166,7 +167,7 @@ fn hang(
     // Checked every frame: a tag goes with the panel it hangs in
     // when the dock is rearranged, and must come back.
     let mut oldest = waiting.iter().collect::<Vec<_>>();
-    oldest.sort_by_key(|(_, waiting, _)| waiting.order);
+    oldest.sort_by_key(|(_, waiting, _)| waiting.since);
     let mut wanted = Vec::<NeedTag>::new();
     for (item, waiting, by) in oldest {
         match wanted.iter_mut().find(|w| w.agent == by.0) {
@@ -330,7 +331,7 @@ fn place(
     let (camera, view) = lens.camera();
     for (tag, mut node, mut visibility, computed) in &mut tags {
         // Only the first hamlet's mayor lives in the cottage.
-        let own = Thing::ResidentHouse(tag.agent);
+        let own = Thing::House(tag.agent);
         let hall = mayors.contains(tag.agent);
         let point = houses
             .iter()
@@ -356,5 +357,101 @@ fn place(
             label::above(computed, point, settings.lift),
         );
         visibility.set_if_neq(Visibility::Visible);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use bevy::camera::NormalizedRenderTarget;
+    use bevy::picking::backend::HitData;
+    use bevy::picking::pointer::{Location, PointerId};
+    use bevy::prelude::*;
+    use hamlet_client::ClientPlugin;
+    use hamlet_client::waits::Waiting;
+    use hamlet_testing::realm;
+
+    use super::{TagAnswered, TagSettings, plugin};
+    use crate::WorldCamera;
+    use crate::testing::receive_state;
+
+    #[derive(Resource, Default)]
+    struct Answers(Vec<(Entity, bool)>);
+
+    #[test]
+    fn a_received_approval_has_a_tag_with_both_quick_answers() {
+        let mut app = App::new();
+        app.add_plugins((ClientPlugin { server: None }, plugin))
+            .init_resource::<Assets<Image>>()
+            .init_resource::<Answers>()
+            .add_observer(
+                |answer: On<TagAnswered>,
+                 mut answers: ResMut<Answers>| {
+                    answers.0.push((answer.item, answer.agree));
+                },
+            );
+        app.world_mut().spawn((
+            WorldCamera,
+            Camera::default(),
+            Transform::default(),
+            GlobalTransform::default(),
+        ));
+        let mut state = realm::state();
+        state.waits.push(realm::wait("run-orchard-check"));
+        receive_state(&mut app, state);
+        app.update();
+        let world = app.world_mut();
+        let words = world
+            .query::<&Text>()
+            .iter(world)
+            .map(|text| text.0.as_str())
+            .collect::<Vec<_>>();
+        assert!(words.contains(&"NEEDS YOU"));
+        assert!(
+            words
+                .iter()
+                .any(|text| text.contains("founder wants to run"))
+        );
+        let wait = world
+            .query_filtered::<Entity, With<Waiting>>()
+            .single(world)
+            .unwrap();
+        let set = *world.resource::<TagSettings>();
+        let buttons = world
+            .query::<(Entity, &BackgroundColor, &Children)>()
+            .iter(world)
+            .filter(|(_, _, children)| {
+                children.iter().any(|child| {
+                    world.get::<ImageNode>(child).is_some()
+                })
+            })
+            .map(|(entity, fill, _)| (entity, fill.0 == set.ink))
+            .collect::<Vec<_>>();
+        assert_eq!(buttons.len(), 2);
+        for (button, _) in &buttons {
+            world.trigger(Pointer::new(
+                PointerId::Mouse,
+                Location {
+                    target: NormalizedRenderTarget::None {
+                        width: 1,
+                        height: 1,
+                    },
+                    position: Vec2::ZERO,
+                },
+                Click {
+                    button: PointerButton::Primary,
+                    hit: HitData::new(*button, 0.0, None, None),
+                    duration: Duration::ZERO,
+                    count: 1,
+                },
+                *button,
+            ));
+            world.flush();
+        }
+        let answers = &world.resource::<Answers>().0;
+        assert_eq!(answers.len(), 2);
+        assert!(answers.contains(&(wait, true)));
+        assert!(answers.contains(&(wait, false)));
     }
 }

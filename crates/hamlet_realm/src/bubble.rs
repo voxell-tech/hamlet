@@ -5,7 +5,7 @@ mod words;
 use bevy::prelude::*;
 use bevy::ui::UiSystems;
 use hamlet_assets::tint;
-use hamlet_core::agents::{Activity, Busy, Doing, Saying};
+use hamlet_client::realm::{Activity, Busy, Doing, Saying};
 
 use self::words::{deed, gist, tail};
 use super::generator::Robot;
@@ -302,7 +302,6 @@ fn pop(t: f32) -> f32 {
 /// Keeps a balloon over every robot whose agent is saying or
 /// thinking something, and lets it go a while after the agent falls
 /// silent.
-#[allow(clippy::too_many_arguments)]
 fn bubbles(
     mut commands: Commands,
     time: Res<Time>,
@@ -484,5 +483,82 @@ fn dots(
         if fill.0 != want {
             fill.0 = want;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::prelude::*;
+    use hamlet_client::ClientPlugin;
+    use hamlet_client::realm::mayor;
+    use hamlet_protocol::client as protocol;
+    use hamlet_testing::realm;
+
+    use super::{Bubble, plugin};
+    use crate::generator::society::AgentId;
+    use crate::generator::testing::{rehearse, stand_in};
+    use crate::hamlet::Housed;
+    use crate::pick::PickSettings;
+    use crate::sound::Cue;
+    use crate::testing::{camera, receive_change, receive_state};
+
+    #[test]
+    fn a_received_saying_has_speech_and_short_deed_words() {
+        let mut app = App::new();
+        rehearse(&mut app);
+        app.add_plugins((ClientPlugin { server: None }, plugin))
+            .init_resource::<PickSettings>()
+            .add_message::<Cue>();
+        let mut state = realm::state();
+        let founder = &mut state.agents[0];
+        founder.busy = true;
+        founder.activity.doing = protocol::Doing::Run;
+        founder.saying.thought = true;
+        founder.saying.text = "Checking the orchard".into();
+        let mut founder = founder.clone();
+        receive_state(&mut app, state);
+        let agent = mayor(app.world_mut()).unwrap();
+        app.world_mut().entity_mut(agent).insert(Housed(AgentId(1)));
+        let robot = stand_in(app.world_mut(), AgentId(1), 1);
+        app.world_mut()
+            .entity_mut(robot)
+            .insert(InheritedVisibility::VISIBLE);
+        let porch =
+            app.world().get::<Transform>(robot).unwrap().translation;
+        camera(
+            &mut app,
+            porch + Vec3::new(0.0, 6.0, 12.0),
+            porch + Vec3::Y * 2.0,
+        );
+        app.update();
+        app.update();
+        let world = app.world_mut();
+        assert!(
+            world
+                .query::<&Text>()
+                .iter(world)
+                .any(|text| text.0 == "Running a command")
+        );
+        assert_eq!(
+            *world
+                .query_filtered::<&Visibility, With<Bubble>>()
+                .single(world)
+                .unwrap(),
+            Visibility::Visible
+        );
+        founder.saying.thought = false;
+        founder.saying.text = "The orchard is ready.".into();
+        receive_change(
+            &mut app,
+            protocol::Update::Agent { agent: founder },
+        );
+        app.update();
+        let world = app.world_mut();
+        assert!(
+            world
+                .query::<&Text>()
+                .iter(world)
+                .any(|text| text.0 == "The orchard is ready.")
+        );
     }
 }

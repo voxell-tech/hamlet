@@ -94,7 +94,7 @@ pub(super) enum Part {
 
 impl Part {
     /// True when it is there when the change is over.
-    fn comes(self) -> bool {
+    fn is_left_standing(self) -> bool {
         matches!(self, Self::Rise | Self::Rest)
     }
 
@@ -294,7 +294,8 @@ pub(super) fn shift_houses(
                 let held = matches!(part, Part::Fall | Part::Rest)
                     && !clock.frozen
                     && leaving.iter().any(|(robot, passage)| {
-                        robot.agent == house.agent && passage.leaves()
+                        robot.agent == house.agent
+                            && passage.is_leaving()
                     });
                 if held {
                     continue;
@@ -320,7 +321,7 @@ pub(super) fn shift_houses(
         // A still shows the moment after.
         let over = clock.frozen || t >= part.length(&set, popping);
 
-        if over && !part.comes() {
+        if over && !part.is_left_standing() {
             commands.entity(entity).try_despawn();
             continue;
         }
@@ -346,7 +347,7 @@ pub(super) fn shift_houses(
                 continue;
             };
             let rest = prop.rest;
-            match (part.comes(), pops(prop)) {
+            match (part.is_left_standing(), pops(prop)) {
                 // The one of the house that comes is in sight.
                 (false, false) => show(&mut seen, Visibility::Hidden),
                 (false, true) => {}

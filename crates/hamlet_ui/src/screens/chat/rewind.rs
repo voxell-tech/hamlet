@@ -18,7 +18,8 @@ use bevy_fynix::ScopedExt;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, label,
 };
-use hamlet_core::session::{Rewound, Status};
+use hamlet_client::chats::{Chat, Status};
+use hamlet_client::messages::Rewound;
 
 use super::Draft;
 use super::reply::{Replying, unreplied};
@@ -39,12 +40,12 @@ pub(super) fn plugin(app: &mut App) {
     app.add_observer(reveal).add_observer(retype);
 }
 
-/// On a row of the chat: the message `entry` of the conversation
-/// `session`, which that conversation can be taken back to.
-#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
+/// A rewindable chat row, ordered by its message time.
+#[derive(Component, Clone, PartialEq, Eq, Debug)]
 pub struct Rewinds {
     pub session: Entity,
-    pub entry: u64,
+    /// The time of the row's message.
+    pub at: u64,
 }
 
 /// The mark of a row, which takes the conversation back to it.
@@ -53,7 +54,7 @@ struct Mark;
 
 /// The mark beside the message `entry` of `session`, out of sight
 /// until the pointer is on its row. It asks before it acts.
-pub(super) fn mark(session: Entity, entry: u64) -> AnyView {
+pub(super) fn mark(session: Entity, entry: String) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let back = button(glyph(Glyph::Restore, ICON))
             .padding(UiRect::all(px(AROUND)))
@@ -61,7 +62,10 @@ pub(super) fn mark(session: Entity, entry: u64) -> AnyView {
             .rules(retrace)
             .tagged(Mood::Ink)
             .on_activate(move |world| {
-                let deed = Deed::Rewind { session, entry };
+                let deed = Deed::Rewind {
+                    session,
+                    entry: entry.clone(),
+                };
                 world_menu::ask(world, deed);
             });
         let node = cx.build(
@@ -78,7 +82,7 @@ pub(super) fn mark(session: Entity, entry: u64) -> AnyView {
 
 /// The question asked before the conversation `session` is taken
 /// back to its message `entry`, at `at` in the window.
-pub fn asked(session: Entity, entry: u64, at: Vec2) -> AnyView {
+pub fn asked(session: Entity, entry: String, at: Vec2) -> AnyView {
     world_menu::question(Deed::Rewind { session, entry }, at)
 }
 
@@ -87,7 +91,7 @@ pub fn asked(session: Entity, entry: u64, at: Vec2) -> AnyView {
 fn reveal(
     hover: On<Insert, Hovered>,
     rows: Query<(&Hovered, &Rewinds)>,
-    sessions: Query<&Status>,
+    sessions: Query<(&Status, Option<&Chat>)>,
     under: Query<&Children>,
     mut marks: Query<&mut Visibility, With<Mark>>,
 ) {
@@ -96,7 +100,10 @@ fn reveal(
         return;
     };
     let working =
-        sessions.get(rewinds.session).is_ok_and(Status::working);
+        sessions.get(rewinds.session).is_ok_and(|(status, chat)| {
+            status.is_working()
+                || chat.is_some_and(|chat| chat.0.past.is_some())
+        });
     let want = match hovered.get() && !working {
         true => Visibility::Inherited,
         false => Visibility::Hidden,
@@ -119,7 +126,7 @@ fn retype(
     mut draft: ResMut<Draft>,
     mut replying: ResMut<Replying>,
 ) {
-    if rewound.event().session != me.session {
+    if rewound.event().chat != me.session {
         return;
     }
     let text = &rewound.event().text;

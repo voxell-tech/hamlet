@@ -4,7 +4,9 @@
 use bevy::prelude::*;
 use hamlet_vfx::magic::chance;
 
-use super::{Hand, Mood, PlaySettings, bend, free, toward, yaw_of};
+use super::{
+    Hand, Mood, PlaySettings, bend, is_free, toward, yaw_of,
+};
 use crate::generator::{Passage, Robot};
 use crate::keeper::{Act, Keeper, Motion};
 use crate::pick::Reach;
@@ -39,7 +41,7 @@ pub(super) fn watch(
     {
         let here = place.translation;
         let idle = passage.is_none()
-            && robot.at_home()
+            && robot.is_at_house()
             && hand.held.is_none()
             && !clock.frozen;
         // The pointer, at the height of its head.
@@ -83,7 +85,7 @@ pub(super) fn watch(
             if lucky
                 && keeper.act() == Act::Idle
                 && now - mood.waved >= set.wave_rest
-                && !mood.sulks(now)
+                && !mood.is_sulking(now)
             {
                 mood.waved = now;
                 mood.face = eye.map(|eye| toward(here, eye));
@@ -116,7 +118,7 @@ pub(super) fn join(
             continue;
         }
         mood.joins = None;
-        if free(robot, passage) {
+        if is_free(robot, passage) {
             commands.entity(entity).insert(Passage::new(act));
         }
     }

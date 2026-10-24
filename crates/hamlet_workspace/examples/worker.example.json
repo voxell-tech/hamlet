@@ -1,0 +1,7 @@
+{
+  "listen": "127.0.0.1:7420",
+  "root": "/workspace",
+  "homes": {
+    "REPLACE_WITH_THE_HOME_NAME": "REPLACE_WITH_A_NEW_RANDOM_TOKEN"
+  }
+}

@@ -8,7 +8,7 @@ use super::land::Land;
 use super::layout::Route;
 use super::noise::{key, perlin, unit};
 use super::society::RoadLevel;
-use crate::meshes::{Mb, smoothstep};
+use crate::meshes::{Meshing, smoothstep};
 use crate::palette::Palette;
 
 /// Roads and their bridges.
@@ -171,7 +171,7 @@ impl Span {
 
     /// True when the two come within `reach` of each other, by the
     /// ground each lies over.
-    pub(crate) fn nears(&self, other: &Span, reach: f32) -> bool {
+    pub(crate) fn is_near(&self, other: &Span, reach: f32) -> bool {
         !self.over.inflate(reach).intersect(other.over).is_empty()
     }
 
@@ -191,7 +191,7 @@ impl Span {
 
     /// True when `p` is on its deck, which is `half` wide to each
     /// side. A road that passes over or under it is not on it.
-    fn holds(&self, p: Vec3, half: f32) -> bool {
+    fn is_on_deck(&self, p: Vec3, half: f32) -> bool {
         self.over.inflate(half).contains(p.xz())
             && self.steps.iter().any(|[a, b]| {
                 let along = (b - a).xz();
@@ -214,20 +214,20 @@ pub fn surface(
     level: RoadLevel,
     salt: u64,
     met: &[Span],
-) -> Mb {
+) -> Meshing {
     let pal = &land.pal;
-    let mut mb = Mb::new();
+    let mut meshing = Meshing::new();
     let lift = lift(level, salt);
     let stride = match level {
         RoadLevel::Paved => 1,
         _ => 3,
     };
     let rows = rows(land, route, stride);
-    shoulder(&mut mb, land, pal, &rows, level, lift);
+    shoulder(&mut meshing, land, pal, &rows, level, lift);
     match level {
         RoadLevel::Paved => {
             flags(
-                &mut mb,
+                &mut meshing,
                 pal,
                 &rows,
                 land.set.road.flags_half,
@@ -235,17 +235,17 @@ pub fn surface(
                 false,
             );
         }
-        RoadLevel::Rail => rails(&mut mb, pal, route, lift),
+        RoadLevel::Rail => rails(&mut meshing, pal, route, lift),
         _ => {}
     }
-    bridges(&mut mb, land, pal, route, lift, met);
-    mb
+    bridges(&mut meshing, land, pal, route, lift, met);
+    meshing
 }
 
 /// The trodden strip under every road: soil in the middle that fades
 /// into the grass at both edges.
 fn shoulder(
-    mb: &mut Mb,
+    meshing: &mut Meshing,
     land: &Land,
     pal: &Palette,
     rows: &[Row],
@@ -287,11 +287,11 @@ fn shoulder(
             } else {
                 (soil, lift)
             };
-            mb.v(row.at(w, h), row.up, col)
+            meshing.v(row.at(w, h), row.up, col)
         });
         if let Some(q) = prev {
             for k in 0..4 {
-                mb.quad(q[k], q[k + 1], ids[k + 1], ids[k]);
+                meshing.quad(q[k], q[k + 1], ids[k + 1], ids[k]);
             }
         }
         prev = Some(ids);
@@ -300,7 +300,7 @@ fn shoulder(
 
 /// Stone flags, three across, each its own block.
 fn flags(
-    mb: &mut Mb,
+    meshing: &mut Meshing,
     pal: &Palette,
     rows: &[Row],
     half: f32,
@@ -333,7 +333,7 @@ fn flags(
             let (p0, p1) = (a.at(w0 + gap, h), a.at(w1 - gap, h));
             let (q0, q1) = (b.at(w0 + gap, h), b.at(w1 - gap, h));
             let inset = 0.07;
-            mb.face(
+            meshing.face(
                 [
                     p0.lerp(q0, inset),
                     p1.lerp(q1, inset),
@@ -348,7 +348,12 @@ fn flags(
 }
 
 /// Sleepers on the ballast and two rails over them.
-fn rails(mb: &mut Mb, pal: &Palette, route: &Route, lift: f32) {
+fn rails(
+    meshing: &mut Meshing,
+    pal: &Palette,
+    route: &Route,
+    lift: f32,
+) {
     let total = route.total();
     let frame = |s: f32| {
         let (p, tan) = route.at(s);
@@ -372,7 +377,7 @@ fn rails(mb: &mut Mb, pal: &Palette, route: &Route, lift: f32) {
         let corner = |a: f32, l: f32, y: f32| {
             p + across * a * hw + tan * l * hl + Vec3::Y * y
         };
-        mb.face(
+        meshing.face(
             [
                 corner(-1.0, -1.0, y1),
                 corner(1.0, -1.0, y1),
@@ -383,7 +388,7 @@ fn rails(mb: &mut Mb, pal: &Palette, route: &Route, lift: f32) {
             col,
         );
         for l in [-1.0f32, 1.0] {
-            mb.face(
+            meshing.face(
                 [
                     corner(-1.0, l, y0),
                     corner(1.0, l, y0),
@@ -415,17 +420,17 @@ fn rails(mb: &mut Mb, pal: &Palette, route: &Route, lift: f32) {
                 foot + across * 0.03 + Vec3::Y * y0,
             ];
             if let Some(q) = prev {
-                mb.face(
+                meshing.face(
                     [q[1], q[2], ring[2], ring[1]],
                     Vec3::Y,
                     bright,
                 );
-                mb.face(
+                meshing.face(
                     [q[0], q[1], ring[1], ring[0]],
                     -across,
                     steel,
                 );
-                mb.face(
+                meshing.face(
                     [q[3], q[2], ring[2], ring[3]],
                     across,
                     steel,
@@ -440,7 +445,7 @@ fn rails(mb: &mut Mb, pal: &Palette, route: &Route, lift: f32) {
 /// the ground, with arches over the water. A parapet stops where it
 /// would stand on the deck of a bridge of `met`.
 fn bridges(
-    mb: &mut Mb,
+    meshing: &mut Meshing,
     land: &Land,
     pal: &Palette,
     route: &Route,
@@ -453,7 +458,7 @@ fn bridges(
         return;
     }
     let all = rows(land, route, 1);
-    flags(mb, pal, &all, half - 0.16, lift, true);
+    flags(meshing, pal, &all, half - 0.16, lift, true);
     let under = |row: &Row| {
         let ground = row.c.y - route.raised[row.i];
         if ground > water + 0.3 {
@@ -480,7 +485,7 @@ fn bridges(
             .limestone
             .lerp(pal.limestone_shade, 0.2 + 0.35 * unit(cell));
         // The bed the flags lie on.
-        mb.face(
+        meshing.face(
             [
                 a.at(-half, lift),
                 a.at(half, lift),
@@ -498,7 +503,7 @@ fn bridges(
                 p.y = under(row);
                 p
             };
-            mb.face_cols(
+            meshing.face_cols(
                 [
                     foot(a, wa),
                     foot(b, wb),
@@ -509,7 +514,7 @@ fn bridges(
                 [stone * 0.6, stone * 0.6, stone, stone],
             );
             let block = a.c.lerp(b.c, 0.5) + out * (half - 0.085);
-            if met.iter().any(|span| span.holds(block, half)) {
+            if met.iter().any(|span| span.is_on_deck(block, half)) {
                 continue;
             }
             // The parapet: one block to each step, some taller.
@@ -524,7 +529,7 @@ fn bridges(
             let at = |m: Vec3, w: f32, h: f32| {
                 m + a.across * w + Vec3::Y * (lift + h)
             };
-            mb.face(
+            meshing.face(
                 [
                     at(p, inner, tall),
                     at(p, outer, tall),
@@ -534,7 +539,7 @@ fn bridges(
                 Vec3::Y,
                 block,
             );
-            mb.face(
+            meshing.face(
                 [
                     at(p, inner, 0.0),
                     at(q, inner, 0.0),
@@ -544,7 +549,7 @@ fn bridges(
                 -out,
                 block * 0.8,
             );
-            mb.face(
+            meshing.face(
                 [
                     at(p, outer, 0.0),
                     at(q, outer, 0.0),
@@ -593,7 +598,7 @@ fn ribbon(
     lift: f32,
     skirt: f32,
 ) -> Mesh {
-    let mut mb = Mb::new();
+    let mut meshing = Meshing::new();
     let overgrown = level == RoadLevel::Overgrown;
     // An unused groove is whole too, and dull with dust.
     let tint = if overgrown {
@@ -614,15 +619,15 @@ fn ribbon(
             row.c + n * width * 0.5 + Vec3::Y * lift,
         );
         let ids = [
-            mb.vuv(
+            meshing.vuv(
                 l - Vec3::Y * skirt,
                 -n,
                 tint * 0.6,
                 Vec2::new(row.s, -1.0),
             ),
-            mb.vuv(l, Vec3::Y, tint, Vec2::new(row.s, -1.0)),
-            mb.vuv(r, Vec3::Y, tint, Vec2::new(row.s, 1.0)),
-            mb.vuv(
+            meshing.vuv(l, Vec3::Y, tint, Vec2::new(row.s, -1.0)),
+            meshing.vuv(r, Vec3::Y, tint, Vec2::new(row.s, 1.0)),
+            meshing.vuv(
                 r - Vec3::Y * skirt,
                 n,
                 tint * 0.6,
@@ -630,15 +635,15 @@ fn ribbon(
             ),
         ];
         if let Some(q) = prev {
-            mb.quad(q[1], q[2], ids[2], ids[1]);
+            meshing.quad(q[1], q[2], ids[2], ids[1]);
             if skirt > 0.0 {
-                mb.quad(q[0], q[1], ids[1], ids[0]);
-                mb.quad(q[2], q[3], ids[3], ids[2]);
+                meshing.quad(q[0], q[1], ids[1], ids[0]);
+                meshing.quad(q[2], q[3], ids[3], ids[2]);
             }
         }
         prev = Some(ids);
     }
-    mb.build()
+    meshing.build()
 }
 
 #[cfg(test)]
@@ -655,10 +660,10 @@ mod tests {
         };
         // The wall of a bridge that crosses it stands on its deck
         // where the two meet, and nowhere else.
-        assert!(span.holds(Vec3::new(1.0, 2.1, 0.5), 0.95));
-        assert!(!span.holds(Vec3::new(1.0, 2.1, 1.5), 0.95));
-        assert!(!span.holds(Vec3::new(7.0, 2.1, 0.0), 0.95));
+        assert!(span.is_on_deck(Vec3::new(1.0, 2.1, 0.5), 0.95));
+        assert!(!span.is_on_deck(Vec3::new(1.0, 2.1, 1.5), 0.95));
+        assert!(!span.is_on_deck(Vec3::new(7.0, 2.1, 0.0), 0.95));
         // A road well above it is another bridge's own affair.
-        assert!(!span.holds(Vec3::new(1.0, 4.0, 0.5), 0.95));
+        assert!(!span.is_on_deck(Vec3::new(1.0, 4.0, 0.5), 0.95));
     }
 }

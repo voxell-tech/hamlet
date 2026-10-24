@@ -1,114 +1,441 @@
-//! A hamlet's record: its budget, its votes and who came and went.
+//! A hamlet's received votes, civic record and budget.
 
-use bevy::ecs::entity::Entity;
-use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, UiRect, px};
-use bevy_fynix::views::{FrameProps, column};
-use bevy_fynix::{ViewExt, derived, keyed};
-use hamlet_core::agents::Settlement;
-use hamlet_core::core::Settings;
-use hamlet_rules::realm::Realm;
-use hamlet_rules::vote::{self, Standing};
+use bevy::app::{App, Update};
+use bevy::ecs::prelude::*;
+use bevy::ui::{UiRect, px};
+use bevy_fynix::views::{BehaviorExt, FrameProps, column};
+use bevy_fynix::{ViewExt, derived, every_frame, keyed};
+use hamlet_client::messages::{Reconnected, Response};
+use hamlet_client::outbox::Outbox;
+use hamlet_client::realm::{
+    AgentNumber, Agents, Bylaws, Deeds, HamletId, Lived, LivesIn,
+    Mayor, Seen, Treasury, Votes, Works,
+};
+use hamlet_protocol::client as protocol;
 
 use super::{heading, tell};
-use crate::View;
+use crate::AnyView;
 use crate::icons::Glyph;
 use crate::looks::{bad_action, bare, note};
-use crate::me::Me;
-use crate::roll::hamlets_moved;
 
-/// The spending, the votes and the comings and goings of a hamlet.
-#[derive(Clone, PartialEq, Default)]
-struct Annals {
-    budget: String,
-    /// Each vote by its number, and that a chief can still overturn
-    /// it.
-    votes: Vec<(u64, String, bool)>,
-    record: String,
+pub(super) fn plugin(app: &mut App) {
+    app.init_resource::<Annals>()
+        .add_observer(answered)
+        .add_observer(
+            |_: On<Reconnected>, mut annals: ResMut<Annals>| {
+                annals.reconnect = true;
+            },
+        )
+        .add_systems(Update, refresh);
 }
 
-fn annals(world: &World, hamlet: Entity) -> Annals {
-    let Some(settlement) = world.get::<Settlement>(hamlet) else {
-        return Annals::default();
-    };
-    let place = settlement.record();
-    let model = world
-        .get_resource::<Settings>()
-        .map(|settings| settings.config.model.clone())
-        .unwrap_or_default();
-    let rules = Realm::open(place.home())
-        .map(|realm| realm.rules)
-        .unwrap_or_default();
-    let votes = vote::votes(&place)
-        .iter()
-        .rev()
-        .map(|vote| {
-            let open = matches!(
-                vote.standing,
-                Standing::Open | Standing::Passed
-            );
-            (vote.id, vote.report(&rules), open)
-        })
-        .collect();
-    let user = world
-        .get_resource::<Me>()
-        .map(|me| me.user.clone())
-        .unwrap_or_default();
-    let record = match place.decree(&user, "/record") {
-        Some(Ok(decree)) => decree.lines.join("\n"),
-        Some(Err(e)) => format!("{e:#}"),
-        None => String::new(),
-    };
-    Annals {
-        budget: place.report(&model).lines(),
-        votes,
-        record,
+/// The civic record received for the displayed hamlet.
+#[derive(Resource, Default)]
+pub struct Annals {
+    hamlet: Option<Entity>,
+    pending: Option<protocol::RequestId>,
+    revision: Option<Seen>,
+    text: String,
+    available: bool,
+    reconnect: bool,
+}
+
+impl Annals {
+    /// A received civic record for a hamlet.
+    pub fn received(hamlet: Entity, text: String) -> Self {
+        Self {
+            hamlet: Some(hamlet),
+            text,
+            ..Self::default()
+        }
     }
 }
 
-/// A hamlet's record: its budget, its votes, each to be overturned
-/// while it stands, and who came and went.
-pub(super) fn record_of(hamlet: Entity) -> impl View {
-    let told = derived(move |world: &World| annals(world, hamlet))
-        .when(hamlets_moved());
-    let words = |text: &str| note(text.to_string()).boxed();
-    keyed(told, move |annals| {
-        let mut parts = vec![
-            heading(Glyph::Meter, "THE BUDGET".to_string()),
-            words(&annals.budget),
-            heading(
-                Glyph::Ballot,
-                format!("VOTES ({})", annals.votes.len()),
-            ),
-        ];
-        if annals.votes.is_empty() {
-            parts.push(words("No votes yet."));
+#[derive(Component)]
+struct RecordPanel(Entity);
+
+fn request(world: &mut World, hamlet: Entity, opening: bool) {
+    if !world.resource::<Deeds>().is_supported("record") {
+        return;
+    }
+    let Some(name) =
+        world.get::<HamletId>(hamlet).map(|h| h.0.clone())
+    else {
+        return;
+    };
+    let revision = world.get_resource::<Seen>().copied();
+    let annals = world.resource::<Annals>();
+    if !opening
+        && annals.hamlet == Some(hamlet)
+        && annals.revision == revision
+    {
+        return;
+    }
+    let id = world.resource_mut::<Outbox>().send(|id| {
+        protocol::ClientMessage::Say(protocol::Say {
+            id,
+            to: protocol::Address {
+                hamlet: name,
+                agent: "mayor".into(),
+            },
+            text: "/record".into(),
+        })
+    });
+    let mut annals = world.resource_mut::<Annals>();
+    if annals.hamlet != Some(hamlet) {
+        annals.text.clear();
+    }
+    annals.hamlet = Some(hamlet);
+    annals.pending = Some(id);
+    annals.available = true;
+    annals.revision = revision;
+}
+
+fn answered(response: On<Response>, mut annals: ResMut<Annals>) {
+    if annals.pending.as_ref() != Some(&response.to) {
+        return;
+    }
+    let text = match &response.message {
+        protocol::ServerMessage::Reply(reply) => &reply.text,
+        protocol::ServerMessage::Fault(fault) => &fault.text,
+        _ => return,
+    };
+    annals.text.clone_from(text);
+    annals.pending = None;
+}
+
+fn refresh(world: &mut World) {
+    let available = world.resource::<Deeds>().is_supported("record");
+    let mut annals = world.resource_mut::<Annals>();
+    let force = annals.reconnect || (available && !annals.available);
+    annals.available = available;
+    annals.reconnect = false;
+
+    let panels = world
+        .query::<&RecordPanel>()
+        .iter(world)
+        .map(|p| p.0)
+        .collect::<Vec<_>>();
+    let changed = world
+        .query_filtered::<Entity, (
+            With<HamletId>,
+            Or<(
+                Changed<Name>,
+                Changed<Agents>,
+                Changed<Works>,
+                Changed<Bylaws>,
+                Changed<Treasury>,
+                Changed<Votes>,
+            )>,
+        )>()
+        .iter(world)
+        .collect::<Vec<_>>();
+    let agents = world
+        .query_filtered::<&LivesIn, (
+            With<AgentNumber>,
+            Or<(Changed<Name>, Changed<Lived>, Changed<Mayor>)>,
+        )>()
+        .iter(world)
+        .map(|l| l.0)
+        .collect::<Vec<_>>();
+    for hamlet in panels {
+        if force
+            || changed.contains(&hamlet)
+            || agents.contains(&hamlet)
+        {
+            request(world, hamlet, force);
         }
-        for (id, report, open) in &annals.votes {
-            let id = *id;
-            let mut vote = vec![words(report.trim_end())];
-            if *open {
-                vote.push(bad_action(
-                    Glyph::Restore,
-                    "OVERTURN",
-                    move |world| {
-                        tell(world, hamlet, format!("/overturn {id}"))
-                    },
-                ));
-            }
-            parts.push(
-                column(vote)
-                    .gap(4.0)
-                    .align(AlignItems::FlexStart)
-                    .boxed(),
-            );
-        }
-        parts.push(heading(
-            Glyph::History,
-            "WHO CAME AND WENT".to_string(),
-        ));
-        parts.push(words(&annals.record));
-        column(parts).gap(8.0).padding(UiRect::top(px(4.0))).boxed()
+    }
+}
+
+/// The votes, civic record and spending reported for a hamlet.
+pub(super) fn record_of(hamlet: Entity) -> AnyView {
+    let told = derived(move |world: &World| {
+        let annals = world.resource::<Annals>();
+        (
+            world
+                .get::<Votes>(hamlet)
+                .map(|v| v.0.clone())
+                .unwrap_or_default(),
+            world
+                .get::<Treasury>(hamlet)
+                .map(|t| t.0.lines.clone())
+                .unwrap_or_default(),
+            if annals.hamlet == Some(hamlet) {
+                annals.text.clone()
+            } else {
+                String::new()
+            },
+            world.resource::<Deeds>().is_supported("overturn"),
+            world.resource::<Deeds>().is_supported("record"),
+        )
     })
-    .within(bare())
+    .when(every_frame());
+    let body = keyed(
+        told,
+        move |(votes, lines, record, overturn, records)| {
+            let mut parts = vec![heading(
+                Glyph::Ballot,
+                format!("VOTES ({})", votes.len()),
+            )];
+            for vote in votes {
+                parts.push(note(vote.report.clone()).boxed());
+                if vote.overturnable && *overturn {
+                    let id = vote.id;
+                    parts.push(bad_action(
+                        Glyph::Restore,
+                        "OVERTURN",
+                        move |world| {
+                            if world
+                                .resource::<Deeds>()
+                                .is_supported("overturn")
+                            {
+                                tell(
+                                    world,
+                                    hamlet,
+                                    format!("/overturn {id}"),
+                                );
+                            }
+                        },
+                    ));
+                }
+            }
+            if *records {
+                parts.push(heading(
+                    Glyph::History,
+                    "WHO CAME AND WENT",
+                ));
+                parts.push(
+                    note(if record.is_empty() {
+                        "Reading the record...".into()
+                    } else {
+                        record.clone()
+                    })
+                    .boxed(),
+                );
+            }
+            parts.push(heading(Glyph::Meter, "THE BUDGET"));
+            parts.extend(
+                lines.iter().map(|line| note(line.clone()).boxed()),
+            );
+            column(parts)
+                .gap(8.0)
+                .padding(UiRect::top(px(4.0)))
+                .tagged(RecordPanel(hamlet))
+                .boxed()
+        },
+    )
+    .within(bare());
+    AnyView::new(move |cx: &mut crate::Cx| {
+        request(cx.world, hamlet, true);
+        cx.build(body)
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_client::outbox::Outbox;
+    use hamlet_protocol::client as protocol;
+
+    use super::*;
+    use crate::testing::{panel_app, press, words};
+
+    #[test]
+    fn votes_and_the_record_reply_come_from_the_server_and_commands_reach_its_mayor()
+     {
+        let mut app = panel_app();
+        app.add_plugins(crate::overview::plugin);
+        let mut state = hamlet_testing::realm::state();
+        state.deeds =
+            hamlet_testing::realm::deeds(&["record", "overturn"]);
+        state
+            .agents
+            .push(hamlet_testing::realm::agent("home", 1, "scout"));
+        state.hamlets[0].votes = vec![
+            protocol::VoteView {
+                id: 7,
+                motion: "scout for mayor".into(),
+                by: "chief".into(),
+                open: false,
+                overturnable: true,
+                report: "Scout became mayor.".into(),
+                voters: vec![],
+            },
+            protocol::VoteView {
+                id: 8,
+                motion: "found mill".into(),
+                by: "scout".into(),
+                open: false,
+                overturnable: false,
+                report: "The founding vote failed.".into(),
+                voters: vec![],
+            },
+        ];
+        hamlet_client::receive(
+            app.world_mut(),
+            protocol::ServerMessage::State(state.clone()),
+        );
+        let hamlet =
+            hamlet_client::realm::mayor(app.world_mut()).unwrap();
+        let hamlet = app.world().get::<LivesIn>(hamlet).unwrap().0;
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            record_of(hamlet),
+        );
+        app.update();
+        let shown = words(&mut app);
+        assert!(shown.iter().any(|s| s == "VOTES (2)"));
+        assert!(shown.iter().any(|s| s == "Scout became mayor."));
+        assert!(
+            shown.iter().any(|s| s == "The founding vote failed.")
+        );
+        assert_eq!(
+            shown.iter().filter(|s| *s == "OVERTURN").count(),
+            1
+        );
+        let record = app
+            .world()
+            .resource::<Outbox>()
+            .iter()
+            .find_map(|message| match message {
+                protocol::ClientMessage::Say(say)
+                    if say.text == "/record" =>
+                {
+                    Some(say.clone())
+                }
+                _ => None,
+            })
+            .expect("the record requested on opening");
+        assert_eq!(record.to.agent, "mayor");
+        hamlet_client::receive(
+            app.world_mut(),
+            protocol::ServerMessage::Reply(protocol::Reply {
+                to: record.id,
+                kind: protocol::ReplyKind::Notice,
+                text: "Scout arrived, and smith was restored.".into(),
+                upload: None,
+            }),
+        );
+        app.update();
+        assert!(
+            words(&mut app).iter().any(
+                |s| s == "Scout arrived, and smith was restored."
+            )
+        );
+        press(&mut app, "OVERTURN");
+        assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/overturn 7" && s.to.hamlet == "home")));
+        state.hamlets[0].name = "The Hollow".into();
+        hamlet_client::receive(
+            app.world_mut(),
+            protocol::ServerMessage::Change(protocol::Changes {
+                epoch: 1,
+                revision: 1,
+                changes: vec![protocol::Update::Hamlet {
+                    hamlet: state.hamlets.remove(0),
+                }],
+            }),
+        );
+        app.update();
+        assert_eq!(app.world().resource::<Outbox>().iter().filter(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/record")).count(), 2);
+        state.agents[0].mayor = false;
+        state.agents[1].mayor = true;
+        hamlet_client::receive(
+            app.world_mut(),
+            protocol::ServerMessage::Change(protocol::Changes {
+                epoch: 1,
+                revision: 2,
+                changes: state
+                    .agents
+                    .into_iter()
+                    .map(|agent| protocol::Update::Agent { agent })
+                    .collect(),
+            }),
+        );
+        app.update();
+        assert_eq!(app.world().resource::<Outbox>().iter().filter(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/record")).count(), 3);
+    }
+    #[test]
+    fn a_record_lost_at_reconnect_is_requested_again_even_without_realm_changes()
+     {
+        let mut app = panel_app();
+        app.add_plugins(crate::overview::plugin);
+        let mut state = hamlet_testing::realm::state();
+        state.deeds = hamlet_testing::realm::deeds(&["record"]);
+        hamlet_client::receive(
+            app.world_mut(),
+            protocol::ServerMessage::State(state.clone()),
+        );
+        let agent =
+            hamlet_client::realm::mayor(app.world_mut()).unwrap();
+        let hamlet = app.world().get::<LivesIn>(agent).unwrap().0;
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            record_of(hamlet),
+        );
+        app.update();
+        let first = app
+            .world_mut()
+            .resource_mut::<Outbox>()
+            .drain()
+            .filter_map(|m| match m {
+                protocol::ClientMessage::Say(s)
+                    if s.text == "/record" =>
+                {
+                    Some(s.id)
+                }
+                _ => None,
+            })
+            .last()
+            .unwrap();
+        app.world_mut().trigger(Reconnected);
+        hamlet_client::receive(
+            app.world_mut(),
+            protocol::ServerMessage::State(state.clone()),
+        );
+        app.update();
+        let retry = app
+            .world_mut()
+            .resource_mut::<Outbox>()
+            .drain()
+            .find_map(|m| match m {
+                protocol::ClientMessage::Say(s)
+                    if s.text == "/record" =>
+                {
+                    Some(s.id)
+                }
+                _ => None,
+            })
+            .expect("request again after reconnect");
+        assert_ne!(first, retry);
+        hamlet_client::receive(
+            app.world_mut(),
+            protocol::ServerMessage::Reply(protocol::Reply {
+                to: retry,
+                kind: protocol::ReplyKind::Notice,
+                text: "The record recovered".into(),
+                upload: None,
+            }),
+        );
+        app.update();
+        assert!(
+            words(&mut app).contains(&"The record recovered".into())
+        );
+        state.deeds = hamlet_testing::realm::deeds(&[]);
+        hamlet_client::receive(
+            app.world_mut(),
+            protocol::ServerMessage::State(state.clone()),
+        );
+        app.update();
+        app.world_mut()
+            .resource_mut::<Outbox>()
+            .drain()
+            .for_each(drop);
+        state.deeds = hamlet_testing::realm::deeds(&["record"]);
+        hamlet_client::receive(
+            app.world_mut(),
+            protocol::ServerMessage::State(state),
+        );
+        app.update();
+        assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m,protocol::ClientMessage::Say(s) if s.text == "/record")));
+    }
 }

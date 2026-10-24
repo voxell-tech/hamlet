@@ -1,4 +1,4 @@
-//! The way home for a robot that stands away from its house: round
+//! The way back for a robot that stands away from its house: round
 //! the houses and dry all the way, by the roads and their bridges
 //! where the straight way is wet.
 
@@ -22,8 +22,8 @@ const OFF_ROAD: f32 = 4.0;
 /// The roads a robot may try to join before it gives up.
 const TRIES: usize = 3;
 
-/// A way home, and whether part of it runs on a road.
-pub(super) struct Homeward {
+/// A way to its house, and whether part of it runs on a road.
+pub(super) struct Houseward {
     pub way: Vec<Vec3>,
     pub by_road: bool,
 }
@@ -84,7 +84,7 @@ fn thin(way: &mut Vec<Vec2>) {
 }
 
 /// True when any of the ground under `way` is water.
-fn wet(land: &Land, way: &[Vec2]) -> bool {
+fn is_wet(land: &Land, way: &[Vec2]) -> bool {
     way.windows(2).any(|w| {
         let n = (w[0].distance(w[1]) / TEST).ceil().max(1.0) as usize;
         (0..=n).any(|i| {
@@ -95,7 +95,7 @@ fn wet(land: &Land, way: &[Vec2]) -> bool {
 
 /// True when a walker may stand at `p`: on dry ground, clear of
 /// whatever it goes round.
-pub(crate) fn clear(land: &Land, p: Vec2) -> bool {
+pub(crate) fn is_clear(land: &Land, p: Vec2) -> bool {
     !land.is_water(p)
         && rounds(land, p, p).iter().all(|&(c, r)| p.distance(c) >= r)
 }
@@ -120,7 +120,7 @@ pub(crate) fn beside(
                     * ring as f32
             })
         })
-        .find(|&p| clear(land, p))
+        .find(|&p| is_clear(land, p))
 }
 
 /// A dry way over open ground from `from` to `to`, round whatever
@@ -135,7 +135,7 @@ pub(crate) fn overland(
     }
     let mut way = dodge(&[from], &[to], &rounds(land, from, to));
     thin(&mut way);
-    (!wet(land, &way)).then_some(way)
+    (!is_wet(land, &way)).then_some(way)
 }
 
 /// A crossing of roads, as a key.
@@ -269,18 +269,18 @@ fn by_road(
 }
 
 /// The way from `from` to `to`, a point by the house whose middle
-/// is `home`. `ground` gives the height a robot stands at. None if
+/// is `house`. `ground` gives the height a robot stands at. None if
 /// there is no dry way.
-pub(super) fn homeward(
+pub(super) fn houseward(
     land: &Land,
     roads: &[&Route],
     from: Vec2,
     to: Vec2,
-    home: Vec2,
+    house: Vec2,
     ground: impl Fn(Vec2) -> f32,
-) -> Option<Homeward> {
+) -> Option<Houseward> {
     if let Some(way) = overland(land, from, to) {
-        return Some(Homeward {
+        return Some(Houseward {
             way: way
                 .into_iter()
                 .map(|p| p.extend(ground(p)).xzy())
@@ -289,10 +289,10 @@ pub(super) fn homeward(
         });
     }
     let town = land.sites.iter().map(|s| s.at).min_by(|a, b| {
-        a.distance(home).total_cmp(&b.distance(home))
+        a.distance(house).total_cmp(&b.distance(house))
     })?;
     by_road(land, roads, from, to, town, &ground)
-        .map(|way| Homeward { way, by_road: true })
+        .map(|way| Houseward { way, by_road: true })
 }
 
 #[cfg(test)]
@@ -338,7 +338,7 @@ mod tests {
         assert!(overland(&land, from, to).is_none());
 
         let home =
-            homeward(&land, &[&road], from, to, house.at, |p| {
+            houseward(&land, &[&road], from, to, house.at, |p| {
                 land.surface(p)
             })
             .expect("a way home");
@@ -367,7 +367,7 @@ mod tests {
         }
         // With no road there is no way.
         assert!(
-            homeward(&land, &[], from, to, house.at, |p| land
+            houseward(&land, &[], from, to, house.at, |p| land
                 .surface(p))
             .is_none()
         );
@@ -383,10 +383,10 @@ mod tests {
                 Vec2::new((i % 80) as f32, (i / 80) as f32) * 2.0
                     - Vec2::splat(80.0)
             })
-            .find(|&p| clear(&land, p) && land.is_water(p + side))
+            .find(|&p| is_clear(&land, p) && land.is_water(p + side))
             .expect("a bank");
         let stand = beside(&land, them, side, 6.0).expect("a spot");
-        assert!(clear(&land, stand));
+        assert!(is_clear(&land, stand));
         assert!(stand.distance(them) <= 6.0);
     }
 
@@ -395,6 +395,10 @@ mod tests {
     /// --nocapture`.
     #[test]
     #[ignore]
+    #[expect(
+        clippy::print_stdout,
+        reason = "it prints its measurements, read with --nocapture"
+    )]
     fn cost() {
         let land = testing::land(7);
         let roads = (1..30)
@@ -427,7 +431,7 @@ mod tests {
             let started = std::time::Instant::now();
             let mut points = 0;
             for _ in 0..N {
-                points = homeward(
+                points = houseward(
                     &land,
                     &roads,
                     from,

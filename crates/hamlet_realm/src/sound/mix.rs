@@ -33,6 +33,13 @@ pub(super) struct Heard {
     last: HashMap<Sound, f32>,
 }
 
+/// A cue's fate at [`admit`]: let through, or held.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Admission {
+    Passed,
+    Held,
+}
+
 pub(super) fn spawn_ears(
     mut commands: Commands,
     set: Res<SoundSettings>,
@@ -75,7 +82,7 @@ pub(super) fn start_ambience(
     if !playing.is_empty() {
         return;
     }
-    for sound in Sound::ALL.into_iter().filter(|s| s.ambient()) {
+    for sound in Sound::ALL.into_iter().filter(|s| s.is_ambient()) {
         let Some(clip) = bank.clip(sound) else {
             continue;
         };
@@ -117,15 +124,16 @@ pub(super) fn mix_ambience(
     }
 }
 
-/// True when a cue is let through: its family is not full, the same
+/// Whether a cue is let through: its family is not full, the same
 /// sound has not just played, and an alert is not one of several.
+/// One let through is noted as heard.
 pub(super) fn admit(
     cue: &Cue,
     set: &SoundSettings,
     heard: &mut Heard,
     playing: &HashMap<Family, usize>,
     now: f32,
-) -> bool {
+) -> Admission {
     let family = cue.sound.family();
     let limit = family.limit(set);
     let of_family = playing.get(&family).copied().unwrap_or(0);
@@ -133,21 +141,20 @@ pub(super) fn admit(
     if of_family >= limit.most
         || heard.last.get(&cue.sound).is_some_and(recent)
     {
-        return false;
+        return Admission::Held;
     }
-    if cue.sound.alert() {
+    if cue.sound.is_alert() {
         // Alerts close together are one.
         if heard.alert.is_some_and(|at| now - at < set.alert_gap) {
-            return false;
+            return Admission::Held;
         }
         heard.alert = Some(now);
     }
     heard.last.insert(cue.sound, now);
-    true
+    Admission::Passed
 }
 
 /// Plays the cues that are near enough to hear.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn play(
     mut commands: Commands,
     time: Res<Time>,
@@ -166,7 +173,7 @@ pub(super) fn play(
     let worldly = |playing: &HashMap<Family, usize>| {
         playing
             .iter()
-            .filter(|(family, _)| family.worldly())
+            .filter(|(family, _)| family.is_worldly())
             .map(|(_, count)| count)
             .sum::<usize>()
     };
@@ -182,16 +189,18 @@ pub(super) fn play(
         if answered && button {
             continue;
         }
-        let everywhere = cue.sound.everywhere()
-            || cue.sound.alert() && set.alerts_everywhere;
+        let everywhere = cue.sound.is_heard_everywhere()
+            || cue.sound.is_alert() && set.alerts_everywhere;
         let far = ears.translation.distance(cue.at) > set.earshot;
-        if family.worldly()
+        if family.is_worldly()
             && !everywhere
             && (far || worldly(&playing) >= set.voices)
         {
             continue;
         }
-        if !admit(&cue, &set, &mut heard, &playing, now) {
+        if admit(&cue, &set, &mut heard, &playing, now)
+            == Admission::Held
+        {
             continue;
         }
         let Some(clip) = bank.clip(cue.sound) else {

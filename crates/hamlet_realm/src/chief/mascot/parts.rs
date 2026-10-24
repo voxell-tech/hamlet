@@ -6,23 +6,23 @@ use bevy::math::Affine3A;
 use bevy::prelude::*;
 
 use crate::chief::look::{Hat, Holds, Look};
-use crate::meshes::Mb;
+use crate::meshes::Meshing;
 use crate::palette::Palette;
 
 /// The meshes of a mascot, each about its own joint.
 pub struct Parts {
-    pub cloak: Mb,
-    pub head: Mb,
-    pub eyes: Mb,
-    pub hat: Mb,
-    pub hand: Mb,
-    pub foot: Mb,
-    pub item: Mb,
-    pub letter: Mb,
+    pub cloak: Meshing,
+    pub head: Meshing,
+    pub eyes: Meshing,
+    pub hat: Meshing,
+    pub hand: Meshing,
+    pub foot: Meshing,
+    pub item: Meshing,
+    pub letter: Meshing,
 }
 
 impl Parts {
-    pub fn each(self) -> [Mb; 8] {
+    pub fn each(self) -> [Meshing; 8] {
         [
             self.cloak,
             self.head,
@@ -36,31 +36,31 @@ impl Parts {
     }
 }
 
-fn ball(mb: &mut Mb, c: Vec3, r: Vec3, col: Vec3) {
-    mb.blob(c, r, 5, 0.0, 0.0, |_| col);
+fn ball(meshing: &mut Meshing, c: Vec3, r: Vec3, col: Vec3) {
+    meshing.blob(c, r, 5, 0.0, 0.0, |_| col);
 }
 
 /// The hair of a head that wears no hat over it.
-fn hair(mb: &mut Mb, pal: &Palette) {
+fn hair(meshing: &mut Meshing, pal: &Palette) {
     ball(
-        mb,
+        meshing,
         Vec3::new(0.0, 0.1, -0.03),
         Vec3::new(0.278, 0.2, 0.272),
         pal.hair,
     );
 }
 
-fn hat(pal: &Palette, look: Look) -> Mb {
-    let mut mb = Mb::new();
+fn hat(pal: &Palette, look: Look) -> Meshing {
+    let mut meshing = Meshing::new();
     let cloth = look.cloak.colour(pal);
     let trim = pal.mantle.lerp(cloth, 0.25);
     match look.hat {
         Hat::Pointed => {
             // Tipped well back, so the face shows from above.
-            mb.at(Affine3A::from_rotation_x(-0.22));
+            meshing.at(Affine3A::from_rotation_x(-0.22));
             let felt = cloth * 0.8;
             let base = Vec3::Y * 0.15;
-            mb.lathe(
+            meshing.lathe(
                 base,
                 &[
                     (0.0, 0.0),
@@ -71,7 +71,7 @@ fn hat(pal: &Palette, look: Look) -> Mb {
                 14,
                 |r, _| if r == 0 { felt * 0.7 } else { felt },
             );
-            mb.lathe(
+            meshing.lathe(
                 base,
                 &[
                     (0.27, 0.08),
@@ -82,7 +82,7 @@ fn hat(pal: &Palette, look: Look) -> Mb {
                 12,
                 |_, _| felt,
             );
-            mb.torus(
+            meshing.torus(
                 base + Vec3::Y * 0.11,
                 Vec3::Y,
                 0.262,
@@ -91,7 +91,7 @@ fn hat(pal: &Palette, look: Look) -> Mb {
                 trim,
             );
             let tip = base + Vec3::new(0.14, 0.88, -0.07);
-            mb.tube(
+            meshing.tube(
                 base + Vec3::Y * 0.68,
                 tip,
                 0.065,
@@ -100,13 +100,13 @@ fn hat(pal: &Palette, look: Look) -> Mb {
                 felt,
                 true,
             );
-            ball(&mut mb, tip, Vec3::splat(0.06), pal.brass);
-            mb.at(Affine3A::IDENTITY);
+            ball(&mut meshing, tip, Vec3::splat(0.06), pal.brass);
+            meshing.at(Affine3A::IDENTITY);
         }
         Hat::Hood => {
             // A lathe about the way the face looks, open in front.
-            mb.at(Affine3A::from_rotation_x(FRAC_PI_2));
-            mb.lathe(
+            meshing.at(Affine3A::from_rotation_x(FRAC_PI_2));
+            meshing.lathe(
                 Vec3::ZERO,
                 &[
                     (0.0, -0.33),
@@ -119,9 +119,16 @@ fn hat(pal: &Palette, look: Look) -> Mb {
                 14,
                 |_, _| cloth,
             );
-            mb.at(Affine3A::IDENTITY);
-            mb.torus(Vec3::Z * 0.21, Vec3::Z, 0.272, 0.028, 14, trim);
-            mb.tube(
+            meshing.at(Affine3A::IDENTITY);
+            meshing.torus(
+                Vec3::Z * 0.21,
+                Vec3::Z,
+                0.272,
+                0.028,
+                14,
+                trim,
+            );
+            meshing.tube(
                 Vec3::new(0.0, 0.26, -0.12),
                 Vec3::new(0.0, 0.5, -0.36),
                 0.13,
@@ -132,14 +139,14 @@ fn hat(pal: &Palette, look: Look) -> Mb {
             );
         }
         Hat::Crown => {
-            hair(&mut mb, pal);
+            hair(&mut meshing, pal);
             let ring = Vec3::Y * 0.24;
-            mb.torus(ring, Vec3::Y, 0.19, 0.035, 14, pal.brass);
+            meshing.torus(ring, Vec3::Y, 0.19, 0.035, 14, pal.brass);
             for i in 0..5 {
                 let a = i as f32 / 5.0 * TAU;
                 let foot =
                     ring + Vec3::new(a.sin(), 0.0, a.cos()) * 0.19;
-                mb.tube(
+                meshing.tube(
                     foot,
                     foot + Vec3::Y * 0.14,
                     0.045,
@@ -149,7 +156,7 @@ fn hat(pal: &Palette, look: Look) -> Mb {
                     true,
                 );
                 ball(
-                    &mut mb,
+                    &mut meshing,
                     foot + Vec3::Y * 0.15,
                     Vec3::splat(0.022),
                     pal.wax,
@@ -157,10 +164,17 @@ fn hat(pal: &Palette, look: Look) -> Mb {
             }
         }
         Hat::Wreath => {
-            hair(&mut mb, pal);
+            hair(&mut meshing, pal);
             let ring = Vec3::new(0.0, 0.2, -0.02);
             let axis = Vec3::new(0.0, 1.0, 0.22);
-            mb.torus(ring, axis, 0.235, 0.05, 14, pal.foliage_shade);
+            meshing.torus(
+                ring,
+                axis,
+                0.235,
+                0.05,
+                14,
+                pal.foliage_shade,
+            );
             let (u, w) = axis.normalize().any_orthonormal_pair();
             for i in 0..6 {
                 let a = i as f32 / 6.0 * TAU + 0.4;
@@ -168,7 +182,7 @@ fn hat(pal: &Palette, look: Look) -> Mb {
                     + (u * a.cos() + w * a.sin()) * 0.25
                     + Vec3::Y * 0.03;
                 ball(
-                    &mut mb,
+                    &mut meshing,
                     at,
                     Vec3::splat(0.05),
                     pal.flowers[i % pal.flowers.len()],
@@ -176,8 +190,8 @@ fn hat(pal: &Palette, look: Look) -> Mb {
             }
         }
         Hat::Bare => {
-            hair(&mut mb, pal);
-            mb.tube(
+            hair(&mut meshing, pal);
+            meshing.tube(
                 Vec3::new(0.0, 0.27, 0.0),
                 Vec3::new(0.09, 0.4, 0.03),
                 0.045,
@@ -188,15 +202,15 @@ fn hat(pal: &Palette, look: Look) -> Mb {
             );
         }
     }
-    mb
+    meshing
 }
 
-fn item(pal: &Palette, holds: Holds) -> Mb {
-    let mut mb = Mb::new();
+fn item(pal: &Palette, holds: Holds) -> Meshing {
+    let mut meshing = Meshing::new();
     match holds {
         Holds::Quill => {
             let tip = Vec3::new(0.02, 0.38, -0.05);
-            mb.tube(
+            meshing.tube(
                 Vec3::Y * -0.06,
                 tip,
                 0.012,
@@ -205,7 +219,7 @@ fn item(pal: &Palette, holds: Holds) -> Mb {
                 pal.parchment,
                 false,
             );
-            mb.blob(
+            meshing.blob(
                 Vec3::new(0.014, 0.26, -0.035),
                 Vec3::new(0.014, 0.14, 0.07),
                 5,
@@ -216,7 +230,7 @@ fn item(pal: &Palette, holds: Holds) -> Mb {
                         .lerp(pal.whitewash, (d.y * 0.6).max(0.0))
                 },
             );
-            mb.tube(
+            meshing.tube(
                 Vec3::Y * -0.11,
                 Vec3::Y * -0.06,
                 0.003,
@@ -228,7 +242,7 @@ fn item(pal: &Palette, holds: Holds) -> Mb {
         }
         Holds::Teacup => {
             let at = Vec3::new(0.0, 0.03, 0.07);
-            mb.lathe(
+            meshing.lathe(
                 at,
                 &[
                     (0.0, 0.0),
@@ -239,7 +253,7 @@ fn item(pal: &Palette, holds: Holds) -> Mb {
                 10,
                 |_, _| pal.whitewash,
             );
-            mb.lathe(
+            meshing.lathe(
                 at,
                 &[
                     (0.045, 0.016),
@@ -257,7 +271,7 @@ fn item(pal: &Palette, holds: Holds) -> Mb {
                     }
                 },
             );
-            mb.torus(
+            meshing.torus(
                 at + Vec3::new(0.105, 0.062, 0.0),
                 Vec3::Z,
                 0.03,
@@ -269,7 +283,7 @@ fn item(pal: &Palette, holds: Holds) -> Mb {
         Holds::Book => {
             let at = Vec3::new(0.0, 0.03, 0.07);
             let tilt = Quat::from_rotation_x(-0.25);
-            mb.rbox(
+            meshing.rbox(
                 at,
                 Vec3::new(0.11, 0.145, 0.04),
                 0.012,
@@ -277,7 +291,7 @@ fn item(pal: &Palette, holds: Holds) -> Mb {
                 pal.leather,
                 0.1,
             );
-            mb.rbox(
+            meshing.rbox(
                 at + tilt * Vec3::new(0.014, 0.0, 0.0),
                 Vec3::new(0.105, 0.13, 0.028),
                 0.006,
@@ -285,7 +299,7 @@ fn item(pal: &Palette, holds: Holds) -> Mb {
                 pal.page,
                 0.0,
             );
-            mb.rbox(
+            meshing.rbox(
                 at + tilt * Vec3::new(0.0, 0.0, 0.042),
                 Vec3::new(0.035, 0.035, 0.004),
                 0.002,
@@ -296,7 +310,7 @@ fn item(pal: &Palette, holds: Holds) -> Mb {
         }
         Holds::Nothing => {}
     }
-    mb
+    meshing
 }
 
 /// The meshes of a mascot that looks like `look`.
@@ -304,7 +318,7 @@ pub fn parts(pal: &Palette, look: Look) -> Parts {
     let cloth = look.cloak.colour(pal);
     let trim = pal.mantle.lerp(cloth, 0.25);
 
-    let mut cloak = Mb::new();
+    let mut cloak = Meshing::new();
     cloak.lathe(
         Vec3::ZERO,
         &[
@@ -333,7 +347,7 @@ pub fn parts(pal: &Palette, look: Look) -> Parts {
         pal.brass,
     );
 
-    let mut head = Mb::new();
+    let mut head = Meshing::new();
     head.blob(
         Vec3::ZERO,
         Vec3::new(0.27, 0.26, 0.26),
@@ -357,7 +371,7 @@ pub fn parts(pal: &Palette, look: Look) -> Parts {
         pal.leather,
     );
 
-    let mut eyes = Mb::new();
+    let mut eyes = Meshing::new();
     for side in [-1.0f32, 1.0] {
         ball(
             &mut eyes,
@@ -367,9 +381,9 @@ pub fn parts(pal: &Palette, look: Look) -> Parts {
         );
     }
 
-    let mut hand = Mb::new();
+    let mut hand = Meshing::new();
     ball(&mut hand, Vec3::ZERO, Vec3::splat(0.075), pal.face);
-    let mut foot = Mb::new();
+    let mut foot = Meshing::new();
     ball(
         &mut foot,
         Vec3::new(0.0, 0.065, 0.03),
@@ -377,7 +391,7 @@ pub fn parts(pal: &Palette, look: Look) -> Parts {
         pal.timber_dark,
     );
 
-    let mut letter = Mb::new();
+    let mut letter = Meshing::new();
     letter.rbox(
         Vec3::ZERO,
         Vec3::new(0.13, 0.09, 0.006),
@@ -407,9 +421,9 @@ pub fn parts(pal: &Palette, look: Look) -> Parts {
 
 /// The wick: a small flame, drawn in whatever colour its material
 /// has.
-pub fn wick() -> Mb {
-    let mut mb = Mb::new();
-    mb.lathe(
+pub fn wick() -> Meshing {
+    let mut meshing = Meshing::new();
+    meshing.lathe(
         Vec3::ZERO,
         &[
             (0.0, -0.075),
@@ -422,5 +436,5 @@ pub fn wick() -> Mb {
         10,
         |_, _| Vec3::ONE,
     );
-    mb
+    meshing
 }

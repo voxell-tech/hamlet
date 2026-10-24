@@ -83,7 +83,7 @@ impl Trip {
         length / self.cruise(length) + self.get_going
     }
 
-    pub fn arrived(&self, now: f32) -> bool {
+    pub fn has_arrived(&self, now: f32) -> bool {
         now - self.depart >= self.duration()
     }
 

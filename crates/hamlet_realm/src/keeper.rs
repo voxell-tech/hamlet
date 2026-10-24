@@ -17,7 +17,7 @@ use bevy::prelude::*;
 pub use self::acts::{
     Act, CRANK_RATE, MERGE_GAP, SEAT_BACK, TALK_GAP,
 };
-use self::acts::{Ctx, Quirk};
+use self::acts::{Context, Quirk};
 pub(crate) use self::animate::animate;
 pub use self::kit::Kit;
 use self::pose::{Pose, Prop, arc, ramp, rx, ry};
@@ -57,7 +57,7 @@ pub struct Motion {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum KState {
+pub enum KeeperState {
     Rest,
     Working,
     Waiting,
@@ -65,7 +65,7 @@ pub enum KState {
     Failed,
 }
 
-impl KState {
+impl KeeperState {
     pub const ALL: [Self; 5] = [
         Self::Rest,
         Self::Working,
@@ -86,7 +86,7 @@ impl KState {
 
     /// True when this state moves by itself, so frames must keep
     /// coming.
-    pub fn animates(self) -> bool {
+    pub fn is_animated(self) -> bool {
         matches!(self, Self::Working | Self::Waiting | Self::Fault)
     }
 }
@@ -95,7 +95,7 @@ impl KState {
 /// `play` for a particular one.
 #[derive(Component)]
 pub struct Keeper {
-    pub state: KState,
+    pub state: KeeperState,
     who: Who,
     quirk: Quirk,
     act: Act,
@@ -105,7 +105,7 @@ pub struct Keeper {
     /// left.
     from: Option<(Pose, Act)>,
     /// The state the motion was last chosen for.
-    synced: KState,
+    synced: KeeperState,
     gait: f32,
     pace: f32,
     /// Its change from stepping, 0, to rolling, 1.
@@ -205,18 +205,8 @@ impl Keeper {
         }
     }
 
-    /// True when a motion that takes the robot out of sight has
-    /// finished, so that it can be despawned.
-    pub fn gone(&self, now: f32) -> bool {
-        self.act.vanishes()
-            && self
-                .act
-                .length()
-                .is_some_and(|l| now - self.since >= l)
-    }
-
     /// True when it is partway through something that will end.
-    pub fn busy(&self, now: f32) -> bool {
+    pub fn is_busy(&self, now: f32) -> bool {
         self.from.is_some()
             || self.act.length().is_some_and(|l| now - self.since < l)
     }
@@ -236,8 +226,8 @@ impl Keeper {
         self.synced = self.state;
     }
 
-    fn ctx(&self, now: f32) -> Ctx {
-        Ctx {
+    fn context(&self, now: f32) -> Context {
+        Context {
             t: now * self.quirk.tempo + self.quirk.phase,
             tau: now - self.since,
             gait: self.gait,
@@ -250,11 +240,11 @@ impl Keeper {
     /// The sound its motion makes, and a count that passes a whole
     /// number each time it makes it.
     pub fn beat(&self, now: f32) -> Option<(Sound, f32)> {
-        acts::beat(self.act, &self.ctx(now))
+        acts::beat(self.act, &self.context(now))
     }
 
     fn eval(&self, now: f32) -> Pose {
-        let c = self.ctx(now);
+        let c = self.context(now);
         let mut p = acts::pose(self.act, &c);
         if self.look != Vec2::ZERO {
             // The eyes go a little further than the head.

@@ -3,6 +3,8 @@ name = "hamlet_vfx"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
 description = "The world's visual effects: particles, runes, embers, motes and the inlay's material"
 
 [lints]
@@ -10,6 +12,6 @@ workspace = true
 
 [dependencies]
 hamlet_assets.workspace = true
-bevy.workspace = true
+bevy = { workspace = true, features = ["bevy_asset", "bevy_camera", "bevy_light", "bevy_mesh", "bevy_pbr", "bevy_render", "bevy_shader", "bevy_window"] }
 bevy_hanabi.workspace = true
 serde.workspace = true

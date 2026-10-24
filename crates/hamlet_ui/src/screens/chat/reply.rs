@@ -21,8 +21,7 @@ use bevy_fynix::views::{
     label, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
-use hamlet_core::session::{Entry, Transcript, reply_in};
-use hamlet_rules::words::clip;
+use hamlet_client::chats::{Entry, Transcript};
 
 use super::{ChatSettings, Draft};
 use crate::feel::Mood;
@@ -112,9 +111,7 @@ pub(super) fn rest(text: &str) -> &str {
 /// The words of an entry a message can reply to or select.
 pub(super) fn words(entry: &Entry) -> Option<&str> {
     match entry {
-        Entry::User { user, text } => {
-            Some(rest(reply_in(user, text).unwrap_or(text)))
-        }
+        Entry::Chief { text, .. } => Some(rest(text)),
         Entry::Assistant(text)
         | Entry::Agent { text, .. }
         | Entry::Answered(text) => Some(text),
@@ -123,17 +120,17 @@ pub(super) fn words(entry: &Entry) -> Option<&str> {
 }
 
 /// True when `entry` can be replied to.
-pub(super) fn answerable(entry: &Entry) -> bool {
+pub(super) fn can_reply_to(entry: &Entry) -> bool {
     words(entry).is_some_and(|text| !text.trim().is_empty())
 }
 
 /// Has the next message of the open chat reply to the entry `id` of
 /// `session`, said by `by`, and puts the caret in the field.
-fn take(world: &mut World, session: Entity, id: u64, by: &str) {
+fn take(world: &mut World, session: Entity, id: &str, by: &str) {
     let most = world.resource::<ChatSettings>().reply_chars;
     let answers = world
         .get::<Transcript>(session)
-        .and_then(|said| said.get(id))
+        .and_then(|said| said.item(id).map(|item| &item.entry))
         .and_then(words)
         .map(|text| Answers::of(by, text, most));
     let Some(answers) = answers else {
@@ -177,14 +174,18 @@ struct Mark;
 
 /// The mark beside the message `id` of `session`, said by `by`, out
 /// of sight until the pointer is on its row.
-pub(super) fn mark(session: Entity, id: u64, by: String) -> AnyView {
+pub(super) fn mark(
+    session: Entity,
+    id: String,
+    by: String,
+) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let reply = button(glyph(Glyph::Talk, ICON))
             .padding(UiRect::all(px(AROUND)))
             .tooltip(|| label("Reply").size(12.0))
             .rules(retrace)
             .tagged(Mood::Ink)
-            .on_activate(move |world| take(world, session, id, &by));
+            .on_activate(move |world| take(world, session, &id, &by));
         let node = cx.build(
             column((reply,))
                 .justify(JustifyContent::Center)
@@ -231,7 +232,7 @@ pub(super) fn answered(answers: &Answers) -> impl View + use<> {
             .bold(true)
             .wrap(false)
             .tone(Tone::Dim),
-        label(clip(&answers.text, SHOWN))
+        label(super::entry::clip_start(&answers.text, SHOWN))
             .size(11.0)
             .wrap(false)
             .tone(Tone::Dim),
@@ -264,7 +265,7 @@ fn shown(cx: &Cx, answers: &Answers) -> AnyView {
         .rules(retrace)
         .tagged(Mood::Ink)
         .on_activate(|world| {
-            world.resource_mut::<Replying>().0 = None
+            world.resource_mut::<Replying>().0 = None;
         });
     row((
         frame()
@@ -277,7 +278,7 @@ fn shown(cx: &Cx, answers: &Answers) -> AnyView {
                 .bold(true)
                 .wrap(false)
                 .tone(Tone::Faint),
-            label(clip(&answers.text, SHOWN))
+            label(super::entry::clip_start(&answers.text, SHOWN))
                 .size(12.0)
                 .wrap(false)
                 .tone(Tone::Dim),

@@ -200,7 +200,7 @@ pub(in crate::generator) fn stream(
             (entity, bytes, true)
         });
     let waiting = &mut loading.waiting;
-    came |=
+    came +=
         loading.groves.land(&mut commands, |commands, _, grove| {
             // A wood with trees to plant is shown when they stand.
             let whole = grove.trees.is_empty();
@@ -268,7 +268,7 @@ pub(in crate::generator) fn stream(
     let mut planted = HashSet::new();
     for (wood, tree) in loading.waiting.drain(from..) {
         planted.insert(wood);
-        if lanes.holds(tree.at.xz()) {
+        if lanes.is_on_lane(tree.at.xz()) {
             continue;
         }
         let tree = commands
@@ -292,10 +292,10 @@ pub(in crate::generator) fn stream(
     for wood in planted {
         loading.groves.whole(&mut commands, wood);
     }
-    if !loading.landed && loading.settled() {
+    if !loading.landed && loading.is_settled() {
         loading.landed = true;
     }
-    if came || plant > 0 || !loading.settled() {
+    if came > 0 || plant > 0 || !loading.is_settled() {
         tally.tiles = loading.ground.drawn().count();
         tally.trees = standing.iter().len();
         // Keep frames coming while the world fills in.

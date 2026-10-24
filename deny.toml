@@ -1,0 +1,40 @@
+# cargo deny check, which `cargo xtask deny` runs.
+
+[advisories]
+# Vulnerabilities fail; so do crates their authors gave up.
+unmaintained = "all"
+ignore = [
+    # ruzstd's decompression bomb, fixed in 0.9.1. bevy_image holds
+    # it at 0.8 and decodes with it only the KTX2 textures built into
+    # Bevy and the window, never a file from outside.
+    { id = "RUSTSEC-2026-0344", reason = "bevy_image holds ruzstd at 0.8; it reads only built-in textures" },
+    # ttf-parser, unmaintained. winit's Wayland title bar draws its
+    # text with it, through sctk-adwaita and ab_glyph.
+    { id = "RUSTSEC-2026-0192", reason = "winit pulls it in; no maintained release to move to" },
+]
+
+[licenses]
+# The licenses the tree uses, each one a project under
+# MIT OR Apache-2.0 can ship.
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "Unicode-3.0",
+    "Zlib",
+]
+
+[bans]
+# Bevy's tree holds several versions of many crates.
+multiple-versions = "warn"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

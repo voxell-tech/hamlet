@@ -112,7 +112,7 @@ impl Tile {
     }
 
     /// True when `other` is this tile or lies under it.
-    pub fn covers(self, other: Tile) -> bool {
+    pub fn is_over(self, other: Tile) -> bool {
         if other.level > self.level {
             return false;
         }
@@ -200,7 +200,7 @@ pub struct Sight {
 }
 
 /// True when a river runs through `tile`.
-fn watered(land: &Land, tile: Tile) -> bool {
+fn is_watered(land: &Land, tile: Tile) -> bool {
     let chunk = land.set.land.chunk;
     land.river_dist(tile.middle(chunk)) < tile.side(chunk) * 0.75
 }
@@ -252,7 +252,7 @@ pub fn wanted(
             && (far < near
                 || (finer
                     && far < near * detail.river_split
-                    && watered(land, tile))
+                    && is_watered(land, tile))
                 || (finer
                     && far < near * detail.town_split
                     && town()));

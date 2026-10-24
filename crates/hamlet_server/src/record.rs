@@ -1,0 +1,915 @@
+//! Hamlet records and marker-backed changes. Callers authenticate
+//! actors before constructing requests; the record checks their
+//! current authority in the change's transaction.
+
+mod document;
+mod membership;
+mod names;
+mod refusals;
+mod roads;
+#[cfg(test)]
+mod tests;
+
+use anyhow::{Context, Result, ensure};
+pub use document::{
+    Agent, AgentRef, Amount, Archived, BroughtFile, Decision,
+    DecisionKind, End, Hamlet, InheritedRoad, Limits, Merge,
+    MergeFiles, MergeNotes, OpenVote, Protection, Road, RoadBudget,
+    RoadCharge,
+};
+pub use names::{NameFallback, check_name, tidy_name};
+pub use refusals::{Action, Audience, Reason, Refusal};
+pub use roads::level;
+use rusqlite::{Connection, OptionalExtension, params};
+use serde::{Deserialize, Serialize};
+
+use crate::{Operation, Outcome, Store};
+
+/// The authenticated author of a record change.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Actor {
+    Chief(String),
+    Mayor(AgentRef),
+    Member(AgentRef),
+    /// The realm owner supplies both recorded agreements, not a
+    /// single tool caller's claim.
+    Mayors {
+        leaving: AgentRef,
+        joining: AgentRef,
+    },
+    /// The server keeping its own account of work an authorized
+    /// actor began: the guards on decisions and a merge's file work.
+    Realm,
+}
+
+impl Actor {
+    fn by(&self) -> By {
+        match self {
+            Self::Chief(name) => By::Chief(name.clone()),
+            Self::Mayor(_) => By::Mayor,
+            Self::Member(place) => By::Member(place.clone()),
+            Self::Mayors { leaving, .. } => {
+                By::Mayors(leaving.hamlet.clone())
+            }
+            Self::Realm => By::Realm,
+        }
+    }
+}
+
+/// Who made a change the record keeps, written as one word: `mayor`,
+/// `chief:<name>`, `<hamlet>:<number>`, `mayor@<hamlet>`, `realm`
+/// or, for the roads every agent has to its mayor, `office`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(into = "String", try_from = "String")]
+pub enum By {
+    Chief(String),
+    Mayor,
+    Member(AgentRef),
+    /// The mayors of a move, named by the hamlet it leaves.
+    Mayors(String),
+    Realm,
+    Office,
+}
+
+impl By {
+    /// Who it was, in words for the chief and agents.
+    pub fn words(&self) -> String {
+        match self {
+            Self::Mayor => "the mayor".into(),
+            Self::Chief(name) => format!("the chief {name}"),
+            other => other.clone().into(),
+        }
+    }
+}
+
+impl From<By> for String {
+    fn from(by: By) -> Self {
+        match by {
+            By::Chief(name) => format!("chief:{name}"),
+            By::Mayor => "mayor".into(),
+            By::Member(place) => {
+                format!("{}:{}", place.hamlet, place.number)
+            }
+            By::Mayors(hamlet) => format!("mayor@{hamlet}"),
+            By::Realm => "realm".into(),
+            By::Office => "office".into(),
+        }
+    }
+}
+
+/// A `by` that names no one who changes a record.
+#[derive(Debug, thiserror::Error)]
+#[error("`{0}` names no one who changes a record")]
+pub struct Nobody(String);
+
+impl TryFrom<String> for By {
+    type Error = Nobody;
+
+    fn try_from(by: String) -> std::result::Result<Self, Nobody> {
+        match by.as_str() {
+            "mayor" => return Ok(Self::Mayor),
+            "realm" => return Ok(Self::Realm),
+            "office" => return Ok(Self::Office),
+            _ => {}
+        }
+        if let Some(name) = by.strip_prefix("chief:") {
+            return Ok(Self::Chief(name.into()));
+        }
+        if let Some(hamlet) = by.strip_prefix("mayor@") {
+            return Ok(Self::Mayors(hamlet.into()));
+        }
+        if let Some((hamlet, number)) = by.rsplit_once(':')
+            && let Ok(number) = number.parse()
+        {
+            return Ok(Self::Member(AgentRef {
+                hamlet: hamlet.into(),
+                number,
+            }));
+        }
+        Err(Nobody(by))
+    }
+}
+
+/// A membership, road or office change, run with [`Store::run`].
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RecordOperation {
+    pub hamlet: String,
+    pub actor: Actor,
+    /// Server time at this attempt, excluded from the request
+    /// identity.
+    #[serde(skip)]
+    pub at: i64,
+    pub reason: String,
+    pub task: Option<String>,
+    pub change: Change,
+}
+
+/// An agent's proposed admission.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Admit {
+    pub name: String,
+    pub purpose: String,
+    pub model: Option<String>,
+    pub character: String,
+    pub roads: Vec<String>,
+}
+
+/// The departure requested by the lifecycle owner.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Departure {
+    Removed,
+    Merged {
+        into: u64,
+        purpose: Option<String>,
+        notes: MergeNotes,
+        files: MergeFiles,
+    },
+}
+
+/// The record's transactional operations.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Change {
+    Admit(Admit),
+    Depart {
+        name: String,
+        how: Departure,
+    },
+    Restore {
+        archive: String,
+        name: String,
+    },
+    MoveMember {
+        number: u64,
+        to: String,
+    },
+    LayRoad {
+        a: String,
+        b: String,
+    },
+    TakeUpRoad {
+        a: String,
+        b: String,
+    },
+    CarryRoad {
+        to: u64,
+    },
+    Seat {
+        number: u64,
+    },
+    /// The completed file work of a merge or split.
+    FinishMerge {
+        archive: String,
+    },
+    SetCharacter {
+        number: u64,
+        text: String,
+    },
+    SetLimits {
+        limits: Limits,
+        /// The model each agent runs under the new limits, for those
+        /// whose model changes.
+        runs: Vec<(u64, String)>,
+    },
+    /// An allowed model for an agent, or `None` for the hamlet's own.
+    SetModel {
+        name: String,
+        model: Option<String>,
+        /// The models the chief's limits allow.
+        allowed: Vec<String>,
+        /// The agents whose model the chief has pinned.
+        pinned: Vec<String>,
+        /// The hamlet's own model.
+        own: String,
+    },
+    /// The mayor refused the road agent `from` asked for to `to`.
+    RefuseRoad {
+        from: u64,
+        to: String,
+    },
+    /// A departed agent deleted for good with its archive.
+    Erase {
+        archive: String,
+    },
+    /// A skill given to agent `to`, from agent `from` or else the
+    /// library.
+    GiveSkill {
+        to: u64,
+        skill: String,
+        from: Option<String>,
+    },
+    /// Integration with votes and instructions; these are not agent
+    /// tools.
+    SetGuards {
+        open_votes: Vec<OpenVote>,
+        protected: Vec<Protection>,
+    },
+}
+
+impl Change {
+    fn name(&self) -> Action {
+        match self {
+            Self::Admit(_) => Action::Admit,
+            Self::Depart {
+                how: Departure::Removed,
+                ..
+            } => Action::Depart,
+            Self::Depart {
+                how: Departure::Merged { .. },
+                ..
+            } => Action::Merge,
+            Self::Restore { .. } => Action::Restore,
+            Self::MoveMember { .. } => Action::Move,
+            Self::LayRoad { .. } => Action::LayRoad,
+            Self::TakeUpRoad { .. } => Action::TakeUpRoad,
+            Self::CarryRoad { .. } => Action::CarryRoad,
+            Self::Seat { .. } => Action::Seat,
+            Self::FinishMerge { .. } => Action::FinishMerge,
+            Self::SetCharacter { .. } => Action::Character,
+            Self::SetLimits { .. } => Action::Limits,
+            Self::SetModel { .. } => Action::Model,
+            Self::RefuseRoad { .. } => Action::RefuseRoad,
+            Self::Erase { .. } => Action::Erase,
+            Self::GiveSkill { .. } => Action::GiveSkill,
+            Self::SetGuards { .. } => Action::Guards,
+        }
+    }
+}
+
+/// An optional admission road that was refused without undoing
+/// admission.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoadRefusal {
+    pub peer: String,
+    pub refusal: Refusal,
+}
+
+/// The result kept in a record operation's marker.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RecordResult {
+    Admitted {
+        agent: AgentRef,
+        road_refusals: Vec<RoadRefusal>,
+    },
+    Departed {
+        archive: String,
+    },
+    Restored {
+        agent: Agent,
+        text: String,
+    },
+    Moved(AgentRef),
+    Road(Road),
+    Changed,
+}
+
+impl Store {
+    /// A hamlet's complete record, detached from the database.
+    pub fn record(&self, hamlet: &str) -> Result<Option<Hamlet>> {
+        read(self.connection(), hamlet)
+    }
+
+    /// The current location of a living realm-wide name.
+    pub fn agent_named(
+        &self,
+        name: &str,
+    ) -> Result<Option<AgentRef>> {
+        Ok(self
+            .connection()
+            .query_row(
+                "SELECT hamlet, number FROM record_name WHERE name \
+                 = ?1",
+                [name],
+                |row| {
+                    Ok(AgentRef {
+                        hamlet: row.get(0)?,
+                        number: unsigned(row, 1)?,
+                    })
+                },
+            )
+            .optional()?)
+    }
+
+    /// All committed road charges for this hamlet, in charge order.
+    pub fn road_charges(
+        &self,
+        hamlet: &str,
+    ) -> Result<Vec<RoadCharge>> {
+        let mut query = self.connection().prepare(
+            "SELECT agent, task, at, tokens, micros, ms FROM \
+             record_road_charge WHERE hamlet = ?1 ORDER BY id",
+        )?;
+        Ok(query
+            .query_map([hamlet], |row| {
+                Ok(RoadCharge {
+                    agent: unsigned(row, 0)?,
+                    task: row.get(1)?,
+                    at: row.get(2)?,
+                    amount: Amount {
+                        tokens: unsigned(row, 3)?,
+                        micros: unsigned(row, 4)?,
+                        ms: unsigned(row, 5)?,
+                    },
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+}
+
+/// The record of `hamlet` as the transaction `db` holds it.
+pub(crate) fn read(
+    db: &Connection,
+    hamlet: &str,
+) -> Result<Option<Hamlet>> {
+    db.query_row(
+        "SELECT document FROM record_hamlet WHERE id = ?1",
+        [hamlet],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()?
+    .map(|value| {
+        serde_json::from_str(&value)
+            .context("reading a hamlet record")
+    })
+    .transpose()
+}
+
+/// Sets the guards on the decisions of `hamlet`, which their owners
+/// keep, in the transaction `db`.
+pub(crate) fn guard(
+    db: &Connection,
+    hamlet: &str,
+    open_votes: Vec<OpenVote>,
+    protected: Vec<Protection>,
+) -> Result<()> {
+    let operation = RecordOperation {
+        hamlet: hamlet.into(),
+        actor: Actor::Realm,
+        at: crate::clock::now(),
+        reason: String::new(),
+        task: None,
+        change: Change::SetGuards {
+            open_votes,
+            protected,
+        },
+    };
+    match crate::operation::change(db, &operation)? {
+        Outcome::Done(_) => Ok(()),
+        Outcome::Refused(refusal) => {
+            anyhow::bail!("guards refused: {refusal:?}")
+        }
+    }
+}
+
+/// Keeps the decision of chief `chief` giving agent `to` of `hamlet`
+/// the skill `skill`, which was already delivered.
+pub(crate) fn give_skill(
+    db: &Connection,
+    chief: &str,
+    hamlet: &str,
+    to: u64,
+    skill: &str,
+    from: Option<String>,
+) -> Result<()> {
+    let operation = RecordOperation {
+        hamlet: hamlet.into(),
+        actor: Actor::Chief(chief.into()),
+        at: crate::clock::now(),
+        reason: String::new(),
+        task: None,
+        change: Change::GiveSkill {
+            to,
+            skill: skill.into(),
+            from,
+        },
+    };
+    // A refusal leaves the delivered skill without a decision.
+    crate::operation::change(db, &operation)?;
+    Ok(())
+}
+
+/// Takes the living names of `hamlet` out of the realm's index, as
+/// the hamlet closes.
+pub(crate) fn release_names(
+    db: &Connection,
+    hamlet: &str,
+) -> Result<()> {
+    db.execute(
+        "DELETE FROM record_name WHERE hamlet = ?1",
+        [hamlet],
+    )?;
+    Ok(())
+}
+
+/// Puts the living names of `hamlet` back in the realm's index, as
+/// the hamlet lives again.
+pub(crate) fn claim_names(
+    db: &Connection,
+    hamlet: &str,
+) -> Result<()> {
+    match read(db, hamlet)? {
+        Some(record) => save(db, &record),
+        None => Ok(()),
+    }
+}
+
+/// Keeps `record` and its living names in the transaction `db`.
+fn save(db: &Connection, record: &Hamlet) -> Result<()> {
+    db.execute(
+        "INSERT INTO record_hamlet(id, document) VALUES (?1, ?2) ON \
+         CONFLICT(id) DO UPDATE SET document = excluded.document",
+        params![record.id, serde_json::to_string(record)?],
+    )?;
+    release_names(db, &record.id)?;
+    for agent in &record.agents {
+        db.execute(
+            "INSERT INTO record_name(name, hamlet, number) VALUES \
+             (?1, ?2, ?3)",
+            params![
+                agent.name,
+                record.id,
+                i64::try_from(agent.number)?
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+fn unsigned(
+    row: &rusqlite::Row<'_>,
+    index: usize,
+) -> rusqlite::Result<u64> {
+    let value = row.get::<_, i64>(index)?;
+    u64::try_from(value).map_err(|_| {
+        rusqlite::Error::IntegralValueOutOfRange(index, value)
+    })
+}
+
+impl Hamlet {
+    /// The current office holder must still be a living member.
+    pub fn require_mayor(&self, place: &AgentRef) -> Option<Refusal> {
+        (!(place.hamlet == self.id
+            && place.number == self.mayor
+            && self.agents.iter().any(|a| a.number == place.number)))
+        .then(|| {
+            Refusal::new(Action::Mayor, &self.id, Reason::NotMayor)
+        })
+    }
+
+    /// A current open vote holds mayor decisions until its current
+    /// time limit expires.
+    pub fn may_decide(
+        &self,
+        now: i64,
+        operation: Action,
+    ) -> Option<Refusal> {
+        self.open_votes
+            .iter()
+            .find(|vote| {
+                now.saturating_sub(vote.called).max(0)
+                    < self.limits.chief.vote_open_ms()
+            })
+            .map(|vote| {
+                Refusal::new(
+                    operation,
+                    &self.id,
+                    Reason::VoteOpen {
+                        vote: vote.id,
+                        motion: vote.motion.clone(),
+                    },
+                )
+            })
+    }
+
+    fn is_chief(&self, chief: &str) -> bool {
+        self.chiefs.is_empty()
+            || self.chiefs.iter().any(|c| c == chief)
+    }
+}
+
+impl RecordOperation {
+    fn refuse(&self, reason: Reason) -> Refusal {
+        Refusal::new(self.change.name(), &self.hamlet, reason)
+    }
+
+    fn decision(
+        &self,
+        record: &mut Hamlet,
+        kind: DecisionKind,
+        trim: bool,
+    ) {
+        record.decisions.push(Decision {
+            at: self.at,
+            by: self.actor.by(),
+            reason: if trim {
+                self.reason.trim().into()
+            } else {
+                self.reason.clone()
+            },
+            kind,
+        });
+    }
+}
+
+impl Operation for RecordOperation {
+    const KIND: &'static str = "record";
+    type Done = RecordResult;
+    type Refusal = Refusal;
+
+    fn authorize(&self, db: &Connection) -> Result<Option<Refusal>> {
+        let Some(record) = read(db, &self.hamlet)? else {
+            return Ok(Some(self.refuse(Reason::HamletMissing)));
+        };
+        if matches!(self.change, Change::CarryRoad { .. }) {
+            return Ok(match &self.actor {
+                Actor::Member(place)
+                    if place.hamlet == self.hamlet
+                        && record
+                            .agents
+                            .iter()
+                            .any(|a| a.number == place.number) =>
+                {
+                    None
+                }
+                _ => Some(self.refuse(Reason::Nonmember)),
+            });
+        }
+        let chief_only = matches!(
+            self.change,
+            Change::Restore { .. }
+                | Change::Seat { .. }
+                | Change::TakeUpRoad { .. }
+                | Change::FinishMerge { .. }
+                | Change::SetCharacter { .. }
+                | Change::SetLimits { .. }
+                | Change::SetGuards { .. }
+                | Change::Erase { .. }
+                | Change::GiveSkill { .. }
+        );
+        let refused = match &self.actor {
+            Actor::Member(_) => Some(self.refuse(Reason::NotMayor)),
+            Actor::Chief(chief) => {
+                (!record.is_chief(chief)).then(|| {
+                    self.refuse(
+                        if matches!(self.change, Change::Seat { .. })
+                        {
+                            Reason::MayorChief
+                        } else {
+                            Reason::RecordChief
+                        },
+                    )
+                })
+            }
+            Actor::Mayor(place) => {
+                if chief_only {
+                    Some(self.refuse(
+                        if matches!(self.change, Change::Seat { .. })
+                        {
+                            Reason::MayorChief
+                        } else {
+                            Reason::RecordChief
+                        },
+                    ))
+                } else if matches!(
+                    self.change,
+                    Change::MoveMember { .. }
+                ) {
+                    Some(self.refuse(Reason::NotMayor))
+                } else if matches!(
+                    self.change,
+                    Change::RefuseRoad { .. }
+                ) {
+                    // A refusal is kept even while a vote holds
+                    // decisions: the answer was already given.
+                    record
+                        .require_mayor(place)
+                        .map(|_| self.refuse(Reason::NotMayor))
+                } else {
+                    record
+                        .require_mayor(place)
+                        .map(|_| self.refuse(Reason::NotMayor))
+                        .or_else(|| {
+                            record.may_decide(
+                                self.at,
+                                self.change.name(),
+                            )
+                        })
+                }
+            }
+            Actor::Mayors { leaving, .. } => {
+                if matches!(self.change, Change::MoveMember { .. }) {
+                    record.require_mayor(leaving).or_else(|| {
+                        record.may_decide(self.at, Action::Move)
+                    })
+                } else {
+                    Some(self.refuse(Reason::NotMayor))
+                }
+            }
+            Actor::Realm => (!matches!(
+                self.change,
+                Change::SetGuards { .. } | Change::FinishMerge { .. }
+            ))
+            .then(|| self.refuse(Reason::RecordChief)),
+        };
+        if refused.is_some() {
+            return Ok(refused);
+        }
+        if let Change::MoveMember { to, .. } = &self.change {
+            let Some(target) = read(db, to)? else {
+                return Ok(Some(Refusal::new(
+                    Action::Move,
+                    to,
+                    Reason::HamletMissing,
+                )));
+            };
+            return Ok(match &self.actor {
+                Actor::Chief(chief) => (!target.is_chief(chief))
+                    .then(|| {
+                        Refusal::new(
+                            Action::Move,
+                            to,
+                            Reason::RecordChief,
+                        )
+                    }),
+                Actor::Mayors { joining, .. } => {
+                    target.require_mayor(joining).or_else(|| {
+                        target.may_decide(self.at, Action::Move)
+                    })
+                }
+                Actor::Mayor(_) | Actor::Member(_) | Actor::Realm => {
+                    Some(self.refuse(Reason::NotMayor))
+                }
+            });
+        }
+        Ok(None)
+    }
+
+    fn apply(
+        &self,
+        db: &Connection,
+    ) -> Result<Outcome<RecordResult, Refusal>> {
+        let mut record = read(db, &self.hamlet)?
+            .context("authorized hamlet missing")?;
+        let result = match &self.change {
+            Change::Admit(given) => {
+                self.admit(db, &mut record, given)?
+            }
+            Change::Depart { name, how } => {
+                self.depart(&mut record, name, how)
+            }
+            Change::Restore { archive, name } => {
+                self.restore(db, &mut record, archive, name)?
+            }
+            Change::MoveMember { number, to } => {
+                self.move_member(db, &mut record, *number, to)?
+            }
+            Change::LayRoad { a, b } => self
+                .lay_road(db, &mut record, a, b)?
+                .map(RecordResult::Road),
+            Change::TakeUpRoad { a, b } => self
+                .take_up_road(&mut record, a, b)
+                .map(RecordResult::Road),
+            Change::CarryRoad { to } => {
+                let Actor::Member(place) = &self.actor else {
+                    anyhow::bail!("authorized road sender missing");
+                };
+                self.carry_road(&mut record, place.number, *to)
+                    .map(RecordResult::Road)
+            }
+            Change::Seat { number } => {
+                self.seat(&mut record, *number)
+            }
+            Change::FinishMerge { archive } => match record
+                .archive
+                .iter_mut()
+                .find(|a| a.id == *archive)
+                .and_then(|a| a.merge.as_mut())
+            {
+                Some(merge) => {
+                    merge.applied = true;
+                    Ok(RecordResult::Changed)
+                }
+                None => Err(self.refuse(Reason::ArchiveMissing {
+                    archive: archive.clone(),
+                })),
+            },
+            Change::SetCharacter { number, text } => {
+                match record
+                    .agents
+                    .iter_mut()
+                    .find(|a| a.number == *number)
+                {
+                    Some(agent) => {
+                        agent.character = text.clone();
+                        Ok(RecordResult::Changed)
+                    }
+                    None => Err(self.refuse(Reason::AgentMissing {
+                        name: format!("#{number}"),
+                        local: true,
+                    })),
+                }
+            }
+            Change::SetLimits { limits, runs } => {
+                if let Some(budget) = &limits.road_budget {
+                    ensure!(
+                        budget.end > budget.start,
+                        "a road budget needs a nonempty time window"
+                    );
+                }
+                record.limits = limits.clone();
+                for (agent, model) in runs {
+                    self.decision(
+                        &mut record,
+                        DecisionKind::Model {
+                            agent: *agent,
+                            model: model.clone(),
+                        },
+                        false,
+                    );
+                }
+                Ok(RecordResult::Changed)
+            }
+            Change::SetModel {
+                name,
+                model,
+                allowed,
+                pinned,
+                own,
+            } => self.set_model(
+                &mut record,
+                name,
+                model.as_deref(),
+                allowed,
+                pinned,
+                own,
+            ),
+            Change::RefuseRoad { from, to } => {
+                self.decision(
+                    &mut record,
+                    DecisionKind::RoadRefused {
+                        from: *from,
+                        to: to.clone(),
+                    },
+                    false,
+                );
+                Ok(RecordResult::Changed)
+            }
+            Change::Erase { archive } => {
+                self.erase(&mut record, archive)
+            }
+            Change::GiveSkill { to, skill, from } => {
+                self.decision(
+                    &mut record,
+                    DecisionKind::SkillGiven {
+                        to: *to,
+                        skill: skill.clone(),
+                        from: from.clone(),
+                    },
+                    false,
+                );
+                Ok(RecordResult::Changed)
+            }
+            Change::SetGuards {
+                open_votes,
+                protected,
+            } => {
+                record.open_votes = open_votes.clone();
+                record.protected = protected.clone();
+                Ok(RecordResult::Changed)
+            }
+        };
+        match result {
+            Ok(done) => {
+                save(db, &record)?;
+                Ok(Outcome::Done(done))
+            }
+            Err(refusal) => Ok(Outcome::Refused(refusal)),
+        }
+    }
+}
+
+/// A founding request from the authenticated home chief or realm
+/// owner. Realm capacity, votes and house creation belong to that
+/// owner.
+#[derive(Clone, Debug, Serialize)]
+pub struct FoundRecord {
+    pub hamlet: String,
+    pub name: String,
+    pub purpose: String,
+    pub chief: String,
+    /// Server time at this attempt, excluded from the request
+    /// identity.
+    #[serde(skip)]
+    pub at: i64,
+}
+
+impl Operation for FoundRecord {
+    const KIND: &'static str = "found-record";
+    type Done = AgentRef;
+    type Refusal = Refusal;
+
+    fn authorize(&self, db: &Connection) -> Result<Option<Refusal>> {
+        // The first request is made by home setup after
+        // authenticating its chief.
+        Ok(read(db, "home")?
+            .filter(|home| !home.is_chief(&self.chief))
+            .map(|_| {
+                Refusal::new(
+                    Action::Found,
+                    &self.hamlet,
+                    Reason::RecordChief,
+                )
+            }))
+    }
+
+    fn apply(
+        &self,
+        db: &Connection,
+    ) -> Result<Outcome<AgentRef, Refusal>> {
+        let refuse = |reason| {
+            Ok(Outcome::Refused(Refusal::new(
+                Action::Found,
+                &self.hamlet,
+                reason,
+            )))
+        };
+        if read(db, &self.hamlet)?.is_some() {
+            return refuse(Reason::HamletUsed);
+        }
+        if let Some(reason) = check_name(&self.hamlet) {
+            return refuse(reason);
+        }
+        let first = self.hamlet == "home" && self.name == "founder";
+        if !first
+            && let Some(reason) =
+                names::available(db, &self.name, None)?
+        {
+            return refuse(reason);
+        }
+        let record = Hamlet {
+            id: self.hamlet.clone(),
+            chiefs: vec![self.chief.clone()],
+            founded: self.at,
+            agents: vec![Agent {
+                number: 0,
+                name: self.name.clone(),
+                purpose: self.purpose.trim().into(),
+                since: self.at,
+                model: None,
+                character: String::new(),
+            }],
+            mayor: 0,
+            next: 1,
+            roads: Vec::new(),
+            archive: Vec::new(),
+            decisions: Vec::new(),
+            limits: Limits::default(),
+            open_votes: Vec::new(),
+            protected: Vec::new(),
+        };
+        save(db, &record)?;
+        Ok(Outcome::Done(AgentRef {
+            hamlet: self.hamlet.clone(),
+            number: 0,
+        }))
+    }
+}

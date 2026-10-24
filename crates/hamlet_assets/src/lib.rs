@@ -7,12 +7,20 @@ pub mod tint;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 
-use bevy::asset::io::Reader;
-use bevy::asset::io::embedded::EmbeddedAssetRegistry;
-use bevy::asset::{AssetLoader, LoadContext, LoadState};
-use bevy::ecs::error::BevyError;
-use bevy::ecs::system::SystemParam;
-use bevy::prelude::*;
+use bevy_app::{App, Plugin, PreUpdate, Startup};
+use bevy_asset::io::Reader;
+use bevy_asset::io::embedded::EmbeddedAssetRegistry;
+use bevy_asset::{
+    Asset, AssetApp, AssetEvent, AssetLoader, AssetPlugin,
+    AssetServer, Assets, Handle, LoadContext, LoadState,
+};
+use bevy_ecs::error::BevyError;
+use bevy_ecs::message::MessageReader;
+use bevy_ecs::resource::Resource;
+use bevy_ecs::system::{Commands, Res, SystemParam};
+use bevy_ecs::world::{Mut, World};
+use bevy_log::info;
+use bevy_reflect::TypePath;
 use serde::de::DeserializeOwned;
 
 /// A file under `assets/`, as it was when the app was built.

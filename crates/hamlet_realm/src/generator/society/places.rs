@@ -10,7 +10,7 @@ use crate::generator::layout::{HALL_PLOT, plot};
 /// Something that stands on a round of ground of its own, and can
 /// be picked up and set down somewhere else.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Place {
+pub enum Ground {
     Town(TownId),
     /// The chief's own place.
     Chief,
@@ -21,7 +21,7 @@ pub enum Place {
 /// The ground held by a place that is not a town.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Claim {
-    pub place: Place,
+    pub place: Ground,
     pub at: Vec2,
     pub radius: f32,
 }
@@ -31,10 +31,10 @@ impl Society {
     pub fn stands(
         &self,
         land: &Land,
-        place: Place,
+        place: Ground,
     ) -> Option<(Vec2, f32)> {
         match place {
-            Place::Town(id) => self.town(id).map(|town| {
+            Ground::Town(id) => self.town(id).map(|town| {
                 (
                     land.sites[town.site].at,
                     land.set.town.keep_apart * 0.5,
@@ -49,28 +49,28 @@ impl Society {
     }
 
     /// Every place there is.
-    pub fn places(&self) -> impl Iterator<Item = Place> {
+    pub fn places(&self) -> impl Iterator<Item = Ground> {
         self.towns
             .iter()
-            .map(|town| Place::Town(town.id))
+            .map(|town| Ground::Town(town.id))
             .chain(self.claims.iter().map(|claim| claim.place))
     }
 
     /// True when a round of ground at `at` runs into any place but
     /// `but`. With `home`, the round is a town's own first ground,
     /// and towns that never moved are as near as the land put them.
-    fn crowded(
+    fn is_crowded(
         &self,
         land: &Land,
-        but: Place,
+        but: Ground,
         at: Vec2,
         radius: f32,
         home: bool,
     ) -> bool {
-        let settled = |place: Place| match place {
-            Place::Town(id) => self
-                .town(id)
-                .is_some_and(|town| !land.sites[town.site].moved()),
+        let settled = |place: Ground| match place {
+            Ground::Town(id) => self.town(id).is_some_and(|town| {
+                !land.sites[town.site].has_moved()
+            }),
             _ => false,
         };
         self.places()
@@ -92,7 +92,7 @@ impl Society {
     pub fn fits(
         &self,
         land: &Land,
-        place: Place,
+        place: Ground,
         to: Vec2,
     ) -> Result<(), Unfit> {
         let Some((_, radius)) = self.stands(land, place) else {
@@ -100,7 +100,7 @@ impl Society {
         };
         // The ground a town was founded on takes it back as it is.
         let home = match place {
-            Place::Town(id) => self
+            Ground::Town(id) => self
                 .town(id)
                 .is_some_and(|town| land.sites[town.site].home == to),
             _ => false,
@@ -108,10 +108,10 @@ impl Society {
         if !home {
             land.suits(to)?;
         }
-        if self.crowded(land, place, to, radius, home) {
+        if self.is_crowded(land, place, to, radius, home) {
             return Err(Unfit::Crowded);
         }
-        let Place::Town(id) = place else {
+        let Ground::Town(id) = place else {
             return Ok(());
         };
         let Some(town) = self.town(id) else {
@@ -136,7 +136,7 @@ impl Society {
         id: TownId,
         to: Vec2,
     ) -> Result<(), Unfit> {
-        self.fits(land, Place::Town(id), to)?;
+        self.fits(land, Ground::Town(id), to)?;
         let site = self.town(id).map(|town| town.site);
         if let Some(site) = site {
             land.move_site(site, to);
@@ -158,7 +158,7 @@ impl Society {
                     claim.at.distance(site.home) < room + claim.radius
                 }) || self.towns.iter().any(|town| {
                     let other = &land.sites[town.site];
-                    other.moved()
+                    other.has_moved()
                         && other.at.distance(site.home) < room * 2.0
                 }));
             site.buildable
@@ -167,8 +167,8 @@ impl Society {
         })
     }
 
-    /// Founds a town with a leader on the first free site, and lays
-    /// a road from the new leader to every other leader. There is
+    /// Founds a town with a mayor on the first free site, and lays
+    /// a road from the new mayor to every other mayor. There is
     /// always a site: when all the land has are taken, it readies
     /// one more, further out.
     pub fn found_town(&mut self, land: &mut Land) -> TownId {
@@ -210,7 +210,8 @@ impl Society {
         }
         let home = land.sites[site].home;
         let room = land.set.town.keep_apart * 0.5;
-        if !self.crowded(land, Place::Town(id), home, room, true) {
+        if !self.is_crowded(land, Ground::Town(id), home, room, true)
+        {
             land.move_site(site, home);
             return id;
         }
@@ -230,12 +231,12 @@ impl Society {
     fn found_on(&mut self, site: usize) -> TownId {
         let id = TownId(self.next_town);
         self.next_town += 1;
-        let leader = self.spawn_agent(id, HALL_PLOT);
+        let mayor = self.spawn_agent(id, HALL_PLOT);
         let others =
-            self.towns.iter().map(|t| t.leader).collect::<Vec<_>>();
-        self.towns.push(Town { id, site, leader });
+            self.towns.iter().map(|t| t.mayor).collect::<Vec<_>>();
+        self.towns.push(Town { id, site, mayor });
         for other in others {
-            self.add_road(leader, other);
+            self.add_road(mayor, other);
         }
         id
     }

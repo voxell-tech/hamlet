@@ -1,22 +1,75 @@
 # Code convention
 
-## Confirm before reaching for memory-management types
+## The Rust API Guidelines are the base
 
-`Arc`, `Rc`, `Box<dyn Trait>`, `Mutex`, `RwLock`, `Cell`, `RefCell`, or
-any other memory-management/interior-mutability type: stop and confirm
-with the user before introducing one. They carry a real runtime cost -
-an allocation, a reference count, a lock - and are easy to reach for
-out of habit where plain ownership or borrowing would have worked;
-overused, they add up and slow the program down. Explain what plain
-ownership or borrowing was tried first and why it didn't work, and let
-the user decide rather than reaching for one of these as the default
-fix.
+This convention builds on the
+[Rust API Guidelines checklist](https://rust-lang.github.io/api-guidelines/checklist.html)
+and says nothing where the two agree. Hamlet departs from it on purpose
+in two places:
+
+- The documentation items (C-CRATE-DOC, C-EXAMPLE, C-LINK, C-HIDDEN,
+  C-FAILURE) are required only in `hamlet_protocol`, whose doc
+  comments become the descriptions in its two schemas: the runtime
+  one the pi harness carries, and the client one the server checks
+  each message against. The other crates are not libraries anyone
+  else builds on, and [the comment convention](comment_convention.md)
+  asks for fewer words.
+- The publication items (C-METADATA, C-RELNOTES, C-STABLE, C-SEALED)
+  do not apply: no crate is published.
+
+## A name says what a thing is, in the glossary's words
+
+- A boolean method reads as a question: `is_`, `has_`, `can_`.
+- A type's name does not repeat its module's or its parent's: no
+  `LoginStartStart`.
+- When a crate holds several types of one kind, each is prefixed by
+  its role: `ToolSession`, `WorkspaceSession`.
+- An id is a newtype, not a `String` alias.
+- A `bool` or `Option` argument that changes what a function does
+  becomes an enum.
+- No abbreviation that is not a word in [`CONTEXT.md`](../CONTEXT.md):
+  `ReplyAddress`, not `Re`; `Meshing`, not `Mb`; `KeeperState`, not
+  `KState`.
+- Use CONTEXT.md's words, never those on its avoid lists.
+
+## A defect is an `anyhow` error, an expected outcome a typed refusal
+
+Errors come in two layers. A defect, which should never happen, is an
+`anyhow::Result` and carries its context up. An expected outcome, such
+as a name already taken, is a typed refusal the caller can match on.
+
+An error type derives `Error` and `Display` with `thiserror`. No
+`Result<_, String>`: the words a person reads are built from the typed
+value at the edge where they are shown.
+
+## Ownership and borrowing come first
+
+`Arc`, `Rc`, `Box<dyn Trait>`, `Mutex`, `RwLock`, `Cell` and `RefCell`
+carry a runtime cost: an allocation, a count or a lock. When one is
+needed, the PR says what plain ownership or borrowing was tried and why
+it did not work.
 
 ## Turbofish, not an annotated binding
 
 When a generic call's type needs pinning down, prefer turbofish on
 the call itself (`.collect::<Vec<_>>()`, `.parse::<i32>()`, and so on)
 over annotating the binding's type to steer inference.
+
+## A rule a lint can check is a lint
+
+Every rule a lint can check is set in the workspace lint block in
+`Cargo.toml` and in `clippy.toml`, so clippy enforces it, not a
+reader. A lint is silenced with `#[expect(lint, reason = "...")]` at
+the narrowest scope.
+
+`unsafe_code` is denied. A module that needs unsafe code says so once,
+on the module, with `expect(unsafe_code, reason = "...")`; when the
+module builds on every OS but only one OS's build has unsafe code, the
+attribute is a `cfg_attr` for that OS. Every unsafe block carries a
+`// SAFETY:` comment. Those modules are the CLI's `process.rs` and
+Windows console in `terminal.rs`, `hamlet_desktop`'s `app_icon.rs` and
+the workspace's `supervise.rs`. Elsewhere, system calls go through
+rustix.
 
 ## Test our own code, and only what can break
 
@@ -35,6 +88,20 @@ maths with a sign or a space to get wrong, a round trip through our
 own format, a behaviour a user asked for by name.
 
 When it's a toss-up whether a test earns its place, leave it out.
+
+## A test sits beside what it tests
+
+Unit tests are inline in their module. Past roughly 300 lines of
+tests, they move to `tests.rs` in the module's folder
+(`record/tests.rs`), declared with `#[cfg(test)] mod tests;`. Helpers
+shared by tests live in the crate's one `testing` module, never
+imported from another module's tests.
+
+`tests/` holds only tests that use the crate through its public API or
+its executable. Scenarios of the whole product go in `hamlet_acceptance`,
+except fault-point scenarios, which stay in `hamlet_server` behind
+`required-features`. Fixtures shared by crates live in `hamlet_testing`.
+A test suite is never a dependency of another crate.
 
 ## Colours are parameters of a shader, not constants in it
 

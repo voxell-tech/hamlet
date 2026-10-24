@@ -77,7 +77,7 @@ impl Pass<'_, '_, '_> {
         }
         let near = land.set.town.radius + land.set.land.site_spacing;
         let crossed = |road: &RoadDrawn| {
-            road.course.between()
+            road.course.is_between_towns()
                 && road.route.line.pts.iter().step_by(8).any(|p| {
                     shifted
                         .iter()
@@ -108,8 +108,9 @@ impl Pass<'_, '_, '_> {
             let met = || {
                 spans.iter().filter(|(pair, span)| {
                     *pair != r.pair
-                        && own
-                            .is_none_or(|own| own.nears(span, reach))
+                        && own.is_none_or(|own| {
+                            own.is_near(span, reach)
+                        })
                 })
             };
             if own.is_some() {
@@ -130,7 +131,8 @@ impl Pass<'_, '_, '_> {
                 Some(job) => {
                     job.level == r.level
                         && job.course == course
-                        && (shifted.is_empty() || !course.between())
+                        && (shifted.is_empty()
+                            || !course.is_between_towns())
                 }
                 None => drawn.roads.get(&r.pair).is_some_and(|d| {
                     d.level == r.level

@@ -55,7 +55,6 @@ pub(in crate::chief) fn prepare(
 }
 
 /// The circle and the motes of one end of a Wickstep, at `ground`.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn charm(
     commands: &mut Commands,
     wand: &Wand,
@@ -120,7 +119,6 @@ pub(super) fn charm(
 
 /// Plays the circles and the motes of every Wickstep, and clears
 /// each away at its end.
-#[allow(clippy::type_complexity)]
 pub(in crate::chief) fn cast(
     mut commands: Commands,
     clock: Res<Clock>,

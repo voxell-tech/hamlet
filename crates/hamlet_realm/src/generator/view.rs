@@ -17,7 +17,7 @@ use crate::{Clock, Stage, WorldCamera};
 
 /// The camera's view.
 #[derive(Resource, Clone, Copy, PartialEq, Debug)]
-pub struct GenView {
+pub struct GeneratorView {
     pub focus: Vec2,
     pub dist: f32,
     pub yaw: f32,
@@ -25,7 +25,7 @@ pub struct GenView {
     pub pitch: f32,
 }
 
-impl Default for GenView {
+impl Default for GeneratorView {
     fn default() -> Self {
         Self {
             focus: Vec2::ZERO,
@@ -36,7 +36,7 @@ impl Default for GenView {
     }
 }
 
-impl GenView {
+impl GeneratorView {
     /// The height the camera looks at: the lie of the land about
     /// its focus, taken wide so that the camera crosses a mountain
     /// without following every rock of it.
@@ -90,7 +90,7 @@ impl GenView {
 /// The place the camera is being taken to, while that is not yet the
 /// place it looks at. The ground is drawn there ahead of it.
 #[derive(Resource, Clone, Copy, PartialEq, Debug, Default)]
-pub struct Ahead(pub Option<GenView>);
+pub struct Ahead(pub Option<GeneratorView>);
 
 /// Swaps each town between its houses and its plain far mesh by the
 /// camera's distance. A town keeps its far mesh until every house
@@ -125,9 +125,10 @@ pub(super) fn town_detail(
             c.y,
         ));
         let built = builds.is_empty()
-            || !(builds.bare_common(town.common)
+            || !(builds.is_common_bare(town.common)
                 || society.agents.iter().any(|agent| {
-                    agent.town == *id && builds.bare_house(agent.id)
+                    agent.town == *id
+                        && builds.is_house_bare(agent.id)
                 }));
         let near = d < detail.town_far && built;
         show(town.near, near);
@@ -156,13 +157,13 @@ pub(super) fn robot_detail(
     }
 }
 
-/// Points the camera where [`GenView`] looks, with fog, shadows and
-/// blur fitted to its distance.
+/// Points the camera where [`GeneratorView`] looks, with fog, shadows
+/// and blur fitted to its distance.
 pub(super) fn aim(
     mut commands: Commands,
     stage: Res<Stage>,
     settings: Res<CameraSettings>,
-    view: Res<GenView>,
+    view: Res<GeneratorView>,
     land: Res<Land>,
     time: Res<Time>,
     clock: Res<Clock>,

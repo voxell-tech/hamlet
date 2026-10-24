@@ -17,10 +17,8 @@ use self::magic::MagicSettings;
 use self::sparks::SparkSettings;
 use self::wind::WindSettings;
 
-/// Every effect, glowing in `tints`.
-pub struct VfxPlugin {
-    pub tints: Tints,
-}
+/// Every effect. Insert [`Tints`] before adding it.
+pub struct VfxPlugin;
 
 impl Plugin for VfxPlugin {
     fn build(&self, app: &mut App) {
@@ -35,7 +33,6 @@ impl Plugin for VfxPlugin {
             wind::plugin,
             flag::plugin,
         ))
-        .insert_resource(self.tints)
         .init_resource::<Now>();
     }
 }
@@ -62,7 +59,7 @@ impl Default for Density {
 }
 
 /// The colours the effects glow in, in linear RGB.
-#[derive(Resource, Clone, Copy)]
+#[derive(Resource, Clone, Copy, PartialEq)]
 pub struct Tints {
     pub ember: Vec3,
     pub firefly: Vec3,

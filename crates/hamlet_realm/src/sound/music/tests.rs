@@ -9,7 +9,7 @@ fn mood(part: DayPart, busy: f32) -> Mood {
 }
 
 /// The pitch classes of D major with the lydian fourth.
-fn in_key(note: f32) -> bool {
+fn is_in_key(note: f32) -> bool {
     [1.0, 2.0, 4.0, 6.0, 7.0, 8.0, 9.0, 11.0]
         .contains(&note.rem_euclid(12.0))
 }
@@ -23,12 +23,12 @@ fn every_note_is_in_the_key() {
         for k in 0..200 {
             let mood = mood(part, (k % 5) as f32 / 4.0);
             let breath = composer.breathe(&mood);
-            assert!(breath.pads.iter().all(|p| in_key(p.0)));
-            assert!(breath.notes.iter().all(|n| in_key(n.note)));
+            assert!(breath.pads.iter().all(|p| is_in_key(p.0)));
+            assert!(breath.notes.iter().all(|n| is_in_key(n.note)));
             for moment in Moment::ALL {
                 let phrase = composer.answer(moment, &mood);
                 assert!(
-                    phrase.notes.iter().all(|n| in_key(n.note)),
+                    phrase.notes.iter().all(|n| is_in_key(n.note)),
                     "{moment:?}"
                 );
             }

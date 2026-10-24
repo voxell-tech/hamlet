@@ -1,8 +1,7 @@
-//! The scene's clock, and the stage its owner sets.
+//! The scene's clock, and the stage the chief sets.
 
 use bevy::prelude::*;
 
-use crate::keeper::KState;
 use crate::sky;
 
 /// The clock and the stage, and the order the world's systems run in
@@ -12,9 +11,19 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Stage>()
         .configure_sets(
             Update,
-            (Step::Clock, Step::Scene, Step::Robots)
-                .chain()
-                .in_set(WorldSystems),
+            (
+                (
+                    RealmSystems::Steer,
+                    RealmSystems::Aim,
+                    RealmSystems::Act,
+                    RealmSystems::Bridge,
+                    WorldSystems,
+                )
+                    .chain(),
+                (Step::Clock, Step::Scene, Step::Robots)
+                    .chain()
+                    .in_set(WorldSystems),
+            ),
         )
         .add_systems(
             Update,
@@ -25,6 +34,24 @@ pub fn plugin(app: &mut App) {
 /// The world's systems, in the order they run each frame.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct WorldSystems;
+
+/// The steps that come before [`WorldSystems`] each frame, in order,
+/// so that the world draws all of them in the same frame.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum RealmSystems {
+    /// The camera moved by hand, and the stage the chief sets.
+    Steer,
+    /// The pointer's place over the world, which the chief's hand
+    /// acts on.
+    Aim,
+    /// The chief's deeds on what was aimed: the hand, the things
+    /// carried, the clockworks, the mascot and the library.
+    Act,
+    /// The client's hamlets, agents and roads drawn in the society,
+    /// after the chief and the library have taken their sites, and
+    /// the view framed on them.
+    Bridge,
+}
 
 /// The steps of [`WorldSystems`], in order.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -51,11 +78,10 @@ fn tick(time: Res<Time>, mut clock: ResMut<Clock>) {
     }
 }
 
-/// The sky and the mayor's state, as the owner of the app sets them.
+/// The sky and depth of field, as the chief sets them.
 #[derive(Resource, Clone, PartialEq)]
 pub struct Stage {
     pub night: bool,
-    pub kstate: KState,
     /// Mild tilt-shift blur in the far views.
     pub dof: bool,
 }
@@ -64,15 +90,7 @@ impl Default for Stage {
     fn default() -> Self {
         Stage {
             night: false,
-            kstate: KState::Rest,
             dof: true,
         }
-    }
-}
-
-impl Stage {
-    /// True while the mayor moves, so frames must keep coming.
-    pub fn animating(&self) -> bool {
-        self.kstate.animates()
     }
 }

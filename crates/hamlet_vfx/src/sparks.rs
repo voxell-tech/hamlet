@@ -55,14 +55,14 @@ pub struct Sparks {
 
 impl Sparks {
     /// True when the world has particles at all.
-    pub fn any(&self) -> bool {
+    pub fn has_particles(&self) -> bool {
         self.made_for > 0.0
     }
 
     /// A swarm of fireflies, to be put where it should fly. None
     /// where the world has no particles.
     pub fn swarm(&self) -> Option<impl Bundle + use<>> {
-        self.any().then(|| {
+        self.has_particles().then(|| {
             (Swarm, ParticleEffect::new(self.fireflies.clone()))
         })
     }
@@ -220,7 +220,7 @@ fn firefly_swarm(
 }
 
 /// Makes the effects for the density that is set, and makes them
-/// again when it or their tuning changes.
+/// again when it, their tuning or their tints change.
 fn make(
     mut commands: Commands,
     density: Res<Density>,
@@ -233,7 +233,8 @@ fn make(
     let stale = sparks
         .as_ref()
         .is_none_or(|sparks| sparks.made_for != density.0)
-        || set.is_changed();
+        || set.is_changed()
+        || tints.is_changed();
     if !stale {
         return;
     }
@@ -254,24 +255,22 @@ fn make(
     });
 }
 
-/// Sets off a burst of embers at `ground`. Returns false where the
-/// world has no particles, for something plainer to stand in.
+/// Sets off a burst of embers at `ground`. None where the world has
+/// no particles, for something plainer to stand in.
 pub fn burst(
     commands: &mut Commands,
     sparks: Option<&Sparks>,
     set: &SparkSettings,
     now: f32,
     ground: Vec3,
-) -> bool {
-    let Some(sparks) = sparks.filter(|s| s.any()) else {
-        return false;
-    };
-    commands.spawn((
+) -> Option<Entity> {
+    let sparks = sparks.filter(|s| s.has_particles())?;
+    let burst = commands.spawn((
         ParticleEffect::new(sparks.embers.clone()),
         Transform::from_translation(ground),
         Spent(now + set.ember_life + 0.5),
     ));
-    true
+    Some(burst.id())
 }
 
 fn clear(

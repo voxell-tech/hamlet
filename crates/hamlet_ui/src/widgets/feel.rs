@@ -80,7 +80,7 @@ pub enum Mood {
 
 impl Mood {
     /// The pointer coming onto it is heard.
-    fn ticks(self) -> bool {
+    fn has_tick(self) -> bool {
         matches!(
             self,
             Self::Plain | Self::Ink | Self::Good | Self::Bad
@@ -231,19 +231,7 @@ fn waver(now: f32, seed: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
-    use bevy::time::Time;
-
     use super::*;
-
-    /// Runs one frame of a sixtieth of a second.
-    pub(super) fn step(app: &mut App) {
-        app.world_mut()
-            .resource_mut::<Time>()
-            .advance_by(Duration::from_millis(16));
-        app.update();
-    }
 
     #[test]
     fn easing_arrives_and_stays() {

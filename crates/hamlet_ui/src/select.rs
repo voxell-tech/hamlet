@@ -108,7 +108,7 @@ pub struct Selecting {
     area: Option<Entity>,
     /// The message of the chat they are in, by its conversation and
     /// entry, so they can be quoted.
-    quote: Option<(Entity, u64)>,
+    quote: Option<(Entity, String)>,
     anchor: Option<Spot>,
     focus: Option<Spot>,
     grain: Grain,
@@ -134,10 +134,10 @@ impl Selecting {
 pub struct Area;
 
 /// On a row of the chat whose words can be quoted.
-#[derive(Component, Clone, Copy, Debug)]
+#[derive(Component, Clone, Debug)]
 pub struct Quotable {
     pub session: Entity,
-    pub entry: u64,
+    pub entry: String,
 }
 
 /// The layer over the panels that what is selected is lit on.
@@ -192,7 +192,7 @@ impl Texts<'_, '_> {
     /// True when the words of the text node `node` can be selected:
     /// it is seen, the pointer reaches it, and it is not part of a
     /// button, a field or anything else that has a hand of its own.
-    fn selectable(&self, node: Entity) -> bool {
+    fn is_selectable(&self, node: Entity) -> bool {
         let seen = self.seen.get(node).is_ok_and(|(shown, pick)| {
             shown.is_none_or(|s| s.get())
                 && pick.is_none_or(|p| p.is_hoverable)
@@ -218,7 +218,8 @@ impl Texts<'_, '_> {
         self.children
             .iter_descendants_depth_first(area)
             .filter(|node| {
-                self.blocks.contains(*node) && self.selectable(*node)
+                self.blocks.contains(*node)
+                    && self.is_selectable(*node)
             })
             .collect()
     }
@@ -499,7 +500,7 @@ fn mark(
     mut commands: Commands,
 ) {
     for node in &added {
-        if texts.selectable(node) {
+        if texts.is_selectable(node) {
             commands
                 .entity(node)
                 .try_insert(EntityCursor(SystemCursorIcon::Text));
@@ -538,9 +539,8 @@ fn press(
     let area =
         chain.iter().rev().copied().find(|e| areas.contains(*e));
     let scope = match (control, area, text) {
-        (true, ..) => None,
         (false, Some(area), _) => Some(area),
-        (false, None, Some(text)) if texts.selectable(text) => {
+        (false, None, Some(text)) if texts.is_selectable(text) => {
             Some(text)
         }
         _ => None,
@@ -561,7 +561,7 @@ fn press(
         texts.place(&nodes, press.pointer_location.position, grain);
     let quote = area
         .and_then(|_| chain.iter().find_map(|e| rows.get(*e).ok()))
-        .map(|row| (row.session, row.entry));
+        .map(|row| (row.session, row.entry.clone()));
     *selecting = Selecting {
         area: Some(scope),
         quote,
@@ -683,7 +683,6 @@ fn forget(
 
 /// Lights what is selected, keeps its words for a copy or a quote,
 /// and puts the quote button at its end.
-#[allow(clippy::too_many_arguments)]
 fn light(
     mut commands: Commands,
     texts: Texts,
@@ -700,10 +699,12 @@ fn light(
     // The area, found again in its message if that was built anew.
     let area =
         selecting.area.filter(|a| alive.contains(*a)).or_else(|| {
-            let (session, id) = selecting.quote?;
+            let (session, id) = selecting.quote.as_ref()?;
             let row = rows
                 .iter()
-                .find(|(_, r)| r.session == session && r.entry == id)?
+                .find(|(_, r)| {
+                    r.session == *session && &r.entry == id
+                })?
                 .0;
             texts
                 .children
@@ -813,11 +814,12 @@ fn quote_chosen(world: &mut World) {
 
 /// The quote button of the entry `id` of `session`, at the end of
 /// what is selected in it.
-pub fn quote_button(session: Entity, id: u64) -> impl View {
+pub fn quote_button(session: Entity, id: String) -> impl View {
     keyed(
         resource::<Selecting, _>(move |s| {
-            s.quote == Some((session, id))
-                && !s.chosen.trim().is_empty()
+            s.quote.as_ref().is_some_and(|(chat, entry)| {
+                *chat == session && entry == &id
+            }) && !s.chosen.trim().is_empty()
         }),
         |on| match on {
             true => row((marked(Glyph::Talk, "QUOTE")

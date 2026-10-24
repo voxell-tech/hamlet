@@ -1,42 +1,44 @@
 //! The History page of the Inspector: the selected agent's
 //! sessions.
 
-use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use bevy::app::{App, Update};
+use bevy::app::{App, PreUpdate, Update};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
+use bevy::ecs::query::Changed;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_equals;
-use bevy::ecs::system::ResMut;
+use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, JustifyContent, UiRect, percent, px};
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
     BehaviorExt, ContextMenuExt, FrameProps, button, column, frame,
-    label, menu_item, row, scroll, text_field,
+    label, menu_item, scroll, text_field,
 };
 use bevy_fynix::{
-    ScopedExt, StateExt, ViewExt, each, keyed, resource, style,
+    ScopedExt, StateExt, ViewExt, derived, each, every_frame, keyed,
+    resource, style,
 };
-use hamlet_core::core::RefreshLists;
-use hamlet_core::session::archive::{self, Past, pasts};
-use hamlet_core::session::{self, Entry, JobFinished, Transcript};
-use hamlet_rules::budget::format_tokens;
-use hamlet_rules::commands::RESUME;
+use hamlet_client::chats::{Chat, Entry, TalksTo, Transcript};
+use hamlet_client::messages::{ChiefMessage, JobFinished, Response};
+use hamlet_client::outbox::{Outbox, RequestId};
+use hamlet_client::realm::address_of;
+use hamlet_protocol::client as protocol;
+use protocol::Past;
 
 use crate::dock::show_tab;
 use crate::feel::Mood;
 use crate::icons::Glyph;
 use crate::looks::{
-    Fills, away, back, bad_action, buttons, command, filling,
-    good_action, hairline, note, well,
+    Fills, away, back, buttons, command, filling, good_action,
+    hairline, note, well,
 };
 use crate::me::Me;
 use crate::theme::HamletTheme;
-use crate::{AnyView, Cx, View, chat, inspector};
+use crate::{AnyView, Cx, PanelSystems, View, chat, inspector};
 
 /// Characters of a title a row shows.
 const TITLE_SHOWN: usize = 90;
@@ -46,29 +48,33 @@ pub const PAGE: usize = 40;
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<History>()
-        .add_observer(stale_on_refresh)
+        .init_resource::<Requests>()
+        .add_observer(response)
         .add_observer(stale_on_job)
         .add_systems(
             Update,
             refresh
                 .run_if(resource_equals(inspector::Section::History)),
+        )
+        .add_systems(
+            PreUpdate,
+            keep_reader.in_set(PanelSystems::Bind),
         );
 }
 
-/// A session's log.
 /// The session open in the reader.
 pub struct Reading {
-    pub path: PathBuf,
+    pub number: i64,
     /// The entity with its [`Transcript`].
     pub holder: Entity,
     /// Its messages, without the steps between them.
-    pub said: Vec<u64>,
+    pub said: Vec<String>,
     /// Messages built, counted from the end.
     pub reach: usize,
 }
 
 impl Reading {
-    fn shown(&self) -> Vec<u64> {
+    fn shown(&self) -> Vec<String> {
         let earlier = self.said.len().saturating_sub(self.reach);
         self.said[earlier..].to_vec()
     }
@@ -80,28 +86,34 @@ pub struct History {
     pub pasts: Vec<Past>,
     pub query: String,
     pub reading: Option<Reading>,
-    /// A delete of the session being read awaits a yes.
-    pub doomed: bool,
     /// The error of the last action.
     pub failed: Option<String>,
-    /// The chat session `pasts` were listed for.
-    pub of: Option<Entity>,
-    /// `pasts` match the disk.
+    /// A history read is in flight or has answered.
     pub fresh: bool,
 }
 
 /// A row of the list.
 #[derive(Clone, PartialEq)]
 struct Line {
-    path: PathBuf,
+    number: i64,
     title: String,
     detail: String,
     live: bool,
-    ours: bool,
 }
 
-fn since(t: SystemTime) -> String {
-    let s = t.elapsed().map(|d| d.as_secs()).unwrap_or(0);
+#[derive(Resource, Default)]
+struct Requests {
+    agent: Option<protocol::Address>,
+    pending: Option<RequestId>,
+    open: bool,
+}
+
+fn since(t: i64) -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+    let s = now.saturating_sub(t).max(0) / 1000;
     match s {
         0..=59 => "just now".into(),
         60..=3599 => format!("{} min ago", s / 60),
@@ -126,9 +138,10 @@ fn detail(past: &Past) -> String {
         1 => "1 message".to_string(),
         n => format!("{n} messages"),
     };
-    let mut detail = match past.number {
-        Some(_) => since(past.modified),
-        None => "In use now".to_string(),
+    let mut detail = if past.current {
+        "In use now".to_string()
+    } else {
+        since(past.modified)
     };
     detail.push_str(&format!(", {count}"));
     if past.tokens > 0 {
@@ -144,13 +157,19 @@ impl History {
     fn lines(&self) -> Vec<Line> {
         self.pasts
             .iter()
-            .filter(|past| past.matches(&self.query))
+            .filter(|past| {
+                let words = format!("{} {}", past.title, past.by)
+                    .to_lowercase();
+                self.query
+                    .to_lowercase()
+                    .split_whitespace()
+                    .all(|word| words.contains(word))
+            })
             .map(|past| Line {
-                path: past.path.clone(),
+                number: past.number,
                 title: shortened(&past.title),
                 detail: detail(past),
-                live: past.number.is_none(),
-                ours: past.ours,
+                live: past.current,
             })
             .collect()
     }
@@ -169,133 +188,191 @@ impl History {
 
     fn read(&self) -> Option<&Past> {
         let reading = self.reading.as_ref()?;
-        self.pasts.iter().find(|past| past.path == reading.path)
+        self.pasts.iter().find(|past| past.number == reading.number)
     }
 }
 
 /// Closes the reader.
 fn close(world: &mut World) {
     let mut history = world.resource_mut::<History>();
-    history.doomed = false;
     if let Some(reading) = history.reading.take() {
         world.despawn(reading.holder);
     }
 }
 
 /// The messages of a session, without the steps between them.
-pub fn said(transcript: &Transcript) -> Vec<u64> {
+pub fn said(transcript: &Transcript) -> Vec<String> {
     transcript
         .items()
         .iter()
         .filter(|item| {
             matches!(
                 item.entry,
-                Entry::User { .. }
+                Entry::Chief { .. }
                     | Entry::Assistant(_)
                     | Entry::Agent { .. }
                     | Entry::Error(_)
             )
         })
-        .map(|item| item.id)
+        .map(|item| item.id.clone())
         .collect()
 }
 
-/// Opens the log at `path` in the reader.
-fn open(world: &mut World, path: PathBuf) {
+fn format_tokens(n: u64) -> String {
+    match n {
+        0..=999 => format!("{n} tok"),
+        1000..=999_999 => format!("{:.1}k tok", n as f64 / 1e3),
+        _ => format!("{:.2}M tok", n as f64 / 1e6),
+    }
+}
+
+/// The numbered conversation opened as a read-only watched chat.
+fn open(world: &mut World, number: i64) {
     close(world);
-    let transcript = archive::read(&path);
-    let said = said(&transcript);
-    let holder = world.spawn(transcript).id();
+    let Some(with) = address_of(world, world.resource::<Me>().agent)
+    else {
+        return;
+    };
+    let holder = world
+        .spawn((
+            Chat(protocol::ChatRef {
+                kind: None,
+                from: None,
+                with,
+                past: Some(number),
+            }),
+            Transcript::default(),
+        ))
+        .id();
     let mut history = world.resource_mut::<History>();
     history.failed = None;
     history.reading = Some(Reading {
-        path,
+        number,
         holder,
-        said,
+        said: Vec::new(),
         reach: PAGE,
     });
 }
 
-/// Resumes the session being read.
+/// The reader's conversation resumed by its stable number.
 fn resume(world: &mut World) {
-    let number = world
-        .resource::<History>()
-        .read()
-        .filter(|past| past.ours)
-        .and_then(|past| past.number.clone());
+    let number =
+        world.resource::<History>().read().map(|past| past.number);
     let Some(number) = number else {
         return;
     };
+    let Some(to) = address_of(world, world.resource::<Me>().agent)
+    else {
+        return;
+    };
     close(world);
-    chat::send(world, format!("{RESUME} {number}"));
-    // The talk it goes back to is what is shown.
+    world.trigger(ChiefMessage {
+        to,
+        text: format!("/resume {number}"),
+    });
     *world.resource_mut::<inspector::Section>() =
         inspector::Section::Conversation;
     show_tab(world, "agent");
 }
 
-/// Deletes the log of the session being read.
-fn delete(world: &mut World) {
-    let past = world.resource::<History>().read().cloned();
-    close(world);
-    // A log in use belongs to an open conversation.
-    let Some(past) = past.filter(|past| past.number.is_some()) else {
+/// The server's history requested while the page is open.
+pub(crate) fn refresh(world: &mut World) {
+    let me = world.resource::<Me>();
+    let agent = address_of(world, me.agent);
+    let moved = world.resource::<Requests>().agent != agent;
+    if moved {
+        close(world);
+        let mut history = world.resource_mut::<History>();
+        history.pasts.clear();
+        history.failed = None;
+        history.fresh = false;
+    }
+    let opened = !world.resource::<Requests>().open;
+    if world.resource::<History>().fresh && !moved && !opened {
+        return;
+    }
+    let Some(agent) = agent else {
         return;
     };
-    let failed = archive::delete(&past.path)
-        .err()
-        .map(|e| format!("Could not delete that session: {e}"));
+    let id = world.resource_mut::<Outbox>().send(|id| {
+        protocol::ClientMessage::Read(protocol::Read::History {
+            id,
+            agent: agent.clone(),
+        })
+    });
+    let mut requests = world.resource_mut::<Requests>();
+    requests.agent = Some(agent);
+    requests.pending = Some(id);
+    requests.open = true;
     let mut history = world.resource_mut::<History>();
-    history.failed = failed;
-    history.fresh = false;
-}
-
-/// Keeps `pasts` in step with the disk while the page is open.
-pub(crate) fn refresh(world: &mut World) {
-    let session = world.resource::<Me>().session;
-    let history = world.resource::<History>();
-    let moved = history.of != Some(session);
-    if history.fresh && !moved {
-        return;
-    }
-    if moved {
-        close(world);
-    }
-    let dir = inspector::house(world).sessions();
-    let key = world.resource::<Me>().key.clone();
-    let live = session::log_of(world, &key);
-    let pasts = pasts(&dir, live.as_deref());
-    let gone = world
-        .resource::<History>()
-        .reading
-        .as_ref()
-        .is_some_and(|reading| !reading.path.exists());
-    if gone {
-        close(world);
-    }
-    let mut history = world.resource_mut::<History>();
-    history.of = Some(session);
     history.fresh = true;
-    if moved {
-        history.failed = None;
-    }
-    if history.pasts != pasts {
-        history.pasts = pasts;
-    }
 }
 
-pub(crate) fn stale_on_refresh(
-    _: On<RefreshLists>,
-    mut history: ResMut<History>,
-) {
-    history.fresh = false;
+fn response(reply: On<Response>, mut commands: Commands) {
+    let reply = reply.event().clone();
+    commands.queue(move |world: &mut World| {
+        let requests = world.resource::<Requests>();
+        if requests.pending.as_ref() != Some(&reply.to)
+            || requests.agent
+                != address_of(world, world.resource::<Me>().agent)
+        {
+            return;
+        }
+        world.resource_mut::<Requests>().pending = None;
+        match reply.message {
+            protocol::ServerMessage::Read(
+                protocol::ReadResult::History { history, .. },
+            ) => {
+                world.resource_mut::<History>().pasts = history;
+            }
+            protocol::ServerMessage::Reply(reply)
+                if reply.kind == protocol::ReplyKind::Error =>
+            {
+                world.resource_mut::<History>().failed =
+                    Some(reply.text);
+            }
+            protocol::ServerMessage::Fault(fault) => {
+                world.resource_mut::<History>().failed =
+                    Some(fault.text);
+            }
+            _ => {}
+        }
+    });
 }
 
-pub(crate) fn stale_on_job(
-    _: On<JobFinished>,
+fn stale_on_job(job: On<JobFinished>, mut commands: Commands) {
+    let chat = job.chat;
+    commands.queue(move |world: &mut World| {
+        let me = world.resource::<Me>();
+        if chat == me.session
+            || world
+                .get::<TalksTo>(chat)
+                .is_some_and(|to| to.0 == me.agent)
+        {
+            world.resource_mut::<History>().fresh = false;
+        }
+    });
+}
+
+fn keep_reader(
+    section: Res<inspector::Section>,
+    mut requests: ResMut<Requests>,
     mut history: ResMut<History>,
+    transcripts: Query<&Transcript, Changed<Transcript>>,
 ) {
-    history.fresh = false;
+    if *section != inspector::Section::History && requests.open {
+        requests.open = false;
+    }
+    let Some(reading) = &history.reading else {
+        return;
+    };
+    let Ok(transcript) = transcripts.get(reading.holder) else {
+        return;
+    };
+    let now = said(transcript);
+    if now != reading.said {
+        history.reading.as_mut().unwrap().said = now;
+    }
 }
 
 /// Look of a session's row.
@@ -324,43 +401,24 @@ fn card(cx: &mut Cx) {
         .apply(cx);
 }
 
-/// A row of a session's context menu.
-fn choice(
-    text: &'static str,
-    path: &Path,
-    act: fn(&mut World, PathBuf),
-) -> AnyView {
-    let path = path.to_path_buf();
-    menu_item(label(text).wrap(false))
-        .on_activate(move |world| act(world, path.clone()))
-        .boxed()
-}
-
-/// Rows of a session's context menu.
+/// A session's context menu.
 fn choices(line: &Line) -> Vec<AnyView> {
-    let mut choices = vec![choice("Read", &line.path, open)];
-    if line.ours {
-        choices.push(choice("Resume", &line.path, |world, path| {
-            open(world, path);
-            resume(world);
-        }));
-    }
-    if !line.live {
-        choices.push(choice(
-            "Delete...",
-            &line.path,
-            |world, path| {
-                // The reader asks before it deletes.
-                open(world, path);
-                world.resource_mut::<History>().doomed = true;
-            },
-        ));
-    }
-    choices
+    let number = line.number;
+    vec![
+        menu_item(label("Read").wrap(false))
+            .on_activate(move |world| open(world, number))
+            .boxed(),
+        menu_item(label("Resume").wrap(false))
+            .on_activate(move |world| {
+                open(world, number);
+                resume(world);
+            })
+            .boxed(),
+    ]
 }
 
 fn line_view(line: &Line) -> AnyView {
-    let path = line.path.clone();
+    let number = line.number;
     let menu = line.clone();
     button(
         column((
@@ -375,7 +433,7 @@ fn line_view(line: &Line) -> AnyView {
     .width(percent(100.0))
     .rules(card)
     .tagged(Mood::Plain)
-    .on_activate(move |world| open(world, path.clone()))
+    .on_activate(move |world| open(world, number))
     .appear(away)
     .transition(Motion::Expand)
     .context_menu(move || choices(&menu))
@@ -399,25 +457,16 @@ fn list() -> impl View {
         text_field(
             resource::<History, _>(|h| h.query.clone()),
             |world, text| {
-                world.resource_mut::<History>().query = text
+                world.resource_mut::<History>().query = text;
             },
         )
         .rules(well),
-        note(resource::<History, _>(|h| {
-            if h.query.trim().is_empty() && !h.pasts.is_empty() {
-                format!(
-                    "{}. Type above and press Enter to search them.",
-                    h.count()
-                )
-            } else {
-                h.count()
-            }
-        })),
+        note(resource::<History, _>(History::count)),
         failed(),
         scroll((each(
             resource::<History, _>(History::lines),
             |line: &Line| {
-                format!("{}|{}", line.path.display(), line.detail)
+                (line.number, line.title.clone(), line.detail.clone())
             },
             line_view,
         )
@@ -429,44 +478,11 @@ fn list() -> impl View {
 }
 
 /// Buttons for the session being read.
-fn actions(resumable: bool, kept: bool) -> AnyView {
-    keyed(resource::<History, _>(|h| h.doomed), move |doomed| {
-        if *doomed {
-            return column((
-                label("Delete this session for good?")
-                    .tone(Tone::Critical),
-                row((
-                    bad_action(
-                        Glyph::Delete,
-                        "DELETE FOR GOOD",
-                        delete,
-                    ),
-                    command("KEEP IT", |world| {
-                        world.resource_mut::<History>().doomed =
-                            false;
-                    }),
-                ))
-                .gap(8.0),
-            ))
-            .gap(6.0)
-            .boxed();
-        }
-        let mut actions = vec![back("BACK", close).boxed()];
-        if resumable {
-            actions.push(good_action(Glyph::Play, "RESUME", resume));
-        }
-        if kept {
-            actions.push(bad_action(
-                Glyph::Delete,
-                "DELETE",
-                |world| {
-                    world.resource_mut::<History>().doomed = true;
-                },
-            ));
-        }
-        buttons(actions).boxed()
-    })
-    .within(column(()))
+fn actions() -> AnyView {
+    buttons(vec![
+        back("BACK", close).boxed(),
+        good_action(Glyph::Play, "RESUME", resume),
+    ])
     .boxed()
 }
 
@@ -479,54 +495,62 @@ fn reader() -> AnyView {
         };
         let holder = reading.holder;
         let past = history.read().cloned();
-        let (title, detail, resumable, kept) = match &past {
-            Some(past) => (
-                shortened(&past.title),
-                detail(past),
-                past.ours,
-                past.number.is_some(),
-            ),
+        let (title, detail) = match &past {
+            Some(past) => (shortened(&past.title), detail(past)),
             None => Default::default(),
         };
-        let number =
-            past.as_ref().and_then(|past| past.number.clone());
-        let hint = match (number, resumable) {
-            (None, _) => "This session is open now. NEW SESSION \
-                          files it here."
-                .to_string(),
-            (Some(number), true) => format!(
-                "RESUME carries on from session {number} and files \
-                 the open one."
-            ),
-            (Some(_), false) => "This belongs to another \
-                                 conversation. You can read it or \
-                                 delete it."
-                .to_string(),
-        };
+        let hint = format!(
+            "RESUME carries on from session {}.",
+            reading.number
+        );
         cx.build(
             column((
                 label(title).size(13.0).bold(true),
                 note(detail),
-                actions(resumable, kept),
+                actions(),
                 note(hint),
                 hairline(cx.theme().palette.brass_6),
                 scroll((
                     keyed(
-                        resource::<History, _>(|h| {
-                            h.reading.as_ref().is_some_and(|r| {
-                                r.said.len() > r.reach
-                            })
-                        }),
+                        derived(|world: &World| {
+                            world
+                                .resource::<History>()
+                                .reading
+                                .as_ref()
+                                .is_some_and(|r| {
+                                    r.said.len() > r.reach
+                                        || world
+                                            .get::<Transcript>(
+                                                r.holder,
+                                            )
+                                            .is_some_and(|t| {
+                                                t.earlier().is_some()
+                                            })
+                                })
+                        })
+                        .when(every_frame()),
                         |earlier| {
                             if !*earlier {
                                 return frame().boxed();
                             }
                             command("EARLIER", |world| {
-                                if let Some(reading) = &mut world
-                                    .resource_mut::<History>()
-                                    .reading
-                                {
-                                    reading.reach += PAGE;
+                                let mut history =
+                                    world.resource_mut::<History>();
+                                let Some(reading) =
+                                    &mut history.reading
+                                else {
+                                    return;
+                                };
+                                let (holder, more) = (
+                                    reading.holder,
+                                    reading.said.len()
+                                        <= reading.reach,
+                                );
+                                reading.reach += PAGE;
+                                if more {
+                                    hamlet_client::chats::earlier(
+                                        world, holder,
+                                    );
                                 }
                             })
                             .boxed()
@@ -540,8 +564,10 @@ fn reader() -> AnyView {
                                 .map(Reading::shown)
                                 .unwrap_or_default()
                         }),
-                        |id: &u64| *id,
-                        move |id| chat::entry_view(holder, *id),
+                        |id: &String| id.clone(),
+                        move |id| {
+                            chat::entry_view(holder, id.clone())
+                        },
                     )
                     .within(
                         column(()).gap(8.0).width(percent(100.0)),
@@ -560,7 +586,7 @@ pub fn screen() -> AnyView {
     inspector::of_agent("ARCHIVE", || {
         keyed(
             resource::<History, _>(|h| {
-                h.reading.as_ref().map(|r| r.path.clone())
+                h.reading.as_ref().map(|r| r.number)
             }),
             |reading| match reading {
                 Some(_) => reader(),
@@ -575,101 +601,170 @@ pub fn screen() -> AnyView {
 
 #[cfg(test)]
 mod tests {
-    use hamlet_testing::Scratch;
+    use hamlet_client::chats::Chat;
+    use hamlet_client::outbox::Outbox;
     use serde_json::json;
 
     use super::*;
+    use crate::testing::{panel_app, press, words};
 
-    fn write(path: &Path, lines: &[serde_json::Value]) {
-        let text = lines
+    #[test]
+    fn history_reads_received_rows_searches_and_opens_a_numbered_chat()
+     {
+        let mut app = panel_app();
+        app.add_plugins((inspector::plugin, plugin));
+        *app.world_mut().resource_mut::<inspector::Section>() =
+            inspector::Section::History;
+        app.update();
+        let read = app
+            .world()
+            .resource::<Outbox>()
             .iter()
-            .map(|line| format!("{line}\n"))
-            .collect::<String>();
-        std::fs::write(path, text).unwrap();
-    }
+            .map(|m| serde_json::to_value(m).unwrap())
+            .find(|m| m["what"] == "history")
+            .expect("read history when the tab opens");
+        assert_eq!(
+            read["agent"],
+            json!({"hamlet": "home", "agent": "founder"})
+        );
+        bevy_fynix::mount::<HamletTheme>(app.world_mut(), screen());
+        app.update();
+        assert!(
+            words(&mut app)
+                .iter()
+                .any(|text| text == "No sessions yet.")
+        );
+        let now = chrono::Utc::now().timestamp_millis();
+        hamlet_client::receive(app.world_mut(), serde_json::from_value(json!({"type": "read", "to": read["id"], "history": [
+            {"number": 2, "current": true, "title": "Plant pears", "by": "alice", "began": now, "modified": now, "messages": 3, "tokens": 1200},
+            {"number": 1, "current": false, "title": "Count hives", "by": "bob", "began": now - 300000, "modified": now - 300000, "messages": 2, "tokens": 800}
+        ]})).unwrap());
+        app.update();
+        let shown = words(&mut app);
+        assert!(shown.iter().any(|text| text == "2 sessions"));
+        assert!(shown.iter().any(|text| text
+            == "In use now, 3 messages, 1.2k tok, begun by alice"));
+        assert!(shown.iter().any(|text| text
+            == "5 min ago, 2 messages, 800 tok, begun by bob"));
+        app.world_mut().resource_mut::<History>().query =
+            "hives".into();
+        app.update();
+        assert!(
+            words(&mut app)
+                .iter()
+                .any(|text| text == "1 of 2 have that")
+        );
+        app.world_mut().resource_mut::<History>().query =
+            "bob".into();
+        app.update();
+        assert!(
+            words(&mut app)
+                .iter()
+                .any(|text| text == "1 of 2 have that")
+        );
+        press(&mut app, "Count hives");
+        app.update();
+        let holder = app
+            .world()
+            .resource::<History>()
+            .reading
+            .as_ref()
+            .unwrap()
+            .holder;
+        let chat = app
+            .world()
+            .get::<Chat>(holder)
+            .expect("a watched past conversation")
+            .0
+            .clone();
+        assert_eq!(chat.past, Some(1));
+        assert_eq!(chat.with.agent, "founder");
+        let open = app
+            .world()
+            .resource::<Outbox>()
+            .iter()
+            .map(|m| serde_json::to_value(m).unwrap())
+            .find(|m| m["type"] == "open" && m["chat"]["past"] == 1)
+            .unwrap();
+        hamlet_client::receive(app.world_mut(), serde_json::from_value(json!({"type": "transcript", "to": open["id"], "chat": chat, "items": [{"id": "old:0", "at": now, "kind": "assistant", "text": "Seven hives."}], "earlier": null, "last": null, "working": false, "pending": 0, "usage": {"calls": 0, "unreported": 0, "input": 0, "cached": 0, "output": 0, "reasoning": 0, "ms": 0, "micros": 0, "lastInput": 0, "summary": ""}})).unwrap());
+        app.update();
+        assert!(
+            app.world()
+                .get::<Transcript>(holder)
+                .unwrap()
+                .item("old:0")
+                .is_some()
+        );
+        assert!(
+            app.world_mut()
+                .query::<&bevy::text::TextSpan>()
+                .iter(app.world())
+                .any(|text| text.0 == "Seven hives.")
+        );
 
-    fn talk(first: &str, reply: &str) -> Vec<serde_json::Value> {
-        vec![
-            json!({"type": "user", "user": "alice", "content": first}),
-            json!({"type": "assistant",
-                "message": {"content": reply}}),
-        ]
+        assert!(
+            !words(&mut app)
+                .iter()
+                .any(|text| text.contains("DELETE"))
+        );
+        press(&mut app, "RESUME");
+        let sent = app
+            .world()
+            .resource::<Outbox>()
+            .iter()
+            .map(|m| serde_json::to_value(m).unwrap())
+            .find(|m| m["type"] == "say")
+            .unwrap();
+        assert_eq!(sent["text"], "/resume 1");
+        assert_eq!(
+            sent["to"],
+            json!({"hamlet": "home", "agent": "founder"})
+        );
+        assert!(app.world().get_entity(holder).is_err());
     }
 
     #[test]
-    fn sessions_are_listed_by_what_was_said_and_searched() {
-        let dir = Scratch::new("history-list");
-        let live = dir.join("app_alice_main.jsonl");
-        write(&live, &talk("Plant the pears\nby the wall", "Done."));
-        let old = dir.join("app_alice_main.1700000000.jsonl");
-        write(&old, &talk("Count the hives", "There are Seven."));
-        let other =
-            dir.join("hamlet_scout_agent_bee.1700000001.jsonl");
-        write(&other, &talk("Where is the key?", "Under the mat."));
-        // Neither a ballot nor an empty log is a session.
-        write(&dir.join("vote_3.jsonl"), &talk("Vote", "Yes."));
-        write(&dir.join("app_alice_agent_x.jsonl"), &[]);
-
-        let pasts = pasts(&dir, Some(&live));
-        assert_eq!(pasts.len(), 3);
-        let of = |path: &Path| {
-            pasts.iter().find(|past| past.path == path).unwrap()
+    fn opening_the_tab_and_finishing_its_chat_request_fresh_history()
+    {
+        let mut app = panel_app();
+        app.add_plugins((inspector::plugin, plugin));
+        app.update();
+        let reads = |app: &App| {
+            app.world()
+                .resource::<Outbox>()
+                .iter()
+                .filter(|m| {
+                    matches!(
+                        m,
+                        protocol::ClientMessage::Read(
+                            protocol::Read::History { .. }
+                        )
+                    )
+                })
+                .count()
         };
-        assert_eq!(of(&live).title, "Plant the pears");
-        assert_eq!(of(&live).number, None);
-        assert!(!of(&live).ours);
-        assert_eq!(of(&old).number.as_deref(), Some("1700000000"));
-        assert!(of(&old).ours);
-        assert_eq!(of(&old).messages, 2);
-        // Another conversation's past is not this chat's to resume.
-        assert!(!of(&other).ours);
-
-        let history = History {
-            pasts,
-            query: "seven hives".into(),
-            ..Default::default()
-        };
-        let found = history.lines();
-        assert_eq!(found.len(), 1);
-        assert_eq!(found[0].path, old);
-        assert_eq!(history.count(), "1 of 3 have that");
-    }
-
-    #[test]
-    fn a_session_is_read_and_only_a_filed_one_is_deleted() {
-        let dir = Scratch::new("history-delete");
-        let live = dir.join("app_alice_main.jsonl");
-        write(&live, &talk("Now", "Yes."));
-        let old = dir.join("app_alice_main.1700000000.jsonl");
-        let mut said = talk("Then", "Indeed.");
-        said.push(json!({"type": "assistant", "message": {
-            "content": "",
-            "tool_calls": [{"function":
-                {"name": "bash", "arguments": "{}"}}]}}));
-        write(&old, &said);
-
-        let mut world = World::new();
-        world.insert_resource(History {
-            pasts: pasts(&dir, Some(&live)),
-            ..Default::default()
+        assert_eq!(reads(&app), 0);
+        *app.world_mut().resource_mut::<inspector::Section>() =
+            inspector::Section::History;
+        app.update();
+        assert_eq!(reads(&app), 1);
+        app.update();
+        assert_eq!(reads(&app), 1);
+        app.world_mut().trigger(JobFinished {
+            chat: Entity::PLACEHOLDER,
         });
-        open(&mut world, old.clone());
-        let history = world.resource::<History>();
-        let reading = history.reading.as_ref().unwrap();
-        // Tool steps are left out.
-        assert_eq!(reading.shown().len(), 2);
-        let holder = reading.holder;
-        assert!(world.get::<Transcript>(holder).is_some());
-
-        delete(&mut world);
-        assert!(!old.exists());
-        assert!(world.get_entity(holder).is_err());
-        let history = world.resource::<History>();
-        assert!(history.reading.is_none() && !history.fresh);
-
-        // The log in use stays.
-        open(&mut world, live.clone());
-        delete(&mut world);
-        assert!(live.exists());
+        app.update();
+        assert_eq!(reads(&app), 1);
+        let chat = app.world().resource::<Me>().session;
+        app.world_mut().trigger(JobFinished { chat });
+        app.update();
+        assert_eq!(reads(&app), 2);
+        *app.world_mut().resource_mut::<inspector::Section>() =
+            inspector::Section::Notes;
+        app.update();
+        *app.world_mut().resource_mut::<inspector::Section>() =
+            inspector::Section::History;
+        app.update();
+        assert_eq!(reads(&app), 3);
     }
 }

@@ -104,7 +104,6 @@ fn mark(mark: Mark) -> Image {
             // Distance to the mark's strokes, in pixels.
             let away = match mark {
                 Mark::Line if p.x.abs() <= 8.0 => (p.y - 6.0).abs(),
-                Mark::Line => f32::MAX,
                 Mark::Square => {
                     (p.x.abs().max(p.y.abs()) - 7.5).abs()
                 }
@@ -112,7 +111,7 @@ fn mark(mark: Mark) -> Image {
                     (p.x - p.y).abs().min((p.x + p.y).abs())
                         * std::f32::consts::FRAC_1_SQRT_2
                 }
-                Mark::Cross => f32::MAX,
+                Mark::Line | Mark::Cross => f32::MAX,
             };
             let alpha = 1.0 - (away - 1.1).clamp(0.0, 1.0);
             data[(y * side + x) * 4 + 3] = (alpha * 255.0) as u8;
@@ -226,7 +225,6 @@ pub fn buttons() -> AnyView {
 
 /// A press on a handle moves the window, and a second soon after
 /// maximises it or puts it back.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn grab(
     mut press: On<Pointer<Press>>,
     handles: Query<(), With<Grip>>,

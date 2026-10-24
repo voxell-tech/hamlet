@@ -5,6 +5,7 @@ use bevy::input::mouse::MouseScrollUnit;
 use bevy::prelude::*;
 
 use super::{Selected, Taken, Thing, Travel, WorldSurface, select};
+use crate::RealmSystems;
 use crate::play::{Play, Played};
 use crate::sky::CameraSettings;
 
@@ -21,7 +22,9 @@ pub(super) fn plugin(app: &mut App) {
         .add_observer(scroll)
         .add_systems(
             Update,
-            (focus_keys, follow, glide).chain().in_set(Steering),
+            (focus_keys, follow, glide)
+                .chain()
+                .in_set(RealmSystems::Steer),
         );
 }
 
@@ -118,11 +121,6 @@ impl Leash {
 /// A thing the camera stays on, until the ground is slid by hand.
 #[derive(Resource, Default, PartialEq)]
 pub struct Following(pub Option<Thing>);
-
-/// The systems that move the camera by hand, ahead of whatever aims
-/// it.
-#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Steering;
 
 /// The place of `thing` on the ground.
 fn place(

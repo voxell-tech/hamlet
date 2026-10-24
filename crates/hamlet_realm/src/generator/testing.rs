@@ -6,19 +6,21 @@ use bevy::prelude::*;
 use super::land::Land;
 use super::society::AgentId;
 use super::sync::Drawn;
-use super::traffic::Traffic;
+use super::traffic::Trips;
 use super::work::{
     Engine, Lot, Rehearsal, Robot, Voting, pass, work_robots,
 };
-use super::{DetailSettings, GenSettings, Kit, flora, house, layout};
+use super::{
+    DetailSettings, GeneratorSettings, Kit, flora, house, layout,
+};
 use crate::keeper::work::Work;
-use crate::keeper::{self, KState, Motion};
+use crate::keeper::{self, KeeperState, Motion};
 use crate::palette::Palette;
 use crate::{Clock, Stock};
 
 /// The land as designed, from `seed`.
 pub(crate) fn land(seed: u64) -> Land {
-    Land::new(seed, GenSettings::default(), Palette::default())
+    Land::new(seed, GeneratorSettings::default(), Palette::default())
 }
 
 /// Gives a world with nothing to draw on the shared materials and a
@@ -55,7 +57,7 @@ pub(crate) fn rehearse(app: &mut App) {
         .init_resource::<Clock>()
         .init_resource::<crate::Stage>()
         .init_resource::<Drawn>()
-        .init_resource::<Traffic>()
+        .init_resource::<Trips>()
         .init_resource::<Rehearsal>()
         .init_resource::<Voting>()
         .init_resource::<crate::Sky>()
@@ -91,7 +93,7 @@ pub(crate) fn stand_in(
             &mut commands,
             &kit,
             &mut materials,
-            keeper::Who::citizen(20 + number),
+            keeper::Who::agent(20 + number),
             Transform::from_translation(lot.porch),
             None,
         );
@@ -106,7 +108,7 @@ pub(crate) fn stand_in(
         };
         commands.entity(robot).insert(Robot::new(
             agent,
-            KState::Rest,
+            KeeperState::Rest,
             Work::default(),
             lot,
             engine,

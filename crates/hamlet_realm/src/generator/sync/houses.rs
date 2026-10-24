@@ -3,15 +3,15 @@
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
-use super::{HouseSig, Pass};
+use super::{HouseSignature, Pass};
 use crate::generator::building::{Cost, HouseRecipe};
 use crate::generator::layout::{HALL_PLOT, Plot, plot};
 use crate::generator::shift::{Folded, Prop, Way};
 use crate::generator::society::{Agent, AgentId, Town};
 use crate::generator::work::{Engine, Lot, Robot};
 use crate::generator::yard::Yard;
-use crate::generator::{House, house, state_index};
-use crate::keeper::{self, KState};
+use crate::generator::{House, Passage, house, state_index};
+use crate::keeper::{self, KeeperState};
 
 impl Pass<'_, '_, '_> {
     /// Gives each agent the house the society has for it, and a
@@ -26,13 +26,13 @@ impl Pass<'_, '_, '_> {
                 continue;
             };
             let near = group.near;
-            let sig = HouseSig {
+            let signature = HouseSignature {
                 site: town.site,
                 at: land.sites[town.site].at,
                 plot: agent.plot,
                 archived: agent.archived,
                 cleared: agent.cleared,
-                leader: town.leader == agent.id,
+                mayor: town.mayor == agent.id,
                 wings: agent.wings,
             };
             let spot = plot(land, town.site, agent.plot);
@@ -44,29 +44,39 @@ impl Pass<'_, '_, '_> {
                 agent.wings,
             );
             let drawn = self.drawn.houses.get(&agent.id);
-            let rises = drawn.map(|h| &h.1) != Some(&sig)
-                && self.house(agent, town, sig, &spot, yard, near);
-            self.robot(agent, town, &spot, yard, rises);
+            let way = if drawn.map(|h| &h.1) != Some(&signature) {
+                self.house(agent, town, signature, &spot, yard, near)
+            } else {
+                None
+            };
+            self.robot(
+                agent,
+                town,
+                &spot,
+                yard,
+                way == Some(Way::In),
+            );
         }
     }
 
-    /// Spawns the house of `agent` as `sig` has it under `near`, in
-    /// place of the one drawn for it. True when it rises.
+    /// Spawns the house of `agent` as `signature` has it under
+    /// `near`, in place of the one drawn for it. The way it comes
+    /// or goes, if it does.
     fn house(
         &mut self,
         agent: &Agent,
         town: &Town,
-        sig: HouseSig,
+        signature: HouseSignature,
         spot: &Plot,
         yard: Yard,
         near: Entity,
-    ) -> bool {
+    ) -> Option<Way> {
         let (land, kit) = (self.land, self.kit);
         let hall = agent.plot == HALL_PLOT;
         let was = self.drawn.houses.get(&agent.id).map(|h| &h.1);
         let moved = was.is_some_and(|was| {
             (was.site, was.plot, was.at)
-                != (sig.site, sig.plot, sig.at)
+                != (signature.site, signature.plot, signature.at)
         });
         // The houses of a town that is set down stand up one after
         // another, from the hall outward.
@@ -76,19 +86,22 @@ impl Pass<'_, '_, '_> {
         } else {
             (0.0, 0.0)
         };
-        let way = match (was.map(|was| was.archived), sig.archived) {
-            _ if self.frozen || self.founded.contains(&town.id) => {
-                None
-            }
-            (None | Some(true), false) => Some(Way::In),
-            (Some(false), false) if moved => Some(Way::In),
-            (Some(false), true) => Some(Way::Out),
-            _ => None,
-        };
+        let way =
+            match (was.map(|was| was.archived), signature.archived) {
+                _ if self.frozen
+                    || self.founded.contains(&town.id) =>
+                {
+                    None
+                }
+                (None | Some(true), false) => Some(Way::In),
+                (Some(false), false) if moved => Some(Way::In),
+                (Some(false), true) => Some(Way::Out),
+                _ => None,
+            };
         // The house it replaces stays drawn until the new mesh is
         // ready.
         let mut old = None;
-        if let Some((was, sig, _)) =
+        if let Some((was, signature, _)) =
             self.drawn.houses.remove(&agent.id)
         {
             old = match self.builds.cancel_house(was) {
@@ -100,7 +113,7 @@ impl Pass<'_, '_, '_> {
             };
             self.drawn.lamps.remove(&agent.id);
             self.drawn.engines.remove(&agent.id);
-            self.stale_on(sig.site);
+            self.stale_on(signature.site);
         }
         let at = Transform::from_translation(land.on_ground(spot.at))
             .with_rotation(Quat::from_rotation_y(spot.yaw));
@@ -130,7 +143,7 @@ impl Pass<'_, '_, '_> {
                 agent: agent.id,
                 site: town.site,
                 hall,
-                leader: sig.leader,
+                mayor: signature.mayor,
                 remains: agent.remains(&land.set.house),
                 wings: agent.wings,
                 yard,
@@ -160,16 +173,16 @@ impl Pass<'_, '_, '_> {
         }
         self.drawn
             .houses
-            .insert(agent.id, (entity, sig, Cost::default()));
+            .insert(agent.id, (entity, signature, Cost::default()));
         self.stale.insert(town.id);
         // A house that changed takes its robot along. One on its
         // way out goes when its bow is over.
         if let Some(robot) = self.drawn.robots.remove(&agent.id)
-            && !self.passing.get(robot).is_ok_and(|p| p.leaves())
+            && !self.passing.get(robot).is_ok_and(Passage::is_leaving)
         {
             self.commands.entity(robot).try_despawn();
         }
-        way == Some(Way::In)
+        way
     }
 
     /// Stands the desk and the engine in the yard of the house
@@ -207,7 +220,7 @@ impl Pass<'_, '_, '_> {
             ))
             .id();
         // Steam shows the light of work.
-        let steam = &kit.lamps[state_index(KState::Working)];
+        let steam = &kit.lamps[state_index(KeeperState::Working)];
         let rings = [(); 2].map(|_| {
             self.commands
                 .spawn((
@@ -238,7 +251,10 @@ impl Pass<'_, '_, '_> {
         match (absent, self.drawn.robots.get(&agent.id), engine) {
             (true, Some(&robot), _) => {
                 // One on its way out goes when its bow is over.
-                if !self.passing.get(robot).is_ok_and(|p| p.leaves())
+                if !self
+                    .passing
+                    .get(robot)
+                    .is_ok_and(Passage::is_leaving)
                 {
                     self.commands.entity(robot).try_despawn();
                 }
@@ -246,10 +262,10 @@ impl Pass<'_, '_, '_> {
             }
             (false, None, Some(engine)) => {
                 let lot = Lot::new(self.land, spot, yard);
-                let who = if town.leader == agent.id {
-                    keeper::Who::leader()
+                let who = if town.mayor == agent.id {
+                    keeper::Who::mayor()
                 } else {
-                    keeper::Who::citizen(agent.id.0 * 7 + 3)
+                    keeper::Who::agent(agent.id.0 * 7 + 3)
                 };
                 let robot = keeper::spawn_agent(
                     self.commands,

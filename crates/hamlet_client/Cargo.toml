@@ -1,0 +1,30 @@
+[package]
+name = "hamlet_client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "The window's components and requests, filled from the server"
+
+[lints]
+workspace = true
+
+[dependencies]
+base64.workspace = true
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+bevy_log.workspace = true
+futures.workspace = true
+hamlet_protocol.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, features = ["fs"] }
+
+[dev-dependencies]
+hamlet_testing.workspace = true
+uuid.workspace = true

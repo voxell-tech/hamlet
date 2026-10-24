@@ -4,13 +4,13 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-use hamlet_core::agents::{
-    Citizen, Left, Lived, LivesIn, MergedInto, Settlement, Spot,
+use hamlet_client::realm::{
+    AgentNumber, HamletId, Left, Lived, LivesIn, MergedInto, Spot,
 };
 
 use super::{Housed, Returning, Sited, Unhoused, Wing};
 use crate::generator::land::Land;
-use crate::generator::society::{AgentId, Society};
+use crate::generator::society::{AgentId, Outcome, Society};
 use crate::generator::{Passage, Robot};
 use crate::keeper::Act;
 
@@ -21,7 +21,9 @@ fn archive(
     gone: AgentId,
     host: Option<AgentId>,
 ) -> Option<AgentId> {
-    let host = host.filter(|host| society.merge(*host, gone));
+    let host = host.filter(|host| {
+        society.merge(*host, gone) == Outcome::Changed
+    });
     if host.is_none() {
         society.remove_agent(gone);
     }
@@ -53,15 +55,12 @@ pub(super) fn house(
     mut commands: Commands,
     mut land: ResMut<Land>,
     mut society: ResMut<Society>,
-    hamlets: Query<
-        (Entity, Option<&Sited>, Option<&Spot>),
-        With<Settlement>,
-    >,
+    hamlets: Query<(Entity, Option<&Sited>, &Spot), With<HamletId>>,
     housed: Query<(Entity, &Housed)>,
     homeless: Query<
         (
             Entity,
-            &Citizen,
+            &AgentNumber,
             &LivesIn,
             Has<Left>,
             Option<&MergedInto>,
@@ -84,7 +83,7 @@ pub(super) fn house(
             None => {
                 // At the spot its chief set it down, or on the first
                 // free site.
-                let town = match spot.and_then(|spot| spot.0) {
+                let town = match spot.0 {
                     Some((x, z)) => society
                         .found_town_at(&mut land, Vec2::new(x, z)),
                     None => society.found_town(&mut land),
@@ -93,8 +92,7 @@ pub(super) fn house(
                 town
             }
         };
-        let Some(leader) = society.town(town).map(|t| t.leader)
-        else {
+        let Some(mayor) = society.town(town).map(|t| t.mayor) else {
             continue;
         };
         // Agents are housed, and those who left are seen out, in the
@@ -106,11 +104,11 @@ pub(super) fn house(
             .collect::<Vec<_>>();
         let mut story = new
             .iter()
-            .flat_map(|(entity, citizen, _, left, into, lived)| {
-                let came = (lived.since, citizen.0, false);
+            .flat_map(|(entity, number, _, left, into, lived)| {
+                let came = (lived.since, number.0, false);
                 let went = left.then(|| {
                     let at = lived.until.unwrap_or(u64::MAX);
-                    (at, citizen.0, true)
+                    (at, number.0, true)
                 });
                 let host = into.map(|m| m.0);
                 core::iter::once(came)
@@ -124,7 +122,7 @@ pub(super) fn house(
                 // The hall is the first mayor's house, whoever
                 // holds the office.
                 let agent = if number == 0 {
-                    Some(leader)
+                    Some(mayor)
                 } else if society.has_room(&land, town) {
                     society.add_agent(&land, town)
                 } else {
@@ -169,9 +167,9 @@ pub(super) fn house(
 pub(super) fn resite(
     mut land: ResMut<Land>,
     mut society: ResMut<Society>,
-    hamlets: Query<(&Sited, &Spot, &Settlement), Changed<Spot>>,
+    hamlets: Query<(&Sited, &Spot, &HamletId), Changed<Spot>>,
 ) {
-    for (sited, spot, settlement) in &hamlets {
+    for (sited, spot, id) in &hamlets {
         let Some((x, z)) = spot.0 else {
             continue;
         };
@@ -183,10 +181,9 @@ pub(super) fn resite(
             continue;
         }
         if let Err(why) = society.move_town(&mut land, sited.0, to) {
-            eprintln!(
-                "hamlet: the town of {} stays where it is: {to} is \
-                 {why:?}",
-                settlement.name
+            warn!(
+                "the town of {} stays where it is: {to} is {why:?}",
+                id.0
             );
         }
     }

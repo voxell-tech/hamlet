@@ -3,7 +3,10 @@
 //! writes it back as `"#rrggbbaa"`, and `tint::linear` reads the
 //! linear RGB a mesh is coloured with.
 
-use bevy::prelude::*;
+use bevy_color::{
+    Color, ColorToComponents, ColorToPacked, LinearRgba, Srgba,
+};
+use bevy_math::Vec3;
 use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serializer};
 
@@ -42,8 +45,10 @@ impl Written {
 
 /// Linear RGB from an sRGB hex string such as `#C9B98F`.
 pub fn hex(s: &str) -> Vec3 {
-    LinearRgba::from(Srgba::hex(s).expect("valid hex colour"))
-        .to_vec3()
+    LinearRgba::from(
+        Srgba::hex(s).expect("a colour written in code is valid hex"),
+    )
+    .to_vec3()
 }
 
 pub fn deserialize<'de, D: Deserializer<'de>>(

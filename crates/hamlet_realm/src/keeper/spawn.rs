@@ -10,7 +10,7 @@ use super::kit::hats::SPIRE;
 use super::pose::{
     FACE, HAT_AT, HIP, HOOK, NECK, Pose, Prop, SHOULDER,
 };
-use super::{KState, Keeper, LONG_AGO, Parts, Who};
+use super::{Keeper, KeeperState, LONG_AGO, Parts, Who};
 
 /// A pivot carrying a part's meshes. The first mesh rides on the
 /// pivot itself.
@@ -54,7 +54,7 @@ pub fn spawn_agent(
     at: Transform,
     born: Option<f32>,
 ) -> Entity {
-    raise(commands, kit, materials, who, at, KState::Rest, born)
+    raise(commands, kit, materials, who, at, KeeperState::Rest, born)
 }
 
 /// Spawns a robot standing at `at`, settled in the plain motion of
@@ -65,7 +65,7 @@ pub fn spawn_as(
     materials: &mut Assets<StandardMaterial>,
     who: Who,
     at: Transform,
-    state: KState,
+    state: KeeperState,
 ) -> Entity {
     raise(commands, kit, materials, who, at, state, None)
 }
@@ -76,7 +76,7 @@ fn raise(
     materials: &mut Assets<StandardMaterial>,
     who: Who,
     at: Transform,
-    state: KState,
+    state: KeeperState,
     born: Option<f32>,
 ) -> Entity {
     let root = commands.spawn((at, Visibility::Inherited)).id();
@@ -136,7 +136,7 @@ fn raise(
             ChildOf(body),
         ))
         .id();
-    if who.leader {
+    if who.mayor {
         commands.spawn((
             Mesh3d(kit.mantle.clone()),
             MeshMaterial3d(kit.matte.clone()),
@@ -184,7 +184,7 @@ fn raise(
         Vec3::Y * HAT_AT,
         [(&worn.0, paint), (&worn.1, &kit.brass)],
     );
-    let flag = who.leader.then(|| {
+    let flag = who.mayor.then(|| {
         commands
             .spawn((
                 Mesh3d(kit.pennant.clone()),

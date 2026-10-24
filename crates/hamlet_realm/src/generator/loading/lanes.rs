@@ -25,7 +25,7 @@ impl Lanes {
         (c.x as i32, c.y as i32)
     }
 
-    pub(super) fn holds(&self, p: Vec2) -> bool {
+    pub(super) fn is_on_lane(&self, p: Vec2) -> bool {
         self.cells.contains(&Self::cell(p))
     }
 
@@ -73,8 +73,12 @@ pub(in crate::generator) fn clear_lanes(
     mut lanes: ResMut<Lanes>,
     trees: Query<(Entity, &Transform), With<Standing>>,
 ) {
-    let between =
-        || drawn.roads.iter().filter(|(_, r)| r.course.between());
+    let between = || {
+        drawn
+            .roads
+            .iter()
+            .filter(|(_, r)| r.course.is_between_towns())
+    };
     // Roads that are new, and those drawn anew along the line they
     // had. One that is gone or runs elsewhere has all drawn up
     // again.

@@ -3,14 +3,16 @@
 
 use std::collections::HashMap;
 
+use bevy::app::App;
 use bevy::camera::visibility::Visibility;
 use bevy::ecs::change_detection::{DetectChanges, Ref};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::ChildOf;
+use bevy::ecs::observer::On;
 use bevy::ecs::query::{Changed, With};
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Local, Query, Res, ResMut};
+use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::text::{LineBreak, TextLayout};
 use bevy::ui::{
     AlignItems, ComputedNode, Overflow, OverflowAxis, ScrollPosition,
@@ -22,12 +24,13 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, ghost, label, scroll,
 };
 use bevy_fynix::{ScopedExt, ViewExt, each, resource};
-use hamlet_core::session::{
-    Began, Entry, SessionKey, TalksTo, Transcript,
-};
+use hamlet_client::chats::{self, Entry, Transcript};
+use hamlet_client::messages::Response;
+use hamlet_client::outbox::Outbox;
+use hamlet_protocol::client as protocol;
 
 use super::entry::entry_view;
-use super::timeline::{Line, Part, People, Who, parts, timeline};
+use super::timeline::{Line, People, Who, timeline};
 use super::{ChatScroll, bubble};
 use crate::View;
 use crate::looks::{Fills, note};
@@ -44,9 +47,54 @@ const LEAST: f32 = 240.0;
 const EMPTY: &str = "Nothing has been said here yet. Agents can \
                      make mistakes, so check anything important.";
 
+pub(super) fn plugin(app: &mut App) {
+    app.init_resource::<Reading>().add_observer(page_received);
+}
+
+fn page_received(
+    response: On<Response>,
+    mut reading: ResMut<Reading>,
+    lines: Res<Lines>,
+    mut reach: ResMut<Reach>,
+    mut requests: ResMut<super::Requests>,
+    scrolls: Query<
+        (&ComputedNode, &ScrollPosition),
+        With<ChatScroll>,
+    >,
+) {
+    let Some((id, reference)) = &reading.page else {
+        return;
+    };
+    if id != &response.to {
+        if matches!(&response.message, protocol::ServerMessage::Transcript(page) if page.chat == *reference)
+        {
+            requests.0.remove(id);
+            *reading = Reading::default();
+        }
+        return;
+    }
+    match &response.message {
+        protocol::ServerMessage::Transcript(_) => {
+            reach.rows = lines.rows.len() + reach.page;
+            reading.held = scrolls.iter().next().map(|(node, at)| {
+                (
+                    node.content_size().y
+                        * node.inverse_scale_factor(),
+                    at.y,
+                    2,
+                )
+            });
+            reading.page = None;
+        }
+        protocol::ServerMessage::Reply(_)
+        | protocol::ServerMessage::Fault(_) => reading.page = None,
+        _ => {}
+    }
+}
+
 /// Folds that are open, by their conversation and first entry.
 #[derive(Resource, Default)]
-pub struct Unfolded(pub Vec<(Entity, u64)>);
+pub struct Unfolded(pub Vec<(Entity, String)>);
 
 /// A row of a conversation: one entry, or the steps of a turn
 /// folded into one.
@@ -54,17 +102,17 @@ pub struct Unfolded(pub Vec<(Entity, u64)>);
 pub(super) enum Row {
     Entry {
         session: Entity,
-        id: u64,
+        id: String,
     },
     Fold {
         session: Entity,
         /// The first entry folded in, shown or not.
-        first: u64,
+        first: String,
         /// The steps shown when it is open.
-        steps: Vec<u64>,
+        steps: Vec<String>,
         /// The edits among them, whose changes are shown when it is
         /// shut too.
-        edits: Vec<u64>,
+        edits: Vec<String>,
         tools: usize,
         failed: usize,
         running: bool,
@@ -80,7 +128,7 @@ pub(super) enum Row {
 pub(super) fn rows(
     session: Entity,
     transcript: &Transcript,
-    open: &[(Entity, u64)],
+    open: &[(Entity, String)],
 ) -> Vec<Row> {
     let mut rows = Vec::<Row>::new();
     for item in transcript.items() {
@@ -100,21 +148,21 @@ pub(super) fn rows(
         let Some((tool, exit)) = step else {
             rows.push(Row::Entry {
                 session,
-                id: item.id,
+                id: item.id.clone(),
             });
             continue;
         };
         if !matches!(rows.last(), Some(Row::Fold { .. })) {
             rows.push(Row::Fold {
                 session,
-                first: item.id,
+                first: item.id.clone(),
                 steps: Vec::new(),
                 edits: Vec::new(),
                 tools: 0,
                 failed: 0,
                 running: false,
                 helpers: Vec::new(),
-                open: open.contains(&(session, item.id)),
+                open: open.contains(&(session, item.id.clone())),
             });
         }
         let Some(Row::Fold {
@@ -129,22 +177,13 @@ pub(super) fn rows(
         else {
             continue;
         };
-        *running = exit.is_none();
-        if transcript.of_another(item.id) {
-            let name = match &item.entry {
-                Entry::Agent { name, .. } => name.as_str(),
-                Entry::Tool { name, .. } => {
-                    name.split(':').next().unwrap_or_default()
-                }
-                _ => "",
-            };
-            if !name.is_empty() && !helpers.iter().any(|h| h == name)
-            {
-                helpers.push(name.to_string());
-            }
-            continue;
+        *running |= exit.is_none();
+        if let Entry::Agent { name, .. } = &item.entry
+            && !helpers.contains(name)
+        {
+            helpers.push(name.clone());
         }
-        steps.push(item.id);
+        steps.push(item.id.clone());
         if matches!(
             item.entry,
             Entry::Tool {
@@ -152,7 +191,7 @@ pub(super) fn rows(
                 ..
             }
         ) {
-            edits.push(item.id);
+            edits.push(item.id.clone());
         }
         *tools += tool as usize;
         *failed += exit.is_some_and(|c| c != 0) as usize;
@@ -164,20 +203,22 @@ pub(super) fn rows(
 pub(super) fn fold_view(
     key: RowKey,
     session: Entity,
-    first: u64,
+    first: String,
 ) -> impl View {
     // The row is built once for its fold. Its heading and what is
     // inside read the fold as it stands, so opening it or a new step
     // builds neither the row nor its button again.
+    let heading_key = key.clone();
+    let tone_key = key.clone();
     let head = button(
-        label(resource::<Lines, _>(move |l| l.heading(key)))
+        label(resource::<Lines, _>(move |l| l.heading(&heading_key)))
             .size(12.0)
-            .tone(resource::<Lines, _>(move |l| l.tone(key))),
+            .tone(resource::<Lines, _>(move |l| l.tone(&tone_key))),
     )
     .rules(ghost)
     .on_activate(move |world| {
         let unfolded = &mut world.resource_mut::<Unfolded>().0;
-        let fold = (session, first);
+        let fold = (session, first.clone());
         match unfolded.iter().position(|open| *open == fold) {
             Some(at) => {
                 unfolded.remove(at);
@@ -186,9 +227,9 @@ pub(super) fn fold_view(
         }
     });
     let inside = each(
-        resource::<Lines, _>(move |l| l.shown(key)),
-        |id: &u64| *id,
-        move |id| entry_view(session, *id),
+        resource::<Lines, _>(move |l| l.shown(&key)),
+        |id: &String| id.clone(),
+        move |id| entry_view(session, id.clone()),
     )
     // As wide as the chat and no wider, so that what is inside is
     // measured at the width it is shown at.
@@ -201,20 +242,23 @@ pub(super) fn fold_view(
 /// The identity of a row for as long as it is the same row: the agent
 /// whose chat it is in, its conversation, and its entry with the look
 /// of its speaker, or the first step of its fold.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub(super) enum RowKey {
-    Entry(Entity, Entity, u64, u64),
-    Fold(Entity, Entity, u64),
+    Entry(Entity, Entity, String, u64),
+    Fold(Entity, Entity, String),
 }
 
 impl Line {
     pub(super) fn key(&self) -> RowKey {
         match &self.row {
-            Row::Entry { session, id } => {
-                RowKey::Entry(self.owner, *session, *id, self.look)
-            }
+            Row::Entry { session, id } => RowKey::Entry(
+                self.agent,
+                *session,
+                id.clone(),
+                self.look,
+            ),
             Row::Fold { session, first, .. } => {
-                RowKey::Fold(self.owner, *session, *first)
+                RowKey::Fold(self.agent, *session, first.clone())
             }
         }
     }
@@ -245,6 +289,7 @@ pub struct Lines {
     places: HashMap<RowKey, usize>,
     /// The rows before these that are not built.
     earlier: usize,
+    more: bool,
     /// Everyone who speaks in the chat, the agent it is with first.
     cast: Vec<Who>,
 }
@@ -260,15 +305,16 @@ impl Lines {
             rows,
             places,
             earlier,
+            more: earlier > 0,
             cast,
         }
     }
 
-    fn line(&self, key: RowKey) -> Option<&Line> {
-        self.rows.get(*self.places.get(&key)?)
+    fn line(&self, key: &RowKey) -> Option<&Line> {
+        self.rows.get(*self.places.get(key)?)
     }
 
-    fn fold(&self, key: RowKey) -> Option<&Row> {
+    fn fold(&self, key: &RowKey) -> Option<&Row> {
         self.line(key)
             .map(|line| &line.row)
             .filter(|row| matches!(row, Row::Fold { .. }))
@@ -279,12 +325,12 @@ impl Lines {
     }
 
     /// The row `key` is the last message of its run.
-    pub(super) fn ends_run(&self, key: RowKey) -> bool {
+    pub(super) fn is_run_end(&self, key: &RowKey) -> bool {
         self.line(key).is_some_and(|line| line.last)
     }
 
     /// The words on a fold's button.
-    fn heading(&self, key: RowKey) -> String {
+    fn heading(&self, key: &RowKey) -> String {
         let Some(Row::Fold {
             tools,
             failed,
@@ -322,7 +368,7 @@ impl Lines {
         format!("{mark}  {text}")
     }
 
-    fn tone(&self, key: RowKey) -> Tone {
+    fn tone(&self, key: &RowKey) -> Tone {
         match self.fold(key) {
             Some(Row::Fold { running: true, .. }) => Tone::Accent,
             Some(Row::Fold { failed: 0, .. }) | None => Tone::Dim,
@@ -332,7 +378,7 @@ impl Lines {
 
     /// The steps of a fold that is open, and the edits of one that
     /// is shut.
-    fn shown(&self, key: RowKey) -> Vec<u64> {
+    fn shown(&self, key: &RowKey) -> Vec<String> {
         match self.fold(key) {
             Some(Row::Fold {
                 steps, open: true, ..
@@ -346,122 +392,153 @@ impl Lines {
 /// The whole chat in order, and the shapes it was put in order from.
 #[derive(Default)]
 pub struct Whole {
-    /// The conversations in it, each with the shape of its
-    /// transcript.
-    from: Vec<(Entity, Part, usize, u64)>,
-    /// The time the chief's own session began.
-    since: u64,
+    from: Option<(Entity, usize, u64)>,
     rows: Vec<Line>,
     cast: Vec<Who>,
 }
 
-/// Keeps [`Lines`] in step with the conversations, the open folds and
-/// the reach of the chat.
-#[allow(clippy::too_many_arguments)]
+/// The visible rows of the received chat.
 pub fn fold_lines(
     me: Res<Me>,
     unfolded: Res<Unfolded>,
     mut reach: ResMut<Reach>,
-    sessions: Query<(Entity, &SessionKey, Option<&TalksTo>)>,
     transcripts: Query<Ref<Transcript>>,
-    began: Query<&Began>,
     people: People,
     mut lines: ResMut<Lines>,
     mut whole: Local<Whole>,
 ) {
-    // Another chat is built from its end again.
     if me.is_changed() && reach.rows != reach.page {
         reach.rows = reach.page;
     }
-    // A reply that grows changes no shape, so its words cost a look
-    // at each conversation and no more.
-    let from = parts(&me, &sessions, &people)
-        .into_iter()
-        .map(|(session, part)| {
-            let (entries, shape) = transcripts
-                .get(session)
-                .map_or((0, 0), |t| (t.items().len(), t.shape()));
-            (session, part, entries, shape)
-        })
-        .collect::<Vec<_>>();
-    let since = began.get(me.session).map_or(0, |began| began.0);
+    let Ok(transcript) = transcripts.get(me.session) else {
+        return;
+    };
+    let from = Some((
+        me.session,
+        transcript.items().len(),
+        transcript.shape(),
+    ));
     let moved = me.is_changed()
         || unfolded.is_changed()
-        || people.moved()
-        || whole.from != from
-        || whole.since != since;
+        || people.has_moved()
+        || whole.from != from;
     if !moved && !reach.is_changed() {
         return;
     }
     if moved {
-        let parts = from
-            .iter()
-            .map(|(session, part, ..)| (*session, *part))
-            .collect::<Vec<_>>();
-        let (rows, cast) = timeline(
-            &me,
-            &parts,
-            &sessions,
-            &transcripts,
-            &unfolded.0,
-            &people,
-            since,
-        );
-        *whole = Whole {
-            from,
-            since,
-            rows,
-            cast,
-        };
+        let (rows, cast) =
+            timeline(&me, &transcript, &unfolded.0, &people);
+        *whole = Whole { from, rows, cast };
     }
     let earlier = whole.rows.len().saturating_sub(reach.rows);
-    let now = Lines::of(
+    let mut now = Lines::of(
         whole.rows[earlier..].to_vec(),
         earlier,
         whole.cast.clone(),
     );
+    now.more |= transcript.earlier().is_some();
     if *lines != now {
         *lines = now;
     }
 }
 
-/// Builds more of the chat when it is read back to where it begins,
-/// and keeps what was being read where it was as the rows above it
-/// come in.
+/// The scroll anchor and the earlier page being received.
+#[derive(Resource, Default)]
+pub struct Reading {
+    held: Option<(f32, f32, u8)>,
+    page: Option<(protocol::RequestId, protocol::ChatRef)>,
+    at_top: bool,
+}
+
+/// The earlier rows built or requested at the top, with the current
+/// rows held in place.
 pub fn read_back(
+    mut commands: Commands,
     me: Res<Me>,
     lines: Res<Lines>,
+    transcripts: Query<&Transcript>,
     mut reach: ResMut<Reach>,
     mut scrolls: Query<
         (&ComputedNode, &mut ScrollPosition, Option<&mut ScrollGoal>),
         With<ChatScroll>,
     >,
-    mut held: Local<Option<(f32, f32)>>,
+    mut reading: ResMut<Reading>,
 ) {
-    // The place held in one chat is not held in another.
     if me.is_changed() {
-        *held = None;
+        *reading = Reading::default();
     }
     for (node, mut at, goal) in &mut scrolls {
-        let scale = node.inverse_scale_factor();
-        let tall = node.content_size().y * scale;
-        let most = super::furthest(node);
-        if let Some((was, from)) = *held {
+        let tall =
+            node.content_size().y * node.inverse_scale_factor();
+        let furthest = super::furthest(node).max(0.0);
+        if furthest == 0.0 || at.y > 1.0 {
+            reading.at_top = false;
+        }
+        if reading.page.is_some() {
+            continue;
+        }
+        if let Some((was, from, left)) = reading.held {
             if tall != was {
-                at.y = from + (tall - was);
-                // The wheel was headed for the top, which is now
-                // further up: left alone it would go there and ask
-                // for more again.
+                at.y = (from + (tall - was)).clamp(0.0, furthest);
                 if let Some(mut goal) = goal {
                     *goal = ScrollGoal::default();
                 }
-                *held = None;
+                reading.held = None;
+            } else {
+                // A page can join a fold without adding any height.
+                reading.held = (left > 0).then_some((
+                    was,
+                    from,
+                    left.saturating_sub(1),
+                ));
             }
             continue;
         }
-        if lines.earlier > 0 && most > 0.0 && at.y <= 1.0 {
+        if node.size().y <= 0.0 || furthest > 0.0 && at.y > 1.0 {
+            continue;
+        }
+        if lines.earlier > 0 {
             reach.rows += reach.page;
-            *held = Some((tall, at.y));
+            reading.held = Some((tall, at.y, 2));
+        } else if !reading.at_top
+            && transcripts
+                .get(me.session)
+                .is_ok_and(|said| said.earlier().is_some())
+        {
+            reading.at_top = true;
+            let chat = me.session;
+            commands.queue(
+                move |world: &mut bevy::ecs::world::World| {
+                    let Some(reference) = world
+                        .get::<chats::Chat>(chat)
+                        .map(|chat| chat.0.clone())
+                    else {
+                        return;
+                    };
+                    chats::earlier(world, chat);
+                    let id = world
+                        .resource::<Outbox>()
+                        .iter()
+                        .filter_map(|message| match message {
+                            protocol::ClientMessage::Open(open)
+                                if open.chat == reference
+                                    && open.before.is_some() =>
+                            {
+                                Some(open.id.clone())
+                            }
+                            _ => None,
+                        })
+                        .last();
+                    if let Some(id) = &id {
+                        world
+                            .resource_mut::<super::Requests>()
+                            .0
+                            .insert(id.clone());
+                    }
+                    world.resource_mut::<Reading>().page =
+                        id.map(|id| (id, reference));
+                },
+            );
         }
     }
 }
@@ -488,12 +565,12 @@ pub fn transcript() -> impl View {
     );
     let said = scroll((
         note(resource::<Lines, _>(|l| {
-            match (l.rows.is_empty(), l.earlier) {
-                (true, _) => EMPTY.to_string(),
-                (false, 0) => String::new(),
-                (false, n) => format!(
-                    "{n} earlier lines. Scroll up to read them."
-                ),
+            if l.more {
+                "Earlier lines. Scroll up to read them.".to_string()
+            } else if l.rows.is_empty() {
+                EMPTY.to_string()
+            } else {
+                String::new()
             }
         })),
         list,
@@ -559,220 +636,5 @@ pub fn break_long_words(
         {
             layout.linebreak = LineBreak::WordOrCharacter;
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use bevy_fynix::Theme;
-    use hamlet_assets::Tuning;
-    use serde_json::json;
-
-    use super::*;
-    use crate::theme::HamletTheme;
-
-    #[test]
-    fn the_steps_of_a_turn_fold_into_one_row() {
-        let call = |id: &str| {
-            json!({"type": "assistant", "message": {"content": "", "tool_calls": [
-                {"id": id, "function": {"name": "bash", "arguments": "{}"}}]}})
-        };
-        let transcript = Transcript::from_log(&[
-            json!({"type": "user", "user": "a", "content": "go"}),
-            call("1"),
-            json!({"type": "tool", "exit_code": 0}),
-            call("2"),
-            json!({"type": "tool", "exit_code": 3}),
-            json!({"type": "assistant", "message": {"content": "done"}}),
-            json!({"type": "user", "user": "a", "content": "again"}),
-            call("3"),
-        ]);
-        let ids = transcript.ids();
-        let session = Entity::PLACEHOLDER;
-        let folded = rows(session, &transcript, &[(session, ids[1])]);
-        assert_eq!(folded.len(), 5);
-        assert!(matches!(folded[0], Row::Entry { .. }));
-        assert_eq!(
-            folded[1],
-            Row::Fold {
-                session,
-                first: ids[1],
-                steps: vec![ids[1], ids[2]],
-                edits: Vec::new(),
-                tools: 2,
-                failed: 1,
-                running: false,
-                helpers: Vec::new(),
-                open: true,
-            }
-        );
-        assert!(matches!(
-            folded[4],
-            Row::Fold {
-                running: true,
-                open: false,
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn a_chat_is_every_conversation_of_its_agent_in_the_order_said() {
-        use bevy::ecs::name::Name;
-        use bevy::ecs::system::RunSystemOnce;
-        use bevy::ecs::world::World;
-        use hamlet_core::agents::{Citizen, Mayor};
-        use hamlet_core::session::{ASKED, MAIL};
-
-        let mut world = World::new();
-        let juniper =
-            world.spawn((Name::new("juniper"), Citizen(1))).id();
-        let pip = world.spawn((Name::new("pip"), Citizen(2))).id();
-        world.spawn((Name::new("bramble"), Citizen(0), Mayor));
-        let said = |world: &mut World,
-                    lines: &[(u64, &str, &str)]| {
-            let log = lines
-                .iter()
-                .map(|(at, from, text)| match *from {
-                    "" => json!({"type": "assistant", "ts": at,
-                        "message": {"content": text}}),
-                    from => json!({"type": "user", "ts": at,
-                        "user": from, "content": text}),
-                })
-                .collect::<Vec<_>>();
-            world.spawn(Transcript::from_log(&log)).id()
-        };
-        let session = said(
-            &mut world,
-            &[
-                (1, "chief", "find the key"),
-                (4, "", "I wrote to pip"),
-                (7, "pip", "Reply from `pip`: by the door"),
-            ],
-        );
-        let letter = said(
-            &mut world,
-            &[(2, "mayor", "plan?"), (3, "", "here")],
-        );
-        world.entity_mut(letter).insert((
-            SessionKey::with_agent(MAIL, "mayor", "juniper"),
-            TalksTo(juniper),
-        ));
-        // Pip's answer to a letter is shown where it came back.
-        let wrote = said(
-            &mut world,
-            &[(5, "juniper", "key?"), (6, "", "by the door")],
-        );
-        world.entity_mut(wrote).insert((
-            SessionKey::with_agent(MAIL, "juniper", "pip"),
-            TalksTo(pip),
-        ));
-        let asked = said(
-            &mut world,
-            &[(8, "juniper", "sure?"), (9, "", "sure")],
-        );
-        world.entity_mut(asked).insert((
-            SessionKey::with_agent(ASKED, "juniper", "pip"),
-            TalksTo(pip),
-        ));
-        world.insert_resource(Me::of(
-            session,
-            juniper,
-            "chief",
-            Some("juniper"),
-        ));
-        world.insert_resource(Theme(HamletTheme::designed()));
-        world.init_resource::<Unfolded>();
-        world.init_resource::<Reach>();
-        world.init_resource::<Lines>();
-        world.run_system_once(fold_lines).unwrap();
-
-        let lines = world.resource::<Lines>();
-        let name = |who: usize| lines.cast[who].name.as_str();
-        let order = lines
-            .rows
-            .iter()
-            .map(|line| (name(line.by), name(line.to), line.at))
-            .collect::<Vec<_>>();
-        assert_eq!(
-            order,
-            [
-                ("Chief", "Juniper", 1),
-                ("Bramble", "Juniper", 2),
-                ("Juniper", "Bramble", 3),
-                ("Juniper", "Chief", 4),
-                ("Juniper", "Pip", 5),
-                ("Pip", "Juniper", 7),
-                ("Juniper", "Pip", 8),
-                ("Pip", "Juniper", 9),
-            ]
-        );
-
-        // A new session starts the chat afresh: the chief's own
-        // lines are all of that session, and of what the agents
-        // wrote each other only what came since.
-        world.entity_mut(session).insert(Began(6));
-        world.run_system_once(fold_lines).unwrap();
-        let lines = world.resource::<Lines>();
-        let since =
-            lines.rows.iter().map(|line| line.at).collect::<Vec<_>>();
-        assert_eq!(since, [1, 4, 7, 8, 9]);
-    }
-
-    #[test]
-    fn another_agents_work_is_named_and_not_shown() {
-        use hamlet_core::agent::Event as AgentEvent;
-        use hamlet_core::session::Reply;
-        let mut transcript = Transcript::from_log(&[
-            json!({"type": "user", "user": "a", "content": "go"}),
-        ]);
-        let by_scout = |event: AgentEvent| {
-            Reply::Event(AgentEvent::Agent {
-                name: "scout".into(),
-                event: Box::new(event),
-            })
-        };
-        transcript.apply(&by_scout(AgentEvent::Tool {
-            name: "bash".into(),
-            summary: "{}".into(),
-            change: None,
-        }));
-        transcript.apply(&by_scout(AgentEvent::Text("found".into())));
-        let session = Entity::PLACEHOLDER;
-        let folded = rows(session, &transcript, &[]);
-        let Row::Fold {
-            steps,
-            tools,
-            helpers,
-            running,
-            ..
-        } = &folded[1]
-        else {
-            panic!("a fold after the first line");
-        };
-        assert!(steps.is_empty());
-        assert_eq!((*tools, *running), (0, false));
-        assert_eq!(helpers, &["scout".to_string()]);
-        let line = |row: &Row| Line {
-            row: row.clone(),
-            owner: session,
-            by: 0,
-            to: 0,
-            at: 0,
-            look: 0,
-            lead: false,
-            named: false,
-            last: false,
-        };
-        let lines = Lines::of(
-            folded.iter().map(line).collect(),
-            0,
-            Vec::new(),
-        );
-        let first = transcript.ids()[1];
-        assert_eq!(
-            lines.heading(RowKey::Fold(session, session, first)),
-            "   Asked for help, with scout"
-        );
     }
 }

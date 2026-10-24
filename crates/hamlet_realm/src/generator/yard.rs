@@ -10,7 +10,7 @@ use bevy::prelude::*;
 
 use crate::keeper::SEAT_BACK;
 use crate::keeper::work::{BEAT, RING_EVERY, Station};
-use crate::meshes::{Mb, Rng};
+use crate::meshes::{Meshing, Rng};
 use crate::palette::Palette;
 
 /// The work yard beside a house: its paving and where its furniture
@@ -206,7 +206,7 @@ impl Yard {
     }
 
     /// True when a point in the house's frame is on the paving.
-    pub fn holds(&self, p: Vec3) -> bool {
+    pub fn is_on_paving(&self, p: Vec3) -> bool {
         let q = self.frame().inverse().transform_point3(p);
         (self.shape.along.0..=self.shape.along.1).contains(&q.x)
             && (0.0..=self.shape.depth).contains(&q.z)
@@ -244,7 +244,7 @@ impl Yard {
             Vec3::new(self.side * (self.out - 0.5), 0.0, gate.z);
         let round = self.slide > 0.0;
         let mut way = vec![from];
-        match (self.holds(from), self.holds(to)) {
+        match (self.is_on_paving(from), self.is_on_paving(to)) {
             (true, true) => way.extend([lane(from), lane(to)]),
             (true, false) => {
                 way.extend([lane(from), gate]);
@@ -301,15 +301,15 @@ impl Yard {
 
 /// The yard's paving, added to a house's mesh.
 pub(crate) fn pave(
-    mb: &mut Mb,
+    meshing: &mut Meshing,
     rng: &mut Rng,
     yard: &Yard,
     pal: &Palette,
 ) {
     let shape = yard.shape;
-    let before = mb.xf;
+    let before = meshing.transform;
     let frame = before * yard.frame();
-    mb.at(frame);
+    meshing.at(frame);
     let stone = pal.limestone;
     let shade = pal.limestone_shade;
 
@@ -326,7 +326,7 @@ pub(crate) fn pave(
                 shape.along.0 + (c as f32 + 0.5) * w,
                 0.02 + (r as f32 + 0.5) * d,
             );
-            mb.rbox(
+            meshing.rbox(
                 Vec3::new(
                     at.x,
                     shape.terrace - 0.3 - rng.range(0.0, 0.015),
@@ -340,13 +340,13 @@ pub(crate) fn pave(
             );
         }
     }
-    mb.at(before);
+    meshing.at(before);
 }
 
 /// The desk, the rack of scrolls and the stool, in the desk's frame.
 /// Every yard has the same.
-pub fn desk(pal: &Palette, shape: &YardSettings) -> Mb {
-    let mut mb = Mb::new();
+pub fn desk(pal: &Palette, shape: &YardSettings) -> Meshing {
+    let mut meshing = Meshing::new();
     let rng = &mut Rng::seeded("yard desk");
     let floor = Vec3::Y * shape.terrace;
 
@@ -354,7 +354,7 @@ pub fn desk(pal: &Palette, shape: &YardSettings) -> Mb {
     let desk = floor + Vec3::new(shape.desk.x, 0.0, shape.desk.y);
     let slope = Quat::from_rotation_z(0.26);
     for z in [-0.24f32, 0.24] {
-        mb.rbox(
+        meshing.rbox(
             desk + Vec3::new(0.02, 0.22, z),
             Vec3::new(0.15, 0.22, 0.03),
             0.015,
@@ -363,7 +363,7 @@ pub fn desk(pal: &Palette, shape: &YardSettings) -> Mb {
             0.3,
         );
     }
-    mb.rbox(
+    meshing.rbox(
         desk + Vec3::Y * 0.48,
         Vec3::new(0.23, 0.022, 0.32),
         0.012,
@@ -371,7 +371,7 @@ pub fn desk(pal: &Palette, shape: &YardSettings) -> Mb {
         pal.timber_dark,
         0.0,
     );
-    mb.rbox(
+    meshing.rbox(
         desk + Vec3::new(-0.02, 0.505, 0.02),
         Vec3::new(0.13, 0.004, 0.17),
         0.002,
@@ -379,7 +379,7 @@ pub fn desk(pal: &Palette, shape: &YardSettings) -> Mb {
         pal.parchment,
         0.0,
     );
-    mb.lathe(
+    meshing.lathe(
         desk + Vec3::new(0.13, 0.535, -0.22),
         &[(0.04, 0.0), (0.045, 0.05), (0.02, 0.07), (0.0, 0.07)],
         6,
@@ -389,7 +389,7 @@ pub fn desk(pal: &Palette, shape: &YardSettings) -> Mb {
     // The rack of scrolls at its elbow: its skills.
     let rack = floor + Vec3::new(shape.rack.x, 0.0, shape.rack.y);
     for x in [-0.3f32, 0.3] {
-        mb.rbox(
+        meshing.rbox(
             rack + Vec3::new(x, 0.3, 0.0),
             Vec3::new(0.025, 0.3, 0.085),
             0.012,
@@ -399,7 +399,7 @@ pub fn desk(pal: &Palette, shape: &YardSettings) -> Mb {
         );
     }
     for (row, y) in [0.16f32, 0.38, 0.6].into_iter().enumerate() {
-        mb.rbox(
+        meshing.rbox(
             rack + Vec3::Y * y,
             Vec3::new(0.3, 0.015, 0.09),
             0.008,
@@ -409,7 +409,7 @@ pub fn desk(pal: &Palette, shape: &YardSettings) -> Mb {
         );
         for k in 0..3 - row {
             let x = -0.19 + k as f32 * 0.17 + rng.sym(0.02);
-            mb.tube(
+            meshing.tube(
                 rack + Vec3::new(x, y + 0.05, -0.08),
                 rack + Vec3::new(x, y + 0.05, 0.1),
                 0.035,
@@ -423,7 +423,7 @@ pub fn desk(pal: &Palette, shape: &YardSettings) -> Mb {
 
     // The stool it sits on to read.
     let log = pal.timber;
-    mb.lathe(
+    meshing.lathe(
         floor - Vec3::X * SEAT_BACK,
         &[(0.15, 0.0), (0.13, 0.05), (0.14, 0.17), (0.0, 0.18)],
         9,
@@ -435,27 +435,27 @@ pub fn desk(pal: &Palette, shape: &YardSettings) -> Mb {
             }
         },
     );
-    mb
+    meshing
 }
 
 /// The engine without its wheel, in the engine's frame. Every yard
 /// has the same.
-pub(crate) fn engine(pal: &Palette, shape: &YardSettings) -> Mb {
-    let mut mb = Mb::new();
+pub(crate) fn engine(pal: &Palette, shape: &YardSettings) -> Meshing {
+    let mut meshing = Meshing::new();
     let (stone, shade) = (pal.limestone, pal.limestone_shade);
     let floor = Vec3::Y * shape.terrace;
     let hub = shape.wheel + floor;
     // The engine: a brass boiler on a stone foot, with a tall stack.
     let boiler =
         floor + Vec3::new(shape.boiler.x, 0.0, shape.boiler.y);
-    mb.lathe(
+    meshing.lathe(
         boiler,
         &[(0.3, 0.0), (0.3, 0.1), (0.25, 0.12)],
         10,
         |_, s| stone.lerp(shade, (s % 3) as f32 * 0.2),
     );
     let brass = pal.brass;
-    mb.lathe(
+    meshing.lathe(
         boiler + Vec3::Y * 0.12,
         &[
             (0.24, 0.0),
@@ -472,7 +472,7 @@ pub(crate) fn engine(pal: &Palette, shape: &YardSettings) -> Mb {
         |r, _| if r >= 4 { pal.bed } else { brass },
     );
     for y in [0.24f32, 0.6] {
-        mb.torus(
+        meshing.torus(
             boiler + Vec3::Y * y,
             Vec3::Y,
             0.272,
@@ -482,7 +482,7 @@ pub(crate) fn engine(pal: &Palette, shape: &YardSettings) -> Mb {
         );
     }
     // The firebox door, and the axle the wheel turns on.
-    mb.rbox(
+    meshing.rbox(
         boiler + Vec3::new(-0.26, 0.32, 0.0),
         Vec3::new(0.02, 0.09, 0.09),
         0.01,
@@ -490,7 +490,7 @@ pub(crate) fn engine(pal: &Palette, shape: &YardSettings) -> Mb {
         pal.bed,
         0.0,
     );
-    mb.tube(
+    meshing.tube(
         Vec3::new(hub.x, hub.y, shape.boiler.y),
         hub + Vec3::Z * 0.03,
         0.03,
@@ -499,18 +499,18 @@ pub(crate) fn engine(pal: &Palette, shape: &YardSettings) -> Mb {
         pal.bed,
         true,
     );
-    mb
+    meshing
 }
 
 /// The engine's wheel about its hub, with one dark knob on the rim
 /// so its turning shows.
-pub fn wheel(pal: &Palette) -> Mb {
-    let mut mb = Mb::new();
+pub fn wheel(pal: &Palette) -> Meshing {
+    let mut meshing = Meshing::new();
     let r = 0.27;
-    mb.torus(Vec3::ZERO, Vec3::Z, r, 0.03, 18, pal.brass);
+    meshing.torus(Vec3::ZERO, Vec3::Z, r, 0.03, 18, pal.brass);
     for i in 0..4 {
         let a = i as f32 / 4.0 * TAU;
-        mb.tube(
+        meshing.tube(
             Vec3::ZERO,
             Vec3::new(a.cos(), a.sin(), 0.0) * r,
             0.016,
@@ -520,8 +520,10 @@ pub fn wheel(pal: &Palette) -> Mb {
             false,
         );
     }
-    mb.blob(Vec3::ZERO, Vec3::splat(0.05), 4, 0.0, 0.0, |_| pal.bed);
-    mb.blob(
+    meshing.blob(Vec3::ZERO, Vec3::splat(0.05), 4, 0.0, 0.0, |_| {
+        pal.bed
+    });
+    meshing.blob(
         Vec3::new(r, 0.0, 0.03),
         Vec3::splat(0.05),
         4,
@@ -529,14 +531,14 @@ pub fn wheel(pal: &Palette) -> Mb {
         0.0,
         |_| pal.ink,
     );
-    mb
+    meshing
 }
 
 /// One ring of steam, lying flat.
-pub fn ring() -> Mb {
-    let mut mb = Mb::new();
-    mb.torus(Vec3::ZERO, Vec3::Y, 0.22, 0.04, 16, Vec3::ONE);
-    mb
+pub fn ring() -> Meshing {
+    let mut meshing = Meshing::new();
+    meshing.torus(Vec3::ZERO, Vec3::Y, 0.22, 0.04, 16, Vec3::ONE);
+    meshing
 }
 
 #[cfg(test)]

@@ -8,7 +8,7 @@ use hamlet_vfx::inlay::{self, EMBER, LIT};
 use super::parts::{
     arm_high, arm_l, arm_r, blink, breathe, current, moon,
 };
-use super::{CRANK_RATE, Ctx, SEAT_BACK};
+use super::{CRANK_RATE, Context, SEAT_BACK};
 use crate::keeper::kit::KITE;
 use crate::keeper::pose::{
     POLE_FOOT, Pose, Prop, arc, back_out, candle, dice, pulse, ramp,
@@ -16,7 +16,7 @@ use crate::keeper::pose::{
 };
 use crate::keeper::work::RING_EVERY;
 
-pub(super) fn think(c: &Ctx) -> Pose {
+pub(super) fn think(c: &Context) -> Pose {
     let mut p = Pose::stand();
     breathe(&mut p, c, 1.0);
     blink(&mut p, c);
@@ -50,7 +50,7 @@ pub(super) fn set_crook_aside(p: &mut Pose) {
 }
 
 /// `bench` raises the blow to the height of a bench top.
-pub(super) fn hammer(c: &Ctx, bench: bool) -> Pose {
+pub(super) fn hammer(c: &Context, bench: bool) -> Pose {
     let mut p = Pose::stand();
     blink(&mut p, c);
     set_crook_aside(&mut p);
@@ -91,7 +91,7 @@ pub(super) fn hammer(c: &Ctx, bench: bool) -> Pose {
     p
 }
 
-pub(super) fn lift(c: &Ctx) -> Pose {
+pub(super) fn lift(c: &Context) -> Pose {
     let mut p = Pose::stand();
     blink(&mut p, c);
     set_crook_aside(&mut p);
@@ -121,7 +121,7 @@ pub(super) fn lift(c: &Ctx) -> Pose {
     p
 }
 
-pub(super) fn celebrate(c: &Ctx) -> Pose {
+pub(super) fn celebrate(c: &Context) -> Pose {
     let mut p = Pose::stand();
     blink(&mut p, c);
     let x = c.tau;
@@ -161,7 +161,7 @@ pub(super) fn celebrate(c: &Ctx) -> Pose {
     p
 }
 
-pub(super) fn vote(c: &Ctx) -> Pose {
+pub(super) fn vote(c: &Context) -> Pose {
     let mut p = Pose::stand();
     breathe(&mut p, c, 1.0);
     blink(&mut p, c);
@@ -199,7 +199,7 @@ pub(super) fn sit(p: &mut Pose) {
 }
 
 /// `jot` has it write in the book it would otherwise read.
-pub(super) fn read(c: &Ctx, jot: bool) -> Pose {
+pub(super) fn read(c: &Context, jot: bool) -> Pose {
     let mut p = Pose::stand();
     breathe(&mut p, c, 1.0);
     blink(&mut p, c);
@@ -237,7 +237,7 @@ pub(super) fn read(c: &Ctx, jot: bool) -> Pose {
     p
 }
 
-pub(super) fn write(c: &Ctx) -> Pose {
+pub(super) fn write(c: &Context) -> Pose {
     let mut p = Pose::stand();
     breathe(&mut p, c, 0.8);
     blink(&mut p, c);
@@ -293,7 +293,7 @@ pub(super) fn write(c: &Ctx) -> Pose {
 
 /// A stroke of the hand on the rim of the wheel, with the wheel
 /// `turn` radians round.
-pub(super) fn crank_into(p: &mut Pose, c: &Ctx, turn: f32) {
+pub(super) fn crank_into(p: &mut Pose, c: &Context, turn: f32) {
     let s = turn.sin();
     let heave = (-s).max(0.0);
     p.arm_l = arm_l(0.12, 1.5 + 0.55 * s);
@@ -308,7 +308,7 @@ pub(super) fn crank_into(p: &mut Pose, c: &Ctx, turn: f32) {
     p.key = c.t * 6.0;
 }
 
-pub(super) fn crank(c: &Ctx) -> Pose {
+pub(super) fn crank(c: &Context) -> Pose {
     let mut p = Pose::stand();
     blink(&mut p, c);
     set_crook_aside(&mut p);
@@ -316,7 +316,7 @@ pub(super) fn crank(c: &Ctx) -> Pose {
     p
 }
 
-pub(super) fn tend(c: &Ctx) -> Pose {
+pub(super) fn tend(c: &Context) -> Pose {
     let mut p = Pose::stand();
     breathe(&mut p, c, 1.0);
     blink(&mut p, c);
@@ -359,7 +359,7 @@ pub(super) fn tend(c: &Ctx) -> Pose {
     p
 }
 
-pub(super) fn kite(c: &Ctx) -> Pose {
+pub(super) fn kite(c: &Context) -> Pose {
     let mut p = Pose::stand();
     breathe(&mut p, c, 1.0);
     blink(&mut p, c);
@@ -395,7 +395,7 @@ pub(super) fn kite(c: &Ctx) -> Pose {
     p
 }
 
-pub(super) fn recall(c: &Ctx) -> Pose {
+pub(super) fn recall(c: &Context) -> Pose {
     let mut p = Pose::stand();
     breathe(&mut p, c, 1.0);
     blink(&mut p, c);
@@ -415,7 +415,7 @@ pub(super) fn recall(c: &Ctx) -> Pose {
     p
 }
 
-pub(super) fn stow(c: &Ctx) -> Pose {
+pub(super) fn stow(c: &Context) -> Pose {
     let mut p = Pose::stand();
     blink(&mut p, c);
     set_crook_aside(&mut p);
@@ -449,7 +449,7 @@ pub(super) fn stow(c: &Ctx) -> Pose {
     p
 }
 
-pub(super) fn oops(c: &Ctx) -> Pose {
+pub(super) fn oops(c: &Context) -> Pose {
     let mut p = Pose::stand();
     let x = c.tau;
     let back = ramp(0.0, 0.18, x) - ramp(1.4, 1.9, x);
@@ -484,7 +484,7 @@ pub(super) fn oops(c: &Ctx) -> Pose {
     p
 }
 
-pub(super) fn done(c: &Ctx) -> Pose {
+pub(super) fn done(c: &Context) -> Pose {
     let mut p = Pose::stand();
     breathe(&mut p, c, 1.0);
     blink(&mut p, c);

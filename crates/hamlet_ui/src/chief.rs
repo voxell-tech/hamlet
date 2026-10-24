@@ -2,14 +2,16 @@
 //! keeps, the look kept between launches, and the chief's page of the
 //! Inspector.
 
-use bevy::app::{App, Startup, Update};
+use bevy::app::{App, PreUpdate, Startup, Update};
 use bevy::color::Color;
 use bevy::ecs::change_detection::{DetectChanges, Ref};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::name::Name;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
-use bevy::ecs::system::{Query, Res};
+use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::common_conditions::resource_changed;
+use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::math::Vec3;
 use bevy::ui::{AlignItems, UiRect, px};
@@ -19,13 +21,12 @@ use bevy_fynix::views::{
     scroll,
 };
 use bevy_fynix::{ScopedExt, ViewExt, component, derived, keyed};
-use hamlet_core::core::HomeDir;
-use hamlet_core::session::UserMessage;
+use hamlet_client::ViewFolder;
+use hamlet_client::messages::ChiefMessage;
 use hamlet_realm::chief::{
-    self, Beside, Chief, Cloak, Hat, Holds, Light, Look, Player,
-    Stands,
+    self, Beside, Chief, Cloak, Hat, Holds, Kept, Light, Look, Player,
 };
-use hamlet_realm::generator::society::Place as Ground;
+use hamlet_realm::generator::society::Ground;
 use hamlet_realm::library::{Library, Stood};
 use hamlet_realm::moving;
 use hamlet_realm::palette::Palette;
@@ -40,32 +41,45 @@ use crate::looks::{
 use crate::me::Me;
 use crate::platform::DisplayText;
 use crate::roll::{agents_moved, either, moved};
-use crate::{AnyView, Cx, View};
+use crate::{AnyView, Cx, PanelSystems, View};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_observer(spoke)
         .add_systems(Startup, enter)
+        // The chief enters under the name just followed, and is there
+        // before the mascot is sent, which moves only when the chat
+        // or the selection does.
+        .add_systems(
+            PreUpdate,
+            enter
+                .run_if(resource_changed::<Me>)
+                .after(crate::me::chief_name)
+                .before(accompany)
+                .in_set(PanelSystems::Follow),
+        )
         .add_systems(Update, keep);
 }
 
 /// Brings the chief this window belongs to into the world, with the
 /// look that was kept for them.
 pub(crate) fn enter(world: &mut World) {
-    let user = world.resource::<Me>().user.clone();
-    if let Some(chief) = chief::named(world, &user) {
+    let name = world.resource::<Me>().name.clone();
+    if name.is_empty() {
+        return;
+    }
+    if let Some(chief) = chief::named(world, &name) {
         world.entity_mut(chief).insert(Player);
         return;
     }
-    let home = world.resource::<HomeDir>().0.root.clone();
-    let chief = chief::arrive(world, &user, Look::read(&home, &user));
+    let kept = world.resource::<Kept>().clone();
+    let chief = chief::arrive(world, &name, kept.look(&name));
     world.entity_mut(chief).insert(Player);
-    if let Some(stands) = Stands::read(&home, &user) {
+    if let Some(stands) = kept.place(&name) {
         world.entity_mut(chief).insert(stands);
     }
     // The place the library was last set down, too.
-    let kept = Stands::read_at(&Stood::file(&home));
-    if let (Some(Stands(at)), Some(mut stood)) =
-        (kept, world.get_resource_mut::<Stood>())
+    if let (Some(at), Some(mut stood)) =
+        (kept.library, world.get_resource_mut::<Stood>())
     {
         stood.0 = Some(at);
     }
@@ -80,8 +94,8 @@ pub(crate) fn carry_home(world: &mut World) {
 /// Selects the place of the chief this window belongs to, and
 /// brings it into view.
 pub(crate) fn go_home(world: &mut World) {
-    let user = world.resource::<Me>().user.clone();
-    let Some(chief) = chief::named(world, &user) else {
+    let name = world.resource::<Me>().name.clone();
+    let Some(chief) = chief::named(world, &name) else {
         return;
     };
     let thing = Thing::ChiefPlace(chief);
@@ -97,8 +111,8 @@ fn company(selected: Option<Thing>, agent: Entity) -> Option<Entity> {
         Some(
             Thing::Keeper
             | Thing::Cottage
-            | Thing::Resident(_)
-            | Thing::ResidentHouse(_),
+            | Thing::Agent(_)
+            | Thing::House(_),
         ) => Some(agent),
         Some(Thing::Common(hamlet)) => Some(hamlet),
         _ => None,
@@ -122,7 +136,7 @@ pub(crate) fn accompany(
         chosen => company(chosen, me.agent),
     };
     for (chief, mut beside) in &mut chiefs {
-        if chief.user == me.user && beside.0 != with {
+        if chief.name == me.name && beside.0 != with {
             beside.0 = with;
         }
     }
@@ -131,25 +145,30 @@ pub(crate) fn accompany(
 /// A message sent with nobody selected brings the mascot from home
 /// to whoever it was sent to.
 pub(crate) fn spoke(
-    message: On<UserMessage>,
+    message: On<ChiefMessage>,
     me: Res<Me>,
     mut chiefs: Query<(&Chief, &mut Beside)>,
 ) {
-    if message.key != me.key {
+    if message.to != me.to {
         return;
     }
     for (chief, mut beside) in &mut chiefs {
-        if chief.user == me.user && beside.0.is_none() {
+        if chief.name == me.name && beside.0.is_none() {
             beside.0 = Some(me.agent);
         }
     }
 }
 
 /// Writes a look that was changed to its chief's file.
-pub fn keep(home: Res<HomeDir>, looks: Query<(&Chief, Ref<Look>)>) {
+pub fn keep(
+    view: Res<ViewFolder>,
+    mut kept: ResMut<Kept>,
+    looks: Query<(&Chief, Ref<Look>)>,
+) {
     for (chief, look) in &looks {
         if look.is_changed() && !look.is_added() {
-            let _ = look.write(&home.0.root, &chief.user);
+            let _ = look.write(&view.0, &chief.name);
+            kept.keep_look(&chief.name, *look);
         }
     }
 }
@@ -270,7 +289,7 @@ fn wardrobe(chief: Entity, facts: &Facts) -> impl View {
         .zip(facts.cloaks)
         .map(|(cloak, colour)| {
             swatch(colour, look.cloak == cloak, move |world| {
-                change(world, chief, |look| look.cloak = cloak)
+                change(world, chief, |look| look.cloak = cloak);
             })
             .boxed()
         })
@@ -280,7 +299,7 @@ fn wardrobe(chief: Entity, facts: &Facts) -> impl View {
         .zip(facts.lights)
         .map(|(light, colour)| {
             swatch(colour, look.light == light, move |world| {
-                change(world, chief, |look| look.light = light)
+                change(world, chief, |look| look.light = light);
             })
             .boxed()
         })
@@ -289,7 +308,7 @@ fn wardrobe(chief: Entity, facts: &Facts) -> impl View {
         .into_iter()
         .map(|hat| {
             word(hat.name(), look.hat == hat, move |world| {
-                change(world, chief, |look| look.hat = hat)
+                change(world, chief, |look| look.hat = hat);
             })
             .boxed()
         })
@@ -298,7 +317,7 @@ fn wardrobe(chief: Entity, facts: &Facts) -> impl View {
         .into_iter()
         .map(|holds| {
             word(holds.name(), look.holds == holds, move |world| {
-                change(world, chief, |look| look.holds = holds)
+                change(world, chief, |look| look.holds = holds);
             })
             .boxed()
         })
@@ -375,7 +394,7 @@ pub fn panel(chief: Entity) -> AnyView {
 #[cfg(test)]
 mod tests {
     use bevy::app::{App, Update};
-    use hamlet_core::session::SessionKey;
+    use hamlet_protocol::client as protocol;
 
     use super::*;
 
@@ -410,15 +429,15 @@ mod tests {
             app.world_mut().resource_mut::<Selected>().0 = thing;
             app.update();
         };
-        pick(&mut app, Some(Thing::Resident(agent)));
+        pick(&mut app, Some(Thing::Agent(agent)));
         assert_eq!(beside(&app, chief), Some(agent));
-        pick(&mut app, Some(Thing::ResidentHouse(agent)));
+        pick(&mut app, Some(Thing::House(agent)));
         assert_eq!(beside(&app, chief), Some(agent));
 
         // Its own place, a hamlet or nothing at all: it goes home.
         pick(&mut app, Some(Thing::ChiefPlace(chief)));
         assert_eq!(beside(&app, chief), None);
-        pick(&mut app, Some(Thing::Resident(agent)));
+        pick(&mut app, Some(Thing::Agent(agent)));
         pick(&mut app, None);
         assert_eq!(beside(&app, chief), None);
     }
@@ -427,44 +446,104 @@ mod tests {
     fn a_message_with_nobody_selected_brings_the_mascot() {
         let (mut app, chief, agent) = app();
         app.update();
-        let key = app.world().resource::<Me>().key.clone();
+        let key = app.world().resource::<Me>().to.clone();
         // Another chat's message is not this chief's.
-        app.world_mut().trigger(UserMessage {
-            key: SessionKey::with_agent("app", "wren", "Sorrel"),
-            user: "wren".into(),
+        app.world_mut().trigger(ChiefMessage {
+            to: protocol::Address {
+                hamlet: "home".into(),
+                agent: "Sorrel".into(),
+            },
             text: "hello".into(),
         });
         assert_eq!(beside(&app, chief), None);
-        app.world_mut().trigger(UserMessage {
-            key,
-            user: "wren".into(),
+        app.world_mut().trigger(ChiefMessage {
+            to: key,
             text: "hello".into(),
         });
         assert_eq!(beside(&app, chief), Some(agent));
     }
 
     #[test]
-    fn a_changed_look_is_kept_and_a_new_one_is_not_written() {
-        let home = hamlet_testing::Scratch::new("chief-look");
-        let mut app = App::new();
-        let world = app.world_mut();
-        world.insert_resource(HomeDir(hamlet_home::Home {
-            root: home.to_path_buf(),
-            workspace: home.join("workspace"),
-        }));
-        let chief = chief::arrive(world, "wren", Look::default());
-        app.add_systems(Update, keep);
-        app.update();
-        assert!(!Look::file(&home, "wren").exists());
+    fn the_chief_arrives_with_the_servers_name_after_the_window_opens()
+     {
+        use hamlet_client::{ClientPlugin, ViewFolder};
+        use hamlet_testing::Scratch;
 
-        change(app.world_mut(), chief, |look| {
-            look.hat = Hat::Crown;
-            look.light = Light::Moon;
-        });
+        let view = Scratch::new("chief-late-name");
+        let mut app = App::new();
+        app.add_plugins(ClientPlugin { server: None })
+            .insert_resource(ViewFolder(view.to_path_buf()))
+            .init_resource::<Kept>()
+            .init_resource::<Stood>()
+            .add_plugins((crate::me::plugin, plugin));
         app.update();
-        let kept = Look::read(&home, "wren");
-        assert_eq!(kept.hat, Hat::Crown);
-        assert_eq!(kept.light, Light::Moon);
-        assert_eq!(kept.cloak, Cloak::default());
+        assert!(chief::named(app.world_mut(), "").is_none());
+        let mut state = hamlet_testing::realm::state();
+        state.chief = "wren".into();
+        hamlet_client::receive(
+            app.world_mut(),
+            protocol::ServerMessage::State(state),
+        );
+        app.update();
+        let chief = chief::named(app.world_mut(), "wren").unwrap();
+        assert!(app.world().get::<Player>(chief).is_some());
+    }
+
+    #[test]
+    fn the_chiefs_look_returns_from_the_view_folder_at_launch() {
+        use hamlet_client::ViewFolder;
+        use hamlet_realm::chief::Stands;
+        use hamlet_testing::Scratch;
+
+        let dir = Scratch::new("chief-look");
+        let stands = Stands(bevy::math::Vec2::new(123.5, -96.0));
+        stands.write(&dir.join("view"), "wren").unwrap();
+        let library = Stands(bevy::math::Vec2::new(-400.0, 72.5));
+        library.write_at(&Stood::file(&dir.join("view"))).unwrap();
+        let make = || {
+            let mut app = App::new();
+            let agent =
+                app.world_mut().spawn(Name::new("founder")).id();
+            let chat = app.world_mut().spawn_empty().id();
+            app.insert_resource(ViewFolder(dir.join("view")))
+                .insert_resource(
+                    Kept::read(&dir.join("view")).unwrap(),
+                )
+                .insert_resource(Me::of(chat, agent, "wren", None))
+                .init_resource::<Stood>()
+                .add_plugins(plugin);
+            app
+        };
+        let mut app = make();
+        app.update();
+        assert!(!dir.join("view/chiefs/wren.toml").exists());
+        let chief = chief::named(app.world_mut(), "wren").unwrap();
+        let look = app
+            .world_mut()
+            .get_mut::<Look>(chief)
+            .unwrap()
+            .into_inner();
+        look.hat = Hat::Crown;
+        look.light = Light::Moon;
+        app.update();
+        assert!(dir.join("view/chiefs/wren.toml").exists());
+        assert!(!dir.join("chiefs").exists());
+
+        let mut relaunched = make();
+        relaunched.update();
+        let chief =
+            chief::named(relaunched.world_mut(), "wren").unwrap();
+        assert_eq!(
+            relaunched.world().get::<Stands>(chief),
+            Some(&stands)
+        );
+        assert_eq!(
+            relaunched.world().resource::<Stood>().0,
+            Some(library.0)
+        );
+        let look = relaunched.world().get::<Look>(chief).unwrap();
+        assert_eq!(look.hat, Hat::Crown);
+        assert_eq!(look.light, Light::Moon);
+        assert_eq!(look.cloak, Cloak::default());
     }
 }

@@ -11,7 +11,7 @@ use crate::generator::house::{self, TownStyle};
 use crate::generator::layout::{HALL_PLOT, plot};
 use crate::generator::lights::Spill;
 use crate::generator::{Common, common};
-use crate::meshes::Mb;
+use crate::meshes::Meshing;
 use crate::sky::SkySettings;
 
 impl Pass<'_, '_, '_> {
@@ -164,14 +164,15 @@ impl Pass<'_, '_, '_> {
                 continue;
             };
             let style = TownStyle::of(land, group.site);
-            let (mut mb, mut panes) = (Mb::new(), Mb::new());
+            let (mut meshing, mut panes) =
+                (Meshing::new(), Meshing::new());
             let centre = land.sites[group.site].at;
-            mb.at(Affine3A::from_translation(Vec3::new(
+            meshing.at(Affine3A::from_translation(Vec3::new(
                 centre.x,
                 land.set.land.site_y,
                 centre.y,
             )));
-            common::far(&mut mb, land);
+            common::far(&mut meshing, land);
             for agent in
                 society.agents.iter().filter(|a| a.town == id)
             {
@@ -181,7 +182,7 @@ impl Pass<'_, '_, '_> {
                     land.on_ground(spot.at),
                 );
                 house::far(
-                    &mut mb,
+                    &mut meshing,
                     &mut panes,
                     xf,
                     land,
@@ -193,7 +194,7 @@ impl Pass<'_, '_, '_> {
             }
             self.commands
                 .entity(group.far)
-                .try_insert(Mesh3d(meshes.add(mb.build())));
+                .try_insert(Mesh3d(meshes.add(meshing.build())));
             self.commands
                 .entity(group.far_panes)
                 .try_insert(Mesh3d(meshes.add(panes.build())));

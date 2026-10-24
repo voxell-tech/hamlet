@@ -89,23 +89,9 @@ pub(crate) fn read(path: &Path, bounds: Bounds) -> Option<Pixels> {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
-    use image::{ImageFormat, RgbaImage};
-
+mod tests {
     use super::*;
-
-    /// A PNG of `size`, one colour all over.
-    pub(crate) fn png(size: UVec2) -> Vec<u8> {
-        let mut bytes = Cursor::new(Vec::new());
-        RgbaImage::from_pixel(
-            size.x,
-            size.y,
-            image::Rgba([200, 150, 60, 255]),
-        )
-        .write_to(&mut bytes, ImageFormat::Png)
-        .unwrap();
-        bytes.into_inner()
-    }
+    use crate::testing::png;
 
     #[test]
     fn a_picture_is_scaled_into_both_caps_with_its_proportions() {

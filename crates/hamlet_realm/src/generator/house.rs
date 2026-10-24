@@ -12,7 +12,7 @@ use super::noise::key;
 use super::society::AgentId;
 use super::yard::{self, Yard};
 use crate::lantern::lantern_cage;
-use crate::meshes::{Mb, Rng, noise2};
+use crate::meshes::{Meshing, Rng, noise2};
 use crate::palette::Palette;
 pub use crate::palette::TownStyle;
 
@@ -194,12 +194,12 @@ pub(crate) fn garden_tree(
 /// A house's meshes, about the middle of its plot with the door
 /// toward +Z.
 pub struct HouseMesh {
-    pub body: Mb,
+    pub body: Meshing,
     /// The window panes, which light at night.
-    pub panes: Mb,
+    pub panes: Meshing,
     /// The place the lantern by the door hangs at.
     pub lamp: Vec3,
-    /// The point the leader's banner hangs from, and the colours of
+    /// The point the mayor's banner hangs from, and the colours of
     /// its stripes in turn.
     pub banner: Option<(Vec3, [Vec3; 2])>,
 }
@@ -207,7 +207,7 @@ pub struct HouseMesh {
 /// One slope of tiles from an eave to a ridge, laid in lapped
 /// courses with each tile its own colour.
 fn slope(
-    mb: &mut Mb,
+    meshing: &mut Meshing,
     rng: &mut Rng,
     eave: [Vec3; 2],
     ridge: [Vec3; 2],
@@ -225,7 +225,7 @@ fn slope(
             - Vec3::Y * sag
     };
     // The underside, so an eave seen from behind is not a hole.
-    mb.face(
+    meshing.face(
         [
             eave[0] - n * 0.03,
             eave[1] - n * 0.03,
@@ -255,7 +255,7 @@ fn slope(
                 col = col.lerp(pal.moss, rng.range(0.35, 0.75));
             }
             let lip = n * 0.05 + down * rng.range(0.0, 0.05);
-            mb.face_cols(
+            meshing.face_cols(
                 [
                     at(u0, v0) + lip,
                     at(u1, v0) + lip,
@@ -270,7 +270,7 @@ fn slope(
 }
 
 fn roof(
-    mb: &mut Mb,
+    meshing: &mut Meshing,
     rng: &mut Rng,
     look: &Look,
     style: &TownStyle,
@@ -282,18 +282,19 @@ fn roof(
     let (ex, ez) = (half.x + look.eave, half.y + look.eave);
     let y = top - 0.08;
     let p = |x: f32, h: f32, z: f32| Vec3::new(x, y + h, z);
-    let ridge_cap = |mb: &mut Mb, rng: &mut Rng, a: Vec3, b: Vec3| {
-        let d = b - a;
-        let rot = Quat::from_rotation_arc(Vec3::X, d.normalize());
-        mb.rbox(
-            (a + b) * 0.5 + Vec3::Y * 0.03,
-            Vec3::new(d.length() * 0.5 + 0.06, 0.06, 0.1),
-            0.04,
-            rot,
-            style.roof * 0.85 * rng.value(0.06),
-            0.0,
-        );
-    };
+    let ridge_cap =
+        |meshing: &mut Meshing, rng: &mut Rng, a: Vec3, b: Vec3| {
+            let d = b - a;
+            let rot = Quat::from_rotation_arc(Vec3::X, d.normalize());
+            meshing.rbox(
+                (a + b) * 0.5 + Vec3::Y * 0.03,
+                Vec3::new(d.length() * 0.5 + 0.06, 0.06, 0.1),
+                0.04,
+                rot,
+                style.roof * 0.85 * rng.value(0.06),
+                0.0,
+            );
+        };
     match look.roof {
         Roof::Gable | Roof::Saltbox => {
             let back = if look.roof == Roof::Saltbox {
@@ -305,7 +306,7 @@ fn roof(
             let rise = look.pitch * (ez + rz.abs());
             let drop = if back > 0.0 { rise * 0.3 } else { 0.0 };
             slope(
-                mb,
+                meshing,
                 rng,
                 [p(-ex, 0.0, ez), p(ex, 0.0, ez)],
                 [p(-ex, rise, rz), p(ex, rise, rz)],
@@ -313,18 +314,23 @@ fn roof(
                 pal,
             );
             slope(
-                mb,
+                meshing,
                 rng,
                 [p(ex, drop, -ez), p(-ex, drop, -ez)],
                 [p(ex, rise, rz), p(-ex, rise, rz)],
                 style,
                 pal,
             );
-            ridge_cap(mb, rng, p(-ex, rise, rz), p(ex, rise, rz));
+            ridge_cap(
+                meshing,
+                rng,
+                p(-ex, rise, rz),
+                p(ex, rise, rz),
+            );
             for side in [-1.0f32, 1.0] {
                 let x = side * (half.x - 0.03);
                 let apex = Vec3::new(x, y + rise - 0.06, rz);
-                mb.face(
+                meshing.face(
                     [
                         Vec3::new(x, top - 0.05, -half.y),
                         Vec3::new(x, top - 0.05, half.y),
@@ -339,7 +345,7 @@ fn roof(
         Roof::Fronted => {
             let rise = look.pitch * ex;
             slope(
-                mb,
+                meshing,
                 rng,
                 [p(ex, 0.0, ez), p(ex, 0.0, -ez)],
                 [p(0.0, rise, ez), p(0.0, rise, -ez)],
@@ -347,18 +353,23 @@ fn roof(
                 pal,
             );
             slope(
-                mb,
+                meshing,
                 rng,
                 [p(-ex, 0.0, -ez), p(-ex, 0.0, ez)],
                 [p(0.0, rise, -ez), p(0.0, rise, ez)],
                 style,
                 pal,
             );
-            ridge_cap(mb, rng, p(0.0, rise, -ez), p(0.0, rise, ez));
+            ridge_cap(
+                meshing,
+                rng,
+                p(0.0, rise, -ez),
+                p(0.0, rise, ez),
+            );
             for side in [-1.0f32, 1.0] {
                 let z = side * (half.y - 0.03);
                 let apex = Vec3::new(0.0, y + rise - 0.06, z);
-                mb.face(
+                meshing.face(
                     [
                         Vec3::new(-half.x, top - 0.05, z),
                         Vec3::new(half.x, top - 0.05, z),
@@ -375,7 +386,7 @@ fn roof(
             let rl = (ex - ez).max(0.0) + 0.15;
             let (a, b) = (p(-rl, rise, 0.0), p(rl, rise, 0.0));
             slope(
-                mb,
+                meshing,
                 rng,
                 [p(-ex, 0.0, ez), p(ex, 0.0, ez)],
                 [a, b],
@@ -383,7 +394,7 @@ fn roof(
                 pal,
             );
             slope(
-                mb,
+                meshing,
                 rng,
                 [p(ex, 0.0, -ez), p(-ex, 0.0, -ez)],
                 [b, a],
@@ -391,7 +402,7 @@ fn roof(
                 pal,
             );
             slope(
-                mb,
+                meshing,
                 rng,
                 [p(ex, 0.0, ez), p(ex, 0.0, -ez)],
                 [b, b],
@@ -399,21 +410,21 @@ fn roof(
                 pal,
             );
             slope(
-                mb,
+                meshing,
                 rng,
                 [p(-ex, 0.0, -ez), p(-ex, 0.0, ez)],
                 [a, a],
                 style,
                 pal,
             );
-            ridge_cap(mb, rng, a, b);
+            ridge_cap(meshing, rng, a, b);
         }
     }
 }
 
 fn window(
-    body: &mut Mb,
-    panes: &mut Mb,
+    body: &mut Meshing,
+    panes: &mut Meshing,
     pal: &Palette,
     c: Vec3,
     face: Quat,
@@ -465,14 +476,20 @@ fn window(
     }
 }
 
-fn bush(mb: &mut Mb, rng: &mut Rng, pal: &Palette, c: Vec3, r: f32) {
+fn bush(
+    meshing: &mut Meshing,
+    rng: &mut Rng,
+    pal: &Palette,
+    c: Vec3,
+    r: f32,
+) {
     let (light, shade) = (pal.foliage, pal.foliage_shade);
     for _ in 0..2 {
         let o =
             Vec3::new(rng.sym(r * 0.5), r * 0.4, rng.sym(r * 0.5));
         let rr = r * rng.range(0.65, 0.95);
         let tint = rng.value(0.08);
-        mb.blob(
+        meshing.blob(
             c + o,
             Vec3::new(rr, rr * 0.8, rr),
             4,
@@ -489,7 +506,7 @@ fn bush(mb: &mut Mb, rng: &mut Rng, pal: &Palette, c: Vec3, r: f32) {
 /// Grass and a few flowers close round the walls, where no road
 /// runs.
 fn verge(
-    mb: &mut Mb,
+    meshing: &mut Meshing,
     rng: &mut Rng,
     pal: &Palette,
     look: &Look,
@@ -517,7 +534,7 @@ fn verge(
         if i % 4 == 0 {
             let col = bloom * rng.value(0.1);
             let h = rng.range(0.14, 0.24);
-            mb.tube(
+            meshing.tube(
                 at,
                 at + Vec3::Y * h,
                 0.012,
@@ -526,7 +543,7 @@ fn verge(
                 pal.foliage_shade,
                 false,
             );
-            mb.blob(
+            meshing.blob(
                 at + Vec3::Y * h,
                 Vec3::new(0.06, 0.045, 0.06),
                 3,
@@ -542,16 +559,21 @@ fn verge(
             let h = rng.range(0.13, 0.26);
             let base = pal.grass.lerp(pal.grass_shade, rng.f() * 0.5);
             let top = base.lerp(tip, rng.range(0.4, 0.9));
-            mb.lathe(foot, &[(0.055, 0.0), (0.0, h)], 4, |r, _| {
-                if r == 0 { base } else { top }
-            });
+            meshing.lathe(
+                foot,
+                &[(0.055, 0.0), (0.0, h)],
+                4,
+                |r, _| {
+                    if r == 0 { base } else { top }
+                },
+            );
         }
     }
 }
 
 /// The garden, on `side` of the house.
 fn garden(
-    mb: &mut Mb,
+    meshing: &mut Meshing,
     rng: &mut Rng,
     pal: &Palette,
     look: &Look,
@@ -561,9 +583,9 @@ fn garden(
     let z = look.half.y - 0.2;
     match look.garden {
         0 => {
-            bush(mb, rng, pal, Vec3::new(x, 0.0, z), 0.42);
+            bush(meshing, rng, pal, Vec3::new(x, 0.0, z), 0.42);
             bush(
-                mb,
+                meshing,
                 rng,
                 pal,
                 Vec3::new(-x * 0.9, 0.0, z + 0.4),
@@ -580,10 +602,13 @@ fn garden(
                 (0.0, 0.56),
             ];
             let timber = pal.timber;
-            mb.lathe(Vec3::new(x, 0.0, z), &staves, 8, |_, s| {
-                timber * (1.1 + 0.08 * (s % 3) as f32)
-            });
-            mb.rbox(
+            meshing.lathe(
+                Vec3::new(x, 0.0, z),
+                &staves,
+                8,
+                |_, s| timber * (1.1 + 0.08 * (s % 3) as f32),
+            );
+            meshing.rbox(
                 Vec3::new(x + side * 0.1, 0.16, z - 0.55),
                 Vec3::splat(0.16),
                 0.02,
@@ -601,7 +626,7 @@ fn garden(
                     0.14,
                     look.half.y + 0.28 + rng.sym(0.06),
                 );
-                mb.blob(
+                meshing.blob(
                     p,
                     Vec3::new(0.08, 0.11, 0.08),
                     3,
@@ -610,7 +635,7 @@ fn garden(
                     move |d| if d.y < -0.2 { col * 0.5 } else { col },
                 );
             }
-            bush(mb, rng, pal, Vec3::new(x, 0.0, z - 0.6), 0.34);
+            bush(meshing, rng, pal, Vec3::new(x, 0.0, z - 0.6), 0.34);
         }
         3 => {
             // A woodpile under the eave.
@@ -621,7 +646,7 @@ fn garden(
                     0.1 + row as f32 * 0.17,
                     -0.5 + k as f32 * 0.19 + row as f32 * 0.09,
                 );
-                mb.tube(
+                meshing.tube(
                     p - Vec3::X * 0.3,
                     p + Vec3::X * 0.3,
                     0.085,
@@ -636,26 +661,33 @@ fn garden(
     }
 }
 
-/// Length and height of the leader's banner.
+/// Length and height of the mayor's banner.
 pub(crate) const BANNER: Vec2 = Vec2::new(0.95, 0.55);
 
-/// The mast that marks the leader's house. Returns where its banner
+/// The mast that marks the mayor's house. Returns where its banner
 /// hangs from. The cloth itself waves, and is `hamlet_vfx`'s.
-fn mast(mb: &mut Mb, foot: Vec3, pal: &Palette) -> Vec3 {
+fn mast(meshing: &mut Meshing, foot: Vec3, pal: &Palette) -> Vec3 {
     let top = foot + Vec3::Y * 1.9;
-    mb.tube(foot, top, 0.035, 0.025, 6, pal.timber_dark, true);
-    mb.blob(top, Vec3::splat(0.07), 3, 0.0, 0.0, |_| pal.brass);
+    meshing.tube(foot, top, 0.035, 0.025, 6, pal.timber_dark, true);
+    meshing.blob(top, Vec3::splat(0.07), 3, 0.0, 0.0, |_| pal.brass);
     top - Vec3::Y * 0.08
 }
 
+/// Whether a house flies the mayor's banner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Banner {
+    Flown,
+    None,
+}
+
 /// The house of `agent`, with its work yard. `wings` is the number
-/// of houses merged into it; `leader` adds the banner.
+/// of houses merged into it.
 pub fn house(
     land: &Land,
     agent: AgentId,
     style: &TownStyle,
     hall: bool,
-    leader: bool,
+    banner: Banner,
     wings: u8,
     yard: &Yard,
 ) -> HouseMesh {
@@ -663,8 +695,8 @@ pub fn house(
     let look = Look::of(land, agent, hall);
     let (base, door_out) = (look.base, land.set.town.door_out);
     let mut rng = Rng::seeded(&format!("house {seed} {}", agent.0));
-    let mut b = Mb::new();
-    let mut panes = Mb::new();
+    let mut b = Meshing::new();
+    let mut panes = Meshing::new();
     let (hx, hz) = (look.half.x, look.half.y);
     let top = look.wall_top();
     let wall = look.wall_colour(pal) * rng.value(0.04);
@@ -992,7 +1024,7 @@ pub fn house(
         tower(&mut b, &mut panes, &mut rng, &look, style, pal);
     }
     let mut flies = None;
-    if leader {
+    if banner == Banner::Flown {
         let foot = if hall {
             Vec3::new(-hx - 0.2, top + 3.0, -hz + 0.2)
         } else {
@@ -1053,8 +1085,8 @@ pub fn house(
 
 /// The round tower at the back corner of a town's hall.
 fn tower(
-    b: &mut Mb,
-    panes: &mut Mb,
+    b: &mut Meshing,
+    panes: &mut Meshing,
     rng: &mut Rng,
     look: &Look,
     style: &TownStyle,
@@ -1093,12 +1125,12 @@ fn tower(
 
 /// The remains of an archived agent's house: the base, broken walls
 /// and moss, on the same footprint.
-pub fn ruin(land: &Land, agent: AgentId, hall: bool) -> Mb {
+pub fn ruin(land: &Land, agent: AgentId, hall: bool) -> Meshing {
     let (pal, seed) = (&land.pal, land.seed);
     let look = Look::of(land, agent, hall);
     let base = look.base;
     let mut rng = Rng::seeded(&format!("ruin {seed} {}", agent.0));
-    let mut b = Mb::new();
+    let mut b = Meshing::new();
     let (hx, hz) = (look.half.x, look.half.y);
     let grey = |c: Vec3, rng: &mut Rng| {
         c.lerp(pal.rock, 0.55).lerp(pal.moss, rng.range(0.0, 0.45))
@@ -1174,8 +1206,8 @@ pub fn ruin(land: &Land, agent: AgentId, hall: bool) -> Mb {
 
 /// A house as a few flat faces, for towns seen from far away.
 pub fn far(
-    mb: &mut Mb,
-    panes: &mut Mb,
+    meshing: &mut Meshing,
+    panes: &mut Meshing,
     xf: Affine3A,
     land: &Land,
     agent: AgentId,
@@ -1191,9 +1223,9 @@ pub fn far(
     let (base, eave) = (look.base, look.eave);
     let (hx, hz) = (look.half.x, look.half.y);
     let wall = look.wall_colour(pal);
-    mb.at(xf);
+    meshing.at(xf);
     if remains.is_some() {
-        mb.rbox(
+        meshing.rbox(
             Vec3::Y * 0.2,
             Vec3::new(hx, 0.45, hz),
             0.05,
@@ -1201,7 +1233,7 @@ pub fn far(
             wall.lerp(pal.rock, 0.6),
             0.3,
         );
-        mb.at(Affine3A::IDENTITY);
+        meshing.at(Affine3A::IDENTITY);
         return;
     }
     let top = look.wall_top();
@@ -1213,7 +1245,7 @@ pub fn far(
         (p(-hx, 0.0, -hz), p(-hx, 0.0, hz), -Vec3::X),
     ] {
         let up = Vec3::Y * top;
-        mb.face_cols(
+        meshing.face_cols(
             [a - Vec3::Y * 0.3, c - Vec3::Y * 0.3, c + up, a + up],
             out,
             [wall * 0.7, wall * 0.7, wall, wall],
@@ -1237,7 +1269,7 @@ pub fn far(
                 Vec3::X * side,
             )
         };
-        mb.face([a, c, apex, apex], out, wall);
+        meshing.face([a, c, apex, apex], out, wall);
     }
     panes.at(xf);
     for (c, face) in [
@@ -1269,7 +1301,7 @@ pub fn far(
     let (y0, y1) = (top - 0.08, top - 0.08 + rise);
     if fronted {
         for side in [-1.0f32, 1.0] {
-            mb.face_cols(
+            meshing.face_cols(
                 [
                     p(side * ex, y0, ez),
                     p(side * ex, y0, -ez),
@@ -1282,7 +1314,7 @@ pub fn far(
         }
     } else {
         for side in [-1.0f32, 1.0] {
-            mb.face_cols(
+            meshing.face_cols(
                 [
                     p(-ex, y0, side * ez),
                     p(ex, y0, side * ez),
@@ -1294,5 +1326,5 @@ pub fn far(
             );
         }
     }
-    mb.at(Affine3A::IDENTITY);
+    meshing.at(Affine3A::IDENTITY);
 }

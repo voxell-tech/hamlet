@@ -7,19 +7,18 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::window::RequestRedraw;
-use hamlet_core::agents::Works;
-use hamlet_rules::work::Mode;
+use hamlet_client::realm::{Mode, Works};
 use hamlet_vfx::inlay;
 
 use crate::generator::Common;
 use crate::generator::land::Land;
 use crate::hamlet::Sited;
 use crate::lantern::{lantern_frame, lantern_glass};
-use crate::meshes::Mb;
+use crate::meshes::Meshing;
 use crate::palette::Palette;
 use crate::pick::{self, Footprint, Named, Reads, Thing, hit_box};
 use crate::play::{Play, Played};
-use crate::{Sky, Stock, WorldSystems, adopt};
+use crate::{RealmSystems, Sky, Stock, adopt};
 
 /// Height of the bench's top above the paving.
 const TOP: f32 = 0.91;
@@ -53,7 +52,7 @@ pub(crate) fn plugin(app: &mut App) {
                 ),
             )
                 .chain()
-                .before(WorldSystems),
+                .in_set(RealmSystems::Act),
         );
 }
 
@@ -72,8 +71,9 @@ pub struct WorksSettings {
 }
 
 /// The chief pressed the clockwork of `hamlet`.
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(EntityEvent, Clone, Copy, Debug)]
 pub struct Switched {
+    #[event_target]
     pub hamlet: Entity,
 }
 
@@ -143,15 +143,15 @@ fn index(mode: Mode) -> usize {
 
 /// The mode a hamlet works in. None while it works on no folder.
 fn mode(works: Option<&Works>) -> Option<Mode> {
-    works.filter(|w| w.0.folder.is_some()).map(|w| w.0.mode)
+    works.filter(|w| w.folder.is_some()).map(|w| w.mode)
 }
 
 /// The bench: a plank top on four legs with a shelf under it, a
 /// lantern on a post at one corner, and the plate the clockwork is
 /// mounted on at the other end.
 fn bench(pal: &Palette) -> Mesh {
-    let mut mb = Mb::new();
-    mb.rbox(
+    let mut meshing = Meshing::new();
+    meshing.rbox(
         Vec3::Y * (TOP - 0.045),
         Vec3::new(1.0, 0.045, 0.48),
         0.015,
@@ -162,7 +162,7 @@ fn bench(pal: &Palette) -> Mesh {
     for (x, z) in
         [(-1.0f32, -1.0f32), (-1.0, 1.0), (1.0, -1.0), (1.0, 1.0)]
     {
-        mb.rbox(
+        meshing.rbox(
             Vec3::new(x * 0.88, (TOP - 0.09) * 0.5, z * 0.38),
             Vec3::new(0.06, (TOP - 0.09) * 0.5, 0.06),
             0.015,
@@ -171,7 +171,7 @@ fn bench(pal: &Palette) -> Mesh {
             0.3,
         );
     }
-    mb.rbox(
+    meshing.rbox(
         Vec3::Y * 0.26,
         Vec3::new(0.86, 0.025, 0.36),
         0.01,
@@ -180,7 +180,7 @@ fn bench(pal: &Palette) -> Mesh {
         0.2,
     );
     let foot = Vec3::new(LAMP.x, TOP, LAMP.z);
-    mb.tube(
+    meshing.tube(
         foot,
         LAMP - Vec3::Y * 0.15,
         0.03,
@@ -189,8 +189,8 @@ fn bench(pal: &Palette) -> Mesh {
         pal.bed,
         false,
     );
-    lantern_frame(&mut mb, LAMP, 0.1, 0.24, pal.brass);
-    mb.rbox(
+    lantern_frame(&mut meshing, LAMP, 0.1, 0.24, pal.brass);
+    meshing.rbox(
         Vec3::new(0.52, TOP + 0.3, -0.22),
         Vec3::new(0.44, 0.3, 0.025),
         0.012,
@@ -199,7 +199,7 @@ fn bench(pal: &Palette) -> Mesh {
         0.1,
     );
     for (hub, ..) in WHEELS {
-        mb.tube(
+        meshing.tube(
             Vec3::new(hub.x, hub.y, -0.2),
             Vec3::new(hub.x, hub.y, hub.z - 0.03),
             0.025,
@@ -209,16 +209,16 @@ fn bench(pal: &Palette) -> Mesh {
             false,
         );
     }
-    mb.build()
+    meshing.build()
 }
 
 /// The work a hamlet with a folder has on its bench: a drawing
 /// unrolled, a mallet, an inkpot with its quill, and two books.
 fn work(pal: &Palette) -> Mesh {
-    let mut mb = Mb::new();
+    let mut meshing = Meshing::new();
     let turn = Quat::from_rotation_y(0.12);
     let sheet = Vec3::new(-0.35, TOP + 0.008, 0.08);
-    mb.rbox(
+    meshing.rbox(
         sheet,
         Vec3::new(0.36, 0.006, 0.27),
         0.003,
@@ -229,7 +229,7 @@ fn work(pal: &Palette) -> Mesh {
     for line in 0..4 {
         let along = 0.3 - line as f32 * 0.07;
         let down = -0.2 + line as f32 * 0.12;
-        mb.rbox(
+        meshing.rbox(
             sheet + turn * Vec3::new(-0.04, 0.008, down),
             Vec3::new(along, 0.002, 0.008),
             0.001,
@@ -238,7 +238,7 @@ fn work(pal: &Palette) -> Mesh {
             0.0,
         );
     }
-    mb.tube(
+    meshing.tube(
         sheet + turn * Vec3::new(-0.38, 0.03, -0.28),
         sheet + turn * Vec3::new(-0.38, 0.03, 0.28),
         0.035,
@@ -247,7 +247,7 @@ fn work(pal: &Palette) -> Mesh {
         pal.parchment * 0.88,
         true,
     );
-    mb.tube(
+    meshing.tube(
         Vec3::new(-0.1, TOP + 0.025, 0.4),
         Vec3::new(0.14, TOP + 0.025, 0.33),
         0.02,
@@ -256,7 +256,7 @@ fn work(pal: &Palette) -> Mesh {
         pal.timber,
         true,
     );
-    mb.rbox(
+    meshing.rbox(
         Vec3::new(0.16, TOP + 0.045, 0.325),
         Vec3::new(0.045, 0.045, 0.085),
         0.012,
@@ -265,7 +265,7 @@ fn work(pal: &Palette) -> Mesh {
         0.0,
     );
     let pot = Vec3::new(0.05, TOP, -0.3);
-    mb.lathe(
+    meshing.lathe(
         pot,
         &[
             (0.0, 0.0),
@@ -277,7 +277,7 @@ fn work(pal: &Palette) -> Mesh {
         8,
         |_, _| pal.bed,
     );
-    mb.tube(
+    meshing.tube(
         pot + Vec3::Y * 0.06,
         pot + Vec3::new(0.09, 0.3, -0.05),
         0.006,
@@ -290,7 +290,7 @@ fn work(pal: &Palette) -> Mesh {
         (0.03, Vec3::new(0.14, 0.03, 0.1), pal.terracotta, 0.0),
         (0.085, Vec3::new(0.12, 0.025, 0.085), pal.ochre, 0.25),
     ] {
-        mb.rbox(
+        meshing.rbox(
             Vec3::new(-0.45, TOP + lift, -0.3),
             half,
             0.008,
@@ -299,7 +299,7 @@ fn work(pal: &Palette) -> Mesh {
             0.0,
         );
     }
-    mb.build()
+    meshing.build()
 }
 
 /// A wheel of the clockwork about its hub, lying flat: its teeth, and
@@ -311,21 +311,30 @@ fn wheel(
     teeth: usize,
     crank: bool,
 ) -> Mesh {
-    let mut mb = Mb::new();
+    let mut meshing = Meshing::new();
     let thick = 0.03;
-    let disc =
-        |mb: &mut Mb, at: Vec3, r: f32, tall: f32, col: Vec3| {
-            mb.lathe(
-                at,
-                &[(0.0, 0.0), (r, 0.0), (r, tall), (0.0, tall)],
-                teeth * 2,
-                |_, _| col,
-            );
-        };
-    disc(&mut mb, Vec3::Y * -thick, radius, thick * 2.0, pal.brass);
+    let disc = |meshing: &mut Meshing,
+                at: Vec3,
+                r: f32,
+                tall: f32,
+                col: Vec3| {
+        meshing.lathe(
+            at,
+            &[(0.0, 0.0), (r, 0.0), (r, tall), (0.0, tall)],
+            teeth * 2,
+            |_, _| col,
+        );
+    };
+    disc(
+        &mut meshing,
+        Vec3::Y * -thick,
+        radius,
+        thick * 2.0,
+        pal.brass,
+    );
     for tooth in 0..teeth {
         let around = tooth as f32 / teeth as f32 * TAU;
-        mb.rbox(
+        meshing.rbox(
             Vec3::new(around.cos(), 0.0, around.sin())
                 * (radius + 0.012),
             Vec3::new(
@@ -342,7 +351,7 @@ fn wheel(
     for hole in 0..3 {
         let around = hole as f32 / 3.0 * TAU + 0.5;
         disc(
-            &mut mb,
+            &mut meshing,
             Vec3::new(around.cos(), 0.0, around.sin()) * radius * 0.6
                 + Vec3::Y * thick,
             radius * 0.18,
@@ -351,7 +360,7 @@ fn wheel(
         );
     }
     disc(
-        &mut mb,
+        &mut meshing,
         Vec3::Y * thick,
         radius * 0.28,
         0.02,
@@ -359,7 +368,7 @@ fn wheel(
     );
     if crank {
         let out = radius * 0.8;
-        mb.rbox(
+        meshing.rbox(
             Vec3::new(out * 0.5, thick + 0.035, 0.0),
             Vec3::new(out * 0.5 + 0.02, 0.012, 0.022),
             0.006,
@@ -367,7 +376,7 @@ fn wheel(
             pal.bed,
             0.0,
         );
-        mb.tube(
+        meshing.tube(
             Vec3::new(out, thick + 0.04, 0.0),
             Vec3::new(out, thick + 0.2, 0.0),
             0.028,
@@ -377,7 +386,7 @@ fn wheel(
             true,
         );
     }
-    mb.build()
+    meshing.build()
 }
 
 /// The place of a wheel whose largest fellow has turned `turned`
@@ -607,10 +616,10 @@ fn title(
         let folder = hamlets
             .get(top.hamlet)
             .ok()
-            .and_then(|works| works.0.folder.as_deref())
+            .and_then(|works| works.folder.as_deref())
             .map(|folder| {
-                folder.file_name().map_or_else(
-                    || folder.display().to_string(),
+                std::path::Path::new(folder).file_name().map_or_else(
+                    || folder.to_string(),
                     |name| name.to_string_lossy().into_owned(),
                 )
             });
@@ -647,5 +656,93 @@ fn click(
                 at: at.translation(),
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use bevy::prelude::*;
+    use bevy::time::TimeUpdateStrategy;
+    use hamlet_client::ClientPlugin;
+    use hamlet_client::realm::HamletId;
+    use hamlet_protocol::client as protocol;
+    use hamlet_testing::realm;
+
+    use super::plugin;
+    use crate::generator::Common;
+    use crate::generator::society::TownId;
+    use crate::generator::testing::rehearse;
+    use crate::hamlet::Sited;
+    use crate::palette::Palette;
+    use crate::pick::Reads;
+    use crate::testing::{receive_change, receive_state};
+
+    fn rotations(app: &mut App) -> Vec<(Entity, Quat)> {
+        let world = app.world_mut();
+        world
+            .query_filtered::<(Entity, &Transform), With<Mesh3d>>()
+            .iter(world)
+            .map(|(entity, at)| (entity, at.rotation))
+            .collect()
+    }
+
+    #[test]
+    fn received_auto_turns_the_clockwork_and_manual_stops_it() {
+        let mut app = App::new();
+        rehearse(&mut app);
+        app.add_plugins((ClientPlugin { server: None }, plugin))
+            .init_resource::<Palette>()
+            .insert_resource(TimeUpdateStrategy::ManualDuration(
+                Duration::from_secs_f32(1.0 / 60.0),
+            ));
+        let mut state = realm::state();
+        state.hamlets[0].folder = Some("/server/orchard".into());
+        receive_state(&mut app, state);
+        let world = app.world_mut();
+        let hamlet = world
+            .query_filtered::<Entity, With<HamletId>>()
+            .single(world)
+            .unwrap();
+        world.entity_mut(hamlet).insert(Sited(TownId(0)));
+        world.spawn((
+            Common { town: TownId(0) },
+            Transform::default(),
+        ));
+        app.update();
+        app.update();
+        let manual = rotations(&mut app);
+        assert!(!manual.is_empty());
+        app.update();
+        assert_eq!(rotations(&mut app), manual);
+        let mut changed = realm::hamlet("home");
+        changed.folder = Some("/server/orchard".into());
+        changed.mode = protocol::HamletMode::Auto;
+        receive_change(
+            &mut app,
+            protocol::Update::Hamlet {
+                hamlet: changed.clone(),
+            },
+        );
+        app.update();
+        let auto = rotations(&mut app);
+        assert_ne!(auto, manual);
+        let world = app.world_mut();
+        assert!(
+            world
+                .query::<&Reads>()
+                .iter(world)
+                .any(|reads| reads.0 == "orchard")
+        );
+        changed.mode = protocol::HamletMode::Manual;
+        receive_change(
+            &mut app,
+            protocol::Update::Hamlet {
+                hamlet: changed.clone(),
+            },
+        );
+        app.update();
+        assert_eq!(rotations(&mut app), auto);
     }
 }

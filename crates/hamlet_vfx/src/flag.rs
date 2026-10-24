@@ -213,7 +213,7 @@ fn wave(
     for (mut at, mast) in &mut flags {
         let mast = mast
             .and_then(|mast| masts.get(mast.parent()).ok())
-            .map_or(Quat::IDENTITY, |mast| mast.rotation());
+            .map_or(Quat::IDENTITY, GlobalTransform::rotation);
         let turned = mast.inverse() * blown;
         if at.rotation != turned {
             at.rotation = turned;

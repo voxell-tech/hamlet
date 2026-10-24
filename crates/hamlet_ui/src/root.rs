@@ -4,19 +4,25 @@
 use bevy::app::{App, First, Startup};
 use bevy::camera::Camera2d;
 use bevy::ecs::entity::Entity;
+use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::on_message;
+use bevy::ecs::system::ResMut;
 use bevy::ecs::world::World;
 use bevy::input_focus::tab_navigation::TabGroup;
 use bevy::ui::{AlignItems, IsDefaultUiCamera, UiRect, percent, px};
 use bevy_fynix::dock::dock;
+use bevy_fynix::resource;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, row,
 };
-use hamlet_core::core::{Settings, TestConnection};
+use hamlet_client::messages::Response;
+use hamlet_client::outbox::Outbox;
+use hamlet_protocol::client as protocol;
 
-use crate::looks::{Fills, hairline};
+use crate::icons::Glyph;
+use crate::looks::{Fills, action, hairline, note};
 use crate::platform::Glow;
 use crate::status::status_bar;
 use crate::theme::{HamletTheme, ThemeChanged};
@@ -25,7 +31,9 @@ use crate::{
 };
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_systems(Startup, open)
+    app.init_resource::<ConnectionTest>()
+        .add_observer(checked)
+        .add_systems(Startup, open)
         // Before anything this frame queues work on the panels it
         // would despawn.
         .add_systems(
@@ -63,6 +71,7 @@ fn root() -> AnyView {
                 full(cx),
                 menu::open_menu(),
                 world_menu::view(),
+                crate::saving::screen(),
                 hover::view(),
             ))
             .width(percent(100.0))
@@ -115,6 +124,194 @@ fn open(world: &mut World) {
     // The panels belong to the window's camera and the world to its
     // own.
     world.spawn((Camera2d, IsDefaultUiCamera));
-    let config = world.resource::<Settings>().config.clone();
-    world.trigger(TestConnection(config));
+    test_connection(world);
+}
+
+#[derive(Resource, Default)]
+struct ConnectionTest {
+    request: Option<protocol::RequestId>,
+    words: String,
+}
+
+fn test_connection(world: &mut World) {
+    let id = world.resource_mut::<Outbox>().send(|id| {
+        protocol::ClientMessage::Check(protocol::Check::Connection {
+            id,
+        })
+    });
+    let mut test = world.resource_mut::<ConnectionTest>();
+    test.request = Some(id);
+    test.words.clear();
+}
+
+fn checked(response: On<Response>, mut test: ResMut<ConnectionTest>) {
+    if test.request.as_ref() != Some(&response.to) {
+        return;
+    }
+    match &response.message {
+        protocol::ServerMessage::Reply(reply) => {
+            test.words.clone_from(&reply.text);
+        }
+        protocol::ServerMessage::Fault(fault) => {
+            test.words.clone_from(&fault.text);
+        }
+        _ => return,
+    }
+    test.request = None;
+}
+
+/// The default model's connection check and its received answer.
+pub fn connection_test() -> AnyView {
+    AnyView::new(|cx: &mut Cx| {
+        cx.world.init_resource::<ConnectionTest>();
+        cx.build(
+            row((
+                action(
+                    Glyph::Signal,
+                    "TEST CONNECTION",
+                    test_connection,
+                ),
+                note(resource::<ConnectionTest, _>(|test| {
+                    test.words.clone()
+                })),
+            ))
+            .gap(12.0)
+            .align(AlignItems::Center)
+            .padding(UiRect::axes(px(16.0), px(5.0))),
+        )
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_client::outbox::Outbox;
+    use hamlet_protocol::client as protocol;
+
+    use super::*;
+
+    #[test]
+    fn the_full_layout_keeps_connection_controls_out_of_the_status_area()
+     {
+        let mut app = crate::testing::panel_app();
+        app.add_plugins(bevy_fynix::dock::DockPlugin::<HamletTheme>::default())
+            .init_resource::<ConnectionTest>()
+            .init_resource::<bevy::asset::Assets<bevy::image::Image>>()
+            .add_plugins(chrome::plugin)
+            .init_resource::<bevy::input::ButtonInput<bevy::input::mouse::MouseButton>>()
+            .init_resource::<crate::links::Aimed>()
+            .init_resource::<crate::petition::Queue>()
+            .init_resource::<crate::status::Bar>()
+            .init_resource::<welcome::Welcome>();
+        app.update();
+        bevy_fynix::mount::<HamletTheme>(
+            app.world_mut(),
+            AnyView::new(|cx: &mut Cx| {
+                let view = full(cx);
+                cx.build(view)
+            }),
+        );
+        app.update();
+        assert!(
+            !crate::testing::words(&mut app)
+                .iter()
+                .any(|text| text == "TEST CONNECTION")
+        );
+    }
+
+    #[test]
+    fn opening_the_window_checks_the_servers_connection() {
+        let mut app = crate::testing::panel_app();
+        app.add_plugins(plugin);
+        app.update();
+        assert!(app.world().resource::<Outbox>().iter().any(
+            |message| matches!(
+                message,
+                protocol::ClientMessage::Check(
+                    protocol::Check::Connection { .. }
+                )
+            )
+        ));
+    }
+    #[test]
+    fn the_connection_test_button_sends_a_check_and_shows_only_its_reply()
+     {
+        let mut app = crate::testing::panel_app();
+        app.add_plugins(plugin);
+        app.update();
+        app.world_mut()
+            .resource_mut::<Outbox>()
+            .drain()
+            .for_each(drop);
+        bevy_fynix::mount::<HamletTheme>(
+            app.world_mut(),
+            crate::models::endpoints(),
+        );
+        app.update();
+        crate::testing::press(&mut app, "TEST CONNECTION");
+        let sent = app
+            .world_mut()
+            .resource_mut::<Outbox>()
+            .drain()
+            .collect::<Vec<_>>();
+        let [
+            protocol::ClientMessage::Check(
+                protocol::Check::Connection { id },
+            ),
+        ] = &sent[..]
+        else {
+            panic!("{sent:?}");
+        };
+        hamlet_client::receive(
+            app.world_mut(),
+            protocol::ServerMessage::Reply(protocol::Reply {
+                to: protocol::RequestId::new(),
+                kind: protocol::ReplyKind::Notice,
+                text: "Not this test".into(),
+                upload: None,
+            }),
+        );
+        hamlet_client::receive(
+            app.world_mut(),
+            protocol::ServerMessage::Reply(protocol::Reply {
+                to: id.clone(),
+                kind: protocol::ReplyKind::Notice,
+                text: "Reached the default model.".into(),
+                upload: None,
+            }),
+        );
+        app.update();
+        let shown = crate::testing::words(&mut app);
+        assert!(
+            shown
+                .iter()
+                .any(|text| text == "Reached the default model."),
+            "{shown:?}"
+        );
+        assert!(!shown.iter().any(|text| text == "Not this test"));
+        crate::testing::press(&mut app, "TEST CONNECTION");
+        let id = app
+            .world_mut()
+            .resource_mut::<Outbox>()
+            .drain()
+            .find_map(|message| match message {
+                protocol::ClientMessage::Check(
+                    protocol::Check::Connection { id },
+                ) => Some(id),
+                _ => None,
+            })
+            .unwrap();
+        hamlet_client::receive(
+            app.world_mut(),
+            protocol::ServerMessage::Fault(protocol::Fault {
+                to: Some(id),
+                text: "No model answered.".into(),
+            }),
+        );
+        app.update();
+        assert!(
+            crate::testing::words(&mut app)
+                .iter()
+                .any(|text| text == "No model answered.")
+        );
+    }
 }

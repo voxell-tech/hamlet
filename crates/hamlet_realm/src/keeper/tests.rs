@@ -4,14 +4,14 @@ use std::time::Instant;
 use bevy::ecs::system::RunSystemOnce;
 use bevy::window::RequestRedraw;
 
-use super::acts::{Ctx, Quirk, pose};
+use super::acts::{Context, Quirk, pose};
 use super::pose::{Pose, ramp};
 use super::trip::turn;
 use super::*;
 use crate::generator::DetailSettings;
 
-fn ctx(t: f32, seed: u32) -> Ctx {
-    Ctx {
+fn context(t: f32, seed: u32) -> Context {
+    Context {
         t,
         tau: t,
         gait: t * 8.0,
@@ -22,7 +22,7 @@ fn ctx(t: f32, seed: u32) -> Ctx {
     }
 }
 
-fn finite(p: &Pose) -> bool {
+fn is_finite(p: &Pose) -> bool {
     let placed = p.place(1.0);
     [
         placed.rig,
@@ -49,8 +49,8 @@ fn finite(p: &Pose) -> bool {
 fn every_motion_is_finite_at_every_moment() {
     for act in Act::ALL {
         for i in 0..600 {
-            let p = pose(act, &ctx(i as f32 * 0.021, 7));
-            assert!(finite(&p), "{act:?} at step {i}");
+            let p = pose(act, &context(i as f32 * 0.021, 7));
+            assert!(is_finite(&p), "{act:?} at step {i}");
         }
     }
 }
@@ -59,7 +59,7 @@ fn every_motion_is_finite_at_every_moment() {
 fn feet_stay_out_of_the_ground() {
     for act in Act::ALL {
         for i in 0..400 {
-            let p = pose(act, &ctx(i as f32 * 0.03, 3));
+            let p = pose(act, &context(i as f32 * 0.03, 3));
             let placed = p.place(1.0);
             for leg in [placed.leg_l, placed.leg_r] {
                 let pitch = leg.rotation.to_euler(EulerRot::XYZ).0;
@@ -76,10 +76,10 @@ fn a_rolling_robot_holds_its_legs_still() {
     let legs = |gait: f32| {
         let p = pose(
             Act::Walk,
-            &Ctx {
+            &Context {
                 gait,
                 roll: 1.0,
-                ..ctx(1.0, 0)
+                ..context(1.0, 0)
             },
         );
         (p.leg_l, p.leg_r, p.lift_l, p.lift_r)
@@ -109,7 +109,7 @@ fn a_trip_starts_still_and_ends_at_its_last_point_and_no_further() {
     let end = trip.at(10.0 + trip.duration());
     assert!(end.at.distance(Vec3::new(1.5, 0.0, 2.0)) < 1e-3);
     assert!(end.pace.abs() < 1e-3);
-    assert!(trip.arrived(10.0 + trip.duration()));
+    assert!(trip.has_arrived(10.0 + trip.duration()));
 
     // One too short to get going never overshoots.
     let short = Trip::new(
@@ -154,7 +154,7 @@ fn app() -> (App, Entity) {
                         &mut commands,
                         &kit,
                         &mut materials,
-                        Who::leader(),
+                        Who::mayor(),
                         Transform::default(),
                         None,
                     )
@@ -181,7 +181,7 @@ fn run(app: &mut App, id: Entity, secs: f32) -> f32 {
     furthest
 }
 
-fn set(app: &mut App, id: Entity, state: KState) {
+fn set(app: &mut App, id: Entity, state: KeeperState) {
     app.world_mut().get_mut::<Keeper>(id).unwrap().state = state;
 }
 
@@ -190,10 +190,10 @@ fn a_frozen_clock_shows_the_settled_state() {
     let (mut app, id) = app();
     app.world_mut().resource_mut::<crate::Clock>().frozen = true;
     app.update();
-    set(&mut app, id, KState::Failed);
+    set(&mut app, id, KeeperState::Failed);
     app.update();
     let keeper = app.world().get::<Keeper>(id).unwrap();
-    assert!(!keeper.busy(0.0));
+    assert!(!keeper.is_busy(0.0));
     assert_eq!(keeper.eval(0.0).glow, Vec3::ZERO);
 }
 
@@ -202,13 +202,17 @@ fn a_frozen_clock_shows_the_settled_state() {
 /// --nocapture`.
 #[test]
 #[ignore]
+#[expect(
+    clippy::print_stdout,
+    reason = "it prints its measurements, read with --nocapture"
+)]
 fn cost() {
     const N: usize = 2_000_000;
     let started = Instant::now();
     let mut sum = 0.0;
     for i in 0..N {
         let act = Act::ALL[i % Act::ALL.len()];
-        let p = pose(act, &ctx(i as f32 * 0.0007, i as u32 % 64));
+        let p = pose(act, &context(i as f32 * 0.0007, i as u32 % 64));
         let placed = p.place(1.0);
         sum += placed.pole.translation.x + p.glow.x;
     }
@@ -233,7 +237,7 @@ fn cost() {
                         &mut commands,
                         &kit,
                         &mut materials,
-                        Who::citizen(i as u32 + 1),
+                        Who::agent(i as u32 + 1),
                         Transform::from_xyz(i as f32, 0.0, 0.0),
                         None,
                     );

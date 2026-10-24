@@ -14,11 +14,11 @@ use self::librarian::{ATTENDS, LOOK, STANDS, sage};
 use crate::chief::mascot::{self, Rig};
 use crate::chief::{Chief, Settled, place};
 use crate::generator::land::Land;
-use crate::generator::society::{Claim, Place as Ground, Society};
+use crate::generator::society::{Claim, Ground, Society};
 use crate::lantern::NightLight;
 use crate::palette::Palette;
 use crate::pick::{self, Footprint, Named, Thing, hit_box};
-use crate::{Clock, Sky, Stock};
+use crate::{Clock, RealmSystems, Sky, Stock};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Stood>()
@@ -29,7 +29,8 @@ pub(crate) fn plugin(app: &mut App) {
                 (resettle, raise).chain().in_set(Raising),
                 librarian::tend.before(mascot::stand),
                 shine,
-            ),
+            )
+                .in_set(RealmSystems::Act),
         );
 }
 
@@ -51,9 +52,9 @@ const SIZE: (f32, f32) = (7.2, 9.2);
 pub struct Stood(pub Option<Vec2>);
 
 impl Stood {
-    /// The file a home keeps the library's place in.
-    pub fn file(home: &std::path::Path) -> std::path::PathBuf {
-        home.join("library.place")
+    /// The file for the library's place under the window's folder.
+    pub fn file(view: &std::path::Path) -> std::path::PathBuf {
+        view.join("library.place")
     }
 }
 
@@ -236,7 +237,7 @@ fn raise(
     );
     let dressed = mascot::parts(&pal, LOOK)
         .each()
-        .map(|mb| meshes.add(mb.build()));
+        .map(|meshing| meshes.add(meshing.build()));
     for (entity, which) in rig.dressed() {
         commands
             .entity(entity)

@@ -23,7 +23,7 @@ fn what_an_agent_is_doing_is_no_part_of_the_shape() {
     let mut land = land();
     let mut s = small(&mut land);
     let shape = s.shape();
-    s.set_state(AgentId(1), KState::Working);
+    s.set_state(AgentId(1), KeeperState::Working);
     assert_eq!(s.shape(), shape);
     s.set_level(Pair::new(AgentId(0), AgentId(1)), RoadLevel::Paved);
     assert_ne!(s.shape(), shape);
@@ -47,24 +47,25 @@ fn growth_moves_nothing() {
     // The newcomer built where the ruin was, and cleared it.
     let ruin = s.agent(AgentId(2)).unwrap();
     assert!(ruin.cleared);
-    let on_it = s.citizens(TownId(0)).filter(|a| a.plot == ruin.plot);
+    let on_it =
+        s.agents_of(TownId(0)).filter(|a| a.plot == ruin.plot);
     assert_eq!(on_it.count(), 1);
     // Brought back, it stands on a plot of its own.
     let plot = ruin.plot;
-    assert!(s.restore(&land, AgentId(2)));
+    assert_eq!(s.restore(&land, AgentId(2)), Outcome::Changed);
     let back = s.agent(AgentId(2)).unwrap();
     assert!(!back.archived && !back.cleared);
     assert_ne!(back.plot, plot);
     assert_eq!(
-        s.citizens(TownId(0))
+        s.agents_of(TownId(0))
             .filter(|a| a.plot == back.plot)
             .count(),
         1
     );
-    // Everyone has a road to the leader of its town.
+    // Everyone has a road to the mayor of its town.
     for t in &s.towns {
-        for a in s.citizens(t.id).filter(|a| a.id != t.leader) {
-            assert!(s.road(Pair::new(a.id, t.leader)).is_some());
+        for a in s.agents_of(t.id).filter(|a| a.id != t.mayor) {
+            assert!(s.road(Pair::new(a.id, t.mayor)).is_some());
         }
     }
 }
@@ -75,15 +76,18 @@ fn merging_keeps_the_roads_of_both() {
     let mut s = small(&mut land);
     s.add_road(AgentId(2), AgentId(4));
     s.set_level(Pair::new(AgentId(2), AgentId(4)), RoadLevel::Rail);
-    assert!(s.merge(AgentId(1), AgentId(2)));
+    assert_eq!(s.merge(AgentId(1), AgentId(2)), Outcome::Changed);
     assert!(s.agent(AgentId(2)).unwrap().archived);
     assert_eq!(s.agent(AgentId(2)).unwrap().into, Some(AgentId(1)));
     assert_eq!(s.agent(AgentId(1)).unwrap().wings, 1);
     let kept = s.road(Pair::new(AgentId(1), AgentId(4))).unwrap();
     assert_eq!(kept.level, RoadLevel::Rail);
-    assert!(s.roads.iter().all(|r| !r.pair.has(AgentId(2))));
+    assert!(s.roads.iter().all(|r| !r.pair.has_end(AgentId(2))));
 
-    assert!(s.split(&land, AgentId(1), AgentId(2)));
+    assert_eq!(
+        s.split(&land, AgentId(1), AgentId(2)),
+        Outcome::Changed
+    );
     assert!(!s.agent(AgentId(2)).unwrap().archived);
     assert_eq!(s.agent(AgentId(2)).unwrap().into, None);
     assert_eq!(s.agent(AgentId(1)).unwrap().wings, 0);
@@ -157,11 +161,9 @@ fn there_is_always_room_for_one_more_town() {
             assert!(usable > 20, "{usable} plots");
         }
         // It is joined to every other town.
-        let leader = s.town(id).unwrap().leader;
+        let mayor = s.town(id).unwrap().mayor;
         for other in s.towns.iter().filter(|t| t.id != id) {
-            assert!(
-                s.road(Pair::new(leader, other.leader)).is_some()
-            );
+            assert!(s.road(Pair::new(mayor, other.mayor)).is_some());
         }
     }
     assert!(land.sites.len() > 90);
@@ -174,7 +176,7 @@ fn meadow(land: &Land, s: &Society, town: TownId) -> Vec2 {
         .map(|i| {
             Vec2::from_angle(i as f32) * (260.0 + i as f32 * 3.0)
         })
-        .find(|&p| s.fits(land, Place::Town(town), p).is_ok())
+        .find(|&p| s.fits(land, Ground::Town(town), p).is_ok())
         .unwrap()
 }
 
@@ -214,8 +216,8 @@ fn a_moved_town_keeps_everyone_and_everything_and_lands_where_put() {
         assert!(now.usable);
     }
     // Its roads reach it where it is now.
-    let leader = s.town(town).unwrap().leader;
-    let across = s.town(far).unwrap().leader;
+    let mayor = s.town(town).unwrap().mayor;
+    let across = s.town(far).unwrap().mayor;
     let end = |agent: AgentId| {
         let a = s.agent(agent).unwrap();
         End {
@@ -223,14 +225,14 @@ fn a_moved_town_keeps_everyone_and_everything_and_lands_where_put() {
             plot: a.plot,
         }
     };
-    let route = Route::between(&land, end(leader), end(across));
+    let route = Route::between(&land, end(mayor), end(across));
     let door = plot(&land, site, HALL_PLOT).door();
     let ends = [route.line.pts[0], *route.line.pts.last().unwrap()];
     assert!(
         ends.iter().any(|p| p.xz().distance(door) < 0.5),
         "{ends:?} {door}"
     );
-    let inside = Route::between(&land, end(leader), end(AgentId(1)));
+    let inside = Route::between(&land, end(mayor), end(AgentId(1)));
     for p in &inside.line.pts {
         assert!(p.xz().distance(to) < land.set.town.radius + 2.0);
     }
@@ -275,13 +277,13 @@ fn a_town_is_not_set_down_on_water_or_on_another_place() {
     // founded there.
     let to = meadow(&land, &s, town);
     s.claims.push(Claim {
-        place: Place::Chief,
+        place: Ground::Chief,
         at: to + Vec2::new(10.0, 0.0),
         radius: 12.0,
     });
     refused(&mut s, &mut land, to, Unfit::Crowded);
     assert_eq!(
-        s.fits(&land, Place::Chief, there),
+        s.fits(&land, Ground::Chief, there),
         Err(Unfit::Crowded)
     );
     assert_eq!(land.sites[site], stood[site]);
@@ -296,7 +298,7 @@ fn a_town_is_not_set_down_on_water_or_on_another_place() {
         })
         .unwrap();
     s.claims.push(Claim {
-        place: Place::Chief,
+        place: Ground::Chief,
         at: stood[home].at,
         radius: 12.0,
     });

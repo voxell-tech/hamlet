@@ -6,13 +6,15 @@ use bevy::ecs::world::World;
 use bevy::math::Vec2;
 use bevy_fynix::ViewExt;
 use bevy_fynix::views::{BehaviorExt, label, menu_item};
-use hamlet_core::agents::{
-    self, Busy, Left, Mayor, Road, Settlement,
+use hamlet_client::gifts::{give, offers};
+use hamlet_client::messages::ChiefMessage;
+use hamlet_client::realm::{
+    self as agents, Busy, Deeds, HOME, HamletId, Left, Mayor, Road,
+    road_between, roads_of,
 };
-use hamlet_realm::generator::society::Place as Ground;
+use hamlet_realm::generator::society::Ground;
 use hamlet_realm::pick::{Also, Selected, Thing, focus_on, select};
 use hamlet_realm::{moving, orders};
-use hamlet_rules::hamlet::HOME;
 
 use super::deed::Deed;
 use super::{Open, close, restore, stop};
@@ -22,10 +24,11 @@ use crate::{AnyView, chat};
 
 /// An agent of the hamlet that is not its mayor and has not left,
 /// with its name.
-fn resident(world: &World, thing: Thing) -> Option<(Entity, String)> {
-    let (Thing::Resident(agent) | Thing::ResidentHouse(agent)) =
-        thing
-    else {
+fn plain_agent(
+    world: &World,
+    thing: Thing,
+) -> Option<(Entity, String)> {
+    let (Thing::Agent(agent) | Thing::House(agent)) = thing else {
         return None;
     };
     let plain = world.get::<Mayor>(agent).is_none()
@@ -58,12 +61,8 @@ fn asking(text: String, deed: Deed, at: Vec2) -> AnyView {
 
 /// The agents `agent` has a road to, the mayor aside, by name.
 fn joined(world: &World, agent: Entity) -> Vec<(Entity, String)> {
-    let Some(mut roads) = world.try_query::<&Road>() else {
-        return Vec::new();
-    };
-    let mut peers = roads
-        .iter(world)
-        .filter(|road| road.has(agent))
+    let mut peers = roads_of(world, agent)
+        .filter_map(|road| world.get::<Road>(road))
         .map(|road| match road.ends {
             (a, b) if a == agent => b,
             (a, _) => a,
@@ -79,8 +78,36 @@ fn focus(thing: Thing) -> AnyView {
     item("Focus".into(), move |w| focus_on(w, thing, false))
 }
 
-fn for_mayor() -> Vec<AnyView> {
+fn new_conversation(agent: Entity) -> AnyView {
+    item("New Conversation".into(), move |world| {
+        if let Some(to) = agents::address_of(world, agent) {
+            world.trigger(ChiefMessage {
+                to,
+                text: "/new".into(),
+            });
+            world.flush();
+        }
+    })
+}
+
+fn gifts(world: &World, agent: Entity, at: Vec2) -> Vec<AnyView> {
+    if !Deeds::is_allowed(world, "give")
+        || offers(world, agent).is_empty()
+    {
+        return Vec::new();
+    }
     vec![
+        menu_item(label("Give a skill...").wrap(false))
+            .on_activate(move |world| {
+                *world.resource_mut::<Open>() =
+                    Open::Skills(agent, at);
+            })
+            .boxed(),
+    ]
+}
+
+fn for_mayor(world: &World, at: Vec2) -> Vec<AnyView> {
+    let mut items = vec![
         item("Talk to the Mayor".into(), talk_to_mayor),
         item("Prompt".into(), |world| {
             talk_to_mayor(world);
@@ -92,19 +119,28 @@ fn for_mayor() -> Vec<AnyView> {
             }
         }),
         item("Undo the Last Change".into(), |world| {
-            chat::decree(world, HOME, "/undo".into())
+            chat::decree(world, HOME, "/undo".into());
         }),
-    ]
+    ];
+    if let Some(mayor) = agents::mayor(world) {
+        items.insert(1, new_conversation(mayor));
+        items.extend(gifts(world, mayor, at));
+    }
+    items
 }
 
 fn for_ruin(world: &World, agent: Entity) -> Vec<AnyView> {
-    vec![item(
-        format!("Restore {}", agents::name_of(world, agent)),
-        move |world| restore(world, agent),
-    )]
+    if Deeds::is_allowed(world, "restore") {
+        vec![item(
+            format!("Restore {}", agents::name_of(world, agent)),
+            move |world| restore(world, agent),
+        )]
+    } else {
+        Vec::new()
+    }
 }
 
-fn for_resident(
+fn for_agent(
     world: &World,
     thing: Thing,
     agent: Entity,
@@ -113,22 +149,27 @@ fn for_resident(
     let name = |agent: Entity| agents::name_of(world, agent);
     let mut items =
         vec![item(format!("Talk to {}", name(agent)), move |w| {
-            talk_to(w, agent)
+            talk_to(w, agent);
         })];
+    items.push(new_conversation(agent));
+    items.extend(gifts(world, agent, at));
     items.push(item("Prompt".into(), move |w| {
         talk_to(w, agent);
         show_prompt(w);
     }));
     items.push(focus(thing));
     items.push(item("Follow".into(), move |w| {
-        focus_on(w, thing, true)
+        focus_on(w, thing, true);
     }));
     if world.get::<Busy>(agent).is_some() {
         items.push(item(format!("Stop {}", name(agent)), move |w| {
-            stop(w, agent)
+            stop(w, agent);
         }));
     }
-    let Some((_, me)) = resident(world, thing) else {
+    items.push(item("Undo the Last Change".into(), move |world| {
+        orders::decree(world, agent, "/undo".into());
+    }));
+    let Some((_, me)) = plain_agent(world, thing) else {
         return items;
     };
     // The other of the two that are chosen, if there are two.
@@ -137,39 +178,26 @@ fn for_resident(
     let other = chosen
         .into_iter()
         .flatten()
-        .filter_map(|thing| resident(world, thing))
+        .filter_map(|thing| plain_agent(world, thing))
         .find(|(other, _)| *other != agent);
     let chosen = other.as_ref().map(|(them, _)| *them);
     if let Some((them, other)) = other.clone() {
-        let joined =
-            world.try_query::<&Road>().is_some_and(|mut roads| {
-                roads
-                    .iter(world)
-                    .any(|road| road.has(agent) && road.has(them))
-            });
-        if joined {
+        let joined = road_between(world, agent, them).is_some();
+        if joined && Deeds::is_allowed(world, "unroad") {
             items.push(item(
                 format!("Remove the road to {other}"),
                 move |w| orders::part(w, agent, them),
             ));
-        } else {
+        } else if !joined && Deeds::is_allowed(world, "road") {
             items.push(item(
                 format!("Build a road to {other}"),
                 move |w| orders::introduce(w, agent, them),
             ));
         }
     }
-    if !orders::offers(world, agent).is_empty() {
-        items.push(
-            menu_item(label("Give a skill...").wrap(false))
-                .on_activate(move |world| {
-                    *world.resource_mut::<Open>() =
-                        Open::Skills(agent, at);
-                })
-                .boxed(),
-        );
-    }
-    if let Some((them, other)) = other {
+    if let Some((them, other)) =
+        other.filter(|_| Deeds::is_allowed(world, "merge"))
+    {
         let into_me = Deed::Merge {
             absorbed: them,
             kept: agent,
@@ -192,26 +220,28 @@ fn for_resident(
     // The roads it has, besides the one to the other of
     // two that are chosen, which is offered above.
     for (peer, name) in joined(world, agent) {
-        if Some(peer) != chosen {
+        if Some(peer) != chosen && Deeds::is_allowed(world, "unroad")
+        {
             items.push(item(
                 format!("Remove the road to {name}"),
                 move |w| orders::part(w, agent, peer),
             ));
         }
     }
-    items.push(item("Undo the Last Change".into(), move |world| {
-        orders::decree(world, agent, "/undo".into())
-    }));
-    items.push(asking(
-        format!("Make {me} Mayor..."),
-        Deed::Mayor(agent),
-        at,
-    ));
-    items.push(asking(
-        format!("Remove {me}..."),
-        Deed::Remove(agent),
-        at,
-    ));
+    if Deeds::is_allowed(world, "mayor") {
+        items.push(asking(
+            format!("Make {me} Mayor..."),
+            Deed::Mayor(agent),
+            at,
+        ));
+    }
+    if Deeds::is_allowed(world, "remove") {
+        items.push(asking(
+            format!("Remove {me}..."),
+            Deed::Remove(agent),
+            at,
+        ));
+    }
     items
 }
 
@@ -226,13 +256,18 @@ fn for_common(
     // It is closed by the name commands know it by. The
     // first hamlet is the home itself and stays.
     let id = world
-        .get::<Settlement>(hamlet)
-        .map(|settlement| settlement.name.clone())
+        .get::<HamletId>(hamlet)
+        .map(|id| id.0.clone())
         .unwrap_or_default();
-    items.push(item(format!("Move {name}..."), move |w| {
-        orders::carry(w, hamlet)
-    }));
-    if !id.is_empty() && id != HOME {
+    if Deeds::is_allowed(world, "move-hamlet") {
+        items.push(item(format!("Move {name}..."), move |w| {
+            orders::carry(w, hamlet);
+        }));
+    }
+    if !id.is_empty()
+        && id != HOME
+        && Deeds::is_allowed(world, "remove-hamlet")
+    {
         items.push(asking(
             format!("Close Down {name}..."),
             Deed::Close(id),
@@ -246,11 +281,11 @@ fn for_chief(thing: Thing, chief: Entity) -> Vec<AnyView> {
     let home = Thing::ChiefPlace(chief);
     vec![
         item("Change Your Look".into(), move |world| {
-            select(world, Some(home))
+            select(world, Some(home));
         }),
         focus(thing),
         item("Go to the Hearth".into(), move |w| {
-            focus_on(w, home, false)
+            focus_on(w, home, false);
         }),
         item("Move the Hearth...".into(), crate::chief::carry_home),
     ]
@@ -260,21 +295,21 @@ fn for_library(thing: Thing) -> Vec<AnyView> {
     vec![
         focus(thing),
         item("Move the Library...".into(), |w| {
-            moving::pick_up(w, Ground::Library)
+            moving::pick_up(w, Ground::Library);
         }),
     ]
 }
 
 /// The skills `agent` could be given, each pressed to give it.
 pub(super) fn skills(world: &World, agent: Entity) -> Vec<AnyView> {
-    orders::offers(world, agent)
+    offers(world, agent)
         .into_iter()
         .map(|offer| {
             let text = match &offer.from {
                 Some(from) => format!("{} (of {from})", offer.skill),
                 None => format!("{} (starter)", offer.skill),
             };
-            item(text, move |w| orders::give(w, agent, &offer))
+            item(text, move |w| give(w, agent, &offer))
         })
         .collect()
 }
@@ -286,10 +321,10 @@ pub(super) fn items(
     at: Vec2,
 ) -> Vec<AnyView> {
     match thing {
-        Thing::Keeper | Thing::Cottage => for_mayor(),
+        Thing::Keeper | Thing::Cottage => for_mayor(world, at),
         Thing::Ruin(agent) => for_ruin(world, agent),
-        Thing::Resident(agent) | Thing::ResidentHouse(agent) => {
-            for_resident(world, thing, agent, at)
+        Thing::Agent(agent) | Thing::House(agent) => {
+            for_agent(world, thing, agent, at)
         }
         Thing::Common(hamlet) => for_common(world, thing, hamlet, at),
         Thing::Clockwork(hamlet) | Thing::Workbench(hamlet) => {

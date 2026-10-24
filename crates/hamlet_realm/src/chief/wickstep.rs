@@ -5,6 +5,7 @@ mod charm;
 
 use std::f32::consts::{PI, TAU};
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::window::RequestRedraw;
 use hamlet_vfx::magic::chance;
@@ -20,7 +21,7 @@ use super::{Beside, ChiefSettings, Look, Place, Settled};
 use crate::Clock;
 use crate::generator::land::Land;
 use crate::generator::{
-    Common, Floor, GenView, House, Passage, Robot, homing,
+    Common, Floor, GeneratorView, House, Passage, Robot, homing,
 };
 use crate::hamlet::{Housed, Sited};
 use crate::hand::PlaySettings;
@@ -59,7 +60,7 @@ pub enum Phase {
 /// A mascot's whereabouts.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Stay {
-    Home,
+    House,
     /// Beside this agent.
     With(Entity),
 }
@@ -109,7 +110,7 @@ impl Mascot {
         let pose = Pose::of(Doing::Idle, now);
         Self {
             chief,
-            stay: Stay::Home,
+            stay: Stay::House,
             phase: Phase::Lit,
             doing: Doing::Idle,
             shown: pose,
@@ -136,7 +137,7 @@ impl Mascot {
     }
 
     /// True when it is in the middle of a Wickstep.
-    pub(crate) fn stepping(&self) -> bool {
+    pub(crate) fn is_stepping(&self) -> bool {
         self.phase != Phase::Lit
     }
 }
@@ -202,40 +203,107 @@ fn common_of(
         .map(|(_, at)| at.translation().xz())
 }
 
+/// The clock, tuning, land and camera a mascot's steps are measured
+/// by.
+#[derive(SystemParam)]
+pub(super) struct Bearings<'w> {
+    clock: Res<'w, Clock>,
+    set: Res<'w, ChiefSettings>,
+    play: Res<'w, PlaySettings>,
+    quality: Res<'w, Quality>,
+    pal: Res<'w, Palette>,
+    land: Res<'w, Land>,
+    view: Option<Res<'w, GeneratorView>>,
+    hovered: Option<Res<'w, Hovered>>,
+}
+
+/// The places a mascot goes: its chief's place, the agents by their
+/// robots and houses, the commons and the libraries.
+#[derive(SystemParam)]
+pub(super) struct Whereabouts<'w, 's> {
+    chiefs: Query<
+        'w,
+        's,
+        (&'static Beside, &'static Look, &'static Settled),
+    >,
+    places: Query<
+        'w,
+        's,
+        &'static Transform,
+        (With<Place>, Without<Mascot>),
+    >,
+    agents: Query<'w, 's, &'static Housed>,
+    sites: Query<'w, 's, &'static Sited>,
+    commons: Query<
+        'w,
+        's,
+        (&'static Common, &'static GlobalTransform),
+        Without<Mascot>,
+    >,
+    libraries: Query<'w, 's, &'static GlobalTransform, With<Library>>,
+    robots: Query<'w, 's, (&'static Robot, &'static GlobalTransform)>,
+    houses: Query<'w, 's, (&'static House, &'static GlobalTransform)>,
+    free: Query<'w, 's, (Entity, &'static Robot), Without<Passage>>,
+}
+
+/// The wand, marks of light and floor a charm is cast with.
+#[derive(SystemParam)]
+pub(super) struct Casting<'w, 's> {
+    wand: Res<'w, Wand>,
+    materials: ResMut<'w, Assets<MarkMaterial>>,
+    marks: Res<'w, Marks>,
+    floor: Floor<'w, 's>,
+}
+
+/// The messages a step writes: what is played and that a frame is
+/// to be drawn.
+#[derive(SystemParam)]
+pub(super) struct Writers<'w> {
+    played: MessageWriter<'w, Played>,
+    redraw: MessageWriter<'w, RequestRedraw>,
+}
+
 /// Moves each mascot: a Wickstep to whoever its chief talks to and
 /// home again, and on foot between.
-#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(super) fn step(
     mut commands: Commands,
-    (clock, set, play, quality, pal, land, wand): (
-        Res<Clock>,
-        Res<ChiefSettings>,
-        Res<PlaySettings>,
-        Res<Quality>,
-        Res<Palette>,
-        Res<Land>,
-        Res<Wand>,
-    ),
-    view: Option<Res<GenView>>,
-    hovered: Option<Res<Hovered>>,
-    chiefs: Query<(&Beside, &Look, &Settled)>,
-    places: Query<&Transform, (With<Place>, Without<Mascot>)>,
-    (agents, sites, commons, libraries): (
-        Query<&Housed>,
-        Query<&Sited>,
-        Query<(&Common, &GlobalTransform), Without<Mascot>>,
-        Query<&GlobalTransform, With<Library>>,
-    ),
-    robots: Query<(&Robot, &GlobalTransform)>,
-    houses: Query<(&House, &GlobalTransform)>,
-    free: Query<(Entity, &Robot), Without<Passage>>,
+    bearings: Bearings,
+    around: Whereabouts,
+    casting: Casting,
+    writers: Writers,
     mut mascots: Query<(&mut Mascot, &mut Transform)>,
-    mut materials: ResMut<Assets<MarkMaterial>>,
-    marks: Res<Marks>,
-    mut floor: Floor,
-    mut played: MessageWriter<Played>,
-    mut redraw: MessageWriter<RequestRedraw>,
 ) {
+    let Bearings {
+        clock,
+        set,
+        play,
+        quality,
+        pal,
+        land,
+        view,
+        hovered,
+    } = bearings;
+    let Whereabouts {
+        chiefs,
+        places,
+        agents,
+        sites,
+        commons,
+        libraries,
+        robots,
+        houses,
+        free,
+    } = around;
+    let Casting {
+        wand,
+        mut materials,
+        marks,
+        mut floor,
+    } = casting;
+    let Writers {
+        mut played,
+        mut redraw,
+    } = writers;
     let now = clock.t;
     // Toward the camera and to its right, along the ground.
     let yaw = view.map_or(0.0, |view| view.yaw);
@@ -288,7 +356,7 @@ pub(super) fn step(
         // An agent that is nowhere to be found is not stood by.
         let wanted = match beside.0.filter(|a| of(*a).is_some()) {
             Some(agent) => Stay::With(agent),
-            None => Stay::Home,
+            None => Stay::House,
         };
         let light = look.light.colour(&pal);
         let here = at.translation;
@@ -308,7 +376,7 @@ pub(super) fn step(
                     at.translation = on_ground(stand);
                     facing(back * set.cheat - mascot.side)
                 }
-                Stay::Home => {
+                Stay::House => {
                     mascot.spot = 0;
                     let linger = set.linger.0 * 0.5;
                     mascot.until = now + linger;
@@ -330,11 +398,11 @@ pub(super) fn step(
                 // same town is: a Wickstep is for a long way.
                 let near = match wanted {
                     Stay::With(agent) => of(agent)
-                        .map(|them| them.xz())
+                        .map(Vec3Swizzles::xz)
                         .filter(|them| {
                             them.distance(here.xz()) <= set.afoot
                         }),
-                    Stay::Home => None,
+                    Stay::House => None,
                 };
                 match near {
                     Some(them) => {
@@ -365,7 +433,10 @@ pub(super) fn step(
                         let them = of(agent).unwrap_or(here).xz();
                         // Its agent has gone where its own spot is
                         // wet or taken.
-                        if !homing::clear(&land, them + mascot.side) {
+                        if !homing::is_clear(
+                            &land,
+                            them + mascot.side,
+                        ) {
                             let side = mascot
                                 .side
                                 .normalize_or(right)
@@ -391,7 +462,7 @@ pub(super) fn step(
                             ),
                         }
                     }
-                    Stay::Home => {
+                    Stay::House => {
                         if now >= mascot.until {
                             // On to another spot. It lingers there
                             // from when it arrives.
@@ -472,7 +543,7 @@ pub(super) fn step(
                             mascot.way.drain(..passed);
                             leg(&mascot.way, target, dry)
                         }
-                        Stay::Home => Some(target),
+                        Stay::House => Some(target),
                     };
                     if let Some(next) = next {
                         // The further its agent is ahead, the faster
@@ -481,7 +552,7 @@ pub(super) fn step(
                             Stay::With(_) => ((far - set.slack)
                                 / (set.restep * 0.5 - set.slack))
                                 .clamp(0.0, 1.0),
-                            Stay::Home => 0.0,
+                            Stay::House => 0.0,
                         };
                         let top =
                             play.scurry_fastest.max(set.walk_speed);
@@ -561,7 +632,7 @@ pub(super) fn step(
                 }
                 let rest = match wanted {
                     Stay::With(_) => Doing::Attend,
-                    Stay::Home => Doing::Idle,
+                    Stay::House => Doing::Idle,
                 };
                 mascot.doing = rest;
                 mascot.changed = f32::MIN;
@@ -615,7 +686,7 @@ pub(super) fn step(
                 at: here,
             });
         }
-        if mascot.stepping() {
+        if mascot.is_stepping() {
             redraw.write(RequestRedraw);
         }
     }

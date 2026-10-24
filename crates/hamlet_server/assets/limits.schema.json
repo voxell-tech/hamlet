@@ -1,0 +1,432 @@
+{
+  "type": "object",
+  "required": [
+    "votes",
+    "hamlets",
+    "budget",
+    "task",
+    "road",
+    "mostAgents",
+    "mostRoads",
+    "models",
+    "model",
+    "pinned",
+    "mayor",
+    "leaving",
+    "asking",
+    "permissions"
+  ],
+  "properties": {
+    "votes": {
+      "type": "object",
+      "required": [
+        "passYes",
+        "passOf",
+        "leastVoters",
+        "sealed",
+        "groundedOnly",
+        "ballotMinutes",
+        "openMinutes",
+        "retryMinutes"
+      ],
+      "properties": {
+        "passYes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "default": 2
+        },
+        "passOf": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "default": 3
+        },
+        "leastVoters": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "default": 3
+        },
+        "sealed": {
+          "type": "boolean",
+          "default": true
+        },
+        "groundedOnly": {
+          "type": "boolean",
+          "default": false
+        },
+        "ballotMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "default": 5
+        },
+        "openMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "default": 60
+        },
+        "retryMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "default": 60
+        }
+      },
+      "additionalProperties": false,
+      "default": {}
+    },
+    "hamlets": {
+      "type": "object",
+      "required": [
+        "most",
+        "roadsBetween",
+        "removalMayors"
+      ],
+      "properties": {
+        "most": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "default": 6
+        },
+        "roadsBetween": {
+          "type": "boolean",
+          "default": true
+        },
+        "removalMayors": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "default": 3
+        }
+      },
+      "additionalProperties": false,
+      "default": {}
+    },
+    "budget": {
+      "type": "object",
+      "required": [
+        "period",
+        "cost",
+        "minutes",
+        "tokens"
+      ],
+      "properties": {
+        "period": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "day"
+            },
+            {
+              "type": "string",
+              "const": "month"
+            }
+          ],
+          "default": "day"
+        },
+        "cost": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 5
+        },
+        "minutes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tokens": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false,
+      "default": {}
+    },
+    "task": {
+      "type": "object",
+      "required": [
+        "messages",
+        "cost",
+        "minutes",
+        "tokens"
+      ],
+      "properties": {
+        "messages": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "default": 12
+        },
+        "cost": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 1
+        },
+        "minutes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tokens": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false,
+      "default": {}
+    },
+    "road": {
+      "type": "object",
+      "required": [
+        "tokens",
+        "cost",
+        "minutes",
+        "growsOverDays"
+      ],
+      "properties": {
+        "tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "default": 0
+        },
+        "cost": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0.01
+        },
+        "minutes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "default": 0
+        },
+        "growsOverDays": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "default": 7
+        }
+      },
+      "additionalProperties": false,
+      "default": {}
+    },
+    "mostAgents": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "default": 12
+    },
+    "mostRoads": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "default": 24
+    },
+    "models": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "model": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "pinned": {
+      "type": "object",
+      "patternProperties": {
+        "^.*$": {
+          "type": "string"
+        }
+      },
+      "default": {}
+    },
+    "mayor": {
+      "type": "object",
+      "required": [
+        "createAgents",
+        "buildRoads",
+        "removeAgents",
+        "mergeAgents",
+        "toldDays"
+      ],
+      "properties": {
+        "createAgents": {
+          "type": "boolean",
+          "default": true
+        },
+        "buildRoads": {
+          "type": "boolean",
+          "default": true
+        },
+        "removeAgents": {
+          "type": "boolean",
+          "default": true
+        },
+        "mergeAgents": {
+          "type": "boolean",
+          "default": true
+        },
+        "toldDays": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "default": 7
+        }
+      },
+      "additionalProperties": false,
+      "default": {}
+    },
+    "leaving": {
+      "type": "object",
+      "required": [
+        "protectedMinutes",
+        "mergedNotes"
+      ],
+      "properties": {
+        "protectedMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "default": 0
+        },
+        "mergedNotes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "default": 6000
+        }
+      },
+      "additionalProperties": false,
+      "default": {}
+    },
+    "asking": {
+      "type": "object",
+      "required": [
+        "mayorReview",
+        "refusals",
+        "questions"
+      ],
+      "properties": {
+        "mayorReview": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "always"
+            },
+            {
+              "type": "string",
+              "const": "never"
+            },
+            {
+              "type": "string",
+              "const": "remote"
+            }
+          ],
+          "default": "remote"
+        },
+        "refusals": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "default": 3
+        },
+        "questions": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "default": 3
+        }
+      },
+      "additionalProperties": false,
+      "default": {}
+    },
+    "permissions": {
+      "type": "object",
+      "required": [
+        "network",
+        "unconfined"
+      ],
+      "properties": {
+        "network": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "unconfined": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false,
+      "default": {}
+    }
+  },
+  "additionalProperties": false
+}

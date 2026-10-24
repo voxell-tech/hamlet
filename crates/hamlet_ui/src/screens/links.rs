@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use bevy::app::{App, Update};
+use bevy::app::{App, PreUpdate};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::lifecycle::Remove;
@@ -18,16 +18,14 @@ use bevy::ecs::system::{Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::picking::events::{Click, Out, Over, Pointer, Press};
 use bevy::picking::pointer::PointerButton;
-use hamlet_core::core::HomeDir;
-use hamlet_core::session::{self, JobFinished, Seat};
+use hamlet_client::messages::JobFinished;
+use hamlet_client::realm::{Houses, LivesIn, Works};
 use hamlet_desktop::open;
-use hamlet_home::Home;
 use hamlet_realm::sound::{Cue, Sound};
-use hamlet_rules::hamlet::Hamlet;
 
 use crate::me::Me;
-use crate::roll::Roll;
-use crate::sounds;
+use crate::roll::{self, Roll};
+use crate::{PanelSystems, sounds};
 
 /// The most paths whose files are remembered.
 const REMEMBERED: usize = 4096;
@@ -45,10 +43,12 @@ pub fn plugin(app: &mut App) {
         .add_observer(follow)
         .add_observer(forget)
         .add_systems(
-            Update,
-            keep_roots.run_if(
+            PreUpdate,
+            turn.run_if(
                 resource_changed::<Me>.or_eager(hamlets_turned),
-            ),
+            )
+            .after(roll::turn_roll)
+            .in_set(PanelSystems::Bind),
         );
 }
 
@@ -60,13 +60,13 @@ pub(crate) enum Anchor {
     File(PathBuf),
 }
 
-/// The folders a path written in the chat is looked for in, the
-/// first looked in first. A file outside all of them is no link.
+/// The local folders used to resolve relative paths in the chat.
 #[derive(Resource, Default, Clone, PartialEq, Eq, Debug)]
 pub struct Roots {
     folders: Vec<PathBuf>,
     /// The session whose agent they are the folders of.
     of: Option<Entity>,
+    folder: Option<String>,
 }
 
 impl Roots {
@@ -82,47 +82,33 @@ impl Roots {
         }
         roots
     }
-
-    /// The folder the hamlet of whoever sits at `seat` works on, then
-    /// that agent's workspace and its house.
-    fn of(home: &Home, session: Entity, seat: Option<&Seat>) -> Self {
-        let hamlet = match seat {
-            Some(seat) => Hamlet::at(&home.root, &seat.hamlet),
-            None => Hamlet::new(home.root.clone()),
-        };
-        let house = session::house_at(home, seat);
-        Roots {
-            of: Some(session),
-            ..Roots::new(
-                hamlet
-                    .work()
-                    .folder
-                    .into_iter()
-                    .chain([house.workspace, house.root]),
-            )
-        }
-    }
 }
 
 /// The file each path written in the chat names under [`Roots`], as
 /// it was last looked for.
 #[derive(Resource, Default)]
-struct Found(HashMap<String, Option<PathBuf>>);
+struct Found(HashMap<String, Option<PathBuf>>, Option<PathBuf>);
 
-/// Sets [`Roots`] for the session of the chat, if they are those of
-/// another.
+/// The local work folder of the selected agent's hamlet.
 fn turn(world: &mut World) {
-    let (Some(home), Some(me)) =
-        (world.get_resource::<HomeDir>(), world.get_resource::<Me>())
-    else {
+    let Some(me) = world.get_resource::<Me>() else {
         return;
     };
-    let kept = world.get_resource::<Roots>();
-    if kept.is_some_and(|roots| roots.of == Some(me.session)) {
+    let session = me.session;
+    let folder = world
+        .get::<LivesIn>(me.agent)
+        .and_then(|lives| world.get::<Works>(lives.0))
+        .and_then(|works| works.folder.clone());
+    if world.get_resource::<Roots>().is_some_and(|roots| {
+        roots.of == Some(session) && roots.folder == folder
+    }) {
         return;
     }
-    let seat = world.get::<Seat>(me.session);
-    let roots = Roots::of(&home.0, me.session, seat);
+    let roots = Roots {
+        of: Some(session),
+        folder: folder.clone(),
+        ..Roots::new(folder.into_iter().map(PathBuf::from))
+    };
     world.insert_resource(roots);
     world.get_resource_or_init::<Found>().0.clear();
 }
@@ -136,14 +122,34 @@ pub(crate) fn seek(
     // The chat is drawn for another agent before the system that
     // keeps the folders has seen it turn.
     turn(world);
+    let houses = world
+        .get_resource::<Houses>()
+        .map(|houses| PathBuf::from(&houses.0))
+        .map(|path| path.canonicalize().unwrap_or(path));
+    let mut found = world.get_resource_or_init::<Found>();
+    if found.1 != houses {
+        found.0.clear();
+        found.1 = houses.clone();
+    }
     let known = world
         .get_resource::<Found>()
         .and_then(|found| found.0.get(written));
     if let Some(known) = known {
         return known.clone();
     }
-    let roots = world.get_resource::<Roots>()?;
-    let file = open::locate(written, &roots.folders);
+    let path = Path::new(written);
+    let file = if path.is_absolute() {
+        path.canonicalize().ok()
+    } else {
+        world
+            .get_resource::<Roots>()
+            .and_then(|roots| open::locate(written, &roots.folders))
+    };
+    let file = file.filter(|file| {
+        !houses
+            .as_ref()
+            .is_some_and(|houses| file.starts_with(houses))
+    });
     let mut found = world.get_resource_or_init::<Found>();
     if found.0.len() >= REMEMBERED {
         found.0.clear();
@@ -228,7 +234,6 @@ fn tap(
 fn follow(
     click: On<Pointer<Click>>,
     anchors: Query<&Anchor>,
-    roots: Res<Roots>,
     mut cues: MessageWriter<Cue>,
     mut turn: Local<u32>,
 ) {
@@ -238,49 +243,21 @@ fn follow(
     let Ok(anchor) = anchors.get(click.entity) else {
         return;
     };
-    let went = match anchor {
+    let launch = match anchor {
         Anchor::Web(address) => open::browse(address),
-        Anchor::File(path) => open::show(path, &roots.folders),
+        Anchor::File(path) => open::show_file(path),
     };
-    if !went {
+    if launch == open::Launch::Failed {
         sounds::write(&mut cues, &mut turn, Sound::Deny);
     }
 }
 
-/// Opens the file `path` by the system's program for it. False when
-/// nothing could.
-pub(crate) fn open_file(path: &Path) -> bool {
-    let folder =
-        path.parent().and_then(|folder| folder.canonicalize().ok());
-    folder.is_some_and(|folder| open::show(path, &[folder]))
-}
-
-/// True when a hamlet's record has moved since it was last asked.
 fn hamlets_turned(
-    roll: Res<Roll>,
+    roll: Option<Res<Roll>>,
     mut seen: Local<Option<u64>>,
 ) -> bool {
-    let now = Some(roll.hamlets());
+    let now = roll.map(|roll| roll.hamlets());
     std::mem::replace(&mut *seen, now) != now
-}
-
-/// Keeps [`Roots`] as those of the agent the chat is with.
-fn keep_roots(
-    home: Option<Res<HomeDir>>,
-    me: Res<Me>,
-    seats: Query<&Seat>,
-    mut roots: ResMut<Roots>,
-    mut found: ResMut<Found>,
-) {
-    let Some(home) = home else {
-        return;
-    };
-    let seat = seats.get(me.session).ok();
-    let now = Roots::of(&home.0, me.session, seat);
-    if *roots != now {
-        *roots = now;
-        found.0.clear();
-    }
 }
 
 /// Forgets the files found when a turn has ended, which is when an
@@ -308,8 +285,57 @@ mod tests {
         std::fs::write(&file, "").unwrap();
         assert_eq!(seek(&mut world, "plan.md"), None);
         world.trigger(JobFinished {
-            session: Entity::PLACEHOLDER,
+            chat: Entity::PLACEHOLDER,
         });
         assert_eq!(seek(&mut world, "plan.md"), Some(file));
+    }
+    #[test]
+    fn received_houses_stay_plain_even_through_work_folder_links() {
+        let home = hamlet_testing::Scratch::new("house-links");
+        let houses = home.join("houses");
+        std::fs::create_dir_all(houses.join("home/1")).unwrap();
+        let private = houses.join("home/1/plan.md");
+        let public = home.join("public.md");
+        std::fs::write(&private, "private").unwrap();
+        std::fs::write(&public, "public").unwrap();
+        let mut app = App::new();
+        app.add_plugins(hamlet_client::ClientPlugin { server: None });
+        app.world_mut()
+            .insert_resource(Roots::new([home.to_path_buf()]));
+        assert!(
+            seek(app.world_mut(), private.to_str().unwrap())
+                .is_some()
+        );
+        let mut state =
+            serde_json::to_value(hamlet_testing::realm::state())
+                .unwrap();
+        state["houses"] = serde_json::json!(houses);
+        hamlet_client::receive(
+            app.world_mut(),
+            hamlet_protocol::client::ServerMessage::State(
+                serde_json::from_value(state).unwrap(),
+            ),
+        );
+        assert_eq!(
+            seek(app.world_mut(), private.to_str().unwrap()),
+            None
+        );
+        assert_eq!(
+            seek(app.world_mut(), "houses/home/1/plan.md"),
+            None
+        );
+        assert!(seek(app.world_mut(), "public.md").is_some());
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(
+                &houses,
+                home.join("shortcut"),
+            )
+            .unwrap();
+            assert_eq!(
+                seek(app.world_mut(), "shortcut/home/1/plan.md"),
+                None
+            );
+        }
     }
 }

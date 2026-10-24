@@ -14,9 +14,9 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, row, scroll, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
+use hamlet_client::realm::{Deeds, HOME};
 use hamlet_realm::orders;
 use hamlet_realm::pick::{Thing, select};
-use hamlet_rules::hamlet::HOME;
 
 use super::heading;
 use super::record::record_of;
@@ -30,6 +30,7 @@ use crate::looks::{
     lettered, note, stated, title, well,
 };
 use crate::me::talk_to;
+use crate::roll::{either, moved};
 use crate::world_menu::Deed;
 use crate::{AnyView, View, chat, tabs, world_menu};
 
@@ -138,7 +139,7 @@ fn list_of(hamlet: Entity) -> impl View {
             let thing = if gone {
                 Thing::Ruin(agent)
             } else {
-                Thing::Resident(agent)
+                Thing::Agent(agent)
             };
             pressable(
                 thing,
@@ -189,10 +190,19 @@ pub fn hamlet(hamlet: Entity) -> AnyView {
         hamlet_rows(world)
             .into_iter()
             .find(|row| row.hamlet == hamlet)
+            .map(|facts| {
+                let has = |deed| Deeds::is_allowed(world, deed);
+                (
+                    facts,
+                    has("name-hamlet"),
+                    has("move-hamlet"),
+                    has("remove-hamlet"),
+                )
+            })
     })
-    .when(stale());
+    .when(either(stale(), moved::<Deeds>()));
     let head = keyed(facts, move |facts| {
-        let Some(facts) = facts else {
+        let Some((facts, rename, carry, close)) = facts else {
             return column(()).boxed();
         };
         let (mark, state, tone) = facts.state();
@@ -200,26 +210,31 @@ pub fn hamlet(hamlet: Entity) -> AnyView {
         let known = if facts.title == facts.id {
             String::new()
         } else {
-            format!("Kept on disk as {}", facts.id)
+            format!("Known to the server as {}", facts.id)
         };
         let mut actions = vec![
             back("ALL HAMLETS", |world| select(world, None)).boxed(),
-            action(Glyph::Rename, "RENAME", move |world| {
-                world.resource_mut::<Naming>().0 = Some(hamlet);
-            }),
-            // Its town is then in hand, to be set down with a click
-            // on the ground.
-            action(Glyph::Move, "MOVE", move |world| {
-                orders::carry(world, hamlet)
-            }),
         ];
-        // The first hamlet is the home itself and stays.
-        if facts.id != HOME {
+        if *rename {
+            actions.push(action(
+                Glyph::Rename,
+                "RENAME",
+                move |world| {
+                    world.resource_mut::<Naming>().0 = Some(hamlet);
+                },
+            ));
+        }
+        if *carry {
+            actions.push(action(Glyph::Move, "MOVE", move |world| {
+                orders::carry(world, hamlet);
+            }));
+        }
+        if *close && facts.id != HOME {
             actions.push(bad_action(
                 Glyph::Gone,
                 "CLOSE DOWN",
                 move |world| {
-                    world_menu::ask(world, Deed::Close(id.clone()))
+                    world_menu::ask(world, Deed::Close(id.clone()));
                 },
             ));
         }
@@ -247,7 +262,7 @@ pub fn hamlet(hamlet: Entity) -> AnyView {
         keyed(resource::<Page, _>(|page| *page), move |page| {
             match page {
                 Page::Agents => list_of(hamlet).boxed(),
-                Page::Bylaws => crate::rules::panel(hamlet),
+                Page::Bylaws => crate::limits::panel(hamlet),
                 Page::Record => record_of(hamlet).boxed(),
             }
         })

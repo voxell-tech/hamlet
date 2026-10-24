@@ -6,9 +6,9 @@ use std::collections::HashMap;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use hamlet_core::agents::{Left, LivesIn, Mayor, Settlement};
+use hamlet_client::realm::{HamletId, Left, LivesIn, Mayor};
 
-use super::{Housed, Returning, Sited, first, view};
+use super::{Housed, Returning, Sited, housing, is_first};
 use crate::generator::house::Remains;
 use crate::generator::land::Land;
 use crate::generator::society::AgentId;
@@ -17,7 +17,7 @@ use crate::keeper::Act;
 use crate::pick::{
     self, Footprint, Named, PickSettings, Thing, hit_box,
 };
-use crate::{WorldSystems, adopt};
+use crate::{RealmSystems, adopt};
 
 pub(super) fn plugin(app: &mut App) {
     app.add_systems(
@@ -35,15 +35,17 @@ pub(super) fn plugin(app: &mut App) {
             commons.run_if(any_match_filter::<Added<Common>>),
         )
             .chain()
-            .after(view::aim)
-            .before(WorldSystems),
+            // The agents are known by the Housed that housing gives
+            // them.
+            .after(housing::house)
+            .in_set(RealmSystems::Bridge),
     );
 }
 
 /// Every agent's standing with its hamlet.
 #[derive(SystemParam)]
 struct Standing<'w, 's> {
-    hamlets: Query<'w, 's, &'static Settlement>,
+    hamlets: Query<'w, 's, &'static HamletId>,
     agents: Query<
         'w,
         's,
@@ -84,7 +86,7 @@ impl Standing<'_, '_> {
             .map(|(entity, housed, lives, mayor, left, returning)| {
                 let stood = Stood {
                     entity,
-                    mayor: mayor && first(&self.hamlets, lives),
+                    mayor: mayor && is_first(&self.hamlets, lives),
                     left,
                     returning,
                 };
@@ -112,8 +114,8 @@ impl Known {
             (true, ..) => return None,
             (_, true, true) => Thing::Cottage,
             (_, true, false) => Thing::Keeper,
-            (_, false, true) => Thing::ResidentHouse(stood.entity),
-            (_, false, false) => Thing::Resident(stood.entity),
+            (_, false, true) => Thing::House(stood.entity),
+            (_, false, false) => Thing::Agent(stood.entity),
         })
     }
 }

@@ -10,7 +10,7 @@ use super::{
     Chief, ChiefSettings, Look, Mascot, Place, Settled, Stands, place,
 };
 use crate::generator::land::Land;
-use crate::generator::society::{Claim, Place as Ground, Society};
+use crate::generator::society::{Claim, Ground, Society};
 use crate::generator::{flora, glow};
 use crate::lantern::lantern_glass;
 use crate::library::{self, Library};
@@ -77,7 +77,6 @@ pub(super) fn hold_ground(
 }
 
 /// Gives every chief the world has not met a place and a mascot.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn settle(
     mut commands: Commands,
     clock: Res<Clock>,

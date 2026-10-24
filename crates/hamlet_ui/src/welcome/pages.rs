@@ -1,4 +1,4 @@
-//! The pages of the first-run screen, one for each step.
+//! The pages of first-run setup.
 
 use bevy::ui::{AlignItems, JustifyContent, UiRect, percent, px};
 use bevy_fynix::tokens::Tone;
@@ -7,18 +7,13 @@ use bevy_fynix::views::{
     row, scroll, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
-use hamlet_core::core::SignIn;
-use hamlet_model::config::providers::PROVIDERS;
 
-use super::{
-    Act, Narrowing, Step, Welcome, close, go, look, pick, request,
-    sign_in,
-};
+use super::{Narrowing, Step, Welcome, close, go, look, pick};
 use crate::feel::Mood;
 use crate::icons::Glyph;
 use crate::looks::{
-    action, back, bare, brass, buttons, door, good_action, headed,
-    lamp, lettered, marked, note, pad, retrace, well,
+    back, bare, brass, door, good_action, headed, marked, note, pad,
+    retrace, well,
 };
 use crate::models::narrowed;
 use crate::platform::DisplayText;
@@ -31,45 +26,13 @@ fn title(which: Glyph, text: &'static str) -> impl View {
     )
 }
 
-fn said(text: impl Into<String>) -> AnyView {
+pub(super) fn said(text: impl Into<String>) -> AnyView {
     label(text.into()).size(13.0).tone(Tone::Dim).boxed()
-}
-
-fn small(text: &'static str) -> impl View {
-    label(text)
-        .size(11.0)
-        .bold(true)
-        .tone(Tone::Faint)
-        .tagged(DisplayText)
-}
-
-/// One typed value, under its name and over a word of help.
-fn typed(
-    name: &'static str,
-    get: fn(&Welcome) -> &String,
-    set: fn(&mut Welcome, String),
-    help: String,
-) -> AnyView {
-    column((
-        small(name),
-        text_field(
-            resource::<Welcome, _>(move |welcome| {
-                get(welcome).clone()
-            }),
-            move |world, text| {
-                set(&mut world.resource_mut::<Welcome>(), text)
-            },
-        )
-        .rules(well),
-        note(help),
-    ))
-    .gap(4.0)
-    .boxed()
 }
 
 /// The news of the last thing asked: that it is awaited, or the
 /// reason it did not work.
-fn news(waiting: &'static str) -> AnyView {
+pub(super) fn news(waiting: &'static str) -> AnyView {
     keyed(
         resource::<Welcome, _>(|welcome| {
             (welcome.asking, welcome.problem.clone())
@@ -113,7 +76,9 @@ fn choice(adding: bool) -> AnyView {
             "SIGN IN WITH OPENROUTER",
             "The quickest way. You sign in with your browser and \
              pay OpenRouter for what you use.",
-            |world| sign_in(world, SignIn::OpenRouter),
+            |world| {
+                super::providers::start(world, "openrouter", false);
+            },
         ),
         door(
             Glyph::Talk,
@@ -121,7 +86,7 @@ fn choice(adding: bool) -> AnyView {
             "Use your ChatGPT plan, with no key. You sign in with \
              your browser, and what your hamlet does counts toward \
              your plan's usage.",
-            |world| sign_in(world, SignIn::ChatGpt),
+            |world| super::providers::start(world, "chatgpt", false),
         ),
         door(
             Glyph::Globe,
@@ -133,8 +98,8 @@ fn choice(adding: bool) -> AnyView {
         door(
             Glyph::Chip,
             "I RUN MY OWN MODEL",
-            "Use a model that runs on this computer, with Ollama or \
-             LM Studio. Nothing leaves your machine.",
+            "Use a model served on the server's machine, with \
+             Ollama or LM Studio.",
             look,
         ),
         row((
@@ -152,136 +117,14 @@ fn choice(adding: bool) -> AnyView {
     .boxed()
 }
 
-/// The provider's key, and for an address of the chief's own, the
-/// address.
-fn key_form(chosen: usize) -> impl View {
-    let names = PROVIDERS
-        .iter()
-        .map(|provider| provider.name.to_uppercase())
-        .chain(["OTHER".to_string()])
-        .enumerate()
-        .map(|(at, name)| {
-            let look: fn(&mut Cx) =
-                if at == chosen { lamp } else { brass };
-            lettered(name)
-                .rules(look)
-                .tagged(Mood::Plain)
-                .on_activate(move |world| {
-                    request(world, Act::Provider(at))
-                })
-                .boxed()
-        })
-        .collect::<Vec<_>>();
-    let known = PROVIDERS.get(chosen);
-    let help = match known {
-        Some(provider) => format!(
-            "Make a key at {} and paste it here. It stays on this \
-             computer.",
-            provider.keys
-        ),
-        None => "Paste the key your provider gave you. Leave this \
-                 empty if it needs none."
-            .into(),
-    };
-    let mut parts = vec![
-        column((small("WHO GIVES YOU YOUR MODEL"), buttons(names)))
-            .gap(6.0)
-            .boxed(),
-    ];
-    if known.is_none() {
-        parts.push(
-            typed(
-                "WHERE YOUR MODEL RUNS",
-                |welcome| &welcome.url,
-                |welcome, text| welcome.url = text,
-                "The web address your provider gave you. It usually \
-                 ends in /v1."
-                    .into(),
-            )
-            .boxed(),
-        );
-    }
-    parts.extend([
-        typed(
-            "YOUR KEY",
-            |welcome| &welcome.key,
-            |welcome, text| welcome.key = text,
-            help,
-        ),
-        news("Asking for its models..."),
-        row((good_action(Glyph::Check, "CONNECT", |world| {
-            request(world, Act::Connect)
-        }),))
-        .boxed(),
-    ]);
-    column(parts).gap(14.0)
-}
-
 /// The head of a step: the way back to the first, and its name.
-fn head(which: Glyph, text: &'static str) -> impl View {
+pub(super) fn head(which: Glyph, text: &'static str) -> impl View {
     row((
         back("BACK", |world| go(world, Step::Choice)),
         title(which, text),
     ))
     .gap(12.0)
     .align(AlignItems::Center)
-}
-
-fn key() -> AnyView {
-    column((
-        head(Glyph::Globe, "USE A KEY"),
-        keyed(
-            resource::<Welcome, _>(|welcome| welcome.provider),
-            |chosen| key_form(*chosen).boxed(),
-        )
-        .within(bare()),
-    ))
-    .gap(14.0)
-    .boxed()
-}
-
-/// The page shown while the chief approves in the browser.
-fn signing_in() -> AnyView {
-    let asked = keyed(
-        resource::<Welcome, _>(|welcome| welcome.signing),
-        |to| match to {
-            Some(SignIn::ChatGpt) => said(
-                "Sign in to ChatGPT in your browser and allow \
-                 Hamlet to use your plan. Hamlet carries on once \
-                 you have.",
-            ),
-            _ => said(
-                "Sign in to OpenRouter in your browser and choose \
-                 Authorize. Hamlet carries on once you have.",
-            ),
-        },
-    )
-    .within(bare());
-    column((
-        head(Glyph::Signal, "SIGN IN"),
-        asked,
-        news("Asking for its models..."),
-        note(
-            "Nothing opened? Go back and choose I Have a Key \
-             instead.",
-        ),
-    ))
-    .gap(14.0)
-    .boxed()
-}
-
-fn local() -> AnyView {
-    column((
-        head(Glyph::Chip, "YOUR OWN MODEL"),
-        said(
-            "Hamlet looks for Ollama on this computer, then LM \
-             Studio.",
-        ),
-        news("Looking..."),
-        row((action(Glyph::Restore, "LOOK AGAIN", look),)),
-    ))
-    .gap(14.0)
-    .boxed()
 }
 
 /// One model, as a button that chooses it.
@@ -297,89 +140,110 @@ fn offered(id: &str) -> AnyView {
 }
 
 fn models() -> AnyView {
-    let shown = resource::<Welcome, _>(|welcome| {
-        narrowed(welcome.models.iter(), &welcome.narrow)
-    });
-    let list = keyed(shown, |(ids, more)| {
-        let mut rows =
-            ids.iter().map(|id| offered(id)).collect::<Vec<_>>();
-        if ids.is_empty() {
-            rows.push(said("No model has those words in its name."));
-        }
-        if *more > 0 {
-            rows.push(said(format!(
-                "{more} more. Type part of a name to narrow them."
-            )));
-        }
-        column(rows).gap(6.0).boxed()
-    })
-    .within(bare());
-    AnyView::new(move |cx: &mut Cx| {
-        let welcome = cx.world.resource::<Welcome>();
-        let mut found = format!(
-            "{} answered with {} {}. Pick the one your hamlet will \
-             think with.",
-            welcome.from,
-            welcome.models.len(),
-            if welcome.models.len() == 1 {
-                "model"
-            } else {
-                "models"
+    let list = keyed(
+        resource::<Welcome, _>(|welcome| {
+            narrowed(welcome.models.iter(), &welcome.narrow)
+        }),
+        |(ids, more)| {
+            let mut rows =
+                ids.iter().map(|id| offered(id)).collect::<Vec<_>>();
+            if ids.is_empty() {
+                rows.push(said(
+                    "No model has those words in its name.",
+                ));
             }
-        );
-        if welcome.asked.as_ref().is_some_and(|at| at.chatgpt) {
-            found.push_str(&format!(
-                " You're using your ChatGPT plan: its models count \
-                 toward the plan's usage, which you can manage at \
-                 {}.",
-                hamlet_model::chatgpt::USAGE
-            ));
-        }
-        cx.build(
-            column((
-                head(Glyph::Check, "PICK A MODEL"),
-                said(found),
-                row((
-                    small("FIND"),
-                    text_field(
-                        resource::<Welcome, _>(|welcome| {
-                            welcome.narrow.clone()
-                        }),
-                        |world, text| {
-                            world.resource_mut::<Welcome>().narrow =
-                                text
-                        },
-                    )
-                    .grow(1.0)
-                    .rules(well)
-                    .tagged(Narrowing),
-                ))
-                .gap(12.0)
-                .align(AlignItems::Center),
-                news("Asking it to say hello..."),
-                list,
-            ))
-            .gap(14.0),
+            if *more > 0 {
+                rows.push(said(format!(
+                    "{more} more. Type part of a name to narrow \
+                     them."
+                )));
+            }
+            column(rows).gap(6.0).boxed()
+        },
+    )
+    .within(bare());
+    column((
+        head(Glyph::Check, "PICK A MODEL"),
+        label(resource::<Welcome, _>(|welcome| {
+            format!(
+                "{} listed these models. Pick the model your hamlet \
+                 will think with.",
+                welcome.from
+            )
+        }))
+        .size(13.0)
+        .tone(Tone::Dim),
+        text_field(
+            resource::<Welcome, _>(|welcome| welcome.narrow.clone()),
+            |world, text| {
+                world.resource_mut::<Welcome>().narrow = text;
+            },
         )
+        .rules(well)
+        .tagged(Narrowing),
+        news("Asking it to say hello..."),
+        list,
+    ))
+    .gap(14.0)
+    .boxed()
+}
+
+fn local() -> AnyView {
+    column((
+        head(Glyph::Chip, "YOUR OWN MODEL"),
+        said(
+            "Hamlet asks the endpoints configured on the server. \
+             Ollama or LM Studio must run on the server's machine.",
+        ),
+        news("Looking..."),
+        good_action(Glyph::Restore, "LOOK AGAIN", look),
+    ))
+    .gap(14.0)
+    .boxed()
+}
+
+pub fn view() -> AnyView {
+    AnyView::new(|cx: &mut Cx| {
+        cx.world.init_resource::<super::providers::Login>();
+        cx.world.init_resource::<super::Browser>();
+        cx.world.init_resource::<super::Committing>();
+        cx.build(screen())
     })
 }
 
-/// The screen over the panels, or nothing while it is closed.
-pub fn view() -> AnyView {
+fn screen() -> AnyView {
     keyed(
         resource::<Welcome, _>(|welcome| {
-            welcome.open.then_some((welcome.step, welcome.adding))
+            (
+                welcome.open,
+                welcome.step,
+                welcome.adding,
+                welcome.connection.clone(),
+            )
         }),
-        |open| {
-            let Some((step, adding)) = *open else {
+        |(open, step, adding, connection)| {
+            let page = if let Some(words) = connection {
+                column((
+                    title(Glyph::Signal, "CONNECT TO A SERVER"),
+                    said(words.clone()),
+                    said(
+                        "Start a server with hamlet server, then \
+                         open its window with hamlet window. For \
+                         local development, use hamlet dev.",
+                    ),
+                ))
+                .gap(14.0)
+                .boxed()
+            } else if !open {
                 return frame().boxed();
-            };
-            let page = match step {
-                Step::Choice => choice(adding),
-                Step::Key => key(),
-                Step::SignIn => signing_in(),
-                Step::Local => local(),
-                Step::Models => models(),
+            } else {
+                match step {
+                    Step::Choice => choice(*adding),
+                    Step::Key => super::providers::key_page(),
+                    Step::SignIn => super::providers::sign_in_page(),
+                    Step::Local => local(),
+                    Step::Models => models(),
+                }
             };
             with_cx(move |cx| over(cx, page))
         },
@@ -388,7 +252,6 @@ pub fn view() -> AnyView {
     .boxed()
 }
 
-/// `page` on its card, over the panels.
 fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
     let theme = cx.theme();
     let card =
@@ -401,9 +264,6 @@ fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
             .border(1.0)
             .border_color(theme.palette.brass_5)
             .radius(theme.space.round);
-    // It is filled, so that no press reaches the panels
-    // under it. A row, so that the card is as tall as its
-    // words are once they are wrapped to its width.
     row((card,))
         .width(percent(100.0))
         .height(percent(100.0))

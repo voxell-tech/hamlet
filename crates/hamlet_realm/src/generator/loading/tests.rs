@@ -12,7 +12,7 @@ use crate::WorldCamera;
 use crate::generator::ground::{Tile, rim_key};
 use crate::generator::land::Land;
 use crate::generator::{
-    Ahead, DetailSettings, GenView, Tally, testing,
+    Ahead, DetailSettings, GeneratorView, Tally, testing,
 };
 use crate::sky::CameraSettings;
 
@@ -64,7 +64,7 @@ fn look(app: &mut App, focus: Vec2, far: f32) {
     loop {
         app.update();
         let loading = app.world().resource::<Loading>();
-        if loading.done() && loading.tiles().1 == 0 {
+        if loading.is_done() && loading.tiles().1 == 0 {
             return;
         }
         assert!(began.elapsed() < Duration::from_secs(120));
@@ -109,7 +109,7 @@ fn the_ground_follows_the_view_and_what_is_left_behind_goes() {
         for (i, a) in tiles.iter().enumerate() {
             assert!(a.middle(chunk).distance(focus) < reach * 2.0);
             for b in &tiles[i + 1..] {
-                assert!(!a.covers(*b) && !b.covers(*a));
+                assert!(!a.is_over(*b) && !b.is_over(*a));
             }
         }
         let under = Tile {
@@ -117,7 +117,7 @@ fn the_ground_follows_the_view_and_what_is_left_behind_goes() {
             x: (focus.x / chunk).floor() as i32,
             z: (focus.y / chunk).floor() as i32,
         };
-        assert!(tiles.iter().any(|tile| tile.covers(under)));
+        assert!(tiles.iter().any(|tile| tile.is_over(under)));
     }
     // The cost is bounded by the view, wherever it went.
     assert!(most.0 < 1500, "{} tiles", most.0);
@@ -145,7 +145,7 @@ fn the_ground_is_there_before_a_camera_that_is_on_its_way() {
     let here = drawn(&mut app).0;
     // Sent somewhere far, the camera has not moved yet.
     let there = Vec2::new(2600.0, -900.0);
-    app.world_mut().resource_mut::<Ahead>().0 = Some(GenView {
+    app.world_mut().resource_mut::<Ahead>().0 = Some(GeneratorView {
         focus: there,
         dist: 72.0,
         yaw: 0.0,
@@ -158,11 +158,11 @@ fn the_ground_is_there_before_a_camera_that_is_on_its_way() {
         x: (at.x / 32.0).floor() as i32,
         z: (at.y / 32.0).floor() as i32,
     };
-    assert!(both.iter().any(|tile| tile.covers(under(there))));
+    assert!(both.iter().any(|tile| tile.is_over(under(there))));
     assert!(here.iter().all(|tile| both.contains(tile)));
     for (i, a) in both.iter().enumerate() {
         for b in &both[i + 1..] {
-            assert!(!a.covers(*b) && !b.covers(*a));
+            assert!(!a.is_over(*b) && !b.is_over(*a));
         }
     }
     // Come there, it finds the ground as it will stay.
@@ -175,7 +175,7 @@ fn the_ground_is_there_before_a_camera_that_is_on_its_way() {
 
     // Asked to stand further back from the same place, the
     // larger tiles lie over none of those that are drawn.
-    app.world_mut().resource_mut::<Ahead>().0 = Some(GenView {
+    app.world_mut().resource_mut::<Ahead>().0 = Some(GeneratorView {
         focus: there,
         dist: 500.0,
         yaw: 0.0,
@@ -186,7 +186,7 @@ fn the_ground_is_there_before_a_camera_that_is_on_its_way() {
     assert!(both.iter().any(|tile| tile.level >= 3));
     for (i, a) in both.iter().enumerate() {
         for b in &both[i + 1..] {
-            assert!(!a.covers(*b) && !b.covers(*a));
+            assert!(!a.is_over(*b) && !b.is_over(*a));
         }
     }
 }

@@ -10,7 +10,7 @@ use super::society::{AgentId, Pair, Society};
 use super::sync::{Drawn, RoadDrawn};
 use super::{Kit, road};
 use crate::Clock;
-use crate::meshes::Mb;
+use crate::meshes::Meshing;
 use crate::palette::Palette;
 
 /// A robot carrying a message along a road and coming back.
@@ -48,17 +48,17 @@ impl Trip {
 
 /// Messages on the road right now.
 #[derive(Resource, Default)]
-pub struct Traffic {
+pub struct Trips {
     pub trips: Vec<Trip>,
 }
 
-impl Traffic {
+impl Trips {
     /// Sends `walker` along its road to the other end and back.
     pub fn send(&mut self, pair: Pair, walker: AgentId) {
         self.send_part(pair, walker, 0.0);
     }
 
-    /// As [`Traffic::send`], with the walker already `part` of the
+    /// As [`Trips::send`], with the walker already `part` of the
     /// way along.
     pub fn send_part(
         &mut self,
@@ -66,7 +66,7 @@ impl Traffic {
         walker: AgentId,
         part: f32,
     ) {
-        if pair.has(walker)
+        if pair.has_end(walker)
             && !self.trips.iter().any(|t| t.walker == walker)
         {
             self.trips.push(Trip {
@@ -88,7 +88,7 @@ pub(super) fn run_traffic(
     drawn: Res<Drawn>,
     loading: Res<Loading>,
     society: Res<Society>,
-    mut traffic: ResMut<Traffic>,
+    mut traffic: ResMut<Trips>,
 ) {
     let town = |agent| society.agent(agent).map(|a| a.town);
     for trip in &mut traffic.trips {
@@ -134,14 +134,14 @@ pub(super) fn run_traffic(
 
 /// A cart for the roads between towns: a plank box on four wheels
 /// that a robot stands in.
-pub(super) fn cart(pal: &Palette) -> Mb {
-    let mut mb = Mb::new();
+pub(super) fn cart(pal: &Palette) -> Meshing {
+    let mut meshing = Meshing::new();
     let (wide, long, deep) = (0.42, 0.56, 0.2);
     let floor = 0.14;
     let plank = 0.035;
     let turn = Quat::IDENTITY;
     // The bed, and a wall on each side of it.
-    mb.rbox(
+    meshing.rbox(
         Vec3::new(0.0, floor, 0.0),
         Vec3::new(wide, plank, long),
         0.012,
@@ -150,7 +150,7 @@ pub(super) fn cart(pal: &Palette) -> Mb {
         0.3,
     );
     for side in [-1.0, 1.0] {
-        mb.rbox(
+        meshing.rbox(
             Vec3::new(side * wide, floor + deep, 0.0),
             Vec3::new(plank, deep, long),
             0.012,
@@ -158,7 +158,7 @@ pub(super) fn cart(pal: &Palette) -> Mb {
             pal.timber,
             0.2,
         );
-        mb.rbox(
+        meshing.rbox(
             Vec3::new(0.0, floor + deep, side * long),
             Vec3::new(wide, deep, plank),
             0.012,
@@ -167,7 +167,7 @@ pub(super) fn cart(pal: &Palette) -> Mb {
             0.2,
         );
         // A brass band along the top of each long side.
-        mb.rbox(
+        meshing.rbox(
             Vec3::new(side * wide, floor + 2.0 * deep, 0.0),
             Vec3::new(plank * 1.3, 0.018, long * 1.02),
             0.006,
@@ -177,7 +177,7 @@ pub(super) fn cart(pal: &Palette) -> Mb {
         );
         for end in [-1.0, 1.0] {
             let hub = Vec3::new(side * wide, 0.12, end * long * 0.62);
-            mb.tube(
+            meshing.tube(
                 hub,
                 hub + Vec3::X * side * 0.07,
                 0.12,
@@ -188,7 +188,7 @@ pub(super) fn cart(pal: &Palette) -> Mb {
             );
         }
     }
-    mb
+    meshing
 }
 
 /// Keeps a cart under every robot that is riding one.
@@ -196,7 +196,7 @@ pub(super) fn carts(
     mut commands: Commands,
     kit: Res<Kit>,
     drawn: Res<Drawn>,
-    traffic: Res<Traffic>,
+    traffic: Res<Trips>,
     mut carts: Local<HashMap<AgentId, Entity>>,
     mut places: Query<&mut Transform>,
 ) {

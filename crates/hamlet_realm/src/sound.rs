@@ -20,7 +20,7 @@ pub use self::clip::{Clip, Playing};
 pub use self::kinds::{Family, Sound};
 pub use self::mix::Ears;
 pub use self::synth::RATE;
-use crate::{Step, WorldCamera, WorldSystems};
+use crate::{RealmSystems, Step, WorldCamera};
 
 /// Sound for a world. Does nothing where the app has no audio.
 pub fn plugin(app: &mut App) {
@@ -43,7 +43,7 @@ pub fn plugin(app: &mut App) {
         .init_state::<Hearing>()
         .init_resource::<mix::Heard>()
         .add_systems(Startup, mix::spawn_ears)
-        .add_systems(Update, listen.before(WorldSystems))
+        .add_systems(Update, listen.in_set(RealmSystems::Act))
         .add_systems(OnEnter(Hearing::On), clip::make_clips)
         .add_systems(
             Update,
@@ -190,12 +190,12 @@ pub struct SoundSettings {
 
 impl SoundSettings {
     /// True when the effects can be heard.
-    pub fn effects(&self) -> bool {
+    pub fn can_hear_effects(&self) -> bool {
         !self.muted && self.volume > 0.0
     }
 
     /// True when the music can be heard.
-    pub fn score(&self) -> bool {
+    pub fn can_hear_music(&self) -> bool {
         self.music_on && self.volume > 0.0 && self.music > 0.0
     }
 }
@@ -228,7 +228,7 @@ pub struct Cue {
 pub(crate) struct Cues;
 
 /// True when the world is being drawn in a window that is shown.
-fn drawn(
+fn is_drawn(
     camera: &Query<&Camera, With<WorldCamera>>,
     window: &Query<&Window, With<PrimaryWindow>>,
 ) -> bool {
@@ -245,7 +245,8 @@ fn listen(
     hearing: Res<State<Hearing>>,
     mut next: ResMut<NextState<Hearing>>,
 ) {
-    let want = if set.effects() && drawn(&camera, &window) {
+    let want = if set.can_hear_effects() && is_drawn(&camera, &window)
+    {
         Hearing::On
     } else {
         Hearing::Off

@@ -3,6 +3,7 @@
 //! card of one that is on the web.
 
 use bevy::ecs::hierarchy::ChildOf;
+use bevy::ecs::world::World;
 use bevy::math::Vec2;
 use bevy::ui::widget::{ImageNode, NodeImageMode};
 use bevy::ui::{
@@ -12,7 +13,7 @@ use bevy::ui::{
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{Frame, FrameProps, column, frame, label};
-use bevy_fynix::{EntityCursor, ViewExt, keyed, resource};
+use bevy_fynix::{EntityCursor, ViewExt, derived, keyed, resource};
 
 use super::draw::{Face, Ink, rich};
 use super::{Span, Style, Target};
@@ -145,7 +146,7 @@ fn card(
         _ => {
             let address = address.to_string();
             action(Glyph::Globe, "SHOW PICTURE", move |world| {
-                fetch(world, &address)
+                fetch(world, &address);
             })
         }
     });
@@ -170,53 +171,76 @@ pub(super) fn picture_view(
     ink: Ink,
 ) -> AnyView {
     let (caption, target) = (caption.to_string(), target.clone());
-    AnyView::new(move |cx: &mut Cx| {
-        let Some(source) = find(cx.world, &target) else {
-            return cx.build(words(&caption, &target, ink));
-        };
-        cx.world.init_resource::<Pictures>();
-        let settings = cx
-            .world
-            .get_resource::<ChatSettings>()
-            .cloned()
-            .unwrap_or_default();
-        let most = Vec2::new(
-            settings.picture_width,
-            settings.picture_height,
-        );
-        let of = source.clone();
-        let state =
-            resource::<Pictures, _>(move |all| all.state(&of));
-        let from = source.clone();
-        let view = keyed(state, move |state| match (&from, state) {
-            (_, State::Ready(drawn)) => {
-                shown(drawn, &from, &caption, most).boxed()
-            }
-            (Source::Web(address), state) => {
-                let (address, caption, state) =
-                    (address.clone(), caption.clone(), state.clone());
-                AnyView::new(move |cx: &mut Cx| {
-                    let card = card(cx, &address, &caption, &state);
-                    cx.build(card)
-                })
-            }
-            (Source::File(_), State::Failed) => {
-                words(&caption, &target, ink)
-            }
-            (Source::File(_), _) => {
-                let (wide, tall) = (most.x, settings.picture_wait);
-                AnyView::new(move |cx: &mut Cx| {
-                    let plate =
-                        framed(cx).width(px(wide)).height(px(tall));
-                    cx.build(plate)
-                })
-            }
+    keyed(
+        derived(|world: &World| {
+            world.get_resource::<crate::links::Roots>().cloned()
         })
-        .within(
-            bare().width(percent(100.0)).align(AlignItems::FlexStart),
-        );
-        let node = cx.build(view);
-        cx.world.entity_mut(node).insert(source);
-        node
-    })
+        .when(crate::roll::moved::<crate::links::Roots>()),
+        move |_| {
+            let (caption, target) = (caption.clone(), target.clone());
+            AnyView::new(move |cx: &mut Cx| {
+                let Some(source) = find(cx.world, &target) else {
+                    return cx.build(words(&caption, &target, ink));
+                };
+                cx.world.init_resource::<Pictures>();
+                let settings = cx
+                    .world
+                    .get_resource::<ChatSettings>()
+                    .cloned()
+                    .unwrap_or_default();
+                let most = Vec2::new(
+                    settings.picture_width,
+                    settings.picture_height,
+                );
+                let of = source.clone();
+                let state = resource::<Pictures, _>(move |all| {
+                    all.state(&of)
+                });
+                let from = source.clone();
+                let view =
+                    keyed(state, move |state| match (&from, state) {
+                        (_, State::Ready(drawn)) => {
+                            shown(drawn, &from, &caption, most)
+                                .boxed()
+                        }
+                        (Source::Web(address), state) => {
+                            let (address, caption, state) = (
+                                address.clone(),
+                                caption.clone(),
+                                state.clone(),
+                            );
+                            AnyView::new(move |cx: &mut Cx| {
+                                let card = card(
+                                    cx, &address, &caption, &state,
+                                );
+                                cx.build(card)
+                            })
+                        }
+                        (Source::File(_), State::Failed) => {
+                            words(&caption, &target, ink)
+                        }
+                        (Source::File(_), _) => {
+                            let (wide, tall) =
+                                (most.x, settings.picture_wait);
+                            AnyView::new(move |cx: &mut Cx| {
+                                let plate = framed(cx)
+                                    .width(px(wide))
+                                    .height(px(tall));
+                                cx.build(plate)
+                            })
+                        }
+                    })
+                    .within(
+                        bare()
+                            .width(percent(100.0))
+                            .align(AlignItems::FlexStart),
+                    );
+                let node = cx.build(view);
+                cx.world.entity_mut(node).insert(source);
+                node
+            })
+        },
+    )
+    .within(bare())
+    .boxed()
 }

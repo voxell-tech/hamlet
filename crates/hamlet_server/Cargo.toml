@@ -1,0 +1,70 @@
+[package]
+name = "hamlet_server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "The Hamlet server: a claimed home, its realm database and the markers of operations"
+
+[[bin]]
+name = "hamlet-server"
+path = "src/main.rs"
+
+[[bin]]
+name = "hamlet-harness-driver"
+path = "src/bin/hamlet-harness-driver.rs"
+required-features = ["harness"]
+
+[lints]
+workspace = true
+
+# Both features are for tests only, never for a release build.
+[features]
+# Points where a test stops the server, to kill it there.
+faults = []
+# Compiles the tests that start the pi harness, which need Node and
+# `npm ci --prefix harnesses/pi`.
+harness = ["faults"]
+
+[dependencies]
+hamlet_protocol.workspace = true
+hamlet_workspace_wire.workspace = true
+anyhow.workspace = true
+base64.workspace = true
+chrono.workspace = true
+futures.workspace = true
+interprocess.workspace = true
+jsonschema = { version = "0.33", default-features = false }
+regex.workspace = true
+reqwest.workspace = true
+ring.workspace = true
+rusqlite.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+unicode-normalization = "0.1"
+url = "2"
+uuid.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, features = ["fs", "process"] }
+
+[dev-dependencies]
+hamlet_testing.workspace = true
+# The trace hook counts the statements an idle tick runs.
+rusqlite = { workspace = true, features = ["trace"] }
+
+[[test]]
+name = "crashes"
+path = "tests/crashes/main.rs"
+required-features = ["harness"]
+
+[[test]]
+name = "harness"
+path = "tests/harness/main.rs"
+required-features = ["harness"]

@@ -11,10 +11,11 @@ use bevy::ecs::world::World;
 use bevy::math::Vec3;
 use bevy::time::Time;
 use bevy_fynix::dock::{ActiveTab, DockDrag, DockTab};
-use hamlet_core::session::{Reply, SessionOutput, UserMessage};
+use hamlet_client::messages::{ChiefMessage, SessionOutput};
+use hamlet_protocol::client as protocol;
 use hamlet_realm::sound::{Cue, Sound};
 
-use crate::chat::Unfolded;
+use crate::chat::{ChatError, Unfolded};
 use crate::hover::Card;
 use crate::inspector::Section;
 use crate::menu::OpenMenu;
@@ -23,6 +24,11 @@ use crate::world_menu::Open;
 pub(crate) fn plugin(app: &mut App) {
     app.add_observer(sent)
         .add_observer(failed)
+        .add_observer(
+            |_: On<ChatError>, mut cues: MessageWriter<Cue>| {
+                cues.write(cue(Sound::Error));
+            },
+        )
         .add_systems(Update, (menus, tabs, folds));
 }
 
@@ -89,7 +95,6 @@ struct Docked {
 
 /// A tab brought to the front, in the dock or in the selection, and
 /// a panel taken hold of and let go.
-#[allow(clippy::too_many_arguments)]
 fn tabs(
     time: Res<Time>,
     drag: Res<DockDrag>,
@@ -131,22 +136,21 @@ fn folds(
     if unfolded.is_changed() && !unfolded.is_added() {
         write(&mut cues, &mut turn, Sound::Fold);
     }
-    if card.shown() && !*shown {
+    if card.is_shown() && !*shown {
         write(&mut cues, &mut turn, Sound::Card);
     }
-    *shown = card.shown();
+    *shown = card.is_shown();
 }
 
 /// A message sent from the command line.
-fn sent(message: On<UserMessage>, mut cues: MessageWriter<Cue>) {
-    if message.key.channel == "app" {
-        cues.write(cue(Sound::Send));
-    }
+fn sent(_: On<ChiefMessage>, mut cues: MessageWriter<Cue>) {
+    cues.write(cue(Sound::Send));
 }
 
 /// A reply that could not be finished.
 fn failed(output: On<SessionOutput>, mut cues: MessageWriter<Cue>) {
-    if matches!(output.reply, Reply::Error(_)) {
+    if matches!(&output.operation, protocol::TranscriptOperation::Add { item, .. } if item.kind == protocol::ItemKind::Error)
+    {
         cues.write(cue(Sound::Error));
     }
 }
@@ -176,10 +180,72 @@ mod tests {
 
     fn heard_in(app: &mut App) -> Vec<Sound> {
         app.update();
-        let cues = app.world().resource::<Messages<Cue>>();
-        cues.iter_current_update_messages()
+        app.world_mut()
+            .resource_mut::<Messages<Cue>>()
+            .drain()
             .map(|cue| cue.sound)
-            .collect::<Vec<_>>()
+            .collect()
+    }
+
+    #[test]
+    fn a_received_error_item_sounds_but_other_operations_do_not() {
+        use hamlet_client::chats::Chat;
+
+        let mut app = app();
+        app.add_plugins(hamlet_client::ClientPlugin { server: None });
+        let chat = protocol::ChatRef {
+            kind: None,
+            from: None,
+            with: protocol::Address {
+                hamlet: "home".into(),
+                agent: "mayor".into(),
+            },
+            past: None,
+        };
+        app.world_mut().spawn(Chat(chat.clone()));
+        hamlet_client::receive(
+            app.world_mut(),
+            protocol::ServerMessage::Turn(protocol::Turn {
+                chat,
+                number: None,
+                operations: vec![
+                    protocol::TranscriptOperation::Add {
+                        item: protocol::Item {
+                            id: "error:0".into(),
+                            at: 0,
+                            kind: protocol::ItemKind::Error,
+                            text: "The model could not answer."
+                                .into(),
+                            chief: None,
+                            author: None,
+                            rewindable: None,
+                            tool: None,
+                        },
+                        replaces: None,
+                    },
+                    protocol::TranscriptOperation::Append {
+                        item: "error:0".into(),
+                        text: " Try again.".into(),
+                    },
+                ],
+            }),
+        );
+        assert_eq!(heard_in(&mut app), [Sound::Error]);
+        assert_eq!(heard_in(&mut app), []);
+    }
+
+    #[test]
+    fn stops_leave_the_sound_to_the_world() {
+        use hamlet_client::messages::Veto;
+
+        let mut app = app();
+        for agent in
+            [None, Some(bevy::ecs::entity::Entity::PLACEHOLDER)]
+        {
+            app.world_mut().trigger(Veto { agent });
+            assert_eq!(heard_in(&mut app), []);
+            assert_eq!(heard_in(&mut app), []);
+        }
     }
 
     #[test]

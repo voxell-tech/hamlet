@@ -3,21 +3,25 @@ name = "hamlet_realm"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The 3D world drawn from the core's entities"
+rust-version.workspace = true
+publish.workspace = true
+description = "The 3D world drawn from the client's entities"
 
 [lints]
 workspace = true
 
 [dependencies]
+anyhow.workspace = true
+hamlet_protocol.workspace = true
+hamlet_client.workspace = true
 hamlet_assets.workspace = true
-hamlet_core.workspace = true
-hamlet_home.workspace = true
-hamlet_rules.workspace = true
 hamlet_vfx.workspace = true
-bevy.workspace = true
+bevy = { workspace = true, features = ["bevy_anti_alias", "bevy_asset", "bevy_audio", "bevy_camera", "bevy_core_pipeline", "bevy_dev_tools", "bevy_gizmos", "bevy_input_focus", "bevy_light", "bevy_mesh", "bevy_pbr", "bevy_picking", "bevy_post_process", "bevy_render", "bevy_state", "bevy_text", "bevy_ui", "bevy_window", "mesh_picking", "serialize"] }
 chrono.workspace = true
 serde.workspace = true
 toml.workspace = true
 
 [dev-dependencies]
 hamlet_testing.workspace = true
+serde_json.workspace = true
+tokio.workspace = true

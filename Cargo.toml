@@ -1,31 +1,31 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
-# The vendored fynix workspace is its own workspace.
-exclude = ["vendor"]
-# `cargo build`, `cargo test` and `cargo clippy` at the root cover every
-# crate, so the checks in AGENTS.md need no flags.
-default-members = [".", "crates/*"]
+# The vendored fynix and xtask are workspaces of their own.
+exclude = ["vendor", "xtask"]
+# The root holds no package, so `cargo build`, `cargo test` and
+# `cargo clippy` there cover every crate and the checks in AGENTS.md
+# need no flags.
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
+rust-version = "1.99"
+publish = false
 repository = "https://github.com/voxell-tech/hamlet"
 
 [workspace.dependencies]
 # hamlet
-hamlet_sandbox = { version = "0.1.0", path = "crates/hamlet_sandbox" }
-hamlet_model = { version = "0.1.0", path = "crates/hamlet_model" }
-hamlet_home = { version = "0.1.0", path = "crates/hamlet_home" }
-hamlet_rules = { version = "0.1.0", path = "crates/hamlet_rules" }
-hamlet_core = { version = "0.1.0", path = "crates/hamlet_core" }
+hamlet_client = { version = "0.1.0", path = "crates/hamlet_client" }
+hamlet_protocol = { version = "0.1.0", path = "crates/hamlet_protocol" }
 hamlet_desktop = { version = "0.1.0", path = "crates/hamlet_desktop" }
 hamlet_assets = { version = "0.1.0", path = "crates/hamlet_assets" }
 hamlet_vfx = { version = "0.1.0", path = "crates/hamlet_vfx" }
 hamlet_realm = { version = "0.1.0", path = "crates/hamlet_realm" }
 hamlet_ui = { version = "0.1.0", path = "crates/hamlet_ui" }
 hamlet_testing = { version = "0.1.0", path = "crates/hamlet_testing" }
+hamlet_workspace_wire = { version = "0.1.0", path = "crates/hamlet_workspace_wire" }
 
 # fynix
 bevy_fynix = { path = "vendor/fynix/crates/bevy_fynix" }
@@ -33,9 +33,18 @@ bevy_fynix = { path = "vendor/fynix/crates/bevy_fynix" }
 # bevy
 bevy_app = { version = "0.19", default-features = false, features = ["std"] }
 bevy_ecs = { version = "0.19", default-features = false, features = ["std"] }
-# `system_clipboard` has copy and paste in a text box use the system's
-# clipboard, not one inside the app.
-bevy = { version = "0.19", default-features = false, features = ["2d", "3d", "ui", "mesh_picking", "default_platform", "system_clipboard", "bevy_audio", "bevy_dev_tools", "debug", "serialize"] }
+bevy_asset = { version = "0.19", default-features = false }
+bevy_color = { version = "0.19", default-features = false, features = ["std"] }
+bevy_image = { version = "0.19", default-features = false }
+bevy_log = { version = "0.19", default-features = false }
+bevy_math = { version = "0.19", default-features = false, features = ["std"] }
+bevy_reflect = { version = "0.19", default-features = false, features = ["std"] }
+bevy_time = { version = "0.19", default-features = false, features = ["std"] }
+bevy_window = { version = "0.19", default-features = false, features = ["std"] }
+bevy_winit = { version = "0.19", default-features = false }
+# No features here: each crate names the ones its code needs, and
+# hamlet_app the product's.
+bevy = { version = "0.19", default-features = false }
 bevy_hanabi = { version = "0.19", default-features = false, features = ["3d"] }
 
 # other
@@ -56,86 +65,67 @@ regex = "1"
 rfd = "0.17"
 ring = "0.17"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
+rustix = "1"
 serde = { version = "1.0.229", features = ["derive"] }
+schemars = "1.2.3"
 serde_json = "1"
 sha2 = "0.10"
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }
+url = "2"
+tokio-tungstenite = "0.28"
 tokio = { version = "1", features = ["full"] }
 objc2 = "0.5"
 objc2-app-kit = { version = "0.2", default-features = false, features = ["std", "NSApplication", "NSImage", "NSResponder"] }
-objc2-foundation = { version = "0.2", default-features = false, features = ["std", "NSData"] }
+objc2-foundation = { version = "0.2", default-features = false, features = ["std", "NSData", "NSThread"] }
 winit = { version = "0.30", default-features = false }
 toml = "1"
+
+[workspace.lints.rust]
+# Unsafe code lives only in the modules that say so.
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "warn"
+unused_qualifications = "warn"
 
 [workspace.lints.clippy]
 redundant_type_annotations = "warn"
 # Bevy systems take many parameters and long query types by nature.
 too_many_arguments = "allow"
 type_complexity = "allow"
+# Unsafe code says why it is sound.
+undocumented_unsafe_blocks = "warn"
+# A silenced lint says why, and is dropped once it no longer fires.
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+# A folder's module is named by its file, never mod.rs.
+mod_module_files = "warn"
+# Output goes through a log, or is silenced where printing is the job.
+print_stdout = "warn"
+print_stderr = "warn"
+# Plain, uniform control flow and calls.
+match_same_arms = "warn"
+manual_let_else = "warn"
+semicolon_if_nothing_returned = "warn"
+redundant_closure_for_method_calls = "warn"
+redundant_else = "warn"
+unwrap_or_default = "warn"
+nonstandard_macro_braces = "warn"
+# Many bools in a row read as an unlabelled list; take an enum.
+fn_params_excessive_bools = "warn"
+# Pointer casts say what they change.
+ptr_as_ptr = "warn"
+ptr_cast_constness = "warn"
+ref_as_ptr = "warn"
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]
 opt-level = 1
 
-# Enable a large amount of optimization in the dev profile for dependencies.
+# Dependencies are optimized, and carry no debug info: with it, the
+# feature sets the checks build fill target/debug/deps with over
+# 100 GB of objects.
 [profile.dev.package."*"]
 opt-level = 3
+debug = false
 
-[package]
-name = "hamlet"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-description = "The hamlet binary and the examples that draw the world and the panels"
-
-[lints]
-workspace = true
-
-[dependencies]
-# Named for the `hot-reload` feature; only the examples use it.
-hamlet_assets.workspace = true
-hamlet_sandbox.workspace = true
-hamlet_model.workspace = true
-hamlet_home.workspace = true
-hamlet_core.workspace = true
-hamlet_desktop.workspace = true
-hamlet_ui.workspace = true
-hamlet_realm.workspace = true
-anyhow.workspace = true
-bevy.workspace = true
-bevy_app.workspace = true
-tokio.workspace = true
-
-[dev-dependencies]
-hamlet_rules.workspace = true
-hamlet_vfx.workspace = true
-bevy_fynix.workspace = true
-serde_json.workspace = true
-
-[features]
-# Tests that reach a real model server or the internet. Off unless asked
-# for: `cargo test --features live-tests`.
-live-tests = ["hamlet_core/live-tests"]
-# A saved change to a file under assets/ reaches the running app:
-# `cargo run --features hot-reload`.
-hot-reload = ["hamlet_assets/hot-reload"]
-
-[[example]]
-name = "style_test"
-
-[[example]]
-name = "town_gen"
-
-[[example]]
-name = "far_lands"
-
-[[example]]
-name = "ui_gallery"
-
-[[example]]
-name = "cursor_sheet"
-
-[[example]]
-name = "sound_sheet"
-
-[[example]]
-name = "chief_sheet"

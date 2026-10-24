@@ -28,18 +28,16 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, overlay,
 };
-use hamlet_core::agents::{
-    Account, Activity, Busy, Citizen, Left, LivesIn, Mayor,
-    MergedInto, Purpose, Roster, Treasury, Works,
+use hamlet_client::realm::{
+    Account, Activity, AgentNumber, Busy, Left, LivesIn, Mayor,
+    MergedInto, Mode, Purpose, Roster, Treasury, Works,
 };
-use hamlet_core::oversight::Waiting;
+use hamlet_client::waits::Waiting;
 use hamlet_realm::chief::{Beside, Look};
 use hamlet_realm::hand::Proud;
 use hamlet_realm::pick::{Following, Hovered, Thing};
-use hamlet_rules::work::Mode;
 
 use crate::feel::FeelSettings;
-use crate::inspector::now;
 use crate::overview::standing;
 use crate::platform::{DisplayText, show};
 use crate::roll::Roll;
@@ -88,7 +86,7 @@ pub(crate) struct Card {
 }
 
 impl Card {
-    pub(crate) fn shown(&self) -> bool {
+    pub(crate) fn is_shown(&self) -> bool {
         self.shown
     }
 }
@@ -116,12 +114,12 @@ pub(crate) fn short(text: &str, most: usize) -> String {
 pub(crate) struct Told<'w, 's> {
     roster: Roster<'w, 's>,
     names: Query<'w, 's, &'static Name>,
-    agents: Query<'w, 's, Doing<'static>, With<Citizen>>,
+    agents: Query<'w, 's, Doing<'static>, With<AgentNumber>>,
     living: Query<
         'w,
         's,
         Living<'static>,
-        (With<Citizen>, Without<Left>),
+        (With<AgentNumber>, Without<Left>),
     >,
     waits: Query<'w, 's, &'static Waiting>,
     spent: Query<'w, 's, &'static Treasury>,
@@ -144,7 +142,7 @@ impl Told<'_, '_> {
             Thing::Keeper | Thing::Cottage => {
                 self.roster.mayor().map(|mayor| (mayor, false))
             }
-            Thing::Resident(agent) | Thing::ResidentHouse(agent) => {
+            Thing::Agent(agent) | Thing::House(agent) => {
                 Some((agent, false))
             }
             Thing::Ruin(agent) => Some((agent, true)),
@@ -158,14 +156,14 @@ impl Told<'_, '_> {
     }
 
     /// The agent of `thing` has work to be cheered for.
-    fn proud(&self, thing: Thing) -> bool {
+    fn is_proud(&self, thing: Thing) -> bool {
         self.agent_of(thing)
             .and_then(|(agent, _)| self.agents.get(agent).ok())
             .is_some_and(|(_, (_, _, proud), ..)| proud)
     }
 
     /// The look or the company of the chief of `thing` changed.
-    fn chief_moved(&self, thing: Thing) -> bool {
+    fn has_chief_moved(&self, thing: Thing) -> bool {
         let (Thing::Chief(chief) | Thing::ChiefPlace(chief)) = thing
         else {
             return false;
@@ -208,7 +206,7 @@ impl Told<'_, '_> {
             account: self
                 .spent
                 .get(hamlet)
-                .map(|t| t.0.summary())
+                .map(|t| t.0.summary.clone())
                 .unwrap_or_default(),
             hint: "Click its hall to talk to the mayor".to_string(),
         }
@@ -220,8 +218,8 @@ impl Told<'_, '_> {
             .works
             .get(hamlet)
             .ok()
-            .filter(|works| works.0.folder.is_some())
-            .map(|works| works.0.mode);
+            .filter(|works| works.folder.is_some())
+            .map(|works| works.mode);
         let (state, tone, purpose, hint) = match mode {
             None => (
                 "No folder",
@@ -233,13 +231,19 @@ impl Told<'_, '_> {
             Some(Mode::Manual) => (
                 "Manual",
                 Tone::Body,
-                Mode::Manual.says(),
+                self.works
+                    .get(hamlet)
+                    .map(|works| works.words.as_str())
+                    .unwrap_or_default(),
                 "Click to switch to auto",
             ),
             Some(Mode::Auto) => (
                 "Auto",
                 Tone::Accent,
-                Mode::Auto.says(),
+                self.works
+                    .get(hamlet)
+                    .map(|works| works.words.as_str())
+                    .unwrap_or_default(),
                 "Click to switch to manual",
             ),
         };
@@ -261,10 +265,10 @@ impl Told<'_, '_> {
             .works
             .get(hamlet)
             .ok()
-            .and_then(|works| works.0.folder.as_deref());
+            .and_then(|works| works.folder.as_deref());
         let (state, tone, purpose) = match folder {
             Some(folder) => (
-                folder.display().to_string(),
+                folder.to_string(),
                 Tone::Body,
                 "The folder this hamlet works on.",
             ),
@@ -349,15 +353,12 @@ impl Told<'_, '_> {
             _ => {
                 let tone =
                     if busy { Tone::Accent } else { Tone::Dim };
-                (
-                    now(busy, activity.copied().unwrap_or_default()),
-                    tone,
-                )
+                (activity.cloned().unwrap_or_default().words, tone)
             }
         };
         let followed = self.following.0 == Some(hovered);
         let robot =
-            matches!(hovered, Thing::Keeper | Thing::Resident(_));
+            matches!(hovered, Thing::Keeper | Thing::Agent(_));
         Some(Card {
             shown: true,
             title: name.to_uppercase(),
@@ -367,7 +368,7 @@ impl Told<'_, '_> {
                 .map(|p| short(&p.0, PURPOSE_SHOWN))
                 .unwrap_or_default(),
             account: account
-                .map(|a| a.0.summary())
+                .map(Account::summary)
                 .unwrap_or_default(),
             hint: match (gone || ruin, followed) {
                 (true, _) => "Right-click to restore".to_string(),
@@ -400,8 +401,8 @@ impl Told<'_, '_> {
             Thing::ChiefPlace(chief) => self.of_chief(chief, true),
             Thing::Keeper
             | Thing::Cottage
-            | Thing::Resident(_)
-            | Thing::ResidentHouse(_)
+            | Thing::Agent(_)
+            | Thing::House(_)
             | Thing::Ruin(_) => {
                 let (agent, ruin) = self.agent_of(thing)?;
                 self.of_agent(agent, ruin, thing)
@@ -421,7 +422,6 @@ pub(crate) struct Resting {
 /// Fills the card from what the pointer has rested on for a while,
 /// and again when that changed. There is no card while a menu is
 /// open over the world.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn describe(
     hovered: Res<Hovered>,
     time: Res<Time>,
@@ -448,11 +448,11 @@ pub(crate) fn describe(
         }
         return;
     };
-    let now = Some((thing, told.proud(thing)));
+    let now = Some((thing, told.is_proud(thing)));
     let moved = *made != now
         || roll.is_changed()
         || told.following.is_changed()
-        || told.chief_moved(thing);
+        || told.has_chief_moved(thing);
     if !moved {
         return;
     }
@@ -474,7 +474,6 @@ pub(crate) fn describe(
 /// Fades the card in with a small growth when it has something to
 /// say and out again after, keeps it by the pointer and inside the
 /// window while it is shown, and out of the pointer's way.
-#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn place(
     mut commands: Commands,
     theme: Themed,

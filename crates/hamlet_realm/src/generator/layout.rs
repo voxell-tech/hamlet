@@ -49,7 +49,7 @@ pub struct TownSettings {
     pub keep_apart: f32,
 }
 
-/// The plot of a town's first leader, on the common.
+/// The plot of a town's first mayor, on the common.
 pub const HALL_PLOT: u32 = 0;
 /// A place for one house.
 #[derive(Clone, Copy, Debug, PartialEq)]

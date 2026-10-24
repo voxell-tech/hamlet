@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 use hamlet_vfx::inlay::{EMBER, LIT};
 
-use super::Ctx;
+use super::Context;
 use super::parts::{
     arm_high, arm_l, blink, breathe, crook_out, current, shift_weight,
 };
@@ -15,7 +15,7 @@ use crate::keeper::pose::{
 /// either motion.
 pub(super) const PASS: f32 = 0.95;
 
-pub(super) fn hand_over(c: &Ctx) -> Pose {
+pub(super) fn hand_over(c: &Context) -> Pose {
     let mut p = Pose::stand();
     breathe(&mut p, c, 1.0);
     blink(&mut p, c);
@@ -46,7 +46,7 @@ pub(super) fn hand_over(c: &Ctx) -> Pose {
     p
 }
 
-pub(super) fn receive(c: &Ctx) -> Pose {
+pub(super) fn receive(c: &Context) -> Pose {
     let mut p = Pose::stand();
     breathe(&mut p, c, 1.0);
     blink(&mut p, c);
@@ -85,7 +85,7 @@ pub(super) fn voice(t: f32) -> f32 {
     syllable * phrase
 }
 
-pub(super) fn talk(c: &Ctx) -> Pose {
+pub(super) fn talk(c: &Context) -> Pose {
     let mut p = Pose::stand();
     breathe(&mut p, c, 1.0);
     blink(&mut p, c);
@@ -105,7 +105,7 @@ pub(super) fn talk(c: &Ctx) -> Pose {
     p
 }
 
-pub(super) fn listen(c: &Ctx) -> Pose {
+pub(super) fn listen(c: &Context) -> Pose {
     let mut p = Pose::stand();
     breathe(&mut p, c, 1.0);
     blink(&mut p, c);
@@ -119,7 +119,7 @@ pub(super) fn listen(c: &Ctx) -> Pose {
     p
 }
 
-pub(super) fn greet(c: &Ctx) -> Pose {
+pub(super) fn greet(c: &Context) -> Pose {
     let mut p = Pose::stand();
     breathe(&mut p, c, 1.0);
     blink(&mut p, c);
@@ -145,7 +145,7 @@ pub(super) fn greet(c: &Ctx) -> Pose {
     p
 }
 
-pub(super) fn wave(c: &Ctx) -> Pose {
+pub(super) fn wave(c: &Context) -> Pose {
     let mut p = Pose::stand();
     breathe(&mut p, c, 1.0);
     blink(&mut p, c);
