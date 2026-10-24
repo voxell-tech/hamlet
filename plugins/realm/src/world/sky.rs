@@ -441,7 +441,7 @@ impl CameraSettings {
             )),
             clear_color: Some(haze),
             hdr: true,
-            tonemapping: Tonemapping::AcesFitted,
+            tonemapping: Tonemapping::TonyMcMapface,
             exposure: Exposure {
                 ev100: EXPOSURE - look.exposure,
             },
