@@ -20,7 +20,7 @@ env:
 # named in rust-nightly. The Linux and macOS jobs run `cargo xtask`
 # steps by name, which pass --locked to cargo since GitHub sets CI.
 jobs:
-  lints:
+  format:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,16 +30,53 @@ jobs:
           submodules: recursive
       - run: rustup toolchain install
       - run: rustup toolchain install "$(cat rust-nightly)" --profile minimal --component rustfmt
+      - run: cargo xtask format
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # vendor/fynix is a submodule.
+          submodules: recursive
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ci
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      # Prebuilt binaries, at the versions the checks were set up on.
+      - run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+      - run: cargo xtask clippy
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # vendor/fynix is a submodule.
+          submodules: recursive
+      - run: rustup toolchain install
+      # Prebuilt, at the version the check was set up on.
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-deny@0.20.2,typos@1.51.1
-      - run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
-      - run: cargo xtask lints
+          tool: cargo-deny@0.20.2
+      - run: cargo xtask deny
+
+  typos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # vendor/fynix is a submodule.
+          submodules: recursive
+      - run: rustup toolchain install
+      # Prebuilt, at the version the check was set up on.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: typos@1.51.1
+      - run: cargo xtask typos
 
   doc:
     runs-on: ubuntu-latest

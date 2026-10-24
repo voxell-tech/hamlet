@@ -19,9 +19,13 @@ Usage: cargo xtask <task> [args]
   uninstall        remove all three from ~/.cargo/bin
   dev              try this checkout on a scratch home (HAMLET_HOME \
                      picks it)
-  check            every check a commit needs: the six steps below, \
-                     in order
-  lints            formatting, clippy, cargo deny and typos
+  check            every check a commit needs: the nine steps \
+                     below, in order
+  format           check that Rust is formatted (fmt formats it)
+  clippy           clippy with warnings as errors, on the workspace \
+                     and on xtask
+  deny             cargo deny check: licences and advisories
+  typos            typos over the tree
   test             build every target, then cargo test
   acceptance       the acceptance suite, on the plain CLI and server
   harness          the server's tests that start pi, built with \
@@ -39,8 +43,8 @@ packages when they are missing or stale. The installed server finds
 pi in this checkout, so keep it where it was installed from, and run
 `cargo xtask install` again after pulling.
 
-lints needs cargo-deny and typos: `cargo install --locked cargo-deny
-typos-cli`. With CI set, the steps pass --locked to cargo.";
+deny and typos need cargo-deny and typos: `cargo install --locked
+cargo-deny typos-cli`. With CI set, the steps pass --locked to cargo.";
 
 /// This crate's manifest, outside the main workspace.
 const XTASK: &str = "xtask/Cargo.toml";
@@ -48,12 +52,15 @@ const XTASK: &str = "xtask/Cargo.toml";
 /// The file naming the nightly that formats Rust, which CI reads too.
 const NIGHTLY: &str = "rust-nightly";
 
-/// The command that installs the tools `lints` runs.
+/// The command that installs the tools `deny` and `typos` run.
 const INSTALL: &str = "cargo install --locked cargo-deny typos-cli";
 
 /// A step of `check`, also a task of its own under its name.
 enum Step {
-    Lints,
+    Format,
+    Clippy,
+    Deny,
+    Typos,
     Test,
     Acceptance,
     Harness,
@@ -63,8 +70,11 @@ enum Step {
 
 impl Step {
     /// The steps of `check`, in the order it runs them.
-    const ALL: [Self; 6] = [
-        Self::Lints,
+    const ALL: [Self; 9] = [
+        Self::Format,
+        Self::Clippy,
+        Self::Deny,
+        Self::Typos,
         Self::Test,
         Self::Acceptance,
         // The harness tests rebuild the server with fault points,
@@ -83,7 +93,10 @@ impl Step {
     /// Runs the step in `root`, the folder holding the workspace.
     fn run(self, root: &Path) -> Result<(), Failure> {
         match self {
-            Self::Lints => lints(root),
+            Self::Format => format(root),
+            Self::Clippy => clippy(),
+            Self::Deny => deny(),
+            Self::Typos => typos(),
             Self::Test => test(),
             Self::Acceptance => acceptance(root),
             Self::Harness => harness(root),
@@ -96,7 +109,10 @@ impl Step {
 impl fmt::Display for Step {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Self::Lints => "lints",
+            Self::Format => "format",
+            Self::Clippy => "clippy",
+            Self::Deny => "deny",
+            Self::Typos => "typos",
             Self::Test => "test",
             Self::Acceptance => "acceptance",
             Self::Harness => "harness",
@@ -234,15 +250,7 @@ fn run(task: &str, rest: &[String]) -> Result<(), Failure> {
     }
 }
 
-fn lints(root: &Path) -> Result<(), Failure> {
-    for tool in ["cargo-deny", "typos"] {
-        if let Err(error) =
-            Command::new(tool).arg("--version").output()
-            && error.kind() == io::ErrorKind::NotFound
-        {
-            return Err(Failure::NoTool(tool));
-        }
-    }
+fn format(root: &Path) -> Result<(), Failure> {
     let nightly = nightly(root)?;
     status(&mut cargo(&[&nightly, "fmt", "--check"]))?;
     status(&mut cargo(&[
@@ -251,7 +259,10 @@ fn lints(root: &Path) -> Result<(), Failure> {
         "--check",
         "--manifest-path",
         XTASK,
-    ]))?;
+    ]))
+}
+
+fn clippy() -> Result<(), Failure> {
     status(&mut locked(
         "clippy",
         &["--manifest-path", XTASK, "--", "-D", "warnings"],
@@ -259,9 +270,27 @@ fn lints(root: &Path) -> Result<(), Failure> {
     status(&mut locked(
         "clippy",
         &["--all-targets", "--", "-D", "warnings"],
-    ))?;
-    status(&mut locked("deny", &["check"]))?;
+    ))
+}
+
+fn deny() -> Result<(), Failure> {
+    installed("cargo-deny")?;
+    status(&mut locked("deny", &["check"]))
+}
+
+fn typos() -> Result<(), Failure> {
+    installed("typos")?;
     status(&mut Command::new("typos"))
+}
+
+/// Fails, naming the install command, when `tool` is not on `PATH`.
+fn installed(tool: &'static str) -> Result<(), Failure> {
+    match Command::new(tool).arg("--version").output() {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            Err(Failure::NoTool(tool))
+        }
+        _ => Ok(()),
+    }
 }
 
 fn test() -> Result<(), Failure> {

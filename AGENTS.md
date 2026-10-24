@@ -66,14 +66,15 @@ stable toolchain plain `cargo` runs. Formatting needs a nightly, because
 `vendor/fynix`, a git submodule: clone with `--recurse-submodules` or
 run `git submodule update --init vendor/fynix` once; `cargo xtask`
 fetches it itself. Nothing inside it changes. `cargo xtask check` runs
-every check a commit needs, as six steps in this order, each of which
-`cargo xtask <step>` runs alone and CI calls by name: `lints`
-(formatting, clippy with `-D warnings` on the workspace and on xtask,
-`cargo deny check`, `typos`), `test` (`cargo build --all-targets`, then
-`cargo test`, doc tests included), `acceptance` and `harness` (the two
-suites below), `doc` (`cargo doc` with `-D warnings`) and `node` (pi's
-checks). `lints` needs cargo-deny and typos:
-`cargo install --locked cargo-deny typos-cli`. `deny.toml` holds the
+every check a commit needs, as nine steps in this order, each of which
+`cargo xtask <step>` runs alone and CI calls by name: `format`
+(rustfmt's check on the workspace and on xtask), `clippy` (with
+`-D warnings` on both), `deny` (`cargo deny check`), `typos`, `test`
+(`cargo build --all-targets`, then `cargo test`, doc tests included),
+`acceptance` and `harness` (the two suites below), `doc` (`cargo doc`
+with `-D warnings`) and `node` (pi's checks). `deny` and `typos` need
+cargo-deny and typos: `cargo install --locked cargo-deny typos-cli`.
+`deny.toml` holds the
 allowed licences and the ignored advisories, each with its reason;
 `_typos.toml` the words typos must accept. With `CI` set, as on GitHub,
 the steps pass `--locked` to cargo. `cargo xtask fmt` formats Rust and
