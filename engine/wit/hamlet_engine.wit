@@ -348,7 +348,10 @@ interface ui {
     /// Brings the plugin's panel `name` to the front, or shows its
     /// settings page `name` in Settings and brings Settings to the
     /// front. A full id, `plugin.id/name`, brings the panel of that
-    /// id to the front, of any plugin, if there is one.
+    /// id to the front, of any plugin, if there is one. Only what the
+    /// person did, a press or a choice, may bring a panel forward:
+    /// asked in any other call, it is ignored. A plugin tells of a
+    /// panel behind the front with `notify`.
     open: func(name: string);
 
     /// What a panel tells the person without coming to the front.
