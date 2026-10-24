@@ -39,7 +39,7 @@ pub(super) struct Build {
     ends: (End, End),
     level: RoadLevel,
     /// The road's own number, which settles its small differences.
-    salt: u64,
+    salt: u32,
     /// The bridges of other roads its own may meet.
     met: Vec<Span>,
     stage: Option<Stage>,
@@ -89,7 +89,7 @@ impl Build {
     pub(super) fn new(
         ends: (End, End),
         level: RoadLevel,
-        salt: u64,
+        salt: u32,
         met: Vec<Span>,
     ) -> Self {
         // A road's line is the same whichever way its ends are given.

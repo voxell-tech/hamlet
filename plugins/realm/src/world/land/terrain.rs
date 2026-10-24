@@ -40,7 +40,7 @@ impl LandData {
     /// rivers' axis. Rivers lie a gap apart and each wanders on its
     /// own, less than half the gap, so no two meet.
     pub(super) fn river_centre(&self, k: i32, u: f32) -> f32 {
-        let own = self.seed.wrapping_add(key(&[k as u64]));
+        let own = self.seed.wrapping_add(key(&[k as u32]));
         let seed = if k == 0 { self.seed } else { own };
         let set = &self.set.land;
         let drift = if k == 0 {

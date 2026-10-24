@@ -661,10 +661,8 @@ pub fn light(
             &mut draw,
         );
     }
-    if next.look != sky.look {
-        if next.look.candle != sky.look.candle {
-            stock.light_windows(&pal, next.look.candle, &draw);
-        }
+    if next.look != sky.look && next.look.candle != sky.look.candle {
+        stock.light_windows(&pal, next.look.candle, &draw);
     }
     let now = Sky::part(&tuning.sky, next.hour);
     if *part != now {

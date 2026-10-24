@@ -75,7 +75,7 @@ struct Course {
     at: (Vec2, Vec2),
     /// A number for the bridges of other roads that its own bridges
     /// meet. Zero for none.
-    meets: u64,
+    meets: u32,
 }
 
 impl Course {
@@ -319,11 +319,7 @@ impl Roads {
             if own.is_some() {
                 let marks = met()
                     .flat_map(|(pair, span)| {
-                        [
-                            u64::from(pair.0.0),
-                            u64::from(pair.1.0),
-                            span.mark(),
-                        ]
+                        [pair.0.0, pair.1.0, span.mark()]
                     })
                     .collect::<Vec<_>>();
                 if !marks.is_empty() {
@@ -349,8 +345,7 @@ impl Roads {
             }
         }
         for (pair, level, course, met) in lay {
-            let salt =
-                (u64::from(pair.0.0) << 32) | u64::from(pair.1.0);
+            let salt = noise::key(&[pair.0.0, pair.1.0]);
             self.jobs.insert(
                 pair,
                 Job {

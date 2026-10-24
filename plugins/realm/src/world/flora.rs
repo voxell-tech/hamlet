@@ -119,7 +119,7 @@ pub fn column_trees(
     land: &Land,
     lo: Vec2,
     hi: Vec2,
-    every: u64,
+    every: u32,
     cx: i32,
     out: &mut Vec<Tree>,
 ) {
@@ -129,11 +129,11 @@ pub fn column_trees(
     let last = ((hi - origin) / cell).floor();
     let grown = (every as f32).sqrt();
     for cz in first.y as i32..=last.y as i32 {
-        let h = key(&[land.seed, 71, cx as u64, cz as u64]);
+        let h = key(&[land.seed, 71, cx as u32, cz as u32]);
         if every > 1 && !key(&[h, 8]).is_multiple_of(every) {
             continue;
         }
-        let roll = |salt: u64| unit(key(&[h, salt]));
+        let roll = |salt: u32| unit(key(&[h, salt]));
         let p = Vec2::new(
             (cx as f32 + roll(0)) * cell + origin,
             (cz as f32 + roll(1)) * cell + origin,

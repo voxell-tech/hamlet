@@ -15,7 +15,7 @@ use crate::world::palette::Palette;
 
 /// Height of a level's surface above the ground. Busier roads lie on
 /// top where two share a stretch.
-fn lift(level: RoadLevel, salt: u64) -> f32 {
+fn lift(level: RoadLevel, salt: u32) -> f32 {
     let base = match level {
         RoadLevel::Overgrown => 0.05,
         RoadLevel::Dirt => 0.06,
@@ -312,12 +312,12 @@ impl Span {
     }
 
     /// A number that is another for another span.
-    pub(super) fn mark(&self) -> u64 {
-        let bits = |v: f32| u64::from(v.to_bits());
+    pub(super) fn mark(&self) -> u32 {
+        let bits = |v: f32| v.to_bits();
         let (first, last) =
             (self.steps[0][0], self.steps[self.steps.len() - 1][1]);
         key(&[
-            self.steps.len() as u64,
+            self.steps.len() as u32,
             bits(first.x),
             bits(first.z),
             bits(last.x),
@@ -350,7 +350,7 @@ pub(super) fn surface(
     route: &Route,
     rows: &Rows,
     level: RoadLevel,
-    salt: u64,
+    salt: u32,
     met: &[Span],
     stretch: Stretch,
 ) -> Mb {
@@ -455,9 +455,9 @@ fn flags(
         for (k, &(w0, w1)) in bands.iter().enumerate() {
             // Coloured by place, so two roads on one stretch agree.
             let cell = key(&[
-                (a.c.x * 2.0).round() as i64 as u64,
-                (a.c.z * 2.0).round() as i64 as u64,
-                k as u64,
+                (a.c.x * 2.0).round() as i32 as u32,
+                (a.c.z * 2.0).round() as i32 as u32,
+                k as u32,
             ]);
             let col = pal
                 .limestone
@@ -506,7 +506,7 @@ fn rails(
             continue;
         }
         let (p, tan, across) = frame(s);
-        let tone = 0.85 + 0.3 * unit(key(&[k as u64, 65]));
+        let tone = 0.85 + 0.3 * unit(key(&[k as u32, 65]));
         let col = pal.timber_dark * tone;
         let (hw, hl, y0, y1) =
             (0.58, 0.085, lift - 0.01, lift + 0.05);
@@ -618,7 +618,7 @@ fn bridges(
         if !(a.bridge && b.bridge) {
             continue;
         }
-        let cell = key(&[a.i as u64, 66]);
+        let cell = key(&[a.i as u32, 66]);
         let stone = pal
             .limestone
             .lerp(pal.limestone_shade, 0.2 + 0.35 * unit(cell));
@@ -657,11 +657,11 @@ fn bridges(
             }
             // The parapet: one block to each step, some taller.
             let tall =
-                0.2 + 0.07 * unit(key(&[cell, side as i64 as u64]));
+                0.2 + 0.07 * unit(key(&[cell, side as i32 as u32]));
             let block = pal.limestone
                 * (0.92
                     + 0.14
-                        * unit(key(&[cell, 2, side as i64 as u64])));
+                        * unit(key(&[cell, 2, side as i32 as u32])));
             let (inner, outer) = (edge - side * 0.17, edge);
             let (p, q) = (a.c.lerp(b.c, 0.04), b.c.lerp(a.c, 0.04));
             let at = |m: Vec3, w: f32, h: f32| {
@@ -702,7 +702,7 @@ fn bridges(
 }
 
 /// Height of the groove above the route's surface.
-pub(super) fn groove_lift(level: RoadLevel, salt: u64) -> f32 {
+pub(super) fn groove_lift(level: RoadLevel, salt: u32) -> f32 {
     lift(level, salt)
         + match level {
             RoadLevel::Rail => 0.06,
@@ -718,7 +718,7 @@ pub(super) fn groove(
     route: &Route,
     rows: &Rows,
     level: RoadLevel,
-    salt: u64,
+    salt: u32,
     stretch: Stretch,
 ) -> Mb {
     let width = land.set.road.groove_width;

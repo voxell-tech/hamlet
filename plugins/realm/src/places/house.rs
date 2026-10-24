@@ -43,7 +43,7 @@ impl TownStyle {
     pub fn of(land: &Land, site: usize) -> Self {
         let towns = &land.pal.towns;
         let shift =
-            (key(&[land.seed, 40]) % towns.len() as u64) as usize;
+            (key(&[land.seed, 40]) % towns.len() as u32) as usize;
         towns[(site + shift) % towns.len()]
     }
 }
@@ -88,8 +88,8 @@ pub struct Look {
 
 impl Look {
     pub fn of(land: &Land, agent: AgentId, hall: bool) -> Self {
-        let pick = |salt: u64, n: u64| {
-            (key(&[land.seed, 41, agent.0 as u64, salt]) % n) as usize
+        let pick = |salt: u32, n: u32| {
+            (key(&[land.seed, 41, agent.0, salt]) % n) as usize
         };
         let livery = land.pal.livery[pick(3, 8)];
         let (base, eave) = (land.set.house.base, land.set.house.eave);
@@ -176,7 +176,7 @@ pub(crate) fn garden_tree(
     yard: &Yard,
 ) -> Option<(Vec3, usize, f32)> {
     let look = Look::of(land, agent, false);
-    let h = key(&[land.seed, 42, agent.0 as u64]);
+    let h = key(&[land.seed, 42, agent.0]);
     (h % 10 < 7).then(|| {
         (
             Vec3::new(

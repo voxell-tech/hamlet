@@ -16,7 +16,7 @@ pub enum Stand {
     /// Each as itself.
     Trees,
     /// One mesh for one tree in `every`, as crowns or as specks.
-    Canopy { every: u64, crowns: bool },
+    Canopy { every: u32, crowns: bool },
 }
 
 impl Stand {
@@ -39,7 +39,7 @@ impl Stand {
     }
 
     /// One tree in this many is kept.
-    fn every(self) -> u64 {
+    fn every(self) -> u32 {
         match self {
             Stand::Trees => 1,
             Stand::Canopy { every, .. } => every,

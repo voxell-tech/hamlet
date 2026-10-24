@@ -39,7 +39,7 @@ use crate::world::palette::Palette;
 use crate::world::sky::{Lights, Sky, SkyClock};
 
 /// The land is grown from this seed, as the realm has always been.
-const SEED: u64 = 7;
+const SEED: u32 = 7;
 
 /// The first hamlet, the home itself, whose mayor the window's own
 /// chat is with.
