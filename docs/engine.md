@@ -1602,8 +1602,8 @@ with a chevron at its end, a divider between each and the next.
   it, each a decree to its hamlet, asked about first where `main`
   asks; a mayor's has only talking, its prompt, stopping and
   undoing), its purpose, its
-  model and use, its spend, the Model dropdown (`RunModel`), LOOKS
-  (below), and NOTES
+  model and use, its spend, the Model dropdown (`RunModel`), CHANGE
+  LOOKS (below), and NOTES
   (REFLECT NOW), CHARACTER (EDIT), ARCHIVE and PROMPT. The archive
   lists the past sessions with a search and counts, each read on a
   click, and read, resumed (bringing the chat to the front) or
@@ -1620,8 +1620,8 @@ with a chevron at its end, a divider between each and the next.
   name, its mayor's and what it is for, all three needed, sent as
   `/found` to the open conversation; CANCEL keeps what was typed.
   A hamlet, with RENAME, MOVE (the event `carry`, with the hamlet's
-  name, for the realm to take its town in hand), LOOKS, CLOSE DOWN on
-  a row of its own, the folder it works on, CHOOSE
+  name, for the realm to take its town in hand), then CHANGE LOOKS
+  and CLOSE DOWN on a row of their own, the folder it works on, CHOOSE
   A FOLDER (or CHOOSE ANOTHER) in the system's dialog, which gives it
   `/folder` with the path, and its mode, and AGENTS, BYLAWS
   (`bylaws.rs`: its own limits as `main`'s rules panel sets them, on
@@ -1634,10 +1634,11 @@ with a chevron at its end, a divider between each and the next.
   The realm's page and the bylaws share the controls of a limit,
   `agents_ui`'s `whole` and `setting`, and set a yes or a no with a
   `switch` named beside it.
-  An agent's and a hamlet's LOOKS sends the event `dress` (payload
-  type `bazaar.dress`, a `looks::Dress`: the target, `agent` or
-  `hamlet`, and the agent's name or the hamlet's name on disk), which
-  the Agent Bazaar hears to show what it wears ([`looks.md`](looks.md)).
+  An agent's and a hamlet's CHANGE LOOKS sends the event `dress`
+  (payload type `bazaar.dress`, a `looks::Dress`: the target, `agent`
+  or `hamlet`, and the agent's name or the hamlet's name on disk),
+  which the Agent Bazaar hears to show what it wears
+  ([`looks.md`](looks.md)).
 - **`plugins/skills`** (`hamlet.skills`, asking `agents.read` and
   `agents.chief`, and needing `hamlet.chat`) is the agent's own skills
   over the library's, each
@@ -1881,16 +1882,16 @@ then the bazaar's server answering with a listing, its shelf
 offering the sign-in, whose cover is fetched as its page opens and,
 not being a picture, not shown, and a cover
 chosen at the desk that is not one either; then LOOKS, its catalogue
-narrowed by what wears it, an asset's page whose first picture is
-not one, turned by hand and set spinning, the fitting with no one to
-dress, and the `worn` asset written with nothing worn. The parsing of
-OpenRouter's, skills.sh's and the bazaar's server's answers, the
-shelf, the paths of a skill's files, a deal's steps part by part, the
-desk's form, a package's parts, the headers of pictures, the covers
-kept and the room for them in an update, the Asset stall's catalogue
-and routes, buying an asset, what the realm is told is worn, a file's
-parts and those no `worn` names, and a turntable's pictures wanted and
-let go of have tests of their own
+narrowed by the words searched for, an asset's page whose first
+picture is not one, turned by hand and set spinning, the fitting with
+no one to dress, and the `worn` asset written with nothing worn. The
+parsing of OpenRouter's, skills.sh's and the bazaar's server's
+answers, the shelf, the paths of a skill's files, a deal's steps part
+by part, the desk's form, a package's parts, the headers of pictures,
+the covers kept and the room for them in an update, the Asset stall's
+catalogue and routes, buying an asset, what the realm is told is worn,
+a file's parts and those no `worn` names, and a turntable's pictures
+wanted and let go of have tests of their own
 (`cargo test -p bazaar` in `plugins/`).
 
 ## Assets

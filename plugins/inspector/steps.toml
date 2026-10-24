@@ -1,9 +1,9 @@
 # The Inspector with the chat it needs: FOUND A HAMLET opens its form.
 # The harness runs no agents service, so there are no hamlets.
 #
-# An agent's and a hamlet's page have LOOKS, which sends `dress` to the
-# Agent Bazaar. With no roster no such page shows here, so LOOKS is not
-# pressed: the bazaar is only seen to start beside the Inspector,
+# An agent's and a hamlet's page have CHANGE LOOKS, which sends `dress`
+# to the Agent Bazaar. With no roster no such page shows here, so it is
+# not pressed: the bazaar is only seen to start beside the Inspector,
 # hearing the event the Inspector declares, and to show its LOOKS.
 #
 #   scripts/build_plugins.sh

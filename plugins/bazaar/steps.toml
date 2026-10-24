@@ -145,11 +145,11 @@ reply = { url = "https://raw.githubusercontent.com/maker/wick/main/cover.gif", b
 [[step]]
 expect = { panel = "hamlet.bazaar/bazaar", text = "It is not a PNG, JPEG or WebP that can be read." }
 
-# The Asset stall, its tab on the second row of tabs. The bazaar's
-# server answers its catalogue; an asset's page turns its pictures,
-# and one that is not a picture is not shown. Signed out, nothing is
-# bought, and the fitting has no one to dress. The closet tells the
-# realm that nothing is worn.
+# The Asset stall, its tab on the second line of tabs. The bazaar's
+# server answers its catalogue, narrowed by the words searched for; an
+# asset's page turns its pictures, and one that is not a picture is
+# not shown. Signed out, nothing is bought, and the fitting has no one
+# to dress. The closet tells the realm that nothing is worn.
 
 [[step]]
 click = { panel = "hamlet.bazaar/bazaar", widget = "LOOKS" }
@@ -167,13 +167,13 @@ reply = { url = "http://localhost:8787/v1/assets", body = '{"items": [{"id": "ag
 expect = { panel = "hamlet.bazaar/bazaar", text = "2 looks from the bazaar" }
 
 [[step]]
-click = { panel = "hamlet.bazaar/bazaar", widget = "FOR HAMLETS" }
+write = { panel = "hamlet.bazaar/bazaar", widget = "Search looks", text = "smoke" }
 
 [[step]]
 lacks = { panel = "hamlet.bazaar/bazaar", text = "Sakura" }
 
 [[step]]
-click = { panel = "hamlet.bazaar/bazaar", widget = "FOR AGENTS" }
+write = { panel = "hamlet.bazaar/bazaar", widget = "Search looks", text = "pinks" }
 
 [[step]]
 lacks = { panel = "hamlet.bazaar/bazaar", text = "Hearth Smoke" }
@@ -209,7 +209,7 @@ click = { panel = "hamlet.bazaar/bazaar", widget = "SPIN" }
 expect = { panel = "hamlet.bazaar/bazaar", text = "STOP" }
 
 [[step]]
-click = { panel = "hamlet.bazaar/bazaar", widget = "ALL LOOKS" }
+click = { panel = "hamlet.bazaar/bazaar", widget = "LOOKS" }
 
 [[step]]
 expect = { panel = "hamlet.bazaar/bazaar", text = "1 look from the bazaar" }

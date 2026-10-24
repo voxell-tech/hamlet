@@ -359,7 +359,7 @@ fn header(head: &Head) -> AnyView {
         ));
         let name = head.name.clone();
         parts.push(
-            row((icon_button("crown", "LOOKS")
+            row((icon_button("crown", "CHANGE LOOKS")
                 .style(ButtonStyle::Quiet)
                 .on_click(move |world| {
                     dress(world, Target::Agent, &name)

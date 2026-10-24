@@ -295,7 +295,7 @@ fn head(hamlet: &RosterHamlet) -> AnyView {
     } else {
         format!("Kept on disk as {}", hamlet.id)
     };
-    let mut actions = vec![
+    let actions = vec![
         icon_button("pencil", "RENAME")
             .on_click({
                 let id = id.clone();
@@ -314,20 +314,19 @@ fn head(hamlet: &RosterHamlet) -> AnyView {
             })
             .boxed(),
     ];
-    actions.push(
-        icon_button("crown", "LOOKS")
+    // A second row, as four are wider than a narrow panel.
+    let mut second = vec![
+        icon_button("crown", "CHANGE LOOKS")
             .on_click({
                 let id = id.clone();
                 move |world| dress(world, Target::Hamlet, &id)
             })
             .tip("What its houses wear, at the Agent Bazaar")
             .boxed(),
-    );
-    // On a row of its own, as four are wider than a narrow panel.
-    let mut closing = Vec::new();
+    ];
     if hamlet.id != HOME {
         let closed = id.clone();
-        closing.push(
+        second.push(
             icon_button("struck", "CLOSE DOWN")
                 .style(ButtonStyle::Critical)
                 .on_click(move |world| close_down(world, &closed))
@@ -350,7 +349,7 @@ fn head(hamlet: &RosterHamlet) -> AnyView {
             .tone(Tone::Dim),
         label(known).size(Size::Small).tone(Tone::Dim),
         row(actions).space(Space::Half),
-        row(closing).space(Space::Half),
+        row(second).space(Space::Half),
         naming(id),
         folder(hamlet),
     ))

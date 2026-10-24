@@ -1,8 +1,8 @@
 //! The Inspector: whatever the window's focus has selected. An agent
 //! with its notes, character, archive and prompt; one that is gone;
 //! the library; a hamlet with its agents, bylaws and record; or every
-//! hamlet when nothing is selected. An agent's and a hamlet's LOOKS
-//! has the Agent Bazaar show what it wears.
+//! hamlet when nothing is selected. An agent's and a hamlet's CHANGE
+//! LOOKS has the Agent Bazaar show what it wears.
 
 mod agent;
 mod archive;

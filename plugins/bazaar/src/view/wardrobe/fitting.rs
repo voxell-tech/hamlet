@@ -1,21 +1,29 @@
-//! The fitting: what each agent and hamlet wears, each chosen among
-//! the owned assets that fit it, kind by kind, and for an agent, its
-//! emote played on demand.
+//! The fitting, a page of the LOOKS stall under the breadcrumb back
+//! to its shelf: every agent and hamlet with what each wears, listed
+//! as the Inspector lists its hamlets, and one of them on a page of
+//! its own, a row to each kind of look, its name with a dropdown of
+//! the owned assets that fit at its end, as an agent's page has its
+//! settings, and for an agent, its emote played on demand.
 
 use agents_ui::{
-    Rostered, breadcrumb, either, link_row, moved, note,
+    Rostered, breadcrumb, either, link_row, link_rows, moved,
 };
 use hamlet_engine_bevy::prelude::*;
 use hamlet_engine_bevy::ui::{
-    AnyView, ButtonProps, ButtonStyle, FrameProps, Space, Tone,
-    UiExt, ViewExt, column, derived, description, dropdown,
-    icon_button, keyed, label, list, resource, row,
+    AnyView, Face, FrameProps, Size, Space, Tone, UiExt, ViewExt,
+    column, derived, description, dropdown, icon_button, keyed,
+    label, resource, row, scroll,
 };
 use looks::Outfit;
 use looks::wardrobe::{Asset, Category, Target};
 
+use crate::view::Shown;
+use crate::view::parts::{
+    deal, outcome, page_head, rows, section, sections, top,
+};
 use crate::view::shelf::browse;
 use crate::view::wardrobe::{file_words, wearers};
+use crate::wardrobe::closet::Closet;
 use crate::wardrobe::{self, Fitting, Wardrobe, worn_in};
 
 /// The fitting: every agent and hamlet, or the one chosen.
@@ -28,6 +36,32 @@ pub(super) fn fitting() -> AnyView {
         },
     )
     .boxed()
+}
+
+/// A page of the fitting under the breadcrumb `trail` back up to the
+/// shelf, `here` the page shown, then `body` in a scroll.
+fn page(trail: Vec<String>, here: String, body: AnyView) -> AnyView {
+    column((
+        breadcrumb(trail, here, |world, at| {
+            let mut fitting = world.resource_mut::<Fitting>();
+            if at == 0 {
+                fitting.on = false;
+            }
+            fitting.who = None;
+        }),
+        // Room inside the scroll, as a wrapped paragraph can be laid
+        // a little wider than the scroll is.
+        scroll((column((body,)).padding(Space::Half),)),
+    ))
+    .boxed()
+}
+
+/// What `target` is called, as the meta of its row and page.
+fn kind_of(target: Target) -> &'static str {
+    match target {
+        Target::Agent => "Agent",
+        Target::Hamlet => "Hamlet",
+    }
 }
 
 /// The titles of what `outfit` wears, or that it wears its own.
@@ -51,8 +85,8 @@ fn worn_words(
     }
 }
 
-/// Every agent and hamlet, with what each wears, each opened to
-/// change it.
+/// Every agent and hamlet, with what each wears, a row each as the
+/// Inspector's hamlets are, each opened to change it.
 fn everyone() -> AnyView {
     let all = derived(|world: &World| {
         let wardrobe = world.resource::<Wardrobe>();
@@ -74,32 +108,44 @@ fn everyone() -> AnyView {
             .collect::<Vec<_>>()
     })
     .when(either(moved::<Wardrobe>(), moved::<Rostered>()));
-    keyed(all, |all| {
+    let body = keyed(all, |all| {
+        let head = page_head(
+            "Fitting",
+            description("Choose one to change what it wears.")
+                .boxed(),
+            String::new(),
+            None,
+        );
         if all.is_empty() {
-            return description(
-                "There are no agents or hamlets to dress yet. Each \
-                 wears what is bought here once there are.",
-            )
-            .boxed();
+            return sections(vec![
+                head,
+                description(
+                    "There are no agents or hamlets to dress yet. \
+                     Each wears what is bought here once there are.",
+                )
+                .boxed(),
+            ]);
         }
         let rows = all
             .iter()
             .map(|(target, name, words, worn)| {
                 let (target, name) = (*target, name.clone());
-                let kind = match target {
-                    Target::Agent => "AGENT",
-                    Target::Hamlet => "HAMLET",
-                };
                 link_row(
                     column((
                         row((
-                            label(words.clone()).bold(true),
-                            note(kind),
+                            label(words.to_uppercase())
+                                .bold(true)
+                                .face(Face::Display),
+                            label(kind_of(target))
+                                .size(Size::Small)
+                                .tone(Tone::Dim),
                         ))
                         .space(Space::Half),
-                        description(worn.clone()),
+                        label(worn.clone())
+                            .size(Size::Small)
+                            .tone(Tone::Dim),
                     ))
-                    .space(Space::None)
+                    .space(Space::Half)
                     .boxed(),
                 )
                 .on_click(move |world| {
@@ -110,9 +156,13 @@ fn everyone() -> AnyView {
                 .boxed()
             })
             .collect::<Vec<_>>();
-        list(rows).boxed()
-    })
-    .boxed()
+        sections(vec![head, link_rows(rows)])
+    });
+    page(
+        vec![Asset::BACK.to_string()],
+        "FITTING".into(),
+        body.boxed(),
+    )
 }
 
 /// One kind's choice, as it is drawn: the owned assets that fit, by
@@ -130,6 +180,8 @@ struct Choice {
 struct Now {
     /// Its words.
     shown: String,
+    /// What it wears, in words.
+    worn: String,
     choices: Vec<Choice>,
     /// An emote is worn, to be played.
     emote: bool,
@@ -189,6 +241,7 @@ impl Now {
             .map_or_else(|| name.to_string(), |(_, words)| words);
         Now {
             shown,
+            worn: worn_words(wardrobe, outfit),
             choices,
             emote,
             files,
@@ -197,26 +250,18 @@ impl Now {
     }
 }
 
-/// What the agent or hamlet `name` wears, to be changed.
+/// What the agent or hamlet `name` wears, to be changed, under the
+/// breadcrumb back to everyone.
 fn one(target: Target, name: String) -> AnyView {
     let read = name.clone();
     let now =
         derived(move |world: &World| Now::of(world, target, &read))
             .when(either(
                 either(moved::<Wardrobe>(), moved::<Rostered>()),
-                moved::<crate::wardrobe::closet::Closet>(),
+                moved::<Closet>(),
             ));
     keyed(now, move |now| {
-        let back = |world: &mut World, _: usize| {
-            world.resource_mut::<Fitting>().who = None;
-        };
-        let mut parts = vec![breadcrumb(
-            vec!["FITTING".into()],
-            now.shown.clone(),
-            back,
-        )];
-        let shop = icon_button("tray", "SHOP")
-            .style(ButtonStyle::Quiet)
+        let shop = icon_button("tray", "SHOP FOR LOOKS")
             .on_click(move |world| {
                 world.resource_mut::<Fitting>().on = false;
                 browse::<Asset>(world, |shelf| {
@@ -225,52 +270,73 @@ fn one(target: Target, name: String) -> AnyView {
                 });
             })
             .boxed();
+        let head = page_head(
+            &now.shown,
+            description(now.worn.clone()).boxed(),
+            kind_of(target).to_string(),
+            None,
+        );
+        let mut buttons = Vec::new();
+        let mut notes = Vec::new();
+        let mut parts = Vec::new();
         if now.choices.iter().all(|choice| choice.options.is_empty())
         {
             let who = match target {
                 Target::Agent => "this agent",
                 Target::Hamlet => "this hamlet",
             };
-            parts.push(
+            notes.push(
                 description(format!(
                     "You own nothing for {who} to wear yet. Skins, \
                      emotes and meshes are sold on the shelf."
                 ))
                 .boxed(),
             );
-            parts.push(row((shop,)).boxed());
         } else {
-            for choice in &now.choices {
-                parts.push(choose(target, &name, choice));
-            }
-            let mut more = Vec::new();
+            let mut list = vec![rows(
+                now.choices
+                    .iter()
+                    .map(|choice| choose(target, &name, choice))
+                    .collect(),
+            )];
+            list.extend(
+                now.files
+                    .iter()
+                    .map(|file| description(file.clone()).boxed()),
+            );
+            parts.push(section(
+                "WEARS",
+                column(list).space(Space::Half).boxed(),
+            ));
             if now.emote {
                 let name = name.clone();
-                more.push(
-                    icon_button("play", "PLAY EMOTE")
+                buttons.push(
+                    icon_button("play", "PLAY THE EMOTE")
                         .on_click(move |world| {
                             wardrobe::play(world, &name)
                         })
                         .boxed(),
                 );
             }
-            more.push(shop);
-            parts.push(row(more).space(Space::Half).boxed());
-            for file in &now.files {
-                parts.push(description(file.clone()).boxed());
-            }
         }
+        buttons.push(shop);
         if let Some((words, wrong)) = &now.said {
-            let tone =
-                if *wrong { Tone::Critical } else { Tone::Accent };
-            parts.push(label(words.clone()).tone(tone).boxed());
+            notes.push(outcome(words.clone(), *wrong));
         }
-        column(parts).space(Space::Half).boxed()
+        let mut first = vec![head];
+        first.push(deal(None, buttons, notes));
+        parts.insert(0, top(first));
+        page(
+            vec![Asset::BACK.to_string(), "FITTING".into()],
+            now.shown.to_uppercase(),
+            sections(parts),
+        )
     })
     .boxed()
 }
 
-/// The choice of what is worn of one kind.
+/// The choice of what is worn of one kind: its plain name, and the
+/// dropdown at its end.
 fn choose(target: Target, name: &str, choice: &Choice) -> AnyView {
     let names = std::iter::once("None".to_string())
         .chain(choice.options.iter().map(|(_, title)| title.clone()))
@@ -282,7 +348,7 @@ fn choose(target: Target, name: &str, choice: &Choice) -> AnyView {
         .collect::<Vec<_>>();
     let (name, category) = (name.to_string(), choice.category);
     row((
-        note(category.one().to_uppercase()),
+        column((label(category.one()),)).grow(1.0),
         dropdown(names, choice.chosen as u32).on_pick(
             move |world, at| {
                 let id = (at as usize)
@@ -293,6 +359,6 @@ fn choose(target: Target, name: &str, choice: &Choice) -> AnyView {
             },
         ),
     ))
-    .space(Space::Half)
+    .space(Space::Gap)
     .boxed()
 }
