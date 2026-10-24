@@ -29,7 +29,9 @@ use crate::budget::Spending;
 use crate::compiled::{self, WasmHomeExt};
 use crate::folder::{Package, WASM};
 use crate::host::{Host, WasmTuning};
-use crate::instance::{Caps, Instance, Linked, link_compiled};
+use crate::instance::{
+    Caps, Fault, Instance, Linked, Spent, link_compiled,
+};
 use crate::panel::{Inbox, Moving, Work};
 use crate::reload::{Declared, Reloading};
 use crate::{PluginPathExt, retained};
@@ -37,13 +39,25 @@ use crate::{PluginPathExt, retained};
 pub(crate) fn plugin(app: &mut App) {
     app.add_observer(enable).add_observer(disable).add_systems(
         Update,
-        (begin, compiled, start).chain().after(resolve),
+        (begin, compiled, instantiate, start).chain().after(resolve),
     );
 }
 
 /// On a plugin whose component is being compiled off the frame.
 #[derive(Component)]
 pub struct Compiling(pub(crate) Task<Result<Linked, String>>);
+
+/// On a plugin whose component is being instantiated and asked what
+/// it adds, off the frame.
+#[derive(Component)]
+pub(crate) struct Instantiating(
+    Task<
+        Result<
+            (Instance, Result<Vec<Contribution>, Fault>, Spent),
+            Fault,
+        >,
+    >,
+);
 
 /// On a plugin: its component, compiled and linked.
 #[derive(Component, Clone)]
@@ -59,11 +73,14 @@ impl Host {
         kept: PathBuf,
     ) -> Compiling {
         let engine = self.0.clone();
+        let shipped = file.with_file_name(compiled::SHIPPED);
         Compiling(AsyncComputeTaskPool::get().spawn(async move {
             let bytes = file.read_capped(most)?;
             link_compiled(
                 &engine,
-                &compiled::component(&engine, &bytes, &kept)?,
+                &compiled::component(
+                    &engine, &bytes, &kept, &shipped,
+                )?,
             )
         }))
     }
@@ -88,6 +105,7 @@ fn disable(event: On<Disable>, mut commands: Commands) {
         Spending,
         Starting,
         Compiling,
+        Instantiating,
         Declared,
         Reloading,
         Moving,
@@ -250,49 +268,80 @@ fn compiled(
     }
 }
 
-/// Instantiates each plugin whose turn it is to start, its component
-/// built, and adds what it declares.
-fn start(
-    plugins: Query<(&PluginInfo, &ActiveLimits, &Built)>,
-    waiting: Query<(), (With<Starting>, Without<Blocked>)>,
-    order: Res<StartOrder>,
+/// Instantiates each plugin whose component is built, off the frame,
+/// and asks it what it adds. Plugins do this at once, however many
+/// there are; [`start`] takes what they declared in the start order.
+fn instantiate(
+    plugins: Query<
+        (Entity, &ActiveLimits, &Built),
+        (With<Starting>, Without<Blocked>, Without<Instantiating>),
+    >,
     host: Option<Res<Host>>,
     guards: Res<Guards>,
     tuning: Res<WasmTuning>,
-    time: Res<Time<Real>>,
-    mut log: MessageWriter<LogLine>,
-    mut asked: MessageWriter<Asked>,
     mut commands: Commands,
 ) {
     let Some(host) = host else {
         return;
     };
+    for (plugin, limits, built) in &plugins {
+        let caps = Caps::of(&limits.0, &guards, &tuning);
+        let engine = host.0.clone();
+        let linked = built.0.clone();
+        commands.entity(plugin).insert(Instantiating(
+            AsyncComputeTaskPool::get().spawn(async move {
+                let mut instance =
+                    Instance::new(&engine, &linked, &caps)?;
+                let (declared, spent) = instance.declare(&caps);
+                Ok((instance, declared, spent))
+            }),
+        ));
+    }
+}
+
+/// Adds what each plugin declared, once it is instantiated and every
+/// plugin before it in the start order is not on its way any more,
+/// so what plugins add comes in that order.
+fn start(
+    mut plugins: Query<(&PluginInfo, &mut Instantiating)>,
+    waiting: Query<(), (With<Starting>, Without<Blocked>)>,
+    order: Res<StartOrder>,
+    time: Res<Time<Real>>,
+    mut log: MessageWriter<LogLine>,
+    mut asked: MessageWriter<Asked>,
+    mut commands: Commands,
+) {
     let ready = order.ready(
         |plugin| waiting.contains(plugin),
-        |plugin| plugins.contains(plugin),
+        |plugin| {
+            plugins
+                .as_readonly()
+                .get(plugin)
+                .is_ok_and(|(_, made)| made.0.is_finished())
+        },
     );
     for plugin in ready {
-        let Ok((info, limits, built)) = plugins.get(plugin) else {
+        let Ok((info, mut instantiating)) = plugins.get_mut(plugin)
+        else {
             continue;
         };
-        let caps = Caps::of(&limits.0, &guards, &tuning);
-        commands.entity(plugin).remove::<Starting>();
-        let mut instance =
-            match Instance::new(&host.0, &built.0, &caps) {
-                Ok(instance) => instance,
-                Err(fault) => {
-                    log.write(LogLine::error(
-                        info.id.as_str(),
-                        format!(
-                            "{} cannot start: {fault}",
-                            info.name
-                        ),
-                    ));
-                    continue;
-                }
-            };
+        let Some(made) = check_ready(&mut instantiating.0) else {
+            continue;
+        };
+        commands
+            .entity(plugin)
+            .remove::<(Starting, Instantiating)>();
+        let (mut instance, declared, spent) = match made {
+            Ok(made) => made,
+            Err(fault) => {
+                log.write(LogLine::error(
+                    info.id.as_str(),
+                    format!("{} cannot start: {fault}", info.name),
+                ));
+                continue;
+            }
+        };
         let mut spending = Spending::new(time.elapsed());
-        let (declared, spent) = instance.declare(&caps);
         instance.pass_requests(plugin, 0, &mut asked);
         spending.charge(spent);
         instance.pass_logs(info, &mut log);

@@ -28,3 +28,7 @@ toml.workspace = true
 [[bin]]
 name = "plugin_check"
 path = "src/bin/plugin_check.rs"
+
+[[bin]]
+name = "precompile_plugins"
+path = "src/bin/precompile_plugins.rs"

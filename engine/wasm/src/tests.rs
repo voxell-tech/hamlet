@@ -337,10 +337,12 @@ fn a_kept_component_is_one_of_its_bytes_or_compiled_again() {
     let tuning = WasmTuning::designed();
     let host = Host::new(&tuning).expect("the host starts");
     let kept = home("kept_compiled");
+    let shipped = home("shipped_compiled");
     let caps = Caps::of(&small(), &Guards::designed(), &tuning);
     let runs = |plugin: &[u8]| {
-        let component = compiled::component(&host.0, plugin, &kept)
-            .expect("it compiles");
+        let component =
+            compiled::component(&host.0, plugin, &kept, &shipped)
+                .expect("it compiles");
         let linked =
             link_compiled(&host.0, &component).expect("it links");
         let mut instance = Instance::new(&host.0, &linked, &caps)
@@ -359,7 +361,19 @@ fn a_kept_component_is_one_of_its_bytes_or_compiled_again() {
     let other = declaring("(i32.const 1)");
     assert_eq!(runs(&other), Ok(()));
     assert_eq!(files(), 1);
+    // One compiled when the plugin was built is run as it is, and
+    // nothing is kept for it.
+    let built = home("built_plugin");
+    fs::create_dir_all(&built).expect("the folder is made");
+    let wasm = built.join("plugin.wasm");
+    let shipped_plugin = declaring("(i32.const 2)");
+    fs::write(&wasm, &shipped_plugin).expect("it is written");
+    crate::precompile(&wasm, &shipped).expect("it compiles");
+    assert_eq!(runs(&shipped_plugin), Ok(()));
+    assert_eq!(files(), 1);
     let _ = fs::remove_dir_all(&kept);
+    let _ = fs::remove_dir_all(&shipped);
+    let _ = fs::remove_dir_all(&built);
 }
 
 #[test]

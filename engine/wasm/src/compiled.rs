@@ -27,18 +27,32 @@ impl WasmHomeExt for Home {
     }
 }
 
-/// The component of `bytes`: the one kept in `folder`, else compiled
-/// and kept there in place of any other.
+/// The folder in a plugin's own folder that holds its component
+/// compiled when the plugin was built.
+pub const SHIPPED: &str = "compiled";
+
+/// The file a component compiled from `bytes` is kept in.
+fn named(bytes: &[u8]) -> String {
+    format!("{:x}.cwasm", Sha256::digest(bytes))
+}
+
+/// The component of `bytes`: the one kept in `folder` or shipped in
+/// `shipped`, else compiled and kept in `folder` in place of any
+/// other.
 pub(crate) fn component(
     engine: &Engine,
     bytes: &[u8],
     folder: &Path,
+    shipped: &Path,
 ) -> Result<Component, String> {
-    let name = format!("{:x}.cwasm", Sha256::digest(bytes));
-    let kept = folder.join(&name);
-    if kept.is_file() {
+    let name = named(bytes);
+    for place in [folder, shipped] {
+        let kept = place.join(&name);
+        if !kept.is_file() {
+            continue;
+        }
         // SAFETY: the file is named by the hash of the bytes it was
-        // compiled from, and only this function writes the folder;
+        // compiled from, and only this module writes these folders;
         // wasmtime refuses one of another version or configuration,
         // which is then compiled again.
         if let Ok(component) =
@@ -50,12 +64,24 @@ pub(crate) fn component(
     let component = Component::new(engine, bytes)
         .map_err(|e| format!("{e:#}"))?;
     // One that cannot be kept is compiled again next time.
-    if let Ok(serialized) = component.serialize()
-        && write_whole(&kept, serialized).is_ok()
-    {
-        forget_others(folder, &name);
+    if let Ok(serialized) = component.serialize() {
+        let _ = keep(folder, bytes, serialized);
     }
     Ok(component)
+}
+
+/// Keeps `serialized`, compiled from `bytes`, in `folder` in place of
+/// any other.
+pub(crate) fn keep(
+    folder: &Path,
+    bytes: &[u8],
+    serialized: Vec<u8>,
+) -> Result<(), String> {
+    let name = named(bytes);
+    write_whole(&folder.join(&name), serialized)
+        .map_err(|e| format!("{e}"))?;
+    forget_others(folder, &name);
+    Ok(())
 }
 
 /// Takes away every file in `folder` but `name`.

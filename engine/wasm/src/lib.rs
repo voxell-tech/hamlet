@@ -40,9 +40,10 @@ use hamlet_engine_plugins::{
 
 pub use crate::add::AddFrom;
 use crate::budget::Spending;
+pub use crate::compiled::SHIPPED;
 pub(crate) use crate::folder::PluginPathExt;
 pub use crate::folder::{MANIFEST, Package, WASM};
-pub use crate::host::{Host, WasmTuning};
+pub use crate::host::{Host, WasmTuning, precompile};
 pub use crate::instance::{Caps, Fault, Instance, NodeInput, Spent};
 use crate::nodes::NodeChange;
 pub use crate::nodes::NodeError;

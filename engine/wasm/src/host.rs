@@ -1,8 +1,9 @@
 //! The wasmtime engine every plugin runs on, and the thread that
 //! ticks its epoch.
 
-use std::thread;
+use std::path::Path;
 use std::time::Duration;
+use std::{fs, thread};
 
 use bevy::app::{App, Startup};
 use bevy::ecs::message::MessageWriter;
@@ -60,23 +61,42 @@ impl Host {
     /// An engine for components, its code compiled for speed, with an
     /// epoch ticked for as long as it lives.
     pub fn new(tuning: &WasmTuning) -> wasmtime::Result<Self> {
-        let mut config = Config::new();
-        // Each instance is given its memories and tables as it is
-        // made, as large as it asks, with no pool to cap how many
-        // plugins run or how much each holds. A memory still sits in
-        // a reservation with guard pages, so its accesses need no
-        // bounds checks.
-        config
-            .wasm_component_model(true)
-            .cranelift_opt_level(OptLevel::Speed)
-            .epoch_interruption(true)
-            .allocation_strategy(
-                InstanceAllocationStrategy::OnDemand,
-            );
-        let engine = Engine::new(&config)?;
+        let engine = Engine::new(&config())?;
         engine.tick(Duration::from_secs_f32(tuning.tick / 1000.0))?;
         Ok(Self(engine))
     }
+}
+
+/// How plugins are compiled and run. A component compiled by an
+/// engine of another configuration is refused, so [`precompile`]
+/// builds its engine from this too.
+fn config() -> Config {
+    let mut config = Config::new();
+    // Each instance is given its memories and tables as it is made,
+    // as large as it asks, with no pool to cap how many plugins run
+    // or how much each holds. A memory still sits in a reservation
+    // with guard pages, so its accesses need no bounds checks.
+    config
+        .wasm_component_model(true)
+        .cranelift_opt_level(OptLevel::Speed)
+        .epoch_interruption(true)
+        .allocation_strategy(InstanceAllocationStrategy::OnDemand);
+    config
+}
+
+/// Compiles the `plugin.wasm` at `wasm` for the engine and keeps the
+/// result in `into`, so the plugin starts without compiling from the
+/// folder that holds `into`. Run by `scripts/build_plugins.sh`.
+pub fn precompile(wasm: &Path, into: &Path) -> Result<(), String> {
+    let bytes = fs::read(wasm).map_err(|e| {
+        format!("{} cannot be read: {e}", wasm.display())
+    })?;
+    let engine =
+        Engine::new(&config()).map_err(|e| format!("{e:#}"))?;
+    let compiled = engine
+        .precompile_component(&bytes)
+        .map_err(|e| format!("{e:#}"))?;
+    crate::compiled::keep(into, &bytes, compiled)
 }
 
 /// The WASM host's methods on [`Engine`].

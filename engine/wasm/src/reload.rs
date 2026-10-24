@@ -35,7 +35,7 @@ use crate::host::{Host, WasmTuning};
 use crate::instance::{Caps, Fault, Instance, Linked};
 use crate::panel::{Inbox, Work};
 use crate::retained::{Holders, UiRoot};
-use crate::run::{Built, Compiling, entry};
+use crate::run::{Built, Compiling, Instantiating, entry};
 use crate::{PluginPathExt, WasmCommandsExt};
 
 pub(crate) fn plugin(app: &mut App) {
@@ -148,7 +148,9 @@ fn notice(
             continue;
         }
         if instance.is_none() {
-            commands.entity(plugin).remove::<Built>();
+            commands
+                .entity(plugin)
+                .remove::<(Built, Instantiating)>();
             continue;
         }
         let file = package.folder.join(WASM);

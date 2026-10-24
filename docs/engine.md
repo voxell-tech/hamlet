@@ -988,9 +988,11 @@ person has one or more, and one is shown at a time.
   `Starting` and not blocked is on its way; plugins on their way start
   (a built-in plugin's entry point runs, a WASM plugin is instantiated
   and declares what it adds) in that order, each only once every one
-  before it is not on its way any more. Components still compile in
-  parallel: one compiled early waits its turn. So plugins start in the
-  same order at every start, and what they add comes in that order.
+  before it is not on its way any more. A WASM plugin's component is
+  compiled, and then instantiated and asked what it adds, off the
+  frame and in parallel with the others: one ready early waits its
+  turn. So plugins start in the same order at every start, and what
+  they add comes in that order.
 
 ### Limits
 
@@ -1206,9 +1208,13 @@ only to the limits the person switched on and to the guards (see
   compile. What it compiles to is also kept in
   `<home>/compiled/<id>/`, named by the hash of its `plugin.wasm`, so
   the next start reads it in place of compiling; one this engine
-  cannot read is compiled again and written over. At its turn in the start order (see
-  [Dependencies](#dependencies)) it is then instantiated in a store of
-  its own and asked what it adds. A plugin that imports anything but
+  cannot read is compiled again and written over. One compiled when
+  the plugin was built, in `compiled/` in its own folder (see
+  [Bundled plugins](#bundled-plugins)), is read the same way, so a
+  first start on a new home compiles nothing. It is then
+  instantiated in a store of its own and asked what it adds, off the
+  frame; what it declared is added at its turn in the start order
+  (see [Dependencies](#dependencies)). A plugin that imports anything but
   the host's interface and
   the system's (`wasi:`) is not loaded, and one built against another
   version of the interface is told so.
@@ -1386,7 +1392,9 @@ in Rust and from those the person installs.
   builds the workspace with `cargo build --release --target
   wasm32-wasip2`; and lays each plugin out as `plugins/dist/<id>/`,
   its `plugin.toml` and `plugin.wasm`, each file written beside its
-  place and moved over it. `target/` and `dist/` are not kept in git.
+  place and moved over it. First it compiles each `plugin.wasm` for
+  the engine with `precompile_plugins` (the harness crate) into
+  `compiled/` beside it. `target/` and `dist/` are not kept in git.
 - **Found at start.** `HAMLET_ENGINE_BUNDLE` when it is set; else a
   `plugins` folder beside the executable; else, in a checkout, the
   repository's `plugins/dist`, found from the binary crate's
