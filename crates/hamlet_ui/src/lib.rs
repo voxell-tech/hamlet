@@ -283,8 +283,10 @@ mod tests {
                     .unwrap_or_default()
             })),
         );
-        app.update();
+        // Read before the first update, in which the client connects
+        // and the frame may already arrive.
         let before = *app.world().resource::<Roll>();
+        app.update();
         // One wake for the connection, one for the state.
         let wait = Duration::from_secs(5);
         wakes.recv_timeout(wait).unwrap();
