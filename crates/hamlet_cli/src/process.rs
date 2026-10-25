@@ -540,9 +540,14 @@ async fn dev_binary(name: &str, variable: &str) -> Result<PathBuf> {
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit());
-    let output = command.output().await.with_context(|| {
-        format!("Cannot build {name}; install Rust and Cargo")
-    })?;
+    // Not `output`, which pipes stderr too and hides the progress.
+    let output = command
+        .spawn()
+        .with_context(|| {
+            format!("Cannot build {name}; install Rust and Cargo")
+        })?
+        .wait_with_output()
+        .await?;
     anyhow::ensure!(
         output.status.success(),
         "The {name} build failed; no server was started."
