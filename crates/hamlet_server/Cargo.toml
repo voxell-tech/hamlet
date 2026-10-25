@@ -28,6 +28,7 @@ faults = []
 harness = ["faults"]
 
 [dependencies]
+hamlet_os.workspace = true
 hamlet_protocol.workspace = true
 hamlet_workspace_wire.workspace = true
 anyhow.workspace = true

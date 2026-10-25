@@ -7,11 +7,11 @@ pub(crate) mod moving;
 pub(crate) mod remote;
 pub(crate) mod tree;
 
-use std::fs::File;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, ensure};
+use hamlet_os::fs::{Directory, LastLink, Missing, Mode};
 use hamlet_workspace_wire::MAX_FILE;
 
 use self::files::Files;
@@ -60,7 +60,7 @@ enum Workspace {
 /// The houses of the home's agents on the workspace chosen at
 /// startup. The opened home directory anchors every local house.
 pub(crate) struct Houses {
-    root: File,
+    root: Directory,
     workspace: Workspace,
     skills: std::collections::BTreeMap<
         (String, u64),
@@ -77,7 +77,7 @@ impl Houses {
         workspace: Option<crate::credentials::WorkspaceAddress>,
     ) -> Result<Self> {
         Ok(Self {
-            root: File::open(root)?,
+            root: Directory::open(root, LastLink::Follow)?,
             workspace: match workspace {
                 Some(connection) => {
                     Workspace::Remote(Transport::new(connection)?)
@@ -90,7 +90,7 @@ impl Houses {
         })
     }
 
-    pub(crate) fn root(&self) -> &File {
+    pub(crate) fn root(&self) -> &Directory {
         &self.root
     }
 
@@ -181,7 +181,10 @@ impl Houses {
     pub fn house(&self, hamlet: &str, number: u64) -> Result<Files> {
         Ok(match &self.workspace {
             Workspace::Local => Files::Local(tree::house(
-                &self.root, hamlet, number, false,
+                &self.root,
+                hamlet,
+                number,
+                Missing::Fail,
             )?),
             Workspace::Remote(transport) => {
                 Files::Remote(remote::Folder::house(Self::session(
@@ -257,7 +260,7 @@ impl Houses {
         number: u64,
     ) -> impl Future<Output = Result<()>> + Send + 'static {
         enum Making {
-            Local(File, String),
+            Local(Directory, String),
             Remote(remote::Folder),
         }
         let making = match &self.workspace {
@@ -398,9 +401,17 @@ impl Houses {
                 .replace(&self.house(hamlet, number)?)
                 .await;
         };
-        let stages = tree::directory(&self.root, ".gifts", true)?;
+        let stages = tree::directory(
+            &self.root,
+            ".gifts",
+            Missing::Make(Mode::FOLDER),
+        )?;
         let name = format!("move-{}", uuid::Uuid::new_v4());
-        let stage = tree::directory(&stages, &name, true)?;
+        let stage = tree::directory(
+            &stages,
+            &name,
+            Missing::Make(Mode::FOLDER),
+        )?;
         let mapped = snapshot
             .entries
             .iter()
@@ -416,7 +427,7 @@ impl Houses {
             let stages = stages.try_clone()?;
             let mode = snapshot.entries[0].mode;
             result = tokio::task::spawn_blocking(move || {
-                tree::set_mode(&stage, ".", mode)?;
+                stage.set_mode(Mode::new(mode))?;
                 tree::swap(&root, &stages, &name, &hamlet, number)
             })
             .await?;
@@ -431,7 +442,7 @@ impl Houses {
 /// A read-only view of one agent's house and its hamlet's folder.
 pub(crate) enum Reader {
     Local {
-        root: File,
+        root: Directory,
         hamlet: String,
         number: u64,
     },
