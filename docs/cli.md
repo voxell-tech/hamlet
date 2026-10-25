@@ -31,12 +31,12 @@ CLI entry, so opening it also starts or reuses the server. Running
 
 | Command | Does |
 |---|---|
-| `hamlet` | Serves the home in the background or reuses its server, and opens a window |
+| `hamlet [--insecure]` | Serves the home in the background or reuses its server, and opens a window |
 | `hamlet stop` | Stops the home's server and waits for it to close in order |
 | `hamlet status` | Reports whether the home's server runs, with its address, process ID, start time and log path |
-| `hamlet server [--port <n>] [--faux <script.json>]` | Starts a server on a home; a faux script answers offline for tests and demos |
+| `hamlet server [--port <n>] [--faux <script.json>] [--insecure]` | Starts a server on a home; a faux script answers offline for tests and demos |
 | `hamlet chat [--to <agent\|name@hamlet\|mayor@hamlet>]` | Chats with the mayor or the named agent and answers what waits, in the terminal |
-| `hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>]` | Serves a scratch home on a free port unless given one, and opens its window |
+| `hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>] [--insecure]` | Serves a scratch home on a free port unless given one, and opens its window |
 | `hamlet window` | Opens a window connected to a running server |
 | `hamlet edit <charter\|character\|notes\|limits\|settings>` | Opens the chief's document in `$EDITOR` and saves through the server; limits and settings are JSON |
 | `hamlet login <provider> [--key]` | Gives a key or follows an offered sign-in |
@@ -50,6 +50,14 @@ tunnel. The server runs for one chief, the one its home was founded for.
 A new home takes its chief's name from `HAMLET_USER`, else `USER`, and is
 refused when neither is set. Closing a client stops no work; end of input
 waits for that client's submissions and triggers no reflection.
+
+Windows has no sandbox yet, so a Windows server starts only in insecure
+mode, which the chief asks for with `--insecure` on `hamlet`,
+`hamlet server` or `hamlet dev`. Agents' commands then reach whatever the
+account running the server can (C18). Linux and macOS refuse the flag
+before they start anything. `server.json` names the running server's
+confinement, and bare `hamlet`, which reuses whatever server runs, prints
+"Attached to a server in insecure mode." when it reuses one in that mode.
 
 ## Typed commands
 

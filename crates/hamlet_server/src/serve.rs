@@ -220,6 +220,7 @@ pub async fn serve(options: Options) -> Result<()> {
         "url": url,
         "pid": std::process::id(),
         "started": started,
+        "confinement": service.houses.confinement(),
     });
     write_whole(&published, &serde_json::to_vec(&address)?)?;
     let published = Published(published);
