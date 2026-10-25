@@ -83,6 +83,32 @@ async fn hand_tools_keep_declared_limits_environment_and_private_scratch()
 }
 
 #[tokio::test]
+async fn a_hand_tool_gets_its_argv_as_written_and_its_arguments_on_stdin()
+ {
+    let scratch = Scratch::new("hand-argv");
+    let place = house(&scratch);
+    let dir = scratch.join("tools/echo");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(
+        dir.join("manifest.json"),
+        json!({
+            "name":"echo",
+            "exec":["bash", "-c", "printf '%s\\n' \"$1\"; cat", "bash", "it's \"quoted\" $HOME"],
+            "parameters":{"type":"object","properties":{"say":{"type":"string"}}}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let said =
+        call(&place, false, "echo", json!({"say": "it's"})).await;
+    assert!(!said.error, "{said:?}");
+    assert_eq!(
+        said.text,
+        "it's \"quoted\" $HOME\n{\"say\":\"it's\"}"
+    );
+}
+
+#[tokio::test]
 async fn a_command_writes_only_in_its_house_and_reaches_the_network_only_with_leave()
  {
     let scratch = Scratch::new("tools-confined");

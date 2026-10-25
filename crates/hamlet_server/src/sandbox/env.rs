@@ -116,6 +116,12 @@ pub(crate) enum ExecError {
 }
 
 #[derive(Clone, Copy)]
+pub(crate) enum Launch<'a> {
+    Shell(&'a str),
+    Program { argv: &'a [String], input: &'a str },
+}
+
+#[derive(Clone, Copy)]
 enum Reach {
     Read,
     Write,
@@ -443,13 +449,13 @@ impl Env {
         })
     }
 
-    /// Runs `command` with bash under the policy, for at most
-    /// `timeout` and the policy's own limit. Its output, with
-    /// `secrets` taken out, goes to `output` as it comes and, past
-    /// the spill limits, all of it to a file.
+    /// Runs `launch` under the policy, for at most `timeout` and the
+    /// policy's own limit. Its output, with `secrets` taken out, goes
+    /// to `output` as it comes and, past the spill limits, all of it
+    /// to a file.
     pub(crate) async fn exec(
         &self,
-        command: &str,
+        launch: Launch<'_>,
         timeout: Duration,
         secrets: &[String],
         output: &mut (impl FnMut(&str) + Send),
@@ -463,7 +469,7 @@ impl Env {
             }
         };
         let ran = self
-            .spawned(command, timeout, &mut |text| {
+            .spawned(launch, timeout, &mut |text| {
                 kept(&scrubber.push(text), &mut spill);
             })
             .await;
@@ -484,17 +490,23 @@ impl Env {
 
     async fn spawned(
         &self,
-        command: &str,
+        launch: Launch<'_>,
         timeout: Duration,
         output: &mut (impl FnMut(&str) + Send),
     ) -> Result<Ended, ExecError> {
         if let Some(refusal) = self.root_refusal() {
             return Err(ExecError::Spawn(refusal.message));
         }
-        let argv =
-            ["bash".to_owned(), "-c".into(), command.to_owned()];
-        // The sandbox's own program always starts, so a missing one
-        // is found here.
+        let argv = match launch {
+            Launch::Shell(command) => {
+                vec![
+                    "bash".to_owned(),
+                    "-c".into(),
+                    command.to_owned(),
+                ]
+            }
+            Launch::Program { argv, .. } => argv.to_vec(),
+        };
         if !self.is_on_path("bash") {
             return Err(ExecError::Spawn(
                 "bash: command not found".into(),
@@ -521,13 +533,20 @@ impl Env {
                 self.cwd
             )));
         }
+        let stdin = match launch {
+            Launch::Shell(_) => Stdio::null(),
+            Launch::Program { input, .. } => self
+                .open_file(input)
+                .map(|(file, _)| Stdio::from(file))
+                .map_err(|error| ExecError::Spawn(error.message))?,
+        };
         let program = &confined.argv[0];
         let (mut tree, mut child) = Tree::spawn(
             process::Command {
                 argv: &confined.argv,
                 env: &confined.env,
                 cwd: &self.cwd,
-                stdin: Stdio::null(),
+                stdin,
             },
             limits,
         )
