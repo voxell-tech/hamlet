@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 
 use hamlet_protocol::client::Period;
-use hamlet_protocol::runtime::{ModelRef, Price, Usage};
+use hamlet_protocol::runtime::{ModelRef, Price, Usage, VERSION};
 use hamlet_testing::Scratch;
 use serde_json::{Value, json};
 
@@ -139,7 +139,7 @@ fn a_runtime_claiming_the_mayor_for_a_member_s_conversation_is_refused()
     // A claim beside the call is no field of the protocol's
     // operation.
     let line = json!({
-        "type": "operation", "v": 1, "id": "r1", "conversation": "1",
+        "type": "operation", "v": VERSION, "id": "r1", "conversation": "1",
         "key": "k", "tool": "build_road", "arguments": road(),
         "actor": {"mayor": {"hamlet": "home", "number": 0}},
     });
@@ -730,7 +730,7 @@ async fn a_bad_created_reply_is_answered_and_its_runtime_goes_on() {
             .unwrap();
     let notices = harnesses.handle(&mut store, Event(Inner::Received(Received {
         runtime: bad, generation: 0,
-        line: Some(json!({"v":1,"type":"created","id":"r1","re":"create","conversation":"1"}).to_string()),
+        line: Some(json!({"v":VERSION,"type":"created","id":"r1","re":"create","conversation":"1"}).to_string()),
     })), &credentials).await.unwrap();
     assert!(notices.iter().any(|n| matches!(n, Notice::Fault { runtime, .. } if *runtime == binding.runtime)));
     assert!(
@@ -817,8 +817,8 @@ async fn a_runtime_says_hello_once_and_before_anything_else() {
             .unwrap();
     let mut harnesses = idle(&home);
     let index = harnesses.add(binding.runtime.clone());
-    let error = json!({"v":1,"type":"error","id":"r1","code":"failed","message":"boom"});
-    let hello = json!({"v":1,"type":"hello","id":"r2","adapter":"pi","harness":"pi-durable 1.2.0","runtime":binding.runtime.as_str(),"store":"opened","versions":[1],"capabilities":[]});
+    let error = json!({"v":VERSION,"type":"error","id":"r1","code":"failed","message":"boom"});
+    let hello = json!({"v":VERSION,"type":"hello","id":"r2","adapter":"pi","harness":"pi-durable 1.2.0","runtime":binding.runtime.as_str(),"store":"opened","versions":[VERSION],"capabilities":[]});
     let mut send = async |phase, line: &Value| {
         harnesses.runtimes[index].phase = phase;
         let event = Event(Inner::Received(Received {

@@ -219,6 +219,7 @@ fn parse(
                 .into_iter()
                 .collect::<BTreeMap<_, _>>(),
             replay: ToolSpecReplay::Unsafe,
+            retain: None,
         },
         dir: dir.to_owned(),
         exec,

@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 pub use tools::*;
 
 /// The runtime protocol version this server speaks.
-pub const VERSION: u64 = 1;
+pub const VERSION: u64 = 2;
 
 /// A message the server sends a runtime.
 #[derive(

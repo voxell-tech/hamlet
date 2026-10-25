@@ -127,6 +127,7 @@ pub fn specs(shells: &Shells) -> Vec<ToolSpec> {
                 description,
                 parameters: object(parameters),
                 replay,
+                retain: None,
             }
         };
     let string = |description: &str| json!({"type": "string", "description": description});
