@@ -14,7 +14,7 @@ pub(crate) use self::env::{
     Env, ExecError, FileError, FileInfo, FileKind,
 };
 pub(crate) use self::policy::{LimitError, SetupError};
-pub use self::policy::{Limits, Policy, is_within};
+pub use self::policy::{Policy, is_within};
 pub use self::reach::{closed_policy, open_policy};
 
 /// A command confined to a policy: the program to run and its whole
@@ -66,6 +66,11 @@ impl Sandbox {
             Kind::Seatbelt => (&seatbelt::PROBE[..], seatbelt::HINT),
             Kind::Missing => bail!(NoSandbox),
         };
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the probe runs the sandbox itself, outside \
+                      any tree"
+        )]
         let ran = std::process::Command::new(argv[0])
             .args(&argv[1..])
             .stdin(std::process::Stdio::null())
@@ -130,36 +135,3 @@ impl Sandbox {
     os = std::env::consts::OS
 )]
 pub(crate) struct NoSandbox;
-
-/// `argv`, run by bash once `limits` hold for it and for every
-/// process it starts.
-pub(crate) fn limited(
-    limits: &Limits,
-    argv: &[String],
-) -> Vec<String> {
-    // bash counts file sizes in KiB. A lower machine limit stays in
-    // force.
-    let script = [
-        ("t", limits.cpu_secs),
-        ("u", limits.max_procs),
-        ("f", limits.max_file_mb * 1024),
-        ("c", 0),
-    ]
-    .iter()
-    .map(|(flag, value)| {
-        format!(
-            "ulimit -{flag} {value} 2>/dev/null || ulimit -{flag} \
-             hard"
-        )
-    })
-    .collect::<Vec<_>>()
-    .join("\n");
-    let mut out = vec![
-        "bash".to_owned(),
-        "-c".into(),
-        format!("{script}\nexec \"$@\""),
-        "bash".into(),
-    ];
-    out.extend(argv.iter().cloned());
-    out
-}

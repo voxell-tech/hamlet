@@ -52,9 +52,6 @@ unicode-normalization = "0.1"
 url = "2"
 uuid.workspace = true
 
-[target.'cfg(unix)'.dependencies]
-rustix = { workspace = true, features = ["fs", "process"] }
-
 [dev-dependencies]
 hamlet_testing.workspace = true
 # The trace hook counts the statements an idle tick runs.

@@ -6,6 +6,8 @@ pub mod links;
 pub mod openai;
 pub mod realm;
 mod script;
+#[cfg(unix)]
+pub mod signals;
 // It stops a server with Unix signals.
 #[cfg(unix)]
 mod server;

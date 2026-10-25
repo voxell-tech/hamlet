@@ -109,6 +109,11 @@ impl Process {
         sender: UnboundedSender<Received>,
     ) -> Result<Self> {
         let pi = launch.pi;
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "pi is the server's own runtime, not an \
+                      agent's command"
+        )]
         let mut command = Command::new(&pi.node);
         command
             .env_remove("HAMLET_API_KEY")

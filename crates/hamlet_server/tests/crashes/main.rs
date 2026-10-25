@@ -19,7 +19,6 @@ use hamlet_testing::openai::{Endpoint, Response};
 use hamlet_testing::{
     Models, Scratch, Server, Socket, answers, strip_overrides,
 };
-use rustix::process::{Pid, Signal, kill_process};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
 
@@ -40,6 +39,10 @@ async fn start(
 #[test]
 fn the_server_holds_its_home_until_terminated() {
     let dir = Scratch::new("server-binary");
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test runs the server executable"
+    )]
     let mut server = strip_overrides(&mut Command::new(SERVER))
         .args(["--home".as_ref(), dir.as_os_str()])
         .args(["--port", "0"])
@@ -54,7 +57,7 @@ fn the_server_holds_its_home_until_terminated() {
     assert!(line.contains("holding"), "{line}");
     let refused = Home::open(&dir).err().unwrap();
     assert!(refused.downcast_ref::<Held>().is_some(), "{refused}");
-    kill_process(Pid::from_child(&server), Signal::TERM).unwrap();
+    hamlet_testing::signals::terminate(server.id()).unwrap();
     assert!(server.wait().unwrap().success());
     let mut home = Home::open(&dir).unwrap();
     assert!(!dir.join("server.json").exists());
