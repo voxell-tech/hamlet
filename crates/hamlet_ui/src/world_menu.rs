@@ -215,6 +215,7 @@ fn menus() -> AnyView {
             }
         },
     )
+    .within(overlay(()))
     .boxed()
 }
 

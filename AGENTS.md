@@ -62,8 +62,8 @@ window ends only its process; agents keep working on the server. Stop
 All four must be clean before a commit. `rust-toolchain.toml` names the
 latest stable toolchain plain `cargo` runs, no older than `rust-version`
 in `Cargo.toml` (`rustup update stable` if cargo says it is too old). Formatting needs a nightly, because
-`rustfmt.toml` uses unstable options: the dated one named in
-`rust-nightly`, which CI uses too. The workspace depends on
+`rustfmt.toml` uses unstable options: the latest one
+(`rustup update nightly`), which CI uses too. The workspace depends on
 `vendor/fynix`, a git submodule: clone with `--recurse-submodules` or
 run `git submodule update --init vendor/fynix` once; `cargo xtask`
 fetches it itself. Nothing inside it changes. `cargo xtask check` runs
@@ -80,7 +80,7 @@ set, as on GitHub, the steps pass `--locked` to cargo. `cargo xtask fmt`
 formats Rust and pi.
 
 ```sh
-cargo +$(cat rust-nightly) fmt
+cargo +nightly fmt
 cargo build --all-targets
 cargo clippy --all-targets
 cargo test
