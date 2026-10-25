@@ -1177,6 +1177,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use hamlet_testing::Scratch;
+    use hamlet_testing::links::symlink;
 
     use super::*;
     use crate::sandbox::reach::open_policy;
@@ -1199,7 +1200,7 @@ mod tests {
             };
             turn += 1;
             let _ = fs::remove_file(&fresh);
-            std::os::unix::fs::symlink(target, &fresh).unwrap();
+            symlink(target, &fresh).unwrap();
             fs::rename(&fresh, link).unwrap();
         }
     }
@@ -1225,7 +1226,7 @@ mod tests {
         )
         .unwrap();
         let link = folder.join("link");
-        std::os::unix::fs::symlink(&inside, &link).unwrap();
+        symlink(&inside, &link).unwrap();
         env.write_file("link/nested/new.txt", "allowed\n").unwrap();
         assert_eq!(
             env.read_text("link/nested/new.txt").unwrap(),
