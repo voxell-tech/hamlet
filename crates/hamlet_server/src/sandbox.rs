@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use anyhow::bail;
 
 pub(crate) use self::env::{
-    Env, ExecError, FileError, FileInfo, FileKind,
+    Env, ExecError, FileError, FileInfo, FileKind, Launch,
 };
 pub(crate) use self::policy::{LimitError, SetupError};
 pub use self::policy::{Policy, is_within};

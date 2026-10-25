@@ -11,7 +11,9 @@ use hamlet_protocol::runtime::{
 };
 use serde_json::{Map, Value, json};
 
-use crate::sandbox::{Env, ExecError, LimitError, Policy, Sandbox};
+use crate::sandbox::{
+    Env, ExecError, Launch, LimitError, Policy, Sandbox,
+};
 use crate::tools::{Outcome, diagnostic};
 
 /// A loaded manifest and the program its tool runs.
@@ -272,22 +274,13 @@ pub(crate) async fn run(
             return Outcome::thrown("tool_error", error.message);
         }
     };
-    let quote =
-        |value: &str| format!("'{}'", value.replace('\'', "'\\''"));
-    let command = format!(
-        "exec {} < {}",
-        manifest
-            .exec
-            .iter()
-            .map(|arg| quote(arg))
-            .collect::<Vec<_>>()
-            .join(" "),
-        quote(&file)
-    );
     let mut output = String::new();
     let ran = env
         .exec(
-            &command,
+            Launch::Program {
+                argv: &manifest.exec,
+                input: &file,
+            },
             Duration::from_secs(wall),
             secrets,
             &mut |part| {
