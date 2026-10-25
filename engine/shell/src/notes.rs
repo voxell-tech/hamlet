@@ -36,7 +36,7 @@ pub enum PanelNote {
 }
 
 /// How long a flash takes to die away, in seconds.
-const FLASH: f32 = 1.6;
+const FLASH: f32 = 0.5;
 
 /// How far a panel's light reaches down from its top, in pixels.
 const REACH: f32 = 90.0;
@@ -48,7 +48,7 @@ const BREATHING: f32 = 0.35;
 
 /// The most of a panel's light, as an alpha, a flash and a lamp
 /// throw, and the most of a tab's.
-const FLASH_LIGHT: f32 = 0.34;
+const FLASH_LIGHT: f32 = 0.14;
 const LAMP_LIGHT: f32 = 0.2;
 const TAB_LIGHT: f32 = 0.4;
 
