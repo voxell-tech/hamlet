@@ -100,6 +100,11 @@ impl KeeperState {
     }
 }
 
+/// A robot drawn apart from the world by a camera of its own: posed
+/// whether or not the world's camera sees it.
+#[derive(Component, Default)]
+pub struct Apart;
+
 /// One robot. Set `state` for the plain motion of a state, or call
 /// `play` for a particular one.
 #[derive(Component)]

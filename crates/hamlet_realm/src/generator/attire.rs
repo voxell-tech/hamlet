@@ -300,6 +300,13 @@ fn linear(hex: &str) -> Vec3 {
     LinearRgba::from(Srgba::rgb(r, g, b)).to_vec3()
 }
 
+/// Whether [`raise`] can raise a house here: the land is laid and
+/// the generator's plugin added.
+pub fn can_raise(world: &World) -> bool {
+    world.contains_resource::<Land>()
+        && world.contains_resource::<Kit>()
+}
+
 /// Builds one house wearing `attire` at once, and spawns it at `at`
 /// with its windows, door lantern, banner and emote, as the world
 /// draws a house of a hamlet that wears it. `hall` makes it the

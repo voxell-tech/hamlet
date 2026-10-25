@@ -67,7 +67,7 @@ const fn market(
     }
 }
 
-const SHOTS: [Shot; 59] = [
+const SHOTS: [Shot; 62] = [
     bazaar("bazaar-models", Scene::Stall(Stall::Models, &[])),
     bazaar(
         "bazaar-model",
@@ -149,6 +149,24 @@ const SHOTS: [Shot; 59] = [
         Stall::Assets,
         Trade::SignedOut,
         &["Sakura"],
+    ),
+    market(
+        "looks-asset-bigger",
+        Stall::Assets,
+        Trade::SignedOut,
+        &["Sakura", "BIGGER"],
+    ),
+    market(
+        "looks-asset-emote",
+        Stall::Assets,
+        Trade::SignedOut,
+        &["Wave"],
+    ),
+    market(
+        "looks-asset-mesh",
+        Stall::Assets,
+        Trade::SignedOut,
+        &["Minka"],
     ),
     market(
         "looks-asset-owned",
@@ -418,6 +436,8 @@ fn draw(shot: &Shot, path: PathBuf) {
         })
         .unwrap_or(shot.size);
     let mut app = App::new();
+    // Before the asset plugin: the looks viewed are read from memory.
+    hamlet_realm::dress::register_source(&mut app);
     app.add_plugins(offscreen::plugins(size));
     let pixels = (size.as_vec2() * shot.scale).as_uvec2();
     Target::insert(&mut app, pixels, shot.scale);

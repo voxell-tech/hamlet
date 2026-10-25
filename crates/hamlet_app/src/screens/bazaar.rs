@@ -92,9 +92,6 @@ pub struct BazaarSettings {
     /// Seconds the world is given to raise a hamlet founded from a
     /// template before the camera stops waiting to show it.
     pub seek: f32,
-    /// Seconds each picture of an asset's turntable is shown while
-    /// it turns.
-    pub turn_step: f32,
 }
 
 /// The stall the panel shows.

@@ -30,6 +30,7 @@ mod status;
 #[cfg(test)]
 mod testing;
 mod tuning;
+pub mod viewer;
 pub mod welcome;
 mod window;
 mod world_menu;
@@ -131,6 +132,7 @@ impl Plugin for UiPlugin {
                 hover::plugin,
                 hamlet_ui::plugin,
                 tuning::plugin,
+                viewer::plugin,
                 cursor::plugin,
                 sounds::plugin,
             ),

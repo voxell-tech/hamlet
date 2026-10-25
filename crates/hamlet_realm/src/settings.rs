@@ -28,6 +28,7 @@ use crate::sky::{
     VolumetricFogSettings,
 };
 use crate::sound::SoundSettings;
+use crate::viewer::ViewerSettings;
 use crate::works::WorksSettings;
 
 /// Keeps the settings in step with `assets/world.toml`. Add it before
@@ -57,6 +58,7 @@ pub(crate) struct WorldTuning {
     pub works: WorksSettings,
     pub bazaar: BazaarSettings,
     pub diorama: DioramaSettings,
+    pub viewer: ViewerSettings,
     pub attire: AttireSettings,
     pub sound: SoundSettings,
     pub debug: DebugSettings,
@@ -86,6 +88,7 @@ impl Tuning for WorldTuning {
         follow(world, &was.works, &self.works);
         follow(world, &was.bazaar, &self.bazaar);
         follow(world, &was.diorama, &self.diorama);
+        follow(world, &was.viewer, &self.viewer);
         follow(world, &was.attire, &self.attire);
         follow(world, &was.sound, &self.sound);
         follow(world, &was.debug, &self.debug);
@@ -110,6 +113,7 @@ designed!(WorldTuning {
     WorksSettings => works,
     BazaarSettings => bazaar,
     DioramaSettings => diorama,
+    ViewerSettings => viewer,
     AttireSettings => attire,
     SoundSettings => sound,
     DebugSettings => debug,

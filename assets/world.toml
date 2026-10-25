@@ -340,6 +340,19 @@ soil = 1.1
 base = 0.8
 lip = 0.45
 trees = 11
+
+[viewer]
+fov = 0.6
+yaw = 0.6
+pitch = 0.3
+lowest = -0.1
+highest = 1.3
+nearest = 0.45
+farthest = 2.2
+drag = 0.01
+wheel = 0.002
+idle = 2.5
+spin = 0.35
 [attire]
 puff_life = 3.2
 puffs = 10

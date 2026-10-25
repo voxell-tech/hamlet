@@ -28,6 +28,3 @@ pages = 4
 read_most = 6000
 diorama = 240.0
 seek = 6.0
-# Seconds each picture of an asset's turntable is shown while it turns:
-# 24 pictures go round in three seconds.
-turn_step = 0.125

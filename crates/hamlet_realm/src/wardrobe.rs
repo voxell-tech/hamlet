@@ -97,23 +97,8 @@ pub struct Asset {
     pub summary: String,
     pub price_cents: u32,
     pub version: String,
-    /// How many pictures of it there are, turned evenly about it.
-    #[serde(default)]
-    pub frames: u32,
-    /// The path of its pictures on the server, `{frame}` for the
-    /// number of one.
-    #[serde(default)]
-    pub preview_url: String,
     #[serde(default)]
     pub owned: bool,
-}
-
-impl Asset {
-    /// The path of its picture turned `frame` of [`Asset::frames`]
-    /// about it.
-    pub fn frame(&self, frame: u32) -> String {
-        self.preview_url.replace("{frame}", &frame.to_string())
-    }
 }
 
 /// A colour as `"#rrggbb"`, in sRGB.

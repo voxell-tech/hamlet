@@ -1,8 +1,8 @@
 //! The Agent Bazaar's stalls, each at its tab of the bazaar's panel,
 //! with buttons pressed by their words to open a page. OpenRouter's
 //! and skills.sh's answers are given by hand, so nothing is asked of
-//! the network, and the realm draws a hamlet template's town apart
-//! from the world.
+//! the network, and the realm draws a hamlet template's town and an
+//! official look apart from the world.
 
 use bevy::app::{App, PostStartup, Update};
 use bevy::camera::Camera;
@@ -21,7 +21,9 @@ use hamlet_client::realm::{Outfit, Providers, Skills};
 use hamlet_protocol::client as protocol;
 use hamlet_realm::WorldCamera;
 use hamlet_realm::generator::land::Land;
-use hamlet_realm::generator::{DetailSettings, GeneratorSettings};
+use hamlet_realm::generator::{
+    DetailSettings, GeneratorSettings, house,
+};
 use hamlet_realm::palette::Palette;
 use serde_json::json;
 
@@ -37,7 +39,9 @@ const SEED: u32 = 7;
 pub(super) fn plugin(app: &mut App) {
     app.add_plugins((
         hamlet_realm::scene::plugin,
+        hamlet_realm::generator::plugin,
         hamlet_realm::diorama::plugin,
+        hamlet_realm::viewer::plugin,
     ))
     // The robots of the dioramas are drawn as near ones are.
     .init_resource::<DetailSettings>()
@@ -66,6 +70,7 @@ fn at_the_stall(world: &mut World) {
         GeneratorSettings::default(),
         world.resource::<Palette>().clone(),
     );
+    let views = views(&land);
     world.insert_resource(land);
     world.resource_mut::<Providers>().0.push(
         protocol::ProviderView {
@@ -82,7 +87,13 @@ fn at_the_stall(world: &mut World) {
     });
     offer(world, offered());
     if let Some(trade) = trade {
-        stage(world, market(trade));
+        stage(
+            world,
+            Staged {
+                views,
+                ..market(trade)
+            },
+        );
         if trade == Trade::SignedIn
             && let Some(mayor) = hamlet_client::realm::mayor(world)
         {
@@ -356,7 +367,6 @@ fn market(trade: Trade) -> Staged {
         covers: ["l_wick", "l_owl", "l_scribe", "l_cal", "l_ink"]
             .into_iter()
             .map(|id| (format!("/v1/listings/{id}/cover?v=1"), cover.clone()))
-            .chain(previews(&cover))
             .collect(),
         code: (trade == Trade::Code).then(|| {
             ("WDJB-MJHT".into(), "https://github.com/login/device".into())
@@ -372,6 +382,7 @@ fn market(trade: Trade) -> Staged {
         } else {
             Vec::new()
         },
+        views: Vec::new(),
     }
 }
 
@@ -389,8 +400,6 @@ fn assets() -> serde_json::Value {
         json!({"id": id, "target": id.split('-').next(),
             "category": category, "title": title, "summary": summary,
             "priceCents": cents, "currency": "usd", "version": "1.0.0",
-            "frames": 24,
-            "previewUrl": format!("/v1/assets/{id}/preview/{{frame}}?v=1.0.0"),
             "owned": false})
     };
     json!({"items": [
@@ -403,17 +412,21 @@ fn assets() -> serde_json::Value {
     ]})
 }
 
-/// The first picture of each look, and every picture of Sakura's
-/// turntable, the still of the world standing in for each.
-fn previews(stand_in: &[u8]) -> Vec<(String, Vec<u8>)> {
-    let frames = |id: &'static str, count: u32| {
-        (0..count).map(move |n| {
-            let url = format!("/v1/assets/{id}/preview/{n}?v=1.0.0");
-            (url, stand_in.to_vec())
-        })
-    };
-    frames(SAKURA, 24)
-        .chain(frames("agent-emote-wave", 1))
-        .chain(frames("hamlet-mesh-minka", 1))
-        .collect()
+/// The files of the looks, as the viewer is given them: written
+/// here, the hamlet's mesh the world's own house.
+fn views(land: &Land) -> Vec<(String, Vec<u8>)> {
+    let skin = json!({"format": 1,
+        "colours": {"paint": "#f4b6c2", "brass": "#e9d8a6"},
+        "finish": {"metallic": 0.0, "roughness": 0.5, "glow": 0.0}});
+    let wave = json!({"format": 1, "kind": "clip", "seconds": 2.4,
+        "every": 45, "keys": [
+            {"at": 0.0, "parts": {}},
+            {"at": 0.6, "parts": {"arm_r": {"turn": [0, 0, 150]}}},
+            {"at": 1.8, "parts": {"arm_r": {"turn": [0, 0, 150]}}},
+            {"at": 2.4, "parts": {}}]});
+    vec![
+        (SAKURA.into(), skin.to_string().into_bytes()),
+        ("agent-emote-wave".into(), wave.to_string().into_bytes()),
+        ("hamlet-mesh-minka".into(), house::plain(land).glb()),
+    ]
 }

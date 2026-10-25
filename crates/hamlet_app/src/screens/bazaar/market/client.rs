@@ -240,6 +240,11 @@ impl Server {
         self.request(Method::GET, &path, &query)
     }
 
+    /// The file of the asset `id`, veiled, to be viewed by anyone.
+    pub fn asset_view(&self, id: &str) -> Request {
+        self.get(&format!("/v1/assets/{}/view", escaped(id)))
+    }
+
     /// The package of `version` of a listing, whole.
     pub fn package(&self, id: &str, version: &str) -> Request {
         Request {

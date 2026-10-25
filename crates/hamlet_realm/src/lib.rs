@@ -28,6 +28,7 @@ pub mod sky;
 pub mod sound;
 pub mod stage;
 pub mod stock;
+pub mod viewer;
 pub mod wardrobe;
 pub mod works;
 
@@ -68,6 +69,7 @@ impl Plugin for RealmPlugin {
                 library::plugin,
                 bazaar::plugin,
                 diorama::plugin,
+                viewer::plugin,
                 moving::plugin,
                 works::plugin,
                 lantern::plugin,

@@ -2,12 +2,13 @@
 //! LOOKS stall's catalogue from the bazaar's server, what the chief
 //! owns there, what each agent and hamlet wears as the home's server
 //! keeps it, putting a look on or taking it off, and buying one. The
-//! [`closet`] downloads the files of what is worn for the realm.
+//! [`closet`] downloads the files of what is worn for the realm, and
+//! [`viewing`] the file of the asset whose page is open, to show it.
 
 pub(crate) mod closet;
 #[cfg(test)]
 mod tests;
-pub(crate) mod turntable;
+pub(crate) mod viewing;
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -45,7 +46,7 @@ pub(crate) fn plugin(app: &mut App) {
     app.add_plugins((
         shelf::plugin::<Asset>,
         closet::plugin,
-        turntable::plugin,
+        viewing::plugin,
     ))
     .init_resource::<Wardrobe>()
     .init_resource::<Dressed>()
@@ -309,6 +310,8 @@ pub(crate) enum Call {
     /// A part of a file worn: the file's name, and the byte the part
     /// begins at.
     Part(String, u64),
+    /// The veiled file of an asset viewed, by its name.
+    View(String),
 }
 
 /// Takes in the answer to `call`.
@@ -331,6 +334,7 @@ pub(crate) fn answered(
         Call::Part(file, from) => {
             closet::came(world, file, from, answer);
         }
+        Call::View(file) => viewing::came(world, file, answer),
     }
 }
 
@@ -343,6 +347,7 @@ fn ask(world: &mut World, call: Call) {
         Call::Paying(_, purchase) => {
             server.asset_purchase_state(purchase)
         }
+        Call::View(file) => server.asset_view(asset_of(file)),
         Call::Part(..) => return,
     };
     market::send(world, market::Call::Wardrobe(call), request);

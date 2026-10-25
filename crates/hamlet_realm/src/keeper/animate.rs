@@ -9,7 +9,9 @@ use hamlet_vfx::inlay::LIT;
 
 use super::acts::Act;
 use super::pose::{self, Prop, SHOULDER, rx, ry, rz};
-use super::{Gesture, Keeper, Motion, Stride, Trip, Wears, wear};
+use super::{
+    Apart, Gesture, Keeper, Motion, Stride, Trip, Wears, wear,
+};
 use crate::generator::DetailSettings;
 use crate::{Clock, Sky, WorldCamera};
 
@@ -39,6 +41,7 @@ pub(crate) fn animate(
         Option<&Trip>,
         Option<&Wears>,
         Option<&mut Gesture>,
+        Has<Apart>,
     )>,
     mut parts: Query<&mut Transform, Without<Keeper>>,
     mut visibility: Query<&mut Visibility>,
@@ -50,8 +53,16 @@ pub(crate) fn animate(
     let t = clock.t;
     // True once any robot needs another frame.
     let mut busy = false;
-    for (mut keeper, mut root, place, shown, trip, wears, gesture) in
-        &mut keepers
+    for (
+        mut keeper,
+        mut root,
+        place,
+        shown,
+        trip,
+        wears,
+        gesture,
+        apart,
+    ) in &mut keepers
     {
         let keeper = &mut *keeper;
         if keeper.state != keeper.synced {
@@ -101,6 +112,7 @@ pub(crate) fn animate(
         // A pose is a function of the clock alone, so a robot out of
         // sight is left as it was and picks up when it is seen again.
         let seen = first
+            || apart
             || view.as_ref().is_none_or(|frustum| {
                 let around = Sphere {
                     center: place.translation_vec3a(),

@@ -609,6 +609,16 @@ pub fn action(
     acting(which, text, (button, Variant::Default), act).boxed()
 }
 
+/// A quiet button with an icon before its text, as the way back is,
+/// that runs `act`.
+pub fn quiet(
+    which: Glyph,
+    text: impl Into<Prop<String>>,
+    act: impl Fn(&mut World) + Send + Sync + 'static,
+) -> AnyView {
+    acting(which, text, (back_link, Variant::Text), act).boxed()
+}
+
 /// The button for the one action a screen is for, that runs `act`.
 pub fn good_action(
     which: Glyph,

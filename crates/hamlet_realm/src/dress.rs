@@ -174,7 +174,7 @@ fn stock(
             && matches!(read, Read::Mesh(_))
             && let Some(closet) = &closet
         {
-            closet.0.remove_asset(&glb(&key.2));
+            closet.take_down(&key.2);
         }
         kept
     });
@@ -203,33 +203,72 @@ fn read(
     closet: Option<&Closet>,
     server: &AssetServer,
 ) -> Read {
-    let read = match category {
-        Category::Skin => Skin::read(bytes, *target)
-            .map(Read::Skin)
-            .map_err(|e| format!("{e:#}")),
-        Category::Emote => Emote::read(bytes, *target)
-            .map(Read::Emote)
-            .map_err(|e| format!("{e:#}")),
-        Category::Mesh => match closet {
-            Some(closet) => {
-                let path = glb(id);
-                closet.0.insert_asset(&path, bytes.to_vec());
-                Ok(Read::Mesh(
+    try_on(*target, *category, id, bytes, closet, server)
+        .map(|look| match look {
+            Look {
+                skin: Some(skin), ..
+            } => Read::Skin(skin),
+            Look {
+                emote: Some(emote), ..
+            } => Read::Emote(emote),
+            Look {
+                mesh: Some(gltf), ..
+            } => Read::Mesh(gltf),
+            _ => Read::Failed,
+        })
+        .unwrap_or_else(|e| {
+            warn!("the look `{id}` is not worn: {e:#}");
+            Read::Failed
+        })
+}
+
+/// The look of the one file `bytes` of `category`, worn by `target`.
+/// A mesh is put in the closet as `name` and loaded from there; take
+/// it down with [`Closet::take_down`] once it is not wanted.
+pub fn try_on(
+    target: Target,
+    category: Category,
+    name: &str,
+    bytes: &[u8],
+    closet: Option<&Closet>,
+    server: &AssetServer,
+) -> anyhow::Result<Look> {
+    Ok(match category {
+        Category::Skin => Look {
+            skin: Some(Skin::read(bytes, target)?),
+            ..default()
+        },
+        Category::Emote => Look {
+            emote: Some(Emote::read(bytes, target)?),
+            ..default()
+        },
+        Category::Mesh => {
+            let Some(closet) = closet else {
+                anyhow::bail!(
+                    "there is no `{SOURCE}://` source to load it \
+                     from"
+                );
+            };
+            let path = glb(name);
+            closet.0.insert_asset(&path, bytes.to_vec());
+            Look {
+                mesh: Some(
                     server.load(format!(
                         "{SOURCE}://{}",
                         path.display()
                     )),
-                ))
+                ),
+                ..default()
             }
-            None => Err(format!(
-                "there is no `{SOURCE}://` source to load it from"
-            )),
-        },
-    };
-    read.unwrap_or_else(|e| {
-        warn!("the look `{id}` is not worn: {e}");
-        Read::Failed
+        }
     })
+}
+
+impl Closet {
+    /// Takes the mesh put in as `name` out of the closet.
+    pub fn take_down(&self, name: &str) {
+        self.0.remove_asset(&glb(name));
+    }
 }
 
 /// The path of the mesh asset `id` in the closet.

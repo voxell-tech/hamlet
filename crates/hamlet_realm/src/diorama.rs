@@ -20,7 +20,7 @@ use crate::generator::{common, flora, house, yard};
 use crate::keeper::{self, KeeperState, Who};
 use crate::meshes::{Meshing, Rng, noise2};
 use crate::palette::Palette;
-use crate::sky::Looks;
+use crate::sky::{self, Looks};
 use crate::{Stock, WorldSystems};
 
 /// The render layer dioramas are drawn on.
@@ -112,7 +112,8 @@ pub fn turning(world: &mut World) -> Option<Handle<Image>> {
     Some(image)
 }
 
-fn picture(size: UVec2) -> Image {
+/// A picture a camera draws into, `size` pixels.
+pub(crate) fn picture(size: UVec2) -> Image {
     Image::new_target_texture(
         size.x,
         size.y,
@@ -341,8 +342,32 @@ fn spawn_eye(
     looks: &Looks,
     set: &DioramaSettings,
 ) -> Entity {
-    let day = &looks.day;
     let layer = RenderLayers::layer(LAYER);
+    daylight(commands, &looks.day, &layer, 300.0);
+    commands
+        .spawn((
+            Eye,
+            lens(&looks.day, set.fov, (1.0, 600.0)),
+            // Before the world's camera and the window's.
+            Camera {
+                order: -2,
+                is_active: false,
+                clear_color: ClearColorConfig::Custom(Color::NONE),
+                ..default()
+            },
+            layer,
+        ))
+        .id()
+}
+
+/// The sun and its fill as on a clear day, lighting only `layer`,
+/// the sun casting shadows `reach` from the camera.
+pub(crate) fn daylight(
+    commands: &mut Commands,
+    day: &sky::Look,
+    layer: &RenderLayers,
+    reach: f32,
+) {
     commands.spawn((
         DirectionalLight {
             color: day.sun,
@@ -352,9 +377,9 @@ fn spawn_eye(
         },
         CascadeShadowConfigBuilder {
             num_cascades: 1,
-            minimum_distance: 1.0,
-            maximum_distance: 300.0,
-            first_cascade_far_bound: 300.0,
+            minimum_distance: reach / 300.0,
+            maximum_distance: reach,
+            first_cascade_far_bound: reach,
             ..default()
         }
         .build(),
@@ -374,41 +399,40 @@ fn spawn_eye(
         Transform::default().looking_to(fill, Vec3::Y),
         layer.clone(),
     ));
-    commands
-        .spawn((
-            Eye,
-            Camera3d::default(),
-            Camera {
-                // Before the world's camera and the window's.
-                order: -2,
-                is_active: false,
-                clear_color: ClearColorConfig::Custom(Color::NONE),
+}
+
+/// What a camera drawing apart from the world sees through, as on a
+/// clear day: a field of view `fov` and the nearest and farthest it
+/// draws. Add its own [`Camera`] after.
+pub(crate) fn lens(
+    day: &sky::Look,
+    fov: f32,
+    (near, far): (f32, f32),
+) -> impl Bundle {
+    (
+        Camera3d::default(),
+        Projection::Perspective(PerspectiveProjection {
+            fov,
+            near,
+            far,
+            ..default()
+        }),
+        Msaa::Sample4,
+        Tonemapping::TonyMcMapface,
+        AmbientLight {
+            color: day.ambient,
+            brightness: day.ambient_nits,
+            affects_lightmapped_meshes: true,
+        },
+        ColorGrading {
+            global: ColorGradingGlobal {
+                exposure: day.exposure,
+                post_saturation: day.saturation,
                 ..default()
             },
-            Projection::Perspective(PerspectiveProjection {
-                fov: set.fov,
-                near: 1.0,
-                far: 600.0,
-                ..default()
-            }),
-            Msaa::Sample4,
-            Tonemapping::TonyMcMapface,
-            AmbientLight {
-                color: day.ambient,
-                brightness: day.ambient_nits,
-                affects_lightmapped_meshes: true,
-            },
-            ColorGrading {
-                global: ColorGradingGlobal {
-                    exposure: day.exposure,
-                    post_saturation: day.saturation,
-                    ..default()
-                },
-                ..default()
-            },
-            layer,
-        ))
-        .id()
+            ..default()
+        },
+    )
 }
 
 /// Puts every part of a new diorama on the dioramas' layer.

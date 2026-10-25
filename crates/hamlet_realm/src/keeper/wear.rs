@@ -97,6 +97,11 @@ impl Gesture {
         self.asked = Some(now);
     }
 
+    /// Whether the clip plays, or was asked to.
+    pub fn is_playing(&self) -> bool {
+        self.since.is_some() || self.asked.is_some()
+    }
+
     /// The turn and shift `clip` adds to each of [`PARTS`] at clock
     /// time `now`, eased in and out; None while it does not play. It
     /// begins when asked, and while `idle` once it is due.

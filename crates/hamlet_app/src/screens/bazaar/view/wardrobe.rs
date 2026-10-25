@@ -1,13 +1,13 @@
 //! The LOOKS stall drawn as the other stalls are: the official looks
 //! agents and hamlets wear, found by what wears them and their kind,
-//! each on a page of its own with its pictures on a turntable under
-//! its head and the way it is had, worn and taken off; and the
-//! fitting, what each agent and hamlet wears, a page of its own.
+//! each on a page of its own, worn in the viewer under its head, with
+//! the way it is had, worn and taken off; and the fitting, what each
+//! agent and hamlet wears, a page of its own.
 
 mod fitting;
-mod turntable;
 
 use bevy::ecs::world::World;
+use bevy::math::Vec2;
 use bevy::ui::{AlignItems, percent};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, dropdown, row,
@@ -17,7 +17,7 @@ use hamlet_realm::wardrobe::{Asset, Category, Target};
 use hamlet_ui::AnyView;
 use hamlet_ui::styles::{
     Fills, ICON, action, back_link, bare, buttons, filling, lettered,
-    marked, note,
+    note,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -33,10 +33,12 @@ use crate::bazaar::market::lot::price_words;
 use crate::bazaar::market::{Deal, Market, sign_in};
 use crate::bazaar::shelf::Listing;
 use crate::bazaar::wardrobe::closet::{self, Closet};
+use crate::bazaar::wardrobe::viewing::{Sight, Viewing};
 use crate::bazaar::wardrobe::{
     self, AssetDeal, Dressed, Fitting, Wardrobe, Who, file_of,
 };
 use crate::roll::{either, moved};
+use crate::viewer;
 
 impl Shown for Asset {
     const BACK: &'static str = "LOOKS";
@@ -104,11 +106,7 @@ impl Shown for Asset {
             Some(mark(self.id.clone())),
         );
         sections(vec![
-            top(vec![
-                head,
-                turntable::turntable(self.clone()),
-                deal(self.clone()),
-            ]),
+            top(vec![head, viewed(), deal(self.clone())]),
             worn_by(self.clone()),
         ])
     }
@@ -172,18 +170,22 @@ fn narrow<T: Copy + PartialEq + Send + Sync + 'static>(
     )
 }
 
-/// A quiet button with an icon before its word, as the way back is,
-/// that runs `act`.
-pub(super) fn quiet(
-    which: Glyph,
-    words: &'static str,
-    act: impl Fn(&mut World) + Send + Sync + 'static,
-) -> AnyView {
-    marked(which, words)
-        .rules(back_link)
-        .tagged(Variant::Text)
-        .on_activate(act)
-        .boxed()
+/// The open asset worn in the viewer, as wide as a listing's cover on
+/// its page, or how its file stands.
+fn viewed() -> AnyView {
+    keyed(resource::<Viewing, _>(|viewing| viewing.sight), |sight| {
+        match sight {
+            Sight::Fetching => note("Fetching it...").boxed(),
+            Sight::Shown => viewer::view(Vec2::new(320.0, 240.0)),
+            Sight::Failed => note(
+                "It could not be fetched. Open it again to try once \
+                 more.",
+            )
+            .boxed(),
+        }
+    })
+    .within(bare())
+    .boxed()
 }
 
 /// The accent line of the asset `id`, once it is the chief's: Worn

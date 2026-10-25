@@ -406,6 +406,9 @@ pub struct Staged {
     pub assets: serde_json::Value,
     /// The official assets the one signed in owns, by id.
     pub owned_assets: Vec<String>,
+    /// The files of official assets, by id, as they are viewed once
+    /// unveiled.
+    pub views: Vec<(String, Vec<u8>)>,
 }
 
 /// Puts the bazaar's server in the state `staged` gives.
@@ -486,6 +489,7 @@ pub fn stage(world: &mut World, staged: Staged) {
         crate::bazaar::covers::came(world, url, Ok((200, bytes)));
     }
     restock(world, Ok(()));
+    wardrobe::viewing::stage(world, staged.views);
     if !staged.assets.is_null() {
         wardrobe::stage(world, staged.assets, &staged.owned_assets);
     }
