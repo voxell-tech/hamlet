@@ -65,6 +65,10 @@ shown but no tools. `ACCEPT` as the first word shelves it. Other replies
 refuse it. `ask_librarian` asks about the shelf, and `/unshelve` takes a
 skill out. The shelf and each decision are kept by the server.
 
+A chief can also shelve a skill directly with `take-skill`, as the Agent
+Bazaar does for skills from skills.sh ([`bazaar.md`](bazaar.md)); the
+librarian does not judge it.
+
 A chief's instruction is recorded before it starts. In a chief
 conversation an agent may object once and wait for go or withdraw. The
 mayor's configured review runs beside a direct instruction to another

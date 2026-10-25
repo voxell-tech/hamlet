@@ -35,6 +35,7 @@ Then read the page for the part you are about to touch.
 | [`robots.md`](robots.md) | How the robots move: their motions, blending, rolling on their wheels, and what one costs |
 | [`working-alone.md`](working-alone.md) | What a robot does in its yard while its agent works |
 | [`chief.md`](chief.md) | The chief in the world: the Hearth, the mascot and Wickstep |
+| [`bazaar.md`](bazaar.md) | The Agent Bazaar: the market in the world, the panel of its stalls, and what a purchase asks of the server |
 | [`sound.md`](sound.md) | Every sound and the music, all made in code |
 | [`ui-warmth.md`](ui-warmth.md) | How the panels glow and answer the hand |
 | [`society.md`](society.md) | Agents, roads, votes, the shared library, departures and the realm, on the server and in the window |

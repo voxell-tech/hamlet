@@ -55,7 +55,7 @@ view layer; the workspace excludes it, and it is not edited here.
 | `hamlet_client` | Connection, outbox, realm, waits and watched chats as Bevy entities, the `Index` that finds them by their protocol ids, and gifts read in parts off the frame |
 | `hamlet_desktop` | File/link openers, editor files, dialogs, wake locks and window icon |
 | `hamlet_assets` | Embedded assets and Bevy asset loading |
-| `hamlet_realm` | Land, hamlets, houses, roads, robots, chief, sound and camera |
+| `hamlet_realm` | Land, hamlets, houses, roads, robots, chief, library, Agent Bazaar, dioramas, sound and camera |
 | `hamlet_ui` | The widget kit: theme, styles, controls and their effects, with no client state |
 | `hamlet_vfx` | Visual effects |
 | `hamlet_testing` | Fixtures shared by tests: scratch folders, protocol values, faux scripts, the loopback OpenAI endpoint, and a server process on a scratch home with a raw connection to it (`send`, `until`, `answers`) |
@@ -90,7 +90,7 @@ before the world are `RealmSystems` in `hamlet_realm/src/stage.rs`
 (`Steer`, `Aim`, `Act`, `Bridge`, then `WorldSystems`), and
 [`bevy.md`](bevy.md#order) says what goes in each. In the generator,
 `society::Ground` is what can be picked up and set down (a town, the
-chief's place, the library), and `Trips` the letters on the roads right
+chief's place, the library, the Agent Bazaar), and `Trips` the letters on the roads right
 now.
 
 `hamlet_app/src/screens/` groups the panels drawn from the client's
@@ -159,7 +159,7 @@ fault points, signals, remote workspaces and the society) and
 | `models.rs`, `credentials.rs`, `scrub.rs` | Catalogue and provider requests, the model each attempt runs (`Choices`), atomic credential files, sign-ins and secret removal before publication or harness persistence, and before a diagnostic is logged |
 | `spend.rs` | Budget reservations and usage charges deduplicated by model attempt, plus agent/task/hamlet accounting |
 | `society.rs`, `society/` | `SocietyTool` names each society tool, its role and schema, and `SocietyOutcome` is what one returns, which `once` keeps at its marker; letters/questions, instructions/objections, votes, library and recoverable merge/departure work. The sweeps run on the ticks that rebuild the state, and read only due votes and reviews; finished ones are kept under `votes-done` and `review-done` |
-| `realm.rs`, `realm/` | Living/closed places, cross-hamlet addresses, founding, agreements and pending house moves |
+| `realm.rs`, `realm/` | Living/closed places, cross-hamlet addresses, founding (from a template too), agreements and pending house moves |
 | `testing.rs` | For unit tests: `config`, a harness configuration that starts nothing, and `set_limits`, which writes a hamlet's limits |
 | `state.rs` | Composes protocol state from the owning records and live activity, with the instant one of its views next changes with the clock alone; `skills_moved` tells whether skills on disk differ from the state's |
 
@@ -207,7 +207,10 @@ ordinary tools.
 | Agent creation, model choice, departure and merge | `hamlet_server/src/society/agents.rs`, `leaving.rs`, `merging.rs`, whose `merging/lane.rs` runs every merge and split, one at a time; a chief's merge that fails lets the lane and the chief's connection go; rules in `record/` |
 | Letters, questions, votes and library | `hamlet_server/src/society/letters.rs`, `votes.rs`, `library.rs` |
 | Instructions and objections | `hamlet_server/src/society/objections.rs`, `reviews.rs` |
-| Founding and cross-hamlet agreements | `hamlet_server/src/realm/deeds.rs`, `dealings.rs` |
+| Founding and cross-hamlet agreements | `hamlet_server/src/realm/deeds.rs`, `dealings.rs`; a hamlet founded from a template is `realm::found_from` |
+| Skills the chief takes into the library | `hamlet_server/src/society/library.rs` (`take`) |
+| The Agent Bazaar's panel, its stalls and fetches | `hamlet_app/src/screens/bazaar.rs`, `bazaar/`; [`bazaar.md`](bazaar.md) |
+| The Agent Bazaar in the world, and dioramas | `hamlet_realm/src/bazaar.rs`, `bazaar/`, `diorama.rs` |
 | A prompt or chief document | `hamlet_server/src/prompt/`, `documents.rs`; default charter in `hamlet_server/assets/charter.md` |
 | A model connection, login or price | `hamlet_server/src/models.rs`, `credentials.rs`; provider implementation in pi |
 | Folder, mode or tool reach | `hamlet_server/src/documents.rs`, `tools.rs`, `sandbox/`; [`sandbox.md`](sandbox.md) |
@@ -251,7 +254,7 @@ reports an error and keeps the last good values.
 |---|---|
 | `cargo run --example ui_gallery -- --scene <name> --out <dir>` | Panel scenes listed in `crates/hamlet_app/examples/ui_gallery/main.rs` |
 | `cargo run --release --example far_lands -- --out <dir>` | Land and town images; `--bench` measures it |
-| `cargo run --example chief_sheet -- --out <dir>` | Wizard, Wickstep and library |
+| `cargo run --example chief_sheet -- --out <dir>` | Wizard, Wickstep, library and the Agent Bazaar; `--bazaar` for the bazaar alone |
 | `cargo run --example cursor_sheet` | Cursor sheet |
 | `cargo run --release --example sound_sheet` | Generated sound WAVs |
 
