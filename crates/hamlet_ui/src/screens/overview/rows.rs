@@ -18,6 +18,7 @@ use hamlet_client::waits::Waiting;
 use hamlet_realm::pick::Thing;
 
 use super::{Naming, Search};
+use crate::feel::Mood;
 use crate::icons::Glyph;
 use crate::looks::{card_button, card_name, note, stated};
 use crate::roll::Roll;
@@ -273,6 +274,7 @@ pub(super) fn pressable(
             .align(AlignItems::FlexStart),
         )
         .rules(card_button)
+        .tagged(Mood::Plain)
         .tagged(world_menu::Asks(thing))
         .on_activate(act)
     })
