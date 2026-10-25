@@ -5,7 +5,9 @@ mod sys;
 
 use std::collections::BTreeMap;
 use std::io;
-use std::process::Stdio;
+use std::process::{ExitStatus, Stdio};
+
+use tokio::process::{ChildStderr, ChildStdout};
 
 /// The resources one command may use.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,16 +46,10 @@ pub struct Command<'a> {
 
 /// The processes of a running command. Dropped before it is
 /// released, it kills them.
-pub struct Tree(sys::Group);
+pub struct Tree(Option<sys::Group>);
 
 /// The processes a command left running when it ended.
-pub struct Leftovers(
-    #[expect(
-        dead_code,
-        reason = "a command's leftovers keep running"
-    )]
-    sys::Group,
-);
+pub struct Leftovers(sys::Group);
 
 impl Tree {
     /// Starts `command` as a tree of its own, with both outputs
@@ -61,25 +57,48 @@ impl Tree {
     pub fn spawn(
         command: Command<'_>,
         limits: &Limits,
-    ) -> io::Result<(Self, tokio::process::Child)> {
+    ) -> io::Result<(Self, ChildStdout, ChildStderr)> {
         if command.argv.is_empty() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "a command needs a program",
             ));
         }
-        let (group, child) = sys::spawn(command, limits)?;
-        Ok((Self(group), child))
+        let (group, stdout, stderr) = sys::spawn(command, limits)?;
+        Ok((Self(Some(group)), stdout, stderr))
     }
 
     /// Kills every process of the tree now.
     pub fn kill(&mut self) {
-        self.0.kill();
+        if let Some(group) = &mut self.0 {
+            group.kill();
+        }
     }
 
-    /// The command ended: what it started keeps running.
-    pub fn release(mut self) -> Leftovers {
-        Leftovers(std::mem::take(&mut self.0))
+    /// Waits for the command to end.
+    pub async fn ended(&mut self) -> io::Result<ExitStatus> {
+        match &mut self.0 {
+            Some(group) => group.exited().await,
+            None => unreachable!("a tree is released only by value"),
+        }
+    }
+
+    /// The command ended: what it started keeps running, as its
+    /// leftovers, if anything does.
+    pub fn release(mut self) -> Option<Leftovers> {
+        self.0.take().filter(sys::Group::is_running).map(Leftovers)
+    }
+}
+
+impl Leftovers {
+    /// Whether any of them still runs.
+    pub fn is_running(&self) -> bool {
+        self.0.is_running()
+    }
+
+    /// Kills every process left.
+    pub fn end(self) {
+        self.0.end();
     }
 }
 
@@ -107,7 +126,109 @@ pub fn is_executable(path: &str) -> bool {
 
 #[cfg(all(test, unix))]
 mod tests {
+    use std::time::Duration;
+
+    use hamlet_testing::signals::is_alive;
+    use rustix::process::{Pid, Signal, kill_process};
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
     use super::*;
+
+    fn bash(script: &str) -> (Tree, ChildStdout) {
+        let argv = ["bash".to_owned(), "-c".into(), script.into()];
+        let env = BTreeMap::from([(
+            "PATH".to_owned(),
+            std::env::var("PATH").unwrap_or_default(),
+        )]);
+        let (tree, stdout, _) = Tree::spawn(
+            Command {
+                argv: &argv,
+                env: &env,
+                cwd: "/",
+                stdin: Stdio::null(),
+            },
+            &Limits::default(),
+        )
+        .unwrap();
+        (tree, stdout)
+    }
+
+    async fn is_gone(pids: &[u32]) -> bool {
+        for _ in 0..500 {
+            if !pids.iter().any(|&pid| is_alive(pid)) {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        false
+    }
+
+    #[tokio::test]
+    async fn ending_leftovers_ends_their_whole_group() {
+        let (mut tree, stdout) = bash(
+            "sleep 300 & echo $!; bash -c 'sleep 300 & echo $!; \
+             wait' &",
+        );
+        let mut lines = BufReader::new(stdout).lines();
+        let mut pids = Vec::new();
+        while pids.len() < 2 {
+            let line = lines.next_line().await.unwrap().unwrap();
+            pids.push(line.parse::<u32>().unwrap());
+        }
+        tree.ended().await.unwrap();
+        let leftovers = tree.release().expect("the sleeps run on");
+        assert!(pids.iter().all(|&pid| is_alive(pid)), "{pids:?}");
+        leftovers.end();
+        assert!(is_gone(&pids).await, "{pids:?}");
+    }
+
+    #[tokio::test]
+    async fn leftovers_hold_their_group_s_id_until_they_end() {
+        let (mut tree, stdout) = bash("echo $$; sleep 300 & echo $!");
+        let mut lines = BufReader::new(stdout).lines();
+        let mut ids = [0u32; 2];
+        for id in &mut ids {
+            *id = lines
+                .next_line()
+                .await
+                .unwrap()
+                .unwrap()
+                .parse()
+                .unwrap();
+        }
+        let [leader, member] = ids;
+        tree.ended().await.unwrap();
+        let leftovers = tree.release().expect("the sleep runs on");
+        let _ = kill_process(
+            Pid::from_raw(member as i32).unwrap(),
+            Signal::KILL,
+        );
+        assert!(is_gone(&[member]).await);
+        assert!(!leftovers.is_running());
+        assert!(is_alive(leader), "the group's id is free for reuse");
+        leftovers.end();
+        assert!(is_gone(&[leader]).await);
+    }
+
+    #[tokio::test]
+    async fn a_command_that_starts_nothing_leaves_no_leftovers() {
+        let (mut tree, stdout) = bash("echo $$; exit 3");
+        let mut lines = BufReader::new(stdout).lines();
+        let leader = lines
+            .next_line()
+            .await
+            .unwrap()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert_eq!(tree.ended().await.unwrap().code(), Some(3));
+        assert!(
+            is_alive(leader),
+            "the leader is reaped only on release"
+        );
+        assert!(tree.release().is_none());
+        assert!(is_gone(&[leader]).await);
+    }
 
     #[test]
     fn limited_wraps_the_command_in_ulimit() {

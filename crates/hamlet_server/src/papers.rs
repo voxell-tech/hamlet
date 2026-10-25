@@ -17,6 +17,7 @@ use hamlet_workspace_wire::MAX_FILE;
 use self::files::Files;
 use crate::protocol::{Cause, Refusable, Refusal};
 use crate::record::AgentRef;
+use crate::sandbox::AllLeftovers;
 use crate::workspace::{Policy, Transport, WorkspaceSession};
 
 pub(crate) const CHARTER: &str = include_str!("../assets/charter.md");
@@ -63,6 +64,7 @@ enum Workspace {
 pub(crate) struct Houses {
     root: Directory,
     workspace: Workspace,
+    leftovers: AllLeftovers,
     skills: std::collections::BTreeMap<
         (String, u64),
         (std::time::Instant, Vec<String>),
@@ -87,6 +89,7 @@ impl Houses {
                     Workspace::Local(crate::tools::Shells::local())
                 }
             },
+            leftovers: AllLeftovers::default(),
             skills: Default::default(),
             reading: Default::default(),
             readers: tokio::task::JoinSet::new(),
@@ -253,6 +256,7 @@ impl Houses {
                     net,
                     sandbox,
                     shells.clone(),
+                    self.leftovers.of(agent),
                 )
             }
             Workspace::Remote(transport) => {
@@ -395,6 +399,7 @@ impl Houses {
         to: &AgentRef,
     ) -> Result<()> {
         self.allows(Capability::MoveHouse)?;
+        self.leftovers.end(|agent| agent == from);
         tree::move_house(&self.root, from, to)
     }
 
@@ -404,12 +409,21 @@ impl Houses {
             crate::record::check_name(hamlet).is_none(),
             "invalid hamlet name"
         );
+        self.leftovers.end(|agent| agent.hamlet == hamlet);
         tree::erase_hamlet(&self.root, hamlet)
     }
 
     pub fn erase(&self, hamlet: &str, number: u64) -> Result<()> {
         self.allows(Capability::EraseHouse)?;
+        self.leftovers.end(|agent| {
+            agent.hamlet == hamlet && agent.number == number
+        });
         tree::erase_house(&self.root, hamlet, number)
+    }
+
+    /// Ends what every agent's commands left running.
+    pub fn end_leftovers(&self) {
+        self.leftovers.end(|_| true);
     }
 
     /// Makes agent `number`'s house hold `snapshot`. A local house is
@@ -594,4 +608,147 @@ pub(crate) fn cut(text: &str, most: usize, note: &str) -> String {
         result.push_str(note);
     }
     result
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::collections::BTreeMap;
+    use std::time::Duration;
+
+    use hamlet_os::process::{Command, Limits, Tree};
+    use hamlet_testing::Scratch;
+    use hamlet_testing::signals::is_alive;
+    use serde_json::json;
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
+    use super::*;
+    use crate::sandbox::Sandbox;
+    use crate::tools::Place;
+
+    fn agent(number: u64) -> AgentRef {
+        AgentRef {
+            hamlet: "home".into(),
+            number,
+        }
+    }
+
+    /// The pid of a `sleep` that `agent`'s command left in `cwd`.
+    async fn leftover(
+        houses: &Houses,
+        agent: &AgentRef,
+        cwd: &Path,
+    ) -> u32 {
+        let argv = [
+            "bash".to_owned(),
+            "-c".into(),
+            "sleep 300 & echo $!".into(),
+        ];
+        let env = BTreeMap::from([(
+            "PATH".to_owned(),
+            std::env::var("PATH").unwrap_or_default(),
+        )]);
+        let (mut tree, stdout, _) = Tree::spawn(
+            Command {
+                argv: &argv,
+                env: &env,
+                cwd: &cwd.to_string_lossy(),
+                stdin: std::process::Stdio::null(),
+            },
+            &Limits::default(),
+        )
+        .unwrap();
+        let mut lines = BufReader::new(stdout).lines();
+        let pid = lines.next_line().await.unwrap().unwrap();
+        tree.ended().await.unwrap();
+        houses
+            .leftovers
+            .of(agent)
+            .keep(tree.release().expect("the sleep runs on"));
+        pid.parse().unwrap()
+    }
+
+    async fn is_gone(pid: u32) -> bool {
+        for _ in 0..500 {
+            if !is_alive(pid) {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        false
+    }
+
+    #[tokio::test]
+    async fn erase_ends_the_agent_s_leftovers_first() {
+        let home = Scratch::new("erase-leftovers");
+        let houses = Houses::open(&home, None).unwrap();
+        houses.initialize("home", 1).await.unwrap();
+        let house = home.join("houses/home/1");
+        let erased = leftover(&houses, &agent(1), &house).await;
+        let kept = leftover(&houses, &agent(2), &home).await;
+        houses.erase("home", 1).unwrap();
+        assert!(!house.exists());
+        assert!(is_gone(erased).await);
+        assert!(is_alive(kept));
+        houses.end_leftovers();
+    }
+
+    #[tokio::test]
+    async fn move_house_ends_the_agent_s_leftovers_first() {
+        let home = Scratch::new("move-leftovers");
+        let houses = Houses::open(&home, None).unwrap();
+        houses.initialize("home", 1).await.unwrap();
+        let house = home.join("houses/home/1");
+        houses.initialize("away", 0).await.unwrap();
+        let moved = leftover(&houses, &agent(1), &house).await;
+        let to = AgentRef {
+            hamlet: "away".into(),
+            number: 1,
+        };
+        houses.move_house(&agent(1), &to).unwrap();
+        assert!(home.join("houses/away/1").exists());
+        assert!(is_gone(moved).await);
+    }
+
+    #[tokio::test]
+    async fn stopping_the_server_ends_every_agent_s_leftovers() {
+        let home = Scratch::new("stop-leftovers");
+        let houses = Houses::open(&home, None).unwrap();
+        let first = leftover(&houses, &agent(1), &home).await;
+        let house = home.join("houses/home/2");
+        std::fs::create_dir_all(&house).unwrap();
+        let place = Place {
+            house: house.clone(),
+            folder: None,
+            home: home.to_path_buf(),
+            shared: Vec::new(),
+        };
+        let tools = houses
+            .tools(&agent(2), place, false, Sandbox::platform())
+            .unwrap();
+        let command = "(while :; do echo . >> beat; sleep 0.05; \
+                       done) > /dev/null 2>&1 &";
+        let arguments = json!({"command": command});
+        let arguments = arguments.as_object().cloned().unwrap();
+        let ran = tools.run(&[], "bash", &arguments).await;
+        assert!(!ran.error, "{}", ran.text);
+        let beats = || {
+            std::fs::metadata(house.join("beat"))
+                .map_or(0, |m| m.len())
+        };
+        let pause = || tokio::time::sleep(Duration::from_millis(300));
+        // Under Seatbelt the loop outlives its call. Under bubblewrap
+        // it ends with it.
+        #[cfg(target_os = "macos")]
+        {
+            let before = beats();
+            pause().await;
+            assert!(beats() > before);
+        }
+        houses.end_leftovers();
+        assert!(is_gone(first).await);
+        pause().await;
+        let after = beats();
+        pause().await;
+        assert_eq!(beats(), after);
+    }
 }

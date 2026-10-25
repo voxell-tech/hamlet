@@ -13,8 +13,8 @@ use super::truncate::{MAX_BYTES, MAX_LINES};
 use super::walk::{SKIPPED, VISITED};
 use crate::papers::remote::{HOUSE, PROJECT, TooLarge};
 use crate::sandbox::{
-    Env, ExecError, FileError, FileInfo, FileKind, Launch, Ran,
-    Sandbox, SetupError,
+    AgentLeftovers, Env, ExecError, FileError, FileInfo, FileKind,
+    Launch, Ran, Sandbox, SetupError,
 };
 use crate::scrub::scrub_text;
 use crate::workspace::WorkspaceSession;
@@ -117,6 +117,7 @@ pub(super) enum Unopened {
 /// async runtime.
 pub(super) struct Local {
     env: Option<Env>,
+    leftovers: AgentLeftovers,
     policy: String,
     cwd: String,
     house: String,
@@ -125,11 +126,13 @@ pub(super) struct Local {
 
 impl Local {
     /// The environment of the tools at `place`, made off the async
-    /// runtime, whose commands reach the network only with `net`.
+    /// runtime, whose commands reach the network only with `net` and
+    /// leave what they started to `leftovers`.
     pub async fn open(
         sandbox: Sandbox,
         place: &super::Place,
         net: bool,
+        leftovers: AgentLeftovers,
     ) -> Result<Self, Unopened> {
         let at = place.clone();
         let env = tokio::task::spawn_blocking(move || {
@@ -140,6 +143,7 @@ impl Local {
             policy: env.policy_hash().to_owned(),
             cwd: env.cwd().to_owned(),
             env: Some(env),
+            leftovers,
             house: path::text(&place.house),
             folder: place.folder.as_deref().map(path::text),
         })
@@ -289,8 +293,14 @@ impl Reach for Local {
         let Some(env) = &self.env else {
             return Err(ExecError::Spawn(LOST.into()));
         };
-        env.exec(Launch::Shell(argv), timeout, secrets, output)
-            .await
+        env.exec(
+            Launch::Shell(argv),
+            timeout,
+            secrets,
+            &self.leftovers,
+            output,
+        )
+        .await
     }
 
     fn policy(&self) -> String {

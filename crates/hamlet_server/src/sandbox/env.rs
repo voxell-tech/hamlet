@@ -6,6 +6,7 @@ use std::fs;
 use std::io::{self, ErrorKind, Write};
 use std::path::Path;
 use std::process::{ExitStatus, Stdio};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use hamlet_os::fs::path::{self, text};
@@ -23,10 +24,57 @@ use super::policy::{
     Policy, SetupError, canon_text, directory_root, fixed_roots,
     is_readable, is_writable, policy_hash, private_tmp, temp_root,
 };
+use crate::record::AgentRef;
 use crate::scrub::Scrubber;
 
 /// How long output may still come once a command ended.
 const EXIT_GRACE: Duration = Duration::from_millis(100);
+
+/// The leftovers of every agent's commands.
+#[derive(Clone, Default)]
+pub(crate) struct AllLeftovers(
+    Arc<Mutex<Vec<(AgentRef, process::Leftovers)>>>,
+);
+
+impl AllLeftovers {
+    /// Where `agent`'s commands leave theirs.
+    pub(crate) fn of(&self, agent: &AgentRef) -> AgentLeftovers {
+        AgentLeftovers {
+            all: self.clone(),
+            agent: agent.clone(),
+        }
+    }
+
+    /// Ends the leftovers of every agent `which` picks.
+    pub(crate) fn end(&self, which: impl Fn(&AgentRef) -> bool) {
+        let ended = {
+            let mut all =
+                self.0.lock().unwrap_or_else(PoisonError::into_inner);
+            all.extract_if(.., |(agent, _)| which(agent))
+                .collect::<Vec<_>>()
+        };
+        for (_, leftovers) in ended {
+            leftovers.end();
+        }
+    }
+}
+
+/// The leftovers of one agent's commands.
+#[derive(Clone)]
+pub(crate) struct AgentLeftovers {
+    all: AllLeftovers,
+    agent: AgentRef,
+}
+
+impl AgentLeftovers {
+    pub(crate) fn keep(&self, leftovers: process::Leftovers) {
+        let mut all =
+            self.all.0.lock().unwrap_or_else(PoisonError::into_inner);
+        // Dropping a record whose group ended frees its id.
+        all.retain(|(_, kept)| kept.is_running());
+        all.push((self.agent.clone(), leftovers));
+    }
+}
 
 /// Output kept in memory before the rest goes to a file, in bytes and
 /// in lines.
@@ -464,12 +512,13 @@ impl Env {
     /// Runs `launch` under the policy, for at most `timeout` and the
     /// policy's own limit. Its output, with `secrets` taken out, goes
     /// to `output` as it comes and, past the spill limits, all of it
-    /// to a file.
+    /// to a file. What it leaves running goes to `leftovers`.
     pub(crate) async fn exec(
         &self,
         launch: Launch<'_>,
         timeout: Duration,
         secrets: &[String],
+        leftovers: &AgentLeftovers,
         output: &mut (impl FnMut(&str) + Send),
     ) -> Result<Ran, ExecError> {
         let mut scrubber = Scrubber::new(secrets);
@@ -481,7 +530,7 @@ impl Env {
             }
         };
         let ran = self
-            .spawned(launch, timeout, &mut |text| {
+            .spawned(launch, timeout, leftovers, &mut |text| {
                 kept(&scrubber.push(text), &mut spill);
             })
             .await;
@@ -504,6 +553,7 @@ impl Env {
         &self,
         launch: Launch<'_>,
         timeout: Duration,
+        leftovers: &AgentLeftovers,
         output: &mut (impl FnMut(&str) + Send),
     ) -> Result<Ended, ExecError> {
         if let Some(refusal) = self.root_refusal() {
@@ -541,7 +591,7 @@ impl Env {
                 .map_err(|error| ExecError::Spawn(error.message))?,
         };
         let program = &confined.argv[0];
-        let (mut tree, mut child) = Tree::spawn(
+        let (tree, stdout, stderr) = Tree::spawn(
             process::Command {
                 argv: &confined.argv,
                 env: &confined.env,
@@ -556,8 +606,9 @@ impl Env {
                 errno_name(&error)
             ))
         })?;
-        let mut stdout = child.stdout.take();
-        let mut stderr = child.stderr.take();
+        let mut tree = Some(tree);
+        let mut stdout = Some(stdout);
+        let mut stderr = Some(stderr);
         let mut decoders = [Decoder::default(), Decoder::default()];
         let mut buffers =
             [vec![0u8; 64 * 1024], vec![0u8; 64 * 1024]];
@@ -597,22 +648,28 @@ impl Env {
                         }
                     }
                 }
-                ended = child.wait(), if status.is_none() => {
+                ended = ended(&mut tree), if status.is_none() => {
                     status = Some(ended);
                     grace = Instant::now() + EXIT_GRACE;
+                    // A timed-out tree was killed whole, and is
+                    // dropped at the end.
+                    if !timed_out
+                        && let Some(left) = tree.take().and_then(Tree::release)
+                    {
+                        leftovers.keep(left);
+                    }
                 }
                 () = &mut deadline, if !timed_out && status.is_none() => {
                     timed_out = true;
-                    tree.kill();
+                    if let Some(tree) = &mut tree {
+                        tree.kill();
+                    }
                 }
                 () = tokio::time::sleep_until(grace), if status.is_some() => {
                     break;
                 }
             }
         }
-        // What runs on after the command ended stays, as it does
-        // where the command was not stopped.
-        tree.release();
         for decoder in &mut decoders {
             output(&decoder.finish());
         }
@@ -640,6 +697,13 @@ impl Env {
 enum Ended {
     Exited(ExitStatus),
     TimedOut,
+}
+
+async fn ended(tree: &mut Option<Tree>) -> io::Result<ExitStatus> {
+    match tree {
+        Some(tree) => tree.ended().await,
+        None => std::future::pending().await,
+    }
 }
 
 async fn read_some(
