@@ -1,17 +1,24 @@
 //! Directories held open, and what is reached from them one name at a
 //! time without following a link at that name.
 
+mod error;
 mod mode;
 mod name;
+pub mod path;
 mod sys;
+mod walk;
 
 use std::fs::File;
 use std::io;
 use std::path::Path;
 
+pub use self::error::{SystemError, system_error};
 pub use self::mode::Mode;
 pub use self::name::{BadName, Name, TreePath};
 use self::sys::{Os, System as _};
+pub use self::walk::{
+    Follow, MAX_LINKS, Reached, Unreached, cased, reach,
+};
 
 /// An open directory. Every operation below it is anchored to it, so
 /// replacing one of its ancestors with a link changes nothing it
@@ -150,13 +157,7 @@ impl Directory {
 
     /// The status of `name`, or `None` where nothing is.
     pub fn stat(&self, name: &Name) -> io::Result<Option<Stat>> {
-        match Os::stat_at(&self.0, name) {
-            Ok(stat) => Ok(Some(stat)),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                Ok(None)
-            }
-            Err(error) => Err(error),
-        }
+        found(Os::stat_at(&self.0, name))
     }
 
     /// The directory `name`. Anything else there fails, a link to a
@@ -207,6 +208,13 @@ impl Directory {
             Kind::File => Ok(Regular { file, stat }),
             kind => Err(NotRegular(kind).into()),
         }
+    }
+
+    pub(crate) fn read_link(
+        &self,
+        name: &Name,
+    ) -> io::Result<String> {
+        Os::read_link_at(&self.0, name)
     }
 
     pub fn set_mode(&self, mode: Mode) -> io::Result<()> {
@@ -271,6 +279,23 @@ impl Regular {
 
     pub fn into_file(self) -> File {
         self.file
+    }
+}
+
+/// The status of the file at `path`, a link itself rather than what
+/// it names, or `None` where nothing is. Searching the folders on the
+/// way is enough, as for `lstat`.
+pub fn stat(path: &Path) -> io::Result<Option<Stat>> {
+    found(Os::lstat(path))
+}
+
+fn found(stat: io::Result<Stat>) -> io::Result<Option<Stat>> {
+    match stat {
+        Ok(stat) => Ok(Some(stat)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            Ok(None)
+        }
+        Err(error) => Err(error),
     }
 }
 

@@ -21,6 +21,7 @@ pub(crate) trait System {
         path: &Path,
         last: LastLink,
     ) -> io::Result<Self::Handle>;
+    fn lstat(path: &Path) -> io::Result<Stat>;
     fn duplicate(dir: &Self::Handle) -> io::Result<Self::Handle>;
     fn status(dir: &Self::Handle) -> io::Result<Stat>;
     fn stat_at(dir: &Self::Handle, name: &Name) -> io::Result<Stat>;
@@ -42,6 +43,10 @@ pub(crate) trait System {
         name: &Name,
         how: Open,
     ) -> io::Result<(File, Stat)>;
+    fn read_link_at(
+        dir: &Self::Handle,
+        name: &Name,
+    ) -> io::Result<String>;
     fn set_mode(dir: &Self::Handle, mode: Mode) -> io::Result<()>;
     fn set_file_mode(file: &File, mode: Mode) -> io::Result<()>;
     fn rename_at(

@@ -2,8 +2,9 @@
 
 use std::path::{Path, PathBuf};
 
+use hamlet_os::fs::path::text;
+
 use super::Sandbox;
-use super::path::text;
 use super::policy::{Policy, host_env};
 
 /// An agent's policy while its hamlet works on no folder: its house,
