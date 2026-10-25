@@ -451,9 +451,11 @@ Four PRs, each on the one before. Every step is one commit that passes
    Windows server. The Windows archive with the server and pi, which
    needs Node installed, as the other archives do.
 
-Windows is checked three ways: the crate's cross-check on Linux, Wine
-as a smoke check of its tests, and the `windows-latest` runner. A full
-session on a real Windows 11 machine closes 3 and 4.
+Windows is checked four ways: the crate's cross-check on Linux, Wine
+as a smoke check of its tests, the `windows-latest` runner for what
+needs no desktop, and a Windows 11 virtual machine on the development
+machine (dockur/windows, under Docker with KVM) for full sessions with
+the window. A full session in that machine closes 3 and 4.
 
 ## Tradeoffs
 
@@ -521,5 +523,8 @@ session on a real Windows 11 machine closes 3 and 4.
 - Job nesting when the server starts inside a terminal's or an IDE's
   job is untested.
 - Wine emulates reparse points, `FileRenameInfo` and job limits only in
-  part. It is a smoke check, and `windows-latest` and a real machine
-  decide.
+  part. It is a smoke check, and `windows-latest` and the Windows 11
+  virtual machine decide.
+- Driving the virtual machine's desktop from outside, to start the
+  window and take screenshots, is unproven. Its setup proves it before
+  any check relies on it.
