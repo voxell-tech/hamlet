@@ -9,6 +9,7 @@ mod tests;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
+use hamlet_os::fs::Directory;
 use hamlet_protocol::runtime::Section;
 use serde_json::Value;
 
@@ -97,8 +98,6 @@ pub(crate) struct Prepared {
     pub sections: Vec<Section>,
     /// The house as the agent's tools see it.
     house: PathBuf,
-    /// The house on this machine, where it is here.
-    local: PathBuf,
     work: crate::documents::Work,
     /// Whether the hamlet's folder is a remote one its agents share.
     shared: bool,
@@ -112,7 +111,6 @@ impl Prepared {
         Self {
             sections,
             house: Default::default(),
-            local: Default::default(),
             work: Default::default(),
             shared: false,
             reader: None,
@@ -137,7 +135,7 @@ impl Prepared {
                     "skills" => {
                         section.text = shelf::skills_text(
                             &self.house,
-                            &reader.skills(&self.local).await,
+                            &reader.skills().await,
                         );
                     }
                     "notes" => {
@@ -217,7 +215,6 @@ pub(crate) fn prepare(
     Ok(Prepared {
         sections,
         house,
-        local,
         work,
         shared: service.houses.machine().is_some(),
         reader: Some(reader),
@@ -367,12 +364,12 @@ pub(crate) fn budget(
     ))
 }
 
-/// The whole prompt as the model reads it.
 /// The folders of the skills in `house`, as a client lists them.
-pub(crate) fn skill_names(house: &Path) -> Vec<String> {
+pub(crate) fn skill_names(house: &Directory) -> Vec<String> {
     shelf::names(house)
 }
 
+/// The whole prompt as the model reads it.
 pub(crate) fn text(sections: &[Section]) -> String {
     sections
         .iter()

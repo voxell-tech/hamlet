@@ -254,3 +254,39 @@ async fn cuts_the_notes_and_lists_the_house_skills() {
         )
     );
 }
+
+#[tokio::test]
+async fn lists_no_skills_through_a_linked_shelf() {
+    let dir = Scratch::new("prompt-linked-shelf");
+    let mut service = Service::new(
+        Home::open(&dir).unwrap(),
+        crate::Overrides::none(true),
+    )
+    .unwrap();
+    let house = service.home.layout().root().join("houses/home/0");
+    std::fs::remove_dir(house.join("skills")).unwrap();
+    let elsewhere = dir.join("elsewhere");
+    std::fs::create_dir_all(elsewhere.join("forecast")).unwrap();
+    std::fs::write(
+        elsewhere.join("forecast/SKILL.md"),
+        "---\nname: forecast\ndescription: Get the forecast\n---\n",
+    )
+    .unwrap();
+    hamlet_testing::links::symlink(&elsewhere, house.join("skills"))
+        .unwrap();
+
+    let sections =
+        sections(&mut service, &subject(0, &[])).await.unwrap();
+    let skills = sections.iter().find(|s| s.name == "skills");
+    assert_eq!(
+        skills.map(|s| s.text.as_str()),
+        Some("# Skills\n(none yet)")
+    );
+    let state = crate::state::state(&mut service, 0, 0).unwrap();
+    let listed = state
+        .agents
+        .iter()
+        .map(|agent| agent.skills.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(listed, [Vec::<String>::new()]);
+}
