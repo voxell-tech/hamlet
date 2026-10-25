@@ -34,16 +34,18 @@ pub fn hard_link(
 }
 
 /// A junction at `link` to the folder `target`, which Windows makes
-/// without privilege.
+/// without privilege. `mklink` would store a verbatim `\\?\` target
+/// as it is, which no walk reads as a folder.
 #[cfg(windows)]
 pub fn junction(
     target: impl AsRef<Path>,
     link: impl AsRef<Path>,
 ) -> io::Result<()> {
+    let target = target.as_ref().as_os_str().to_string_lossy();
     let status = std::process::Command::new("cmd")
         .args(["/C", "mklink", "/J"])
         .arg(link.as_ref())
-        .arg(target.as_ref())
+        .arg(target.strip_prefix(r"\\?\").unwrap_or(&target))
         .status()?;
     if status.success() {
         Ok(())

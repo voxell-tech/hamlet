@@ -96,6 +96,7 @@ struct Fatal(anyhow::Error);
 )]
 pub async fn serve(options: Options) -> Result<()> {
     let mut signals = Signals::new()?;
+    hamlet_os::process::reap_with_server()?;
     let overrides = Overrides::from_env(options.faux.is_some())?;
     let home = Home::open(&options.home).map_err(Fatal)?;
     let mut service =

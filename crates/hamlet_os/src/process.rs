@@ -119,6 +119,12 @@ pub fn unenforced(limits: &Limits) -> &'static [&'static str] {
     sys::unenforced(limits)
 }
 
+/// Makes every process this one starts end when it exits, even when
+/// it crashes: on Windows, the leftovers it has not ended yet.
+pub fn reap_with_server() -> io::Result<()> {
+    sys::reap_with_server()
+}
+
 /// Whether `path` is a file this process may run.
 pub fn is_executable(path: &str) -> bool {
     sys::is_executable(path)
@@ -256,5 +262,139 @@ mod tests {
             .map(|line| line.rsplit(' ').next().unwrap_or_default())
             .collect::<Vec<_>>();
         assert_eq!(values, ["7", "300", "2048", "0"], "{shown}");
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use std::time::Duration;
+
+    use hamlet_testing::signals::is_alive;
+    use tokio::io::{AsyncBufReadExt, BufReader, Lines};
+
+    use super::*;
+
+    /// A `ping` that waits five minutes, started apart from its
+    /// parent, and the line with its id.
+    const SLEEPER: &str = "(Start-Process ping -ArgumentList \
+                           '-n','300','127.0.0.1' -NoNewWindow \
+                           -PassThru).Id";
+
+    fn powershell(
+        script: &str,
+    ) -> (Tree, Lines<BufReader<ChildStdout>>) {
+        let program = format!(
+            r"{}\System32\WindowsPowerShell\v1.0\powershell.exe",
+            std::env::var("SystemRoot").unwrap()
+        );
+        let argv = [
+            program,
+            "-NoProfile".into(),
+            "-NonInteractive".into(),
+            "-Command".into(),
+            script.into(),
+        ];
+        let env = std::env::vars().collect();
+        let (tree, stdout, _) = Tree::spawn(
+            Command {
+                argv: &argv,
+                env: &env,
+                cwd: &std::env::temp_dir().to_string_lossy(),
+                stdin: Stdio::null(),
+            },
+            &Limits::default(),
+        )
+        .unwrap();
+        (tree, BufReader::new(stdout).lines())
+    }
+
+    /// The first number printed, past what `ping` prints.
+    async fn id(lines: &mut Lines<BufReader<ChildStdout>>) -> u32 {
+        loop {
+            let line = lines.next_line().await.unwrap().unwrap();
+            if let Ok(id) = line.trim().parse() {
+                return id;
+            }
+        }
+    }
+
+    async fn is_gone(pid: u32) -> bool {
+        for _ in 0..100 {
+            if !is_alive(pid) {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        false
+    }
+
+    #[tokio::test]
+    async fn a_timeout_ends_the_whole_job() {
+        let (mut tree, mut lines) =
+            powershell(&format!("{SLEEPER}; Start-Sleep 300"));
+        let pid = id(&mut lines).await;
+        tree.kill();
+        tree.ended().await.unwrap();
+        assert!(is_gone(pid).await, "{pid}");
+    }
+
+    #[tokio::test]
+    async fn ending_leftovers_ends_their_job() {
+        let (mut tree, mut lines) = powershell(SLEEPER);
+        let pid = id(&mut lines).await;
+        tree.ended().await.unwrap();
+        let leftovers = tree.release().expect("the ping runs on");
+        assert!(is_alive(pid), "{pid}");
+        leftovers.end();
+        assert!(is_gone(pid).await, "{pid}");
+    }
+
+    #[tokio::test]
+    async fn a_command_that_starts_nothing_leaves_no_leftovers() {
+        let (mut tree, _) = powershell("exit 3");
+        assert_eq!(tree.ended().await.unwrap().code(), Some(3));
+        assert!(tree.release().is_none());
+    }
+
+    /// Set in the copy of this test that plays the server.
+    const SERVER: &str = "HAMLET_TEST_REAPER_SERVER";
+
+    #[tokio::test]
+    async fn released_leftovers_end_with_the_reaper() {
+        if std::env::var_os(SERVER).is_some() {
+            reap_with_server().unwrap();
+            let (mut tree, mut lines) = powershell(SLEEPER);
+            let pid = id(&mut lines).await;
+            tree.ended().await.unwrap();
+            let leftovers = tree.release().expect("the ping runs on");
+            #[expect(
+                clippy::print_stdout,
+                reason = "the parent test reads the id from it"
+            )]
+            {
+                println!("leftover {pid}");
+            }
+            // Kept, not ended: only the server's exit ends it.
+            std::mem::forget(leftovers);
+            return;
+        }
+        let server = std::process::Command::new(
+            std::env::current_exe().unwrap(),
+        )
+        .args([
+            "--exact",
+            "process::tests::released_leftovers_end_with_the_reaper",
+            "--nocapture",
+        ])
+        .env(SERVER, "1")
+        .output()
+        .unwrap();
+        let shown = String::from_utf8_lossy(&server.stdout);
+        let pid = shown
+            .lines()
+            .find_map(|line| line.strip_prefix("leftover "))
+            .and_then(|pid| pid.trim().parse().ok())
+            .unwrap_or_else(|| panic!("{shown}"));
+        assert!(is_gone(pid).await, "{pid}");
     }
 }

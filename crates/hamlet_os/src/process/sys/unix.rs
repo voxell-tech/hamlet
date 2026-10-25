@@ -176,3 +176,9 @@ pub(crate) fn unenforced(
 pub(crate) fn is_executable(path: &str) -> bool {
     rustix::fs::access(path, rustix::fs::Access::EXEC_OK).is_ok()
 }
+
+/// Unix has no such job, so a crashed server leaves the leftovers of
+/// its Seatbelt commands running.
+pub(crate) fn reap_with_server() -> io::Result<()> {
+    Ok(())
+}

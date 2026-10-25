@@ -6,3 +6,5 @@
 channel = "stable"
 profile = "minimal"
 components = ["clippy"]
+# `cargo xtask cross` checks hamlet_os for Windows.
+targets = ["x86_64-pc-windows-gnu"]

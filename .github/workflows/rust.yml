@@ -47,6 +47,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
       - run: cargo xtask clippy
+      - run: cargo xtask cross
 
   # The clippy job on macOS, which compiles the code only macOS builds.
   clippy-macos:
@@ -162,3 +163,19 @@ jobs:
           shared-key: ci
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy --locked -p hamlet_app --all-targets -- -D warnings
+
+  # hamlet_os on NTFS: links, junctions and Job Objects.
+  test-windows-os:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # vendor/fynix is a submodule.
+          submodules: recursive
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: test
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo test --locked -p hamlet_os
