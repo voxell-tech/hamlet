@@ -204,6 +204,22 @@ fn header(agent: Entity, with: Option<String>) -> impl View {
                 // more than this one chat.
                 note(rolled(move |world| spent(world, agent))),
                 crate::models::of_agent(agent),
+                // What it wears, at the Agent Bazaar.
+                row((action(
+                    Glyph::Mayor,
+                    "CHANGE LOOKS",
+                    move |world| {
+                        if let Some(at) =
+                            hamlet_client::realm::address_of(
+                                world, agent,
+                            )
+                        {
+                            crate::bazaar::fit_agent(
+                                world, &at.hamlet, &at.agent,
+                            );
+                        }
+                    },
+                ),)),
             ))
             .gap(gap),
         )

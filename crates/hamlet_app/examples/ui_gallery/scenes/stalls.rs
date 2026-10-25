@@ -17,7 +17,7 @@ use bevy::ui_widgets::{Activate, Button};
 use hamlet_app::bazaar::{
     Dealt, Offered, Staged, StallShown, offer, stage,
 };
-use hamlet_client::realm::{Providers, Skills};
+use hamlet_client::realm::{Outfit, Providers, Skills};
 use hamlet_protocol::client as protocol;
 use hamlet_realm::WorldCamera;
 use hamlet_realm::generator::land::Land;
@@ -83,6 +83,14 @@ fn at_the_stall(world: &mut World) {
     offer(world, offered());
     if let Some(trade) = trade {
         stage(world, market(trade));
+        if trade == Trade::SignedIn
+            && let Some(mayor) = hamlet_client::realm::mayor(world)
+        {
+            world.entity_mut(mayor).insert(Outfit(protocol::Looks {
+                skin: Some(format!("{SAKURA}@1.0.0")),
+                ..protocol::Looks::default()
+            }));
+        }
     }
 }
 
@@ -348,6 +356,7 @@ fn market(trade: Trade) -> Staged {
         covers: ["l_wick", "l_owl", "l_scribe", "l_cal", "l_ink"]
             .into_iter()
             .map(|id| (format!("/v1/listings/{id}/cover?v=1"), cover.clone()))
+            .chain(previews(&cover))
             .collect(),
         code: (trade == Trade::Code).then(|| {
             ("WDJB-MJHT".into(), "https://github.com/login/device".into())
@@ -357,5 +366,54 @@ fn market(trade: Trade) -> Staged {
             Trade::Installing => Some(("l_wick".into(), Dealt::Installing)),
             _ => None,
         },
+        assets: assets(),
+        owned_assets: if signed_in {
+            vec![SAKURA.into(), "agent-emote-wave".into()]
+        } else {
+            Vec::new()
+        },
     }
+}
+
+/// The official look the LOOKS scenes open, which the mayor wears
+/// once the chief is signed in.
+const SAKURA: &str = "agent-skin-sakura";
+
+/// The LOOKS stall's catalogue, as `GET /v1/assets` answers.
+fn assets() -> serde_json::Value {
+    let asset = |id: &str,
+                 category: &str,
+                 title: &str,
+                 summary: &str,
+                 cents: u32| {
+        json!({"id": id, "target": id.split('-').next(),
+            "category": category, "title": title, "summary": summary,
+            "priceCents": cents, "currency": "usd", "version": "1.0.0",
+            "frames": 24,
+            "previewUrl": format!("/v1/assets/{id}/preview/{{frame}}?v=1.0.0"),
+            "owned": false})
+    };
+    json!({"items": [
+        asset("agent-emote-wave", "emote", "Wave",
+            "A friendly wave hello.", 0),
+        asset(SAKURA, "skin", "Sakura",
+            "Soft pinks and white trim for your agent.", 99),
+        asset("hamlet-mesh-minka", "mesh", "Minka",
+            "A thatched farmhouse for every house of the hamlet.", 499),
+    ]})
+}
+
+/// The first picture of each look, and every picture of Sakura's
+/// turntable, the still of the world standing in for each.
+fn previews(stand_in: &[u8]) -> Vec<(String, Vec<u8>)> {
+    let frames = |id: &'static str, count: u32| {
+        (0..count).map(move |n| {
+            let url = format!("/v1/assets/{id}/preview/{n}?v=1.0.0");
+            (url, stand_in.to_vec())
+        })
+    };
+    frames(SAKURA, 24)
+        .chain(frames("agent-emote-wave", 1))
+        .chain(frames("hamlet-mesh-minka", 1))
+        .collect()
 }

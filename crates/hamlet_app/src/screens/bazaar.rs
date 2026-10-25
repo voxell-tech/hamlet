@@ -1,10 +1,11 @@
-//! The Agent Bazaar's panel: five stalls, each a tab, where the chief
+//! The Agent Bazaar's panel: six stalls, each a tab, where the chief
 //! adds models from OpenRouter and the endpoints to the catalogue,
-//! takes skills from skills.sh into the library, and buys and sells
-//! agents, tools and hamlets at the bazaar's server;
-//! where that cannot be reached, those stalls show samples, and
-//! hamlets are founded from their templates. A stall clicked in the
-//! world opens it here.
+//! takes skills from skills.sh into the library, buys and sells
+//! agents, tools and hamlets at the bazaar's server,
+//! and buys the official looks agents and hamlets wear there; where
+//! that cannot be reached, those stalls show samples, and hamlets are
+//! founded from their templates. A stall clicked in the world opens
+//! it here.
 
 mod covers;
 mod errand;
@@ -16,6 +17,7 @@ mod samples;
 mod shelf;
 mod skills;
 mod view;
+mod wardrobe;
 
 #[cfg(test)]
 mod tests;
@@ -62,6 +64,7 @@ pub fn plugin(app: &mut App) {
         hamlets::plugin,
         market::plugin,
         covers::plugin,
+        wardrobe::plugin,
         view::plugin,
     ))
     .add_systems(
@@ -89,6 +92,9 @@ pub struct BazaarSettings {
     /// Seconds the world is given to raise a hamlet founded from a
     /// template before the camera stops waiting to show it.
     pub seek: f32,
+    /// Seconds each picture of an asset's turntable is shown while
+    /// it turns.
+    pub turn_step: f32,
 }
 
 /// The stall the panel shows.
@@ -114,6 +120,26 @@ pub(crate) fn show(world: &mut World, stall: Stall) {
 pub(crate) fn browse_models(world: &mut World) {
     models::browse(world);
     show(world, Stall::Models);
+}
+
+/// Opens the LOOKS stall at what the agent `agent` wears.
+pub(crate) fn fit_agent(
+    world: &mut World,
+    hamlet: &str,
+    agent: &str,
+) {
+    wardrobe::fit(
+        world,
+        wardrobe::Who::Agent {
+            hamlet: hamlet.to_string(),
+            name: agent.to_string(),
+        },
+    );
+}
+
+/// Opens the LOOKS stall at what the houses of the hamlet `id` wear.
+pub(crate) fn fit_hamlet(world: &mut World, id: &str) {
+    wardrobe::fit(world, wardrobe::Who::Hamlet(id.to_string()));
 }
 
 /// Opens the bazaar at its hamlet templates.
@@ -164,7 +190,10 @@ pub(crate) fn stocked(world: &mut World, stall: Stall) {
             reopen::<Template>(world);
             reopen::<Wares<Hamlets>>(world);
         }
-        Stall::Assets => {}
+        Stall::Assets => {
+            wardrobe::stocked(world);
+            reopen::<hamlet_realm::wardrobe::Asset>(world);
+        }
     }
 }
 

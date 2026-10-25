@@ -67,7 +67,7 @@ const fn market(
     }
 }
 
-const SHOTS: [Shot; 54] = [
+const SHOTS: [Shot; 59] = [
     bazaar("bazaar-models", Scene::Stall(Stall::Models, &[])),
     bazaar(
         "bazaar-model",
@@ -143,6 +143,31 @@ const SHOTS: [Shot; 54] = [
         &["Small Press"],
     ),
     market("market-sign-in", Stall::Community, Trade::Code, &[]),
+    market("looks", Stall::Assets, Trade::SignedOut, &[]),
+    market(
+        "looks-asset",
+        Stall::Assets,
+        Trade::SignedOut,
+        &["Sakura"],
+    ),
+    market(
+        "looks-asset-owned",
+        Stall::Assets,
+        Trade::SignedIn,
+        &["Sakura"],
+    ),
+    market(
+        "looks-fitting",
+        Stall::Assets,
+        Trade::SignedIn,
+        &["FITTING"],
+    ),
+    market(
+        "looks-fitting-one",
+        Stall::Assets,
+        Trade::SignedIn,
+        &["FITTING", "FOUNDER"],
+    ),
     market(
         "market-desk",
         Stall::Community,

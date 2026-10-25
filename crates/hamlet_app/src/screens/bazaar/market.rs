@@ -33,10 +33,10 @@ use self::lot::{Detail, Kind, Lot, Page};
 pub(crate) use self::sell::{
     Housed, Offer, Selling, ask_tools, sell, shelve,
 };
-use crate::bazaar::Stall;
 use crate::bazaar::errand::{self, Errand, Fetched};
 use crate::bazaar::listings::{Agents, Hamlets, Sells, Tools, Wares};
 use crate::bazaar::shelf::{self, Stock, now};
+use crate::bazaar::{Stall, wardrobe};
 
 /// The most pages of listings asked for.
 const PAGES: u32 = 5;
@@ -165,8 +165,11 @@ pub(crate) enum Call {
     Account(account::Call),
     Deal(deal::Call),
     Sell(sell::Call),
-    /// A listing's cover, at its address on the server.
+    /// A listing's cover, or an asset's picture, at its address on
+    /// the server.
     Picture(String),
+    /// A fetch of the LOOKS stall's.
+    Wardrobe(wardrobe::Call),
 }
 
 /// Asks the bazaar's server `request`, for `call`. Where the window
@@ -200,6 +203,9 @@ pub(crate) fn answered(
         Call::Sell(call) => sell::answered(world, call, answer),
         Call::Picture(url) => {
             crate::bazaar::covers::came(world, url, answer);
+        }
+        Call::Wardrobe(call) => {
+            wardrobe::answered(world, call, answer);
         }
     }
 }
@@ -336,6 +342,7 @@ fn answered_by_home(response: On<Response>, mut commands: Commands) {
         }
         deal::heard(world, &response);
         sell::heard(world, &response);
+        wardrobe::heard(world, &response);
     });
 }
 
@@ -395,6 +402,10 @@ pub struct Staged {
     pub code: Option<(String, String)>,
     /// A deal held at a step, of the listing of this id.
     pub deal: Option<(String, Dealt)>,
+    /// The LOOKS stall's catalogue, as `GET /v1/assets` answers.
+    pub assets: serde_json::Value,
+    /// The official assets the one signed in owns, by id.
+    pub owned_assets: Vec<String>,
 }
 
 /// Puts the bazaar's server in the state `staged` gives.
@@ -475,4 +486,7 @@ pub fn stage(world: &mut World, staged: Staged) {
         crate::bazaar::covers::came(world, url, Ok((200, bytes)));
     }
     restock(world, Ok(()));
+    if !staged.assets.is_null() {
+        wardrobe::stage(world, staged.assets, &staged.owned_assets);
+    }
 }

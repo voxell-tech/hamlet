@@ -1,6 +1,7 @@
-//! The covers of the bazaar's listings: fetched from its server for
-//! the page that shows one, kept while a few are, and drawn as Hamlet
-//! draws a picture of a reply. And the cover chosen at the seller's
+//! The covers of the bazaar's listings and the pictures of its
+//! official looks: fetched from its server for the page that shows
+//! one, kept while a few are, and drawn as Hamlet draws a picture of
+//! a reply. And the cover chosen at the seller's
 //! desk, read from a file of this computer or fetched from the web.
 
 use std::collections::VecDeque;
@@ -19,8 +20,9 @@ use crate::bazaar::market::client::bytes;
 use crate::bazaar::market::{self, Call, Market};
 use crate::pictures::{Drawn, decode, image};
 
-/// The most covers kept.
-const MOST: usize = 24;
+/// The most covers kept: an asset's turntable of pictures, and a few
+/// more.
+const MOST: usize = 40;
 
 /// The most bytes a cover may be, as the bazaar's server takes it.
 pub(crate) const MOST_BYTES: usize = 400 * 1024;

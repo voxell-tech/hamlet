@@ -232,6 +232,12 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                 orders::carry(world, hamlet);
             }));
         }
+        let looks = id.clone();
+        actions.push(action(
+            Glyph::Mayor,
+            "CHANGE LOOKS",
+            move |world| crate::bazaar::fit_hamlet(world, &looks),
+        ));
         if *close && facts.id != HOME {
             actions.push(bad_action(
                 Glyph::Gone,

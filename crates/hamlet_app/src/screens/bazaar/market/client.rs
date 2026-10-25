@@ -199,6 +199,47 @@ impl Server {
         self.get(&format!("/v1/purchases/{}", escaped(purchase)))
     }
 
+    /// Every official asset on the shelves of the LOOKS stall.
+    pub fn assets(&self) -> Request {
+        self.get("/v1/assets")
+    }
+
+    /// Every official asset the one signed in owns, those taken off
+    /// the shelves among them.
+    pub fn my_assets(&self) -> Request {
+        self.get("/v1/me/assets")
+    }
+
+    /// Buys the asset `id`: owned at once when it is free, or a page
+    /// on Stripe to pay on.
+    pub fn asset_purchase(&self, id: &str) -> Request {
+        let path = format!("/v1/assets/{}/purchase", escaped(id));
+        self.post(&path, None)
+    }
+
+    pub fn asset_purchase_state(&self, purchase: &str) -> Request {
+        self.get(&format!(
+            "/v1/asset-purchases/{}",
+            escaped(purchase)
+        ))
+    }
+
+    /// `limit` bytes of the file of the asset `id`, which the one
+    /// signed in owns, from `offset` on.
+    pub fn asset_file_part(
+        &self,
+        id: &str,
+        offset: u64,
+        limit: u64,
+    ) -> Request {
+        let path = format!("/v1/assets/{}/file", escaped(id));
+        let query = [
+            ("offset", offset.to_string()),
+            ("limit", limit.to_string()),
+        ];
+        self.request(Method::GET, &path, &query)
+    }
+
     /// The package of `version` of a listing, whole.
     pub fn package(&self, id: &str, version: &str) -> Request {
         Request {

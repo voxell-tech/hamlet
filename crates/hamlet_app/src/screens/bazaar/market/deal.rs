@@ -135,88 +135,14 @@ impl Deal {
         event: Event,
         now: u64,
     ) -> (Deal, Option<Act>) {
-        let fetch = || (Deal::Fetching, Some(Act::Download));
         match (self, event) {
-            (Deal::Buying, Event::Bought(Ok(checkout))) => {
-                match checkout {
-                    Checkout { owned: true, .. } => fetch(),
-                    Checkout {
-                        purchase_id: Some(purchase),
-                        checkout_url: Some(url),
-                        ..
-                    } => (
-                        Deal::Paying {
-                            url: url.clone(),
-                            purchase,
-                            asking: Asking::new(
-                                now,
-                                PAYMENT_POLL,
-                                PAYMENT_PATIENCE,
-                            ),
-                        },
-                        Some(Act::Open(url)),
-                    ),
-                    _ => failed("The bazaar gave no page to pay on."),
+            (deal @ (Deal::Buying | Deal::Paying { .. }), event) => {
+                match pay(deal, event, now) {
+                    Paid::Owned => {
+                        (Deal::Fetching, Some(Act::Download))
+                    }
+                    Paid::Going(deal, act) => (deal, act),
                 }
-            }
-            // Owned already: it only needs installing.
-            (Deal::Buying, Event::Bought(Err(why)))
-                if why.code == "conflict" =>
-            {
-                fetch()
-            }
-            (Deal::Buying, Event::Bought(Err(why))) => {
-                failed(why.words())
-            }
-            (Deal::Paying { .. }, Event::Paid(Ok(Paying::Paid))) => {
-                fetch()
-            }
-            (
-                Deal::Paying { .. },
-                Event::Paid(Ok(Paying::Expired)),
-            ) => failed(
-                "The payment was not made. Nothing was charged.",
-            ),
-            // Not yet, or a blip of the network: asked again later.
-            (
-                Deal::Paying {
-                    url,
-                    purchase,
-                    mut asking,
-                },
-                Event::Paid(_),
-            ) => {
-                asking.heard(now);
-                let paying = Deal::Paying {
-                    url,
-                    purchase,
-                    asking,
-                };
-                (paying, None)
-            }
-            (
-                Deal::Paying {
-                    url,
-                    purchase,
-                    mut asking,
-                },
-                Event::Tick(now),
-            ) => {
-                if asking.over(now) {
-                    return failed(
-                        "The payment was not finished in time.",
-                    );
-                }
-                let act = asking.due(now).then(|| {
-                    asking.out = true;
-                    Act::Poll(purchase.clone())
-                });
-                let paying = Deal::Paying {
-                    url,
-                    purchase,
-                    asking,
-                };
-                (paying, act)
             }
             (Deal::Fetching, Event::Package(Ok(size))) => {
                 if size == 0 || (order.size > 0 && size != order.size)
@@ -245,6 +171,106 @@ impl Deal {
             // nothing.
             (deal, _) => (deal, None),
         }
+    }
+}
+
+/// What came of a step of buying, until what is bought is the
+/// chief's.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum Paid {
+    /// Still buying, or failed: the deal now, and what it asks.
+    Going(Deal, Option<Act>),
+    /// It is the chief's now.
+    Owned,
+}
+
+/// `deal`, while it is [`Deal::Buying`] or [`Deal::Paying`], moved by
+/// `event` at `now`: asked of the server, then paid for on Stripe's
+/// page when it has a price. The market's deals and the LOOKS stall's
+/// share it.
+pub(crate) fn pay(deal: Deal, event: Event, now: u64) -> Paid {
+    let going = |(deal, act)| Paid::Going(deal, act);
+    match (deal, event) {
+        (Deal::Buying, Event::Bought(Ok(checkout))) => match checkout
+        {
+            Checkout { owned: true, .. } => Paid::Owned,
+            Checkout {
+                purchase_id: Some(purchase),
+                checkout_url: Some(url),
+                ..
+            } => Paid::Going(
+                Deal::Paying {
+                    url: url.clone(),
+                    purchase,
+                    asking: Asking::new(
+                        now,
+                        PAYMENT_POLL,
+                        PAYMENT_PATIENCE,
+                    ),
+                },
+                Some(Act::Open(url)),
+            ),
+            _ => going(failed("The bazaar gave no page to pay on.")),
+        },
+        // Owned already.
+        (Deal::Buying, Event::Bought(Err(why)))
+            if why.code == "conflict" =>
+        {
+            Paid::Owned
+        }
+        (Deal::Buying, Event::Bought(Err(why))) => {
+            going(failed(why.words()))
+        }
+        (Deal::Paying { .. }, Event::Paid(Ok(Paying::Paid))) => {
+            Paid::Owned
+        }
+        (Deal::Paying { .. }, Event::Paid(Ok(Paying::Expired))) => {
+            going(failed(
+                "The payment was not made. Nothing was charged.",
+            ))
+        }
+        // Not yet, or a blip of the network: asked again later.
+        (
+            Deal::Paying {
+                url,
+                purchase,
+                mut asking,
+            },
+            Event::Paid(_),
+        ) => {
+            asking.heard(now);
+            let paying = Deal::Paying {
+                url,
+                purchase,
+                asking,
+            };
+            Paid::Going(paying, None)
+        }
+        (
+            Deal::Paying {
+                url,
+                purchase,
+                mut asking,
+            },
+            Event::Tick(now),
+        ) => {
+            if asking.over(now) {
+                return going(failed(
+                    "The payment was not finished in time.",
+                ));
+            }
+            let act = asking.due(now).then(|| {
+                asking.out = true;
+                Act::Poll(purchase.clone())
+            });
+            let paying = Deal::Paying {
+                url,
+                purchase,
+                asking,
+            };
+            Paid::Going(paying, act)
+        }
+        (deal, _) => Paid::Going(deal, None),
     }
 }
 

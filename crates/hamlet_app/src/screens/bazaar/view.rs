@@ -13,6 +13,7 @@ mod parts;
 mod shelf;
 mod skills;
 mod trade;
+mod wardrobe;
 mod wares;
 mod words;
 
@@ -23,6 +24,7 @@ use bevy::ecs::world::World;
 use bevy_fynix::views::{FrameProps, column};
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_realm::diorama::Dioramas;
+use hamlet_realm::wardrobe::Asset;
 use hamlet_ui::styles::{Fills, filling};
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::tabs;
@@ -49,6 +51,7 @@ pub(crate) fn plugin(app: &mut App) {
         shelf::typing::<Wares<Agents>>,
         shelf::typing::<Wares<Tools>>,
         shelf::typing::<Wares<Hamlets>>,
+        shelf::typing::<Asset>,
     ))
     .init_resource::<Desk>()
     .add_systems(
@@ -61,7 +64,7 @@ pub(crate) fn plugin(app: &mut App) {
 }
 
 /// The tabs of the stalls, a line each: what the agents use, then
-/// who works.
+/// who works and what they wear.
 const TABS: [&[(StallShown, Glyph, &str)]; 2] = [
     &[
         (StallShown(Stall::Models), Glyph::Chip, "MODELS"),
@@ -71,6 +74,7 @@ const TABS: [&[(StallShown, Glyph, &str)]; 2] = [
     &[
         (StallShown(Stall::Community), Glyph::Robot, "AGENTS"),
         (StallShown(Stall::Hamlets), Glyph::Hamlet, "HAMLETS"),
+        (StallShown(Stall::Assets), Glyph::Mayor, "LOOKS"),
     ],
 ];
 
@@ -125,7 +129,7 @@ fn wares(stall: Stall) -> AnyView {
         Stall::Plugins => trade::stall::<Tools, Contraption>(),
         Stall::Skills => shelf::stall::<Scroll>(),
         Stall::Hamlets => trade::stall::<Hamlets, Template>(),
-        Stall::Assets => return parts::nothing(),
+        Stall::Assets => wardrobe::stall(),
     }
     .boxed()
 }

@@ -35,7 +35,9 @@ pub(super) fn cover(url: String) -> AnyView {
         .when(moved::<Covers>());
         cx.build(
             keyed(held, |held| match held {
-                Some(Held::Shown(drawn)) => picture(drawn.clone()),
+                Some(Held::Shown(drawn)) => {
+                    picture(drawn.clone(), PAGE)
+                }
                 Some(Held::Fetching) => {
                     note("Fetching its cover...").boxed()
                 }
@@ -73,7 +75,7 @@ pub(super) fn chosen() -> AnyView {
         ));
         cx.build(
             keyed(drawn, |drawn| match drawn {
-                Some(drawn) => picture(drawn.clone()),
+                Some(drawn) => picture(drawn.clone(), PAGE),
                 None => nothing(),
             })
             .within(bare()),
@@ -88,17 +90,17 @@ pub(super) fn now_of(world: &World) -> Option<String> {
     world.resource::<Market>().lot(&id)?.cover_url.clone()
 }
 
-/// `drawn` in a frame as wide and as tall as [`PAGE`], as a picture
-/// of a reply is framed, cut to fill it.
-fn picture(drawn: Drawn) -> AnyView {
+/// `drawn` in a frame as wide and as tall as `frame`, as a picture of
+/// a reply is framed, cut to fill it.
+pub(super) fn picture(drawn: Drawn, frame: Vec2) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let within = cx.build(bare().width(percent(100.0)));
         let theme = cx.theme();
         let edge = 1.0;
-        let outer = PAGE + 2.0 * edge;
+        let outer = frame + 2.0 * edge;
         let mut image = ImageNode::new(drawn.image.clone())
             .with_mode(NodeImageMode::Stretch);
-        image.rect = Some(filled(drawn.size.as_vec2(), PAGE));
+        image.rect = Some(filled(drawn.size.as_vec2(), frame));
         cx.world.spawn((
             Node {
                 width: px(outer.x),
