@@ -9,8 +9,9 @@ use bevy::ecs::system::{Commands, Local, Query, Res};
 use bevy::picking::Pickable;
 use bevy::time::Time;
 use bevy::ui::{
-    BackgroundGradient, Gradient, PositionType, RadialGradient,
-    RadialGradientShape, UiPosition, UiRect, Val, percent, px,
+    BackgroundGradient, Gradient, Overflow, OverrideClip,
+    PositionType, RadialGradient, RadialGradientShape, UiPosition,
+    UiRect, Val, percent, px,
 };
 use bevy_fynix::views::{BehaviorExt, frame};
 use hamlet_client::waits::Waiting;
@@ -58,8 +59,11 @@ pub(crate) fn lamplight(lit: Lit) -> impl View {
             bottom: Val::Auto,
         })
         .height(px(LAMP_DEEP * FADE_OUT))
+        // Past the panel's padding, to its edge, as the glow layer.
+        .overflow(Overflow::clip())
         .tagged(lit)
         .tagged(Lamplight::default())
+        .tagged(OverrideClip)
         .tagged(Pickable::IGNORE)
 }
 
