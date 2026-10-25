@@ -6,8 +6,12 @@
 #[cfg(any(windows, test))]
 mod find;
 
+use std::io::{self, Write};
 use std::time::Duration;
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
+use hamlet_os::fs::path;
 use hamlet_protocol::runtime::{
     DiagnosticSeverity, ToolSpec, ToolSpecReplay, ToolSpecRetain,
 };
@@ -45,6 +49,24 @@ const OUTSIDE_PROJECT: &str = "\n[The sandbox lets a command write \
                                only in the project folder and in \
                                your own workspace, and keeps \
                                Hamlet's own folder closed to it.]";
+
+/// Run before a PowerShell script: UTF-8 both ways, as the server
+/// reads output, and no progress records.
+const PREAMBLE: &str = r"try { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) } catch {}
+$OutputEncoding = [Text.UTF8Encoding]::new($false)
+$ProgressPreference = 'SilentlyContinue'
+";
+
+/// Run after a PowerShell script, which on its own exits 1 for any
+/// failure: the last native command's exit code, as bash gives.
+const EPILOGUE: &str = r"
+if ($?) { exit 0 }
+if ($LASTEXITCODE) { exit $LASTEXITCODE }
+exit 1
+";
+
+/// Characters a Windows command line holds, less room for quoting.
+const COMMAND_LINE: usize = 32_000;
 
 /// The language a shell tool takes its commands in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -119,11 +141,39 @@ impl Dialect {
     }
 }
 
+/// Which PowerShell a Windows machine has.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(any(windows, test)),
+    expect(dead_code, reason = "only Windows offers PowerShell")
+)]
+pub(crate) enum Edition {
+    /// `pwsh`, PowerShell 7.
+    Seven,
+    /// `powershell.exe`, Windows PowerShell 5.1.
+    Windows,
+}
+
+impl Edition {
+    /// What the tool's description says of it.
+    fn description(self) -> &'static str {
+        match self {
+            Self::Seven => " It runs PowerShell 7 (pwsh).",
+            Self::Windows => {
+                " It runs Windows PowerShell 5.1, which has no `&&` \
+                 or `||`: chain with `;` and test `$?`."
+            }
+        }
+    }
+}
+
 /// A shell a workspace offers.
 #[derive(Clone, Debug)]
 pub(crate) struct Shell {
     dialect: Dialect,
     program: String,
+    /// Which PowerShell `program` is.
+    edition: Option<Edition>,
 }
 
 impl Shell {
@@ -162,8 +212,9 @@ impl Shell {
                  {}KB (whichever is hit first). If truncated, full \
                  output is saved to a temp file. Optionally provide \
                  a timeout in seconds. It stops after {WALL_SECS} \
-                 seconds, or sooner with `timeout`.",
-                MAX_BYTES / 1024
+                 seconds, or sooner with `timeout`.{}",
+                MAX_BYTES / 1024,
+                self.edition.map_or("", Edition::description)
             ),
             parameters: match parameters {
                 Value::Object(map) => map.into_iter().collect(),
@@ -174,9 +225,82 @@ impl Shell {
         }
     }
 
-    /// The argv that runs `script`.
-    fn invocation(&self, script: &str) -> Vec<String> {
-        vec![self.program.clone(), "-c".into(), script.into()]
+    /// The argv that runs `script`, and the file holding the script
+    /// while it runs when the command line cannot. That file is in
+    /// `tmp`, the command's private temp folder.
+    fn invocation(
+        &self,
+        script: &str,
+        tmp: Option<&str>,
+    ) -> io::Result<(Vec<String>, Option<ScriptFile>)> {
+        if self.dialect == Dialect::Bash {
+            let argv = vec![
+                self.program.clone(),
+                "-c".into(),
+                script.into(),
+            ];
+            return Ok((argv, None));
+        }
+        let whole = format!("{PREAMBLE}{script}{EPILOGUE}");
+        // Without -OutputFormat, an encoded command writes its
+        // errors as CLIXML once stderr is a pipe.
+        let mut argv = [
+            self.program.as_str(),
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-OutputFormat",
+            "Text",
+            "-EncodedCommand",
+        ]
+        .map(String::from)
+        .to_vec();
+        let utf16 = whole
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>();
+        argv.push(STANDARD.encode(utf16));
+        let length =
+            argv.iter().map(|word| word.len() + 3).sum::<usize>();
+        if length <= COMMAND_LINE {
+            return Ok((argv, None));
+        }
+        let tmp = tmp.ok_or_else(|| {
+            io::Error::other("no temp folder holds a long script")
+        })?;
+        let file = ScriptFile::write(tmp, &whole)?;
+        argv.truncate(argv.len() - 2);
+        argv.extend(["-File".into(), file.0.clone()]);
+        Ok((argv, Some(file)))
+    }
+}
+
+/// A script kept in a file while it runs, removed when dropped.
+struct ScriptFile(String);
+
+impl ScriptFile {
+    fn write(tmp: &str, script: &str) -> io::Result<Self> {
+        let kept = Self(path::join(&[
+            tmp,
+            &format!("hamlet-{}.ps1", uuid::Uuid::new_v4()),
+        ]));
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&kept.0)?;
+        // Without the byte order mark, Windows PowerShell 5.1 reads
+        // the file in the ANSI code page.
+        file.write_all(b"\xEF\xBB\xBF")?;
+        file.write_all(script.as_bytes())?;
+        Ok(kept)
+    }
+}
+
+impl Drop for ScriptFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
     }
 }
 
@@ -191,21 +315,29 @@ impl Shells {
         Self(vec![Shell {
             dialect: Dialect::Bash,
             program: "bash".into(),
+            edition: None,
         }])
     }
 
-    /// This machine's: Git Bash, where it is installed.
+    /// This machine's: PowerShell, then Git Bash where it is
+    /// installed. The first shell's line hint is the one a model is
+    /// given, and PowerShell's quotes a Windows path.
     #[cfg(windows)]
     pub(crate) fn local() -> Self {
-        Self(
-            find::git_bash(&find::Machine)
-                .map(|program| Shell {
-                    dialect: Dialect::Bash,
-                    program,
-                })
-                .into_iter()
-                .collect(),
-        )
+        let powershell = find::powershell(&find::Machine).map(
+            |(program, edition)| Shell {
+                dialect: Dialect::PowerShell,
+                program,
+                edition: Some(edition),
+            },
+        );
+        let bash =
+            find::git_bash(&find::Machine).map(|program| Shell {
+                dialect: Dialect::Bash,
+                program,
+                edition: None,
+            });
+        Self(powershell.into_iter().chain(bash).collect())
     }
 
     /// A remote workspace's: bash at its fixed path.
@@ -213,6 +345,7 @@ impl Shells {
         Self(vec![Shell {
             dialect: Dialect::Bash,
             program: "/bin/bash".into(),
+            edition: None,
         }])
     }
 
@@ -306,14 +439,18 @@ pub(super) async fn run(
             }
         };
     if let Some(wall) = wall {
-        let ran = env
-            .exec(
-                &shell.invocation(command),
-                Duration::from_secs_f64(wall),
-                secrets,
-                &mut |text| kept.push(text),
-            )
-            .await;
+        let ran = match shell.invocation(command, env.tmp()) {
+            Ok((argv, _script)) => {
+                env.exec(
+                    &argv,
+                    Duration::from_secs_f64(wall),
+                    secrets,
+                    &mut |text| kept.push(text),
+                )
+                .await
+            }
+            Err(error) => Err(ExecError::Spawn(error.to_string())),
+        };
         match ran {
             Ok(ran) => {
                 full_output(&ran.spill, &mut diagnostics);
@@ -413,6 +550,43 @@ mod tests {
         }
     }
 
+    fn powershell(program: &str, edition: Edition) -> Shell {
+        Shell {
+            dialect: Dialect::PowerShell,
+            program: program.into(),
+            edition: Some(edition),
+        }
+    }
+
+    #[test]
+    fn a_script_past_the_limit_runs_from_a_ps1_file_in_the_private_temp_folder()
+     {
+        let tmp = hamlet_testing::Scratch::new("powershell-tmp");
+        let tmp = path::text(&tmp);
+        let shell = powershell("pwsh.exe", Edition::Seven);
+        let (argv, file) = shell
+            .invocation(&"y".repeat(10_000), Some(&tmp))
+            .unwrap();
+        assert!(file.is_none());
+        assert_eq!(argv[argv.len() - 2], "-EncodedCommand");
+        let script = "é".repeat(20_000);
+        let (argv, file) =
+            shell.invocation(&script, Some(&tmp)).unwrap();
+        let file = file.unwrap();
+        assert_eq!(
+            argv[argv.len() - 2..],
+            ["-File", file.0.as_str()]
+        );
+        assert_eq!(path::dirname(&file.0), tmp);
+        let written = fs::read(&file.0).unwrap();
+        let written = String::from_utf8(written).unwrap();
+        assert!(written.starts_with('\u{feff}'));
+        assert!(written.contains(&script));
+        let kept = file.0.clone();
+        drop(file);
+        assert!(!Path::new(&kept).exists());
+    }
+
     #[test]
     fn shell_names_are_spelled_once() {
         let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -443,5 +617,121 @@ mod tests {
             "a shell's name is spelled in tools/shell.rs only, and \
              elsewhere comes from `Dialect`: {strays:?}"
         );
+    }
+
+    /// Each PowerShell this machine has: Windows PowerShell 5.1, and
+    /// pwsh where it is on `PATH`.
+    #[cfg(windows)]
+    fn powershells() -> Vec<Shell> {
+        let root = std::env::var("SystemRoot").unwrap();
+        let mut shells = vec![powershell(
+            &format!(
+                r"{root}\System32\WindowsPowerShell\v1.0\powershell.exe"
+            ),
+            Edition::Windows,
+        )];
+        if let Some((program, Edition::Seven)) =
+            find::powershell(&find::Machine)
+        {
+            shells.push(powershell(&program, Edition::Seven));
+        }
+        shells
+    }
+
+    /// Runs `command` with `shell` in a scratch house.
+    #[cfg(windows)]
+    async fn call(shell: &Shell, command: &str) -> Outcome {
+        use crate::record::AgentRef;
+        use crate::sandbox::{AllLeftovers, Sandbox};
+        use crate::tools::ToolSession;
+
+        let scratch = hamlet_testing::Scratch::new("shell-call");
+        let house = scratch.join("houses/home/0");
+        fs::create_dir_all(&house).unwrap();
+        let place = Place {
+            house,
+            folder: None,
+            home: scratch.to_path_buf(),
+            shared: Vec::new(),
+        };
+        let Value::Object(arguments) =
+            json!({"command": command, "timeout": 60})
+        else {
+            unreachable!("the arguments are an object");
+        };
+        ToolSession::local(
+            place,
+            false,
+            Sandbox::testing(),
+            Shells(vec![shell.clone()]),
+            AllLeftovers::default().of(&AgentRef {
+                hamlet: "home".into(),
+                number: 0,
+            }),
+        )
+        .run(&[], shell.dialect.tool(), &arguments)
+        .await
+    }
+
+    #[cfg(windows)]
+    fn exit_code(outcome: &Outcome) -> i64 {
+        outcome.details.as_ref().unwrap()["exitCode"]
+            .as_i64()
+            .unwrap()
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn powershell_keeps_exit_codes_and_utf8_on_both_editions() {
+        for shell in powershells() {
+            let ran = call(&shell, "exit 3").await;
+            assert_eq!(exit_code(&ran), 3, "{shell:?} {ran:?}");
+            let ran = call(&shell, "cmd /c exit 5").await;
+            assert_eq!(exit_code(&ran), 5, "{shell:?} {ran:?}");
+            let ran = call(&shell, "Get-Item missing").await;
+            assert_ne!(exit_code(&ran), 0, "{shell:?} {ran:?}");
+            assert!(
+                !ran.text.contains("CLIXML"),
+                "{shell:?} {ran:?}"
+            );
+            let ran = call(&shell, "Write-Output 'café'").await;
+            assert_eq!(ran.text.trim(), "café", "{shell:?} {ran:?}");
+            assert_eq!(exit_code(&ran), 0, "{shell:?} {ran:?}");
+        }
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn powershell_runs_a_long_script_on_both_editions() {
+        for shell in powershells() {
+            for length in [10_000, 20_000] {
+                let script = format!(
+                    "$x = '{}'\nWrite-Output $x.Length",
+                    "é".repeat(length)
+                );
+                let ran = call(&shell, &script).await;
+                assert_eq!(
+                    ran.text.trim(),
+                    length.to_string(),
+                    "{shell:?} {ran:?}"
+                );
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn git_bash_runs_a_multi_line_script_with_quotes() {
+        let bash = Shell {
+            dialect: Dialect::Bash,
+            program: find::git_bash(&find::Machine).unwrap(),
+            edition: None,
+        };
+        let ran = call(
+            &bash,
+            "printf '%s\\n' \"a  b\" 'c\"d'\necho \"$((1 + 2))\"",
+        )
+        .await;
+        assert_eq!(ran.text, "a  b\nc\"d\n3\n", "{ran:?}");
     }
 }

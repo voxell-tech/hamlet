@@ -254,6 +254,11 @@ impl Env {
         &self.cwd
     }
 
+    /// The private temp folder commands get.
+    pub(crate) fn tmp(&self) -> &str {
+        &self.tmp
+    }
+
     /// The [`policy_hash`] of the policy and the sandbox commands run
     /// under.
     pub(crate) fn policy_hash(&self) -> &str {
