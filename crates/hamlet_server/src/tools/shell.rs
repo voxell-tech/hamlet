@@ -226,8 +226,8 @@ impl Shell {
     }
 
     /// The argv that runs `script`, and the file holding the script
-    /// while it runs when the command line cannot. That file is in
-    /// `tmp`, the command's private temp folder.
+    /// while it runs where the command line does not. That file is
+    /// in `tmp`, the command's private temp folder.
     fn invocation(
         &self,
         script: &str,
@@ -242,8 +242,6 @@ impl Shell {
             return Ok((argv, None));
         }
         let whole = format!("{PREAMBLE}{script}{EPILOGUE}");
-        // Without -OutputFormat, an encoded command writes its
-        // errors as CLIXML once stderr is a pipe.
         let mut argv = [
             self.program.as_str(),
             "-NoLogo",
@@ -251,27 +249,36 @@ impl Shell {
             "-NonInteractive",
             "-ExecutionPolicy",
             "Bypass",
+            // Without it, pwsh writes an encoded command's errors as
+            // CLIXML once stderr is a pipe.
             "-OutputFormat",
             "Text",
-            "-EncodedCommand",
         ]
         .map(String::from)
         .to_vec();
-        let utf16 = whole
-            .encode_utf16()
-            .flat_map(u16::to_le_bytes)
-            .collect::<Vec<_>>();
-        argv.push(STANDARD.encode(utf16));
-        let length =
-            argv.iter().map(|word| word.len() + 3).sum::<usize>();
-        if length <= COMMAND_LINE {
-            return Ok((argv, None));
+        // Windows PowerShell 5.1 writes them as CLIXML whatever
+        // -OutputFormat says, so it always runs a file.
+        if self.edition != Some(Edition::Windows) {
+            let utf16 = whole
+                .encode_utf16()
+                .flat_map(u16::to_le_bytes)
+                .collect::<Vec<_>>();
+            let encoded =
+                ["-EncodedCommand".into(), STANDARD.encode(utf16)];
+            let length = argv
+                .iter()
+                .chain(&encoded)
+                .map(|word| word.len() + 3)
+                .sum::<usize>();
+            if length <= COMMAND_LINE {
+                argv.extend(encoded);
+                return Ok((argv, None));
+            }
         }
         let tmp = tmp.ok_or_else(|| {
-            io::Error::other("no temp folder holds a long script")
+            io::Error::other("no temp folder holds the script")
         })?;
         let file = ScriptFile::write(tmp, &whole)?;
-        argv.truncate(argv.len() - 2);
         argv.extend(["-File".into(), file.0.clone()]);
         Ok((argv, Some(file)))
     }
@@ -569,6 +576,13 @@ mod tests {
             .unwrap();
         assert!(file.is_none());
         assert_eq!(argv[argv.len() - 2], "-EncodedCommand");
+        let windows = powershell("powershell.exe", Edition::Windows);
+        let (argv, file) =
+            windows.invocation("exit 3", Some(&tmp)).unwrap();
+        assert_eq!(
+            argv[argv.len() - 2..],
+            ["-File", file.unwrap().0.as_str()]
+        );
         let script = "é".repeat(20_000);
         let (argv, file) =
             shell.invocation(&script, Some(&tmp)).unwrap();
