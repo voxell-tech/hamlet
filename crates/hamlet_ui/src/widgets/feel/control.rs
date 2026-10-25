@@ -29,6 +29,7 @@ use hamlet_realm::sound::{Cue, Sound};
 
 use super::glow::{GlowLayer, GlowPanel, layer_of};
 use super::{FeelSettings, MagicColors, Mood, ease, pool, waver};
+use crate::fade::ScrollFade;
 use crate::sounds;
 use crate::theme::Themed;
 
@@ -423,6 +424,37 @@ fn stands(
     })
 }
 
+/// The share of its light a control keeps while it lies in a scroll
+/// area: all of it once both its edges are `room` logical pixels
+/// inside the area, and none as one reaches the area's edge.
+fn in_view(
+    control: Entity,
+    (node, at, _): Shape,
+    ancestors: &Query<&ChildOf>,
+    scrolls: &Query<
+        (&ComputedNode, &UiGlobalTransform),
+        With<ScrollFade>,
+    >,
+    room: f32,
+) -> f32 {
+    let Some((area, area_at)) = ancestors
+        .iter_ancestors(control)
+        .find_map(|above| scrolls.get(above).ok())
+    else {
+        return 1.0;
+    };
+    let (drawn, _, centre) = at.to_scale_angle_translation();
+    let half = node.size.y * drawn.y / 2.0;
+    let (top, bottom) = (centre.y - half, centre.y + half);
+    let tall = area.size.y / 2.0;
+    let (from, to) =
+        (area_at.translation.y - tall, area_at.translation.y + tall);
+    let inside = (top - from).min(to - bottom);
+    let share =
+        (inside * node.inverse_scale_factor / room).clamp(0.0, 1.0);
+    share * share * (3.0 - 2.0 * share)
+}
+
 /// The share of a control's reach the light about lettering has.
 const INK_REACH: f32 = 0.55;
 
@@ -442,6 +474,10 @@ pub(super) fn spill(
     shapes: Query<Shape>,
     shadows: Query<&BoxShadow, Without<SpillOf>>,
     ancestors: Query<&ChildOf>,
+    scrolls: Query<
+        (&ComputedNode, &UiGlobalTransform),
+        With<ScrollFade>,
+    >,
     panels: Query<&Children, With<GlowPanel>>,
     layers: Query<
         (&ComputedNode, &UiGlobalTransform),
@@ -476,7 +512,18 @@ pub(super) fn spill(
             Mood::Bad | Mood::Field => set.spill * set.smoulder,
             _ => set.spill,
         };
-        let strength = feel.glow * thrown;
+        // The light is not cut where a scroll area ends, so it dims
+        // with the fade as its control nears the edge.
+        let view = shapes.get(target).ok().map_or(0.0, |shape| {
+            in_view(
+                control,
+                shape,
+                &ancestors,
+                &scrolls,
+                theme.space.scroll_fade + reach / 2.0,
+            )
+        });
+        let strength = feel.glow * thrown * view;
         let now = shadows.get(target).ok();
         let shape = shapes
             .get(target)
