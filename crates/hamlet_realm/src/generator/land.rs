@@ -124,7 +124,7 @@ pub struct Land(Arc<LandData>);
 
 impl Land {
     pub fn new(
-        seed: u64,
+        seed: u32,
         set: GeneratorSettings,
         pal: Palette,
     ) -> Self {
@@ -210,7 +210,7 @@ impl Deref for Land {
 
 #[derive(Clone)]
 pub struct LandData {
-    pub seed: u64,
+    pub seed: u32,
     /// The settings it was built from.
     pub set: GeneratorSettings,
     pub sites: Vec<Site>,
@@ -246,7 +246,7 @@ fn hex_ring(q: i32, r: i32) -> i32 {
 }
 
 impl LandData {
-    fn new(seed: u64, set: GeneratorSettings, pal: Palette) -> Self {
+    fn new(seed: u32, set: GeneratorSettings, pal: Palette) -> Self {
         let a = unit(key(&[seed, 11])) * TAU;
         let rings = set.land.site_rings;
         let spacing = set.land.site_spacing;
@@ -299,7 +299,7 @@ impl LandData {
     }
 
     fn turn_of(&self, (q, r): Cell) -> f32 {
-        unit(key(&[self.seed, 13, q as u64, r as u64])) * TAU
+        unit(key(&[self.seed, 13, q as u32, r as u32])) * TAU
     }
 
     /// Reach of a site's hold on the ground and on what grows there.
@@ -348,8 +348,8 @@ impl LandData {
             r as f32 * 0.866_025_4,
         ) * self.set.land.site_spacing;
         let jitter = Vec2::new(
-            signed(key(&[self.seed, 14, q as u64, r as u64])),
-            signed(key(&[self.seed, 15, q as u64, r as u64])),
+            signed(key(&[self.seed, 14, q as u32, r as u32])),
+            signed(key(&[self.seed, 15, q as u32, r as u32])),
         ) * 6.0;
         let p = Vec2::from_angle(turn).rotate(grid) + jitter;
         self.clear_of_river(p, self.set.town.radius + 3.0)

@@ -109,7 +109,7 @@ pub(super) struct Course {
     at: (Vec2, Vec2),
     /// A number for the bridges of other roads that its own bridges
     /// meet. Zero for none.
-    pub meets: u64,
+    pub meets: u32,
 }
 
 impl Course {
@@ -149,7 +149,7 @@ fn build_road(
     met: &[road::Span],
 ) -> RoadBuilt {
     let route = Route::between(land, ends.0, ends.1);
-    let salt = ((pair.0.0 as u64) << 32) | pair.1.0 as u64;
+    let salt = super::noise::key(&[pair.0.0, pair.1.0]);
     let surface = road::surface(land, &route, level, salt, met);
     let groove = road::groove(land, &route, level, salt);
     let bridge =

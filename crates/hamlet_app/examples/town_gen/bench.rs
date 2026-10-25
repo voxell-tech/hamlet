@@ -197,10 +197,9 @@ pub fn run_bench(
     // Keep a few messages on the road, as a working town has.
     if run.frame % 120 == 5 {
         let roads = world.roads.len();
-        for k in 0..6u64 {
-            let r = &world.roads[(key(&[run.frame as u64, k])
-                % roads as u64)
-                as usize];
+        for k in 0..6u32 {
+            let r = &world.roads
+                [(key(&[run.frame, k]) % roads as u32) as usize];
             traffic.send(r.pair, r.pair.0);
         }
     }

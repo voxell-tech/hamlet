@@ -19,7 +19,7 @@ use crate::palette::Palette;
 use crate::{Clock, Stock};
 
 /// The land as designed, from `seed`.
-pub(crate) fn land(seed: u64) -> Land {
+pub(crate) fn land(seed: u32) -> Land {
     Land::new(seed, GeneratorSettings::default(), Palette::default())
 }
 
@@ -63,7 +63,7 @@ pub(crate) fn rehearse(app: &mut App) {
         .init_resource::<crate::Sky>()
         .init_resource::<DetailSettings>()
         .init_resource::<Motion>()
-        .insert_resource(land(7))
+        .insert_resource(land(5))
         .add_systems(
             Update,
             (pass, work_robots, keeper::animate)

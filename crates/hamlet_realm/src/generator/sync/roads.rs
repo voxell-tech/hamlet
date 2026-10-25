@@ -116,11 +116,7 @@ impl Pass<'_, '_, '_> {
             if own.is_some() {
                 let marks = met()
                     .flat_map(|(pair, span)| {
-                        [
-                            u64::from(pair.0.0),
-                            u64::from(pair.1.0),
-                            span.mark(),
-                        ]
+                        [pair.0.0, pair.1.0, span.mark()]
                     })
                     .collect::<Vec<_>>();
                 if !marks.is_empty() {

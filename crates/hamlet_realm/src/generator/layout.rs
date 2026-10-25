@@ -104,7 +104,7 @@ pub fn plot(land: &Land, site: usize, k: u32) -> Plot {
         };
     }
     let j = (k - 1) as f32;
-    let (sk, kk) = (site as u64, k as u64);
+    let (sk, kk) = (site as u32, k);
     let r = (town.first_ring * town.first_ring
         + j * town.plot_area / TAU * 2.0)
         .sqrt();

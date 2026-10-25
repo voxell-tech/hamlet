@@ -16,7 +16,7 @@ use hamlet_realm::{Hour, Sky, Stage};
 #[derive(Resource, Default)]
 pub struct Hand {
     pub town: usize,
-    presses: u64,
+    presses: u32,
     /// The task last given with K, as a place in `TASKS`.
     task: usize,
 }
@@ -40,7 +40,7 @@ impl Hand {
     /// A number below `n` that changes with every call.
     fn pick(&mut self, n: usize) -> usize {
         self.presses += 1;
-        (key(&[self.presses, 5]) % n.max(1) as u64) as usize
+        (key(&[self.presses, 5]) % n.max(1) as u32) as usize
     }
 }
 

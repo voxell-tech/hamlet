@@ -48,7 +48,7 @@ fn main() {
     let bench = std::env::var("TOWN_BENCH").is_ok();
     let seed = std::env::var("TOWN_SEED")
         .ok()
-        .and_then(|s| s.parse::<u64>().ok())
+        .and_then(|s| s.parse::<u32>().ok())
         .unwrap_or(7);
     let scale = std::env::var("TOWN_SCALE")
         .ok()

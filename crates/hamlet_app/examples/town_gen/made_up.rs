@@ -55,9 +55,9 @@ pub fn society(
         let ids =
             s.agents_of(town.id).map(|a| a.id).collect::<Vec<_>>();
         for k in 0..roads.min(ids.len()) {
-            let h = key(&[t as u64, k as u64, 1]);
-            let a = ids[(h % ids.len() as u64) as usize];
-            let b = ids[(key(&[h, 2]) % ids.len() as u64) as usize];
+            let h = key(&[t as u32, k as u32, 1]);
+            let a = ids[(h % ids.len() as u32) as usize];
+            let b = ids[(key(&[h, 2]) % ids.len() as u32) as usize];
             s.add_road(a, b);
         }
         // Now and then two agents in neighbouring towns are joined.
@@ -66,16 +66,16 @@ pub fn society(
                 .agents_of(towns[t - 1].id)
                 .map(|a| a.id)
                 .collect::<Vec<_>>();
-            let h = key(&[t as u64, 3]);
+            let h = key(&[t as u32, 3]);
             s.add_road(
-                ids[(h % ids.len() as u64) as usize],
-                other[(key(&[h, 4]) % other.len() as u64) as usize],
+                ids[(h % ids.len() as u32) as usize],
+                other[(key(&[h, 4]) % other.len() as u32) as usize],
             );
         }
     }
     for i in 0..s.roads.len() {
         let pair = s.roads[i].pair;
-        let roll = unit(key(&[pair.0.0 as u64, pair.1.0 as u64, 6]));
+        let roll = unit(key(&[pair.0.0, pair.1.0, 6]));
         let level = if roll < 0.08 {
             RoadLevel::Overgrown
         } else if roll < 0.6 {
