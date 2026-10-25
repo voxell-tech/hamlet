@@ -56,8 +56,8 @@ server's own computer.
 _Avoid_: jail, container, workspace
 
 **Insecure mode**:
-A server started with `--insecure`, whose agents' commands run without
-a sandbox and reach whatever the account running it can.
+A Windows server started with `--insecure`, whose agents' commands run
+without a sandbox and reach whatever the account running it can.
 _Avoid_: unconfined, no-sandbox mode, unsafe mode
 
 **Leftover**:

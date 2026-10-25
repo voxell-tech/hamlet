@@ -1,19 +1,21 @@
 # The server on Windows
 
 A design for running `hamlet_server` on Windows 11 beside Linux and
-macOS, with bash and PowerShell for agents and an insecure mode where
-no sandbox can run. Today Windows has only the window, as a remote
+macOS, with bash and PowerShell for agents and, on Windows, an insecure
+mode, since Windows has no sandbox yet. Today Windows has only the window, as a remote
 client ([`releases.md`](../releases.md)). This proposal changes C18 and
 C19, and ADR 0008 and ADR 0009 record its two lasting decisions. A
 Windows sandbox is not part of it and is left for later.
 
 ## Decisions
 
-- **Insecure mode** is an opt-in the chief types when starting a
-  server, as `--insecure`, on every platform. Without it, a server
-  whose sandbox cannot run refuses to start, as C18 says today, so a
-  Windows server always needs it. With a remote workspace the flag
-  refuses to start, because the worker confines commands.
+- **Insecure mode** is for Windows only. It is an opt-in the chief
+  types when starting a Windows server, as `--insecure`, and a Windows
+  server without it refuses to start, as C18 says today. Linux and
+  macOS always run in their sandbox: there `--insecure` refuses with
+  "Insecure mode is only for Windows. This platform has a sandbox." With
+  a remote workspace the flag refuses to start too, because the worker
+  confines commands.
 - Bare `hamlet` attaches to whatever server is running, and says so
   when that server is in insecure mode. Only starting a server needs
   the flag.
@@ -245,12 +247,12 @@ pub fn reap_with_server() -> io::Result<Reaper>;
 ```
 
 The server keeps each agent's `Leftovers` and ends them at two points,
-on every platform and in every mode: when the server stops, and before
-that agent's house is erased or moved. Under bubblewrap they already
-die with the server through `--die-with-parent`. Under Seatbelt and in
-insecure mode on Unix they do not today. On Windows the server also
-joins a kill-on-close job at startup, so its leftovers end even when it
-crashes. On Unix a crashed server cannot end them.
+on every platform: when the server stops, and before that agent's house
+is erased or moved. Under bubblewrap they already die with the server
+through `--die-with-parent`. Under Seatbelt they do not today. On
+Windows the server also joins a kill-on-close job at startup, so its
+leftovers end even when it crashes. On macOS a crashed server cannot
+end them.
 
 `Env::spawned` builds the command line in three steps: the shell's
 argv, `process::limited`, then `Sandbox::command`. A
@@ -345,13 +347,21 @@ agent never meets the limit.
 pub enum Isolation { Sandboxed, Insecure }
 
 pub struct Sandbox(Kind);
-enum Kind { Bwrap, Seatbelt, Insecure }
+enum Kind {
+    Bwrap,
+    Seatbelt,
+    /// Only a Windows build has this variant, so no Linux or macOS
+    /// server can hold an unconfined sandbox at all.
+    #[cfg(windows)]
+    Insecure,
+}
 
 impl Sandbox {
-    /// The only constructor. Sandboxed probes this platform's sandbox
-    /// or fails with "start the server with --insecure". Kind::Insecure
-    /// comes from Isolation::Insecure and from nothing else.
-    pub fn open(isolation: Isolation) -> Result<Self, NoSandbox>;
+    /// The only constructor. On Linux and macOS, Sandboxed probes the
+    /// sandbox and Insecure is refused. On Windows, Sandboxed fails with
+    /// "start the server with --insecure", and Insecure gives
+    /// Kind::Insecure, which nothing else makes.
+    pub fn open(isolation: Isolation) -> Result<Self, Refused>;
     pub fn confinement(&self) -> Confinement;
     pub(crate) fn command(&self, policy: &Policy, argv: &[String],
         cwd: &str, tmp: &str) -> Confined;
@@ -402,9 +412,9 @@ A Windows sandbox later is one more `Kind` with its probe and its
 
 - **C16, C17.** The shell row names `bash` and `powershell`, and the
   sandbox and gate are "the shells'".
-- **C18.** "A server without a sandbox does not start, unless the chief
-  starts it in insecure mode. Then commands and hand tools reach
-  whatever the account running the server can. The built-in file tools
+- **C18.** "A server without a sandbox does not start, unless it is a
+  Windows server the chief starts in insecure mode. Then commands and
+  hand tools reach whatever the account running the server can. The built-in file tools
   keep the reach above, and the window warns for as long as it runs."
   It gains the leftovers rule: they keep running after their command,
   and end when the server stops and before their agent's house is
@@ -414,7 +424,7 @@ A Windows sandbox later is one more `Kind` with its probe and its
 - **C21.** Auto mode's "the sandbox is the guard" gains "and without
   one, nothing is".
 - **S12.** Bubblewrap on Linux, Seatbelt on macOS, and on Windows only
-  insecure mode for now.
+  insecure mode for now. Linux and macOS have no insecure mode.
 - **ADR 0008**, "Tools run without a sandbox only when the chief says
   so", and **ADR 0009**, "System calls that differ by OS go through
   `hamlet_os`", both `proposed` until their PRs land. ADR 0003's
@@ -437,25 +447,31 @@ Four PRs, each on the one before. Every step is one commit that passes
    the quoted script. Linux and macOS behave as today, but for three
    named changes: every file open is non-blocking, `clear` makes each
    folder `0o700` first, and hand tools lose the quoted script.
-2. **Insecure mode on Linux and macOS.** ADR 0008 and the spec first.
-   The shell table, still bash only. Leftovers kept per agent and ended
-   at server stop and before a house is erased or moved. Insecure mode
-   on the server. The window's chip and client protocol V2. The flag
-   and the attach note in the CLI.
-3. **The Windows server.** `hamlet_os::fs` on Windows, junctions
-   included, with `cargo xtask cross` and a `windows-latest` job.
-   `hamlet_os::process` on Windows with the server's kill-on-close job.
-   The server built and tested on Windows with Git Bash.
-4. **PowerShell and shipping.** `ToolSpec.retain` in the runtime
-   protocol. PowerShell, with the `.ps1` fallback. The CLI starting a
-   Windows server. The Windows archive with the server and pi, which
-   needs Node installed, as the other archives do.
+2. **Shells and leftovers on Unix.** The shell table, still bash only.
+   Leftovers kept per agent and ended at server stop and before a house
+   is erased or moved, with the leftovers rule in C18. On Linux this
+   changes only the erase and the move, since bubblewrap already ends
+   leftovers with the server. On macOS it also ends them at server
+   stop.
+3. **The Windows server, in insecure mode.** ADR 0008 and the spec
+   first. `hamlet_os::fs` on Windows, junctions included, with
+   `cargo xtask cross` and a `windows-latest` job. `hamlet_os::process`
+   on Windows with the server's kill-on-close job. Insecure mode on the
+   server, refused on Linux and macOS. The server built and tested on
+   Windows with Git Bash. The window's chip and client protocol V2.
+4. **PowerShell, the CLI and shipping.** `ToolSpec.retain` in the
+   runtime protocol. PowerShell, with the `.ps1` fallback. The CLI's
+   `--insecure`, refused off Windows, its attach note, and the CLI
+   starting a Windows server. The Windows archive with the server and
+   pi, which needs Node installed, as the other archives do.
 
 Windows is checked four ways: the crate's cross-check on Linux, Wine
 as a smoke check of its tests, the `windows-latest` runner for what
 needs no desktop, and a Windows 11 virtual machine on the development
 machine (dockur/windows, under Docker with KVM) for full sessions with
-the window. A full session in that machine closes 3 and 4.
+the window. Insecure mode runs only on Windows, so only the last two
+test it. Linux tests only its refusal. A full session in that machine
+closes 3 and 4.
 
 ## Tradeoffs
 
@@ -466,7 +482,10 @@ the window. A full session in that machine closes 3 and 4.
 - No folder fsync on Windows. A crash may undo the last rename, and
   the recorded batch is finished again at the next start, where `put`
   accepts an identical file already there.
-- On Unix a crashed server leaves its leftovers running.
+- On macOS a crashed server leaves its leftovers running.
+- Insecure mode is tested only on Windows, on the `windows-latest`
+  runner and in the virtual machine, in exchange for Linux and macOS
+  never running unconfined. Linux tests only the refusal.
 - A Windows leftover holding a command's output parks one tokio
   blocking thread until it exits.
 - `max_file_mb` is not enforced on Windows, and results say so.
@@ -476,6 +495,9 @@ the window. A full session in that machine closes 3 and 4.
 
 ## Rejected
 
+- **Insecure mode on every platform.** It would let Linux test the
+  unconfined path, but Linux and macOS have a sandbox and should never
+  run without it.
 - **A store trait in `hamlet_server`.** A second seam beside `Files`,
   a type parameter or trait object for callers, and no cross-check
   without mingw.
