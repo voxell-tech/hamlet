@@ -268,6 +268,7 @@ impl SocietyTool {
                 "required": required,
             })),
             replay: ToolSpecReplay::Safe,
+            retain: None,
         })
     }
 }

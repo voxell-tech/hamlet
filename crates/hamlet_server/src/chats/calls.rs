@@ -212,6 +212,7 @@ pub(crate) fn specs() -> Vec<ToolSpec> {
             _ => BTreeMap::new(),
         },
         replay: ToolSpecReplay::Safe,
+        retain: None,
     }]
 }
 

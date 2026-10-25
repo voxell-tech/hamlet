@@ -230,8 +230,7 @@ mod tests {
         lease: Option<&str>,
         credential: Option<Value>,
     ) -> CredentialRequest {
-        let mut request =
-            json!({"v":1,"id":id,"scope":scope,"action":action});
+        let mut request = json!({"v":runtime::VERSION,"id":id,"scope":scope,"action":action});
         if let Some(lease) = lease {
             request["lease"] = lease.into();
         }

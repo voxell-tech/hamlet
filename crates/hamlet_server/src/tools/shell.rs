@@ -9,7 +9,7 @@ mod find;
 use std::time::Duration;
 
 use hamlet_protocol::runtime::{
-    DiagnosticSeverity, ToolSpec, ToolSpecReplay,
+    DiagnosticSeverity, ToolSpec, ToolSpecReplay, ToolSpecRetain,
 };
 use hamlet_workspace_wire::Code;
 use serde_json::{Map, Value, json};
@@ -170,6 +170,7 @@ impl Shell {
                 _ => Default::default(),
             },
             replay: ToolSpecReplay::Unsafe,
+            retain: Some(ToolSpecRetain::Tail),
         }
     }
 
