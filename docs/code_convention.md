@@ -87,7 +87,15 @@ Keep tests where a mistake is easy to make and hard to see in review:
 maths with a sign or a space to get wrong, a round trip through our
 own format, a behaviour a user asked for by name.
 
+Beyond those, test only what the system depends on: the sandbox and
+its limits, grants, data integrity, wire contracts, lifecycle,
+dependency resolution and the core rules. Do not test a single small
+function, a constant, wording, layout, or anything a feature request
+would routinely change.
+
 When it's a toss-up whether a test earns its place, leave it out.
+Remove a test that no longer earns its place when you find it, and a
+test that only checks another crate's behaviour.
 
 ## A test sits beside what it tests
 
