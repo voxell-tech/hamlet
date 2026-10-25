@@ -16,8 +16,8 @@ env:
   CARGO_INCREMENTAL: 0
 
 # Stable is the toolchain rust-toolchain.toml names, which a bare
-# `rustup toolchain install` installs. Formatting uses the nightly
-# named in rust-nightly. The Linux and macOS jobs run `cargo xtask`
+# `rustup toolchain install` installs. Formatting uses the latest
+# nightly. The Linux and macOS jobs run `cargo xtask`
 # steps by name, which pass --locked to cargo since GitHub sets CI.
 jobs:
   format:
@@ -29,7 +29,7 @@ jobs:
           # vendor/fynix is a submodule.
           submodules: recursive
       - run: rustup toolchain install
-      - run: rustup toolchain install "$(cat rust-nightly)" --profile minimal --component rustfmt
+      - run: rustup toolchain install nightly --profile minimal --component rustfmt
       - run: cargo xtask format
 
   clippy-linux:

@@ -1,7 +1,7 @@
 # The latest stable toolchain every check runs on, here and in CI. The
 # oldest compiler that builds is `rust-version` in `Cargo.toml`; older
-# ones need `rustup update stable`. Formatting uses the nightly named in
-# `rust-nightly`, so stable has no rustfmt.
+# ones need `rustup update stable`. Formatting uses the latest nightly,
+# so stable has no rustfmt.
 [toolchain]
 channel = "stable"
 profile = "minimal"
