@@ -95,8 +95,7 @@ This installs pi's packages, puts `hamlet`, `hamlet_server` and
 
 | Platform | What you get | Needs |
 | --- | --- | --- |
-| Linux, macOS | All three binaries and a `pi/` package with production dependencies | Installed Node. No checkout or npm install. |
-| Windows | A window-only archive for connecting to a remote server | Nothing. No Node or pi. |
+| Linux, macOS, Windows | All three binaries and a `pi/` package with production dependencies | Installed Node. No checkout or npm install. |
 
 See [releases](docs/releases.md).
 
@@ -155,9 +154,11 @@ saved there before the harness continues.
 - Local tools need Seatbelt on macOS or working bubblewrap on Linux.
 - Settings can select a remote workspace for tools and houses. It takes
   effect on restart and never falls back to local execution.
-- There is no `--insecure` mode and no Windows server.
-- The window can connect to another machine's server, including from
-  Windows.
+- Windows has no sandbox yet. A Windows server starts only in insecure
+  mode, with `hamlet --insecure`, and agents' commands then reach whatever
+  your account can. Agents get `powershell`, and `bash` where Git for
+  Windows is installed. Linux and macOS refuse `--insecure`.
+- The window can connect to another machine's server.
 
 ### Environment variables
 

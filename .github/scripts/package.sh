@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Packs the CLI, server, window and pi, or the Windows window, into dist/.
+# Packs the CLI, server, window and pi into dist/.
 # Run on the target platform so npm installs its native dependencies.
 #
 # Usage: package.sh <target> <version> [profile]
@@ -33,29 +33,6 @@ mkdir -p "$stage"
 mkdir -p dist
 cp LICENSE-MIT LICENSE-APACHE "$stage/"
 
-if [[ $target == x86_64-pc-windows-msvc ]]; then
-  cp "$built/hamlet_app.exe" "$stage/"
-  cat > "$stage/README.txt" <<INFO
-Hamlet $version - Windows window only
-
-This archive contains a protocol client, not a local agent server.
-No Node installation is needed on the window's machine. Run a Hamlet server
-on Linux or macOS and connect through an SSH tunnel. Set HAMLET_SERVER to its
-WebSocket URL and HAMLET_TOKEN to its connection token before launching
-hamlet_app.exe. Keep the token private. Set HAMLET_VIEW to a scratch folder
-when trying the window without changing your saved layout.
-
-Windows has no supported Hamlet server sandbox. Closing this window does not
-stop agents on the remote server. Paths and pictures in chat resolve on this
-Windows machine, not the server; remote files are not downloaded.
-INFO
-  archive=$scratch/$name.zip
-  (cd "$scratch" && 7z a -bso0 "$archive" "$name")
-  mv "$archive" "dist/$name.zip"
-  ls -l "dist/$name.zip"
-  exit 0
-fi
-
 required=$(tr -d '\r\n' < harnesses/pi/.nvmrc)
 [[ $(node --version) == "v$required" ]] || {
   echo "Packaging requires Node $required (harnesses/pi/.nvmrc)" >&2
@@ -70,8 +47,10 @@ else
   pi=$bin/pi
 fi
 mkdir -p "$bin" "$pi"
+exe=
+[[ $target == *-windows-* ]] && exe=.exe
 for binary in hamlet hamlet_server hamlet_app; do
-  cp "$built/$binary" "$bin/"
+  cp "$built/$binary$exe" "$bin/"
 done
 cp -R harnesses/pi/src "$pi/"
 cp harnesses/pi/{package.json,package-lock.json,.nvmrc} "$pi/"
@@ -85,6 +64,10 @@ binaries and pi/ in the archive's layout. On macOS pi/ lives under
 Hamlet.app/Contents/Resources. No source checkout or npm install is needed.
 
 Linux: run ./hamlet. Working bubblewrap (bwrap) is required; no insecure mode.
+Windows: run hamlet.exe --insecure in a terminal. Windows has no sandbox yet,
+so agents' commands run with this account's full reach. Agents get PowerShell,
+and bash too where Git for Windows is installed. hamlet.exe stop ends the
+server and every command it started.
 macOS: open Hamlet.app, or run Hamlet.app/Contents/MacOS/hamlet in a terminal.
 Finder may not inherit your shell's PATH; launch from a terminal with HAMLET_NODE
 if Node is not found. The app is ad-hoc signed, not notarized.
@@ -93,7 +76,7 @@ The default home is ~/.hamlet. For a disposable trial, set HAMLET_HOME to a new
 scratch directory and HAMLET_VIEW to a scratch window directory. hamlet stop
 stops the home's server; closing its window does not.
 
-Windows has no server. Remote workspaces need a separately run workspace worker.
+Remote workspaces need a separately run workspace worker.
 INFO
 
 case $target in
@@ -136,6 +119,10 @@ PLIST
     codesign --force --sign - "$app"
     codesign --verify --deep --strict "$app"
     ditto -c -k --keepParent "$stage" "$scratch/$name.zip"
+    mv "$scratch/$name.zip" "dist/$name.zip"
+    ;;
+  *-windows-*)
+    (cd "$scratch" && 7z a -bso0 "$name.zip" "$name")
     mv "$scratch/$name.zip" "dist/$name.zip"
     ;;
   *)
