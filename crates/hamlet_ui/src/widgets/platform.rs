@@ -19,18 +19,21 @@ use bevy::input_focus::tab_navigation::TabIndex;
 use bevy::input_focus::{
     FocusCause, FocusLost, InputFocus, InputFocusVisible,
 };
-use bevy::picking::events::PointerPress;
+use bevy::picking::events::{
+    PointerCancel, PointerDragEnd, PointerPress, PointerRelease,
+};
+use bevy::picking::pointer::PointerButton;
 use bevy::text::{
     DEFAULT_FONT_DATA, EditableText, Font, FontCx, FontSize,
     FontSource, LetterSpacing, TextFont,
 };
 use bevy::ui::{
-    BackgroundGradient, ColorStop, FlexWrap, LinearGradient, Node,
-    Outline, OverflowClipMargin, percent, px,
+    BackgroundGradient, ColorStop, FlexWrap, InteractionDisabled,
+    LinearGradient, Node, Outline, OverflowClipMargin, percent, px,
 };
 use bevy::ui_widgets::{
-    Button as ButtonBehavior, Checkbox as CheckboxBehavior,
-    MenuButton,
+    Activate, ActivateOnPress, Button as ButtonBehavior,
+    Checkbox as CheckboxBehavior, MenuButton,
 };
 use bevy_fynix::dock::DockTab;
 use bevy_fynix::tokens::{TextTokens, Tone};
@@ -50,6 +53,10 @@ type Unringed = (
 pub fn plugin(app: &mut App) {
     app.add_observer(hide_ring_on_press)
         .add_observer(take_typed_on_press)
+        .add_observer(note_press)
+        .add_observer(release_inside)
+        .add_observer(forget_press::<PointerDragEnd>)
+        .add_observer(forget_press::<PointerCancel>)
         .add_systems(Startup, install_fonts)
         .add_systems(
             Update,
@@ -282,6 +289,63 @@ pub(crate) fn hide_ring_on_press(
 ) {
     if visible.0 {
         visible.0 = false;
+    }
+}
+
+/// The node inside a button that a primary press landed on, on the
+/// button.
+#[derive(Component)]
+struct PressedOn(Entity);
+
+/// Notes the node inside a button a primary press landed on.
+fn note_press(
+    press: On<PointerPress>,
+    buttons: Query<
+        (),
+        (With<ButtonBehavior>, Without<ActivateOnPress>),
+    >,
+    mut commands: Commands,
+) {
+    let button = press.event_target();
+    if press.button == PointerButton::Primary
+        && buttons.contains(button)
+    {
+        commands
+            .entity(button)
+            .try_insert(PressedOn(press.original_event_target()));
+    }
+}
+
+/// Activates a button when a press and its release land inside it on
+/// different nodes, as on its label and then its padding, which Bevy
+/// does not count as a click.
+fn release_inside(
+    release: On<PointerRelease>,
+    buttons: Query<(&PressedOn, Has<InteractionDisabled>)>,
+    mut commands: Commands,
+) {
+    let button = release.event_target();
+    if release.button != PointerButton::Primary {
+        return;
+    }
+    let Ok((pressed, disabled)) = buttons.get(button) else {
+        return;
+    };
+    commands.entity(button).try_remove::<PressedOn>();
+    if pressed.0 != release.original_event_target() && !disabled {
+        commands.trigger(Activate { entity: button });
+    }
+}
+
+/// Forgets a press on a button that ends without a release inside it.
+fn forget_press<E: EntityEvent>(
+    event: On<E>,
+    pressed: Query<(), With<PressedOn>>,
+    mut commands: Commands,
+) {
+    let button = event.event_target();
+    if pressed.contains(button) {
+        commands.entity(button).try_remove::<PressedOn>();
     }
 }
 
