@@ -9,7 +9,7 @@
 
 [![License](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](https://github.com/voxell-tech/hamlet#license)
 [![CI](https://github.com/voxell-tech/hamlet/workflows/CI/badge.svg)](https://github.com/voxell-tech/hamlet/actions)
-[![Hamlet Discord](https://img.shields.io/discord/1557293845736329277.svg?label=Hamlet&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/hJjjTkXRKw)
+[![Hamlet Discord](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fdiscord.com%2Fapi%2Fv10%2Finvites%2FhJjjTkXRKw%3Fwith_counts%3Dtrue&query=%24.approximate_member_count&label=Hamlet&suffix=%20members&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/hJjjTkXRKw)
 [![Voxell Discord](https://img.shields.io/discord/442334985471655946.svg?label=Voxell&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/Mhnyp6VYEQ)
 
 **Hamlet** is an agent orchestrator. You lead a hamlet of AI agents and
