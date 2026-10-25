@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub mod discovery;
 pub mod transcript;
 
+mod bazaar;
 mod chat;
 mod documents;
 mod gifts;
@@ -16,6 +17,7 @@ mod settings;
 mod state;
 mod waits;
 
+pub use bazaar::*;
 pub use chat::*;
 pub use documents::*;
 pub use gifts::*;
@@ -68,7 +70,9 @@ impl ClientMessage {
                 | Read::Papers { id, .. }
                 | Read::Charter { id },
             )
-            | Self::MoveHouses(MoveHouses { id }) => Some(id),
+            | Self::MoveHouses(MoveHouses { id })
+            | Self::TakeSkill(TakeSkill { id, .. })
+            | Self::FoundFrom(FoundFrom { id, .. }) => Some(id),
         }
     }
 }
@@ -94,7 +98,7 @@ impl ServerMessage {
 }
 
 /// The value of every `v` field.
-pub const V: u64 = 2;
+pub const V: u64 = 3;
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
@@ -135,6 +139,10 @@ pub enum ClientMessage {
     Read(Read),
     #[serde(rename = "move-houses")]
     MoveHouses(MoveHouses),
+    #[serde(rename = "take-skill")]
+    TakeSkill(TakeSkill),
+    #[serde(rename = "found-from")]
+    FoundFrom(FoundFrom),
 }
 
 #[derive(

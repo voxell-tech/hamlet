@@ -1,18 +1,22 @@
 //! Durable librarian consultations and shared skills.
 
+use std::collections::BTreeMap;
+
 use anyhow::{Context, Result};
 use hamlet_os::fs::{Missing, Mode, TreePath};
-use hamlet_protocol::client::LibrarySkill;
+use hamlet_protocol::client::{LibrarySkill, TakeSkill};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use super::{Caller, Deed, SocietyOutcome};
 use crate::harness::Harnesses;
+use crate::operation::Request;
 use crate::papers::{NOTES, tree};
 use crate::prompt::shelf;
-use crate::protocol::Refusal;
+use crate::protocol::{Refusable, Refusal};
 use crate::service::Service;
+use crate::{OperationId, RuntimeInstance};
 
 const CAP: u64 = 4 * 1024 * 1024;
 
@@ -35,7 +39,7 @@ struct Consult {
     delivered: bool,
 }
 
-fn is_valid(name: &str) -> bool {
+pub(crate) fn is_valid(name: &str) -> bool {
     !name.is_empty()
         && name.bytes().all(|b| {
             b.is_ascii_alphanumeric() || b == b'-' || b == b'_'
@@ -289,7 +293,7 @@ async fn offered(
 async fn skill_files(
     house: &crate::papers::files::Files,
     name: &str,
-) -> Result<std::collections::BTreeMap<String, tree::Entry>> {
+) -> Result<BTreeMap<String, tree::Entry>> {
     house
         .directory("skills", false)
         .await?
@@ -384,7 +388,7 @@ async fn judged(
 async fn clean(
     house: crate::papers::files::Files,
     name: &str,
-    files: &std::collections::BTreeMap<String, tree::Entry>,
+    files: &BTreeMap<String, tree::Entry>,
 ) -> Result<bool> {
     let skills = house.directory("skills", false).await?;
     let unchanged = match skills.directory(name, false).await {
@@ -533,4 +537,221 @@ pub(super) fn unshelve(
         &json!({"by":chief,"reason":rest,"at":crate::clock::now()}),
     )?;
     Ok(Ok(format!("Took `{name}` out of the library.")))
+}
+
+/// Why the chief's skill was not taken into the library.
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, thiserror::Error,
+)]
+pub(crate) enum Untaken {
+    #[error(
+        "`{0}` cannot name a skill: use letters, digits, hyphens \
+         and underscores"
+    )]
+    Name(String),
+    #[error(
+        "`{0}` cannot be a file of the skill: give each file once, \
+         by a path inside its folder"
+    )]
+    Path(String),
+    #[error(
+        "`{0}` has no SKILL.md that opens with a name and a \
+         description"
+    )]
+    Paper(String),
+    #[error("the library already has a skill named `{0}`")]
+    Shelved(String),
+}
+
+/// The chief's `take-skill`: the skill shelved in the library, with
+/// its record, as one marked operation of the request.
+pub(crate) fn take(
+    service: &mut Service,
+    take: &TakeSkill,
+) -> Result<Refusable<String>> {
+    let name = take.name.as_str();
+    let id = OperationId {
+        runtime: RuntimeInstance::new("chief")?,
+        key: take.id.to_string(),
+    };
+    let request = Request::new("take-skill", take)?;
+    let shelved = views(service)?
+        .into_iter()
+        .map(|skill| skill.name)
+        .collect::<Vec<_>>();
+    let shelf = Shelved {
+        by: service.chief.clone(),
+        reason: format!("Brought from {}", take.from),
+        at: crate::clock::now(),
+    };
+    let root = service.houses.root().try_clone()?;
+    let outcome = service.home.store().once(&id, &request, |db| {
+        let files = match taken(take) {
+            Ok(files) => files,
+            Err(untaken) => return Ok(Err(untaken)),
+        };
+        let library = tree::directory(
+            &root,
+            "library",
+            Missing::Make(Mode::FOLDER),
+        )?;
+        // A request cut short by a crash between the shelving and its
+        // marker left its files there with no record: it is taken
+        // again.
+        let recorded = super::document::<Option<Shelved>>(
+            db,
+            "library-shelved",
+            name,
+        )?
+        .is_some();
+        let unfinished = !recorded
+            && tree::directory(&library, name, Missing::Fail)
+                .map_err(anyhow::Error::from)
+                .and_then(|dir| tree::read(&dir, CAP, 1024))
+                .is_ok_and(|present| present == files);
+        if shelved.iter().any(|shelf| shelf == name) && !unfinished {
+            return Ok(Err(Untaken::Shelved(name.into())));
+        }
+        // Kept before the skill is published, as an offer the
+        // librarian takes is.
+        super::keep(db, "library-shelved", name, &shelf)?;
+        let staging = tree::directory(
+            &root,
+            ".library-staging",
+            Missing::Make(Mode::FOLDER),
+        )?;
+        tree::publish(&staging, &library, name, &files)?;
+        Ok(Ok(()))
+    })?;
+    Ok(match outcome {
+        None => Err(Refusal::Reused),
+        Some(Err(untaken)) => Err(Refusal::Untaken(untaken)),
+        Some(Ok(())) => Ok(format!(
+            "Took `{name}` into the library. Every agent can use it."
+        )),
+    })
+}
+
+/// The files of the skill `take` brings, by their paths in its
+/// folder, once they make a skill.
+fn taken(
+    take: &TakeSkill,
+) -> Result<BTreeMap<String, tree::Entry>, Untaken> {
+    let name = take.name.as_str();
+    if !is_valid(name) {
+        return Err(Untaken::Name(name.into()));
+    }
+    let mut files = BTreeMap::new();
+    for file in &take.files {
+        let inside = file.path.split('/').all(|part| {
+            !part.is_empty()
+                && part != "."
+                && part != ".."
+                && !part.contains(['\\', '\0'])
+        });
+        let entry = tree::Entry {
+            bytes: file.text.as_bytes().to_vec(),
+            mode: 0o644,
+        };
+        if !inside || files.insert(file.path.clone(), entry).is_some()
+        {
+            return Err(Untaken::Path(file.path.clone()));
+        }
+    }
+    let paper = files
+        .get("SKILL.md")
+        .map(|f| String::from_utf8_lossy(&f.bytes).into_owned())
+        .unwrap_or_default();
+    let skill = shelf::skill(name.into(), &paper);
+    if skill.name.trim().is_empty()
+        || skill.description.trim().is_empty()
+    {
+        return Err(Untaken::Paper(name.into()));
+    }
+    Ok(files)
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_protocol::client::{RequestId, SkillText};
+    use hamlet_testing::Scratch;
+
+    use super::*;
+    use crate::{Home, Overrides};
+
+    fn skill(id: &RequestId, name: &str, paper: &str) -> TakeSkill {
+        TakeSkill {
+            files: vec![
+                SkillText {
+                    path: "SKILL.md".into(),
+                    text: paper.into(),
+                },
+                SkillText {
+                    path: "scripts/run.sh".into(),
+                    text: "echo hi\n".into(),
+                },
+            ],
+            from: "skills.sh/acme/tools".into(),
+            id: id.clone(),
+            name: name.into(),
+        }
+    }
+
+    const PAPER: &str =
+        "---\nname: maps\ndescription: Draws maps.\n---\n\nDraw.\n";
+
+    #[test]
+    fn a_skill_the_chief_takes_is_shelved_once_with_its_record() {
+        let scratch = Scratch::new("library-take");
+        let mut service = Service::new(
+            Home::open(&scratch).unwrap(),
+            Overrides::none(true),
+        )
+        .unwrap();
+        let library = scratch.join("library");
+        let first = RequestId::new();
+        let taking = skill(&first, "maps", PAPER);
+        assert!(take(&mut service, &taking).unwrap().is_ok());
+        assert_eq!(
+            std::fs::read_to_string(
+                library.join("maps/scripts/run.sh")
+            )
+            .unwrap(),
+            "echo hi\n"
+        );
+        let shelved = views(&mut service).unwrap();
+        let maps = shelved.iter().find(|s| s.name == "maps").unwrap();
+        assert_eq!(maps.by, service.chief);
+        assert_eq!(maps.description, "Draws maps.");
+        // The same request again is the same answer; another under
+        // its id is refused.
+        assert!(take(&mut service, &taking).unwrap().is_ok());
+        let changed = skill(&first, "other", PAPER);
+        assert!(matches!(
+            take(&mut service, &changed).unwrap(),
+            Err(Refusal::Reused)
+        ));
+        // A name the library has, a file outside the skill's folder
+        // and a skill with no description are refused, and leave
+        // nothing behind.
+        let again = skill(&RequestId::new(), "maps", PAPER);
+        assert!(matches!(
+            take(&mut service, &again).unwrap(),
+            Err(Refusal::Untaken(Untaken::Shelved(_)))
+        ));
+        let mut climbing = skill(&RequestId::new(), "climb", PAPER);
+        climbing.files[1].path = "../../escape.sh".into();
+        assert!(matches!(
+            take(&mut service, &climbing).unwrap(),
+            Err(Refusal::Untaken(Untaken::Path(_)))
+        ));
+        let bare = skill(&RequestId::new(), "bare", "# Nothing\n");
+        assert!(matches!(
+            take(&mut service, &bare).unwrap(),
+            Err(Refusal::Untaken(Untaken::Paper(_)))
+        ));
+        assert!(!library.join("climb").exists());
+        assert!(!library.join("bare").exists());
+        assert!(!scratch.join("escape.sh").exists());
+    }
 }

@@ -211,7 +211,10 @@ the vote, ballots and result in its conversation with that hamlet's mayor.
 
 **H6.** A chief, or a vote of a hamlet's agents, can found a new hamlet under
 a new mayor. A hamlet founded by a vote belongs to the chiefs of the hamlet
-that voted (C7). A home holds at most [6] hamlets.
+that voted (C7). A home holds at most [6] hamlets. A chief can also found
+one from a template, as the Agent Bazaar offers: its mayor and agents come
+with their purposes, characters, notes and skills, and nothing is founded
+unless all of them can be.
 
 **H36.** A hamlet's ID is never reused, even after the hamlet is erased.
 Its spend and records belong only to it.
@@ -272,7 +275,9 @@ the agent is told. Later changes stay in the house. An agent can ask the
 librarian which skill does what it needs (`ask_librarian`), also in one call
 without tools. Each call is kept and charged to the asking agent and its
 task. The library keeps a record of what was shelved, refused and taken out,
-and a chief can take a skill out.
+and a chief can take a skill out. A chief can shelve a skill too, as
+brought from the Agent Bazaar, under a name the library does not have; the
+librarian does not judge it.
 
 ## What waits for a chief
 

@@ -253,6 +253,22 @@ impl Serving {
             ClientMessage::Read(read @ Read::Charter { .. }) => {
                 vec![self.service.read(read.clone()).await?]
             }
+            ClientMessage::TakeSkill(take) => vec![reply(
+                &take.id,
+                crate::society::library::take(
+                    &mut self.service,
+                    take,
+                )?,
+            )],
+            ClientMessage::FoundFrom(found) => vec![reply(
+                &found.id,
+                crate::realm::found_from(
+                    &mut self.service,
+                    &mut self.harnesses,
+                    found,
+                )
+                .await?,
+            )],
             ClientMessage::MoveHouses(MoveHouses { id: request }) => {
                 match self.service.start_move(id, request)? {
                     Ok(()) => Vec::new(),

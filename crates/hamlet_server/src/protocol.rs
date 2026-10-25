@@ -68,6 +68,13 @@ pub enum Refusal {
     /// number is, as a sentence begins.
     #[error("{0} is outside the protocol's supported number range.")]
     OutOfRange(&'static str),
+    /// A request id already used for a request that differs.
+    #[error("That request id was already used for another request.")]
+    Reused,
+    #[error("{0}")]
+    Untaken(crate::society::library::Untaken),
+    #[error("{0}")]
+    Unfounded(crate::realm::Unfounded),
 }
 
 /// A cause for which an operation is refused.

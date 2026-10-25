@@ -4,7 +4,7 @@
 pub(crate) mod dealings;
 mod deeds;
 use anyhow::Result;
-pub(crate) use deeds::deed;
+pub(crate) use deeds::{Unfounded, deed, found_from};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 

@@ -699,6 +699,47 @@ fn a_peer_watch_selects_questions() {
 }
 
 #[test]
+fn the_bazaar_takes_skills_and_founds_from_templates() {
+    client(
+        ClientMessage::TakeSkill(TakeSkill {
+            files: vec![SkillText {
+                path: "SKILL.md".into(),
+                text: "---\nname: maps\n---\n".into(),
+            }],
+            from: "skills.sh/acme/maps".into(),
+            id: id(),
+            name: "maps".into(),
+        }),
+        json!({"type": "take-skill", "id": ID, "name": "maps", "from": "skills.sh/acme/maps", "files": [{"path": "SKILL.md", "text": "---\nname: maps\n---\n"}]}),
+    );
+    let settler = |name: &str| Settler {
+        character: "Calm.".into(),
+        name: name.into(),
+        notes: "# Notes\n".into(),
+        purpose: "Works.".into(),
+        skills: vec![SettlerSkill {
+            body: "Dig.".into(),
+            description: "Digs.".into(),
+            name: "dig".into(),
+        }],
+    };
+    let settler_wire = |name: &str| json!({"name": name, "purpose": "Works.", "character": "Calm.", "notes": "# Notes\n", "skills": [{"name": "dig", "description": "Digs.", "body": "Dig."}]});
+    client(
+        ClientMessage::FoundFrom(FoundFrom {
+            id: id(),
+            template: Template {
+                agents: vec![settler("miller")],
+                mayor: settler("lead"),
+                name: "mill".into(),
+                purpose: "Mill.".into(),
+                title: "The Mill".into(),
+            },
+        }),
+        json!({"type": "found-from", "id": ID, "template": {"name": "mill", "title": "The Mill", "purpose": "Mill.", "mayor": settler_wire("lead"), "agents": [settler_wire("miller")]}}),
+    );
+}
+
+#[test]
 fn every_message_type_is_documented() {
     let page = include_str!("../../../docs/protocol.md");
     let mut generator =

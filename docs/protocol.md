@@ -5,8 +5,8 @@ Hamlet's server. There is no HTTP API. The wire carries JSON messages.
 
 The contract is the Rust types in
 [`hamlet_protocol::client`](../crates/hamlet_protocol/src/client.rs), one
-module per area: `state`, `chat`, `waits`, `gifts`, `documents`, `limits`
-and `settings`.
+module per area: `state`, `chat`, `waits`, `gifts`, `documents`, `limits`,
+`settings` and `bazaar`.
 The names below, such as `Hello` and `ClientMessage`, are their type names.
 The handshake's `v` is the protocol's version, `V`; it moves whenever the
 schema does: a message's shape or a type's name.
@@ -122,6 +122,8 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | `check` (`Check`) | `what: "connection"` | Check the configured model connection; `reply`. Connection state also changes through `change`. |
 | `read` (`Read`) | `what` and fields below | Fetch one document or list; `read` with `to`, or failure `reply`. |
 | `move-houses` (`MoveHouses`) | none | Copy every agent's house from the workspace the server works in to the one chosen in Settings, replacing the houses there; `reply` once done. Progress also changes through `change`. |
+| `take-skill` (`TakeSkill`) | `name: string`, `from: string`, `files: {path: string, text: string}[]` | Take a skill into the library; `reply`. See [The Agent Bazaar](#the-agent-bazaar). |
+| `found-from` (`FoundFrom`) | `template: Template` | Found a hamlet from a template, with its mayor and agents; `reply`. See [The Agent Bazaar](#the-agent-bazaar). |
 
 `/new` and `/resume <number>` also exist as typed commands sent through
 `say`. They perform the same conversation changes as the `new` and `resume`
@@ -174,6 +176,41 @@ Each row is a `Read` form with `type: "read"` and `id`.
 | `models` | `refresh?: boolean` | `models: Listed[]`: name, price, price source, context size, allowed flag and note. `refresh` refreshes discovery. |
 | `papers` | `agent: Address`, `full?: boolean` | `papers: Papers`: notes, character and skill names/descriptions. By default, notes and character are trimmed and cut to 6000 Unicode code points each; `full: true` returns them uncut. |
 | `charter` | None | `charter: {text: string, own: boolean}`: text and whether the chief supplied it. |
+
+### The Agent Bazaar
+
+What the chief brings home from the Agent Bazaar. Both are answered by a
+`reply`, and both are kept with a marker under the request's `id`: the
+same request sent again gets the same answer and changes nothing more,
+and another request under a used `id` is refused.
+
+`take-skill` shelves a skill in the library, recorded as the chief's,
+`Brought from <from>`. `name` is its folder, in letters, digits, hyphens
+and underscores, at most 64. `files` holds 1 to 256 text files by their
+paths in that folder, with `/` between folders; one of them is
+`SKILL.md`, whose front matter gives a name and a description. A name
+the library has, a path that leaves the folder or comes twice, and a
+`SKILL.md` without a description are refused, and nothing is written.
+The skill comes in a full `state`, as every library change does.
+`society/library.rs` owns it.
+
+`found-from` founds `template`:
+
+| Schema | Shape |
+|---|---|
+| `Template` | `{name: string, title: string, purpose: string, mayor: Settler, agents: Settler[]}`: its id, the name it is shown by (at most 32 letters), what it is for, its mayor and up to 64 agents besides. |
+| `Settler` | `{name: string, purpose: string, character: string, notes: string, skills: SettlerSkill[]}`: an agent, its `CHARACTER.md` and `NOTES.md`, and up to 64 skills for its house. |
+| `SettlerSkill` | `{name: string, description: string, body: string}`: a skill's folder and front matter, and what its `SKILL.md` says after it. |
+
+Everything is checked before anything is written: a hamlet name used
+before, the chief's limit on hamlets, an agent named twice, a skill
+whose folder name is not letters, digits, hyphens and underscores or
+comes twice for one agent, and every refusal of the record, such as an
+agent's name already taken in the realm. The hamlet, its agents with
+their purposes and characters, and its title are then recorded
+together; each house is made and given its notes and skills. The new
+hamlet is the chief's, and comes to every client as the state changes.
+`realm/deeds.rs` owns it.
 
 ### Login steps
 
