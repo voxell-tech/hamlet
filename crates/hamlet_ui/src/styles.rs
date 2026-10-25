@@ -425,7 +425,7 @@ pub fn headed(
 /// A button with an icon before its text.
 pub fn marked(
     which: Glyph,
-    text: &'static str,
+    text: impl Into<Prop<String>>,
 ) -> impl View + FrameProps {
     views::button(headed(
         which,
@@ -580,7 +580,7 @@ pub fn back(text: &'static str, act: fn(&mut World)) -> impl View {
 /// the effects of `variant`, that runs `act`.
 fn acting(
     which: Glyph,
-    text: &'static str,
+    text: impl Into<Prop<String>>,
     (rules, variant): (fn(&mut Cx), Variant),
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> impl View {
@@ -603,7 +603,7 @@ pub fn close_button(
 /// A standard button with an icon before its text, that runs `act`.
 pub fn action(
     which: Glyph,
-    text: &'static str,
+    text: impl Into<Prop<String>>,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
     acting(which, text, (button, Variant::Default), act).boxed()

@@ -81,6 +81,12 @@ pub(crate) trait Shown: Listing {
     /// Asks for the listings again.
     fn again(_world: &mut World) {}
 
+    /// At the foot of the shelf, under LOOK AGAIN, such as the way to
+    /// sign in.
+    fn foot() -> AnyView {
+        nothing()
+    }
+
     /// What asking again does, beside the button that does it.
     fn again_words() -> String {
         Self::FROM.map_or_else(String::new, |from| {
@@ -201,7 +207,8 @@ where
 
 /// The shelf of `L`, as the Inspector shows its hamlets: the head,
 /// the search with the order and the filters under it, how many there
-/// are, the rows, and the way to ask for them again at its foot.
+/// are, the rows, and the way to ask for them again and its own foot
+/// at its foot.
 fn shelf<L: Shown>() -> AnyView {
     let orders = choice::<L>(
         L::ORDERS.iter().map(|(_, name)| name.to_string()).collect(),
@@ -251,6 +258,7 @@ fn shelf<L: Shown>() -> AnyView {
         said::<L>(),
         scroll((rows, more)).fills_height(),
         again::<L>(),
+        L::foot(),
     ))
     .gap(10.0)
     .fills_height()

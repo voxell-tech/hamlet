@@ -1,12 +1,16 @@
 //! The Agent Bazaar's panel: five stalls, each a tab, where the chief
 //! adds models from OpenRouter and the endpoints to the catalogue,
-//! takes skills from skills.sh into the library, founds hamlets from
-//! templates, and looks at agents to hire and plugins to install,
-//! which come with the marketplace. A stall clicked in the world
-//! opens it here.
+//! takes skills from skills.sh into the library, and buys and sells
+//! agents, tools and hamlets at the bazaar's server;
+//! where that cannot be reached, those stalls show samples, and
+//! hamlets are founded from their templates. A stall clicked in the
+//! world opens it here.
 
+mod covers;
 mod errand;
 mod hamlets;
+mod listings;
+mod market;
 mod models;
 mod samples;
 mod shelf;
@@ -28,6 +32,7 @@ use hamlet_realm::pick::{Selected, Thing};
 use hamlet_ui::styles::ICON;
 use hamlet_ui::widgets::icons::Glyph;
 
+use self::listings::{Agents, Hamlets, Tools, Wares};
 use self::models::Ware;
 use self::samples::agents::Hireling;
 use self::samples::hamlets::Template;
@@ -55,6 +60,8 @@ pub fn plugin(app: &mut App) {
         skills::plugin,
         samples::plugin,
         hamlets::plugin,
+        market::plugin,
+        covers::plugin,
         view::plugin,
     ))
     .add_systems(
@@ -114,6 +121,18 @@ pub(crate) fn browse_hamlets(world: &mut World) {
     show(world, Stall::Hamlets);
 }
 
+/// Opens the seller's desk at the stall shown, or at the agents.
+pub(crate) fn sell(world: &mut World) {
+    let stall = match world.resource::<StallShown>().0 {
+        stall @ (Stall::Community
+        | Stall::Plugins
+        | Stall::Hamlets) => stall,
+        _ => Stall::Community,
+    };
+    show(world, stall);
+    view::sell(world, stall);
+}
+
 /// Asks for what `stall` sells the first time it is shown, and for
 /// the page open there what that page shows.
 pub(crate) fn stocked(world: &mut World, stall: Stall) {
@@ -130,9 +149,21 @@ pub(crate) fn stocked(world: &mut World, stall: Stall) {
             }
             reopen::<Scroll>(world);
         }
-        Stall::Community => reopen::<Hireling>(world),
-        Stall::Plugins => reopen::<Contraption>(world),
-        Stall::Hamlets => reopen::<Template>(world),
+        Stall::Community => {
+            market::stocked(world);
+            reopen::<Hireling>(world);
+            reopen::<Wares<Agents>>(world);
+        }
+        Stall::Plugins => {
+            market::stocked(world);
+            reopen::<Contraption>(world);
+            reopen::<Wares<Tools>>(world);
+        }
+        Stall::Hamlets => {
+            market::stocked(world);
+            reopen::<Template>(world);
+            reopen::<Wares<Hamlets>>(world);
+        }
     }
 }
 
@@ -167,6 +198,13 @@ pub fn offer(world: &mut World, offered: Offered) {
     for (path, files) in offered.files {
         skills::unrolled(world, skills::SkillId(path), body(files));
     }
+}
+
+pub use self::market::{Dealt, Staged, stage};
+
+/// Opens the page of what the chief sells and has bought.
+pub fn yours(world: &mut World) {
+    view::yours(world);
 }
 
 /// Cheers a purchase in the world's bazaar.

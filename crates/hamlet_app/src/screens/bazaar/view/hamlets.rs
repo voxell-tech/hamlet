@@ -4,20 +4,23 @@
 
 use bevy::ecs::world::World;
 use bevy_fynix::tokens::Tone;
+use bevy_fynix::views::{FrameProps, column};
 use bevy_fynix::{ViewExt, derived, keyed};
 use hamlet_ui::styles::{action, bare, good_action, note};
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, markdown};
 
 use super::diorama;
-use super::listings::{rating, seller_words, share};
+use super::listings::{rating, seller_words};
 use super::parts::{
     Line, deal, fact, mark, nothing, page_head, problem, rows,
     section, sections, told, top,
 };
 use super::shelf::{Shown, said};
+use super::trade::{samples_foot, samples_notice};
 use super::words::grouped;
 use crate::bazaar::hamlets::{self, Founding, full, owns};
+use crate::bazaar::listings::SELLERS_SHARE;
 use crate::bazaar::samples::Price;
 use crate::bazaar::samples::hamlets::{Settler, Template};
 use crate::roll::{either, hamlets_moved, moved};
@@ -30,15 +33,11 @@ impl Shown for Template {
         "Search by a hamlet's name or what it does.";
 
     fn notice() -> AnyView {
-        keyed(
-            derived(full).when(hamlets_moved()),
-            |full| match full {
-                Some(why) => problem(why.clone()),
-                None => nothing(),
-            },
-        )
-        .within(bare())
-        .boxed()
+        column((samples_notice(), full_notice())).gap(10.0).boxed()
+    }
+
+    fn foot() -> AnyView {
+        samples_foot()
     }
 
     fn title(&self) -> String {
@@ -76,7 +75,11 @@ impl Shown for Template {
             self.agents.iter().map(|one| settler(one, false)),
         );
         sections(vec![
-            top(vec![head, diorama::view(self), founding(self)]),
+            top(vec![
+                head,
+                diorama::view(self.seed, self.agents.len() as u32),
+                founding(self),
+            ]),
             section(
                 "WHAT IT IS FOR",
                 markdown::fixed(self.purpose, Tone::Body).boxed(),
@@ -84,6 +87,16 @@ impl Shown for Template {
             section("COMES WITH", rows(team)),
         ])
     }
+}
+
+/// Why no more hamlets can be founded, when the realm is full.
+pub(super) fn full_notice() -> AnyView {
+    keyed(derived(full).when(hamlets_moved()), |full| match full {
+        Some(why) => problem(why.clone()),
+        None => nothing(),
+    })
+    .within(bare())
+    .boxed()
 }
 
 /// The accent line of a hamlet in the realm.
@@ -152,9 +165,10 @@ fn founding(template: &Template) -> AnyView {
             if price != Price::Free {
                 notes.push(
                     note(format!(
-                        "Paying comes with the marketplace, where \
-                         {} Until then it is founded for nothing.",
-                        share(&seller)
+                        "A sample, founded for nothing. At the \
+                         bazaar's server {} would receive \
+                         {SELLERS_SHARE}% of each sale.",
+                        seller.name
                     ))
                     .boxed(),
                 );

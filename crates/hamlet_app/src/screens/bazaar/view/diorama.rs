@@ -14,17 +14,20 @@ use hamlet_ui::styles::{bare, note};
 use hamlet_ui::{AnyView, Cx};
 
 use crate::bazaar::BazaarSettings;
-use crate::bazaar::samples::hamlets::Template;
 
 /// On the picture of a template's town, which turns while it is seen.
 #[derive(Component)]
 pub(super) struct Turning(Model);
 
-/// The town of `template`, turning on its plinth.
-pub(super) fn view(template: &Template) -> AnyView {
+/// The most agents a town is drawn with, its mayor aside.
+const MOST_AGENTS: u32 = 48;
+
+/// The town of the seed `seed`, a mayor and `agents` more, turning on
+/// its plinth.
+pub(super) fn view(seed: u64, agents: u32) -> AnyView {
     let model = Model {
-        seed: template.seed,
-        agents: template.agents.len() as u32 + 1,
+        seed,
+        agents: agents.min(MOST_AGENTS) + 1,
     };
     AnyView::new(move |cx: &mut Cx| {
         let Some(image) = diorama::turning(cx.world) else {

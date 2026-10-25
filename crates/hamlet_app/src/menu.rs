@@ -234,6 +234,11 @@ fn items(menu: Menu, found: bool) -> Vec<AnyView> {
                 "Browse the Hamlets",
                 crate::bazaar::browse_hamlets,
             ));
+            items.push(item(
+                Glyph::Plus,
+                "Sell at the Agent Bazaar",
+                crate::bazaar::sell,
+            ));
             items.push(item(Glyph::Power, "Close", window::quit));
             items
         }

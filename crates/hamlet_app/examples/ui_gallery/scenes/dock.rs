@@ -117,7 +117,7 @@ pub(super) fn seed_dock(world: &mut World) {
         ) {
             tree.add_tab(side, "settings");
         }
-        if matches!(scene, Scene::Stall(..)) {
+        if matches!(scene, Scene::Stall(..) | Scene::Market(..)) {
             tree.add_tab(side, "bazaar");
         }
     }

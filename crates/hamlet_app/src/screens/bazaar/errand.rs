@@ -15,10 +15,15 @@ use tokio::sync::mpsc::{
 };
 
 use crate::PanelSystems;
-use crate::bazaar::{models, skills};
+use crate::bazaar::market::client::Request;
+use crate::bazaar::{covers, market, models, skills};
 
 /// The longest a fetch is waited for.
 const PATIENCE: Duration = Duration::from_secs(30);
+
+/// The longest a package of the bazaar's server is waited for, up or
+/// down.
+const LONG: Duration = Duration::from_secs(300);
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Errands>().add_systems(
@@ -40,6 +45,10 @@ pub(crate) enum Errand {
     Search(String),
     /// The files of this skill.
     Files(skills::SkillId),
+    /// A call of the bazaar's server.
+    Market(market::Call),
+    /// The picture at this address, chosen as a cover at the desk.
+    Picture(String),
 }
 
 /// What a fetch brought: the status and the body, or why there was
@@ -87,6 +96,23 @@ pub(crate) fn send(
     url: String,
     errand: Errand,
 ) -> bool {
+    let request = Request {
+        method: reqwest::Method::GET,
+        url,
+        token: None,
+        body: None,
+        long: false,
+    };
+    send_request(world, request, errand)
+}
+
+/// Sends `request` for `errand`; false where the window has no
+/// runtime to send it on.
+pub(crate) fn send_request(
+    world: &mut World,
+    request: Request,
+    errand: Errand,
+) -> bool {
     let Some(tokio) = world.get_resource::<Tokio>().cloned() else {
         return false;
     };
@@ -98,7 +124,20 @@ pub(crate) fn send(
     errands.sent.push(errand.clone());
     tokio.0.spawn(async move {
         let fetched = async {
-            let answer = client.get(url).send().await?;
+            let mut asked =
+                client.request(request.method, request.url);
+            if request.long {
+                asked = asked.timeout(LONG);
+            }
+            if let Some(token) = request.token {
+                asked = asked.bearer_auth(token);
+            }
+            if let Some((kind, body)) = request.body {
+                asked = asked
+                    .header(reqwest::header::CONTENT_TYPE, kind)
+                    .body(body);
+            }
+            let answer = asked.send().await?;
             let status = answer.status().as_u16();
             Ok::<_, reqwest::Error>((
                 status,
@@ -152,6 +191,12 @@ fn answered(world: &mut World) {
                 skills::found(world, words, answer);
             }
             Errand::Files(id) => skills::unrolled(world, id, answer),
+            Errand::Market(call) => {
+                market::answered(world, call, answer);
+            }
+            Errand::Picture(url) => {
+                covers::picked(world, &url, answer);
+            }
         }
     }
 }

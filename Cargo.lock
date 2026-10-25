@@ -3356,6 +3356,7 @@ name = "hamlet_app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "bevy",
  "bevy_app",
  "bevy_fynix",
@@ -3374,6 +3375,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "toml",
  "unicode-segmentation",

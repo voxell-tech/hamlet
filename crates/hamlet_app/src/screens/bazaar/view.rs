@@ -3,6 +3,8 @@
 //! listings, with a page of its own for one of them, out of the
 //! [`parts`](self::parts) Hamlet's own panels are made of.
 
+mod covers;
+mod desk;
 mod diorama;
 mod hamlets;
 mod listings;
@@ -10,6 +12,8 @@ mod models;
 mod parts;
 mod shelf;
 mod skills;
+mod trade;
+mod wares;
 mod words;
 
 use bevy::app::{App, Update};
@@ -24,7 +28,10 @@ use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::tabs;
 use hamlet_ui::{AnyView, Cx};
 
+use self::desk::Desk;
 pub(crate) use self::shelf::Shown;
+use crate::bazaar::listings::{Agents, Hamlets, Tools, Wares};
+use crate::bazaar::market::lot::Kind;
 use crate::bazaar::models::Ware;
 use crate::bazaar::samples::agents::Hireling;
 use crate::bazaar::samples::hamlets::Template;
@@ -39,7 +46,11 @@ pub(crate) fn plugin(app: &mut App) {
         shelf::typing::<Contraption>,
         shelf::typing::<Scroll>,
         shelf::typing::<Template>,
+        shelf::typing::<Wares<Agents>>,
+        shelf::typing::<Wares<Tools>>,
+        shelf::typing::<Wares<Hamlets>>,
     ))
+    .init_resource::<Desk>()
     .add_systems(
         Update,
         (
@@ -70,6 +81,8 @@ pub(crate) fn screen() -> AnyView {
         TABS.into_iter()
             .map(|line| {
                 tabs::strip(line, |world: &mut World, shown| {
+                    // A tab leaves the seller's desk too.
+                    world.resource_mut::<Desk>().page = None;
                     show(world, shown.0);
                 })
                 .boxed()
@@ -89,14 +102,29 @@ pub(crate) fn screen() -> AnyView {
     })
 }
 
+/// Opens the page of what the chief sells and has bought.
+pub(crate) fn yours(world: &mut World) {
+    desk::open_yours(world);
+}
+
+/// Opens the seller's desk at `stall`, to sell what it sells.
+pub(crate) fn sell(world: &mut World, stall: Stall) {
+    let kind = match stall {
+        Stall::Plugins => Kind::Plugin,
+        Stall::Hamlets => Kind::Hamlet,
+        _ => Kind::Agent,
+    };
+    desk::open_form(world, kind, None);
+}
+
 /// The shelf of `stall`.
 fn wares(stall: Stall) -> AnyView {
     match stall {
         Stall::Models => shelf::stall::<Ware>(),
-        Stall::Community => shelf::stall::<Hireling>(),
-        Stall::Plugins => shelf::stall::<Contraption>(),
+        Stall::Community => trade::stall::<Agents, Hireling>(),
+        Stall::Plugins => trade::stall::<Tools, Contraption>(),
         Stall::Skills => shelf::stall::<Scroll>(),
-        Stall::Hamlets => shelf::stall::<Template>(),
+        Stall::Hamlets => trade::stall::<Hamlets, Template>(),
     }
     .boxed()
 }

@@ -32,8 +32,8 @@ use tokio::sync::mpsc::{
 };
 
 pub(crate) use self::fetch::host;
-pub(crate) use self::load::fit;
-use self::load::{Bounds, Pixels};
+use self::load::Bounds;
+pub(crate) use self::load::{Pixels, decode, fit};
 use crate::chat::ChatSettings;
 use crate::links::seek;
 use crate::markdown;
@@ -372,7 +372,8 @@ pub(crate) fn fetch(world: &mut World, address: &str) {
     });
 }
 
-fn image(pixels: Pixels) -> Image {
+/// The image `pixels` are drawn as.
+pub(crate) fn image(pixels: Pixels) -> Image {
     Image::new(
         Extent3d {
             width: pixels.size.x,

@@ -24,7 +24,7 @@ use hamlet_app::pictures::Pictures;
 use hamlet_app::welcome::Step;
 
 use self::offscreen::{Target, word};
-use self::scenes::{GalleryPlugin, Scene, Stand, Strike};
+use self::scenes::{GalleryPlugin, Scene, Stand, Strike, Trade};
 
 /// A still of the world, shown where the world is drawn.
 const WORLD: &str = concat!(
@@ -51,7 +51,23 @@ const fn bazaar(name: &'static str, scene: Scene) -> Shot {
     }
 }
 
-const SHOTS: [Shot; 41] = [
+/// A still of the Agent Bazaar with its server answering as `trade`
+/// says.
+const fn market(
+    name: &'static str,
+    stall: Stall,
+    trade: Trade,
+    words: &'static [&'static str],
+) -> Shot {
+    Shot {
+        name,
+        scene: Scene::Market(stall, trade, words),
+        size: UVec2::new(1440, 1100),
+        scale: 1.0,
+    }
+}
+
+const SHOTS: [Shot; 54] = [
     bazaar("bazaar-models", Scene::Stall(Stall::Models, &[])),
     bazaar(
         "bazaar-model",
@@ -76,6 +92,74 @@ const SHOTS: [Shot; 41] = [
     bazaar(
         "bazaar-hamlet",
         Scene::Stall(Stall::Hamlets, &["Open Source Maintainer Kit"]),
+    ),
+    market("market-agents", Stall::Community, Trade::SignedIn, &[]),
+    market(
+        "market-agents-signed-out",
+        Stall::Community,
+        Trade::SignedOut,
+        &[],
+    ),
+    market(
+        "market-agent-buy",
+        Stall::Community,
+        Trade::SignedOut,
+        &["Wick Lantern"],
+    ),
+    market(
+        "market-agent-signed-in",
+        Stall::Community,
+        Trade::SignedIn,
+        &["Wick Lantern"],
+    ),
+    market(
+        "market-agent-paying",
+        Stall::Community,
+        Trade::Paying,
+        &["Wick Lantern"],
+    ),
+    market(
+        "market-agent-installing",
+        Stall::Community,
+        Trade::Installing,
+        &["Wick Lantern"],
+    ),
+    market(
+        "market-agent-update",
+        Stall::Community,
+        Trade::SignedIn,
+        &["Letter Scribe"],
+    ),
+    market(
+        "market-tools-owned",
+        Stall::Plugins,
+        Trade::SignedIn,
+        &["Cal Clock"],
+    ),
+    market(
+        "market-hamlet",
+        Stall::Hamlets,
+        Trade::SignedIn,
+        &["Small Press"],
+    ),
+    market("market-sign-in", Stall::Community, Trade::Code, &[]),
+    market(
+        "market-desk",
+        Stall::Community,
+        Trade::SignedIn,
+        &["SELL AN AGENT"],
+    ),
+    market(
+        "market-yours",
+        Stall::Community,
+        Trade::SignedIn,
+        &["YOURS"],
+    ),
+    market(
+        "market-desk-change",
+        Stall::Community,
+        Trade::SignedIn,
+        &["YOURS", "Tutor Owl"],
     ),
     Shot {
         name: "menu",

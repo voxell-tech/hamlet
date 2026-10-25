@@ -1,7 +1,8 @@
-//! The Agents and Plugins stalls drawn: a listing's row, the kinds it
+//! The samples of the Agents and Plugins stalls drawn, where the
+//! bazaar's server cannot be reached: a listing's row, the kinds it
 //! is narrowed to, and its page with its maker, what it does and what
-//! chiefs say of it. Hiring and installing come with the marketplace,
-//! so its page says so and nothing is had.
+//! chiefs say of it. They are made up, so its page says so and
+//! nothing is had.
 
 use bevy_fynix::ViewExt;
 use bevy_fynix::tokens::Tone;
@@ -13,12 +14,12 @@ use super::parts::{
     Line, deal, fact, page_head, rows, section, sections, told, top,
 };
 use super::shelf::{Shown, kinds};
+use super::trade::{samples_foot, samples_notice};
 use super::words::{count, grouped};
+use crate::bazaar::listings::SELLERS_SHARE;
 use crate::bazaar::samples::agents::{Craft, Hireling};
 use crate::bazaar::samples::plugins::{Addition, Contraption, Kind};
-use crate::bazaar::samples::{
-    Price, SELLERS_SHARE, Seller, Standing,
-};
+use crate::bazaar::samples::{Price, Seller, Standing};
 
 impl Shown for Hireling {
     const BACK: &'static str = "AGENTS";
@@ -26,6 +27,14 @@ impl Shown for Hireling {
     const NOUN: &'static str = "agents";
     const FIND: &'static str =
         "Search by an agent's name or what it does.";
+
+    fn notice() -> AnyView {
+        samples_notice()
+    }
+
+    fn foot() -> AnyView {
+        samples_foot()
+    }
 
     fn controls() -> Vec<AnyView> {
         vec![kinds::<Hireling, _>(
@@ -70,8 +79,9 @@ impl Shown for Hireling {
                 later(
                     self.price,
                     &self.maker,
-                    "Hiring comes with the marketplace. Nobody \
-                     moves in yet, and nothing is paid.",
+                    "A sample: nobody moves in, and nothing is \
+                     paid. Agents for hire come from the bazaar's \
+                     server.",
                 ),
             ]),
             section(
@@ -120,6 +130,14 @@ impl Shown for Contraption {
     const FIND: &'static str =
         "Search by a plugin's name or what it adds.";
 
+    fn notice() -> AnyView {
+        samples_notice()
+    }
+
+    fn foot() -> AnyView {
+        samples_foot()
+    }
+
     fn controls() -> Vec<AnyView> {
         vec![kinds::<Contraption, _>(
             "All kinds",
@@ -164,8 +182,8 @@ impl Shown for Contraption {
                 later(
                     self.price,
                     &self.publisher,
-                    "Installing comes with the marketplace. Hamlet \
-                     gains nothing yet, and nothing is paid.",
+                    "A sample: nothing is installed or paid. Tools \
+                     for your agents come from the bazaar's server.",
                 ),
             ]),
             section(

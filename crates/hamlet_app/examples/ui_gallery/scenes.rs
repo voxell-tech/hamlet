@@ -92,7 +92,7 @@ impl Plugin for GalleryPlugin {
                 asking::plugin,
                 select::plugin,
             ));
-        if matches!(self.0, Scene::Stall(..)) {
+        if matches!(self.0, Scene::Stall(..) | Scene::Market(..)) {
             app.add_plugins(stalls::plugin);
         }
     }
@@ -165,6 +165,21 @@ pub enum Scene {
     /// The Agent Bazaar at a stall's tab, with the buttons of these
     /// words pressed in turn.
     Stall(Stall, &'static [&'static str]),
+    /// The same with the bazaar's server answering as `Trade` says.
+    Market(Stall, Trade, &'static [&'static str]),
+}
+
+/// How the bazaar's server stands in a scene of the market.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Trade {
+    SignedOut,
+    SignedIn,
+    /// Signing in, with the code GitHub gave.
+    Code,
+    /// A listing waits to be paid for on Stripe's page.
+    Paying,
+    /// A listing bought is set up in the home.
+    Installing,
 }
 
 /// The picture that stands where the world is drawn, and the part of

@@ -5,7 +5,7 @@
 //! list and its buttons in a row.
 
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, UiRect, px};
+use bevy::ui::{AlignItems, UiRect, percent, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, label, row,
@@ -277,6 +277,15 @@ pub(crate) fn waiting(
             .fill(fill),
         )
     })
+}
+
+/// `control`, such as a dropdown, as wide as the part it is in, as
+/// the shelf lays its order and filters.
+pub(crate) fn wide(control: impl View + 'static) -> AnyView {
+    column((control,))
+        .align(AlignItems::Stretch)
+        .width(percent(100.0))
+        .boxed()
 }
 
 /// A view of nothing, where a part has nothing to show.
