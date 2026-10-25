@@ -30,7 +30,8 @@ use windows_sys::Win32::System::JobObjects::{
 };
 use windows_sys::Win32::System::Threading::{
     CREATE_NO_WINDOW, CREATE_SUSPENDED, GetCurrentProcess,
-    OpenThread, ResumeThread, THREAD_SUSPEND_RESUME,
+    OpenProcess, OpenThread, PROCESS_SYNCHRONIZE, ResumeThread,
+    THREAD_SUSPEND_RESUME, WaitForSingleObject,
 };
 
 use crate::process::{Command, Limits};
@@ -57,14 +58,47 @@ impl Group {
     }
 
     /// Whether a process of the job other than its exited leader
-    /// still runs.
+    /// still runs. Kept when unknown, as ending them reaches only
+    /// this job.
     pub(crate) fn is_running(&self) -> bool {
-        self.job.holds_other_than(self.leader_id)
+        self.job.members().is_none_or(|ids| {
+            ids.iter().any(|&id| id != self.leader_id)
+        })
     }
 
+    /// Returns once they have exited: the system ends them after the
+    /// call, and until then they hold their working folders, which
+    /// the job's list stops naming first.
     pub(crate) fn end(self) {
+        let ending = self
+            .job
+            .members()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|&id| id != self.leader_id)
+            .filter_map(waitable)
+            .collect::<Vec<_>>();
         self.job.terminate();
+        for process in ending {
+            // SAFETY: the call only reads the handle.
+            unsafe {
+                WaitForSingleObject(process.as_raw_handle(), 2000)
+            };
+        }
     }
+}
+
+/// The process `id`, opened only to wait for its exit.
+fn waitable(id: u32) -> Option<OwnedHandle> {
+    // SAFETY: the call returns a new handle or null.
+    let process = unsafe {
+        HandleOrNull::from_raw_handle(OpenProcess(
+            PROCESS_SYNCHRONIZE,
+            0,
+            id,
+        ))
+    };
+    OwnedHandle::try_from(process).ok()
 }
 
 struct Job(OwnedHandle);
@@ -115,9 +149,9 @@ impl Job {
         unsafe { TerminateJobObject(self.0.as_raw_handle(), 1) };
     }
 
-    /// Kept when unknown, as ending them reaches only this job.
-    fn holds_other_than(&self, leader: u32) -> bool {
-        /// Room for 32 ids. A job with more holds others anyway.
+    /// The ids of the job's processes, none when unknown or more than
+    /// 32.
+    fn members(&self) -> Option<Vec<u32>> {
         #[repr(C)]
         struct Ids {
             list: JOBOBJECT_BASIC_PROCESS_ID_LIST,
@@ -138,11 +172,15 @@ impl Job {
                 std::ptr::null_mut(),
             )
         };
-        done == 0
-            || iter::once(ids.list.ProcessIdList[0])
-                .chain(ids.more)
-                .take(ids.list.NumberOfProcessIdsInList as usize)
-                .any(|id| id != leader as usize)
+        let listed = ids.list.NumberOfProcessIdsInList;
+        (done != 0 && listed == ids.list.NumberOfAssignedProcesses)
+            .then(|| {
+                iter::once(ids.list.ProcessIdList[0])
+                    .chain(ids.more)
+                    .take(listed as usize)
+                    .map(|id| id as u32)
+                    .collect()
+            })
     }
 }
 
