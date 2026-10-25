@@ -52,12 +52,14 @@ use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::MAYOR;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders::{Decree, Tell};
+use unicode_segmentation::UnicodeSegmentation;
 
 pub(crate) use self::change::change_view;
 pub use self::change::{Changes, ChatSettings};
 pub(crate) use self::entry::entry_view;
 pub use self::field::{
-    Placeholder, grow, keep_typed, show_placeholder,
+    FieldBar, Placeholder, bar, grow, keep_typed, scroll_field,
+    show_bar, show_placeholder,
 };
 pub use self::lines::{
     ChatRow, Lines, Reach, Unfolded, Whole, break_long_words,
@@ -67,6 +69,13 @@ pub use self::rewind::{Rewinds, asked as rewind_asked};
 use crate::looks::well;
 use crate::me::{self, Me};
 use crate::{PanelSystems, View};
+
+/// The room at the sides of the field, as the theme gives a field.
+const FIELD_SIDE: f32 = 8.0;
+
+/// The room above and below a single line of the field: what is
+/// left of its height once the line and its frame are taken out.
+const LINE_ROOM: f32 = 4.5;
 
 /// The least width of the field a chief types in.
 const FIELD_LEAST: f32 = 150.0;
@@ -79,9 +88,10 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Unfolded>()
         .init_resource::<Lines>()
         .init_resource::<Reach>()
-        .init_resource::<Away>()
+        .init_resource::<AwayFromEnd>()
         .init_resource::<crate::fields::Resized>()
         .add_observer(keep_typed)
+        .add_observer(scroll_field)
         .add_observer(decreed)
         .add_observer(told)
         .add_observer(fault)
@@ -99,7 +109,13 @@ pub fn plugin(app: &mut App) {
         )
         .add_systems(
             Update,
-            (hide_unseen, break_long_words, show_placeholder, grow),
+            (
+                hide_unseen,
+                break_long_words,
+                show_placeholder,
+                grow,
+                show_bar,
+            ),
         )
         .add_systems(PostUpdate, refocus);
 }
@@ -118,6 +134,9 @@ pub struct ChatScroll;
 pub struct Draft {
     pub(crate) text: String,
     pub(crate) step: u8,
+    /// The characters before the caret, which the caret is put after
+    /// when the input is focused again.
+    caret: Option<usize>,
     notice: String,
 }
 
@@ -292,6 +311,27 @@ fn input_root(world: &mut World) -> Option<Entity> {
         .next()
 }
 
+/// `text` with a new line in place of `range`, and the characters up
+/// to after it, as a caret moving right counts them. A range off the
+/// text, or not on its characters, is its end.
+fn new_line(
+    text: &str,
+    range: std::ops::Range<usize>,
+) -> (String, usize) {
+    let range = if range.start <= range.end
+        && text.is_char_boundary(range.start)
+        && text.is_char_boundary(range.end)
+    {
+        range
+    } else {
+        text.len()..text.len()
+    };
+    (
+        format!("{}\n{}", &text[..range.start], &text[range.end..]),
+        text[..range.start].graphemes(true).count() + 1,
+    )
+}
+
 /// Enter sends. A commit from focus leaving only keeps the draft.
 fn commit(world: &mut World, text: String) {
     let root = input_root(world);
@@ -306,10 +346,17 @@ fn commit(world: &mut World, text: String) {
     if !entering {
         return;
     }
-    // Shift+Enter starts a new line, as in the chat apps.
+    // Shift+Enter starts a new line where the caret is, in place of
+    // what is selected, as in the chat apps.
     if world.resource::<ButtonInput<Key>>().pressed(Key::Shift) {
+        let range = focused
+            .and_then(|input| world.get::<EditableText>(input))
+            .map(|field| field.editor().raw_selection().text_range())
+            .unwrap_or(text.len()..text.len());
+        let (text, letters) = new_line(&text, range);
         let mut draft = world.resource_mut::<Draft>();
-        draft.text = format!("{text}\n");
+        draft.text = text;
+        draft.caret = Some(letters);
         draft.step = 1;
         return;
     }
@@ -349,7 +396,21 @@ pub fn refocus(
             if let Some(input) = input {
                 focus.set(input, FocusCause::Pressed);
                 if let Ok(mut text) = texts.get_mut(input) {
-                    text.queue_edit(TextEdit::TextEnd(false));
+                    match draft.caret.take() {
+                        Some(letters) => {
+                            text.queue_edit(TextEdit::TextStart(
+                                false,
+                            ));
+                            for _ in 0..letters {
+                                text.queue_edit(TextEdit::Right(
+                                    false,
+                                ));
+                            }
+                        }
+                        None => {
+                            text.queue_edit(TextEdit::TextEnd(false));
+                        }
+                    }
                 }
             }
         }
@@ -367,7 +428,7 @@ pub(crate) fn furthest(node: &ComputedNode) -> f32 {
 /// True while the chat is shown away from its end, which is when the
 /// way back to it is offered.
 #[derive(Resource, Default)]
-pub struct Away(pub bool);
+pub struct AwayFromEnd(pub bool);
 
 /// Takes the chat to its end.
 fn to_end(world: &mut World) {
@@ -400,7 +461,7 @@ pub fn stick_to_bottom(
     me: Res<Me>,
     reach: Res<Reach>,
     lines: Res<Lines>,
-    mut away: ResMut<Away>,
+    mut away: ResMut<AwayFromEnd>,
     mut scrolls: Query<
         (&ComputedNode, &mut ScrollPosition, Option<&mut ScrollGoal>),
         With<ChatScroll>,
@@ -439,6 +500,13 @@ pub fn message_bar() -> impl View {
     let field = row((
         text_field(resource::<Draft, _>(|d| d.text.clone()), commit)
             .grow(1.0)
+            // The room above and below one line, kept above the
+            // first line and below the last of many.
+            .padding(UiRect {
+                top: px(LINE_ROOM),
+                bottom: px(LINE_ROOM),
+                ..UiRect::horizontal(px(FIELD_SIDE))
+            })
             .rules(well)
             .tagged(ChatField),
         // Shown in the empty field, under the caret.
@@ -450,6 +518,7 @@ pub fn message_bar() -> impl View {
         .height(percent(100.0))
         .padding(UiRect::left(px(10.0)))
         .tagged(Placeholder),)),
+        bar(),
     ))
     .grow(1.0)
     .min_width(px(FIELD_LEAST))
@@ -492,6 +561,19 @@ mod tests {
         );
         app.update();
         app
+    }
+
+    #[test]
+    fn a_new_line_replaces_the_selection_and_follows_the_characters()
+    {
+        assert_eq!(new_line("abcd", 2..2), ("ab\ncd".into(), 3));
+        assert_eq!(new_line("abcd", 1..3), ("a\nd".into(), 2));
+        assert_eq!(new_line("é€x", 2..2), ("é\n€x".into(), 2));
+        assert_eq!(
+            new_line("e\u{301}x", 3..3),
+            ("e\u{301}\nx".into(), 2)
+        );
+        assert_eq!(new_line("ab", 9..9), ("ab\n".into(), 3));
     }
 
     fn heard(app: &mut App) -> Vec<Sound> {
@@ -1184,7 +1266,7 @@ mod tests {
         world.insert_resource(Me::of(nobody, nobody, "wren", None));
         world.init_resource::<Lines>();
         world.init_resource::<Reach>();
-        world.init_resource::<Away>();
+        world.init_resource::<AwayFromEnd>();
         let tall = |content: f32| ComputedNode {
             size: bevy::math::Vec2::new(300.0, 200.0),
             content_size: bevy::math::Vec2::new(300.0, content),

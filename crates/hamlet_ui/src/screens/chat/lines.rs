@@ -32,7 +32,7 @@ use hamlet_protocol::client as protocol;
 
 use super::entry::entry_view;
 use super::timeline::{Line, People, Who, timeline};
-use super::{Away, ChatScroll, bubble};
+use super::{AwayFromEnd, ChatScroll, bubble};
 use crate::View;
 use crate::looks::{Fills, note};
 use crate::me::Me;
@@ -741,7 +741,7 @@ pub fn transcript() -> impl View {
     // The way back to the end, over the corner of the chat, offered
     // only when the chat is not at its end.
     let back = each(
-        resource::<Away, _>(|away| {
+        resource::<AwayFromEnd, _>(|away| {
             if away.0 { vec![()] } else { Vec::new() }
         }),
         |_: &()| 0u8,

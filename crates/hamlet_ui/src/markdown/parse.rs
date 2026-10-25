@@ -321,8 +321,8 @@ fn fence(line: &str) -> Option<(char, usize, &str)> {
     (run >= 3).then(|| (mark, run, &line[run..]))
 }
 
-/// True if `line` starts an item of a list, or may do once its next
-/// word is typed. It goes on a list that a blank line came before.
+/// True if `line` starts a list item, or could become one after
+/// another character is typed.
 fn item(line: &str) -> bool {
     let line = line.trim_start();
     let digits =
