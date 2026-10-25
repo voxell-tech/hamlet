@@ -5,10 +5,10 @@
 # Cargo.lock to resolve this crate:
 #
 #   docker build -f crates/hamlet_workspace/Dockerfile \
-#     -t hamlet-workspace:local .
+#     -t hamlet_workspace:local .
 #
 # The image carries no configuration and no keys. Mount a configuration
-# file and pass its path: `worker /etc/hamlet-workspace/worker.json`.
+# file and pass its path: `worker /etc/hamlet_workspace/worker.json`.
 # See README.md next to this file.
 
 # Rust 1.99 and Debian 12, pinned by index digest. The runtime is the
@@ -25,9 +25,9 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates crates
 COPY vendor vendor
 RUN cargo build --locked --release -p hamlet_workspace \
-        --bin hamlet-workspace \
-    && install -D -m 0755 target/release/hamlet-workspace \
-        /out/hamlet-workspace
+        --bin hamlet_workspace \
+    && install -D -m 0755 target/release/hamlet_workspace \
+        /out/hamlet_workspace
 
 FROM ${RUNTIME_IMAGE}
 # bubblewrap is pinned to one Debian 12 build; the build fails rather
@@ -60,7 +60,7 @@ RUN apt-get update \
         tar \
         xz-utils \
     && rm -rf /var/lib/apt/lists/*
-COPY --from=build /out/hamlet-workspace /usr/local/bin/hamlet-workspace
+COPY --from=build /out/hamlet_workspace /usr/local/bin/hamlet_workspace
 # No default arguments: pass `worker CONFIG`. Without arguments the
 # binary prints its usage.
-ENTRYPOINT ["/usr/local/bin/hamlet-workspace"]
+ENTRYPOINT ["/usr/local/bin/hamlet_workspace"]

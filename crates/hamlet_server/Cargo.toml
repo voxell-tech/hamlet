@@ -8,12 +8,12 @@ publish.workspace = true
 description = "The Hamlet server: a claimed home, its realm database and the markers of operations"
 
 [[bin]]
-name = "hamlet-server"
+name = "hamlet_server"
 path = "src/main.rs"
 
 [[bin]]
-name = "hamlet-harness-driver"
-path = "src/bin/hamlet-harness-driver.rs"
+name = "hamlet_harness_driver"
+path = "src/bin/hamlet_harness_driver.rs"
 required-features = ["harness"]
 
 [lints]

@@ -380,7 +380,7 @@ impl Driver {
     ) -> Self {
         let log = realm.scratch.join("driver.log");
         let mut command =
-            Command::new(env!("CARGO_BIN_EXE_hamlet-harness-driver"));
+            Command::new(env!("CARGO_BIN_EXE_hamlet_harness_driver"));
         command.arg("--home").arg(&realm.home);
         if let Some(faux) = faux {
             command.arg("--faux").arg(faux);

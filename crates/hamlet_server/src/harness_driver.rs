@@ -1,4 +1,4 @@
-//! `hamlet-harness-driver --home <dir> [--faux <file>]`: holds a home
+//! `hamlet_harness_driver --home <dir> [--faux <file>]`: holds a home
 //! and its runtimes for the harness tests, taking commands on
 //! standard input in place of the client protocol and printing each
 //! notice as a JSON line. Built only with the `harness` feature, as

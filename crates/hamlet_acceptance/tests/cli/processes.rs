@@ -127,7 +127,7 @@ async fn dev_uses_binary_overrides_and_stops_the_server_at_ctrl_c() {
     let app = app(home);
     let capture = home.side().join("capture");
     let selected = home.side().join("selected-server");
-    let binary = cli().with_file_name("hamlet-server");
+    let binary = cli().with_file_name("hamlet_server");
     let server = executable(
         home,
         "chosen-server",
@@ -169,7 +169,7 @@ async fn dev_launches_cargos_reported_server_and_window() {
     let app = app(home);
     let capture = home.side().join("capture");
     let selected = home.side().join("selected-server");
-    let binary = cli().with_file_name("hamlet-server");
+    let binary = cli().with_file_name("hamlet_server");
     let server = executable(
         home,
         "built-server",
@@ -190,11 +190,11 @@ async fn dev_launches_cargos_reported_server_and_window() {
         home,
         "cargo",
         &format!(
-            "#!/bin/sh\ncase \"$3\" in\nhamlet-server) printf \
-             '%s\\n' '{}' ;;\nhamlet-app) printf '%s\\n' '{}' \
+            "#!/bin/sh\ncase \"$3\" in\nhamlet_server) printf \
+             '%s\\n' '{}' ;;\nhamlet_app) printf '%s\\n' '{}' \
              ;;\n*) exit 1 ;;\nesac\n",
-            artifact("hamlet-server", &server),
-            artifact("hamlet-app", &app),
+            artifact("hamlet_server", &server),
+            artifact("hamlet_app", &app),
         ),
     );
     let path = std::env::join_paths(

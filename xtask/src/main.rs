@@ -139,8 +139,8 @@ enum Failure {
 /// The binaries a chief runs, with the packages that hold them.
 const BINARIES: [(&str, &str); 3] = [
     ("hamlet_cli", "hamlet"),
-    ("hamlet_server", "hamlet-server"),
-    ("hamlet_app", "hamlet-app"),
+    ("hamlet_server", "hamlet_server"),
+    ("hamlet_app", "hamlet_app"),
 ];
 
 fn main() -> ExitCode {
@@ -180,7 +180,7 @@ fn run(task: &str, rest: &[String]) -> Result<(), Failure> {
         }
         "all" => {
             prepare(&root)?;
-            // hamlet-harness-driver is left out: it needs the harness
+            // hamlet_harness_driver is left out: it needs the harness
             // feature, and the harness tests build it.
             status(
                 cargo(&[
@@ -366,7 +366,7 @@ fn workspace_image(rest: &[String]) -> Result<(), Failure> {
         .any(|arg| arg == "-t" || arg.starts_with("--tag"))
     {
         let short = &commit[..commit.len().min(7)];
-        build.args(["-t", &format!("hamlet-workspace:{short}")]);
+        build.args(["-t", &format!("hamlet_workspace:{short}")]);
     }
     status(build.args(rest).arg("."))
 }

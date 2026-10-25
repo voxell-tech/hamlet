@@ -15,7 +15,7 @@ use hamlet_realm::chief::Kept;
 use hamlet_ui::{Remembered, UiPlugin, window_plugin};
 
 const USAGE: &str = "\
-usage: hamlet-app [-h]
+usage: hamlet_app [-h]
 
 Open a window on an agent server. Closing it leaves agents working.
 Start a server with hamlet server; chat in the terminal with hamlet \

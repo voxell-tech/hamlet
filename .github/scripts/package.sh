@@ -34,7 +34,7 @@ mkdir -p dist
 cp LICENSE-MIT LICENSE-APACHE "$stage/"
 
 if [[ $target == x86_64-pc-windows-msvc ]]; then
-  cp "$built/hamlet-app.exe" "$stage/"
+  cp "$built/hamlet_app.exe" "$stage/"
   cat > "$stage/README.txt" <<INFO
 Hamlet $version - Windows window only
 
@@ -42,7 +42,7 @@ This archive contains a protocol client, not a local agent server.
 No Node installation is needed on the window's machine. Run a Hamlet server
 on Linux or macOS and connect through an SSH tunnel. Set HAMLET_SERVER to its
 WebSocket URL and HAMLET_TOKEN to its connection token before launching
-hamlet-app.exe. Keep the token private. Set HAMLET_VIEW to a scratch folder
+hamlet_app.exe. Keep the token private. Set HAMLET_VIEW to a scratch folder
 when trying the window without changing your saved layout.
 
 Windows has no supported Hamlet server sandbox. Closing this window does not
@@ -70,7 +70,7 @@ else
   pi=$bin/pi
 fi
 mkdir -p "$bin" "$pi"
-for binary in hamlet hamlet-server hamlet-app; do
+for binary in hamlet hamlet_server hamlet_app; do
   cp "$built/$binary" "$bin/"
 done
 cp -R harnesses/pi/src "$pi/"
@@ -131,8 +131,8 @@ case $target in
 PLIST
     # Signed for this machine only. Without a developer's signature
     # the system asks before it opens the app the first time.
-    codesign --force --sign - "$bin/hamlet-server"
-    codesign --force --sign - "$bin/hamlet-app"
+    codesign --force --sign - "$bin/hamlet_server"
+    codesign --force --sign - "$bin/hamlet_app"
     codesign --force --sign - "$app"
     codesign --verify --deep --strict "$app"
     ditto -c -k --keepParent "$stage" "$scratch/$name.zip"

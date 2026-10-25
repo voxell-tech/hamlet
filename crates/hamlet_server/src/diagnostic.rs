@@ -19,7 +19,7 @@ pub(crate) enum Secrets<'a> {
 /// a terminal escape in the words cannot break or forge it.
 #[expect(clippy::print_stderr, reason = "stderr is the server's log")]
 pub(crate) fn tell(secrets: Secrets<'_>, words: impl Display) {
-    let mut line = Value::String(format!("hamlet-server: {words}"));
+    let mut line = Value::String(format!("hamlet_server: {words}"));
     if let Secrets::Of(credentials) = secrets {
         credentials.scrub(&mut line);
     }

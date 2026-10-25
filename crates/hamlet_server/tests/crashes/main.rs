@@ -1,4 +1,4 @@
-//! The `hamlet-server` executable serving a home: crashed, killed
+//! The `hamlet_server` executable serving a home: crashed, killed
 //! and driven through its fault points and the pi harness. Every
 //! server here starts pi for its model providers, so the target needs
 //! Node and the `harness` feature.
@@ -23,8 +23,8 @@ use rustix::process::{Pid, Signal, kill_process};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
 
-/// The `hamlet-server` these tests are built with.
-const SERVER: &str = env!("CARGO_BIN_EXE_hamlet-server");
+/// The `hamlet_server` these tests are built with.
+const SERVER: &str = env!("CARGO_BIN_EXE_hamlet_server");
 
 /// Starts [`SERVER`] on `home`.
 async fn start(

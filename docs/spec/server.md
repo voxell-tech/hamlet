@@ -114,7 +114,7 @@ run with `cargo run -p hamlet_cli -- <command>` or installed with
 `cargo install --path crates/hamlet_cli`. It manages the server and window
 as separate processes and uses the client protocol for terminal operations.
 The server needs Node for the pi harness. `HAMLET_HOME` names the home; development uses a scratch folder.
-The window's executable is `hamlet-app`; the app is called Hamlet.
+The window's executable is `hamlet_app`; the app is called Hamlet.
 Bare `hamlet` serves the home in the background, or reuses its running
 server, and opens a window. Closing the window or terminal stops no agent.
 `hamlet stop` stops the server; `hamlet status` reports it.
