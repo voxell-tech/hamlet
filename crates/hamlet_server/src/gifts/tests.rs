@@ -2,9 +2,10 @@
 //! files.
 
 use std::fs;
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::PermissionsExt;
 
 use hamlet_testing::Scratch;
+use hamlet_testing::links::{hard_link, symlink};
 
 use super::*;
 use crate::record::{
@@ -396,8 +397,7 @@ async fn refuses_a_hard_linked_file_and_lists_it_as_special() {
     fs::write(source.join("SKILL.md"), "maps").unwrap();
     let outside = Scratch::new("gift-hard-link");
     fs::write(outside.join("secret"), "secret").unwrap();
-    fs::hard_link(outside.join("secret"), source.join("secret"))
-        .unwrap();
+    hard_link(outside.join("secret"), source.join("secret")).unwrap();
     assert_eq!(
         service
             .give(&mayor(), "maps", Some(&scout()))

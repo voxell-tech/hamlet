@@ -2,6 +2,7 @@
 //! values, faux scripts, a loopback OpenAI endpoint and a server
 //! process on a scratch home.
 
+pub mod links;
 pub mod openai;
 pub mod realm;
 mod script;
