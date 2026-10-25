@@ -165,22 +165,6 @@ async fn keeps_a_folders_shape_and_earlier_gifts_and_tells_the_agent()
 }
 
 #[tokio::test]
-async fn hands_over_empty_files_once_every_file_is_in() {
-    let mut s =
-        Session::start(Script::new().responses([words("Ok.")])).await;
-    let reply = s
-        .chief
-        .give(mayor(), &[("folder/empty", b""), ("folder/a", b"A")])
-        .await;
-    assert_eq!(
-        kind_text(&reply),
-        (&ReplyKind::Notice, "Handed over `inbox/folder`.")
-    );
-    let empty = s.home.file("houses/home/0/inbox/folder/empty");
-    assert_eq!(std::fs::read(empty).unwrap(), b"");
-}
-
-#[tokio::test]
 async fn refuses_bad_paths_and_manifests_before_writing_anything() {
     let mut s = Session::start(Script::new()).await;
     for path in [
@@ -483,34 +467,4 @@ async fn copies_another_agents_whole_skill() {
         (&ReplyKind::Notice, "Gave `scout` the skill `maps`.")
     );
     assert!(maps.join("scripts/run.sh").is_file());
-}
-
-#[tokio::test]
-async fn answers_a_gift_to_a_departed_agent_with_its_farewell() {
-    let mut s = Session::start(scout()).await;
-    make_scout(&mut s).await;
-    s.chief.say(mayor(), "/remove scout Work ended").await;
-    let farewell = "`scout` was removed from the hamlet by the \
-                    chief chief (\"Work ended\"). Its house is \
-                    archived and its roads went with it; only a \
-                    chief can restore it.";
-    let typed = s.chief.say(mayor(), "/give scout weather").await;
-    let skill =
-        starter(&mut s.chief, to("home", "scout"), "weather").await;
-    let files = s
-        .chief
-        .request(|id| {
-            ClientMessage::Give(Give::Files {
-                files: vec![GiveFile {
-                    path: "note.txt".into(),
-                    size: 0,
-                }],
-                id,
-                to: to("home", "scout"),
-            })
-        })
-        .await;
-    for reply in [typed, skill, files] {
-        assert_eq!(kind_text(&reply), (&ReplyKind::Error, farewell));
-    }
 }

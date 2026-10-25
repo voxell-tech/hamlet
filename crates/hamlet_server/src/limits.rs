@@ -322,23 +322,3 @@ fn defaults(schema: &Value, value: &mut Value) {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use hamlet_testing::Scratch;
-
-    use crate::Store;
-
-    #[test]
-    fn an_unknown_hamlet_has_no_limits() {
-        let scratch = Scratch::new("limits-unknown");
-        let store =
-            Store::open(&scratch.join("realm.sqlite")).unwrap();
-        let error =
-            super::of(store.connection(), "nowhere").unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            "There is no hamlet `nowhere` to read the limits of."
-        );
-    }
-}

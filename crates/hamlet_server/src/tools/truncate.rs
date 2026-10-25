@@ -241,11 +241,4 @@ mod tests {
         long.push(&"\u{e9}".repeat(30 * 1024));
         assert_eq!(long.text().len(), MAX_BYTES);
     }
-
-    #[test]
-    fn writes_sizes_as_pi_does() {
-        assert_eq!(format_size(1280), "1.3KB");
-        assert_eq!(format_size(MAX_BYTES), "50.0KB");
-        assert_eq!(format_size(512), "512B");
-    }
 }

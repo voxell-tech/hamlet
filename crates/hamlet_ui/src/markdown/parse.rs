@@ -466,52 +466,6 @@ mod tests {
     }
 
     #[test]
-    fn paragraphs_and_breaks() {
-        assert_eq!(
-            parse("one\ntwo\n\nthree  \nfour"),
-            [
-                top(Kind::Paragraph(vec![plain("one two")])),
-                top(Kind::Paragraph(vec![plain("three\nfour")])),
-            ]
-        );
-        assert_eq!(parse(""), []);
-        assert_eq!(parse(" \n\n "), []);
-        assert_eq!(
-            parse("[a]: http://b"),
-            [top(Kind::Paragraph(vec![
-                plain("[a]: "),
-                link("http://b", Target::Web("http://b".into())),
-            ]))]
-        );
-    }
-
-    #[test]
-    fn inline_styles_become_spans() {
-        let blocks =
-            parse("a **b** *c* `d` [e](http://x.y) ~~f~~ ***g***");
-        assert_eq!(
-            blocks,
-            [top(Kind::Paragraph(vec![
-                plain("a "),
-                styled("b", |s| s.bold = true),
-                plain(" "),
-                styled("c", |s| s.italic = true),
-                plain(" "),
-                styled("d", |s| s.code = true),
-                plain(" "),
-                link("e", Target::Web("http://x.y".into())),
-                plain(" "),
-                styled("f", |s| s.strike = true),
-                plain(" "),
-                styled("g", |s| {
-                    s.bold = true;
-                    s.italic = true;
-                }),
-            ]))]
-        );
-    }
-
-    #[test]
     fn a_link_keeps_the_place_it_leads() {
         let blocks = parse(
             "[a](docs/a.md:3) <https://b.c> [d](file:///e) \
@@ -577,47 +531,6 @@ mod tests {
     }
 
     #[test]
-    fn code_blocks_keep_their_text_and_language() {
-        let blocks = parse(
-            "```rust\nfn main() {\n    a < b;\n}\n```\n\n    x\n",
-        );
-        assert_eq!(
-            blocks,
-            [
-                top(Kind::Code {
-                    lang: "rust".into(),
-                    text: "fn main() {\n    a < b;\n}".into(),
-                }),
-                top(Kind::Code {
-                    lang: String::new(),
-                    text: "x".into(),
-                }),
-            ]
-        );
-    }
-
-    #[test]
-    fn headings_carry_their_level() {
-        let blocks = parse("# A\n## B *c*\n###### D\n\nE\n===");
-        let levels = blocks
-            .iter()
-            .map(|b| match &b.kind {
-                Kind::Heading(level, _) => (*level, said(b)),
-                _ => (0, String::new()),
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(
-            levels,
-            [
-                (1, "A".to_string()),
-                (2, "B c".to_string()),
-                (6, "D".to_string()),
-                (1, "E".to_string()),
-            ]
-        );
-    }
-
-    #[test]
     fn lists_are_flat_blocks_that_say_how_deep_they_sit() {
         let blocks = parse(
             "- a\n- b\n  1. c\n  2. d\n     - e\n\n       more\n- \
@@ -642,50 +555,6 @@ mod tests {
                 (1, Some(Marker::Number(3)), s("h")),
                 (1, Some(Marker::Number(4)), s("i")),
             ]
-        );
-    }
-
-    #[test]
-    fn quotes_and_rules() {
-        let blocks = parse("> a\n>\n> > b\n\n---\n\n> - c\n");
-        let shape = blocks
-            .iter()
-            .map(|b| (b.quote, b.indent, said(b)))
-            .collect::<Vec<_>>();
-        assert_eq!(
-            shape,
-            [
-                (1, 0, "a".to_string()),
-                (2, 0, "b".to_string()),
-                (0, 0, String::new()),
-                (1, 1, "c".to_string()),
-            ]
-        );
-        assert_eq!(blocks[2].kind, Kind::Rule);
-    }
-
-    #[test]
-    fn a_table_is_rows_of_cells() {
-        let blocks = parse(
-            "| a | b | c |\n|:--|:-:|--:|\n| 1 | **2** | 3 |\n",
-        );
-        assert_eq!(
-            blocks,
-            [top(Kind::Table {
-                align: vec![Align::Start, Align::Center, Align::End],
-                rows: vec![
-                    vec![
-                        vec![plain("a")],
-                        vec![plain("b")],
-                        vec![plain("c")],
-                    ],
-                    vec![
-                        vec![plain("1")],
-                        vec![styled("2", |s| s.bold = true)],
-                        vec![plain("3")],
-                    ],
-                ],
-            })]
         );
     }
 

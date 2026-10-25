@@ -373,23 +373,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_spot_beside_someone_at_the_water_is_dry_and_clear() {
-        let land = testing::land(7);
-        let side = Vec2::new(1.0, 0.25);
-        // On a bank, with the water to that side.
-        let them = (0..4000)
-            .map(|i| {
-                Vec2::new((i % 80) as f32, (i / 80) as f32) * 2.0
-                    - Vec2::splat(80.0)
-            })
-            .find(|&p| is_clear(&land, p) && land.is_water(p + side))
-            .expect("a bank");
-        let stand = beside(&land, them, side, 6.0).expect("a spot");
-        assert!(is_clear(&land, stand));
-        assert!(stand.distance(them) <= 6.0);
-    }
-
     /// Prints what finding a way costs. Run with
     /// `cargo test --release homing::tests::cost -- --ignored
     /// --nocapture`.

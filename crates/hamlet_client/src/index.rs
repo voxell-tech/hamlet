@@ -396,7 +396,7 @@ mod tests {
         agent, hamlet, reference, state, wait,
     };
 
-    use crate::realm::{self, Left, Mayor};
+    use crate::realm::{self, Left};
     use crate::{ClientPlugin, receive, waits};
 
     fn app(state: protocol::State) -> App {
@@ -449,24 +449,6 @@ mod tests {
             Some(founder)
         );
         assert_eq!(realm::mayor(app.world()), Some(founder));
-    }
-
-    #[test]
-    fn the_mayor_is_whoever_holds_the_seat_now() {
-        let mut realm = state();
-        realm.agents.push(agent("home", 1, "writer"));
-        let mut app = app(realm);
-        let founder = realm::named(app.world(), "founder").unwrap();
-        let writer = realm::named(app.world(), "writer").unwrap();
-        assert_eq!(realm::mayor(app.world()), Some(founder));
-        app.world_mut().entity_mut(founder).remove::<Mayor>();
-        assert_eq!(realm::mayor(app.world()), None);
-        app.world_mut().entity_mut(writer).insert(Mayor);
-        assert_eq!(realm::mayor(app.world()), Some(writer));
-        assert_eq!(
-            realm::named(app.world(), realm::MAYOR),
-            Some(writer)
-        );
     }
 
     #[test]

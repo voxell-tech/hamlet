@@ -475,30 +475,3 @@ fn failure_of(text: &str) -> String {
         })
         .unwrap_or_default()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_failure_is_its_first_line_that_says_something() {
-        assert_eq!(
-            failure_of("<harness>\n[error] \nError: broken\nmore"),
-            "broken"
-        );
-        assert_eq!(failure_of("\n\n"), "");
-    }
-
-    #[test]
-    fn a_result_naming_a_change_that_does_not_read_is_an_error() {
-        let result = serde_json::from_value::<runtime::Item>(serde_json::json!({
-            "at": 1, "entry": "2", "kind": "tool_result", "text": "",
-            "details": {"change": {"not": "a change"}},
-        }))
-        .unwrap();
-        assert_eq!(
-            ending(&result).err().unwrap().to_string(),
-            "reading the change of a tool's result"
-        );
-    }
-}

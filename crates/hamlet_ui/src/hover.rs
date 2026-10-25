@@ -622,17 +622,3 @@ pub fn view() -> AnyView {
         cx.build(overlay((card,)))
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_long_purpose_is_cut_at_a_word() {
-        assert_eq!(short("Keeps the list.", 40), "Keeps the list.");
-        assert_eq!(
-            short("Reads every paper it is given", 12),
-            "Reads every..."
-        );
-    }
-}

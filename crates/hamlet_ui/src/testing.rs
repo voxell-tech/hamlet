@@ -1,7 +1,6 @@
 //! Helpers the tests of several modules share.
 
 use std::io::Cursor;
-use std::time::Duration;
 
 use bevy::app::App;
 use bevy::ecs::component::Component;
@@ -9,7 +8,6 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::math::UVec2;
 use bevy::text::TextSpan;
-use bevy::time::Time;
 use bevy::ui::widget::Text;
 use bevy::ui_widgets::{Activate, Button, MenuItem};
 use bevy_fynix::FynixPlugin;
@@ -103,14 +101,6 @@ pub(crate) fn settings_page(pane: Pane) -> App {
 
 /// Runs the update a page follows what it received in.
 pub(crate) fn settle(app: &mut App) {
-    app.update();
-}
-
-/// Runs one frame of a sixtieth of a second.
-pub(crate) fn step(app: &mut App) {
-    app.world_mut()
-        .resource_mut::<Time>()
-        .advance_by(Duration::from_millis(16));
     app.update();
 }
 

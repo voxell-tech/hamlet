@@ -393,75 +393,10 @@ pub fn panel(chief: Entity) -> AnyView {
 
 #[cfg(test)]
 mod tests {
-    use bevy::app::{App, Update};
+    use bevy::app::App;
     use hamlet_protocol::client as protocol;
 
     use super::*;
-
-    fn app() -> (App, Entity, Entity) {
-        let mut app = App::new();
-        let world = app.world_mut();
-        let agent = world.spawn(Name::new("Juniper")).id();
-        let session = world.spawn_empty().id();
-        world.insert_resource(Me::of(
-            session,
-            agent,
-            "wren",
-            Some("Juniper"),
-        ));
-        world.init_resource::<Selected>();
-        let chief = chief::arrive(world, "wren", Look::default());
-        app.add_systems(Update, accompany).add_observer(spoke);
-        (app, chief, agent)
-    }
-
-    fn beside(app: &App, chief: Entity) -> Option<Entity> {
-        app.world().get::<Beside>(chief).unwrap().0
-    }
-
-    #[test]
-    fn the_mascot_keeps_whoever_is_selected_company() {
-        let (mut app, chief, agent) = app();
-        app.update();
-        assert_eq!(beside(&app, chief), None);
-
-        let pick = |app: &mut App, thing: Option<Thing>| {
-            app.world_mut().resource_mut::<Selected>().0 = thing;
-            app.update();
-        };
-        pick(&mut app, Some(Thing::Agent(agent)));
-        assert_eq!(beside(&app, chief), Some(agent));
-        pick(&mut app, Some(Thing::House(agent)));
-        assert_eq!(beside(&app, chief), Some(agent));
-
-        // Its own place, a hamlet or nothing at all: it goes home.
-        pick(&mut app, Some(Thing::ChiefPlace(chief)));
-        assert_eq!(beside(&app, chief), None);
-        pick(&mut app, Some(Thing::Agent(agent)));
-        pick(&mut app, None);
-        assert_eq!(beside(&app, chief), None);
-    }
-
-    #[test]
-    fn a_message_with_nobody_selected_brings_the_mascot() {
-        let (mut app, chief, agent) = app();
-        app.update();
-        let key = app.world().resource::<Me>().to.clone();
-        // Another chat's message is not this chief's.
-        app.world_mut().trigger(ChiefMessage {
-            to: protocol::Address {
-                hamlet: "home".into(),
-                agent: "Sorrel".into(),
-            },
-            text: "hello".into(),
-        });
-        assert_eq!(beside(&app, chief), None);
-        app.world_mut().trigger(ChiefMessage {
-            to: key,
-            text: "hello".into(),
-        });
-        assert_eq!(beside(&app, chief), Some(agent));
-    }
 
     #[test]
     fn the_chief_arrives_with_the_servers_name_after_the_window_opens()

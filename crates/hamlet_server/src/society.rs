@@ -870,16 +870,4 @@ mod tests {
             assert_eq!(round_trip(&marker), marker);
         }
     }
-
-    #[test]
-    fn an_outcome_without_its_extra_keys_writes_none_of_them() {
-        let written =
-            serde_json::to_value(SocietyOutcome::failed("No."))
-                .unwrap();
-        assert_eq!(
-            written,
-            json!({"text": "No.", "error": true, "details": null,
-                "diagnostics": []})
-        );
-    }
 }

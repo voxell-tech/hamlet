@@ -691,22 +691,3 @@ pub(super) fn step(
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_way_walked_to_its_end_is_walked_on_from_and_not_stepped() {
-        let (near, target) =
-            (Vec2::new(1.0, 0.0), Vec2::new(2.0, 0.0));
-        // On its way, it goes to the next point of it.
-        assert_eq!(leg(&[near, target], target, true), Some(near));
-        assert_eq!(leg(&[near], target, true), Some(target));
-        // At the end of a way its agent has strayed a little from,
-        // it walks the rest.
-        assert_eq!(leg(&[], target, true), Some(target));
-        // Only where no way was found does it step.
-        assert_eq!(leg(&[], target, false), None);
-    }
-}

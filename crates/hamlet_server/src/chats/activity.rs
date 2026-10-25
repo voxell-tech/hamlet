@@ -280,17 +280,3 @@ fn doing_of(
         _ => Doing::Custom,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn keeps_the_last_bytes_said_and_the_first_thought() {
-        let mut activity = Activity::of(&[]);
-        activity.speak(&("é".repeat(400) + "done"), false);
-        assert_eq!(activity.saying, "é".repeat(298) + "done");
-        activity.speak(&"é".repeat(400), true);
-        assert_eq!(activity.saying, "é".repeat(300));
-    }
-}

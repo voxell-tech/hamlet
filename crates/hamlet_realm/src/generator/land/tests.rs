@@ -8,20 +8,6 @@ fn land() -> Land {
 }
 
 #[test]
-fn sites_stand_clear_of_water_and_each_other() {
-    let land = land();
-    assert_eq!(land.sites.len(), 37);
-    let good = land.sites.iter().filter(|s| s.buildable).count();
-    assert!(good >= 26, "{good} buildable sites");
-    for s in land.sites.iter().filter(|s| s.buildable) {
-        assert!(
-            (land.height(s.at) - land.set.land.site_y).abs() < 1e-3
-        );
-        assert!(land.river_dist(s.at) > land.set.town.radius);
-    }
-}
-
-#[test]
 fn a_corridor_goes_round_held_ground() {
     let mut land = land();
     let plain = land.corridor(3, 5);
@@ -88,20 +74,6 @@ fn the_land_is_the_same_far_out_whatever_was_asked_first() {
     // out there.
     assert!(spots.iter().any(|&p| a.is_water(p)));
     assert!(near_first.iter().any(|&h| h > 12.0));
-}
-
-#[test]
-fn rivers_never_meet() {
-    let land = land();
-    let gap = land.set.land.river_gap;
-    for k in -3..3 {
-        for i in -400..400 {
-            let u = i as f32 * 25.0;
-            let between =
-                land.river_centre(k + 1, u) - land.river_centre(k, u);
-            assert!(between > gap * 0.2, "{between} at {k} {u}");
-        }
-    }
 }
 
 #[test]

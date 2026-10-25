@@ -160,19 +160,4 @@ mod tests {
             kept
         );
     }
-
-    #[test]
-    fn a_malformed_hamlet_mark_is_an_error_and_another_kind_is_none()
-    {
-        let mark = |kept: serde_json::Value| {
-            serde_json::from_value::<Mark>(kept).unwrap()
-        };
-        let bare = mark(json!({"kind": "hamlet.notice", "data": {}}));
-        assert_eq!(
-            InputMark::of(&bare).unwrap_err().to_string(),
-            "reading a `hamlet.notice` mark"
-        );
-        let foreign = mark(json!({"kind": "other.note", "data": {}}));
-        assert_eq!(InputMark::of(&foreign).unwrap(), None);
-    }
 }

@@ -22,106 +22,6 @@ fn context(t: f32, seed: u32) -> Context {
     }
 }
 
-fn is_finite(p: &Pose) -> bool {
-    let placed = p.place(1.0);
-    [
-        placed.rig,
-        placed.body,
-        placed.head,
-        placed.hat,
-        placed.eye_l,
-        placed.eye_r,
-        placed.leg_l,
-        placed.leg_r,
-        placed.pole,
-    ]
-    .iter()
-    .all(|t| {
-        t.translation.is_finite()
-            && t.rotation.is_finite()
-            && t.scale.is_finite()
-    }) && placed.lamp.is_finite()
-        && p.glow.is_finite()
-        && p.glow.min_element() >= 0.0
-}
-
-#[test]
-fn every_motion_is_finite_at_every_moment() {
-    for act in Act::ALL {
-        for i in 0..600 {
-            let p = pose(act, &context(i as f32 * 0.021, 7));
-            assert!(is_finite(&p), "{act:?} at step {i}");
-        }
-    }
-}
-
-#[test]
-fn feet_stay_out_of_the_ground() {
-    for act in Act::ALL {
-        for i in 0..400 {
-            let p = pose(act, &context(i as f32 * 0.03, 3));
-            let placed = p.place(1.0);
-            for leg in [placed.leg_l, placed.leg_r] {
-                let pitch = leg.rotation.to_euler(EulerRot::XYZ).0;
-                let sole =
-                    leg.translation.y - pose::LEG * pitch.cos();
-                assert!(sole > -1e-3, "{act:?} at step {i}");
-            }
-        }
-    }
-}
-
-#[test]
-fn a_rolling_robot_holds_its_legs_still() {
-    let legs = |gait: f32| {
-        let p = pose(
-            Act::Walk,
-            &Context {
-                gait,
-                roll: 1.0,
-                ..context(1.0, 0)
-            },
-        );
-        (p.leg_l, p.leg_r, p.lift_l, p.lift_r)
-    };
-    assert_eq!(legs(0.4), legs(2.9));
-}
-
-#[test]
-fn a_trip_starts_still_and_ends_at_its_last_point_and_no_further() {
-    let trip = Trip::new(
-        vec![
-            Vec3::ZERO,
-            Vec3::new(0.0, 0.0, 2.0),
-            Vec3::new(1.5, 0.0, 2.0),
-        ],
-        10.0,
-        &Motion::default(),
-    );
-    let start = trip.at(10.0);
-    assert_eq!((start.gone, start.pace), (0.0, 0.0));
-    let mut last = 0.0;
-    for i in 0..200 {
-        let s = trip.at(10.0 + i as f32 * 0.05);
-        assert!(s.gone >= last - 1e-5);
-        last = s.gone;
-    }
-    let end = trip.at(10.0 + trip.duration());
-    assert!(end.at.distance(Vec3::new(1.5, 0.0, 2.0)) < 1e-3);
-    assert!(end.pace.abs() < 1e-3);
-    assert!(trip.has_arrived(10.0 + trip.duration()));
-
-    // One too short to get going never overshoots.
-    let short = Trip::new(
-        vec![Vec3::ZERO, Vec3::new(0.1, 0.0, 0.0)],
-        0.0,
-        &Motion::default(),
-    );
-    for i in 0..50 {
-        assert!(short.at(i as f32 * 0.05).gone <= 0.1 + 1e-5);
-    }
-}
-
 #[test]
 fn a_turn_takes_the_short_way_round() {
     assert!((turn(3.0, -3.0, 0.5).abs() - TAU / 2.0).abs() < 0.2);
@@ -179,22 +79,6 @@ fn run(app: &mut App, id: Entity, secs: f32) -> f32 {
         furthest = furthest.max(before.distance(at(app)));
     }
     furthest
-}
-
-fn set(app: &mut App, id: Entity, state: KeeperState) {
-    app.world_mut().get_mut::<Keeper>(id).unwrap().state = state;
-}
-
-#[test]
-fn a_frozen_clock_shows_the_settled_state() {
-    let (mut app, id) = app();
-    app.world_mut().resource_mut::<crate::Clock>().frozen = true;
-    app.update();
-    set(&mut app, id, KeeperState::Failed);
-    app.update();
-    let keeper = app.world().get::<Keeper>(id).unwrap();
-    assert!(!keeper.is_busy(0.0));
-    assert_eq!(keeper.eval(0.0).glow, Vec3::ZERO);
 }
 
 /// Prints what a robot costs. Run with

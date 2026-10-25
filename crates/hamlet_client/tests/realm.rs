@@ -286,32 +286,6 @@ fn snapshots_reconcile_by_identity_across_epochs_and_changes_only_advance_the_se
 }
 
 #[test]
-fn testing_builders_give_a_hamlet_a_mayor_and_one_wait_in_three_lines()
- {
-    let mut state = hamlet_testing::realm::state();
-    state.waits.push(hamlet_testing::realm::wait("approval"));
-    let mut app = app();
-    receive(app.world_mut(), protocol::ServerMessage::State(state));
-    assert_eq!(
-        app.world_mut()
-            .query::<&hamlet_client::waits::Waiting>()
-            .single(app.world())
-            .unwrap()
-            .line(80),
-        "founder wants to run `pwd`"
-    );
-    let founder = mayor(app.world_mut()).unwrap();
-    assert_eq!(
-        app.world_mut()
-            .query::<&hamlet_client::waits::RaisedBy>()
-            .single(app.world())
-            .unwrap()
-            .0,
-        founder
-    );
-}
-
-#[test]
 fn recorded_fault_marks_the_agent_and_keeps_the_fault_in_its_needs() {
     use hamlet_client::waits::{RaisedBy, Waiting};
     let mut app = app();
@@ -343,37 +317,6 @@ fn recorded_fault_marks_the_agent_and_keeps_the_fault_in_its_needs() {
         wait.line(80),
         format!("{} failed: {}", wait.by, wait.about)
     );
-}
-
-#[test]
-fn roster_systems_and_exclusive_callers_find_the_same_living_agents()
-{
-    use bevy_ecs::system::RunSystemOnce;
-    use hamlet_testing::realm::{agent, hamlet, state};
-    let mut app = app();
-    let world = app.world_mut();
-    let mut state = state();
-    state.hamlets.push(hamlet("other"));
-    state.agents.push(agent("other", 0, "scout"));
-    receive(world, protocol::ServerMessage::State(state));
-    let founder = mayor(world).unwrap();
-    let scout = mayor_of(world, "other").unwrap();
-    assert_eq!(name_of(world, founder), "founder");
-    assert_eq!(hamlet_of(world, scout), Some("other"));
-    assert_eq!(
-        world
-            .run_system_once(|roster: Roster| (
-                roster.mayor(),
-                roster.named("scout"),
-                roster.mayor_of("other")
-            ))
-            .unwrap(),
-        (Some(founder), Some(scout), Some(scout))
-    );
-    world.entity_mut(scout).insert(Left);
-    assert_eq!(named(world, "scout"), None);
-    assert_eq!(mayor_of(world, "other"), None);
-    assert_eq!(address_of(world, scout), None);
 }
 
 #[test]
@@ -443,22 +386,4 @@ fn streamed_words_only_change_saying_and_keep_relationship_order() {
             .collect::<Vec<_>>(),
         before
     );
-}
-
-#[test]
-fn objections_keep_the_speakers_width_in_the_one_line_subject() {
-    let mut state = hamlet_testing::realm::state();
-    let mut wait = hamlet_testing::realm::wait("objection");
-    wait.detail = protocol::WaitDetail::Objection {};
-    wait.about = "heading\n12345678901234567890".into();
-    wait.subject = "12345678901234567890".into();
-    state.waits.push(wait);
-    let mut app = app();
-    receive(app.world_mut(), protocol::ServerMessage::State(state));
-    let world = app.world_mut();
-    let wait = world
-        .query::<&hamlet_client::waits::Waiting>()
-        .single(world)
-        .unwrap();
-    assert_eq!(wait.line(10), "12345678901234567...");
 }

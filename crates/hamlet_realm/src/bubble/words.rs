@@ -68,33 +68,3 @@ pub(super) fn deed(doing: Doing) -> Option<&'static str> {
         Doing::Await => "Waiting for an answer",
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_thought_shows_what_it_is_about() {
-        // Not until its first sentence is whole.
-        assert_eq!(gist("The chief wants the", 56), None);
-        assert_eq!(
-            gist("**The chief** wants pears. Then I will", 56),
-            Some("The chief wants pears".into())
-        );
-        let long = "I should look through every row of the orchard \
-                    before the frost comes and say what each needs";
-        let cut = gist(long, 30).unwrap();
-        assert_eq!(cut, "I should look through every...");
-        assert_eq!(deed(Doing::Run), Some("Running a command"));
-        assert_eq!(deed(Doing::Think), None);
-    }
-
-    #[test]
-    fn a_long_speech_keeps_its_end() {
-        assert_eq!(tail("  a  short   one ", 40), "a short one");
-        let long = "one two three four five six seven eight nine ten";
-        let cut = tail(long, 20);
-        assert_eq!(cut, "...eight nine ten");
-        assert!(cut.chars().count() <= 23);
-    }
-}

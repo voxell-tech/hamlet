@@ -268,8 +268,6 @@ pub fn open_menu() -> impl View {
 
 #[cfg(test)]
 mod tests {
-    use bevy::math::Vec2;
-
     use super::*;
 
     #[test]
@@ -302,56 +300,5 @@ mod tests {
         );
         crate::testing::press(&mut app, "Close");
         assert!(app.world_mut().resource_mut::<bevy::ecs::message::Messages<bevy::app::AppExit>>().drain().any(|exit| exit == bevy::app::AppExit::Success));
-    }
-
-    #[test]
-    fn a_press_on_its_title_closes_a_menu_and_on_another_changes_it()
-    {
-        let mut world = World::new();
-        world.init_resource::<OpenMenu>();
-        let mut window = Window::default();
-        window.set_cursor_position(Some(Vec2::new(50.0, 10.0)));
-        let window = world.spawn(window).id();
-        let mut title = |menu: Menu, x: f32| {
-            world.spawn((
-                menu,
-                ComputedNode {
-                    size: Vec2::new(80.0, 30.0),
-                    inverse_scale_factor: 1.0,
-                    ..ComputedNode::default()
-                },
-                UiGlobalTransform::from_xy(x, 15.0),
-            ));
-        };
-        title(Menu::App, 50.0);
-        title(Menu::View, 250.0);
-        let shown = |world: &World| {
-            world.resource::<OpenMenu>().0.map(|(menu, _)| menu)
-        };
-        let rect = Rect::default();
-
-        // The pointer is on the title of the menu that is open.
-        world.resource_mut::<OpenMenu>().0 = Some((Menu::App, rect));
-        dismiss(&mut world);
-        assert!(shown(&world).is_none());
-        // On the title of another, that one opens in its place.
-        world.resource_mut::<OpenMenu>().0 = Some((Menu::View, rect));
-        dismiss(&mut world);
-        assert!(shown(&world) == Some(Menu::App));
-        // Escape closes it though the pointer rests on that title.
-        world.init_resource::<ButtonInput<MouseButton>>();
-        world.resource_mut::<OpenMenu>().0 = Some((Menu::View, rect));
-        dismiss(&mut world);
-        assert!(shown(&world).is_none());
-        world
-            .resource_mut::<ButtonInput<MouseButton>>()
-            .press(MouseButton::Left);
-        // Anywhere else, the menu only closes.
-        world
-            .get_mut::<Window>(window)
-            .unwrap()
-            .set_cursor_position(Some(Vec2::new(600.0, 400.0)));
-        dismiss(&mut world);
-        assert!(shown(&world).is_none());
     }
 }

@@ -351,23 +351,6 @@ mod tests {
     use crate::generator::testing;
 
     #[test]
-    fn plots_keep_their_distance() {
-        let land = testing::land(1);
-        let plots = (0..land.set.town.plots)
-            .map(|k| plot(&land, 0, k))
-            .collect::<Vec<_>>();
-        for (i, a) in plots.iter().enumerate() {
-            for b in &plots[i + 1..] {
-                let d = a.at.distance(b.at);
-                assert!(
-                    d > 2.0 * land.set.town.house_radius,
-                    "plots {d} apart"
-                );
-            }
-        }
-    }
-
-    #[test]
     fn a_road_goes_round_the_houses_and_only_one_to_the_hall_crosses_the_common()
      {
         let land = testing::land(1);

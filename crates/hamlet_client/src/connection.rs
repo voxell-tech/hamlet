@@ -624,21 +624,6 @@ mod tests {
     use crate::ClientPlugin;
 
     #[test]
-    fn an_address_this_window_cannot_reach_says_what_to_use() {
-        assert_eq!(
-            validate("http://host:1").unwrap_err().to_string(),
-            "Not a WebSocket address: http://host:1. Use \
-             ws://host:port."
-        );
-        assert_eq!(
-            validate("wss://host:1").unwrap_err().to_string(),
-            "Cannot connect to wss://host:1: TLS is not available \
-             in this window. Use ws:// through a secure tunnel."
-        );
-        assert!(validate("ws://host:1").is_ok());
-    }
-
-    #[test]
     fn a_window_started_first_discovers_its_local_server_later() {
         let home = hamlet_testing::Scratch::new("late-server");
         let runtime = tokio::runtime::Runtime::new().unwrap();

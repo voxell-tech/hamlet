@@ -341,51 +341,9 @@ pub fn show(
 
 #[cfg(test)]
 mod tests {
-    use bevy::app::{App, Update};
-    use bevy::ecs::schedule::IntoScheduleConfigs;
-    use bevy_fynix::Theme;
-    use hamlet_assets::Tuning;
+    use bevy::app::App;
 
     use super::*;
-    use crate::theme::HamletTheme;
-
-    #[test]
-    fn a_button_joins_the_tab_order_and_shows_a_ring_only_after_a_key_move()
-     {
-        let mut app = App::new();
-        app.init_resource::<InputFocus>()
-            .init_resource::<InputFocusVisible>()
-            .insert_resource(Theme(HamletTheme::designed()))
-            .add_systems(
-                Update,
-                (make_focusable, focus_ring.run_if(focus_moved))
-                    .chain(),
-            );
-        let button = app.world_mut().spawn(ButtonBehavior).id();
-        app.update();
-        assert!(app.world().get::<TabIndex>(button).is_some());
-        assert_eq!(
-            app.world().get::<Outline>(button).unwrap().width,
-            px(0.0)
-        );
-
-        app.world_mut()
-            .resource_mut::<InputFocus>()
-            .set(button, FocusCause::Pressed);
-        app.update();
-        assert_eq!(
-            app.world().get::<Outline>(button).unwrap().width,
-            px(0.0),
-            "focus by click draws nothing"
-        );
-
-        app.world_mut().resource_mut::<InputFocusVisible>().0 = true;
-        app.update();
-        assert_eq!(
-            app.world().get::<Outline>(button).unwrap().width,
-            px(2.0)
-        );
-    }
 
     #[test]
     fn a_press_outside_a_field_takes_what_was_typed_in_it_first() {

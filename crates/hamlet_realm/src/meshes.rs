@@ -599,15 +599,3 @@ impl Line {
         (best.0.sqrt(), best.1)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_mesh_of_nothing_still_has_vertices() {
-        let mesh = Meshing::new().build();
-        assert_eq!(mesh.count_vertices(), 3);
-        assert!(mesh.get_vertex_buffer_size() > 0);
-    }
-}

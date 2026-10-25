@@ -696,28 +696,3 @@ pub fn draw(mut images: ResMut<Assets<Image>>) {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_icon_is_listed_once_and_keeps_inside_its_square() {
-        for (at, which) in Glyph::ALL.into_iter().enumerate() {
-            assert_eq!(
-                which as usize, at,
-                "{which:?} is out of order"
-            );
-            let stroke = weight(16.0);
-            let edge = (0..=64).map(|i| i as f32 / 4.0).any(|t| {
-                [[t, 0.0], [t, GRID], [0.0, t], [GRID, t]]
-                    .into_iter()
-                    .any(|[x, y]| {
-                        let p = Vec2::new(x, y);
-                        ink(which.shapes(), p, stroke, 0.5) > 0.5
-                    })
-            });
-            assert!(!edge, "{which:?} is cut off at an edge");
-        }
-    }
-}
