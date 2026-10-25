@@ -6,6 +6,7 @@ mod backdrop;
 mod control;
 mod drag;
 mod foot;
+mod glow;
 
 use bevy::app::{App, Update};
 use bevy::color::Color;
@@ -17,6 +18,7 @@ use bevy::ui::{ColorStop, percent};
 pub use self::backdrop::Lit;
 pub(crate) use self::backdrop::lamplight;
 pub use self::foot::FootLight;
+pub(crate) use self::glow::{GlowPanel, glow_layer};
 use crate::theme::HamletTheme;
 
 /// The feel of the controls, the dock's hint and the panels'

@@ -2,6 +2,8 @@
 //! under a press, the flame in its glass, the light it spills and
 //! the sparks of work done.
 
+use std::collections::HashMap;
+
 use bevy::color::{Alpha, Color, Mix};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -10,21 +12,22 @@ use bevy::ecs::message::MessageWriter;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::{Added, Changed, Has, With, Without};
 use bevy::ecs::system::{Commands, Local, Query, Res};
-use bevy::math::Vec2;
+use bevy::math::{Rect, Vec2};
 use bevy::picking::Pickable;
 use bevy::picking::hover::Hovered;
 use bevy::text::EditableText;
 use bevy::time::Time;
 use bevy::ui::{
     BackgroundColor, BackgroundGradient, BorderRadius, BoxShadow,
-    ComputedNode, GlobalZIndex, Node, PositionType, Pressed,
-    RadialGradient, RadialGradientShape, UiGlobalTransform,
-    UiPosition, UiTransform, Val2, percent, px,
+    CalculatedClip, ComputedNode, CornerRadius, GlobalZIndex, Node,
+    PositionType, Pressed, RadialGradient, RadialGradientShape,
+    UiGlobalTransform, UiPosition, UiTransform, Val2, percent, px,
 };
 use bevy::ui_widgets::{Activate, Button};
 use bevy_fynix::Focused;
 use hamlet_realm::sound::{Cue, Sound};
 
+use super::glow::{GlowLayer, GlowPanel, layer_of};
 use super::{FeelSettings, MagicColors, Mood, ease, pool, waver};
 use crate::sounds;
 use crate::theme::Themed;
@@ -345,13 +348,80 @@ pub(super) fn light(
     }
 }
 
-type Glowing<'a> = (
-    &'a Feel,
-    Option<&'a Mood>,
-    Option<&'a Children>,
+type Glowing<'a> =
+    (&'a Feel, Option<&'a Mood>, Option<&'a Children>, Entity);
+
+type Shape<'a> = (
     &'a ComputedNode,
-    Entity,
+    &'a UiGlobalTransform,
+    Option<&'a CalculatedClip>,
 );
+
+/// The node that holds the light a control spills on its panel's
+/// [`GlowLayer`], and the place of that light there.
+#[derive(Component)]
+pub(super) struct SpillOf(Entity);
+
+/// A spill to keep: its layer, its place there and its light.
+pub(super) struct Spilt {
+    layer: Entity,
+    stands: Node,
+    shadow: BoxShadow,
+}
+
+/// The place, in the layer's logical pixels, of a node as large as
+/// `control` is drawn, squashed or swollen, with the corners of
+/// `control` or round at its ends for lettering. Nothing when the
+/// clip of `control` hides it.
+fn stands(
+    (node, at, clip): Shape,
+    (layer, layer_at): (&ComputedNode, &UiGlobalTransform),
+    lettering: bool,
+) -> Option<Node> {
+    let (drawn, _, centre) = at.to_scale_angle_translation();
+    let size = node.size * drawn;
+    let seen = |clip: &CalculatedClip| {
+        clip.rects().is_some_and(|rects| {
+            rects.iter().all(|cut| {
+                let local =
+                    cut.world_to_clip_local.transform_point2(centre);
+                !Rect::from_center_half_size(local, size / 2.0)
+                    .intersect(cut.rect)
+                    .is_empty()
+            })
+        })
+    };
+    if clip.is_some_and(|clip| !seen(clip)) {
+        return None;
+    }
+    let scale = node.inverse_scale_factor;
+    let corner = centre
+        - size / 2.0
+        - (layer_at.translation - layer.size / 2.0);
+    let round = |radius: Vec2| {
+        let k = scale * drawn.x;
+        if lettering {
+            CornerRadius::circular(px(size.y * 0.5 * scale))
+        } else {
+            CornerRadius::new(px(radius.x * k), px(radius.y * k))
+        }
+    };
+    let corners = node.border_radius;
+    Some(Node {
+        position_type: PositionType::Absolute,
+        left: px(corner.x * scale),
+        top: px(corner.y * scale),
+        width: px(size.x * scale),
+        height: px(size.y * scale),
+        border_radius: BorderRadius {
+            top_left: round(corners.top_left),
+            top_right: round(corners.top_right),
+            bottom_right: round(corners.bottom_right),
+            bottom_left: round(corners.bottom_left),
+        },
+        ..Node::default()
+    })
+}
 
 /// The share of a control's reach the light about lettering has.
 const INK_REACH: f32 = 0.55;
@@ -361,16 +431,34 @@ const INK_REACH: f32 = 0.55;
 const DROP: f32 = 0.5;
 
 /// Keeps the light that spills from every lit control as a shadow
-/// of its colour, and takes it away when the control goes dark.
+/// of its colour, and takes it away when the control goes dark. A
+/// control in a panel throws it on the panel's layer, which is cut at
+/// the panel's border, and any other on itself.
 pub(super) fn spill(
     mut commands: Commands,
     set: Res<FeelSettings>,
     theme: Themed,
     buttons: Query<Glowing>,
-    shadows: Query<&BoxShadow>,
+    shapes: Query<Shape>,
+    shadows: Query<&BoxShadow, Without<SpillOf>>,
+    ancestors: Query<&ChildOf>,
+    panels: Query<&Children, With<GlowPanel>>,
+    layers: Query<
+        (&ComputedNode, &UiGlobalTransform),
+        With<GlowLayer>,
+    >,
+    mut spills: Query<(
+        Entity,
+        &SpillOf,
+        &ChildOf,
+        &mut Node,
+        &mut BoxShadow,
+    )>,
+    mut spilt: Local<HashMap<Entity, Spilt>>,
 ) {
+    spilt.clear();
     let colors = MagicColors::of(&theme);
-    for (feel, mood, within, node, control) in &buttons {
+    for (feel, mood, within, control) in &buttons {
         let mood = mood.copied().unwrap_or_default();
         // The light about lettering is about the words and the mark,
         // which are the button's one child.
@@ -390,12 +478,17 @@ pub(super) fn spill(
         };
         let strength = feel.glow * thrown;
         let now = shadows.get(target).ok();
-        if strength <= 0.0 || node.size.min_element() <= 0.0 {
+        let shape = shapes
+            .get(target)
+            .ok()
+            .filter(|(node, ..)| node.size.min_element() > 0.0)
+            .filter(|_| strength > 0.0);
+        let Some(shape) = shape else {
             if now.is_some() {
                 commands.entity(target).try_remove::<BoxShadow>();
             }
             continue;
-        }
+        };
         let (hue, _) = hues(mood, &colors);
         let want = BoxShadow::new(
             hue.with_alpha(strength),
@@ -404,9 +497,55 @@ pub(super) fn spill(
             px(0.0),
             px(reach),
         );
-        if now != Some(&want) {
-            commands.entity(target).try_insert(want);
+        let Some(layer) =
+            layer_of(control, &ancestors, &panels, &layers)
+        else {
+            if now != Some(&want) {
+                commands.entity(target).try_insert(want);
+            }
+            continue;
+        };
+        if now.is_some() {
+            commands.entity(target).try_remove::<BoxShadow>();
         }
+        let place = layers
+            .get(layer)
+            .ok()
+            .and_then(|at| stands(shape, at, mood == Mood::Ink));
+        if let Some(stands) = place {
+            spilt.insert(
+                control,
+                Spilt {
+                    layer,
+                    stands,
+                    shadow: want,
+                },
+            );
+        }
+    }
+    for (spill, of, parent, mut node, mut shadow) in &mut spills {
+        let Some(keep) = spilt.remove(&of.0) else {
+            commands.entity(spill).try_despawn();
+            continue;
+        };
+        if parent.parent() != keep.layer {
+            commands.entity(spill).try_insert(ChildOf(keep.layer));
+        }
+        if *node != keep.stands {
+            *node = keep.stands;
+        }
+        if *shadow != keep.shadow {
+            *shadow = keep.shadow;
+        }
+    }
+    for (control, keep) in spilt.drain() {
+        commands.spawn((
+            SpillOf(control),
+            keep.stands,
+            keep.shadow,
+            Pickable::IGNORE,
+            ChildOf(keep.layer),
+        ));
     }
 }
 
