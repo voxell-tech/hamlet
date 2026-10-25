@@ -620,7 +620,7 @@ pub(crate) fn cut(text: &str, most: usize, note: &str) -> String {
     result
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
     use std::time::Duration;
@@ -642,6 +642,7 @@ mod tests {
     }
 
     /// The pid of a `sleep` that `agent`'s command left in `cwd`.
+    #[cfg(unix)]
     async fn leftover(
         houses: &Houses,
         agent: &AgentRef,
@@ -656,10 +657,46 @@ mod tests {
             "PATH".to_owned(),
             std::env::var("PATH").unwrap_or_default(),
         )]);
+        kept(houses, agent, cwd, &argv, &env).await
+    }
+
+    /// The pid of a `ping` that waits as `sleep` does, which
+    /// `agent`'s command left in `cwd`. Git Bash's `$!` is not a
+    /// Windows pid.
+    #[cfg(windows)]
+    async fn leftover(
+        houses: &Houses,
+        agent: &AgentRef,
+        cwd: &Path,
+    ) -> u32 {
+        let argv = [
+            format!(
+                r"{}\System32\WindowsPowerShell\v1.0\powershell.exe",
+                std::env::var("SystemRoot").unwrap()
+            ),
+            "-NoProfile".into(),
+            "-Command".into(),
+            "(Start-Process ping -ArgumentList \
+             '-n','300','127.0.0.1' -NoNewWindow -PassThru).Id"
+                .into(),
+        ];
+        let env = std::env::vars().collect();
+        kept(houses, agent, cwd, &argv, &env).await
+    }
+
+    /// The pid `argv` prints of what it leaves running in `cwd`, kept
+    /// as `agent`'s leftovers.
+    async fn kept(
+        houses: &Houses,
+        agent: &AgentRef,
+        cwd: &Path,
+        argv: &[String],
+        env: &BTreeMap<String, String>,
+    ) -> u32 {
         let (mut tree, stdout, _) = Tree::spawn(
             Command {
-                argv: &argv,
-                env: &env,
+                argv,
+                env,
                 cwd: &cwd.to_string_lossy(),
                 stdin: std::process::Stdio::null(),
             },
@@ -667,13 +704,19 @@ mod tests {
         )
         .unwrap();
         let mut lines = BufReader::new(stdout).lines();
-        let pid = lines.next_line().await.unwrap().unwrap();
+        // The first number, past what `ping` prints.
+        let pid = loop {
+            let line = lines.next_line().await.unwrap().unwrap();
+            if let Ok(pid) = line.trim().parse() {
+                break pid;
+            }
+        };
         tree.ended().await.unwrap();
         houses
             .leftovers
             .of(agent)
             .keep(tree.release().expect("the sleep runs on"));
-        pid.parse().unwrap()
+        pid
     }
 
     async fn is_gone(pid: u32) -> bool {
@@ -746,9 +789,9 @@ mod tests {
                 .map_or(0, |m| m.len())
         };
         let pause = || tokio::time::sleep(Duration::from_millis(300));
-        // Under Seatbelt the loop outlives its call. Under bubblewrap
-        // it ends with it.
-        #[cfg(target_os = "macos")]
+        // Under Seatbelt and in insecure mode the loop outlives its
+        // call. Under bubblewrap it ends with it.
+        #[cfg(not(target_os = "linux"))]
         {
             let before = beats();
             pause().await;

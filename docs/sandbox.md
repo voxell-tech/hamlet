@@ -121,6 +121,12 @@ time and process count, so a timeout or a leftover's end reaches every
 process it started. No job limit bounds a file's size, so each result
 names `max_file_mb` in `details.degraded`.
 
+The `bash` tool runs Git Bash: the `bin\bash.exe` beside the `cmd\git.exe`
+on `PATH`, or in the folders Git for Windows installs to. A search by name
+would start `System32\bash.exe`, the WSL launcher, so the server never
+searches by name and refuses anything under `%SystemRoot%`. Without Git
+Bash the server offers no shell tool.
+
 ## Remote workspaces
 
 Settings chooses a workspace URL and token for the next server start.

@@ -158,4 +158,6 @@ See `docs/protocol.md` for their recording workflow.
 On Linux, tools run under bubblewrap rather than Seatbelt. After changing
 `crates/hamlet_server/src/sandbox/`, run the real sandbox acceptance tests
 on Linux with working bubblewrap, git, curl and Python 3. Linux checks do
-not prove macOS Seatbelt behavior. Windows has no server sandbox.
+not prove macOS Seatbelt behavior. Windows has no server sandbox, so a
+Windows server runs only with `--insecure`, and Linux and macOS refuse
+the flag.

@@ -63,7 +63,7 @@ impl Service {
             Some(record) => record.chiefs.first().cloned().context(
                 "The home hamlet's record names no chief.",
             )?,
-            None => ["HAMLET_USER", "USER"]
+            None => ["HAMLET_USER", "USER", "USERNAME"]
                 .into_iter()
                 .find_map(|key| {
                     std::env::var(key)

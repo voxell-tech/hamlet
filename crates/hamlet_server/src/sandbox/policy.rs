@@ -128,13 +128,36 @@ pub fn policy_hash(policy: &Policy, sandbox: &str) -> String {
 /// The host variables a normal process needs.
 pub(crate) fn host_env() -> BTreeMap<String, String> {
     let mut env = BTreeMap::from([("LANG".into(), "C.UTF-8".into())]);
-    for name in ["PATH", "HOME", "LANG"] {
+    // Git Bash would rewrite an argument that looks like a POSIX path
+    // for a Windows program.
+    #[cfg(windows)]
+    env.insert("MSYS_NO_PATHCONV".into(), "1".into());
+    for name in ["PATH", "HOME", "LANG"]
+        .into_iter()
+        .chain(WINDOWS.iter().copied())
+    {
         if let Ok(value) = std::env::var(name) {
             env.insert(name.into(), value);
         }
     }
     env
 }
+
+/// The variables Windows programs read, each where it is set.
+const WINDOWS: &[&str] = if cfg!(windows) {
+    &[
+        "SystemRoot",
+        "PATHEXT",
+        "ComSpec",
+        "TEMP",
+        "TMP",
+        "USERPROFILE",
+        "APPDATA",
+        "PSModulePath",
+    ]
+} else {
+    &[]
+};
 
 /// True when `path` is `parent` or lies inside it.
 pub fn is_within(path: &Path, parent: &Path) -> bool {

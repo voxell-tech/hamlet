@@ -732,6 +732,10 @@ mod tests {
     fn put_refuses_a_merge_target_that_is_no_regular_file() {
         let home = Scratch::new("tree-merge-target");
         fs::create_dir(home.join("folder")).unwrap();
+        #[cfg_attr(
+            windows,
+            expect(unused_mut, reason = "Windows has no FIFO")
+        )]
         let mut targets = vec!["folder"];
         #[cfg(unix)]
         {
@@ -760,6 +764,10 @@ mod tests {
         fs::create_dir(home.join("folder")).unwrap();
         fs::write(home.join("file"), "shared").unwrap();
         hard_link(home.join("file"), home.join("second")).unwrap();
+        #[cfg_attr(
+            windows,
+            expect(unused_mut, reason = "Windows has no FIFO")
+        )]
         let mut names = vec!["folder", "second"];
         #[cfg(unix)]
         {

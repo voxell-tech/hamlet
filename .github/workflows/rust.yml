@@ -48,6 +48,10 @@ jobs:
       - run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
       - run: cargo xtask clippy
       - run: cargo xtask cross
+      # The server and the CLI compile C, so their cross-check needs
+      # mingw-w64.
+      - run: sudo apt-get install --no-install-recommends gcc-mingw-w64-x86-64
+      - run: cargo clippy --locked -p hamlet_server -p hamlet_cli --all-targets --target x86_64-pc-windows-gnu -- -D warnings
 
   # The clippy job on macOS, which compiles the code only macOS builds.
   clippy-macos:
@@ -148,7 +152,7 @@ jobs:
       - run: cargo xtask harness
       - run: cargo xtask node
 
-  # Windows runs only the window, as a remote client.
+  # The window on Windows.
   clippy-windows:
     runs-on: windows-latest
     steps:
@@ -179,3 +183,28 @@ jobs:
           shared-key: test
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo test --locked -p hamlet_os
+
+  # The server in insecure mode, with Git Bash. The binaries it builds
+  # are the ones the Windows VM installs.
+  test-windows-server:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # vendor/fynix is a submodule.
+          submodules: recursive
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: test
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo test --locked -p hamlet_server
+      - run: cargo build --locked -p hamlet_cli -p hamlet_server -p hamlet_app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hamlet-windows
+          path: |
+            target/debug/hamlet.exe
+            target/debug/hamlet_server.exe
+            target/debug/hamlet_app.exe

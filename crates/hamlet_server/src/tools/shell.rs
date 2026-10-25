@@ -3,6 +3,9 @@
 //! where the sandbox refused a write (C16, C19). Every credential is
 //! taken out of its output before any of it is kept (C32).
 
+#[cfg(any(windows, test))]
+mod find;
+
 use std::time::Duration;
 
 use hamlet_protocol::runtime::{
@@ -182,11 +185,26 @@ pub(crate) struct Shells(Vec<Shell>);
 
 impl Shells {
     /// This machine's: bash, found on the sandbox's `PATH`.
+    #[cfg(not(windows))]
     pub(crate) fn local() -> Self {
         Self(vec![Shell {
             dialect: Dialect::Bash,
             program: "bash".into(),
         }])
+    }
+
+    /// This machine's: Git Bash, where it is installed.
+    #[cfg(windows)]
+    pub(crate) fn local() -> Self {
+        Self(
+            find::git_bash(&find::Machine)
+                .map(|program| Shell {
+                    dialect: Dialect::Bash,
+                    program,
+                })
+                .into_iter()
+                .collect(),
+        )
     }
 
     /// A remote workspace's: bash at its fixed path.

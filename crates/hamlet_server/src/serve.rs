@@ -436,7 +436,7 @@ mod tests {
         overrides.workspace =
             Some(crate::credentials::WorkspaceAddress {
                 url: "https://workspace.example".into(),
-                token: "token".into(),
+                token: "a-token-of-sixteen".into(),
             });
         let Err(refused) =
             Service::new(Home::open(&home).unwrap(), overrides)
