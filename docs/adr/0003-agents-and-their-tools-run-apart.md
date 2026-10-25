@@ -24,5 +24,6 @@ change without the agent noticing.
 
 - The reach rules in `docs/sandbox.md` are enforced by the server's
   policy, and any other place tools run needs the same rules and its own
-  tests.
+  tests. In insecure mode on Windows, commands and hand tools run with
+  the reach of the account running the server instead (ADR 0008).
 - A harness holds no host tools of its own.
