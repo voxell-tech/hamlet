@@ -133,8 +133,12 @@ it answered back over the field.
 A line the chief types that opens with `> ` is a quote, as in the chat
 apps: the bubble draws it dim beside a bar. It is no more than words,
 with nothing behind it, and the model reads it as a Markdown quote.
-Shift+Enter starts a new line in the field, and the field grows with its
-lines, so a quote can be followed by the chief's own words.
+Shift+Enter starts a new line at the caret, in place of what is selected,
+and the field grows with its lines, so a quote can be followed by the chief's own words.
+Past eight lines the field scrolls, with a thin bar along its edge. The wheel
+scrolls it away from the caret, and typing or moving the caret brings the
+caret's line back. `fields.rs` runs Bevy's scroll-to-caret only when the caret,
+the text or the focus has changed.
 
 ## Selecting words
 
