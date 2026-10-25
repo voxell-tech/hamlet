@@ -104,7 +104,10 @@ repositories. The chief accepts that risk permanently (ADR 0007).
 A tool added by hand has the filesystem reach its manifest grants, rather
 than the shell's reach: its readable and writable paths, with its own
 folder kept read-only. Its manifest also sets its environment and limits.
-A server without a sandbox does not start.
+A server without a sandbox does not start, unless it is a Windows server
+the chief starts in insecure mode (ADR 0008). Then commands and hand tools
+reach whatever the account running the server can. The built-in file tools
+keep the reach above, and the window warns for as long as it runs.
 
 A command's leftovers, the processes left in its process group, end
 when the server stops and before their agent's house is erased or
@@ -114,7 +117,8 @@ its leftovers are kept, so no other group can take their group's id.
 
 **C19.** Tools have no network unless a chief turns it on for every agent or
 grants it to one (H11). A command that needs the network says so, and is
-held for a chief while its agent has none.
+held for a chief while its agent has none. In insecure mode nothing
+enforces this, and the switch decides only what waits for a chief.
 
 **C20.** A hamlet works on at most one folder at a time, and the folders it
 worked on before are remembered. Every agent of the hamlet then runs its
@@ -127,7 +131,7 @@ The agent's notes, skills and conversations stay in its house.
   command waits for a chief. Reading and edits of the agent's own house
   are free.
 - **Auto**: agents edit and run without asking, and the sandbox is the
-  guard.
+  guard. In insecure mode nothing is.
 
 **C7.** A hamlet answers to its chiefs: the human who founded it, or, for a
 hamlet founded by a vote, the chiefs of the hamlet that voted. The first
