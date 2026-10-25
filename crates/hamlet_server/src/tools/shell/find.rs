@@ -1,6 +1,8 @@
-//! Finding Git Bash on Windows. A search by name would take
+//! Finding the shells on Windows. A search by name would take
 //! `System32\bash.exe`, the WSL launcher, before any folder on
 //! `PATH`, so the server looks where Git for Windows installs it.
+
+use super::Edition;
 
 /// What the search reads of the machine, so a test can give a fake
 /// one.
@@ -55,6 +57,30 @@ pub(crate) fn git_bash(around: &impl Surroundings) -> Option<String> {
             })
         })
         .find(|bash| around.is_file(bash))
+}
+
+/// PowerShell 7's `pwsh.exe` on `PATH`, else the Windows PowerShell
+/// 5.1 every Windows has.
+pub(crate) fn powershell(
+    around: &impl Surroundings,
+) -> Option<(String, Edition)> {
+    let path = around.var("PATH").unwrap_or_default();
+    path.split(';')
+        .filter(|dir| !dir.is_empty())
+        .map(|dir| {
+            format!(r"{}\pwsh.exe", dir.trim_end_matches('\\'))
+        })
+        .find(|pwsh| around.is_file(pwsh))
+        .map(|pwsh| (pwsh, Edition::Seven))
+        .or_else(|| {
+            let windows = format!(
+                r"{}\System32\WindowsPowerShell\v1.0\powershell.exe",
+                around.var("SystemRoot")?
+            );
+            around
+                .is_file(&windows)
+                .then_some((windows, Edition::Windows))
+        })
 }
 
 #[cfg(test)]
@@ -130,6 +156,45 @@ mod tests {
             &[r"C:\WINDOWS\cmd\git.exe", r"C:\WINDOWS\bin\bash.exe"],
         );
         assert_eq!(git_bash(&machine), None);
+    }
+
+    #[test]
+    fn prefers_pwsh_on_path() {
+        let machine = fake(
+            &[(
+                "PATH",
+                r"C:\Windows\System32;C:\Program Files\PowerShell\7\",
+            )],
+            &[
+                r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+                r"C:\Program Files\PowerShell\7\pwsh.exe",
+            ],
+        );
+        assert_eq!(
+            powershell(&machine),
+            Some((
+                r"C:\Program Files\PowerShell\7\pwsh.exe".into(),
+                Edition::Seven
+            ))
+        );
+    }
+
+    #[test]
+    fn falls_back_to_windows_powershell() {
+        let machine = fake(
+            &[("PATH", r"C:\Windows\System32")],
+            &[
+                r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+            ],
+        );
+        assert_eq!(
+            powershell(&machine),
+            Some((
+                r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+                    .into(),
+                Edition::Windows
+            ))
+        );
     }
 
     #[test]

@@ -22,6 +22,9 @@ use crate::spend::{books, money};
 const SYSTEM: &str = if cfg!(target_os = "macos") {
     "System: macOS, whose shell tools are the BSD ones. Flags that \
      only GNU has, such as `grep -P`, `cat -A` and `sed -r`, fail."
+} else if cfg!(windows) {
+    "System: Windows. `powershell` runs PowerShell. `bash`, where it \
+     is offered, is Git Bash, which writes C:\\Users as /c/Users."
 } else {
     "System: Linux."
 };
@@ -452,12 +455,12 @@ async fn project(
                 .into()
         } else {
             format!(
-                "- `bash` runs with {folder} as its working \
-                 directory. A command may write there and in your \
-                 own workspace, and nowhere else. It can read the \
-                 rest of the machine, so the project's own tools \
-                 (cargo, npm, make and the like) run as they do for \
-                 the chief."
+                "- A command runs with {folder} as its working \
+                 directory. It may write there and in your own \
+                 workspace, and nowhere else. It can read the rest \
+                 of the machine, so the project's own tools (cargo, \
+                 npm, make and the like) run as they do for the \
+                 chief."
             )
         },
         "- `read`, `write` and `edit` take a path relative to the \

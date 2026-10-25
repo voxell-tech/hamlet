@@ -81,6 +81,10 @@ pub(super) trait Reach {
         output: &mut (impl FnMut(&str) + Send),
     ) -> Result<Ran, ExecError>;
 
+    /// The private temp folder commands get here, where there is
+    /// one.
+    fn tmp(&self) -> Option<&str>;
+
     /// The policy commands run under, as a result names it.
     fn policy(&self) -> String;
 
@@ -306,6 +310,10 @@ impl Reach for Local {
             output,
         )
         .await
+    }
+
+    fn tmp(&self) -> Option<&str> {
+        self.env.as_ref().map(Env::tmp)
     }
 
     fn policy(&self) -> String {
@@ -554,6 +562,10 @@ impl Reach for Remote {
     /// The workspace's own sandbox holds every limit.
     fn degraded(&self) -> serde_json::Value {
         serde_json::Value::Bool(false)
+    }
+
+    fn tmp(&self) -> Option<&str> {
+        None
     }
 
     /// The policy commands run under, as a result names it.
