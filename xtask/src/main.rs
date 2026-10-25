@@ -31,8 +31,7 @@ Usage: cargo xtask <task> [args]
                      fault points
   doc              the documentation, with warnings as errors
   node             pi's TypeScript, Biome and tests
-  fmt              format Rust, with the nightly named in \
-                     rust-nightly, and pi
+  fmt              format Rust, with the latest nightly, and pi
   workspace-image  build the remote workspace image; args go to \
                      docker build
 
@@ -48,8 +47,9 @@ set, the steps pass --locked to cargo.";
 /// This crate's manifest, outside the main workspace.
 const XTASK: &str = "xtask/Cargo.toml";
 
-/// The file naming the nightly that formats Rust, which CI reads too.
-const NIGHTLY: &str = "rust-nightly";
+/// The toolchain that formats Rust: `rustfmt.toml` uses unstable
+/// options, so stable cannot.
+const NIGHTLY: &str = "+nightly";
 
 /// The command that installs the tool `deny` runs.
 const INSTALL: &str = "cargo install --locked cargo-deny";
@@ -90,7 +90,7 @@ impl Step {
     /// Runs the step in `root`, the folder holding the workspace.
     fn run(self, root: &Path) -> Result<(), Failure> {
         match self {
-            Self::Format => format(root),
+            Self::Format => format(),
             Self::Clippy => clippy(),
             Self::Deny => deny(),
             Self::Test => test(),
@@ -128,8 +128,6 @@ enum Failure {
     NoTask(String),
     #[error("no `{0}`; run `{INSTALL}`")]
     NoTool(&'static str),
-    #[error("{NIGHTLY}: {0}")]
-    Nightly(io::Error),
     #[error("{command}: {error}")]
     Spawn { command: String, error: io::Error },
     #[error("{command} failed ({status})")]
@@ -226,10 +224,9 @@ fn run(task: &str, rest: &[String]) -> Result<(), Failure> {
         }
         "fmt" => {
             prepare(&root)?;
-            let nightly = nightly(&root)?;
-            status(&mut cargo(&[&nightly, "fmt"]))?;
+            status(&mut cargo(&[NIGHTLY, "fmt"]))?;
             status(&mut cargo(&[
-                &nightly,
+                NIGHTLY,
                 "fmt",
                 "--manifest-path",
                 XTASK,
@@ -245,11 +242,10 @@ fn run(task: &str, rest: &[String]) -> Result<(), Failure> {
     }
 }
 
-fn format(root: &Path) -> Result<(), Failure> {
-    let nightly = nightly(root)?;
-    status(&mut cargo(&[&nightly, "fmt", "--check"]))?;
+fn format() -> Result<(), Failure> {
+    status(&mut cargo(&[NIGHTLY, "fmt", "--check"]))?;
     status(&mut cargo(&[
-        &nightly,
+        NIGHTLY,
         "fmt",
         "--check",
         "--manifest-path",
@@ -400,13 +396,6 @@ fn prepare(root: &Path) -> Result<(), Failure> {
         status(&mut npm(&["ci"]))?;
     }
     Ok(())
-}
-
-/// `+` and the toolchain [`NIGHTLY`] names, for `cargo fmt`.
-fn nightly(root: &Path) -> Result<String, Failure> {
-    let name = fs::read_to_string(root.join(NIGHTLY))
-        .map_err(Failure::Nightly)?;
-    Ok(format!("+{}", name.trim()))
 }
 
 fn modified(path: &Path) -> Option<std::time::SystemTime> {

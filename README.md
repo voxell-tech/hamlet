@@ -121,7 +121,7 @@ fetches it itself.
 
 ```sh
 npm ci --prefix harnesses/pi
-cargo +$(cat rust-nightly) fmt
+cargo +nightly fmt
 cargo build --all-targets
 cargo clippy --all-targets
 cargo test
@@ -130,8 +130,8 @@ cargo test
 
 `rust-toolchain.toml` follows the latest stable, no older than
 `rust-version` in `Cargo.toml`: if cargo says your compiler is too old, run
-`rustup update stable`. `rust-nightly` names the dated nightly that
-formats. `cargo xtask check` runs all of it, plus the acceptance and
+`rustup update stable`. Formatting uses the latest nightly
+(`rustup update nightly`). `cargo xtask check` runs all of it, plus the acceptance and
 harness suites, cargo deny and the docs, as steps CI runs by name:
 `format`, `clippy`, `deny`, `test`, `acceptance`, `harness`, `doc` and
 `node`. `deny` needs `cargo install --locked cargo-deny`. `cargo xtask help`
