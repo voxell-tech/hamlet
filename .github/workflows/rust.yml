@@ -57,6 +57,8 @@ jobs:
           persist-credentials: false
           # vendor/fynix is a submodule.
           submodules: recursive
+      # The image's stable can lag the rust-version, and install reuses it.
+      - run: rustup update stable
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
@@ -130,6 +132,8 @@ jobs:
           persist-credentials: false
           # vendor/fynix is a submodule.
           submodules: recursive
+      # The image's stable can lag the rust-version, and install reuses it.
+      - run: rustup update stable
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
