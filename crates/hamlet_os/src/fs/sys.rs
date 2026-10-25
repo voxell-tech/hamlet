@@ -1,5 +1,7 @@
 #[cfg(unix)]
 mod unix;
+#[cfg(windows)]
+mod windows;
 
 use std::fmt::Debug;
 use std::fs::File;
@@ -8,6 +10,8 @@ use std::path::Path;
 
 #[cfg(unix)]
 pub(crate) use self::unix::Unix as Os;
+#[cfg(windows)]
+pub(crate) use self::windows::Windows as Os;
 use super::{
     Exists, LastLink, Mode, Name, Open, Removing, Replace, Stat,
 };
@@ -65,4 +69,7 @@ pub(crate) trait System {
         dir: &Self::Handle,
     ) -> io::Result<impl Iterator<Item = io::Result<Name>>>;
     fn sync_directory(dir: &Self::Handle) -> io::Result<()>;
+    /// The real path of `dir`, which a walk reached as `path`, in
+    /// the case its volume keeps.
+    fn real_of(dir: &Self::Handle, path: &str) -> io::Result<String>;
 }

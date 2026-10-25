@@ -2,6 +2,8 @@ use std::io::{self, ErrorKind};
 
 #[cfg(unix)]
 use rustix::io::Errno;
+#[cfg(windows)]
+use windows_sys::Win32::Foundation::ERROR_CANT_RESOLVE_FILENAME;
 
 use super::BadName;
 
@@ -81,6 +83,13 @@ pub fn system_error(error: &io::Error) -> Option<SystemError> {
             .iter()
             .find(|row| row.errno == errno)
             .map(|row| row.error);
+    }
+    // The refusal of a link at a name, as `O_NOFOLLOW`'s on Unix.
+    #[cfg(windows)]
+    if error.raw_os_error()
+        == Some(ERROR_CANT_RESOLVE_FILENAME.cast_signed())
+    {
+        return Some(SystemError::LOOP);
     }
     let stand_in = STAND_INS.contains(&error.kind())
         || matches!(error.get_ref(), Some(inner) if inner.is::<BadName>());

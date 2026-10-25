@@ -1,15 +1,58 @@
 //! POSIX path functions on text, as pi's tools resolve paths, since
-//! the policy and pi's tools compare paths as text.
+//! the policy and pi's tools compare paths as text. On Windows an
+//! absolute path starts at a drive, as `C:/Users` does, and `\`
+//! separates names too.
 
 use std::path::Path;
 
-/// `path` as text.
+/// What separates the names of a path.
+const SEPARATORS: &[char] =
+    if cfg!(windows) { &['/', '\\'] } else { &['/'] };
+
+/// `path` as text. On Windows a verbatim `\\?\C:\x` reads as `C:/x`.
 pub fn text(path: &Path) -> String {
-    path.to_string_lossy().into_owned()
+    let text = path.to_string_lossy();
+    if !cfg!(windows) {
+        return text.into_owned();
+    }
+    let text = text
+        .strip_prefix(r"\\?\")
+        .filter(|rest| root_len(rest) > 0)
+        .unwrap_or(&text);
+    let mut text = text.replace('\\', "/");
+    if root_len(&text) > 0 {
+        text[..1].make_ascii_uppercase();
+    }
+    text
+}
+
+/// How many bytes the root of `path` takes: `/`, or on Windows a
+/// drive such as `C:/`. None in a relative path.
+fn root_len(path: &str) -> usize {
+    if !cfg!(windows) {
+        return usize::from(path.starts_with('/'));
+    }
+    match path.as_bytes() {
+        [drive, b':', b'/' | b'\\', ..]
+            if drive.is_ascii_alphabetic() =>
+        {
+            3
+        }
+        _ => 0,
+    }
 }
 
 pub fn is_absolute(path: &str) -> bool {
-    path.starts_with('/')
+    root_len(path) > 0
+}
+
+/// The root `path` starts at, and the rest. A relative path is taken
+/// from `/`.
+pub(crate) fn split_root(path: &str) -> (&str, &str) {
+    match root_len(path) {
+        0 => ("/", path),
+        len => path.split_at(len),
+    }
 }
 
 /// `path` without `.` and `..` parts or doubled slashes, keeping a
@@ -18,9 +61,10 @@ pub fn normalize(path: &str) -> String {
     if path.is_empty() {
         return ".".into();
     }
-    let absolute = is_absolute(path);
+    let root = &path[..root_len(path)];
+    let absolute = !root.is_empty();
     let mut parts = Vec::<&str>::new();
-    for part in path.split('/') {
+    for part in path[root.len()..].split(SEPARATORS) {
         match part {
             "" | "." => {}
             ".." => {
@@ -37,10 +81,14 @@ pub fn normalize(path: &str) -> String {
     if out.is_empty() && !absolute {
         out.push('.');
     }
-    if !out.is_empty() && path.ends_with('/') {
+    if !out.is_empty() && path.ends_with(SEPARATORS) {
         out.push('/');
     }
-    if absolute { format!("/{out}") } else { out }
+    if absolute {
+        format!("{}{out}", text(Path::new(root)))
+    } else {
+        out
+    }
 }
 
 /// The parts joined by slashes, normalized.
@@ -80,23 +128,29 @@ pub fn resolve(base: &str, path: &str) -> String {
 
 /// The folder `path` is in.
 pub fn dirname(path: &str) -> String {
-    let trimmed = path.trim_end_matches('/');
-    if trimmed.is_empty() {
-        return if path.is_empty() { "." } else { "/" }.into();
+    let root = &path[..root_len(path)];
+    let trimmed = path.trim_end_matches(SEPARATORS);
+    if trimmed.is_empty() || trimmed.len() < root.len() {
+        return if root.is_empty() { "." } else { root }.into();
     }
-    match trimmed.rfind('/') {
+    match trimmed.rfind(SEPARATORS) {
         None => ".".into(),
         Some(at) => {
-            let parent = trimmed[..at].trim_end_matches('/');
-            if parent.is_empty() { "/" } else { parent }.into()
+            let parent = trimmed[..at].trim_end_matches(SEPARATORS);
+            if parent.len() < root.len() {
+                root
+            } else {
+                parent
+            }
+            .into()
         }
     }
 }
 
 /// The last part of `path`.
 pub fn basename(path: &str) -> &str {
-    let trimmed = path.trim_end_matches('/');
-    trimmed.rsplit('/').next().unwrap_or("")
+    let trimmed = path.trim_end_matches(SEPARATORS);
+    trimmed.rsplit(SEPARATORS).next().unwrap_or("")
 }
 
 /// `to` from `from`, both resolved.
@@ -124,6 +178,7 @@ pub fn relative(from: &str, to: &str) -> String {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[test]
     fn resolve_as_pi_s_tools_do() {
         assert_eq!(normalize("/a/./b/../c/"), "/a/c/");
@@ -134,5 +189,17 @@ mod tests {
         assert_eq!(dirname("/a"), "/");
         assert_eq!(relative("/a/b", "/a/c/d"), "../c/d");
         assert_eq!(relative("/a", "/a/b"), "b");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_windows_path_starts_at_its_drive() {
+        assert_eq!(normalize(r"c:\a\.\b\..\c"), "C:/a/c");
+        assert_eq!(normalize("C:/../a"), "C:/a");
+        assert_eq!(join(&["C:/h", "../1/NOTES.md"]), "C:/1/NOTES.md");
+        assert_eq!(dirname("C:/a"), "C:/");
+        assert_eq!(dirname("C:/"), "C:/");
+        assert_eq!(text(Path::new(r"\\?\c:\Users\x")), "C:/Users/x");
+        assert!(!is_absolute("/a"));
     }
 }

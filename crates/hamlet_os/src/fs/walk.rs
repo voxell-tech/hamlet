@@ -66,11 +66,10 @@ pub fn reach(
     resolved: &str,
     follow: Follow,
 ) -> Result<Reached, Unreached> {
-    let mut rest = resolved
-        .split('/')
-        .map(str::to_owned)
-        .collect::<VecDeque<_>>();
-    let mut base = "/".to_owned();
+    let (root, below) = path::split_root(resolved);
+    let mut rest =
+        below.split('/').map(str::to_owned).collect::<VecDeque<_>>();
+    let mut base = root.to_owned();
     let mut dir = open_dir(&base)?;
     let mut links = 0;
     while let Some(part) = rest.pop_front() {
@@ -103,11 +102,15 @@ pub fn reach(
             if links > MAX_LINKS {
                 return Err(Unreached::Loop);
             }
-            if path::is_absolute(&link) {
-                base = "/".into();
+            let target = if path::is_absolute(&link) {
+                let (root, below) = path::split_root(&link);
+                base = root.to_owned();
                 dir = open_dir(&base)?;
-            }
-            for piece in link.split('/').rev() {
+                below
+            } else {
+                &link
+            };
+            for piece in target.split('/').rev() {
                 rest.push_front(piece.to_owned());
             }
             continue;
@@ -217,7 +220,7 @@ fn reached(
     last: Option<Name>,
     resolved: &str,
 ) -> Result<Reached, Unreached> {
-    let real = cased(base);
+    let real = dir.real(base)?;
     if real.to_lowercase() != base.to_lowercase() {
         return Err(Unreached::Moved);
     }
@@ -252,8 +255,9 @@ pub fn cased(real: &str) -> String {
 /// `real`, a path without links, opened one name at a time, following
 /// none.
 fn open_dir(real: &str) -> io::Result<Directory> {
-    let mut dir = Directory::open(Path::new("/"), LastLink::Refuse)?;
-    for name in real.split('/').filter(|name| !name.is_empty()) {
+    let (root, below) = path::split_root(real);
+    let mut dir = Directory::open(Path::new(root), LastLink::Refuse)?;
+    for name in below.split('/').filter(|name| !name.is_empty()) {
         dir = dir.child(&Name::new(name)?)?;
     }
     Ok(dir)
@@ -323,6 +327,8 @@ mod tests {
     use std::io::{Read as _, Write as _};
 
     use hamlet_testing::Scratch;
+    #[cfg(windows)]
+    use hamlet_testing::links::junction;
     use hamlet_testing::links::symlink;
 
     use super::*;
@@ -565,5 +571,68 @@ mod tests {
         let own = at(&scratch.join("l"), Follow::NotLast);
         assert_eq!(own.real, path::text(&scratch.join("l")));
         assert_eq!(own.stat().unwrap().kind, Kind::Link);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_walk_follows_a_junction_within_reach() {
+        let scratch = Scratch::new("walk-junction");
+        fs::create_dir(scratch.join("target")).unwrap();
+        fs::write(scratch.join("target/note.txt"), "inside").unwrap();
+        junction(scratch.join("target"), scratch.join("inside"))
+            .unwrap();
+        let note = at(&scratch.join("inside/note.txt"), Follow::Last);
+        assert_eq!(
+            note.real,
+            path::text(&scratch.join("target/note.txt"))
+        );
+        assert_eq!(read(&note).unwrap(), "inside");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_walk_refuses_a_junction_out_of_reach() {
+        let reach = Scratch::new("walk-reach");
+        let outside = Scratch::new("walk-outside");
+        fs::write(outside.join("secret.txt"), "hidden").unwrap();
+        junction(&*outside, reach.join("profile")).unwrap();
+        let secret =
+            at(&reach.join("profile/secret.txt"), Follow::Last);
+        assert_eq!(
+            secret.real,
+            path::text(&outside.join("secret.txt")),
+            "the policy checks where the junction leads"
+        );
+        assert!(!secret.real.starts_with(&path::text(&reach)));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_walk_stops_after_40_links() {
+        let scratch = Scratch::new("walk-junctions");
+        fs::create_dir(scratch.join("end")).unwrap();
+        fs::write(scratch.join("end/file"), "end").unwrap();
+        let mut target = scratch.join("end");
+        for each in 0..=MAX_LINKS {
+            let link = scratch.join(format!("j{each}"));
+            junction(&target, &link).unwrap();
+            target = link;
+        }
+        let through = |links: usize| {
+            reach(
+                &path::text(
+                    &scratch.join(format!("j{}/file", links - 1)),
+                ),
+                Follow::Last,
+            )
+        };
+        assert_eq!(
+            through(MAX_LINKS).unwrap().real,
+            path::text(&scratch.join("end/file"))
+        );
+        assert!(matches!(
+            through(MAX_LINKS + 1),
+            Err(Unreached::Loop)
+        ));
     }
 }

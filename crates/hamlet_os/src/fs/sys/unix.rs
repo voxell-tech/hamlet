@@ -193,6 +193,11 @@ impl System for Unix {
     fn sync_directory(dir: &OwnedFd) -> io::Result<()> {
         Ok(rustix::fs::fsync(dir)?)
     }
+
+    /// `path` resolved again, since a descriptor has no path.
+    fn real_of(_: &OwnedFd, path: &str) -> io::Result<String> {
+        Ok(crate::fs::cased(path))
+    }
 }
 
 fn raw(mode: Mode) -> rustix::fs::Mode {
