@@ -199,8 +199,48 @@ jobs:
         with:
           shared-key: test
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: harnesses/pi/.nvmrc
+      - run: npm ci --prefix harnesses/pi
       - run: cargo test --locked -p hamlet_server
       - run: cargo build --locked -p hamlet_cli -p hamlet_server -p hamlet_app
+      # The CLI starts a server in insecure mode in the foreground and
+      # in the background, reports it and stops it. The window is a
+      # program that exits at once, and the background server's model
+      # is a loopback address nothing answers.
+      - name: Start, report and stop a server
+        shell: bash
+        env:
+          HAMLET_USER: chief
+        run: |
+          set -eu
+          hamlet=target/debug/hamlet.exe
+          echo '{"responses": ["hi"]}' > "$RUNNER_TEMP/faux.json"
+          ready() {
+            for _ in $(seq 60); do
+              "$hamlet" status && return 0
+              sleep 1
+            done
+            cat "$HAMLET_HOME/server.log" || true
+            return 1
+          }
+          stopped() {
+            "$hamlet" stop
+            if "$hamlet" status; then return 1; fi
+            test ! -e "$HAMLET_HOME/server.json"
+          }
+          export HAMLET_HOME="$RUNNER_TEMP/foreground"
+          "$hamlet" server --insecure --port 0 --faux "$RUNNER_TEMP/faux.json" &
+          ready
+          stopped
+          export HAMLET_HOME="$RUNNER_TEMP/background"
+          export HAMLET_APP="$SYSTEMROOT/System32/whoami.exe"
+          export HAMLET_MODEL=local::org/large
+          export HAMLET_BASE_URL=http://127.0.0.1:9/v1
+          "$hamlet" --insecure
+          "$hamlet" status
+          stopped
       - uses: actions/upload-artifact@v4
         with:
           name: hamlet-windows

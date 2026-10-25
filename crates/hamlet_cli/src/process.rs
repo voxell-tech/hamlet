@@ -1,17 +1,11 @@
 //! Local server discovery and the lifetimes of the server and window.
 
-#![cfg_attr(
-    unix,
-    expect(
-        unsafe_code,
-        reason = "a session's leader is made between fork and exec"
-    )
+#![expect(
+    unsafe_code,
+    reason = "on Unix a session's leader is made between fork and \
+              exec, and on Windows a process is opened by its ID"
 )]
 
-use std::env;
-#[cfg(unix)]
-use std::fs;
-#[cfg(unix)]
 use std::io::{Read, Seek, SeekFrom};
 #[cfg(unix)]
 use std::os::unix::{
@@ -21,23 +15,17 @@ use std::os::unix::{
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::Duration;
+use std::{env, fs};
 
 use anyhow::{Context, Result, bail};
-#[cfg(unix)]
 use hamlet_protocol::client::Confinement;
-#[cfg(unix)]
-use hamlet_protocol::client::discovery::Running;
-use hamlet_protocol::client::discovery::{self, Chosen};
+use hamlet_protocol::client::discovery::{self, Chosen, Running};
 #[cfg(unix)]
 use rustix::io::Errno;
 #[cfg(unix)]
 use rustix::process::{Pid, Signal, kill_process, test_kill_process};
-use tokio::time::timeout;
-#[cfg(unix)]
-use tokio::{
-    process::Child,
-    time::{Instant, sleep},
-};
+use tokio::process::Child;
+use tokio::time::{Instant, sleep, timeout};
 
 use crate::client::{self, ServerAddress};
 
@@ -65,7 +53,6 @@ fn nonempty(name: &str) -> Option<String> {
 }
 
 /// The local home the environment selects.
-#[cfg(unix)]
 fn home() -> Result<PathBuf> {
     Ok(discovery::home(nonempty)?)
 }
@@ -75,7 +62,6 @@ pub fn address() -> Result<ServerAddress> {
     Ok(ServerAddress::find(nonempty)?)
 }
 
-#[cfg(unix)]
 fn running(home: &Path) -> Result<Option<Running>> {
     Ok(Running::read(home)?)
 }
@@ -113,7 +99,189 @@ fn signal(pid: u32, signal: Signal) -> Result<()> {
     }
 }
 
+#[cfg(windows)]
+mod kernel32 {
+    use std::ffi::c_void;
+    use std::io;
+    use std::os::windows::io::{
+        AsRawHandle, FromRawHandle, OwnedHandle,
+    };
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn OpenProcess(
+            access: u32,
+            inherit: i32,
+            pid: u32,
+        ) -> *mut c_void;
+        fn WaitForSingleObject(handle: *mut c_void, ms: u32) -> u32;
+        fn TerminateProcess(handle: *mut c_void, code: u32) -> i32;
+        fn GenerateConsoleCtrlEvent(event: u32, group: u32) -> i32;
+    }
+
+    const CTRL_BREAK_EVENT: u32 = 1;
+
+    const PROCESS_TERMINATE: u32 = 0x0001;
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    const SYNCHRONIZE: u32 = 0x0010_0000;
+    const WAIT_TIMEOUT: u32 = 0x0102;
+    const ERROR_ACCESS_DENIED: i32 = 5;
+
+    fn open(pid: u32, access: u32) -> io::Result<OwnedHandle> {
+        // SAFETY: the call reads only its arguments.
+        let handle = unsafe { OpenProcess(access, 0, pid) };
+        if handle.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: the handle was just opened, and nothing else owns
+        // it.
+        Ok(unsafe { OwnedHandle::from_raw_handle(handle) })
+    }
+
+    pub(super) fn is_alive(pid: u32) -> bool {
+        match open(
+            pid,
+            SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
+        ) {
+            Ok(process) => {
+                // SAFETY: the handle is open while `process` lives.
+                let state = unsafe {
+                    WaitForSingleObject(process.as_raw_handle(), 0)
+                };
+                state == WAIT_TIMEOUT
+            }
+            // Denied says the process exists but is not ours.
+            Err(error) => {
+                error.raw_os_error() == Some(ERROR_ACCESS_DENIED)
+            }
+        }
+    }
+
+    /// Sends Ctrl-Break to the process group `pid` leads on this
+    /// console.
+    pub(super) fn interrupt(pid: u32) -> io::Result<()> {
+        // SAFETY: the call reads only its arguments.
+        if unsafe { GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid) }
+            == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    pub(super) fn terminate(pid: u32) -> io::Result<()> {
+        let process = open(pid, PROCESS_TERMINATE)?;
+        // SAFETY: the handle is open while `process` lives.
+        if unsafe { TerminateProcess(process.as_raw_handle(), 1) }
+            == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+use kernel32::is_alive;
+
+/// Asks the server `pid` of `home` to stop, and waits until it has.
 #[cfg(unix)]
+async fn stop(pid: u32, home: &Path) -> Result<()> {
+    signal(pid, Signal::TERM)?;
+    wait_gone(pid, home, "no SIGKILL was sent").await
+}
+
+/// Ends the server `pid` of `home`. Windows has no signal another
+/// console can send a detached process, so it is terminated, and the
+/// kill-on-close job it put itself in ends pi and every command with
+/// it. Its record is removed for it.
+#[cfg(windows)]
+async fn stop(pid: u32, home: &Path) -> Result<()> {
+    kernel32::terminate(pid)?;
+    wait_gone(pid, home, "it was terminated").await?;
+    match fs::remove_file(home.join("server.json")) {
+        Err(error)
+            if error.kind() != std::io::ErrorKind::NotFound =>
+        {
+            Err(error.into())
+        }
+        _ => Ok(()),
+    }
+}
+
+async fn wait_gone(pid: u32, home: &Path, sent: &str) -> Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while is_alive(pid) {
+        anyhow::ensure!(
+            Instant::now() < deadline,
+            "Process {pid} is still stopping after 30 seconds. \
+             Inspect {}; {sent}.",
+            home.join("server.log").display()
+        );
+        sleep(Duration::from_millis(100)).await;
+    }
+    Ok(())
+}
+
+/// What stops `hamlet dev` and `hamlet server`: Ctrl-C and its kin.
+struct Stops {
+    #[cfg(unix)]
+    signals: [tokio::signal::unix::Signal; 3],
+    #[cfg(windows)]
+    interrupt: tokio::signal::windows::CtrlC,
+    #[cfg(windows)]
+    brk: tokio::signal::windows::CtrlBreak,
+    #[cfg(windows)]
+    close: tokio::signal::windows::CtrlClose,
+}
+
+impl Stops {
+    fn new() -> Result<Self> {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{SignalKind, signal};
+            Ok(Self {
+                signals: [
+                    signal(SignalKind::interrupt())?,
+                    signal(SignalKind::terminate())?,
+                    signal(SignalKind::hangup())?,
+                ],
+            })
+        }
+        #[cfg(windows)]
+        {
+            use tokio::signal::windows::{
+                ctrl_break, ctrl_c, ctrl_close,
+            };
+            Ok(Self {
+                interrupt: ctrl_c()?,
+                brk: ctrl_break()?,
+                close: ctrl_close()?,
+            })
+        }
+    }
+
+    async fn next(&mut self) {
+        #[cfg(unix)]
+        {
+            let [interrupt, terminate, hangup] = &mut self.signals;
+            tokio::select! {
+                _ = interrupt.recv() => {}
+                _ = terminate.recv() => {}
+                _ = hangup.recv() => {}
+            }
+        }
+        #[cfg(windows)]
+        {
+            tokio::select! {
+                _ = self.interrupt.recv() => {}
+                _ = self.brk.recv() => {}
+                _ = self.close.recv() => {}
+            }
+        }
+    }
+}
+
 async fn inspect(
     home: &Path,
 ) -> Result<Option<(Running, ServerAddress)>> {
@@ -140,12 +308,10 @@ async fn inspect(
     )
 }
 
-#[cfg(unix)]
 fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-#[cfg(unix)]
 fn server_command(
     server: &Path,
     home: &Path,
@@ -182,6 +348,40 @@ pub fn serve(
     )
 }
 
+/// Serves in the foreground. The server shares this console, so
+/// Ctrl-C reaches it, and this process outlives it to give its exit
+/// code.
+#[cfg(windows)]
+pub fn serve(
+    port: u16,
+    faux: Option<&str>,
+    isolation: Isolation,
+) -> Result<i32> {
+    let server = find_binary("hamlet_server", "HAMLET_SERVER_BIN")?;
+    let command =
+        server_command(&server, &home()?, port, faux, isolation);
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(async {
+            let mut stops = Stops::new()?;
+            let mut server = tokio::process::Command::from(command)
+                .spawn()
+                .context(
+                    "Cannot start hamlet_server; build it or set \
+                     HAMLET_SERVER_BIN",
+                )?;
+            loop {
+                tokio::select! {
+                    status = server.wait() => {
+                        return Ok(exit_code(status?));
+                    }
+                    () = stops.next() => {}
+                }
+            }
+        })
+}
+
 #[cfg(unix)]
 fn session(command: &mut Command) {
     // SAFETY: the child calls only setsid, which is
@@ -196,9 +396,14 @@ fn session(command: &mut Command) {
 }
 
 #[cfg(windows)]
+const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+
+#[cfg(windows)]
 fn session(command: &mut Command) {
     use std::os::windows::process::CommandExt;
-    command.creation_flags(0x0000_0008 | 0x0000_0200);
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    command
+        .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
 }
 
 fn is_executable(path: &Path) -> bool {
@@ -297,7 +502,6 @@ pub async fn window() -> Result<i32> {
     ))
 }
 
-#[cfg(unix)]
 fn log_tail(home: &Path) -> String {
     let read = (|| -> Result<String> {
         let mut file = fs::File::open(home.join("server.log"))?;
@@ -359,28 +563,27 @@ fn log_tail(home: &Path) -> String {
     })
 }
 
-#[cfg(unix)]
 fn mkdir(home: &Path) -> Result<()> {
-    fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(home)?;
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    builder.mode(0o700);
+    builder.create(home)?;
     Ok(())
 }
 
 /// Starts a server for `home`, or finds the one another `hamlet`
 /// started meanwhile.
-#[cfg(unix)]
 async fn start(
     home: &Path,
     isolation: Isolation,
 ) -> Result<(Running, ServerAddress)> {
     mkdir(home)?;
-    let log = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .open(home.join("server.log"))?;
+    let mut log = fs::OpenOptions::new();
+    log.create(true).append(true);
+    #[cfg(unix)]
+    log.mode(0o600);
+    let log = log.open(home.join("server.log"))?;
     let log_start = log.metadata()?.len();
     let server = find_binary("hamlet_server", "HAMLET_SERVER_BIN")?;
     let mut command =
@@ -452,7 +655,6 @@ pub async fn service(action: Action) -> Result<i32> {
     Ok(0)
 }
 
-#[cfg(unix)]
 async fn local_service(action: Action, home: &Path) -> Result<i32> {
     let found = inspect(home).await?;
     if let (Action::Start(_), Some((record, _))) = (action, &found)
@@ -478,18 +680,7 @@ async fn local_service(action: Action, home: &Path) -> Result<i32> {
         return Ok(i32::from(action != Action::Stop));
     };
     if action == Action::Stop {
-        signal(record.pid, Signal::TERM)?;
-        let deadline = Instant::now() + Duration::from_secs(30);
-        while is_alive(record.pid) {
-            anyhow::ensure!(
-                Instant::now() < deadline,
-                "Process {} is still stopping after 30 seconds. \
-                 Inspect {}; no SIGKILL was sent.",
-                record.pid,
-                home.join("server.log").display()
-            );
-            sleep(Duration::from_millis(100)).await;
-        }
+        stop(record.pid, home).await?;
         println!("hamlet: stopped");
     } else {
         println!(
@@ -506,7 +697,6 @@ async fn local_service(action: Action, home: &Path) -> Result<i32> {
     Ok(0)
 }
 
-#[cfg(unix)]
 fn canonical(path: &Path) -> Result<PathBuf> {
     match fs::canonicalize(path) {
         Ok(path) => Ok(path),
@@ -522,17 +712,25 @@ fn canonical(path: &Path) -> Result<PathBuf> {
     }
 }
 
-#[cfg(unix)]
 fn dev_home(chosen: Option<&str>) -> Result<PathBuf> {
-    let uid = rustix::process::getuid().as_raw();
+    // On Unix the temp folder is shared by every account.
+    #[cfg(unix)]
+    let scratch =
+        format!("hamlet-dev-{}", rustix::process::getuid().as_raw());
+    #[cfg(windows)]
+    let scratch = "hamlet-dev";
     let path = chosen
         .map(PathBuf::from)
         .or_else(|| nonempty("HAMLET_HOME").map(PathBuf::from))
-        .unwrap_or_else(|| {
-            env::temp_dir().join(format!("hamlet-dev-{uid}"))
-        });
+        .unwrap_or_else(|| env::temp_dir().join(scratch));
     let path = std::path::absolute(&path)?;
-    let ordinary = PathBuf::from(env::var("HOME")?).join(".hamlet");
+    let ordinary = discovery::home(|name| {
+        if name == "HAMLET_HOME" {
+            None
+        } else {
+            nonempty(name)
+        }
+    })?;
     anyhow::ensure!(
         chosen != Some("~/.hamlet")
             && canonical(&path)? != canonical(&ordinary)?,
@@ -547,12 +745,8 @@ fn dev_home(chosen: Option<&str>) -> Result<PathBuf> {
         Some("a symbolic link")
     } else if !stat.is_dir() {
         Some("not a directory")
-    } else if stat.uid() != uid {
-        Some("not owned by the current user")
-    } else if stat.mode() & 0o022 != 0 {
-        Some("writable by group or others")
     } else {
-        None
+        shared(&stat)
     };
     if let Some(reason) = unsafe_reason {
         bail!("unsafe scratch home {}: {reason}.", path.display());
@@ -560,7 +754,25 @@ fn dev_home(chosen: Option<&str>) -> Result<PathBuf> {
     Ok(path)
 }
 
+/// Why a scratch home's folder is open to other accounts, if it is.
 #[cfg(unix)]
+fn shared(stat: &fs::Metadata) -> Option<&'static str> {
+    if stat.uid() != rustix::process::getuid().as_raw() {
+        Some("not owned by the current user")
+    } else if stat.mode() & 0o022 != 0 {
+        Some("writable by group or others")
+    } else {
+        None
+    }
+}
+
+/// Why a scratch home's folder is open to other accounts: never, as
+/// Windows gives a folder made under the profile its owner's access.
+#[cfg(windows)]
+fn shared(_: &fs::Metadata) -> Option<&'static str> {
+    None
+}
+
 async fn dev_binary(name: &str, variable: &str) -> Result<PathBuf> {
     if let Some(path) = nonempty(variable) {
         return Ok(path.into());
@@ -626,19 +838,17 @@ async fn dev_binary(name: &str, variable: &str) -> Result<PathBuf> {
     bail!("Cargo did not report the built {name} executable.")
 }
 
-#[cfg(unix)]
 async fn wait_child(child: &mut Child) -> Result<()> {
     timeout(Duration::from_secs(30), child.wait())
         .await
         .context(
-            "Child is still stopping after 30 seconds; no SIGKILL \
-             was sent",
+            "Child is still stopping after 30 seconds; it was not \
+             killed",
         )??;
     Ok(())
 }
 
 /// The address of the dev server `server` once it answers there.
-#[cfg(unix)]
 async fn ready(
     server: &mut Child,
     home: &Path,
@@ -663,7 +873,6 @@ async fn ready(
 
 /// Forgets the dev window once it closed, saying the server still
 /// serves.
-#[cfg(unix)]
 fn window_closed(
     window: &mut Option<Child>,
     home: &Path,
@@ -683,24 +892,28 @@ fn window_closed(
     Ok(())
 }
 
-#[cfg(unix)]
 pub async fn develop(
     port: u16,
     faux: Option<&str>,
     chosen: Option<&str>,
     isolation: Isolation,
 ) -> Result<i32> {
-    use tokio::signal::unix::{SignalKind, signal as listen};
     let home = dev_home(chosen)?;
     let server =
         dev_binary("hamlet_server", "HAMLET_SERVER_BIN").await?;
     let app = dev_binary("hamlet_app", "HAMLET_APP").await?;
-    let mut interrupt = listen(SignalKind::interrupt())?;
-    let mut terminate = listen(SignalKind::terminate())?;
-    let mut hangup = listen(SignalKind::hangup())?;
+    let mut stops = Stops::new()?;
     let mut command =
         server_command(&server, &home, port, faux, isolation);
+    // The server is kept from the terminal's Ctrl-C, and this
+    // process asks it to stop.
+    #[cfg(unix)]
     session(&mut command);
+    #[cfg(windows)]
+    std::os::windows::process::CommandExt::creation_flags(
+        &mut command,
+        CREATE_NEW_PROCESS_GROUP,
+    );
     command.stdin(Stdio::null());
     let mut server =
         tokio::process::Command::from(command).spawn()?;
@@ -724,9 +937,7 @@ pub async fn develop(
                     home.display()
                 )
             })??,
-            _ = interrupt.recv() => return Ok(0),
-            _ = terminate.recv() => return Ok(0),
-            _ = hangup.recv() => return Ok(0),
+            () = stops.next() => return Ok(0),
         };
         eprintln!(
             "hamlet: the server answers at {}; opening the window",
@@ -743,9 +954,7 @@ pub async fn develop(
         window = Some(child);
         loop {
             tokio::select! {
-                _ = interrupt.recv() => return Ok(0),
-                _ = terminate.recv() => return Ok(0),
-                _ = hangup.recv() => return Ok(0),
+                () = stops.next() => return Ok(0),
                 status = server.wait() => {
                     return Ok(exit_code(status?));
                 }
@@ -756,11 +965,22 @@ pub async fn develop(
         }
     }
     .await;
+    #[cfg(unix)]
     for pid in [window.as_ref().and_then(Child::id), server.id()]
         .into_iter()
         .flatten()
     {
         signal(pid, Signal::TERM)?;
+    }
+    #[cfg(windows)]
+    {
+        // The window has no console to take an event on.
+        if let Some(child) = &mut window {
+            end(child)?;
+        }
+        if let Some(pid) = server.id() {
+            kernel32::interrupt(pid)?;
+        }
     }
     let closing = async {
         let window_closed = async {
@@ -772,24 +992,14 @@ pub async fn develop(
         tokio::try_join!(window_closed, wait_child(&mut server))?;
         Ok::<_, anyhow::Error>(())
     };
-    let force = async {
-        tokio::select! {
-            _ = interrupt.recv() => {},
-            _ = terminate.recv() => {},
-            _ = hangup.recv() => {},
-        }
-    };
     tokio::select! {
         closed = closing => closed?,
-        _ = force => {
-            let window_pid = window.as_ref().and_then(Child::id);
-            let pids = [window_pid, server.id()];
-            for pid in pids.into_iter().flatten() {
-                signal(pid, Signal::KILL)?;
-            }
+        () = stops.next() => {
             if let Some(child) = &mut window {
+                end(child)?;
                 child.wait().await?;
             }
+            end(&mut server)?;
             server.wait().await?;
             return Ok(130);
         }
@@ -797,26 +1007,11 @@ pub async fn develop(
     result
 }
 
-#[cfg(not(unix))]
-pub fn serve(_: u16, _: Option<&str>, _: Isolation) -> Result<i32> {
-    bail!(
-        "The agent server requires macOS or Linux. Use \
-         HAMLET_SERVER and HAMLET_TOKEN to connect to another \
-         machine."
-    )
-}
-
-#[cfg(not(unix))]
-async fn local_service(_: Action, _: &Path) -> Result<i32> {
-    serve(0, None, Isolation::Insecure)
-}
-
-#[cfg(not(unix))]
-pub async fn develop(
-    _: u16,
-    _: Option<&str>,
-    _: Option<&str>,
-    isolation: Isolation,
-) -> Result<i32> {
-    serve(0, None, isolation)
+/// Kills `child`, unless it has been waited for.
+fn end(child: &mut Child) -> std::io::Result<()> {
+    if child.id().is_some() {
+        child.start_kill()
+    } else {
+        Ok(())
+    }
 }

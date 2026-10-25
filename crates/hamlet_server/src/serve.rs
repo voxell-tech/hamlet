@@ -234,7 +234,7 @@ pub async fn serve(options: Options) -> Result<()> {
     }
     eprintln!(
         "hamlet_server: holding {}; serving at {url}; Ctrl-C stops",
-        service.home.layout().root().display()
+        hamlet_os::fs::path::text(service.home.layout().root())
     );
     let (events, mut incoming) = mpsc::channel(128);
     let (shutdown, closing) = watch::channel(false);
@@ -377,6 +377,10 @@ pub(crate) struct Signals {
     terminate: tokio::signal::unix::Signal,
     #[cfg(windows)]
     interrupt: tokio::signal::windows::CtrlC,
+    /// What `hamlet dev` sends the server it keeps in a process
+    /// group of its own.
+    #[cfg(windows)]
+    brk: tokio::signal::windows::CtrlBreak,
 }
 
 impl Signals {
@@ -393,6 +397,7 @@ impl Signals {
         {
             Ok(Self {
                 interrupt: tokio::signal::windows::ctrl_c()?,
+                brk: tokio::signal::windows::ctrl_break()?,
             })
         }
     }
@@ -406,7 +411,10 @@ impl Signals {
         }
         #[cfg(windows)]
         {
-            self.interrupt.recv().await;
+            tokio::select! {
+                _ = self.interrupt.recv() => {}
+                _ = self.brk.recv() => {}
+            }
         }
     }
 }
