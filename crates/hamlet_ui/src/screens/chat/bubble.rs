@@ -361,12 +361,12 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
                 let round = BorderRadius::all(px(ROUND));
                 if mine {
                     BorderRadius {
-                        bottom_right: tail,
+                        bottom_right: tail.into(),
                         ..round
                     }
                 } else {
                     BorderRadius {
-                        bottom_left: tail,
+                        bottom_left: tail.into(),
                         ..round
                     }
                 }

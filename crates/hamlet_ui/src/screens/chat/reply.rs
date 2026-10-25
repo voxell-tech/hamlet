@@ -200,7 +200,7 @@ pub(super) fn mark(
 
 /// Shows the mark of a row while the pointer is on the row.
 fn reveal(
-    hover: On<Insert, Hovered>,
+    hover: On<Insert<Hovered>>,
     rows: Query<&Hovered, With<Replies>>,
     under: Query<&Children>,
     mut marks: Query<&mut Visibility, With<Mark>>,

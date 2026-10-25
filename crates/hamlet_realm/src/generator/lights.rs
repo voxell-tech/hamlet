@@ -199,7 +199,7 @@ fn spill_colour(state: KeeperState) -> Color {
 
 /// Puts a lantern's state in its glass and in the light it throws.
 pub(super) fn show_lamp(
-    lamp: On<Insert, Lamp>,
+    lamp: On<Insert<Lamp>>,
     mut commands: Commands,
     kit: Res<Kit>,
     lamps: Query<(&Lamp, Option<&Children>)>,
@@ -221,7 +221,7 @@ pub(super) fn show_lamp(
 /// A new lantern's light takes the colour of its lantern and the
 /// strength of the hour.
 pub(super) fn show_spill(
-    spill: On<Add, Spill>,
+    spill: On<Add<Spill>>,
     sky: Res<Sky>,
     set: Res<SkySettings>,
     lamps: Query<&Lamp>,

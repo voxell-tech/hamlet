@@ -353,7 +353,7 @@ pub(super) fn light(
             high: linear(colors.glass_high).extend(1.0),
             shape: Vec4::new(
                 0.0,
-                node.border_radius.top_left,
+                node.border_radius.top_left.x,
                 feel.lean,
                 0.0,
             ),
@@ -431,7 +431,7 @@ pub(super) fn spill(
         // Round at its ends, as light about a line of words is.
         let round = match written {
             Some(_) => node.size.y * 0.5,
-            None => node.border_radius.top_left,
+            None => node.border_radius.top_left.x,
         };
         let (hue, heart) = hues(mood, &colors);
         let thrown = match mood {

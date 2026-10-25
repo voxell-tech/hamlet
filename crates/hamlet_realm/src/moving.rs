@@ -413,7 +413,7 @@ fn tell(
 /// A click on the world sets the place down where it fits. The
 /// right button puts it back.
 fn click(
-    click: On<Pointer<Click>>,
+    click: On<PointerClick>,
     surfaces: Query<(), With<WorldSurface>>,
     travel: Res<Travel>,
     camera: Res<CameraSettings>,
@@ -520,18 +520,14 @@ mod tests {
             },
             position: Vec2::ZERO,
         };
-        let event = Click {
+        app.world_mut().trigger(PointerClick {
+            entity: surface,
+            pointer: Pointer::new(PointerId::Mouse, at),
             button,
             hit: HitData::new(surface, 0.0, None, None),
             duration: std::time::Duration::ZERO,
             count: 1,
-        };
-        app.world_mut().trigger(Pointer::new(
-            PointerId::Mouse,
-            at,
-            event,
-            surface,
-        ));
+        });
         app.update();
     }
 

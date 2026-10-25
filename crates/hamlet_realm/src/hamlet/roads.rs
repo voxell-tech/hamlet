@@ -52,7 +52,7 @@ pub(super) fn lay(
 
 /// A road went, with an agent or when a merge was undone.
 pub(super) fn unlay(
-    gone: On<Remove, Laid>,
+    gone: On<Remove<Laid>>,
     roads: Query<&Laid>,
     mut society: ResMut<Society>,
 ) {

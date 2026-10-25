@@ -277,7 +277,7 @@ pub enum Steer {
 /// The left button slides the ground, the right button turns and
 /// tilts.
 pub(super) fn drag(
-    drag: On<Pointer<Drag>>,
+    drag: On<PointerDrag>,
     surfaces: Query<&ComputedNode, With<WorldSurface>>,
     camera: Res<CameraSettings>,
     stance: Res<Stance>,
@@ -339,12 +339,12 @@ pub(super) fn drag(
     }
 }
 
-fn drag_end(_: On<Pointer<DragEnd>>, mut steer: ResMut<Steer>) {
+fn drag_end(_: On<PointerDragEnd>, mut steer: ResMut<Steer>) {
     steer.set_if_neq(Steer::Still);
 }
 
 fn scroll(
-    scroll: On<Pointer<Scroll>>,
+    scroll: On<PointerScroll>,
     surfaces: Query<(), With<WorldSurface>>,
     camera: Res<CameraSettings>,
     leash: Res<Leash>,

@@ -14,7 +14,7 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
 use bevy::math::{Rect, Vec2};
-use bevy::picking::events::{Pointer, Press};
+use bevy::picking::events::PointerPress;
 use bevy::picking::pointer::PointerButton;
 use bevy::ui::px;
 use bevy::window::Window;
@@ -61,7 +61,7 @@ pub(crate) enum Open {
 pub struct Asks(pub Thing);
 
 pub(crate) fn ask_of_row(
-    press: On<Pointer<Press>>,
+    press: On<PointerPress>,
     rows: Query<&Asks>,
     window: Query<&Window>,
     mut asked: ResMut<Asked>,

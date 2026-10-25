@@ -33,7 +33,7 @@ pub(super) struct Fall {
 /// The left button goes down on the world: the hand takes the robot
 /// under the pointer, and the ground stays where it is.
 pub(super) fn grab(
-    press: On<Pointer<Press>>,
+    press: On<PointerPress>,
     surfaces: Query<(), With<WorldSurface>>,
     hovered: Res<Hovered>,
     boxes: Query<(Entity, &Thing, &ChildOf)>,
@@ -65,7 +65,7 @@ pub(super) fn grab(
 }
 
 pub(super) fn let_go(
-    release: On<Pointer<Release>>,
+    release: On<PointerRelease>,
     mut hand: ResMut<Hand>,
 ) {
     if release.button == PointerButton::Primary && hand.held.is_some()
@@ -75,7 +75,7 @@ pub(super) fn let_go(
 }
 
 pub(super) fn drag_end(
-    end: On<Pointer<DragEnd>>,
+    end: On<PointerDragEnd>,
     mut hand: ResMut<Hand>,
 ) {
     if end.button == PointerButton::Primary && hand.held.is_some() {

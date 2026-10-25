@@ -30,7 +30,9 @@ use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::input_focus::InputFocus;
 use bevy::math::{Rect, Vec2};
 use bevy::picking::Pickable;
-use bevy::picking::events::{Drag, DragEnd, Pointer, Press};
+use bevy::picking::events::{
+    PointerDrag, PointerDragEnd, PointerPress,
+};
 use bevy::picking::pointer::PointerButton;
 use bevy::text::{
     ComputedTextBlock, EditableText, LineBreak, TextBrush,
@@ -374,7 +376,7 @@ impl Texts<'_, '_> {
             ),
         );
         let origin = computed.content_box().min;
-        let clip = self.clips.get(node).ok().map(|c| c.clip);
+        let clip = self.clips.get(node).ok();
         let scale = computed.inverse_scale_factor();
         selection
             .geometry(&layout)
@@ -389,7 +391,7 @@ impl Texts<'_, '_> {
                     corner(b.x0, b.y0),
                     corner(b.x1, b.y1),
                 );
-                let seen = clip.map_or(seen, |c| seen.intersect(c));
+                let seen = clip.map_or(seen, |c| clipped(c, seen));
                 (!seen.is_empty()).then(|| Rect {
                     min: seen.min * scale,
                     max: seen.max * scale,
@@ -397,6 +399,21 @@ impl Texts<'_, '_> {
             })
             .collect()
     }
+}
+
+/// `seen` cut to what `clip` lets through, in the window; nothing
+/// when the node is clipped away altogether.
+fn clipped(clip: &CalculatedClip, seen: Rect) -> Rect {
+    let Some(rects) = clip.rects() else {
+        return Rect::default();
+    };
+    rects.iter().fold(seen, |seen, each| {
+        let back = each.world_to_clip_local.inverse();
+        seen.intersect(Rect::from_corners(
+            back.transform_point2(each.rect.min),
+            back.transform_point2(each.rect.max),
+        ))
+    })
 }
 
 /// The length of `text` without the room a bubble keeps for its hour.
@@ -511,7 +528,7 @@ fn mark(
 /// Starts a selection on a press on selectable words, and lets it go
 /// on a press anywhere else.
 fn press(
-    press: On<Pointer<Press>>,
+    press: On<PointerPress>,
     areas: Query<(), With<Area>>,
     rows: Query<&Quotable>,
     keeps: Query<(), With<Keeps>>,
@@ -557,8 +574,7 @@ fn press(
         _ => Grain::Line,
     };
     let nodes = texts.nodes(scope);
-    let spot =
-        texts.place(&nodes, press.pointer_location.position, grain);
+    let spot = texts.place(&nodes, press.pointer.position, grain);
     let quote = area
         .and_then(|_| chain.iter().find_map(|e| rows.get(*e).ok()))
         .map(|row| (row.session, row.entry.clone()));
@@ -579,7 +595,7 @@ fn press(
 
 /// Moves the end of a selection with the pointer as it is dragged.
 fn drag(
-    drag: On<Pointer<Drag>>,
+    drag: On<PointerDrag>,
     texts: Texts,
     mut selecting: ResMut<Selecting>,
 ) {
@@ -593,18 +609,15 @@ fn drag(
         return;
     };
     let nodes = texts.nodes(area);
-    let focus = texts.place(
-        &nodes,
-        drag.pointer_location.position,
-        selecting.grain,
-    );
+    let focus =
+        texts.place(&nodes, drag.pointer.position, selecting.grain);
     if focus.is_some() && selecting.focus != focus {
         selecting.focus = focus;
     }
 }
 
 fn drag_end(
-    end: On<Pointer<DragEnd>>,
+    end: On<PointerDragEnd>,
     mut selecting: ResMut<Selecting>,
 ) {
     if end.entity == end.original_event_target() && selecting.dragging

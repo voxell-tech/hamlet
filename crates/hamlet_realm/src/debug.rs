@@ -7,9 +7,9 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::dev_tools::fps_overlay::{
     FpsOverlayConfig, FpsOverlayPlugin, FrameTimeGraphConfig,
 };
-use bevy::math::bounding::Aabb3d;
 use bevy::picking::pointer::PointerInteraction;
 use bevy::prelude::*;
+use bevy::shape::Aabb3d;
 use hamlet_assets::tint;
 
 use super::pick::{Hovered, Selected, Thing};

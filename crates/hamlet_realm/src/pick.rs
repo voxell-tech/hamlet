@@ -10,7 +10,6 @@ mod tests;
 
 use bevy::asset::uuid_handle;
 use bevy::camera::primitives::Aabb;
-use bevy::math::bounding::Aabb3d;
 use bevy::picking::PickingSystems;
 use bevy::picking::backend::ray::RayMap;
 use bevy::picking::events::pointer_events;
@@ -22,6 +21,7 @@ use bevy::picking::mesh_picking::{
     MeshPickingCamera, MeshPickingPlugin, MeshPickingSettings,
 };
 use bevy::prelude::*;
+use bevy::shape::Aabb3d;
 use bevy::window::PrimaryWindow;
 
 pub use self::camera::{
@@ -372,7 +372,7 @@ fn hover(
 /// The left button selects, or with Shift chooses a second thing.
 /// The right button asks what can be done with a thing.
 fn click(
-    click: On<Pointer<Click>>,
+    click: On<PointerClick>,
     things: Query<&Thing>,
     hovered: Res<Hovered>,
     travel: Res<Travel>,
@@ -432,7 +432,7 @@ fn click(
 /// A click on the bare world clears the selection, and the right
 /// button there asks what can be done with the ground.
 fn click_surface(
-    click: On<Pointer<Click>>,
+    click: On<PointerClick>,
     surfaces: Query<(), With<WorldSurface>>,
     window: Query<&Window, With<PrimaryWindow>>,
     hovered: Res<Hovered>,
@@ -467,7 +467,7 @@ fn click_surface(
 }
 
 fn press(
-    press: On<Pointer<Press>>,
+    press: On<PointerPress>,
     surfaces: Query<(), With<WorldSurface>>,
     mut travel: ResMut<Travel>,
 ) {

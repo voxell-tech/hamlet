@@ -46,7 +46,7 @@ pub(super) struct Rest {
 
 /// Tells the world of a thing that was selected, or asked about.
 pub(super) fn tell(
-    click: On<Pointer<Click>>,
+    click: On<PointerClick>,
     things: Query<&GlobalTransform, With<Thing>>,
     travel: Res<Travel>,
     camera: Res<CameraSettings>,
@@ -70,7 +70,7 @@ pub(super) fn tell(
 
 /// A plain click of the left button on a robot.
 pub(super) fn tap(
-    click: On<Pointer<Click>>,
+    click: On<PointerClick>,
     boxes: Query<(&Thing, &ChildOf)>,
     robots: Query<(), With<Robot>>,
     travel: Res<Travel>,
@@ -99,7 +99,7 @@ pub(super) fn tap(
 /// A click on the light over a thinking agent's house holds its
 /// thought open in its balloon.
 pub(super) fn nudge(
-    click: On<Pointer<Click>>,
+    click: On<PointerClick>,
     set: Res<PlaySettings>,
     thoughts: Query<(&Thought, &GlobalTransform)>,
     agents: Query<(Entity, &Housed)>,
@@ -137,7 +137,7 @@ pub(super) fn room(
 
 /// An agent's work ended: for a while its robot can be cheered.
 pub(super) fn finished(
-    done: On<Remove, Busy>,
+    done: On<Remove<Busy>>,
     clock: Res<Clock>,
     set: Res<PlaySettings>,
     mut commands: Commands,

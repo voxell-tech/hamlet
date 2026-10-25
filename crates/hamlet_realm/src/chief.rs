@@ -215,8 +215,10 @@ impl Kept {
                 Ok(Vec::new())
             }
             Err(e) => Err(e),
-        }
-        .with_context(|| format!("reading {}", chiefs.display()))?;
+        };
+        let entries = Context::with_context(entries, || {
+            format!("reading {}", chiefs.display())
+        })?;
         for entry in entries {
             let path = entry.path();
             let Some(name) =
@@ -276,8 +278,9 @@ fn text(file: &Path) -> Result<Option<String>> {
     match std::fs::read_to_string(file) {
         Ok(text) => Ok(Some(text)),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e)
-            .with_context(|| format!("reading {}", file.display())),
+        Err(e) => Context::with_context(Err(e), || {
+            format!("reading {}", file.display())
+        }),
     }
 }
 

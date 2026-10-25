@@ -199,8 +199,7 @@ struct ClosedPanel;
 
 fn disarm(
     _: bevy::ecs::observer::On<
-        bevy::ecs::lifecycle::Remove,
-        ClosedPanel,
+        bevy::ecs::lifecycle::Remove<ClosedPanel>,
     >,
     mut erasing: ResMut<Erasing>,
 ) {

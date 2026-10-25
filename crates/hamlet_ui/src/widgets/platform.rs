@@ -19,7 +19,7 @@ use bevy::input_focus::tab_navigation::TabIndex;
 use bevy::input_focus::{
     FocusCause, FocusLost, InputFocus, InputFocusVisible,
 };
-use bevy::picking::events::{Pointer, Press};
+use bevy::picking::events::PointerPress;
 use bevy::text::{
     DEFAULT_FONT_DATA, EditableText, Font, FontCx, FontSize,
     FontSource, LetterSpacing, TextFont,
@@ -277,7 +277,7 @@ pub fn focus_ring(
 }
 
 pub(crate) fn hide_ring_on_press(
-    _: On<Pointer<Press>>,
+    _: On<PointerPress>,
     mut visible: ResMut<InputFocusVisible>,
 ) {
     if visible.0 {
@@ -289,7 +289,7 @@ pub(crate) fn hide_ring_on_press(
 /// outside it is pressed, before the press does its work. A field
 /// hands its text over on losing focus, and a press moves no focus.
 fn take_typed_on_press(
-    press: On<Pointer<Press>>,
+    press: On<PointerPress>,
     focus: Res<InputFocus>,
     texts: Query<&ChildOf, With<EditableText>>,
     parents: Query<&ChildOf>,
@@ -350,6 +350,7 @@ mod tests {
         use bevy::camera::NormalizedRenderTarget;
         use bevy::math::Vec2;
         use bevy::picking::backend::HitData;
+        use bevy::picking::events::Pointer;
         use bevy::picking::pointer::{
             Location, PointerButton, PointerId,
         };
@@ -386,17 +387,13 @@ mod tests {
                 },
                 position: Vec2::ZERO,
             };
-            let event = Press {
+            world.trigger(PointerPress {
+                entity: target,
+                pointer: Pointer::new(PointerId::Mouse, at),
                 button: PointerButton::Primary,
                 hit: HitData::new(target, 0.0, None, None),
                 count: 1,
-            };
-            world.trigger(Pointer::new(
-                PointerId::Mouse,
-                at,
-                event,
-                target,
-            ));
+            });
             world.flush();
             std::mem::take(&mut world.resource_mut::<Lost>().0)
         };

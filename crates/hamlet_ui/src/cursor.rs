@@ -251,7 +251,7 @@ pub fn draw(world: &mut World) {
 /// Has every node over the world that takes a click ask for the
 /// pressing cursor, as a button of the panels does.
 pub(crate) fn lend(
-    added: On<Add, Pressable>,
+    added: On<Add<Pressable>>,
     lent: Query<(), With<EntityCursor>>,
     mut commands: Commands,
 ) {

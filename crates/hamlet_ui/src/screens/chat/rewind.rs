@@ -89,7 +89,7 @@ pub fn asked(session: Entity, entry: String, at: Vec2) -> AnyView {
 /// Shows the mark of a row while the pointer is on the row and no
 /// turn runs in its conversation.
 fn reveal(
-    hover: On<Insert, Hovered>,
+    hover: On<Insert<Hovered>>,
     rows: Query<(&Hovered, &Rewinds)>,
     sessions: Query<(&Status, Option<&Chat>)>,
     under: Query<&Children>,

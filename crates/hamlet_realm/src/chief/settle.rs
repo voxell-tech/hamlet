@@ -279,7 +279,7 @@ pub(super) fn settle(
 /// A chief is gone from the world: its place and its mascot go, and
 /// its site is free for a town again.
 pub(super) fn leave(
-    gone: On<Remove, Chief>,
+    gone: On<Remove<Chief>>,
     mut commands: Commands,
     chiefs: Query<&Settled>,
     places: Query<&Place>,
