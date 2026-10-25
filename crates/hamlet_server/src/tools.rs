@@ -17,13 +17,13 @@ mod tests;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use hamlet_os::fs::path::{self, text};
 use hamlet_protocol::runtime::{
     Diagnostic, DiagnosticSeverity, ToolSpec, ToolSpecReplay,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-use crate::sandbox::path::{self, text};
 use crate::sandbox::{
     Env, FileError, Sandbox, SetupError, closed_policy, open_policy,
 };

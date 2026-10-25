@@ -11,7 +11,7 @@ impl Mode {
     pub const SHARED: Self = Self(0o644);
 
     /// `bits` without setuid, setgid and sticky.
-    pub fn new(bits: u32) -> Self {
+    pub const fn new(bits: u32) -> Self {
         Self(bits & 0o777)
     }
 

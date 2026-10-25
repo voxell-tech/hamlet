@@ -47,6 +47,11 @@ impl Name {
         self.0.to_str()
     }
 
+    /// The name as text, with what is not UTF-8 replaced.
+    pub fn to_string_lossy(&self) -> std::borrow::Cow<'_, str> {
+        self.0.to_string_lossy()
+    }
+
     pub(crate) fn as_os(&self) -> &OsStr {
         &self.0
     }

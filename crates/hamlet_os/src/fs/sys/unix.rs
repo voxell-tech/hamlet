@@ -34,6 +34,10 @@ impl System for Unix {
         Ok(rustix::fs::open(path, flags, rustix::fs::Mode::empty())?)
     }
 
+    fn lstat(path: &Path) -> io::Result<Stat> {
+        Ok(stat_of(&rustix::fs::lstat(path)?))
+    }
+
     fn duplicate(dir: &OwnedFd) -> io::Result<OwnedFd> {
         dir.try_clone()
     }
@@ -112,6 +116,15 @@ impl System for Unix {
         )?;
         let stat = stat_of(&rustix::fs::fstat(&fd)?);
         Ok((File::from(fd), stat))
+    }
+
+    fn read_link_at(
+        dir: &OwnedFd,
+        name: &Name,
+    ) -> io::Result<String> {
+        let link =
+            rustix::fs::readlinkat(dir, name.as_os(), Vec::new())?;
+        Ok(link.to_string_lossy().into_owned())
     }
 
     fn set_mode(dir: &OwnedFd, mode: Mode) -> io::Result<()> {

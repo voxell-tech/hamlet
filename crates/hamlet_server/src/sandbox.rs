@@ -2,7 +2,6 @@
 
 mod bwrap;
 mod env;
-pub(crate) mod path;
 mod policy;
 mod reach;
 mod seatbelt;

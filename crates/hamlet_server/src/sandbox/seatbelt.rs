@@ -2,8 +2,9 @@
 
 use std::collections::BTreeSet;
 
+use hamlet_os::fs::path::{self, text};
+
 use super::Confined;
-use super::path::{self, text};
 use super::policy::{
     Policy, above_roots, canon_text, fixed_roots, temp_root,
 };

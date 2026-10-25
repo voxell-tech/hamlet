@@ -573,7 +573,7 @@ mod tests {
         let house = at.house.clone();
         let tools = service.tools(&agent, at, false).unwrap();
         let before = async |path: &std::path::Path| {
-            let path = crate::sandbox::path::text(path);
+            let path = hamlet_os::fs::path::text(path);
             tools.preview(&path).await.unwrap()
         };
 
