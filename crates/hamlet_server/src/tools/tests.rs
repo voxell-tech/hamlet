@@ -7,7 +7,7 @@ use hamlet_testing::Scratch;
 use hamlet_testing::links::symlink;
 use serde_json::{Value, json};
 
-use super::{Outcome, Place, ToolSession};
+use super::{Outcome, Place, Shells, ToolSession};
 use crate::sandbox::Sandbox;
 
 /// A house of its own in `scratch`, with no folder.
@@ -32,9 +32,14 @@ async fn call(
     let Value::Object(args) = args else {
         panic!("arguments are an object");
     };
-    ToolSession::local(place.clone(), net, Sandbox::platform())
-        .run(&secrets, tool, &args)
-        .await
+    ToolSession::local(
+        place.clone(),
+        net,
+        Sandbox::platform(),
+        Shells::local(),
+    )
+    .run(&secrets, tool, &args)
+    .await
 }
 
 #[tokio::test]

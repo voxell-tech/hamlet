@@ -140,6 +140,7 @@ fault points, signals, remote workspaces and the society) and
 | `harness/mark.rs` | `InputMark`, the typed kind and data of each input (chief line, retry, reflection, notice, letter, errand), converted to a protocol `Mark` at the edge |
 | `chats/driver.rs`, `harness_driver.rs`, `bin/hamlet_harness_driver.rs` | With the `harness` feature: the test driver's reach into the chats' gate, waits and stop; the driver's body; and the binary, only `main`, for the real-process suite in `tests/harness` |
 | `tools.rs`, `tools/`, `hand.rs` | `ToolSession` runs every tool call on the workspace `Houses::tools` chose: built-in tools over `environment::Reach` (this machine under the sandbox, or a remote workspace), and hand-added manifests, which only run here |
+| `tools/shell.rs` | The shell tools: `Dialect` names each shell language once, `Shells` are the ones a workspace offers, and `shell::run` is the one run of a shell call over `Reach`, here or remote |
 | `sandbox.rs`, `sandbox/` | Bubblewrap/Seatbelt policies, subprocess limits and termination |
 | `papers.rs` | `Houses` picks the local or remote `Workspace` once at startup. Callers get its houses (`house`, `reader`, `tools`), its `Capability` refusals and whether it `can_confirm` each change; no caller branches on the workspace |
 | `papers/files.rs`, `papers/tree.rs`, `papers/remote.rs` | `Files`, one async house tree for both workspaces: local work runs off the runtime through descriptor-relative no-follow calls, remote work as typed requests |

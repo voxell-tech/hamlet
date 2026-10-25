@@ -12,11 +12,13 @@ use crate::harness::BindingId;
 use crate::limits::Limits;
 use crate::oversight::Danger;
 use crate::record::AgentRef;
+use crate::tools::Dialect;
 
 /// A tool call, classified by its reach.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Call {
     Shell {
+        dialect: Dialect,
         command: String,
         net: bool,
     },
@@ -51,11 +53,14 @@ pub(crate) fn call_of(tool: &str, args: &Value) -> Call {
             .unwrap_or_default()
             .to_owned()
     };
-    match tool {
-        "bash" => Call::Shell {
+    if let Some(dialect) = Dialect::of_tool(tool) {
+        return Call::Shell {
+            dialect,
             command: text("command"),
             net: args.get("network") == Some(&Value::Bool(true)),
-        },
+        };
+    }
+    match tool {
         "write" => Call::Edit {
             write: true,
             path: text("path"),
@@ -165,18 +170,17 @@ pub(crate) enum Verdict {
     Block(String),
 }
 
-/// Commands that reach the network, by the words they name.
-const NETWORK: &[&str] = &[
+/// Commands that reach the network in every shell, by the words
+/// they name.
+const COMMON_NETWORK: &[&str] = &[
     "curl",
     "wget",
     "http://",
     "https://",
     "ssh",
     "scp",
-    "rsync",
     "ftp",
     "ping",
-    "nc",
     "git clone",
     "git fetch",
     "git pull",
@@ -185,7 +189,6 @@ const NETWORK: &[&str] = &[
     "pip3 install",
     "npm install",
     "cargo install",
-    "brew install",
 ];
 
 /// The H11 decision, ordered by reach, reserved acts and the turn's
@@ -247,10 +250,13 @@ fn reach(call: &Call, standing: &Standing) -> Verdict {
             }
         }
         Call::Shell { net, .. } | Call::Hand { net, .. } => {
-            if !standing.net
-                && (*net
-                    || matches!(call, Call::Shell {command, ..} if is_networked(command)))
-            {
+            let named = match call {
+                Call::Shell {
+                    dialect, command, ..
+                } => is_networked(*dialect, command),
+                _ => false,
+            };
+            if !standing.net && (*net || named) {
                 Verdict::Ask(Danger::Network)
             } else if standing.asks_commands {
                 Verdict::Ask(Danger::Command)
@@ -261,9 +267,12 @@ fn reach(call: &Call, standing: &Standing) -> Verdict {
     }
 }
 
-fn is_networked(command: &str) -> bool {
+fn is_networked(dialect: Dialect, command: &str) -> bool {
     let lower = command.to_lowercase();
-    NETWORK.iter().any(|needle| has_mention(&lower, needle))
+    COMMON_NETWORK
+        .iter()
+        .chain(dialect.network_words())
+        .any(|needle| has_mention(&lower, needle))
 }
 
 /// Whether `command` names `needle`: a word as a whole word, other
@@ -646,10 +655,16 @@ mod tests {
 
     #[test]
     fn a_command_reaches_the_network_by_the_words_it_names() {
-        assert!(is_networked("echo curl > network"));
-        assert!(is_networked("git clone x"));
-        assert!(!is_networked("echo curly"));
-        assert!(!is_networked("echo ran > never"));
+        let bash = |command| is_networked(Dialect::Bash, command);
+        assert!(bash("echo curl > network"));
+        assert!(bash("git clone x"));
+        assert!(bash("wget x"));
+        assert!(!bash("echo curly"));
+        assert!(!bash("echo ran > never"));
+        assert!(is_networked(
+            Dialect::PowerShell,
+            "Invoke-WebRequest x"
+        ));
     }
 
     #[test]

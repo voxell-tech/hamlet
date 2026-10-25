@@ -7,6 +7,8 @@ use hamlet_protocol::client::Doing;
 use hamlet_protocol::runtime::{self, Block};
 use serde_json::Value;
 
+use crate::tools::Dialect;
+
 /// The most bytes of what an agent says that are shown.
 const SAID: usize = 600;
 
@@ -249,7 +251,7 @@ fn doing_of(
     match name {
         "read" | "search" | "find" => read,
         "edit" | "write" => write,
-        "bash" | "powershell" => {
+        _ if Dialect::of_tool(name).is_some() => {
             if text.contains("skill.md") {
                 Doing::ReadSkill
             } else if [
