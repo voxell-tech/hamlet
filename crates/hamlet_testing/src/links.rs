@@ -15,14 +15,29 @@ pub fn symlink(
     }
     #[cfg(windows)]
     {
-        let (target, link) = (target.as_ref(), link.as_ref());
+        // Windows separates names only with `\`, also in a verbatim
+        // `beside`.
+        let target =
+            target.as_ref().to_string_lossy().replace('/', "\\");
+        let link = link.as_ref();
         let beside = link.parent().unwrap_or(Path::new("."));
-        if beside.join(target).is_dir() {
+        if beside.join(&target).is_dir() {
             std::os::windows::fs::symlink_dir(target, link)
         } else {
             std::os::windows::fs::symlink_file(target, link)
         }
     }
+}
+
+/// Removes the link `link`, also one to a folder, which Windows
+/// removes as a folder.
+pub fn remove(link: impl AsRef<Path>) -> io::Result<()> {
+    let link = link.as_ref();
+    #[cfg(windows)]
+    if std::fs::symlink_metadata(link)?.is_dir() {
+        return std::fs::remove_dir(link);
+    }
+    std::fs::remove_file(link)
 }
 
 /// A second name `link` for the file `original`.

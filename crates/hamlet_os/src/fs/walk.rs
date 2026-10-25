@@ -329,7 +329,7 @@ mod tests {
     use hamlet_testing::Scratch;
     #[cfg(windows)]
     use hamlet_testing::links::junction;
-    use hamlet_testing::links::symlink;
+    use hamlet_testing::links::{self, symlink};
 
     use super::*;
 
@@ -465,7 +465,7 @@ mod tests {
         let read_at = at(&link.join("secret.txt"), Follow::Last);
         let folder_at = at(&link, Follow::Last);
         let write_at = at(&link.join("new.txt"), Follow::Last);
-        fs::remove_file(&link).unwrap();
+        links::remove(&link).unwrap();
         symlink(&outside, &link).unwrap();
 
         assert_eq!(
