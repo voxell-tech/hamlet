@@ -344,7 +344,7 @@ pub(super) async fn run(
     let details = json!({
         "exitCode": exit_code,
         "policy": env.policy(),
-        "degraded": false,
+        "degraded": env.degraded(),
     });
     Outcome {
         text: kept.text(),

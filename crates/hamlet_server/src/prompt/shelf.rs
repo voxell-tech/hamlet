@@ -209,7 +209,6 @@ mod tests {
             hamlet: "home",
             number: 0,
             model: Some("faux::faux-1"),
-            sandbox: "bubblewrap",
             instructions: &[],
             task: None,
             conversation: None,

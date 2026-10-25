@@ -4,9 +4,10 @@
 
 `crates/hamlet_server/src/sandbox.rs` and `sandbox/` own tool confinement:
 bubblewrap on Linux, Seatbelt on macOS. Startup probes the sandbox and
-refuses to serve if it cannot run. There is no `--insecure` mode and no
-Windows server sandbox. Linux needs `bwrap` and a kernel/host policy that
-allows its namespaces; installing the executable alone is not sufficient.
+refuses to serve if it cannot run. Windows has no sandbox yet, so a
+Windows server runs only in insecure mode, below. Linux needs `bwrap` and
+a kernel/host policy that allows its namespaces; installing the
+executable alone is not sufficient.
 
 `tools::environment` builds the policy from the server-owned `Place`:
 the house, optional project folder, shared library and hand tools.
@@ -99,6 +100,26 @@ embedded starters. The checked copy preserves file modes. The resolved
 giver's name is recorded; typed `/give` and structured requests use the
 same owner. Gift transport and the agent's subsequent model work are
 separate: a complete delivered file is not undone by stopping its turn.
+
+## Insecure mode on Windows
+
+A Windows server starts only with `--insecure` (ADR 0008).
+`Sandbox::open` turns that `Isolation` into the `Kind::Insecure` that only
+a Windows build declares, and refuses `Isolation::Sandboxed` with words
+that name the flag. Linux and macOS refuse the flag before the server
+opens its home, and so does a server whose workspace is remote, where
+commands do not run on this machine. The server prints a warning banner
+before it serves.
+
+In insecure mode, commands and hand tools run with the server account's
+full reach, in the house as their working folder. The built-in file tools
+keep their reach, because they walk the policy themselves. Nothing
+enforces the network switch: it decides only which commands wait for a
+chief. The prompt says commands are not confined, and the policy hash
+names `insecure`. Each command runs in a Job Object that holds its CPU
+time and process count, so a timeout or a leftover's end reaches every
+process it started. No job limit bounds a file's size, so each result
+names `max_file_mb` in `details.degraded`.
 
 ## Remote workspaces
 

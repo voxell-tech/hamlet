@@ -540,12 +540,10 @@ pub(crate) fn prepare_read(
         service.db(),
         &address.hamlet,
     )?;
-    let sandbox = service.chats.sandbox.name().to_owned();
     let subject = crate::prompt::Subject {
         hamlet: &address.hamlet,
         number: i64::try_from(agent.number)?,
         model: (!model.is_empty()).then_some(model.as_str()),
-        sandbox: &sandbox,
         instructions: &instructions,
         task: None,
         conversation: None,

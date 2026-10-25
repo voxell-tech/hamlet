@@ -36,7 +36,6 @@ use crate::harness::{
 };
 use crate::protocol::{Refusable, reply};
 use crate::record::AgentRef;
-use crate::sandbox::Sandbox;
 use crate::service::Service;
 
 /// What the server holds of the chats while it runs.
@@ -56,7 +55,6 @@ pub(crate) struct Chats {
     /// The home is closing: a reflection's call that asks a chief
     /// does not run.
     pub closing: bool,
-    pub sandbox: Sandbox,
 }
 
 /// One conversation as its runtime last told it.
@@ -108,7 +106,7 @@ pub(crate) struct Work {
 }
 
 impl Chats {
-    pub fn new(sandbox: Sandbox) -> Self {
+    pub fn new() -> Self {
         Self {
             conversations: HashMap::new(),
             watches: Vec::new(),
@@ -117,7 +115,6 @@ impl Chats {
             calls: calls::Tasks::default(),
             stopping: HashMap::new(),
             closing: false,
-            sandbox,
         }
     }
 

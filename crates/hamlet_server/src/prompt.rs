@@ -57,8 +57,6 @@ pub(crate) struct Subject<'a> {
     /// The model the conversation runs, as the chief's limits name
     /// it, if any.
     pub model: Option<&'a str>,
-    /// The platform sandbox's name, e.g. "bubblewrap".
-    pub sandbox: &'a str,
     /// The instructions of the hamlet's agents, in the record's
     /// order of agents and each agent's oldest first.
     pub instructions: &'a [Instruction],
@@ -385,15 +383,30 @@ fn machine(
     subject: &Subject,
     house: &Path,
 ) -> Result<String> {
-    if let Some(machine) = service.houses.machine() {
-        return Ok(machine.into());
-    }
-    let net = if service.settings()?.allow_net {
-        "on"
+    let Some(sandbox) = service.houses.sandbox() else {
+        return Ok(service
+            .houses
+            .machine()
+            .unwrap_or_default()
+            .into());
+    };
+    let (sandbox, enforced) = if sandbox.is_insecure() {
+        (
+            "none. Commands are not confined: they reach whatever \
+             the chief's account can",
+            ", and nothing enforces it",
+        )
     } else {
-        "off unless a chief allows it; a command that needs it is \
-         held until the chief answers, so set `network` to true on \
-         it and carry on"
+        (sandbox.name(), "")
+    };
+    let net = if service.settings()?.allow_net {
+        "on".to_owned()
+    } else {
+        format!(
+            "off unless a chief allows it{enforced}; a command that \
+             needs it is held until the chief answers, so set \
+             `network` to true on it and carry on"
+        )
     };
     let model = subject
         .model
@@ -406,9 +419,8 @@ fn machine(
         format!("\nTools that failed to load:\n{}", faults.join("\n"))
     };
     Ok(format!(
-        "# Environment\nSandbox: {}. Network for tools: \
+        "# Environment\nSandbox: {sandbox}. Network for tools: \
          {net}.{model}{failed}\n{SYSTEM}\nWorkspace: {}",
-        subject.sandbox,
         house.display()
     ))
 }

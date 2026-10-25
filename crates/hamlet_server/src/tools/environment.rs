@@ -84,6 +84,9 @@ pub(super) trait Reach {
     /// The policy commands run under, as a result names it.
     fn policy(&self) -> String;
 
+    /// The limits commands run without, as a result names them.
+    fn degraded(&self) -> serde_json::Value;
+
     /// The full path a tool's `path` names, as [`super::footing`]
     /// tells.
     async fn footing(
@@ -119,6 +122,7 @@ pub(super) struct Local {
     env: Option<Env>,
     leftovers: AgentLeftovers,
     policy: String,
+    degraded: serde_json::Value,
     cwd: String,
     house: String,
     folder: Option<String>,
@@ -141,6 +145,7 @@ impl Local {
         .await??;
         Ok(Self {
             policy: env.policy_hash().to_owned(),
+            degraded: env.degraded(),
             cwd: env.cwd().to_owned(),
             env: Some(env),
             leftovers,
@@ -305,6 +310,10 @@ impl Reach for Local {
 
     fn policy(&self) -> String {
         self.policy.clone()
+    }
+
+    fn degraded(&self) -> serde_json::Value {
+        self.degraded.clone()
     }
 }
 
@@ -540,6 +549,11 @@ impl Reach for Remote {
             exit_code: ran.exit_code,
             spill,
         })
+    }
+
+    /// The workspace's own sandbox holds every limit.
+    fn degraded(&self) -> serde_json::Value {
+        serde_json::Value::Bool(false)
     }
 
     /// The policy commands run under, as a result names it.
