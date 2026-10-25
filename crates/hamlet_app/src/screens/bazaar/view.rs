@@ -125,6 +125,7 @@ fn wares(stall: Stall) -> AnyView {
         Stall::Plugins => trade::stall::<Tools, Contraption>(),
         Stall::Skills => shelf::stall::<Scroll>(),
         Stall::Hamlets => trade::stall::<Hamlets, Template>(),
+        Stall::Assets => return parts::nothing(),
     }
     .boxed()
 }

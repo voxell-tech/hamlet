@@ -261,6 +261,7 @@ fn bazaar() -> Vec<Do> {
         "40-the-plugins-stall",
         "41-the-skills-stall",
         "42-the-hamlets-stall",
+        "42a-the-assets-stall",
     ];
     for (stall, name) in Stall::ALL.into_iter().zip(names) {
         steps.extend([

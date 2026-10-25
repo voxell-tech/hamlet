@@ -113,7 +113,7 @@ drift = "#a9bbc6"
 banner = "#8a3b45"
 
 # The bazaar's stalls, in the order of `bazaar::Stall::ALL`: the models,
-# the community agents, the plugins, the skills and the hamlets.
+# the community agents, the plugins, the skills, the hamlets and the assets.
 [[stalls]]
 cloth = "#3b3f86"
 trim = "#e0a23a"
@@ -138,3 +138,8 @@ glow = "#9ff0d8"
 cloth = "#8a3b45"
 trim = "#d9b45a"
 glow = "#ffe08a"
+
+[[stalls]]
+cloth = "#a9506f"
+trim = "#f2d39a"
+glow = "#ffa6d6"

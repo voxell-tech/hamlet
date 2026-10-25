@@ -7,7 +7,7 @@ server, where the chief sells their own.
 
 ## In the world
 
-The bazaar is a striped pavilion and a ring of five stalls on ground of
+The bazaar is a striped pavilion and a ring of six stalls on ground of
 its own beside the first town, in no hamlet, raised after the library
 (`bazaar::Pitching`). Each stall has a keeper, the pavilion a merchant,
 and shoppers stroll between them. Lanterns, fairy lights and the glows

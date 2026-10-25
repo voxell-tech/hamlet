@@ -164,6 +164,7 @@ pub(crate) fn stocked(world: &mut World, stall: Stall) {
             reopen::<Template>(world);
             reopen::<Wares<Hamlets>>(world);
         }
+        Stall::Assets => {}
     }
 }
 

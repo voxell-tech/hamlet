@@ -185,7 +185,7 @@ pub struct Palette {
     #[serde(with = "tint::linear_list")]
     pub fairy: [Vec3; 6],
     /// The bazaar's stalls, in the order of `bazaar::Stall::ALL`.
-    pub stalls: [StallStyle; 5],
+    pub stalls: [StallStyle; 6],
     /// A chief's cloak, in the order of `chief::Cloak::ALL`.
     #[serde(with = "tint::linear_list")]
     pub cloaks: [Vec3; 8],

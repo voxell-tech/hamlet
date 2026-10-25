@@ -22,6 +22,9 @@ pub enum Stall {
     Skills,
     /// Whole hamlets, mayor, agents and notes, ready to use.
     Hamlets,
+    /// The official looks for agents and hamlets to wear: skins,
+    /// emotes and meshes.
+    Assets,
 }
 
 /// The one who keeps a stall, as the chief meets them.
@@ -36,12 +39,13 @@ pub struct Keeper {
 }
 
 impl Stall {
-    pub const ALL: [Stall; 5] = [
+    pub const ALL: [Stall; 6] = [
         Stall::Models,
         Stall::Community,
         Stall::Plugins,
         Stall::Skills,
         Stall::Hamlets,
+        Stall::Assets,
     ];
 
     pub fn name(self) -> &'static str {
@@ -51,6 +55,7 @@ impl Stall {
             Stall::Plugins => "Plugins",
             Stall::Skills => "Skills",
             Stall::Hamlets => "Hamlet Templates",
+            Stall::Assets => "Looks",
         }
     }
 
@@ -78,6 +83,10 @@ impl Stall {
             Stall::Hamlets => {
                 "Complete hamlets with a mayor, agents and notes, \
                  ready to use."
+            }
+            Stall::Assets => {
+                "Skins, emotes and meshes for your agents and \
+                 hamlets, from the Hamlet team."
             }
         }
     }
@@ -144,6 +153,18 @@ impl Stall {
                      roads and every word its agents wrote.",
                     "Sign here, and it rises on your land before \
                      the ink is dry.",
+                ],
+            },
+            Stall::Assets => Keeper {
+                name: "Madame Perpetua",
+                title: "sells looks",
+                greetings: [
+                    "Skins, emotes and whole new frames, chief! \
+                     Every one cut by the Hamlet team.",
+                    "Turn it on the turntable before you buy. A \
+                     look should please from every side.",
+                    "Bought once, worn by whichever agent or hamlet \
+                     you like. Change it on their page.",
                 ],
             },
         }
