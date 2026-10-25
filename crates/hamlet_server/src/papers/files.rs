@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use anyhow::{Result, ensure};
-use hamlet_os::fs::{Directory, Missing, Mode, Name, TreePath};
+use hamlet_os::fs::{Directory, Kind, Missing, Mode, Name, TreePath};
 use hamlet_workspace_wire::{TreeEntry, TreeKind};
 use sha2::{Digest, Sha256};
 
@@ -234,6 +234,24 @@ impl Files {
             }
         }
         Ok(files)
+    }
+
+    /// What `mode`, set on a `kind`, reads back as in this tree: what
+    /// this machine keeps for a local tree, and every bit for a
+    /// remote one, whose worker runs on Linux.
+    pub fn keeps(&self, kind: TreeKind, mode: u32) -> u32 {
+        match self {
+            Self::Local(_) => {
+                let kind = match kind {
+                    TreeKind::File => Kind::File,
+                    TreeKind::Directory => Kind::Directory,
+                    TreeKind::Link => Kind::Link,
+                    TreeKind::Special => Kind::Special,
+                };
+                Mode::new(mode).kept(kind).bits()
+            }
+            Self::Remote(_) => mode & 0o777,
+        }
     }
 }
 

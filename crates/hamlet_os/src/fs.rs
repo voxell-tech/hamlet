@@ -257,6 +257,12 @@ impl Directory {
     pub fn sync(&self) -> io::Result<()> {
         Os::sync_directory(&self.0)
     }
+
+    /// The real path of this directory, which a walk reached as
+    /// `path`.
+    pub(crate) fn real(&self, path: &str) -> io::Result<String> {
+        Os::real_of(&self.0, path)
+    }
 }
 
 impl Regular {
@@ -437,6 +443,112 @@ mod tests {
         assert_eq!(
             dir.stat(&name("pipe")).unwrap().unwrap().kind,
             Kind::Special
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_store_refuses_a_junction() {
+        let scratch = Scratch::new("os-junction");
+        fs::create_dir(scratch.join("folder")).unwrap();
+        fs::write(scratch.join("folder/file"), "inside").unwrap();
+        hamlet_testing::links::junction(
+            scratch.join("folder"),
+            scratch.join("junction"),
+        )
+        .unwrap();
+        let dir =
+            Directory::open(&scratch, LastLink::Refuse).unwrap();
+        assert_eq!(
+            dir.stat(&name("junction")).unwrap().unwrap().kind,
+            Kind::Link
+        );
+        assert!(dir.child(&name("junction")).is_err());
+        assert!(dir.file(&name("junction"), Open::Read).is_err());
+        assert!(
+            Directory::open(
+                &scratch.join("junction"),
+                LastLink::Refuse
+            )
+            .is_err()
+        );
+        dir.remove(&name("junction"), Removing::File).unwrap();
+        assert_eq!(
+            fs::read_to_string(scratch.join("folder/file")).unwrap(),
+            "inside"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_read_only_file_is_removed() {
+        let scratch = Scratch::new("os-read-only");
+        let dir =
+            Directory::open(&scratch, LastLink::Refuse).unwrap();
+        dir.file(&name("kept"), Open::New(Mode::PRIVATE))
+            .unwrap()
+            .set_mode(Mode::new(0o444))
+            .unwrap();
+        let on_disk = fs::metadata(scratch.join("kept")).unwrap();
+        assert!(on_disk.permissions().readonly());
+        dir.remove(&name("kept"), Removing::File).unwrap();
+        assert!(!scratch.join("kept").exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn names_that_differ_only_in_case_collide() {
+        let scratch = Scratch::new("os-case");
+        let dir =
+            Directory::open(&scratch, LastLink::Refuse).unwrap();
+        dir.file(&name("Notes.md"), Open::New(Mode::PRIVATE))
+            .unwrap();
+        let made = dir
+            .file(&name("notes.md"), Open::New(Mode::PRIVATE))
+            .unwrap_err();
+        assert_eq!(made.kind(), io::ErrorKind::AlreadyExists);
+        dir.file(&name("other"), Open::New(Mode::PRIVATE)).unwrap();
+        let renamed = dir
+            .rename(
+                &name("other"),
+                &dir,
+                &name("NOTES.MD"),
+                Replace::Never,
+            )
+            .unwrap_err();
+        assert_eq!(renamed.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(dir.names().unwrap().len(), 2);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_mode_reads_back_as_kept() {
+        let scratch = Scratch::new("os-kept");
+        let dir =
+            Directory::open(&scratch, LastLink::Refuse).unwrap();
+        let file = name("file");
+        dir.file(&file, Open::New(Mode::PRIVATE)).unwrap();
+        for bits in [0o755, 0o444, 0o600, 0o400, 0o644, 0o555, 0o751]
+        {
+            let mode = Mode::new(bits);
+            dir.file(&file, Open::Read)
+                .unwrap()
+                .set_mode(mode)
+                .unwrap();
+            assert_eq!(
+                dir.stat(&file).unwrap().unwrap().mode,
+                mode.kept(Kind::File),
+                "{bits:o}"
+            );
+        }
+        let folder = name("folder");
+        dir.make(&folder, Mode::new(0o755), Exists::Fail)
+            .unwrap()
+            .set_mode(Mode::new(0o555))
+            .unwrap();
+        assert_eq!(
+            dir.stat(&folder).unwrap().unwrap().mode,
+            Mode::new(0o555).kept(Kind::Directory)
         );
     }
 }

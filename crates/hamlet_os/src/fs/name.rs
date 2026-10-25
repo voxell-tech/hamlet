@@ -18,12 +18,15 @@ impl From<BadName> for io::Error {
 
 impl Name {
     /// `text` as one name: neither empty, `.` nor `..`, and without a
-    /// `/` or a NUL.
+    /// `/` or a NUL. On Windows it also holds none of `\\:<>"|?*`,
+    /// ends in no dot or space, and names no device, so the system
+    /// keeps the very name given.
     pub fn new(text: &str) -> Result<Self, BadName> {
         if text.is_empty()
             || text == "."
             || text == ".."
             || text.contains(['/', '\0'])
+            || cfg!(windows) && !windows_keeps(text)
         {
             return Err(BadName);
         }
@@ -55,6 +58,30 @@ impl Name {
     pub(crate) fn as_os(&self) -> &OsStr {
         &self.0
     }
+}
+
+/// Whether Windows keeps `text` as written. It strips a last dot or
+/// space, reads `:` as a stream, and reads a name whose part before
+/// the first dot is a device's, as `nul.txt`, as that device.
+fn windows_keeps(text: &str) -> bool {
+    let stem = text.split('.').next().unwrap_or(text);
+    let stem = stem.trim_end_matches(' ').to_ascii_uppercase();
+    let port = ["COM", "LPT"].iter().any(|port| {
+        stem.strip_prefix(port).is_some_and(|number| {
+            let mut digits = number.chars();
+            digits.next().is_some_and(|digit| {
+                digit.is_ascii_digit() || "¹²³".contains(digit)
+            }) && digits.next().is_none()
+        })
+    });
+    let device = port
+        || matches!(
+            stem.as_str(),
+            "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+        );
+    !device
+        && !text.contains(['\\', ':', '<', '>', '"', '|', '?', '*'])
+        && !text.ends_with(['.', ' '])
 }
 
 /// A relative path in a house tree: one or more names joined by `/`,
@@ -90,8 +117,24 @@ mod tests {
         for text in ["", ".", "..", "a/b", "a\0b"] {
             assert!(Name::new(text).is_err(), "{text:?}");
         }
+        #[cfg(unix)]
         assert!(Name::new("a\\b").is_ok());
         assert!(Name::new(".hidden").is_ok());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_names_refuse_device_stems_and_trailing_dots() {
+        for text in [
+            "a\\b", "a:b", "a<b", "a>b", "a\"b", "a|b", "a?b", "a*b",
+            "end.", "end ", "CON", "nul.txt", "Com1", "lpt9.log",
+            "COM¹", "aux .md", "CONIN$",
+        ] {
+            assert!(Name::new(text).is_err(), "{text:?}");
+        }
+        for text in ["COM10", "console", "nul_", ".hidden", "a.b"] {
+            assert!(Name::new(text).is_ok(), "{text:?}");
+        }
     }
 
     #[test]
