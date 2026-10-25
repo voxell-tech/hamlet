@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Result, ensure};
 use hamlet_os::fs::{Directory, LastLink, Missing, Mode};
+use hamlet_protocol::client::Confinement;
 use hamlet_workspace_wire::MAX_FILE;
 
 use self::files::Files;
@@ -154,11 +155,11 @@ impl Houses {
         }
     }
 
-    /// The sandbox of a local workspace.
-    pub fn sandbox(&self) -> Option<Sandbox> {
+    /// How the workspace's tools are confined.
+    pub fn confinement(&self) -> Confinement {
         match &self.workspace {
-            Workspace::Local { sandbox, .. } => Some(*sandbox),
-            Workspace::Remote(_) => None,
+            Workspace::Local { sandbox, .. } => sandbox.confinement(),
+            Workspace::Remote(_) => Confinement::Remote,
         }
     }
 

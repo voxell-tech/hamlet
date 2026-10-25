@@ -9,6 +9,7 @@ mod seatbelt;
 use std::collections::BTreeMap;
 
 use anyhow::bail;
+use hamlet_protocol::client::Confinement;
 
 pub(crate) use self::env::{
     AgentLeftovers, AllLeftovers, Env, ExecError, FileError,
@@ -90,12 +91,14 @@ impl Sandbox {
         }
     }
 
-    /// Whether commands run unconfined (C18).
-    pub fn is_insecure(&self) -> bool {
+    /// How it confines commands, as a client is told (C18).
+    pub fn confinement(&self) -> Confinement {
         match self.0 {
-            Kind::Bwrap | Kind::Seatbelt => false,
+            Kind::Bwrap | Kind::Seatbelt => Confinement::Sandbox {
+                name: self.name().into(),
+            },
             #[cfg(windows)]
-            Kind::Insecure => true,
+            Kind::Insecure => Confinement::Insecure,
         }
     }
 

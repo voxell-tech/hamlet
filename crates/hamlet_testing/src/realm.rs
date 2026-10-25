@@ -11,7 +11,7 @@ use tokio_tungstenite::tungstenite::Message;
 /// A realm with its first hamlet and founder, at revision zero.
 pub fn state() -> protocol::State {
     serde_json::from_value(json!({
-        "epoch": 1, "revision": 0, "chief": "chief", "sandbox": "test",
+        "epoch": 1, "revision": 0, "chief": "chief", "confinement": {"kind": "sandbox", "name": "test"},
         "hamlets": [hamlet("home")], "agents": [agent("home", 0, "founder")],
         "waits": [], "grants": [], "providers": [],
         "settings": {

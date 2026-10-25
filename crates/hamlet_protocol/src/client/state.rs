@@ -16,6 +16,7 @@ pub struct State {
     pub agents: Vec<Agent>,
     pub chief: String,
     pub closed: Vec<ClosedHamlet>,
+    pub confinement: Confinement,
     pub deeds: Vec<Deed>,
     pub epoch: i64,
     pub grants: Vec<Grant>,
@@ -24,10 +25,34 @@ pub struct State {
     pub library: Vec<LibrarySkill>,
     pub providers: Vec<ProviderView>,
     pub revision: i64,
-    pub sandbox: String,
     pub settings: SettingsView,
     pub starters: Vec<Skill>,
     pub waits: Vec<Wait>,
+}
+
+/// What keeps the agents' commands from the rest of the machine.
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(tag = "kind", deny_unknown_fields)]
+pub enum Confinement {
+    /// A sandbox, which `name` names.
+    #[serde(rename = "sandbox")]
+    Sandbox { name: String },
+    /// Nothing: the commands run with the server account's full
+    /// reach.
+    #[serde(rename = "insecure")]
+    Insecure,
+    /// The workspace is another machine, which holds the commands.
+    #[serde(rename = "remote")]
+    Remote,
+}
+
+impl Confinement {
+    /// Whether the network switch keeps commands off the network.
+    pub fn enforces_network(&self) -> bool {
+        !matches!(self, Self::Insecure)
+    }
 }
 
 impl State {

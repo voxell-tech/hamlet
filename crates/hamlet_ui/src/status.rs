@@ -18,7 +18,7 @@ use hamlet_client::Connection;
 use hamlet_client::chats::{Status, Usage};
 use hamlet_client::connection::Contact;
 use hamlet_client::realm::{
-    HOME, HamletId, Sandbox, Settings, Treasury,
+    Confinement, HOME, HamletId, Settings, Treasury,
 };
 use hamlet_protocol::client as protocol;
 
@@ -175,6 +175,43 @@ fn fact(
     .boxed()
 }
 
+/// What confines the agents' commands. In insecure mode nothing
+/// does, and the bar says so in the critical tone.
+fn confinement() -> AnyView {
+    keyed(
+        resource::<Confinement, _>(|c| c.0.clone()),
+        |confinement| match confinement {
+            protocol::Confinement::Sandbox { name } => pair(
+                mark(Glyph::Shield, Tone::Dim),
+                note(name.clone()),
+            )
+            .tooltip(|| note("The sandbox agents' commands run in"))
+            .boxed(),
+            protocol::Confinement::Insecure => pair(
+                mark(Glyph::Shield, Tone::Critical),
+                told("Insecure mode", Tone::Critical),
+            )
+            .tooltip(|| {
+                note(
+                    "Agents' commands run without a sandbox, with \
+                     this account's full reach.",
+                )
+            })
+            .boxed(),
+            protocol::Confinement::Remote => pair(
+                mark(Glyph::Shield, Tone::Dim),
+                note("Remote"),
+            )
+            .tooltip(|| {
+                note("Agents' commands run on the remote machine")
+            })
+            .boxed(),
+        },
+    )
+    .within(row(()).gap(0.0))
+    .boxed()
+}
+
 /// The number that wait for the chief, behind a bell. Nothing while
 /// none does.
 fn waiting() -> impl View {
@@ -210,13 +247,7 @@ pub fn status_bar() -> impl View {
             column((
                 hairline(palette.seam),
                 row((
-                    pair(
-                        mark(Glyph::Shield, Tone::Dim),
-                        note(resource::<Sandbox, _>(|s| s.0.clone())),
-                    )
-                    .tooltip(|| {
-                        note("The sandbox agents' commands run in")
-                    }),
+                    confinement(),
                     fact(
                         Glyph::Chip,
                         |bar| bar.model.clone(),
@@ -285,4 +316,44 @@ pub fn status_bar() -> impl View {
             .gap(0.0),
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_client::receive;
+
+    use super::*;
+    use crate::testing::{all_words, panel_app, settle};
+
+    fn bar_with(confinement: protocol::Confinement) -> App {
+        let mut app = panel_app();
+        app.add_plugins(plugin)
+            .init_resource::<Aimed>()
+            .init_resource::<Queue>();
+        bevy_fynix::mount::<crate::theme::HamletTheme>(
+            app.world_mut(),
+            status_bar(),
+        );
+        let mut state = hamlet_testing::realm::state();
+        state.confinement = confinement;
+        receive(
+            app.world_mut(),
+            protocol::ServerMessage::State(state),
+        );
+        settle(&mut app);
+        app
+    }
+
+    #[test]
+    fn the_bar_shows_the_insecure_mode_chip() {
+        let mut app = bar_with(protocol::Confinement::Insecure);
+        assert!(all_words(&mut app).contains("Insecure mode"));
+
+        let mut app = bar_with(protocol::Confinement::Sandbox {
+            name: "Seatbelt".into(),
+        });
+        let shown = all_words(&mut app);
+        assert!(shown.contains("Seatbelt"));
+        assert!(!shown.contains("Insecure mode"));
+    }
 }

@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use hamlet_os::fs::Directory;
+use hamlet_protocol::client::Confinement;
 use hamlet_protocol::runtime::Section;
 use serde_json::Value;
 
@@ -383,21 +384,25 @@ fn machine(
     subject: &Subject,
     house: &Path,
 ) -> Result<String> {
-    let Some(sandbox) = service.houses.sandbox() else {
-        return Ok(service
-            .houses
-            .machine()
-            .unwrap_or_default()
-            .into());
-    };
-    let (sandbox, enforced) = if sandbox.is_insecure() {
-        (
+    let confinement = service.houses.confinement();
+    let sandbox = match &confinement {
+        Confinement::Remote => {
+            return Ok(service
+                .houses
+                .machine()
+                .unwrap_or_default()
+                .into());
+        }
+        Confinement::Insecure => {
             "none. Commands are not confined: they reach whatever \
-             the chief's account can",
-            ", and nothing enforces it",
-        )
+             the chief's account can"
+        }
+        Confinement::Sandbox { name } => name,
+    };
+    let enforced = if confinement.enforces_network() {
+        ""
     } else {
-        (sandbox.name(), "")
+        ", and nothing enforces it"
     };
     let net = if service.settings()?.allow_net {
         "on".to_owned()
