@@ -292,15 +292,10 @@ impl WorkspaceSession {
 /// The shared library at `root`, read without following links.
 async fn snapshot(root: PathBuf) -> Result<Library, Failure> {
     tokio::task::spawn_blocking(move || {
-        use rustix::fs::{Mode, OFlags};
-        let root = std::fs::File::from(rustix::fs::open(
-            root,
-            OFlags::RDONLY
-                | OFlags::DIRECTORY
-                | OFlags::NOFOLLOW
-                | OFlags::CLOEXEC,
-            Mode::empty(),
-        )?);
+        let root = hamlet_os::fs::Directory::open(
+            &root,
+            hamlet_os::fs::LastLink::Refuse,
+        )?;
         crate::papers::tree::library(
             &root,
             MAX_FILE as u64,

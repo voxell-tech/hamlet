@@ -3300,6 +3300,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hamlet_os"
+version = "0.1.0"
+dependencies = [
+ "hamlet_testing",
+ "rustix 1.1.5",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "hamlet_protocol"
 version = "0.1.0"
 dependencies = [
@@ -3338,6 +3347,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "futures",
+ "hamlet_os",
  "hamlet_protocol",
  "hamlet_testing",
  "hamlet_workspace_wire",

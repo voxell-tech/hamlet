@@ -1,6 +1,7 @@
 //! Durable librarian consultations and shared skills.
 
 use anyhow::{Context, Result};
+use hamlet_os::fs::{Missing, Mode, TreePath};
 use hamlet_protocol::client::LibrarySkill;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
@@ -187,14 +188,18 @@ async fn begin(
             job.by
         );
     }
-    let notes =
-        tree::directory(service.houses.root(), "librarian", false)
-            .ok()
-            .and_then(|dir| {
-                tree::read_file(&dir, NOTES, 4 * 1024 * 1024).ok()
-            })
-            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-            .unwrap_or_default();
+    let notes = tree::directory(
+        service.houses.root(),
+        "librarian",
+        Missing::Fail,
+    )
+    .ok()
+    .and_then(|dir| {
+        let path = TreePath::parse(NOTES).ok()?;
+        tree::read_file(&dir, &path, 4 * 1024 * 1024).ok()
+    })
+    .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+    .unwrap_or_default();
     job.prompt = format!("{notes}\n\n{}", job.prompt);
     Ok(Step::Next)
 }
@@ -324,12 +329,15 @@ async fn judged(
         1024,
     )?;
     if !job.delivered {
-        let library =
-            tree::directory(service.houses.root(), "library", false)?;
+        let library = tree::directory(
+            service.houses.root(),
+            "library",
+            Missing::Fail,
+        )?;
         let staging = tree::directory(
             service.houses.root(),
             ".library-staging",
-            true,
+            Missing::Make(Mode::FOLDER),
         )?;
         // Kept before the skill is published, so that every skill in
         // the library has its record, even after a crash between the
@@ -511,8 +519,11 @@ pub(super) fn unshelve(
             "the library has no skill named `{name}`"
         ))));
     }
-    let library =
-        tree::directory(service.houses.root(), "library", false)?;
+    let library = tree::directory(
+        service.houses.root(),
+        "library",
+        Missing::Fail,
+    )?;
     tree::erase(&library, name)?;
     let chief = service.chief.clone();
     super::keep(

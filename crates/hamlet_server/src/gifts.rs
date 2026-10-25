@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
+use hamlet_os::fs::{Missing, Mode};
 use hamlet_protocol::client::{
     self as protocol, Address, ClientMessage, Give, GiveFile,
     GivePart, GiveSkillSource, RequestId, ServerMessage,
@@ -304,7 +305,9 @@ impl Service {
         let stage = (|| -> Result<_> {
             let stage = tree::Stage::new(self.houses.root())?;
             for file in files {
-                stage.file(&file.path, true)?.flush()?;
+                stage
+                    .file(&file.path, Missing::Make(Mode::FOLDER))?
+                    .flush()?;
             }
             Ok(stage)
         })();
@@ -387,7 +390,7 @@ impl Service {
         }
         if upload
             .stage
-            .file(&part.path, false)
+            .file(&part.path, Missing::Fail)
             .and_then(|mut f| Ok(f.write_all(&bytes)?))
             .is_err()
         {
@@ -432,8 +435,7 @@ impl Service {
         self.gifts.working.insert((connection, id.clone()));
         self.gifts.tasks.spawn(async move {
             let result = async {
-                let source =
-                    Files::Local(upload.stage.dir.try_clone()?);
+                let source = Files::Local(upload.stage.dir()?);
                 let snapshot = Snapshot::read(
                     &source,
                     MAX_BYTES,
