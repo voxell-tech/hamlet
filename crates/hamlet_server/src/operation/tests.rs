@@ -419,6 +419,11 @@ fn crashed(tag: &str, pause: &str) -> (Scratch, Home) {
     let (dir, home) = seeded(tag);
     home.close().unwrap();
     let paused = paused_file(&dir);
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test runs itself again to crash at a fault \
+                  point"
+    )]
     let mut child = Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",

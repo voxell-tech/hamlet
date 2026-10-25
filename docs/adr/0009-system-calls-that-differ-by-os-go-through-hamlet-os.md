@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # System calls that differ by OS go through `hamlet_os`

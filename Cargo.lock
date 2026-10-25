@@ -3449,6 +3449,7 @@ dependencies = [
  "hamlet_testing",
  "rustix 1.1.5",
  "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]
@@ -3500,7 +3501,6 @@ dependencies = [
  "reqwest",
  "ring",
  "rusqlite",
- "rustix 1.1.5",
  "schemars",
  "serde",
  "serde_json",

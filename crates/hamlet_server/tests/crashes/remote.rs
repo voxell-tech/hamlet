@@ -861,6 +861,10 @@ async fn remote_startup_signal_releases_the_home_before_the_worker_answers()
     let script = home.join("faux.json");
     Script::new().write(&script);
     // Started by hand: this server publishes no address to wait for.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test runs the server executable"
+    )]
     let mut command = tokio::process::Command::new(SERVER);
     strip_overrides(command.as_std_mut());
     let mut server = command
@@ -877,8 +881,7 @@ async fn remote_startup_signal_releases_the_home_before_the_worker_answers()
     })
     .await;
     assert!(!home.join("server.json").exists());
-    let pid = Pid::from_raw(server.id().unwrap() as i32).unwrap();
-    kill_process(pid, Signal::TERM).unwrap();
+    hamlet_testing::signals::terminate(server.id().unwrap()).unwrap();
     let ended =
         tokio::time::timeout(Duration::from_secs(3), server.wait())
             .await

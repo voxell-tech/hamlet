@@ -14,7 +14,6 @@ use hamlet_server::{
 };
 use hamlet_testing::{Scratch, strip_overrides};
 use rusqlite::{Connection, OpenFlags};
-use rustix::process::{Pid, Signal, kill_process, test_kill_process};
 use serde_json::{Value, json};
 
 /// How long a step may take before the test fails.
@@ -379,6 +378,10 @@ impl Driver {
         env: &[(&str, &str)],
     ) -> Self {
         let log = realm.scratch.join("driver.log");
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the test runs the harness driver executable"
+        )]
         let mut command =
             Command::new(env!("CARGO_BIN_EXE_hamlet_harness_driver"));
         command.arg("--home").arg(&realm.home);
@@ -588,25 +591,16 @@ impl Drop for Driver {
     }
 }
 
-fn process(pid: u32) -> Pid {
-    Pid::from_raw(pid as i32).expect("a process id")
-}
-
 /// Kills the process `pid` at once.
 pub fn kill(pid: u32) {
-    kill_process(process(pid), Signal::KILL)
+    hamlet_testing::signals::kill(pid)
         .unwrap_or_else(|_| panic!("no process {pid}"));
-}
-
-/// Whether the process `pid` still runs.
-fn is_alive(pid: u32) -> bool {
-    test_kill_process(process(pid)).is_ok()
 }
 
 /// Waits until the process `pid` is gone.
 pub fn gone(pid: u32) {
     let deadline = Instant::now() + PATIENCE;
-    while is_alive(pid) {
+    while hamlet_testing::signals::is_alive(pid) {
         assert!(
             Instant::now() < deadline,
             "process {pid} still runs"
