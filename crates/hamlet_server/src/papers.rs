@@ -8,15 +8,11 @@ pub(crate) mod remote;
 pub(crate) mod tree;
 
 use std::fs::File;
-use std::io::{Read as _, Write as _};
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, ensure};
 use hamlet_workspace_wire::MAX_FILE;
-use rustix::fs::{
-    AtFlags, Dir, FileType, Mode, OFlags, RenameFlags, mkdirat,
-    openat, renameat_with, statat, unlinkat,
-};
 
 use self::files::Files;
 use crate::protocol::{Cause, Refusable, Refusal};
@@ -184,7 +180,7 @@ impl Houses {
     /// The house of agent `number` of `hamlet`.
     pub fn house(&self, hamlet: &str, number: u64) -> Result<Files> {
         Ok(match &self.workspace {
-            Workspace::Local => Files::Local(house(
+            Workspace::Local => Files::Local(tree::house(
                 &self.root, hamlet, number, false,
             )?),
             Workspace::Remote(transport) => {
@@ -284,7 +280,7 @@ impl Houses {
             match making? {
                 Making::Local(root, hamlet) => {
                     tokio::task::spawn_blocking(move || {
-                        build(&root, &hamlet, number)
+                        tree::build(&root, &hamlet, number)
                     })
                     .await?
                 }
@@ -297,7 +293,9 @@ impl Houses {
     /// [`Houses::initialize`], which waits for the workspace.
     pub fn build(&self, hamlet: &str, number: u64) -> Result<()> {
         match self.workspace {
-            Workspace::Local => build(&self.root, hamlet, number),
+            Workspace::Local => {
+                tree::build(&self.root, hamlet, number)
+            }
             Workspace::Remote(_) => Ok(()),
         }
     }
@@ -369,32 +367,7 @@ impl Houses {
         to: &AgentRef,
     ) -> Result<()> {
         self.allows(Capability::MoveHouse)?;
-        let source =
-            match house(&self.root, &from.hamlet, from.number, false)
-            {
-                Ok(source) => source,
-                Err(error)
-                    if error.downcast_ref::<rustix::io::Errno>()
-                        == Some(&rustix::io::Errno::NOENT) =>
-                {
-                    house(&self.root, &to.hamlet, to.number, false)?;
-                    return Ok(());
-                }
-                Err(error) => return Err(error),
-            };
-        let flags =
-            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
-        let parent = openat(&source, "..", flags, Mode::empty())?;
-        let mayor = house(&self.root, &to.hamlet, 0, false)?;
-        let target = openat(&mayor, "..", flags, Mode::empty())?;
-        renameat_with(
-            parent,
-            from.number.to_string(),
-            target,
-            to.number.to_string(),
-            RenameFlags::NOREPLACE,
-        )?;
-        Ok(())
+        tree::move_house(&self.root, from, to)
     }
 
     pub fn erase_hamlet(&self, hamlet: &str) -> Result<()> {
@@ -403,48 +376,12 @@ impl Houses {
             crate::record::check_name(hamlet).is_none(),
             "invalid hamlet name"
         );
-        let flags = OFlags::RDONLY
-            | OFlags::DIRECTORY
-            | OFlags::NOFOLLOW
-            | OFlags::CLOEXEC;
-        let parent = File::from(openat(
-            &self.root,
-            "houses",
-            flags,
-            Mode::empty(),
-        )?);
-        let dir = match openat(&parent, hamlet, flags, Mode::empty())
-        {
-            Ok(dir) => File::from(dir),
-            Err(rustix::io::Errno::NOENT) => return Ok(()),
-            Err(error) => return Err(error.into()),
-        };
-        clear(&dir)?;
-        unlinkat(&parent, hamlet, AtFlags::REMOVEDIR)?;
-        Ok(())
+        tree::erase_hamlet(&self.root, hamlet)
     }
 
     pub fn erase(&self, hamlet: &str, number: u64) -> Result<()> {
         self.allows(Capability::EraseHouse)?;
-        let house = match house(&self.root, hamlet, number, false) {
-            Ok(house) => house,
-            Err(error)
-                if error.downcast_ref::<rustix::io::Errno>()
-                    == Some(&rustix::io::Errno::NOENT) =>
-            {
-                return Ok(());
-            }
-            Err(error) => return Err(error),
-        };
-        clear(&house)?;
-        let parent = openat(
-            &house,
-            "..",
-            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-            Mode::empty(),
-        )?;
-        unlinkat(parent, number.to_string(), AtFlags::REMOVEDIR)?;
-        Ok(())
+        tree::erase_house(&self.root, hamlet, number)
     }
 
     /// Makes agent `number`'s house hold `snapshot`. A local house is
@@ -479,12 +416,8 @@ impl Houses {
             let stages = stages.try_clone()?;
             let mode = snapshot.entries[0].mode;
             result = tokio::task::spawn_blocking(move || {
-                stage.set_permissions(
-                    std::os::unix::fs::PermissionsExt::from_mode(
-                        mode & 0o777,
-                    ),
-                )?;
-                swap(&root, &stages, &name, &hamlet, number)
+                tree::set_mode(&stage, ".", mode)?;
+                tree::swap(&root, &stages, &name, &hamlet, number)
             })
             .await?;
         }
@@ -493,54 +426,6 @@ impl Houses {
         }
         result
     }
-}
-
-/// Puts the stage `name` in place of agent `number`'s house in
-/// `hamlet`, erasing the house it replaces.
-fn swap(
-    root: &File,
-    stages: &File,
-    name: &str,
-    hamlet: &str,
-    number: u64,
-) -> Result<()> {
-    use rustix::fs::renameat;
-    let houses = tree::directory(root, "houses", true)?;
-    let parent = tree::directory(&houses, hamlet, true)?;
-    let number = number.to_string();
-    let backup = format!("old-{}", uuid::Uuid::new_v4());
-    let detached = match renameat(
-        &parent,
-        number.as_str(),
-        stages,
-        backup.as_str(),
-    ) {
-        Ok(()) => true,
-        Err(rustix::io::Errno::NOENT) => false,
-        Err(error) => return Err(error.into()),
-    };
-    if let Err(error) =
-        renameat(stages, name, &parent, number.as_str())
-    {
-        if detached {
-            renameat(
-                stages,
-                backup.as_str(),
-                &parent,
-                number.as_str(),
-            )?;
-        }
-        return Err(error.into());
-    }
-    if detached {
-        match tree::directory(stages, &backup, false) {
-            Ok(_) => tree::erase(stages, &backup)?,
-            Err(_) => {
-                unlinkat(stages, backup.as_str(), AtFlags::empty())?;
-            }
-        }
-    }
-    Ok(())
 }
 
 /// A read-only view of one agent's house and its hamlet's folder.
@@ -589,7 +474,7 @@ impl Reader {
                     (root.try_clone()?, hamlet.clone(), *number);
                 tokio::task::spawn_blocking(move || {
                     let mut text = String::new();
-                    notes(&root, &hamlet, number)?
+                    tree::notes(&root, &hamlet, number)?
                         .read_to_string(&mut text)?;
                     Ok(text)
                 })
@@ -657,113 +542,6 @@ impl Reader {
             }
         }
     }
-}
-
-/// The local house of agent `number` of `hamlet`, made with its
-/// parents when `create` is set.
-fn house(
-    root: &File,
-    hamlet: &str,
-    number: u64,
-    create: bool,
-) -> Result<File> {
-    ensure!(
-        !hamlet.is_empty()
-            && hamlet.bytes().all(|b| b.is_ascii_lowercase()
-                || b.is_ascii_digit()
-                || b == b'-'),
-        "invalid house address"
-    );
-    let mut dir = root.try_clone()?;
-    for part in ["houses", hamlet, &number.to_string()] {
-        if create
-            && let Err(error) =
-                mkdirat(&dir, part, Mode::from_raw_mode(0o700))
-            && error != rustix::io::Errno::EXIST
-        {
-            return Err(error.into());
-        }
-        dir = openat(
-            &dir,
-            part,
-            OFlags::RDONLY
-                | OFlags::DIRECTORY
-                | OFlags::NOFOLLOW
-                | OFlags::CLOEXEC,
-            Mode::empty(),
-        )?
-        .into();
-    }
-    Ok(dir)
-}
-
-fn build(root: &File, hamlet: &str, number: u64) -> Result<()> {
-    let dir = house(root, hamlet, number, true)?;
-    for part in ["skills", "inbox"] {
-        tree::directory(&dir, part, true)?;
-    }
-    match openat(
-        &dir,
-        NOTES,
-        OFlags::WRONLY
-            | OFlags::CREATE
-            | OFlags::EXCL
-            | OFlags::NOFOLLOW,
-        Mode::from_raw_mode(0o600),
-    ) {
-        Ok(fd) => File::from(fd).write_all(b"# Notes\n")?,
-        Err(rustix::io::Errno::EXIST) => {}
-        Err(error) => return Err(error.into()),
-    }
-    Ok(())
-}
-
-fn notes(root: &File, hamlet: &str, number: u64) -> Result<File> {
-    let dir = house(root, hamlet, number, false)?;
-    let file = File::from(openat(
-        &dir,
-        NOTES,
-        OFlags::RDONLY
-            | OFlags::NOFOLLOW
-            | OFlags::NONBLOCK
-            | OFlags::CLOEXEC,
-        Mode::from_raw_mode(0o600),
-    )?);
-    ensure!(
-        file.metadata()?.is_file(),
-        "The agent's NOTES.md could not be read safely. Inspect its \
-         house before trying again."
-    );
-    Ok(file)
-}
-
-pub(crate) fn clear(dir: &File) -> Result<()> {
-    for entry in Dir::read_from(dir)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        if name.to_bytes() == b"." || name.to_bytes() == b".." {
-            continue;
-        }
-        let info = statat(dir, name, AtFlags::SYMLINK_NOFOLLOW)?;
-        if FileType::from_raw_mode(info.st_mode)
-            == FileType::Directory
-        {
-            let child = File::from(openat(
-                dir,
-                name,
-                OFlags::RDONLY
-                    | OFlags::DIRECTORY
-                    | OFlags::NOFOLLOW
-                    | OFlags::CLOEXEC,
-                Mode::empty(),
-            )?);
-            clear(&child)?;
-            unlinkat(dir, name, AtFlags::REMOVEDIR)?;
-        } else {
-            unlinkat(dir, name, AtFlags::empty())?;
-        }
-    }
-    Ok(())
 }
 
 pub(crate) fn cut(text: &str, most: usize, note: &str) -> String {
