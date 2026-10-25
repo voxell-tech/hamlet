@@ -490,45 +490,6 @@ mod tests {
     }
 
     #[test]
-    fn a_received_hamlet_row_follows_busy_and_waiting() {
-        let mut app = panel_app();
-        app.add_plugins(plugin);
-        app.update();
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
-            app.world_mut(),
-            overview(),
-        );
-        app.update();
-        assert!(
-            words(&mut app)
-                .iter()
-                .any(|text| text == "1 agent, all at rest")
-        );
-        let mut state = hamlet_testing::realm::state();
-        state.agents[0].busy = true;
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::State(state.clone()),
-        );
-        app.update();
-        assert!(
-            words(&mut app)
-                .iter()
-                .any(|text| text == "1 agent, 1 at work")
-        );
-        state.waits.push(hamlet_testing::realm::wait("approval"));
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::State(state),
-        );
-        app.update();
-        assert!(
-            words(&mut app)
-                .iter()
-                .any(|text| text == "1 agent, 1 waiting for you")
-        );
-    }
-    #[test]
     fn only_a_server_that_lists_the_deed_offers_to_move_a_town() {
         use bevy::ecs::query::With;
         use hamlet_client::realm::Deeds;

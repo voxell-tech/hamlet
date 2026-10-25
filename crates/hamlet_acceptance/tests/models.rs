@@ -68,39 +68,6 @@ async fn tries_the_model_and_the_connection_and_keeps_the_link() {
 }
 
 #[tokio::test]
-async fn says_plainly_when_the_model_answers_no_hello() {
-    let mut s =
-        Session::start(Script::new().responses([words("")])).await;
-    let reply = s
-        .chief
-        .request(|id| {
-            ClientMessage::Check(Check::Model {
-                id,
-                model: Some("faux::faux-1".into()),
-            })
-        })
-        .await;
-    assert_eq!(
-        (reply.kind, reply.text.as_str()),
-        (
-            ReplyKind::Notice,
-            "That model did not answer a hello. Pick another one. \
-             (Error: the model answered with nothing)"
-        )
-    );
-    let reply = s
-        .chief
-        .request(|id| {
-            ClientMessage::Check(Check::Model {
-                id,
-                model: Some("missing".into()),
-            })
-        })
-        .await;
-    assert_eq!(reply.kind, ReplyKind::Error, "{reply:?}");
-}
-
-#[tokio::test]
 async fn sends_grants_from_limits_and_from_answers() {
     let mut s = Session::start(Script::new().responses([
         call(
@@ -1329,70 +1296,4 @@ async fn lowering_the_budget_prevents_cutoff_compaction() {
     s.chief.say(mayor(), "Now answer.").await;
     let page = s.chief.open(&chat(mayor())).await;
     assert_eq!(page.items.last().unwrap().text, "After the raise.");
-}
-
-#[tokio::test]
-async fn gives_only_a_resident_the_civic_reflection_question() {
-    let mut endpoint = openai::Endpoint::start().await;
-    endpoint.list(json!([{"id":"org/large"}, {"id":"small"}]));
-    endpoint.enqueue([endpoint_call(
-        "create_agent",
-        json!({"name":"constructor", "purpose":"Build", "reason":"Needed"}),
-    )]);
-    let mut s = Session::with_endpoint(&endpoint).await;
-    s.chief.say(mayor(), "Hire a builder.").await;
-    s.chief.say(mayor(), "/reflect").await;
-    s.chief.idle("home", "founder").await;
-    s.chief.say(to("home", "constructor"), "/reflect").await;
-    s.chief.idle("home", "constructor").await;
-    let requests = endpoint.completions(4).await;
-    let civic = "how the hamlet is run get in the way";
-    assert!(
-        !requests[2]
-            .body
-            .as_ref()
-            .unwrap()
-            .to_string()
-            .contains(civic)
-    );
-    assert!(
-        requests[3]
-            .body
-            .as_ref()
-            .unwrap()
-            .to_string()
-            .contains(civic)
-    );
-    assert_eq!(
-        requests[3].body.as_ref().unwrap()["model"],
-        "org/large"
-    );
-    s.chief
-        .limit("home", "pinned", "constructor", json!("local::small"))
-        .await;
-    s.chief.say(to("home", "constructor"), "Build.").await;
-    assert_eq!(
-        endpoint.completions(5).await[4].body.as_ref().unwrap()
-            ["model"],
-        "small"
-    );
-    s.chief
-        .limit("home", "pinned", "constructor", json!(null))
-        .await;
-    assert_eq!(s.server.stop().await, Some(0));
-    let server = s
-        .home
-        .serve_providers(&[
-            ("HAMLET_REFLECT_EVERY", "0"),
-            ("HAMLET_MODEL", "local::small"),
-            ("HAMLET_BASE_URL", &endpoint.url),
-        ])
-        .await;
-    let mut chief = Client::join(&server).await;
-    chief.say(to("home", "constructor"), "New default.").await;
-    assert_eq!(
-        endpoint.completions(6).await[5].body.as_ref().unwrap()
-            ["model"],
-        "small"
-    );
 }

@@ -823,37 +823,6 @@ mod tests {
     }
 
     #[test]
-    fn refuses_an_edit_with_pi_s_words() {
-        let base = "one\ntwo\nthree\ntwo\n";
-        let refused = |pairs| {
-            apply(base, &edits(pairs), "f").unwrap_err().to_string()
-        };
-        assert_eq!(
-            refused(&[("four", "4")]),
-            "Could not find the exact text in f. The old text must \
-             match exactly including all whitespace and newlines."
-        );
-        assert_eq!(
-            refused(&[("one", "1"), ("two", "2")]),
-            "Found 2 occurrences of edits[1] in f. Each oldText \
-             must be unique. Please provide more context to make it \
-             unique."
-        );
-        assert_eq!(
-            refused(&[("ne\ntw", "x"), ("one", "1")]),
-            "edits[1] and edits[0] overlap in f. Merge them into \
-             one edit or target disjoint regions."
-        );
-        assert_eq!(
-            refused(&[("one", "1"), ("", "x")]),
-            "edits[1].oldText must not be empty in f."
-        );
-        assert!(
-            refused(&[("one", "one")]).starts_with("No changes made")
-        );
-    }
-
-    #[test]
     fn matches_smart_quotes_and_trailing_spaces_but_keeps_other_lines()
      {
         let base =

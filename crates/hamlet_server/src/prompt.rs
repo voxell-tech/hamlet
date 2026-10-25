@@ -3,8 +3,6 @@
 
 mod brief;
 pub(crate) mod shelf;
-#[cfg(test)]
-mod tests;
 
 use std::path::{Path, PathBuf};
 
@@ -79,16 +77,6 @@ pub(crate) fn stock(root: &Path, credentials: &Credentials) {
             format_args!("could not open the library: {error}"),
         );
     }
-}
-
-/// Every section of the prompt but the budget, in order, leaving out
-/// the empty ones.
-#[cfg(test)]
-pub(crate) async fn sections(
-    service: &mut Service,
-    subject: &Subject<'_>,
-) -> Result<Vec<Section>> {
-    prepare(service, subject)?.render().await
 }
 
 /// Prompt metadata captured without retaining the service during file

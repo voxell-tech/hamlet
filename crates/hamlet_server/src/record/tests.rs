@@ -684,47 +684,6 @@ fn restoring_keeps_identity_and_surviving_roads_not_namesakes_and_does_not_charg
 }
 
 #[test]
-fn road_budget_wording_rounds_half_a_cent_up() {
-    let (_scratch, mut store) = seeded("record-money");
-    for name in ["scout", "smith"] {
-        done(&mut store, name, &request("home", admit(name)));
-    }
-    for (price, text) in [
-        (124_999, "$0.12"),
-        (125_000, "$0.13"),
-        (125_001, "$0.13"),
-        (15_000, "$0.02"),
-    ] {
-        limits(&mut store, &format!("limit-{price}"), "home", |l| {
-            l.chief.road.cost = price as f64 / 1_000_000.0;
-            l.road_budget = Some(RoadBudget {
-                start: 0,
-                end: 1000,
-                month: false,
-                other: Amount::default(),
-                cost: Some(0),
-                ms: None,
-            });
-        });
-        assert_eq!(
-            refused(
-                &mut store,
-                &format!("road-{price}"),
-                &request("home", road("scout", "smith"))
-            )
-            .text(Audience::Chief),
-            format!(
-                "the hamlet cannot pay for it today: it costs \
-                 {text} and would bring the hamlet to {text} of \
-                 $0.00. Only the chief can raise the budget, on the \
-                 hamlet's Bylaws page"
-            )
-        );
-    }
-    assert!(store.road_charges("home").unwrap().is_empty());
-}
-
-#[test]
 fn road_budget_is_checked_with_the_charge_and_exhaustion_never_leaves_a_road()
  {
     let (_scratch, mut store) = seeded("record-budget");

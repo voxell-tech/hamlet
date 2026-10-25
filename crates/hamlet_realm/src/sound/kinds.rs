@@ -31,21 +31,6 @@ pub enum Family {
 }
 
 impl Family {
-    #[cfg(test)]
-    pub const ALL: [Self; 11] = [
-        Self::Ambience,
-        Self::Steps,
-        Self::Work,
-        Self::Doors,
-        Self::Alerts,
-        Self::Interface,
-        Self::Hand,
-        Self::Magic,
-        Self::Talk,
-        Self::Lives,
-        Self::Answers,
-    ];
-
     /// Its volume, before the master volume.
     pub fn volume(self, set: &SoundSettings) -> f32 {
         match self {

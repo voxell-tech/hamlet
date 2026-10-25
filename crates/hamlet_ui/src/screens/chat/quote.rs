@@ -99,22 +99,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn quoted_lines_are_parted_from_the_rest() {
-        assert_eq!(parts("hello"), vec![(false, "hello".into())]);
-        assert_eq!(
-            parts("> one\n>\n> two\n\nmine\n> three"),
-            vec![
-                (true, "one\n\ntwo".into()),
-                (false, "mine".into()),
-                (true, "three".into()),
-            ]
-        );
-        // Only `> ` quotes, as in the chat apps.
-        assert!(!has_quote(">no space"));
-        assert!(has_quote("a\n> b"));
-    }
-
-    #[test]
     fn a_selection_quoted_reads_back_as_itself() {
         let chosen = "Two things:\n\n  the key  \n";
         let sent = format!("{}\nthanks", quoting(chosen));

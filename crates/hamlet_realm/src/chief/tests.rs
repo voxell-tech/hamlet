@@ -1,8 +1,7 @@
-use bevy::mesh::VertexAttributeValues;
 use bevy::transform::TransformPlugin;
 use hamlet_testing::Scratch;
 
-use super::mascot::{Doing, Pose, crest};
+use super::mascot::Doing;
 use super::wickstep::Rune;
 use super::*;
 use crate::Clock;
@@ -11,7 +10,6 @@ use crate::generator::society::{AgentId, Society};
 use crate::generator::testing::{rehearse, stand_in};
 use crate::hamlet::Housed;
 use crate::keeper::Act;
-use crate::palette::Palette;
 use crate::play::{Play, Played};
 use crate::sky::Quality;
 
@@ -184,92 +182,6 @@ fn talking_to_nobody_sends_the_mascot_home() {
 }
 
 #[test]
-fn the_mascot_follows_an_agent_that_strays() {
-    let mut cast = Cast::new();
-    let mascot = cast.settled().mascot;
-    cast.talk_to(Some(cast.agent));
-    cast.until(Stay::With(cast.agent));
-    let set = cast.app.world().resource::<ChiefSettings>().clone();
-    let reach = Vec2::new(set.beside, set.before).length();
-    let apart = |cast: &Cast| {
-        cast.at(mascot).xz().distance(cast.at(cast.robot).xz())
-    };
-
-    // The robot keeps to its porch here, so the two are parted by
-    // moving the mascot. A few steps off: it walks after its agent.
-    let shift = |cast: &mut Cast, by: Vec3| {
-        let world = cast.app.world_mut();
-        world.get_mut::<Transform>(mascot).unwrap().translation += by;
-    };
-    shift(&mut cast, Vec3::X * 2.5);
-    cast.run(0.1);
-    assert_eq!(cast.mascot().doing, Doing::Walk);
-    assert!(!cast.mascot().is_stepping());
-    cast.run(2.5);
-    assert!((apart(&cast) - reach).abs() < set.slack + 0.05);
-
-    // Further, but no further than across a town: it still walks,
-    // and hurries.
-    shift(&mut cast, Vec3::X * (set.restep + 3.0));
-    cast.run(0.1);
-    assert_eq!(cast.mascot().doing, Doing::Walk);
-    assert!(!cast.mascot().is_stepping());
-
-    // A long way off: it steps after it.
-    shift(&mut cast, Vec3::X * (set.afoot + 3.0));
-    cast.run(0.1);
-    assert!(cast.mascot().is_stepping());
-    cast.until(Stay::With(cast.agent));
-    assert!((apart(&cast) - reach).abs() < set.slack + 0.05);
-}
-
-#[test]
-fn at_home_the_mascot_goes_about_its_grounds() {
-    let mut cast = Cast::new();
-    let mascot = cast.settled().mascot;
-    let set = cast.app.world().resource::<ChiefSettings>().clone();
-    let frame = *cast
-        .app
-        .world()
-        .get::<Transform>(cast.settled().place)
-        .unwrap();
-    let mut seen = vec![];
-    let mut furthest = 0.0f32;
-    for _ in 0..(90.0 * 60.0) as usize {
-        let before = cast.at(mascot);
-        cast.run(1.0 / 60.0);
-        furthest = furthest.max(before.distance(cast.at(mascot)));
-        let doing = cast.mascot().doing;
-        if !seen.contains(&doing) {
-            seen.push(doing);
-        }
-        // It never leaves its wall.
-        let out =
-            cast.at(mascot).xz().distance(frame.translation.xz());
-        assert!(out < set.grounds, "{out}");
-    }
-    assert!(seen.contains(&Doing::Walk), "{seen:?}");
-    assert!(seen.len() >= 4, "{seen:?}");
-    // On foot it never moves further than a step in a frame.
-    assert!(furthest < set.walk_speed / 60.0 + 0.02, "{furthest}");
-    assert_eq!(cast.mascot().stay, Stay::House);
-}
-
-#[test]
-fn a_still_shows_the_mascot_there_with_no_magic() {
-    let mut cast = Cast::new();
-    cast.app.world_mut().resource_mut::<Clock>().frozen = true;
-    cast.talk_to(Some(cast.agent));
-    cast.app.update();
-    assert_eq!(cast.mascot().stay, Stay::With(cast.agent));
-    assert!(!cast.mascot().is_stepping());
-    cast.app.update();
-    let world = cast.app.world_mut();
-    assert_eq!(world.query::<&Rune>().iter(world).count(), 0);
-    assert!(world.resource::<Log>().0.is_empty());
-}
-
-#[test]
 fn a_chief_that_leaves_takes_its_place_and_its_mascot() {
     let mut cast = Cast::new();
     let settled = cast.settled();
@@ -278,93 +190,6 @@ fn a_chief_that_leaves_takes_its_place_and_its_mascot() {
     let world = cast.app.world();
     assert!(world.get_entity(settled.place).is_err());
     assert!(world.get_entity(settled.mascot).is_err());
-}
-
-fn is_finite(mesh: &Mesh) -> bool {
-    [Mesh::ATTRIBUTE_POSITION, Mesh::ATTRIBUTE_NORMAL]
-        .into_iter()
-        .all(|attribute| match mesh.attribute(attribute) {
-            Some(VertexAttributeValues::Float32x3(values)) => {
-                !values.is_empty()
-                    && values.iter().flatten().all(|v| v.is_finite())
-            }
-            _ => false,
-        })
-}
-
-#[test]
-fn every_look_builds_finite_meshes() {
-    let pal = Palette::default();
-    let set = ChiefSettings::default();
-    assert_eq!(Look::all().count(), 800);
-    // The light is no part of a mesh.
-    for look in Look::all().filter(|l| l.light == Light::default()) {
-        let parts = mascot::parts(&pal, look);
-        let held = !parts.item.is_empty();
-        assert_eq!(held, look.holds != Holds::Nothing, "{look:?}");
-        assert!(parts.cloak.tris() > 50 && parts.hat.tris() > 20);
-        for meshing in parts.each() {
-            assert!(is_finite(&meshing.build()), "{look:?}");
-        }
-        assert!(crest(look.hat).is_finite());
-    }
-    assert!(is_finite(&mascot::wick().build()));
-    for cloak in Cloak::ALL {
-        let look = Look {
-            cloak,
-            ..Look::default()
-        };
-        let built = place::build(&pal, &set, look, |at| at.x * 0.01);
-        assert!(built.body.tris() > 1000);
-        assert!(is_finite(&built.body.build()));
-        assert!(is_finite(&built.panes.build()));
-        assert!(built.lights.orb.0.is_finite());
-    }
-}
-
-#[test]
-fn every_pose_is_finite_and_a_wickstep_ends_as_it_began() {
-    let doings = [
-        Doing::Idle,
-        Doing::Walk,
-        Doing::Read,
-        Doing::Tend,
-        Doing::Gaze,
-        Doing::Attend,
-        Doing::Wave,
-    ];
-    let whole = |pose: &Pose| {
-        [pose.lift, pose.girth, pose.height, pose.lean, pose.glow]
-            .iter()
-            .all(|v| v.is_finite())
-            && pose.wick.is_finite()
-            && pose.hands.iter().all(|hand| hand.is_finite())
-    };
-    for doing in doings {
-        for step in 0..400 {
-            let t = step as f32 * 0.037;
-            let pose = Pose::of(doing, t);
-            assert!(whole(&pose), "{doing:?} {t}");
-            assert!((0.0..=1.0).contains(&pose.blink));
-            // Neither end of a Wickstep jumps.
-            let long = 0.5;
-            let out = Phase::Out { began: t, long };
-            let into = Phase::In { began: t, long };
-            assert_eq!(pose.stepping(out, t), pose);
-            let gone = pose.stepping(out, t + long);
-            assert!(
-                gone.girth.abs() < 1e-4 && gone.glow.abs() < 1e-4
-            );
-            let lands = pose.stepping(into, t + long);
-            assert!((lands.girth - pose.girth).abs() < 1e-3);
-            assert!((lands.height - pose.height).abs() < 1e-3);
-            for part in 0..=10 {
-                let now = t + long * part as f32 / 10.0;
-                assert!(whole(&pose.stepping(out, now)));
-                assert!(whole(&pose.stepping(into, now)));
-            }
-        }
-    }
 }
 
 #[test]

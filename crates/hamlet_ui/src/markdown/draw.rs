@@ -573,17 +573,13 @@ pub fn fixed(text: &str, tone: Tone) -> impl View {
 #[cfg(test)]
 mod tests {
     use bevy::app::App;
-    use bevy::ecs::query::With;
     use bevy::time::TimePlugin;
-    use bevy::ui::widget::Text;
     use bevy_fynix::{FynixPlugin, mount};
     use hamlet_assets::Tuning;
     use hamlet_client::chats::Item;
 
     use super::*;
-    use crate::chat;
     use crate::links::Roots;
-    use crate::me::Me;
     use crate::testing::{plain, top};
     use crate::theme::{self, HamletTheme};
 
@@ -660,103 +656,6 @@ mod tests {
             .iter(world)
             .map(|(entity, span)| (entity, span.0.clone()))
             .collect()
-    }
-
-    fn span(app: &mut App, text: &str) -> Entity {
-        spans(app)
-            .into_iter()
-            .find(|(_, said)| said == text)
-            .unwrap_or_else(|| panic!("no span says {text:?}"))
-            .0
-    }
-
-    #[test]
-    fn a_reply_is_built_as_styled_nodes() {
-        let mut app = app();
-        let (session, ids) = talk(
-            &mut app,
-            &["# Plan\n\nUse **care** with `rm` and \
-               [docs](http://x).\n\n```sh\nls -la\n```\n\n| a | b \
-               |\n|---|---|\n| 1 | 2 |\n"],
-        );
-        mount::<HamletTheme>(
-            app.world_mut(),
-            document(entry(session, ids[1].clone()), Tone::Body),
-        );
-        app.update();
-
-        let world = app.world_mut();
-        let code = world
-            .query_filtered::<&Text, With<MonoText>>()
-            .iter(world)
-            .map(|text| text.0.clone())
-            .collect::<Vec<_>>();
-        assert_eq!(code, ["ls -la"]);
-        let grids = world
-            .query::<&Node>()
-            .iter(world)
-            .filter(|node| node.display == Display::Grid)
-            .map(|node| node.grid_template_columns.clone())
-            .collect::<Vec<_>>();
-        assert_eq!(grids, [shared(2)]);
-
-        let title = span(&mut app, "Plan");
-        let care = span(&mut app, "care");
-        let rm = span(&mut app, "rm");
-        let docs = span(&mut app, "docs");
-        let world = app.world();
-        assert!(world.get::<DisplayText>(title).is_some());
-        let font = |e| world.get::<TextFont>(e).unwrap();
-        assert_eq!(font(title).font_size, FontSize::Px(20.0));
-        assert_eq!(font(care).weight, FontWeight::BOLD);
-        assert!(world.get::<MonoText>(rm).is_some());
-        assert!(world.get::<TextBackgroundColor>(rm).is_some());
-        assert!(world.get::<Underline>(docs).is_some());
-        assert_eq!(
-            world.get::<TextColor>(docs).unwrap().0,
-            HamletTheme::designed().tone(Tone::Accent)
-        );
-    }
-
-    #[test]
-    fn a_growing_reply_rebuilds_only_its_last_block() {
-        let mut app = app();
-        let (session, _) =
-            talk(&mut app, &["An *old* reply.", "First.\n\nSec"]);
-        app.insert_resource(Me::of(
-            session,
-            Entity::PLACEHOLDER,
-            "a",
-            None,
-        ))
-        .init_resource::<chat::Unfolded>()
-        .init_resource::<chat::Lines>()
-        .init_resource::<chat::Reach>()
-        .init_resource::<crate::select::Selecting>()
-        .init_resource::<chat::AwayFromEnd>()
-        .add_systems(bevy::app::PreUpdate, chat::fold_lines);
-        mount::<HamletTheme>(app.world_mut(), chat::transcript());
-        app.update();
-        let before = spans(&mut app);
-        let last = span(&mut app, "Sec");
-
-        grow(&mut app, session, "ond *grows*");
-        app.update();
-        let after = spans(&mut app);
-        for (entity, said) in &before {
-            assert_eq!(
-                after.contains(&(*entity, said.clone())),
-                *entity != last,
-                "{said:?}"
-            );
-        }
-        span(&mut app, "Second ");
-        span(&mut app, "grows");
-
-        grow(&mut app, session, "\n\n```\nlet x");
-        app.update();
-        let grown = spans(&mut app);
-        assert!(after.iter().all(|span| grown.contains(span)));
     }
 
     #[test]

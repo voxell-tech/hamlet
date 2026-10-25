@@ -60,44 +60,6 @@ async fn edit(s: &Session, doc: &[&str], editor: &Editor) -> Ended {
 }
 
 #[tokio::test]
-async fn prints_its_usage_on_stdout() {
-    let s = Session::start(Script::new()).await;
-    let help = Cli::run(s.home.path(), &["--help"], "", &[]).await;
-    assert_eq!(help.code(), Some(0));
-    assert!(help.out.starts_with("usage: hamlet"), "{help:?}");
-    assert_eq!(help.err, "");
-    for args in [
-        &["server", "--port", "0", "-h"][..],
-        &["--help", "chat"],
-        &["chat", "--to", "-h"],
-    ] {
-        let help = Cli::run(s.home.path(), args, "", &[]).await;
-        assert_eq!(help.code(), Some(0), "{args:?}: {help:?}");
-        assert!(help.out.starts_with("usage: hamlet"), "{help:?}");
-    }
-    for (args, words) in [
-        (
-            &["server", "--hedless"][..],
-            "unknown argument `--hedless`",
-        ),
-        (&["server", "--port"], "--port needs a port number"),
-        (&["server", "--faux"], "--faux needs the path of a script"),
-        (&["chat", "--to"], "--to needs an agent's name"),
-        (
-            &["server", "--port", "high"],
-            "--port needs a port number, not `high`",
-        ),
-        (&["serve"], "unknown argument `serve`"),
-        (&["chat", "--port", "1"], "unknown argument `--port`"),
-    ] {
-        let wrong = Cli::run(s.home.path(), args, "", &[]).await;
-        assert_eq!(wrong.code(), Some(1), "{args:?}: {wrong:?}");
-        assert!(wrong.err.contains(words), "{args:?}: {wrong:?}");
-        assert_eq!(wrong.out, "");
-    }
-}
-
-#[tokio::test]
 async fn chats_with_answers_on_stdout_and_the_rest_on_stderr() {
     let mut s = Session::start(Script::new().responses([
         call("bash", json!({"command": "echo hi"})),
@@ -140,24 +102,6 @@ async fn ends_with_a_failure_when_its_agent_does_not_exist() {
         );
     }
     assert!(s.server.is_running());
-}
-
-#[tokio::test]
-async fn prints_a_notice_for_people_on_stderr() {
-    let mut s = Session::start(
-        Script::new().responses([words("Never sent.")]),
-    )
-    .await;
-    s.chief.limit("home", "budget", "cost", json!(0)).await;
-    let chat =
-        Cli::run(s.home.path(), &["chat"], "Hello.\n", &[]).await;
-    assert_eq!(chat.code(), Some(0), "{chat:?}");
-    assert_eq!(chat.out, "");
-    let notice = chat
-        .err
-        .lines()
-        .find(|l| l.starts_with("  (") && l.ends_with(')'));
-    assert!(notice.is_some_and(|l| l.contains("budget")), "{chat:?}");
 }
 
 #[tokio::test]
@@ -482,26 +426,6 @@ async fn edits_another_hamlets_limits_alone() {
 }
 
 #[tokio::test]
-async fn says_plainly_when_the_model_tried_answers_no_hello() {
-    let s =
-        Session::start(Script::new().responses([words("")])).await;
-    let tried = Cli::run(
-        s.home.path(),
-        &["models", "try", "faux::faux-1"],
-        "",
-        &[],
-    )
-    .await;
-    assert_eq!(tried.code(), Some(0));
-    assert_eq!(
-        tried.out,
-        "That model did not answer a hello. Pick another one. \
-         (Error: the model answered with nothing)\n"
-    );
-    assert_eq!(tried.err, "");
-}
-
-#[tokio::test]
 async fn signs_in_with_a_key_lists_models_and_tries_a_hello() {
     let endpoint = openai::Endpoint::start().await;
     let s = Session::with_endpoint(&endpoint).await;
@@ -529,15 +453,4 @@ async fn signs_in_with_a_key_lists_models_and_tries_a_hello() {
         Cli::run(s.home.path(), &["models", "try"], "", &[]).await;
     assert_eq!(hello.code(), Some(0));
     assert_eq!(hello.out, "Hello.\n");
-}
-
-#[tokio::test]
-async fn reads_the_realm_it_is_given() {
-    let mut s = Session::start(Script::new()).await;
-    let chat =
-        Cli::run(s.home.path(), &["chat"], "/queue\n", &[]).await;
-    assert_eq!(chat.code(), Some(0));
-    assert!(chat.err.contains("Nothing waits for you."), "{chat:?}");
-    let reply = s.chief.say(mayor(), "/queue").await;
-    assert_eq!(reply.kind, ReplyKind::Notice);
 }

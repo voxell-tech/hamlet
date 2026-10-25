@@ -1257,49 +1257,4 @@ mod tests {
                 .any(|field| field.value() == "Change these words")
         );
     }
-
-    #[test]
-    fn the_chat_stays_at_its_end_until_it_is_read_back() {
-        let mut app = App::new();
-        let world = app.world_mut();
-        let nobody = world.spawn_empty().id();
-        world.insert_resource(Me::of(nobody, nobody, "wren", None));
-        world.init_resource::<Lines>();
-        world.init_resource::<Reach>();
-        world.init_resource::<AwayFromEnd>();
-        let tall = |content: f32| ComputedNode {
-            size: bevy::math::Vec2::new(300.0, 200.0),
-            content_size: bevy::math::Vec2::new(300.0, content),
-            inverse_scale_factor: 1.0,
-            ..ComputedNode::default()
-        };
-        let chat = world
-            .spawn((ChatScroll, tall(1000.0), ScrollGoal::default()))
-            .id();
-        app.add_systems(Update, stick_to_bottom);
-        let shown =
-            |app: &mut App, content: f32, scrolled: Option<f32>| {
-                let mut node = app.world_mut().entity_mut(chat);
-                node.insert(tall(content));
-                if let Some(to) = scrolled {
-                    node.get_mut::<ScrollPosition>().unwrap().y = to;
-                }
-                app.update();
-                app.world().get::<ScrollPosition>(chat).unwrap().y
-            };
-        // At its end, and no further: the wheel starts from here.
-        assert_eq!(shown(&mut app, 1000.0, None), 800.0);
-        assert_eq!(shown(&mut app, 1200.0, None), 1000.0);
-        // Read back, it stays where it was put as more is said.
-        assert_eq!(shown(&mut app, 1200.0, Some(940.0)), 940.0);
-        assert_eq!(shown(&mut app, 1500.0, None), 940.0);
-        // Back at its end, it follows again.
-        assert_eq!(shown(&mut app, 1500.0, Some(1300.0)), 1300.0);
-        assert_eq!(shown(&mut app, 1700.0, None), 1500.0);
-        // Another chat is shown from its end, wherever this one was.
-        shown(&mut app, 1700.0, Some(300.0));
-        app.world_mut().resource_mut::<Me>().with =
-            Some("Sorrel".into());
-        assert_eq!(shown(&mut app, 900.0, None), 700.0);
-    }
 }

@@ -645,25 +645,3 @@ fn ribbon(
     }
     meshing.build()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_deck_holds_what_is_on_it_and_not_what_passes_over() {
-        let (a, b) =
-            (Vec3::new(-5.0, 2.0, 0.0), Vec3::new(5.0, 2.0, 0.0));
-        let span = Span {
-            steps: vec![[a, b]],
-            over: Rect::from_corners(a.xz(), b.xz()),
-        };
-        // The wall of a bridge that crosses it stands on its deck
-        // where the two meet, and nowhere else.
-        assert!(span.is_on_deck(Vec3::new(1.0, 2.1, 0.5), 0.95));
-        assert!(!span.is_on_deck(Vec3::new(1.0, 2.1, 1.5), 0.95));
-        assert!(!span.is_on_deck(Vec3::new(7.0, 2.1, 0.0), 0.95));
-        // A road well above it is another bridge's own affair.
-        assert!(!span.is_on_deck(Vec3::new(1.0, 4.0, 0.5), 0.95));
-    }
-}

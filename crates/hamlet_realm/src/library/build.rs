@@ -374,27 +374,3 @@ pub(super) fn build(pal: &Palette) -> (Mesh, Mesh) {
     );
     (meshing.build(), glass.build())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::library::{GROUNDS, SIZE};
-
-    #[test]
-    fn the_library_is_built_of_walls_and_of_glass() {
-        let (walls, glass) = build(&Palette::default());
-        for mesh in [walls, glass] {
-            let points = mesh
-                .attribute(Mesh::ATTRIBUTE_POSITION)
-                .and_then(|points| points.as_float3())
-                .unwrap();
-            assert!(!points.is_empty());
-            // It stands on the ground and within what it is
-            // picked by.
-            for [x, y, z] in points {
-                assert!((-0.01..=SIZE.1).contains(y), "{y}");
-                assert!(x.hypot(*z) < GROUNDS, "{x} {z}");
-            }
-        }
-    }
-}

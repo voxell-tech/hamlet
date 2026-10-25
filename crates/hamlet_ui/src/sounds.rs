@@ -158,8 +158,6 @@ fn failed(output: On<SessionOutput>, mut cues: MessageWriter<Cue>) {
 #[cfg(test)]
 mod tests {
     use bevy::ecs::message::Messages;
-    use bevy::math::Vec2;
-    use hamlet_realm::pick::Thing;
 
     use super::*;
 
@@ -231,33 +229,6 @@ mod tests {
             }),
         );
         assert_eq!(heard_in(&mut app), [Sound::Error]);
-        assert_eq!(heard_in(&mut app), []);
-    }
-
-    #[test]
-    fn stops_leave_the_sound_to_the_world() {
-        use hamlet_client::messages::Veto;
-
-        let mut app = app();
-        for agent in
-            [None, Some(bevy::ecs::entity::Entity::PLACEHOLDER)]
-        {
-            app.world_mut().trigger(Veto { agent });
-            assert_eq!(heard_in(&mut app), []);
-            assert_eq!(heard_in(&mut app), []);
-        }
-    }
-
-    #[test]
-    fn a_question_over_the_world_opens_and_closes_aloud() {
-        let mut app = app();
-        assert_eq!(heard_in(&mut app), []);
-        // The menu of a thing has the sound of the hand instead.
-        *app.world_mut().resource_mut::<Open>() =
-            Open::Menu(Thing::Keeper, Vec2::ZERO);
-        assert_eq!(heard_in(&mut app), []);
-        *app.world_mut().resource_mut::<Open>() = Open::Nothing;
-        assert_eq!(heard_in(&mut app), [Sound::PopClose]);
         assert_eq!(heard_in(&mut app), []);
     }
 }

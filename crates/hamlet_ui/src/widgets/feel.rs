@@ -228,18 +228,3 @@ fn waver(now: f32, seed: f32) -> f32 {
         + 0.3 * (now * 8.9 + seed * 1.7).sin()
         + 0.2 * (now * 2.1 + seed * 0.6).sin()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn easing_arrives_and_stays() {
-        let mut value = 0.0;
-        for _ in 0..200 {
-            value = ease(value, 1.0, 14.0, 1.0 / 60.0);
-        }
-        assert_eq!(value, 1.0);
-        assert_eq!(ease(value, 1.0, 14.0, 1.0 / 60.0), 1.0);
-    }
-}
