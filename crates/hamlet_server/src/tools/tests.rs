@@ -8,7 +8,8 @@ use hamlet_testing::links::symlink;
 use serde_json::{Value, json};
 
 use super::{Outcome, Place, Shells, ToolSession};
-use crate::sandbox::Sandbox;
+use crate::record::AgentRef;
+use crate::sandbox::{AllLeftovers, Sandbox};
 
 /// A house of its own in `scratch`, with no folder.
 fn house(scratch: &Scratch) -> Place {
@@ -37,6 +38,10 @@ async fn call(
         net,
         Sandbox::platform(),
         Shells::local(),
+        AllLeftovers::default().of(&AgentRef {
+            hamlet: "home".into(),
+            number: 0,
+        }),
     )
     .run(&secrets, tool, &args)
     .await

@@ -106,6 +106,12 @@ than the shell's reach: its readable and writable paths, with its own
 folder kept read-only. Its manifest also sets its environment and limits.
 A server without a sandbox does not start.
 
+A command's leftovers, the processes left in its process group, end
+when the server stops and before their agent's house is erased or
+moved. Under bubblewrap they end with their command. Ending them never
+signals another group: the command's own process stays unreaped while
+its leftovers are kept, so no other group can take their group's id.
+
 **C19.** Tools have no network unless a chief turns it on for every agent or
 grants it to one (H11). A command that needs the network says so, and is
 held for a chief while its agent has none.

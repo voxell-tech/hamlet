@@ -62,7 +62,8 @@ _Avoid_: unconfined, no-sandbox mode, unsafe mode
 
 **Leftover**:
 A process an agent's command started that still runs after the command
-ended.
+ended. Under bubblewrap there are none, since the sandbox ends with its
+command.
 _Avoid_: orphan, survivor, lingering process, background job, daemon
 
 ### Running agents

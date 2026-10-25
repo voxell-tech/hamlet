@@ -52,6 +52,21 @@ sandbox, with bounded output, time and resources; cancellation kills their
 process group. A command interrupted around an effect is not automatically
 replayed as a safe transaction.
 
+What a command leaves running in its process group when it ends, its
+leftovers, keeps running under Seatbelt. `papers::Houses` keeps them per
+agent and kills that group when the server stops and before that agent's
+house, or its whole hamlet, is erased or moved. A process that calls
+`setsid` or joins another group is not among them. The kill reaches only
+that group: the server leaves the command's own process unreaped until it
+drops the record, and an id stays taken while its process is unreaped, so
+no other group can take the group's id first. On Linux the server reads
+`/proc` to tell whether the group still has a live process. On macOS it
+asks `killpg`, which skips the unreaped leader. Records of ended groups are
+dropped each time a command ends, which reaps their leaders.
+Under bubblewrap, `--die-with-parent` ends them with their command, since
+the sandbox's init dies with it. A server that crashes, or exits on a
+second signal, leaves Seatbelt's leftovers running.
+
 Server-owned house operations use `papers::Houses` and `papers/tree.rs`.
 They open relative to a retained home or house descriptor
 with no-follow checks, reject special files where regular files are

@@ -12,7 +12,8 @@ use hamlet_protocol::runtime::{
 use serde_json::{Map, Value, json};
 
 use crate::sandbox::{
-    Env, ExecError, Launch, LimitError, Policy, Sandbox,
+    AgentLeftovers, Env, ExecError, Launch, LimitError, Policy,
+    Sandbox,
 };
 use crate::tools::{Outcome, diagnostic};
 
@@ -231,6 +232,7 @@ pub(crate) async fn run(
     sandbox: &Sandbox,
     root: &Path,
     net: bool,
+    leftovers: &AgentLeftovers,
     secrets: &[String],
     name: &str,
     args: &Map<String, Value>,
@@ -284,6 +286,7 @@ pub(crate) async fn run(
             },
             Duration::from_secs(wall),
             secrets,
+            leftovers,
             &mut |part| {
                 if output.len() < 64 * 1024 {
                     let mut end =

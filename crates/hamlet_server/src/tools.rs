@@ -26,7 +26,8 @@ use serde_json::{Map, Value, json};
 
 pub(crate) use self::shell::{Dialect, Shells, runs_once};
 use crate::sandbox::{
-    Env, FileError, Sandbox, SetupError, closed_policy, open_policy,
+    AgentLeftovers, Env, FileError, Sandbox, SetupError,
+    closed_policy, open_policy,
 };
 use crate::scrub::scrub_value;
 
@@ -289,6 +290,7 @@ pub(crate) enum ToolSession {
         net: bool,
         sandbox: Sandbox,
         shells: Shells,
+        leftovers: AgentLeftovers,
     },
     Remote {
         place: Place,
@@ -303,12 +305,14 @@ impl ToolSession {
         net: bool,
         sandbox: Sandbox,
         shells: Shells,
+        leftovers: AgentLeftovers,
     ) -> Self {
         Self::Local {
             place,
             net,
             sandbox,
             shells,
+            leftovers,
         }
     }
 
@@ -333,10 +337,19 @@ impl ToolSession {
         path: &str,
     ) -> Result<Option<String>, FileError> {
         match self {
-            Self::Local { place, sandbox, .. } => {
-                let Ok(mut env) =
-                    environment::Local::open(*sandbox, place, false)
-                        .await
+            Self::Local {
+                place,
+                sandbox,
+                leftovers,
+                ..
+            } => {
+                let Ok(mut env) = environment::Local::open(
+                    *sandbox,
+                    place,
+                    false,
+                    leftovers.clone(),
+                )
+                .await
                 else {
                     return Ok(Some(UNREADABLE.into()));
                 };
@@ -386,10 +399,16 @@ impl ToolSession {
                 net,
                 sandbox,
                 shells,
+                leftovers,
             } if is_built_in(shells, tool) => {
                 let net = *net && shells.named(tool).is_some();
-                match environment::Local::open(*sandbox, place, net)
-                    .await
+                match environment::Local::open(
+                    *sandbox,
+                    place,
+                    net,
+                    leftovers.clone(),
+                )
+                .await
                 {
                     Ok(mut env) => {
                         reach_run(
@@ -408,12 +427,14 @@ impl ToolSession {
                 place,
                 net,
                 sandbox,
+                leftovers,
                 ..
             } => {
                 crate::hand::run(
                     sandbox,
                     &place.home,
                     *net,
+                    leftovers,
                     secrets,
                     tool,
                     arguments,

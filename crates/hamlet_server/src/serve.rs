@@ -241,6 +241,7 @@ pub async fn serve(options: Options) -> Result<()> {
     }
     serving.tasks.abort_all();
     while serving.tasks.join_next().await.is_some() {}
+    serving.service.houses.end_leftovers();
     serving.harnesses.close().await;
     drop(published);
     serving.service.home.close()?;

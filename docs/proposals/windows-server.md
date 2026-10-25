@@ -34,9 +34,10 @@ Windows sandbox is not part of it and is left for later.
 - Agents get two shell tools, `bash` and `powershell`. Linux and macOS
   offer `bash`. Windows offers `powershell` always and `bash` where
   Git for Windows is installed.
-- A command's **leftovers** keep running after it ends. In every mode
-  they end when the server stops, and before their agent's house is
-  erased or moved.
+- Under Seatbelt and on Windows, a command's **leftovers** keep running
+  after it ends. They end when the server stops, and before their
+  agent's house is erased or moved. Under bubblewrap they end with
+  their command.
 - Windows 11 only. A Windows sandbox, most likely Microsoft's MXC
   process containers, waits for a prototype on a real machine.
 
@@ -248,9 +249,10 @@ pub fn reap_with_server() -> io::Result<Reaper>;
 
 The server keeps each agent's `Leftovers` and ends them at two points,
 on every platform: when the server stops, and before that agent's house
-is erased or moved. Under bubblewrap they already die with the server
-through `--die-with-parent`. Under Seatbelt they do not today. On
-Windows the server also joins a kill-on-close job at startup, so its
+is erased or moved. Under bubblewrap there are none:
+`--die-with-parent` ends the sandbox's init, and with it every process
+of the command, when the command ends. Under Seatbelt they ran on
+before this. On Windows the server also joins a kill-on-close job at startup, so its
 leftovers end even when it crashes. On macOS a crashed server cannot
 end them.
 
@@ -416,9 +418,9 @@ A Windows sandbox later is one more `Kind` with its probe and its
   Windows server the chief starts in insecure mode. Then commands and
   hand tools reach whatever the account running the server can. The built-in file tools
   keep the reach above, and the window warns for as long as it runs."
-  It gains the leftovers rule: they keep running after their command,
-  and end when the server stops and before their agent's house is
-  erased or moved.
+  It gains the leftovers rule: they end when the server stops and
+  before their agent's house is erased or moved, and under bubblewrap
+  with their command.
 - **C19.** "Without a sandbox nothing enforces this. The switch decides
   only what waits for a chief."
 - **C21.** Auto mode's "the sandbox is the guard" gains "and without
@@ -450,9 +452,9 @@ Four PRs, each on the one before. Every step is one commit that passes
 2. **Shells and leftovers on Unix.** The shell table, still bash only.
    Leftovers kept per agent and ended at server stop and before a house
    is erased or moved, with the leftovers rule in C18. On Linux this
-   changes only the erase and the move, since bubblewrap already ends
-   leftovers with the server. On macOS it also ends them at server
-   stop.
+   changes nothing a user sees, since bubblewrap ends leftovers with
+   their command. On macOS it ends them at server stop, erase and
+   move.
 3. **The Windows server, in insecure mode.** ADR 0008 and the spec
    first. `hamlet_os::fs` on Windows, junctions included, with
    `cargo xtask cross` and a `windows-latest` job. `hamlet_os::process`
