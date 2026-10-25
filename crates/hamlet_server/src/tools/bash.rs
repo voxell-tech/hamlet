@@ -14,7 +14,7 @@ use super::truncate::{MAX_BYTES, MAX_LINES, Tail};
 use super::{
     Arguments, Outcome, Place, diagnostic, environment, number_words,
 };
-use crate::sandbox::{ExecError, FileKind, Sandbox};
+use crate::sandbox::{ExecError, FileKind, Launch, Sandbox};
 use crate::scrub::scrub_text;
 
 /// Seconds a command may run, which a model can ask to shorten and
@@ -124,7 +124,7 @@ pub(super) async fn run(
     if let Some(wall) = wall {
         let ran = env
             .exec(
-                command,
+                Launch::Shell(command),
                 Duration::from_secs_f64(wall),
                 secrets,
                 &mut |text| kept.push(text),
