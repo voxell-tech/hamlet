@@ -28,6 +28,7 @@ pub enum Action {
     Mayor,
     FinishMerge,
     Character,
+    Looks,
     Limits,
     Guards,
     Model,

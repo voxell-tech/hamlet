@@ -64,6 +64,9 @@ impl Service {
             Edit::Catalogue { model, set, .. } => {
                 return self.edit_catalogue(&model, set);
             }
+            Edit::Looks { wearer, set, .. } => {
+                return self.wear(&wearer, &set);
+            }
         }
         Ok(Ok("Saved.".into()))
     }
@@ -234,7 +237,7 @@ impl Service {
         Ok(Ok("Saved.".into()))
     }
 
-    fn operation(
+    pub(crate) fn operation(
         &self,
         hamlet: &str,
         change: Change,

@@ -249,6 +249,28 @@ fn edits_choose_the_document_and_keep_limits_set_and_whole_distinct()
         }),
         json!({"type": "edit", "id": ID, "doc": "catalogue", "model": "faux/test", "set": {"allowed": true, "note": "Local"}}),
     );
+    client(
+        ClientMessage::Edit(Edit::Looks {
+            id: id(),
+            wearer: Wearer::Agent { agent: address() },
+            set: LooksSet {
+                skin: Some(Some("agent-skin-sakura@1.0.0".into())),
+                emote: Some(None),
+                mesh: None,
+            },
+        }),
+        json!({"type": "edit", "id": ID, "doc": "looks", "wearer": {"agent": {"hamlet": "home", "agent": "mayor"}}, "set": {"skin": "agent-skin-sakura@1.0.0", "emote": null}}),
+    );
+    client(
+        ClientMessage::Edit(Edit::Looks {
+            id: id(),
+            wearer: Wearer::Hamlet {
+                hamlet: "home".into(),
+            },
+            set: LooksSet::default(),
+        }),
+        json!({"type": "edit", "id": ID, "doc": "looks", "wearer": {"hamlet": "home"}, "set": {}}),
+    );
 }
 
 #[test]

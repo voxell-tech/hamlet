@@ -22,6 +22,7 @@ mod harness;
 pub mod harness_driver;
 mod home;
 mod limits;
+mod looks;
 mod market;
 mod models;
 mod operation;

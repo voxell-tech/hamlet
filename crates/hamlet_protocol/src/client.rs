@@ -12,6 +12,7 @@ mod chat;
 mod documents;
 mod gifts;
 mod limits;
+mod looks;
 mod request_id;
 mod settings;
 mod state;
@@ -22,6 +23,7 @@ pub use chat::*;
 pub use documents::*;
 pub use gifts::*;
 pub use limits::*;
+pub use looks::*;
 pub use request_id::*;
 pub use settings::*;
 pub use state::*;
@@ -52,7 +54,8 @@ impl ClientMessage {
                     | EditLimits::Whole { id, .. },
                 )
                 | Edit::Settings { id, .. }
-                | Edit::Catalogue { id, .. },
+                | Edit::Catalogue { id, .. }
+                | Edit::Looks { id, .. },
             )
             | Self::Open(Open { id, .. })
             | Self::Login(
@@ -106,7 +109,7 @@ impl ServerMessage {
 }
 
 /// The value of every `v` field.
-pub const V: u64 = 4;
+pub const V: u64 = 5;
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,

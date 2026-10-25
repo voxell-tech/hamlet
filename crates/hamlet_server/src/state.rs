@@ -159,6 +159,7 @@ pub(crate) fn build(
             mode: work.mode.into(),
             mode_words: work.mode.words().into(),
             limits: (**limits).clone().into(),
+            looks: record.looks.clone().into(),
             budget: service.budget(&record.id)?,
         });
         for agent in record.agents.iter().chain(
@@ -227,6 +228,12 @@ pub(crate) fn build(
                 agent: reference(agent.number),
                 name: agent.name.clone(),
                 purpose: agent.purpose.clone(),
+                looks: record
+                    .worn
+                    .get(&agent.number)
+                    .cloned()
+                    .unwrap_or_default()
+                    .into(),
                 since: u64::try_from(agent.since).with_context(
                     || format!("{}'s start", agent.name),
                 )?,

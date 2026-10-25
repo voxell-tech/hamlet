@@ -603,6 +603,9 @@ impl RecordOperation {
             protection.agent = next;
             target.protected.push(protection);
         }
+        if let Some(looks) = old.worn.remove(&number) {
+            target.worn.insert(next, looks);
+        }
         self.decision(
             old,
             DecisionKind::MovedOut {

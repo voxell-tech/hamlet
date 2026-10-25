@@ -79,6 +79,8 @@ pub enum Refusal {
     Unsettled(crate::market::Unsettled),
     #[error("{0}")]
     Unpacked(crate::market::Unpacked),
+    #[error("{0}")]
+    Unworn(crate::looks::Unworn),
 }
 
 /// A cause for which an operation is refused.

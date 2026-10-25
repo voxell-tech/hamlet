@@ -1,5 +1,7 @@
 //! The hamlet's members, roads, departures and decisions.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use super::By;
@@ -29,6 +31,36 @@ pub struct Agent {
     pub since: i64,
     pub model: Option<String>,
     pub character: String,
+}
+
+/// What an agent or a hamlet wears (H38), each part an official asset
+/// of the Agent Bazaar's server as `id@version`.
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize,
+)]
+pub struct Looks {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skin: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mesh: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emote: Option<String>,
+}
+
+impl Looks {
+    pub fn is_bare(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl From<Looks> for hamlet_protocol::client::Looks {
+    fn from(looks: Looks) -> Self {
+        Self {
+            skin: looks.skin,
+            mesh: looks.mesh,
+            emote: looks.emote,
+        }
+    }
 }
 
 /// A road end tied to an agent or to the office.
@@ -276,6 +308,12 @@ pub struct Hamlet {
     pub limits: Limits,
     pub open_votes: Vec<OpenVote>,
     pub protected: Vec<Protection>,
+    /// What its houses wear.
+    #[serde(default, skip_serializing_if = "Looks::is_bare")]
+    pub looks: Looks,
+    /// What its agents wear, by number.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub worn: BTreeMap<u64, Looks>,
 }
 
 /// A committed road charge, retained after the road is removed.

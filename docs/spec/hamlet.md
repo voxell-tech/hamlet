@@ -36,6 +36,11 @@ its own memory, are kept. A chief can pack an agent, a hamlet or tools
 added by hand to sell there, an agent's notes only when the chief says
 so.
 
+**H38.** A chief can dress an agent's robot or a hamlet's houses in the
+official looks they own at the Agent Bazaar's server: a skin, a mesh and an
+emote each. What each wears is kept with its hamlet, so every window of
+that chief shows it.
+
 **H26.** A chief has these commands:
 
 | Command | Does |

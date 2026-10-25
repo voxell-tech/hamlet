@@ -10,10 +10,12 @@ mod roads;
 #[cfg(test)]
 mod tests;
 
+use std::collections::BTreeMap;
+
 use anyhow::{Context, Result, ensure};
 pub use document::{
     Agent, AgentRef, Amount, Archived, BroughtFile, Decision,
-    DecisionKind, End, Hamlet, InheritedRoad, Limits, Merge,
+    DecisionKind, End, Hamlet, InheritedRoad, Limits, Looks, Merge,
     MergeFiles, MergeNotes, OpenVote, Protection, Road, RoadBudget,
     RoadCharge,
 };
@@ -166,6 +168,16 @@ pub enum Departure {
     },
 }
 
+/// Whose looks a [`Change::SetLooks`] sets: the hamlet's houses, or
+/// one of its agents by number.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+pub enum Wearer {
+    Hamlet,
+    Agent(u64),
+}
+
 /// The record's transactional operations.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Change {
@@ -203,6 +215,11 @@ pub enum Change {
     SetCharacter {
         number: u64,
         text: String,
+    },
+    /// What the hamlet or one of its agents wears.
+    SetLooks {
+        wearer: Wearer,
+        looks: Looks,
     },
     SetLimits {
         limits: Limits,
@@ -265,6 +282,7 @@ impl Change {
             Self::Seat { .. } => Action::Seat,
             Self::FinishMerge { .. } => Action::FinishMerge,
             Self::SetCharacter { .. } => Action::Character,
+            Self::SetLooks { .. } => Action::Looks,
             Self::SetLimits { .. } => Action::Limits,
             Self::SetModel { .. } => Action::Model,
             Self::RefuseRoad { .. } => Action::RefuseRoad,
@@ -580,6 +598,7 @@ impl Operation for RecordOperation {
                 | Change::TakeUpRoad { .. }
                 | Change::FinishMerge { .. }
                 | Change::SetCharacter { .. }
+                | Change::SetLooks { .. }
                 | Change::SetLimits { .. }
                 | Change::SetGuards { .. }
                 | Change::Erase { .. }
@@ -748,6 +767,38 @@ impl Operation for RecordOperation {
                     })),
                 }
             }
+            Change::SetLooks {
+                wearer: Wearer::Hamlet,
+                looks,
+            } => {
+                record.looks = looks.clone();
+                Ok(RecordResult::Changed)
+            }
+            Change::SetLooks {
+                wearer: Wearer::Agent(number),
+                looks,
+            } => {
+                match record
+                    .agents
+                    .iter()
+                    .any(|a| a.number == *number)
+                {
+                    true => {
+                        if looks.is_bare() {
+                            record.worn.remove(number);
+                        } else {
+                            record
+                                .worn
+                                .insert(*number, looks.clone());
+                        }
+                        Ok(RecordResult::Changed)
+                    }
+                    false => Err(self.refuse(Reason::AgentMissing {
+                        name: format!("#{number}"),
+                        local: true,
+                    })),
+                }
+            }
             Change::SetLimits { limits, runs } => {
                 if let Some(budget) = &limits.road_budget {
                     ensure!(
@@ -905,6 +956,8 @@ impl Operation for FoundRecord {
             limits: Limits::default(),
             open_votes: Vec::new(),
             protected: Vec::new(),
+            looks: Looks::default(),
+            worn: BTreeMap::new(),
         };
         save(db, &record)?;
         Ok(Outcome::Done(AgentRef {

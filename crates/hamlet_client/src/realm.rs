@@ -52,6 +52,10 @@ pub struct Works {
     pub words: String,
 }
 
+/// What an agent or a hamlet's houses wear.
+#[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
+pub struct Outfit(pub protocol::Looks);
+
 /// The chief's received limits for a hamlet.
 #[derive(Component, Clone, Debug, PartialEq)]
 pub struct Bylaws(pub protocol::Limits);
@@ -299,6 +303,7 @@ pub fn register(world: &mut World) {
     world.register_component::<Works>();
     world.register_component::<Bylaws>();
     world.register_component::<Treasury>();
+    world.register_component::<Outfit>();
     world.register_component::<AgentNumber>();
     world.register_component::<Purpose>();
     world.register_component::<Lived>();
@@ -507,6 +512,7 @@ fn upsert_hamlet(
     );
     put(&mut entity_mut, Bylaws(value.limits));
     put(&mut entity_mut, Treasury(value.budget));
+    put(&mut entity_mut, Outfit(value.looks));
     put(
         &mut entity_mut,
         Spot(value.at.map(|at| (at.x as f32, at.z as f32))),
@@ -529,6 +535,7 @@ fn upsert_agent(
     put(&mut agent, Name::new(value.name));
     put(&mut agent, Purpose(value.purpose));
     put(&mut agent, HouseSkills(value.skills));
+    put(&mut agent, Outfit(value.looks));
     put(
         &mut agent,
         Lived {

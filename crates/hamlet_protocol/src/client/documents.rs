@@ -4,8 +4,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::client::{
-    Address, Bought, Endpoint, Listed, PackableTool, PackagePart,
-    Packing, Past, Price, RequestId, Skill,
+    Address, Bought, Endpoint, Listed, LooksSet, PackableTool,
+    PackagePart, Packing, Past, Price, RequestId, Skill, Wearer,
 };
 
 #[derive(
@@ -40,6 +40,13 @@ pub enum Edit {
         id: RequestId,
         model: String,
         set: EditCatalogueSet,
+    },
+    /// Changes what an agent or a hamlet wears.
+    #[serde(rename = "looks")]
+    Looks {
+        id: RequestId,
+        set: LooksSet,
+        wearer: Wearer,
     },
 }
 

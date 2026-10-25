@@ -6,7 +6,7 @@ Hamlet's server. There is no HTTP API. The wire carries JSON messages.
 The contract is the Rust types in
 [`hamlet_protocol::client`](../crates/hamlet_protocol/src/client.rs), one
 module per area: `state`, `chat`, `waits`, `gifts`, `documents`, `limits`,
-`settings` and `bazaar`.
+`settings`, `bazaar` and `looks`.
 The names below, such as `Hello` and `ClientMessage`, are their type names.
 The handshake's `v` is the protocol's version, `V`; it moves whenever the
 schema does: a message's shape or a type's name.
@@ -27,7 +27,7 @@ to loopback. Keep the token private; plain WebSocket supplies no encryption.
 Send `Hello` first, within 10 seconds:
 
 ```json
-{"type":"hello","v":3,"token":"<home token>"}
+{"type":"hello","v":4,"token":"<home token>"}
 ```
 
 A successful hello receives a full `state` before live changes. The
@@ -102,7 +102,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 
 | Type (schema) | Fields | Action and answer |
 |---|---|---|
-| `hello` (`Hello`) | `v: 3`, `token: string`; no `id` | Authenticate; full `state`. |
+| `hello` (`Hello`) | `v: 4`, `token: string`; no `id` | Authenticate; full `state`. |
 | `say` (`Say`) | `to: Address`, `text: string` | Send a chief line or typed command. A command gets `reply`; an admitted agent line gets its receipt when that submission settles. Live work arrives through watches and realm changes. |
 | `give` (`Give`) | `to: Address`, `files: {path: string, size: integer}[]` | Begin a file gift; `reply.upload` identifies the upload for chunks. Paths are relative; sizes are byte counts. |
 | `give` (`Give`) | `to: Address`, `skill: {starter: string}` | Give an installed starter skill; `reply`. |
@@ -166,6 +166,7 @@ Each row is an `Edit` form with `type: "edit"` and `id`.
 | `limits` | `hamlet: string`, `reason?: string`, `whole: object` | Replace the limits document, with defaults for omitted entries. |
 | `settings` | `set: {model?: string, reflectEvery?: integer, allowNet?: boolean, endpoints?: Endpoint[], workspace?: {url: string, token: string} \| null}` | Change only the supplied settings. `workspace` chooses a remote workspace, or the local one for `null`; the server keeps it with its credentials and works in it from its next start. |
 | `catalogue` | `model: string`, `set: {allowed?: boolean, price?: Price \| null, note?: string}` | Change a catalogue entry; `price: null` clears its price override. |
+| `looks` | `wearer: {agent: Address} \| {hamlet: string}`, `set: {skin?: string \| null, mesh?: string \| null, emote?: string \| null}` | Put on what each part names, or take it off for `null`. See [Looks](#looks). |
 
 ### Read documents
 
@@ -184,8 +185,9 @@ Each row is a `Read` form with `type: "read"` and `id`.
 
 ### The Agent Bazaar
 
-What the chief brings home from the Agent Bazaar, and what they pack to
-sell there ([Packages](#packages)). `take-skill` and `found-from` are
+What the chief brings home from the Agent Bazaar, what they pack to
+sell there ([Packages](#packages)), and what agents and hamlets wear
+([Looks](#looks)). `take-skill` and `found-from` are
 answered by a `reply`, and both are kept with a marker under the
 request's `id`: the same request sent again gets the same answer and
 changes nothing more, and another request under a used `id` is refused.
@@ -217,6 +219,25 @@ their purposes and characters, and its title are then recorded
 together; each house is made and given its notes and skills. The new
 hamlet is the chief's, and comes to every client as the state changes.
 `realm/deeds.rs` owns it.
+
+#### Looks
+
+What an agent's robot and a hamlet's houses wear: official assets of
+the bazaar's server, each named by its id and version, `id@version`,
+such as `agent-skin-sakura@1.0.0`. The id says who wears it and as what:
+`<agent|hamlet>-<skin|mesh|emote>-<name>`, in lowercase letters, digits
+and hyphens. A `skin` colours the robot or houses, a `mesh` replaces
+their shape and an `emote` is an animation they play now and then.
+
+A `looks` edit changes the parts its `set` names, and leaves the others
+as they are; wearing the same again changes nothing. An asset whose id
+does not fit the part and the wearer, and a name of another form, are
+refused, as are a hamlet or an agent the chief cannot edit. The server
+cannot see what the chief owns at the bazaar's server; the window offers
+only what is owned, and fetches each worn asset's file from there. What
+is worn is kept in the hamlet's record and comes in the state as
+`looks: {skin?, mesh?, emote?}` on `Agent` and `Hamlet`, left out when
+nothing is worn. `looks.rs` owns it.
 
 #### Packages
 
@@ -308,7 +329,8 @@ is another machine.
 
 `Agent` is a summary: identity, name, purpose, model, mayor flag, busy and
 fault flags, activity, short saying, spend, skills, consultation and peer
-conversation summaries, and `left?` once it has left. It contains no
+conversation summaries, `looks?` when it wears any, and `left?` once it
+has left. It contains no
 transcript. `Hamlet`, `Wait`, `Grant`, `SettingsView` and `ProviderView`
 are the complete views defined in `hamlet_protocol`. `SettingsView.workspace`
 is `{url, running, move?}`: the remote workspace chosen and the

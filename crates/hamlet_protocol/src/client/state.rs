@@ -5,7 +5,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::client::{
-    Limits, Period, Permission, ProviderView, SettingsView, Wait,
+    Limits, Looks, Period, Permission, ProviderView, SettingsView,
+    Wait,
 };
 
 #[derive(
@@ -180,6 +181,9 @@ pub struct Agent {
     #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "Left")]
     pub left: Option<Left>,
+    /// What it wears, left out when it wears nothing.
+    #[serde(default, skip_serializing_if = "Looks::is_bare")]
+    pub looks: Looks,
     pub mayor: bool,
     pub model: String,
     pub name: String,
@@ -323,6 +327,9 @@ pub struct Hamlet {
     pub folder: Option<String>,
     pub id: String,
     pub limits: Limits,
+    /// What its houses wear, left out when they wear nothing.
+    #[serde(default, skip_serializing_if = "Looks::is_bare")]
+    pub looks: Looks,
     pub mode: HamletMode,
     #[serde(rename = "modeWords")]
     pub mode_words: String,

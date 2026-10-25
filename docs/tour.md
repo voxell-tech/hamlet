@@ -161,6 +161,7 @@ fault points, signals, remote workspaces and the society) and
 | `society.rs`, `society/` | `SocietyTool` names each society tool, its role and schema, and `SocietyOutcome` is what one returns, which `once` keeps at its marker; letters/questions, instructions/objections, votes, library and recoverable merge/departure work. The sweeps run on the ticks that rebuild the state, and read only due votes and reviews; finished ones are kept under `votes-done` and `review-done` |
 | `realm.rs`, `realm/` | Living/closed places, cross-hamlet addresses, founding (from a template too), agreements and pending house moves |
 | `market.rs`, `market/` | Packages of the Agent Bazaar's server: a package bought settled into the home as its parts come (`settle.rs`), what was bought, and an agent, a hamlet or hand-added tools packed for sale (`pack.rs`); `package.rs` checks a package as that server does |
+| `looks.rs` | What agents and hamlets wear (H38): a `looks` edit checks each asset's form and keeps it in the hamlet's record (`Hamlet::looks`, `Hamlet::worn` by agent number) |
 | `testing.rs` | For unit tests: `config`, a harness configuration that starts nothing, and `set_limits`, which writes a hamlet's limits |
 | `state.rs` | Composes protocol state from the owning records and live activity, with the instant one of its views next changes with the clock alone; `skills_moved` tells whether skills on disk differ from the state's |
 
