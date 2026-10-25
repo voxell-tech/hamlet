@@ -167,11 +167,10 @@ fn add_fades(
     theme: Option<Res<Theme<HamletTheme>>>,
     mut commands: Commands,
 ) {
-    let Some(theme) = theme else {
-        return;
-    };
     let area = added.entity;
-    let depth = theme.0.space.scroll_fade;
+    // The panels are made before the theme has loaded: their fades
+    // wait with no depth, and `fade` sizes them once it has.
+    let depth = theme.map_or(0.0, |theme| theme.0.space.scroll_fade);
     let fades = Edge::ALL.map(|edge| {
         commands
             .spawn((
