@@ -21,6 +21,7 @@ sixth stall, LOOKS.
 | What a hamlet's houses wear, and the hamlet each town is | `hamlet_realm/src/generator/attire.rs`, `hamlet/wearing.rs` |
 | What an agent's robot wears, and the agent each robot is | `hamlet_realm/src/keeper/wear.rs`, `hamlet/wearer.rs` |
 | The LOOKS stall, the fitting and the files downloaded | `hamlet_app/src/screens/bazaar/wardrobe.rs`, `wardrobe/`, `view/wardrobe.rs`, `view/wardrobe/` |
+| A look shown in the viewer, worn by a robot or a house | `hamlet_realm/src/viewer/dummy.rs` (`Dummy`); fetched by `hamlet_app/src/screens/bazaar/wardrobe/viewing.rs` |
 | The costumier's booth in the world | `hamlet_realm/src/bazaar/build/stall/costumier.rs` |
 | The baker | `voxell-tech/private-hamlet-assets`, private |
 
@@ -291,17 +292,21 @@ bazaar's server, or SIGN OUT beside who is signed in.
   by its kind. A row is its title and price, its summary and what it is
   (Skin for agents), and You own this or Worn in the accent.
 - **An asset's page** has its title over its summary, what it is and its
-  version; its pictures on a turntable, with LEFT, SPIN and RIGHT under
-  them; then its price and BUY FOR, GET IT FOR FREE or SIGN IN while it
-  is not the chief's, or once it is, Goes on, the choice of who wears
+  version; the asset in the viewer, with RESET and BIGGER or SMALLER
+  under it; then its price and BUY FOR, GET IT FOR FREE or SIGN IN while
+  it is not the chief's, or once it is, Goes on, the choice of who wears
   it, and WEAR IT; then WORN BY, each who wears it with TAKE OFF, and
   how its file stands.
-- **The turntable.** An asset has `frames` pictures turned evenly about
-  it, at `previewUrl` with `{frame}` filled in, fetched as the listings'
-  covers are (`covers.rs`): the one shown and the first, or all of them
-  while it spins. SPIN shows the next that came every `turn_step` of
-  `[bazaar]` in `assets/ui.toml`, and keeps the window drawing while it
-  turns.
+- **The viewer.** Opening an asset's page fetches its file veiled
+  (`GET /v1/assets/:id/view`, signed in or not) and unveils it in memory
+  (`wardrobe/viewing.rs`); nothing is written to disk. The realm's own
+  robot, or a house for a hamlet's look, wears it on a round stand
+  (`viewer::Dummy`), read through `dress::try_on` as worn looks are, a
+  mesh through the `wardrobe://` source under its own name. A skin or a
+  mesh is seen worn; an agent's clip plays over and over; a hamlet's emote
+  hangs about the house. Dragging turns it, the wheel brings it nearer,
+  and left alone it turns by itself; the tuning is `[viewer]` in
+  `assets/world.toml`. Leaving the page lets the file go.
 - **Buying.** BUY FOR, or GET IT FOR FREE, asks the server
   (`POST /v1/assets/:id/purchase`): a free asset, or one owned already
   (`409`), is the chief's at once; a paid one opens Stripe's page and is
@@ -330,8 +335,9 @@ bazaar's server, or SIGN OUT beside who is signed in.
   named worn.
 
 `cargo run --example ui_gallery -- --scene looks` (and `looks-asset`,
-`looks-asset-owned`, `looks-fitting`, `looks-fitting-one`) draws the
-stall, an asset's page and the fitting.
+`looks-asset-bigger`, `looks-asset-emote`, `looks-asset-mesh`, `looks-asset-owned`,
+`looks-fitting`, `looks-fitting-one`) draws the stall, an asset's page
+and the fitting; the files viewed are given by hand.
 
 ## Baking the official assets
 

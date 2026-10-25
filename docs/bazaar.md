@@ -72,6 +72,14 @@ on a plinth: the realm stands it apart from the world and draws it into a
 picture (`hamlet_realm/src/diorama.rs`, `Dioramas`), only while the
 picture is in sight.
 
+A look's page shows it in the viewer: one subject stood apart from the
+world in the same way, which the chief turns by dragging and brings nearer
+with the wheel, with RESET and BIGGER or SMALLER under it. The realm's
+side is `hamlet_realm/src/viewer.rs` (`Viewer`, any `Subject`), the
+panel's `hamlet_app/src/viewer.rs`; it draws only while it is in
+sight, and turns by itself once left alone for `[viewer] idle` seconds
+(`assets/world.toml`).
+
 ## The market
 
 The bazaar's server is a separate service: chiefs sign in with GitHub
