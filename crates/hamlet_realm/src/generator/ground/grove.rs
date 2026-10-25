@@ -12,7 +12,7 @@ pub enum Stand {
     /// Each as itself.
     Trees,
     /// One mesh for one tree in `every`, as crowns or as specks.
-    Canopy { every: u64, crowns: bool },
+    Canopy { every: u32, crowns: bool },
 }
 
 impl Stand {

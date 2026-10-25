@@ -68,7 +68,7 @@ use crate::sky::{Quality, SkySettings};
 /// in the file.
 #[derive(Resource, Clone)]
 pub struct Origin {
-    pub seed: u64,
+    pub seed: u32,
     pub settings: GeneratorSettings,
 }
 

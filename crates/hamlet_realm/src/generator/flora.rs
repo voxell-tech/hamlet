@@ -104,7 +104,7 @@ pub fn trees(
     land: &Land,
     lo: Vec2,
     hi: Vec2,
-    every: u64,
+    every: u32,
 ) -> Vec<Tree> {
     let (cell, origin) =
         (land.set.land.tree_cell, land.set.land.tree_origin);
@@ -114,11 +114,11 @@ pub fn trees(
     let mut out = Vec::new();
     for cx in first.x as i32..=last.x as i32 {
         for cz in first.y as i32..=last.y as i32 {
-            let h = key(&[land.seed, 71, cx as u64, cz as u64]);
+            let h = key(&[land.seed, 71, cx as u32, cz as u32]);
             if every > 1 && !key(&[h, 8]).is_multiple_of(every) {
                 continue;
             }
-            let roll = |salt: u64| unit(key(&[h, salt]));
+            let roll = |salt: u32| unit(key(&[h, salt]));
             let p = Vec2::new(
                 (cx as f32 + roll(0)) * cell + origin,
                 (cz as f32 + roll(1)) * cell + origin,

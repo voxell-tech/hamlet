@@ -185,7 +185,7 @@ fn tiles_share_no_tree_and_far_ones_hold_fewer() {
         x: 2,
         z: 1,
     };
-    let count = |every: u64| {
+    let count = |every: u32| {
         let lo = wood.corner(chunk);
         flora::trees(&land, lo, lo + wood.side(chunk), every).len()
     };
