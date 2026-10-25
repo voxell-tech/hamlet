@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="brand/hamlet-logo-wordmark-transparent.png">
-    <img src="brand/hamlet-logo-wordmark-transparent-light.png" alt="Hamlet" width="280">
+    <source media="(prefers-color-scheme: dark)" srcset="brand/hamlet-logo-transparent.png">
+    <img src="brand/hamlet-logo-light-transparent.png" alt="Hamlet" width="280">
   </picture>
 </p>
 
