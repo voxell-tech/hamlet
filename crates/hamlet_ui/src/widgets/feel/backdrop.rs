@@ -22,8 +22,8 @@ use crate::theme::Themed;
 
 /// How far the lamp's light reaches down from the panel's top, and
 /// the flash's, in logical pixels.
-const LAMP_DEEP: f32 = 240.0;
-const FLASH_DEEP: f32 = 130.0;
+const LAMP_DEEP: f32 = 110.0;
+const FLASH_DEEP: f32 = 60.0;
 
 /// The pool of a light is this many times as far as it is deep, so
 /// that it has faded out at its end.
@@ -137,7 +137,7 @@ pub(super) fn light(
             // Brightest close under the lamp, and thin over the rest.
             lights.push(lamp_pool(LAMP_DEEP, |near| {
                 let glow = near * call;
-                let strength = (glow * 0.13 + glow * glow * 0.14)
+                let strength = (glow * 0.07 + glow * glow * 0.07)
                     .clamp(0.0, 1.0);
                 colors
                     .alarm
@@ -147,7 +147,7 @@ pub(super) fn light(
         }
         if flash > 0.0 {
             lights.push(lamp_pool(FLASH_DEEP, |near| {
-                colors.flash.with_alpha(flash * flash * near * 0.22)
+                colors.flash.with_alpha(flash * flash * near * 0.12)
             }));
         }
         commands
