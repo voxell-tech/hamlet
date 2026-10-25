@@ -34,7 +34,9 @@ pub fn symlink(
 pub fn remove(link: impl AsRef<Path>) -> io::Result<()> {
     let link = link.as_ref();
     #[cfg(windows)]
-    if std::fs::symlink_metadata(link)?.is_dir() {
+    if std::os::windows::fs::FileTypeExt::is_symlink_dir(
+        &std::fs::symlink_metadata(link)?.file_type(),
+    ) {
         return std::fs::remove_dir(link);
     }
     std::fs::remove_file(link)

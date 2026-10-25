@@ -6,7 +6,7 @@
 #![expect(unsafe_code, reason = "the Win32 job and thread calls")]
 
 use std::os::windows::io::{
-    AsRawHandle as _, HandleOrInvalid, HandleOrNull,
+    AsRawHandle as _, BorrowedHandle, HandleOrInvalid, HandleOrNull,
     IntoRawHandle as _, OwnedHandle, RawHandle,
 };
 use std::process::{ExitStatus, Stdio};
@@ -41,6 +41,10 @@ pub(crate) struct Group {
     leader: Child,
     /// tokio forgets the id once the leader has been waited for.
     leader_id: u32,
+    /// The leader's own handle, which tokio closes once it has
+    /// waited for it. Held, it keeps the leader's id from another
+    /// process.
+    _holds_id: OwnedHandle,
 }
 
 impl Group {
@@ -186,6 +190,9 @@ pub(crate) fn spawn(
     else {
         unreachable!("a leader that has not run has not exited");
     };
+    // SAFETY: the handle is the leader's, open while `leader` lives.
+    let holds_id = unsafe { BorrowedHandle::borrow_raw(handle) }
+        .try_clone_to_owned()?;
     job.assign(handle)?;
     resume(leader_id)?;
     let (Some(stdout), Some(stderr)) =
@@ -198,6 +205,7 @@ pub(crate) fn spawn(
             job,
             leader,
             leader_id,
+            _holds_id: holds_id,
         },
         stdout,
         stderr,
