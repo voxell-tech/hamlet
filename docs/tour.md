@@ -160,6 +160,7 @@ fault points, signals, remote workspaces and the society) and
 | `spend.rs` | Budget reservations and usage charges deduplicated by model attempt, plus agent/task/hamlet accounting |
 | `society.rs`, `society/` | `SocietyTool` names each society tool, its role and schema, and `SocietyOutcome` is what one returns, which `once` keeps at its marker; letters/questions, instructions/objections, votes, library and recoverable merge/departure work. The sweeps run on the ticks that rebuild the state, and read only due votes and reviews; finished ones are kept under `votes-done` and `review-done` |
 | `realm.rs`, `realm/` | Living/closed places, cross-hamlet addresses, founding (from a template too), agreements and pending house moves |
+| `market.rs`, `market/` | Packages of the Agent Bazaar's server: a package bought settled into the home as its parts come (`settle.rs`), what was bought, and an agent, a hamlet or hand-added tools packed for sale (`pack.rs`); `package.rs` checks a package as that server does |
 | `testing.rs` | For unit tests: `config`, a harness configuration that starts nothing, and `set_limits`, which writes a hamlet's limits |
 | `state.rs` | Composes protocol state from the owning records and live activity, with the instant one of its views next changes with the clock alone; `skills_moved` tells whether skills on disk differ from the state's |
 
@@ -210,6 +211,7 @@ ordinary tools.
 | Founding and cross-hamlet agreements | `hamlet_server/src/realm/deeds.rs`, `dealings.rs`; a hamlet founded from a template is `realm::found_from` |
 | Skills the chief takes into the library | `hamlet_server/src/society/library.rs` (`take`) |
 | The Agent Bazaar's panel, its stalls and fetches | `hamlet_app/src/screens/bazaar.rs`, `bazaar/`; [`bazaar.md`](bazaar.md) |
+| Buying and selling at the bazaar's server | `hamlet_app/src/screens/bazaar/market.rs`, `market/`, `view/trade.rs`, `view/desk.rs`; the home's side in `hamlet_server/src/market.rs` |
 | The Agent Bazaar in the world, and dioramas | `hamlet_realm/src/bazaar.rs`, `bazaar/`, `diorama.rs` |
 | A prompt or chief document | `hamlet_server/src/prompt/`, `documents.rs`; default charter in `hamlet_server/assets/charter.md` |
 | A model connection, login or price | `hamlet_server/src/models.rs`, `credentials.rs`; provider implementation in pi |

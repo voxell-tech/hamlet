@@ -16,11 +16,13 @@ development. `crates/hamlet_server/src/home.rs` defines `Home` and `Layout`.
 | `houses/<hamlet>/<number>/` | Agent files: `NOTES.md`, `skills/`, `inbox/` |
 | `library/` | Shared skills, read-only to agent tools |
 | `librarian/NOTES.md` | Instructions included in librarian consultations |
-| `tools/` | Hand-added tool manifests and scripts |
+| `tools/` | Hand-added tool manifests and scripts, and tools bought at the Agent Bazaar |
 | `.gifts/`, `.society-files/`, `.library-staging/` | Private staging and recoverable file snapshots, outside agents' reach |
 
 The server reads `tools/` again every two seconds, so a tool a chief puts
-there by hand reaches the agents within that.
+there by hand reaches the agents within that. What was bought at the
+Agent Bazaar is kept in the store beside the chief's documents
+([`bazaar.md`](bazaar.md#the-market)).
 
 The first hamlet is `home`, its founder agent 0, named `founder`.
 `mayor` addresses the current office. Characters are server records;

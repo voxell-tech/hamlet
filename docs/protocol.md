@@ -184,10 +184,11 @@ Each row is a `Read` form with `type: "read"` and `id`.
 
 ### The Agent Bazaar
 
-What the chief brings home from the Agent Bazaar. Both are answered by a
-`reply`, and both are kept with a marker under the request's `id`: the
-same request sent again gets the same answer and changes nothing more,
-and another request under a used `id` is refused.
+What the chief brings home from the Agent Bazaar, and what they pack to
+sell there ([Packages](#packages)). `take-skill` and `found-from` are
+answered by a `reply`, and both are kept with a marker under the
+request's `id`: the same request sent again gets the same answer and
+changes nothing more, and another request under a used `id` is refused.
 
 `take-skill` shelves a skill in the library, recorded as the chief's,
 `Brought from <from>`. `name` is its folder, in letters, digits, hyphens
