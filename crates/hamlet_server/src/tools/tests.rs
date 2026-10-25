@@ -36,7 +36,7 @@ async fn call(
     ToolSession::local(
         place.clone(),
         net,
-        Sandbox::platform(),
+        Sandbox::testing(),
         Shells::local(),
         AllLeftovers::default().of(&AgentRef {
             hamlet: "home".into(),

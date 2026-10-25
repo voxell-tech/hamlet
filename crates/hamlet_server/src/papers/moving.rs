@@ -78,8 +78,9 @@ impl Service {
             })
             .collect::<Vec<_>>();
         let root = self.home.layout().root();
-        let source = Houses::open(root, from.cloned())?;
-        let target = Houses::open(root, to.clone())?;
+        let isolation = self.overrides.isolation;
+        let source = Houses::open(root, from.cloned(), isolation)?;
+        let target = Houses::open(root, to.clone(), isolation)?;
         let of = i64::try_from(agents.len())
             .context("the number of houses to move")?;
         let (progress, receiver) =

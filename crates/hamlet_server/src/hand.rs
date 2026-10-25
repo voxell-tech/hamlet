@@ -175,7 +175,7 @@ fn parse(
             .map(|path| PathBuf::from(resolve(&text(dir), path)))
             .collect::<Vec<_>>()
     };
-    let mut env = Sandbox::platform().base_env();
+    let mut env = crate::sandbox::base_env();
     env.extend(sandbox["env"].as_object().into_iter().flatten().map(
         |(key, value)| {
             (
@@ -329,7 +329,7 @@ pub(crate) async fn run(
         details: Some(Map::from_iter([
             ("exitCode".into(), json!(exit)),
             ("policy".into(), json!(env.policy_hash())),
-            ("degraded".into(), json!(false)),
+            ("degraded".into(), env.degraded()),
         ])),
         diagnostics,
     }

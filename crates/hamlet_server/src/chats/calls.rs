@@ -669,12 +669,10 @@ fn prompt(
     );
     let instructions =
         records::instructions(service.db(), &agent.hamlet)?;
-    let sandbox = service.chats.sandbox.name().to_owned();
     let subject = crate::prompt::Subject {
         hamlet: &agent.hamlet,
         number: i64::try_from(agent.number)?,
         model: (!model.is_empty()).then_some(model.as_str()),
-        sandbox: &sandbox,
         instructions: &instructions,
         task: task.as_deref(),
         conversation: Some(binding),

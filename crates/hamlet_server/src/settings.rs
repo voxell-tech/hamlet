@@ -10,6 +10,7 @@ use url::Url;
 
 use crate::credentials::WorkspaceAddress;
 use crate::protocol::{Refusable, Refusal};
+use crate::sandbox::Isolation;
 use crate::service::{document, save};
 
 /// The home's settings, as the chief saved them.
@@ -84,8 +85,9 @@ pub(crate) fn keep(
 const FAUX_MODEL: &str = "faux::faux-1";
 
 /// What the process puts over the saved settings: the environment's
-/// variables, read once when the server starts, and the faux model
-/// in place of the home's when its models are faux.
+/// variables, read once when the server starts, the faux model in
+/// place of the home's when its models are faux, and the isolation
+/// the chief started it with.
 #[derive(Clone)]
 pub struct Overrides {
     /// Whether the home's models are faux.
@@ -95,6 +97,7 @@ pub struct Overrides {
     reflect_every: Option<u64>,
     allow_net: Option<bool>,
     pub(crate) workspace: Option<WorkspaceAddress>,
+    pub(crate) isolation: Isolation,
 }
 
 impl Overrides {
@@ -110,12 +113,16 @@ impl Overrides {
             reflect_every: None,
             allow_net: None,
             workspace: None,
+            isolation: Isolation::TESTING,
         }
     }
 
     /// The overrides the environment gives, with the faux model over
     /// `HAMLET_MODEL` when `faux`.
-    pub fn from_env(faux: bool) -> Result<Self> {
+    pub fn from_env(
+        faux: bool,
+        isolation: Isolation,
+    ) -> Result<Self> {
         let get =
             |key| std::env::var(key).ok().filter(|v| !v.is_empty());
         let reflect_every = match get("HAMLET_REFLECT_EVERY") {
@@ -158,6 +165,7 @@ impl Overrides {
                      neither is."
                 ),
             },
+            isolation,
         })
     }
 

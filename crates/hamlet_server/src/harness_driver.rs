@@ -66,7 +66,10 @@ struct Driver {
 )]
 async fn drive(dir: PathBuf, faux: Option<PathBuf>) -> Result<()> {
     let mut credentials = Credentials::open(&dir)?;
-    let overrides = Overrides::from_env(faux.is_some())?;
+    let overrides = Overrides::from_env(
+        faux.is_some(),
+        crate::sandbox::Isolation::Sandboxed,
+    )?;
     let mut service =
         Service::new(Home::open(&dir)?, overrides.clone())?;
     let layout = service.home.layout().clone();
