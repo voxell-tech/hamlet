@@ -81,7 +81,7 @@ jobs:
 
   # Faux and loopback providers only. `cargo xtask test` runs the doc
   # tests too.
-  test:
+  test-linux:
     # This image permits bubblewrap's unprivileged user namespaces.
     runs-on: ubuntu-22.04
     steps:
