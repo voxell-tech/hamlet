@@ -58,6 +58,9 @@ account running the server can (C18). Linux and macOS refuse the flag
 before they start anything. `server.json` names the running server's
 confinement, and bare `hamlet`, which reuses whatever server runs, prints
 "Attached to a server in insecure mode." when it reuses one in that mode.
+On Windows, `hamlet stop` ends the server's process, since Windows has no
+signal another console can send a background process. The job the server
+runs in then ends pi and every command with it.
 
 ## Typed commands
 
