@@ -78,6 +78,8 @@ fn main() -> Result<()> {
     let kept = Kept::read(&view)?;
     let rt = tokio::runtime::Runtime::new()?;
     let mut app = App::new();
+    // Before the asset plugin, which reads every source.
+    hamlet_realm::dress::register_source(&mut app);
     app.insert_resource(Tokio(rt.handle().clone()))
         .insert_resource(ViewFolder(view))
         .insert_resource(remembered)

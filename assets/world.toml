@@ -152,6 +152,8 @@ amble = 1.0
 turn_rate = 12.0
 roll_above = 1.6
 roll_ease = 0.3
+emote_blend = 0.3
+emote_spread = 0.5
 
 [house_motion]
 rise = 0.6
@@ -338,6 +340,22 @@ soil = 1.1
 base = 0.8
 lip = 0.45
 trees = 11
+[attire]
+puff_life = 3.2
+puffs = 10
+lantern_radius = 0.11
+lantern_height = 0.24
+lantern_string = 0.14
+lanterns = 8
+sway_speed = 1.7
+lantern_glow = 2.5
+petals = 14
+fireflies = 8
+firefly_reach = 0.7
+pinwheels = 3
+pinwheel_radius = 0.22
+pinwheel_stick = 0.42
+firefly_day = 0.35
 
 [sound]
 muted = false

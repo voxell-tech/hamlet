@@ -4,6 +4,8 @@
 //! Every still: `cargo run --example chief_sheet`
 //! Into a folder: `cargo run --example chief_sheet -- --out <dir>`
 //! The bazaar's alone: `cargo run --example chief_sheet -- --bazaar`
+//! A hamlet and an agent wearing looks:
+//! `cargo run --example chief_sheet -- --looks`
 
 #[path = "../common/offscreen.rs"]
 mod offscreen;
@@ -16,8 +18,9 @@ use bevy::time::TimeUpdateStrategy;
 use hamlet_client::ViewFolder;
 use hamlet_client::realm::{
     AgentNumber, Consulted, HOME, HamletId, Lived, LivesIn, Mayor,
-    Treasury,
+    Outfit, Treasury,
 };
+use hamlet_protocol::client::Looks as Outfitted;
 use hamlet_realm::bazaar::{
     Bazaar, Booth, Merchant, Pitched, Stall, Traded,
 };
@@ -26,9 +29,11 @@ use hamlet_realm::chief::{
     self, Beside, ChiefSettings, Cloak, Hat, Holds, Kept, Light,
     Look, Mascot, Phase, Place, Settled,
 };
+use hamlet_realm::dress::{self, Glb, Looks, PlayEmote};
 use hamlet_realm::generator::{Loading, Robot};
 use hamlet_realm::hamlet::Housed;
 use hamlet_realm::library::{Librarian, Library, Stood};
+use hamlet_realm::meshes::Meshing;
 use hamlet_realm::pick::{Centre, Glide, Orbit, Selected, Thing};
 use hamlet_realm::sky::{CameraSettings, SkySettings};
 use hamlet_realm::{
@@ -87,6 +92,8 @@ enum Do {
     /// Chooses a stall, and sends the chief's mascot to it; or
     /// chooses nothing, and sends it home.
     Visit(Option<Stall>),
+    /// Has the agent the chief talks to play its emote.
+    Emote,
     Shot(&'static str),
 }
 
@@ -298,6 +305,91 @@ fn bazaar() -> Vec<Do> {
     steps
 }
 
+/// The hamlet and an agent in their looks, by day and by night, and
+/// an emote played.
+fn looks() -> Vec<Do> {
+    use Do::*;
+    vec![
+        Night(false),
+        See(On::Agent, 30.0, 0.4, -0.15),
+        Wait(60),
+        Shot("48-a-hamlet-in-its-looks"),
+        See(On::Agent, 7.0, 0.3, -0.35),
+        Wait(30),
+        Shot("49-agents-in-their-looks"),
+        Emote,
+        Wait(50),
+        Shot("50-an-emote-played"),
+        See(On::Agent, 30.0, 0.4, -0.15),
+        Night(true),
+        Wait(60),
+        Shot("51-a-hamlet-in-its-looks-by-night"),
+        Wait(40),
+    ]
+}
+
+/// The files of what the hamlet and the agent the chief talks to
+/// wear for `--looks`: the hamlet a skin and lanterns, Juniper a
+/// skin, a tall hat in place of its own and a wave.
+fn wardrobe() -> Vec<(&'static str, Vec<u8>)> {
+    let mut hat = Meshing::new();
+    hat.rbox(
+        Vec3::Y * 0.2,
+        Vec3::new(0.12, 0.2, 0.12),
+        0.02,
+        Quat::IDENTITY,
+        Vec3::new(0.15, 0.5, 0.9),
+        0.0,
+    );
+    let hat = hat.build();
+    vec![
+        (
+            "hamlet-skin-sheet@1.0.0",
+            br##"{"format":1,"colours":{"roof":"#3f6fb0",
+            "drift":"#5a86c0","livery":"#c0392b","plaster":"#f2e6c8"}}"##
+                .to_vec(),
+        ),
+        (
+            "hamlet-emote-sheet@1.0.0",
+            br##"{"format":1,"kind":"lanterns","paper":"#e8483a",
+            "light":"#ffb347","count":5,"sway":12}"##
+                .to_vec(),
+        ),
+        (
+            "agent-skin-sheet@1.0.0",
+            br##"{"format":1,"colours":{"paint":"#2e8b57",
+            "brass":"#d4af37","lamp":"#7fd4ff"},
+            "finish":{"metallic":0.6,"roughness":0.35,"glow":0.0}}"##
+                .to_vec(),
+        ),
+        (
+            "agent-emote-sheet@1.0.0",
+            br#"{"format":1,"kind":"clip","seconds":1.6,"every":600,
+            "keys":[{"at":0,"parts":{}},
+            {"at":0.5,"parts":{"arm_r":{"turn":[0,0,150]}}},
+            {"at":0.8,"parts":{"arm_r":{"turn":[0,0,120]}}},
+            {"at":1.1,"parts":{"arm_r":{"turn":[0,0,150]}}},
+            {"at":1.6,"parts":{}}]}"#
+                .to_vec(),
+        ),
+        (
+            "agent-mesh-sheet@1.0.0",
+            Glb::new().mesh("hat", &hat, Transform::IDENTITY).write(),
+        ),
+    ]
+}
+
+/// What `kind` wears of [`wardrobe`].
+fn outfit(kind: &str, mesh: bool) -> Outfit {
+    let named =
+        |part: &str| Some(format!("{kind}-{part}-sheet@1.0.0"));
+    Outfit(Outfitted {
+        skin: named("skin"),
+        mesh: if mesh { named("mesh") } else { None },
+        emote: named("emote"),
+    })
+}
+
 #[derive(Resource)]
 struct Sheet {
     out: PathBuf,
@@ -326,15 +418,20 @@ fn main() {
     std::fs::create_dir_all(&out).expect("output folder");
     let view = hamlet_testing::Scratch::new("chief-sheet-view");
     let mut app = App::new();
+    // Before the asset plugin, which reads every source.
+    dress::register_source(&mut app);
     app.insert_resource(ViewFolder(view.to_path_buf()))
         .insert_resource(Kept::read(&view).expect("the kept chiefs"))
         .add_plugins((offscreen::plugins(SIZE), RealmPlugin));
     Target::insert(&mut app, SIZE, 1.0);
     app.insert_resource(Sheet {
         out,
-        steps: match std::env::args().any(|a| a == "--bazaar") {
-            true => bazaar(),
-            false => script(),
+        steps: if flag("--bazaar") {
+            bazaar()
+        } else if flag("--looks") {
+            looks()
+        } else {
+            script()
         },
         at: 0,
         wait: 0,
@@ -351,6 +448,11 @@ fn main() {
         (direct, aim).chain().in_set(RealmSystems::Steer),
     );
     app.run();
+}
+
+/// True when `name` is among the arguments.
+fn flag(name: &str) -> bool {
+    std::env::args().any(|a| a == name)
 }
 
 /// A hamlet of a mayor and four agents, and a chief. A third of the
@@ -393,7 +495,17 @@ fn people(world: &mut World) {
             .id();
         friend.get_or_insert(agent);
     }
-    world.insert_resource(Friend(friend.unwrap()));
+    let friend = friend.unwrap();
+    world.insert_resource(Friend(friend));
+    if flag("--looks") {
+        world.entity_mut(hamlet).insert(outfit("hamlet", false));
+        world.entity_mut(friend).insert(outfit("agent", true));
+        world.resource_mut::<Looks>().files.extend(
+            wardrobe()
+                .into_iter()
+                .map(|(id, bytes)| (id.to_string(), bytes)),
+        );
+    }
     chief::arrive(world, "wren", Look::default());
 }
 
@@ -496,6 +608,7 @@ fn direct(
             commands.trigger(Consulted { agent: None });
         }
         Do::Trade => commands.trigger(Traded),
+        Do::Emote => commands.trigger(PlayEmote("Juniper".into())),
         Do::Visit(stall) => {
             selected.0 = stall.map(Thing::Stall);
             let booth = booths

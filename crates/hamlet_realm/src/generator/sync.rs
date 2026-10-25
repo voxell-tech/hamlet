@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
+use super::attire::Attires;
 use super::building::{Builds, Cost, Course};
 use super::land::Land;
 use super::layout::Route;
@@ -31,6 +32,8 @@ pub(super) struct HouseSignature {
     pub(super) cleared: bool,
     pub(super) mayor: bool,
     pub(super) wings: u8,
+    /// The count of what its hamlet wears.
+    pub(super) attire: u64,
 }
 
 pub(super) struct RoadDrawn {
@@ -119,6 +122,7 @@ struct Pass<'a, 'w, 's> {
     society: &'a Society,
     land: &'a Land,
     kit: &'a Kit,
+    attires: &'a Attires,
     drawn: &'a mut Drawn,
     builds: &'a mut Builds,
     motion: &'a HouseMotion,
@@ -153,6 +157,7 @@ pub(super) struct Makings<'w, 's> {
     society: Res<'w, Society>,
     land: Res<'w, Land>,
     kit: Res<'w, Kit>,
+    attires: Res<'w, Attires>,
     robot_kit: Res<'w, keeper::Kit>,
     sky: Res<'w, SkySettings>,
     options: Res<'w, GeneratorOptions>,
@@ -184,6 +189,7 @@ pub(super) fn sync(
         society,
         land,
         kit,
+        attires,
         robot_kit,
         sky,
         options,
@@ -203,6 +209,7 @@ pub(super) fn sync(
         society: &society,
         land: &land,
         kit: &kit,
+        attires: &attires,
         drawn: &mut drawn,
         builds: &mut loading.builds,
         motion: &motion,

@@ -163,7 +163,13 @@ impl Pass<'_, '_, '_> {
             let Some(group) = self.drawn.towns.get(&id) else {
                 continue;
             };
-            let style = TownStyle::of(land, group.site);
+            let attire = self.attires.get(id);
+            let skinned = attire.and_then(|a| a.palette(&land.pal));
+            let pal = skinned.as_ref().unwrap_or(&land.pal);
+            let worn = attire
+                .and_then(|a| a.mesh.as_ref())
+                .map(|shell| &shell.bulk);
+            let style = TownStyle::within(pal, land.seed, group.site);
             let (mut meshing, mut panes) =
                 (Meshing::new(), Meshing::new());
             let centre = land.sites[group.site].at;
@@ -186,10 +192,12 @@ impl Pass<'_, '_, '_> {
                     &mut panes,
                     xf,
                     land,
+                    pal,
                     agent.id,
                     &style,
                     agent.plot == HALL_PLOT,
                     agent.remains(&land.set.house),
+                    worn,
                 );
             }
             self.commands

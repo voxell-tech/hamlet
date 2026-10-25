@@ -8,6 +8,7 @@ pub mod bubble;
 pub mod chief;
 pub mod debug;
 pub mod diorama;
+pub mod dress;
 pub mod generator;
 pub mod hamlet;
 pub mod hand;
@@ -27,6 +28,7 @@ pub mod sky;
 pub mod sound;
 pub mod stage;
 pub mod stock;
+pub mod wardrobe;
 pub mod works;
 
 mod label;

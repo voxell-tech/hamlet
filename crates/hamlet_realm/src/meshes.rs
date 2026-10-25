@@ -154,6 +154,26 @@ impl Meshing {
         self.positions.len() * vertex + self.indices.len() * index
     }
 
+    /// Adds the triangles of `other`.
+    pub fn append(&mut self, other: Meshing) {
+        let base = self.positions.len() as u32;
+        self.positions.extend(other.positions);
+        self.normals.extend(other.normals);
+        self.colors.extend(other.colors);
+        self.uvs.extend(other.uvs);
+        self.indices
+            .extend(other.indices.into_iter().map(|i| i + base));
+    }
+
+    /// Multiplies every vertex colour by `by`.
+    pub fn tint(&mut self, by: Vec3) {
+        for c in &mut self.colors {
+            for (c, by) in c.iter_mut().zip(by.to_array()) {
+                *c *= by;
+            }
+        }
+    }
+
     pub fn at(&mut self, transform: Affine3A) -> &mut Self {
         self.transform = transform;
         self

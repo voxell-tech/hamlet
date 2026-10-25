@@ -3,7 +3,8 @@
 use bevy::prelude::*;
 
 use crate::{
-    debug, keeper, palette, play, settings, sky, sound, stage, stock,
+    debug, dress, keeper, palette, play, settings, sky, sound, stage,
+    stock,
 };
 
 /// The scene: tuning, colours, camera, clock, robots and the shared
@@ -20,5 +21,6 @@ pub fn plugin(app: &mut App) {
         stage::plugin,
         keeper::plugin,
         stock::plugin,
+        dress::plugin,
     ));
 }

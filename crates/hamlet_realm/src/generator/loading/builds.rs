@@ -9,7 +9,8 @@ use hamlet_vfx::flag::{
 
 use super::Loading;
 use crate::Clock;
-use crate::generator::building::Finished;
+use crate::generator::attire::{Attire, Emoting};
+use crate::generator::building::{Finished, Fittings};
 use crate::generator::lights::{Lamp, Spill};
 use crate::generator::shift::Shift;
 use crate::generator::society::Society;
@@ -123,57 +124,26 @@ fn place_builds(
                 }
             }
         }
-        if let Some(((at, colours), (waving, flags, set))) =
-            built.banner.zip(flags.as_mut())
-        {
-            let mesh = meshes.add(cloth(
-                set,
-                house::BANNER.x,
-                house::BANNER.y,
-                &colours,
-            ));
-            let banner = commands
-                .spawn((
-                    flag(
-                        waving,
-                        flags,
-                        set,
-                        now,
-                        mesh,
-                        house::BANNER.x,
-                    ),
-                    Transform::from_translation(at),
-                ))
-                .id();
-            crate::adopt(commands, job.entity, banner);
-        }
-        let Some((panes, lamp_at)) = built.fittings else {
+        let Some(fittings) = built.fittings else {
             continue;
         };
-        // The house may have gone with its town while this was
-        // built, so its fittings are put under it only if it stands.
-        let panes = commands
-            .spawn((
-                Mesh3d(meshes.add(panes)),
-                MeshMaterial3d(kit.windows.clone()),
-                NotShadowCaster,
-            ))
-            .id();
-        crate::adopt(commands, job.entity, panes);
         let state = society
             .agent(job.agent)
             .map_or(KeeperState::Rest, |agent| agent.state);
-        let lamp = commands
-            .spawn((
-                Mesh3d(kit.lamp_glass.clone()),
-                Transform::from_translation(lamp_at),
-                NotShadowCaster,
-                children![Spill::bundle(sky)],
-            ))
-            // Once its light exists, so the light takes its colour.
-            .insert(Lamp(state))
-            .id();
-        crate::adopt(commands, job.entity, lamp);
+        let lamp = fit_out(
+            commands,
+            job.entity,
+            fittings,
+            &job.attire,
+            kit,
+            sky,
+            state,
+            meshes,
+            flags.as_mut().map(|(waving, materials, set)| {
+                (&mut **waving, &mut **materials, &**set)
+            }),
+            now,
+        );
         drawn.lamps.insert(job.agent, (lamp, state));
     }
     for (pair, level, course, built) in finished.roads {
@@ -221,4 +191,90 @@ fn place_builds(
             },
         );
     }
+}
+
+/// Puts what a lived-in house has besides its body under the house
+/// `entity`, unless it has gone: its panes or the mesh it wears, its
+/// door lantern showing `state`, its banner and its emote. Returns
+/// the lantern.
+pub(in crate::generator) fn fit_out(
+    commands: &mut Commands,
+    entity: Entity,
+    fittings: Fittings,
+    attire: &Attire,
+    kit: &Kit,
+    sky: &SkySettings,
+    state: KeeperState,
+    meshes: &mut Assets<Mesh>,
+    // None in a world with nothing to draw on.
+    flags: Option<(
+        &mut Waving,
+        &mut Assets<FlagMaterial>,
+        &FlagSettings,
+    )>,
+    now: f32,
+) -> Entity {
+    if let Some(((at, colours, long), (waving, flags, set))) =
+        fittings.banner.zip(flags)
+    {
+        let mesh =
+            meshes.add(cloth(set, long, house::BANNER.y, &colours));
+        let banner = commands
+            .spawn((
+                flag(waving, flags, set, now, mesh, long),
+                Transform::from_translation(at),
+            ))
+            .id();
+        crate::adopt(commands, entity, banner);
+    }
+    match (&attire.mesh, fittings.worn) {
+        (Some(shell), Some(scale)) => {
+            let walls = commands
+                .spawn((
+                    Mesh3d(shell.walls.clone()),
+                    MeshMaterial3d(kit.matte.clone()),
+                    Transform::from_scale(scale),
+                    Visibility::Inherited,
+                ))
+                .id();
+            if let Some(panes) = &shell.panes {
+                commands.spawn((
+                    Mesh3d(panes.clone()),
+                    MeshMaterial3d(kit.windows.clone()),
+                    NotShadowCaster,
+                    ChildOf(walls),
+                ));
+            }
+            crate::adopt(commands, entity, walls);
+        }
+        _ => {
+            let panes = commands
+                .spawn((
+                    Mesh3d(meshes.add(fittings.panes)),
+                    MeshMaterial3d(kit.windows.clone()),
+                    NotShadowCaster,
+                ))
+                .id();
+            crate::adopt(commands, entity, panes);
+        }
+    }
+    let lamp = commands
+        .spawn((
+            Mesh3d(kit.lamp_glass.clone()),
+            Transform::from_translation(fittings.spots.lamp),
+            NotShadowCaster,
+            children![Spill::bundle(sky)],
+        ))
+        // Once its light exists, so the light takes its colour.
+        .insert(Lamp(state))
+        .id();
+    crate::adopt(commands, entity, lamp);
+    if let Some(emote) = &attire.emote {
+        commands.entity(entity).try_insert(Emoting {
+            emote: emote.clone(),
+            chimney: fittings.spots.chimney,
+            eaves: fittings.eaves,
+        });
+    }
+    lamp
 }

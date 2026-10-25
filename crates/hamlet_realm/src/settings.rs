@@ -9,6 +9,7 @@ use crate::bubble::BubbleSettings;
 use crate::chief::ChiefSettings;
 use crate::debug::DebugSettings;
 use crate::diorama::DioramaSettings;
+use crate::generator::attire::AttireSettings;
 use crate::generator::house::HouseSettings;
 use crate::generator::land::LandSettings;
 use crate::generator::layout::TownSettings;
@@ -56,6 +57,7 @@ pub(crate) struct WorldTuning {
     pub works: WorksSettings,
     pub bazaar: BazaarSettings,
     pub diorama: DioramaSettings,
+    pub attire: AttireSettings,
     pub sound: SoundSettings,
     pub debug: DebugSettings,
     pub generator: GeneratorSettings,
@@ -84,6 +86,7 @@ impl Tuning for WorldTuning {
         follow(world, &was.works, &self.works);
         follow(world, &was.bazaar, &self.bazaar);
         follow(world, &was.diorama, &self.diorama);
+        follow(world, &was.attire, &self.attire);
         follow(world, &was.sound, &self.sound);
         follow(world, &was.debug, &self.debug);
     }
@@ -107,6 +110,7 @@ designed!(WorldTuning {
     WorksSettings => works,
     BazaarSettings => bazaar,
     DioramaSettings => diorama,
+    AttireSettings => attire,
     SoundSettings => sound,
     DebugSettings => debug,
     GeneratorSettings => generator,

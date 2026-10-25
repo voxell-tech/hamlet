@@ -2,6 +2,7 @@
 
 pub(super) mod body;
 pub(super) mod hats;
+pub(super) mod parts;
 mod props;
 
 use bevy::prelude::*;
@@ -18,6 +19,11 @@ use super::{Emblem, Hat, Paint};
 use crate::meshes::Meshing;
 use crate::palette::Palette;
 use crate::{Stock, lantern};
+
+/// The radius and height of the head's glass, and of the carried
+/// lantern's.
+const GLASS: Vec2 = Vec2::new(0.145, 0.22);
+const LAMP_GLASS: Vec2 = Vec2::new(0.08, 0.15);
 
 /// A part made of up to two meshes: paint or wood, and brass.
 #[derive(Default)]
@@ -90,7 +96,8 @@ impl Kit {
             leg: pair(meshes, leg(pal)),
             wheels: meshes.add(wheels(pal).build()),
             head: meshes.add(head(pal).build()),
-            glass: meshes.add(lantern::lantern_glass(0.145, 0.22)),
+            glass: meshes
+                .add(lantern::lantern_glass(GLASS.x, GLASS.y)),
             eye: meshes.add(eye(pal).build()),
             hats: [
                 hat(meshes, Hat::Dome),
@@ -112,8 +119,10 @@ impl Kit {
             .map(|e| meshes.add(emblem(e, pal).build())),
             pole: pair(meshes, pole(pal)),
             lamp: meshes.add(lamp(pal).build()),
-            lamp_glass: meshes
-                .add(lantern::lantern_glass(0.08, 0.15)),
+            lamp_glass: meshes.add(lantern::lantern_glass(
+                LAMP_GLASS.x,
+                LAMP_GLASS.y,
+            )),
             ring: meshes.add(ring.build()),
             props: Prop::HELD
                 .map(|p| meshes.add(prop(p, pal).build())),
@@ -129,7 +138,7 @@ impl Kit {
     }
 }
 
-fn matte(colour: Vec3) -> StandardMaterial {
+pub(super) fn matte(colour: Vec3) -> StandardMaterial {
     StandardMaterial {
         base_color: Color::linear_rgb(colour.x, colour.y, colour.z),
         perceptual_roughness: 0.92,

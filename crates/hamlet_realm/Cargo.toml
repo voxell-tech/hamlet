@@ -16,12 +16,12 @@ hamlet_protocol.workspace = true
 hamlet_client.workspace = true
 hamlet_assets.workspace = true
 hamlet_vfx.workspace = true
-bevy = { workspace = true, features = ["bevy_anti_alias", "bevy_asset", "bevy_audio", "bevy_camera", "bevy_core_pipeline", "bevy_dev_tools", "bevy_gizmos", "bevy_input_focus", "bevy_light", "bevy_mesh", "bevy_pbr", "bevy_picking", "bevy_post_process", "bevy_render", "bevy_state", "bevy_text", "bevy_ui", "bevy_window", "mesh_picking", "render_dev_tools", "serialize"] }
+bevy = { workspace = true, features = ["bevy_anti_alias", "bevy_asset", "bevy_audio", "bevy_camera", "bevy_core_pipeline", "bevy_dev_tools", "bevy_gizmos", "bevy_input_focus", "bevy_light", "bevy_mesh", "bevy_pbr", "bevy_picking", "bevy_post_process", "bevy_render", "bevy_state", "bevy_text", "bevy_ui", "bevy_window", "bevy_gltf", "mesh_picking", "render_dev_tools", "serialize"] }
 chrono.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 toml.workspace = true
 
 [dev-dependencies]
 hamlet_testing.workspace = true
-serde_json.workspace = true
 tokio.workspace = true

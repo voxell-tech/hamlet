@@ -9,11 +9,14 @@ mod state;
 #[cfg(test)]
 mod tests;
 mod view;
+mod wearer;
+mod wearing;
 
 use bevy::prelude::*;
-use hamlet_client::realm::{HOME, HamletId, LivesIn};
+use hamlet_client::realm::{HOME, HamletId, LivesIn, Outfit};
 
 use crate::chief::Settling;
+use crate::dress::{Dressing, Looks};
 use crate::generator::land::Land;
 use crate::generator::society::{AgentId, Pair, Society, TownId};
 use crate::sky::CameraSettings;
@@ -29,6 +32,21 @@ pub(crate) fn plugin(app: &mut App) {
         .configure_sets(
             Update,
             (Settling, library::Raising, bazaar::Pitching).chain(),
+        )
+        .add_systems(
+            Update,
+            (
+                // Only a world that dresses its people has looks.
+                wearing::gather.run_if(
+                    resource_exists::<Looks>.and_then(
+                        any_match_filter::<Changed<Outfit>>.or_eager(
+                            any_component_removed::<Outfit>,
+                        ),
+                    ),
+                ),
+                wearer::name_robots,
+            )
+                .in_set(RealmSystems::Bridge),
         )
         .add_observer(housing::leave)
         .add_observer(housing::come_back)
@@ -58,6 +76,13 @@ pub(crate) fn plugin(app: &mut App) {
                 view::aim,
             )
                 .chain()
+                .in_set(RealmSystems::Bridge),
+        )
+        .add_systems(
+            Update,
+            wearing::wear
+                .run_if(resource_exists::<Dressing>)
+                .after(housing::house)
                 .in_set(RealmSystems::Bridge),
         );
 }

@@ -8,8 +8,8 @@ use bevy::window::RequestRedraw;
 use hamlet_vfx::inlay::LIT;
 
 use super::acts::Act;
-use super::pose::{self, Prop, rx, ry, rz};
-use super::{Keeper, Motion, Stride, Trip};
+use super::pose::{self, Prop, SHOULDER, rx, ry, rz};
+use super::{Gesture, Keeper, Motion, Stride, Trip, Wears, wear};
 use crate::generator::DetailSettings;
 use crate::{Clock, Sky, WorldCamera};
 
@@ -37,6 +37,8 @@ pub(crate) fn animate(
         &GlobalTransform,
         &InheritedVisibility,
         Option<&Trip>,
+        Option<&Wears>,
+        Option<&mut Gesture>,
     )>,
     mut parts: Query<&mut Transform, Without<Keeper>>,
     mut visibility: Query<&mut Visibility>,
@@ -48,7 +50,9 @@ pub(crate) fn animate(
     let t = clock.t;
     // True once any robot needs another frame.
     let mut busy = false;
-    for (mut keeper, mut root, place, shown, trip) in &mut keepers {
+    for (mut keeper, mut root, place, shown, trip, wears, gesture) in
+        &mut keepers
+    {
         let keeper = &mut *keeper;
         if keeper.state != keeper.synced {
             follow_state(keeper, t, clock.frozen);
@@ -111,7 +115,46 @@ pub(crate) fn animate(
         busy |= keeper.is_busy(t) || !keeper.act.is_resting();
 
         let p = keeper.eval(t);
-        let placed = p.place(keeper.who.size);
+        let mut placed = p.place(keeper.who.size);
+        let arm = |side: f32, turn: Quat| {
+            Transform::from_translation(
+                SHOULDER * Vec3::new(side, 1.0, 1.0),
+            )
+            .with_rotation(turn)
+        };
+        let (mut arm_l, mut arm_r) =
+            (arm(-1.0, p.arm_l), arm(1.0, p.arm_r));
+        if let Some(clip) =
+            wears.and_then(|wears| wears.clip.as_ref())
+            && let Some(mut gesture) = gesture
+        {
+            let idle = keeper.act == Act::Idle
+                && keeper.from.is_none()
+                && !clock.frozen;
+            if let Some(moves) =
+                gesture.moves(clip, t, idle, keeper.who.seed, &motion)
+            {
+                busy = true;
+                // In the order of `PARTS`.
+                let moved = [
+                    &mut placed.rig,
+                    &mut placed.body,
+                    &mut placed.head,
+                    &mut placed.hat,
+                    &mut arm_l,
+                    &mut arm_r,
+                    &mut placed.leg_l,
+                    &mut placed.leg_r,
+                ];
+                for (tf, (turn, shift)) in
+                    moved.into_iter().zip(moves)
+                {
+                    tf.rotation *= turn;
+                    tf.translation += shift;
+                }
+            }
+        }
+        let skin = wears.and_then(|wears| wears.skin.as_ref());
         let ids = &keeper.parts;
         let mut set = |e: Entity, to: Transform| {
             if let Ok(mut tf) = parts.get_mut(e) {
@@ -137,13 +180,13 @@ pub(crate) fn animate(
                     .with_rotation(rx((turned + ahead) % TAU)),
             );
         }
+        set(ids.arm_l, arm_l);
+        set(ids.arm_r, arm_r);
         let mut turn = |e: Entity, to: Quat| {
             if let Ok(mut tf) = parts.get_mut(e) {
                 tf.rotation = to;
             }
         };
-        turn(ids.arm_l, p.arm_l);
-        turn(ids.arm_r, p.arm_r);
         turn(ids.lamp, placed.lamp);
         turn(ids.key, rz(p.key));
         if let Some(flag) = ids.flag {
@@ -182,21 +225,19 @@ pub(crate) fn animate(
             tf.translation.y = -p.bead;
         }
 
-        if (p.glow - keeper.lit_as).abs().max_element() > 2e-3 {
-            keeper.lit_as = p.glow;
-            let strength = p.glow.max_element();
+        let glow = wear::relight(p.glow, skin);
+        if (glow - keeper.lit_as).abs().max_element() > 2e-3 {
+            keeper.lit_as = glow;
+            let strength = glow.max_element();
             let lit = (strength / 2.0).clamp(0.0, 1.0);
             if let Some(mut m) = materials.get_mut(&ids.lit) {
-                m.emissive =
-                    LinearRgba::rgb(p.glow.x, p.glow.y, p.glow.z);
-                let c = Vec3::new(0.16, 0.15, 0.14)
-                    .lerp(Vec3::new(0.5, 0.46, 0.38), lit);
-                m.base_color = Color::srgb(c.x, c.y, c.z);
+                m.emissive = LinearRgba::rgb(glow.x, glow.y, glow.z);
+                m.base_color = wear::glass(skin, lit);
             }
             if let Some(light) = ids.light
                 && let Ok(mut light) = lights.get_mut(light)
             {
-                let hue = p.glow / strength.max(1e-4);
+                let hue = glow / strength.max(1e-4);
                 light.color = Color::linear_rgb(hue.x, hue.y, hue.z);
                 light.intensity =
                     strength / LIT * sky.look.lantern_lumens;

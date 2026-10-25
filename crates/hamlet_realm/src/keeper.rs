@@ -9,6 +9,7 @@ mod spawn;
 #[cfg(test)]
 mod tests;
 mod trip;
+pub mod wear;
 mod who;
 pub mod work;
 
@@ -20,15 +21,18 @@ pub use self::acts::{
 use self::acts::{Context, Quirk};
 pub(crate) use self::animate::animate;
 pub use self::kit::Kit;
+pub use self::kit::parts::{MESH_PARTS, default_parts};
 use self::pose::{Pose, Prop, arc, ramp, rx, ry};
-pub use self::spawn::{spawn_agent, spawn_as};
+pub use self::spawn::{spawn_agent, spawn_as, spawn_dressed};
 pub use self::trip::{Step, Stride, Trip};
+pub use self::wear::{Gesture, Wearer, Wears};
 pub use self::who::{Emblem, Hat, Paint, Who};
 use crate::sound::Sound;
 
 /// The robots' walk, and their poses each frame.
 pub fn plugin(app: &mut App) {
-    app.init_resource::<Motion>()
+    app.add_plugins(wear::plugin)
+        .init_resource::<Motion>()
         .add_systems(Update, animate.in_set(crate::Step::Robots));
 }
 
@@ -54,6 +58,11 @@ pub struct Motion {
     pub roll_above: f32,
     /// Seconds a robot takes to change between stepping and rolling.
     pub roll_ease: f32,
+    /// Seconds a worn clip takes to ease in, and out.
+    pub emote_blend: f32,
+    /// The most, as a share of its `every`, an idle robot waits
+    /// beyond `every` before it plays its clip again.
+    pub emote_spread: f32,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -146,6 +155,8 @@ struct Parts {
     key: Entity,
     flag: Option<Entity>,
     lit: Handle<StandardMaterial>,
+    /// Every mesh of its parts, in the order they were spawned.
+    shapes: Vec<wear::Shape>,
 }
 
 /// A clock time long before any still, for a motion that has already

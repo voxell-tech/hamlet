@@ -11,6 +11,7 @@ use super::land::Land;
 use super::noise::key;
 use super::society::AgentId;
 use super::yard::{self, Yard};
+use crate::dress::Glb;
 use crate::lantern::lantern_cage;
 use crate::meshes::{Meshing, Rng, noise2};
 use crate::palette::Palette;
@@ -42,9 +43,14 @@ pub struct HouseSettings {
 impl TownStyle {
     /// The style of the town on a site. Neighbouring sites differ.
     pub fn of(land: &Land, site: usize) -> Self {
-        let towns = &land.pal.towns;
-        let shift =
-            (key(&[land.seed, 40]) % towns.len() as u32) as usize;
+        Self::within(&land.pal, land.seed, site)
+    }
+
+    /// The style of the town on a site of the land of `seed`, from
+    /// the styles of `pal`.
+    pub fn within(pal: &Palette, seed: u32, site: usize) -> Self {
+        let towns = &pal.towns;
+        let shift = (key(&[seed, 40]) % towns.len() as u32) as usize;
         towns[(site + shift) % towns.len()]
     }
 }
@@ -89,10 +95,20 @@ pub struct Look {
 
 impl Look {
     pub fn of(land: &Land, agent: AgentId, hall: bool) -> Self {
+        Self::dyed(land, &land.pal, agent, hall)
+    }
+
+    /// The look of [`Look::of`], its livery from `pal`.
+    fn dyed(
+        land: &Land,
+        pal: &Palette,
+        agent: AgentId,
+        hall: bool,
+    ) -> Self {
         let pick = |salt: u32, n: u32| {
             (key(&[land.seed, 41, agent.0, salt]) % n) as usize
         };
-        let livery = land.pal.livery[pick(3, 8)];
+        let livery = pal.livery[pick(3, 8)];
         let (base, eave) = (land.set.house.base, land.set.house.eave);
         if hall {
             return Self {
@@ -133,6 +149,22 @@ impl Look {
             garden: pick(8, 4) as u32,
             base,
             eave,
+        }
+    }
+
+    /// The house a hamlet's mesh is authored to stand in for.
+    fn plain(land: &Land) -> Self {
+        Self {
+            half: Vec2::ONE,
+            storeys: 1,
+            roof: Roof::Gable,
+            wall: Wall::Plaster,
+            livery: land.pal.livery[0],
+            pitch: 1.0,
+            side: 1.0,
+            garden: 4,
+            base: land.set.house.base,
+            eave: land.set.house.eave,
         }
     }
 
@@ -197,11 +229,67 @@ pub struct HouseMesh {
     pub body: Meshing,
     /// The window panes, which light at night.
     pub panes: Meshing,
-    /// The place the lantern by the door hangs at.
+    pub spots: Spots,
+    /// The point a banner hangs from, the colours of its stripes in
+    /// turn and its length: the mayor's, or one the hamlet wears.
+    pub banner: Option<(Vec3, [Vec3; 2], f32)>,
+    /// The scale a worn mesh is drawn at, about the house's middle,
+    /// when one stands in for its walls.
+    pub worn: Option<Vec3>,
+    /// The ends of the row paper lanterns hang in, under the front
+    /// eave.
+    pub eaves: [Vec3; 2],
+}
+
+/// What a house is built wearing, besides the colours of its
+/// palette.
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
+pub struct Fit {
+    /// The spots of a worn mesh, in the frame it is authored in. The
+    /// mesh stands in for the house's walls, roof, windows and
+    /// chimney.
+    pub shell: Option<Spots>,
+    /// A banner on a mast whoever lives there: its cloth and stripe,
+    /// and its length.
+    pub banner: Option<([Vec3; 2], f32)>,
+}
+
+/// Places on a house, about its middle with the door toward +Z and
+/// the ground at y 0.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Spots {
+    /// The foot of the front door.
+    pub door: Vec3,
+    /// The middle of the door lantern's glass.
     pub lamp: Vec3,
-    /// The point the mayor's banner hangs from, and the colours of
-    /// its stripes in turn.
-    pub banner: Option<(Vec3, [Vec3; 2])>,
+    /// The foot of the banner's mast.
+    pub banner: Vec3,
+    /// The top of the chimney.
+    pub chimney: Vec3,
+    /// The middle of the front eave.
+    pub eaves: Vec3,
+}
+
+impl Spots {
+    /// The spots of a house `by` times the size.
+    pub fn scaled(self, by: Vec3) -> Self {
+        Self {
+            door: self.door * by,
+            lamp: self.lamp * by,
+            banner: self.banner * by,
+            chimney: self.chimney * by,
+            eaves: self.eaves * by,
+        }
+    }
+}
+
+/// A worn mesh as a town seen from far draws it: the bounds of its
+/// walls in the frame it is authored in, and their mean colour.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Bulk {
+    pub min: Vec3,
+    pub max: Vec3,
+    pub tint: Vec3,
 }
 
 /// One slope of tiles from an eave to a ridge, laid in lapped
@@ -661,7 +749,7 @@ fn garden(
     }
 }
 
-/// Length and height of the mayor's banner.
+/// Length and height of a banner.
 pub(crate) const BANNER: Vec2 = Vec2::new(0.95, 0.55);
 
 /// The mast that marks the mayor's house. Returns where its banner
@@ -691,16 +779,236 @@ pub fn house(
     wings: u8,
     yard: &Yard,
 ) -> HouseMesh {
-    let (pal, seed) = (&land.pal, land.seed);
-    let look = Look::of(land, agent, hall);
-    let (base, door_out) = (look.base, land.set.town.door_out);
-    let mut rng = Rng::seeded(&format!("house {seed} {}", agent.0));
-    let mut b = Meshing::new();
-    let mut panes = Meshing::new();
+    dressed(
+        land,
+        &land.pal,
+        agent,
+        style,
+        hall,
+        banner,
+        wings,
+        yard,
+        &Fit::default(),
+    )
+}
+
+/// The house of `agent` as [`house`] builds it, in the colours of
+/// `pal` and wearing `fit`.
+pub fn dressed(
+    land: &Land,
+    pal: &Palette,
+    agent: AgentId,
+    style: &TownStyle,
+    hall: bool,
+    banner: Banner,
+    wings: u8,
+    yard: &Yard,
+    fit: &Fit,
+) -> HouseMesh {
+    let look = Look::dyed(land, pal, agent, hall);
+    let mut rng =
+        Rng::seeded(&format!("house {} {}", land.seed, agent.0));
+    let (mut b, mut grounds, mut panes) =
+        (Meshing::new(), Meshing::new(), Meshing::new());
+    let worn =
+        fit.shell.map(|_| Vec3::new(look.half.x, 1.0, look.half.y));
+    let spots = match (fit.shell, worn) {
+        (Some(shell), Some(by)) => {
+            let spots = shell.scaled(by);
+            path(
+                &mut grounds,
+                &mut rng,
+                land,
+                pal,
+                &look,
+                spots.door.x,
+            );
+            spots
+        }
+        _ => building(
+            &mut b,
+            &mut grounds,
+            &mut panes,
+            &mut rng,
+            land,
+            pal,
+            &look,
+            style,
+            hall,
+            wings,
+            yard,
+        ),
+    };
+    let banner = (banner == Banner::Flown || fit.banner.is_some())
+        .then(|| {
+            let (colours, long) = fit
+                .banner
+                .unwrap_or(([style.banner, style.roof], BANNER.x));
+            (mast(&mut grounds, spots.banner, pal), colours, long)
+        });
+    if wings == 0 {
+        garden(&mut grounds, &mut rng, pal, &look, -yard.side);
+    }
+    verge(&mut grounds, &mut rng, pal, &look, yard);
+    yard::pave(&mut grounds, &mut rng, yard, pal);
+    bracket(&mut grounds, spots.lamp, pal);
+    b.append(grounds);
+    let row = Vec3::X * look.half.x * 0.75;
+    HouseMesh {
+        body: b,
+        panes,
+        spots,
+        banner,
+        worn,
+        eaves: [spots.eaves - row, spots.eaves + row],
+    }
+}
+
+/// A plain house in the frame a hamlet's mesh is authored in
+/// (docs/looks.md): its walls, roof and chimney, its window panes,
+/// and its spots. Nothing of its grounds.
+pub struct Plain {
+    pub walls: Mesh,
+    pub panes: Mesh,
+    pub spots: Spots,
+}
+
+/// The house a hamlet's mesh stands in for, at the footprint a mesh
+/// is authored to: walls 1 from the middle each way, one storey.
+pub fn plain(land: &Land) -> Plain {
+    let look = Look::plain(land);
+    let mut rng = Rng::seeded("plain house");
+    let yard = Yard::new(look.half, 0.0, false, 0, land.set.yard);
+    let (mut b, mut grounds, mut panes) =
+        (Meshing::new(), Meshing::new(), Meshing::new());
+    let spots = building(
+        &mut b,
+        &mut grounds,
+        &mut panes,
+        &mut rng,
+        land,
+        &land.pal,
+        &look,
+        &TownStyle::of(land, 0),
+        false,
+        0,
+        &yard,
+    );
+    Plain {
+        walls: b.build(),
+        panes: panes.build(),
+        spots,
+    }
+}
+
+impl Plain {
+    /// It as a hamlet's mesh is worn: a `.glb` with the meshes
+    /// `walls` and `panes` and the spots `door`, `lamp`, `banner`,
+    /// `chimney` and `eaves`.
+    pub fn glb(&self) -> Vec<u8> {
+        let at = Transform::from_translation;
+        let s = &self.spots;
+        Glb::new()
+            .mesh("walls", &self.walls, Transform::IDENTITY)
+            .mesh("panes", &self.panes, Transform::IDENTITY)
+            .spot("door", at(s.door))
+            .spot("lamp", at(s.lamp))
+            .spot("banner", at(s.banner))
+            .spot("chimney", at(s.chimney))
+            .spot("eaves", at(s.eaves))
+            .write()
+    }
+}
+
+/// Flagstones from the door at `door_x` out to where the roads end.
+fn path(
+    g: &mut Meshing,
+    rng: &mut Rng,
+    land: &Land,
+    pal: &Palette,
+    look: &Look,
+    door_x: f32,
+) {
+    let base = look.base;
+    let (hz, door_out) = (look.half.y, land.set.town.door_out);
+    let mut z = hz + 0.3;
+    let mut k = 0;
+    while z < door_out + 0.2 {
+        let len = rng.range(0.42, 0.6);
+        let t = ((z - hz) / (door_out - hz)).clamp(0.0, 1.0);
+        for side in [-1.0f32, 1.0] {
+            g.rbox(
+                Vec3::new(
+                    door_x * (1.0 - t) + side * 0.3,
+                    base - 0.36 * t.min(1.0) - 0.05,
+                    z,
+                ),
+                Vec3::new(0.27, 0.07, len * 0.5 - 0.02),
+                0.03,
+                rng.wobble(1.4),
+                pal.limestone
+                    .lerp(pal.limestone_shade, rng.f() * 0.4),
+                0.3,
+            );
+        }
+        z += len;
+        k += 1;
+        if k > 6 {
+            break;
+        }
+    }
+}
+
+/// The bracket the door lantern, whose glass is at `lamp`, hangs
+/// from.
+fn bracket(g: &mut Meshing, lamp: Vec3, pal: &Palette) {
+    g.tube(
+        lamp + Vec3::new(0.0, 0.27, -0.3),
+        lamp + Vec3::new(0.0, 0.3, 0.0),
+        0.016,
+        0.016,
+        5,
+        pal.bed,
+        true,
+    );
+    g.tube(
+        lamp + Vec3::Y * 0.3,
+        lamp + Vec3::Y * 0.12,
+        0.008,
+        0.008,
+        4,
+        pal.bed,
+        false,
+    );
+    lantern_cage(g, lamp, 0.075, 0.17, pal.brass);
+    g.lathe(
+        lamp + Vec3::Y * 0.085,
+        &[(0.095, 0.0), (0.05, 0.06), (0.0, 0.085)],
+        8,
+        |_, _| pal.brass,
+    );
+}
+
+/// The walls, roof, door, windows, chimney, wings and tower of a
+/// house into `b` and its panes into `panes`, and the path to its
+/// door into `g`. Returns its spots.
+fn building(
+    b: &mut Meshing,
+    g: &mut Meshing,
+    panes: &mut Meshing,
+    rng: &mut Rng,
+    land: &Land,
+    pal: &Palette,
+    look: &Look,
+    style: &TownStyle,
+    hall: bool,
+    wings: u8,
+    yard: &Yard,
+) -> Spots {
+    let base = look.base;
     let (hx, hz) = (look.half.x, look.half.y);
     let top = look.wall_top();
     let wall = look.wall_colour(pal) * rng.value(0.04);
-
     // A stone base, sunk so a slope never shows under it.
     b.rbox(
         Vec3::new(0.0, base * 0.5 - 0.3, 0.0),
@@ -855,7 +1163,7 @@ pub fn house(
         }
     }
 
-    roof(&mut b, &mut rng, &look, style, pal, upper, top, roof_wall);
+    roof(b, rng, look, style, pal, upper, top, roof_wall);
 
     // The door, off to one side, with a stone frame.
     let door_x = -look.side * hx * 0.3;
@@ -894,33 +1202,7 @@ pub fn house(
         0.0,
         |_| pal.brass,
     );
-    // Flagstones from the door out to where the roads end.
-    let mut z = hz + 0.3;
-    let mut k = 0;
-    while z < door_out + 0.2 {
-        let len = rng.range(0.42, 0.6);
-        let t = ((z - hz) / (door_out - hz)).clamp(0.0, 1.0);
-        for side in [-1.0f32, 1.0] {
-            b.rbox(
-                Vec3::new(
-                    door_x * (1.0 - t) + side * 0.3,
-                    base - 0.36 * t.min(1.0) - 0.05,
-                    z,
-                ),
-                Vec3::new(0.27, 0.07, len * 0.5 - 0.02),
-                0.03,
-                rng.wobble(1.4),
-                pal.limestone
-                    .lerp(pal.limestone_shade, rng.f() * 0.4),
-                0.3,
-            );
-        }
-        z += len;
-        k += 1;
-        if k > 6 {
-            break;
-        }
-    }
+    path(g, rng, land, pal, look, door_x);
 
     // Windows: beside the door, above it, and on the gable ends.
     let sill = base + 0.82;
@@ -958,15 +1240,7 @@ pub fn house(
         Quat::from_rotation_y(PI),
     ));
     for (c, face) in spots {
-        window(
-            &mut b,
-            &mut panes,
-            pal,
-            c,
-            face,
-            look.livery,
-            &mut rng,
-        );
+        window(b, panes, pal, c, face, look.livery, rng);
     }
 
     // The chimney, through the roof on the garden side.
@@ -1005,8 +1279,8 @@ pub fn house(
         );
         let (out, inn) = (c.x + side * (wx + 0.2), c.x - side * wx);
         slope(
-            &mut b,
-            &mut rng,
+            b,
+            rng,
             [
                 Vec3::new(out, wh - 0.1, side * (wz + 0.2)),
                 Vec3::new(out, wh - 0.1, -side * (wz + 0.2)),
@@ -1021,65 +1295,27 @@ pub fn house(
     }
 
     if hall {
-        tower(&mut b, &mut panes, &mut rng, &look, style, pal);
+        tower(b, panes, rng, look, style, pal);
     }
-    let mut flies = None;
-    if banner == Banner::Flown {
-        let foot = if hall {
-            Vec3::new(-hx - 0.2, top + 3.0, -hz + 0.2)
-        } else {
-            Vec3::new(
-                -look.side * (hx - 0.3),
-                top + look.pitch * 0.6,
-                0.0,
-            )
-        };
-        flies = Some((
-            mast(&mut b, foot, pal),
-            [style.banner, style.roof],
-        ));
-    }
-
-    if wings == 0 {
-        garden(&mut b, &mut rng, pal, &look, -yard.side);
-    }
-    verge(&mut b, &mut rng, pal, &look, yard);
-    yard::pave(&mut b, &mut rng, yard, pal);
-
-    // The bracket the lantern hangs from.
-    let lamp =
-        Vec3::new(door_x + look.side * 0.62, base + 1.0, hz + 0.3);
-    b.tube(
-        lamp + Vec3::new(0.0, 0.27, -0.3),
-        lamp + Vec3::new(0.0, 0.3, 0.0),
-        0.016,
-        0.016,
-        5,
-        pal.bed,
-        true,
-    );
-    b.tube(
-        lamp + Vec3::Y * 0.3,
-        lamp + Vec3::Y * 0.12,
-        0.008,
-        0.008,
-        4,
-        pal.bed,
-        false,
-    );
-    lantern_cage(&mut b, lamp, 0.075, 0.17, pal.brass);
-    b.lathe(
-        lamp + Vec3::Y * 0.085,
-        &[(0.095, 0.0), (0.05, 0.06), (0.0, 0.085)],
-        8,
-        |_, _| pal.brass,
-    );
-
-    HouseMesh {
-        body: b,
-        panes,
-        lamp,
-        banner: flies,
+    let foot = if hall {
+        Vec3::new(-hx - 0.2, top + 3.0, -hz + 0.2)
+    } else {
+        Vec3::new(
+            -look.side * (hx - 0.3),
+            top + look.pitch * 0.6,
+            0.0,
+        )
+    };
+    Spots {
+        door: Vec3::new(door_x, base, hz),
+        lamp: Vec3::new(
+            door_x + look.side * 0.62,
+            base + 1.0,
+            hz + 0.3,
+        ),
+        banner: foot,
+        chimney: stack + Vec3::Y * (reach + 0.07),
+        eaves: Vec3::new(0.0, top - 0.08, upper.y + look.eave * 0.7),
     }
 }
 
@@ -1125,9 +1361,14 @@ fn tower(
 
 /// The remains of an archived agent's house: the base, broken walls
 /// and moss, on the same footprint.
-pub fn ruin(land: &Land, agent: AgentId, hall: bool) -> Meshing {
-    let (pal, seed) = (&land.pal, land.seed);
-    let look = Look::of(land, agent, hall);
+pub fn ruin(
+    land: &Land,
+    pal: &Palette,
+    agent: AgentId,
+    hall: bool,
+) -> Meshing {
+    let seed = land.seed;
+    let look = Look::dyed(land, pal, agent, hall);
     let base = look.base;
     let mut rng = Rng::seeded(&format!("ruin {seed} {}", agent.0));
     let mut b = Meshing::new();
@@ -1204,21 +1445,24 @@ pub fn ruin(land: &Land, agent: AgentId, hall: bool) -> Meshing {
     b
 }
 
-/// A house as a few flat faces, for towns seen from far away.
+/// A house as a few flat faces, for towns seen from far away, in
+/// the colours of `pal`. One that wears a mesh is the box of its
+/// `worn` bulk.
 pub fn far(
     meshing: &mut Meshing,
     panes: &mut Meshing,
     xf: Affine3A,
     land: &Land,
+    pal: &Palette,
     agent: AgentId,
     style: &TownStyle,
     hall: bool,
     remains: Option<Remains>,
+    worn: Option<&Bulk>,
 ) {
     if remains == Some(Remains::Bare) {
         return;
     }
-    let pal = &land.pal;
     let look = Look::of(land, agent, hall);
     let (base, eave) = (look.base, look.eave);
     let (hx, hz) = (look.half.x, look.half.y);
@@ -1236,8 +1480,40 @@ pub fn far(
         meshing.at(Affine3A::IDENTITY);
         return;
     }
-    let top = look.wall_top();
     let p = |x: f32, y: f32, z: f32| Vec3::new(x, y, z);
+    if let Some(bulk) = worn {
+        let by = Vec3::new(hx, 1.0, hz);
+        let (lo, hi) = (bulk.min * by, bulk.max * by);
+        let lo = Vec3::new(lo.x, lo.y.min(0.0) - 0.3, lo.z);
+        let tint = bulk.tint;
+        for (a, c, out) in [
+            (p(lo.x, 0.0, hi.z), p(hi.x, 0.0, hi.z), Vec3::Z),
+            (p(hi.x, 0.0, hi.z), p(hi.x, 0.0, lo.z), Vec3::X),
+            (p(hi.x, 0.0, lo.z), p(lo.x, 0.0, lo.z), -Vec3::Z),
+            (p(lo.x, 0.0, lo.z), p(lo.x, 0.0, hi.z), -Vec3::X),
+        ] {
+            let (down, up) = (Vec3::Y * lo.y, Vec3::Y * hi.y);
+            meshing.face_cols(
+                [a + down, c + down, c + up, a + up],
+                out,
+                [tint * 0.7, tint * 0.7, tint, tint],
+            );
+        }
+        // A skin still reaches the roof of a worn mesh seen from far.
+        meshing.face(
+            [
+                p(lo.x, hi.y, lo.z),
+                p(hi.x, hi.y, lo.z),
+                p(hi.x, hi.y, hi.z),
+                p(lo.x, hi.y, hi.z),
+            ],
+            Vec3::Y,
+            style.roof.lerp(style.drift, 0.4),
+        );
+        meshing.at(Affine3A::IDENTITY);
+        return;
+    }
+    let top = look.wall_top();
     for (a, c, out) in [
         (p(-hx, 0.0, hz), p(hx, 0.0, hz), Vec3::Z),
         (p(hx, 0.0, hz), p(hx, 0.0, -hz), Vec3::X),

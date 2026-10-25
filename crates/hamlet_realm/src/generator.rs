@@ -2,6 +2,7 @@
 //! (docs/endless-world.md): land from a seed, a town per mayor, a
 //! house and a robot per agent, a road per pair.
 
+pub mod attire;
 mod building;
 pub(crate) mod common;
 mod debug;
@@ -35,6 +36,7 @@ use hamlet_vfx::magic::MagicSettings;
 pub(crate) use hamlet_vfx::magic::glow;
 use hamlet_vfx::{Density, Now, Tints, VfxPlugin, VfxSystems};
 
+use self::attire::Attires;
 pub use self::ground::DetailSettings;
 use self::house::HouseSettings;
 use self::kit::{Kit, setup, state_index};
@@ -97,6 +99,7 @@ pub fn plugin(app: &mut App) {
         VfxPlugin,
         lights::plugin,
         sounds::plugin,
+        attire::plugin,
     ))
     // An effect a house is given plays the frame it is given.
     .configure_sets(
@@ -141,7 +144,8 @@ pub fn plugin(app: &mut App) {
             sync.run_if(
                 reshaped
                     .or_eager(resource_changed::<Land>)
-                    .or_eager(resource_changed::<GeneratorOptions>),
+                    .or_eager(resource_changed::<GeneratorOptions>)
+                    .or_eager(resource_changed::<Attires>),
             ),
             tell_states.run_if(resource_changed::<Society>),
             shift_houses,
@@ -391,9 +395,11 @@ mod tests {
             &mut panes,
             Affine3A::IDENTITY,
             &land,
+            &land.pal,
             AgentId(1),
             &style,
             false,
+            None,
             None,
         );
         println!(
