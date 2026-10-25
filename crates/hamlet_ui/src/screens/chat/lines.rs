@@ -15,13 +15,14 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::text::{LineBreak, TextLayout};
 use bevy::ui::{
-    AlignItems, ComputedNode, Overflow, OverflowAxis, ScrollPosition,
-    UiGlobalTransform, percent, px,
+    AlignItems, ComputedNode, JustifyContent, Overflow, OverflowAxis,
+    ScrollPosition, UiGlobalTransform, UiRect, percent, px,
 };
 use bevy_fynix::scroll::ScrollGoal;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, column, ghost, label, scroll,
+    BehaviorExt, FrameProps, TooltipExt, button, column, ghost,
+    label, overlay, scroll,
 };
 use bevy_fynix::{ScopedExt, ViewExt, each, resource};
 use hamlet_client::chats::{self, Entry, Transcript};
@@ -31,7 +32,7 @@ use hamlet_protocol::client as protocol;
 
 use super::entry::entry_view;
 use super::timeline::{Line, People, Who, timeline};
-use super::{ChatScroll, bubble};
+use super::{Away, ChatScroll, bubble};
 use crate::View;
 use crate::looks::{Fills, note};
 use crate::me::Me;
@@ -291,8 +292,8 @@ impl Reach {
 impl Default for Reach {
     fn default() -> Self {
         Self {
-            rows: 12,
-            page: 12,
+            rows: 6,
+            page: 6,
             back: 0,
             jump: false,
         }
@@ -737,7 +738,33 @@ pub fn transcript() -> impl View {
         y: OverflowAxis::Scroll,
     })
     .tagged(ChatScroll);
-    column((bubble::header(), said)).fills_height().gap(6.0)
+    // The way back to the end, over the corner of the chat, offered
+    // only when the chat is not at its end.
+    let back = each(
+        resource::<Away, _>(|away| {
+            if away.0 { vec![()] } else { Vec::new() }
+        }),
+        |_: &()| 0u8,
+        |_| {
+            button(crate::looks::raised(crate::icons::glyph(
+                crate::icons::Glyph::ToEnd,
+                crate::looks::ICON,
+            )))
+            .padding(UiRect::all(px(8.0)))
+            .tooltip(|| label("Scroll to the latest").size(12.0))
+            .rules(crate::looks::retrace)
+            .tagged(crate::feel::Mood::Ink)
+            .on_activate(super::to_end)
+            .boxed()
+        },
+    )
+    .within(column(()).padding(UiRect::all(px(12.0))));
+    let corner = overlay((back,))
+        .justify(JustifyContent::FlexEnd)
+        .align(AlignItems::FlexEnd);
+    column((bubble::header(), column((said, corner)).fills_height()))
+        .fills_height()
+        .gap(6.0)
 }
 
 /// A row of the chat.

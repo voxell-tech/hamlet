@@ -282,7 +282,8 @@ slides. Reading to the top builds the page before it and, once the window is
 full, drops the page at its far end. Reading to the bottom turns back. The row
 at the edge is held in place through the turn. While the window is read back,
 rows added or removed elsewhere do not move it: it stays at its last row.
-Sending jumps to the end.
+Sending jumps to the end, and so does the button at the chat's lower corner,
+which shows whenever the chat is not at its end.
 
 A reply that grows is read again from its last settled block, and the blocks
 before it are shared, not parsed or compared again.

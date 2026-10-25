@@ -79,6 +79,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Unfolded>()
         .init_resource::<Lines>()
         .init_resource::<Reach>()
+        .init_resource::<Away>()
         .init_resource::<crate::fields::Resized>()
         .add_observer(keep_typed)
         .add_observer(decreed)
@@ -249,10 +250,7 @@ pub fn send(world: &mut World, text: String) {
     }
     let to = me.to.clone();
     // What is sent is at the end of the chat.
-    if let Some(mut reach) = world.get_resource_mut::<Reach>() {
-        reach.back = 0;
-        reach.jump = true;
-    }
+    to_end(world);
     world.trigger(ChiefMessage { to, text });
 }
 
@@ -366,6 +364,19 @@ pub(crate) fn furthest(node: &ComputedNode) -> f32 {
         .max(0.0)
 }
 
+/// True while the chat is shown away from its end, which is when the
+/// way back to it is offered.
+#[derive(Resource, Default)]
+pub struct Away(pub bool);
+
+/// Takes the chat to its end.
+fn to_end(world: &mut World) {
+    if let Some(mut reach) = world.get_resource_mut::<Reach>() {
+        reach.back = 0;
+        reach.jump = true;
+    }
+}
+
 /// The chat held at its end, and the place it was last left.
 #[derive(Clone, Copy)]
 pub struct AtEnd {
@@ -389,6 +400,7 @@ pub fn stick_to_bottom(
     me: Res<Me>,
     reach: Res<Reach>,
     lines: Res<Lines>,
+    mut away: ResMut<Away>,
     mut scrolls: Query<
         (&ComputedNode, &mut ScrollPosition, Option<&mut ScrollGoal>),
         With<ChatScroll>,
@@ -415,6 +427,10 @@ pub fn stick_to_bottom(
             at.y = most;
         }
         end.was = at.y;
+        let now = !end.held || lines.later > 0;
+        if away.0 != now {
+            away.0 = now;
+        }
     }
 }
 
@@ -813,7 +829,7 @@ mod tests {
         // Each turn shows more of the received rows. The page is
         // asked for once they have had the frames read_back gives
         // them to add height, which here they never do.
-        for _ in 0..100 {
+        for _ in 0..300 {
             app.update();
         }
         let requests = app
@@ -1168,6 +1184,7 @@ mod tests {
         world.insert_resource(Me::of(nobody, nobody, "wren", None));
         world.init_resource::<Lines>();
         world.init_resource::<Reach>();
+        world.init_resource::<Away>();
         let tall = |content: f32| ComputedNode {
             size: bevy::math::Vec2::new(300.0, 200.0),
             content_size: bevy::math::Vec2::new(300.0, content),

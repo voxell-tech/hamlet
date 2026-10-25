@@ -733,6 +733,7 @@ mod tests {
         .init_resource::<chat::Lines>()
         .init_resource::<chat::Reach>()
         .init_resource::<crate::select::Selecting>()
+        .init_resource::<chat::Away>()
         .add_systems(bevy::app::PreUpdate, chat::fold_lines);
         mount::<HamletTheme>(app.world_mut(), chat::transcript());
         app.update();

@@ -420,7 +420,13 @@ mod tests {
         .init_asset::<bevy::image::Image>()
         .init_asset::<bevy::image::TextureAtlasLayout>()
         .add_plugins((TextPlugin, bevy::ui::UiPlugin))
-        .add_plugins((chat::plugin, crate::inspector::plugin));
+        .add_plugins((chat::plugin, crate::inspector::plugin))
+        // A window tall enough to overflow the small viewport.
+        .insert_resource(chat::Reach {
+            rows: 12,
+            page: 12,
+            ..chat::Reach::default()
+        });
         app.world_mut()
             .resource_mut::<Assets<Font>>()
             .insert(
