@@ -1,8 +1,7 @@
 # Releases
 
 `.github/workflows/release.yml` builds the complete installation for macOS
-(Apple Silicon) and Linux (x64), plus a Windows x64 window-only archive.
-The macOS and Linux archives include:
+(Apple Silicon), Linux (x64) and Windows (x64). Each archive includes:
 
 - `hamlet`, the CLI and launcher;
 - `hamlet_server`, the server;
@@ -32,14 +31,15 @@ The bundle launches `hamlet`, which starts or reuses the server and opens
 may ask before opening it. Finder may not see a shell-installed Node, so
 launch `Contents/MacOS/hamlet` from a terminal with `HAMLET_NODE` if needed.
 
-The Windows zip contains `hamlet_app.exe`, licenses and setup notes, with
-no server, Pi or Node requirement on the Windows machine. Set `HAMLET_SERVER`
-to a remote server's WebSocket URL through an SSH tunnel and `HAMLET_TOKEN`
-to its connection token, then run the window. Keep the token private.
-Windows has no supported server sandbox; this is a remote client, not a
-local server installation. Neither packaging nor Linux tests prove macOS or Windows
-behavior. Remote workspaces require a separately run workspace worker;
-it is not included in these archives.
+Windows uses a zip laid out as the Linux tarball, with `.exe` binaries.
+Run `hamlet.exe --insecure` in a terminal. Windows has no server sandbox
+yet, so a Windows server starts only in insecure mode, and agents'
+commands reach whatever the account running it can. Agents get
+`powershell`, and `bash` where Git for Windows is installed. The binaries
+link the C runtime statically and need no Visual C++ runtime. Neither
+packaging nor Linux tests prove macOS or Windows behavior. Remote
+workspaces require a separately run workspace worker; it is not included
+in these archives.
 
 ## Building an archive
 
@@ -59,10 +59,11 @@ argument for the profile directory, defaults to `release`, and respects
 `npm ci --omit=dev`, and writes the archive under `dist/`. It does not
 compile TypeScript.
 
-For Windows, build only `cargo build --release --locked -p hamlet_app --bin
-hamlet_app --target x86_64-pc-windows-msvc`, then run the script in Bash with
-that target. This branch needs 7-Zip, not Node or npm. It packages only the
-window; no Windows server build is attempted.
+For Windows, build the three binaries with `cargo build --release --locked
+-p hamlet_cli --bin hamlet -p hamlet_server --bin hamlet_server -p hamlet_app
+--bin hamlet_app --target x86_64-pc-windows-msvc`, with `RUSTFLAGS` set to
+`-C target-feature=+crt-static`, then run the script in Git Bash with that
+target. It needs Node, npm and 7-Zip.
 
 `cargo xtask install` is a different, source-development workflow: it installs
 all three binaries into Cargo's bin directory but leaves pi in the build
