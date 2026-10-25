@@ -13,7 +13,7 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     FrameProps, TooltipExt, column, frame, icon, label, row,
 };
-use bevy_fynix::{ViewExt, keyed, resource};
+use bevy_fynix::{Prop, ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::Connection;
 use hamlet_client::chats::{Status, Usage};
 use hamlet_client::connection::Contact;
@@ -24,13 +24,10 @@ use hamlet_protocol::client as protocol;
 
 use crate::icons::{Glyph, glyph};
 use crate::links::Aimed;
-use crate::looks::{hairline, note};
+use crate::looks::{hairline, note, small_rules};
 use crate::me::Me;
 use crate::petition::Queue;
-use crate::{AnyView, Cx, PanelSystems, View};
-
-/// The side of an icon in the bar.
-const MARK: f32 = 12.0;
+use crate::{AnyView, Cx, PanelSystems, View, with_cx};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Bar>().add_systems(
@@ -125,8 +122,31 @@ pub(crate) fn now_ms() -> u64 {
 fn pair(
     mark: impl View + 'static,
     words: impl View + 'static,
-) -> impl View + 'static {
-    row((mark, words)).gap(5.0).align(AlignItems::Center)
+) -> AnyView {
+    with_cx(move |cx| {
+        row((mark, words))
+            .gap(cx.theme().space.status_icon_gap)
+            .align(AlignItems::Center)
+    })
+}
+
+/// The icon `which` of the bar's size, in `tone`.
+fn mark(
+    which: Glyph,
+    tone: impl Into<Prop<Tone>> + 'static,
+) -> impl View {
+    with_cx(move |cx| {
+        glyph(which, cx.theme().space.status_icon).tone(tone)
+    })
+}
+
+/// Bold words of the small size in `tone`, as the bar tells what is
+/// on.
+fn told(
+    text: impl Into<Prop<String>> + 'static,
+    tone: impl Into<Prop<Tone>> + 'static,
+) -> impl View {
+    label(text).bold(true).tone(tone).rules(small_rules)
 }
 
 /// One of the bar's facts: an icon and what `text` reads, with `tip`
@@ -144,7 +164,7 @@ fn fact(
                 return frame().boxed();
             }
             pair(
-                glyph(which, MARK).tone(Tone::Dim),
+                mark(which, Tone::Dim),
                 note(resource::<Bar, _>(text)),
             )
             .tooltip(move || note(tip))
@@ -161,11 +181,8 @@ fn waiting() -> impl View {
     keyed(resource::<Queue, _>(Queue::len), |waiting| match waiting {
         0 => frame().boxed(),
         n => pair(
-            glyph(Glyph::Bell, MARK).tone(Tone::Accent),
-            label(format!("{n} waiting for you"))
-                .size(12.0)
-                .bold(true)
-                .tone(Tone::Accent),
+            mark(Glyph::Bell, Tone::Accent),
+            told(format!("{n} waiting for you"), Tone::Accent),
         )
         .boxed(),
     })
@@ -176,9 +193,9 @@ fn waiting() -> impl View {
 /// the bar's two ends.
 fn aimed() -> impl View {
     row((label(resource::<Aimed, _>(|aimed| aimed.address.clone()))
-        .size(12.0)
         .wrap(false)
-        .tone(Tone::Accent),))
+        .tone(Tone::Accent)
+        .rules(small_rules),))
     .grow(1.0)
     .min_width(px(0.0))
     .overflow(Overflow::clip())
@@ -187,13 +204,14 @@ fn aimed() -> impl View {
 /// The bar along the foot of the window.
 pub fn status_bar() -> AnyView {
     AnyView::new(|cx: &mut Cx| {
-        let palette = &cx.theme().palette;
+        let theme = cx.theme();
+        let (palette, space) = (&theme.palette, &theme.space);
         cx.build(
             column((
                 hairline(palette.seam),
                 row((
                     pair(
-                        glyph(Glyph::Shield, MARK).tone(Tone::Dim),
+                        mark(Glyph::Shield, Tone::Dim),
                         note(resource::<Sandbox, _>(|s| s.0.clone())),
                     )
                     .tooltip(|| {
@@ -205,17 +223,15 @@ pub fn status_bar() -> AnyView {
                         "Model",
                     ),
                     pair(
-                        glyph(Glyph::Signal, MARK).tone(resource::<
-                            Bar,
-                            _,
-                        >(
-                            |bar| bar.link_tone,
-                        )),
+                        mark(
+                            Glyph::Signal,
+                            resource::<Bar, _>(|bar| bar.link_tone),
+                        ),
                         label(resource::<Bar, _>(|s| s.link.clone()))
-                            .size(12.0)
                             .tone(resource::<Bar, _>(|bar| {
                                 bar.link_tone
-                            })),
+                            }))
+                            .rules(small_rules),
                     )
                     .tooltip(|| {
                         note(resource::<Bar, _>(|bar| {
@@ -235,37 +251,35 @@ pub fn status_bar() -> AnyView {
                     aimed(),
                     waiting(),
                     pair(
-                        icon(resource::<Bar, _>(|bar| {
-                            let which = if bar.busy {
-                                Glyph::Bolt
-                            } else {
-                                Glyph::Moon
-                            };
-                            which.image(MARK)
-                        }))
-                        .size(MARK)
-                        .tone(resource::<
-                            Bar,
-                            _,
-                        >(
-                            |s| s.running_tone,
-                        )),
-                        label(resource::<Bar, _>(|s| {
-                            s.running.clone()
-                        }))
-                        .size(12.0)
-                        .bold(true)
-                        .tone(resource::<
-                            Bar,
-                            _,
-                        >(
-                            |s| s.running_tone,
-                        )),
+                        with_cx(|cx| {
+                            let side = cx.theme().space.status_icon;
+                            icon(resource::<Bar, _>(move |bar| {
+                                let which = if bar.busy {
+                                    Glyph::Bolt
+                                } else {
+                                    Glyph::Moon
+                                };
+                                which.image(side)
+                            }))
+                            .size(side)
+                            .tone(
+                                resource::<Bar, _>(|s| {
+                                    s.running_tone
+                                }),
+                            )
+                        }),
+                        told(
+                            resource::<Bar, _>(|s| s.running.clone()),
+                            resource::<Bar, _>(|s| s.running_tone),
+                        ),
                     ),
                 ))
-                .gap(18.0)
+                .gap(space.status_gap)
                 .align(AlignItems::Center)
-                .padding(UiRect::axes(px(16.0), px(5.0)))
+                .padding(UiRect::axes(
+                    px(space.status_padding_x),
+                    px(space.status_padding_y),
+                ))
                 .fill(palette.black),
             ))
             .gap(0.0),

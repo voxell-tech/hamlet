@@ -2,9 +2,7 @@
 //! read-only.
 
 use bevy::ecs::world::World;
-use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, column, label, scroll,
-};
+use bevy_fynix::views::BehaviorExt;
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
 use hamlet_client::chats::Chat;
 use hamlet_client::realm::{PeerChats, address_of, name_of};
@@ -12,7 +10,9 @@ use hamlet_protocol::client as protocol;
 
 use super::Section;
 use crate::icons::Glyph;
-use crate::looks::{Fills, action, filling, note};
+use crate::looks::{
+    action, close, filling, group, lettered, note, scroll_area,
+};
 use crate::me::Me;
 use crate::{AnyView, View};
 
@@ -72,27 +72,21 @@ fn exchange(peer: protocol::ConversationView) -> AnyView {
             protocol::ConversationViewKind::Questions => "QUESTIONS",
         };
         let selected = peer.clone();
-        let button = button(label(format!(
-            "{kind} WITH {}",
-            name.to_uppercase()
-        )))
-        .rules(crate::looks::brass)
-        .on_activate(move |world| open(world, selected.clone()));
+        let button =
+            lettered(format!("{kind} WITH {}", name.to_uppercase()))
+                .rules(crate::looks::brass)
+                .on_activate(move |world| {
+                    open(world, selected.clone());
+                });
         let last = peer
             .last
             .and_then(chrono::DateTime::from_timestamp_millis)
             .map(|at| at.format("%Y-%m-%d %H:%M UTC").to_string())
             .unwrap_or_default();
-        cx.build(
-            column((
-                button,
-                note(format!(
-                    "{} messages. Last: {last}",
-                    peer.count
-                )),
-            ))
-            .gap(4.0),
-        )
+        cx.build(close((
+            button,
+            note(format!("{} messages. Last: {last}", peer.count)),
+        )))
     })
 }
 
@@ -107,7 +101,7 @@ pub(super) fn screen() -> impl View {
             );
         }
         rows.extend(chats.iter().cloned().map(exchange));
-        scroll((column(rows).gap(8.0),)).fills_height().boxed()
+        scroll_area((group(rows),)).boxed()
     })
     .within(filling())
 }

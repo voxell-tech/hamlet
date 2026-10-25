@@ -8,10 +8,10 @@ use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::text::EditableText;
-use bevy::ui::{AlignItems, UiRect, px};
+use bevy::ui::AlignItems;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, row, scroll, text_field,
+    BehaviorExt, FrameProps, column, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::realm::{Deeds, HOME};
@@ -26,13 +26,14 @@ use super::rows::{
 use crate::feel::Mood;
 use crate::icons::Glyph;
 use crate::looks::{
-    Fills, action, back, bad_action, bare, brass, buttons, lamp,
-    lettered, note, stated, title, well,
+    Fills, action, back, bad_action, bare, beside, brass, buttons,
+    group, lamp, lettered, note, scroll_area, stated_large, title,
+    well,
 };
 use crate::me::talk_to;
 use crate::roll::{either, moved};
 use crate::world_menu::Deed;
-use crate::{AnyView, View, chat, tabs, world_menu};
+use crate::{AnyView, View, chat, tabs, with_cx, world_menu};
 
 /// The field a hamlet's new name is typed in.
 #[derive(Component)]
@@ -65,31 +66,32 @@ fn naming(hamlet: Entity, id: String) -> AnyView {
                 return column(()).boxed();
             }
             let id = id.clone();
-            row((
-                text_field(String::new(), |_, _| {})
-                    .grow(1.0)
-                    .rules(well)
-                    .tagged(NameField),
-                lettered("SAVE")
-                    .rules(lamp)
-                    .tagged(Mood::Good)
-                    .on_activate(move |world| {
-                        let name = typed::<NameField>(world);
-                        world.resource_mut::<Naming>().0 = None;
-                        chat::send(
-                            world,
-                            format!("/name-hamlet {id} {name}"),
-                        );
-                    }),
-                lettered("CANCEL").rules(brass).on_activate(
-                    |world| {
-                        world.resource_mut::<Naming>().0 = None;
-                    },
-                ),
-            ))
-            .gap(8.0)
-            .align(AlignItems::Center)
-            .boxed()
+            with_cx(move |cx| {
+                row((
+                    text_field(String::new(), |_, _| {})
+                        .grow(1.0)
+                        .rules(well)
+                        .tagged(NameField),
+                    lettered("SAVE")
+                        .rules(lamp)
+                        .tagged(Mood::Good)
+                        .on_activate(move |world| {
+                            let name = typed::<NameField>(world);
+                            world.resource_mut::<Naming>().0 = None;
+                            chat::send(
+                                world,
+                                format!("/name-hamlet {id} {name}"),
+                            );
+                        }),
+                    lettered("CANCEL").rules(brass).on_activate(
+                        |world| {
+                            world.resource_mut::<Naming>().0 = None;
+                        },
+                    ),
+                ))
+                .gap(cx.theme().space.gap)
+                .align(AlignItems::Center)
+            })
         },
     )
     .within(bare())
@@ -170,16 +172,16 @@ fn list_of(hamlet: Entity) -> impl View {
                 Glyph::Robot,
                 format!("AGENTS ({})", living.len()),
             ),
-            column(living).gap(4.0).boxed(),
+            group(living).boxed(),
         ];
         if !gone.is_empty() {
             parts.push(heading(
                 Glyph::Gone,
                 format!("GONE ({})", gone.len()),
             ));
-            parts.push(column(gone).gap(4.0).boxed());
+            parts.push(group(gone).boxed());
         }
-        column(parts).gap(8.0).padding(UiRect::top(px(4.0))).boxed()
+        group(parts).boxed()
     })
     .within(bare())
 }
@@ -238,20 +240,17 @@ pub fn hamlet(hamlet: Entity) -> AnyView {
                 },
             ));
         }
-        column((
-            row((
+        group((
+            beside((
                 title(facts.title.to_uppercase()),
-                stated(mark, state, tone, 14.0),
-            ))
-            .gap(12.0)
-            .align(AlignItems::Center),
+                stated_large(mark, state, tone),
+            )),
             note(facts.account.clone()),
             note(known),
             buttons(actions),
             naming(hamlet, facts.id.clone()),
             crate::folder::section(hamlet),
         ))
-        .gap(6.0)
         .boxed()
     })
     .within(bare());
@@ -267,14 +266,9 @@ pub fn hamlet(hamlet: Entity) -> AnyView {
             }
         })
         .within(bare());
-    column((
-        head,
-        pages,
-        scroll((page,))
+    with_cx(move |cx| {
+        column((head, pages, scroll_area((page,))))
             .fills_height()
-            .tagged(crate::fade::ScrollFade::default()),
-    ))
-    .fills_height()
-    .gap(10.0)
-    .boxed()
+            .gap(cx.theme().space.section)
+    })
 }

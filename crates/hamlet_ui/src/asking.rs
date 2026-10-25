@@ -33,11 +33,12 @@ use hamlet_protocol::client::{Offer, Pick, Questions};
 use crate::feel::Mood;
 use crate::icons::{Glyph, glyph};
 use crate::looks::{
-    Fills, bare, brass, lamp, marked, note, retrace, well,
+    Fills, bare, brass, lamp, marked, note, note_rules, retrace,
+    small_rules, well,
 };
 use crate::me::Me;
 use crate::theme::HamletTheme;
-use crate::{AnyView, Cx, PanelSystems, View};
+use crate::{AnyView, Cx, PanelSystems, View, with_cx};
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Answering>()
@@ -211,7 +212,7 @@ fn option(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
             f.fill(Color::NONE)
-                .border(1.0)
+                .border(t.space.border)
                 .border_color(Color::NONE)
                 .radius(t.space.round)
         })
@@ -226,7 +227,7 @@ fn picked(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
             f.fill(t.palette.lamp_low)
-                .border(1.0)
+                .border(t.space.border)
                 .border_color(t.palette.brass_4)
                 .radius(t.space.round)
         })
@@ -244,84 +245,97 @@ fn options(
     offered: &[Offer],
     pick: &Option<Pick>,
 ) -> AnyView {
-    let all = offered
-        .iter()
-        .enumerate()
-        .map(|(n, offer)| {
-            let index = n as u64;
-            let chosen = *pick == Some(Pick::Offer { index });
-            let mark = column((label(
-                char::from(b'a' + n as u8).to_string(),
-            )
-            .size(12.0)
-            .bold(true)
-            .wrap(false)
-            .tone(if chosen {
-                Tone::Accent
-            } else {
-                Tone::Faint
-            }),))
-            .width(px(12.0))
-            .shrink(0.0);
-            let tick = match chosen {
-                true => glyph(Glyph::Check, 12.0)
-                    .tone(Tone::Accent)
-                    .boxed(),
-                false => frame().width(px(12.0)).boxed(),
-            };
-            let line = row((
-                mark,
-                label(offer.title.clone()).size(13.0).wrap(false),
-                column((label(offer.description.clone())
-                    .size(12.0)
-                    .tone(Tone::Dim),))
-                .fills_width(),
-                tick,
-            ))
-            .gap(10.0)
-            .align(AlignItems::Center)
-            .width(percent(100.0));
-            let (rules, mood): (fn(&mut Cx), _) = match chosen {
-                true => (picked, Mood::Good),
-                false => (option, Mood::Quiet),
-            };
-            let then = (!chosen).then_some(Pick::Offer { index });
-            button(line)
-                .width(percent(100.0))
-                .justify(JustifyContent::FlexStart)
-                .padding(UiRect::axes(px(8.0), px(5.0)))
-                .rules(rules)
-                .tagged(mood)
-                .on_activate(move |world| {
-                    choose(world, card, count, at, then.clone());
-                })
-                .boxed()
-        })
-        .collect::<Vec<_>>();
-    column(all).gap(2.0).boxed()
+    let (offered, pick) = (offered.to_vec(), pick.clone());
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        let (small, heading) = (theme.text.small, theme.text.heading);
+        let space = &theme.space;
+        let all = offered
+            .iter()
+            .enumerate()
+            .map(|(n, offer)| {
+                let index = n as u64;
+                let chosen = pick == Some(Pick::Offer { index });
+                let mark = column((label(
+                    char::from(b'a' + n as u8).to_string(),
+                )
+                .size(small)
+                .bold(true)
+                .wrap(false)
+                .tone(if chosen {
+                    Tone::Accent
+                } else {
+                    Tone::Faint
+                }),))
+                .width(px(small))
+                .shrink(0.0);
+                let tick = match chosen {
+                    true => glyph(Glyph::Check, small)
+                        .tone(Tone::Accent)
+                        .boxed(),
+                    false => frame().width(px(small)).boxed(),
+                };
+                let line = row((
+                    mark,
+                    label(offer.title.clone())
+                        .size(heading)
+                        .wrap(false),
+                    column((note(offer.description.clone()),))
+                        .fills_width(),
+                    tick,
+                ))
+                .gap(space.section)
+                .align(AlignItems::Center)
+                .width(percent(100.0));
+                let (rules, mood): (fn(&mut Cx), _) = match chosen {
+                    true => (picked, Mood::Good),
+                    false => (option, Mood::Quiet),
+                };
+                let then = (!chosen).then_some(Pick::Offer { index });
+                button(line)
+                    .width(percent(100.0))
+                    .justify(JustifyContent::FlexStart)
+                    .padding(UiRect::axes(
+                        px(space.gap),
+                        px(space.gap / 2.0),
+                    ))
+                    .rules(rules)
+                    .tagged(mood)
+                    .on_activate(move |world| {
+                        choose(world, card, count, at, then.clone());
+                    })
+                    .boxed()
+            })
+            .collect::<Vec<_>>();
+        column(all).gap(space.gap / 2.0)
+    })
 }
 
 /// The way between the questions of a card, and where it is.
 fn pager(card: Entity, count: usize, at: usize) -> AnyView {
-    let step = |which: &'static str, to: usize| {
-        button(label(which).size(14.0).wrap(false))
-            .padding(UiRect::axes(px(5.0), px(0.0)))
-            .rules(retrace)
-            .tagged(Mood::Ink)
-            .on_activate(move |world| turn(world, card, count, to))
-    };
-    row((
-        step("\u{2039}", at.saturating_sub(1)),
-        label(format!("{} of {count}", at + 1))
-            .size(11.0)
-            .wrap(false)
-            .tone(Tone::Dim),
-        step("\u{203a}", at + 1),
-    ))
-    .gap(2.0)
-    .align(AlignItems::Center)
-    .shrink(0.0)
-    .boxed()
+    with_cx(move |cx| {
+        let space = &cx.theme().space;
+        let (body, gap) = (cx.theme().text.body, space.gap);
+        let step = |which: &'static str, to: usize| {
+            button(label(which).size(body).wrap(false))
+                .padding(UiRect::axes(px(gap / 2.0), px(0.0)))
+                .rules(retrace)
+                .tagged(Mood::Ink)
+                .on_activate(move |world| {
+                    turn(world, card, count, to);
+                })
+        };
+        row((
+            step("\u{2039}", at.saturating_sub(1)),
+            label(format!("{} of {count}", at + 1))
+                .wrap(false)
+                .rules(note_rules),
+            step("\u{203a}", at + 1),
+        ))
+        .gap(gap / 4.0)
+        .align(AlignItems::Center)
+        .shrink(0.0)
+    })
 }
 
 /// The question `at` of `card`, which asks `asked`.
@@ -330,16 +344,21 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
     let Some(one) = asked.questions.get(at) else {
         return frame().boxed();
     };
-    let mut head = vec![
-        column((label(one.question.clone()).size(13.0).bold(true),))
-            .fills_width()
-            .boxed(),
-    ];
+    let question = one.question.clone();
+    let mut head = vec![with_cx(move |cx| {
+        column((label(question)
+            .size(cx.theme().text.heading)
+            .bold(true),))
+        .fills_width()
+    })];
     if count > 1 {
         head.push(pager(card, count, at));
     }
-    let mut parts =
-        vec![row(head).gap(8.0).align(AlignItems::FlexStart).boxed()];
+    let mut parts = vec![with_cx(move |cx| {
+        row(head)
+            .gap(cx.theme().space.gap)
+            .align(AlignItems::FlexStart)
+    })];
     if !one.description.is_empty() {
         parts.push(note(one.description.clone()).boxed());
     }
@@ -365,9 +384,10 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
             true => "Answer",
             false => "Other",
         };
-        parts.push(
+        parts.push(with_cx(move |cx| {
+            let space = &cx.theme().space;
             row((
-                label(name).size(12.0).wrap(false).tone(Tone::Dim),
+                label(name).wrap(false).rules(note_rules),
                 text_field(typed, move |world, text| {
                     write(world, card, count, at, text);
                 })
@@ -375,11 +395,10 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
                 .rules(well)
                 .tagged(Mood::Field),
             ))
-            .gap(10.0)
+            .gap(space.section)
             .align(AlignItems::Center)
-            .padding(UiRect::horizontal(px(8.0)))
-            .boxed(),
-        );
+            .padding(UiRect::horizontal(px(space.gap)))
+        }));
     }
     let next = match at + 1 < count {
         true => marked(Glyph::Into, "NEXT")
@@ -395,12 +414,11 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
             .on_activate(move |world| submit(world, card, count))
             .boxed(),
     };
-    let done = label(resource::<Answering, _>(move |a| {
+    let done = note(resource::<Answering, _>(move |a| {
         format!("{} of {count} answered", a.answered(card))
-    }))
-    .size(11.0)
-    .tone(Tone::Dim);
-    parts.push(
+    }));
+    parts.push(with_cx(move |cx| {
+        let gap = cx.theme().space.gap;
         row((
             column((done,)).fills_width(),
             marked(Glyph::Cross, "DISMISS")
@@ -409,19 +427,20 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
                 .on_activate(move |world| dismiss(world, card)),
             next,
         ))
-        .gap(8.0)
+        .gap(gap)
         .align(AlignItems::Center)
-        .padding(UiRect::top(px(2.0)))
-        .boxed(),
-    );
-    column(parts).gap(6.0).boxed()
+        .padding(UiRect::top(px(gap / 4.0)))
+    }));
+    with_cx(move |cx| column(parts).gap(cx.theme().space.gap))
 }
 
 /// The card of the waiting `card`, which asks `asked`.
 pub fn card(card: Entity, asked: Questions) -> AnyView {
     let message = match asked.message.is_empty() {
         true => frame().boxed(),
-        false => label(asked.message.clone()).size(12.0).boxed(),
+        false => {
+            label(asked.message.clone()).rules(small_rules).boxed()
+        }
     };
     let pages = keyed(
         resource::<Answering, _>(move |a| a.page(card)),
@@ -438,14 +457,16 @@ pub fn card(card: Entity, asked: Questions) -> AnyView {
         component::<Refused, _>(card, |refused| refused.cloned()),
         |refused| match refused {
             Some(Refused(text)) => label(text.clone())
-                .size(12.0)
                 .tone(Tone::Critical)
+                .rules(small_rules)
                 .boxed(),
             None => frame().boxed(),
         },
     )
     .within(bare());
-    column((message, pages, refused)).gap(8.0).boxed()
+    with_cx(move |cx| {
+        column((message, pages, refused)).gap(cx.theme().space.gap)
+    })
 }
 
 /// The card the agent of the open chat waits on, over the field.
@@ -454,13 +475,15 @@ pub fn in_chat() -> impl View {
         let Some((entity, asked)) = open.clone() else {
             return frame().boxed();
         };
-        crate::with_cx(move |cx| {
-            let palette = &cx.theme().palette;
+        with_cx(move |cx| {
+            let theme = cx.theme();
+            let (palette, space) = (&theme.palette, &theme.space);
             column((
                 row((
-                    glyph(Glyph::Bell, 12.0).tone(Tone::Accent),
+                    glyph(Glyph::Bell, theme.text.small)
+                        .tone(Tone::Accent),
                     label("Waiting for your answer")
-                        .size(11.0)
+                        .size(theme.text.caption)
                         .wrap(false)
                         .tone(Tone::Accent),
                 ))
@@ -468,12 +491,15 @@ pub fn in_chat() -> impl View {
                 .align(AlignItems::Center),
                 card(entity, asked.clone()),
             ))
-            .gap(8.0)
-            .padding(UiRect::all(px(10.0)))
-            .margin(UiRect::bottom(px(8.0)))
-            .border(1.0)
+            .gap(space.gap)
+            .padding(UiRect::axes(
+                px(space.card_padding_x),
+                px(space.card_padding_y),
+            ))
+            .margin(UiRect::bottom(px(space.gap)))
+            .border(space.border)
             .border_color(palette.brass_5)
-            .radius(cx.theme().space.round)
+            .radius(space.round)
             .fill(palette.card)
             .boxed()
         })

@@ -189,6 +189,8 @@ pub struct TextSizes {
     pub heading: f32,
     /// The name at the head of a page.
     pub title: f32,
+    /// The line over a card that waits for the person.
+    pub caption: f32,
     /// The space between the letters of the display face.
     pub tracking: f32,
 }
@@ -230,9 +232,18 @@ pub struct Spacing {
     /// entry's words and its keys.
     pub menu_width: f32,
     pub menu_gap: f32,
+    /// The space across and down inside the status bar, between its
+    /// parts, the side of its icons and the space after each.
+    pub status_padding_x: f32,
+    pub status_padding_y: f32,
+    pub status_gap: f32,
+    pub status_icon: f32,
+    pub status_icon_gap: f32,
     /// The widest a page of Settings is drawn.
     pub page_width: f32,
-    /// The space inside a card that asks something over the world.
+    /// The widest a card over the panels is drawn, and the space
+    /// inside it.
+    pub overlay_width: f32,
     pub overlay_padding: f32,
     /// The least height of a tab within a panel, and the line under
     /// the one shown.

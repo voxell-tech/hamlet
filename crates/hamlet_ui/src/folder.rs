@@ -9,22 +9,22 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
 use bevy::ecs::system::Commands;
 use bevy::ecs::world::World;
-use bevy::ui::AlignItems;
-use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, label, segmented,
-};
+use bevy::ui::{AlignItems, px};
+use bevy_fynix::views::{BehaviorExt, FrameProps, column, label};
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed};
 use hamlet_client::realm::{Mode, Works};
 use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
 use hamlet_realm::pick::{Thing, select};
 use hamlet_realm::works::Switched;
 
-use crate::View;
 use crate::feel::Mood;
 use crate::icons::Glyph;
-use crate::looks::{action, bad_action, bare, brass, buttons, note};
+use crate::looks::{
+    CONTROL, action, bad_action, bare, brass, buttons, choices, note,
+};
 use crate::overview::{heading, tell};
 use crate::roll::hamlets_moved;
+use crate::{View, with_cx};
 
 /// The most earlier folders offered again.
 const EARLIER: usize = 3;
@@ -104,7 +104,7 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
             vec![heading(Glyph::Folder, "WORKS ON").boxed()];
         match &work.folder {
             Some(folder) => {
-                parts.push(label(folder.clone()).size(13.0).boxed());
+                parts.push(label(folder.clone()).boxed());
                 parts.push(
                     buttons(vec![
                         choose,
@@ -130,7 +130,7 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
         }
         let mode = work.mode;
         parts.push(
-            segmented(
+            choices(
                 ["MANUAL", "AUTO"],
                 match mode {
                     Mode::Manual => 0,
@@ -171,6 +171,7 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
                     let folder = folder.clone();
                     bevy_fynix::views::button(label(folder.clone()))
                         .padding(crate::looks::pad())
+                        .min_height(px(CONTROL))
                         .rules(brass)
                         .tagged(Mood::Plain)
                         .on_activate(move |world| {
@@ -186,7 +187,11 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
             parts.push(small("Worked on before:".to_string()));
             parts.push(buttons(earlier).boxed());
         }
-        column(parts).gap(6.0).align(AlignItems::FlexStart).boxed()
+        with_cx(move |cx| {
+            column(parts)
+                .gap(cx.theme().space.gap)
+                .align(AlignItems::FlexStart)
+        })
     })
     .within(bare())
 }

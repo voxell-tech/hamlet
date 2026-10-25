@@ -12,12 +12,10 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::Time;
-use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, frame, label, row, scroll,
-    text_field,
+    BehaviorExt, FrameProps, column, frame, label, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, each, resource};
 use hamlet_client::chats::{Entry, Transcript};
@@ -32,10 +30,12 @@ use crate::dock::{PanelAppExt, lit_panel, show_tab};
 use crate::feel::{Lit, Mood};
 use crate::icons::Glyph;
 use crate::looks::{
-    Fills, ICON, bad_action, brass, grim, lamp, marked, note, well,
+    Fills, ICON, bad_action, beside, brass, buttons, caption,
+    description, framed, grim, lamp, marked, note, scroll_area,
+    title, well,
 };
-use crate::platform::{DisplayText, MonoText, Wraps};
-use crate::{AnyView, Cx, PanelSystems, View, asking, chat};
+use crate::platform::MonoText;
+use crate::{AnyView, Cx, PanelSystems, View, asking, chat, with_cx};
 
 const EMPTY: &str = "Nothing waits for you. Petitions, objections, \
                      questions and faults come here, oldest first.";
@@ -308,13 +308,11 @@ fn strip(need: &Need) -> AnyView {
         // A form has its own answers.
         let answers = match questions {
             Some(_) => frame().boxed(),
-            None => row((
+            None => buttons(vec![
                 button(&need, 0),
                 button(&need, 1),
                 button(&need, 2),
-            ))
-            .gap(8.0)
-            .tagged(Wraps)
+            ])
             .boxed(),
         };
         let what = match need.detail {
@@ -339,80 +337,57 @@ fn strip(need: &Need) -> AnyView {
         // A form says its questions itself.
         let line = match questions {
             Some(_) => frame().boxed(),
-            None => label(need.line.clone()).size(13.0).boxed(),
+            None => label(need.line.clone())
+                .size(cx.theme().text.heading)
+                .boxed(),
         };
-        cx.build(
-            column((
-                label(head)
-                    .size(11.0)
-                    .bold(true)
-                    .tone(tone)
-                    .tagged(DisplayText),
-                line,
-                about,
-                answers,
-            ))
-            .gap(6.0)
-            .padding(UiRect::axes(px(14.0), px(10.0)))
-            .border(1.0)
-            .border_color(cx.theme().palette.brass_6)
-            .radius(cx.theme().space.round)
-            .fill(cx.theme().palette.card),
-        )
+        cx.build(framed((caption(head, tone), line, about, answers)))
     })
 }
 
 /// The Needs You panel's contents.
 pub fn screen() -> impl View {
-    column((
-        row((label(resource::<Queue, _>(|queue| {
-            match queue.len() {
+    with_cx(|cx| {
+        let space = &cx.theme().space;
+        column((
+            title(resource::<Queue, _>(|queue| match queue.len() {
                 0 => "NOTHING NEEDS YOU".to_string(),
                 1 => "1 THING NEEDS YOU".to_string(),
                 n => format!("{n} THINGS NEED YOU"),
-            }
-        }))
-        .size(12.0)
-        .bold(true)
-        .tone(Tone::Faint)
-        .tagged(DisplayText),))
-        .align(AlignItems::Center),
-        text_field(
-            resource::<Reason, _>(|r| r.0.clone()),
-            |world, text| world.resource_mut::<Reason>().0 = text,
-        )
-        .rules(well),
-        // The stop sits under the field, so a narrow panel never
-        // pushes it past its edge.
-        row((
-            column((note("Reason or reply, then answer"),))
-                .fills_width(),
-            bad_action(Glyph::Stop, "STOP ALL", |world| {
-                world.trigger(Veto { agent: None });
-                world.flush();
-            }),
+            })),
+            text_field(
+                resource::<Reason, _>(|r| r.0.clone()),
+                |world, text| world.resource_mut::<Reason>().0 = text,
+            )
+            .rules(well),
+            // The stop sits under the field, so a narrow panel never
+            // pushes it past its edge.
+            beside((
+                column((note("Reason or reply, then answer"),))
+                    .fills_width(),
+                bad_action(Glyph::Stop, "STOP ALL", |world| {
+                    world.trigger(Veto { agent: None });
+                    world.flush();
+                }),
+            )),
+            description(resource::<Queue, _>(|queue| {
+                if queue.is_empty() {
+                    EMPTY.to_string()
+                } else {
+                    String::new()
+                }
+            })),
+            scroll_area((each(
+                // The time each has waited is part of the row.
+                resource::<Queue, _>(|queue| queue.0.clone()),
+                |n: &Need| format!("{n:?}"),
+                strip,
+            )
+            .within(column(()).gap(space.gap)),)),
         ))
-        .gap(12.0)
-        .align(AlignItems::Center),
-        label(resource::<Queue, _>(|queue| {
-            if queue.is_empty() {
-                EMPTY.to_string()
-            } else {
-                String::new()
-            }
-        }))
-        .tone(Tone::Dim),
-        scroll((each(
-            // The time each has waited is part of the row.
-            resource::<Queue, _>(|queue| queue.0.clone()),
-            |n: &Need| format!("{n:?}"),
-            strip,
-        )
-        .within(column(()).gap(8.0)),))
-        .fills_height(),
-    ))
-    .fills_height()
-    .gap(12.0)
+        .fills_height()
+        .gap(space.section)
+    })
 }
 
 #[cfg(test)]

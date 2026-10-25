@@ -7,16 +7,17 @@ use bevy::ui::{AlignItems, JustifyContent, UiRect, px};
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
     BehaviorExt, Frame, FrameProps, Icon, Stack, button, column,
-    frame, label, row,
+    frame, label, row, scroll,
 };
 use bevy_fynix::{
     Bevy, Prop, ScopedExt, ViewExt, ViewSeq, Visual, style,
 };
 
+use crate::fade::{FadeSurface, ScrollFade};
 use crate::feel::Mood;
 use crate::icons::{Glyph, glyph};
 use crate::platform::{DisplayText, Wraps};
-use crate::theme::HamletTheme;
+use crate::theme::{HamletTheme, TextSizes};
 use crate::{AnyView, Cx, View, with_cx};
 
 /// The least height of any button (macOS default control size, 28
@@ -260,11 +261,21 @@ pub fn list(rows: Vec<AnyView>) -> impl View {
 /// Small dim words, too short to be a description: a value, or
 /// what an empty list says.
 pub fn note(text: impl Into<Prop<String>>) -> impl View {
-    label(text).rules(|cx: &mut Cx| {
-        style::<HamletTheme>()
-            .label(|l, t| l.size(t.text.small).tone(Tone::Dim))
-            .apply(cx);
-    })
+    label(text).rules(note_rules)
+}
+
+/// The rules of a note: every label in the view small and dim.
+pub fn note_rules(cx: &mut Cx) {
+    style::<HamletTheme>()
+        .label(|l, t| l.size(t.text.small).tone(Tone::Dim))
+        .apply(cx);
+}
+
+/// The rules of small words: every label in the view small.
+pub fn small_rules(cx: &mut Cx) {
+    style::<HamletTheme>()
+        .label(|l, t| l.size(t.text.small))
+        .apply(cx);
 }
 
 /// The rules of a long description: every label in the view small,
@@ -310,6 +321,79 @@ pub fn section(text: impl Into<Prop<String>>) -> impl View {
         .tagged(DisplayText)
 }
 
+/// The name on a card, in `tone`: heading size, in the display face.
+pub fn card_name(
+    text: impl Into<Prop<String>>,
+    tone: Tone,
+) -> impl View {
+    let text = text.into();
+    with_cx(move |cx| {
+        label(text)
+            .size(cx.theme().text.heading)
+            .bold(true)
+            .tone(tone)
+            .wrap(false)
+            .tagged(DisplayText)
+    })
+}
+
+/// The line over a card that waits for the person: small capitals in
+/// `tone`.
+pub fn caption(
+    text: impl Into<Prop<String>>,
+    tone: Tone,
+) -> impl View {
+    let text = text.into();
+    with_cx(move |cx| {
+        label(text)
+            .size(cx.theme().text.caption)
+            .bold(true)
+            .tone(tone)
+            .tagged(DisplayText)
+    })
+}
+
+/// `children` in a column that scrolls, taking the height left. Its
+/// edges fade into the panel while more lies past them.
+pub fn scroll_area(
+    children: impl ViewSeq<Bevy, HamletTheme> + 'static,
+) -> impl View {
+    scroll_area_on(FadeSurface::default(), children)
+}
+
+/// A [`scroll_area`] on `surface`, its edges fading into it.
+pub fn scroll_area_on(
+    surface: FadeSurface,
+    children: impl ViewSeq<Bevy, HamletTheme> + 'static,
+) -> impl View {
+    with_cx(move |cx| {
+        scroll(children)
+            .gap(cx.theme().space.gap)
+            .fills_height()
+            .tagged(ScrollFade { surface })
+    })
+}
+
+/// `content` in a card: a shade above the panel, in a frame.
+pub fn framed(
+    content: impl ViewSeq<Bevy, HamletTheme> + 'static,
+) -> impl View {
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        let space = &theme.space;
+        column(content)
+            .gap(space.gap / 2.0)
+            .padding(UiRect::axes(
+                px(space.card_padding_x),
+                px(space.card_padding_y),
+            ))
+            .border(space.border)
+            .border_color(theme.palette.brass_6)
+            .radius(space.round)
+            .fill(theme.palette.card)
+    })
+}
+
 /// A lettered button: `text` in the display face.
 pub(crate) fn lettered(
     text: impl Into<Prop<String>>,
@@ -349,19 +433,41 @@ pub fn marked(
         .min_height(px(CONTROL))
 }
 
-/// A word of status of `size`, behind its icon, both in `tone`.
+/// A word of status in the small size, behind its icon, both in
+/// `tone`.
 pub(crate) fn stated(
     which: Glyph,
     text: impl Into<String>,
     tone: Tone,
-    size: f32,
 ) -> impl View {
-    row((
-        glyph(which, size).tone(tone),
-        label(text.into()).size(size).tone(tone).wrap(false),
-    ))
-    .gap(5.0)
-    .align(AlignItems::Center)
+    stated_at(which, text.into(), tone, |sizes| sizes.small)
+}
+
+/// A word of status in the body size, behind its icon, both in
+/// `tone`.
+pub(crate) fn stated_large(
+    which: Glyph,
+    text: impl Into<String>,
+    tone: Tone,
+) -> impl View {
+    stated_at(which, text.into(), tone, |sizes| sizes.body)
+}
+
+fn stated_at(
+    which: Glyph,
+    text: String,
+    tone: Tone,
+    size: fn(&TextSizes) -> f32,
+) -> impl View {
+    with_cx(move |cx| {
+        let size = size(&cx.theme().text);
+        row((
+            glyph(which, size).tone(tone),
+            label(text).size(size).tone(tone).wrap(false),
+        ))
+        .gap(cx.theme().space.status_icon_gap)
+        .align(AlignItems::Center)
+    })
 }
 
 /// Buttons in a row that wraps: in a narrow panel they go on to a
@@ -407,7 +513,7 @@ where
 
 /// The rules of an answer to pick: bare until the pointer is on it,
 /// and the one picked a lit plate in a frame.
-fn choice(
+pub(crate) fn choice(
     picked: bool,
 ) -> impl FnOnce(&mut Cx) + Send + Sync + 'static {
     let base = style::<HamletTheme>()
@@ -630,16 +736,31 @@ pub(crate) fn page_head(
     })
 }
 
-/// A row that is pressed whole: a plate under the pointer.
-pub(crate) fn plate(cx: &mut Cx) {
+/// A card that is pressed whole: its frame lights under the pointer.
+pub(crate) fn card_button(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
-            f.fill(Color::NONE)
+            f.fill(t.palette.card)
+                .border(t.space.border)
+                .border_color(t.palette.brass_6)
                 .radius(t.space.round)
                 .justify(JustifyContent::FlexStart)
-                .padding(UiRect::axes(px(10.0), px(5.0)))
+                .align(AlignItems::FlexStart)
+                .padding(UiRect::axes(
+                    px(t.space.card_padding_x),
+                    px(t.space.card_padding_y),
+                ))
         })
-        .hovered(|s| s.fill(|t| t.palette.brass_hover))
-        .pressed(|s| s.fill(|t| t.palette.black))
+        .hovered(|s| {
+            s.frame(|f, t| {
+                f.fill(t.palette.card).border_color(t.palette.brass_4)
+            })
+        })
+        .pressed(|s| {
+            s.frame(|f, t| {
+                f.fill(t.palette.card).border_color(t.palette.brass_5)
+            })
+        })
+        .transition(Motion::Interact)
         .apply(cx);
 }

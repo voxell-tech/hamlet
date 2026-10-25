@@ -10,7 +10,7 @@ use bevy::ui::{AlignItems, Display, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, frame, icon,
-    label, row, scroll,
+    label, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::messages::ChiefMessage;
@@ -23,8 +23,8 @@ use super::papers::Papers;
 use crate::feel::Mood;
 use crate::icons::Glyph;
 use crate::looks::{
-    Fills, ICON, action, bad_action, bare, filling, hairline, headed,
-    note, page_head, title,
+    Fills, ICON, action, bad_action, bare, close, filling, hairline,
+    headed, note, page_head, scroll_area, title,
 };
 use crate::me::Me;
 use crate::platform::{DisplayText, Wraps};
@@ -186,6 +186,8 @@ fn header(agent: Entity, with: Option<String>) -> AnyView {
             };
             world_menu::open_for(world, thing);
         });
+        let (section, gap) =
+            (cx.theme().space.section, cx.theme().space.gap);
         cx.build(
             column((
                 row((crumb,)),
@@ -198,7 +200,7 @@ fn header(agent: Entity, with: Option<String>) -> AnyView {
                     stop,
                     more,
                 ))
-                .gap(12.0)
+                .gap(section)
                 .align(AlignItems::Center)
                 .tagged(Wraps),
                 said(purpose),
@@ -210,7 +212,7 @@ fn header(agent: Entity, with: Option<String>) -> AnyView {
                 note(rolled(move |world| spent(world, agent))),
                 crate::models::of_agent(agent),
             ))
-            .gap(6.0),
+            .gap(gap),
         )
     })
 }
@@ -219,7 +221,7 @@ fn notes() -> impl View {
     let shown =
         keyed(resource::<Papers, _>(|p| p.notes.clone()), |text| {
             if text.trim().is_empty() {
-                label("No notes yet.").boxed()
+                note("No notes yet.").boxed()
             } else {
                 markdown::fixed(text, Tone::Body).boxed()
             }
@@ -234,9 +236,11 @@ fn notes() -> impl View {
             });
         }
     });
-    column((row((reflect,)), scroll((shown,)).fills_height()))
-        .fills_height()
-        .gap(8.0)
+    with_cx(move |cx| {
+        column((row((reflect,)), scroll_area((shown,))))
+            .fills_height()
+            .gap(cx.theme().space.section)
+    })
 }
 
 fn character() -> impl View {
@@ -265,12 +269,15 @@ fn character() -> impl View {
         },
     )
     .within(bare());
-    column((
-        row((edit, failed)).gap(8.0),
-        scroll((shown,)).fills_height(),
-    ))
-    .fills_height()
-    .gap(8.0)
+    with_cx(move |cx| {
+        let space = &cx.theme().space;
+        column((
+            row((edit, failed)).gap(space.gap),
+            scroll_area((shown,)),
+        ))
+        .fills_height()
+        .gap(space.section)
+    })
 }
 
 /// Reads the prompt the agent the chat is with would be given now,
@@ -319,10 +326,10 @@ fn prompt(cx: &Cx) -> impl View + use<> {
         ),
         note("What this agent is told at the start of a turn."),
         hairline(cx.theme().palette.brass_6),
-        scroll((shown,)).fills_height(),
+        scroll_area((shown,)),
     ))
     .fills_height()
-    .gap(8.0)
+    .gap(cx.theme().space.section)
 }
 
 /// The sections as tabs.
@@ -341,7 +348,7 @@ fn sections() -> impl View {
                     let bar = if super::conversations::is_read_only(
                         cx.world,
                     ) {
-                        column((
+                        close((
                             note("READ ONLY"),
                             action(
                                 Glyph::Back,
@@ -349,14 +356,13 @@ fn sections() -> impl View {
                                 super::conversations::chief,
                             ),
                         ))
-                        .gap(4.0)
                         .boxed()
                     } else {
                         chat::message_bar().boxed()
                     };
                     column((chat::transcript(), bar))
                         .fills_height()
-                        .gap(8.0)
+                        .gap(cx.theme().space.gap)
                 })
             })
             .within(filling())
@@ -375,10 +381,13 @@ pub(super) fn living() -> impl View {
     keyed(
         resource::<Me, _>(|m| (m.session, m.agent, m.with.clone())),
         |(_, agent, with)| {
-            column((header(*agent, with.clone()), tabs(), sections()))
-                .fills_height()
-                .gap(12.0)
-                .boxed()
+            let (header, tabs, sections) =
+                (header(*agent, with.clone()), tabs(), sections());
+            with_cx(move |cx| {
+                column((header, tabs, sections))
+                    .fills_height()
+                    .gap(cx.theme().space.section)
+            })
         },
     )
     .within(filling())
