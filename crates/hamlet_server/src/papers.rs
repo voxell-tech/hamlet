@@ -322,17 +322,23 @@ impl Houses {
             .await
     }
 
-    /// The folders of the skills in the house at `local`, as a client
-    /// lists them. A remote house's are read apart and shown once
-    /// read.
+    /// The folders of the skills in agent `number`'s house, as a
+    /// client lists them. A remote house's are read apart and shown
+    /// once read.
     pub fn skill_names(
         &mut self,
         hamlet: &str,
         number: u64,
-        local: &Path,
     ) -> Result<Vec<String>> {
         if let Workspace::Local = self.workspace {
-            return Ok(crate::prompt::skill_names(local));
+            return Ok(tree::house(
+                &self.root,
+                hamlet,
+                number,
+                Missing::Fail,
+            )
+            .map(|house| crate::prompt::skill_names(&house))
+            .unwrap_or_default());
         }
         while let Some(Ok((hamlet, number, names))) =
             self.readers.try_join_next()
@@ -349,10 +355,9 @@ impl Houses {
             && self.reading.insert(key.clone())
         {
             let reader = self.reader(hamlet, number, false)?;
-            let local = local.to_owned();
             self.readers.spawn(async move {
                 let names = reader
-                    .skills(&local)
+                    .skills()
                     .await
                     .into_iter()
                     .map(|skill| skill.folder)
@@ -495,16 +500,23 @@ impl Reader {
         }
     }
 
-    /// The house's skills; a local house's are those at `local`.
-    pub async fn skills(
-        &self,
-        local: &Path,
-    ) -> Vec<crate::prompt::shelf::Skill> {
+    pub async fn skills(&self) -> Vec<crate::prompt::shelf::Skill> {
         match self {
-            Self::Local { .. } => {
-                let shelf = local.join("skills");
+            Self::Local {
+                root,
+                hamlet,
+                number,
+            } => {
+                let Ok(root) = root.try_clone() else {
+                    return Vec::new();
+                };
+                let (hamlet, number) = (hamlet.clone(), *number);
                 tokio::task::spawn_blocking(move || {
-                    crate::prompt::shelf::shelf(&shelf)
+                    tree::house(&root, &hamlet, number, Missing::Fail)
+                        .map(|house| {
+                            crate::prompt::shelf::house_skills(&house)
+                        })
+                        .unwrap_or_default()
                 })
                 .await
                 .unwrap_or_default()
