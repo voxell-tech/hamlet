@@ -19,10 +19,15 @@ use std::{io, ptr};
 
 use windows_sys::Wdk::Foundation::OBJECT_ATTRIBUTES;
 use windows_sys::Wdk::Storage::FileSystem::{
-    FILE_CREATE, FILE_DIRECTORY_FILE, FILE_OPEN, FILE_OPEN_IF,
-    FILE_OPEN_REPARSE_POINT, FILE_SYNCHRONOUS_IO_NONALERT,
-    NtCreateFile, REPARSE_DATA_BUFFER, REPARSE_DATA_BUFFER_0_0,
-    REPARSE_DATA_BUFFER_0_1, SYMLINK_FLAG_RELATIVE,
+    FILE_CREATE, FILE_DIRECTORY_FILE, FILE_INFORMATION_CLASS,
+    FILE_OPEN, FILE_OPEN_IF, FILE_OPEN_REPARSE_POINT,
+    FILE_RENAME_IGNORE_READONLY_ATTRIBUTE, FILE_RENAME_INFORMATION,
+    FILE_RENAME_INFORMATION_0, FILE_RENAME_POSIX_SEMANTICS,
+    FILE_RENAME_REPLACE_IF_EXISTS, FILE_SYNCHRONOUS_IO_NONALERT,
+    FileRenameInformation, FileRenameInformationEx, NtCreateFile,
+    NtSetInformationFile, REPARSE_DATA_BUFFER,
+    REPARSE_DATA_BUFFER_0_0, REPARSE_DATA_BUFFER_0_1,
+    SYMLINK_FLAG_RELATIVE,
 };
 use windows_sys::Win32::Foundation::{
     ERROR_CANT_RESOLVE_FILENAME, ERROR_DIRECTORY,
@@ -44,11 +49,10 @@ use windows_sys::Win32::Storage::FileSystem::{
     FILE_FLAG_OPEN_REPARSE_POINT, FILE_FULL_DIR_INFO,
     FILE_GENERIC_READ, FILE_INFO_BY_HANDLE_CLASS,
     FILE_LIST_DIRECTORY, FILE_NAME_NORMALIZED, FILE_READ_ATTRIBUTES,
-    FILE_RENAME_INFO, FILE_RENAME_INFO_0, FILE_SHARE_DELETE,
-    FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE,
-    FILE_WRITE_ATTRIBUTES, FILE_WRITE_DATA, FileAttributeTagInfo,
-    FileBasicInfo, FileDispositionInfo, FileDispositionInfoEx,
-    FileFullDirectoryInfo, FileRenameInfo, FileRenameInfoEx,
+    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    FILE_TRAVERSE, FILE_WRITE_ATTRIBUTES, FILE_WRITE_DATA,
+    FileAttributeTagInfo, FileBasicInfo, FileDispositionInfo,
+    FileDispositionInfoEx, FileFullDirectoryInfo,
     GetFileInformationByHandle, GetFileInformationByHandleEx,
     GetFinalPathNameByHandleW, MAXIMUM_REPARSE_DATA_BUFFER_SIZE,
     ReOpenFile, SYNCHRONIZE, SetFileInformationByHandle,
@@ -60,10 +64,6 @@ use windows_sys::Win32::System::IO::{
 use windows_sys::Win32::System::Ioctl::FSCTL_GET_REPARSE_POINT;
 use windows_sys::Win32::System::SystemServices::{
     IO_REPARSE_TAG_MOUNT_POINT, IO_REPARSE_TAG_SYMLINK,
-};
-use windows_sys::Win32::System::WindowsProgramming::{
-    FILE_RENAME_FLAG_POSIX_SEMANTICS,
-    FILE_RENAME_FLAG_REPLACE_IF_EXISTS,
 };
 
 use super::System;
@@ -85,10 +85,6 @@ const DIRECTORY: u32 = FILE_LIST_DIRECTORY | FILE_TRAVERSE;
 /// The tag bit of a reparse point that names another file, as a
 /// symbolic link's and a junction's do.
 const NAME_SURROGATE: u32 = 0x2000_0000;
-
-/// `FILE_RENAME_FLAG_IGNORE_READONLY_ATTRIBUTE`, which windows-sys
-/// lacks: a rename replaces a read-only file, as on Unix.
-const RENAME_IGNORE_READONLY: u32 = 0x4;
 
 /// Where a reparse point's data starts, past its tag and length.
 const REPARSE_DATA: usize =
@@ -255,7 +251,6 @@ impl System for Windows {
         let file = reopen(
             file,
             FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES,
-            0,
         )?;
         let basic: FILE_BASIC_INFO = query(&file, FileBasicInfo)?;
         let others = basic.FileAttributes & !FILE_ATTRIBUTE_READONLY;
@@ -286,20 +281,21 @@ impl System for Windows {
         let rename =
             |class, how| rename_to(&file, to, to_name, class, how);
         // `Flags` sets every byte of the union, where the one-byte
-        // `ReplaceIfExists` would leave three unset.
+        // `ReplaceIfExists` would leave three unset. A read-only file
+        // is replaced, as on Unix.
         let replacing = match replace {
             Replace::Never => 0,
-            Replace::Always => FILE_RENAME_FLAG_REPLACE_IF_EXISTS,
+            Replace::Always => FILE_RENAME_REPLACE_IF_EXISTS,
         };
-        let posix = FILE_RENAME_INFO_0 {
+        let posix = FILE_RENAME_INFORMATION_0 {
             Flags: replacing
-                | FILE_RENAME_FLAG_POSIX_SEMANTICS
-                | RENAME_IGNORE_READONLY,
+                | FILE_RENAME_POSIX_SEMANTICS
+                | FILE_RENAME_IGNORE_READONLY_ATTRIBUTE,
         };
-        match rename(FileRenameInfoEx, posix) {
+        match rename(FileRenameInformationEx, posix) {
             Err(error) if unsupported(&error) => rename(
-                FileRenameInfo,
-                FILE_RENAME_INFO_0 { Flags: replacing },
+                FileRenameInformation,
+                FILE_RENAME_INFORMATION_0 { Flags: replacing },
             ),
             renamed => renamed,
         }
@@ -343,10 +339,15 @@ impl System for Windows {
     fn names(
         dir: &OwnedHandle,
     ) -> io::Result<impl Iterator<Item = io::Result<Name>>> {
-        let listing = reopen(
+        // The folder itself, by an empty name: `ReOpenFile` refuses
+        // a folder.
+        let listing = open_wide(
             dir,
-            FILE_LIST_DIRECTORY | SYNCHRONIZE,
-            FILE_FLAG_BACKUP_SEMANTICS,
+            Vec::new(),
+            FILE_LIST_DIRECTORY,
+            FILE_OPEN,
+            FILE_DIRECTORY_FILE,
+            0,
         )?;
         // Eight-byte words, as each entry is aligned.
         let mut words = vec![0_u64; 8192];
@@ -425,7 +426,20 @@ fn open_at(
     options: u32,
     attributes: u32,
 ) -> io::Result<OwnedHandle> {
-    let mut wide = name.as_os().encode_wide().collect::<Vec<_>>();
+    let wide = name.as_os().encode_wide().collect();
+    open_wide(dir, wide, access, disposition, options, attributes)
+}
+
+/// [`open_at`] for the name `wide`, where an empty one opens `dir`
+/// itself.
+fn open_wide(
+    dir: &OwnedHandle,
+    mut wide: Vec<u16>,
+    access: u32,
+    disposition: u32,
+    options: u32,
+    attributes: u32,
+) -> io::Result<OwnedHandle> {
     let bytes = u16::try_from(wide.len() * 2).map_err(|_| {
         io::Error::from(io::ErrorKind::InvalidFilename)
     })?;
@@ -584,7 +598,6 @@ fn set<T: ?Sized>(
 fn reopen(
     handle: &impl AsRawHandle,
     access: u32,
-    flags: u32,
 ) -> io::Result<OwnedHandle> {
     // SAFETY: `ReOpenFile` returns a new handle that nothing else
     // owns, or `INVALID_HANDLE_VALUE`, which `HandleOrInvalid` holds
@@ -594,7 +607,9 @@ fn reopen(
             handle.as_raw_handle(),
             access,
             SHARE_ALL,
-            flags,
+            // A link set on the file since it was opened is not
+            // followed.
+            FILE_FLAG_OPEN_REPARSE_POINT,
         ))
     };
     OwnedHandle::try_from(handle)
@@ -602,23 +617,26 @@ fn reopen(
 }
 
 /// Renames the opened `file` to `name` in `to`, the class and `how`
-/// saying whether it may replace what is there.
+/// saying whether it may replace what is there. Through the NT call:
+/// `SetFileInformationByHandle` reads the name as a path from the
+/// current folder, and refuses it beside `RootDirectory`.
 fn rename_to(
     file: &OwnedHandle,
     to: &OwnedHandle,
     name: &Name,
-    class: FILE_INFO_BY_HANDLE_CLASS,
-    how: FILE_RENAME_INFO_0,
+    class: FILE_INFORMATION_CLASS,
+    how: FILE_RENAME_INFORMATION_0,
 ) -> io::Result<()> {
     let wide = name.as_os().encode_wide().collect::<Vec<_>>();
-    let start = offset_of!(FILE_RENAME_INFO, FileName);
+    let start = offset_of!(FILE_RENAME_INFORMATION, FileName);
     // The name runs past the struct, followed by a NUL.
     let size = start + 2 * (wide.len() + 1);
-    let mut info = vec![
-        FILE_RENAME_INFO::default();
-        size.div_ceil(size_of::<FILE_RENAME_INFO>())
-    ];
-    info[0] = FILE_RENAME_INFO {
+    let mut info =
+        vec![
+            FILE_RENAME_INFORMATION::default();
+            size.div_ceil(size_of::<FILE_RENAME_INFORMATION>())
+        ];
+    info[0] = FILE_RENAME_INFORMATION {
         Anonymous: how,
         RootDirectory: to.as_raw_handle(),
         FileNameLength: (wide.len() * 2) as u32,
@@ -634,7 +652,23 @@ fn rename_to(
             .cast::<u16>()
             .copy_from_nonoverlapping(wide.as_ptr(), wide.len());
     }
-    set(file, class, info.as_slice())
+    let mut done = IO_STATUS_BLOCK::default();
+    // SAFETY: the call reads `size_of_val(info)` bytes of `info`, and
+    // writes only `done`.
+    let status = unsafe {
+        NtSetInformationFile(
+            file.as_raw_handle(),
+            &mut done,
+            info.as_ptr().cast(),
+            size_of_val(info.as_slice()) as u32,
+            class,
+        )
+    };
+    if status < 0 {
+        // SAFETY: the call reads only `status`.
+        return Err(code(unsafe { RtlNtStatusToDosError(status) }));
+    }
+    Ok(())
 }
 
 /// The target a symbolic link's or a junction's reparse `data` names,
