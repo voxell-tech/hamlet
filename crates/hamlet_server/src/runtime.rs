@@ -273,6 +273,7 @@ impl Serving {
         self.service.models.disconnect(id);
         self.service.chats.gone(id);
         self.service.gifts.gone(id);
+        self.service.market.gone(id);
         flush_models(&mut self.service, &mut self.harnesses).await
     }
 
@@ -313,6 +314,7 @@ impl Serving {
     async fn on_tick(&mut self, since: &mut Since) -> Result<()> {
         use crate::society::{merging, reviews, votes};
         self.service.gifts.expire();
+        self.service.market.expire();
         let expired = self.service.models.expired();
         let due = since.stale
             || since.busy

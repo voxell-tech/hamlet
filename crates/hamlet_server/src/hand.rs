@@ -26,6 +26,11 @@ pub(crate) struct Manifest {
 }
 
 impl Manifest {
+    /// The tool's folder.
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
     pub fn has_net(&self) -> bool {
         self.policy.net
     }

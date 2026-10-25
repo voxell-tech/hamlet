@@ -740,6 +740,66 @@ fn the_bazaar_takes_skills_and_founds_from_templates() {
 }
 
 #[test]
+fn the_bazaar_settles_and_packs_packages() {
+    client(
+        ClientMessage::Settle(Settle {
+            id: id(),
+            into: Some("mill".into()),
+            listing: "l_1".into(),
+            sha256: "ab".repeat(32),
+            size: 10,
+            title: "Scribe".into(),
+            version: "1.0.0".into(),
+        }),
+        json!({"type": "settle", "id": ID, "listing": "l_1", "title": "Scribe", "version": "1.0.0", "into": "mill", "size": 10, "sha256": "ab".repeat(32)}),
+    );
+    client(
+        ClientMessage::SettlePart(SettlePart {
+            data: "aGk=".into(),
+            id: id(),
+            offset: 0,
+            upload: "u".into(),
+        }),
+        json!({"type": "settle-part", "id": ID, "upload": "u", "offset": 0, "data": "aGk="}),
+    );
+    client(
+        ClientMessage::Read(Read::Package {
+            id: id(),
+            of: Packing::Hamlet {
+                hamlet: "mill".into(),
+                kind: "Workshop".into(),
+                notes: false,
+            },
+        }),
+        json!({"type": "read", "what": "package", "id": ID, "of": {"what": "hamlet", "hamlet": "mill", "kind": "Workshop", "notes": false}}),
+    );
+    client(
+        ClientMessage::Read(Read::Bought { id: id() }),
+        json!({"type": "read", "what": "bought", "id": ID}),
+    );
+    let bought = server(
+        json!({"type": "read", "to": ID, "bought": [{"listing": "l_1", "kind": "tools", "title": "Cal", "version": "1.0.0", "names": ["cal"]}]}),
+    );
+    assert!(matches!(
+        bought,
+        ServerMessage::Read(ReadResult::Bought { ref bought, .. })
+            if bought[0].kind == PackageKind::Tools
+    ));
+    assert!(matches!(
+        server(
+            json!({"type": "read", "to": ID, "tools": [{"name": "cal", "description": "Dates."}]})
+        ),
+        ServerMessage::Read(ReadResult::Tools { .. })
+    ));
+    assert!(matches!(
+        server(
+            json!({"type": "read", "to": ID, "package": {"data": "aGk=", "offset": 0, "size": 2}})
+        ),
+        ServerMessage::Read(ReadResult::Package { .. })
+    ));
+}
+
+#[test]
 fn every_message_type_is_documented() {
     let page = include_str!("../../../docs/protocol.md");
     let mut generator =

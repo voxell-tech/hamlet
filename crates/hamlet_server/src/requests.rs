@@ -269,6 +269,35 @@ impl Serving {
                 )
                 .await?,
             )],
+            ClientMessage::Settle(settle) => {
+                vec![crate::market::begin(
+                    &mut self.service,
+                    id,
+                    settle,
+                )?]
+            }
+            ClientMessage::SettlePart(part) => vec![
+                crate::market::part(
+                    &mut self.service,
+                    &mut self.harnesses,
+                    id,
+                    part,
+                )
+                .await?,
+            ],
+            ClientMessage::Read(Read::Bought { id: request }) => {
+                vec![crate::market::bought(&self.service, request)?]
+            }
+            ClientMessage::Read(Read::Tools { id: request }) => {
+                vec![crate::market::tools(&self.service, request)]
+            }
+            ClientMessage::Read(Read::Package {
+                id: request,
+                of,
+            }) => {
+                crate::market::package(&mut self.service, request, of)
+                    .await?
+            }
             ClientMessage::MoveHouses(MoveHouses { id: request }) => {
                 match self.service.start_move(id, request)? {
                     Ok(()) => Vec::new(),

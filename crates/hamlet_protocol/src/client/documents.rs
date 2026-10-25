@@ -4,7 +4,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::client::{
-    Address, Endpoint, Listed, Past, Price, RequestId, Skill,
+    Address, Bought, Endpoint, Listed, PackableTool, PackagePart,
+    Packing, Past, Price, RequestId, Skill,
 };
 
 #[derive(
@@ -162,6 +163,12 @@ pub enum Read {
     },
     #[serde(rename = "charter")]
     Charter { id: RequestId },
+    #[serde(rename = "bought")]
+    Bought { id: RequestId },
+    #[serde(rename = "tools")]
+    Tools { id: RequestId },
+    #[serde(rename = "package")]
+    Package { id: RequestId, of: Packing },
 }
 
 #[derive(
@@ -169,11 +176,38 @@ pub enum Read {
 )]
 #[serde(untagged, deny_unknown_fields)]
 pub enum ReadResult {
-    Prompt { prompt: String, to: RequestId },
-    History { history: Vec<Past>, to: RequestId },
-    Models { models: Vec<Listed>, to: RequestId },
-    Papers { papers: Papers, to: RequestId },
-    Charter { charter: Charter, to: RequestId },
+    Prompt {
+        prompt: String,
+        to: RequestId,
+    },
+    History {
+        history: Vec<Past>,
+        to: RequestId,
+    },
+    Models {
+        models: Vec<Listed>,
+        to: RequestId,
+    },
+    Papers {
+        papers: Papers,
+        to: RequestId,
+    },
+    Charter {
+        charter: Charter,
+        to: RequestId,
+    },
+    Bought {
+        bought: Vec<Bought>,
+        to: RequestId,
+    },
+    Tools {
+        tools: Vec<PackableTool>,
+        to: RequestId,
+    },
+    Package {
+        package: PackagePart,
+        to: RequestId,
+    },
 }
 
 #[derive(

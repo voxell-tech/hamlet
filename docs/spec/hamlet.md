@@ -27,6 +27,15 @@ is words, whatever it begins with.
 agent's inbox (at most 32 MB at once), or a skill: a starter, or one from
 another agent's house.
 
+**H37.** A chief can buy agents, hamlets and tools at the Agent Bazaar's
+server and bring them home: an agent moves into a hamlet the chief
+chooses with its character, notes and skills; a hamlet is founded as one
+from a template is (H6); tools join those added by hand (C17). A newer
+version of one bought is brought up where it lives, and an agent's notes,
+its own memory, are kept. A chief can pack an agent, a hamlet or tools
+added by hand to sell there, an agent's notes only when the chief says
+so.
+
 **H26.** A chief has these commands:
 
 | Command | Does |

@@ -27,7 +27,7 @@ to loopback. Keep the token private; plain WebSocket supplies no encryption.
 Send `Hello` first, within 10 seconds:
 
 ```json
-{"type":"hello","v":2,"token":"<home token>"}
+{"type":"hello","v":3,"token":"<home token>"}
 ```
 
 A successful hello receives a full `state` before live changes. The
@@ -102,7 +102,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 
 | Type (schema) | Fields | Action and answer |
 |---|---|---|
-| `hello` (`Hello`) | `v: 2`, `token: string`; no `id` | Authenticate; full `state`. |
+| `hello` (`Hello`) | `v: 3`, `token: string`; no `id` | Authenticate; full `state`. |
 | `say` (`Say`) | `to: Address`, `text: string` | Send a chief line or typed command. A command gets `reply`; an admitted agent line gets its receipt when that submission settles. Live work arrives through watches and realm changes. |
 | `give` (`Give`) | `to: Address`, `files: {path: string, size: integer}[]` | Begin a file gift; `reply.upload` identifies the upload for chunks. Paths are relative; sizes are byte counts. |
 | `give` (`Give`) | `to: Address`, `skill: {starter: string}` | Give an installed starter skill; `reply`. |
@@ -124,6 +124,8 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | `move-houses` (`MoveHouses`) | none | Copy every agent's house from the workspace the server works in to the one chosen in Settings, replacing the houses there; `reply` once done. Progress also changes through `change`. |
 | `take-skill` (`TakeSkill`) | `name: string`, `from: string`, `files: {path: string, text: string}[]` | Take a skill into the library; `reply`. See [The Agent Bazaar](#the-agent-bazaar). |
 | `found-from` (`FoundFrom`) | `template: Template` | Found a hamlet from a template, with its mayor and agents; `reply`. See [The Agent Bazaar](#the-agent-bazaar). |
+| `settle` (`Settle`) | `listing: string`, `title: string`, `version: string`, `into?: string`, `size: integer`, `sha256: string` | Begin settling a package bought at the bazaar's server; `reply.upload` identifies the upload for its parts, or `reply` is what it came to before. See [Packages](#packages). |
+| `settle-part` (`SettlePart`) | `upload: string`, `offset: integer`, `data: string` | Send a part of the package, in order; `reply`, the last one with what settling came to. See [Packages](#packages). |
 
 `/new` and `/resume <number>` also exist as typed commands sent through
 `say`. They perform the same conversation changes as the `new` and `resume`
@@ -176,6 +178,9 @@ Each row is a `Read` form with `type: "read"` and `id`.
 | `models` | `refresh?: boolean` | `models: Listed[]`: name, price, price source, context size, allowed flag and note. `refresh` refreshes discovery. |
 | `papers` | `agent: Address`, `full?: boolean` | `papers: Papers`: notes, character and skill names/descriptions. By default, notes and character are trimmed and cut to 6000 Unicode code points each; `full: true` returns them uncut. |
 | `charter` | None | `charter: {text: string, own: boolean}`: text and whether the chief supplied it. |
+| `bought` | None | `bought: Bought[]`: what was bought at the bazaar's server and settled, by listing. See [Packages](#packages). |
+| `tools` | None | `tools: {name: string, description: string}[]`: the tools added by hand that can be packed for sale. |
+| `package` | `of: Packing` | One or more `package: {data: string, offset: integer, size: integer}`, in order: the package packed for sale, in base64 parts of at most 512 KiB, the last ending at `size`. A refusal is a `reply`. See [Packages](#packages). |
 
 ### The Agent Bazaar
 
@@ -211,6 +216,55 @@ their purposes and characters, and its title are then recorded
 together; each house is made and given its notes and skills. The new
 hamlet is the chief's, and comes to every client as the state changes.
 `realm/deeds.rs` owns it.
+
+#### Packages
+
+The bazaar's server, a separate service, sells agents, hamlets and tools
+as packages: one JSON document of at most 10 MB, `{format: 1, kind:
+"agent" | "hamlet" | "plugin", ...}`, each file of it in base64 by its
+path. The window buys and downloads a package there; the server settles
+it into the home, and packs what the chief sells.
+
+`settle` names the package by its `size` and lowercase `sha256`, and
+the listing it was bought as: its id, `title` and `version`. `into` is
+the hamlet an agent moves into; a hamlet or tools name none. The
+answer's `upload` takes the package in `settle-part`s, each at most
+512 KiB in base64 and following the one before, within two minutes of
+it. Each is answered; the last, once the bytes are those announced,
+with what came of it:
+
+- An agent moves into `into` as a new agent, under its own name or,
+  when the realm has it, the first free of `name-ii`, `name-iii`...,
+  with its character in the record and its notes and skills in its
+  house. Bought again under the same listing while it lives, it is
+  brought up to the version where it lives: its character and the
+  skills the package has are replaced, and its notes are its own and
+  kept, unless they are still empty.
+- A hamlet is founded as `found-from` founds one, every agent with all
+  it knows. Under the same listing while it stands, each of its agents
+  the package has is brought up, and one it lacks moves in. A hamlet
+  of that name from elsewhere is refused.
+- Tools join the tools added by hand, in the home's `tools/`, where
+  every agent can use them. A tool of the same name is refused, unless
+  the same listing brought it, which it replaces.
+
+The record's changes and what was bought are kept together with a
+marker under the `settle`'s `id`, as `take-skill` and `found-from` are:
+the same `settle` again is answered at once with what it came to, with
+no `upload`, and another request under that `id` is refused. Bytes
+that are not those announced, a package that does not read, a settle
+whose `into` does not fit its kind, a taken name and every refusal of
+the record are refused, and nothing is kept.
+
+| Schema | Shape |
+|---|---|
+| `Bought` | `{listing: string, kind: "agent" \| "hamlet" \| "tools", title: string, version: string, names: string[], hamlet?: string}`: what it became, by name, and the hamlet an agent moved into. |
+| `Packing` | `{what: "agent", agent: Address, notes: boolean}`, `{what: "hamlet", hamlet: string, kind: string, notes: boolean}` or `{what: "tools", tools: string[]}`: an agent with its character and skills, its notes with `notes`; a hamlet whole, `kind` saying what kind it is; or tools added by hand, by name. |
+
+A `package` read packs what `of` names, as the bazaar's server checks
+it: names of lowercase letters, digits, `-` and `_`, at most 32, and at
+most 10 MB. The window uploads it to the bazaar's server itself.
+`market.rs` owns them.
 
 ### Login steps
 

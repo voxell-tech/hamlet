@@ -68,11 +68,16 @@ impl ClientMessage {
                 | Read::History { id, .. }
                 | Read::Models { id, .. }
                 | Read::Papers { id, .. }
-                | Read::Charter { id },
+                | Read::Charter { id }
+                | Read::Bought { id }
+                | Read::Tools { id }
+                | Read::Package { id, .. },
             )
             | Self::MoveHouses(MoveHouses { id })
             | Self::TakeSkill(TakeSkill { id, .. })
-            | Self::FoundFrom(FoundFrom { id, .. }) => Some(id),
+            | Self::FoundFrom(FoundFrom { id, .. })
+            | Self::Settle(Settle { id, .. })
+            | Self::SettlePart(SettlePart { id, .. }) => Some(id),
         }
     }
 }
@@ -90,7 +95,10 @@ impl ServerMessage {
                 | ReadResult::History { to, .. }
                 | ReadResult::Models { to, .. }
                 | ReadResult::Papers { to, .. }
-                | ReadResult::Charter { to, .. },
+                | ReadResult::Charter { to, .. }
+                | ReadResult::Bought { to, .. }
+                | ReadResult::Tools { to, .. }
+                | ReadResult::Package { to, .. },
             ) => Some(to),
             Self::State(_) | Self::Change(_) | Self::Turn(_) => None,
         }
@@ -98,7 +106,7 @@ impl ServerMessage {
 }
 
 /// The value of every `v` field.
-pub const V: u64 = 3;
+pub const V: u64 = 4;
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
@@ -143,6 +151,10 @@ pub enum ClientMessage {
     TakeSkill(TakeSkill),
     #[serde(rename = "found-from")]
     FoundFrom(FoundFrom),
+    #[serde(rename = "settle")]
+    Settle(Settle),
+    #[serde(rename = "settle-part")]
+    SettlePart(SettlePart),
 }
 
 #[derive(

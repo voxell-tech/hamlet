@@ -1,7 +1,7 @@
 //! Chief-controlled founding, placement and closure of hamlets.
 
 use anyhow::{Context, Result};
-use hamlet_protocol::client::{FoundFrom, Settler};
+use hamlet_protocol::client::{FoundFrom, Settler, Template};
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
@@ -286,8 +286,8 @@ pub(crate) enum Unfounded {
 /// The hamlet a template founded, and the number each of its agents
 /// took, the mayor first.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct Founded {
-    numbers: Vec<u64>,
+pub(crate) struct Founded {
+    pub numbers: Vec<u64>,
 }
 
 /// The chief's `found-from`: the template's hamlet founded with its
@@ -317,7 +317,7 @@ pub(crate) async fn found_from(
     let outcome = service.home.store().once(&id, &request, |db| {
         fresh = true;
         db.execute_batch("SAVEPOINT founding")?;
-        let founded = settle(db, found, cap, &chief, at);
+        let founded = found_in(db, &found.template, cap, &chief, at);
         if matches!(founded, Ok(Ok(_))) {
             db.execute_batch("RELEASE founding")?;
         } else {
@@ -361,16 +361,15 @@ pub(crate) async fn found_from(
     )))
 }
 
-/// Founds the template's hamlet in the record and the realm, in the
+/// Founds `template`'s hamlet in the record and the realm, in the
 /// transaction `db`, which its caller rolls back when it refuses.
-fn settle(
+pub(crate) fn found_in(
     db: &Connection,
-    found: &FoundFrom,
+    template: &Template,
     cap: usize,
     chief: &str,
     at: i64,
 ) -> Result<Result<Founded, Unfounded>> {
-    let template = &found.template;
     let hamlet = template.name.as_str();
     let realm = read(db)?;
     if realm.hamlets.iter().any(|h| h.id == hamlet) {

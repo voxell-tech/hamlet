@@ -489,8 +489,15 @@ pub(crate) fn prepare_read(
                 }),
             )));
         }
-        Read::Models { .. } | Read::History { .. } => {
-            bail!("the models and the chats answer this read")
+        Read::Models { .. }
+        | Read::History { .. }
+        | Read::Bought { .. }
+        | Read::Tools { .. }
+        | Read::Package { .. } => {
+            bail!(
+                "the models, the chats and the market answer this \
+                 read"
+            )
         }
         Read::Papers { agent, id, full } => {
             (agent, id, full.unwrap_or(false), false)
