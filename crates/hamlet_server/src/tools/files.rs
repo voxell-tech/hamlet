@@ -391,7 +391,7 @@ async fn queued(
             Ok(_) => return Ok(()),
             Err(error) if error.code == Code::NotFound => {
                 let parent =
-                    crate::sandbox::path::join(&[&path, ".."]);
+                    hamlet_os::fs::path::join(&[&path, ".."]);
                 if parent == path || !path.starts_with(&parent) {
                     return Ok(());
                 }

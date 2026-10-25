@@ -3,6 +3,7 @@
 
 use std::time::Duration;
 
+use hamlet_os::fs::path;
 use hamlet_workspace_wire::{
     Bytes, Canonical, Code, Exec, Info, Kind, LIST_ENTRIES, List,
     Listed, MAX_FILE, Ran, Read, Walk, Walked, Write,
@@ -11,7 +12,7 @@ use hamlet_workspace_wire::{
 use super::walk::{SKIPPED, VISITED};
 use crate::papers::remote::{HOUSE, PROJECT, TooLarge};
 use crate::sandbox::{
-    Env, FileError, FileInfo, FileKind, Sandbox, SetupError, path,
+    Env, FileError, FileInfo, FileKind, Sandbox, SetupError,
 };
 use crate::workspace::WorkspaceSession;
 

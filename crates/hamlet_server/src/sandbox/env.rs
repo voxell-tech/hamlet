@@ -2,27 +2,24 @@
 //! policy, and file operations made after the policy's checks on the
 //! paths as the system resolves them.
 
-use std::collections::VecDeque;
 use std::fs;
 use std::io::{self, ErrorKind, Write};
-use std::os::fd::OwnedFd;
+use std::path::Path;
 use std::process::{ExitStatus, Stdio};
 use std::time::Duration;
 
-use hamlet_workspace_wire::Code;
-use rustix::fs::{
-    AtFlags, Dir, FileType, Mode, OFlags, RawMode, Stat, mkdirat,
-    openat, readlinkat, statat,
+use hamlet_os::fs::path::{self, text};
+use hamlet_os::fs::{
+    Directory, FileId, Follow, Kind, LastLink, Mode, Name, Open,
+    Reached, Stat, SystemError, Unreached, system_error,
 };
-use rustix::io::Errno;
+use hamlet_workspace_wire::Code;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::time::Instant;
 
-use super::path::{self, text};
 use super::policy::{
-    MAX_LINKS, Policy, SetupError, canon_text, cased, directory_root,
-    fixed_roots, is_readable, is_writable, policy_hash, private_tmp,
-    temp_root,
+    Policy, SetupError, canon_text, directory_root, fixed_roots,
+    is_readable, is_writable, policy_hash, private_tmp, temp_root,
 };
 use super::{Sandbox, limited};
 use crate::scrub::Scrubber;
@@ -41,6 +38,9 @@ const ROOT_REFUSAL: &str = "The sandbox root is no longer its real \
 const MOVED: &str = "The path changed while it was being reached. \
                      The operation was refused.";
 
+/// The mode a tool's new file is made with, as the umask allows.
+const NEW_FILE: Mode = Mode::new(0o666);
+
 /// A tool's environment under `policy`, working in `cwd`.
 pub(crate) struct Env {
     cwd: String,
@@ -58,7 +58,7 @@ pub(crate) struct Env {
 struct Root {
     path: String,
     real: String,
-    id: Option<(u64, u64)>,
+    id: Option<FileId>,
 }
 
 /// A failed file operation: its kind and the words pi's tools give
@@ -225,13 +225,24 @@ impl Env {
         &self,
         path: &str,
         reach: Reach,
-        follow: bool,
+        follow: Follow,
     ) -> Result<Reached, FileError> {
         if let Some(refusal) = self.root_refusal() {
             return Err(refusal);
         }
         let resolved = self.absolute(path);
-        let reached = walk(&resolved, follow)?;
+        let reached = hamlet_os::fs::reach(&resolved, follow)
+            .map_err(|unreached| match unreached {
+                Unreached::System(error) => {
+                    file_error(&error, "open", &resolved)
+                }
+                Unreached::Moved => {
+                    FileError::new(Code::PermissionDenied, MOVED)
+                }
+                Unreached::Loop => {
+                    described(SystemError::LOOP, "open", &resolved)
+                }
+            })?;
         let (allowed, verb) = match reach {
             Reach::Read => (
                 is_readable(&self.policy, &self.tmp, &reached.real),
@@ -263,7 +274,7 @@ impl Env {
         &self,
         path: &str,
     ) -> Result<FileInfo, FileError> {
-        let at = self.reach(path, Reach::Read, false)?;
+        let at = self.reach(path, Reach::Read, Follow::NotLast)?;
         let stat = at.stat().map_err(|error| {
             file_error(&error, "lstat", &at.resolved)
         })?;
@@ -287,33 +298,27 @@ impl Env {
         &self,
         path: &str,
     ) -> Result<Vec<FileInfo>, FileError> {
-        let at = self.reach(path, Reach::Read, true)?;
+        let at = self.reach(path, Reach::Read, Follow::Last)?;
         let scandir = |error: &io::Error| {
             file_error(error, "scandir", &at.resolved)
         };
-        let dir = at
-            .open(OFlags::DIRECTORY | OFlags::RDONLY)
-            .map_err(|error| scandir(&error))?;
-        let entries = Dir::read_from(&dir)
-            .map_err(|error| scandir(&error.into()))?;
+        let dir = at.directory().map_err(|error| scandir(&error))?;
+        let names = dir.names().map_err(|error| scandir(&error))?;
         let mut infos = Vec::new();
-        for entry in entries {
-            let entry =
-                entry.map_err(|error| scandir(&error.into()))?;
-            let name =
-                entry.file_name().to_string_lossy().into_owned();
-            if name == "." || name == ".." {
-                continue;
-            }
-            let stat = statat(&dir, &name, AtFlags::SYMLINK_NOFOLLOW)
-                .map_err(|error| {
-                    file_error(
-                        &error.into(),
-                        "lstat",
-                        &path::join(&[at.resolved.as_str(), &name]),
-                    )
-                })?;
-            match info_of(&name, &stat) {
+        for name in names {
+            let text = name.to_string_lossy();
+            let lstat = |error: &io::Error| {
+                file_error(
+                    error,
+                    "lstat",
+                    &path::join(&[at.resolved.as_str(), &text]),
+                )
+            };
+            let stat = dir
+                .stat(&name)
+                .map_err(|error| lstat(&error))?
+                .ok_or_else(|| lstat(&ErrorKind::NotFound.into()))?;
+            match info_of(&text, &stat) {
                 Ok(info) => infos.push(info),
                 Err(error) if error.code == Code::Invalid => {}
                 Err(error) => return Err(error),
@@ -326,7 +331,7 @@ impl Env {
         &self,
         path: &str,
     ) -> Result<String, FileError> {
-        let at = self.reach(path, Reach::Read, true)?;
+        let at = self.reach(path, Reach::Read, Follow::Last)?;
         at.stat().map(|_| at.real.clone()).map_err(|error| {
             file_error(&error, "realpath", &at.resolved)
         })
@@ -349,28 +354,18 @@ impl Env {
         &self,
         path: &str,
     ) -> Result<(fs::File, String), FileError> {
-        let at = self.reach(path, Reach::Read, true)?;
-        // Nonblocking, so opening a FIFO does not wait for a writer.
-        let file =
-            at.open(OFlags::RDONLY | OFlags::NONBLOCK).map_err(
-                |error| file_error(&error, "open", &at.resolved),
-            )?;
-        let meta = file.metadata().map_err(|error| {
-            file_error(&error, "fstat", &at.resolved)
+        let at = self.reach(path, Reach::Read, Follow::Last)?;
+        let file = at.file(Open::Read).map_err(|error| {
+            if error.kind() == ErrorKind::IsADirectory {
+                FileError::new(
+                    Code::IsDirectory,
+                    "EISDIR: illegal operation on a directory, read",
+                )
+            } else {
+                file_error(&error, "open", &at.resolved)
+            }
         })?;
-        if meta.is_dir() {
-            return Err(FileError::new(
-                Code::IsDirectory,
-                "EISDIR: illegal operation on a directory, read",
-            ));
-        }
-        if !meta.is_file() {
-            return Err(FileError::new(
-                Code::Invalid,
-                "Not a regular file",
-            ));
-        }
-        Ok((file, at.resolved))
+        Ok((file.into_file(), at.resolved))
     }
 
     /// The text of a file, refused unless it is UTF-8, so that an
@@ -395,7 +390,7 @@ impl Env {
         path: &str,
         content: &str,
     ) -> Result<(), FileError> {
-        self.put(path, content, OFlags::TRUNC)
+        self.put(path, content, Open::Truncate(NEW_FILE))
     }
 
     fn append_file(
@@ -403,7 +398,7 @@ impl Env {
         path: &str,
         content: &str,
     ) -> Result<(), FileError> {
-        self.put(path, content, OFlags::APPEND)
+        self.put(path, content, Open::Extend(NEW_FILE))
     }
 
     /// Writes `content` to the file opened with `how`, making its
@@ -412,15 +407,21 @@ impl Env {
         &self,
         path: &str,
         content: &str,
-        how: OFlags,
+        how: Open,
     ) -> Result<(), FileError> {
-        let mut at = self.reach(path, Reach::Write, true)?;
-        at.make_folders()?;
-        let mut file =
-            at.open(OFlags::WRONLY | OFlags::CREATE | how).map_err(
-                |error| file_error(&error, "open", &at.resolved),
-            )?;
-        file.write_all(content.as_bytes())
+        let mut at = self.reach(path, Reach::Write, Follow::Last)?;
+        at.make_folders().map_err(|error| {
+            file_error(
+                &error,
+                "mkdir",
+                &path::resolve(&at.resolved, ".."),
+            )
+        })?;
+        let file = at.file(how).map_err(|error| {
+            file_error(&error, "open", &at.resolved)
+        })?;
+        file.file()
+            .write_all(content.as_bytes())
             .map_err(|error| file_error(&error, "open", &at.resolved))
     }
 
@@ -788,248 +789,42 @@ impl Drop for Env {
 }
 
 fn root_at(path: &str) -> Result<Root, SetupError> {
-    let meta = match fs::symlink_metadata(path::resolve(".", path)) {
-        Ok(meta) => Some(meta),
-        Err(error) if error.kind() == ErrorKind::NotFound => None,
-        Err(error) => return Err(error.into()),
-    };
-    if meta
-        .as_ref()
-        .is_some_and(|meta| !meta.is_dir() && !meta.is_file())
-    {
+    let stat = own_stat(&path::resolve(".", path))?;
+    if stat.is_some_and(|stat| {
+        !matches!(stat.kind, Kind::Directory | Kind::File)
+    }) {
         return Err(SetupError::NotReal(path.into()));
     }
     Ok(Root {
         path: path.to_owned(),
         real: canon_text(path),
-        id: meta.as_ref().map(identity),
+        id: stat.map(|stat| stat.id),
     })
 }
 
-#[cfg(unix)]
-fn identity(meta: &fs::Metadata) -> (u64, u64) {
-    use std::os::unix::fs::MetadataExt;
-    (meta.dev(), meta.ino())
-}
-
-#[cfg(not(unix))]
-fn identity(_meta: &fs::Metadata) -> (u64, u64) {
-    (0, 0)
-}
-
-/// Where a path leads, reached one name at a time and never through
-/// a link the policy has not seen: the deepest folder on the way
-/// that exists, held open, and the names from there. All but the
-/// last are missing. An operation goes on from the folder with the
-/// system told to follow no link, so a link swapped in after the
-/// check leads nowhere.
-struct Reached {
-    dir: OwnedFd,
-    names: Vec<String>,
-    /// The real path, the one the policy checks.
-    real: String,
-    /// The path as the agent gave it, made absolute, for messages.
-    resolved: String,
-}
-
-impl Reached {
-    fn last(&self) -> &str {
-        self.names.last().map_or(".", String::as_str)
-    }
-
-    fn missing(&self) -> Option<io::Error> {
-        (self.names.len() > 1).then(|| io::Error::from(Errno::NOENT))
-    }
-
-    /// The file's own `lstat`.
-    fn stat(&self) -> io::Result<Stat> {
-        if let Some(missing) = self.missing() {
-            return Err(missing);
-        }
-        statat(&self.dir, self.last(), AtFlags::SYMLINK_NOFOLLOW)
-            .map_err(Into::into)
-    }
-
-    /// The file opened with `flags` and no link followed.
-    fn open(&self, flags: OFlags) -> io::Result<fs::File> {
-        if let Some(missing) = self.missing() {
-            return Err(missing);
-        }
-        openat(
-            &self.dir,
-            self.last(),
-            flags | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-            Mode::from_raw_mode(0o666),
-        )
-        .map(fs::File::from)
-        .map_err(Into::into)
-    }
-
-    /// Makes the missing folders, so that only the file is left.
-    fn make_folders(&mut self) -> Result<(), FileError> {
-        while self.names.len() > 1 {
-            let name = self.names.remove(0);
-            let parent = path::resolve(&self.resolved, "..");
-            let made = match mkdirat(
-                &self.dir,
-                &name,
-                Mode::from_raw_mode(0o777),
-            ) {
-                Ok(()) | Err(Errno::EXIST) => {
-                    open_dir_at(&self.dir, &name)
-                }
-                Err(error) => Err(error),
-            };
-            self.dir = made.map_err(|error| {
-                file_error(&error.into(), "mkdir", &parent)
-            })?;
-        }
-        Ok(())
-    }
-}
-
-/// `resolved`, an absolute path, reached from the root one name at
-/// a time, each link on the way read and followed by name. With
-/// `follow`, a link at the end is followed too. The names that do
-/// not exist stay as written, as [`canon_text`] keeps them.
-fn walk(resolved: &str, follow: bool) -> Result<Reached, FileError> {
-    let mut rest = resolved
-        .split('/')
-        .map(str::to_owned)
-        .collect::<VecDeque<_>>();
-    let mut base = "/".to_owned();
-    let mut dir = open_dir(&base).map_err(|error| {
-        file_error(&error.into(), "open", resolved)
-    })?;
-    let mut links = 0;
-    // Only the case of the names may differ from the folder held:
-    // the system following a link swapped in meanwhile would.
-    let reached = |dir, base: String, names: Vec<String>| {
-        let real = cased(&base);
-        if real.to_lowercase() != base.to_lowercase() {
-            return Err(FileError::new(
-                Code::PermissionDenied,
-                MOVED,
-            ));
-        }
-        let mut parts = vec![real];
-        parts.extend(names.iter().cloned());
-        Ok(Reached {
-            dir,
-            real: path::join(&parts),
-            names,
-            resolved: resolved.to_owned(),
-        })
+fn own_stat(path: &str) -> io::Result<Option<Stat>> {
+    let Ok(name) = Name::new(path::basename(path)) else {
+        return Directory::open(Path::new(path), LastLink::Refuse)?
+            .status()
+            .map(Some);
     };
-    while let Some(part) = rest.pop_front() {
-        if part.is_empty() || part == "." {
-            continue;
-        }
-        // `base` holds no link, so its parent is the folder `..`
-        // leads to.
-        if part == ".." {
-            base = path::dirname(&base);
-            dir = open_dir(&base).map_err(|error| {
-                file_error(&error.into(), "open", resolved)
-            })?;
-            continue;
-        }
-        let kind = statat(&dir, &part, AtFlags::SYMLINK_NOFOLLOW)
-            .map(|stat| {
-                FileType::from_raw_mode(stat.st_mode as RawMode)
-            });
-        let last = rest.is_empty();
-        let link = match kind {
-            Ok(FileType::Symlink) if follow || !last => {
-                readlinkat(&dir, &part, Vec::new()).ok()
-            }
-            _ => None,
-        };
-        if let Some(link) = link {
-            // The system refuses a path through more links, so it
-            // leads nowhere.
-            links += 1;
-            if links > MAX_LINKS {
-                return Err(file_error(
-                    &io::Error::from(Errno::LOOP),
-                    "open",
-                    resolved,
-                ));
-            }
-            let link = link.to_string_lossy().into_owned();
-            if path::is_absolute(&link) {
-                base = "/".into();
-                dir = open_dir(&base).map_err(|error| {
-                    file_error(&error.into(), "open", resolved)
-                })?;
-            }
-            for piece in link.split('/').rev() {
-                rest.push_front(piece.to_owned());
-            }
-            continue;
-        }
-        let below = match kind {
-            Ok(FileType::Directory) if !last => {
-                open_dir_at(&dir, &part).ok()
-            }
-            _ => None,
-        };
-        match below {
-            Some(below) => {
-                dir = below;
-                base = path::join(&[base.as_str(), &part]);
-            }
-            None => {
-                // The end, or a name the rest cannot be reached
-                // under: the operation fails on it as the system
-                // says.
-                let mut names = vec![part];
-                names.extend(rest);
-                return reached(dir, base, names);
-            }
-        }
+    match Directory::open(
+        Path::new(&path::dirname(path)),
+        LastLink::Follow,
+    ) {
+        Ok(parent) => parent.stat(&name),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
     }
-    reached(dir, base, Vec::new())
-}
-
-/// `real`, a path without links, opened as a folder one name at a
-/// time, following none.
-fn open_dir(real: &str) -> rustix::io::Result<OwnedFd> {
-    let mut dir = openat(
-        rustix::fs::CWD,
-        "/",
-        OFlags::DIRECTORY | OFlags::RDONLY | OFlags::CLOEXEC,
-        Mode::empty(),
-    )?;
-    for name in real.split('/').filter(|name| !name.is_empty()) {
-        dir = open_dir_at(&dir, name)?;
-    }
-    Ok(dir)
-}
-
-fn open_dir_at(
-    dir: &OwnedFd,
-    name: &str,
-) -> rustix::io::Result<OwnedFd> {
-    openat(
-        dir,
-        name,
-        OFlags::DIRECTORY
-            | OFlags::RDONLY
-            | OFlags::NOFOLLOW
-            | OFlags::CLOEXEC,
-        Mode::empty(),
-    )
 }
 
 /// `stat` of the file called `name`, as [`FileInfo`] keeps it.
 fn info_of(name: &str, stat: &Stat) -> Result<FileInfo, FileError> {
-    let kind = match FileType::from_raw_mode(stat.st_mode as RawMode)
-    {
-        FileType::RegularFile => FileKind::File,
-        FileType::Directory => FileKind::Directory,
-        FileType::Symlink => FileKind::Symlink,
-        _ => {
+    let kind = match stat.kind {
+        Kind::File => FileKind::File,
+        Kind::Directory => FileKind::Directory,
+        Kind::Link => FileKind::Symlink,
+        Kind::Special => {
             return Err(FileError::new(
                 Code::Invalid,
                 "Unsupported file type",
@@ -1039,7 +834,7 @@ fn info_of(name: &str, stat: &Stat) -> Result<FileInfo, FileError> {
     Ok(FileInfo {
         name: name.to_owned(),
         kind,
-        size: stat.st_size as u64,
+        size: stat.size,
     })
 }
 
@@ -1090,61 +885,8 @@ pub(super) fn status_word(status: &ExitStatus) -> String {
     "ended without an exit code or signal".into()
 }
 
-/// The name of the system error behind `error`, and its words, as
-/// pi's tools give them.
-fn errno(error: &io::Error) -> Option<(&'static str, &'static str)> {
-    #[cfg(unix)]
-    {
-        use rustix::io::Errno;
-        let errno = Errno::from_io_error(error)?;
-        let known = [
-            (Errno::NOENT, "ENOENT", "no such file or directory"),
-            (Errno::ACCESS, "EACCES", "permission denied"),
-            (Errno::PERM, "EPERM", "operation not permitted"),
-            (
-                Errno::ISDIR,
-                "EISDIR",
-                "illegal operation on a directory",
-            ),
-            (Errno::NOTDIR, "ENOTDIR", "not a directory"),
-            (Errno::EXIST, "EEXIST", "file already exists"),
-            (
-                Errno::LOOP,
-                "ELOOP",
-                "too many symbolic links encountered",
-            ),
-            (Errno::NAMETOOLONG, "ENAMETOOLONG", "name too long"),
-            (Errno::ROFS, "EROFS", "read-only file system"),
-            (Errno::NOSPC, "ENOSPC", "no space left on device"),
-            (Errno::INVAL, "EINVAL", "invalid argument"),
-            (Errno::BUSY, "EBUSY", "resource busy or locked"),
-            (Errno::MFILE, "EMFILE", "too many open files"),
-            (Errno::TXTBSY, "ETXTBSY", "text file is busy"),
-            (Errno::IO, "EIO", "i/o error"),
-            (Errno::FBIG, "EFBIG", "file too large"),
-            (
-                Errno::AGAIN,
-                "EAGAIN",
-                "resource temporarily unavailable",
-            ),
-            (Errno::NXIO, "ENXIO", "no such device or address"),
-            (Errno::NOTEMPTY, "ENOTEMPTY", "directory not empty"),
-            (Errno::XDEV, "EXDEV", "cross-device link not permitted"),
-        ];
-        known
-            .into_iter()
-            .find(|(each, _, _)| *each == errno)
-            .map(|(_, name, words)| (name, words))
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = error;
-        None
-    }
-}
-
 pub(super) fn errno_name(error: &io::Error) -> &'static str {
-    errno(error).map_or("UNKNOWN", |(name, _)| name)
+    system_error(error).map_or("UNKNOWN", |error| error.name)
 }
 
 /// `error` of `syscall` on `path` in pi's tools' words, and its
@@ -1154,10 +896,22 @@ fn file_error(
     syscall: &str,
     path: &str,
 ) -> FileError {
-    let Some((name, words)) = errno(error) else {
-        return FileError::new(Code::Unknown, error.to_string());
-    };
-    let code = match name {
+    match system_error(error) {
+        Some(system) => described(system, syscall, path),
+        None if hamlet_os::fs::NotRegular::of(error).is_some() => {
+            FileError::new(Code::Invalid, "Not a regular file")
+        }
+        None => FileError::new(Code::Unknown, error.to_string()),
+    }
+}
+
+/// `error` of `syscall` on `path`, as pi's tools give it.
+fn described(
+    error: SystemError,
+    syscall: &str,
+    path: &str,
+) -> FileError {
+    let code = match error.name {
         "ENOENT" => Code::NotFound,
         "EACCES" | "EPERM" => Code::PermissionDenied,
         "ENOTDIR" => Code::NotDirectory,
@@ -1167,7 +921,10 @@ fn file_error(
     };
     FileError::new(
         code,
-        format!("{name}: {words}, {syscall} '{path}'"),
+        format!(
+            "{}: {}, {syscall} '{path}'",
+            error.name, error.words
+        ),
     )
 }
 
@@ -1185,9 +942,9 @@ mod tests {
     /// Keeps `link` pointing at `inside` and `outside` by turns,
     /// each turn an atomic replacement, until `stop` is set.
     fn swapping(
-        link: &std::path::Path,
-        inside: &std::path::Path,
-        outside: &std::path::Path,
+        link: &Path,
+        inside: &Path,
+        outside: &Path,
         stop: &AtomicBool,
     ) {
         let fresh = link.with_extension("fresh");
@@ -1267,5 +1024,71 @@ mod tests {
              policy"
         );
         assert!(written > 0 && read > 0);
+    }
+
+    #[test]
+    fn a_root_replaced_by_another_folder_is_refused() {
+        let scratch = Scratch::new("env-root");
+        let home = scratch.join("home");
+        let house = home.join("houses/home/0");
+        let folder = scratch.join("folder");
+        for each in [&house, &folder] {
+            fs::create_dir_all(each).unwrap();
+        }
+        let env = Env::new(
+            &text(&folder),
+            open_policy(&folder, &house, &home, &[]),
+            Sandbox::platform(),
+        )
+        .unwrap();
+        env.write_file("file", "kept\n").unwrap();
+        fs::rename(&folder, scratch.join("old")).unwrap();
+        fs::create_dir(&folder).unwrap();
+        assert_eq!(
+            env.write_file("file", "lost\n").unwrap_err().message,
+            ROOT_REFUSAL
+        );
+        assert!(!folder.join("file").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_and_a_fifo_are_read_and_written_as_no_regular_file() {
+        let scratch = Scratch::new("env-special");
+        let home = scratch.join("home");
+        let house = home.join("houses/home/0");
+        let folder = scratch.join("folder");
+        fs::create_dir_all(&house).unwrap();
+        fs::create_dir_all(folder.join("inner")).unwrap();
+        hamlet_testing::fifo(&folder.join("pipe"));
+        let env = Env::new(
+            &text(&folder),
+            open_policy(&folder, &house, &home, &[]),
+            Sandbox::platform(),
+        )
+        .unwrap();
+        let said = |error: FileError| (error.code, error.message);
+        assert_eq!(
+            said(env.read_file("inner").unwrap_err()),
+            (
+                Code::IsDirectory,
+                "EISDIR: illegal operation on a directory, read"
+                    .into()
+            )
+        );
+        assert_eq!(
+            said(env.read_file("pipe").unwrap_err()),
+            (Code::Invalid, "Not a regular file".into())
+        );
+        // Read and write, so opening the FIFO waits for no writer.
+        let _reader = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(folder.join("pipe"))
+            .unwrap();
+        assert_eq!(
+            said(env.write_file("pipe", "x").unwrap_err()),
+            (Code::Invalid, "Not a regular file".into())
+        );
     }
 }

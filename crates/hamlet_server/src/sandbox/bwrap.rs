@@ -3,8 +3,9 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
+use hamlet_os::fs::path::text;
+
 use super::Confined;
-use super::path::text;
 use super::policy::{
     Policy, above_roots, fixed_roots, is_dir, is_within_text,
     temp_root, write_roots,

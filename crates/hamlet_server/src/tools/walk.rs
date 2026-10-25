@@ -1,8 +1,10 @@
 //! The walk under a folder that `search` and `find` make, and the
 //! words of their refusals.
 
+use hamlet_os::fs::path;
+
 use super::environment::Reach;
-use crate::sandbox::{FileInfo, FileKind, path};
+use crate::sandbox::{FileInfo, FileKind};
 
 /// Folders a walk does not go into.
 pub(super) const SKIPPED: [&str; 9] = [

@@ -42,6 +42,10 @@ pub(crate) trait System {
         name: &Name,
         how: Open,
     ) -> io::Result<(File, Stat)>;
+    fn read_link_at(
+        dir: &Self::Handle,
+        name: &Name,
+    ) -> io::Result<String>;
     fn set_mode(dir: &Self::Handle, mode: Mode) -> io::Result<()>;
     fn set_file_mode(file: &File, mode: Mode) -> io::Result<()>;
     fn rename_at(

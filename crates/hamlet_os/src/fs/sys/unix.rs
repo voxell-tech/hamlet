@@ -114,6 +114,15 @@ impl System for Unix {
         Ok((File::from(fd), stat))
     }
 
+    fn read_link_at(
+        dir: &OwnedFd,
+        name: &Name,
+    ) -> io::Result<String> {
+        let link =
+            rustix::fs::readlinkat(dir, name.as_os(), Vec::new())?;
+        Ok(link.to_string_lossy().into_owned())
+    }
+
     fn set_mode(dir: &OwnedFd, mode: Mode) -> io::Result<()> {
         Ok(rustix::fs::fchmod(dir, raw(mode))?)
     }

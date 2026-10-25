@@ -4,17 +4,17 @@
 use std::path::Path;
 
 /// `path` as text.
-pub(crate) fn text(path: &Path) -> String {
+pub fn text(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-pub(crate) fn is_absolute(path: &str) -> bool {
+pub fn is_absolute(path: &str) -> bool {
     path.starts_with('/')
 }
 
 /// `path` without `.` and `..` parts or doubled slashes, keeping a
 /// last slash.
-pub(crate) fn normalize(path: &str) -> String {
+pub fn normalize(path: &str) -> String {
     if path.is_empty() {
         return ".".into();
     }
@@ -44,7 +44,7 @@ pub(crate) fn normalize(path: &str) -> String {
 }
 
 /// The parts joined by slashes, normalized.
-pub(crate) fn join<S: AsRef<str>>(parts: &[S]) -> String {
+pub fn join<S: AsRef<str>>(parts: &[S]) -> String {
     let joined = parts
         .iter()
         .map(AsRef::as_ref)
@@ -60,7 +60,7 @@ pub(crate) fn join<S: AsRef<str>>(parts: &[S]) -> String {
 
 /// The absolute path `path` names from `base`, itself from the
 /// process's working directory when relative.
-pub(crate) fn resolve(base: &str, path: &str) -> String {
+pub fn resolve(base: &str, path: &str) -> String {
     let joined = if is_absolute(path) {
         path.to_owned()
     } else if is_absolute(base) {
@@ -79,7 +79,7 @@ pub(crate) fn resolve(base: &str, path: &str) -> String {
 }
 
 /// The folder `path` is in.
-pub(crate) fn dirname(path: &str) -> String {
+pub fn dirname(path: &str) -> String {
     let trimmed = path.trim_end_matches('/');
     if trimmed.is_empty() {
         return if path.is_empty() { "." } else { "/" }.into();
@@ -94,13 +94,13 @@ pub(crate) fn dirname(path: &str) -> String {
 }
 
 /// The last part of `path`.
-pub(crate) fn basename(path: &str) -> &str {
+pub fn basename(path: &str) -> &str {
     let trimmed = path.trim_end_matches('/');
     trimmed.rsplit('/').next().unwrap_or("")
 }
 
 /// `to` from `from`, both resolved.
-pub(crate) fn relative(from: &str, to: &str) -> String {
+pub fn relative(from: &str, to: &str) -> String {
     let from = resolve("/", from);
     let to = resolve("/", to);
     if from == to {

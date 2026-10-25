@@ -5,9 +5,9 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use hamlet_os::fs::path::{self, text};
+use hamlet_os::fs::{MAX_LINKS, cased};
 use sha2::{Digest, Sha256};
-
-use super::path::{self, text};
 
 /// The resources one command may use.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,10 +36,6 @@ impl Default for Limits {
 
 /// The longest wall time in seconds that a command's timer takes.
 const MAX_WALL_SECS: u64 = 2_147_483;
-
-/// The most symbolic links Linux follows in one path, more than macOS
-/// does.
-pub(super) const MAX_LINKS: usize = 40;
 
 /// The reads, writes and reach of a sandboxed command.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -229,14 +225,6 @@ pub(crate) fn canon_text(path: &str) -> String {
         }
     }
     cased(&real)
-}
-
-/// `real`, a path without symbolic links, with each name in the case
-/// its volume keeps.
-pub(super) fn cased(real: &str) -> String {
-    fs::canonicalize(real)
-        .map(|path| text(&path))
-        .unwrap_or_else(|_| real.to_owned())
 }
 
 /// A directory root's canonical spelling. Links and special files are
