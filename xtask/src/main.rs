@@ -19,11 +19,13 @@ Usage: cargo xtask <task> [args]
   uninstall        remove all three from ~/.cargo/bin
   dev              try this checkout on a scratch home (HAMLET_HOME \
                      picks it)
-  check            every check a commit needs: the eight steps \
-                     below, in order
+  check            every check a commit needs: the nine steps below, \
+                     in order
   format           check that Rust is formatted (fmt formats it)
   clippy           clippy with warnings as errors, on the workspace \
                      and on xtask
+  cross            clippy with warnings as errors on hamlet_os for \
+                     Windows, which needs no C compiler
   deny             cargo deny check: licences and advisories
   test             build every target, then cargo test
   acceptance       the acceptance suite, on the plain CLI and server
@@ -51,6 +53,10 @@ const XTASK: &str = "xtask/Cargo.toml";
 /// options, so stable cannot.
 const NIGHTLY: &str = "+nightly";
 
+/// The Windows target `cross` checks, which `rust-toolchain.toml`
+/// installs.
+const WINDOWS: &str = "x86_64-pc-windows-gnu";
+
 /// The command that installs the tool `deny` runs.
 const INSTALL: &str = "cargo install --locked cargo-deny";
 
@@ -58,6 +64,7 @@ const INSTALL: &str = "cargo install --locked cargo-deny";
 enum Step {
     Format,
     Clippy,
+    Cross,
     Deny,
     Test,
     Acceptance,
@@ -68,9 +75,10 @@ enum Step {
 
 impl Step {
     /// The steps of `check`, in the order it runs them.
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 9] = [
         Self::Format,
         Self::Clippy,
+        Self::Cross,
         Self::Deny,
         Self::Test,
         Self::Acceptance,
@@ -92,6 +100,7 @@ impl Step {
         match self {
             Self::Format => format(),
             Self::Clippy => clippy(),
+            Self::Cross => cross(),
             Self::Deny => deny(),
             Self::Test => test(),
             Self::Acceptance => acceptance(root),
@@ -107,6 +116,7 @@ impl fmt::Display for Step {
         f.write_str(match self {
             Self::Format => "format",
             Self::Clippy => "clippy",
+            Self::Cross => "cross",
             Self::Deny => "deny",
             Self::Test => "test",
             Self::Acceptance => "acceptance",
@@ -261,6 +271,26 @@ fn clippy() -> Result<(), Failure> {
     status(&mut locked(
         "clippy",
         &["--all-targets", "--", "-D", "warnings"],
+    ))
+}
+
+/// Only `hamlet_os` and the test helpers it uses: the server's
+/// dependencies compile C, which needs mingw-w64.
+fn cross() -> Result<(), Failure> {
+    status(&mut locked(
+        "clippy",
+        &[
+            "-p",
+            "hamlet_os",
+            "-p",
+            "hamlet_testing",
+            "--all-targets",
+            "--target",
+            WINDOWS,
+            "--",
+            "-D",
+            "warnings",
+        ],
     ))
 }
 
