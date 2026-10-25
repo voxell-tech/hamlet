@@ -32,7 +32,7 @@ jobs:
       - run: rustup toolchain install "$(cat rust-nightly)" --profile minimal --component rustfmt
       - run: cargo xtask format
 
-  clippy:
+  clippy-linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -46,6 +46,22 @@ jobs:
           shared-key: ci
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+      - run: cargo xtask clippy
+
+  # The clippy job on macOS, which compiles the code only macOS builds.
+  clippy-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # vendor/fynix is a submodule.
+          submodules: recursive
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo xtask clippy
 
   deny:
