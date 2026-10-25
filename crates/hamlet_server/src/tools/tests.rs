@@ -4,6 +4,7 @@ use std::fs;
 use std::time::{Duration, Instant};
 
 use hamlet_testing::Scratch;
+use hamlet_testing::links::symlink;
 use serde_json::{Value, json};
 
 use super::{Outcome, Place, ToolSession};
@@ -282,8 +283,7 @@ async fn writes_and_edits_nothing_out_of_reach() {
     let elsewhere = scratch.join("elsewhere");
     fs::create_dir_all(&elsewhere).unwrap();
     fs::create_dir_all(scratch.join("houses/home/1")).unwrap();
-    std::os::unix::fs::symlink(&elsewhere, place.house.join("out"))
-        .unwrap();
+    symlink(&elsewhere, place.house.join("out")).unwrap();
     let write = |path: String| {
         call(
             &place,
