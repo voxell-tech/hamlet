@@ -13,15 +13,16 @@ use hamlet_os::fs::{
     Directory, FileId, Follow, Kind, LastLink, Mode, Name, Open,
     Reached, Stat, SystemError, Unreached, system_error,
 };
+use hamlet_os::process::{self, Tree};
 use hamlet_workspace_wire::Code;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::time::Instant;
 
+use super::Sandbox;
 use super::policy::{
     Policy, SetupError, canon_text, directory_root, fixed_roots,
     is_readable, is_writable, policy_hash, private_tmp, temp_root,
 };
-use super::{Sandbox, limited};
 use crate::scrub::Scrubber;
 
 /// How long output may still come once a command ended.
@@ -504,7 +505,7 @@ impl Env {
             .sandbox
             .command(
                 &self.policy,
-                &limited(limits, &argv),
+                &process::limited(limits, &argv),
                 &self.cwd,
                 &self.tmp,
             )
@@ -521,25 +522,21 @@ impl Env {
             )));
         }
         let program = &confined.argv[0];
-        let mut spawn = tokio::process::Command::new(program);
-        spawn
-            .args(&confined.argv[1..])
-            .env_clear()
-            .envs(&confined.env)
-            .current_dir(&self.cwd)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-        #[cfg(unix)]
-        spawn.process_group(0);
-        let mut child = spawn.spawn().map_err(|error| {
+        let (mut tree, mut child) = Tree::spawn(
+            process::Command {
+                argv: &confined.argv,
+                env: &confined.env,
+                cwd: &self.cwd,
+                stdin: Stdio::null(),
+            },
+            limits,
+        )
+        .map_err(|error| {
             ExecError::Spawn(format!(
                 "spawn {program} {}",
                 errno_name(&error)
             ))
         })?;
-        let mut group = Group(child.id());
         let mut stdout = child.stdout.take();
         let mut stderr = child.stderr.take();
         let mut decoders = [Decoder::default(), Decoder::default()];
@@ -587,7 +584,7 @@ impl Env {
                 }
                 () = &mut deadline, if !timed_out && status.is_none() => {
                     timed_out = true;
-                    group.kill();
+                    tree.kill();
                 }
                 () = tokio::time::sleep_until(grace), if status.is_some() => {
                     break;
@@ -596,7 +593,7 @@ impl Env {
         }
         // What runs on after the command ended stays, as it does
         // where the command was not stopped.
-        group.0 = None;
+        tree.release();
         for decoder in &mut decoders {
             output(&decoder.finish());
         }
@@ -617,40 +614,13 @@ impl Env {
         dirs.split(':')
             .filter(|dir| !dir.is_empty())
             .map(|dir| path::resolve(dir, program))
-            .any(|candidate| is_executable(&candidate))
+            .any(|candidate| process::is_executable(&candidate))
     }
 }
 
 enum Ended {
     Exited(ExitStatus),
     TimedOut,
-}
-
-/// The process group of a running command, killed when it is dropped
-/// unless it was let go.
-struct Group(Option<u32>);
-
-impl Group {
-    fn kill(&mut self) {
-        #[cfg(unix)]
-        {
-            use rustix::process::{
-                Pid, Signal, kill_process, kill_process_group,
-            };
-            if let Some(pid) =
-                self.0.and_then(|id| Pid::from_raw(id as i32))
-                && kill_process_group(pid, Signal::KILL).is_err()
-            {
-                let _ = kill_process(pid, Signal::KILL);
-            }
-        }
-    }
-}
-
-impl Drop for Group {
-    fn drop(&mut self) {
-        self.kill();
-    }
 }
 
 async fn read_some(
@@ -836,16 +806,6 @@ fn info_of(name: &str, stat: &Stat) -> Result<FileInfo, FileError> {
         kind,
         size: stat.size,
     })
-}
-
-#[cfg(unix)]
-fn is_executable(path: &str) -> bool {
-    rustix::fs::access(path, rustix::fs::Access::EXEC_OK).is_ok()
-}
-
-#[cfg(not(unix))]
-fn is_executable(path: &str) -> bool {
-    std::path::Path::new(path).exists()
 }
 
 /// The exit code of a command, or 128 and the signal that ended it.

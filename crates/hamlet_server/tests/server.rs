@@ -33,6 +33,10 @@ fn a_missing_pi_harness_is_refused() {
 /// The words `hamlet_server` gives on standard error as it refuses to
 /// start on `home` with `env`.
 fn refusal(home: &Scratch, env: &[(&str, &str)]) -> String {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test runs the server executable"
+    )]
     let output = strip_overrides(&mut Command::new(SERVER))
         .args(["--home".as_ref(), home.as_os_str()])
         .args(["--port", "0"])
@@ -94,6 +98,10 @@ fn a_home_record_without_a_chief_is_refused() {
 #[test]
 fn a_new_home_without_a_chief_name_is_refused() {
     let home = Scratch::new("server-no-chief");
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test runs the server executable"
+    )]
     let output = strip_overrides(&mut Command::new(SERVER))
         .args(["--home".as_ref(), home.as_os_str()])
         .args(["--port", "0"])

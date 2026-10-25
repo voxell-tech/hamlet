@@ -7,32 +7,8 @@ use std::path::{Path, PathBuf};
 
 use hamlet_os::fs::path::{self, text};
 use hamlet_os::fs::{MAX_LINKS, cased};
+use hamlet_os::process::Limits;
 use sha2::{Digest, Sha256};
-
-/// The resources one command may use.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Limits {
-    /// Seconds of CPU time.
-    pub cpu_secs: u64,
-    /// Seconds of wall time.
-    pub wall_secs: u64,
-    /// Processes of the user at once.
-    pub max_procs: u64,
-    /// The largest file written, in MiB.
-    pub max_file_mb: u64,
-}
-
-impl Default for Limits {
-    /// A command also never dumps core.
-    fn default() -> Self {
-        Self {
-            cpu_secs: 60,
-            wall_secs: 120,
-            max_procs: 4096,
-            max_file_mb: 512,
-        }
-    }
-}
 
 /// The longest wall time in seconds that a command's timer takes.
 const MAX_WALL_SECS: u64 = 2_147_483;
