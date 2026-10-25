@@ -15,7 +15,7 @@ pub struct InlayPlugin;
 
 impl Plugin for InlayPlugin {
     fn build(&self, app: &mut App) {
-        embedded_asset!(app, "inlay.wgsl");
+        embedded_asset!(app, "inlay.wesl");
         app.add_plugins(MaterialPlugin::<InlayMaterial>::default());
     }
 }
@@ -46,14 +46,14 @@ impl InlayExt {
     }
 }
 
-/// The colours of the unlit groove. Mirrors `Stone` in `inlay.wgsl`.
+/// The colours of the unlit groove. Mirrors `Stone` in `inlay.wesl`.
 #[derive(ShaderType, Reflect, Debug, Clone, Default)]
 pub struct InlayStone {
     pub bed: Vec4,
     pub strip: Vec4,
 }
 
-/// Mirrors the `Inlay` struct in `inlay.wgsl`; the fields are
+/// Mirrors the `Inlay` struct in `inlay.wesl`; the fields are
 /// explained there.
 #[derive(ShaderType, Reflect, Debug, Clone, Default, PartialEq)]
 pub struct InlayUniform {
@@ -65,7 +65,7 @@ pub struct InlayUniform {
 
 impl MaterialExtension for InlayExt {
     fn fragment_shader() -> ShaderRef {
-        "embedded://hamlet_vfx/inlay.wgsl".into()
+        "embedded://hamlet_vfx/inlay.wesl".into()
     }
 }
 

@@ -3,11 +3,11 @@
 // UV.y runs from -1 to 1 across the bed. The same shader draws the soft wash
 // beside the groove at night, on a wider ribbon with additive blending.
 
-#import bevy_pbr::{
+import bevy_pbr::render::{
     pbr_fragment::pbr_input_from_standard_material,
     pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing},
     forward_io::{VertexOutput, FragmentOutput},
-}
+};
 
 struct Inlay {
     // rgb: the light's colour (linear). a: emissive strength when fully lit.
@@ -22,7 +22,7 @@ struct Inlay {
     shape: vec4<f32>,
 }
 
-@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> inlay: Inlay;
+@group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> inlay: Inlay;
 
 // The colours of the unlit groove, rgb (linear).
 struct Stone {
@@ -30,7 +30,7 @@ struct Stone {
     strip: vec4<f32>,
 }
 
-@group(#{MATERIAL_BIND_GROUP}) @binding(101) var<uniform> stone: Stone;
+@group(constants::MATERIAL_BIND_GROUP) @binding(101) var<uniform> stone: Stone;
 
 const MODE_UNLIT: f32 = 0.0;
 const MODE_TRAVEL: f32 = 1.0;

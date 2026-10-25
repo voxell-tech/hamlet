@@ -8,12 +8,14 @@
 // the world says the ground has at that spot. A wall, a robot or a
 // barrel stands higher than the ground under it and is left alone.
 
-#import bevy_pbr::{
-    forward_io::VertexOutput,
-    mesh_functions::get_local_from_world,
-    prepass_utils::prepass_depth,
-    view_transformations::{frag_coord_to_ndc, position_ndc_to_world},
-}
+import bevy_pbr::{
+    render::{
+        forward_io::VertexOutput,
+        mesh_functions::get_local_from_world,
+        view_transformations::{frag_coord_to_ndc, position_ndc_to_world},
+    },
+    prepass::utils::prepass_depth,
+};
 
 struct Mark {
     // The light, in linear RGB, and how strong it is.
@@ -29,8 +31,8 @@ struct Mark {
     near: f32,
 }
 
-@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> mark: Mark;
-@group(#{MATERIAL_BIND_GROUP}) @binding(1) var heights: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> mark: Mark;
+@group(constants::MATERIAL_BIND_GROUP) @binding(1) var heights: texture_2d<f32>;
 
 // How much of the outline covers the point `uv` of the square. It is
 // worked out and not looked up in a picture, so its edge is as sharp
@@ -71,7 +73,7 @@ fn ground(at: vec2<f32>) -> f32 {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-#ifdef DEPTH_PREPASS
+@if(DEPTH_PREPASS) {
     let depth = prepass_depth(in.position, 0u);
     let seen = position_ndc_to_world(
         frag_coord_to_ndc(vec4(in.position.xy, depth, 1.0)),
@@ -96,10 +98,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // Light is added to what is there, so a dimmer mark is a
     // fainter one and never a dark one.
     return vec4(mark.light.rgb * alpha, 0.0);
-#else
+} @else {
     // Without the depth of what it falls on, it is drawn on the box
     // as seen from above.
     let flat = get_local_from_world(in.instance_index) * in.world_position;
     return vec4(mark.light.rgb * outline(flat.xz + 0.5) * mark.light.a, 0.0);
-#endif
+}
 }

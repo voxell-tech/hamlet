@@ -1,5 +1,5 @@
 //! Marks of light on the ground: a ring or a rune drawn as a decal
-//! (`mark.wgsl`), so that it falls on the ground and never on the
+//! (`mark.wesl`), so that it falls on the ground and never on the
 //! things that stand there. The camera that draws it needs a depth
 //! prepass.
 
@@ -16,7 +16,7 @@ use bevy::render::render_resource::{
 use bevy::shader::ShaderRef;
 
 pub(crate) fn plugin(app: &mut App) {
-    embedded_asset!(app, "mark.wgsl");
+    embedded_asset!(app, "mark.wesl");
     app.add_plugins(MaterialPlugin::<MarkMaterial>::default())
         .add_systems(PreStartup, draw);
 }
@@ -30,7 +30,7 @@ pub struct MarkMaterial {
     heights: Handle<Image>,
 }
 
-/// Mirrors `Mark` in `mark.wgsl`; the fields are explained there.
+/// Mirrors `Mark` in `mark.wesl`; the fields are explained there.
 #[derive(ShaderType, Debug, Clone)]
 struct MarkUniform {
     light: Vec4,
@@ -71,7 +71,7 @@ impl Shape {
 
 impl Material for MarkMaterial {
     fn fragment_shader() -> ShaderRef {
-        "embedded://hamlet_vfx/mark.wgsl".into()
+        "embedded://hamlet_vfx/mark.wesl".into()
     }
 
     fn alpha_mode(&self) -> AlphaMode {

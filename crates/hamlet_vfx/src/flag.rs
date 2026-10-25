@@ -16,7 +16,7 @@ use crate::{Now, VfxSystems};
 pub type FlagMaterial = ExtendedMaterial<StandardMaterial, FlagExt>;
 
 pub(crate) fn plugin(app: &mut App) {
-    embedded_asset!(app, "flag.wgsl");
+    embedded_asset!(app, "flag.wesl");
     app.add_plugins(MaterialPlugin::<FlagMaterial>::default())
         .init_resource::<FlagSettings>()
         .init_resource::<Waving>()
@@ -54,7 +54,7 @@ pub struct FlagExt {
     pub flag: FlagUniform,
 }
 
-/// Mirrors `Flag` in `flag.wgsl`; the fields are explained there.
+/// Mirrors `Flag` in `flag.wesl`; the fields are explained there.
 #[derive(ShaderType, Reflect, Debug, Clone, Default, PartialEq)]
 pub struct FlagUniform {
     pub wave: Vec4,
@@ -63,11 +63,11 @@ pub struct FlagUniform {
 
 impl MaterialExtension for FlagExt {
     fn vertex_shader() -> ShaderRef {
-        "embedded://hamlet_vfx/flag.wgsl".into()
+        "embedded://hamlet_vfx/flag.wesl".into()
     }
 
     fn prepass_vertex_shader() -> ShaderRef {
-        "embedded://hamlet_vfx/flag.wgsl".into()
+        "embedded://hamlet_vfx/flag.wesl".into()
     }
 }
 
