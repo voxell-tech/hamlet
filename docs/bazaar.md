@@ -88,9 +88,12 @@ reached, said to be samples, with ASK AGAIN at their foot.
 
 - Signing in (`market/account.rs`): SIGN IN at the foot of a stall asks
   the server for GitHub's device code, opens GitHub, shows the code and
-  asks after it until it is entered. The token is kept for the next run
-  in `bazaar-token` in the window's view folder, readable by its owner
-  alone, with the server it came from (`market/session.rs`).
+  asks after it until it is entered or runs out; a server out of reach
+  or failing meanwhile, as while it restarts, is asked again. The token
+  is kept for the next run in `bazaar-token` in the window's view
+  folder, readable by its owner alone, with the server it came from and
+  who it signs in, shown signed in before the server answers
+  (`market/session.rs`).
 - A listing's page (`view/wares.rs`, `view/trade.rs`): its cover under
   its head, fetched and kept a few at a time (`bazaar/covers.rs`), or a
   hamlet's town; then the way it is had as it stands: BUY or GET IT FOR

@@ -121,3 +121,26 @@ fn an_answer_is_read_or_said_in_words() {
     assert_eq!(next_version("1.2.3"), "1.2.4");
     assert_eq!(next_version(""), "1.0.0");
 }
+
+#[test]
+fn a_sign_in_is_asked_after_again_while_the_server_fails() {
+    use super::account::{Polled, polled};
+    let pending =
+        br#"{"error":{"code":"pending","message":"not yet"}}"#;
+    assert_eq!(polled(Ok((428, pending.to_vec()))), Polled::Pending);
+    assert_eq!(polled(Err("refused".into())), Polled::Pending);
+    assert_eq!(
+        polled(Ok((503, b"restarting".to_vec()))),
+        Polled::Pending
+    );
+    let denied = br#"{"error":{"code":"denied","message":"no"}}"#;
+    assert!(matches!(
+        polled(Ok((403, denied.to_vec()))),
+        Polled::Failed(_)
+    ));
+    let approved = br#"{"token":"hms_1","user":{"id":"u_1","login":"ada","name":"Ada","avatarUrl":""}}"#;
+    assert!(matches!(
+        polled(Ok((200, approved.to_vec()))),
+        Polled::Approved(approved) if approved.user.login == "ada"
+    ));
+}

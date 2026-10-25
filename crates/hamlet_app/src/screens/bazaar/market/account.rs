@@ -105,10 +105,13 @@ pub(crate) enum Polled {
     Failed(String),
 }
 
-/// What the answer to asking after a sign-in comes to.
+/// What the answer to asking after a sign-in comes to. A server out
+/// of reach, or failing, is asked again until the code runs out: the
+/// chief may be approving it at GitHub meanwhile.
 pub(crate) fn polled(reply: Fetched) -> Polled {
     match read::<Approved>(reply) {
         Ok(approved) => Polled::Approved(approved),
+        Err(refusal) if refusal.passing() => Polled::Pending,
         Err(refusal) => match refusal.code.as_str() {
             "pending" => Polled::Pending,
             "slow_down" => Polled::SlowDown,

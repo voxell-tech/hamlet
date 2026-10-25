@@ -72,6 +72,15 @@ impl Refusal {
         self.status == Some(401)
     }
 
+    /// It may go another way when asked again: the server was not
+    /// reached, or failed on its side, as it does while it restarts.
+    pub fn passing(&self) -> bool {
+        match self.status {
+            None => self.code == "unreachable",
+            Some(status) => status >= 500,
+        }
+    }
+
     /// In words for the chief.
     pub fn words(&self) -> String {
         self.message.clone()
