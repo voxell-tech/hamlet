@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Tools run without a sandbox only when the chief says so

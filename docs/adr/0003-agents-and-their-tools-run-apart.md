@@ -26,3 +26,6 @@ change without the agent noticing.
   policy, and any other place tools run needs the same rules and its own
   tests.
 - A harness holds no host tools of its own.
+- Insecure mode is the one place tools run with no sandbox
+  ([ADR 0008](0008-tools-run-without-a-sandbox-only-when-the-chief-says-so.md)).
+  They still reach files and processes only through the server.

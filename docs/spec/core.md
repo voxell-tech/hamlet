@@ -79,7 +79,7 @@ that would have had it.
 | `read` | Gives text without line numbers, up to 2000 lines or 50 KiB, whichever comes first, with an offset and a line limit; also reads supported images |
 | `write` | Creates or replaces a whole file and makes its parent folders |
 | `edit` | Makes one or more exact text replacements in one file, each matching a unique, non-overlapping part of the original |
-| `bash` | Runs in the house, or in the hamlet's folder when it has one, and says with a `network` flag whether it needs the network. Stops after 120 s, or an earlier timeout; keeps the last 2000 lines or 50 KiB of stdout and stderr, and gives a file holding the whole output when it spills |
+| `bash` | The shell on Linux and macOS. Runs in the house, or in the hamlet's folder when it has one, and says with a `network` flag whether it needs the network. Stops after 120 s, or an earlier timeout; keeps the last 2000 lines or 50 KiB of stdout and stderr, and gives a file holding the whole output when it spills |
 | `search` | Finds a linear-time regular expression in files, with a name filter and optional case-insensitive matching, up to 100 hits; skips binary files, files that are not UTF-8, files over 1 MiB and build folders |
 | `find` | Lists a folder, or finds files by name under it, up to 100 matches |
 
@@ -87,11 +87,13 @@ The hamlet's own tools, offered by role, are in [`hamlet.md`](hamlet.md).
 
 **C17.** A chief can add tools by hand: a program with a manifest, in a
 folder of the home that agents can read and never write. Each is offered to
-every agent, and runs under the same sandbox and the same gate as the shell.
+every agent, and runs under the same sandbox, or none in insecure mode
+(C18), and the same gate as the shells.
 
 ## What tools reach
 
-**C18.** Tools run in a sandbox. The built-in tools write only
+**C18.** Tools run in a sandbox, unless the chief started the server in
+insecure mode (ADR 0008). The built-in tools write only
 in the agent's house and in the folder its hamlet works on. With a folder,
 a command can read the rest of the machine, so the project's own tools run,
 but never the rest of the home. The library and the home's tools folder
@@ -104,11 +106,20 @@ repositories. The chief accepts that risk permanently (ADR 0007).
 A tool added by hand has the filesystem reach its manifest grants, rather
 than the shell's reach: its readable and writable paths, with its own
 folder kept read-only. Its manifest also sets its environment and limits.
-A server without a sandbox does not start.
+
+A server without a sandbox does not start, unless the chief starts it in
+insecure mode. Then commands and hand tools reach whatever the account
+running the server can. The built-in file tools keep the reach above, and
+the window warns for as long as the server runs.
+
+A command's leftovers, the processes it started that still run after it
+ended, keep running. They end when the server stops and before their
+agent's house is erased or moved, whatever the mode.
 
 **C19.** Tools have no network unless a chief turns it on for every agent or
 grants it to one (H11). A command that needs the network says so, and is
-held for a chief while its agent has none.
+held for a chief while its agent has none. Without a sandbox nothing
+enforces this: the switch decides only what waits for a chief.
 
 **C20.** A hamlet works on at most one folder at a time, and the folders it
 worked on before are remembered. Every agent of the hamlet then runs its
@@ -121,7 +132,7 @@ The agent's notes, skills and conversations stay in its house.
   command waits for a chief. Reading and edits of the agent's own house
   are free.
 - **Auto**: agents edit and run without asking, and the sandbox is the
-  guard.
+  guard, and without one, nothing is.
 
 **C7.** A hamlet answers to its chiefs: the human who founded it, or, for a
 hamlet founded by a vote, the chiefs of the hamlet that voted. The first

@@ -63,7 +63,7 @@ login on its own.
 **S12.** Tools reach files and processes only through one interface, so
 where they run can change without the agent noticing. On a chief's own
 machine they run in the sandbox of C18: bubblewrap on Linux, Seatbelt on
-macOS.
+macOS, and in insecure mode, with none.
 
 ## Harnesses
 
