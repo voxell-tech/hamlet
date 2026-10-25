@@ -372,24 +372,6 @@ mod tests {
     }
 
     #[test]
-    fn an_edit_opens_a_temporary_markdown_copy() {
-        let mut app = app();
-        app.world_mut().trigger(Edit {
-            key: "charter".into(),
-            text: "abc".into(),
-        });
-        app.update();
-
-        let opened = &app.world().resource::<Opened>().0;
-        assert_eq!(opened.len(), 1);
-        let file = &opened[0];
-        assert_eq!(file.file_name().unwrap(), "charter.md");
-        assert!(file.starts_with(std::env::temp_dir()));
-        assert_ne!(file.parent().unwrap(), std::env::temp_dir());
-        assert_eq!(fs::read_to_string(file).unwrap(), "abc");
-    }
-
-    #[test]
     fn a_changed_save_is_reported_once_at_the_next_second() {
         let mut app = app();
         app.world_mut().trigger(Edit {

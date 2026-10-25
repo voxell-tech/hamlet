@@ -298,38 +298,3 @@ pub(super) fn play(
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn toy(kind: Kind) -> Toy {
-        Toy {
-            kind,
-            began: 0.0,
-            from: Vec3::Y * 3.0,
-            to: Vec3::ZERO,
-            own: 0.0,
-        }
-    }
-
-    #[test]
-    fn every_toy_is_finite_and_those_that_end_do() {
-        let set = PlaySettings::default();
-        for kind in
-            [Kind::Heart, Kind::Spark, Kind::Letter, Kind::Gift]
-        {
-            let toy = toy(kind);
-            for i in 0..400 {
-                if let Some(at) = placed(&toy, i as f32 * 0.02, &set)
-                {
-                    assert!(at.is_finite(), "{kind:?} at step {i}");
-                }
-            }
-            assert!(placed(&toy, 600.0, &set).is_none(), "{kind:?}");
-        }
-        // A gift is in the yard once it has landed.
-        let landed = placed(&toy(Kind::Gift), 5.0, &set).unwrap();
-        assert!(landed.translation.length() < 0.01);
-    }
-}

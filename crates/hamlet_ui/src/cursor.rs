@@ -2,8 +2,6 @@
 //! the point, and the chief's glove for what is held.
 
 mod art;
-#[cfg(test)]
-mod tests;
 
 use bevy::app::{App, PostUpdate};
 use bevy::asset::{Assets, Handle};

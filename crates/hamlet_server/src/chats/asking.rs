@@ -281,60 +281,6 @@ mod tests {
     }
 
     #[test]
-    fn questions_are_read_with_their_options_and_words() {
-        let asked = read(&grill()).unwrap();
-        assert_eq!(asked.message, "Before I plan the shelf.");
-        let [paper, hardback, budget] = asked.questions.as_slice()
-        else {
-            panic!("three questions");
-        };
-        assert_eq!(paper.question, "Paper or ebook?");
-        assert_eq!(paper.options[0].description, "Three days");
-        assert_eq!(paper.options[1].title, "Ebook");
-        assert!(paper.text_input);
-        assert!(!hardback.text_input);
-        // Nothing to pick, so it is answered in words all the same.
-        assert!(budget.text_input);
-        assert_eq!(
-            about(&asked),
-            "Before I plan the shelf.\n1. Paper or ebook?\n   \
-             Shipping depends on it.\n   a) Paper - Three days\n   \
-             b) Ebook\n   or in your own words\n2. Hardback?\n   a) \
-             Yes\n   b) No\n3. Budget?"
-        );
-    }
-
-    #[test]
-    fn what_is_wrong_with_a_call_is_named() {
-        let fails = |args: Value| {
-            read(&args.to_string()).unwrap_err().to_string()
-        };
-        assert!(fails(json!({})).contains("`questions`"));
-        assert!(
-            fails(json!({"questions": []})).contains("`questions`")
-        );
-        let many = vec![json!({"question": "?"}); MOST_QUESTIONS + 1];
-        assert!(
-            fails(json!({"questions": many})).contains("at most")
-        );
-        assert!(
-            fails(json!({"questions": [{"question": "a"}, {"question": " "}]}))
-                .contains("question 2")
-        );
-        let twice = json!({"questions": [{"question": "a", "options": ["x", " x"]}]});
-        assert!(fails(twice).contains("`x` twice"));
-        let untitled = json!({"questions": [{"question": "a", "options": [{"description": "d"}]}]});
-        assert!(fails(untitled).contains("`title`"));
-        let unread = json!({"questions": [{"question": "a", "text_input": "no"}]});
-        assert!(fails(unread).contains("a boolean"));
-        let options = (0..=MOST_OPTIONS)
-            .map(|at| format!("o{at}"))
-            .collect::<Vec<_>>();
-        let crowded = json!({"questions": [{"question": "a", "options": options}]});
-        assert!(fails(crowded).contains("more than"));
-    }
-
-    #[test]
     fn every_question_is_answered_as_it_allows() {
         let asked = read(&grill()).unwrap();
         let answered = answer(

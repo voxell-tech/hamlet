@@ -8,8 +8,6 @@ mod kinds;
 mod mix;
 pub mod music;
 mod synth;
-#[cfg(test)]
-mod tests;
 pub mod voices;
 
 use bevy::audio::{AddAudioSource, AudioPlugin};

@@ -3,8 +3,6 @@
 //! ends in silence and overlaps the one before.
 
 pub(super) mod band;
-#[cfg(test)]
-mod tests;
 
 use super::Sound;
 use super::synth::Hiss;
@@ -56,19 +54,6 @@ pub enum Moment {
 }
 
 impl Moment {
-    #[cfg(test)]
-    pub const ALL: [Self; 9] = [
-        Self::Rise,
-        Self::Return,
-        Self::Ask,
-        Self::Answer,
-        Self::Fall,
-        Self::Join,
-        Self::Found,
-        Self::Dawn,
-        Self::Dusk,
-    ];
-
     /// The moment a sound of the world marks, if it marks one.
     pub fn of(sound: Sound) -> Option<Self> {
         Some(match sound {

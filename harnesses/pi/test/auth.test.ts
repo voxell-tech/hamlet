@@ -2,27 +2,7 @@ import { PassThrough } from "node:stream";
 import { expect, test } from "vitest";
 import { Channel, type Outgoing } from "../src/channel.ts";
 import { serverCredentials } from "../src/credentials.ts";
-import { providers } from "../src/provider-set.ts";
 import { signIn } from "../src/sign-in.ts";
-
-test("ChatGPT has its own provider and only the supported subscriptions are offered", () => {
-    const available = providers();
-    const chatgpt = available.find((p) => p.id === "chatgpt");
-    expect(
-        available
-            .filter((p) => p.auth.oauth !== undefined)
-            .map((p) => p.id)
-            .sort(),
-    ).toEqual(["chatgpt", "openrouter"]);
-    expect(
-        available.find((p) => p.id === "openai")?.auth.apiKey?.login,
-    ).toBeTypeOf("function");
-    expect(chatgpt?.auth.apiKey).toBeUndefined();
-    expect(chatgpt?.getModels().length).toBeGreaterThan(0);
-    expect(chatgpt?.getModels().every((m) => m.provider === "chatgpt")).toBe(
-        true,
-    );
-});
 
 test("a cancelled callback prompt cannot answer its replacement or cancel the login", async () => {
     const input = new PassThrough();

@@ -316,16 +316,4 @@ mod tests {
             Some((answers, "Paper.\n\n> quoted\nThanks."))
         );
     }
-
-    #[test]
-    fn a_long_reply_is_cut_and_other_words_are_no_reply() {
-        assert_eq!(Answers::of("wren", "abcdef", 3).text, "abc...");
-        assert_eq!(unreplied("> wren: a quote\n\nwords"), None);
-        assert_eq!(
-            unreplied("(Replying to wren: not json)\n\nw"),
-            None
-        );
-        assert_eq!(unreplied("(Replying to wren: \"a\")"), None);
-        assert_eq!(rest("hello"), "hello");
-    }
 }

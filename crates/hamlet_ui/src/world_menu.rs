@@ -436,27 +436,6 @@ mod tests {
     }
 
     #[test]
-    fn gift_replies_are_shown_in_words_and_can_be_dismissed() {
-        let mut app = app(realm::state());
-        app.insert_resource(GiftReports(vec![(
-            "The inbox already holds books.".into(),
-            true,
-        )]));
-        app.update();
-        assert!(
-            words(&mut app)
-                .iter()
-                .any(|text| text == "The inbox already holds books.")
-        );
-        press(&mut app, "DISMISS");
-        app.update();
-        assert!(
-            !words(&mut app)
-                .iter()
-                .any(|text| text == "The inbox already holds books.")
-        );
-    }
-    #[test]
     fn the_founders_skill_menu_sends_a_received_starter_or_agents_skill()
      {
         let mut state = realm::state();

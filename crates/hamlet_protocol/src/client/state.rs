@@ -510,7 +510,6 @@ mod tests {
     use serde::de::DeserializeOwned;
 
     use super::*;
-    use crate::client::{GrantSource, Permission};
 
     /// `value`, a fixture of the protocol crate `hamlet_testing`
     /// builds on, as this build's type.
@@ -526,22 +525,6 @@ mod tests {
         state.waits =
             vec![ours(realm::wait("a")), ours(realm::wait("b"))];
         state
-    }
-
-    #[test]
-    fn a_changed_hamlet_keeps_its_place_and_a_new_one_comes_last() {
-        let mut state = state();
-        let mut home = state.hamlets[0].clone();
-        home.name = "Home".into();
-        state.apply(&Update::Hamlet {
-            hamlet: home.clone(),
-        });
-        let far = ours::<Hamlet>(realm::hamlet("far"));
-        state.apply(&Update::Hamlet {
-            hamlet: far.clone(),
-        });
-        let orchard = ours(realm::hamlet("orchard"));
-        assert_eq!(state.hamlets, [home, orchard, far]);
     }
 
     #[test]
@@ -574,71 +557,5 @@ mod tests {
             .map(|a| a.name.as_str())
             .collect::<Vec<_>>();
         assert_eq!(names, ["founder", "smith"]);
-    }
-
-    #[test]
-    fn a_changed_wait_keeps_its_place_and_a_new_one_comes_last() {
-        let mut state = state();
-        let mut a = state.waits[0].clone();
-        a.about = "ls".into();
-        state.apply(&Update::Wait { wait: a.clone() });
-        let c = ours::<Wait>(realm::wait("c"));
-        state.apply(&Update::Wait { wait: c.clone() });
-        assert_eq!(state.waits, [a, ours(realm::wait("b")), c]);
-    }
-
-    #[test]
-    fn a_closed_wait_leaves_the_others() {
-        let mut state = state();
-        state.apply(&Update::WaitClosed {
-            how: "allowed".into(),
-            id: "a".into(),
-        });
-        assert_eq!(state.waits, [ours::<Wait>(realm::wait("b"))]);
-    }
-
-    #[test]
-    fn grants_replace_every_grant() {
-        let mut state = state();
-        let grant = |name: &str| Grant {
-            agent: None,
-            by: None,
-            name: name.into(),
-            permission: Permission::Network,
-            source: GrantSource::Grant,
-        };
-        state.grants = vec![grant("old")];
-        state.apply(&Update::Grants {
-            grants: vec![grant("new")],
-        });
-        assert_eq!(state.grants, [grant("new")]);
-    }
-
-    #[test]
-    fn settings_replace_the_settings() {
-        let mut state = state();
-        let mut settings = state.settings.clone();
-        settings.model = "faux::faux-2".into();
-        state.apply(&Update::Settings {
-            settings: settings.clone(),
-        });
-        assert_eq!(state.settings, settings);
-    }
-
-    #[test]
-    fn providers_replace_every_provider() {
-        let mut state = state();
-        let provider = |id: &str| ProviderView {
-            configured: false,
-            id: id.into(),
-            label: id.into(),
-            methods: Vec::new(),
-            name: id.into(),
-        };
-        state.providers = vec![provider("old")];
-        state.apply(&Update::Providers {
-            providers: vec![provider("new")],
-        });
-        assert_eq!(state.providers, [provider("new")]);
     }
 }

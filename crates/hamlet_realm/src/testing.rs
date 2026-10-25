@@ -23,33 +23,3 @@ pub(crate) fn receive_change(
     });
     receive(app.world_mut(), frame);
 }
-
-/// A world camera at `eye` looking at `target`, with the projection
-/// and target size a renderer would compute, which a test has none
-/// of.
-pub(crate) fn camera(app: &mut App, eye: Vec3, target: Vec3) {
-    use bevy::camera::{ComputedCameraValues, RenderTargetInfo};
-
-    let at =
-        Transform::from_translation(eye).looking_at(target, Vec3::Y);
-    app.world_mut().spawn((
-        crate::WorldCamera,
-        Camera {
-            computed: ComputedCameraValues {
-                clip_from_view: Mat4::perspective_infinite_reverse_rh(
-                    std::f32::consts::FRAC_PI_4,
-                    4.0 / 3.0,
-                    0.1,
-                ),
-                target_info: Some(RenderTargetInfo {
-                    physical_size: UVec2::new(800, 600),
-                    scale_factor: 1.0,
-                }),
-                ..default()
-            },
-            ..default()
-        },
-        at,
-        GlobalTransform::from(at),
-    ));
-}

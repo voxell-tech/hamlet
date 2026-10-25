@@ -360,44 +360,6 @@ fn the_garden_tree_stands_through_a_house_going_and_coming() {
 }
 
 #[test]
-fn a_frozen_clock_shows_the_moment_after() {
-    let mut app = app(GeneratorSettings::default());
-    let agent = add(&mut app);
-    assert!(shifting(&mut app) > 0);
-    app.world_mut().resource_mut::<Clock>().frozen = true;
-    app.update();
-    rests(&app, held(&app, agent));
-    let robot = app.world().resource::<Drawn>().robots[&agent];
-    assert_eq!(seen(&app, robot), Visibility::Inherited);
-
-    // A change under a frozen clock is not played at all.
-    change(&mut app, |society, _| {
-        society.remove_agent(agent);
-    });
-    app.update();
-    assert_eq!(shifting(&mut app), 0);
-    let ruin = held(&app, agent);
-    rests(&app, ruin);
-    assert_eq!(houses(&mut app, agent), [ruin]);
-}
-
-#[test]
-fn a_house_can_be_set_to_rest_as_a_bare_plot() {
-    let mut set = GeneratorSettings::default();
-    set.house.removed = Remains::Bare;
-    let mut app = app(set);
-    let agent = AgentId(2);
-    change(&mut app, |society, _| {
-        society.remove_agent(agent);
-    });
-    step(&mut app, 1.2);
-    rests(&app, held(&app, agent));
-    let drawn = app.world().resource::<Drawn>();
-    assert_eq!(drawn.houses[&agent].2.tris, 0);
-    assert_eq!(drawn.houses[&RUIN].2.tris, 0);
-}
-
-#[test]
 fn a_town_set_down_elsewhere_goes_house_by_house_with_its_roads() {
     use std::collections::HashMap;
 

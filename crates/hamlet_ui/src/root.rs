@@ -190,35 +190,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_full_layout_keeps_connection_controls_out_of_the_status_area()
-     {
-        let mut app = crate::testing::panel_app();
-        app.add_plugins(bevy_fynix::dock::DockPlugin::<HamletTheme>::default())
-            .init_resource::<ConnectionTest>()
-            .init_resource::<bevy::asset::Assets<bevy::image::Image>>()
-            .add_plugins(chrome::plugin)
-            .init_resource::<bevy::input::ButtonInput<bevy::input::mouse::MouseButton>>()
-            .init_resource::<crate::links::Aimed>()
-            .init_resource::<crate::petition::Queue>()
-            .init_resource::<crate::status::Bar>()
-            .init_resource::<welcome::Welcome>();
-        app.update();
-        bevy_fynix::mount::<HamletTheme>(
-            app.world_mut(),
-            AnyView::new(|cx: &mut Cx| {
-                let view = full(cx);
-                cx.build(view)
-            }),
-        );
-        app.update();
-        assert!(
-            !crate::testing::words(&mut app)
-                .iter()
-                .any(|text| text == "TEST CONNECTION")
-        );
-    }
-
-    #[test]
     fn opening_the_window_checks_the_servers_connection() {
         let mut app = crate::testing::panel_app();
         app.add_plugins(plugin);

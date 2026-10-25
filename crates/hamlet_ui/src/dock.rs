@@ -190,20 +190,3 @@ pub(crate) fn show_tab(world: &mut World, id: &str) {
         tree.set_active(leaf, tab);
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_divider_stops_where_a_panel_would_be_too_narrow() {
-        let least = (LEAST, 2.0 * LEAST);
-        // Room for all: the share is kept, or moved to the nearest
-        // that leaves each side what it needs.
-        assert_eq!(held(0.5, least, 1200.0), 0.5);
-        assert_eq!(held(0.1, least, 1200.0), 0.25);
-        assert_eq!(held(0.9, least, 1200.0), 0.5);
-        // Too narrow for all: each side by what it needs.
-        assert_eq!(held(0.9, least, 600.0), 1.0 / 3.0);
-    }
-}

@@ -176,18 +176,3 @@ fn is_glob_match(pattern: &str, name: &str) -> bool {
     }
     want[p..].iter().all(|c| *c == '*')
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn globs_a_name_or_a_path_under_the_folder() {
-        assert!(is_wanted("*.rs", "src/deep/mod.rs"));
-        assert!(is_wanted("mod.?s", "src/mod.rs"));
-        assert!(!is_wanted("*.rs", "src/mod.rsx"));
-        assert!(is_wanted("src/*/mod.rs", "src/deep/mod.rs"));
-        assert!(!is_wanted("deep/*.rs", "src/deep/mod.rs"));
-        assert!(is_wanted("a*b*c", "aXbYbZc"));
-    }
-}

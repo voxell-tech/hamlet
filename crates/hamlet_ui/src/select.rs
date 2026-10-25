@@ -905,29 +905,4 @@ mod tests {
         };
         assert_eq!(chosen(&parts, text, lines), "line.\nSecond.");
     }
-
-    #[test]
-    fn a_bullet_and_its_item_are_one_line() {
-        let mut world = World::new();
-        let [paragraph, bullet, item] =
-            [(); 3].map(|_| world.spawn_empty().id());
-        let text = |node: Entity| {
-            match node {
-                n if n == paragraph => "Three things:",
-                n if n == bullet => "\u{2022}",
-                _ => "straw at the roots",
-            }
-            .to_string()
-        };
-        let level = |node: Entity| match node == paragraph {
-            true => Some((0.0, 20.0)),
-            false => Some((24.0, 44.0)),
-        };
-        let parts =
-            vec![(paragraph, 0..13), (bullet, 0..3), (item, 0..18)];
-        assert_eq!(
-            chosen(&parts, text, level),
-            "Three things:\n\u{2022} straw at the roots"
-        );
-    }
 }

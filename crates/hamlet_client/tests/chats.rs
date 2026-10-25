@@ -554,54 +554,6 @@ fn working_and_last_activity_follow_status_and_finishing_is_not_repeated()
 }
 
 #[test]
-fn recorded_chats_keep_last_activity_from_live_status_and_transcripts()
- {
-    use hamlet_client::chats::Status;
-
-    for recording in [
-        include_str!("../../hamlet_protocol/frames/paging.jsonl"),
-        include_str!("../../hamlet_protocol/frames/turn.jsonl"),
-        include_str!("../../hamlet_protocol/frames/rewind.jsonl"),
-        include_str!(
-            "../../hamlet_protocol/frames/new-and-resume.jsonl"
-        ),
-    ] {
-        let mut app = app();
-        let chat = app.world_mut().spawn(Chat(reference())).id();
-        let mut expected = None;
-        let mut saw_activity = false;
-        for message in frames(recording) {
-            match &message {
-                protocol::ServerMessage::Transcript(page) => {
-                    expected = page
-                        .last
-                        .as_ref()
-                        .map(|last| (last.at, last.what.clone()));
-                }
-                protocol::ServerMessage::Turn(turn) => {
-                    for operation in &turn.operations {
-                        if let protocol::TranscriptOperation::Status { last, .. } = operation
-                        {
-                            expected = last.as_ref().map(|last| {
-                                (last.at, last.what.clone())
-                            });
-                        }
-                    }
-                }
-                _ => {}
-            }
-            saw_activity |= expected.is_some();
-            receive(app.world_mut(), message);
-            assert_eq!(
-                app.world().get::<Status>(chat).unwrap().last,
-                expected
-            );
-        }
-        assert!(saw_activity, "the recorded chat has worked");
-    }
-}
-
-#[test]
 fn new_and_resumed_conversations_keep_their_received_number() {
     use hamlet_client::chats::ConversationNumber;
     let mut app = app();

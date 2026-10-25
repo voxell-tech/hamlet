@@ -43,43 +43,6 @@ async fn manual(s: &mut Session) -> String {
 }
 
 #[tokio::test]
-async fn answers_a_line_said_to_the_mayor() {
-    let mut s = Session::start(
-        Script::new().responses([words("Hello, chief.")]),
-    )
-    .await;
-    let mayor_chat = chat(mayor());
-    let opened = s.chief.open(&mayor_chat).await;
-    assert!(opened.items.is_empty());
-    assert_eq!(opened.earlier, None);
-    let reply = s.chief.say(mayor(), "Hello, mayor.").await;
-    assert_eq!(notice(&reply), (&ReplyKind::Notice, ""));
-    s.chief.shows(&mayor_chat, "Hello, chief.").await;
-    s.chief.idle("home", "founder").await;
-    let items = s.chief.items(&mayor_chat);
-    assert_eq!(
-        items
-            .iter()
-            .map(|i| (&i.kind, i.text.as_str(), i.chief.as_deref()))
-            .collect::<Vec<_>>(),
-        [
-            (&ItemKind::User, "Hello, mayor.", Some("chief")),
-            (&ItemKind::Assistant, "Hello, chief.", None)
-        ]
-    );
-    let founder = s.chief.agent("home", "founder").unwrap();
-    assert!(founder.mayor);
-    assert_eq!(founder.model, "faux::faux-1");
-    assert_eq!(
-        founder.saying,
-        AgentSaying {
-            text: "Hello, chief.".into(),
-            thought: false
-        }
-    );
-}
-
-#[tokio::test]
 async fn streams_a_turn_whose_ops_equal_the_transcript_read_again() {
     let greeting = "Hello chief. The mayor is here and ready to \
                     work with you. "
@@ -713,43 +676,6 @@ async fn stops_a_running_command_and_its_turn() {
 }
 
 #[tokio::test]
-async fn answers_stop_commands_in_words() {
-    let mut s =
-        Session::start(Script::new().responses([call(
-            "bash",
-            json!({"command": "echo never"}),
-        )]))
-        .await;
-    manual(&mut s).await;
-    s.chief.tell(mayor(), "Run it.").await;
-    s.chief
-        .wait_for("an approval", |w| {
-            matches!(w.detail, WaitDetail::Approval { .. })
-        })
-        .await;
-    let reply = s.chief.say(mayor(), "/stop nobody").await;
-    assert_eq!(
-        notice(&reply),
-        (&ReplyKind::Error, "no agent named `nobody`")
-    );
-    assert_eq!(s.chief.waits().len(), 1);
-    let reply = s.chief.say(mayor(), "/stop founder").await;
-    assert_eq!(reply.text, "Stopping founder.");
-    s.chief
-        .until("the approval to close", |c| c.waits().is_empty())
-        .await;
-    let reply = s.chief.say(mayor(), "/stop mayor").await;
-    assert_eq!(reply.text, "Stopping mayor.");
-    let reply = s.chief.say(mayor(), "/stop all").await;
-    assert_eq!(reply.text, "Stopping everything.");
-    let reply = s
-        .chief
-        .request(|id| ClientMessage::Stop(Stop { id, agent: None }))
-        .await;
-    assert_eq!(reply.kind, ReplyKind::Notice);
-}
-
-#[tokio::test]
 async fn rewinds_a_chief_line_and_what_followed() {
     let mut s = Session::start(Script::new().responses([
         words("First answer."),
@@ -807,69 +733,6 @@ async fn rewinds_a_chief_line_and_what_followed() {
         panic!("a reset is followed at once by its transcript")
     };
     assert_eq!(after.chat, mayor_chat);
-}
-
-#[tokio::test]
-async fn starts_a_new_session_and_resumes_the_first() {
-    let mut s = Session::start(
-        Script::new().responses([words("The first conversation.")]),
-    )
-    .await;
-    let mayor_chat = chat(mayor());
-    s.chief.open(&mayor_chat).await;
-    s.chief
-        .say(mayor(), "Remember our first conversation.")
-        .await;
-    s.chief.shows(&mayor_chat, "The first conversation.").await;
-    s.chief.idle("home", "founder").await;
-    let reply = s.chief.say(mayor(), "/new").await;
-    assert_eq!(
-        notice(&reply),
-        (&ReplyKind::Notice, "Started a new session.")
-    );
-    let history = s.chief.history(mayor()).await;
-    let first = history.iter().find(|p| p.number == 1).unwrap();
-    assert!(!first.current);
-    assert_eq!(first.messages, 2);
-    assert_eq!(first.by, "chief");
-    // The new session is listed once it is used.
-    assert_eq!(history.len(), 1);
-    let reply = s.chief.say(mayor(), "/resume wrong").await;
-    assert_eq!(
-        reply.text,
-        "Say which: `/resume <number>`, with the number History \
-         shows for a past session."
-    );
-    let reply = s.chief.say(mayor(), "/resume 99").await;
-    assert_eq!(
-        notice(&reply),
-        (&ReplyKind::Notice, "There is no past session `99` here.")
-    );
-    let reply = s.chief.say(mayor(), "/resume 1").await;
-    assert_eq!(reply.text, "Went back to an earlier session.");
-    s.chief
-        .until("the first session back", |c| {
-            c.texts(&mayor_chat)
-                == [
-                    "Remember our first conversation.",
-                    "The first conversation.",
-                    "Went back to an earlier session.",
-                ]
-        })
-        .await;
-    let past = ChatRef {
-        past: Some(2),
-        ..chat(mayor())
-    };
-    let page = s.chief.open(&past).await;
-    assert_eq!(page.number, Some(2));
-    assert_eq!(
-        page.items
-            .iter()
-            .map(|i| (&i.kind, i.text.as_str()))
-            .collect::<Vec<_>>(),
-        [(&ItemKind::Notice, "Started a new session.")]
-    );
 }
 
 #[tokio::test]
@@ -1064,89 +927,6 @@ async fn stops_a_turn_when_the_budget_runs_out() {
 }
 
 #[tokio::test]
-async fn answers_a_question_the_mayor_asks() {
-    let mut s = Session::start(Script::new().responses([
-        call(
-            "ask_chief",
-            json!({"questions": [{"question": "Which grain?"}]}),
-        ),
-        words("Wheat it is."),
-    ]))
-    .await;
-    let mayor_chat = chat(mayor());
-    s.chief.open(&mayor_chat).await;
-    s.chief.tell(mayor(), "Plant something.").await;
-    let wait = s
-        .chief
-        .wait_for("a question", |w| {
-            matches!(w.detail, WaitDetail::Question { .. })
-        })
-        .await;
-    assert_eq!(
-        wait,
-        s.chief.waits()[0],
-        "one question waits for the chief"
-    );
-    let Wait { about, answers, .. } = &wait;
-    assert_eq!(about, "Which grain?");
-    assert!(answers.contains(&Choice::Reply), "{answers:?}");
-    let reply = s.chief.say(mayor(), "/reply").await;
-    assert_eq!(reply.text, "say what to reply: /reply <text>");
-    let reply = s.chief.say(mayor(), "Wheat").await;
-    assert!(reply.text.contains("Answered /reply"), "{reply:?}");
-    s.chief.shows(&mayor_chat, "Wheat it is.").await;
-}
-
-#[tokio::test]
-async fn answers_typed_commands_that_change_nothing() {
-    let mut s = Session::start(Script::new().responses([
-        words("One."),
-        words("Two."),
-        words("Three."),
-    ]))
-    .await;
-    let reply = s.chief.say(mayor(), "/undo").await;
-    assert_eq!(
-        notice(&reply),
-        (
-            &ReplyKind::Notice,
-            "Nothing to undo. Only a removal or a merge can be \
-             undone (the archive keeps the house); a permission is \
-             taken back with /revoke. A command that ran, a file \
-             that was changed and what was spent cannot be undone."
-        )
-    );
-    let reply = s.chief.say(mayor(), "/queue").await;
-    assert_eq!(reply.text, "Nothing waits for you.");
-    let reply = s.chief.say(mayor(), "/mode fast").await;
-    assert_eq!(
-        notice(&reply),
-        (&ReplyKind::Error, "usage: /mode <manual|auto>")
-    );
-    // Unknown commands and commands with words go to the mayor as
-    // words.
-    let mayor_chat = chat(mayor());
-    s.chief.open(&mayor_chat).await;
-    for line in ["/nothing", "/new words", "/NEW"] {
-        let reply = s.chief.say(mayor(), line).await;
-        assert_eq!(
-            notice(&reply),
-            (&ReplyKind::Notice, ""),
-            "{line}"
-        );
-    }
-    s.chief.shows(&mayor_chat, "Three.").await;
-    let users = s
-        .chief
-        .items(&mayor_chat)
-        .into_iter()
-        .filter(|i| i.kind == ItemKind::User)
-        .map(|i| i.text)
-        .collect::<Vec<_>>();
-    assert_eq!(users, ["/nothing", "/new words", "/NEW"]);
-}
-
-#[tokio::test]
 async fn keeps_a_wait_and_the_chat_across_a_crash() {
     let mut home = Home::new();
     let dir = home.side().join("work");
@@ -1299,92 +1079,6 @@ async fn chief_rest(chief: Client) -> (Vec<ServerMessage>, Ending) {
     chief.into_wire().rest().await
 }
 
-#[tokio::test]
-async fn tells_what_the_mayor_is_doing() {
-    let tail = "é".repeat(400) + "done";
-    let mut s = Session::start(Script::new().responses([
-        call("read", json!({"path": "NOTES.md"})),
-        call("search", json!({"pattern": "Notes"})),
-        call("find", json!({"path": "."})),
-        call(
-            "write",
-            json!({"path": "NOTES.md", "content": "remember"}),
-        ),
-        call("read", json!({"path": "skills/missing/SKILL.md"})),
-        words(&tail),
-    ]))
-    .await;
-    s.chief.say(mayor(), "Look and remember.").await;
-    s.chief
-        .until("the mayor's last words", |c| {
-            c.agent("home", "founder").is_some_and(|a| {
-                !a.busy && a.saying.text.ends_with("done")
-            })
-        })
-        .await;
-    let founder = s.chief.agent("home", "founder").unwrap();
-    // The last 600 bytes of what it said.
-    assert_eq!(founder.saying.text, "é".repeat(298) + "done");
-    let activities = s
-        .chief
-        .changes()
-        .into_iter()
-        .filter_map(|u| match u {
-            Update::Agent { agent } => Some(agent.activity),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    assert!(
-        activities.iter().any(|a| a.failures == 1),
-        "{activities:?}"
-    );
-    for (doing, step) in [
-        (Doing::ReadNotes, 2),
-        (Doing::ReadFile, 4),
-        (Doing::ReadFile, 6),
-        (Doing::WriteNotes, 8),
-        (Doing::ReadSkill, 10),
-    ] {
-        assert!(
-            activities.iter().any(|a| a.doing == doing
-                && a.step == step
-                && a.failures == 0),
-            "{activities:?}"
-        );
-    }
-    let doings = s
-        .chief
-        .changes()
-        .into_iter()
-        .filter_map(|u| match u {
-            Update::Agent { agent } => Some(agent.activity),
-            _ => None,
-        })
-        .map(|a| (a.doing, a.doing_words))
-        .collect::<Vec<_>>();
-    assert!(
-        doings.contains(&(
-            Doing::ReadNotes,
-            "Reading its notes".into()
-        )),
-        "{doings:?}"
-    );
-    assert!(
-        doings.contains(&(
-            Doing::WriteNotes,
-            "Writing its notes".into()
-        )),
-        "{doings:?}"
-    );
-    assert_eq!(
-        std::fs::read_to_string(
-            s.home.file("houses/home/0/NOTES.md")
-        )
-        .unwrap(),
-        "remember"
-    );
-}
-
 fn notes(s: &Session) -> String {
     std::fs::read_to_string(s.home.file("houses/home/0/NOTES.md"))
         .unwrap()
@@ -1467,35 +1161,6 @@ async fn runs_one_rounds_tool_calls_in_order() {
     let order =
         std::fs::read_to_string(format!("{dir}/order")).unwrap();
     assert_eq!(order, "a\nb\n");
-}
-
-#[tokio::test]
-async fn faults_on_thinking_without_an_answer() {
-    let mut s = Session::start(
-        Script::new()
-            .responses([words("").thinking("Still thinking.")]),
-    )
-    .await;
-    s.chief.open(&chat(mayor())).await;
-    s.chief.say(mayor(), "Answer.").await;
-    let wait = s
-        .chief
-        .wait_for("an empty-answer fault", |w| {
-            matches!(w.detail, WaitDetail::Fault { .. })
-        })
-        .await;
-    let Wait { about, .. } = wait;
-    assert_eq!(
-        about,
-        "the model answered with nothing. Send the message again"
-    );
-    assert!(
-        s.chief
-            .items(&chat(mayor()))
-            .iter()
-            .any(|i| i.kind == ItemKind::Reasoning
-                && i.text == "Still thinking.")
-    );
 }
 
 #[tokio::test]

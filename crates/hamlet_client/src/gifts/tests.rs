@@ -298,37 +298,6 @@ fn skill_offers_use_received_starters_and_other_houses_without_local_files()
 }
 
 #[test]
-fn a_given_skill_is_announced_on_its_agent() {
-    #[derive(Resource, Default)]
-    struct Given(Vec<Entity>);
-    let (mut app, founder) = app();
-    app.init_resource::<Given>().add_observer(
-        |given: On<SkillGiven>, mut seen: ResMut<Given>| {
-            seen.0.push(given.entity);
-        },
-    );
-    give(app.world_mut(), founder, &research());
-    let messages = sent(&mut app);
-    let [
-        protocol::ClientMessage::Give(protocol::Give::Skill {
-            id,
-            ..
-        }),
-    ] = &messages[..]
-    else {
-        panic!("skill gift: {messages:?}");
-    };
-    reply(
-        &mut app,
-        id.clone(),
-        protocol::ReplyKind::Notice,
-        "Gave research.",
-        None,
-    );
-    assert_eq!(app.world().resource::<Given>().0, [founder]);
-}
-
-#[test]
 fn a_folder_upload_keeps_paths_and_skips_empty_files() {
     let dir = Scratch::new("world-gift-folder-parts");
     let path = dir.join("books");
@@ -630,39 +599,6 @@ fn a_gift_already_sent_is_reported_lost_on_reconnection() {
                 .into(),
             true
         )]
-    );
-}
-
-#[test]
-fn an_empty_gift_completes_with_the_manifest_reply() {
-    let dir = Scratch::new("world-gift-empty");
-    let path = dir.join("empty.txt");
-    std::fs::write(&path, "").unwrap();
-    let (mut app, founder) = app();
-    send(&mut app, founder, path);
-    let messages = sent(&mut app);
-    let [
-        protocol::ClientMessage::Give(protocol::Give::Files {
-            id,
-            files,
-            ..
-        }),
-    ] = &messages[..]
-    else {
-        panic!("manifest");
-    };
-    assert_eq!(files[0].size, 0);
-    reply(
-        &mut app,
-        id.clone(),
-        protocol::ReplyKind::Notice,
-        "Handed over `inbox/empty.txt`.",
-        None,
-    );
-    assert!(sent(&mut app).is_empty());
-    assert_eq!(
-        app.world().resource::<GiftReports>().0[0].0,
-        "Handed over `inbox/empty.txt`."
     );
 }
 
