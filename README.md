@@ -10,7 +10,7 @@
 [![License](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](https://github.com/voxell-tech/hamlet#license)
 [![CI](https://github.com/voxell-tech/hamlet/workflows/CI/badge.svg)](https://github.com/voxell-tech/hamlet/actions)
 [![Hamlet Discord](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fdiscord.com%2Fapi%2Fv10%2Finvites%2FhJjjTkXRKw%3Fwith_counts%3Dtrue&query=%24.approximate_member_count&label=Hamlet&suffix=%20members&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/hJjjTkXRKw)
-[![Voxell Discord](https://img.shields.io/discord/442334985471655946.svg?label=Voxell&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/Mhnyp6VYEQ)
+[![Voxell Discord](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fdiscord.com%2Fapi%2Fv10%2Finvites%2FMhnyp6VYEQ%3Fwith_counts%3Dtrue&query=%24.approximate_member_count&label=Voxell&suffix=%20members&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/Mhnyp6VYEQ)
 
 **Hamlet** is an agent orchestrator. You lead a hamlet of AI agents and
 watch them work in a small 3D world where each agent has a house and a
