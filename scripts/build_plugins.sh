@@ -24,6 +24,11 @@ fi
 
 (cd "$plugins" && cargo build --release --target "$target")
 
+# Built here, not quietly inside the loop, so a slow first build of the
+# engine shows its progress.
+(cd "$root" && cargo build --release \
+    -p hamlet_engine_harness --bin precompile_plugins)
+
 mkdir -p "$dist"
 laid=" "
 for manifest in "$plugins"/*/plugin.toml; do
