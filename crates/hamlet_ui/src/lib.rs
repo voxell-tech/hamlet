@@ -60,7 +60,9 @@ pub use self::screens::{
 };
 pub use self::status::{Bar, status_bar};
 use self::theme::{HamletTheme, Look};
-pub use self::widgets::{feel, icons, platform, tabs, tuning};
+pub use self::widgets::{
+    fade, feel, icons, platform, switch, tabs, tuning,
+};
 pub use self::window::window_plugin;
 
 /// The context a view of the window is built in.

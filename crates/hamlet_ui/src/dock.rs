@@ -13,7 +13,7 @@ use bevy_fynix::dock::{
 };
 use bevy_fynix::views::{BehaviorExt, FrameProps, column};
 
-use crate::feel::Lit;
+use crate::feel::{Lit, lamplight};
 use crate::looks::Fills;
 use crate::platform::{ClipInside, Glow};
 use crate::theme::HamletTheme;
@@ -63,7 +63,7 @@ pub fn lit_panel(view: impl View, lit: Lit) -> AnyView {
         let fill = cx.theme().palette.black;
         // The dock frames the area; this is what fills it.
         cx.build(
-            column((view,))
+            column((lamplight(lit), view))
                 .fills_width()
                 .min_height(px(0.0))
                 .padding(UiRect::all(px(16.0)))
@@ -72,8 +72,7 @@ pub fn lit_panel(view: impl View, lit: Lit) -> AnyView {
                 // Overflow is cut at the padding.
                 .overflow(Overflow::clip())
                 .tagged(ClipInside)
-                .tagged(Glow)
-                .tagged(lit),
+                .tagged(Glow),
         )
     })
 }

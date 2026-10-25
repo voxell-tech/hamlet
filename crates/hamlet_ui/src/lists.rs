@@ -13,10 +13,10 @@ use hamlet_client::realm::Skills;
 
 use crate::dock::show_tab;
 use crate::icons::Glyph;
-use crate::looks::{Fills, action, away, bad_action};
+use crate::looks::{Fills, action, away, bad_action, description};
 use crate::platform::DisplayText;
 use crate::world_menu::{self, Deed};
-use crate::{AnyView, Cx, View};
+use crate::{AnyView, Cx, View, with_cx};
 
 #[derive(Clone, PartialEq)]
 pub(crate) struct SkillRow {
@@ -42,16 +42,18 @@ fn empty_state<R: Resource>(
 ) -> impl View {
     keyed(resource::<R, _>(is_empty), move |empty| {
         if *empty {
-            column((
-                label(hint).tone(Tone::Dim),
-                action(Glyph::Talk, "OPEN CHAT", |w| {
-                    show_tab(w, "agent");
-                }),
-            ))
-            .gap(12.0)
-            .padding(UiRect::bottom(px(12.0)))
-            .align(AlignItems::FlexStart)
-            .boxed()
+            with_cx(move |cx| {
+                let section = cx.theme().space.section;
+                column((
+                    description(hint),
+                    action(Glyph::Talk, "OPEN CHAT", |w| {
+                        show_tab(w, "agent");
+                    }),
+                ))
+                .gap(section)
+                .padding(UiRect::bottom(px(section)))
+                .align(AlignItems::FlexStart)
+            })
         } else {
             frame().boxed()
         }
@@ -114,8 +116,9 @@ pub fn card(
     beside: Option<AnyView>,
 ) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
+        let space = &cx.theme().space;
         let name = row((label(title)
-            .size(13.0)
+            .size(cx.theme().text.heading)
             .bold(true)
             .tone(tone)
             .tagged(DisplayText),))
@@ -125,14 +128,17 @@ pub fn card(
             std::iter::once(name).chain(beside).collect::<Vec<_>>();
         cx.build(
             column((
-                row(head).gap(8.0).align(AlignItems::Center),
-                label(detail).size(13.0).tone(Tone::Dim),
+                row(head).gap(space.gap).align(AlignItems::Center),
+                description(detail),
             ))
-            .gap(4.0)
-            .padding(UiRect::axes(px(14.0), px(10.0)))
-            .border(1.0)
+            .gap(space.gap / 2.0)
+            .padding(UiRect::axes(
+                px(space.card_padding_x),
+                px(space.card_padding_y),
+            ))
+            .border(space.border)
             .border_color(cx.theme().palette.brass_6)
-            .radius(cx.theme().space.round)
+            .radius(space.round)
             .fill(cx.theme().palette.card)
             .appear(away)
             .transition(Motion::Expand),

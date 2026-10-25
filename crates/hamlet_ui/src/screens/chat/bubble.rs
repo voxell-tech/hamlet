@@ -493,8 +493,9 @@ fn fresh() -> impl View {
     .padding(UiRect::axes(px(8.0), px(0.0)))
     .min_height(px(crate::looks::CONTROL))
     .tooltip(|| {
-        label("Start a new session. This one goes to the Archive.")
-            .size(12.0)
+        crate::looks::note(
+            "Start a new session. This one goes to the Archive.",
+        )
     })
     .rules(crate::looks::retrace)
     .tagged(crate::feel::Mood::Ink)

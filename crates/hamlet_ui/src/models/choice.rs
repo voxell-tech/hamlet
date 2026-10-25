@@ -2,9 +2,8 @@
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, percent};
-use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{FrameProps, column, dropdown, label, row};
+use bevy::ui::percent;
+use bevy_fynix::views::{FrameProps, column, dropdown};
 use bevy_fynix::{ViewExt, keyed};
 use hamlet_client::realm::{
     Account, Bylaws, LivesIn, MAYOR, Mayor, Settings, address_of,
@@ -13,8 +12,9 @@ use hamlet_protocol::client as protocol;
 
 use super::{Shelf, edit};
 use crate::icons::Glyph;
-use crate::looks::{Fills, bare, note, tick};
+use crate::looks::{bare, close, description, group, section};
 use crate::roll::{agents_moved, either, hamlets_moved, moved};
+use crate::switch::labelled_switch;
 use crate::{AnyView, Cx, View};
 
 pub(super) fn home_default(world: &World) -> String {
@@ -144,22 +144,19 @@ pub(crate) fn of_agent(agent: Entity) -> AnyView {
         if cx.world.get::<LivesIn>(agent).is_none() {
             return cx.build(column(()));
         }
-        cx.build(
-            column((
-                note("Model"),
-                super::problem(),
-                chooser(
-                    move |world| {
-                        world
-                            .get::<Account>(agent)
-                            .map(|account| account.model.clone())
-                            .unwrap_or_default()
-                    },
-                    move |world, model| pin(world, agent, model),
-                ),
-            ))
-            .gap(4.0),
-        )
+        cx.build(close((
+            section("Model"),
+            super::problem(),
+            chooser(
+                move |world| {
+                    world
+                        .get::<Account>(agent)
+                        .map(|account| account.model.clone())
+                        .unwrap_or_default()
+                },
+                move |world, model| pin(world, agent, model),
+            ),
+        )))
     })
 }
 
@@ -198,68 +195,55 @@ pub(crate) fn of_hamlet(hamlet: Entity) -> AnyView {
         .when(either(moved::<Shelf>(), hamlets_moved()));
         let rows = keyed(choices, move |(models, chosen)| {
             if models.is_empty() {
-                return note(
+                return description(
                     "The home allows no model besides its default \
                      yet. Allow some under Models in Settings.",
                 )
                 .boxed();
             }
-            column(
+            close(
                 models
                     .iter()
                     .map(|model| {
                         let name = model.name.clone();
-                        row((
-                            tick(chosen.contains(&name)).on_change(
-                                move |world, on| {
-                                    whole(world, hamlet, |limits| {
-                                        limits.models.retain(
-                                            |known| known != &name,
-                                        );
-                                        if on {
-                                            limits
-                                                .models
-                                                .push(name.clone());
-                                        }
+                        labelled_switch(
+                            model.name.clone(),
+                            chosen.contains(&name),
+                            move |world, on| {
+                                whole(world, hamlet, |limits| {
+                                    limits.models.retain(|known| {
+                                        known != &name
                                     });
-                                },
-                            ),
-                            row((note(model.name.clone()),))
-                                .fills_width(),
-                        ))
-                        .gap(10.0)
-                        .align(AlignItems::Center)
+                                    if on {
+                                        limits
+                                            .models
+                                            .push(name.clone());
+                                    }
+                                });
+                            },
+                        )
                         .boxed()
                     })
                     .collect::<Vec<_>>(),
             )
-            .gap(6.0)
             .boxed()
         })
         .within(bare());
-        cx.build(
-            column((
-                crate::overview::heading(
-                    Glyph::Chip,
-                    "MODELS THIS HAMLET MAY RUN",
-                ),
-                label(
-                    "The mayor picks from the ticked models. The \
-                     default model is always allowed.",
-                )
-                .size(11.0)
-                .tone(Tone::Dim),
-                rows,
-                super::problem(),
-                column((note("Its default model"), default)).gap(4.0),
-                label(
-                    "Used when neither you nor the mayor chose a \
-                     model.",
-                )
-                .size(11.0)
-                .tone(Tone::Dim),
-            ))
-            .gap(6.0),
-        )
+        cx.build(group((
+            crate::overview::heading(
+                Glyph::Chip,
+                "MODELS THIS HAMLET MAY RUN",
+            ),
+            description(
+                "The mayor picks from the switched-on models. The \
+                 default model is always allowed.",
+            ),
+            rows,
+            super::problem(),
+            close((section("Its default model"), default)),
+            description(
+                "Used when neither you nor the mayor chose a model.",
+            ),
+        )))
     })
 }

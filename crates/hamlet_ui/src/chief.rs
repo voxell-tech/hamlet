@@ -381,7 +381,9 @@ pub fn panel(chief: Entity) -> AnyView {
                 back("ALL HAMLETS", |world| select(world, None))
                     .boxed(),
             ]),
-            scroll((wardrobe(chief, facts),)).fills_height(),
+            scroll((wardrobe(chief, facts),))
+                .fills_height()
+                .tagged(crate::fade::ScrollFade::default()),
         ))
         .fills_height()
         .gap(8.0)

@@ -73,8 +73,7 @@ pub(super) fn said(purpose: String) -> AnyView {
     label(shown)
         .tone(Tone::Dim)
         .tooltip(move || {
-            column((label(purpose.clone()).size(12.0),))
-                .max_width(px(320.0))
+            column((note(purpose.clone()),)).max_width(px(320.0))
         })
         .boxed()
 }
@@ -175,7 +174,7 @@ fn header(agent: Entity, with: Option<String>) -> AnyView {
         )))
         .padding(UiRect::axes(px(10.0), px(0.0)))
         .min_height(px(crate::looks::CONTROL))
-        .tooltip(|| label("More to do with it").size(12.0))
+        .tooltip(|| note("More to do with it"))
         .rules(crate::looks::brass)
         .tagged(Mood::Plain)
         .on_activate(move |world| {
@@ -255,9 +254,7 @@ fn character() -> impl View {
     .within(bare());
     let edit =
         action(Glyph::Rename, "EDIT", super::papers::edit_character)
-            .tooltip(|| {
-                label("Opens the file in your editor").size(12.0)
-            });
+            .tooltip(|| note("Opens the file in your editor"));
     let failed = keyed(
         resource::<Papers, _>(|p| p.failed.clone()),
         |failed| match failed {

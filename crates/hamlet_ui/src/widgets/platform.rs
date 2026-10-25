@@ -38,12 +38,6 @@ use hamlet_assets::fonts::{CINZEL, INTER, TWEMOJI};
 
 use crate::theme::Themed;
 
-/// The spacing of the letters of a header.
-const TRACKING: LetterSpacing = LetterSpacing::Px(1.0);
-
-/// The size of a tab's name.
-const TAB_SIZE: FontSize = FontSize::Px(12.0);
-
 type Unringed = (
     Or<(
         With<ButtonBehavior>,
@@ -123,6 +117,7 @@ fn install_emoji(cx: &mut FontCx) {
 pub fn apply_display(
     mut commands: Commands,
     display: Res<Display>,
+    theme: Themed,
     tabs: Query<(), With<DockTab>>,
     parents: Query<&ChildOf>,
     mut fonts: Query<
@@ -135,6 +130,8 @@ pub fn apply_display(
         Or<(Changed<TextFont>, Added<DisplayText>)>,
     >,
 ) {
+    let tracking = LetterSpacing::Px(theme.text.tracking);
+    let tab_size = FontSize::Px(theme.text.small);
     for (node, mut font, spacing, tagged) in &mut fonts {
         let tab = parents
             .iter_ancestors(node)
@@ -146,11 +143,11 @@ pub fn apply_display(
         {
             font.font = FontSource::Handle(display.0.clone());
         }
-        if tab && font.font_size != TAB_SIZE {
-            font.font_size = TAB_SIZE;
+        if tab && font.font_size != tab_size {
+            font.font_size = tab_size;
         }
-        if spacing != Some(&TRACKING) {
-            commands.entity(node).try_insert(TRACKING);
+        if spacing != Some(&tracking) {
+            commands.entity(node).try_insert(tracking);
         }
     }
 }
@@ -195,7 +192,10 @@ pub fn apply_glow(
 ) {
     for surface in &surfaces {
         let stops = vec![
-            ColorStop::new(theme.palette.black, percent(35.0)),
+            ColorStop::new(
+                theme.palette.black,
+                percent(theme.space.bottom_start * 100.0),
+            ),
             ColorStop::new(theme.palette.hearth, percent(100.0)),
         ];
         commands.entity(surface).try_insert(

@@ -267,8 +267,14 @@ pub fn hamlet(hamlet: Entity) -> AnyView {
             }
         })
         .within(bare());
-    column((head, pages, scroll((page,)).fills_height()))
-        .fills_height()
-        .gap(10.0)
-        .boxed()
+    column((
+        head,
+        pages,
+        scroll((page,))
+            .fills_height()
+            .tagged(crate::fade::ScrollFade::default()),
+    ))
+    .fills_height()
+    .gap(10.0)
+    .boxed()
 }

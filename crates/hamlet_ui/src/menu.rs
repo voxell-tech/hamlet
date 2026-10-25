@@ -29,10 +29,7 @@ use crate::looks::ICON;
 use crate::platform::DisplayText;
 use crate::theme::HamletTheme;
 use crate::world_view::TimeOfDay;
-use crate::{AnyView, Cx, View, window};
-
-/// The height of the menu bar.
-const BAR: f32 = 34.0;
+use crate::{AnyView, Cx, View, window, with_cx};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<OpenMenu>()
@@ -139,13 +136,18 @@ fn open(world: &mut World, menu: Menu, title: Entity) {
 /// A menu's title: lettering alone, that brightens under the pointer.
 pub fn nav(cx: &mut Cx) {
     style::<HamletTheme>()
-        .frame(|f, _| {
+        .frame(|f, t| {
             f.fill(Color::NONE)
                 .height(percent(100.0))
                 .radius(0.0)
-                .padding(UiRect::axes(px(16.0), px(0.0)))
+                .padding(UiRect::axes(
+                    px(t.space.title_padding),
+                    px(0.0),
+                ))
         })
-        .label(|l, _| l.tone(Tone::Faint))
+        .label(|l, t| {
+            l.tone(Tone::Faint).size(t.text.heading).bold(true)
+        })
         .hovered(|s| s.fill(|_| Color::NONE).tone(Tone::Body))
         .pressed(|s| s.fill(|_| Color::NONE).tone(Tone::Dim))
         .transition(Motion::Interact)
@@ -166,25 +168,21 @@ pub(crate) fn light_titles(
 }
 
 fn title(name: &'static str, menu: Menu) -> impl View {
-    button(
-        label(name)
-            .size(13.0)
-            .bold(true)
-            .wrap(false)
-            .tagged(DisplayText),
-    )
-    .rules(nav)
-    .tagged(menu)
-    .tagged(FootLight::new(false))
-    .on_activate_with(move |world, node| open(world, menu, node))
+    button(label(name).wrap(false).tagged(DisplayText))
+        .rules(nav)
+        .tagged(menu)
+        .tagged(FootLight::new(false))
+        .on_activate_with(move |world, node| open(world, menu, node))
 }
 
 /// The menu titles, for the top bar.
 pub fn titles() -> impl View {
-    row((title("HAMLET", Menu::App), title("VIEW", Menu::View)))
-        .gap(0.0)
-        .height(px(BAR))
-        .align(AlignItems::Center)
+    with_cx(|cx| {
+        row((title("HAMLET", Menu::App), title("VIEW", Menu::View)))
+            .gap(0.0)
+            .height(px(cx.theme().space.bar))
+            .align(AlignItems::Center)
+    })
 }
 
 fn item(
@@ -192,19 +190,20 @@ fn item(
     name: &'static str,
     act: fn(&mut World),
 ) -> AnyView {
-    menu_item(
-        row((
-            glyph(which, ICON).tone(Tone::Faint),
-            label(name).wrap(false),
-        ))
-        .gap(10.0)
-        .align(AlignItems::Center),
-    )
-    .on_activate(move |world| {
-        world.resource_mut::<OpenMenu>().0 = None;
-        act(world);
+    with_cx(move |cx| {
+        menu_item(
+            row((
+                glyph(which, ICON).tone(Tone::Faint),
+                label(name).wrap(false),
+            ))
+            .gap(cx.theme().space.menu_gap)
+            .align(AlignItems::Center),
+        )
+        .on_activate(move |world| {
+            world.resource_mut::<OpenMenu>().0 = None;
+            act(world);
+        })
     })
-    .boxed()
 }
 
 fn items(menu: Menu, found: bool) -> Vec<AnyView> {
@@ -255,10 +254,12 @@ pub fn open_menu() -> impl View {
         )),
         |(open, found)| match open {
             Some((menu, anchor)) => {
-                popup(*anchor, items(*menu, *found))
-                    .on_dismiss(|world, _| dismiss(world))
-                    .min_width(px(190.0))
-                    .boxed()
+                let (anchor, items) = (*anchor, items(*menu, *found));
+                with_cx(move |cx| {
+                    popup(anchor, items)
+                        .on_dismiss(|world, _| dismiss(world))
+                        .min_width(px(cx.theme().space.menu_width))
+                })
             }
             None => frame().boxed(),
         },

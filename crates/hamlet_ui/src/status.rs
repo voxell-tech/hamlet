@@ -147,7 +147,7 @@ fn fact(
                 glyph(which, MARK).tone(Tone::Dim),
                 note(resource::<Bar, _>(text)),
             )
-            .tooltip(move || label(tip).size(12.0))
+            .tooltip(move || note(tip))
             .boxed()
         },
     )
@@ -197,8 +197,7 @@ pub fn status_bar() -> AnyView {
                         note(resource::<Sandbox, _>(|s| s.0.clone())),
                     )
                     .tooltip(|| {
-                        label("The sandbox agents' commands run in")
-                            .size(12.0)
+                        note("The sandbox agents' commands run in")
                     }),
                     fact(
                         Glyph::Chip,
@@ -219,10 +218,9 @@ pub fn status_bar() -> AnyView {
                             })),
                     )
                     .tooltip(|| {
-                        label(resource::<Bar, _>(|bar| {
+                        note(resource::<Bar, _>(|bar| {
                             bar.connection.clone()
                         }))
-                        .size(12.0)
                     }),
                     fact(
                         Glyph::Coins,

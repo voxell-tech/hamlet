@@ -31,7 +31,7 @@ use hamlet_realm::pick::{Asked, AskedGround, Thing};
 
 pub(crate) use self::deed::{Deed, question};
 pub(crate) use self::founding::Founding;
-use crate::{AnyView, Cx, View};
+use crate::{AnyView, Cx, View, with_cx};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Open>()
@@ -160,9 +160,11 @@ pub(super) fn restore(world: &mut World, agent: Entity) {
 
 /// A menu of `items` at `at`.
 fn menu(at: Vec2, items: Vec<AnyView>) -> impl View {
-    popup(Rect::from_corners(at, at), items)
-        .on_dismiss(|world, _| close(world))
-        .min_width(px(200.0))
+    with_cx(move |cx| {
+        popup(Rect::from_corners(at, at), items)
+            .on_dismiss(|world, _| close(world))
+            .min_width(px(cx.theme().space.menu_width))
+    })
 }
 
 /// The menu or the question that is open, over everything.
@@ -244,24 +246,28 @@ fn gift_reports() -> AnyView {
                         .boxed()
                 })
                 .collect::<Vec<_>>();
-            popup(
-                Rect::new(16.0, 52.0, 16.0, 52.0),
-                (column((
-                    column(lines).gap(6.0),
-                    crate::looks::lettered("DISMISS")
-                        .rules(crate::looks::brass)
-                        .on_activate(|world| {
-                            world
-                                .resource_mut::<GiftReports>()
-                                .0
-                                .clear();
-                        }),
-                ))
-                .gap(10.0)
-                .width(px(360.0)),),
-            )
-            .padding(bevy::ui::UiRect::all(px(14.0)))
-            .boxed()
+            with_cx(move |cx| {
+                let space = &cx.theme().space;
+                popup(
+                    Rect::new(16.0, 52.0, 16.0, 52.0),
+                    (column((
+                        column(lines).gap(space.gap / 2.0),
+                        crate::looks::lettered("DISMISS")
+                            .rules(crate::looks::brass)
+                            .on_activate(|world| {
+                                world
+                                    .resource_mut::<GiftReports>()
+                                    .0
+                                    .clear();
+                            }),
+                    ))
+                    .gap(space.section)
+                    .width(px(360.0)),),
+                )
+                .padding(bevy::ui::UiRect::all(px(
+                    space.overlay_padding,
+                )))
+            })
         },
     )
     .boxed()

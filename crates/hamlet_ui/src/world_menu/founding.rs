@@ -3,7 +3,6 @@
 use bevy::ecs::resource::Resource;
 use bevy::math::{Rect, Vec2};
 use bevy::ui::px;
-use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, label, popup, row,
     text_field,
@@ -13,7 +12,9 @@ use hamlet_client::realm::{Deeds, HOME};
 
 use super::close;
 use crate::feel::Mood;
-use crate::looks::{brass, lamp, lettered, note, well};
+use crate::looks::{
+    brass, description, lamp, lettered, section, well,
+};
 use crate::platform::DisplayText;
 use crate::{AnyView, View, chat};
 
@@ -51,8 +52,8 @@ fn asks(
     read: fn(&Founding) -> &String,
     write: fn(&mut Founding, String),
 ) -> impl View {
-    column((
-        label(what).size(11.0).tone(Tone::Dim),
+    crate::looks::close((
+        section(what),
         text_field(
             resource::<Founding, _>(move |f| read(f).clone()),
             move |world, text| {
@@ -61,7 +62,6 @@ fn asks(
         )
         .rules(well),
     ))
-    .gap(3.0)
 }
 
 /// The form a hamlet is founded with.
@@ -70,12 +70,21 @@ pub(super) fn founding(at: Vec2) -> AnyView {
         if !Deeds::is_allowed(cx.world, "found") {
             return cx.build(frame());
         }
+        let (gap, between, padding, heading) = {
+            let theme = cx.theme();
+            (
+                theme.space.gap,
+                theme.space.section,
+                theme.space.overlay_padding,
+                theme.text.heading,
+            )
+        };
         let body = column((
             label("FOUND A HAMLET")
-                .size(13.0)
+                .size(heading)
                 .bold(true)
                 .tagged(DisplayText),
-            note(
+            description(
                 "It is built on the next free ground and gets its \
                  own mayor.",
             ),
@@ -90,14 +99,14 @@ pub(super) fn founding(at: Vec2) -> AnyView {
                 |f| &f.purpose,
                 |f, text| f.purpose = text,
             ),
-            label(resource::<Founding, _>(|f| match f.command() {
-                Some(_) => "Names are kept as lowercase letters and \
-                            hyphens."
-                    .to_string(),
-                None => "All three are needed.".to_string(),
-            }))
-            .size(11.0)
-            .tone(Tone::Dim),
+            description(resource::<Founding, _>(|f| {
+                match f.command() {
+                    Some(_) => "Names are kept as lowercase letters \
+                                and hyphens."
+                        .to_string(),
+                    None => "All three are needed.".to_string(),
+                }
+            })),
             row((
                 lettered("FOUND")
                     .rules(lamp)
@@ -118,14 +127,14 @@ pub(super) fn founding(at: Vec2) -> AnyView {
                     }),
                 lettered("CANCEL").rules(brass).on_activate(close),
             ))
-            .gap(8.0),
+            .gap(gap),
         ))
-        .gap(8.0)
+        .gap(between)
         .width(px(300.0));
         cx.build(
             popup(Rect::from_corners(at, at), (body,))
                 .on_dismiss(|world, _| close(world))
-                .padding(bevy::ui::UiRect::all(px(14.0))),
+                .padding(bevy::ui::UiRect::all(px(padding))),
         )
     })
 }

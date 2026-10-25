@@ -4,7 +4,7 @@ use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    FrameProps, column, label, number_field, row, text_field,
+    FrameProps, label, number_field, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::outbox::Outbox;
@@ -17,15 +17,12 @@ use super::{
 };
 use crate::icons::Glyph;
 use crate::looks::{
-    CONTROL, Fills, action, bad_action, bare, good_action, note,
-    tick, well,
+    Fills, action, bad_action, bare, beside, close, description,
+    good_action, group, list, note, section, well,
 };
 use crate::roll::{either, moved};
-use crate::{AnyView, View};
-
-fn small(text: &'static str) -> impl View {
-    label(text).size(11.0).tone(Tone::Faint)
-}
+use crate::switch::labelled_switch;
+use crate::{AnyView, View, with_cx};
 
 fn remove(world: &mut World, name: &str) {
     let endpoints = world
@@ -53,20 +50,17 @@ fn remove(world: &mut World, name: &str) {
 
 fn endpoint(endpoint: &protocol::SettingsViewEndpoints) -> AnyView {
     let gone = endpoint.name.clone();
-    column((
-        row((
+    close((
+        beside((
             row((label(endpoint.name.clone()).bold(true),))
                 .fills_width(),
             note(if endpoint.key { "Key set" } else { "No key" }),
             bad_action(Glyph::Gone, "REMOVE", move |world| {
                 remove(world, &gone);
             }),
-        ))
-        .gap(12.0)
-        .align(AlignItems::Center),
+        )),
         note(endpoint.base_url.clone()),
     ))
-    .gap(2.0)
     .boxed()
 }
 
@@ -77,8 +71,7 @@ pub fn endpoints() -> impl View {
             settings.0.endpoints.clone()
         }),
         |endpoints| {
-            column(endpoints.iter().map(endpoint).collect::<Vec<_>>())
-                .gap(6.0)
+            list(endpoints.iter().map(endpoint).collect::<Vec<_>>())
                 .boxed()
         },
     )
@@ -93,20 +86,19 @@ pub fn endpoints() -> impl View {
                 .collect::<Vec<_>>()
         }),
         |providers| {
-            column(
+            close(
                 providers
                     .iter()
                     .cloned()
                     .map(note)
                     .collect::<Vec<_>>(),
             )
-            .gap(4.0)
             .boxed()
         },
     )
     .within(bare());
-    column((
-        note(
+    group((
+        description(
             "Models run through the server. A model is named \
              endpoint::model. Credentials stay on the server.",
         ),
@@ -119,7 +111,6 @@ pub fn endpoints() -> impl View {
         ),)),
         crate::root::connection_test(),
     ))
-    .gap(8.0)
 }
 
 const PRICE_WIDE: f32 = 84.0;
@@ -204,9 +195,22 @@ fn entry(model: &protocol::Listed) -> AnyView {
     let detail = model.context.map_or(source.into(), |context| {
         format!("{source}, holds {}k", context / 1000)
     });
-    column((
+    let prices = with_cx(move |cx| {
         row((
-            tick(model.allowed).on_change(move |world, allowed| {
+            section("IN"),
+            price(&name, false),
+            section("OUT"),
+            price(&name, true),
+            note(detail),
+        ))
+        .gap(cx.theme().space.gap)
+        .align(AlignItems::Center)
+    });
+    close((
+        labelled_switch(
+            model.name.clone(),
+            model.allowed,
+            move |world, allowed| {
                 catalogue(
                     world,
                     &allow,
@@ -216,21 +220,9 @@ fn entry(model: &protocol::Listed) -> AnyView {
                         note: None,
                     },
                 );
-            }),
-            row((label(name.clone()),)).fills_width(),
-        ))
-        .gap(10.0)
-        .align(AlignItems::Center),
-        row((
-            row(()).width(px(CONTROL)).shrink(0.0),
-            small("IN"),
-            price(&name, false),
-            small("OUT"),
-            price(&name, true),
-            label(detail).size(11.0).tone(Tone::Faint),
-        ))
-        .gap(8.0)
-        .align(AlignItems::Center),
+            },
+        ),
+        prices,
         text_field(model.note.clone(), move |world, note| {
             catalogue(
                 world,
@@ -244,7 +236,6 @@ fn entry(model: &protocol::Listed) -> AnyView {
         })
         .rules(well),
     ))
-    .gap(4.0)
     .boxed()
 }
 
@@ -304,7 +295,7 @@ pub fn shelf() -> AnyView {
     .when(either(moved::<Shelf>(), moved::<Draft>()));
     let models = keyed(shown, |(models, more)| {
         if models.is_empty() {
-            return note(
+            return description(
                 "No models yet. Choose List Models to ask the \
                  server.",
             )
@@ -313,36 +304,35 @@ pub fn shelf() -> AnyView {
         let mut rows = models.iter().map(entry).collect::<Vec<_>>();
         if *more > 0 {
             rows.push(
-                note(format!(
+                description(format!(
                     "{more} more. Type part of a name to narrow \
                      them."
                 ))
                 .boxed(),
             );
         }
-        column(rows).gap(10.0).boxed()
+        list(rows).boxed()
     })
     .within(bare());
-    column((
-        column((
-            small("DEFAULT MODEL"),
+    group((
+        close((
+            section("DEFAULT MODEL"),
             chooser(home_default, save_default),
-            note(
+            description(
                 "Used wherever nobody chose a model. It is always \
                  allowed.",
             ),
-        ))
-        .gap(4.0),
-        note(
-            "Tick a model to allow it. Prices are dollars per \
+        )),
+        description(
+            "Switch a model on to allow it. Prices are dollars per \
              million tokens in and out, used when the endpoint does \
              not bill a call.",
         ),
-        row((
+        beside((
             action(Glyph::Restore, "LIST MODELS", |world| {
                 read_models(world, true);
             }),
-            small("FIND"),
+            section("FIND"),
             text_field(
                 resource::<Draft, _>(|draft| draft.narrow.clone()),
                 |world, text| {
@@ -351,9 +341,7 @@ pub fn shelf() -> AnyView {
             )
             .grow(1.0)
             .rules(well),
-        ))
-        .gap(12.0)
-        .align(AlignItems::Center),
+        )),
         note(resource::<Shelf, _>(|shelf| {
             if shelf.asking {
                 "Asking...".into()
@@ -364,10 +352,8 @@ pub fn shelf() -> AnyView {
         label(resource::<Shelf, _>(|shelf| {
             shelf.problem.clone().unwrap_or_default()
         }))
-        .size(12.0)
         .tone(Tone::Critical),
         models,
     ))
-    .gap(8.0)
     .boxed()
 }

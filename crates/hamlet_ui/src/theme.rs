@@ -183,7 +183,14 @@ pub struct Palette {
 #[serde(deny_unknown_fields)]
 pub struct TextSizes {
     pub body: f32,
+    /// Notes, buttons, tabs and the names of a panel's parts.
     pub small: f32,
+    /// A menu's title and a card's.
+    pub heading: f32,
+    /// The name at the head of a page.
+    pub title: f32,
+    /// The space between the letters of the display face.
+    pub tracking: f32,
 }
 
 /// The gaps, heights and corners of the panels.
@@ -203,6 +210,45 @@ pub struct Spacing {
     /// it.
     pub divider_grip: f32,
     pub tab_padding: f32,
+    /// The width of a control's frame and a card's.
+    pub border: f32,
+    /// The space inside a panel, around its content.
+    pub panel: f32,
+    /// The space between the parts of a panel.
+    pub section: f32,
+    /// The space inside a card, across and down.
+    pub card_padding_x: f32,
+    pub card_padding_y: f32,
+    /// The space down inside a row of a list.
+    pub row_padding: f32,
+    /// The height of the menu bar, and the space at its ends.
+    pub bar: f32,
+    pub bar_padding: f32,
+    /// The space at each side of a menu's title.
+    pub title_padding: f32,
+    /// The least width of an open menu, and the space between an
+    /// entry's words and its keys.
+    pub menu_width: f32,
+    pub menu_gap: f32,
+    /// The widest a page of Settings is drawn.
+    pub page_width: f32,
+    /// The space inside a card that asks something over the world.
+    pub overlay_padding: f32,
+    /// The least height of a tab within a panel, and the line under
+    /// the one shown.
+    pub tab_height: f32,
+    pub underline: f32,
+    /// The share of a panel's height its background keeps before it
+    /// warms toward the hearth.
+    pub bottom_start: f32,
+    /// The width and height of a switch's track, and the space
+    /// between its frame and its knob.
+    pub switch_width: f32,
+    pub switch_height: f32,
+    pub switch_inset: f32,
+    /// How far into a scroll area the fade over an edge with more
+    /// past it reaches.
+    pub scroll_fade: f32,
 }
 
 /// The shadow under what floats over the panels and the world, cast

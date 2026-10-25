@@ -26,7 +26,7 @@ use hamlet_client::chats::{Entry, Transcript};
 use super::{ChatSettings, Draft};
 use crate::feel::Mood;
 use crate::icons::{Glyph, glyph};
-use crate::looks::{Fills, ICON, bare, retrace};
+use crate::looks::{Fills, ICON, bare, note, retrace};
 use crate::me::Me;
 use crate::{AnyView, Cx, View, with_cx};
 
@@ -182,7 +182,7 @@ pub(super) fn mark(
     AnyView::new(move |cx: &mut Cx| {
         let reply = button(glyph(Glyph::Talk, ICON))
             .padding(UiRect::all(px(AROUND)))
-            .tooltip(|| label("Reply").size(12.0))
+            .tooltip(|| note("Reply"))
             .rules(retrace)
             .tagged(Mood::Ink)
             .on_activate(move |world| take(world, session, &id, &by));
@@ -261,7 +261,7 @@ pub(super) fn preview() -> impl View {
 fn shown(cx: &Cx, answers: &Answers) -> AnyView {
     let drop = button(glyph(Glyph::Cross, ICON))
         .padding(UiRect::all(px(AROUND)))
-        .tooltip(|| label("Do not reply").size(12.0))
+        .tooltip(|| note("Do not reply"))
         .rules(retrace)
         .tagged(Mood::Ink)
         .on_activate(|world| {

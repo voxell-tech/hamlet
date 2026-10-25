@@ -174,7 +174,9 @@ pub fn overview() -> AnyView {
         label("Search by a hamlet's name or its mayor's.")
             .size(11.0)
             .tone(Tone::Dim),
-        scroll((list, closed())).fills_height(),
+        scroll((list, closed()))
+            .fills_height()
+            .tagged(crate::fade::ScrollFade::default()),
         row((
             action(
                 Glyph::Hearth,
