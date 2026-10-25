@@ -7,6 +7,7 @@ use bevy::ecs::world::World;
 use bevy::reflect::TypePath;
 use hamlet_assets::{File, Tuning, TuningPlugin, designed, follow};
 
+use crate::bazaar::BazaarSettings;
 use crate::chat::ChatSettings;
 use crate::chrome::ChromeSettings;
 use crate::desk::DeskSettings;
@@ -23,6 +24,7 @@ pub(crate) struct UiTuning {
     pub chrome: ChromeSettings,
     pub desk: DeskSettings,
     pub chat: ChatSettings,
+    pub bazaar: BazaarSettings,
 }
 
 impl Tuning for UiTuning {
@@ -32,6 +34,7 @@ impl Tuning for UiTuning {
         follow(world, &was.chrome, &self.chrome);
         follow(world, &was.desk, &self.desk);
         follow(world, &was.chat, &self.chat);
+        follow(world, &was.bazaar, &self.bazaar);
     }
 }
 
@@ -39,4 +42,5 @@ designed!(UiTuning {
     ChromeSettings => chrome,
     DeskSettings => desk,
     ChatSettings => chat,
+    BazaarSettings => bazaar,
 });

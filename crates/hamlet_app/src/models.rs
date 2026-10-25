@@ -63,6 +63,13 @@ pub struct Shelf {
     requests: BTreeMap<protocol::RequestId, Asked>,
 }
 
+impl Shelf {
+    /// True while the catalogue is being read.
+    pub(crate) fn is_asking(&self) -> bool {
+        self.asking
+    }
+}
+
 #[derive(Clone, Copy)]
 enum Asked {
     Models,
@@ -91,7 +98,7 @@ fn follow(world: &mut World) {
     }
 }
 
-fn read_models(world: &mut World, refresh: bool) {
+pub(crate) fn read_models(world: &mut World, refresh: bool) {
     let id = world.resource_mut::<Outbox>().send(|id| {
         protocol::ClientMessage::Read(protocol::Read::Models {
             id,

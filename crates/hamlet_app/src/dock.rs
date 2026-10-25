@@ -204,6 +204,22 @@ pub(crate) fn designed(tree: &mut DockTree) {
     }
 }
 
+/// Brings the panel `id` to the front, as a tab beside the
+/// Inspector's when it is not in the dock yet.
+pub(crate) fn open_panel(world: &mut World, id: &str) {
+    let mut tree = world.resource_mut::<DockTree>();
+    if tree.find_leaf_with_window(id).is_none() {
+        let leaf = ["agent", "world"]
+            .into_iter()
+            .find_map(|beside| tree.find_leaf_with_window(beside))
+            .or_else(|| tree.leaves().next().map(|(leaf, _)| leaf));
+        if let Some(leaf) = leaf {
+            tree.add_tab(leaf, id);
+        }
+    }
+    show_tab(world, id);
+}
+
 /// Brings a panel's tab to the front, or opens it in the first area
 /// when the desk shown does not have it.
 pub(crate) fn show_tab(world: &mut World, id: &str) {

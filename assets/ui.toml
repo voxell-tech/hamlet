@@ -21,3 +21,10 @@ picture_wait = 120.0
 picture_bytes = 20_000_000
 picture_memory = 64_000_000
 reply_chars = 600
+
+[bazaar]
+page = 30
+pages = 4
+read_most = 6000
+diorama = 240.0
+seek = 6.0

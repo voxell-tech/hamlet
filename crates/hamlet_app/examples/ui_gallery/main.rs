@@ -19,6 +19,7 @@ use std::time::Duration;
 use bevy::image::{CompressedImageFormats, ImageSampler, ImageType};
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
+use hamlet_app::bazaar::Stall;
 use hamlet_app::pictures::Pictures;
 use hamlet_app::welcome::Step;
 
@@ -40,7 +41,42 @@ struct Shot {
     scale: f32,
 }
 
-const SHOTS: [Shot; 31] = [
+/// A still of the Agent Bazaar.
+const fn bazaar(name: &'static str, scene: Scene) -> Shot {
+    Shot {
+        name,
+        scene,
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    }
+}
+
+const SHOTS: [Shot; 41] = [
+    bazaar("bazaar-models", Scene::Stall(Stall::Models, &[])),
+    bazaar(
+        "bazaar-model",
+        Scene::Stall(Stall::Models, &["Claude Sonnet 4.5"]),
+    ),
+    bazaar("bazaar-skills", Scene::Stall(Stall::Skills, &[])),
+    bazaar(
+        "bazaar-skill",
+        Scene::Stall(Stall::Skills, &["vercel-react-best-practices"]),
+    ),
+    bazaar("bazaar-plugins", Scene::Stall(Stall::Plugins, &[])),
+    bazaar(
+        "bazaar-plugin",
+        Scene::Stall(Stall::Plugins, &["Excalidraw Whiteboard"]),
+    ),
+    bazaar("bazaar-agents", Scene::Stall(Stall::Community, &[])),
+    bazaar(
+        "bazaar-agent",
+        Scene::Stall(Stall::Community, &["Research Assistant"]),
+    ),
+    bazaar("bazaar-hamlets", Scene::Stall(Stall::Hamlets, &[])),
+    bazaar(
+        "bazaar-hamlet",
+        Scene::Stall(Stall::Hamlets, &["Open Source Maintainer Kit"]),
+    ),
     Shot {
         name: "menu",
         scene: Scene::Menu,

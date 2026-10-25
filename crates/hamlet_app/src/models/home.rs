@@ -332,6 +332,11 @@ pub fn shelf() -> AnyView {
             action(Glyph::Restore, "LIST MODELS", |world| {
                 read_models(world, true);
             }),
+            action(
+                Glyph::Coins,
+                "BROWSE THE BAZAAR",
+                crate::bazaar::browse_models,
+            ),
             section("FIND"),
             text_field(
                 resource::<Draft, _>(|draft| draft.narrow.clone()),

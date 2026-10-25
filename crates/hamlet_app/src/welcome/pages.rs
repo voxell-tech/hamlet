@@ -174,7 +174,40 @@ fn models() -> AnyView {
         .tagged(Narrowing),
         news("Asking it to say hello..."),
         list,
+        bazaar(),
     ))
+    .boxed()
+}
+
+/// The way to every model in the Agent Bazaar, while a place for
+/// models is added to a home that has one already.
+fn bazaar() -> AnyView {
+    keyed(
+        resource::<Welcome, _>(|welcome| welcome.adding),
+        |adding| {
+            if !*adding {
+                return bare().boxed();
+            }
+            row((
+                styles::action(
+                    Glyph::Coins,
+                    "BROWSE THE BAZAAR",
+                    |world| {
+                        close(world);
+                        crate::bazaar::browse_models(world);
+                    },
+                ),
+                note(
+                    "Or choose among every model in the Agent \
+                     Bazaar.",
+                ),
+            ))
+            .gap(12.0)
+            .align(AlignItems::Center)
+            .boxed()
+        },
+    )
+    .within(bare())
     .boxed()
 }
 

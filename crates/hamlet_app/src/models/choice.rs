@@ -3,7 +3,7 @@
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
 use bevy::ui::percent;
-use bevy_fynix::views::{FrameProps, column, dropdown};
+use bevy_fynix::views::{FrameProps, column, dropdown, row};
 use bevy_fynix::{ViewExt, keyed};
 use hamlet_client::realm::{
     Account, Bylaws, LivesIn, MAYOR, Mayor, Settings, address_of,
@@ -156,6 +156,11 @@ pub(crate) fn of_agent(agent: Entity) -> impl View {
                 },
                 move |world, model| pin(world, agent, model),
             ),
+            row((hamlet_ui::styles::action(
+                Glyph::Coins,
+                "BROWSE THE BAZAAR",
+                crate::bazaar::browse_models,
+            ),)),
         )))
     })
 }
@@ -197,7 +202,8 @@ pub(crate) fn of_hamlet(hamlet: Entity) -> impl View {
             if models.is_empty() {
                 return description(
                     "The home allows no model besides its default \
-                     yet. Allow some under Models in Settings.",
+                     yet. Allow some under Models in Settings, or \
+                     add some in the Agent Bazaar.",
                 )
                 .boxed();
             }

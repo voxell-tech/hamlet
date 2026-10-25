@@ -3,6 +3,7 @@
 mod dock;
 mod sample;
 mod sheets;
+mod stalls;
 
 use bevy::app::{App, Plugin, PostStartup, Startup, Update};
 use bevy::asset::Handle;
@@ -16,6 +17,7 @@ use bevy::picking::PickingSettings;
 use bevy_fynix::dock::DockPlugin;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::{AnyView, Bevy, FynixPlugin, mount};
+use hamlet_app::bazaar::Stall;
 use hamlet_app::history::History;
 use hamlet_app::{Bar, Roll, asking, chrome, menu, select, welcome};
 use hamlet_assets::Tuning;
@@ -90,6 +92,9 @@ impl Plugin for GalleryPlugin {
                 asking::plugin,
                 select::plugin,
             ));
+        if matches!(self.0, Scene::Stall(..)) {
+            app.add_plugins(stalls::plugin);
+        }
     }
 }
 
@@ -157,6 +162,9 @@ pub enum Scene {
     ViewMenu,
     /// The first-run screen at one of its steps.
     Welcome(welcome::Step),
+    /// The Agent Bazaar at a stall's tab, with the buttons of these
+    /// words pressed in turn.
+    Stall(Stall, &'static [&'static str]),
 }
 
 /// The picture that stands where the world is drawn, and the part of

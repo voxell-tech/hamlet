@@ -302,12 +302,23 @@ fn for_library(thing: Thing) -> Vec<AnyView> {
 }
 
 fn for_bazaar(thing: Thing) -> Vec<AnyView> {
-    vec![
+    let mut items = vec![match thing {
+        Thing::Stall(stall) => {
+            item(format!("Browse {}", stall.name()), move |w| {
+                crate::bazaar::show(w, stall);
+            })
+        }
+        _ => {
+            item("Open the Agent Bazaar".into(), crate::bazaar::open)
+        }
+    }];
+    items.extend([
         focus(thing),
         item("Move the Agent Bazaar...".into(), |w| {
             moving::pick_up(w, Ground::Bazaar);
         }),
-    ]
+    ]);
+    items
 }
 
 /// The skills `agent` could be given, each pressed to give it.

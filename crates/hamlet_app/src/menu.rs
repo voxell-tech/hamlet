@@ -219,6 +219,21 @@ fn items(menu: Menu, found: bool) -> Vec<AnyView> {
                     crate::world_menu::ask_found,
                 ));
             }
+            items.push(item(
+                Glyph::Coins,
+                "Open the Agent Bazaar",
+                crate::bazaar::open,
+            ));
+            items.push(item(
+                Glyph::Chip,
+                "Browse the Models",
+                crate::bazaar::browse_models,
+            ));
+            items.push(item(
+                Glyph::Hamlet,
+                "Browse the Hamlets",
+                crate::bazaar::browse_hamlets,
+            ));
             items.push(item(Glyph::Power, "Close", window::quit));
             items
         }

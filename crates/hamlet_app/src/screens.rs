@@ -1,5 +1,6 @@
 //! The panels that draw from the client's state.
 
+pub mod bazaar;
 pub mod chat;
 pub mod inspector;
 pub mod links;
@@ -13,6 +14,7 @@ use bevy::app::App;
 pub fn plugin(app: &mut App) {
     app.add_plugins((
         inspector::plugin,
+        bazaar::plugin,
         overview::plugin,
         chat::plugin,
         links::plugin,

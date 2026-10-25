@@ -108,6 +108,8 @@ fn showing(world: &World) -> Showing {
         None
         | Some(
             Thing::Common(_)
+            | Thing::Bazaar
+            | Thing::Stall(_)
             | Thing::Ruin(_)
             | Thing::Chief(_)
             | Thing::ChiefPlace(_)
@@ -151,7 +153,8 @@ pub(crate) fn follow_selection(world: &mut World) {
             }
         }
         Some(Thing::Agent(agent) | Thing::House(agent)) => agent,
-        // A hamlet, one that is gone, or nothing at all.
+        // A hamlet, one that is gone, the bazaar, which brings its
+        // own panel forward, or nothing at all.
         _ => return,
     };
     if world.resource::<Convo>().agent != agent {
