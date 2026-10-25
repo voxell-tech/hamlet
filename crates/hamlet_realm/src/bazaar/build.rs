@@ -83,12 +83,14 @@ pub(super) struct Pennon {
 }
 
 /// A part that turns on its own: its mesh about an axle along its
-/// Z, the axle's place and the way it lies, and its turns a second.
+/// Z, the axle's place and the way it lies, its turns a second and
+/// the turn it starts at.
 pub(super) struct Cog {
     pub mesh: Mesh,
     pub at: Vec3,
     pub lies: Quat,
     pub rate: f32,
+    pub phase: f32,
 }
 
 /// The meshes of the bazaar, and the spots of what is drawn apart.

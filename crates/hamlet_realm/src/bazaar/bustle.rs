@@ -22,12 +22,13 @@ use crate::pick::{Selected, Thing};
 /// middle.
 const SALE: Vec3 = Vec3::new(0.0, FLOOR + 1.1, 2.2);
 
-/// A part that turns on its own, the way it lies at rest and its
-/// turns a second.
+/// A part that turns on its own, the way it lies at rest, its turns
+/// a second and the turn it starts at, in radians.
 #[derive(Component, Clone, Copy, Debug)]
 pub(super) struct Turning {
     pub lies: Quat,
     pub rate: f32,
+    pub phase: f32,
 }
 
 /// A mote of light: what it is part of, and its number among them.
@@ -92,7 +93,7 @@ pub(super) fn spin(
     for (part, mut at) in &mut parts {
         at.rotation = part.lies
             * Quat::from_rotation_z(
-                TAU * (part.rate * clock.t).fract(),
+                part.phase + TAU * (part.rate * clock.t).fract(),
             );
     }
     redraw.write(RequestRedraw);

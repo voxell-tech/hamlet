@@ -249,6 +249,7 @@ pub(super) fn pitch(
             bustle::Turning {
                 lies: cog.lies,
                 rate: cog.rate,
+                phase: cog.phase,
             },
             Mesh3d(meshes.add(cog.mesh)),
             MeshMaterial3d(stock.matte.clone()),
