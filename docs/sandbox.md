@@ -52,8 +52,8 @@ sandbox, with bounded output, time and resources; cancellation kills their
 process group. A command interrupted around an effect is not automatically
 replayed as a safe transaction.
 
-Server-owned house operations use `papers::Houses`, `papers/tree.rs` and
-`gifts/tree.rs`. They open relative to a retained home or house descriptor
+Server-owned house operations use `papers::Houses` and `papers/tree.rs`.
+They open relative to a retained home or house descriptor
 with no-follow checks, reject special files where regular files are
 required, and bound tree sizes. Notes, prompt shelves and gift delivery do
 not use a persistent Node file-helper process. The skill shelf reads

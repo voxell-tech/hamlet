@@ -5,7 +5,6 @@
 mod rules;
 #[cfg(test)]
 mod tests;
-mod tree;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::{Duration, Instant};
@@ -22,7 +21,7 @@ use serde_json::Value;
 use crate::harness::Harnesses;
 use crate::papers::copy::{Snapshot, Stopped, UNSAFE};
 use crate::papers::files::Files;
-use crate::papers::tree::Entry;
+use crate::papers::tree::{self, Entry};
 use crate::protocol::{Refusable, Refusal, reply};
 use crate::record::AgentRef;
 use crate::service::Service;

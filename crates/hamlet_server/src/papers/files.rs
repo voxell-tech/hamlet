@@ -49,7 +49,7 @@ impl Files {
         let name = name.to_owned();
         match self {
             Self::Local(root) => blocking(root, move |root| {
-                tree::directory(root, &name, create)
+                Ok(tree::directory(root, &name, create)?)
             })
             .await
             .map(Self::Local),
