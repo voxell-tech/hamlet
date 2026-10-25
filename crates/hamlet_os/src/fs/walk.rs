@@ -522,8 +522,10 @@ mod tests {
         let scratch = Scratch::new("walk-link-back");
         fs::create_dir_all(scratch.join("a/b")).unwrap();
         symlink("a/b", scratch.join("l")).unwrap();
+        // Not `join`, which drops the `..` from a verbatim path.
+        let through = format!("{}/l/../c", path::text(&scratch));
         assert_eq!(
-            at(&scratch.join("l/../c"), Follow::Last).real,
+            at(Path::new(&through), Follow::Last).real,
             path::text(&scratch.join("a/c"))
         );
     }
