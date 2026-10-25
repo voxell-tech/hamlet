@@ -50,6 +50,21 @@ Where agents' tools run and their houses are kept: local, on the
 server's own computer, or remote, as the chief chooses in Settings.
 _Avoid_: sandbox, house
 
+**Sandbox**:
+What holds an agent's commands to the reach the spec gives them, on the
+server's own computer.
+_Avoid_: jail, container, workspace
+
+**Insecure mode**:
+A server started with `--insecure`, whose agents' commands run without
+a sandbox and reach whatever the account running it can.
+_Avoid_: unconfined, no-sandbox mode, unsafe mode
+
+**Leftover**:
+A process an agent's command started that still runs after the command
+ended.
+_Avoid_: orphan, survivor, lingering process, background job, daemon
+
 ### Running agents
 
 **Harness**:
