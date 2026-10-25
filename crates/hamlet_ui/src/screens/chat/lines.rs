@@ -737,7 +737,8 @@ pub fn transcript() -> impl View {
         x: OverflowAxis::Clip,
         y: OverflowAxis::Scroll,
     })
-    .tagged(ChatScroll);
+    .tagged(ChatScroll)
+    .tagged(crate::fade::ScrollFade::default());
     // The way back to the end, over the corner of the chat, offered
     // only when the chat is not at its end.
     let back = each(
