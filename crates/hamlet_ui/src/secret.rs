@@ -14,7 +14,7 @@ use bevy::text::{
     EditableText, EditableTextSystems, FontSource, TextColor,
     TextEdit, TextFont,
 };
-use bevy::ui::widget::{Text, TextScroll};
+use bevy::ui::widget::Text;
 use bevy::ui::{
     AlignItems, ComputedNode, Node, Overflow, UiGlobalTransform, Val,
     px,
@@ -101,7 +101,6 @@ fn mask(
         &mut TextFont,
         &ComputedNode,
         &UiGlobalTransform,
-        Option<&TextScroll>,
     )>,
     below: Query<&Children>,
     mut stars: Query<
@@ -116,7 +115,7 @@ fn mask(
     for (inside, parent) in &fields {
         let Some((typed, face, (start, end), scrolled)) =
             inside.iter().find_map(|&child| {
-                let (text, mut ink, mut face, laid, place, scroll) =
+                let (text, mut ink, mut face, laid, place) =
                     inputs.get_mut(child).ok()?;
                 // The editor keeps the text; only the stars are drawn.
                 if ink.0 != Color::NONE {
@@ -137,7 +136,7 @@ fn mask(
                         (place.translation.x + content.min.x) * scale,
                         (place.translation.x + content.max.x) * scale,
                     ),
-                    scroll.map_or(0.0, |scroll| scroll.0.x) * scale,
+                    text.viewport.offset.x * scale,
                 ))
             })
         else {

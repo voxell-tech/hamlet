@@ -6,55 +6,44 @@ mod backdrop;
 mod control;
 mod drag;
 mod foot;
+mod glow;
 
 use bevy::app::{App, Update};
-use bevy::asset::embedded_asset;
-use bevy::color::{Color, ColorToComponents, LinearRgba};
+use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::schedule::common_conditions::on_message;
-use bevy::math::Vec3;
-use bevy::ui_render::prelude::UiMaterialPlugin;
+use bevy::ui::{ColorStop, percent};
 
 pub use self::backdrop::Lit;
+pub(crate) use self::backdrop::lamplight;
 pub use self::foot::FootLight;
-use crate::theme::{HamletTheme, ThemeChanged};
+pub(crate) use self::glow::{GlowPanel, glow_layer};
+use crate::theme::HamletTheme;
 
 /// The feel of the controls, the dock's hint and the panels'
 /// backdrops.
 pub fn plugin(app: &mut App) {
-    embedded_asset!(app, "feel/backdrop.wgsl");
-    embedded_asset!(app, "feel/lamp.wgsl");
-    app.add_plugins((
-        UiMaterialPlugin::<backdrop::Backdrop>::default(),
-        UiMaterialPlugin::<control::Lamp>::default(),
-    ))
-    .init_resource::<FeelSettings>()
-    .add_observer(control::answer)
-    .add_systems(
-        Update,
-        (
+    app.init_resource::<FeelSettings>()
+        .add_observer(control::answer)
+        .add_systems(
+            Update,
             (
-                control::arm,
-                control::hover_tick,
-                control::press_tap,
-                control::feel,
-                control::light,
-                control::spill,
-                control::embers,
-                foot::foot_lights,
-            )
-                .chain(),
-            drag::dress_drag,
-            (
-                backdrop::lay,
-                backdrop::tint.run_if(on_message::<ThemeChanged>),
+                (
+                    control::arm,
+                    control::hover_tick,
+                    control::press_tap,
+                    control::feel,
+                    control::light,
+                    control::spill,
+                    control::embers,
+                    foot::foot_lights,
+                )
+                    .chain(),
+                drag::dress_drag,
                 backdrop::light,
-            )
-                .chain(),
-        ),
-    );
+            ),
+        );
 }
 
 /// The meaning of a press on a button, which sets its light, its
@@ -211,8 +200,20 @@ impl MagicColors {
     }
 }
 
-fn linear(color: Color) -> Vec3 {
-    LinearRgba::from(color).to_vec3()
+/// The stops of a radial gradient whose light falls off as a bell,
+/// `exp(-sharp * t * t)` at `t` from 0 at its middle to 1 at its
+/// end, each stop coloured by `paint` from how much light is left.
+fn pool(sharp: f32, paint: impl Fn(f32) -> Color) -> Vec<ColorStop> {
+    const STOPS: u8 = 8;
+    (0..=STOPS)
+        .map(|step| {
+            let t = f32::from(step) / f32::from(STOPS);
+            ColorStop::new(
+                paint((-sharp * t * t).exp()),
+                percent(t * 100.0),
+            )
+        })
+        .collect()
 }
 
 /// Moves `value` toward `to` at `rate` per second.

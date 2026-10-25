@@ -16,7 +16,9 @@ use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
 use bevy::ecs::system::{Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::picking::events::{Click, Out, Over, Pointer, Press};
+use bevy::picking::events::{
+    PointerClick, PointerOut, PointerOver, PointerPress,
+};
 use bevy::picking::pointer::PointerButton;
 use hamlet_client::messages::JobFinished;
 use hamlet_client::realm::{Houses, LivesIn, Works};
@@ -178,7 +180,7 @@ impl Aimed {
 }
 
 fn aim(
-    over: On<Pointer<Over>>,
+    over: On<PointerOver>,
     anchors: Query<&Anchor>,
     mut aimed: ResMut<Aimed>,
 ) {
@@ -206,18 +208,18 @@ fn leave(aimed: &mut ResMut<Aimed>, span: Entity) {
     }
 }
 
-fn aim_off(out: On<Pointer<Out>>, mut aimed: ResMut<Aimed>) {
+fn aim_off(out: On<PointerOut>, mut aimed: ResMut<Aimed>) {
     leave(&mut aimed, out.entity);
 }
 
 /// A link that is drawn again under the pointer goes with no word of
 /// the pointer leaving it.
-fn aim_gone(gone: On<Remove, Anchor>, mut aimed: ResMut<Aimed>) {
+fn aim_gone(gone: On<Remove<Anchor>>, mut aimed: ResMut<Aimed>) {
     leave(&mut aimed, gone.entity);
 }
 
 fn tap(
-    press: On<Pointer<Press>>,
+    press: On<PointerPress>,
     anchors: Query<(), With<Anchor>>,
     mut cues: MessageWriter<Cue>,
     mut turn: Local<u32>,
@@ -232,7 +234,7 @@ fn tap(
 /// Opens the link that was clicked: an address in the browser, a
 /// file by the system's program for it.
 fn follow(
-    click: On<Pointer<Click>>,
+    click: On<PointerClick>,
     anchors: Query<&Anchor>,
     mut cues: MessageWriter<Cue>,
     mut turn: Local<u32>,

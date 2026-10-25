@@ -22,12 +22,12 @@ pub(crate) fn plugin(app: &mut App) {
     // has one, so observers follow it.
     app.init_resource::<Index>()
         .add_observer(
-            |named: On<Insert, Name>, world: DeferredWorld| {
+            |named: On<Insert<Name>>, world: DeferredWorld| {
                 refile(world, named.entity);
             },
         )
         .add_observer(
-            |unnamed: On<Discard, Name>, world: DeferredWorld| {
+            |unnamed: On<Discard<Name>>, world: DeferredWorld| {
                 edit(world, unnamed.entity, |filed| Filed {
                     name: None,
                     ..filed

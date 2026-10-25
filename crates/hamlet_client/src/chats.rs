@@ -28,7 +28,7 @@ pub fn plugin(app: &mut App) {
         .add_observer(watch)
         .add_observer(unwatch)
         .add_observer(
-            |gone: On<Remove, Chat>, mut commands: Commands| {
+            |gone: On<Remove<Chat>>, mut commands: Commands| {
                 commands.entity(gone.entity).try_remove::<TalksTo>();
             },
         )
@@ -89,7 +89,7 @@ fn talk(
 
 /// Opens a chat as it is watched, or watches something new.
 fn watch(
-    watched: On<Insert, Chat>,
+    watched: On<Insert<Chat>>,
     chats: Query<(&Chat, Option<&TalksTo>)>,
     index: Res<Index>,
     mut outbox: ResMut<Outbox>,
@@ -107,7 +107,7 @@ fn watch(
 
 /// Closes what a chat watched, removed or replaced.
 fn unwatch(
-    unwatched: On<Discard, Chat>,
+    unwatched: On<Discard<Chat>>,
     chats: Query<&Chat>,
     mut outbox: ResMut<Outbox>,
     mut watches: ResMut<Watches>,

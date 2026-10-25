@@ -751,7 +751,7 @@ pub fn transcript() -> impl View {
                 crate::looks::ICON,
             )))
             .padding(UiRect::all(px(8.0)))
-            .tooltip(|| label("Scroll to the latest").size(12.0))
+            .tooltip(|| note("Scroll to the latest"))
             .rules(crate::looks::retrace)
             .tagged(crate::feel::Mood::Ink)
             .on_activate(super::to_end)

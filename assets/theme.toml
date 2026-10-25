@@ -37,6 +37,10 @@ moss_deep = "#1d2a16ff"
 [text]
 body = 14.0
 small = 12.0
+heading = 13.0
+title = 16.0
+caption = 11.0
+tracking = 1.0
 
 [space]
 gap = 8.0
@@ -46,6 +50,32 @@ soft = 6.0
 divider = 1.0
 divider_grip = 8.0
 tab_padding = 12.0
+border = 1.0
+panel = 16.0
+section = 12.0
+card_padding_x = 14.0
+card_padding_y = 10.0
+row_padding = 10.0
+bar = 34.0
+bar_padding = 8.0
+title_padding = 16.0
+menu_width = 190.0
+menu_gap = 10.0
+status_padding_x = 16.0
+status_padding_y = 5.0
+status_gap = 18.0
+status_icon = 12.0
+status_icon_gap = 5.0
+page_width = 640.0
+overlay_width = 560.0
+overlay_padding = 24.0
+tab_height = 30.0
+underline = 2.0
+bottom_start = 0.35
+switch_width = 36.0
+switch_height = 20.0
+switch_inset = 2.0
+scroll_fade = 24.0
 
 [shadow]
 color = "#0503018c"

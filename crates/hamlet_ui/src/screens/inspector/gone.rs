@@ -3,9 +3,7 @@
 use bevy::ecs::entity::Entity;
 use bevy::ui::AlignItems;
 use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, label, row, scroll,
-};
+use bevy_fynix::views::{BehaviorExt, FrameProps, column, row};
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_client::realm::{LivesIn, MergedInto, Purpose};
 use hamlet_realm::pick::{Selected, Thing, select};
@@ -14,13 +12,13 @@ use super::agent::dim;
 use super::papers::Papers;
 use crate::icons::Glyph;
 use crate::looks::{
-    Fills, action, bad_action, bare, filling, good_action, note,
-    stated, title,
+    Fills, action, bad_action, bare, buttons, filling, good_action,
+    group, note, scroll_area, section, stated_large, title,
 };
 use crate::me::Me;
-use crate::platform::{DisplayText, Wraps};
+use crate::platform::Wraps;
 use crate::world_menu::{self, Deed};
-use crate::{AnyView, Cx, View, lists, overview};
+use crate::{AnyView, Cx, View, lists, overview, with_cx};
 
 /// The page of an agent that is gone, with the way back.
 pub(super) fn ruin(agent: Entity) -> AnyView {
@@ -38,19 +36,21 @@ pub(super) fn ruin(agent: Entity) -> AnyView {
             .get::<Purpose>(agent)
             .map(|p| p.0.clone())
             .unwrap_or_default();
+        let (section, gap) =
+            (cx.theme().space.section, cx.theme().space.gap);
         cx.build(
             column((
                 row((
                     title(name.to_uppercase()),
-                    stated(Glyph::Gone, fate, Tone::Critical, 14.0),
+                    stated_large(Glyph::Gone, fate, Tone::Critical),
                 ))
-                .gap(12.0)
+                .gap(section)
                 .align(AlignItems::Center)
                 .tagged(Wraps),
                 super::agent::said(purpose),
                 dim("Its house is kept in the archive. Deleting it \
                      frees the space on disk."),
-                row((
+                buttons(vec![
                     good_action(
                         Glyph::Restore,
                         "RESTORE",
@@ -82,11 +82,9 @@ pub(super) fn ruin(agent: Entity) -> AnyView {
                                 Some(hamlet);
                         },
                     ),
-                ))
-                .gap(8.0)
-                .tagged(Wraps),
+                ]),
             ))
-            .gap(6.0),
+            .gap(gap),
         )
     })
 }
@@ -94,28 +92,30 @@ pub(super) fn ruin(agent: Entity) -> AnyView {
 /// The library, when it is selected in the world: what it is, and
 /// its shelves.
 pub(super) fn library() -> impl View {
-    column((
-        title("THE LIBRARY"),
-        // On a line of their own, and on to another when the panel
-        // is narrow.
-        crate::looks::buttons(vec![
-            crate::looks::back("ALL HAMLETS", |world| {
-                select(world, None);
-            })
-            .boxed(),
-            action(Glyph::Move, "MOVE", |world| {
-                hamlet_realm::moving::pick_up(
-                    world,
-                    hamlet_realm::generator::society::Ground::Library,
-                );
-            }),
-        ]),
-        dim("Every agent shares these skills. An agent offers one \
-             and the librarian decides whether to keep it."),
-        scroll((lists::skills(),)).fills_height(),
-    ))
-    .fills_height()
-    .gap(10.0)
+    with_cx(|cx| {
+        column((
+            title("THE LIBRARY"),
+            // On a line of their own, and on to another when the
+            // panel is narrow.
+            buttons(vec![
+                crate::looks::back("ALL HAMLETS", |world| {
+                    select(world, None);
+                })
+                .boxed(),
+                action(Glyph::Move, "MOVE", |world| {
+                    hamlet_realm::moving::pick_up(
+                        world,
+                        hamlet_realm::generator::society::Ground::Library,
+                    );
+                }),
+            ]),
+            dim("Every agent shares these skills. An agent offers \
+                 one and the librarian decides whether to keep it."),
+            scroll_area((lists::skills(),)),
+        ))
+        .fills_height()
+        .gap(cx.theme().space.section)
+    })
 }
 
 /// The skills the selected agent wrote and keeps in its own house,
@@ -137,20 +137,23 @@ fn skills() -> AnyView {
                     )
                 })
                 .collect::<Vec<_>>();
-            column(rows).gap(8.0).boxed()
+            group(rows).boxed()
         },
     )
     .within(bare());
     // One scroll for both lists, so that a long one of its own
     // does not push the library out of reach.
-    scroll((column((
-        own,
-        overview::heading(Glyph::Book, "THE LIBRARY, SHARED BY ALL"),
-        lists::skills(),
-    ))
-    .gap(12.0),))
-    .fills_height()
-    .boxed()
+    with_cx(move |cx| {
+        scroll_area((column((
+            own,
+            overview::heading(
+                Glyph::Book,
+                "THE LIBRARY, SHARED BY ALL",
+            ),
+            lists::skills(),
+        ))
+        .gap(cx.theme().space.section),))
+    })
 }
 
 /// A page of `what` about the selected agent, under whose it is.
@@ -167,17 +170,12 @@ pub(crate) fn of_agent(
                 }
                 None => format!("THE MAYOR: {what}"),
             };
-            column((
-                label(whose)
-                    .size(13.0)
-                    .bold(true)
-                    .tone(Tone::Faint)
-                    .tagged(DisplayText),
-                body(),
-            ))
-            .fills_height()
-            .gap(12.0)
-            .boxed()
+            let body = body();
+            with_cx(move |cx| {
+                column((section(whose), body))
+                    .fills_height()
+                    .gap(cx.theme().space.section)
+            })
         },
     )
     .within(filling())

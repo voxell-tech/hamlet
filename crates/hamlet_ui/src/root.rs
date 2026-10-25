@@ -110,7 +110,10 @@ pub fn toolbar(cx: &Cx) -> impl View {
         ))
         .gap(0.0)
         .align(AlignItems::Center)
-        .padding(UiRect::axes(px(8.0), px(0.0)))
+        .padding(UiRect::axes(
+            px(cx.theme().space.bar_padding),
+            px(0.0),
+        ))
         .fill(palette.black)
         .tagged(Glow)
         .tagged(chrome::Grip),

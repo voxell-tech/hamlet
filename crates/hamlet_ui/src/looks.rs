@@ -6,16 +6,19 @@ use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, JustifyContent, UiRect, px};
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
-    BehaviorExt, Checkbox, Frame, FrameProps, Icon, Label, Stack,
-    button, checkbox, column, frame, label, row,
+    BehaviorExt, Frame, FrameProps, Icon, Stack, button, column,
+    frame, label, row, scroll,
 };
-use bevy_fynix::{Prop, ScopedExt, ViewExt, Visual, style};
+use bevy_fynix::{
+    Bevy, Prop, ScopedExt, ViewExt, ViewSeq, Visual, style,
+};
 
+use crate::fade::{FadeSurface, ScrollFade};
 use crate::feel::Mood;
 use crate::icons::{Glyph, glyph};
 use crate::platform::{DisplayText, Wraps};
-use crate::theme::HamletTheme;
-use crate::{AnyView, Cx, View};
+use crate::theme::{HamletTheme, TextSizes};
+use crate::{AnyView, Cx, View, with_cx};
 
 /// The least height of any button (macOS default control size, 28
 /// pt).
@@ -32,11 +35,13 @@ pub fn brass(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
             f.fill(t.palette.grey_4)
-                .border(1.0)
+                .border(t.space.border)
                 .border_color(t.palette.brass_5)
                 .radius(t.space.round)
         })
-        .label(|l, _| l.tone(Tone::Faint).size(12.0).bold(true))
+        .label(|l, t| {
+            l.tone(Tone::Faint).size(t.text.small).bold(true)
+        })
         .icon(|i, _| i.tone(Tone::Faint))
         .hovered(|s| {
             s.frame(|f, t| {
@@ -61,11 +66,13 @@ pub fn lamp(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
             f.fill(t.palette.lamp_low)
-                .border(1.0)
+                .border(t.space.border)
                 .border_color(t.palette.brass_4)
                 .radius(t.space.round)
         })
-        .label(|l, _| l.tone(Tone::Body).size(12.0).bold(true))
+        .label(|l, t| {
+            l.tone(Tone::Body).size(t.text.small).bold(true)
+        })
         .icon(|i, _| i.tone(Tone::Body))
         .hovered(|s| {
             s.frame(|f, t| {
@@ -89,7 +96,7 @@ pub fn lamp(cx: &mut Cx) {
 pub fn retrace(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, _| f.fill(Color::NONE))
-        .label(|l, _| l.tone(Tone::Dim).size(12.0).bold(true))
+        .label(|l, t| l.tone(Tone::Dim).size(t.text.small).bold(true))
         .icon(|i, _| i.tone(Tone::Dim))
         .hovered(|s| s.fill(|_| Color::NONE).tone(Tone::Accent))
         .pressed(|s| s.fill(|_| Color::NONE).tone(Tone::Faint))
@@ -110,7 +117,7 @@ pub fn well(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
             f.fill(t.palette.well)
-                .border(1.0)
+                .border(t.space.border)
                 .border_color(t.palette.brass_6)
                 .radius(t.space.round)
         })
@@ -134,11 +141,13 @@ pub fn grim(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
             f.fill(t.palette.red_deep)
-                .border(1.0)
+                .border(t.space.border)
                 .border_color(t.palette.red_low)
                 .radius(t.space.round)
         })
-        .label(|l, _| l.tone(Tone::Critical).size(12.0).bold(true))
+        .label(|l, t| {
+            l.tone(Tone::Critical).size(t.text.small).bold(true)
+        })
         .icon(|i, _| i.tone(Tone::Critical))
         .hovered(|s| {
             s.frame(|f, t| {
@@ -189,23 +198,200 @@ pub(crate) fn hairline(colour: impl Into<Prop<Color>>) -> Frame {
     frame().height(px(1.0)).fill(colour)
 }
 
-/// Small dim words.
-pub fn note(text: impl Into<Prop<String>>) -> Label {
-    label(text).size(12.0).tone(Tone::Dim)
+/// `children` one under another, as far apart as the parts of a
+/// panel.
+pub fn parts(
+    children: impl ViewSeq<Bevy, HamletTheme> + 'static,
+) -> impl View {
+    with_cx(move |cx| column(children).gap(cx.theme().space.panel))
+}
+
+/// `children` one under another, as far apart as the lines of one
+/// part.
+pub fn group(
+    children: impl ViewSeq<Bevy, HamletTheme> + 'static,
+) -> impl View {
+    with_cx(move |cx| column(children).gap(cx.theme().space.gap))
+}
+
+/// `children` one under another, close together.
+pub fn close(
+    children: impl ViewSeq<Bevy, HamletTheme> + 'static,
+) -> impl View {
+    with_cx(move |cx| {
+        column(children).gap(cx.theme().space.gap / 2.0)
+    })
+}
+
+/// `children` side by side, as far apart as a panel's parts are.
+pub fn beside(
+    children: impl ViewSeq<Bevy, HamletTheme> + 'static,
+) -> impl View {
+    with_cx(move |cx| {
+        row(children)
+            .gap(cx.theme().space.section)
+            .align(AlignItems::Center)
+    })
+}
+
+/// `rows` as one list, each padded, a line between each and the
+/// next.
+pub fn list(rows: Vec<AnyView>) -> impl View {
+    with_cx(move |cx| {
+        let space = &cx.theme().space;
+        let line = cx.theme().palette.brass_6;
+        let rows = rows
+            .into_iter()
+            .enumerate()
+            .map(|(at, one)| {
+                let padded = column((one,))
+                    .gap(0.0)
+                    .padding(UiRect::vertical(px(space.row_padding)));
+                if at == 0 {
+                    padded.boxed()
+                } else {
+                    column((hairline(line), padded)).gap(0.0).boxed()
+                }
+            })
+            .collect::<Vec<_>>();
+        column(rows).gap(0.0)
+    })
+}
+
+/// Small dim words, too short to be a description: a value, or
+/// what an empty list says.
+pub fn note(text: impl Into<Prop<String>>) -> impl View {
+    label(text).rules(note_rules)
+}
+
+/// The rules of a note: every label in the view small and dim.
+pub fn note_rules(cx: &mut Cx) {
+    style::<HamletTheme>()
+        .label(|l, t| l.size(t.text.small).tone(Tone::Dim))
+        .apply(cx);
+}
+
+/// The rules of small words: every label in the view small.
+pub fn small_rules(cx: &mut Cx) {
+    style::<HamletTheme>()
+        .label(|l, t| l.size(t.text.small))
+        .apply(cx);
+}
+
+/// The rules of a long description: every label in the view small,
+/// not bold, dim and wrapping.
+pub fn description_rules(cx: &mut Cx) {
+    style::<HamletTheme>()
+        .label(|l, t| {
+            l.size(t.text.small)
+                .bold(false)
+                .tone(Tone::Dim)
+                .wrap(true)
+        })
+        .apply(cx);
+}
+
+/// `text` as a long description, in [`description_rules`].
+pub fn description(text: impl Into<Prop<String>>) -> impl View {
+    label(text).rules(description_rules)
 }
 
 /// The name at the head of a page.
 pub fn title(text: impl Into<Prop<String>>) -> impl View {
     label(text)
-        .size(16.0)
-        .bold(true)
         .wrap(false)
+        .rules(|cx: &mut Cx| {
+            style::<HamletTheme>()
+                .label(|l, t| l.size(t.text.title).bold(true))
+                .apply(cx);
+        })
         .tagged(DisplayText)
 }
 
-/// A checkbox as large as a button is tall.
-pub fn tick(on: impl Into<Prop<bool>>) -> Checkbox {
-    checkbox(on).width(px(CONTROL)).height(px(CONTROL))
+/// The name of a part of a panel: small, in the display face.
+pub fn section(text: impl Into<Prop<String>>) -> impl View {
+    label(text)
+        .rules(|cx: &mut Cx| {
+            style::<HamletTheme>()
+                .label(|l, t| {
+                    l.size(t.text.small).bold(true).tone(Tone::Faint)
+                })
+                .apply(cx);
+        })
+        .tagged(DisplayText)
+}
+
+/// The name on a card, in `tone`: heading size, in the display face.
+pub fn card_name(
+    text: impl Into<Prop<String>>,
+    tone: Tone,
+) -> impl View {
+    let text = text.into();
+    with_cx(move |cx| {
+        label(text)
+            .size(cx.theme().text.heading)
+            .bold(true)
+            .tone(tone)
+            .wrap(false)
+            .tagged(DisplayText)
+    })
+}
+
+/// The line over a card that waits for the person: small capitals in
+/// `tone`.
+pub fn caption(
+    text: impl Into<Prop<String>>,
+    tone: Tone,
+) -> impl View {
+    let text = text.into();
+    with_cx(move |cx| {
+        label(text)
+            .size(cx.theme().text.caption)
+            .bold(true)
+            .tone(tone)
+            .tagged(DisplayText)
+    })
+}
+
+/// `children` in a column that scrolls, taking the height left. Its
+/// edges fade into the panel while more lies past them.
+pub fn scroll_area(
+    children: impl ViewSeq<Bevy, HamletTheme> + 'static,
+) -> impl View {
+    scroll_area_on(FadeSurface::default(), children)
+}
+
+/// A [`scroll_area`] on `surface`, its edges fading into it.
+pub fn scroll_area_on(
+    surface: FadeSurface,
+    children: impl ViewSeq<Bevy, HamletTheme> + 'static,
+) -> impl View {
+    with_cx(move |cx| {
+        scroll(children)
+            .gap(cx.theme().space.gap)
+            .fills_height()
+            .tagged(ScrollFade { surface })
+    })
+}
+
+/// `content` in a card: a shade above the panel, in a frame.
+pub fn framed(
+    content: impl ViewSeq<Bevy, HamletTheme> + 'static,
+) -> impl View {
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        let space = &theme.space;
+        column(content)
+            .gap(space.gap / 2.0)
+            .padding(UiRect::axes(
+                px(space.card_padding_x),
+                px(space.card_padding_y),
+            ))
+            .border(space.border)
+            .border_color(theme.palette.brass_6)
+            .radius(space.round)
+            .fill(theme.palette.card)
+    })
 }
 
 /// A lettered button: `text` in the display face.
@@ -247,28 +433,126 @@ pub fn marked(
         .min_height(px(CONTROL))
 }
 
-/// A word of status of `size`, behind its icon, both in `tone`.
+/// A word of status in the small size, behind its icon, both in
+/// `tone`.
 pub(crate) fn stated(
     which: Glyph,
     text: impl Into<String>,
     tone: Tone,
-    size: f32,
 ) -> impl View {
-    row((
-        glyph(which, size).tone(tone),
-        label(text.into()).size(size).tone(tone).wrap(false),
-    ))
-    .gap(5.0)
-    .align(AlignItems::Center)
+    stated_at(which, text.into(), tone, |sizes| sizes.small)
+}
+
+/// A word of status in the body size, behind its icon, both in
+/// `tone`.
+pub(crate) fn stated_large(
+    which: Glyph,
+    text: impl Into<String>,
+    tone: Tone,
+) -> impl View {
+    stated_at(which, text.into(), tone, |sizes| sizes.body)
+}
+
+fn stated_at(
+    which: Glyph,
+    text: String,
+    tone: Tone,
+    size: fn(&TextSizes) -> f32,
+) -> impl View {
+    with_cx(move |cx| {
+        let size = size(&cx.theme().text);
+        row((
+            glyph(which, size).tone(tone),
+            label(text).size(size).tone(tone).wrap(false),
+        ))
+        .gap(cx.theme().space.status_icon_gap)
+        .align(AlignItems::Center)
+    })
 }
 
 /// Buttons in a row that wraps: in a narrow panel they go on to a
 /// line below and are never cut off at its edge.
 pub fn buttons(buttons: Vec<AnyView>) -> impl View {
-    row(buttons)
-        .gap(8.0)
-        .align(AlignItems::Center)
-        .tagged(Wraps)
+    with_cx(move |cx| {
+        row(buttons)
+            .gap(cx.theme().space.gap)
+            .align(AlignItems::Center)
+            .tagged(Wraps)
+    })
+}
+
+/// One answer of several to pick from, each showing `labels`, the
+/// one at `picked` lit. A press hands the place of its answer to
+/// `pick`.
+pub fn choices<F>(
+    labels: impl IntoIterator<Item = &'static str>,
+    picked: usize,
+    pick: F,
+) -> impl View
+where
+    F: Fn(&mut World, usize) + Clone + Send + Sync + 'static,
+{
+    let options = labels
+        .into_iter()
+        .enumerate()
+        .map(|(at, text)| {
+            let pick = pick.clone();
+            button(label(text).wrap(false))
+                .rules(choice(at == picked))
+                .on_activate(move |world| pick(world, at))
+                .boxed()
+        })
+        .collect::<Vec<_>>();
+    with_cx(move |cx| {
+        row(options)
+            .gap(cx.theme().space.gap / 2.0)
+            .align(AlignItems::Center)
+            .tagged(Wraps)
+    })
+}
+
+/// The rules of an answer to pick: bare until the pointer is on it,
+/// and the one picked a lit plate in a frame.
+pub(crate) fn choice(
+    picked: bool,
+) -> impl FnOnce(&mut Cx) + Send + Sync + 'static {
+    let base = style::<HamletTheme>()
+        .label(|l, t| l.size(t.text.small).bold(true))
+        .frame(|f, t| {
+            f.border(t.space.border)
+                .radius(t.space.round)
+                .min_height(px(t.space.row))
+                .padding(UiRect::axes(px(t.space.gap), px(0.0)))
+        });
+    let rules = if picked {
+        base.frame(|f, t| {
+            f.fill(t.palette.lamp_low).border_color(t.palette.brass_4)
+        })
+        .tone(Tone::Body)
+        .hovered(|s| {
+            s.frame(|f, t| {
+                f.fill(t.palette.lamp_low)
+                    .border_color(t.palette.lamp)
+            })
+        })
+    } else {
+        base.frame(|f, _| {
+            f.fill(Color::NONE).border_color(Color::NONE)
+        })
+        .tone(Tone::Faint)
+        .hovered(|s| {
+            s.frame(|f, t| {
+                f.fill(t.palette.wood_hover).border_color(Color::NONE)
+            })
+            .tone(Tone::Body)
+        })
+        .pressed(|s| {
+            s.frame(|f, t| {
+                f.fill(t.palette.well).border_color(Color::NONE)
+            })
+        })
+    };
+    rules.transition(Motion::Interact).bundle()
 }
 
 /// A brass button that runs `act`.
@@ -332,8 +616,10 @@ pub(crate) fn bad_action(
 /// rest, and a faint plate under the pointer.
 pub(crate) fn passage(cx: &mut Cx) {
     style::<HamletTheme>()
-        .frame(|f, t| f.fill(Color::NONE).radius(t.space.round))
-        .label(|l, _| l.tone(Tone::Faint).size(12.0).bold(true))
+        .frame(|f, _| f.fill(Color::NONE).radius(0.0))
+        .label(|l, t| {
+            l.tone(Tone::Faint).size(t.text.small).bold(true)
+        })
         .icon(|i, _| i.tone(Tone::Faint))
         .hovered(|s| {
             s.frame(|f, t| f.fill(t.palette.grey_4)).tone(Tone::Body)
@@ -374,28 +660,37 @@ fn way_in(
     look: fn(&mut Cx),
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> impl View {
-    button(
-        row((
-            column((
-                headed(
-                    which,
-                    label(title).bold(true).tagged(DisplayText),
-                ),
-                label(holds).size(12.0).bold(false).tone(Tone::Dim),
+    with_cx(move |cx| {
+        let space = &cx.theme().space;
+        button(
+            row((
+                column((
+                    headed(
+                        which,
+                        label(title)
+                            .bold(true)
+                            .wrap(false)
+                            .tagged(DisplayText),
+                    ),
+                    description(holds),
+                ))
+                .gap(space.gap / 2.0)
+                .grow(1.0)
+                .min_width(px(0.0)),
+                glyph(Glyph::Into, ICON).tone(Tone::Dim),
             ))
-            .gap(4.0)
+            .gap(space.section)
             .grow(1.0)
-            .min_width(px(0.0)),
-            glyph(Glyph::Into, ICON).tone(Tone::Dim),
+            .align(AlignItems::Center),
+        )
+        .padding(UiRect::axes(
+            px(space.card_padding_x),
+            px(space.card_padding_y),
         ))
-        .gap(12.0)
-        .grow(1.0)
-        .align(AlignItems::Center),
-    )
-    .padding(UiRect::axes(px(14.0), px(10.0)))
-    .rules(look)
-    .tagged(Mood::Plain)
-    .on_activate(act)
+        .rules(look)
+        .tagged(Mood::Plain)
+        .on_activate(act)
+    })
 }
 
 /// The parts of something as rows of one list, a hairline between
@@ -424,30 +719,48 @@ pub(crate) fn page_head(
     which: Glyph,
     name: &'static str,
 ) -> impl View {
-    row((
-        back(front, act),
-        headed(
-            which,
-            label(name)
-                .bold(true)
-                .tone(Tone::Faint)
-                .tagged(DisplayText),
-        ),
-    ))
-    .gap(12.0)
-    .align(AlignItems::Center)
+    with_cx(move |cx| {
+        row((
+            back(front, act),
+            headed(
+                which,
+                label(name)
+                    .bold(true)
+                    .wrap(false)
+                    .tone(Tone::Faint)
+                    .tagged(DisplayText),
+            ),
+        ))
+        .gap(cx.theme().space.section)
+        .align(AlignItems::Center)
+    })
 }
 
-/// A row that is pressed whole: a plate under the pointer.
-pub(crate) fn plate(cx: &mut Cx) {
+/// A card that is pressed whole: its frame lights under the pointer.
+pub(crate) fn card_button(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
-            f.fill(Color::NONE)
+            f.fill(t.palette.card)
+                .border(t.space.border)
+                .border_color(t.palette.brass_6)
                 .radius(t.space.round)
                 .justify(JustifyContent::FlexStart)
-                .padding(UiRect::axes(px(10.0), px(5.0)))
+                .align(AlignItems::FlexStart)
+                .padding(UiRect::axes(
+                    px(t.space.card_padding_x),
+                    px(t.space.card_padding_y),
+                ))
         })
-        .hovered(|s| s.fill(|t| t.palette.brass_hover))
-        .pressed(|s| s.fill(|t| t.palette.black))
+        .hovered(|s| {
+            s.frame(|f, t| {
+                f.fill(t.palette.card).border_color(t.palette.brass_4)
+            })
+        })
+        .pressed(|s| {
+            s.frame(|f, t| {
+                f.fill(t.palette.card).border_color(t.palette.brass_5)
+            })
+        })
+        .transition(Motion::Interact)
         .apply(cx);
 }

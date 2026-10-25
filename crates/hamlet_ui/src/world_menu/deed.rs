@@ -20,7 +20,7 @@ use hamlet_realm::orders;
 
 use super::close;
 use crate::feel::Mood;
-use crate::looks::{brass, grim, lettered};
+use crate::looks::{brass, description, grim, lettered};
 use crate::me::Me;
 use crate::platform::DisplayText;
 use crate::{AnyView, Cx, chat};
@@ -281,17 +281,25 @@ pub(crate) fn question(deed: Deed, at: Vec2) -> AnyView {
                 names.join(" and "),
                 if names.len() == 1 { "is" } else { "are" }
             ))
-            .size(13.0)
             .tone(Tone::Critical)
             .boxed(),
         };
         let done = deed.clone();
+        let (gap, section, padding, heading) = {
+            let theme = cx.theme();
+            (
+                theme.space.gap,
+                theme.space.section,
+                theme.space.overlay_padding,
+                theme.text.heading,
+            )
+        };
         let body = column((
             label(deed.question(cx.world))
-                .size(13.0)
+                .size(heading)
                 .bold(true)
                 .tagged(DisplayText),
-            label(deed.outcome(cx.world)).size(13.0).tone(Tone::Dim),
+            description(deed.outcome(cx.world)),
             warning,
             row((
                 lettered(deed.verb())
@@ -303,14 +311,14 @@ pub(crate) fn question(deed: Deed, at: Vec2) -> AnyView {
                     }),
                 lettered("CANCEL").rules(brass).on_activate(close),
             ))
-            .gap(8.0),
+            .gap(gap),
         ))
-        .gap(10.0)
+        .gap(section)
         .width(px(300.0));
         cx.build(
             popup(Rect::from_corners(at, at), (body,))
                 .on_dismiss(|world, _| close(world))
-                .padding(bevy::ui::UiRect::all(px(14.0))),
+                .padding(bevy::ui::UiRect::all(px(padding))),
         )
     })
 }

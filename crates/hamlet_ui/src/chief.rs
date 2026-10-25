@@ -14,11 +14,10 @@ use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::math::Vec3;
-use bevy::ui::{AlignItems, UiRect, px};
+use bevy::ui::{AlignItems, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, frame, label, row,
-    scroll,
 };
 use bevy_fynix::{ScopedExt, ViewExt, component, derived, keyed};
 use hamlet_client::ViewFolder;
@@ -32,16 +31,15 @@ use hamlet_realm::moving;
 use hamlet_realm::palette::Palette;
 use hamlet_realm::pick::{Selected, Thing, focus_on, select};
 
-use crate::feel::Mood;
 use crate::icons::Glyph;
 use crate::looks::{
-    CONTROL, Fills, action, back, brass, buttons, filling, lamp,
-    note, pad, title,
+    Fills, action, back, buttons, choice, choices, description,
+    filling, group, note, scroll_area, section, title,
 };
 use crate::me::Me;
-use crate::platform::DisplayText;
+use crate::platform::Wraps;
 use crate::roll::{agents_moved, either, moved};
-use crate::{AnyView, Cx, PanelSystems, View};
+use crate::{AnyView, PanelSystems, View, with_cx};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_observer(spoke)
@@ -222,67 +220,45 @@ fn change(world: &mut World, chief: Entity, to: impl Fn(&mut Look)) {
     }
 }
 
-fn heading(text: &'static str) -> impl View {
-    label(text)
-        .size(11.0)
-        .bold(true)
-        .tone(Tone::Faint)
-        .tagged(DisplayText)
-}
+/// The side of a swatch.
+const SWATCH: f32 = 16.0;
 
-/// The frame of a choice: lit when it is the one chosen.
-fn chosen(on: bool) -> fn(&mut Cx) {
-    if on { lamp } else { brass }
-}
-
-/// A square of `colour` to press. The one chosen is lit.
+/// A square of `colour` to press, a choice like those of words. The
+/// one chosen is lit.
 fn swatch(
     colour: Color,
     on: bool,
     act: impl Fn(&mut World) + Send + Sync + 'static,
-) -> impl View {
+) -> AnyView {
     button(
         frame()
-            .width(px(16.0))
-            .height(px(16.0))
+            .width(px(SWATCH))
+            .height(px(SWATCH))
             .fill(colour)
-            .radius(8.0),
+            .radius(SWATCH / 2.0),
     )
-    .padding(UiRect::all(px(5.0)))
-    .min_height(px(CONTROL))
-    .rules(chosen(on))
-    .tagged(Mood::Plain)
+    .rules(choice(on))
     .on_activate(act)
+    .boxed()
 }
 
-/// A word to press. The one chosen is lit.
-fn word(
-    text: &'static str,
-    on: bool,
-    act: impl Fn(&mut World) + Send + Sync + 'static,
-) -> impl View {
-    button(label(text.to_uppercase()).wrap(false).tagged(DisplayText))
-        .padding(pad())
-        .min_height(px(CONTROL))
-        .rules(chosen(on))
-        .tagged(Mood::Plain)
-        .on_activate(act)
+/// `swatches` side by side, wrapping where the panel is narrow.
+fn swatches(swatches: Vec<AnyView>) -> impl View {
+    with_cx(move |cx| {
+        row(swatches)
+            .gap(cx.theme().space.gap / 2.0)
+            .align(AlignItems::Center)
+            .tagged(Wraps)
+    })
 }
 
-/// Choices in rows of no more than `most`, so a narrow panel holds
-/// them.
-fn rows(mut choices: Vec<AnyView>, most: usize) -> impl View {
-    let mut lines = Vec::new();
-    while !choices.is_empty() {
-        let rest = choices.split_off(most.min(choices.len()));
-        lines.push(row(choices).gap(6.0).boxed());
-        choices = rest;
-    }
-    column(lines).gap(6.0)
+/// A part of the wardrobe: its name over its choices.
+fn part(name: &'static str, choices: impl View) -> impl View {
+    group((section(name), choices))
 }
 
 /// The choices of a look, each pressed to take it.
-fn wardrobe(chief: Entity, facts: &Facts) -> impl View {
+fn wardrobe(chief: Entity, facts: &Facts) -> impl View + use<> {
     let look = facts.look;
     let cloaks = Cloak::ALL
         .into_iter()
@@ -291,7 +267,6 @@ fn wardrobe(chief: Entity, facts: &Facts) -> impl View {
             swatch(colour, look.cloak == cloak, move |world| {
                 change(world, chief, |look| look.cloak = cloak);
             })
-            .boxed()
         })
         .collect::<Vec<_>>();
     let lights = Light::ALL
@@ -301,38 +276,37 @@ fn wardrobe(chief: Entity, facts: &Facts) -> impl View {
             swatch(colour, look.light == light, move |world| {
                 change(world, chief, |look| look.light = light);
             })
-            .boxed()
         })
         .collect::<Vec<_>>();
-    let hats = Hat::ALL
-        .into_iter()
-        .map(|hat| {
-            word(hat.name(), look.hat == hat, move |world| {
-                change(world, chief, |look| look.hat = hat);
-            })
-            .boxed()
-        })
-        .collect::<Vec<_>>();
-    let held = Holds::ALL
-        .into_iter()
-        .map(|holds| {
-            word(holds.name(), look.holds == holds, move |world| {
-                change(world, chief, |look| look.holds = holds);
-            })
-            .boxed()
-        })
-        .collect::<Vec<_>>();
-    column((
-        heading("CLOAK, AND THE ROOF AT HOME"),
-        rows(cloaks, 8),
-        heading("THE LIGHT OF THE WICK"),
-        rows(lights, 8),
-        heading("ON THE HEAD"),
-        rows(hats, 3),
-        heading("IN THE HAND"),
-        rows(held, 4),
-    ))
-    .gap(8.0)
+    let hats = choices(
+        Hat::ALL.map(Hat::name),
+        Hat::ALL
+            .iter()
+            .position(|hat| *hat == look.hat)
+            .unwrap_or(0),
+        move |world, at| {
+            change(world, chief, |look| look.hat = Hat::ALL[at]);
+        },
+    );
+    let held = choices(
+        Holds::ALL.map(Holds::name),
+        Holds::ALL
+            .iter()
+            .position(|holds| *holds == look.holds)
+            .unwrap_or(0),
+        move |world, at| {
+            change(world, chief, |look| look.holds = Holds::ALL[at]);
+        },
+    );
+    with_cx(move |cx| {
+        column((
+            part("CLOAK, AND THE ROOF AT HOME", swatches(cloaks)),
+            part("THE LIGHT OF THE WICK", swatches(lights)),
+            part("ON THE HEAD", hats),
+            part("IN THE HAND", held),
+        ))
+        .gap(cx.theme().space.section)
+    })
 }
 
 /// A chief: who they are, where their mascot is, and their look
@@ -363,29 +337,26 @@ pub fn panel(chief: Entity) -> AnyView {
             Some(agent) => (format!("With {agent}"), Tone::Accent),
             None => ("At home".to_string(), Tone::Dim),
         };
-        column((
-            row((
+        let views = (
+            crate::looks::beside((
                 title(facts.name.to_uppercase()),
                 label(place).tone(tone).wrap(false),
-            ))
-            .gap(12.0)
-            .align(AlignItems::Center),
-            label(
+            )),
+            description(
                 "This is you. Whoever you talk to knows your mascot \
                  as Wickstep.",
-            )
-            .tone(Tone::Dim),
+            ),
             note(facts.look.words()),
             buttons(vec![
                 action(Glyph::Hearth, "THE HEARTH", go_home),
                 back("ALL HAMLETS", |world| select(world, None))
                     .boxed(),
             ]),
-            scroll((wardrobe(chief, facts),)).fills_height(),
-        ))
-        .fills_height()
-        .gap(8.0)
-        .boxed()
+            scroll_area((wardrobe(chief, facts),)),
+        );
+        with_cx(move |cx| {
+            column(views).fills_height().gap(cx.theme().space.section)
+        })
     })
     .within(filling())
     .boxed()

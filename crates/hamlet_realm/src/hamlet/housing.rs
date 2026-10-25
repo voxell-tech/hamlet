@@ -192,7 +192,7 @@ pub(super) fn resite(
 /// An agent left: a ruin, or a wing on the house that took it in,
 /// and its robot is seen going.
 pub(super) fn leave(
-    left: On<Add, Left>,
+    left: On<Add<Left>>,
     mut commands: Commands,
     mut society: ResMut<Society>,
     agents: Query<(&Housed, Option<&MergedInto>)>,
@@ -225,7 +225,7 @@ pub(super) fn leave(
 /// An agent came back: its house stands again, and the house a
 /// merged one was split from loses the wing.
 pub(super) fn come_back(
-    back: On<Remove, Left>,
+    back: On<Remove<Left>>,
     mut commands: Commands,
     land: Res<Land>,
     mut society: ResMut<Society>,
@@ -251,7 +251,7 @@ pub(super) fn come_back(
 /// An agent is gone from its hamlet for good: it moved to another,
 /// or the hamlet was removed. Its house there is a ruin.
 pub(super) fn move_out(
-    gone: On<Remove, Housed>,
+    gone: On<Remove<Housed>>,
     agents: Query<&Housed>,
     mut society: ResMut<Society>,
 ) {
@@ -264,7 +264,7 @@ pub(super) fn move_out(
 
 /// A hamlet is gone: its town goes with it, hall, common and all.
 pub(super) fn close(
-    gone: On<Remove, Sited>,
+    gone: On<Remove<Sited>>,
     hamlets: Query<&Sited>,
     mut society: ResMut<Society>,
 ) {

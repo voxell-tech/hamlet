@@ -6,13 +6,13 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::Children;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::{Has, With};
-use bevy::ecs::system::{Commands, Query, ResMut};
+use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::input::keyboard::{Key, KeyboardInput};
+use bevy::input::mouse::MouseScrollPixelsPerLine;
 use bevy::input_focus::FocusedInput;
 use bevy::picking::Pickable;
-use bevy::picking::events::{Pointer, Scroll};
+use bevy::picking::events::PointerScroll;
 use bevy::text::{EditableText, LineHeight, TextLayoutInfo};
-use bevy::ui::widget::TextScroll;
 use bevy::ui::{ComputedNode, Node, PositionType, UiRect, Val, px};
 use bevy_fynix::views::{BehaviorExt, FrameProps, column};
 
@@ -66,11 +66,7 @@ const LINE: f32 = 17.0;
 pub fn grow(
     root: Query<&Children, With<ChatField>>,
     mut texts: Query<(&mut EditableText, &mut LineHeight)>,
-    mut scrolls: Query<(
-        &mut TextScroll,
-        &ComputedNode,
-        &TextLayoutInfo,
-    )>,
+    sizes: Query<(&ComputedNode, &TextLayoutInfo)>,
     mut resized: ResMut<Resized>,
 ) {
     let inputs = root
@@ -83,11 +79,11 @@ pub fn grow(
         };
         // A field taller than it was scrolled shows its first line
         // again.
-        if let Ok((mut at, node, info)) = scrolls.get_mut(input) {
+        if let Ok((node, info)) = sizes.get(input) {
             let most =
                 (info.size.y - node.content_box().size().y).max(0.0);
-            if at.0.y > most {
-                at.0.y = most;
+            if text.viewport.offset.y > most {
+                text.viewport.offset.y = most;
             }
         }
         if *height != LineHeight::Px(LINE) {
@@ -109,12 +105,13 @@ pub fn grow(
 /// Turns the wheel over the field into scrolling its lines, when it
 /// has more than it shows. Otherwise the wheel is left to the chat.
 pub fn scroll_field(
-    mut scroll: On<Pointer<Scroll>>,
+    mut scroll: On<PointerScroll>,
+    per_line: Res<MouseScrollPixelsPerLine>,
     root: Query<(Entity, &Children), With<ChatField>>,
     mut texts: Query<(
         &ComputedNode,
         &TextLayoutInfo,
-        &mut TextScroll,
+        &mut EditableText,
     )>,
 ) {
     // Only a wheel over the field is the field's.
@@ -133,12 +130,12 @@ pub fn scroll_field(
         return;
     };
     // The scroll is in the pixels the text is laid out in.
-    let turned = bevy_fynix::scroll::wheel(&scroll).0.y
+    let turned = bevy_fynix::scroll::wheel(&scroll, *per_line).0.y
         / node.inverse_scale_factor();
     let most = (info.size.y - node.content_box().size().y).max(0.0);
-    let to = (at.0.y - turned).clamp(0.0, most).floor();
-    if to != at.0.y {
-        at.0.y = to;
+    let to = (at.viewport.offset.y - turned).clamp(0.0, most).floor();
+    if to != at.viewport.offset.y {
+        at.viewport.offset.y = to;
         scroll.propagate(false);
     }
 }
@@ -176,7 +173,7 @@ pub fn bar() -> AnyView {
 /// field that shows all its lines has none.
 pub fn show_bar(
     root: Query<&Children, With<ChatField>>,
-    texts: Query<(&ComputedNode, &TextLayoutInfo, &TextScroll)>,
+    texts: Query<(&ComputedNode, &TextLayoutInfo, &EditableText)>,
     mut bars: Query<&mut Node, With<FieldBar>>,
 ) {
     let Some((node, info, at)) = root
@@ -191,7 +188,7 @@ pub fn show_bar(
     let whole = info.size.y * scale;
     let (top, height) = if whole > seen + 0.5 {
         let thumb = (seen * seen / whole).max(12.0).min(seen);
-        let place = at.0.y * scale / (whole - seen);
+        let place = at.viewport.offset.y * scale / (whole - seen);
         (ABOVE + place.clamp(0.0, 1.0) * (seen - thumb), thumb)
     } else {
         (ABOVE, 0.0)

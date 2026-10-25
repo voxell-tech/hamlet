@@ -4,30 +4,28 @@ use bevy::ui::{AlignItems, JustifyContent, UiRect, percent, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, frame, label, overlay,
-    row, scroll, text_field,
+    row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 
 use super::{Narrowing, Step, Welcome, close, go, look, pick};
+use crate::fade::FadeSurface;
 use crate::feel::Mood;
 use crate::icons::Glyph;
 use crate::looks::{
-    back, bare, brass, door, good_action, headed, marked, note, pad,
-    retrace, well,
+    back, bare, beside, brass, description, door, good_action, group,
+    headed, marked, note, pad, parts, retrace, scroll_area_on,
+    small_rules, well,
 };
 use crate::models::narrowed;
-use crate::platform::DisplayText;
 use crate::{AnyView, Cx, View, with_cx};
 
 fn title(which: Glyph, text: &'static str) -> impl View {
-    headed(
-        which,
-        label(text).size(15.0).bold(true).tagged(DisplayText),
-    )
+    headed(which, crate::looks::title(text))
 }
 
 pub(super) fn said(text: impl Into<String>) -> AnyView {
-    label(text.into()).size(13.0).tone(Tone::Dim).boxed()
+    description(text.into()).boxed()
 }
 
 /// The news of the last thing asked: that it is awaited, or the
@@ -40,8 +38,8 @@ pub(super) fn news(waiting: &'static str) -> AnyView {
         move |(asking, problem)| match problem {
             _ if *asking => said(waiting).boxed(),
             Some(why) => label(why.clone())
-                .size(13.0)
                 .tone(Tone::Critical)
+                .rules(small_rules)
                 .boxed(),
             None => frame().boxed(),
         },
@@ -68,7 +66,7 @@ fn choice(adding: bool) -> AnyView {
             "You can come back to this from Settings.",
         )
     };
-    column((
+    parts((
         title(Glyph::Hearth, name),
         said(says),
         door(
@@ -102,29 +100,24 @@ fn choice(adding: bool) -> AnyView {
              Ollama or LM Studio.",
             look,
         ),
-        row((
+        beside((
             marked(Glyph::Clock, leave)
                 .rules(retrace)
                 .tagged(Mood::Plain)
                 .on_activate(close),
             note(after),
         ))
-        .gap(8.0)
-        .align(AlignItems::Center)
         .tagged(crate::platform::Wraps),
     ))
-    .gap(14.0)
     .boxed()
 }
 
 /// The head of a step: the way back to the first, and its name.
 pub(super) fn head(which: Glyph, text: &'static str) -> impl View {
-    row((
+    beside((
         back("BACK", |world| go(world, Step::Choice)),
         title(which, text),
     ))
-    .gap(12.0)
-    .align(AlignItems::Center)
 }
 
 /// One model, as a button that chooses it.
@@ -158,21 +151,19 @@ fn models() -> AnyView {
                      them."
                 )));
             }
-            column(rows).gap(6.0).boxed()
+            group(rows).boxed()
         },
     )
     .within(bare());
-    column((
+    parts((
         head(Glyph::Check, "PICK A MODEL"),
-        label(resource::<Welcome, _>(|welcome| {
+        description(resource::<Welcome, _>(|welcome| {
             format!(
                 "{} listed these models. Pick the model your hamlet \
                  will think with.",
                 welcome.from
             )
-        }))
-        .size(13.0)
-        .tone(Tone::Dim),
+        })),
         text_field(
             resource::<Welcome, _>(|welcome| welcome.narrow.clone()),
             |world, text| {
@@ -184,12 +175,11 @@ fn models() -> AnyView {
         news("Asking it to say hello..."),
         list,
     ))
-    .gap(14.0)
     .boxed()
 }
 
 fn local() -> AnyView {
-    column((
+    parts((
         head(Glyph::Chip, "YOUR OWN MODEL"),
         said(
             "Hamlet asks the endpoints configured on the server. \
@@ -198,7 +188,6 @@ fn local() -> AnyView {
         news("Looking..."),
         good_action(Glyph::Restore, "LOOK AGAIN", look),
     ))
-    .gap(14.0)
     .boxed()
 }
 
@@ -223,7 +212,7 @@ fn screen() -> AnyView {
         }),
         |(open, step, adding, connection)| {
             let page = if let Some(words) = connection {
-                column((
+                parts((
                     title(Glyph::Signal, "CONNECT TO A SERVER"),
                     said(words.clone()),
                     said(
@@ -232,7 +221,6 @@ fn screen() -> AnyView {
                          local development, use hamlet dev.",
                     ),
                 ))
-                .gap(14.0)
                 .boxed()
             } else if !open {
                 return frame().boxed();
@@ -254,20 +242,28 @@ fn screen() -> AnyView {
 
 fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
     let theme = cx.theme();
-    let card =
-        column((scroll((page,)).padding(UiRect::all(px(24.0))),))
-            .width(percent(100.0))
-            .max_width(px(560.0))
-            .max_height(percent(100.0))
+    let space = &theme.space;
+    let card = column((scroll_area_on(
+        FadeSurface::Card,
+        (column((page,))
             .gap(0.0)
-            .fill(theme.palette.card)
-            .border(1.0)
-            .border_color(theme.palette.brass_5)
-            .radius(theme.space.round);
+            .padding(UiRect::all(px(space.overlay_padding))),),
+    ),))
+    .width(percent(100.0))
+    .max_width(px(space.overlay_width))
+    .max_height(percent(100.0))
+    .gap(0.0)
+    .fill(theme.palette.card)
+    .border(space.border)
+    .border_color(theme.palette.brass_5)
+    .radius(space.soft)
+    .tagged(theme.shadow());
+    // A row, so the card is as tall as its words once they wrap to
+    // its width.
     row((card,))
         .width(percent(100.0))
         .height(percent(100.0))
-        .padding(UiRect::all(px(16.0)))
+        .padding(UiRect::all(px(space.panel)))
         .align(AlignItems::Center)
         .justify(JustifyContent::Center)
         .fill(theme.shadow.color)

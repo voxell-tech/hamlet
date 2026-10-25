@@ -16,7 +16,7 @@ use bevy::picking::hover::Hovered;
 use bevy::ui::{JustifyContent, UiRect, px};
 use bevy_fynix::ScopedExt;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, label,
+    BehaviorExt, FrameProps, TooltipExt, button, column,
 };
 use hamlet_client::chats::{Chat, Status};
 use hamlet_client::messages::Rewound;
@@ -25,7 +25,7 @@ use super::Draft;
 use super::reply::{Replying, unreplied};
 use crate::feel::Mood;
 use crate::icons::{Glyph, glyph};
-use crate::looks::{ICON, retrace};
+use crate::looks::{ICON, note, retrace};
 use crate::me::Me;
 use crate::world_menu::{self, Deed};
 use crate::{AnyView, Cx};
@@ -58,7 +58,7 @@ pub(super) fn mark(session: Entity, entry: String) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let back = button(glyph(Glyph::Restore, ICON))
             .padding(UiRect::all(px(AROUND)))
-            .tooltip(|| label("Rewind to here").size(12.0))
+            .tooltip(|| note("Rewind to here"))
             .rules(retrace)
             .tagged(Mood::Ink)
             .on_activate(move |world| {
@@ -89,7 +89,7 @@ pub fn asked(session: Entity, entry: String, at: Vec2) -> AnyView {
 /// Shows the mark of a row while the pointer is on the row and no
 /// turn runs in its conversation.
 fn reveal(
-    hover: On<Insert, Hovered>,
+    hover: On<Insert<Hovered>>,
     rows: Query<(&Hovered, &Rewinds)>,
     sessions: Query<(&Status, Option<&Chat>)>,
     under: Query<&Children>,

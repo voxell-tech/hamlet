@@ -2,8 +2,7 @@
 
 use bevy::app::{App, Update};
 use bevy::ecs::prelude::*;
-use bevy::ui::{UiRect, px};
-use bevy_fynix::views::{BehaviorExt, FrameProps, column};
+use bevy_fynix::views::BehaviorExt;
 use bevy_fynix::{ViewExt, derived, every_frame, keyed};
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
@@ -16,7 +15,7 @@ use hamlet_protocol::client as protocol;
 use super::{heading, tell};
 use crate::AnyView;
 use crate::icons::Glyph;
-use crate::looks::{bad_action, bare, note};
+use crate::looks::{bad_action, bare, group, note};
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Annals>()
@@ -218,11 +217,7 @@ pub(super) fn record_of(hamlet: Entity) -> AnyView {
             parts.extend(
                 lines.iter().map(|line| note(line.clone()).boxed()),
             );
-            column(parts)
-                .gap(8.0)
-                .padding(UiRect::top(px(4.0)))
-                .tagged(RecordPanel(hamlet))
-                .boxed()
+            group(parts).tagged(RecordPanel(hamlet)).boxed()
         },
     )
     .within(bare());

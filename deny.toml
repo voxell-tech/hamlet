@@ -38,3 +38,5 @@ multiple-versions = "warn"
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+# bevy_hanabi's Bevy 0.20 port is not released yet.
+allow-git = ["https://github.com/djeedai/bevy_hanabi"]

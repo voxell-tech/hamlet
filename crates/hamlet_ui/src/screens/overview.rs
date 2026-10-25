@@ -17,7 +17,7 @@ use bevy::text::EditableText;
 use bevy::ui::AlignItems;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, label, row, scroll, text_field,
+    BehaviorExt, FrameProps, column, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::realm::{Closed, Deeds, HOME, HamletId};
@@ -29,10 +29,10 @@ use self::rows::{hamlet_rows, pressable};
 pub(crate) use self::rows::{stale, standing};
 use crate::icons::{Glyph, glyph};
 use crate::looks::{
-    Fills, ICON, action, bare, note, raised, title, well,
+    Fills, ICON, action, bare, beside, close, description, group,
+    note, raised, scroll_area, section, title, well,
 };
-use crate::platform::DisplayText;
-use crate::{AnyView, chat, tabs, world_menu};
+use crate::{AnyView, chat, tabs, with_cx, world_menu};
 
 pub fn plugin(app: &mut App) {
     app.add_plugins(record::plugin)
@@ -79,13 +79,9 @@ pub(crate) fn heading(
 ) -> AnyView {
     row((
         raised(glyph(which, ICON).tone(Tone::Faint)),
-        label(text.into())
-            .size(11.0)
-            .bold(true)
-            .tone(Tone::Faint)
-            .tagged(DisplayText),
+        section(text.into()),
     ))
-    .gap(7.0)
+    .gap(6.0)
     .align(AlignItems::Center)
     .boxed()
 }
@@ -108,9 +104,7 @@ pub fn overview() -> AnyView {
     .when(stale());
     let list = keyed(shown, |rows| {
         if rows.is_empty() {
-            return label("No hamlet by that name.")
-                .tone(Tone::Dim)
-                .boxed();
+            return description("No hamlet by that name.").boxed();
         }
         let cards = rows
             .iter()
@@ -136,16 +130,10 @@ pub fn overview() -> AnyView {
                 )
             })
             .collect::<Vec<_>>();
-        column(cards).gap(4.0).boxed()
+        group(cards).boxed()
     })
     .within(bare());
-    column((
-        row((
-            title("HAMLETS"),
-            note("Click a hamlet to see who lives there."),
-        ))
-        .gap(12.0)
-        .align(AlignItems::Center),
+    let search = with_cx(|cx| {
         row((
             text_field(String::new(), |_, _| {})
                 .grow(1.0)
@@ -169,26 +157,30 @@ pub fn overview() -> AnyView {
             )
             .within(bare()),
         ))
-        .gap(8.0)
-        .align(AlignItems::Center),
-        label("Search by a hamlet's name or its mayor's.")
-            .size(11.0)
-            .tone(Tone::Dim),
-        scroll((list, closed())).fills_height(),
-        row((
-            action(
-                Glyph::Hearth,
-                "YOUR HEARTH",
-                crate::chief::go_home,
-            ),
-            note("Where you live, and how you look."),
+        .gap(cx.theme().space.gap)
+        .align(AlignItems::Center)
+    });
+    with_cx(move |cx| {
+        column((
+            beside((
+                title("HAMLETS"),
+                note("Click a hamlet to see who lives there."),
+            )),
+            search,
+            note("Search by a hamlet's name or its mayor's."),
+            scroll_area((list, closed())),
+            beside((
+                action(
+                    Glyph::Hearth,
+                    "YOUR HEARTH",
+                    crate::chief::go_home,
+                ),
+                note("Where you live, and how you look."),
+            )),
         ))
-        .gap(10.0)
-        .align(AlignItems::Center),
-    ))
-    .fills_height()
-    .gap(8.0)
-    .boxed()
+        .fills_height()
+        .gap(cx.theme().space.section)
+    })
 }
 
 #[derive(Resource, Default)]
@@ -199,8 +191,7 @@ struct ClosedPanel;
 
 fn disarm(
     _: bevy::ecs::observer::On<
-        bevy::ecs::lifecycle::Remove,
-        ClosedPanel,
+        bevy::ecs::lifecycle::Remove<ClosedPanel>,
     >,
     mut erasing: ResMut<Erasing>,
 ) {
@@ -277,12 +268,11 @@ fn closed() -> AnyView {
                     ));
                 }
                 parts.push(
-                    column((
+                    close((
                         note(hamlet.name.clone()),
                         note(hamlet.reason.clone()),
                         crate::looks::buttons(actions),
                     ))
-                    .gap(4.0)
                     .boxed(),
                 );
                 if *erase
@@ -292,7 +282,7 @@ fn closed() -> AnyView {
                     let id = hamlet.id.clone();
                     let at = hamlet.at;
                     parts.push(
-                        column((
+                        close((
                             note(format!(
                                 "DELETE {} FOR GOOD?",
                                 hamlet.name.to_uppercase()
@@ -345,12 +335,11 @@ fn closed() -> AnyView {
                                 ),
                             ]),
                         ))
-                        .gap(6.0)
                         .boxed(),
                     );
                 }
             }
-            column(parts).gap(8.0).boxed()
+            group(parts).boxed()
         },
     )
     .within(bare().tagged(ClosedPanel))

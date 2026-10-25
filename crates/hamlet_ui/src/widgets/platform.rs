@@ -19,30 +19,27 @@ use bevy::input_focus::tab_navigation::TabIndex;
 use bevy::input_focus::{
     FocusCause, FocusLost, InputFocus, InputFocusVisible,
 };
-use bevy::picking::events::{Pointer, Press};
+use bevy::picking::events::{
+    PointerCancel, PointerDragEnd, PointerPress, PointerRelease,
+};
+use bevy::picking::pointer::PointerButton;
 use bevy::text::{
     DEFAULT_FONT_DATA, EditableText, Font, FontCx, FontSize,
     FontSource, LetterSpacing, TextFont,
 };
 use bevy::ui::{
-    BackgroundGradient, ColorStop, FlexWrap, LinearGradient, Node,
-    Outline, OverflowClipMargin, percent, px,
+    BackgroundGradient, ColorStop, FlexWrap, InteractionDisabled,
+    LinearGradient, Node, Outline, OverflowClipMargin, percent, px,
 };
 use bevy::ui_widgets::{
-    Button as ButtonBehavior, Checkbox as CheckboxBehavior,
-    MenuButton,
+    Activate, ActivateOnPress, Button as ButtonBehavior,
+    Checkbox as CheckboxBehavior, MenuButton,
 };
 use bevy_fynix::dock::DockTab;
 use bevy_fynix::tokens::{TextTokens, Tone};
 use hamlet_assets::fonts::{CINZEL, INTER, TWEMOJI};
 
 use crate::theme::Themed;
-
-/// The spacing of the letters of a header.
-const TRACKING: LetterSpacing = LetterSpacing::Px(1.0);
-
-/// The size of a tab's name.
-const TAB_SIZE: FontSize = FontSize::Px(12.0);
 
 type Unringed = (
     Or<(
@@ -56,6 +53,10 @@ type Unringed = (
 pub fn plugin(app: &mut App) {
     app.add_observer(hide_ring_on_press)
         .add_observer(take_typed_on_press)
+        .add_observer(note_press)
+        .add_observer(release_inside)
+        .add_observer(forget_press::<PointerDragEnd>)
+        .add_observer(forget_press::<PointerCancel>)
         .add_systems(Startup, install_fonts)
         .add_systems(
             Update,
@@ -123,6 +124,7 @@ fn install_emoji(cx: &mut FontCx) {
 pub fn apply_display(
     mut commands: Commands,
     display: Res<Display>,
+    theme: Themed,
     tabs: Query<(), With<DockTab>>,
     parents: Query<&ChildOf>,
     mut fonts: Query<
@@ -135,6 +137,8 @@ pub fn apply_display(
         Or<(Changed<TextFont>, Added<DisplayText>)>,
     >,
 ) {
+    let tracking = LetterSpacing::Px(theme.text.tracking);
+    let tab_size = FontSize::Px(theme.text.small);
     for (node, mut font, spacing, tagged) in &mut fonts {
         let tab = parents
             .iter_ancestors(node)
@@ -146,11 +150,11 @@ pub fn apply_display(
         {
             font.font = FontSource::Handle(display.0.clone());
         }
-        if tab && font.font_size != TAB_SIZE {
-            font.font_size = TAB_SIZE;
+        if tab && font.font_size != tab_size {
+            font.font_size = tab_size;
         }
-        if spacing != Some(&TRACKING) {
-            commands.entity(node).try_insert(TRACKING);
+        if spacing != Some(&tracking) {
+            commands.entity(node).try_insert(tracking);
         }
     }
 }
@@ -195,7 +199,10 @@ pub fn apply_glow(
 ) {
     for surface in &surfaces {
         let stops = vec![
-            ColorStop::new(theme.palette.black, percent(35.0)),
+            ColorStop::new(
+                theme.palette.black,
+                percent(theme.space.bottom_start * 100.0),
+            ),
             ColorStop::new(theme.palette.hearth, percent(100.0)),
         ];
         commands.entity(surface).try_insert(
@@ -277,7 +284,7 @@ pub fn focus_ring(
 }
 
 pub(crate) fn hide_ring_on_press(
-    _: On<Pointer<Press>>,
+    _: On<PointerPress>,
     mut visible: ResMut<InputFocusVisible>,
 ) {
     if visible.0 {
@@ -285,11 +292,68 @@ pub(crate) fn hide_ring_on_press(
     }
 }
 
+/// The node inside a button that a primary press landed on, on the
+/// button.
+#[derive(Component)]
+struct PressedOn(Entity);
+
+/// Notes the node inside a button a primary press landed on.
+fn note_press(
+    press: On<PointerPress>,
+    buttons: Query<
+        (),
+        (With<ButtonBehavior>, Without<ActivateOnPress>),
+    >,
+    mut commands: Commands,
+) {
+    let button = press.event_target();
+    if press.button == PointerButton::Primary
+        && buttons.contains(button)
+    {
+        commands
+            .entity(button)
+            .try_insert(PressedOn(press.original_event_target()));
+    }
+}
+
+/// Activates a button when a press and its release land inside it on
+/// different nodes, as on its label and then its padding, which Bevy
+/// does not count as a click.
+fn release_inside(
+    release: On<PointerRelease>,
+    buttons: Query<(&PressedOn, Has<InteractionDisabled>)>,
+    mut commands: Commands,
+) {
+    let button = release.event_target();
+    if release.button != PointerButton::Primary {
+        return;
+    }
+    let Ok((pressed, disabled)) = buttons.get(button) else {
+        return;
+    };
+    commands.entity(button).try_remove::<PressedOn>();
+    if pressed.0 != release.original_event_target() && !disabled {
+        commands.trigger(Activate { entity: button });
+    }
+}
+
+/// Forgets a press on a button that ends without a release inside it.
+fn forget_press<E: EntityEvent>(
+    event: On<E>,
+    pressed: Query<(), With<PressedOn>>,
+    mut commands: Commands,
+) {
+    let button = event.event_target();
+    if pressed.contains(button) {
+        commands.entity(button).try_remove::<PressedOn>();
+    }
+}
+
 /// Hands over the text of the field being typed in when anything
 /// outside it is pressed, before the press does its work. A field
 /// hands its text over on losing focus, and a press moves no focus.
 fn take_typed_on_press(
-    press: On<Pointer<Press>>,
+    press: On<PointerPress>,
     focus: Res<InputFocus>,
     texts: Query<&ChildOf, With<EditableText>>,
     parents: Query<&ChildOf>,
@@ -350,6 +414,7 @@ mod tests {
         use bevy::camera::NormalizedRenderTarget;
         use bevy::math::Vec2;
         use bevy::picking::backend::HitData;
+        use bevy::picking::events::Pointer;
         use bevy::picking::pointer::{
             Location, PointerButton, PointerId,
         };
@@ -386,17 +451,13 @@ mod tests {
                 },
                 position: Vec2::ZERO,
             };
-            let event = Press {
+            world.trigger(PointerPress {
+                entity: target,
+                pointer: Pointer::new(PointerId::Mouse, at),
                 button: PointerButton::Primary,
                 hit: HitData::new(target, 0.0, None, None),
                 count: 1,
-            };
-            world.trigger(Pointer::new(
-                PointerId::Mouse,
-                at,
-                event,
-                target,
-            ));
+            });
             world.flush();
             std::mem::take(&mut world.resource_mut::<Lost>().0)
         };

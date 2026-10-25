@@ -7,7 +7,7 @@ use bevy::ecs::world::World;
 use bevy::ui::AlignItems;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, column, label, row,
+    BehaviorExt, FrameProps, button, column, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt};
 use hamlet_client::realm::{
@@ -18,11 +18,11 @@ use hamlet_client::waits::Waiting;
 use hamlet_realm::pick::Thing;
 
 use super::{Naming, Search};
+use crate::feel::Mood;
 use crate::icons::Glyph;
-use crate::looks::{note, plate, stated};
-use crate::platform::DisplayText;
+use crate::looks::{card_button, card_name, note, stated};
 use crate::roll::Roll;
-use crate::{View, world_menu};
+use crate::{View, with_cx, world_menu};
 
 /// A check that fires when the agents or the hamlets changed,
 /// something began or ended its wait, or the words typed did.
@@ -258,24 +258,24 @@ pub(super) fn pressable(
         .filter(|line| !line.is_empty())
         .map(|line| note(line).boxed())
         .collect::<Vec<_>>();
-    button(
-        column((
-            row((
-                label(title)
-                    .size(13.0)
-                    .bold(true)
-                    .wrap(false)
-                    .tagged(DisplayText),
-                stated(beside.0, beside.1, beside.2, 12.0),
+    with_cx(move |cx| {
+        let gap = cx.theme().space.gap;
+        button(
+            column((
+                row((
+                    card_name(title, Tone::Body),
+                    stated(beside.0, beside.1, beside.2),
+                ))
+                .gap(gap)
+                .align(AlignItems::Center),
+                column(lines).gap(0.0),
             ))
-            .gap(10.0)
-            .align(AlignItems::Center),
-            column(lines).gap(1.0),
-        ))
-        .gap(2.0)
-        .align(AlignItems::FlexStart),
-    )
-    .rules(plate)
-    .tagged(world_menu::Asks(thing))
-    .on_activate(act)
+            .gap(gap / 2.0)
+            .align(AlignItems::FlexStart),
+        )
+        .rules(card_button)
+        .tagged(Mood::Plain)
+        .tagged(world_menu::Asks(thing))
+        .on_activate(act)
+    })
 }

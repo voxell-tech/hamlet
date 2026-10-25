@@ -408,7 +408,7 @@ fn take(
 }
 
 fn show(
-    added: On<Add, Source>,
+    added: On<Add<Source>>,
     sources: Query<&Source>,
     mut pictures: ResMut<Pictures>,
 ) {
@@ -418,7 +418,7 @@ fn show(
 }
 
 fn unshow(
-    gone: On<Remove, Source>,
+    gone: On<Remove<Source>>,
     sources: Query<&Source>,
     settings: Res<ChatSettings>,
     mut pictures: ResMut<Pictures>,

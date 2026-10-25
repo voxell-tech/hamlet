@@ -254,7 +254,7 @@ fn hang(
             Visibility::Hidden,
         ));
         tag.observe(
-            move |mut click: On<Pointer<Click>>,
+            move |mut click: On<PointerClick>,
                   mut commands: Commands| {
                 click.propagate(false);
                 if click.button == PointerButton::Primary {
@@ -286,7 +286,7 @@ fn hang(
                 ],
             ));
             let answer =
-                |mut click: On<Pointer<Click>>,
+                |mut click: On<PointerClick>,
                  marks: Query<&Mark>,
                  mut commands: Commands| {
                     click.propagate(false);

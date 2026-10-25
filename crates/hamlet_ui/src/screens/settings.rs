@@ -10,7 +10,7 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, UiRect, px};
+use bevy::ui::{AlignItems, UiRect, percent, px};
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
@@ -28,12 +28,14 @@ use hamlet_realm::sky::Quality;
 use hamlet_realm::sound::SoundSettings;
 
 use crate::dock::{PanelAppExt, panel};
+use crate::fade::ScrollFade;
 use crate::icons::Glyph;
 use crate::looks::{
-    Fills, ICON, action, bad_action, bare, buttons, doors, hairline,
-    note, page_head, tick, well,
+    Fills, ICON, action, bad_action, bare, buttons, close,
+    description, doors, hairline, list, note, page_head, parts,
+    section, well,
 };
-use crate::platform::DisplayText;
+use crate::switch::switch;
 use crate::world_menu::{self, Deed};
 use crate::{AnyView, Cx, View, markdown, with_cx};
 
@@ -63,16 +65,9 @@ pub fn plugin(app: &mut App) {
     );
 }
 
+/// A part of a page: its name over `value`.
 fn field(name: &'static str, value: impl View) -> impl View {
-    column((
-        label(name)
-            .size(12.0)
-            .bold(true)
-            .tone(Tone::Faint)
-            .tagged(DisplayText),
-        value,
-    ))
-    .gap(6.0)
+    close((section(name), value))
 }
 
 /// The choice of the world's visual quality.
@@ -93,7 +88,8 @@ fn quality() -> AnyView {
                         Quality::ALL[at];
                 },
             )
-            .width(px(140.0)),
+            .width(percent(100.0))
+            .max_width(percent(100.0)),
         )
     })
 }
@@ -177,23 +173,18 @@ impl Pane {
     }
 }
 
-/// A setting's words, and under them its switch or slider.
+/// A setting's switch or field, and under it its words.
 fn told(control: impl View, words: impl View) -> impl View {
-    column((words, control))
-        .gap(6.0)
-        .align(AlignItems::FlexStart)
-}
-
-fn switch(
-    on: impl Into<bevy_fynix::Prop<bool>>,
-    set: impl Fn(&mut World, bool) + Send + Sync + 'static,
-) -> impl View {
-    tick(on).on_change(set)
+    with_cx(move |cx| {
+        column((control, words))
+            .gap(cx.theme().space.gap / 2.0)
+            .align(AlignItems::FlexStart)
+    })
 }
 
 /// The settings of agents. Each applies when changed.
 fn agents() -> impl View {
-    column((
+    parts((
         field(
             "Reflect every N turns",
             told(
@@ -220,7 +211,7 @@ fn agents() -> impl View {
                         save(world, |set| set.allow_net = Some(on));
                     },
                 ),
-                note(resource::<Settings, _>(|s| {
+                description(resource::<Settings, _>(|s| {
                     if s.0.allow_net {
                         "Agents' commands can reach the internet."
                             .to_string()
@@ -240,14 +231,13 @@ fn agents() -> impl View {
                         world.resource_mut::<KeepAwake>().0 = on;
                     },
                 ),
-                note(
+                description(
                     "The computer stays awake while an agent works.",
                 ),
             ),
         ),
         field("Lasting permissions", permissions()),
     ))
-    .gap(12.0)
 }
 
 /// The permissions agents were given for good from a petition, each
@@ -271,7 +261,7 @@ fn permissions() -> AnyView {
     .when(crate::roll::moved::<Grants>());
     keyed(held, |held| {
         if held.is_empty() {
-            return note(
+            return description(
                 "None yet. Choosing Always Allow on a petition adds \
                  one.",
             )
@@ -294,31 +284,34 @@ fn permissions() -> AnyView {
                 let says = format!(
                     "{agent} may use: {permission} (given by {by})"
                 );
-                row((
-                    row((label(says).size(12.0),)).fills_width(),
-                    bad_action(
-                        Glyph::Cross,
-                        "REVOKE",
-                        move |world| {
-                            world.trigger(ChiefMessage {
-                                to: protocol::Address {
-                                    hamlet: hamlet.clone(),
-                                    agent: MAYOR.into(),
-                                },
-                                text: format!(
-                                    "/revoke {agent} {permission}"
-                                ),
-                            });
-                            world.flush();
-                        },
-                    ),
-                ))
-                .gap(12.0)
-                .align(AlignItems::Center)
+                with_cx(move |cx| {
+                    row((
+                        row((description(says),)).fills_width(),
+                        bad_action(
+                            Glyph::Cross,
+                            "REVOKE",
+                            move |world| {
+                                world.trigger(ChiefMessage {
+                                    to: protocol::Address {
+                                        hamlet: hamlet.clone(),
+                                        agent: MAYOR.into(),
+                                    },
+                                    text: format!(
+                                        "/revoke {agent} \
+                                         {permission}"
+                                    ),
+                                });
+                                world.flush();
+                            },
+                        ),
+                    ))
+                    .gap(cx.theme().space.section)
+                    .align(AlignItems::Center)
+                })
                 .boxed()
             })
             .collect::<Vec<_>>();
-        column(rows).gap(6.0).boxed()
+        list(rows).boxed()
     })
     .within(bare())
     .boxed()
@@ -454,9 +447,7 @@ pub(crate) fn default_charter(world: &mut World) {
 fn charter_page(cx: &Cx) -> impl View + use<> {
     let actions = keyed(resource::<Charter, _>(|c| c.own), |own| {
         let edit = action(Glyph::Rename, "EDIT", edit_charter)
-            .tooltip(|| {
-                label("Opens the file in your editor").size(12.0)
-            })
+            .tooltip(|| note("Opens the file in your editor"))
             .boxed();
         let mut actions = vec![edit];
         if *own {
@@ -474,8 +465,10 @@ fn charter_page(cx: &Cx) -> impl View + use<> {
             markdown::fixed(text, Tone::Body).boxed()
         })
         .within(bare());
-    column((
-        note("Every agent reads this at the start of each turn."),
+    parts((
+        description(
+            "Every agent reads this at the start of each turn.",
+        ),
         note(resource::<Charter, _>(|charter| {
             if charter.own {
                 "The home's own charter.".to_string()
@@ -487,12 +480,10 @@ fn charter_page(cx: &Cx) -> impl View + use<> {
         label(resource::<CharterRequests, _>(|requests| {
             requests.error.clone()
         }))
-        .size(12.0)
         .tone(Tone::Critical),
         hairline(cx.theme().palette.brass_6),
         shown,
     ))
-    .gap(12.0)
 }
 
 /// An edit of one received setting.
@@ -524,25 +515,40 @@ fn level(
     at: fn(&SoundSettings) -> f32,
     set: fn(&mut SoundSettings, f32),
 ) -> impl View {
-    row((
-        switch(resource::<SoundSettings, _>(on), move |world, to| {
-            turn(&mut world.resource_mut::<SoundSettings>(), to);
-        }),
-        slider(resource::<SoundSettings, _>(at)).on_change(
-            move |world, to| {
-                set(&mut world.resource_mut::<SoundSettings>(), to);
-            },
-        ),
-    ))
-    .gap(12.0)
-    .align(AlignItems::Center)
+    with_cx(move |cx| {
+        row((
+            switch(
+                resource::<SoundSettings, _>(on),
+                move |world, to| {
+                    turn(
+                        &mut world.resource_mut::<SoundSettings>(),
+                        to,
+                    );
+                },
+            ),
+            slider(resource::<SoundSettings, _>(at))
+                .on_change(move |world, to| {
+                    set(
+                        &mut world.resource_mut::<SoundSettings>(),
+                        to,
+                    );
+                })
+                .grow(1.0),
+        ))
+        .gap(cx.theme().space.gap)
+        .width(percent(100.0))
+        .align(AlignItems::Center)
+    })
 }
 
 fn senses() -> impl View {
-    column((
+    parts((
         field(
             "Visual quality",
-            told(quality(), note("Particles, bloom and shadows.")),
+            told(
+                quality(),
+                description("Particles, bloom and shadows."),
+            ),
         ),
         field(
             "Sound",
@@ -563,7 +569,6 @@ fn senses() -> impl View {
             ),
         ),
     ))
-    .gap(12.0)
 }
 
 fn door(pane: Pane) -> AnyView {
@@ -577,13 +582,20 @@ fn door(pane: Pane) -> AnyView {
 
 /// The way back to the first-run screen.
 fn again() -> impl View {
-    column((
-        note("Choose again where your model comes from."),
-        action(Glyph::Restore, "SET UP AGAIN", crate::welcome::again),
-    ))
-    .gap(6.0)
-    .padding(UiRect::top(px(8.0)))
-    .align(AlignItems::FlexStart)
+    with_cx(|cx| {
+        let gap = cx.theme().space.gap;
+        column((
+            description("Choose again where your model comes from."),
+            action(
+                Glyph::Restore,
+                "SET UP AGAIN",
+                crate::welcome::again,
+            ),
+        ))
+        .gap(gap / 2.0)
+        .padding(UiRect::top(px(gap)))
+        .align(AlignItems::FlexStart)
+    })
 }
 
 /// The Settings panel's contents.
@@ -603,21 +615,25 @@ pub fn screen() -> AnyView {
             Pane::Realm => crate::limits::realm().boxed(),
             Pane::Front | Pane::Senses => senses().boxed(),
         };
-        column((
-            page_head(
-                "SETTINGS",
-                |world| *world.resource_mut::<Pane>() = Pane::Front,
-                pane.glyph(),
-                pane.title(),
-            ),
-            body,
-        ))
-        .gap(16.0)
-        .boxed()
-    })
-    .within(column(()).gap(0.0).max_width(px(640.0)));
+        let head = page_head(
+            "SETTINGS",
+            |world| *world.resource_mut::<Pane>() = Pane::Front,
+            pane.glyph(),
+            pane.title(),
+        );
+        with_cx(move |cx| {
+            column((head, body)).gap(cx.theme().space.panel)
+        })
+    });
     AnyView::new(move |cx: &mut Cx| {
-        cx.build(scroll((page,)).fills_height())
+        let width = cx.theme().space.page_width;
+        let page =
+            page.within(column(()).gap(0.0).max_width(px(width)));
+        cx.build(
+            scroll((page,))
+                .fills_height()
+                .tagged(ScrollFade::default()),
+        )
     })
 }
 

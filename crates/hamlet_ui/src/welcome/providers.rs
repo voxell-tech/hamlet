@@ -6,7 +6,7 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::ui::AlignItems;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, label, row, text_field,
+    BehaviorExt, FrameProps, label, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::messages::Response;
@@ -20,7 +20,8 @@ use crate::AnyView;
 use crate::feel::Mood;
 use crate::icons::Glyph;
 use crate::looks::{
-    bare, buttons, good_action, lettered, note, well,
+    bare, buttons, close, good_action, group, lettered, note, parts,
+    well,
 };
 use crate::secret::secret_field;
 
@@ -297,7 +298,7 @@ fn prompt() -> AnyView {
             } else {
                 text_field(answer, answered).rules(well).boxed()
             };
-            column((
+            group((
                 said(words.clone()),
                 field,
                 note(
@@ -306,7 +307,6 @@ fn prompt() -> AnyView {
                 ),
                 good_action(Glyph::Check, "SEND", commit),
             ))
-            .gap(6.0)
             .boxed()
         },
     )
@@ -327,7 +327,7 @@ pub(super) fn key_page() -> AnyView {
                 })
                 .map(|provider| {
                     let id = provider.id.clone();
-                    column((
+                    close((
                         lettered(provider.name.clone())
                             .tagged(Mood::Plain)
                             .on_activate(move |world| {
@@ -335,7 +335,6 @@ pub(super) fn key_page() -> AnyView {
                             }),
                         note(provider.label.clone()),
                     ))
-                    .gap(2.0)
                     .boxed()
                 })
                 .collect::<Vec<_>>();
@@ -343,13 +342,12 @@ pub(super) fn key_page() -> AnyView {
         },
     )
     .within(bare());
-    column((
+    parts((
         head(Glyph::Globe, "USE A KEY"),
         names,
         prompt(),
         news("Waiting for the provider..."),
     ))
-    .gap(14.0)
     .boxed()
 }
 
@@ -373,11 +371,11 @@ pub(super) fn sign_in_page() -> AnyView {
                 rows.push(label(code.clone()).bold(true).boxed());
             }
             rows.push(said(progress.clone()));
-            column(rows).gap(6.0).boxed()
+            group(rows).boxed()
         },
     )
     .within(bare());
-    column((
+    parts((
         head(Glyph::Signal, "SIGN IN"),
         steps,
         prompt(),
@@ -387,6 +385,5 @@ pub(super) fn sign_in_page() -> AnyView {
         }),))
         .align(AlignItems::Center),
     ))
-    .gap(14.0)
     .boxed()
 }

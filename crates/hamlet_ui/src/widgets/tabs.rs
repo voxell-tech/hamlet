@@ -60,12 +60,16 @@ pub struct Listed;
 /// A tab: lettering alone, bright on the one shown.
 pub fn tab_look(cx: &mut Cx) {
     style::<HamletTheme>()
-        .frame(|f, _| {
+        .frame(|f, t| {
             f.fill(Color::NONE)
                 .radius(0.0)
-                .padding(UiRect::axes(px(4.0), px(0.0)))
-                .min_height(px(30.0))
+                .padding(UiRect::axes(px(t.space.gap / 2.0), px(0.0)))
+                // The line under the tab is part of its height.
+                .min_height(
+                    px(t.space.tab_height - t.space.underline),
+                )
         })
+        .label(|l, t| l.size(t.text.small).bold(true))
         .tone(Tone::Dim)
         .hovered(|s| s.fill(|_| Color::NONE).tone(Tone::Body))
         .pressed(|s| s.fill(|_| Color::NONE).tone(Tone::Faint))
@@ -76,14 +80,7 @@ pub fn tab_look(cx: &mut Cx) {
 
 /// A tab's icon and its name.
 pub fn tab_name(which: Glyph, name: &'static str) -> impl View {
-    headed(
-        which,
-        label(name)
-            .size(12.0)
-            .bold(true)
-            .wrap(false)
-            .tagged(DisplayText),
-    )
+    headed(which, label(name).wrap(false).tagged(DisplayText))
 }
 
 /// A strip of `tabs`, each pressed to `choose` its value. The tabs
@@ -107,20 +104,21 @@ pub fn strip<R: Resource + Copy>(
     let tabs = tabs
         .iter()
         .map(|&(of, which, name)| {
-            column((
-                button(tab_name(which, name))
-                    .rules(tab_look)
-                    .tagged(TabOf(of))
-                    .tagged(FootLight::new(false))
-                    .on_activate(move |world| choose(world, of)),
-                frame()
-                    .height(px(2.0))
-                    .fill(Color::NONE)
-                    .tagged(Underline(of)),
-            ))
-            .grow(1.0)
-            .gap(0.0)
-            .boxed()
+            with_cx(move |cx| {
+                column((
+                    button(tab_name(which, name))
+                        .rules(tab_look)
+                        .tagged(TabOf(of))
+                        .tagged(FootLight::new(false))
+                        .on_activate(move |world| choose(world, of)),
+                    frame()
+                        .height(px(cx.theme().space.underline))
+                        .fill(Color::NONE)
+                        .tagged(Underline(of)),
+                ))
+                .grow(1.0)
+                .gap(0.0)
+            })
         })
         .chain([list])
         .collect::<Vec<_>>();

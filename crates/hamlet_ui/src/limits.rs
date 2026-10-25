@@ -13,8 +13,7 @@ use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, label, number_field, row,
-    segmented,
+    BehaviorExt, FrameProps, label, number_field, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::messages::Response;
@@ -25,10 +24,11 @@ use serde_json::Value;
 
 use crate::icons::Glyph;
 use crate::looks::{
-    Fills, action, bare, doors, list_door, note, page_head, tick,
-    well,
+    Fills, action, bare, beside, choices, close, description, doors,
+    group, list_door, note, page_head, parts, well,
 };
 use crate::overview::heading;
+use crate::switch::switch as toggle;
 use crate::{AnyView, PanelSystems, View, with_cx};
 
 const CONTROLS: f32 = 150.0;
@@ -165,12 +165,11 @@ fn control(
             if let Some(problem) = problem {
                 parts.push(
                     label(problem.clone())
-                        .size(12.0)
                         .tone(Tone::Critical)
                         .boxed(),
                 );
             }
-            column(parts).gap(4.0).boxed()
+            close(parts).boxed()
         },
     )
     .within(bare())
@@ -178,16 +177,18 @@ fn control(
 }
 
 fn line(what: &'static str, control: AnyView) -> impl View {
-    row((
-        row((note(what),)).fills_width(),
-        row((control,)).width(px(CONTROLS)).shrink(0.0),
-    ))
-    .gap(10.0)
-    .align(AlignItems::Center)
+    with_cx(move |cx| {
+        row((
+            row((note(what),)).fills_width(),
+            row((control,)).width(px(CONTROLS)).shrink(0.0),
+        ))
+        .gap(cx.theme().space.gap)
+        .align(AlignItems::Center)
+    })
 }
 
 fn fine(text: &'static str) -> impl View {
-    label(text).size(11.0).tone(Tone::Dim)
+    description(text)
 }
 
 fn whole(
@@ -248,12 +249,14 @@ fn switch(
     get: fn(&Limits) -> bool,
 ) -> impl View {
     control(section, key, move || {
-        tick(resource::<Book, _>(move |book| {
-            book.limits.as_ref().is_some_and(get)
-        }))
-        .on_change(move |world, on| {
-            put(world, section, key, on.into());
-        })
+        toggle(
+            resource::<Book, _>(move |book| {
+                book.limits.as_ref().is_some_and(get)
+            }),
+            move |world, on| {
+                put(world, section, key, on.into());
+            },
+        )
         .boxed()
     })
 }
@@ -261,8 +264,7 @@ fn switch(
 /// The budget of `hamlet` and the caps on one task.
 fn budget(hamlet: Entity) -> impl View {
     let period = control("budget", "period", || {
-        segmented(
-            ["A DAY", "A MONTH"],
+        keyed(
             resource::<Book, _>(|book| {
                 match book
                     .limits
@@ -273,20 +275,28 @@ fn budget(hamlet: Entity) -> impl View {
                     Some(Period::Month) => 1,
                 }
             }),
-            |world, chosen| {
-                let period =
-                    if chosen == 0 { "day" } else { "month" };
-                put(
-                    world,
-                    "budget",
-                    "period",
-                    serde_json::json!(period),
-                );
+            |chosen| {
+                choices(
+                    ["A DAY", "A MONTH"],
+                    *chosen,
+                    |world, chosen| {
+                        let period =
+                            if chosen == 0 { "day" } else { "month" };
+                        put(
+                            world,
+                            "budget",
+                            "period",
+                            serde_json::json!(period),
+                        );
+                    },
+                )
+                .boxed()
             },
         )
+        .within(bare())
         .boxed()
     });
-    column((
+    group((
         heading(Glyph::Meter, "THE BUDGET"),
         fine(
             "The most model calls may cost in a period. 0 means no \
@@ -297,7 +307,7 @@ fn budget(hamlet: Entity) -> impl View {
             "May spend, in dollars",
             cost("budget", |l| l.budget.cost).boxed(),
         ),
-        row((
+        beside((
             action(
                 Glyph::Restore,
                 "START IT AGAIN NOW",
@@ -311,8 +321,6 @@ fn budget(hamlet: Entity) -> impl View {
             ),
             note("What was spent stays in the record."),
         ))
-        .gap(10.0)
-        .align(AlignItems::Center)
         .tagged(crate::platform::Wraps)
         .boxed(),
         heading(Glyph::Coins, "ONE TASK"),
@@ -331,13 +339,12 @@ fn budget(hamlet: Entity) -> impl View {
             cost("road", |l| Some(l.road.cost)).boxed(),
         ),
     ))
-    .gap(6.0)
 }
 
 /// The deeds a hamlet's mayor may do alone, and the most agents and
 /// roads the hamlet may have.
 fn mayor() -> impl View {
-    column((
+    group((
         heading(Glyph::Mayor, "THE MAYOR MAY, WITHOUT ASKING"),
         line(
             "Create agents",
@@ -378,11 +385,10 @@ fn mayor() -> impl View {
             whole("", "mostRoads", |l| l.most_roads, 10_000).boxed(),
         ),
     ))
-    .gap(6.0)
 }
 
 fn votes() -> impl View {
-    column((
+    group((
         heading(Glyph::Ballot, "THE VOTES"),
         line(
             "Yes votes needed",
@@ -446,11 +452,10 @@ fn votes() -> impl View {
             .boxed(),
         ),
     ))
-    .gap(6.0)
 }
 
 fn realm_limits() -> impl View {
-    column((
+    group((
         heading(Glyph::Globe, "THE REALM"),
         fine("These apply to every hamlet, from home's bylaws."),
         line(
@@ -476,12 +481,11 @@ fn realm_limits() -> impl View {
             .boxed(),
         ),
     ))
-    .gap(6.0)
 }
 
 /// The way to home's realm bylaws.
 pub fn realm() -> AnyView {
-    column((
+    group((
         fine("The realm's limits live in home's bylaws."),
         action(Glyph::Book, "OPEN HOME'S BYLAWS", |world| {
             let home = hamlet_client::realm::hamlet(world, HOME);
@@ -496,7 +500,6 @@ pub fn realm() -> AnyView {
             crate::dock::show_tab(world, "agent");
         }),
     ))
-    .gap(8.0)
     .boxed()
 }
 
@@ -543,7 +546,7 @@ pub fn panel(hamlet: Entity) -> AnyView {
                 Part::Realm => realm_limits().boxed(),
                 Part::Front | Part::Mayor => mayor().boxed(),
             };
-            column((
+            parts((
                 page_head(
                     "BYLAWS",
                     |world| {
@@ -554,7 +557,6 @@ pub fn panel(hamlet: Entity) -> AnyView {
                 ),
                 body,
             ))
-            .gap(14.0)
             .boxed()
         })
         .within(bare());

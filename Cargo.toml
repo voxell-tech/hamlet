@@ -31,21 +31,22 @@ hamlet_workspace_wire = { version = "0.1.0", path = "crates/hamlet_workspace_wir
 bevy_fynix = { path = "vendor/fynix/crates/bevy_fynix" }
 
 # bevy
-bevy_app = { version = "0.19", default-features = false, features = ["std"] }
-bevy_ecs = { version = "0.19", default-features = false, features = ["std"] }
-bevy_asset = { version = "0.19", default-features = false }
-bevy_color = { version = "0.19", default-features = false, features = ["std"] }
-bevy_image = { version = "0.19", default-features = false }
-bevy_log = { version = "0.19", default-features = false }
-bevy_math = { version = "0.19", default-features = false, features = ["std"] }
-bevy_reflect = { version = "0.19", default-features = false, features = ["std"] }
-bevy_time = { version = "0.19", default-features = false, features = ["std"] }
-bevy_window = { version = "0.19", default-features = false, features = ["std"] }
-bevy_winit = { version = "0.19", default-features = false }
+bevy_app = { version = "0.20", default-features = false, features = ["std"] }
+bevy_ecs = { version = "0.20", default-features = false, features = ["std"] }
+bevy_asset = { version = "0.20", default-features = false }
+bevy_color = { version = "0.20", default-features = false, features = ["std"] }
+bevy_image = { version = "0.20", default-features = false }
+bevy_log = { version = "0.20", default-features = false }
+bevy_math = { version = "0.20", default-features = false, features = ["std"] }
+bevy_reflect = { version = "0.20", default-features = false, features = ["std"] }
+bevy_time = { version = "0.20", default-features = false, features = ["std"] }
+bevy_window = { version = "0.20", default-features = false, features = ["std"] }
+bevy_winit = { version = "0.20", default-features = false }
 # No features here: each crate names the ones its code needs, and
 # hamlet_app the product's.
-bevy = { version = "0.19", default-features = false }
-bevy_hanabi = { version = "0.19", default-features = false, features = ["3d"] }
+bevy = { version = "0.20", default-features = false }
+# Its Bevy 0.20 port is not released yet: held to a commit of its main.
+bevy_hanabi = { git = "https://github.com/djeedai/bevy_hanabi", rev = "d277555d4a2350da6787245d15c56c62c739594d", default-features = false, features = ["3d"] }
 
 # other
 anyhow = "1"
@@ -58,7 +59,7 @@ keyring = "4"
 libc = "0.2"
 # The text layout Bevy's text is built on, for selecting drawn words.
 # Held to the version `bevy_text` uses, so its layouts are this crate's.
-parley = { version = "0.9", default-features = false, features = ["std"] }
+parley = { version = "0.11", default-features = false, features = ["std"] }
 process-wrap = { version = "10.0.1", features = ["tokio1"] }
 pulldown-cmark = { version = "0.13", default-features = false }
 regex = "1"

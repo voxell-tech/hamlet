@@ -12,15 +12,15 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_equals;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, JustifyContent, UiRect, percent, px};
+use bevy::ui::{AlignItems, percent};
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
     BehaviorExt, ContextMenuExt, FrameProps, button, column, frame,
-    label, menu_item, scroll, text_field,
+    label, menu_item, text_field,
 };
 use bevy_fynix::{
     ScopedExt, StateExt, ViewExt, derived, each, every_frame, keyed,
-    resource, style,
+    resource,
 };
 use hamlet_client::chats::{Chat, Entry, TalksTo, Transcript};
 use hamlet_client::messages::{ChiefMessage, JobFinished, Response};
@@ -33,12 +33,13 @@ use crate::dock::show_tab;
 use crate::feel::Mood;
 use crate::icons::Glyph;
 use crate::looks::{
-    Fills, away, back, buttons, command, filling, good_action,
-    hairline, note, well,
+    Fills, away, back, buttons, card_button, command, filling,
+    good_action, hairline, note, scroll_area, well,
 };
 use crate::me::Me;
-use crate::theme::HamletTheme;
-use crate::{AnyView, Cx, PanelSystems, View, chat, inspector};
+use crate::{
+    AnyView, Cx, PanelSystems, View, chat, inspector, with_cx,
+};
 
 /// Characters of a title a row shows.
 const TITLE_SHOWN: usize = 90;
@@ -375,32 +376,6 @@ fn keep_reader(
     }
 }
 
-/// Look of a session's row.
-fn card(cx: &mut Cx) {
-    style::<HamletTheme>()
-        .frame(|f, t| {
-            f.fill(t.palette.card)
-                .border(1.0)
-                .border_color(t.palette.brass_6)
-                .radius(t.space.round)
-                .padding(UiRect::axes(px(14.0), px(10.0)))
-                .justify(JustifyContent::FlexStart)
-                .align(AlignItems::FlexStart)
-        })
-        .hovered(|s| {
-            s.frame(|f, t| {
-                f.fill(t.palette.card).border_color(t.palette.brass_4)
-            })
-        })
-        .pressed(|s| {
-            s.frame(|f, t| {
-                f.fill(t.palette.card).border_color(t.palette.brass_5)
-            })
-        })
-        .transition(Motion::Interact)
-        .apply(cx);
-}
-
 /// A session's context menu.
 fn choices(line: &Line) -> Vec<AnyView> {
     let number = line.number;
@@ -420,18 +395,21 @@ fn choices(line: &Line) -> Vec<AnyView> {
 fn line_view(line: &Line) -> AnyView {
     let number = line.number;
     let menu = line.clone();
-    button(
+    let tone = if line.live { Tone::Accent } else { Tone::Body };
+    let (title, detail) = (line.title.clone(), line.detail.clone());
+    button(with_cx(move |cx| {
         column((
-            label(line.title.clone()).size(13.0).bold(true).tone(
-                if line.live { Tone::Accent } else { Tone::Body },
-            ),
-            note(line.detail.clone()),
+            label(title)
+                .size(cx.theme().text.heading)
+                .bold(true)
+                .tone(tone),
+            note(detail),
         ))
-        .gap(2.0)
-        .fills_width(),
-    )
+        .gap(cx.theme().space.gap / 2.0)
+        .fills_width()
+    }))
     .width(percent(100.0))
-    .rules(card)
+    .rules(card_button)
     .tagged(Mood::Plain)
     .on_activate(move |world| open(world, number))
     .appear(away)
@@ -453,28 +431,34 @@ fn failed() -> impl View {
 }
 
 fn list() -> impl View {
-    column((
-        text_field(
-            resource::<History, _>(|h| h.query.clone()),
-            |world, text| {
-                world.resource_mut::<History>().query = text;
-            },
-        )
-        .rules(well),
-        note(resource::<History, _>(History::count)),
-        failed(),
-        scroll((each(
-            resource::<History, _>(History::lines),
-            |line: &Line| {
-                (line.number, line.title.clone(), line.detail.clone())
-            },
-            line_view,
-        )
-        .within(column(()).gap(8.0)),))
-        .fills_height(),
-    ))
-    .fills_height()
-    .gap(8.0)
+    with_cx(|cx| {
+        let space = &cx.theme().space;
+        column((
+            text_field(
+                resource::<History, _>(|h| h.query.clone()),
+                |world, text| {
+                    world.resource_mut::<History>().query = text;
+                },
+            )
+            .rules(well),
+            note(resource::<History, _>(History::count)),
+            failed(),
+            scroll_area((each(
+                resource::<History, _>(History::lines),
+                |line: &Line| {
+                    (
+                        line.number,
+                        line.title.clone(),
+                        line.detail.clone(),
+                    )
+                },
+                line_view,
+            )
+            .within(column(()).gap(space.gap)),)),
+        ))
+        .fills_height()
+        .gap(space.section)
+    })
 }
 
 /// Buttons for the session being read.
@@ -503,14 +487,21 @@ fn reader() -> AnyView {
             "RESUME carries on from session {}.",
             reading.number
         );
+        let theme = cx.theme();
+        let (heading, gap, section) = (
+            theme.text.heading,
+            theme.space.gap,
+            theme.space.section,
+        );
+        let line = theme.palette.brass_6;
         cx.build(
             column((
-                label(title).size(13.0).bold(true),
+                label(title).size(heading).bold(true),
                 note(detail),
                 actions(),
                 note(hint),
-                hairline(cx.theme().palette.brass_6),
-                scroll((
+                hairline(line),
+                scroll_area((
                     keyed(
                         derived(|world: &World| {
                             world
@@ -570,13 +561,12 @@ fn reader() -> AnyView {
                         },
                     )
                     .within(
-                        column(()).gap(8.0).width(percent(100.0)),
+                        column(()).gap(gap).width(percent(100.0)),
                     ),
-                ))
-                .fills_height(),
+                )),
             ))
             .fills_height()
-            .gap(8.0),
+            .gap(section),
         )
     })
 }
@@ -607,6 +597,7 @@ mod tests {
 
     use super::*;
     use crate::testing::{panel_app, press, words};
+    use crate::theme::HamletTheme;
 
     #[test]
     fn history_reads_received_rows_searches_and_opens_a_numbered_chat()

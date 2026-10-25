@@ -8,11 +8,8 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::ui::AlignItems;
 use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{
-    FrameProps, column, frame, label, row, segmented, text_field,
-};
+use bevy_fynix::views::{frame, label, text_field};
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
@@ -21,7 +18,9 @@ use hamlet_protocol::client as protocol;
 
 use super::{Pane, field, told};
 use crate::icons::Glyph;
-use crate::looks::{action, bare, note, well};
+use crate::looks::{
+    action, bare, beside, choices, description, note, parts, well,
+};
 use crate::secret::secret_field;
 use crate::{AnyView, PanelSystems, View};
 
@@ -229,7 +228,7 @@ fn remote() -> AnyView {
         if !*remote {
             return frame().boxed();
         }
-        column((
+        parts((
             field(
                 "Server address",
                 text_field(
@@ -250,7 +249,6 @@ fn remote() -> AnyView {
                 ),
             ),
         ))
-        .gap(12.0)
         .boxed()
     })
     .within(bare())
@@ -258,21 +256,20 @@ fn remote() -> AnyView {
 }
 
 pub(super) fn page() -> impl View {
-    column((
+    let where_run =
+        keyed(resource::<Draft, _>(|draft| draft.remote), |remote| {
+            choices(CHOICES, usize::from(*remote), |world, at| {
+                world.resource_mut::<Draft>().remote = at == 1;
+            })
+            .boxed()
+        })
+        .within(bare());
+    parts((
         field(
             "Where agents' commands run",
             told(
-                segmented(
-                    CHOICES,
-                    resource::<Draft, _>(|draft| {
-                        usize::from(draft.remote)
-                    }),
-                    |world, at| {
-                        world.resource_mut::<Draft>().remote =
-                            at == 1;
-                    },
-                ),
-                note(resource::<Draft, _>(|draft| {
+                where_run,
+                description(resource::<Draft, _>(|draft| {
                     if draft.remote {
                         "Agents' commands run on a remote server, \
                          and their houses are kept there."
@@ -285,28 +282,22 @@ pub(super) fn page() -> impl View {
             ),
         ),
         remote(),
-        row((
+        beside((
             action(Glyph::Check, "SAVE", save),
             note(resource::<Draft, _>(|draft| {
                 if draft.saved { "Saved." } else { "" }.to_string()
             })),
-        ))
-        .gap(12.0)
-        .align(AlignItems::Center),
+        )),
         note(resource::<Settings, _>(pending)),
         moved(),
         label(resource::<Draft, _>(|draft| draft.refusal.clone()))
-            .size(12.0)
             .tone(Tone::Critical),
     ))
-    .gap(12.0)
 }
 
 /// Moving the houses, once a saved workspace waits for a restart.
 fn moved() -> impl View {
-    row((moving(), note(resource::<Settings, _>(progress))))
-        .gap(12.0)
-        .align(AlignItems::Center)
+    beside((moving(), note(resource::<Settings, _>(progress))))
 }
 
 #[cfg(test)]

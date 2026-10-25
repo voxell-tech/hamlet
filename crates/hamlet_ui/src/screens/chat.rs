@@ -66,9 +66,9 @@ pub use self::lines::{
     fold_lines, hide_unseen, read_back, transcript,
 };
 pub use self::rewind::{Rewinds, asked as rewind_asked};
-use crate::looks::well;
+use crate::looks::{note, well};
 use crate::me::{self, Me};
-use crate::{PanelSystems, View};
+use crate::{PanelSystems, View, with_cx};
 
 /// The room at the sides of the field, as the theme gives a field.
 const FIELD_SIDE: f32 = 8.0;
@@ -497,6 +497,15 @@ pub fn stick_to_bottom(
 
 /// The one place to type, under the conversation it adds to.
 pub fn message_bar() -> impl View {
+    with_cx(|cx| {
+        let space = &cx.theme().space;
+        message_bar_in(space.gap, space.border)
+    })
+}
+
+/// The bar with `gap` between its parts and a field whose frame is
+/// `border` wide.
+fn message_bar_in(gap: f32, border: f32) -> impl View {
     let field = row((
         text_field(resource::<Draft, _>(|d| d.text.clone()), commit)
             .grow(1.0)
@@ -511,12 +520,11 @@ pub fn message_bar() -> impl View {
             .tagged(ChatField),
         // Shown in the empty field, under the caret.
         overlay((row((label("Message")
-            .size(13.0)
             .wrap(false)
             .tone(Tone::Dim),))
         .align(AlignItems::Center)
         .height(percent(100.0))
-        .padding(UiRect::left(px(10.0)))
+        .padding(UiRect::left(px(gap + border)))
         .tagged(Placeholder),)),
         bar(),
     ))
@@ -526,17 +534,15 @@ pub fn message_bar() -> impl View {
     column((
         crate::asking::in_chat(),
         reply::preview(),
-        row((field,)).gap(8.0).align(AlignItems::Center),
+        row((field,)).gap(gap).align(AlignItems::Center),
         // An empty label has no height. Keep one line so a
         // notice does not lift the field above it.
-        column((label(resource::<Draft, _>(|draft| {
+        column((note(resource::<Draft, _>(|draft| {
             draft.notice.clone()
-        }))
-        .size(12.0)
-        .tone(Tone::Dim),))
+        })),))
         .min_height(px(15.0)),
     ))
-    .gap(4.0)
+    .gap(gap / 2.0)
 }
 
 #[cfg(test)]

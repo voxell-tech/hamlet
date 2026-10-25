@@ -1,47 +1,34 @@
 //! The light that falls into a panel: a lamp while something waits
 //! for the chief, and a flash when the agent it shows changes.
 
-use bevy::asset::{Asset, Assets};
+use bevy::color::{Alpha, Color, Mix};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
-use bevy::ecs::query::{With, Without};
-use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
-use bevy::math::Vec4;
-use bevy::reflect::TypePath;
-use bevy::render::render_resource::AsBindGroup;
-use bevy::shader::ShaderRef;
+use bevy::ecs::query::With;
+use bevy::ecs::system::{Commands, Local, Query, Res};
+use bevy::picking::Pickable;
 use bevy::time::Time;
-use bevy::ui::ComputedNode;
-use bevy::ui_render::prelude::{MaterialNode, UiMaterial};
+use bevy::ui::{
+    BackgroundGradient, Gradient, Overflow, OverrideClip,
+    PositionType, RadialGradient, RadialGradientShape, UiPosition,
+    UiRect, Val, percent, px,
+};
+use bevy_fynix::views::{BehaviorExt, frame};
 use hamlet_client::waits::Waiting;
 
-use super::{FeelSettings, MagicColors, ease, linear};
+use super::{FeelSettings, MagicColors, ease, pool, waver};
+use crate::View;
 use crate::me::Me;
 use crate::theme::Themed;
 
-/// The light that falls into a panel.
-#[derive(Asset, TypePath, AsBindGroup, Clone)]
-pub(crate) struct Backdrop {
-    /// rgb: the lamplight. a: the amount it is turned up.
-    #[uniform(0)]
-    alarm: Vec4,
-    /// rgb: the colour of the flash. a: the share of it that shows.
-    #[uniform(1)]
-    flash: Vec4,
-    /// rgb: the heart of the flame.
-    #[uniform(2)]
-    heart: Vec4,
-    /// x: the share of its light the flame wavers by. w: physical
-    /// pixels to a logical one.
-    #[uniform(3)]
-    shape: Vec4,
-}
+/// How far the lamp's light reaches down from the panel's top, and
+/// the flash's, in logical pixels.
+const LAMP_DEEP: f32 = 110.0;
+const FLASH_DEEP: f32 = 60.0;
 
-impl UiMaterial for Backdrop {
-    fn fragment_shader() -> ShaderRef {
-        "embedded://hamlet_ui/widgets/feel/backdrop.wgsl".into()
-    }
-}
+/// The pool of a light is this many times as far as it is deep, so
+/// that it has faded out at its end.
+const FADE_OUT: f32 = 1.6;
 
 /// A panel that light falls into.
 #[derive(Component, Clone, Copy, Default)]
@@ -52,56 +39,63 @@ pub struct Lit {
     pub flash: bool,
 }
 
-pub(super) fn lay(
-    mut commands: Commands,
-    set: Res<FeelSettings>,
-    theme: Themed,
-    mut backdrops: ResMut<Assets<Backdrop>>,
-    panels: Query<(Entity, &Lit), Without<MaterialNode<Backdrop>>>,
-) {
-    let colors = MagicColors::of(&theme);
-    for (panel, lit) in &panels {
-        // A panel no light falls into has nothing to draw.
-        if !lit.alarm && !lit.flash {
-            continue;
-        }
-        let backdrop = Backdrop {
-            alarm: linear(colors.alarm).extend(0.0),
-            flash: linear(colors.flash).extend(0.0),
-            heart: linear(colors.flame).extend(1.0),
-            shape: Vec4::new(set.waver, 0.0, 0.0, 1.0),
-        };
-        commands
-            .entity(panel)
-            .try_insert(MaterialNode(backdrops.add(backdrop)));
-    }
+/// How far a panel's lamp is turned up and how much of its flash is
+/// left, kept on the node that draws them.
+#[derive(Component, Default)]
+pub(super) struct Lamplight {
+    alarm: f32,
+    flash: f32,
 }
 
-/// Carries a change of the colours to every backdrop.
-pub(super) fn tint(
-    theme: Themed,
-    mut backdrops: ResMut<Assets<Backdrop>>,
-) {
-    let colors = MagicColors::of(&theme);
-    for (_, backdrop) in backdrops.iter_mut() {
-        backdrop.alarm =
-            linear(colors.alarm).extend(backdrop.alarm.w);
-        backdrop.flash =
-            linear(colors.flash).extend(backdrop.flash.w);
-        backdrop.heart = linear(colors.flame).extend(1.0);
-    }
+/// The node over the top of a panel that its light is drawn on, under
+/// the panel's contents.
+pub(crate) fn lamplight(lit: Lit) -> impl View {
+    frame()
+        .position(PositionType::Absolute)
+        .inset(UiRect {
+            left: px(0.0),
+            right: px(0.0),
+            top: px(0.0),
+            bottom: Val::Auto,
+        })
+        .height(px(LAMP_DEEP * FADE_OUT))
+        // Past the panel's padding, to its edge, as the glow layer.
+        .overflow(Overflow::clip())
+        .tagged(lit)
+        .tagged(Lamplight::default())
+        .tagged(OverrideClip)
+        .tagged(Pickable::IGNORE)
+}
+
+/// A pool of light from a lamp hung just over the node's top, a third
+/// of the way along, that is as deep as `deep` pixels.
+fn lamp_pool(deep: f32, paint: impl Fn(f32) -> Color) -> Gradient {
+    Gradient::from(RadialGradient::new(
+        UiPosition::top_left(percent(32.0), px(-18.0)),
+        RadialGradientShape::Ellipse(
+            percent(70.0 * FADE_OUT),
+            px(deep * FADE_OUT),
+        ),
+        pool(FADE_OUT * FADE_OUT * 1.6, paint),
+    ))
 }
 
 /// Lights a panel's lamp while something waits, turns it up for a
 /// moment as something new comes, and flashes a panel when the agent
 /// it shows changes.
 pub(super) fn light(
+    mut commands: Commands,
     time: Res<Time>,
     set: Res<FeelSettings>,
+    theme: Themed,
     me: Res<Me>,
     waiting: Query<(), With<Waiting>>,
-    panels: Query<(&MaterialNode<Backdrop>, &Lit, &ComputedNode)>,
-    mut backdrops: ResMut<Assets<Backdrop>>,
+    mut panels: Query<(
+        Entity,
+        &Lit,
+        &mut Lamplight,
+        Option<&BackgroundGradient>,
+    )>,
     mut shown: Local<Option<Entity>>,
     mut counted: Local<usize>,
 ) {
@@ -111,33 +105,57 @@ pub(super) fn light(
     let rung = count > *counted;
     *counted = count;
     let alarm = f32::from(count > 0);
-    for (node, lit, computed) in &panels {
-        let scale = computed.inverse_scale_factor.recip();
-        let Some(now) = backdrops.get(&node.0) else {
-            continue;
-        };
+    let colors = MagicColors::of(&theme);
+    // A flame is never quite still.
+    let flame = 1.0 + set.waver * waver(time.elapsed_secs(), 1.0);
+    for (panel, lit, mut state, gradient) in &mut panels {
         let raised = if !lit.alarm {
             0.0
         } else if rung {
-            now.alarm.w.max(alarm) + set.ring
+            state.alarm.max(alarm) + set.ring
         } else {
-            ease(now.alarm.w, alarm, set.settle, dt)
+            ease(state.alarm, alarm, set.settle, dt)
         };
         let flash = if lit.flash && changed {
             1.0
         } else {
-            ease(now.flash.w, 0.0, set.settle, dt)
+            ease(state.flash, 0.0, set.settle, dt)
         };
-        if raised == now.alarm.w
-            && flash == now.flash.w
-            && scale == now.shape.w
-        {
+        if state.alarm != raised {
+            state.alarm = raised;
+        }
+        if state.flash != flash {
+            state.flash = flash;
+        }
+        if raised <= 0.0 && flash <= 0.0 {
+            if gradient.is_some() {
+                commands
+                    .entity(panel)
+                    .try_remove::<BackgroundGradient>();
+            }
             continue;
         }
-        if let Some(mut backdrop) = backdrops.get_mut(&node.0) {
-            backdrop.alarm.w = raised;
-            backdrop.flash.w = flash;
-            backdrop.shape.w = scale;
+        let mut lights = Vec::new();
+        if raised > 0.0 {
+            let call = raised * flame;
+            // Brightest close under the lamp, and thin over the rest.
+            lights.push(lamp_pool(LAMP_DEEP, |near| {
+                let glow = near * call;
+                let strength = (glow * 0.07 + glow * glow * 0.07)
+                    .clamp(0.0, 1.0);
+                colors
+                    .alarm
+                    .mix(&colors.flame, (glow * 0.35).clamp(0.0, 1.0))
+                    .with_alpha(strength)
+            }));
         }
+        if flash > 0.0 {
+            lights.push(lamp_pool(FLASH_DEEP, |near| {
+                colors.flash.with_alpha(flash * flash * near * 0.12)
+            }));
+        }
+        commands
+            .entity(panel)
+            .try_insert(BackgroundGradient(lights));
     }
 }

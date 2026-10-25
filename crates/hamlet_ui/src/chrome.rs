@@ -18,7 +18,7 @@ use bevy::image::Image;
 use bevy::input::ButtonInput;
 use bevy::input::mouse::MouseButton;
 use bevy::math::{CompassOctant, Vec2};
-use bevy::picking::events::{Pointer, Press};
+use bevy::picking::events::PointerPress;
 use bevy::picking::pointer::PointerButton;
 use bevy::render::render_resource::{
     Extent3d, TextureDimension, TextureFormat,
@@ -226,7 +226,7 @@ pub fn buttons() -> AnyView {
 /// A press on a handle moves the window, and a second soon after
 /// maximises it or puts it back.
 pub(crate) fn grab(
-    mut press: On<Pointer<Press>>,
+    mut press: On<PointerPress>,
     handles: Query<(), With<Grip>>,
     parents: Query<&ChildOf>,
     pressable: Query<(), With<ButtonBehavior>>,

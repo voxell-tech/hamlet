@@ -1,8 +1,10 @@
 //! What every panel is built from.
 
+pub mod fade;
 pub mod feel;
 pub mod icons;
 pub mod platform;
+pub mod switch;
 pub mod tabs;
 pub mod tuning;
 
@@ -15,5 +17,7 @@ pub fn plugin(app: &mut App) {
         platform::plugin,
         icons::plugin,
         feel::plugin,
+        switch::plugin,
+        fade::plugin,
     ));
 }

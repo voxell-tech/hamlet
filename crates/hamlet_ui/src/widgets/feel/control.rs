@@ -2,33 +2,33 @@
 //! under a press, the flame in its glass, the light it spills and
 //! the sparks of work done.
 
-use bevy::asset::{Asset, Assets};
-use bevy::color::{Alpha, Color};
+use std::collections::HashMap;
+
+use bevy::color::{Alpha, Color, Mix};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::message::MessageWriter;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::{Added, Changed, Has, With, Without};
-use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
-use bevy::math::{Vec2, Vec4};
+use bevy::ecs::system::{Commands, Local, Query, Res};
+use bevy::math::{Rect, Vec2};
 use bevy::picking::Pickable;
 use bevy::picking::hover::Hovered;
-use bevy::reflect::TypePath;
-use bevy::render::render_resource::AsBindGroup;
-use bevy::shader::ShaderRef;
 use bevy::text::EditableText;
 use bevy::time::Time;
 use bevy::ui::{
-    BackgroundColor, BorderRadius, ComputedNode, GlobalZIndex, Node,
-    PositionType, Pressed, UiGlobalTransform, UiTransform, Val2, px,
+    BackgroundColor, BackgroundGradient, BorderRadius, BoxShadow,
+    CalculatedClip, ComputedNode, CornerRadius, GlobalZIndex, Node,
+    PositionType, Pressed, RadialGradient, RadialGradientShape,
+    UiGlobalTransform, UiPosition, UiTransform, Val2, percent, px,
 };
-use bevy::ui_render::prelude::{MaterialNode, UiMaterial};
 use bevy::ui_widgets::{Activate, Button};
 use bevy_fynix::Focused;
 use hamlet_realm::sound::{Cue, Sound};
 
-use super::{FeelSettings, MagicColors, Mood, ease, linear, waver};
+use super::glow::{GlowLayer, GlowPanel, layer_of};
+use super::{FeelSettings, MagicColors, Mood, ease, pool, waver};
 use crate::sounds;
 use crate::theme::Themed;
 
@@ -45,39 +45,6 @@ pub(super) struct Feel {
     reach: f32,
     lean: f32,
 }
-
-/// The light of a control: on the control itself, the flame low in
-/// its glass; on a node around it, the light that spills out.
-#[derive(Asset, TypePath, AsBindGroup, Clone, PartialEq)]
-pub(super) struct Lamp {
-    /// rgb: the light. a: its brightness.
-    #[uniform(0)]
-    hue: Vec4,
-    /// rgb: the heart of the flame. a: the share of the glass that
-    /// shows when the lamp is out.
-    #[uniform(1)]
-    heart: Vec4,
-    /// The glass away from the flame and near it.
-    #[uniform(2)]
-    low: Vec4,
-    #[uniform(3)]
-    high: Vec4,
-    /// x: the node's reach past the control, in physical pixels. y:
-    /// the control's corner radius. z: the side the flame leans to.
-    #[uniform(4)]
-    shape: Vec4,
-}
-
-impl UiMaterial for Lamp {
-    fn fragment_shader() -> ShaderRef {
-        "embedded://hamlet_ui/widgets/feel/lamp.wgsl".into()
-    }
-}
-
-/// The node that draws the light a control spills. It stands outside
-/// every panel, so that no panel or list cuts the light at its edge.
-#[derive(Component)]
-pub(super) struct SpillOf(Entity);
 
 /// A spark rising from where the good action was done.
 #[derive(Component)]
@@ -322,167 +289,262 @@ fn hues(mood: Mood, colors: &MagicColors) -> (Color, Color) {
     }
 }
 
-type Lamped<'a> = (
-    Entity,
-    &'a Feel,
-    &'a Mood,
-    &'a ComputedNode,
-    Option<&'a MaterialNode<Lamp>>,
-);
+type Lamped<'a> =
+    (Entity, &'a Feel, &'a Mood, Option<&'a BackgroundGradient>);
 
-/// Keeps the flame in the glass of every control that has one.
+/// Keeps the flame in the glass of every control that has one: a
+/// pool of light from low in the glass, leaning to one side.
 pub(super) fn light(
     mut commands: Commands,
     theme: Themed,
-    mut lamps: ResMut<Assets<Lamp>>,
     controls: Query<Lamped>,
 ) {
     let colors = MagicColors::of(&theme);
-    for (control, feel, mood, node, lamp) in &controls {
+    for (control, feel, mood, now) in &controls {
         // Lettering has no glass for a flame to burn in.
         if matches!(*mood, Mood::Quiet | Mood::Ink) {
             continue;
         }
-        let (hue, heart) = hues(*mood, &colors);
         // Only the good action shows its glass while it is out.
-        let glass = f32::from(*mood == Mood::Good);
-        let want = Lamp {
-            hue: linear(hue).extend(feel.glow),
-            heart: linear(heart).extend(glass),
-            low: linear(colors.glass_low).extend(1.0),
-            high: linear(colors.glass_high).extend(1.0),
-            shape: Vec4::new(
-                0.0,
-                node.border_radius.top_left,
-                feel.lean,
-                0.0,
-            ),
-        };
-        let Some(lamp) = lamp else {
-            commands
-                .entity(control)
-                .try_insert(MaterialNode(lamps.add(want)));
+        let glass = *mood == Mood::Good;
+        if feel.glow <= 0.0 && !glass {
+            if now.is_some() {
+                commands
+                    .entity(control)
+                    .try_remove::<BackgroundGradient>();
+            }
             continue;
-        };
-        let stale =
-            lamps.get(&lamp.0).is_some_and(|now| *now != want);
-        if stale && let Some(mut now) = lamps.get_mut(&lamp.0) {
-            *now = want;
+        }
+        let (hue, heart) = hues(*mood, &colors);
+        let burn = feel.glow;
+        let stops = pool(8.0, |near| {
+            if glass {
+                let fill = colors.glass_low.mix(
+                    &colors.glass_high,
+                    near * (0.55 + 0.45 * burn),
+                );
+                fill.mix(&heart, near * burn * 0.4).with_alpha(0.97)
+            } else {
+                hue.mix(&heart, near * 0.5)
+                    .with_alpha(burn * near * 0.8)
+            }
+        });
+        // Wide and tall enough to fade out inside the glass, with no
+        // rim. The flame sits a little under the foot, to one side.
+        let want = BackgroundGradient::from(RadialGradient::new(
+            UiPosition::bottom(
+                percent(9.0 * feel.lean),
+                percent(2.5),
+            ),
+            RadialGradientShape::Ellipse(
+                percent(150.0),
+                percent(160.0),
+            ),
+            stops,
+        ));
+        if now != Some(&want) {
+            commands.entity(control).try_insert(want);
         }
     }
 }
 
-type Glowing<'a> = (
-    Entity,
-    &'a Feel,
-    Option<&'a Mood>,
+type Glowing<'a> =
+    (&'a Feel, Option<&'a Mood>, Option<&'a Children>, Entity);
+
+type Shape<'a> = (
     &'a ComputedNode,
     &'a UiGlobalTransform,
-    Option<&'a Children>,
+    Option<&'a CalculatedClip>,
 );
+
+/// The node that holds the light a control spills on its panel's
+/// [`GlowLayer`], and the place of that light there.
+#[derive(Component)]
+pub(super) struct SpillOf(Entity);
+
+/// A spill to keep: its layer, its place there and its light.
+pub(super) struct Spilt {
+    layer: Entity,
+    stands: Node,
+    shadow: BoxShadow,
+}
+
+/// The place, in the layer's logical pixels, of a node as large as
+/// `control` is drawn, squashed or swollen, with the corners of
+/// `control` or round at its ends for lettering. Nothing when the
+/// clip of `control` hides it.
+fn stands(
+    (node, at, clip): Shape,
+    (layer, layer_at): (&ComputedNode, &UiGlobalTransform),
+    lettering: bool,
+) -> Option<Node> {
+    let (drawn, _, centre) = at.to_scale_angle_translation();
+    let size = node.size * drawn;
+    let seen = |clip: &CalculatedClip| {
+        clip.rects().is_some_and(|rects| {
+            rects.iter().all(|cut| {
+                let local =
+                    cut.world_to_clip_local.transform_point2(centre);
+                !Rect::from_center_half_size(local, size / 2.0)
+                    .intersect(cut.rect)
+                    .is_empty()
+            })
+        })
+    };
+    if clip.is_some_and(|clip| !seen(clip)) {
+        return None;
+    }
+    let scale = node.inverse_scale_factor;
+    let corner = centre
+        - size / 2.0
+        - (layer_at.translation - layer.size / 2.0);
+    let round = |radius: Vec2| {
+        let k = scale * drawn.x;
+        if lettering {
+            CornerRadius::circular(px(size.y * 0.5 * scale))
+        } else {
+            CornerRadius::new(px(radius.x * k), px(radius.y * k))
+        }
+    };
+    let corners = node.border_radius;
+    Some(Node {
+        position_type: PositionType::Absolute,
+        left: px(corner.x * scale),
+        top: px(corner.y * scale),
+        width: px(size.x * scale),
+        height: px(size.y * scale),
+        border_radius: BorderRadius {
+            top_left: round(corners.top_left),
+            top_right: round(corners.top_right),
+            bottom_right: round(corners.bottom_right),
+            bottom_left: round(corners.bottom_left),
+        },
+        ..Node::default()
+    })
+}
 
 /// The share of a control's reach the light about lettering has.
 const INK_REACH: f32 = 0.55;
 
-/// Keeps the light that spills from every lit control, and takes it
-/// away when the control goes dark or goes away.
+/// The share of its reach a spilled light falls under the control,
+/// as on a table under a lamp.
+const DROP: f32 = 0.5;
+
+/// Keeps the light that spills from every lit control as a shadow
+/// of its colour, and takes it away when the control goes dark. A
+/// control in a panel throws it on the panel's layer, which is cut at
+/// the panel's border, and any other on itself.
 pub(super) fn spill(
     mut commands: Commands,
     set: Res<FeelSettings>,
     theme: Themed,
-    mut lamps: ResMut<Assets<Lamp>>,
     buttons: Query<Glowing>,
-    inked: Query<(&ComputedNode, &UiGlobalTransform)>,
-    mut pools: Query<(
+    shapes: Query<Shape>,
+    shadows: Query<&BoxShadow, Without<SpillOf>>,
+    ancestors: Query<&ChildOf>,
+    panels: Query<&Children, With<GlowPanel>>,
+    layers: Query<
+        (&ComputedNode, &UiGlobalTransform),
+        With<GlowLayer>,
+    >,
+    mut spills: Query<(
         Entity,
         &SpillOf,
+        &ChildOf,
         &mut Node,
-        &MaterialNode<Lamp>,
+        &mut BoxShadow,
     )>,
-    mut pooled: Local<Vec<Entity>>,
+    mut spilt: Local<HashMap<Entity, Spilt>>,
 ) {
+    spilt.clear();
     let colors = MagicColors::of(&theme);
-    // The place of the light's node and the lamp it shows.
-    let place = |(_, feel, mood, node, at, within): Glowing| {
+    for (feel, mood, within, control) in &buttons {
         let mood = mood.copied().unwrap_or_default();
         // The light about lettering is about the words and the mark,
         // which are the button's one child.
-        let written = within
-            .filter(|_| mood == Mood::Ink)
-            .and_then(|within| within.first())
-            .and_then(|first| inked.get(*first).ok());
-        let (node, at, reach) = match written {
-            Some((node, at)) => (node, at, feel.reach * INK_REACH),
-            None => (node, at, feel.reach),
+        let (target, reach) = match mood {
+            Mood::Ink => {
+                let Some(first) = within.and_then(|w| w.first())
+                else {
+                    continue;
+                };
+                (*first, feel.reach * INK_REACH)
+            }
+            _ => (control, feel.reach),
         };
-        let scale = node.inverse_scale_factor;
-        // As large as the control is drawn, squashed or swollen.
-        let (drawn, _, centre) = at.to_scale_angle_translation();
-        let size = node.size * scale * drawn;
-        let corner = centre * scale - size / 2.0;
-        let stands = Node {
-            position_type: PositionType::Absolute,
-            left: px(corner.x - reach),
-            top: px(corner.y - reach),
-            width: px(size.x + 2.0 * reach),
-            height: px(size.y + 2.0 * reach),
-            ..Node::default()
-        };
-        // Round at its ends, as light about a line of words is.
-        let round = match written {
-            Some(_) => node.size.y * 0.5,
-            None => node.border_radius.top_left,
-        };
-        let (hue, heart) = hues(mood, &colors);
         let thrown = match mood {
             Mood::Bad | Mood::Field => set.spill * set.smoulder,
             _ => set.spill,
         };
-        let shows = Lamp {
-            hue: linear(hue).extend(feel.glow * thrown),
-            heart: linear(heart).extend(0.0),
-            low: Vec4::ZERO,
-            high: Vec4::ZERO,
-            shape: Vec4::new(
-                reach / scale,
-                round * drawn.x,
-                feel.lean,
-                f32::from(written.is_some()),
-            ),
-        };
-        (stands, shows)
-    };
-    let lit = |(_, feel, _, node, _, _): &Glowing| {
-        feel.glow > 0.0 && node.size.min_element() > 0.0
-    };
-    pooled.clear();
-    for (pool, of, mut node, material) in &mut pools {
-        let Some(button) = buttons.get(of.0).ok().filter(lit) else {
-            commands.entity(pool).try_despawn();
+        let strength = feel.glow * thrown;
+        let now = shadows.get(target).ok();
+        let shape = shapes
+            .get(target)
+            .ok()
+            .filter(|(node, ..)| node.size.min_element() > 0.0)
+            .filter(|_| strength > 0.0);
+        let Some(shape) = shape else {
+            if now.is_some() {
+                commands.entity(target).try_remove::<BoxShadow>();
+            }
             continue;
         };
-        pooled.push(of.0);
-        let (stands, shows) = place(button);
-        if *node != stands {
-            *node = stands;
+        let (hue, _) = hues(mood, &colors);
+        let want = BoxShadow::new(
+            hue.with_alpha(strength),
+            px(0.0),
+            px(reach * DROP),
+            px(0.0),
+            px(reach),
+        );
+        let Some(layer) =
+            layer_of(control, &ancestors, &panels, &layers)
+        else {
+            if now != Some(&want) {
+                commands.entity(target).try_insert(want);
+            }
+            continue;
+        };
+        if now.is_some() {
+            commands.entity(target).try_remove::<BoxShadow>();
         }
-        if let Some(mut lamp) = lamps.get_mut(&material.0)
-            && *lamp != shows
-        {
-            *lamp = shows;
+        let place = layers
+            .get(layer)
+            .ok()
+            .and_then(|at| stands(shape, at, mood == Mood::Ink));
+        if let Some(stands) = place {
+            spilt.insert(
+                control,
+                Spilt {
+                    layer,
+                    stands,
+                    shadow: want,
+                },
+            );
         }
     }
-    for button in buttons.iter().filter(lit) {
-        if pooled.contains(&button.0) {
+    for (spill, of, parent, mut node, mut shadow) in &mut spills {
+        let Some(keep) = spilt.remove(&of.0) else {
+            commands.entity(spill).try_despawn();
             continue;
+        };
+        if parent.parent() != keep.layer {
+            commands.entity(spill).try_insert(ChildOf(keep.layer));
         }
-        let (stands, shows) = place(button);
+        if *node != keep.stands {
+            *node = keep.stands;
+        }
+        if *shadow != keep.shadow {
+            *shadow = keep.shadow;
+        }
+    }
+    for (control, keep) in spilt.drain() {
         commands.spawn((
-            SpillOf(button.0),
-            stands,
-            MaterialNode(lamps.add(shows)),
+            SpillOf(control),
+            keep.stands,
+            keep.shadow,
             Pickable::IGNORE,
-            GlobalZIndex(i32::MAX - 2),
+            ChildOf(keep.layer),
         ));
     }
 }
