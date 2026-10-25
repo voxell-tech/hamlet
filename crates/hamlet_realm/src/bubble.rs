@@ -330,8 +330,13 @@ fn bubbles(
     let (camera, view) = lens.camera();
     let eye = view.translation();
     let dt = time.delta_secs();
-    for (agent, _, saying, _, pinned, _) in &agents {
-        if (saying.is_changed() || pinned.is_some())
+    for (agent, _, saying, busy, pinned, _) in &agents {
+        // The first state inserts every agent's `Saying`, so a change
+        // alone is not enough: a silent agent at rest has nothing to
+        // put in a balloon.
+        let speaks =
+            saying.is_changed() && (busy || !saying.text.is_empty());
+        if (speaks || pinned.is_some())
             && !shown.iter().any(|(_, b, ..)| b.of == agent)
         {
             spawn(&mut commands, agent, &set);
