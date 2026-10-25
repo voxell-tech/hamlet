@@ -121,7 +121,9 @@ impl<'a> Menus<'a> {
                 items
             }
             Thing::Mascot | Thing::Hearth => vec![
-                item("Change Your Look", |world| world.change_look()),
+                item("Change Your Look", |world| {
+                    world.show(Selected::Hearth)
+                }),
                 focus(thing),
                 item("Go to the Hearth", |world| {
                     world.focus(Thing::Hearth, false)

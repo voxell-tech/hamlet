@@ -20,7 +20,7 @@ mod words;
 pub(crate) use crate::shared::breadcrumb::breadcrumb;
 pub(crate) use crate::shared::change::change_view;
 pub(crate) use crate::shared::client::{
-    AgentsWorldExt, Focused, Heard, Rostered, Waits, plugin,
+    AgentsWorldExt, Chiefed, Focused, Heard, Rostered, Waits, plugin,
     show_chat, start,
 };
 pub(crate) use crate::shared::confirm::{

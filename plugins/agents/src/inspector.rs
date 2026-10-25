@@ -1,11 +1,12 @@
 //! The Inspector: whatever the window's focus has selected. An agent
 //! with its notes, character, archive and prompt; one that is gone;
-//! the library; a hamlet with its agents, bylaws and record; or every
-//! hamlet when nothing is selected.
+//! the library; the chief with their look; a hamlet with its agents,
+//! bylaws and record; or every hamlet when nothing is selected.
 
 mod agent;
 mod archive;
 mod bylaws;
+mod chief;
 mod founding;
 mod gone;
 mod hamlet;
@@ -52,6 +53,7 @@ pub(crate) fn plugin(app: &mut App) {
             AgentsRequest::Focus,
             AgentsRequest::Roster,
             AgentsRequest::Skills,
+            AgentsRequest::Chief,
             AgentsRequest::Settings,
             AgentsRequest::Catalogue,
         ]),
@@ -64,6 +66,7 @@ pub(crate) fn plugin(app: &mut App) {
 enum Page {
     Overview,
     Library,
+    Chief,
     Hamlet(String),
     Gone(String),
     Agent,
@@ -78,10 +81,8 @@ fn page(world: &World) -> Page {
         .as_ref()
         .map(|focus| focus.selected.clone());
     match selected {
-        // The chief's own page is the realm's to show.
-        None | Some(Selected::Nothing | Selected::Hearth) => {
-            Page::Overview
-        }
+        None | Some(Selected::Nothing) => Page::Overview,
+        Some(Selected::Hearth) => Page::Chief,
         Some(Selected::Library) => Page::Library,
         Some(Selected::Hamlet(id)) => {
             if roster.hamlets.iter().any(|hamlet| hamlet.id == id) {
@@ -135,6 +136,7 @@ fn inspector() -> AnyView {
         |page| match page {
             Page::Overview => overview::overview(),
             Page::Library => gone::library(),
+            Page::Chief => chief::chief(),
             Page::Hamlet(id) => hamlet::hamlet(id.clone()),
             Page::Gone(name) => gone::gone(name.clone()),
             Page::Agent => agent::living(),

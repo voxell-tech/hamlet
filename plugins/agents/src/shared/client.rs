@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use hamlet_engine_bevy::api::Capability;
 use hamlet_engine_bevy::api::agents::{
-    Focus, Need, Recipient, Roster, Skill,
+    ChiefRecord, Focus, Need, Recipient, Roster, Skill,
 };
 use hamlet_engine_bevy::bevy_ecs::message::MessageCursor;
 use hamlet_engine_bevy::prelude::*;
@@ -29,6 +29,7 @@ pub fn plugin(app: &mut App) {
     app.init_resource::<Asked>()
         .init_resource::<Focused>()
         .init_resource::<Rostered>()
+        .init_resource::<Chiefed>()
         .init_resource::<Waits>()
         .init_resource::<Shelves>()
         .init_resource::<Changes>()
@@ -96,6 +97,10 @@ impl Focused {
 /// The roster, as last told.
 #[derive(Resource, Default, PartialEq)]
 pub struct Rostered(pub Roster);
+
+/// The chief at this window, as the home keeps it.
+#[derive(Resource, Default, PartialEq)]
+pub struct Chiefed(pub ChiefRecord);
 
 /// What waits for the chief, oldest first.
 #[derive(Resource, Default, PartialEq)]
@@ -263,6 +268,10 @@ impl Heard {
             Heard::Reply(_, AgentsReply::Roster(roster))
             | Heard::Event(AgentsEvent::Roster(roster)) => {
                 world.keep(Rostered(roster.clone()));
+            }
+            Heard::Reply(_, AgentsReply::Chief(record))
+            | Heard::Event(AgentsEvent::Chief(record)) => {
+                world.keep(Chiefed(record.clone()));
             }
             Heard::Reply(_, AgentsReply::Needs(needs))
             | Heard::Event(AgentsEvent::Needs(needs)) => {

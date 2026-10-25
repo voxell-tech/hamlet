@@ -5,7 +5,6 @@
 mod deed;
 mod found;
 mod menu;
-mod wardrobe;
 
 use hamlet_engine_bevy::api::agents::{
     AgentsReply, AgentsRequest, Gift, Selected,
@@ -17,7 +16,6 @@ use hamlet_engine_bevy::{Reply, Ticket};
 use crate::ask::deed::{Asking, Deed};
 use crate::ask::found::Forming;
 use crate::ask::menu::Menus;
-use crate::ask::wardrobe::Dressing;
 use crate::realm::{
     Hear, INSPECTOR, Things, focus_on_thing, pick_up, steer,
 };
@@ -41,7 +39,7 @@ pub(crate) fn plugin(app: &mut App) {
 }
 
 /// The cards that ask something of the person.
-type Asked = Or<(With<Asking>, With<Forming>, With<Dressing>)>;
+type Asked = Or<(With<Asking>, With<Forming>)>;
 
 /// The thing asked about, until the skills its agent could be given
 /// are told.
@@ -73,10 +71,6 @@ pub trait AskWorldExt {
 
     /// Shows the form a hamlet is founded with.
     fn found_hamlet(&mut self);
-
-    /// Shows the card the chief's look is chosen on, unless it is
-    /// shown already.
-    fn change_look(&mut self);
 }
 
 impl AskWorldExt for World {
@@ -122,25 +116,6 @@ impl AskWorldExt for World {
             CardPlace::Here,
             Forming,
         ));
-    }
-
-    fn change_look(&mut self) {
-        let shown = self
-            .query_filtered::<(), With<Dressing>>()
-            .iter(self)
-            .next()
-            .is_some();
-        if !shown {
-            self.spawn((
-                Card::new(
-                    CardLook::Card,
-                    QUESTION_WIDTH,
-                    wardrobe::view,
-                ),
-                CardPlace::Here,
-                Dressing,
-            ));
-        }
     }
 }
 
