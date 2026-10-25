@@ -82,11 +82,12 @@ pub(crate) fn load(root: &Path) -> (Vec<Manifest>, Vec<String>) {
     let mut entries =
         entries.filter_map(Result::ok).collect::<Vec<_>>();
     entries.sort_by_key(std::fs::DirEntry::file_name);
-    let reserved = crate::tools::specs()
-        .into_iter()
-        .chain(crate::harness::tools::specs())
-        .map(|tool| tool.name)
-        .chain(["powershell".into()])
+    let reserved = crate::tools::reserved_names()
+        .chain(
+            crate::harness::tools::specs()
+                .into_iter()
+                .map(|tool| tool.name),
+        )
         .chain(crate::society::SocietyTool::names().map(String::from))
         .collect::<BTreeSet<_>>();
     let mut names = BTreeSet::new();

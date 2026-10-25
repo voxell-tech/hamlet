@@ -10,7 +10,9 @@ use super::environment::Reach;
 use super::truncate::{
     MAX_BYTES, character_end, format_size, truncate_head,
 };
-use super::{Arguments, Outcome, diagnostic, diff, number_words};
+use super::{
+    Arguments, Dialect, Outcome, diagnostic, diff, number_words,
+};
 use crate::sandbox::{FileError, FileKind};
 
 /// The failure of a file call, in pi's words.
@@ -118,10 +120,12 @@ fn tool_path(env: &impl Reach, path: &str) -> String {
 }
 
 /// pi's `read`: a text file's lines, at most 2000 or 50KB from
-/// `offset`, with remarks on what was left out.
+/// `offset`, with remarks on what was left out. Where a line is too
+/// long it tells how to read the rest in the language of `shell`.
 pub(super) async fn read(
     env: &mut impl Reach,
     arguments: &Map<String, Value>,
+    shell: Option<Dialect>,
 ) -> Outcome {
     let args = Arguments::new("read", arguments);
     let (path, offset, limit) = match (
@@ -139,7 +143,7 @@ pub(super) async fn read(
     outcome(
         async {
             let path = env.footing(path).await?;
-            read_text(env, &path, offset, limit).await
+            read_text(env, &path, offset, limit, shell).await
         }
         .await,
     )
@@ -150,6 +154,7 @@ async fn read_text(
     path: &str,
     offset: Option<f64>,
     limit: Option<f64>,
+    shell: Option<Dialect>,
 ) -> Result<Outcome, CallError> {
     let resolved = tool_path(env, path);
     let decomposed = resolved.nfd().collect::<String>();
@@ -224,14 +229,18 @@ async fn read_text(
             DiagnosticSeverity::Warn,
             "truncated",
             format!(
-                "Line {line_number} is {}, exceeds the {} limit; \
-                 showing its first {}. Use bash: sed -n \
-                 '{line_number}p' {path} | tail -c +{}",
+                "Line {} is {}, exceeds the {} limit; showing its \
+                 first {}.{}",
+                number_words(shown_start),
                 format_size(line.len()),
                 format_size(MAX_BYTES),
                 format_size(cut),
-                cut + 1,
-                line_number = number_words(shown_start),
+                shell
+                    .map(|dialect| format!(
+                        " {}",
+                        dialect.line_hint(path, shown_start, cut + 1)
+                    ))
+                    .unwrap_or_default(),
             ),
         ));
         let mut details = truncation.json();

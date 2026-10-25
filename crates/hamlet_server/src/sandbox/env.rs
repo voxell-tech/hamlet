@@ -117,8 +117,20 @@ pub(crate) enum ExecError {
 
 #[derive(Clone, Copy)]
 pub(crate) enum Launch<'a> {
-    Shell(&'a str),
-    Program { argv: &'a [String], input: &'a str },
+    /// A shell's argv, which reads nothing.
+    Shell(&'a [String]),
+    Program {
+        argv: &'a [String],
+        input: &'a str,
+    },
+}
+
+impl<'a> Launch<'a> {
+    fn argv(self) -> &'a [String] {
+        match self {
+            Self::Shell(argv) | Self::Program { argv, .. } => argv,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -497,30 +509,18 @@ impl Env {
         if let Some(refusal) = self.root_refusal() {
             return Err(ExecError::Spawn(refusal.message));
         }
-        let argv = match launch {
-            Launch::Shell(command) => {
-                vec![
-                    "bash".to_owned(),
-                    "-c".into(),
-                    command.to_owned(),
-                ]
-            }
-            Launch::Program { argv, .. } => argv.to_vec(),
-        };
-        if !self.is_on_path("bash") {
-            return Err(ExecError::Spawn(
-                "bash: command not found".into(),
-            ));
-        }
         let limits = &self.policy.limits;
+        let wrapped = process::limited(limits, launch.argv());
+        if let Some(program) =
+            wrapped.first().filter(|word| !self.is_on_path(word))
+        {
+            return Err(ExecError::Spawn(format!(
+                "{program}: command not found"
+            )));
+        }
         let confined = self
             .sandbox
-            .command(
-                &self.policy,
-                &process::limited(limits, &argv),
-                &self.cwd,
-                &self.tmp,
-            )
+            .command(&self.policy, &wrapped, &self.cwd, &self.tmp)
             .map_err(|missing| {
                 ExecError::Spawn(missing.to_string())
             })?;

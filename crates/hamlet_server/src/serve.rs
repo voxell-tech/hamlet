@@ -111,7 +111,11 @@ pub async fn serve(options: Options) -> Result<()> {
     let (mut harnesses, notices) = Harnesses::start(
         &layout,
         service.home.store(),
-        harness::Config::from_env(options.faux.clone(), overrides)?,
+        harness::Config::from_env(
+            options.faux.clone(),
+            overrides,
+            &service.houses.shells(),
+        )?,
     )?;
     for notice in notices {
         tokio::select! {

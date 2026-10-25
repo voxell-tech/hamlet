@@ -53,7 +53,8 @@ impl Capability {
 
 /// Where houses live and tools run.
 enum Workspace {
-    Local,
+    /// This machine, with the shells it offers.
+    Local(crate::tools::Shells),
     Remote(Transport),
 }
 
@@ -82,7 +83,9 @@ impl Houses {
                 Some(connection) => {
                     Workspace::Remote(Transport::new(connection)?)
                 }
-                None => Workspace::Local,
+                None => {
+                    Workspace::Local(crate::tools::Shells::local())
+                }
             },
             skills: Default::default(),
             reading: Default::default(),
@@ -99,7 +102,7 @@ impl Houses {
         &self,
     ) -> Option<&crate::credentials::WorkspaceAddress> {
         match &self.workspace {
-            Workspace::Local => None,
+            Workspace::Local(_) => None,
             Workspace::Remote(transport) => {
                 Some(transport.connection())
             }
@@ -109,7 +112,7 @@ impl Houses {
     /// Refuses `capability` when the workspace cannot do it.
     pub fn allows(&self, capability: Capability) -> Refusable<()> {
         match &self.workspace {
-            Workspace::Local => Ok(()),
+            Workspace::Local(_) => Ok(()),
             Workspace::Remote(_) => Err(Refusal::Cannot {
                 operation: capability.operation().into(),
                 cause: Cause::Remote,
@@ -131,7 +134,7 @@ impl Houses {
     /// Whether every house change has happened or not once it
     /// returns, so work a crash cut short may be done again.
     pub fn can_confirm(&self) -> bool {
-        matches!(self.workspace, Workspace::Local)
+        matches!(self.workspace, Workspace::Local(_))
     }
 
     /// Checks before serving that tools can run.
@@ -140,7 +143,7 @@ impl Houses {
         sandbox: crate::sandbox::Sandbox,
     ) -> Result<()> {
         match self.workspace {
-            Workspace::Local => sandbox.probe(),
+            Workspace::Local(_) => sandbox.probe(),
             Workspace::Remote(_) => Ok(()),
         }
     }
@@ -148,7 +151,7 @@ impl Houses {
     /// The machine tools run on, where it is not this one.
     pub fn machine(&self) -> Option<&'static str> {
         match self.workspace {
-            Workspace::Local => None,
+            Workspace::Local(_) => None,
             Workspace::Remote(_) => Some(remote::MACHINE),
         }
     }
@@ -157,7 +160,7 @@ impl Houses {
     /// fixes it.
     pub fn fixed_folder(&self) -> Option<&'static str> {
         match self.workspace {
-            Workspace::Local => None,
+            Workspace::Local(_) => None,
             Workspace::Remote(_) => Some(remote::PROJECT),
         }
     }
@@ -180,7 +183,7 @@ impl Houses {
     /// The house of agent `number` of `hamlet`.
     pub fn house(&self, hamlet: &str, number: u64) -> Result<Files> {
         Ok(match &self.workspace {
-            Workspace::Local => Files::Local(tree::house(
+            Workspace::Local(_) => Files::Local(tree::house(
                 &self.root,
                 hamlet,
                 number,
@@ -206,7 +209,7 @@ impl Houses {
         project: bool,
     ) -> Result<Reader> {
         Ok(match &self.workspace {
-            Workspace::Local => Reader::Local {
+            Workspace::Local(_) => Reader::Local {
                 root: self.root.try_clone()?,
                 hamlet: hamlet.into(),
                 number,
@@ -226,6 +229,14 @@ impl Houses {
         })
     }
 
+    /// The shells the workspace offers.
+    pub fn shells(&self) -> crate::tools::Shells {
+        match &self.workspace {
+            Workspace::Local(shells) => shells.clone(),
+            Workspace::Remote(_) => crate::tools::Shells::remote(),
+        }
+    }
+
     /// The tools of `agent` working at `place`, reaching the network
     /// only with `net`.
     pub fn tools(
@@ -236,8 +247,13 @@ impl Houses {
         sandbox: crate::sandbox::Sandbox,
     ) -> Result<crate::tools::ToolSession> {
         Ok(match &self.workspace {
-            Workspace::Local => {
-                crate::tools::ToolSession::local(place, net, sandbox)
+            Workspace::Local(shells) => {
+                crate::tools::ToolSession::local(
+                    place,
+                    net,
+                    sandbox,
+                    shells.clone(),
+                )
             }
             Workspace::Remote(transport) => {
                 let policy = Policy {
@@ -247,7 +263,11 @@ impl Houses {
                 };
                 let session =
                     transport.session(agent.clone(), policy)?;
-                crate::tools::ToolSession::remote(place, session)
+                crate::tools::ToolSession::remote(
+                    place,
+                    session,
+                    crate::tools::Shells::remote(),
+                )
             }
         })
     }
@@ -264,7 +284,7 @@ impl Houses {
             Remote(remote::Folder),
         }
         let making = match &self.workspace {
-            Workspace::Local => self
+            Workspace::Local(_) => self
                 .root
                 .try_clone()
                 .map(|root| Making::Local(root, hamlet.into()))
@@ -296,7 +316,7 @@ impl Houses {
     /// [`Houses::initialize`], which waits for the workspace.
     pub fn build(&self, hamlet: &str, number: u64) -> Result<()> {
         match self.workspace {
-            Workspace::Local => {
+            Workspace::Local(_) => {
                 tree::build(&self.root, hamlet, number)
             }
             Workspace::Remote(_) => Ok(()),
@@ -330,7 +350,7 @@ impl Houses {
         hamlet: &str,
         number: u64,
     ) -> Result<Vec<String>> {
-        if let Workspace::Local = self.workspace {
+        if let Workspace::Local(_) = self.workspace {
             return Ok(tree::house(
                 &self.root,
                 hamlet,
@@ -400,7 +420,7 @@ impl Houses {
         number: u64,
         snapshot: &copy::Snapshot,
     ) -> Result<()> {
-        let Workspace::Local = self.workspace else {
+        let Workspace::Local(_) = self.workspace else {
             self.initialize(hamlet, number).await?;
             return snapshot
                 .replace(&self.house(hamlet, number)?)
