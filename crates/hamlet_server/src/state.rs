@@ -320,10 +320,7 @@ pub(crate) fn build(
         epoch,
         revision,
         chief: service.chief.clone(),
-        sandbox: service.houses.sandbox().map_or_else(
-            || "remote".into(),
-            |sandbox| sandbox.name().into(),
-        ),
+        confinement: service.houses.confinement(),
         houses: root
             .join("houses")
             .to_str()

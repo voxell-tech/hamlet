@@ -188,9 +188,17 @@ impl Account {
 #[derive(Resource, Clone, Debug, Default)]
 pub struct Chief(pub String);
 
-/// The server's sandbox name.
-#[derive(Resource, Clone, Debug, Default)]
-pub struct Sandbox(pub String);
+/// What confines the commands the server's agents run.
+#[derive(Resource, Clone, Debug)]
+pub struct Confinement(pub protocol::Confinement);
+
+impl Default for Confinement {
+    fn default() -> Self {
+        Self(protocol::Confinement::Sandbox {
+            name: String::new(),
+        })
+    }
+}
 
 /// The received model, network and reflection settings.
 #[derive(Resource, Clone, Debug)]
@@ -428,7 +436,7 @@ pub(crate) fn state(world: &mut World, state: protocol::State) {
     ));
     world.insert_resource(Closed(state.closed));
     world.insert_resource(Chief(state.chief));
-    world.insert_resource(Sandbox(state.sandbox));
+    world.insert_resource(Confinement(state.confinement));
     world.insert_resource(Settings(state.settings));
     world.insert_resource(Providers(state.providers));
     world.insert_resource(Grants(state.grants));

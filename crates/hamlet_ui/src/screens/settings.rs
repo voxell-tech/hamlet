@@ -14,13 +14,15 @@ use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, column, dropdown, label,
-    number_field, row, scroll, slider,
+    BehaviorExt, FrameProps, TooltipExt, column, dropdown, frame,
+    label, number_field, row, scroll, slider,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::messages::{ChiefMessage, Reconnected, Response};
 use hamlet_client::outbox::Outbox;
-use hamlet_client::realm::{Grants, HOME, MAYOR, Settings};
+use hamlet_client::realm::{
+    Confinement, Grants, HOME, MAYOR, Settings,
+};
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_desktop::editor::{Edit, Edited};
 use hamlet_protocol::client as protocol;
@@ -191,6 +193,27 @@ fn switch(
     tick(on).on_change(set)
 }
 
+/// A warning under the network switch while the confinement does not
+/// enforce it. Nothing otherwise.
+fn not_enforced() -> AnyView {
+    keyed(
+        resource::<Confinement, _>(|c| c.0.enforces_network()),
+        |enforced| {
+            if *enforced {
+                frame().boxed()
+            } else {
+                label("Not enforced in insecure mode.")
+                    .size(12.0)
+                    .bold(true)
+                    .tone(Tone::Critical)
+                    .boxed()
+            }
+        },
+    )
+    .within(row(()).gap(0.0))
+    .boxed()
+}
+
 /// The settings of agents. Each applies when changed.
 fn agents() -> impl View {
     column((
@@ -220,15 +243,20 @@ fn agents() -> impl View {
                         save(world, |set| set.allow_net = Some(on));
                     },
                 ),
-                note(resource::<Settings, _>(|s| {
-                    if s.0.allow_net {
-                        "Agents' commands can reach the internet."
-                            .to_string()
-                    } else {
-                        "Agents' commands cannot reach the internet."
-                            .to_string()
-                    }
-                })),
+                column((
+                    note(resource::<Settings, _>(|s| {
+                        if s.0.allow_net {
+                            "Agents' commands can reach the internet."
+                                .to_string()
+                        } else {
+                            "Agents' commands cannot reach the \
+                             internet."
+                                .to_string()
+                        }
+                    })),
+                    not_enforced(),
+                ))
+                .gap(2.0),
             ),
         ),
         field(
@@ -1028,6 +1056,29 @@ mod tests {
             words_and_spans(&mut app)
                 .iter()
                 .any(|text| text == "Cannot read the charter.")
+        );
+    }
+
+    #[test]
+    fn the_network_switch_says_not_enforced_in_insecure_mode() {
+        let mut app = settings_page(Pane::Agents);
+        assert!(
+            !words_and_spans(&mut app)
+                .iter()
+                .any(|text| text.contains("Not enforced"))
+        );
+
+        let mut state = hamlet_testing::realm::state();
+        state.confinement = protocol::Confinement::Insecure;
+        hamlet_client::receive(
+            app.world_mut(),
+            protocol::ServerMessage::State(state),
+        );
+        settle(&mut app);
+        assert!(
+            words_and_spans(&mut app)
+                .iter()
+                .any(|text| text == "Not enforced in insecure mode.")
         );
     }
 }

@@ -68,7 +68,7 @@ fn hello_carries_the_version_and_token() {
             v: V,
             token: "test-token".into(),
         }),
-        json!({"type": "hello", "v": 1, "token": "test-token"}),
+        json!({"type": "hello", "v": V, "token": "test-token"}),
     );
 }
 
@@ -483,7 +483,7 @@ fn providers_wire() -> Value {
 
 fn state_wire() -> Value {
     json!({
-        "type": "state", "epoch": 1, "revision": 2, "chief": "chief", "sandbox": "Seatbelt",
+        "type": "state", "epoch": 1, "revision": 2, "chief": "chief", "confinement": {"kind": "sandbox", "name": "Seatbelt"},
         "hamlets": [hamlet_wire()], "agents": [agent_wire()], "waits": [wait_wire()],
         "grants": grants_wire(), "settings": settings_wire(), "providers": providers_wire(),
         "houses": "/home/chief/.hamlet/houses", "library": [], "closed": [],
