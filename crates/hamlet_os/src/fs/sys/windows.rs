@@ -285,29 +285,23 @@ impl System for Windows {
         let file = open_at(from, name, DELETE, FILE_OPEN, 0, 0)?;
         let rename =
             |class, how| rename_to(&file, to, to_name, class, how);
-        match replace {
-            Replace::Never => rename(
+        // `Flags` sets every byte of the union, where the one-byte
+        // `ReplaceIfExists` would leave three unset.
+        let replacing = match replace {
+            Replace::Never => 0,
+            Replace::Always => FILE_RENAME_FLAG_REPLACE_IF_EXISTS,
+        };
+        let posix = FILE_RENAME_INFO_0 {
+            Flags: replacing
+                | FILE_RENAME_FLAG_POSIX_SEMANTICS
+                | RENAME_IGNORE_READONLY,
+        };
+        match rename(FileRenameInfoEx, posix) {
+            Err(error) if unsupported(&error) => rename(
                 FileRenameInfo,
-                FILE_RENAME_INFO_0 {
-                    ReplaceIfExists: false,
-                },
+                FILE_RENAME_INFO_0 { Flags: replacing },
             ),
-            Replace::Always => {
-                let posix = FILE_RENAME_INFO_0 {
-                    Flags: FILE_RENAME_FLAG_REPLACE_IF_EXISTS
-                        | FILE_RENAME_FLAG_POSIX_SEMANTICS
-                        | RENAME_IGNORE_READONLY,
-                };
-                match rename(FileRenameInfoEx, posix) {
-                    Err(error) if unsupported(&error) => rename(
-                        FileRenameInfo,
-                        FILE_RENAME_INFO_0 {
-                            ReplaceIfExists: true,
-                        },
-                    ),
-                    renamed => renamed,
-                }
-            }
+            renamed => renamed,
         }
     }
 
