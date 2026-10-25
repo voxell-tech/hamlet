@@ -47,6 +47,7 @@ view layer; the workspace excludes it, and it is not edited here.
 |---|---|
 | `hamlet_cli` | `hamlet`: process lifecycle, terminal chat, editors and login, without Bevy |
 | `hamlet_server` | `hamlet_server`: realm, permissions, tools, records, credentials and harness supervision |
+| `hamlet_os` | The system calls whose form differs by OS, with no C code below them: `fs`, directories held open and what is reached from them one name at a time, never through a link at that name |
 | `hamlet_app` | `hamlet_app`, the window, and the seven examples that draw the world and the panels |
 | `harnesses/pi/` | Node pi-durable/pi-ai runtime; conversations, provider calls, compaction and forks |
 | `hamlet_protocol` | Both protocols' types: `client` and `runtime`; `RequestId`, which holds only a hyphenated UUID; `State::apply` for a client's changes; recorded frames, the schema pi reads and the client schema's fingerprint |
