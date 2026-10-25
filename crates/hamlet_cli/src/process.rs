@@ -24,6 +24,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 #[cfg(unix)]
+use hamlet_protocol::client::Confinement;
+#[cfg(unix)]
 use hamlet_protocol::client::discovery::Running;
 use hamlet_protocol::client::discovery::{self, Chosen};
 #[cfg(unix)]
@@ -38,6 +40,25 @@ use tokio::{
 };
 
 use crate::client::{self, ServerAddress};
+
+/// What `hamlet`, `hamlet stop` and `hamlet status` do with the
+/// local server.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    /// Starts the server, unless one runs, and opens a window on it.
+    Start(Isolation),
+    Stop,
+    Status,
+}
+
+/// Whether a server the CLI starts runs agents' commands in a
+/// sandbox.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Isolation {
+    Sandboxed,
+    /// `--insecure`, which only Windows takes.
+    Insecure,
+}
 
 fn nonempty(name: &str) -> Option<String> {
     env::var(name).ok().filter(|s| !s.is_empty())
@@ -130,6 +151,7 @@ fn server_command(
     home: &Path,
     port: u16,
     faux: Option<&str>,
+    isolation: Isolation,
 ) -> Command {
     let mut command = Command::new(server);
     command
@@ -139,13 +161,22 @@ fn server_command(
     if let Some(faux) = faux {
         command.arg("--faux").arg(faux);
     }
+    if isolation == Isolation::Insecure {
+        command.arg("--insecure");
+    }
     command
 }
 
 #[cfg(unix)]
-pub fn serve(port: u16, faux: Option<&str>) -> Result<i32> {
+pub fn serve(
+    port: u16,
+    faux: Option<&str>,
+    isolation: Isolation,
+) -> Result<i32> {
     let server = find_binary("hamlet_server", "HAMLET_SERVER_BIN")?;
-    Err(server_command(&server, &home()?, port, faux).exec()).context(
+    let mut command =
+        server_command(&server, &home()?, port, faux, isolation);
+    Err(command.exec()).context(
         "Cannot start hamlet_server; build it or set \
          HAMLET_SERVER_BIN",
     )
@@ -337,11 +368,13 @@ fn mkdir(home: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Starts a server for `home`, or finds the one another `hamlet`
+/// started meanwhile.
 #[cfg(unix)]
-async fn ensure(home: &Path) -> Result<(Running, ServerAddress)> {
-    if let Some(found) = inspect(home).await? {
-        return Ok(found);
-    }
+async fn start(
+    home: &Path,
+    isolation: Isolation,
+) -> Result<(Running, ServerAddress)> {
     mkdir(home)?;
     let log = fs::OpenOptions::new()
         .create(true)
@@ -350,7 +383,8 @@ async fn ensure(home: &Path) -> Result<(Running, ServerAddress)> {
         .open(home.join("server.log"))?;
     let log_start = log.metadata()?.len();
     let server = find_binary("hamlet_server", "HAMLET_SERVER_BIN")?;
-    let mut command = server_command(&server, home, 0, None);
+    let mut command =
+        server_command(&server, home, 0, None, isolation);
     session(&mut command);
     command
         .stdin(Stdio::null())
@@ -393,7 +427,7 @@ async fn ensure(home: &Path) -> Result<(Running, ServerAddress)> {
     )
 }
 
-pub async fn service(action: &str) -> Result<i32> {
+pub async fn service(action: Action) -> Result<i32> {
     let address = match discovery::choose(nonempty)? {
         Chosen::Home(home) => {
             return local_service(action, &home).await;
@@ -401,11 +435,11 @@ pub async fn service(action: &str) -> Result<i32> {
         Chosen::At(address) => address,
     };
     anyhow::ensure!(
-        action != "stop",
+        action != Action::Stop,
         "Cannot stop HAMLET_SERVER here. A server elsewhere is \
          stopped on its own machine."
     );
-    if action == "status" {
+    if action == Action::Status {
         let live = is_answering(&address).await;
         println!(
             "hamlet: {} at {}",
@@ -419,24 +453,31 @@ pub async fn service(action: &str) -> Result<i32> {
 }
 
 #[cfg(unix)]
-async fn local_service(action: &str, home: &Path) -> Result<i32> {
-    let found = if action == "start" {
-        Some(ensure(home).await?)
-    } else {
-        inspect(home).await?
+async fn local_service(action: Action, home: &Path) -> Result<i32> {
+    let found = inspect(home).await?;
+    if let (Action::Start(_), Some((record, _))) = (action, &found)
+        && record.confinement == Some(Confinement::Insecure)
+    {
+        println!("Attached to a server in insecure mode.");
+    }
+    let found = match (action, found) {
+        (Action::Start(isolation), None) => {
+            Some(start(home, isolation).await?)
+        }
+        (_, found) => found,
     };
     let Some((record, address)) = found else {
         let stale = running(home)?.is_some();
-        if stale && action == "stop" {
+        if stale && action == Action::Stop {
             fs::remove_file(home.join("server.json"))?;
         }
         println!(
             "hamlet: {}not running",
             if stale { "stale server.json; " } else { "" }
         );
-        return Ok(i32::from(action != "stop"));
+        return Ok(i32::from(action != Action::Stop));
     };
-    if action == "stop" {
+    if action == Action::Stop {
         signal(record.pid, Signal::TERM)?;
         let deadline = Instant::now() + Duration::from_secs(30);
         while is_alive(record.pid) {
@@ -458,7 +499,7 @@ async fn local_service(action: &str, home: &Path) -> Result<i32> {
             record.started,
             home.join("server.log").display()
         );
-        if action == "start" {
+        if let Action::Start(_) = action {
             open_detached(&address)?;
         }
     }
@@ -622,6 +663,7 @@ pub async fn develop(
     port: u16,
     faux: Option<&str>,
     chosen: Option<&str>,
+    isolation: Isolation,
 ) -> Result<i32> {
     use tokio::signal::unix::{SignalKind, signal as listen};
     let home = dev_home(chosen)?;
@@ -631,7 +673,8 @@ pub async fn develop(
     let mut interrupt = listen(SignalKind::interrupt())?;
     let mut terminate = listen(SignalKind::terminate())?;
     let mut hangup = listen(SignalKind::hangup())?;
-    let mut command = server_command(&server, &home, port, faux);
+    let mut command =
+        server_command(&server, &home, port, faux, isolation);
     session(&mut command);
     command.stdin(Stdio::null());
     let mut server =
@@ -714,7 +757,7 @@ pub async fn develop(
 }
 
 #[cfg(not(unix))]
-pub fn serve(_: u16, _: Option<&str>) -> Result<i32> {
+pub fn serve(_: u16, _: Option<&str>, _: Isolation) -> Result<i32> {
     bail!(
         "The agent server requires macOS or Linux. Use \
          HAMLET_SERVER and HAMLET_TOKEN to connect to another \
@@ -723,8 +766,8 @@ pub fn serve(_: u16, _: Option<&str>) -> Result<i32> {
 }
 
 #[cfg(not(unix))]
-async fn local_service(_: &str, _: &Path) -> Result<i32> {
-    serve(0, None)
+async fn local_service(_: Action, _: &Path) -> Result<i32> {
+    serve(0, None, Isolation::Insecure)
 }
 
 #[cfg(not(unix))]
@@ -732,6 +775,7 @@ pub async fn develop(
     _: u16,
     _: Option<&str>,
     _: Option<&str>,
+    isolation: Isolation,
 ) -> Result<i32> {
-    serve(0, None)
+    serve(0, None, isolation)
 }

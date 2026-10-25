@@ -13,11 +13,14 @@ mod terminal;
 
 use anyhow::{Result, bail};
 
-const USAGE: &str = "usage: hamlet
+use crate::process::{Action, Isolation};
+
+const USAGE: &str = "usage: hamlet [--insecure]
        hamlet stop
        hamlet status
-       hamlet server [--port <n>] [--faux <script.json>]
-       hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>]
+       hamlet server [--port <n>] [--faux <script.json>] [--insecure]
+       hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>] \
+                     [--insecure]
        hamlet window
        hamlet chat [--to <agent|name@hamlet|mayor@hamlet>]
        hamlet edit <charter|character|notes|limits|settings> \
@@ -30,6 +33,7 @@ Closing a window stops no agent. hamlet stop stops the local server.
 dev builds the checkout's server and window and serves a scratch \
                      home; Ctrl-C stops both.
 server serves in the foreground; Ctrl-C stops it.
+--insecure, on Windows only, runs agents' commands with no sandbox.
 
 env: HAMLET_HOME (~/.hamlet), HAMLET_SERVER and HAMLET_TOKEN (remote \
                      clients),
@@ -42,15 +46,17 @@ Use Node from harnesses/pi/.nvmrc and npm ci --prefix harnesses/pi \
 
 enum Command {
     Help,
-    Service(&'static str),
+    Service(Action),
     Server {
         port: u16,
         faux: Option<String>,
+        isolation: Isolation,
     },
     Dev {
         port: u16,
         faux: Option<String>,
         home: Option<String>,
+        isolation: Isolation,
     },
     Window,
     Chat(String),
@@ -62,20 +68,28 @@ fn parse(args: &[String]) -> Result<Command> {
         return Ok(Command::Help);
     }
     let Some(name) = args.first() else {
-        return Ok(Command::Service("start"));
+        return Ok(Command::Service(Action::Start(
+            Isolation::Sandboxed,
+        )));
     };
     let rest = &args[1..];
     let unknown = |arg: &str| {
         anyhow::anyhow!("unknown argument `{arg}`\n\n{USAGE}")
     };
     match name.as_str() {
+        "--insecure" => {
+            if let Some(arg) = rest.first() {
+                return Err(unknown(arg));
+            }
+            Ok(Command::Service(Action::Start(insecure()?)))
+        }
         "stop" | "status" | "window" => {
             if let Some(arg) = rest.first() {
                 return Err(unknown(arg));
             }
             Ok(match name.as_str() {
-                "stop" => Command::Service("stop"),
-                "status" => Command::Service("status"),
+                "stop" => Command::Service(Action::Stop),
+                "status" => Command::Service(Action::Status),
                 _ => Command::Window,
             })
         }
@@ -83,9 +97,15 @@ fn parse(args: &[String]) -> Result<Command> {
             let mut port = if name == "dev" { 0 } else { 7313 };
             let mut faux = None;
             let mut home = None;
+            let mut isolation = Isolation::Sandboxed;
             let mut to = hamlet_protocol::MAYOR.to_owned();
-            for pair in rest.chunks(2) {
-                let flag = pair[0].as_str();
+            let mut flags = rest.iter();
+            while let Some(flag) = flags.next() {
+                let flag = flag.as_str();
+                if flag == "--insecure" && name != "chat" {
+                    isolation = insecure()?;
+                    continue;
+                }
                 let needs = match flag {
                     "--port" if name != "chat" => "a port number",
                     "--faux" if name != "chat" => {
@@ -97,7 +117,7 @@ fn parse(args: &[String]) -> Result<Command> {
                     "--to" if name == "chat" => "an agent's name",
                     _ => return Err(unknown(flag)),
                 };
-                let value = pair.get(1).ok_or_else(|| {
+                let value = flags.next().ok_or_else(|| {
                     anyhow::anyhow!("{flag} needs {needs}")
                 })?;
                 match flag {
@@ -127,8 +147,17 @@ fn parse(args: &[String]) -> Result<Command> {
                 }
             }
             Ok(match name.as_str() {
-                "server" => Command::Server { port, faux },
-                "dev" => Command::Dev { port, faux, home },
+                "server" => Command::Server {
+                    port,
+                    faux,
+                    isolation,
+                },
+                "dev" => Command::Dev {
+                    port,
+                    faux,
+                    home,
+                    isolation,
+                },
                 _ => Command::Chat(to),
             })
         }
@@ -211,6 +240,19 @@ fn parse(args: &[String]) -> Result<Command> {
     }
 }
 
+/// `--insecure`, which only Windows takes, as it has no sandbox yet
+/// (C18).
+fn insecure() -> Result<Isolation> {
+    if cfg!(windows) {
+        Ok(Isolation::Insecure)
+    } else {
+        bail!(
+            "Insecure mode is only for Windows. This platform has a \
+             sandbox."
+        )
+    }
+}
+
 fn main() {
     let result = (|| -> Result<i32> {
         let command =
@@ -219,8 +261,13 @@ fn main() {
             println!("{USAGE}");
             return Ok(0);
         }
-        if let Command::Server { port, faux } = command {
-            return process::serve(port, faux.as_deref());
+        if let Command::Server {
+            port,
+            faux,
+            isolation,
+        } = command
+        {
+            return process::serve(port, faux.as_deref(), isolation);
         }
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -230,11 +277,17 @@ fn main() {
                 Command::Service(action) => {
                     process::service(action).await
                 }
-                Command::Dev { port, faux, home } => {
+                Command::Dev {
+                    port,
+                    faux,
+                    home,
+                    isolation,
+                } => {
                     process::develop(
                         port,
                         faux.as_deref(),
                         home.as_deref(),
+                        isolation,
                     )
                     .await
                 }

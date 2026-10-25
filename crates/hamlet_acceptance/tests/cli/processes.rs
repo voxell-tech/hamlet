@@ -229,3 +229,26 @@ async fn dev_launches_cargos_reported_server_and_window() {
     assert_eq!(stopped.code(), Some(0), "{stopped:?}");
     assert!(!home.file("server.json").exists());
 }
+
+#[tokio::test]
+async fn insecure_is_refused_off_windows() {
+    let home = Home::new();
+    for args in [
+        &["--insecure"][..],
+        &["server", "--insecure"],
+        &["dev", "--insecure"],
+    ] {
+        let refused = Cli::run(home.path(), args, "", &[]).await;
+        assert_eq!(refused.code(), Some(1), "{args:?} {refused:?}");
+        assert!(
+            refused.err.contains(
+                "Insecure mode is only for Windows. This platform \
+                 has a sandbox."
+            ),
+            "{args:?} {refused:?}"
+        );
+        assert!(!home.file("server.json").exists(), "{args:?}");
+    }
+    let status = Cli::run(home.path(), &["status"], "", &[]).await;
+    assert_eq!(status.code(), Some(1), "{status:?}");
+}
