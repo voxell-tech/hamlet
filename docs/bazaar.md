@@ -1,9 +1,10 @@
 # The Agent Bazaar
 
 A market in the world and a panel in the window where the chief brings
-things home: models for the catalogue, skills for the library, and the
+things home: models for the catalogue, skills for the library, the
 agents, tools and whole hamlets other chiefs sell at the bazaar's
-server, where the chief sells their own.
+server, where the chief sells their own, and the official looks agents
+and hamlets wear ([`looks.md`](looks.md)).
 
 ## In the world
 
@@ -55,6 +56,7 @@ shelves and pages are made of, out of the panels' own looks.
 | Agents, Plugins, Hamlets | What other chiefs sell | The bazaar's server; where it cannot be reached, `bazaar/samples/` | Bought there, then `settle` with its package; see [The market](#the-market) |
 | Hamlets, as samples | Hamlet templates | `bazaar/samples/hamlets.rs` | `found-from` with its mayor and agents, for nothing |
 | Agents, Plugins, as samples | Made up | `bazaar/samples/` | Nothing: the page says it is a sample |
+| Looks | The official skins, meshes and emotes agents and hamlets wear | The bazaar's server's catalogue of assets | Bought there; worn with a `looks` edit, its file downloaded for the realm; see [`looks.md`](looks.md) |
 
 OpenRouter's models run through the chief's sign-in with OpenRouter, or
 an endpoint at its address. With neither, a model waits for one to be

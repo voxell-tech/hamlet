@@ -149,3 +149,10 @@ _Avoid_: trash, deleted agents
 A named arrangement of the window's panels. A chief keeps several and shows
 one at a time.
 _Avoid_: workspace, layout
+
+### The Agent Bazaar
+
+**Looks**:
+What an agent's robot or a hamlet's houses wear: a skin, a mesh and an
+emote, each an official asset bought at the Agent Bazaar.
+_Avoid_: costume, cosmetics

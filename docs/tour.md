@@ -55,7 +55,7 @@ view layer; the workspace excludes it, and it is not edited here.
 | `hamlet_client` | Connection, outbox, realm, waits and watched chats as Bevy entities, the `Index` that finds them by their protocol ids, and gifts read in parts off the frame |
 | `hamlet_desktop` | File/link openers, editor files, dialogs, wake locks and window icon |
 | `hamlet_assets` | Embedded assets and Bevy asset loading |
-| `hamlet_realm` | Land, hamlets, houses, roads, robots, chief, library, Agent Bazaar, dioramas, sound and camera |
+| `hamlet_realm` | Land, hamlets, houses, roads, robots, chief, library, Agent Bazaar, dioramas, what agents and hamlets wear, sound and camera |
 | `hamlet_ui` | The widget kit: theme, styles, controls and their effects, with no client state |
 | `hamlet_vfx` | Visual effects |
 | `hamlet_testing` | Fixtures shared by tests: scratch folders, protocol values, faux scripts, the loopback OpenAI endpoint, and a server process on a scratch home with a raw connection to it (`send`, `until`, `answers`) |
@@ -214,6 +214,7 @@ ordinary tools.
 | The Agent Bazaar's panel, its stalls and fetches | `hamlet_app/src/screens/bazaar.rs`, `bazaar/`; [`bazaar.md`](bazaar.md) |
 | Buying and selling at the bazaar's server | `hamlet_app/src/screens/bazaar/market.rs`, `market/`, `view/trade.rs`, `view/desk.rs`; the home's side in `hamlet_server/src/market.rs` |
 | The Agent Bazaar in the world, and dioramas | `hamlet_realm/src/bazaar.rs`, `bazaar/`, `diorama.rs` |
+| What agents and hamlets wear | Kept: `hamlet_server/src/looks.rs`; worn: `hamlet_realm/src/dress.rs`, `wardrobe.rs`, `generator/attire.rs`, `keeper/wear.rs`; sold and fitted: `hamlet_app/src/screens/bazaar/wardrobe.rs`, `view/wardrobe.rs`; baked: `voxell-tech/private-hamlet-assets` (private); [`looks.md`](looks.md) |
 | A prompt or chief document | `hamlet_server/src/prompt/`, `documents.rs`; default charter in `hamlet_server/assets/charter.md` |
 | A model connection, login or price | `hamlet_server/src/models.rs`, `credentials.rs`; provider implementation in pi |
 | Folder, mode or tool reach | `hamlet_server/src/documents.rs`, `tools.rs`, `sandbox/`; [`sandbox.md`](sandbox.md) |
@@ -257,7 +258,7 @@ reports an error and keeps the last good values.
 |---|---|
 | `cargo run --example ui_gallery -- --scene <name> --out <dir>` | Panel scenes listed in `crates/hamlet_app/examples/ui_gallery/main.rs` |
 | `cargo run --release --example far_lands -- --out <dir>` | Land and town images; `--bench` measures it |
-| `cargo run --example chief_sheet -- --out <dir>` | Wizard, Wickstep, library and the Agent Bazaar; `--bazaar` for the bazaar alone |
+| `cargo run --example chief_sheet -- --out <dir>` | Wizard, Wickstep, library and the Agent Bazaar; `--bazaar` for the bazaar alone, `--looks` for a hamlet and an agent in their looks |
 | `cargo run --example cursor_sheet` | Cursor sheet |
 | `cargo run --release --example sound_sheet` | Generated sound WAVs |
 

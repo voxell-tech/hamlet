@@ -90,6 +90,15 @@ changes.
 **The mayor** (`Who::mayor()`) is the one robot with the brass dome hat,
 a pennant, a cream mantle and a larger size. Cream is kept for the mayor.
 
+## Wearing a look
+
+A robot with a `Wears` wears a skin, a mesh and a clip (`wear.rs`,
+[`looks.md`](looks.md)). A skin swaps the materials of its parts for ones
+shared by every robot in that skin; a mesh swaps the meshes of the parts
+it names and keeps their joints; a clip adds turns and shifts to the pose
+of eight parts before it is drawn. An agent's robot carries a `Wearer`,
+its agent's name, and wears what the agent wears.
+
 ## Using it
 
 ```rust
