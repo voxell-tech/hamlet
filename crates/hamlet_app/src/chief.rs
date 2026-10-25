@@ -22,6 +22,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, component, derived, keyed};
 use hamlet_client::ViewFolder;
 use hamlet_client::messages::ChiefMessage;
+use hamlet_realm::bazaar::{Bazaar, Booth, Pitched};
 use hamlet_realm::chief::{
     self, Beside, Chief, Cloak, Hat, Holds, Kept, Light, Look, Player,
 };
@@ -76,11 +77,17 @@ pub(crate) fn enter(world: &mut World) {
     if let Some(stands) = kept.place(&name) {
         world.entity_mut(chief).insert(stands);
     }
-    // The place the library was last set down, too.
+    // The places the library and the bazaar were last set down,
+    // too.
     if let (Some(at), Some(mut stood)) =
         (kept.library, world.get_resource_mut::<Stood>())
     {
         stood.0 = Some(at);
+    }
+    if let (Some(at), Some(mut pitched)) =
+        (kept.bazaar, world.get_resource_mut::<Pitched>())
+    {
+        pitched.0 = Some(at);
     }
 }
 
@@ -124,14 +131,23 @@ pub(crate) fn accompany(
     convo: Res<Convo>,
     selected: Res<Selected>,
     libraries: Query<Entity, With<Library>>,
+    bazaars: Query<Entity, With<Bazaar>>,
+    booths: Query<(Entity, &Booth)>,
     mut chiefs: Query<(&Chief, &mut Beside)>,
 ) {
     if !convo.is_changed() && !selected.is_changed() {
         return;
     }
-    // To the library when that is what was chosen.
+    // To the library, the bazaar or one of its stalls when that is
+    // what was chosen.
     let with = match selected.0 {
         Some(Thing::Library) => libraries.iter().next(),
+        Some(Thing::Bazaar) => bazaars.iter().next(),
+        Some(Thing::Stall(stall)) => booths
+            .iter()
+            .find(|(_, booth)| booth.stall == stall)
+            .map(|(booth, _)| booth)
+            .or_else(|| bazaars.iter().next()),
         chosen => company(chosen, convo.agent),
     };
     for (chief, mut beside) in &mut chiefs {

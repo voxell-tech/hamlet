@@ -28,6 +28,11 @@ pub(super) fn plugin(app: &mut App) {
         );
 }
 
+/// How many times its reach the camera stands from what it frames
+/// whole, with the field of view at 25 degrees and some room about
+/// it.
+const WHOLE: f32 = 5.0;
+
 /// The camera moved by hand, on top of the stage's view.
 #[derive(Resource, Clone, Copy, PartialEq)]
 pub struct Orbit {
@@ -164,6 +169,34 @@ pub fn focus_on(world: &mut World, thing: Thing, stay: bool) {
     orbit.pan = pan;
     orbit.zoom = orbit.zoom.min(close);
     world.resource_mut::<Following>().0 = stay.then_some(thing);
+}
+
+/// Brings `at` to the middle of the view, as far off as shows `reach`
+/// about it whole, and follows nothing.
+pub fn frame_round(world: &mut World, at: Vec2, reach: f32) {
+    if let Some(mut played) =
+        world.get_resource_mut::<Messages<Played>>()
+    {
+        played.write(Played {
+            what: Play::Focus,
+            at: Vec3::new(at.x, 0.0, at.y),
+        });
+    }
+    let centre = world.resource::<Centre>().0;
+    let set = world.resource::<CameraSettings>();
+    let leash = world.resource::<Leash>();
+    let pan = leash.held(set, centre, at - centre);
+    let (least, most) = leash.zoom(set);
+    // The distance a zoom of one stands at, from the stand shown.
+    let base = world.resource::<Stance>().0.map(|(distance, _)| {
+        distance / world.resource::<Glide>().0.zoom
+    });
+    let mut orbit = world.resource_mut::<Orbit>();
+    orbit.pan = pan;
+    if let Some(base) = base.filter(|base| *base > 0.0) {
+        orbit.zoom = (reach * WHOLE / base).clamp(least, most);
+    }
+    world.resource_mut::<Following>().0 = None;
 }
 
 /// F brings the selected thing to the middle and comes in close,

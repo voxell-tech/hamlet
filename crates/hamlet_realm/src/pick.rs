@@ -26,6 +26,7 @@ use bevy::window::PrimaryWindow;
 
 pub use self::camera::{
     Centre, Following, Glide, Leash, Orbit, Stance, Steer, focus_on,
+    frame_round,
 };
 pub use self::reach::Reach;
 use self::reach::aim;
@@ -125,6 +126,10 @@ pub enum Thing {
     ChiefPlace(Entity),
     /// The library every agent shares.
     Library,
+    /// The Agent Bazaar, where the home's wares are bought.
+    Bazaar,
+    /// One stall of the bazaar.
+    Stall(crate::bazaar::Stall),
     /// The clockwork on a hamlet's workbench, which sets its mode.
     Clockwork(Entity),
     /// The workbench on a hamlet's common, which stands for its
@@ -160,6 +165,8 @@ impl Thing {
                 format!("{}'s Hearth", named(chief))
             }
             Thing::Library => "The Library".into(),
+            Thing::Bazaar => "The Agent Bazaar".into(),
+            Thing::Stall(stall) => stall.name().into(),
             Thing::Clockwork(hamlet) => {
                 format!("The Clockwork of {}", named(hamlet))
             }

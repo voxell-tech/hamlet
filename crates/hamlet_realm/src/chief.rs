@@ -21,9 +21,10 @@ use hamlet_client::ViewFolder;
 
 pub use self::look::{Cloak, Hat, Holds, Light, Look};
 pub use self::wickstep::{Mascot, Phase, Stay};
+use crate::bazaar::Pitched;
 use crate::generator::land::Land;
 use crate::hand::PlaySettings;
-use crate::library::{Library, Stood};
+use crate::library::Stood;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<ChiefSettings>()
@@ -43,12 +44,12 @@ pub(super) fn plugin(app: &mut App) {
                             any_match_filter::<
                                 Or<(
                                     Changed<Place>,
-                                    Changed<Library>,
+                                    Changed<Grounds>,
                                 )>,
                             >,
                         )
                         .or_eager(any_component_removed::<Place>)
-                        .or_eager(any_component_removed::<Library>),
+                        .or_eager(any_component_removed::<Grounds>),
                 ),
                 dress::dress,
                 wickstep::step,
@@ -191,7 +192,8 @@ impl Stands {
 }
 
 /// The chiefs' looks and places kept under the window's folder, and
-/// the library's place, as read once at launch and kept since.
+/// the library's and the bazaar's places, as read once at launch and
+/// kept since.
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
 pub struct Kept {
     /// By the name each chief's files are kept under.
@@ -199,6 +201,8 @@ pub struct Kept {
     places: HashMap<String, Stands>,
     /// Where the library was last set down.
     pub library: Option<Vec2>,
+    /// Where the bazaar was last set down.
+    pub bazaar: Option<Vec2>,
 }
 
 impl Kept {
@@ -246,6 +250,8 @@ impl Kept {
         }
         kept.library =
             place(&Stood::file(view))?.map(|stands| stands.0);
+        kept.bazaar =
+            place(&Pitched::file(view))?.map(|stands| stands.0);
         Ok(kept)
     }
 
@@ -309,6 +315,16 @@ pub struct Settled {
     pub place: Entity,
     pub mascot: Entity,
 }
+
+/// On a place that is not a town: the middle and the radius of the
+/// ground it keeps level and clear of trees.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct Grounds(pub Vec2, pub f32);
+
+/// On what a chief's mascot may keep company with but an agent or a
+/// hamlet: the spot it stands at, from the thing's middle.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct Visitor(pub Vec3);
 
 /// A chief's place. Its entity carries the mesh of the house and
 /// the grounds.

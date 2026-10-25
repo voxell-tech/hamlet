@@ -4,9 +4,11 @@
 use bevy::prelude::*;
 use hamlet_assets::{File, Tuning, TuningPlugin, designed, follow};
 
+use crate::bazaar::BazaarSettings;
 use crate::bubble::BubbleSettings;
 use crate::chief::ChiefSettings;
 use crate::debug::DebugSettings;
+use crate::diorama::DioramaSettings;
 use crate::generator::house::HouseSettings;
 use crate::generator::land::LandSettings;
 use crate::generator::layout::TownSettings;
@@ -52,6 +54,8 @@ pub(crate) struct WorldTuning {
     pub chief: ChiefSettings,
     pub play: PlaySettings,
     pub works: WorksSettings,
+    pub bazaar: BazaarSettings,
+    pub diorama: DioramaSettings,
     pub sound: SoundSettings,
     pub debug: DebugSettings,
     pub generator: GeneratorSettings,
@@ -78,6 +82,8 @@ impl Tuning for WorldTuning {
         follow(world, &was.chief, &self.chief);
         follow(world, &was.play, &self.play);
         follow(world, &was.works, &self.works);
+        follow(world, &was.bazaar, &self.bazaar);
+        follow(world, &was.diorama, &self.diorama);
         follow(world, &was.sound, &self.sound);
         follow(world, &was.debug, &self.debug);
     }
@@ -99,6 +105,8 @@ designed!(WorldTuning {
     ChiefSettings => chief,
     PlaySettings => play,
     WorksSettings => works,
+    BazaarSettings => bazaar,
+    DioramaSettings => diorama,
     SoundSettings => sound,
     DebugSettings => debug,
     GeneratorSettings => generator,

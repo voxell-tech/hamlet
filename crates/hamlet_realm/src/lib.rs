@@ -1,10 +1,13 @@
 //! The realm as the chief sees it (docs/tour.md): the generated
 //! world and what it stands on, the bridge from the client's entities
-//! to it, the chief's mascot, the pointer and the library.
+//! to it, the chief's mascot, the pointer, the library and the
+//! bazaar.
 
+pub mod bazaar;
 pub mod bubble;
 pub mod chief;
 pub mod debug;
+pub mod diorama;
 pub mod generator;
 pub mod hamlet;
 pub mod hand;
@@ -61,6 +64,8 @@ impl Plugin for RealmPlugin {
                 orders::plugin,
                 chief::plugin,
                 library::plugin,
+                bazaar::plugin,
+                diorama::plugin,
                 moving::plugin,
                 works::plugin,
                 lantern::plugin,

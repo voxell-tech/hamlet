@@ -12,7 +12,7 @@ use bevy::window::RequestRedraw;
 pub use self::librarian::Librarian;
 use self::librarian::{ATTENDS, LOOK, STANDS, sage};
 use crate::chief::mascot::{self, Rig};
-use crate::chief::{Chief, Settled, place};
+use crate::chief::{Chief, Grounds, Settled, Visitor, place};
 use crate::generator::land::Land;
 use crate::generator::society::{Claim, Ground, Society};
 use crate::lantern::NightLight;
@@ -40,7 +40,7 @@ pub(crate) fn plugin(app: &mut App) {
 pub(crate) struct Raising;
 
 /// The radius of the ground the library keeps level and clear.
-pub(crate) const GROUNDS: f32 = 9.5;
+const GROUNDS: f32 = 9.5;
 
 /// Reach of the library from its middle and its height, for the box
 /// it is picked by, the ring about it and the name over it.
@@ -137,6 +137,8 @@ fn raise(
     let library = commands
         .spawn((
             Library { held: at },
+            Grounds(at, GROUNDS),
+            Visitor(VISITOR),
             Windows {
                 glass: lit.clone(),
                 glow,
@@ -367,4 +369,4 @@ fn shine(
 
 /// The spot of one who comes to the library, from its middle: at the
 /// foot of the steps, to the side the librarian is not on.
-pub(crate) const VISITOR: Vec3 = Vec3::new(-1.7, 0.0, 7.3);
+const VISITOR: Vec3 = Vec3::new(-1.7, 0.0, 7.3);

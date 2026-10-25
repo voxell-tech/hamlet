@@ -1,12 +1,13 @@
 //! The chief's deeds by hand, carried to the server as commands, and
 //! the moves of what the hand set down.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use bevy::prelude::*;
 use hamlet_client::realm::{self as agents, Deeds, HOME, HamletId};
 use hamlet_client::{ViewFolder, gifts};
 
+use crate::bazaar::Pitched;
 use crate::chief::{Kept, Player, Stands};
 use crate::generator::society::Ground;
 use crate::hamlet::{hamlet_of, town_of};
@@ -121,14 +122,29 @@ fn set_down(world: &mut World, set: SetDown) {
             }
         }
         Ground::Library => {
-            if let Some(view) = world.get_resource::<ViewFolder>() {
-                let file = Stood::file(&view.0);
-                let _ = Stands(set.to).write_at(&file);
+            if keep(world, Stood::file, set.to) {
                 world.resource_mut::<Kept>().library = Some(set.to);
             }
             world.resource_mut::<Stood>().0 = Some(set.to);
         }
+        Ground::Bazaar => {
+            if keep(world, Pitched::file, set.to) {
+                world.resource_mut::<Kept>().bazaar = Some(set.to);
+            }
+            world.resource_mut::<Pitched>().0 = Some(set.to);
+        }
     }
+}
+
+/// Writes `to` to the file `file` names under the window's folder,
+/// where the place is read back from at the next launch. False with
+/// no folder.
+fn keep(world: &World, file: fn(&Path) -> PathBuf, to: Vec2) -> bool {
+    let Some(view) = world.get_resource::<ViewFolder>() else {
+        return false;
+    };
+    let _ = Stands(to).write_at(&file(&view.0));
+    true
 }
 
 /// Carries out everything the hand asked for.
@@ -189,5 +205,31 @@ mod tests {
         let library = Some(Vec2::new(12.5, -40.0));
         assert_eq!(Kept::read(&dir).unwrap().library, library);
         assert_eq!(app.world().resource::<Kept>().library, library);
+    }
+
+    #[test]
+    fn setting_down_the_bazaar_keeps_its_own_place_in_the_view_folder()
+     {
+        let dir = Scratch::new("world-bazaar-view");
+        let mut app = App::new();
+        app.add_plugins(ClientPlugin { server: None })
+            .add_message::<Wish>()
+            .add_message::<SetDown>()
+            .add_plugins(plugin)
+            .insert_resource(ViewFolder(dir.to_path_buf()))
+            .init_resource::<Kept>()
+            .init_resource::<Stood>()
+            .init_resource::<Pitched>();
+        app.world_mut().write_message(SetDown {
+            place: Ground::Bazaar,
+            to: Vec2::new(-82.5, 140.25),
+        });
+        app.update();
+        let bazaar = Some(Vec2::new(-82.5, 140.25));
+        assert_eq!(Kept::read(&dir).unwrap().bazaar, bazaar);
+        assert_eq!(app.world().resource::<Pitched>().0, bazaar);
+        // The library's place is its own.
+        assert_eq!(Kept::read(&dir).unwrap().library, None);
+        assert_eq!(app.world().resource::<Stood>().0, None);
     }
 }

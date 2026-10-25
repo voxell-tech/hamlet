@@ -17,7 +17,7 @@ use self::charm::{Wand, charm};
 pub(super) use self::charm::{cast, prepare};
 use super::mascot::{Doing, Pose};
 use super::place::{self, Pastime};
-use super::{Beside, ChiefSettings, Look, Place, Settled};
+use super::{Beside, ChiefSettings, Look, Place, Settled, Visitor};
 use crate::Clock;
 use crate::generator::land::Land;
 use crate::generator::{
@@ -26,7 +26,6 @@ use crate::generator::{
 use crate::hamlet::{Housed, Sited};
 use crate::hand::PlaySettings;
 use crate::keeper::Act;
-use crate::library::{self, Library};
 use crate::palette::Palette;
 use crate::pick::{Hovered, Thing};
 use crate::play::{Play, Played};
@@ -218,7 +217,7 @@ pub(super) struct Bearings<'w> {
 }
 
 /// The places a mascot goes: its chief's place, the agents by their
-/// robots and houses, the commons and the libraries.
+/// robots and houses, the commons and what is visited.
 #[derive(SystemParam)]
 pub(super) struct Whereabouts<'w, 's> {
     chiefs: Query<
@@ -240,7 +239,8 @@ pub(super) struct Whereabouts<'w, 's> {
         (&'static Common, &'static GlobalTransform),
         Without<Mascot>,
     >,
-    libraries: Query<'w, 's, &'static GlobalTransform, With<Library>>,
+    visited:
+        Query<'w, 's, (&'static GlobalTransform, &'static Visitor)>,
     robots: Query<'w, 's, (&'static Robot, &'static GlobalTransform)>,
     houses: Query<'w, 's, (&'static House, &'static GlobalTransform)>,
     free: Query<'w, 's, (Entity, &'static Robot), Without<Passage>>,
@@ -289,7 +289,7 @@ pub(super) fn step(
         agents,
         sites,
         commons,
-        libraries,
+        visited,
         robots,
         houses,
         free,
@@ -344,10 +344,11 @@ pub(super) fn step(
                 let spot = middle + Vec2::from_angle(angle) * reach;
                 Some(Vec3::new(spot.x, 0.0, spot.y))
             }
-            // By the library it stands at the foot of its steps.
-            None => libraries
+            // By the library, the bazaar or a stall it stands where
+            // one who comes to it does.
+            None => visited
                 .get(agent)
-                .map(|at| at.transform_point(library::VISITOR))
+                .map(|(at, visitor)| at.transform_point(visitor.0))
                 .ok()
                 .or_else(|| {
                     whereabouts(agent, &agents, &robots, &houses)

@@ -226,6 +226,11 @@ fn items(menu: Menu, found: bool) -> Vec<AnyView> {
             item(Glyph::Aim, "Reset Camera", |w| {
                 *w.resource_mut::<Orbit>() = Orbit::default();
             }),
+            item(
+                Glyph::Coins,
+                "Go to the Bazaar",
+                hamlet_realm::bazaar::go_to,
+            ),
             item(Glyph::Clock, "Sky Follows the Clock", |w| {
                 *w.resource_mut::<TimeOfDay>() = TimeOfDay::Clock;
             }),

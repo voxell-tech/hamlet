@@ -7,13 +7,13 @@ use bevy::prelude::*;
 use super::dress::lit;
 use super::mascot::{self, Rig};
 use super::{
-    Chief, ChiefSettings, Look, Mascot, Place, Settled, Stands, place,
+    Chief, ChiefSettings, Grounds, Look, Mascot, Place, Settled,
+    Stands, place,
 };
 use crate::generator::land::Land;
 use crate::generator::society::{Claim, Ground, Society};
 use crate::generator::{flora, glow};
 use crate::lantern::lantern_glass;
-use crate::library::{self, Library};
 use crate::palette::Palette;
 use crate::pick::{self, Footprint, Named, Thing, hit_box};
 use crate::{Clock, Stock};
@@ -51,21 +51,19 @@ pub(super) fn resettle(
     }
 }
 
-/// Keeps the ground of every chief's place level and clear of
-/// trees, as a town's site is.
+/// Keeps the ground of every chief's place, and of every other place
+/// that holds its own, level and clear of trees, as a town's site is.
 pub(super) fn hold_ground(
     set: Res<ChiefSettings>,
     places: Query<&Place>,
-    libraries: Query<&Library>,
+    grounds: Query<&Grounds>,
     mut land: ResMut<Land>,
 ) {
     let mut rounds = places
         .iter()
         .map(|place| (place.held, set.grounds))
         .chain(
-            libraries
-                .iter()
-                .map(|library| (library.held, library::GROUNDS)),
+            grounds.iter().map(|&Grounds(at, radius)| (at, radius)),
         )
         .collect::<Vec<_>>();
     rounds.sort_by(|a, b| {

@@ -298,6 +298,47 @@ lamp_glow = 3.0
 lumens = 22000.0
 reach = 5.0
 
+[bazaar]
+lamp = 80000.0
+lamp_reach = 8.0
+glass = [1.2, 16.0]
+flash = 9.0
+gleam = [1.1, 2.6]
+bulb = [2.0, 14.0, 10.0]
+chase = [0.8, 3.0]
+glow = 120000.0
+glow_reach = 9.0
+glow_holds = 1.6
+flare = 700000.0
+flare_reach = 18.0
+cheers = 5.0
+waves = 3.2
+blend = 0.35
+turn = 5.0
+near = 3.0
+pace = 0.85
+shopper_turn = 0.45
+grown = 0.82
+sparks = [16, 0.55, 0.03, 9.0]
+shimmer = [12, 2.6, 0.035, 5.0]
+steam = [6, 3.2, 0.11, 0.35]
+embers = 18
+
+[diorama]
+still_frames = 3
+turn_rate = 0.12566371
+front = 0.55
+tilt = 0.6
+fov = 0.42
+distance = 3.5
+still_distance = 2.9
+robot_scale = 1.5
+margin = 3.5
+soil = 1.1
+base = 0.8
+lip = 0.45
+trees = 11
+
 [sound]
 muted = false
 music_on = true
