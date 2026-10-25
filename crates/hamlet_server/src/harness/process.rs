@@ -130,6 +130,11 @@ impl Process {
         if let Some(faux) = &pi.faux {
             command.arg("--faux").arg(faux);
         }
+        // CREATE_NO_WINDOW: a server `hamlet` starts in the
+        // background has no console, and Windows would open one for
+        // pi.
+        #[cfg(windows)]
+        command.creation_flags(0x0800_0000);
         let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
