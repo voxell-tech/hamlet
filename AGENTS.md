@@ -59,8 +59,9 @@ window ends only its process; agents keep working on the server. Stop
 
 ## Checks
 
-All four must be clean before a commit. `rust-toolchain.toml` pins the
-stable toolchain plain `cargo` runs. Formatting needs a nightly, because
+All four must be clean before a commit. `rust-toolchain.toml` names the
+latest stable toolchain plain `cargo` runs, no older than `rust-version`
+in `Cargo.toml` (`rustup update stable` if cargo says it is too old). Formatting needs a nightly, because
 `rustfmt.toml` uses unstable options: the dated one named in
 `rust-nightly`, which CI uses too. The workspace depends on
 `vendor/fynix`, a git submodule: clone with `--recurse-submodules` or

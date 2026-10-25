@@ -128,8 +128,10 @@ cargo test
 (cd harnesses/pi && npm run check && npm test)
 ```
 
-`rust-toolchain.toml` pins stable; `rust-nightly` names the dated nightly
-that formats. `cargo xtask check` runs all of it, plus the acceptance and
+`rust-toolchain.toml` follows the latest stable, no older than
+`rust-version` in `Cargo.toml`: if cargo says your compiler is too old, run
+`rustup update stable`. `rust-nightly` names the dated nightly that
+formats. `cargo xtask check` runs all of it, plus the acceptance and
 harness suites, cargo deny and the docs, as steps CI runs by name:
 `format`, `clippy`, `deny`, `test`, `acceptance`, `harness`, `doc` and
 `node`. `deny` needs `cargo install --locked cargo-deny`. `cargo xtask help`
