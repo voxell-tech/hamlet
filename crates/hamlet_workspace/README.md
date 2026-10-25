@@ -1,6 +1,6 @@
 # hamlet_workspace
 
-One binary, `hamlet-workspace`. `worker CONFIG` serves a remote
+One binary, `hamlet_workspace`. `worker CONFIG` serves a remote
 workspace on a Linux machine: it authenticates each Hamlet home by its
 bearer token and runs each file or process operation confined by
 bubblewrap, with only the calling agent's house and, when granted, the
@@ -24,7 +24,7 @@ From the repository root:
 cargo xtask workspace-image
 ```
 
-This tags the image `hamlet-workspace:<short commit>` and labels it
+This tags the image `hamlet_workspace:<short commit>` and labels it
 `org.opencontainers.image.revision` with the full commit, so a deployed
 image tells which commit it holds. Arguments after the task go to `docker
 build`, such as `--platform linux/amd64`; a `-t` there replaces the
@@ -37,7 +37,7 @@ every member to load it, then compiles only this crate with
 
 The runtime image is Debian 12 slim with:
 
-- `/usr/local/bin/hamlet-workspace` as the entrypoint, with no default
+- `/usr/local/bin/hamlet_workspace` as the entrypoint, with no default
   arguments;
 - `bubblewrap` pinned to `0.8.0-2+deb12u1` at `/usr/bin/bwrap`, the
   path the worker calls;
@@ -121,13 +121,13 @@ not expose the plain port on a network.
 ## Running in Docker
 
 ```sh
-docker run -d --name hamlet-workspace \
+docker run -d --name hamlet_workspace \
   --security-opt seccomp=unconfined \
   --security-opt systempaths=unconfined \
   -p 127.0.0.1:7420:7420 \
-  -v "$PWD/worker.json:/etc/hamlet-workspace/worker.json:ro" \
-  -v hamlet-workspace:/workspace \
-  hamlet-workspace:TAG worker /etc/hamlet-workspace/worker.json
+  -v "$PWD/worker.json:/etc/hamlet_workspace/worker.json:ro" \
+  -v hamlet_workspace:/workspace \
+  hamlet_workspace:TAG worker /etc/hamlet_workspace/worker.json
 ```
 
 Inside the container, `listen` must be `0.0.0.0:7420` for the

@@ -144,9 +144,9 @@ fn server_command(
 
 #[cfg(unix)]
 pub fn serve(port: u16, faux: Option<&str>) -> Result<i32> {
-    let server = find_binary("hamlet-server", "HAMLET_SERVER_BIN")?;
+    let server = find_binary("hamlet_server", "HAMLET_SERVER_BIN")?;
     Err(server_command(&server, &home()?, port, faux).exec()).context(
-        "Cannot start hamlet-server; build it or set \
+        "Cannot start hamlet_server; build it or set \
          HAMLET_SERVER_BIN",
     )
 }
@@ -221,7 +221,7 @@ fn window_command(app: &Path, address: &ServerAddress) -> Command {
 fn open_detached(address: &ServerAddress) -> Result<()> {
     let opened = (|| -> Result<()> {
         let mut command = window_command(
-            &find_binary("hamlet-app", "HAMLET_APP")?,
+            &find_binary("hamlet_app", "HAMLET_APP")?,
             address,
         );
         session(&mut command);
@@ -233,7 +233,7 @@ fn open_detached(address: &ServerAddress) -> Result<()> {
         Ok(())
     })();
     opened.context(
-        "Cannot open a window. Build hamlet-app or set HAMLET_APP \
+        "Cannot open a window. Build hamlet_app or set HAMLET_APP \
          to its executable, then open again. No stop was requested; \
          hamlet status reports the server.",
     )
@@ -254,7 +254,7 @@ fn exit_code(status: ExitStatus) -> i32 {
 }
 
 pub async fn window() -> Result<i32> {
-    let app = find_binary("hamlet-app", "HAMLET_APP")?;
+    let app = find_binary("hamlet_app", "HAMLET_APP")?;
     let command = window_command(&app, &address()?);
     Ok(exit_code(
         tokio::process::Command::from(command)
@@ -349,7 +349,7 @@ async fn ensure(home: &Path) -> Result<(Running, ServerAddress)> {
         .mode(0o600)
         .open(home.join("server.log"))?;
     let log_start = log.metadata()?.len();
-    let server = find_binary("hamlet-server", "HAMLET_SERVER_BIN")?;
+    let server = find_binary("hamlet_server", "HAMLET_SERVER_BIN")?;
     let mut command = server_command(&server, home, 0, None);
     session(&mut command);
     command
@@ -626,8 +626,8 @@ pub async fn develop(
     use tokio::signal::unix::{SignalKind, signal as listen};
     let home = dev_home(chosen)?;
     let server =
-        dev_binary("hamlet-server", "HAMLET_SERVER_BIN").await?;
-    let app = dev_binary("hamlet-app", "HAMLET_APP").await?;
+        dev_binary("hamlet_server", "HAMLET_SERVER_BIN").await?;
+    let app = dev_binary("hamlet_app", "HAMLET_APP").await?;
     let mut interrupt = listen(SignalKind::interrupt())?;
     let mut terminate = listen(SignalKind::terminate())?;
     let mut hangup = listen(SignalKind::hangup())?;

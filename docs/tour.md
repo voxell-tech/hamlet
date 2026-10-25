@@ -11,7 +11,7 @@ conversations and model calls. The window and CLI are its clients, over the clie
 neither opens the server's database nor runs an agent.
 
 ```text
-Window / terminal -- client protocol --> hamlet-server -- runtime protocol --> pi
+Window / terminal -- client protocol --> hamlet_server -- runtime protocol --> pi
                                                |                               |
                                          realm.sqlite                    harness store
                                         houses, sandbox                  conversations
@@ -31,7 +31,7 @@ server's state. `hamlet_client` turns `state`, `change`, `transcript` and
 Rust crates live under `crates/`. The root `Cargo.toml` is only the
 workspace: it holds no package, so `cargo build`, `cargo test` and
 `cargo clippy` there cover every crate. `crates/hamlet_app` supplies
-`hamlet-app` and the visual examples.
+`hamlet_app` and the visual examples.
 
 `xtask/` is a workspace of its own, run as `cargo xtask`. Its `check`
 is eight steps, `format`, `clippy`, `deny`, `test`, `acceptance`,
@@ -46,8 +46,8 @@ view layer; the workspace excludes it, and it is not edited here.
 | Crate or package | Owns |
 |---|---|
 | `hamlet_cli` | `hamlet`: process lifecycle, terminal chat, editors and login, without Bevy |
-| `hamlet_server` | `hamlet-server`: realm, permissions, tools, records, credentials and harness supervision |
-| `hamlet_app` | `hamlet-app`, the window, and the seven examples that draw the world and the panels |
+| `hamlet_server` | `hamlet_server`: realm, permissions, tools, records, credentials and harness supervision |
+| `hamlet_app` | `hamlet_app`, the window, and the seven examples that draw the world and the panels |
 | `harnesses/pi/` | Node pi-durable/pi-ai runtime; conversations, provider calls, compaction and forks |
 | `hamlet_protocol` | Both protocols' types: `client` and `runtime`; `RequestId`, which holds only a hyphenated UUID; `State::apply` for a client's changes; recorded frames, the schema pi reads and the client schema's fingerprint |
 | `hamlet_acceptance` | Real-process protocol, CLI and OAuth scenarios on scratch homes, through the typed `Client`, the `hamlet` command and `hamlet_testing`'s server |
@@ -123,7 +123,7 @@ fault points, signals, remote workspaces and the society) and
 | `connection.rs` | The WebSocket connections: accepting, each one's read and write task, its queue of waiting messages, and the close codes |
 | `requests.rs` | The hello, then one match over `ClientMessage` naming the owner that answers each request; a handler that errs or panics ends only its request, with a `fault` |
 | `runtime.rs` | `Serving`, the serve loop's state: its events, settle, refresh, and recovering from a failed event. A 50 ms tick only checks memory and the skills on disk unless the state may have changed, as `Since` defines: an event, a tick that found work, a clock turn (a road overgrowing, a budget's share gone moving), a house move's progress or an overdue provider answer. Every two seconds the tools folder is read again |
-| `diagnostic.rs` | `tell`, the server's one diagnostic: a line on stderr under `hamlet-server:`, written as a JSON string with the credentials' secrets removed (`Secrets::Fixed` for a fixed text) |
+| `diagnostic.rs` | `tell`, the server's one diagnostic: a line on stderr under `hamlet_server:`, written as a JSON string with the credentials' secrets removed (`Secrets::Fixed` for a fixed text) |
 | `protocol.rs` | `Protocol::parse` validates client input against the client protocol's schema and correlates a fault to the message's `id` when it is a `RequestId`; `Refusal`, an expected outcome with its words; reply and fault rendering; its tests are in `protocol/tests.rs` |
 | `record.rs`, `record/` | Agent identity, membership, names, roads, office, models, limits and typed refusals. `RecordOperation` is a transactional change, and every change to a hamlet's record is one of its `Change`s; its tests are in `record/tests.rs` |
 | `documents.rs`, `settings.rs`, `limits.rs` | Chief edits and reads. `Service` reads each document once into a typed `Work`, `Settings` (stored settings plus process overrides) or `Limits`. A hamlet's limits live only in its record, with the schema's defaults filled in; `Limits::model_of` picks each agent's model |
@@ -137,7 +137,7 @@ fault points, signals, remote workspaces and the society) and
 | `harness/tools.rs` | The tools a runtime offers its conversations, run in this server as operations |
 | `harness/process.rs`, `harness/bindings.rs` | The pi launch profile and processes; runtimes, bindings and inputs with their `InputStatus` in `realm.sqlite` |
 | `harness/mark.rs` | `InputMark`, the typed kind and data of each input (chief line, retry, reflection, notice, letter, errand), converted to a protocol `Mark` at the edge |
-| `chats/driver.rs`, `harness_driver.rs`, `bin/hamlet-harness-driver.rs` | With the `harness` feature: the test driver's reach into the chats' gate, waits and stop; the driver's body; and the binary, only `main`, for the real-process suite in `tests/harness` |
+| `chats/driver.rs`, `harness_driver.rs`, `bin/hamlet_harness_driver.rs` | With the `harness` feature: the test driver's reach into the chats' gate, waits and stop; the driver's body; and the binary, only `main`, for the real-process suite in `tests/harness` |
 | `tools.rs`, `tools/`, `hand.rs` | `ToolSession` runs every tool call on the workspace `Houses::tools` chose: built-in tools over `environment::Reach` (this machine under the sandbox, or a remote workspace), and hand-added manifests, which only run here |
 | `sandbox.rs`, `sandbox/` | Bubblewrap/Seatbelt policies, subprocess limits and termination |
 | `papers.rs` | `Houses` picks the local or remote `Workspace` once at startup. Callers get its houses (`house`, `reader`, `tools`), its `Capability` refusals and whether it `can_confirm` each change; no caller branches on the workspace |
@@ -228,8 +228,8 @@ only its own view files under `HAMLET_VIEW`.
 Assets are embedded. The `hot-reload` feature also watches their source:
 
 ```sh
-cargo build --bin hamlet-app --features hot-reload
-HAMLET_HOME=/tmp/hamlet-try HAMLET_APP="$PWD/target/debug/hamlet-app" cargo run -p hamlet_cli -- dev
+cargo build --bin hamlet_app --features hot-reload
+HAMLET_HOME=/tmp/hamlet-try HAMLET_APP="$PWD/target/debug/hamlet_app" cargo run -p hamlet_cli -- dev
 ```
 
 The generator section of `world.toml` and existing mesh colors do not

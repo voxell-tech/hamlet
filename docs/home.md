@@ -1,7 +1,7 @@
 # The home
 
 The server keeps one home, `~/.hamlet` unless `HAMLET_HOME` or
-`hamlet-server --home` selects another. Use a fresh scratch home for
+`hamlet_server --home` selects another. Use a fresh scratch home for
 development. `crates/hamlet_server/src/home.rs` defines `Home` and `Layout`.
 
 | Path under the home | Owner and contents |
@@ -84,7 +84,7 @@ restart selects it. See [remote workspaces](sandbox.md#remote-workspaces).
 
 ## Starting and stopping
 
-`hamlet-server --home <folder> --port 0` publishes a free loopback address.
+`hamlet_server --home <folder> --port 0` publishes a free loopback address.
 `serve::serve` owns the ordered start and shutdown, `connection.rs` the
 sockets, and `requests.rs` authentication and who answers each request;
 `Service` composes domain owners. `--faux` selects an offline response script,

@@ -5,8 +5,8 @@
 The macOS and Linux archives include:
 
 - `hamlet`, the CLI and launcher;
-- `hamlet-server`, the server;
-- `hamlet-app`, the window;
+- `hamlet_server`, the server;
+- `hamlet_app`, the window;
 - `pi/` with its source, lockfile and production `node_modules`;
 - licenses and a runtime setup README.
 
@@ -28,11 +28,11 @@ and setup notes. The binaries live in `Hamlet.app/Contents/MacOS`, and pi
 in `Contents/Resources/pi`. Helper binaries are signed before the app;
 scripts and package data are sealed as resources.
 The bundle launches `hamlet`, which starts or reuses the server and opens
-`hamlet-app`. It is ad-hoc signed, not developer-signed or notarized; macOS
+`hamlet_app`. It is ad-hoc signed, not developer-signed or notarized; macOS
 may ask before opening it. Finder may not see a shell-installed Node, so
 launch `Contents/MacOS/hamlet` from a terminal with `HAMLET_NODE` if needed.
 
-The Windows zip contains `hamlet-app.exe`, licenses and setup notes, with
+The Windows zip contains `hamlet_app.exe`, licenses and setup notes, with
 no server, Pi or Node requirement on the Windows machine. Set `HAMLET_SERVER`
 to a remote server's WebSocket URL through an SSH tunnel and `HAMLET_TOKEN`
 to its connection token, then run the window. Keep the token private.
@@ -60,7 +60,7 @@ argument for the profile directory, defaults to `release`, and respects
 compile TypeScript.
 
 For Windows, build only `cargo build --release --locked -p hamlet_app --bin
-hamlet-app --target x86_64-pc-windows-msvc`, then run the script in Bash with
+hamlet_app --target x86_64-pc-windows-msvc`, then run the script in Bash with
 that target. This branch needs 7-Zip, not Node or npm. It packages only the
 window; no Windows server build is attempted.
 

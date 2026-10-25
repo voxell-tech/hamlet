@@ -8,7 +8,7 @@ publish.workspace = true
 description = "The window client, and the examples that draw the world and the panels"
 
 [[bin]]
-name = "hamlet-app"
+name = "hamlet_app"
 path = "src/main.rs"
 
 [lints]

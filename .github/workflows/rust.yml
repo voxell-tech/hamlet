@@ -32,7 +32,7 @@ jobs:
       - run: rustup toolchain install "$(cat rust-nightly)" --profile minimal --component rustfmt
       - run: cargo xtask format
 
-  clippy:
+  clippy-linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -46,6 +46,24 @@ jobs:
           shared-key: ci
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+      - run: cargo xtask clippy
+
+  # The clippy job on macOS, which compiles the code only macOS builds.
+  clippy-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # vendor/fynix is a submodule.
+          submodules: recursive
+      # The image's stable can lag the rust-version, and install reuses it.
+      - run: rustup update stable
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo xtask clippy
 
   deny:
@@ -81,9 +99,8 @@ jobs:
 
   # Faux and loopback providers only. `cargo xtask test` runs the doc
   # tests too.
-  test:
-    # This image permits bubblewrap's unprivileged user namespaces.
-    runs-on: ubuntu-22.04
+  test-linux:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -98,6 +115,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: harnesses/pi/.nvmrc
+      # Ubuntu 24.04 blocks bubblewrap's unprivileged user namespaces.
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev bubblewrap
       - run: cargo xtask test
       - run: cargo xtask acceptance
@@ -106,13 +125,15 @@ jobs:
 
   # The test job's steps on macOS, where tools run under Seatbelt.
   test-macos:
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
           # vendor/fynix is a submodule.
           submodules: recursive
+      # The image's stable can lag the rust-version, and install reuses it.
+      - run: rustup update stable
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:

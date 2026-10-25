@@ -1,4 +1,4 @@
-//! `hamlet-server`: serves a claimed home over the client protocol.
+//! `hamlet_server`: serves a claimed home over the client protocol.
 
 use anyhow::Result;
 use hamlet_server::serve::{Options, serve};

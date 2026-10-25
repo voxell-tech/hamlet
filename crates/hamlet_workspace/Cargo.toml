@@ -8,7 +8,7 @@ publish.workspace = true
 description = "Authenticated remote file and process execution for Hamlet"
 
 [[bin]]
-name = "hamlet-workspace"
+name = "hamlet_workspace"
 path = "src/main.rs"
 
 [lints]

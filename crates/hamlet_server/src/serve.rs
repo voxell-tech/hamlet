@@ -45,7 +45,7 @@ impl Options {
         let mut faux = None;
         while let Some(flag) = args.next() {
             let value = args.next().context(
-                "usage: hamlet-server [--home <dir>] [--port <n>] \
+                "usage: hamlet_server [--home <dir>] [--port <n>] \
                  [--faux <file>]",
             )?;
             match flag.to_str() {
@@ -59,7 +59,7 @@ impl Options {
                 }
                 Some("--faux") => faux = Some(value.into()),
                 _ => bail!(
-                    "usage: hamlet-server [--home <dir>] [--port \
+                    "usage: hamlet_server [--home <dir>] [--port \
                      <n>] [--faux <file>]"
                 ),
             }
@@ -195,7 +195,7 @@ pub async fn serve(options: Options) -> Result<()> {
     write_whole(&published, &serde_json::to_vec(&address)?)?;
     let published = Published(published);
     eprintln!(
-        "hamlet-server: holding {}; serving at {url}; Ctrl-C stops",
+        "hamlet_server: holding {}; serving at {url}; Ctrl-C stops",
         service.home.layout().root().display()
     );
     let (events, mut incoming) = mpsc::channel(128);

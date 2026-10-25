@@ -29,7 +29,7 @@ fn main() -> anyhow::Result<()> {
     reason = "it says why it refuses to run"
 )]
 fn main() -> std::process::ExitCode {
-    eprintln!("hamlet-workspace runs only on Linux.");
+    eprintln!("hamlet_workspace runs only on Linux.");
     std::process::ExitCode::FAILURE
 }
 
@@ -42,7 +42,7 @@ mod cli {
 
     use crate::{files, supervise, worker};
 
-    const USAGE: &str = "usage: hamlet-workspace worker CONFIG";
+    const USAGE: &str = "usage: hamlet_workspace worker CONFIG";
 
     pub fn run() -> Result<()> {
         let args = std::env::args().collect::<Vec<_>>();

@@ -38,7 +38,7 @@ robot. Free and open-source forever.
 - **Any model**: Any OpenAI-compatible endpoint, a local
   [Ollama](https://ollama.com) by default.
 
-**Status:** early and moving fast. The Rust `hamlet-server` owns the
+**Status:** early and moving fast. The Rust `hamlet_server` owns the
 agents, roads, letters, votes, library, approvals and budgets. Node processes
 running the pi harness own conversations and model calls. The window is a
 protocol client; closing it stops no agent. Tests use faux and loopback
@@ -56,7 +56,7 @@ hamlet
 ```
 
 `cargo xtask install` installs pi's packages and puts `hamlet`,
-`hamlet-server` and `hamlet-app` in `~/.cargo/bin`. This source
+`hamlet_server` and `hamlet_app` in `~/.cargo/bin`. This source
 installation uses the checkout's `harnesses/pi/`, so keep the checkout and
 run `cargo xtask install` again after pulling. Linux/macOS release archives contain
 all three binaries and a `pi/` package with production dependencies; they
@@ -64,7 +64,7 @@ need installed Node but no checkout or npm install. Windows has a separate
 window-only archive for connecting to a remote server, without Node or Pi.
 See [releases](docs/releases.md).
 `cargo xtask build` builds without installing, `cargo xtask all` builds
-every binary, including `hamlet-workspace`, `cargo xtask uninstall` removes
+every binary, including `hamlet_workspace`, `cargo xtask uninstall` removes
 all three binaries, and `cargo xtask dev` tries the checkout on
 a scratch home without installing:
 
@@ -128,8 +128,10 @@ cargo test
 (cd harnesses/pi && npm run check && npm test)
 ```
 
-`rust-toolchain.toml` pins stable; `rust-nightly` names the dated nightly
-that formats. `cargo xtask check` runs all of it, plus the acceptance and
+`rust-toolchain.toml` follows the latest stable, no older than
+`rust-version` in `Cargo.toml`: if cargo says your compiler is too old, run
+`rustup update stable`. `rust-nightly` names the dated nightly that
+formats. `cargo xtask check` runs all of it, plus the acceptance and
 harness suites, cargo deny and the docs, as steps CI runs by name:
 `format`, `clippy`, `deny`, `test`, `acceptance`, `harness`, `doc` and
 `node`. `deny` needs `cargo install --locked cargo-deny`. `cargo xtask help`

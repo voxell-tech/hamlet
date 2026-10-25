@@ -13,7 +13,7 @@ This builds the server and window. The server starts its Node pi
 harness as a child process. `cargo xtask install` installs all three binaries;
 installing only `hamlet_cli` does not install the server or window.
 
-The CLI selects `HAMLET_SERVER_BIN`, then a sibling `hamlet-server`, then
+The CLI selects `HAMLET_SERVER_BIN`, then a sibling `hamlet_server`, then
 PATH. The server selects `HAMLET_PI_HARNESS` (the path to `src/main.ts`),
 then sibling `pi/src/main.ts`, then the macOS app's
 `Contents/Resources/pi/src/main.ts`, then the harness in its build checkout,
@@ -27,7 +27,7 @@ running server, and opens a window. The home is `HAMLET_HOME`, else
 Closing the window or terminal stops no agent. `hamlet stop` stops the
 server, and `hamlet status` reports it. The packaged macOS app runs this
 CLI entry, so opening it also starts or reuses the server. Running
-`hamlet-app` directly starts only the window.
+`hamlet_app` directly starts only the window.
 
 | Command | Does |
 |---|---|
@@ -75,7 +75,7 @@ or `HAMLET_APP` selects the corresponding existing binary.
 `hamlet window` finds the app by `HAMLET_APP`, then beside the CLI,
 then PATH. It passes the server address and token through the environment,
 never argv. Players still open an app called Hamlet; only its executable is
-named `hamlet-app`. Release archives contain all three binaries and pi.
+named `hamlet_app`. Release archives contain all three binaries and pi.
 On macOS, Finder may not inherit the shell's Node PATH: run the bundle's
 `Contents/MacOS/hamlet` from a terminal with `HAMLET_NODE` set if needed.
 

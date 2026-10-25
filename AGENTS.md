@@ -25,8 +25,8 @@
 
 ## Running safely
 
-The Rust binaries are `hamlet` in `crates/hamlet_cli`, `hamlet-server` in
-`crates/hamlet_server`, and the window `hamlet-app` in `crates/hamlet_app`.
+The Rust binaries are `hamlet` in `crates/hamlet_cli`, `hamlet_server` in
+`crates/hamlet_server`, and the window `hamlet_app` in `crates/hamlet_app`.
 Use the Node version in `harnesses/pi/.nvmrc` and install the harness with
 `npm ci --prefix harnesses/pi`. No global npm command is needed.
 For local work:
@@ -47,7 +47,7 @@ on Linux, or in `Contents/Resources/pi` in the macOS app.
 Bare `hamlet` uses `~/.hamlet` by default and leaves a server running in
 the background. Agents run `hamlet` only with `HAMLET_HOME` set to a scratch
 folder, and stop background servers with `HAMLET_HOME=<scratch> hamlet stop`.
-Run `hamlet-app` only through `hamlet dev`, which sets a scratch `HAMLET_VIEW`,
+Run `hamlet_app` only through `hamlet dev`, which sets a scratch `HAMLET_VIEW`,
 or with `HAMLET_VIEW` set to a scratch folder yourself. Set both scratch
 paths for bare `hamlet` and for `hamlet window`. `HAMLET_APP` can name a
 window built outside the repository's `target/` folder.
@@ -59,8 +59,9 @@ window ends only its process; agents keep working on the server. Stop
 
 ## Checks
 
-All four must be clean before a commit. `rust-toolchain.toml` pins the
-stable toolchain plain `cargo` runs. Formatting needs a nightly, because
+All four must be clean before a commit. `rust-toolchain.toml` names the
+latest stable toolchain plain `cargo` runs, no older than `rust-version`
+in `Cargo.toml` (`rustup update stable` if cargo says it is too old). Formatting needs a nightly, because
 `rustfmt.toml` uses unstable options: the dated one named in
 `rust-nightly`, which CI uses too. The workspace depends on
 `vendor/fynix`, a git submodule: clone with `--recurse-submodules` or

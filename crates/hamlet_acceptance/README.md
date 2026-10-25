@@ -19,7 +19,7 @@ scenario that received it.
 
 The scenarios are compiled only with the `acceptance` feature, so plain
 `cargo test` neither builds nor runs them. They need the built `hamlet`
-and `hamlet-server`, Node from `harnesses/pi/.nvmrc`, and
+and `hamlet_server`, Node from `harnesses/pi/.nvmrc`, and
 `npm ci --prefix harnesses/pi`. `cargo xtask check` runs them. By hand, at the root:
 
 ```sh
@@ -38,11 +38,11 @@ the server's own process tests share.
 | `HAMLET_CLI` | The `hamlet` command, for the default server and the CLI scenarios. Unset: `target/debug/hamlet`. |
 
 A relative executable path is resolved against the workspace root. To
-start `hamlet-server` directly rather than through the CLI:
+start `hamlet_server` directly rather than through the CLI:
 
 ```sh
 CARGO_INCREMENTAL=0 cargo build -p hamlet_server -p hamlet_cli
-CARGO_INCREMENTAL=0 HAMLET_ACCEPTANCE_SERVER=target/debug/hamlet-server cargo test -p hamlet_acceptance --features acceptance --no-fail-fast
+CARGO_INCREMENTAL=0 HAMLET_ACCEPTANCE_SERVER=target/debug/hamlet_server cargo test -p hamlet_acceptance --features acceptance --no-fail-fast
 ```
 
 A server that cannot be started fails its scenario, with the end of what
@@ -50,7 +50,7 @@ it printed. Nothing is skipped.
 
 ## Starting a server
 
-How the suite starts `hamlet server`, or `hamlet-server` when
+How the suite starts `hamlet server`, or `hamlet_server` when
 `HAMLET_ACCEPTANCE_SERVER` names it, and when it counts it as ready.
 
 The suite runs the command with these arguments added:
@@ -314,7 +314,7 @@ From the repository root, using the Node version in `harnesses/pi/.nvmrc`:
 ```sh
 npm ci --prefix harnesses/pi
 cargo build -p hamlet_server
-HAMLET_ACCEPTANCE_SERVER="$PWD/target/debug/hamlet-server" \
+HAMLET_ACCEPTANCE_SERVER="$PWD/target/debug/hamlet_server" \
   cargo test -p hamlet_acceptance --features acceptance --test frames -- --ignored
 cargo test -p hamlet_protocol -p hamlet_client
 ```

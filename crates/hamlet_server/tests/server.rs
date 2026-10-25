@@ -1,4 +1,4 @@
-//! The `hamlet-server` executable refusing to start: it ends before
+//! The `hamlet_server` executable refusing to start: it ends before
 //! it starts any model provider, so these tests run no pi and need no
 //! Node. The ones that reach a served home are in `tests/crashes`.
 
@@ -10,8 +10,8 @@ use hamlet_server::Home;
 use hamlet_testing::{Scratch, strip_overrides};
 use serde_json::json;
 
-/// The `hamlet-server` these tests are built with.
-const SERVER: &str = env!("CARGO_BIN_EXE_hamlet-server");
+/// The `hamlet_server` these tests are built with.
+const SERVER: &str = env!("CARGO_BIN_EXE_hamlet_server");
 
 #[test]
 fn a_missing_pi_harness_is_refused() {
@@ -30,7 +30,7 @@ fn a_missing_pi_harness_is_refused() {
     );
 }
 
-/// The words `hamlet-server` gives on standard error as it refuses to
+/// The words `hamlet_server` gives on standard error as it refuses to
 /// start on `home` with `env`.
 fn refusal(home: &Scratch, env: &[(&str, &str)]) -> String {
     let output = strip_overrides(&mut Command::new(SERVER))

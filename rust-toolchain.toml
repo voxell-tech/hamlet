@@ -1,6 +1,8 @@
-# The stable toolchain every check runs on, here and in CI. Formatting
-# uses the nightly named in `rust-nightly`, so stable has no rustfmt.
+# The latest stable toolchain every check runs on, here and in CI. The
+# oldest compiler that builds is `rust-version` in `Cargo.toml`; older
+# ones need `rustup update stable`. Formatting uses the nightly named in
+# `rust-nightly`, so stable has no rustfmt.
 [toolchain]
-channel = "1.99.1"
+channel = "stable"
 profile = "minimal"
 components = ["clippy"]
