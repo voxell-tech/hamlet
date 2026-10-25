@@ -1,5 +1,8 @@
 //! Markdown read into a flat list of blocks.
 
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::Arc;
+
 use pulldown_cmark::{
     Alignment, CodeBlockKind, Event, LinkType, Options, Parser, Tag,
     TagEnd,
@@ -306,6 +309,130 @@ pub fn parse(text: &str) -> Vec<Block> {
         reader.flush();
     }
     reader.blocks
+}
+
+/// The marker and the length of the fence `line` opens or closes,
+/// and what follows it.
+fn fence(line: &str) -> Option<(char, usize, &str)> {
+    let line = line.trim_start();
+    let mark =
+        line.chars().next().filter(|c| matches!(c, '`' | '~'))?;
+    let run = line.chars().take_while(|c| *c == mark).count();
+    (run >= 3).then(|| (mark, run, &line[run..]))
+}
+
+/// True if `line` starts an item of a list, or may do once its next
+/// word is typed. It goes on a list that a blank line came before.
+fn item(line: &str) -> bool {
+    let line = line.trim_start();
+    let digits =
+        line.chars().take_while(char::is_ascii_digit).count();
+    let rest = if digits > 0 {
+        match line[digits..].trim_end().strip_prefix(['.', ')']) {
+            Some(rest) => rest,
+            None => return line[digits..].trim().is_empty(),
+        }
+    } else {
+        match line.strip_prefix(['-', '*', '+']) {
+            Some(rest) => rest,
+            None => return false,
+        }
+    };
+    rest.is_empty() || rest.starts_with(char::is_whitespace)
+}
+
+/// Where the last block that later words cannot change ends in
+/// `text`, or 0 if no block is known to be done. `None` if a
+/// definition in `text` can change the blocks above it.
+fn settled(text: &str) -> Option<usize> {
+    // The marker and the length of the fence that is open.
+    let mut open = None::<(char, usize)>;
+    let mut blank = false;
+    let mut end = 0;
+    let mut at = 0;
+    for line in text.split_inclusive('\n') {
+        let trimmed = line.trim();
+        // A definition further down can turn words above it into a
+        // link.
+        if open.is_none()
+            && trimmed.starts_with('[')
+            && trimmed.contains("]:")
+        {
+            return None;
+        }
+        if let Some((mark, run, rest)) = fence(line) {
+            match open {
+                None if mark == '~' || !rest.contains('`') => {
+                    open = Some((mark, run));
+                }
+                Some((was, len))
+                    if was == mark
+                        && run >= len
+                        && rest.trim().is_empty() =>
+                {
+                    open = None;
+                }
+                _ => {}
+            }
+        }
+        if blank
+            && open.is_none()
+            && !trimmed.is_empty()
+            && !line.starts_with(char::is_whitespace)
+            // An item goes on the list above it.
+            && !item(line)
+        {
+            end = at;
+        }
+        blank = trimmed.is_empty() && open.is_none();
+        at += line.len();
+    }
+    Some(end)
+}
+
+pub(super) fn hashed(text: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    text.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// The blocks of a document that grows at its end. The blocks
+/// before the last are read once and shared from then on.
+#[derive(Default)]
+pub(crate) struct Reading {
+    end: usize,
+    hash: u64,
+    done: Vec<Arc<Block>>,
+}
+
+impl Reading {
+    pub fn read(&mut self, text: &str) -> Vec<Arc<Block>> {
+        let kept = text
+            .get(..self.end)
+            .is_some_and(|head| hashed(head) == self.hash);
+        if !kept {
+            *self = Self::default();
+        }
+        let Some(more) = settled(&text[self.end..]) else {
+            *self = Self::default();
+            return parse(text).into_iter().map(Arc::new).collect();
+        };
+        if more > 0 {
+            let next = self.end + more;
+            self.done.extend(
+                parse(&text[self.end..next])
+                    .into_iter()
+                    .map(Arc::new),
+            );
+            self.end = next;
+            self.hash = hashed(&text[..next]);
+        }
+        let mut all = self.done.clone();
+        all.extend(
+            parse(&text[self.end..]).into_iter().map(Arc::new),
+        );
+        all
+    }
 }
 
 #[cfg(test)]
@@ -620,6 +747,34 @@ mod tests {
             let _ = parse(&whole[..end]);
         }
         assert_eq!(parse(whole).len(), 9);
+    }
+
+    #[test]
+    fn a_document_read_as_it_grows_is_read_whole() {
+        let texts = [
+            "# Plan\n\nFirst *one*.\n\n```\na\n\nb\n```\n\n- x\n- \
+             y\n\n  more\n\n1. one\n\n2. two\n\nLast words",
+            "See [a].\n\nMore\n\n[a]: http://x",
+            "````\n```\n\nx\n````\n\nAfter",
+            "1. one\n\n1. two\n\n- a\n\n- b\n\nLast",
+        ];
+        for text in texts {
+            let mut reading = Reading::default();
+            for end in
+                (0..=text.len()).filter(|n| text.is_char_boundary(*n))
+            {
+                let grown = reading.read(&text[..end]);
+                let whole = parse(&text[..end]);
+                assert_eq!(
+                    grown.len(),
+                    whole.len(),
+                    "{text:?} {end}"
+                );
+                for (a, b) in grown.iter().zip(&whole) {
+                    assert_eq!(**a, *b, "{text:?} {end}");
+                }
+            }
+        }
     }
 
     #[test]

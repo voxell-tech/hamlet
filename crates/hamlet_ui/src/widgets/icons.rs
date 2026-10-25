@@ -93,6 +93,8 @@ pub enum Glyph {
     Sliders,
     /// An arrow down into a tray: out of sight, still running.
     Lower,
+    /// An arrow down to a line: the end of the chat.
+    ToEnd,
     Power,
     /// An arrow turning back.
     Restore,
@@ -143,7 +145,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 44] = [
+    pub const ALL: [Glyph; 45] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -174,6 +176,7 @@ impl Glyph {
         Glyph::Robot,
         Glyph::Sliders,
         Glyph::Lower,
+        Glyph::ToEnd,
         Glyph::Power,
         Glyph::Restore,
         Glyph::Book,
@@ -412,6 +415,11 @@ impl Glyph {
                 Line(2.5, 11.0, 13.5, 11.0),
                 Dot(5.5, 5.0, 2.0),
                 Dot(10.5, 11.0, 2.0),
+            ],
+            Glyph::ToEnd => &[
+                Line(8.0, 2.5, 8.0, 10.5),
+                Path(&[[4.5, 7.5], [8.0, 11.0], [11.5, 7.5]]),
+                Line(3.0, 13.5, 13.0, 13.5),
             ],
             Glyph::Lower => &[
                 Line(8.0, 2.5, 8.0, 9.5),

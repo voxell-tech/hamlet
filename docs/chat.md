@@ -276,3 +276,18 @@ the questions in them.
 The chat is put in order again only when a conversation's shape changes:
 an entry added, a tool ended, the selection or a fold changed. A word
 added to a reply changes no shape. Rows are keyed, so a row is built once.
+
+Only a window of rows is built: a page at first, up to three pages, then it
+slides. Reading to the top builds the page before it and, once the window is
+full, drops the page at its far end. Reading to the bottom turns back. The row
+at the edge is held in place through the turn. While the window is read back,
+rows added or removed elsewhere do not move it: it stays at its last row.
+Sending jumps to the end, and so does the button at the chat's lower corner,
+which shows whenever the chat is not at its end.
+
+A reply that grows is read again from its last settled block, and the blocks
+before it are shared, not parsed or compared again.
+
+Bevy marks every text input changed each frame, which would set its size and
+lay out everything above it again. `fields.rs` runs that size system only
+when a font, a scale, a new field or the lines a field asks for have changed.
