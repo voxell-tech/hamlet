@@ -189,10 +189,10 @@ async fn begin(
     }
     let notes =
         tree::directory(service.houses.root(), "librarian", false)
-            .and_then(|dir| {
-                tree::read_file(&dir, NOTES, 4 * 1024 * 1024)
-            })
             .ok()
+            .and_then(|dir| {
+                tree::read_file(&dir, NOTES, 4 * 1024 * 1024).ok()
+            })
             .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
             .unwrap_or_default();
     job.prompt = format!("{notes}\n\n{}", job.prompt);

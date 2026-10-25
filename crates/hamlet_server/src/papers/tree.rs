@@ -1,18 +1,24 @@
-//! Bounded regular files reached through opened directories.
+//! Bounded regular files reached through opened directories: the
+//! houses, society snapshots, the library and gift stages.
 
 use std::collections::BTreeMap;
+use std::ffi::{OsStr, OsString};
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
 use anyhow::{Result, ensure};
 use hamlet_workspace_wire::{Code, TreeEntry, TreeKind};
 use rustix::fs::{
-    AtFlags, Dir, FileType, Mode, OFlags, mkdirat, openat, statat,
-    unlinkat,
+    AtFlags, Dir, FileType, Mode, OFlags, RenameFlags, mkdirat,
+    openat, renameat, renameat_with, statat, unlinkat,
 };
 use sha2::{Digest, Sha256};
 
+use super::NOTES;
+use crate::diagnostic::{Secrets, tell};
+use crate::record::AgentRef;
 use crate::workspace::Failure;
 
 #[derive(
@@ -23,17 +29,199 @@ pub(crate) struct Entry {
     pub mode: u32,
 }
 
+/// The house of agent `number` of `hamlet` under the home `root`,
+/// made with its parents when `create` is set.
+pub(crate) fn house(
+    root: &File,
+    hamlet: &str,
+    number: u64,
+    create: bool,
+) -> io::Result<File> {
+    directory(
+        &hamlet_folder(root, hamlet, create)?,
+        &number.to_string(),
+        create,
+    )
+}
+
+/// The folder of `hamlet`'s houses under the home `root`.
+fn hamlet_folder(
+    root: &File,
+    hamlet: &str,
+    create: bool,
+) -> io::Result<File> {
+    if hamlet.is_empty()
+        || !hamlet.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'
+        })
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "invalid house address",
+        ));
+    }
+    directory(&directory(root, "houses", create)?, hamlet, create)
+}
+
+/// Makes the house of agent `number` of `hamlet` with its folders and
+/// notes, where they are missing.
+pub(crate) fn build(
+    root: &File,
+    hamlet: &str,
+    number: u64,
+) -> Result<()> {
+    let dir = house(root, hamlet, number, true)?;
+    for part in ["skills", "inbox"] {
+        directory(&dir, part, true)?;
+    }
+    match openat(
+        &dir,
+        NOTES,
+        OFlags::WRONLY
+            | OFlags::CREATE
+            | OFlags::EXCL
+            | OFlags::NOFOLLOW,
+        Mode::from_raw_mode(0o600),
+    ) {
+        Ok(fd) => File::from(fd).write_all(b"# Notes\n")?,
+        Err(rustix::io::Errno::EXIST) => {}
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
+}
+
+/// The notes of agent `number` of `hamlet`, open to read.
+pub(crate) fn notes(
+    root: &File,
+    hamlet: &str,
+    number: u64,
+) -> Result<File> {
+    let dir = house(root, hamlet, number, false)?;
+    let file = File::from(openat(
+        &dir,
+        NOTES,
+        OFlags::RDONLY
+            | OFlags::NOFOLLOW
+            | OFlags::NONBLOCK
+            | OFlags::CLOEXEC,
+        Mode::from_raw_mode(0o600),
+    )?);
+    ensure!(
+        file.metadata()?.is_file(),
+        "The agent's NOTES.md could not be read safely. Inspect its \
+         house before trying again."
+    );
+    Ok(file)
+}
+
+/// Moves the house of `from` to `to`, which must be free, into a
+/// hamlet that holds house 0, reaching each hamlet's folder by name
+/// from `root`. A house already moved stays where it is.
+pub(crate) fn move_house(
+    root: &File,
+    from: &AgentRef,
+    to: &AgentRef,
+) -> Result<()> {
+    match house(root, &from.hamlet, from.number, false) {
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            house(root, &to.hamlet, to.number, false)?;
+            return Ok(());
+        }
+        Err(error) => return Err(error.into()),
+    }
+    house(root, &to.hamlet, 0, false)?;
+    renameat_with(
+        hamlet_folder(root, &from.hamlet, false)?,
+        from.number.to_string(),
+        hamlet_folder(root, &to.hamlet, false)?,
+        to.number.to_string(),
+        RenameFlags::NOREPLACE,
+    )?;
+    Ok(())
+}
+
+/// Erases the house of agent `number` of `hamlet`, where there is
+/// one.
+pub(crate) fn erase_house(
+    root: &File,
+    hamlet: &str,
+    number: u64,
+) -> Result<()> {
+    match hamlet_folder(root, hamlet, false) {
+        Ok(houses) => erase(&houses, &number.to_string()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            Ok(())
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Erases the houses of `hamlet`, where there are any.
+pub(crate) fn erase_hamlet(root: &File, hamlet: &str) -> Result<()> {
+    erase(&directory(root, "houses", false)?, hamlet)
+}
+
+/// Puts the stage `name` in place of agent `number`'s house in
+/// `hamlet`, erasing the house it replaces.
+pub(crate) fn swap(
+    root: &File,
+    stages: &File,
+    name: &str,
+    hamlet: &str,
+    number: u64,
+) -> Result<()> {
+    let parent = hamlet_folder(root, hamlet, true)?;
+    let number = number.to_string();
+    let backup = format!("old-{}", uuid::Uuid::new_v4());
+    let detached = match renameat(
+        &parent,
+        number.as_str(),
+        stages,
+        backup.as_str(),
+    ) {
+        Ok(()) => true,
+        Err(rustix::io::Errno::NOENT) => false,
+        Err(error) => return Err(error.into()),
+    };
+    if let Err(error) =
+        renameat(stages, name, &parent, number.as_str())
+    {
+        if detached {
+            renameat(
+                stages,
+                backup.as_str(),
+                &parent,
+                number.as_str(),
+            )?;
+        }
+        return Err(error.into());
+    }
+    if detached {
+        match directory(stages, &backup, false) {
+            Ok(_) => erase(stages, &backup)?,
+            Err(_) => {
+                unlinkat(stages, backup.as_str(), AtFlags::empty())?;
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn directory(
     parent: &File,
     name: &str,
     create: bool,
-) -> Result<File> {
-    ensure!(
-        !name.is_empty()
-            && ![".", ".."].contains(&name)
-            && !name.contains(['/', '\\', '\0']),
-        "invalid tree path"
-    );
+) -> io::Result<File> {
+    if name.is_empty()
+        || [".", ".."].contains(&name)
+        || name.contains(['/', '\\', '\0'])
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "invalid tree path",
+        ));
+    }
     if create
         && let Err(error) =
             mkdirat(parent, name, Mode::from_raw_mode(0o700))
@@ -416,7 +604,6 @@ pub(crate) fn put(
     path: &str,
     entry: &Entry,
 ) -> Result<()> {
-    use rustix::fs::{RenameFlags, renameat_with};
     let bytes = &entry.bytes;
     let (dir, name) = parent(root, path, true)?;
     let temporary = format!(".incoming-{}", uuid::Uuid::new_v4());
@@ -510,12 +697,7 @@ pub(crate) fn replace(
     )?);
     file.write_all(bytes)?;
     file.sync_all()?;
-    rustix::fs::renameat(
-        &dir,
-        temporary.as_str(),
-        &dir,
-        name.as_str(),
-    )?;
+    renameat(&dir, temporary.as_str(), &dir, name.as_str())?;
     dir.sync_all()?;
     Ok(())
 }
@@ -531,12 +713,12 @@ pub(crate) fn publish(
         put(&stage, path, entry)?;
     }
     stage.sync_all()?;
-    match rustix::fs::renameat_with(
+    match renameat_with(
         staging,
         name,
         target,
         name,
-        rustix::fs::RenameFlags::NOREPLACE,
+        RenameFlags::NOREPLACE,
     ) {
         Ok(()) => {
             staging.sync_all()?;
@@ -575,21 +757,183 @@ pub(crate) fn erase_path(root: &File, path: &str) -> Result<()> {
 pub(crate) fn erase(root: &File, name: &str) -> Result<()> {
     let dir = match directory(root, name, false) {
         Ok(dir) => dir,
-        Err(error)
-            if error.downcast_ref::<rustix::io::Errno>()
-                == Some(&rustix::io::Errno::NOENT) =>
-        {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
             return Ok(());
         }
-        Err(error) => return Err(error),
+        Err(error) => return Err(error.into()),
     };
-    super::clear(&dir)?;
+    clear(&dir)?;
     unlinkat(root, name, AtFlags::REMOVEDIR)?;
     Ok(())
+}
+
+/// Empties `dir` without following a link: a link is removed itself,
+/// and a folder is made `0o700` where the server owns it, so a
+/// read-only one can be emptied, then emptied and removed.
+fn clear(dir: &File) -> Result<()> {
+    let _ =
+        dir.set_permissions(std::fs::Permissions::from_mode(0o700));
+    for name in names(dir)? {
+        let info = statat(dir, &name, AtFlags::SYMLINK_NOFOLLOW)?;
+        if FileType::from_raw_mode(info.st_mode)
+            == FileType::Directory
+        {
+            let child = File::from(openat(
+                dir,
+                &name,
+                OFlags::RDONLY
+                    | OFlags::DIRECTORY
+                    | OFlags::NOFOLLOW
+                    | OFlags::CLOEXEC,
+                Mode::empty(),
+            )?);
+            clear(&child)?;
+            unlinkat(dir, &name, AtFlags::REMOVEDIR)?;
+        } else {
+            unlinkat(dir, &name, AtFlags::empty())?;
+        }
+    }
+    Ok(())
+}
+
+/// The names in `dir`, but `.` and `..`.
+fn names(dir: &File) -> Result<Vec<OsString>> {
+    let mut names = Vec::new();
+    for entry in Dir::read_from(dir)? {
+        let entry = entry?;
+        let name = entry.file_name().to_bytes();
+        if name != b"." && name != b".." {
+            names.push(OsStr::from_bytes(name).to_owned());
+        }
+    }
+    Ok(names)
+}
+
+/// Empties the gift stages under the home `root`.
+pub(crate) fn sweep(root: &File) -> Result<()> {
+    clear(&directory(root, ".gifts", true)?)
+}
+
+/// A private gift stage under the home, emptied and removed when
+/// dropped.
+pub(crate) struct Stage {
+    parent: File,
+    name: String,
+    pub dir: File,
+}
+
+impl Stage {
+    pub fn new(root: &File) -> Result<Self> {
+        let parent = directory(root, ".gifts", true)?;
+        let name = format!("gift-{}", uuid::Uuid::new_v4());
+        mkdirat(&parent, name.as_str(), Mode::from_raw_mode(0o700))?;
+        let dir = directory(&parent, &name, false)?;
+        Ok(Self { parent, name, dir })
+    }
+
+    pub fn file(&self, path: &str, create: bool) -> Result<File> {
+        ensure!(
+            path.len() < 4096,
+            "gift path exceeds the file system limit"
+        );
+        let mut parts = path.split('/').peekable();
+        let mut dir = self.dir.try_clone()?;
+        while let Some(part) = parts.next() {
+            if parts.peek().is_none() {
+                let flags = if create {
+                    OFlags::CREATE | OFlags::EXCL
+                } else {
+                    OFlags::APPEND
+                };
+                let file = File::from(openat(
+                    &dir,
+                    part,
+                    OFlags::WRONLY
+                        | OFlags::NOFOLLOW
+                        | OFlags::NONBLOCK
+                        | OFlags::CLOEXEC
+                        | flags,
+                    Mode::from_raw_mode(0o644),
+                )?);
+                ensure!(
+                    file.metadata()?.is_file(),
+                    "gift stage is not a file"
+                );
+                return Ok(file);
+            }
+            dir = directory(&dir, part, create)?;
+        }
+        anyhow::bail!("empty staged path")
+    }
+}
+
+impl Drop for Stage {
+    fn drop(&mut self) {
+        if clear(&self.dir)
+            .and_then(|()| {
+                unlinkat(
+                    &self.parent,
+                    self.name.as_str(),
+                    AtFlags::REMOVEDIR,
+                )?;
+                Ok(())
+            })
+            .is_err()
+        {
+            tell(Secrets::Fixed, "could not discard a gift.");
+        }
+    }
 }
 
 /// The permission bits of `mode`, a `u16` on macOS and a `u32` on
 /// Linux.
 fn permission_bits(mode: impl Into<u32>) -> u32 {
     mode.into() & 0o777
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use hamlet_testing::Scratch;
+
+    use super::*;
+
+    #[test]
+    fn clear_empties_a_read_only_folder() {
+        let home = Scratch::new("tree-clear");
+        let locked = home.join("stage/locked");
+        fs::create_dir_all(&locked).unwrap();
+        fs::write(locked.join("kept"), "kept").unwrap();
+        fs::set_permissions(
+            &locked,
+            fs::Permissions::from_mode(0o500),
+        )
+        .unwrap();
+        erase(&File::open(&*home).unwrap(), "stage").unwrap();
+        assert!(!home.join("stage").exists());
+    }
+
+    #[test]
+    fn move_house_reaches_the_parent_by_name() {
+        let home = Scratch::new("tree-move");
+        let root = File::open(&*home).unwrap();
+        build(&root, "north", 1).unwrap();
+        build(&root, "south", 0).unwrap();
+        let from = AgentRef {
+            hamlet: "north".into(),
+            number: 1,
+        };
+        let to = AgentRef {
+            hamlet: "south".into(),
+            number: 2,
+        };
+        move_house(&root, &from, &to).unwrap();
+        assert!(home.join("houses/south/2/NOTES.md").is_file());
+        assert!(!home.join("houses/north/1").exists());
+        move_house(&root, &from, &to).unwrap();
+        build(&root, "north", 1).unwrap();
+        assert!(move_house(&root, &from, &to).is_err());
+        assert!(home.join("houses/north/1/NOTES.md").is_file());
+    }
 }
