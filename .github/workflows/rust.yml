@@ -98,8 +98,7 @@ jobs:
   # Faux and loopback providers only. `cargo xtask test` runs the doc
   # tests too.
   test-linux:
-    # This image permits bubblewrap's unprivileged user namespaces.
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -114,6 +113,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: harnesses/pi/.nvmrc
+      # Ubuntu 24.04 blocks bubblewrap's unprivileged user namespaces.
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev bubblewrap
       - run: cargo xtask test
       - run: cargo xtask acceptance
