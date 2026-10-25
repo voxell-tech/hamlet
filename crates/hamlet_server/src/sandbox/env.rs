@@ -696,9 +696,9 @@ impl Env {
     fn is_on_path(&self, program: &str) -> bool {
         let dirs =
             self.policy.env.get("PATH").map_or("", String::as_str);
-        dirs.split(':')
-            .filter(|dir| !dir.is_empty())
-            .map(|dir| path::resolve(dir, program))
+        std::env::split_paths(dirs)
+            .filter(|dir| !dir.as_os_str().is_empty())
+            .map(|dir| path::resolve(&text(&dir), program))
             .any(|candidate| process::is_executable(&candidate))
     }
 }

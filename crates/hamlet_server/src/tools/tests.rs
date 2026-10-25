@@ -3,6 +3,7 @@
 use std::fs;
 use std::time::{Duration, Instant};
 
+use hamlet_os::fs::path::text;
 use hamlet_testing::Scratch;
 use hamlet_testing::links::symlink;
 use serde_json::{Value, json};
@@ -47,6 +48,9 @@ async fn call(
     .await
 }
 
+// It asserts confinement, or a hand tool started as `bash`, which
+// only a sandbox gives.
+#[cfg(unix)]
 #[tokio::test]
 async fn hand_tools_keep_declared_limits_environment_and_private_scratch()
  {
@@ -92,6 +96,9 @@ async fn hand_tools_keep_declared_limits_environment_and_private_scratch()
     assert_eq!(timed.text, "\n[timed out after 1s]");
 }
 
+// It asserts confinement, or a hand tool started as `bash`, which
+// only a sandbox gives.
+#[cfg(unix)]
 #[tokio::test]
 async fn a_hand_tool_gets_its_argv_as_written_and_its_arguments_on_stdin()
  {
@@ -118,6 +125,9 @@ async fn a_hand_tool_gets_its_argv_as_written_and_its_arguments_on_stdin()
     );
 }
 
+// It asserts confinement, or a hand tool started as `bash`, which
+// only a sandbox gives.
+#[cfg(unix)]
 #[tokio::test]
 async fn a_command_writes_only_in_its_house_and_reaches_the_network_only_with_leave()
  {
@@ -330,7 +340,7 @@ async fn writes_and_edits_nothing_out_of_reach() {
     };
 
     let up = write("../1/NOTES.md".into()).await;
-    let full = write(elsewhere.join("x").display().to_string()).await;
+    let full = write(format!("{}/x", text(&elsewhere))).await;
     let linked = write("out/sub/x".into()).await;
 
     for refused in [&up, &full, &linked] {
@@ -340,7 +350,7 @@ async fn writes_and_edits_nothing_out_of_reach() {
         full.diagnostics[0].message,
         format!(
             "{}/x is out of this agent's reach to read",
-            elsewhere.display()
+            text(&elsewhere)
         )
     );
     assert!(!scratch.join("houses/home/1/NOTES.md").exists());
@@ -367,7 +377,7 @@ async fn writes_and_edits_nothing_out_of_reach() {
         edited.text,
         format!(
             "Successfully replaced 1 block(s) in {}.",
-            notes.display()
+            text(&notes)
         )
     );
     assert_eq!(
@@ -378,7 +388,7 @@ async fn writes_and_edits_nothing_out_of_reach() {
         raw.diagnostics[0].message,
         format!(
             "Could not edit file: {}. Error code: invalid.",
-            place.house.join("raw.txt").display()
+            text(&place.house.join("raw.txt"))
         )
     );
     assert_eq!(
