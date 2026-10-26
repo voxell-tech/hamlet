@@ -35,6 +35,13 @@ pub enum Refusal {
     NoSession(i64),
     #[error("There is no sign-in here with that id.")]
     NoSignIn,
+    /// The home has no credential of the provider.
+    #[error("There is no {0} credential here.")]
+    NoCredential(String),
+    #[error(
+        "The OpenRouter key does not open with this account's key."
+    )]
+    Sealed,
     /// A turn of the conversation runs; it holds what waits for it
     /// to stop.
     #[error("A turn is running here. Stop it, then {0}.")]

@@ -218,11 +218,11 @@ impl Serving {
             }
             ClientMessage::Login(_)
             | ClientMessage::Check(_)
-            | ClientMessage::Read(Read::Models { .. }) => {
-                self.service.model_request(id, message)?.context(
-                    "the models answer sign-ins, checks and reads",
-                )?
-            }
+            | ClientMessage::Read(
+                Read::Models { .. } | Read::Sealed { .. },
+            ) => self.service.model_request(id, message)?.context(
+                "the models answer sign-ins, checks and reads",
+            )?,
             ClientMessage::Edit(Edit::Notes {
                 id: request,
                 agent,

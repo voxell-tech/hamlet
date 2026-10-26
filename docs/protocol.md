@@ -27,7 +27,7 @@ to loopback. Keep the token private; plain WebSocket supplies no encryption.
 Send `Hello` first, within 10 seconds:
 
 ```json
-{"type":"hello","v":4,"token":"<home token>"}
+{"type":"hello","v":5,"token":"<home token>"}
 ```
 
 A successful hello receives a full `state` before live changes. The
@@ -102,7 +102,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 
 | Type (schema) | Fields | Action and answer |
 |---|---|---|
-| `hello` (`Hello`) | `v: 4`, `token: string`; no `id` | Authenticate; full `state`. |
+| `hello` (`Hello`) | `v: 5`, `token: string`; no `id` | Authenticate; full `state`. |
 | `say` (`Say`) | `to: Address`, `text: string` | Send a chief line or typed command. A command gets `reply`; an admitted agent line gets its receipt when that submission settles. Live work arrives through watches and realm changes. |
 | `give` (`Give`) | `to: Address`, `files: {path: string, size: integer}[]` | Begin a file gift; `reply.upload` identifies the upload for chunks. Paths are relative; sizes are byte counts. |
 | `give` (`Give`) | `to: Address`, `skill: {starter: string}` | Give an installed starter skill; `reply`. |
@@ -182,6 +182,7 @@ Each row is a `Read` form with `type: "read"` and `id`.
 | `bought` | None | `bought: Bought[]`: what was bought at the bazaar's server and settled, by listing. See [Packages](#packages). |
 | `tools` | None | `tools: {name: string, description: string}[]`: the tools added by hand that can be packed for sale. |
 | `package` | `of: Packing` | One or more `package: {data: string, offset: integer, size: integer}`, in order: the package packed for sale, in base64 parts of at most 512 KiB, the last ending at `size`. A refusal is a `reply`. See [Packages](#packages). |
+| `sealed` | `dataKey: string` | `sealed: string \| null`: the home's OpenRouter key sealed with a Hamlet account's data key, or `null` when the home has none. See [The OpenRouter key of an account](#the-openrouter-key-of-an-account). |
 
 ### The Agent Bazaar
 
@@ -297,8 +298,20 @@ Each row is a `Login` form with `type: "login"` and `id`.
 | `start: {provider: string, method: "key" \| "subscription"}` | Start sign-in. Server `login` messages carry the session ID and progress. |
 | `reply: {login: string, value: string}` | Supply a key or answer for that session; `reply`. More server `login` steps can follow. |
 | `cancel: string` | Cancel that session ID; `reply`. |
+| `forget: string` | Forget the home's credential of that provider; `reply`. |
+| `unseal: {dataKey: string, sealed: string}` | Open an OpenRouter key sealed in a Hamlet account's vault and keep it as the home's OpenRouter credential; `reply`. |
 
 Sessions belong to the initiating connection. Disconnecting cancels them.
+
+### The OpenRouter key of an account
+
+A Hamlet account keeps its OpenRouter key at the bazaar's server,
+sealed with a data key only the window holds (`hamlet_protocol::vault`).
+The home owns provider keys, so the window never sees the key itself:
+it hands the home the data key, which seals the home's key for upload
+(a `sealed` read) or opens one downloaded (`unseal`). The home keeps
+the data key only for that request, and removes it, like every
+credential, from what it shows and logs.
 
 ## Server → client
 

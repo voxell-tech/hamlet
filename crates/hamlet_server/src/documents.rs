@@ -496,7 +496,8 @@ pub(crate) fn prepare_read(
         | Read::History { .. }
         | Read::Bought { .. }
         | Read::Tools { .. }
-        | Read::Package { .. } => {
+        | Read::Package { .. }
+        | Read::Sealed { .. } => {
             bail!(
                 "the models, the chats and the market answer this \
                  read"

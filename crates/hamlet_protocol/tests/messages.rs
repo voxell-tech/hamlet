@@ -341,6 +341,23 @@ fn logins_start_answer_and_cancel_without_repeating_the_type_tag() {
         }),
         json!({"type": "login", "id": ID, "cancel": "login-1"}),
     );
+    client(
+        ClientMessage::Login(Login::Forget {
+            id: id(),
+            forget: "openrouter".into(),
+        }),
+        json!({"type": "login", "id": ID, "forget": "openrouter"}),
+    );
+    client(
+        ClientMessage::Login(Login::Unseal {
+            id: id(),
+            unseal: Unseal {
+                data_key: "a2V5".into(),
+                sealed: "v1:c2VhbGVk".into(),
+            },
+        }),
+        json!({"type": "login", "id": ID, "unseal": {"dataKey": "a2V5", "sealed": "v1:c2VhbGVk"}}),
+    );
 }
 
 #[test]
@@ -818,6 +835,17 @@ fn the_bazaar_settles_and_packs_packages() {
             json!({"type": "read", "to": ID, "package": {"data": "aGk=", "offset": 0, "size": 2}})
         ),
         ServerMessage::Read(ReadResult::Package { .. })
+    ));
+    client(
+        ClientMessage::Read(Read::Sealed {
+            data_key: "a2V5".into(),
+            id: id(),
+        }),
+        json!({"type": "read", "what": "sealed", "id": ID, "dataKey": "a2V5"}),
+    );
+    assert!(matches!(
+        server(json!({"type": "read", "to": ID, "sealed": null})),
+        ServerMessage::Read(ReadResult::Sealed { sealed: None, .. })
     ));
 }
 

@@ -61,7 +61,9 @@ impl ClientMessage {
             | Self::Login(
                 Login::Start { id, .. }
                 | Login::Reply { id, .. }
-                | Login::Cancel { id, .. },
+                | Login::Cancel { id, .. }
+                | Login::Forget { id, .. }
+                | Login::Unseal { id, .. },
             )
             | Self::Check(
                 Check::Model { id, .. } | Check::Connection { id },
@@ -74,7 +76,8 @@ impl ClientMessage {
                 | Read::Charter { id }
                 | Read::Bought { id }
                 | Read::Tools { id }
-                | Read::Package { id, .. },
+                | Read::Package { id, .. }
+                | Read::Sealed { id, .. },
             )
             | Self::MoveHouses(MoveHouses { id })
             | Self::TakeSkill(TakeSkill { id, .. })
@@ -101,7 +104,8 @@ impl ServerMessage {
                 | ReadResult::Charter { to, .. }
                 | ReadResult::Bought { to, .. }
                 | ReadResult::Tools { to, .. }
-                | ReadResult::Package { to, .. },
+                | ReadResult::Package { to, .. }
+                | ReadResult::Sealed { to, .. },
             ) => Some(to),
             Self::State(_) | Self::Change(_) | Self::Turn(_) => None,
         }
@@ -109,7 +113,7 @@ impl ServerMessage {
 }
 
 /// The value of every `v` field.
-pub const V: u64 = 5;
+pub const V: u64 = 6;
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,

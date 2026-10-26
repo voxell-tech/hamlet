@@ -176,6 +176,17 @@ pub enum Read {
     Tools { id: RequestId },
     #[serde(rename = "package")]
     Package { id: RequestId, of: Packing },
+    /// The home's OpenRouter key sealed with a Hamlet account's data
+    /// key, as [`crate::vault::DataKey::seal`] seals it, to be kept
+    /// by the bazaar's server.
+    #[serde(rename = "sealed")]
+    Sealed {
+        /// The data key, as [`crate::vault::DataKey::to_base64`]
+        /// writes it.
+        #[serde(rename = "dataKey")]
+        data_key: String,
+        id: RequestId,
+    },
 }
 
 #[derive(
@@ -213,6 +224,13 @@ pub enum ReadResult {
     },
     Package {
         package: PackagePart,
+        to: RequestId,
+    },
+    /// The home's OpenRouter key sealed, or `null` when the home has
+    /// none.
+    Sealed {
+        #[serde(deserialize_with = "Option::deserialize")]
+        sealed: Option<String>,
         to: RequestId,
     },
 }

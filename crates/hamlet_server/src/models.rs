@@ -10,13 +10,14 @@ use hamlet_protocol::client::{
     Check, ClientMessage, EditCatalogueSet, Link, LinkState, Listed,
     ListedPriced, Login, LoginMethod, LoginProgress, LoginStep,
     Price as ListedPrice, ProviderView, Read, ReadResult, RequestId,
-    ServerMessage,
+    ServerMessage, Unseal,
 };
 use hamlet_protocol::runtime::{
     self, ModelRef, Price, ProviderControl, ProviderEvent,
     ProviderRequest, ProviderRequestAction, ProviderRequestMethod,
     ProviderResult, ProviderResultProviders, Selection,
 };
+use hamlet_protocol::vault::DataKey;
 use serde_json::{Value, json};
 
 use crate::Store;
@@ -25,6 +26,12 @@ use crate::protocol::{Refusable, Refusal, reply};
 use crate::record::AgentRef;
 use crate::service::{Service, document, save};
 use crate::settings::{Overrides, Settings};
+
+/// The provider whose key a Hamlet account keeps.
+const OPENROUTER: &str = "openrouter";
+
+/// When an OpenRouter key runs out, as pi keeps it: never.
+const EVER: u64 = 9_007_199_254_740_991;
 
 /// The price in dollars per million tokens of a model nothing prices.
 const RATE: f64 = 1.0;
@@ -421,10 +428,77 @@ impl Service {
                         Ok("Sign-in cancelled.".into()),
                     ));
                 }
+                Login::Forget { id, forget } => {
+                    answers.push(reply(id, self.forget(forget)?));
+                }
+                Login::Unseal { id, unseal } => {
+                    answers.push(reply(id, self.unseal(unseal)?));
+                }
             },
+            ClientMessage::Read(Read::Sealed { id, data_key }) => {
+                answers.push(self.sealed(id, data_key)?);
+            }
             _ => return Ok(None),
         }
         Ok(Some(answers))
+    }
+
+    /// Forgets the home's credential of `provider`.
+    fn forget(
+        &mut self,
+        provider: &str,
+    ) -> Result<Refusable<String>> {
+        if !self.credentials.is_configured(provider) {
+            return Ok(Err(Refusal::NoCredential(provider.into())));
+        }
+        self.credentials.save_model(provider, None)?;
+        Ok(Ok("The provider's credential is forgotten.".into()))
+    }
+
+    /// Keeps the OpenRouter key sealed in `unseal` as the home's,
+    /// in the form an OpenRouter sign-in keeps it.
+    fn unseal(
+        &mut self,
+        unseal: &Unseal,
+    ) -> Result<Refusable<String>> {
+        self.credentials.remember(&unseal.data_key);
+        let Some(key) = DataKey::from_base64(&unseal.data_key)
+            .ok()
+            .and_then(|data| data.unseal(&unseal.sealed).ok())
+        else {
+            return Ok(Err(Refusal::Sealed));
+        };
+        self.credentials.save_model(
+            OPENROUTER,
+            Some(json!({
+                "type": "oauth",
+                "access": key,
+                "refresh": "",
+                "expires": EVER,
+            })),
+        )?;
+        Ok(Ok("OpenRouter is connected.".into()))
+    }
+
+    /// The home's OpenRouter key sealed with `data_key`, if it has
+    /// one.
+    fn sealed(
+        &mut self,
+        id: &RequestId,
+        data_key: &str,
+    ) -> Result<ServerMessage> {
+        self.credentials.remember(data_key);
+        let Ok(data) = DataKey::from_base64(data_key) else {
+            return Ok(reply(id, Err(Refusal::Sealed)));
+        };
+        let stored = self.credentials.model(OPENROUTER, "");
+        let key = stored.as_ref().and_then(|value| {
+            value["access"].as_str().or(value["key"].as_str())
+        });
+        Ok(ServerMessage::Read(ReadResult::Sealed {
+            sealed: key.map(|key| data.seal(key)),
+            to: id.clone(),
+        }))
     }
 
     pub(crate) fn provider_event(
@@ -656,7 +730,7 @@ impl Service {
                 }
                 let label = match &*p.id {
                     "chatgpt" => "Continue with ChatGPT".into(),
-                    "openrouter" => "Sign in with OpenRouter".into(),
+                    "openrouter" => "Connect OpenRouter".into(),
                     _ => p.name.clone(),
                 };
                 ProviderView {
@@ -1000,4 +1074,96 @@ fn plainly(error: &str, hello: bool) -> String {
             .into();
     }
     format!("It answered with an error. Try again. ({detail})")
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_protocol::client::ReplyKind;
+    use hamlet_testing::Scratch;
+
+    use super::*;
+    use crate::{Home, Overrides};
+
+    fn id() -> RequestId {
+        "00000000-0000-4000-8000-000000000001".parse().unwrap()
+    }
+
+    fn ask(
+        service: &mut Service,
+        message: ClientMessage,
+    ) -> ServerMessage {
+        service
+            .model_request(1, &message)
+            .unwrap()
+            .unwrap()
+            .remove(0)
+    }
+
+    #[test]
+    fn an_account_key_is_kept_as_an_openrouter_sign_in_and_its_data_key_nowhere()
+     {
+        let scratch = Scratch::new("vault");
+        let mut service = Service::new(
+            Home::open(&scratch).unwrap(),
+            Overrides::none(true),
+        )
+        .unwrap();
+        let data = DataKey::new();
+        let unseal = Login::Unseal {
+            id: id(),
+            unseal: Unseal {
+                data_key: data.to_base64(),
+                sealed: data.seal("sk-or-v1-synced"),
+            },
+        };
+        ask(&mut service, ClientMessage::Login(unseal));
+        assert_eq!(
+            service.credentials.model(OPENROUTER, ""),
+            Some(
+                json!({"type": "oauth", "access": "sk-or-v1-synced",
+                "refresh": "", "expires": EVER})
+            )
+        );
+        let read = Read::Sealed {
+            data_key: data.to_base64(),
+            id: id(),
+        };
+        let ServerMessage::Read(ReadResult::Sealed {
+            sealed: Some(sealed),
+            ..
+        }) = ask(&mut service, ClientMessage::Read(read))
+        else {
+            panic!("a sealed key");
+        };
+        assert_eq!(data.unseal(&sealed).unwrap(), "sk-or-v1-synced");
+        let refused = Login::Unseal {
+            id: id(),
+            unseal: Unseal {
+                data_key: DataKey::new().to_base64(),
+                sealed,
+            },
+        };
+        let ServerMessage::Reply(reply) =
+            ask(&mut service, ClientMessage::Login(refused))
+        else {
+            panic!("a reply");
+        };
+        assert_eq!(reply.kind, ReplyKind::Error);
+        let shown = service.credentials.scrub_text(&format!(
+            "{} sk-or-v1-synced",
+            data.to_base64()
+        ));
+        assert_eq!(shown, "[REDACTED] [REDACTED]");
+        let forget = Login::Forget {
+            id: id(),
+            forget: OPENROUTER.into(),
+        };
+        ask(&mut service, ClientMessage::Login(forget));
+        assert_eq!(service.credentials.model(OPENROUTER, ""), None);
+        let disk =
+            std::fs::read_to_string(scratch.join("credentials.json"))
+                .unwrap();
+        assert!(!disk.contains(&data.to_base64()));
+        assert!(!disk.contains("sk-or-v1-synced"));
+    }
 }

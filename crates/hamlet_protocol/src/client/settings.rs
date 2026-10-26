@@ -187,9 +187,44 @@ pub struct MoveHouses {
 )]
 #[serde(untagged, deny_unknown_fields)]
 pub enum Login {
-    Start { id: RequestId, start: LoginStart },
-    Reply { id: RequestId, reply: LoginReply },
-    Cancel { cancel: String, id: RequestId },
+    Start {
+        id: RequestId,
+        start: LoginStart,
+    },
+    Reply {
+        id: RequestId,
+        reply: LoginReply,
+    },
+    Cancel {
+        cancel: String,
+        id: RequestId,
+    },
+    /// Forgets the home's credential of the provider `forget`.
+    Forget {
+        forget: String,
+        id: RequestId,
+    },
+    /// Keeps a Hamlet account's OpenRouter key, sealed, as the home's
+    /// OpenRouter credential.
+    Unseal {
+        id: RequestId,
+        unseal: Unseal,
+    },
+}
+
+/// An OpenRouter key sealed in a Hamlet account's vault, and the data
+/// key that opens it.
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct Unseal {
+    /// The data key, as [`crate::vault::DataKey::to_base64`] writes
+    /// it.
+    #[serde(rename = "dataKey")]
+    pub data_key: String,
+    /// The key, as [`crate::vault::DataKey::seal`] seals it.
+    pub sealed: String,
 }
 
 #[derive(
