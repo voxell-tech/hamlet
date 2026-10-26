@@ -1,0 +1,19 @@
+[package]
+name = "hamlet_graph"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Procedural graphs: rules for placing parts, as data, and the evaluator that runs them"
+
+[lints]
+workspace = true
+
+[dependencies]
+bevy_math = { workspace = true, features = ["serialize"] }
+fastnoise-lite.workspace = true
+libm.workspace = true
+ron.workspace = true
+serde.workspace = true
+thiserror.workspace = true

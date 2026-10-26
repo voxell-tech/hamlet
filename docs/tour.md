@@ -55,6 +55,7 @@ view layer; the workspace excludes it, and it is not edited here.
 | `hamlet_client` | Connection, outbox, realm, waits and watched chats as Bevy entities, the `Index` that finds them by their protocol ids, and gifts read in parts off the frame |
 | `hamlet_desktop` | File/link openers, editor files, dialogs, wake locks and window icon |
 | `hamlet_assets` | Embedded assets and Bevy asset loading |
+| `hamlet_graph` | Procedural graphs: sheets, rulesets, the node registry and built-in nodes, edits, and the evaluator that turns a ruleset and seeds into placed assets |
 | `hamlet_realm` | Land, hamlets, houses, roads, robots, chief, sound and camera |
 | `hamlet_ui` | The widget kit: theme, styles, controls and their effects, with no client state |
 | `hamlet_vfx` | Visual effects |
