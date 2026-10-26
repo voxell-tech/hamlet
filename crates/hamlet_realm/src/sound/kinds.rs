@@ -6,7 +6,9 @@ use crate::play::Play;
 /// A kind of sound, with a volume and a limit of its own.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Family {
-    /// Birds, crickets and wind.
+    /// The animals: birds and crickets.
+    Wildlife,
+    /// The environment: wind.
     Ambience,
     Steps,
     /// The sounds of a robot's chores.
@@ -34,6 +36,7 @@ impl Family {
     /// Its volume, before the master volume.
     pub fn volume(self, set: &SoundSettings) -> f32 {
         match self {
+            Self::Wildlife => set.wildlife,
             Self::Ambience => set.ambience,
             Self::Steps => set.steps,
             Self::Work => set.work,
@@ -49,12 +52,12 @@ impl Family {
     }
 
     /// Number of it that play at once and the least time before one
-    /// repeats. The ambience has no limit: its loops are started
-    /// once.
+    /// repeats. The wildlife and the ambience have no limit: their
+    /// loops are started once.
     pub(super) fn limit(self, set: &SoundSettings) -> Limit {
         let limits = &set.limits;
         match self {
-            Self::Ambience => Limit {
+            Self::Wildlife | Self::Ambience => Limit {
                 most: usize::MAX,
                 gap: 0.0,
             },
@@ -276,9 +279,8 @@ impl Sound {
 
     pub fn family(self) -> Family {
         match self {
-            Self::Birds | Self::Crickets | Self::Wind => {
-                Family::Ambience
-            }
+            Self::Birds | Self::Crickets => Family::Wildlife,
+            Self::Wind => Family::Ambience,
             Self::Step | Self::RoadStep => Family::Steps,
             Self::Hammer
             | Self::Wheel
@@ -344,9 +346,9 @@ impl Sound {
         }
     }
 
-    /// True when it is a loop of the ambience.
+    /// True when it is a loop of the wildlife or the ambience.
     pub fn is_ambient(self) -> bool {
-        self.family() == Family::Ambience
+        matches!(self.family(), Family::Wildlife | Family::Ambience)
     }
 
     /// True when it asks for the chief's attention.

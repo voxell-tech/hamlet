@@ -91,12 +91,21 @@ enum Part {
     },
 }
 
+/// What a switch kept before it existed reads as.
+fn on() -> bool {
+    true
+}
+
 /// The kept view. The first part of `dock` is its root.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct View {
     sky: TimeOfDay,
     sound_on: bool,
     music_on: bool,
+    #[serde(default = "on")]
+    wildlife_on: bool,
+    #[serde(default = "on")]
+    ambience_on: bool,
     sound_level: f32,
     music_level: f32,
     keep_awake: bool,
@@ -435,6 +444,8 @@ pub fn restore(world: &mut World) -> Restored {
     let mut sound = world.resource_mut::<SoundSettings>();
     sound.muted = !view.sound_on;
     sound.music_on = view.music_on;
+    sound.wildlife_on = view.wildlife_on;
+    sound.ambience_on = view.ambience_on;
     sound.sound_level = view.sound_level.clamp(0.0, 1.0);
     sound.music_level = view.music_level.clamp(0.0, 1.0);
     world.resource_mut::<KeepAwake>().0 = view.keep_awake;
@@ -503,6 +514,8 @@ pub fn keep(
         sky: *sky,
         sound_on: !sound.muted,
         music_on: sound.music_on,
+        wildlife_on: sound.wildlife_on,
+        ambience_on: sound.ambience_on,
         sound_level: sound.sound_level,
         music_level: sound.music_level,
         keep_awake: awake.0,
@@ -685,6 +698,8 @@ mod tests {
             sky: TimeOfDay::Night,
             sound_on: false,
             music_on: false,
+            wildlife_on: false,
+            ambience_on: true,
             sound_level: 0.5,
             music_level: 0.25,
             keep_awake: false,
