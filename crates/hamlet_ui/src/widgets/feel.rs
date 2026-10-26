@@ -1,12 +1,14 @@
 //! The feel of the panels (docs/ui-warmth.md): a control's warmth and
 //! sink, the sparks of a deed, the shake of a refusal and the
-//! lamplight in a panel that waits for the chief.
+//! lamplight in a panel that waits for the chief, which its tab
+//! carries while it is behind another.
 
 mod backdrop;
 mod control;
 mod drag;
 mod foot;
 mod glow;
+mod tab;
 
 use bevy::app::{App, Update};
 use bevy::color::Color;
@@ -41,7 +43,7 @@ pub fn plugin(app: &mut App) {
                 )
                     .chain(),
                 drag::dress_drag,
-                backdrop::light,
+                (backdrop::light, tab::light).chain(),
             ),
         );
 }

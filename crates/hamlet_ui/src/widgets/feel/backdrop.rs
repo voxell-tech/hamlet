@@ -43,8 +43,8 @@ pub struct Lit {
 /// left, kept on the node that draws them.
 #[derive(Component, Default)]
 pub(super) struct Lamplight {
-    alarm: f32,
-    flash: f32,
+    pub alarm: f32,
+    pub flash: f32,
 }
 
 /// The node over the top of a panel that its light is drawn on, under
