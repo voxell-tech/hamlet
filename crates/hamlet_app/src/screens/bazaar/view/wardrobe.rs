@@ -28,9 +28,10 @@ use super::parts::{
 };
 use super::shelf::{self, Shown, choice};
 use super::trade;
+use super::trade::sign_in;
 use super::wares::price;
 use crate::bazaar::market::lot::price_words;
-use crate::bazaar::market::{Deal, Market, sign_in};
+use crate::bazaar::market::{Deal, Market};
 use crate::bazaar::shelf::Listing;
 use crate::bazaar::wardrobe::closet::{self, Closet};
 use crate::bazaar::wardrobe::viewing::{Sight, Viewing};
@@ -326,7 +327,9 @@ fn get(
     }
     if !now.signed_in {
         buttons.push(action(Glyph::Signpost, "SIGN IN", sign_in));
-        notes.push(note("Sign in with GitHub to get it.").boxed());
+        notes.push(
+            note("Sign in to your Hamlet account to get it.").boxed(),
+        );
         return;
     }
     let id = asset.id.clone();
@@ -339,6 +342,9 @@ fn get(
     buttons.push(action(which, words, move |world| {
         wardrobe::buy(world, &id);
     }));
+    if asset.price_cents > 0 {
+        notes.push(trade::final_sale());
+    }
 }
 
 /// The way the owned `asset` is worn, into `buttons` and `notes`, and
@@ -453,7 +459,7 @@ pub(super) fn file_words(world: &World, file: &str) -> &'static str {
     } else if closet.missed(file) {
         "It could not be downloaded. It is asked for again shortly."
     } else if !world.resource::<Market>().signed_in() {
-        "Sign in with GitHub to download it for the realm."
+        "Sign in to your Hamlet account to download it for the realm."
     } else {
         "Waiting to be downloaded for the realm..."
     }

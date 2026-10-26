@@ -76,7 +76,7 @@ fn at_the_stall(world: &mut World) {
         protocol::ProviderView {
             configured: true,
             id: "openrouter".into(),
-            label: "Sign in with OpenRouter".into(),
+            label: "Connect OpenRouter".into(),
             methods: Vec::new(),
             name: "OpenRouter".into(),
         },
@@ -202,7 +202,7 @@ fn press(
 /// The bazaar's server as `trade` has it: three agents, two tools
 /// and a hamlet on its shelves, one of each the chief's in some way.
 fn market(trade: Trade) -> Staged {
-    let seller = |login: &str, name: &str| json!({"id": "u_1", "login": login, "name": name, "verified": true});
+    let seller = |username: &str| json!({"id": "u_1", "username": username, "verified": true});
     let version = |version: &str,
                    changes: &str,
                    meta: serde_json::Value| {
@@ -226,7 +226,7 @@ fn market(trade: Trade) -> Staged {
                 from them when asked.",
             "category": "Research", "tags": ["reading", "notes"],
             "priceCents": cents, "currency": "usd", "status": "listed",
-            "seller": seller("ada", "Ada Okafor"),
+            "seller": seller("ada_okafor"),
             "coverUrl": format!("/v1/listings/{id}/cover?v=1"),
             "latest": latest, "owners": owners, "stars": 4.7,
             "reviews": 18, "createdAt": "2026-10-01T00:00:00Z",
@@ -338,15 +338,23 @@ fn market(trade: Trade) -> Staged {
                 settler("designer", "Sets the pages.")]}),
         ),
     );
-    let signed_in = trade != Trade::SignedOut && trade != Trade::Code;
+    let signed_in =
+        trade != Trade::SignedOut && trade != Trade::SignIn;
     let cover =
         std::fs::read(super::super::WORLD).unwrap_or_default();
     Staged {
         listings: json!({"items": [wick, owl, scribe, cal, ink, press],
             "total": 6}),
-        user: signed_in.then(|| json!({"id": "u_2", "login": "mira",
-            "name": "Mira", "payouts": {"connected": true, "enabled": true}})),
-        mine: if signed_in { vec!["l_owl".into()] } else { Vec::new() },
+        user: signed_in.then(|| match trade {
+            Trade::Terms => json!({"id": "u_2", "username": "mira",
+                "email": "mira@example.com"}),
+            _ => user(),
+        }),
+        mine: if signed_in {
+            vec!["l_owl".into()]
+        } else {
+            Vec::new()
+        },
         owned: if signed_in {
             vec!["l_cal".into(), "l_scribe".into()]
         } else {
@@ -366,14 +374,18 @@ fn market(trade: Trade) -> Staged {
         },
         covers: ["l_wick", "l_owl", "l_scribe", "l_cal", "l_ink"]
             .into_iter()
-            .map(|id| (format!("/v1/listings/{id}/cover?v=1"), cover.clone()))
+            .map(|id| {
+                (
+                    format!("/v1/listings/{id}/cover?v=1"),
+                    cover.clone(),
+                )
+            })
             .collect(),
-        code: (trade == Trade::Code).then(|| {
-            ("WDJB-MJHT".into(), "https://github.com/login/device".into())
-        }),
         deal: match trade {
             Trade::Paying => Some(("l_wick".into(), Dealt::Paying)),
-            Trade::Installing => Some(("l_wick".into(), Dealt::Installing)),
+            Trade::Installing => {
+                Some(("l_wick".into(), Dealt::Installing))
+            }
             _ => None,
         },
         assets: assets(),
@@ -383,7 +395,26 @@ fn market(trade: Trade) -> Staged {
             Vec::new()
         },
         views: Vec::new(),
+        terms: (trade == Trade::Terms)
+            .then(|| json!({"version": "1", "text": SELLER_TERMS})),
     }
+}
+
+/// The seller terms the Terms scene shows, shortened.
+const SELLER_TERMS: &str =
+    "# Hamlet Agent Bazaar: Seller Terms\n\nYou sell what you made, \
+     and you own it. Buyers get a licence to use it in their \
+     hamlets.\n\n## Prices and payouts\n\nStripe pays you the price \
+     less Hamlet's share and Stripe's fee. All sales are \
+     final.\n\n## What you may not sell\n\nAnything you have no \
+     right to, or that harms the people who use it.";
+
+/// The one signed in, as `GET /v1/me` answers.
+pub(super) fn user() -> serde_json::Value {
+    json!({"id": "u_2", "username": "mira", "email": "mira@example.com",
+        "sellerTerms": {"version": "1", "at": "2026-10-01T00:00:00Z"},
+        "payouts": {"connected": true, "chargesEnabled": true,
+            "payoutsEnabled": true}})
 }
 
 /// The official look the LOOKS scenes open, which the mayor wears

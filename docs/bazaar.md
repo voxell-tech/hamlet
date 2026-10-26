@@ -82,7 +82,7 @@ sight, and turns by itself once left alone for `[viewer] idle` seconds
 
 ## The market
 
-The bazaar's server is a separate service: chiefs sign in with GitHub
+The bazaar's server is a separate service: chiefs have a Hamlet account
 there, put agents, hamlets and tools up for sale, and buy them through
 Stripe. The window reaches it at `HAMLET_BAZAAR_URL`, or
 `http://localhost:8787`, on its Tokio, with the session token as a
@@ -96,14 +96,30 @@ The AGENTS, PLUGINS and HAMLETS stalls show the server's listings once
 they come (`bazaar/listings.rs`), and the samples where it cannot be
 reached, said to be samples, with ASK AGAIN at their foot.
 
-- Signing in (`market/account.rs`): SIGN IN at the foot of a stall asks
-  the server for GitHub's device code, opens GitHub, shows the code and
-  asks after it until it is entered or runs out; a server out of reach
-  or failing meanwhile, as while it restarts, is asked again. The token
-  is kept for the next run in `bazaar-token` in the window's view
-  folder, readable by its owner alone, with the server it came from and
-  who it signs in, shown signed in before the server answers
-  (`market/session.rs`).
+- A Hamlet account (`market/account.rs`, its pages in
+  `screens/account.rs`), all in the app, never in a browser: CREATE AN
+  ACCOUNT takes an email, a username and a password, then the 6-digit
+  code emailed (SEND AGAIN for another); SIGN IN takes the email and
+  password, and turns to the code while the email is not verified;
+  FORGOT PASSWORD sends a code to choose a new one with. First-run
+  setup offers the account as its first, skippable step, the bazaar at
+  SIGN IN, and Settings on its ACCOUNT page, with CHANGE USERNAME,
+  CHANGE PASSWORD and SIGN OUT. The token is kept for the next run in
+  `bazaar-token` in the window's view folder, readable by its owner
+  alone, with the server it came from, who it signs in and the vault's
+  data key, shown signed in before the server answers
+  (`market/session.rs`). A token the server refuses signs out.
+- The OpenRouter key on every computer (`market/vault.rs`): at sign-in
+  the window makes the password key (Argon2id, `hamlet_protocol::vault`)
+  and opens the account's vault with it, or makes one. It never sees a
+  provider key (S7): it hands the data key to the home, which seals its
+  OpenRouter key for the vault (a `sealed` read) or opens the vault's
+  into its credentials (an `unseal` login). A key connected later is
+  sealed and kept as it comes. Signing out keeps the home's key;
+  DISCONNECT OPENROUTER (Settings, ACCOUNT or ENDPOINTS) forgets it on
+  the home and in the account. CONNECT OPENROUTER asks first for a
+  spend limit, $10 unless changed, which OpenRouter's page is asked to
+  fill in.
 - A listing's page (`view/wares.rs`, `view/trade.rs`): its cover under
   its head, fetched and kept a few at a time (`bazaar/covers.rs`), or a
   hamlet's town; then the way it is had as it stands: BUY or GET IT FOR
@@ -123,8 +139,11 @@ reached, said to be samples, with ASK AGAIN at their foot.
   the listing is put up or changed with its words, price, tags and
   cover, the package is uploaded as its new version, and PUT UP FOR SALE
   lists it. A cover is a PNG, JPEG or WebP of at most 400 KB, from a
-  file of this computer or an address on the web. A paid listing needs
-  payouts set up with Stripe, which SET UP PAYOUTS opens.
+  file of this computer or an address on the web. A price starts at
+  $1.99 and is at least $0.99. Publishing first shows the seller terms
+  to agree to. A paid listing needs payouts set up with Stripe, which
+  SET UP PAYOUTS opens after the terms; CHECK AGAIN asks Stripe whether
+  the chief can be paid.
 - YOURS lists what the chief sells, each opening its form, and what they
   bought, each opening its page with how it stands in the home.
 

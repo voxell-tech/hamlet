@@ -17,14 +17,14 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::realm::{AgentNumber, HamletId, Left, LivesIn};
 use hamlet_protocol::client::{Address, PackableTool, Packing};
-use hamlet_ui::AnyView;
 use hamlet_ui::styles::{
-    Fills, ICON, action, bare, buttons, command, filling, headed,
-    note, text_input,
+    Fills, ICON, action, bare, buttons, command, filling,
+    good_action, headed, note, text_input,
 };
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::widgets::switch::switch as toggle;
+use hamlet_ui::{AnyView, markdown};
 
 use super::covers::{chosen, now_of};
 use super::parts::{
@@ -44,8 +44,8 @@ use crate::bazaar::market::lot::{
 };
 use crate::bazaar::market::sell::Step;
 use crate::bazaar::market::{
-    self, Housed, Market, Offer, Selling, ask_account, ask_tools,
-    set_up_payouts,
+    self, Housed, Market, Offer, Selling, agree, ask_account,
+    ask_tools, check_payouts, disagree, set_up_payouts,
 };
 use crate::bazaar::samples::agents::Craft;
 use crate::bazaar::samples::plugins::Kind as Shelf;
@@ -61,8 +61,11 @@ const TAGS: usize = 8;
 const TAG: usize = 24;
 
 /// The least and most a paid listing may cost, in cents.
-const LEAST_CENTS: u32 = 50;
+const LEAST_CENTS: u32 = 99;
 const MOST_CENTS: u32 = 50_000;
+
+/// The price a new listing starts at, in dollars.
+const FIRST_PRICE: &str = "1.99";
 
 /// What the chief is doing at the seller's desk.
 #[derive(Resource, Clone, PartialEq, Debug, Default)]
@@ -174,6 +177,7 @@ pub(crate) fn open_form(
         None => Form {
             kind,
             category: first_category(kind).into(),
+            price: FIRST_PRICE.into(),
             ..Form::default()
         },
         Some(lot) => Form {
@@ -229,13 +233,58 @@ pub(crate) fn or(
     back: &'static str,
     stall: impl Fn() -> AnyView + Send + Sync + 'static,
 ) -> AnyView {
-    let page = resource::<Desk, _>(|desk| desk.page);
+    let page = derived(|world: &World| {
+        let terms = world.resource::<Market>().terms.is_some();
+        (world.resource::<Desk>().page, terms)
+    })
+    .when(either(moved::<Desk>(), moved::<Market>()));
     keyed(page, move |page| match page {
-        Some(Page::Form) => form(back),
-        Some(Page::Yours) => yours(back),
-        None => stall(),
+        (_, true) => terms(back),
+        (Some(Page::Form), false) => form(back),
+        (Some(Page::Yours), false) => yours(back),
+        (None, false) => stall(),
     })
     .within(filling())
+    .boxed()
+}
+
+/// The seller terms to agree to before payouts are set up, under the
+/// way back to the stall `back`, which puts them away.
+fn terms(back: &'static str) -> AnyView {
+    let terms = derived(|world: &World| {
+        world.resource::<Market>().terms.clone()
+    })
+    .when(moved::<Market>());
+    let body = keyed(terms, |terms| {
+        let Some(terms) = terms else {
+            return nothing();
+        };
+        sections(vec![
+            page_head(
+                "Seller terms",
+                note(
+                    "Agree to them to sell at the Agent Bazaar. \
+                     Then Stripe opens, to set up how you are paid.",
+                )
+                .boxed(),
+                String::new(),
+                None,
+            ),
+            markdown::fixed(&terms.text, Tone::Body).boxed(),
+            buttons(vec![
+                good_action(Glyph::Check, "I AGREE", agree),
+                command("CANCEL", disagree).boxed(),
+            ])
+            .boxed(),
+        ])
+    })
+    .within(bare());
+    column((
+        crumb(back, disagree, "SELLER TERMS".into()),
+        scroll((body,)).fills_height(),
+    ))
+    .gap(14.0)
+    .fills_height()
     .boxed()
 }
 
@@ -353,7 +402,7 @@ pub(crate) fn cents(price: &str) -> Result<u32, String> {
             Ok(cents)
         }
         _ => {
-            Err("Make it free, or price it from $0.50 to $500."
+            Err("Make it free, or price it from $0.99 to $500."
                 .into())
         }
     }
@@ -421,7 +470,7 @@ pub(crate) fn offer(
     payouts: Option<Payouts>,
     publish: bool,
 ) -> Result<Offer, String> {
-    let paid = payouts.is_some_and(|payouts| payouts.enabled);
+    let paid = payouts.is_some_and(|payouts| payouts.charges_enabled);
     let title = form.title.trim();
     let summary = form.summary.trim();
     let category = form.category.trim();
@@ -488,10 +537,13 @@ pub(crate) fn offer(
 }
 
 fn send(world: &mut World, publish: bool) {
-    let payouts = world
-        .resource::<Market>()
-        .user()
-        .and_then(|user| user.payouts);
+    let user = world.resource::<Market>().user();
+    let payouts = user.and_then(|user| user.payouts);
+    if publish && user.is_some_and(|user| user.seller_terms.is_none())
+    {
+        world.resource_mut::<Desk>().form.problem = None;
+        return market::read_terms(world);
+    }
     let form = world.resource::<Desk>().form.clone();
     let choices = choices_now(world, form.kind);
     let cover = match &world.resource::<Pick>().state {
@@ -1062,6 +1114,17 @@ fn price() -> AnyView {
     .boxed()
 }
 
+/// About what the seller receives of a sale at `cents`: the price
+/// less Hamlet's share and Stripe's fee for a US card, 2.9% and 30
+/// cents.
+fn received(cents: u32) -> u32 {
+    let hamlet = (f64::from(cents) * f64::from(100 - SELLERS_SHARE)
+        / 100.0)
+        .round() as u32;
+    let stripe = (f64::from(cents) * 0.029 + 30.0).round() as u32;
+    cents.saturating_sub(hamlet + stripe)
+}
+
 fn payout_words(
     cents: &Result<u32, String>,
     payouts: Option<Payouts>,
@@ -1070,12 +1133,15 @@ fn payout_words(
         Err(why) => return problem(why.clone()),
         Ok(0) => return nothing(),
         Ok(cents) => format!(
-            "You receive {} of each sale, {SELLERS_SHARE}%.",
-            price_words(cents * SELLERS_SHARE / 100)
+            "You receive about {} of each sale: the price less \
+             Hamlet's {}% and Stripe's fee, which depends on the \
+             buyer's card.",
+            price_words(received(*cents)),
+            100 - SELLERS_SHARE,
         ),
     };
     let mut parts = vec![note(words).boxed()];
-    if !payouts.is_some_and(|payouts| payouts.enabled) {
+    if !payouts.is_some_and(|payouts| payouts.charges_enabled) {
         let started =
             payouts.is_some_and(|payouts| payouts.connected);
         parts.push(
@@ -1098,7 +1164,7 @@ fn payout_words(
                     "SET UP PAYOUTS",
                     set_up_payouts,
                 ),
-                command("CHECK AGAIN", ask_account).boxed(),
+                command("CHECK AGAIN", check_payouts).boxed(),
             ])
             .boxed(),
         );
@@ -1246,14 +1312,14 @@ fn yours(back: &'static str) -> AnyView {
         (
             market.mine.clone(),
             bought,
-            market.user().map(|user| user.login.clone()),
+            market.user().map(|user| user.name().to_string()),
         )
     })
     .when(moved::<Market>());
-    let body = keyed(now, |(mine, bought, login)| {
-        let about = match login {
-            Some(login) => {
-                format!("What @{login} sells and has bought.")
+    let body = keyed(now, |(mine, bought, name)| {
+        let about = match name {
+            Some(name) => {
+                format!("What {name} sells and has bought.")
             }
             None => "What you sell and have bought, once you sign \
                      in."
@@ -1265,7 +1331,7 @@ fn yours(back: &'static str) -> AnyView {
             String::new(),
             None,
         )];
-        if login.is_some() {
+        if name.is_some() {
             let selling = match mine.is_empty() {
                 true => note(
                     "You sell nothing yet. SELL AN AGENT, SELL A \
@@ -1321,7 +1387,7 @@ fn bought_row(lot: &Lot, kept: &Option<String>) -> AnyView {
         meta: format!(
             "{}, by {}",
             lot.kind.name(),
-            lot.seller.shown()
+            lot.seller.username
         ),
         mark: kept.as_deref().map(accent),
     }
@@ -1347,7 +1413,8 @@ mod tests {
 
     const PAID: Option<Payouts> = Some(Payouts {
         connected: true,
-        enabled: true,
+        charges_enabled: true,
+        payouts_enabled: true,
     });
 
     fn tool(name: &str) -> PackableTool {
@@ -1436,7 +1503,9 @@ mod tests {
     fn a_price_is_free_or_within_the_bazaar_s_bounds() {
         assert_eq!(cents(""), Ok(0));
         assert_eq!(cents("$4.99"), Ok(499));
-        assert!(cents("0.10").is_err());
+        assert!(cents("0.50").is_err());
+        // As the bazaar's plan works it out, for a US card.
+        assert_eq!((received(199), received(99)), (143, 56));
         assert!(cents("five").is_err());
         assert_eq!(tags("Maps, maps, Ink").unwrap(), ["maps", "ink"]);
         let many =
