@@ -87,7 +87,9 @@ there, put agents, hamlets and tools up for sale, and buy them through
 Stripe. The window reaches it at `HAMLET_BAZAAR_URL`, or
 `http://localhost:8787`, on its Tokio, with the session token as a
 bearer header (`bazaar/market/client.rs`), which holds each request the
-window makes and the answer it expects.
+window makes and the answer it expects. The ignored test in
+`bazaar/market/live.rs` drives the window's market against a local
+server, end to end; its doc comment says how to run it.
 
 `bazaar/market.rs` owns the market in the window: who is signed in, the
 listings, what the chief owns and sells, and what was bought and

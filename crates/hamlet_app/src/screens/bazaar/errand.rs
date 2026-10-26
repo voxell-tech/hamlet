@@ -87,6 +87,12 @@ impl Errands {
     pub fn waiting(&self, errand: &Errand) -> bool {
         self.sent.contains(errand)
     }
+
+    /// Whether every fetch sent was answered.
+    #[cfg(test)]
+    pub fn is_idle(&self) -> bool {
+        self.sent.is_empty()
+    }
 }
 
 /// Fetches `url` for `errand`; false where the window has no runtime
@@ -196,7 +202,7 @@ fn waiting(errands: Res<Errands>) -> bool {
 }
 
 /// Hands each answer of a fetch to the stall that asked.
-fn answered(world: &mut World) {
+pub(crate) fn answered(world: &mut World) {
     while let Ok((errand, answer)) =
         world.resource_mut::<Errands>().rx.try_recv()
     {

@@ -116,7 +116,7 @@ fn a_listing_is_read_as_the_server_sends_it() {
         "createdAt": "2026-10-01T00:00:00Z",
         "updatedAt": "2026-10-01T00:00:00Z",
     });
-    let lot = serde_json::from_value::<lot::Lot>(listing).unwrap();
+    let lot = serde_json::from_value::<Lot>(listing).unwrap();
     assert_eq!(lot.seller.username, "ada");
 }
 
@@ -293,7 +293,7 @@ fn a_rejected_listing_waits_for_a_person_once_one_is_asked() {
             "reasons": ["Automatic check: it holds an API key."],
             "humanReview": null},
     });
-    let lot = serde_json::from_value::<lot::Lot>(rejected).unwrap();
+    let lot = serde_json::from_value::<Lot>(rejected).unwrap();
     assert!(!check::is_checked(&lot));
     world.resource_mut::<Market>().mine = vec![lot];
     let asked = serde_json::json!({"version": "1.0.0",

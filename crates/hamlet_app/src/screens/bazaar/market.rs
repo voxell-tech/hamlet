@@ -8,6 +8,8 @@ mod account;
 pub(crate) mod check;
 pub(crate) mod client;
 pub(crate) mod deal;
+#[cfg(test)]
+mod live;
 pub(crate) mod lot;
 pub(crate) mod sell;
 mod session;
