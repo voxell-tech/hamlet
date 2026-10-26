@@ -1,0 +1,37 @@
+(
+    graph: (
+        outputs: [(name: "geometry", value_type: Geometry, from: (node: 6, name: "geometry"))],
+        nodes: [
+            (id: 1, does: Kind("rectangle"), settings: {
+                "width": Fixed(Number(10.0)),
+                "depth": Fixed(Number(6.0)),
+            }),
+            (id: 2, does: Kind("along_curve"), settings: {"spacing": Fixed(Number(1.0))}),
+            (id: 3, does: Kind("noise"), settings: {"frequency": Fixed(Number(0.35))}),
+            (id: 4, does: Kind("transform"), settings: {
+                "yaw": Random((spread: Range(-8.0, 8.0), scope: Placement)),
+                "pitch": Random((spread: Range(-3.0, 3.0), scope: Placement)),
+            }),
+            (id: 5, does: Kind("cull")),
+            (id: 6, does: Kind("instance"), settings: {
+                "asset": Fixed(Choice("pillar")),
+                "size": Fixed(Point((0.35, 1.6, 0.35))),
+            }),
+        ],
+        wires: [
+            (from: (node: 1, name: "curve"), to: (node: 2, name: "curve")),
+            (from: (node: 2, name: "placements"), to: (node: 4, name: "placements")),
+            (from: (node: 4, name: "placements"), to: (node: 5, name: "placements")),
+            (from: (node: 3, name: "field"), to: (node: 5, name: "keep")),
+            (from: (node: 5, name: "placements"), to: (node: 6, name: "placements")),
+        ],
+    ),
+    layout: {
+        1: (20.0, 20.0),
+        2: (220.0, 20.0),
+        3: (220.0, 210.0),
+        4: (420.0, 20.0),
+        5: (620.0, 60.0),
+        6: (820.0, 60.0),
+    },
+)
