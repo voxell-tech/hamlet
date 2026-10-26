@@ -446,9 +446,11 @@ fn in_view(
     let (drawn, _, centre) = at.to_scale_angle_translation();
     let half = node.size.y * drawn.y / 2.0;
     let (top, bottom) = (centre.y - half, centre.y + half);
-    let tall = area.size.y / 2.0;
-    let (from, to) =
-        (area_at.translation.y - tall, area_at.translation.y + tall);
+    // As large as the area is drawn, as the control is.
+    let (area_drawn, _, area_centre) =
+        area_at.to_scale_angle_translation();
+    let tall = area.size.y * area_drawn.y / 2.0;
+    let (from, to) = (area_centre.y - tall, area_centre.y + tall);
     let inside = (top - from).min(to - bottom);
     let share =
         (inside * node.inverse_scale_factor / room).clamp(0.0, 1.0);
