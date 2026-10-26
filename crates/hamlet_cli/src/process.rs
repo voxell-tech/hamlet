@@ -529,6 +529,7 @@ async fn dev_binary(name: &str, variable: &str) -> Result<PathBuf> {
         root.join("Cargo.toml").is_file(),
         "hamlet dev needs a source checkout or {variable}."
     );
+    eprintln!("hamlet: building {name}");
     let mut command = tokio::process::Command::new("cargo");
     command
         .current_dir(&root)
@@ -641,18 +642,34 @@ pub async fn develop(
     command.stdin(Stdio::null());
     let mut server =
         tokio::process::Command::from(command).spawn()?;
+    let started = server
+        .id()
+        .map_or_else(|| "?".to_string(), |pid| pid.to_string());
+    eprintln!(
+        "hamlet: started the server (pid {started}) on {}; waiting \
+         up to 15 s for it to answer",
+        home.display()
+    );
     let mut window = None;
     let result = async {
         let ready = ready(&mut server, &home);
         let ready = timeout(Duration::from_secs(15), ready);
         let address = tokio::select! {
-            ready = ready => ready.context(
-                "The server did not become ready within 15 seconds",
-            )??,
+            ready = ready => ready.with_context(|| {
+                format!(
+                    "The server (pid {started}) did not become ready \
+                     within 15 seconds; its home is {}",
+                    home.display()
+                )
+            })??,
             _ = interrupt.recv() => return Ok(0),
             _ = terminate.recv() => return Ok(0),
             _ = hangup.recv() => return Ok(0),
         };
+        eprintln!(
+            "hamlet: the server answers at {}; opening the window",
+            address.url
+        );
         let mut command = window_command(&app, &address);
         command.env("HAMLET_VIEW", home.join("window"));
         session(&mut command);

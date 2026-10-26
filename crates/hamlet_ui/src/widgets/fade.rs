@@ -9,7 +9,7 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::ChildOf;
 use bevy::ecs::lifecycle::Add;
 use bevy::ecs::observer::On;
-use bevy::ecs::query::{With, Without};
+use bevy::ecs::query::{Added, With, Without};
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Query, Res};
 use bevy::math::{BVec2, Vec2};
@@ -22,13 +22,14 @@ use bevy::ui::{
     px,
 };
 use bevy_fynix::Theme;
+use bevy_fynix::scroll::ScrollGoal;
 
 use crate::platform::Glow;
 use crate::theme::HamletTheme;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_observer(add_fades)
-        .add_systems(Update, fade)
+        .add_systems(Update, (default_fade, fade).chain())
         .add_systems(
             PostUpdate,
             keep_fades.before(UiSystems::Prepare),
@@ -148,17 +149,28 @@ pub(crate) fn ease(value: f32, to: f32, rate: f32, dt: f32) -> f32 {
     if (next - to).abs() < 0.002 { to } else { next }
 }
 
+/// Gives each new scroll area a [`ScrollFade`] on the panel unless it
+/// was given one on a surface of its own, so that every scroll area
+/// fades at its edges by default.
+fn default_fade(
+    areas: Query<Entity, (Added<ScrollGoal>, Without<ScrollFade>)>,
+    mut commands: Commands,
+) {
+    for area in &areas {
+        commands.entity(area).try_insert(ScrollFade::default());
+    }
+}
+
 /// Puts the fades over the edges of each new [`ScrollFade`] area.
 fn add_fades(
     added: On<Add<ScrollFade>>,
     theme: Option<Res<Theme<HamletTheme>>>,
     mut commands: Commands,
 ) {
-    let Some(theme) = theme else {
-        return;
-    };
     let area = added.entity;
-    let depth = theme.0.space.scroll_fade;
+    // The panels are made before the theme has loaded: their fades
+    // wait with no depth, and `fade` sizes them once it has.
+    let depth = theme.map_or(0.0, |theme| theme.0.space.scroll_fade);
     let fades = Edge::ALL.map(|edge| {
         commands
             .spawn((
