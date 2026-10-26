@@ -292,9 +292,12 @@ reach = 5.0
 [sound]
 muted = false
 music_on = true
+wildlife_on = true
+ambience_on = true
 volume = 0.6
 sound_level = 1.0
 music_level = 1.0
+wildlife = 0.5
 ambience = 0.5
 birds = 0.55
 steps = 0.22

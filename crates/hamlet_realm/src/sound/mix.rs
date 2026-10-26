@@ -115,11 +115,16 @@ pub(super) fn mix_ambience(
             _ => (1.0, 1.0 - 0.6 * near),
         };
         bed.level += (want - bed.level).clamp(-step, step);
-        let volume = bed.level
-            * heard
-            * set.ambience
-            * set.volume
-            * set.sound_level;
+        let family = bed.sound.family();
+        let volume = if set.is_on(family) {
+            bed.level
+                * heard
+                * family.volume(&set)
+                * set.volume
+                * set.sound_level
+        } else {
+            0.0
+        };
         sink.set_volume(Volume::Linear(volume));
     }
 }
@@ -138,7 +143,8 @@ pub(super) fn admit(
     let limit = family.limit(set);
     let of_family = playing.get(&family).copied().unwrap_or(0);
     let recent = |at: &f32| now - at < limit.gap;
-    if of_family >= limit.most
+    if !set.is_on(family)
+        || of_family >= limit.most
         || heard.last.get(&cue.sound).is_some_and(recent)
     {
         return Admission::Held;

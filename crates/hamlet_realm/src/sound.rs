@@ -94,10 +94,15 @@ pub struct Limits {
 #[derive(Resource, Clone, PartialEq, Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SoundSettings {
-    /// True when the effects and the ambience are off.
+    /// True when the effects, the wildlife and the ambience are off.
     pub muted: bool,
     /// True when the music plays. It does not follow `muted`.
     pub music_on: bool,
+    /// True when the animals are heard: birds, crickets and any
+    /// other wildlife. Off, none plays whatever its volume.
+    pub wildlife_on: bool,
+    /// True when the environment is heard: wind.
+    pub ambience_on: bool,
     /// The master volume, 0 to 1, of the effects and the music.
     pub volume: f32,
     /// The chief's own level for the effects, 0 to 1.
@@ -105,11 +110,12 @@ pub struct SoundSettings {
     /// The chief's own level for the music, 0 to 1.
     pub music_level: f32,
     /// The volume of each kind of sound, before the master volume:
-    /// birds, crickets and wind; footsteps; hammer, wheel, steam,
+    /// birds and crickets; wind; footsteps; hammer, wheel, steam,
     /// quill and kite; doors and letters; the chime and the fault
     /// note.
+    pub wildlife: f32,
     pub ambience: f32,
-    /// The birds' share of the ambience.
+    /// The birds' share of the wildlife.
     pub birds: f32,
     pub steps: f32,
     pub work: f32,
@@ -195,6 +201,15 @@ impl SoundSettings {
     /// True when the music can be heard.
     pub fn can_hear_music(&self) -> bool {
         self.music_on && self.volume > 0.0 && self.music > 0.0
+    }
+
+    /// True when the family is not switched off.
+    pub fn is_on(&self, family: Family) -> bool {
+        match family {
+            Family::Wildlife => self.wildlife_on,
+            Family::Ambience => self.ambience_on,
+            _ => true,
+        }
     }
 }
 

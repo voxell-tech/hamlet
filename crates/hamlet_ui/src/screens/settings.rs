@@ -541,6 +541,16 @@ fn level(
     })
 }
 
+/// A switch alone: a group of sounds that is on or off.
+fn sound_switch(
+    on: fn(&SoundSettings) -> bool,
+    turn: fn(&mut SoundSettings, bool),
+) -> impl View {
+    switch(resource::<SoundSettings, _>(on), move |world, to| {
+        turn(&mut world.resource_mut::<SoundSettings>(), to);
+    })
+}
+
 fn senses() -> impl View {
     parts((
         field(
@@ -566,6 +576,28 @@ fn senses() -> impl View {
                 |s, on| s.music_on = on,
                 |s| s.music_level,
                 |s, level| s.music_level = level,
+            ),
+        ),
+        field(
+            "Wildlife",
+            told(
+                sound_switch(
+                    |s| s.wildlife_on,
+                    |s, on| s.wildlife_on = on,
+                ),
+                description("Birds, crickets and other animals."),
+            ),
+        ),
+        field(
+            "Ambience",
+            told(
+                sound_switch(
+                    |s| s.ambience_on,
+                    |s, on| s.ambience_on = on,
+                ),
+                description(
+                    "The wind and the other sounds of the land.",
+                ),
             ),
         ),
     ))

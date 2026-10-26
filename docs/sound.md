@@ -2,7 +2,8 @@
 
 Everything heard in the app is made in code, in
 `hamlet_realm/src/sound/`: no samples, no files. Settings has two
-switches, Sound for the effects and the ambience and Music for the music.
+switches, Sound for the effects and Music for the music. Wildlife and
+Ambience each have a switch of their own, and Sound off silences both.
 
 Everything with a note is in **D major**, mostly on its pentatonic scale
 (D E F# A B), so an effect and the music can sound together without
@@ -30,7 +31,8 @@ and `synth/` builds the clips.
 
 | Family | What is in it |
 |---|---|
-| `ambience` | Birds by day, crickets at night, wind always |
+| `wildlife` | Birds by day, crickets at night, and every animal added later |
+| `ambience` | Wind always, and other sounds of the land |
 | `steps`, `work`, `doors` | A robot's feet, its chores, its door, a letter changing hands |
 | `alerts` | An agent begins to wait for the chief, or faults |
 | `answers` | The chief allows, denies or stops |
