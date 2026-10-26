@@ -1,24 +1,26 @@
-//! The graph editor: three panels on one sheet of nodes and wires.
-//! The Graph panel is the canvas with its tools, the Properties panel
-//! the selected node's inputs, and the Preview panel what the graph
-//! puts down, run again on every change.
+//! The graph editor: one panel holding the canvas with its tools, and
+//! beside it two inner panels, the preview of what the graph puts
+//! down, run again on every change, and the selected node's
+//! properties.
 
 mod canvas;
 mod inspect;
 mod menu;
 mod preview;
+mod split;
 
 use std::collections::BTreeMap;
 use std::mem::discriminant;
 
-use bevy::app::{App, Update};
-use bevy::ecs::change_detection::DetectChanges;
+use bevy::app::App;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Local, ResMut};
 use bevy::ecs::world::World;
 use bevy::math::{Vec2, Vec3};
-use bevy::ui::{AlignItems, UiRect, px};
-use bevy_fynix::dock::{DockTree, DockWindowKind, Edge};
+use bevy::ui::{
+    AlignItems, Display, Overflow, PositionType, UiRect, Val,
+    percent, px,
+};
+use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, frame, row,
 };
@@ -29,11 +31,12 @@ use hamlet_graph::{
     evaluate,
 };
 
+use self::split::{Layout, divider};
 use crate::dock::{PanelAppExt, panel};
 use crate::feel::Mood;
 use crate::icons::{Glyph, glyph};
 use crate::looks::{
-    CONTROL, Fills, ICON, brass, description, note, raised,
+    CONTROL, Fills, ICON, brass, description, note, raised, section,
 };
 use crate::{View, with_cx};
 
@@ -44,28 +47,19 @@ const GRAPH: &str = "main";
 /// The sheet the editor opens with.
 const START: &str = include_str!("graphs/start.ron");
 
-const PROPERTIES: &str = "graph_properties";
-const PREVIEW: &str = "graph_preview";
-
 pub(crate) fn plugin(app: &mut App) {
     app.add_panel(
         "graphs",
         DockWindowKind::new("GRAPH", || panel(screen()))
             .icon(Glyph::Signpost.image(ICON)),
     )
-    .add_panel(
-        PROPERTIES,
-        DockWindowKind::new("PROPERTIES", || panel(inspect::view()))
-            .icon(Glyph::Sliders.image(ICON)),
-    )
-    .add_panel(
-        PREVIEW,
-        DockWindowKind::new("PREVIEW", || panel(preview::view()))
-            .icon(Glyph::Hamlet.image(ICON)),
-    )
     .insert_resource(Editor::new())
-    .add_plugins((canvas::plugin, menu::plugin, preview::plugin))
-    .add_systems(Update, arrange);
+    .add_plugins((
+        canvas::plugin,
+        menu::plugin,
+        preview::plugin,
+        split::plugin,
+    ));
 }
 
 /// The sheet being edited, its history, and what it last gave.
@@ -336,49 +330,110 @@ fn shown(value: Value) -> Vec<Instance> {
     }
 }
 
-/// Opens the Properties and Preview panels beside the Graph panel the
-/// first time it is opened, each in a pane of its own whose divider
-/// can be dragged. Closed again, they stay closed.
-fn arrange(mut tree: ResMut<DockTree>, mut was_open: Local<bool>) {
-    if !tree.is_changed() {
-        return;
-    }
-    let graph = tree.find_leaf_with_window("graphs");
-    let open = graph.is_some();
-    let first = open && !*was_open;
-    *was_open = open;
-    let Some(graph) = graph.filter(|_| first) else {
-        return;
-    };
-    if tree.find_leaf_with_window(PROPERTIES).is_some()
-        || tree.find_leaf_with_window(PREVIEW).is_some()
-    {
-        return;
-    }
-    let Some((side, _)) =
-        tree.split(graph, Edge::Right, PROPERTIES.into())
-    else {
-        return;
-    };
-    if let Some(parent) = tree.parent_of(side) {
-        tree.set_fraction(parent, 0.7);
-    }
-    if let Some((above, _)) =
-        tree.split(side, Edge::Top, PREVIEW.into())
-        && let Some(parent) = tree.parent_of(above)
-    {
-        tree.set_fraction(parent, 0.5);
-    }
-}
+/// The width of the properties floating over the canvas.
+const FLOATING: f32 = 300.0;
 
-/// The Graph panel: its tools over the canvas.
+/// The Graph panel: its tools over the canvas, the properties
+/// floating over the canvas's corner, and the preview beside it,
+/// sized by dragging the line between them.
 fn screen() -> impl View {
     with_cx(|cx| {
         let gap = cx.theme().space.gap;
-        column((tools(), canvas::view(), menu::view()))
+        let preview =
+            inner(Glyph::Hamlet, "PREVIEW", preview::view())
+                .width(resource::<Layout, _>(|layout| {
+                    px(layout.preview)
+                }))
+                .shrink(0.0);
+        row((
+            column((
+                tools(),
+                // The properties are placed over the canvas, in its
+                // frame.
+                column((canvas::view(), properties()))
+                    .fills_width()
+                    .fills_height()
+                    .gap(0.0),
+                menu::view(),
+            ))
             .fills_width()
-            .fills_height()
-            .gap(gap)
+            .gap(gap),
+            divider(),
+            preview,
+        ))
+        .fills_width()
+        .fills_height()
+        .gap(gap / 2.0)
+    })
+}
+
+/// A header over `content` in a card, for a part of the Graph panel.
+fn inner(
+    which: Glyph,
+    title: &'static str,
+    content: impl View,
+) -> impl View + FrameProps {
+    let gap = 8.0;
+    column((
+        row((glyph(which, ICON), section(title)))
+            .gap(gap / 2.0)
+            .align(AlignItems::Center),
+        content,
+    ))
+    .min_height(px(0.0))
+    .padding(UiRect::all(px(gap)))
+    .gap(gap)
+}
+
+/// The selected node's properties, floating over the canvas's top
+/// right corner. Its header folds it away and opens it again.
+fn properties() -> impl View {
+    with_cx(|cx| {
+        let theme = cx.theme();
+        let gap = theme.space.gap;
+        let header = button(
+            row((
+                glyph(Glyph::Sliders, ICON),
+                section("PROPERTIES"),
+                frame().grow(1.0),
+                glyph(Glyph::Chevron, ICON),
+            ))
+            .gap(gap / 2.0)
+            .align(AlignItems::Center),
+        )
+        .width(percent(100.0))
+        .tooltip(|| note("Fold or open the properties"))
+        .on_activate(|world| {
+            let mut layout = world.resource_mut::<Layout>();
+            layout.properties = !layout.properties;
+        });
+        let body =
+            column((inspect::view(),)).display(
+                resource::<Layout, _>(|layout| {
+                    if layout.properties {
+                        Display::Flex
+                    } else {
+                        Display::None
+                    }
+                }),
+            );
+        column((header, body))
+            .position(PositionType::Absolute)
+            .inset(UiRect {
+                top: px(gap),
+                right: px(gap),
+                left: Val::Auto,
+                bottom: Val::Auto,
+            })
+            .width(px(FLOATING))
+            .max_height(percent(100.0))
+            .overflow(Overflow::clip())
+            .padding(UiRect::all(px(gap)))
+            .gap(gap / 2.0)
+            .fill(theme.palette.card)
+            .border(theme.space.border)
+            .border_color(theme.palette.seam)
+            .radius(theme.space.round)
     })
 }
 
