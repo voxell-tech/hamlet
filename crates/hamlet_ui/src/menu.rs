@@ -204,6 +204,7 @@ fn item(
             act(world);
         })
     })
+    .boxed()
 }
 
 fn items(menu: Menu, found: bool) -> Vec<AnyView> {
@@ -260,6 +261,7 @@ pub fn open_menu() -> impl View {
                         .on_dismiss(|world, _| dismiss(world))
                         .min_width(px(cx.theme().space.menu_width))
                 })
+                .boxed()
             }
             None => frame().boxed(),
         },

@@ -357,6 +357,7 @@ pub fn panel(chief: Entity) -> AnyView {
         with_cx(move |cx| {
             column(views).fills_height().gap(cx.theme().space.section)
         })
+        .boxed()
     })
     .within(filling())
     .boxed()

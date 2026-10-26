@@ -14,7 +14,7 @@ use crate::looks::{
     action, close, filling, group, lettered, note, scroll_area,
 };
 use crate::me::Me;
-use crate::{AnyView, View};
+use crate::{View, built};
 
 pub(super) fn is_read_only(world: &World) -> bool {
     let me = world.resource::<Me>();
@@ -59,8 +59,8 @@ fn peers(world: &World) -> Vec<protocol::ConversationView> {
         .unwrap_or_default()
 }
 
-fn exchange(peer: protocol::ConversationView) -> AnyView {
-    AnyView::new(move |cx: &mut crate::Cx| {
+fn exchange(peer: protocol::ConversationView) -> impl View {
+    built(move |cx| {
         let name = hamlet_client::realm::agent(cx.world, &peer.with)
             .filter(|agent| address_of(cx.world, *agent).is_some())
             .map(|agent| name_of(cx.world, agent))
@@ -100,7 +100,9 @@ pub(super) fn screen() -> impl View {
                     .boxed(),
             );
         }
-        rows.extend(chats.iter().cloned().map(exchange));
+        rows.extend(
+            chats.iter().cloned().map(|peer| exchange(peer).boxed()),
+        );
         scroll_area((group(rows),)).boxed()
     })
     .within(filling())

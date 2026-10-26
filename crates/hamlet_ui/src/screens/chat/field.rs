@@ -19,7 +19,7 @@ use bevy_fynix::views::{BehaviorExt, FrameProps, column};
 use super::{ChatField, Draft};
 use crate::fields::Resized;
 use crate::platform::show;
-use crate::{AnyView, Cx};
+use crate::{View, built};
 
 /// The editable text inside the field.
 fn typing(
@@ -148,8 +148,8 @@ pub struct FieldBar;
 const ABOVE: f32 = 5.5;
 
 /// The thumb of the bar, over the right of the field.
-pub fn bar() -> AnyView {
-    AnyView::new(|cx: &mut Cx| {
+pub fn bar() -> impl View {
+    built(|cx| {
         let fill = cx.theme().palette.brass_5;
         cx.build(
             column(())

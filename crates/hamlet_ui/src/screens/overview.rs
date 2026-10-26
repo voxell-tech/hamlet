@@ -32,7 +32,7 @@ use crate::looks::{
     Fills, ICON, action, bare, beside, close, description, group,
     note, raised, scroll_area, section, title, well,
 };
-use crate::{AnyView, chat, tabs, with_cx, world_menu};
+use crate::{AnyView, View, chat, tabs, with_cx, world_menu};
 
 pub fn plugin(app: &mut App) {
     app.add_plugins(record::plugin)
@@ -87,7 +87,7 @@ pub(crate) fn heading(
 }
 
 /// Every hamlet, with a search over them.
-pub fn overview() -> AnyView {
+pub fn overview() -> impl View {
     let shown = derived(|world: &World| {
         let search =
             world.resource::<Search>().0.trim().to_lowercase();

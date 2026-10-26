@@ -219,7 +219,8 @@ fn popups() -> Ui {
                 "ORCHARD".into(),
                 "Prune, graft and keep the press.".into(),
                 Tone::Body,
-            ),
+            )
+            .boxed(),
         ),
     ))
     .gap(28.0)

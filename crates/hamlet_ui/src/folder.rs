@@ -192,6 +192,7 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
                 .gap(cx.theme().space.gap)
                 .align(AlignItems::FlexStart)
         })
+        .boxed()
     })
     .within(bare())
 }

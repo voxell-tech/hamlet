@@ -119,6 +119,7 @@ pub fn strip<R: Resource + Copy>(
                 .grow(1.0)
                 .gap(0.0)
             })
+            .boxed()
         })
         .chain([list])
         .collect::<Vec<_>>();

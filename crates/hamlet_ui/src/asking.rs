@@ -244,7 +244,7 @@ fn options(
     at: usize,
     offered: &[Offer],
     pick: &Option<Pick>,
-) -> AnyView {
+) -> impl View + use<> {
     let (offered, pick) = (offered.to_vec(), pick.clone());
     with_cx(move |cx| {
         let theme = cx.theme();
@@ -312,7 +312,7 @@ fn options(
 }
 
 /// The way between the questions of a card, and where it is.
-fn pager(card: Entity, count: usize, at: usize) -> AnyView {
+fn pager(card: Entity, count: usize, at: usize) -> impl View {
     with_cx(move |cx| {
         let space = &cx.theme().space;
         let (body, gap) = (cx.theme().text.body, space.gap);
@@ -345,20 +345,26 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
         return frame().boxed();
     };
     let question = one.question.clone();
-    let mut head = vec![with_cx(move |cx| {
-        column((label(question)
-            .size(cx.theme().text.heading)
-            .bold(true),))
-        .fills_width()
-    })];
+    let mut head = vec![
+        with_cx(move |cx| {
+            column((label(question)
+                .size(cx.theme().text.heading)
+                .bold(true),))
+            .fills_width()
+        })
+        .boxed(),
+    ];
     if count > 1 {
-        head.push(pager(card, count, at));
+        head.push(pager(card, count, at).boxed());
     }
-    let mut parts = vec![with_cx(move |cx| {
-        row(head)
-            .gap(cx.theme().space.gap)
-            .align(AlignItems::FlexStart)
-    })];
+    let mut parts = vec![
+        with_cx(move |cx| {
+            row(head)
+                .gap(cx.theme().space.gap)
+                .align(AlignItems::FlexStart)
+        })
+        .boxed(),
+    ];
     if !one.description.is_empty() {
         parts.push(note(one.description.clone()).boxed());
     }
@@ -367,7 +373,9 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
         parts.push(
             keyed(
                 resource::<Answering, _>(move |a| a.pick(card, at)),
-                move |pick| options(card, count, at, &offered, pick),
+                move |pick| {
+                    options(card, count, at, &offered, pick).boxed()
+                },
             )
             .within(bare())
             .boxed(),
@@ -384,21 +392,24 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
             true => "Answer",
             false => "Other",
         };
-        parts.push(with_cx(move |cx| {
-            let space = &cx.theme().space;
-            row((
-                label(name).wrap(false).rules(note_rules),
-                text_field(typed, move |world, text| {
-                    write(world, card, count, at, text);
-                })
-                .fills_width()
-                .rules(well)
-                .tagged(Mood::Field),
-            ))
-            .gap(space.section)
-            .align(AlignItems::Center)
-            .padding(UiRect::horizontal(px(space.gap)))
-        }));
+        parts.push(
+            with_cx(move |cx| {
+                let space = &cx.theme().space;
+                row((
+                    label(name).wrap(false).rules(note_rules),
+                    text_field(typed, move |world, text| {
+                        write(world, card, count, at, text);
+                    })
+                    .fills_width()
+                    .rules(well)
+                    .tagged(Mood::Field),
+                ))
+                .gap(space.section)
+                .align(AlignItems::Center)
+                .padding(UiRect::horizontal(px(space.gap)))
+            })
+            .boxed(),
+        );
     }
     let next = match at + 1 < count {
         true => marked(Glyph::Into, "NEXT")
@@ -417,25 +428,28 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
     let done = note(resource::<Answering, _>(move |a| {
         format!("{} of {count} answered", a.answered(card))
     }));
-    parts.push(with_cx(move |cx| {
-        let gap = cx.theme().space.gap;
-        row((
-            column((done,)).fills_width(),
-            marked(Glyph::Cross, "DISMISS")
-                .rules(retrace)
-                .tagged(Mood::Ink)
-                .on_activate(move |world| dismiss(world, card)),
-            next,
-        ))
-        .gap(gap)
-        .align(AlignItems::Center)
-        .padding(UiRect::top(px(gap / 4.0)))
-    }));
-    with_cx(move |cx| column(parts).gap(cx.theme().space.gap))
+    parts.push(
+        with_cx(move |cx| {
+            let gap = cx.theme().space.gap;
+            row((
+                column((done,)).fills_width(),
+                marked(Glyph::Cross, "DISMISS")
+                    .rules(retrace)
+                    .tagged(Mood::Ink)
+                    .on_activate(move |world| dismiss(world, card)),
+                next,
+            ))
+            .gap(gap)
+            .align(AlignItems::Center)
+            .padding(UiRect::top(px(gap / 4.0)))
+        })
+        .boxed(),
+    );
+    with_cx(move |cx| column(parts).gap(cx.theme().space.gap)).boxed()
 }
 
 /// The card of the waiting `card`, which asks `asked`.
-pub fn card(card: Entity, asked: Questions) -> AnyView {
+pub fn card(card: Entity, asked: Questions) -> impl View {
     let message = match asked.message.is_empty() {
         true => frame().boxed(),
         false => {
@@ -503,6 +517,7 @@ pub fn in_chat() -> impl View {
             .fill(palette.card)
             .boxed()
         })
+        .boxed()
     })
     .within(bare())
 }

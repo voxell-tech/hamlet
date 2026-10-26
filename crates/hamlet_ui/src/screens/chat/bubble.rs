@@ -374,16 +374,18 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
         let above = px(if line.lead { RUN } else { 0.0 });
         let (replying, reply_room) = match replies {
             true => (
-                reply::mark(session, id.clone(), who.name.clone()),
+                reply::mark(session, id.clone(), who.name.clone())
+                    .boxed(),
                 reply::ROOM,
             ),
             false => (frame().boxed(), 0.0),
         };
         let view = if mine {
             let (mark, room) = match back {
-                true => {
-                    (rewind::mark(session, id.clone()), rewind::ROOM)
-                }
+                true => (
+                    rewind::mark(session, id.clone()).boxed(),
+                    rewind::ROOM,
+                ),
                 false => (frame().boxed(), 0.0),
             };
             row((replying, mark, bubble))
@@ -509,7 +511,7 @@ pub(super) fn header() -> AnyView {
         resource::<Lines, _>(|lines| lines.cast().to_vec()),
         |cast| {
             let cast = cast.clone();
-            with_cx(move |cx| head(cx, &cast))
+            with_cx(move |cx| head(cx, &cast)).boxed()
         },
     )
     .within(bare())

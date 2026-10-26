@@ -31,7 +31,9 @@ use crate::platform::{DisplayText, Wraps};
 use crate::roll::rolled;
 use crate::status::Bar;
 use crate::world_menu::{self};
-use crate::{AnyView, Cx, View, chat, markdown, tabs, with_cx};
+use crate::{
+    AnyView, Cx, View, built, chat, markdown, tabs, with_cx,
+};
 
 /// The part of the selected agent the panel shows.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Default)]
@@ -98,8 +100,8 @@ fn spent(world: &World, agent: Entity) -> String {
     format!("Spent {period}: {}", account.cost.clone())
 }
 
-fn header(agent: Entity, with: Option<String>) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+fn header(agent: Entity, with: Option<String>) -> impl View {
+    built(move |cx| {
         let (name, purpose) = match &with {
             Some(name) => (
                 name.to_uppercase(),
@@ -364,6 +366,7 @@ fn sections() -> impl View {
                         .fills_height()
                         .gap(cx.theme().space.gap)
                 })
+                .boxed()
             })
             .within(filling())
             .boxed()
@@ -372,7 +375,7 @@ fn sections() -> impl View {
         Section::Character => character().boxed(),
         Section::History => crate::history::screen(),
         Section::Peers => super::conversations::screen().boxed(),
-        Section::Prompt => with_cx(prompt),
+        Section::Prompt => with_cx(prompt).boxed(),
     })
     .within(filling())
 }
@@ -388,6 +391,7 @@ pub(super) fn living() -> impl View {
                     .fills_height()
                     .gap(cx.theme().space.section)
             })
+            .boxed()
         },
     )
     .within(filling())

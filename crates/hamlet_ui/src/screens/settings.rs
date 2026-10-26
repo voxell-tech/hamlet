@@ -37,7 +37,7 @@ use crate::looks::{
 };
 use crate::switch::switch;
 use crate::world_menu::{self, Deed};
-use crate::{AnyView, Cx, View, markdown, with_cx};
+use crate::{AnyView, Cx, View, built, markdown, with_cx};
 
 pub fn plugin(app: &mut App) {
     app.add_panel(
@@ -71,8 +71,8 @@ fn field(name: &'static str, value: impl View) -> impl View {
 }
 
 /// The choice of the world's visual quality.
-fn quality() -> AnyView {
-    AnyView::new(|cx: &mut Cx| {
+fn quality() -> impl View {
+    built(|cx| {
         cx.build(
             dropdown(
                 Quality::ALL.map(Quality::name),
@@ -636,14 +636,14 @@ pub fn screen() -> AnyView {
         if *pane == Pane::Front {
             let (pages, foot) =
                 (Pane::PAGES.map(door).into(), again().boxed());
-            return with_cx(move |cx| doors(cx, pages, foot));
+            return with_cx(move |cx| doors(cx, pages, foot)).boxed();
         }
         let body = match pane {
             Pane::Endpoints => crate::models::endpoints().boxed(),
             Pane::Models => crate::models::shelf().boxed(),
             Pane::Agents => agents().boxed(),
             Pane::Workspace => workspace::page().boxed(),
-            Pane::Charter => with_cx(charter_page),
+            Pane::Charter => with_cx(charter_page).boxed(),
             Pane::Realm => crate::limits::realm().boxed(),
             Pane::Front | Pane::Senses => senses().boxed(),
         };
@@ -656,6 +656,7 @@ pub fn screen() -> AnyView {
         with_cx(move |cx| {
             column((head, body)).gap(cx.theme().space.panel)
         })
+        .boxed()
     });
     AnyView::new(move |cx: &mut Cx| {
         let width = cx.theme().space.page_width;

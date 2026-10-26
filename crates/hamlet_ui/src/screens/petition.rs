@@ -295,7 +295,7 @@ fn strip(need: &Need) -> AnyView {
         };
         let about = match (questions, held(cx.world, &need)) {
             (Some(asked), _) => {
-                asking::card(need.entity, asked.clone())
+                asking::card(need.entity, asked.clone()).boxed()
             }
             (None, Some((session, id, change))) => {
                 chat::change_view(session, id, change)

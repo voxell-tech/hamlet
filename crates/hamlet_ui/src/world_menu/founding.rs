@@ -16,7 +16,7 @@ use crate::looks::{
     brass, description, lamp, lettered, section, well,
 };
 use crate::platform::DisplayText;
-use crate::{AnyView, View, chat};
+use crate::{View, built, chat};
 
 /// The name of a hamlet being founded, the name of its mayor, and its
 /// purpose.
@@ -65,8 +65,8 @@ fn asks(
 }
 
 /// The form a hamlet is founded with.
-pub(super) fn founding(at: Vec2) -> AnyView {
-    AnyView::new(move |cx: &mut crate::Cx| {
+pub(super) fn founding(at: Vec2) -> impl View {
+    built(move |cx| {
         if !Deeds::is_allowed(cx.world, "found") {
             return cx.build(frame());
         }

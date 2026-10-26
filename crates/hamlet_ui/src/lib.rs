@@ -37,6 +37,7 @@ mod world_menu;
 mod world_view;
 
 use bevy::app::{App, Plugin, PreUpdate};
+use bevy::ecs::entity::Entity;
 use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemSet};
 use bevy::input::InputSystems;
@@ -80,12 +81,32 @@ pub trait View:
 
 impl<V: bevy_fynix::View<Bevy, HamletTheme> + 'static> View for V {}
 
+/// A view built by a closure, with the context in hand.
+pub(crate) struct Built<F>(F);
+
+impl<F> bevy_fynix::View<Bevy, HamletTheme> for Built<F>
+where
+    F: FnOnce(&mut Cx) -> Entity,
+{
+    fn build(self, cx: &mut Cx<'_>) -> Entity {
+        (self.0)(cx)
+    }
+}
+
+/// The view `build` makes with the context in hand, written in
+/// place.
+pub(crate) fn built(
+    build: impl FnOnce(&mut Cx) -> Entity + 'static,
+) -> impl View {
+    Built(build)
+}
+
 /// The view `make` gives with the context in hand, for one made
 /// where there is none, as in a `keyed` view.
 pub(crate) fn with_cx<V: View>(
     make: impl FnOnce(&Cx) -> V + 'static,
-) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+) -> impl View {
+    built(move |cx| {
         let view = make(cx);
         cx.build(view)
     })
