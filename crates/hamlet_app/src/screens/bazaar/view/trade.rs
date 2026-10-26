@@ -5,11 +5,13 @@
 
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, percent};
-use bevy_fynix::views::{FrameProps, column, dropdown, row, scroll};
-use bevy_fynix::{ViewExt, derived, keyed, resource};
+use bevy_fynix::views::{
+    FrameProps, column, dropdown, row, scroll, text_field,
+};
+use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_ui::AnyView;
 use hamlet_ui::styles::{
-    Fills, ICON, action, bare, buttons, filling, note,
+    Fills, ICON, action, bare, buttons, filling, note, text_input,
 };
 use hamlet_ui::widgets::icons::Glyph;
 
@@ -21,11 +23,12 @@ use super::shelf::{self, Shown};
 use super::wares::price;
 use crate::account::{self, Form, Page, Place};
 use crate::bazaar::listings::{SELLERS_SHARE, Sells, Wares};
+use crate::bazaar::market::check::REASON;
 use crate::bazaar::market::deal::{Dealing, Places, targets};
 use crate::bazaar::market::lot::{Kind, price_words, semver};
 use crate::bazaar::market::{
-    self, Account, Deal, Market, Reach, ask_shelves, buy, install,
-    sign_out, update,
+    self, Account, Deal, Market, Reach, Reporting, ask_shelves, buy,
+    install, sign_out, update,
 };
 use crate::roll::{either, hamlets_moved, moved};
 
@@ -561,4 +564,85 @@ fn nowhere(kind: Kind) -> &'static str {
         Kind::Plugin => "There is nowhere for the tools to go.",
         Kind::Hamlet => "There is nowhere for it to go.",
     }
+}
+
+/// The way to report the listing `id`, which someone else sells, to
+/// the bazaar: REPORT, then its reason typed and sent.
+pub(super) fn report(id: String) -> AnyView {
+    let read = id.clone();
+    let now = derived(move |world: &World| {
+        let market = world.resource::<Market>();
+        let reporting = world.resource::<Reporting>();
+        let shown = market.signed_in() && !market.sells(&read);
+        let open = reporting.open.as_deref() == Some(read.as_str());
+        let said = reporting
+            .said
+            .clone()
+            .filter(|(of, ..)| *of == read)
+            .map(|(_, words, wrong)| (words, wrong));
+        (shown, open, reporting.sending, said)
+    })
+    .when(either(moved::<Market>(), moved::<Reporting>()));
+    let body = keyed(now, move |(shown, open, sending, said)| {
+        if !shown {
+            return nothing();
+        }
+        let id = id.clone();
+        let mut parts = Vec::new();
+        if *open {
+            let reason = resource::<Reporting, _>(|reporting| {
+                reporting.reason.clone()
+            });
+            parts.push(
+                note(
+                    "What is wrong with it? A person at the bazaar \
+                     reads it.",
+                )
+                .boxed(),
+            );
+            parts.push(wide(
+                text_field(reason, |world, typed: String| {
+                    world.resource_mut::<Reporting>().reason =
+                        typed.chars().take(REASON).collect();
+                })
+                .rules(text_input),
+            ));
+            parts.push(match sending {
+                true => note("Sending it...").boxed(),
+                false => buttons(vec![
+                    action(
+                        Glyph::Shield,
+                        "SEND THE REPORT",
+                        market::report,
+                    ),
+                    action(Glyph::Cross, "CANCEL", |world| {
+                        market::write_report(world, None);
+                    }),
+                ])
+                .boxed(),
+            });
+        } else {
+            parts.push(
+                row((
+                    action(Glyph::Shield, "REPORT", move |world| {
+                        market::write_report(world, Some(&id));
+                    }),
+                    column((note(
+                        "If it is harmful, dishonest or not what it \
+                         says, tell the bazaar.",
+                    ),))
+                    .fills_width(),
+                ))
+                .gap(12.0)
+                .align(AlignItems::Center)
+                .boxed(),
+            );
+        }
+        parts.extend(
+            said.clone().map(|(words, wrong)| outcome(words, wrong)),
+        );
+        column(parts).gap(8.0).boxed()
+    })
+    .within(bare());
+    parts::section("REPORT", body.boxed())
 }

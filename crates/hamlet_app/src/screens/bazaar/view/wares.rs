@@ -135,6 +135,7 @@ impl<K: Shows> Shown for Wares<K> {
         parts.extend(K::inside(lot));
         parts.push(section("DETAILS", details::<K>(lot)));
         parts.push(reviews(lot.id.clone()));
+        parts.push(trade::report(lot.id.clone()));
         sections(parts)
     }
 

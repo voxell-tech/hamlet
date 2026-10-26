@@ -8,6 +8,7 @@ use serde::Deserialize;
 
 use crate::account::{Form, Page, Place, shut, turn};
 use crate::bazaar::errand::Fetched;
+use crate::bazaar::market::check::is_checked;
 use crate::bazaar::market::client::{Refusal, done, read};
 use crate::bazaar::market::lot::{
     Agreed, Link, Lot, Owned, Page as Listed, Payouts, Signed, Terms,
@@ -303,6 +304,13 @@ pub(crate) fn ask_account(world: &mut World) {
     ask(world, Call::Mine);
 }
 
+/// Asks what the one signed in sells.
+pub(crate) fn ask_mine(world: &mut World) {
+    if world.resource::<Market>().signed_in() {
+        ask(world, Call::Mine);
+    }
+}
+
 /// Asks Stripe, through the server, whether the chief can be paid.
 pub(crate) fn check_payouts(world: &mut World) {
     if world.resource::<Market>().signed_in() {
@@ -469,7 +477,19 @@ pub(super) fn answered(
         },
         Call::Mine => match read::<Listed<Lot>>(reply) {
             Ok(page) => {
-                world.resource_mut::<Market>().mine = page.items;
+                let mut market = world.resource_mut::<Market>();
+                let checked =
+                    market.mine.iter().filter(|lot| is_checked(lot));
+                // What passed its checks is on the shelves now.
+                let passed = checked.clone().any(|was| {
+                    page.items.iter().any(|lot| {
+                        lot.id == was.id && !is_checked(lot)
+                    })
+                });
+                market.mine = page.items;
+                if passed {
+                    ask_shelves(world);
+                }
             }
             Err(why) => refused(world, why),
         },

@@ -5,6 +5,7 @@
 //! show the samples.
 
 mod account;
+pub(crate) mod check;
 pub(crate) mod client;
 pub(crate) mod deal;
 pub(crate) mod lot;
@@ -31,6 +32,9 @@ pub(crate) use self::account::{
     resend, reset, set_up_payouts, sign_in, sign_out, sign_up,
     verify,
 };
+pub(crate) use self::check::{
+    Reporting, ask_human, report, write_report,
+};
 use self::client::{Request, Server, read};
 use self::deal::Dealing;
 pub(crate) use self::deal::{Deal, buy, install, update};
@@ -55,6 +59,7 @@ pub(crate) fn plugin(app: &mut App) {
         deal::plugin,
         sell::plugin,
         vault::plugin,
+        check::plugin,
     ))
     .insert_resource(Market::new(client::server_of(
         std::env::var(client::SERVER_VARIABLE).ok(),
@@ -182,6 +187,7 @@ pub(crate) enum Call {
     Vault(vault::Call),
     Deal(deal::Call),
     Sell(sell::Call),
+    Check(check::Call),
     /// A listing's cover, or an asset's picture, at its address on
     /// the server.
     Picture(String),
@@ -219,6 +225,7 @@ pub(crate) fn answered(
         Call::Vault(call) => vault::answered(world, call, answer),
         Call::Deal(call) => deal::answered(world, call, answer),
         Call::Sell(call) => sell::answered(world, call, answer),
+        Call::Check(call) => check::answered(world, call, answer),
         Call::Picture(url) => {
             crate::bazaar::covers::came(world, url, answer);
         }

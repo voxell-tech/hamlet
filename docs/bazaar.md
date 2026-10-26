@@ -125,7 +125,7 @@ reached, said to be samples, with ASK AGAIN at their foot.
   hamlet's town; then the way it is had as it stands: BUY or GET IT FOR
   FREE with where an agent goes, INSTALL when it is owned, UPDATE TO a
   newer version when one is out, CHANGE THIS LISTING when it is the
-  chief's.
+  chief's. REPORT, on others' listings, sends the bazaar a reason.
 - A deal (`market/deal.rs`): a paid listing opens Stripe's page and
   asks the server every five seconds until it is paid; then its package
   is downloaded whole and handed to the home's server with `settle` and
@@ -144,6 +144,13 @@ reached, said to be samples, with ASK AGAIN at their foot.
   to agree to. A paid listing needs payouts set up with Stripe, which
   SET UP PAYOUTS opens after the terms; CHECK AGAIN asks Stripe whether
   the chief can be paid.
+- The bazaar's checks (`market/check.rs`): a listing put up, and each
+  new version of one on the shelves, is checked before buyers get it.
+  The form's ON THE SHELVES says it is being checked, asking the server
+  every five seconds until it is done, or why it was rejected, with ASK
+  A HUMAN to have a person at the bazaar look at it. The limits on
+  selling (a verified email, an account 7 days old, 3 sent a day and 2
+  checked at once) are said with what to do (`Refusal::words`).
 - YOURS lists what the chief sells, each opening its form, and what they
   bought, each opening its page with how it stands in the home.
 
@@ -151,5 +158,6 @@ The panel's sizes are under `[bazaar]` in `assets/ui.toml`. The
 `bazaar-*` scenes of `cargo run --example ui_gallery` draw each stall and
 a page of each, with OpenRouter's and skills.sh's answers given by hand
 (`bazaar::offer`), and the `market-*` scenes the market signed in and
-out, signing in, a listing at each step of a deal, the desk and Yours,
+out, signing in, a listing at each step of a deal, the desk, a listing
+rejected by the checks and Yours,
 with the bazaar's server's answers given by hand (`bazaar::stage`).

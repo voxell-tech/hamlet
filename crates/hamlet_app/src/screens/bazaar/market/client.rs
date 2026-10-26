@@ -72,9 +72,42 @@ impl Refusal {
         self.status == Some(401)
     }
 
-    /// In words for the chief.
+    /// In words for the chief, saying what to do of a limit on
+    /// selling.
     pub fn words(&self) -> String {
-        self.message.clone()
+        match self.code.as_str() {
+            "email_unverified" => "Verify your email before you \
+                                   sell: sign out, sign in again \
+                                   and type the code we send to it."
+                .into(),
+            "account_too_new" => {
+                // The message ends with the day and time, as
+                // 2026-11-03T12:00:00.000Z.
+                let from = self
+                    .message
+                    .split_whitespace()
+                    .find(|word| word.get(10..11) == Some("T"))
+                    .and_then(|word| word.get(..10));
+                let mut words = "Your account needs to be 7 days \
+                                 old before you can sell."
+                    .to_string();
+                if let Some(from) = from {
+                    words.push_str(&format!(
+                        " You can sell from {from}."
+                    ));
+                }
+                words
+            }
+            "too_many_submissions" => "You can send 3 listings or \
+                                       versions to be checked a \
+                                       day. Try again tomorrow."
+                .into(),
+            "too_many_pending" => "Two of yours are being checked. \
+                                   Send this once one of them is \
+                                   done."
+                .into(),
+            _ => self.message.clone(),
+        }
     }
 }
 
@@ -425,6 +458,23 @@ impl Server {
     pub fn publish(&self, id: &str) -> Request {
         let path = format!("/v1/listings/{}/publish", escaped(id));
         self.post(&path, None)
+    }
+
+    /// Asks a person at the bazaar to look again at `version` of a
+    /// listing, which the checks rejected.
+    pub fn ask_human(&self, id: &str, version: &str) -> Request {
+        let path = format!(
+            "/v1/listings/{}/versions/{}/human-review",
+            escaped(id),
+            escaped(version)
+        );
+        self.post(&path, Some(json!({})))
+    }
+
+    /// Tells the bazaar what is wrong with someone else's listing.
+    pub fn report(&self, id: &str, reason: &str) -> Request {
+        let path = format!("/v1/listings/{}/report", escaped(id));
+        self.post(&path, Some(json!({ "reason": reason })))
     }
 
     /// Takes a listing off the shelves. Its owners keep it.

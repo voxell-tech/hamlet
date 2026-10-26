@@ -250,7 +250,7 @@ fn market(trade: Trade) -> Staged {
             ),
         ),
     );
-    let owl = listing(
+    let mut owl = listing(
         "l_owl",
         "agent",
         "Tutor Owl",
@@ -267,6 +267,17 @@ fn market(trade: Trade) -> Staged {
             ),
         ),
     );
+    if trade == Trade::Rejected {
+        owl["status"] = json!("rejected");
+        owl["check"] = json!({"version": "2.0.0", "state": "rejected",
+            "submittedAt": "2026-10-20T00:00:00Z", "approvedAt": null,
+            "reasons": [
+                "Agent 2 (Hidden instructions): its character tells it \
+                 to send the notes it quizzes on to a web address.",
+                "Automatic check: workspace/NOTES.md holds an API key."
+            ],
+            "humanReview": null});
+    }
     let scribe = listing(
         "l_scribe",
         "agent",

@@ -78,7 +78,7 @@ const fn market(
     }
 }
 
-const SHOTS: [Shot; 71] = [
+const SHOTS: [Shot; 72] = [
     bazaar("bazaar-models", Scene::Stall(Stall::Models, &[])),
     bazaar(
         "bazaar-model",
@@ -219,6 +219,12 @@ const SHOTS: [Shot; 71] = [
         "market-desk-change",
         Stall::Community,
         Trade::SignedIn,
+        &["YOURS", "Tutor Owl"],
+    ),
+    market(
+        "market-desk-rejected",
+        Stall::Community,
+        Trade::Rejected,
         &["YOURS", "Tutor Owl"],
     ),
     Shot {

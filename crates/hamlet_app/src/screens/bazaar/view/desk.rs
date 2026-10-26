@@ -39,8 +39,8 @@ use crate::bazaar::covers::{
 use crate::bazaar::listings::SELLERS_SHARE;
 use crate::bazaar::market::deal::hamlets_of;
 use crate::bazaar::market::lot::{
-    Draft, Kind, Lot, Payouts, Status, next_version, price_words,
-    semver,
+    Checked, Draft, Kind, Lot, Payouts, Status, next_version,
+    price_words, semver,
 };
 use crate::bazaar::market::sell::Step;
 use crate::bazaar::market::{
@@ -745,12 +745,16 @@ fn form(back: &'static str) -> AnyView {
             part_of(Glyph::Notes, "COVER", vec![cover()]),
             part_of(Glyph::Coins, "PRICE", vec![price()]),
         ];
+        // Where it stands, and why the checks rejected it, first.
         if editing {
-            parts.push(part_of(
-                Glyph::Book,
-                "ON THE SHELVES",
-                vec![shelves()],
-            ));
+            parts.insert(
+                1,
+                part_of(
+                    Glyph::Book,
+                    "ON THE SHELVES",
+                    vec![shelves()],
+                ),
+            );
         }
         parts.push(footer());
         parts.push(trade::account("to put it up."));
@@ -1172,34 +1176,114 @@ fn payout_words(
     column(parts).gap(6.0).boxed()
 }
 
-/// How the listing changed stands on the shelves, and the way to take
-/// it off them.
+/// How the listing changed stands on the shelves and with the
+/// bazaar's checks, and the ways to take it off the shelves or have a
+/// person look at a version the checks rejected.
 fn shelves() -> AnyView {
     let now = derived(|world: &World| {
         let id = world.resource::<Desk>().form.id.clone()?;
-        let lot = world.resource::<Market>().lot(&id)?;
-        Some((id, lot.status, status_words(lot)))
+        world.resource::<Market>().lot(&id).cloned()
     })
     .when(either(moved::<Desk>(), moved::<Market>()));
-    keyed(now, |now| {
-        let Some((id, status, words)) = now.clone() else {
-            return nothing();
-        };
-        let mut parts = vec![note(words).boxed()];
-        if status == Status::Listed {
-            parts.push(
-                row((action(
-                    Glyph::Cross,
-                    "TAKE IT OFF THE SHELVES",
-                    move |world| market::shelve(world, &id, false),
-                ),))
-                .boxed(),
-            );
-        }
-        column(parts).gap(6.0).boxed()
+    keyed(now, |lot| match lot {
+        Some(lot) => standing(lot),
+        None => nothing(),
     })
     .within(bare())
     .boxed()
+}
+
+/// Where the chief's `lot` stands, as [`shelves`] shows it.
+fn standing(lot: &Lot) -> AnyView {
+    let mut parts = vec![note(status_words(lot)).boxed()];
+    if lot.status == Status::Listed {
+        let id = lot.id.clone();
+        parts.push(
+            row((action(
+                Glyph::Cross,
+                "TAKE IT OFF THE SHELVES",
+                move |world| market::shelve(world, &id, false),
+            ),))
+            .boxed(),
+        );
+    }
+    if lot.status == Status::Removed
+        && let Some(why) = &lot.status_reason
+    {
+        parts.push(problem(why.clone()));
+    }
+    let Some(check) = &lot.check else {
+        return column(parts).gap(6.0).boxed();
+    };
+    let version = &check.version;
+    match check.state {
+        Checked::Pending => parts.push(
+            note(match lot.status {
+                Status::Pending => format!(
+                    "Version {version} is being checked. It goes on \
+                     the shelves once it passes, most often within \
+                     minutes."
+                ),
+                _ => format!(
+                    "Version {version} is being checked. Buyers get \
+                     it once it passes, and the version before \
+                     until then."
+                ),
+            })
+            .boxed(),
+        ),
+        Checked::Rejected => {
+            parts.push(problem(format!(
+                "Version {version} did not pass the bazaar's checks:"
+            )));
+            parts.extend(
+                check
+                    .reasons
+                    .iter()
+                    .map(|why| note(why.clone()).boxed()),
+            );
+            match &check.human_review {
+                None => {
+                    let id = lot.id.clone();
+                    parts.push(
+                        note(
+                            "Fix it and upload a new version, or, \
+                             if the checks are wrong, ask a person \
+                             at the bazaar to look at it.",
+                        )
+                        .boxed(),
+                    );
+                    parts.push(
+                        row((action(
+                            Glyph::Talk,
+                            "ASK A HUMAN",
+                            move |world| {
+                                market::ask_human(world, &id);
+                            },
+                        ),))
+                        .boxed(),
+                    );
+                }
+                Some(review) if !review.decided => parts.push(
+                    note(
+                        "Waiting for a person at the bazaar to look \
+                         at it. We email you what they decide.",
+                    )
+                    .boxed(),
+                ),
+                Some(_) => parts.push(
+                    note(
+                        "A person at the bazaar looked at it and \
+                         kept it off the shelves. Fix it and upload \
+                         a new version.",
+                    )
+                    .boxed(),
+                ),
+            }
+        }
+        Checked::Draft | Checked::Approved => {}
+    }
+    column(parts).gap(6.0).boxed()
 }
 
 /// Where `lot` the chief sells stands, in a few words.
@@ -1281,6 +1365,10 @@ fn footer() -> AnyView {
                     Status::Listed => {
                         format!("{title} is on the shelves.")
                     }
+                    Status::Pending => format!(
+                        "{title} is being checked. It goes on the \
+                         shelves once it passes."
+                    ),
                     _ => format!(
                         "{title} is saved. It is not on the shelves \
                          yet."

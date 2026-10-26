@@ -188,6 +188,8 @@ pub enum Trade {
     Installing,
     /// The seller terms shown before payouts are set up.
     Terms,
+    /// A listing of the chief's rejected by the bazaar's checks.
+    Rejected,
 }
 
 /// The picture that stands where the world is drawn, and the part of

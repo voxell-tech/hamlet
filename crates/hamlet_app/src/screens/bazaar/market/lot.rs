@@ -33,8 +33,12 @@ impl Kind {
 )]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Status {
-    /// Never published.
+    /// Never sent to the checks.
     Draft,
+    /// Its first version is being checked.
+    Pending,
+    /// Its first version did not pass the checks.
+    Rejected,
     Listed,
     /// Taken off the shelves by its seller. Its owners keep it.
     Unlisted,
@@ -46,6 +50,8 @@ impl Status {
     pub fn words(self) -> &'static str {
         match self {
             Status::Draft => "Draft",
+            Status::Pending => "Being checked",
+            Status::Rejected => "Rejected by the checks",
             Status::Listed => "On the shelves",
             Status::Unlisted => "Off the shelves",
             Status::Removed => "Taken down by the bazaar",
@@ -71,6 +77,9 @@ pub(crate) struct Lot {
     pub tags: Vec<String>,
     pub price_cents: u32,
     pub status: Status,
+    /// Why it was rejected or taken down, one reason a line.
+    #[serde(default)]
+    pub status_reason: Option<String>,
     pub seller: Maker,
     /// Its picture, relative to the server, if it has one; its query
     /// changes with each new cover.
@@ -88,6 +97,9 @@ pub(crate) struct Lot {
     pub reviews: u32,
     #[serde(default)]
     pub updated_at: String,
+    /// The checks of its newest version, given to its seller alone.
+    #[serde(default)]
+    pub check: Option<Check>,
 }
 
 impl Lot {
@@ -110,6 +122,41 @@ impl Lot {
             })
             .unwrap_or_default()
     }
+}
+
+/// Where a version stands with the bazaar's checks.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Checked {
+    /// Not sent to the checks.
+    Draft,
+    Pending,
+    Approved,
+    Rejected,
+}
+
+/// The bazaar's checks of one version of a listing.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Check {
+    pub version: String,
+    pub state: Checked,
+    /// Why it was rejected, as `Agent 5 (Safety): ...`.
+    #[serde(default)]
+    pub reasons: Vec<String>,
+    /// A person at the bazaar was asked to look at it again.
+    #[serde(default)]
+    pub human_review: Option<HumanReview>,
+}
+
+/// A seller's ask that a person look at a rejected version.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct HumanReview {
+    /// The person has approved or rejected it.
+    #[serde(default)]
+    pub decided: bool,
 }
 
 /// The one who sells a listing, as the server names them.

@@ -258,3 +258,85 @@ fn agreeing_to_the_seller_terms_sets_up_payouts_only_when_asked_to() {
     );
     assert!(market.said.as_ref().unwrap().0.contains("publish now"));
 }
+
+#[test]
+fn a_limit_on_selling_says_what_to_do() {
+    let limit = |code: &str, message: &str| client::Refusal {
+        status: Some(403),
+        code: code.into(),
+        message: message.into(),
+    };
+    let young = limit(
+        "account_too_new",
+        "an account can submit listings 7 days after it was made; \
+         yours can from 2026-11-03T12:00:00.000Z",
+    );
+    assert_eq!(
+        young.words(),
+        "Your account needs to be 7 days old before you can sell. \
+         You can sell from 2026-11-03."
+    );
+    let other = limit("conflict", "Taken.");
+    assert_eq!(other.words(), "Taken.");
+}
+
+#[test]
+fn a_rejected_listing_waits_for_a_person_once_one_is_asked() {
+    let mut world = account_world();
+    let rejected = serde_json::json!({
+        "id": "l_1", "kind": "agent", "title": "Scribe",
+        "priceCents": 0, "status": "rejected",
+        "statusReason": "Automatic check: it holds an API key.",
+        "seller": {"username": "ada"},
+        "check": {"version": "1.0.0", "state": "rejected",
+            "submittedAt": null, "approvedAt": null,
+            "reasons": ["Automatic check: it holds an API key."],
+            "humanReview": null},
+    });
+    let lot = serde_json::from_value::<lot::Lot>(rejected).unwrap();
+    assert!(!check::is_checked(&lot));
+    world.resource_mut::<Market>().mine = vec![lot];
+    let asked = serde_json::json!({"version": "1.0.0",
+        "state": "rejected", "reasons": [],
+        "humanReview": {"askedAt": "2026-10-27T00:00:00Z",
+            "note": null, "decided": false}});
+    check::answered(
+        &mut world,
+        check::Call::AskHuman("l_1".into()),
+        reply(200, asked),
+    );
+    let market = world.resource::<Market>();
+    let review = market.mine[0]
+        .check
+        .as_ref()
+        .and_then(|check| check.human_review.clone());
+    assert_eq!(review.map(|review| review.decided), Some(false));
+}
+
+#[test]
+fn a_report_is_sent_once_and_its_form_shut() {
+    let mut world = account_world();
+    world.init_resource::<Reporting>();
+    write_report(&mut world, Some("l_1"));
+    world.resource_mut::<Reporting>().reason = "Spam.".into();
+    check::answered(
+        &mut world,
+        check::Call::Report("l_1".into()),
+        Ok((204, Vec::new())),
+    );
+    let reporting = world.resource::<Reporting>();
+    assert_eq!(reporting.open, None);
+    assert!(
+        matches!(&reporting.said, Some((id, _, false)) if id == "l_1")
+    );
+    write_report(&mut world, Some("l_1"));
+    let again = serde_json::json!({"error":
+        {"code": "conflict", "message": "already reported"}});
+    check::answered(
+        &mut world,
+        check::Call::Report("l_1".into()),
+        reply(409, again),
+    );
+    let said = world.resource::<Reporting>().said.clone().unwrap();
+    assert!(said.1.contains("already") && !said.2);
+}
