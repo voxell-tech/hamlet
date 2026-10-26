@@ -24,6 +24,9 @@ use super::{
 };
 use crate::roll::{either, moved};
 
+/// The provider whose key a Hamlet account keeps.
+const OPENROUTER: &str = "openrouter";
+
 fn remove(world: &mut World, name: &str) {
     let endpoints = world
         .resource::<Settings>()
@@ -64,6 +67,48 @@ fn endpoint(endpoint: &protocol::SettingsViewEndpoints) -> AnyView {
     .boxed()
 }
 
+/// A provider the server has a credential of, and the way to forget
+/// it.
+fn provider((id, name): &(String, String)) -> AnyView {
+    let gone = id.clone();
+    let mut parts = vec![
+        beside((
+            row((label(name.clone()).bold(true),)).fills_width(),
+            note("Connected"),
+            bad_action(Glyph::Gone, "DISCONNECT", move |world| {
+                disconnect(world, &gone);
+            }),
+        ))
+        .boxed(),
+    ];
+    if id == OPENROUTER {
+        parts.push(
+            note(
+                "Disconnecting forgets the key here and in your \
+                 Hamlet account. It works at OpenRouter until you \
+                 remove it at openrouter.ai/settings/keys.",
+            )
+            .boxed(),
+        );
+    }
+    close(parts).boxed()
+}
+
+/// Forgets the server's credential of the provider `id`, and the
+/// OpenRouter key the Hamlet account keeps.
+fn disconnect(world: &mut World, id: &str) {
+    if id == OPENROUTER {
+        return crate::bazaar::market::disconnect(world);
+    }
+    let forget = id.to_string();
+    world.resource_mut::<Outbox>().send(|id| {
+        protocol::ClientMessage::Login(protocol::Login::Forget {
+            id,
+            forget,
+        })
+    });
+}
+
 /// The server's endpoints, configured providers and login entry.
 pub fn endpoints() -> impl View {
     let known = keyed(
@@ -82,18 +127,14 @@ pub fn endpoints() -> impl View {
                 .0
                 .iter()
                 .filter(|provider| provider.configured)
-                .map(|provider| provider.label.clone())
+                .map(|provider| {
+                    (provider.id.clone(), provider.name.clone())
+                })
                 .collect::<Vec<_>>()
         }),
         |providers| {
-            close(
-                providers
-                    .iter()
-                    .cloned()
-                    .map(note)
-                    .collect::<Vec<_>>(),
-            )
-            .boxed()
+            list(providers.iter().map(provider).collect::<Vec<_>>())
+                .boxed()
         },
     )
     .within(bare());

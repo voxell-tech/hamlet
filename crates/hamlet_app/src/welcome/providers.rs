@@ -16,7 +16,7 @@ use hamlet_protocol::client as protocol;
 use hamlet_ui::AnyView;
 use hamlet_ui::styles::{
     bare, buttons, close, good_action, group, lettered, note, parts,
-    text_input,
+    section, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -35,6 +35,68 @@ impl Default for Browser {
             hamlet_desktop::open::browse(url);
         })
     }
+}
+
+/// The spend limit in dollars OpenRouter is asked to put on the key
+/// it makes for the hamlet.
+#[derive(Resource, Clone, PartialEq, Debug)]
+pub(crate) struct SpendLimit(pub String);
+
+impl Default for SpendLimit {
+    fn default() -> Self {
+        Self("10".into())
+    }
+}
+
+/// The dollars of a spend limit typed, if it is one.
+fn dollars(typed: &str) -> Option<f64> {
+    let typed = typed.trim().trim_start_matches('$').trim();
+    typed
+        .parse::<f64>()
+        .ok()
+        .filter(|dollars| dollars.is_finite() && *dollars > 0.0)
+}
+
+/// OpenRouter's page that makes a key, `url`, asked to fill in the
+/// spend limit chosen.
+fn limited(url: &str, limit: &str) -> String {
+    let (Ok(mut parsed), Some(dollars)) =
+        (reqwest::Url::parse(url), dollars(limit))
+    else {
+        return url.to_string();
+    };
+    if parsed.host_str() != Some("openrouter.ai")
+        || parsed.path() != "/auth"
+    {
+        return url.to_string();
+    }
+    parsed
+        .query_pairs_mut()
+        .append_pair("limit", &dollars.to_string());
+    parsed.to_string()
+}
+
+/// Starts connecting OpenRouter with the spend limit typed, or says
+/// why it will not do.
+pub(super) fn connect(world: &mut World) {
+    if dollars(&world.resource::<SpendLimit>().0).is_none() {
+        let mut welcome = world.resource_mut::<Welcome>();
+        welcome.problem =
+            Some("Type a spend limit in dollars, such as 10.".into());
+        return;
+    }
+    let known = world.resource::<Providers>().0.iter().any(|known| {
+        known.id == "openrouter"
+            && known
+                .methods
+                .contains(&protocol::LoginMethod::Subscription)
+    });
+    if !known {
+        world.resource_mut::<Welcome>().problem =
+            Some("This home cannot connect OpenRouter.".into());
+        return;
+    }
+    start(world, "openrouter", false);
 }
 
 #[derive(Resource, Default)]
@@ -210,6 +272,14 @@ pub(super) fn receive(
     };
     match step {
         protocol::LoginStep::Url { url, instructions } => {
+            let url =
+                match world.resource::<Login>().provider.as_deref() {
+                    Some("openrouter") => limited(
+                        &url,
+                        &world.resource::<SpendLimit>().0,
+                    ),
+                    _ => url,
+                };
             if !world.resource::<Login>().urls.contains(&url) {
                 if is_browsable(&url) {
                     let browse = world.resource::<Browser>().0;
@@ -351,6 +421,32 @@ pub(super) fn key_page() -> AnyView {
     .boxed()
 }
 
+/// The spend limit chosen before OpenRouter opens.
+pub(super) fn limit_page() -> AnyView {
+    let value = resource::<SpendLimit, _>(|limit| limit.0.clone());
+    let typed = |world: &mut World, text: String| {
+        world.resource_mut::<SpendLimit>().0 = text;
+    };
+    parts((
+        head(Glyph::Signal, "CONNECT OPENROUTER"),
+        said(
+            "OpenRouter makes a key for your hamlet, and you pay \
+             OpenRouter for what it uses. Choose the most the key \
+             may spend.",
+        ),
+        close((
+            section("SPEND LIMIT, IN DOLLARS"),
+            text_field(value, typed).rules(text_input),
+        )),
+        news("Opening OpenRouter..."),
+        row((good_action(Glyph::Signal, "CONTINUE", |world| {
+            crate::account::commit(world, connect);
+        }),))
+        .align(AlignItems::Center),
+    ))
+    .boxed()
+}
+
 pub(super) fn sign_in_page() -> AnyView {
     let steps = keyed(
         resource::<Login, _>(|login| {
@@ -375,8 +471,26 @@ pub(super) fn sign_in_page() -> AnyView {
         },
     )
     .within(bare());
+    let head = keyed(
+        resource::<Login, _>(|login| {
+            login.provider.as_deref() == Some("openrouter")
+        }),
+        |openrouter| match openrouter {
+            true => group((
+                head(Glyph::Signal, "CONNECT OPENROUTER"),
+                said(
+                    "Approve the key in your browser. OpenRouter \
+                     shows the spend limit again there, and you can \
+                     change it later on OpenRouter.",
+                ),
+            ))
+            .boxed(),
+            false => head(Glyph::Signal, "SIGN IN").boxed(),
+        },
+    )
+    .within(bare());
     parts((
-        head(Glyph::Signal, "SIGN IN"),
+        head,
         steps,
         prompt(),
         news("Waiting for sign-in..."),
@@ -386,4 +500,23 @@ pub(super) fn sign_in_page() -> AnyView {
         .align(AlignItems::Center),
     ))
     .boxed()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{dollars, limited};
+
+    #[test]
+    fn a_spend_limit_is_asked_of_openrouters_key_page_alone() {
+        let page = "https://openrouter.ai/auth?code_challenge=c";
+        assert_eq!(limited(page, "$10"), format!("{page}&limit=10"));
+        assert_eq!(limited(page, "2.5"), format!("{page}&limit=2.5"));
+        assert_eq!(limited(page, "none"), page);
+        let other = "https://login.example/auth?x=1";
+        assert_eq!(limited(other, "10"), other);
+        assert_eq!(
+            (dollars("0"), dollars("-1"), dollars("")),
+            (None, None, None)
+        );
+    }
 }
