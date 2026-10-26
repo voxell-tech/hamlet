@@ -106,6 +106,21 @@ fn the_server_is_asked_with_its_token_as_a_header_and_its_methods() {
 }
 
 #[test]
+fn a_listing_is_read_as_the_server_sends_it() {
+    let listing = serde_json::json!({
+        "id": "l_1", "kind": "agent", "title": "Scribe",
+        "description": "", "tags": [], "priceCents": 0,
+        "currency": "usd", "status": "listed", "statusReason": null,
+        "seller": {"id": "u_1", "username": "ada"}, "coverUrl": null,
+        "latest": null, "owners": 0, "stars": 0, "reviews": 0,
+        "createdAt": "2026-10-01T00:00:00Z",
+        "updatedAt": "2026-10-01T00:00:00Z",
+    });
+    let lot = serde_json::from_value::<lot::Lot>(listing).unwrap();
+    assert_eq!(lot.seller.username, "ada");
+}
+
+#[test]
 fn an_answer_is_read_or_said_in_words() {
     let fault =
         br#"{"error":{"code":"pending","message":"not yet"}}"#;

@@ -61,9 +61,11 @@ pub(crate) struct Lot {
     pub kind: Kind,
     pub title: String,
     /// What it is, in a line.
+    #[serde(default)]
     pub summary: String,
     #[serde(default)]
     pub description: String,
+    #[serde(default)]
     pub category: String,
     #[serde(default)]
     pub tags: Vec<String>,
