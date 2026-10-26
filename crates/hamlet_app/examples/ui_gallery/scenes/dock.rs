@@ -114,6 +114,7 @@ pub(super) fn seed_dock(world: &mut World) {
                 | Scene::Charter
                 | Scene::Workspace
                 | Scene::Sight
+                | Scene::AccountSettings
         ) {
             tree.add_tab(side, "settings");
         }

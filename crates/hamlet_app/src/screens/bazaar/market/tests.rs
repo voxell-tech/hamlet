@@ -87,7 +87,7 @@ fn the_server_is_asked_with_its_token_as_a_header_and_its_methods() {
     let detail = server.detail("l 1");
     assert_eq!(detail.url, "https://bazaar.dev/v1/listings/l%201");
     assert_eq!(detail.token.as_deref(), Some("hms_1"));
-    assert_eq!(server.sign_out().method, reqwest::Method::DELETE);
+    assert_eq!(server.drop_sealed().method, reqwest::Method::DELETE);
     let draft = lot::Draft::default();
     assert_eq!(
         server.change("l_1", &draft).method,
@@ -113,6 +113,10 @@ fn an_answer_is_read_or_said_in_words() {
         read::<Checkout>(Ok((428, fault.to_vec()))).unwrap_err();
     assert_eq!(refused.code, "pending");
     assert_eq!(refused.words(), "Not yet.");
+    let bare = br#"{"code":"EMAIL_NOT_VERIFIED","message":"Email not verified"}"#;
+    let refused =
+        read::<Checkout>(Ok((403, bare.to_vec()))).unwrap_err();
+    assert_eq!(refused.code, "EMAIL_NOT_VERIFIED");
     let unreached =
         read::<Checkout>(Err("refused".into())).unwrap_err();
     assert_eq!(unreached.code, "unreachable");
@@ -122,25 +126,120 @@ fn an_answer_is_read_or_said_in_words() {
     assert_eq!(next_version(""), "1.0.0");
 }
 
+fn account_world() -> World {
+    let mut world = World::new();
+    world.insert_resource(Market::new("http://bazaar.test".into()));
+    world.init_resource::<crate::account::Form>();
+    world.init_resource::<Stock<Wares<Agents>>>();
+    world.init_resource::<Stock<Wares<Tools>>>();
+    world.init_resource::<Stock<Wares<Hamlets>>>();
+    world
+}
+
+fn reply(status: u16, body: serde_json::Value) -> Fetched {
+    Ok((status, serde_json::to_vec(&body).unwrap()))
+}
+
 #[test]
-fn a_sign_in_is_asked_after_again_while_the_server_fails() {
-    use super::account::{Polled, polled};
-    let pending =
-        br#"{"error":{"code":"pending","message":"not yet"}}"#;
-    assert_eq!(polled(Ok((428, pending.to_vec()))), Polled::Pending);
-    assert_eq!(polled(Err("refused".into())), Polled::Pending);
-    assert_eq!(
-        polled(Ok((503, b"restarting".to_vec()))),
-        Polled::Pending
+fn signing_up_asks_for_the_emailed_code_then_signs_in_with_it() {
+    use crate::account::{Form, Page, Place, open};
+    let mut world = account_world();
+    open(&mut world, Place::Settings, Page::SignUp);
+    world.resource_mut::<Form>().email = "ada@example.com".into();
+    account::answered(
+        &mut world,
+        account::Call::SignUp,
+        reply(200, serde_json::json!({"token": null, "user": {}})),
     );
-    let denied = br#"{"error":{"code":"denied","message":"no"}}"#;
-    assert!(matches!(
-        polled(Ok((403, denied.to_vec()))),
-        Polled::Failed(_)
-    ));
-    let approved = br#"{"token":"hms_1","user":{"id":"u_1","login":"ada","name":"Ada","avatarUrl":""}}"#;
-    assert!(matches!(
-        polled(Ok((200, approved.to_vec()))),
-        Polled::Approved(approved) if approved.user.login == "ada"
-    ));
+    let form = world.resource::<Form>();
+    assert_eq!(form.at(Place::Settings), Page::Code);
+    assert!(form.said.as_ref().unwrap().contains("ada@example.com"));
+    let user = serde_json::json!({
+        "id": "u_1", "email": "ada@example.com", "username": "ada",
+    });
+    account::answered(
+        &mut world,
+        account::Call::Verify,
+        reply(200, serde_json::json!({"token": "t_1", "user": user})),
+    );
+    let market = world.resource::<Market>();
+    assert_eq!(market.server.token.as_deref(), Some("t_1"));
+    assert_eq!(market.user().map(lot::User::name), Some("ada"));
+    assert_eq!(world.resource::<Form>().page, Page::Shut);
+}
+
+#[test]
+fn an_unverified_email_turns_to_its_code_and_a_nameless_account_to_its_username()
+ {
+    use crate::account::{Form, Page, Place, open};
+    let mut world = account_world();
+    open(&mut world, Place::Bazaar, Page::SignIn);
+    let unverified = serde_json::json!({
+        "code": "EMAIL_NOT_VERIFIED", "message": "Email not verified",
+    });
+    account::answered(
+        &mut world,
+        account::Call::SignIn,
+        reply(403, unverified),
+    );
+    assert_eq!(world.resource::<Form>().page, Page::Code);
+    let user =
+        serde_json::json!({"id": "u_1", "email": "ada@example.com"});
+    account::answered(
+        &mut world,
+        account::Call::Verify,
+        reply(200, serde_json::json!({"token": "t_1", "user": user})),
+    );
+    assert_eq!(world.resource::<Form>().page, Page::Username);
+    let wrong = serde_json::json!({
+        "code": "INVALID_EMAIL_OR_PASSWORD",
+        "message": "Invalid email or password",
+    });
+    open(&mut world, Place::Bazaar, Page::SignIn);
+    account::answered(
+        &mut world,
+        account::Call::SignIn,
+        reply(401, wrong),
+    );
+    let form = world.resource::<Form>();
+    assert_eq!(form.page, Page::SignIn);
+    assert!(form.problem.is_some());
+}
+
+#[test]
+fn signing_out_forgets_the_token_and_data_key_here() {
+    let mut world = account_world();
+    {
+        let mut market = world.resource_mut::<Market>();
+        market.server.token = Some("t_1".into());
+        market.data_key =
+            Some(hamlet_protocol::vault::DataKey::new());
+        market.account = Account::In(lot::User::default());
+    }
+    sign_out(&mut world);
+    let market = world.resource::<Market>();
+    assert_eq!(market.server.token, None);
+    assert!(market.data_key.is_none());
+    assert!(!market.signed_in());
+}
+
+#[test]
+fn agreeing_to_the_seller_terms_sets_up_payouts_only_when_asked_to() {
+    let mut world = account_world();
+    world.resource_mut::<Market>().account =
+        Account::In(lot::User::default());
+    world.resource_mut::<Market>().paying = false;
+    account::answered(
+        &mut world,
+        account::Call::Agree("1".into()),
+        Ok((204, Vec::new())),
+    );
+    let market = world.resource::<Market>();
+    let agreed =
+        market.user().and_then(|user| user.seller_terms.clone());
+    assert_eq!(
+        agreed.map(|agreed| agreed.version).as_deref(),
+        Some("1")
+    );
+    assert!(market.said.as_ref().unwrap().0.contains("publish now"));
 }

@@ -1,17 +1,15 @@
 //! Trading at the stalls that sell what chiefs made: signing in to
-//! the bazaar with GitHub, the bazaar's shelves or, where it cannot
-//! be reached, the samples, and the way a listing is bought,
-//! installed or brought up to date on its page.
+//! a Hamlet account, the bazaar's shelves or, where it cannot be
+//! reached, the samples, and the way a listing is bought, installed
+//! or brought up to date on its page.
 
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, percent};
-use bevy_fynix::views::{
-    FrameProps, column, dropdown, label, row, scroll,
-};
-use bevy_fynix::{ViewExt, derived, keyed};
+use bevy_fynix::views::{FrameProps, column, dropdown, row, scroll};
+use bevy_fynix::{ViewExt, derived, keyed, resource};
 use hamlet_ui::AnyView;
 use hamlet_ui::styles::{
-    Fills, ICON, action, bare, buttons, command, filling, note, title,
+    Fills, ICON, action, bare, buttons, filling, note,
 };
 use hamlet_ui::widgets::icons::Glyph;
 
@@ -21,12 +19,13 @@ use super::parts::{
 };
 use super::shelf::{self, Shown};
 use super::wares::price;
+use crate::account::{self, Form, Page, Place};
 use crate::bazaar::listings::{SELLERS_SHARE, Sells, Wares};
 use crate::bazaar::market::deal::{Dealing, Places, targets};
 use crate::bazaar::market::lot::{Kind, price_words, semver};
 use crate::bazaar::market::{
     self, Account, Deal, Market, Reach, ask_shelves, buy, install,
-    sign_in, sign_out, update,
+    sign_out, update,
 };
 use crate::roll::{either, hamlets_moved, moved};
 
@@ -52,81 +51,40 @@ where
     signing(K::BACK, move || desk::or(K::BACK, shelf))
 }
 
-/// The page the chief signs in from while they do, else what `rest`
-/// makes. `back` names the stall on the way back to it, which stops
-/// signing in.
+/// The page of the chief's Hamlet account open at the bazaar, else
+/// what `rest` makes. `back` names the stall on the way back to it,
+/// which shuts the page.
 pub(super) fn signing(
     back: &'static str,
     rest: impl Fn() -> AnyView + Send + Sync + 'static,
 ) -> AnyView {
-    let signing = derived(|world: &World| {
-        match &world.resource::<Market>().account {
-            Account::Asking => Some(None),
-            Account::Code { device, .. } => Some(Some((
-                device.user_code.clone(),
-                device.verification_uri.clone(),
-            ))),
-            _ => None,
-        }
-    })
-    .when(moved::<Market>());
-    keyed(signing, move |signing| match signing {
-        Some(code) => signing_in(back, code.clone()),
-        None => rest(),
+    let page = resource::<Form, _>(|form| form.at(Place::Bazaar));
+    keyed(page, move |page| match page {
+        Page::Shut => rest(),
+        page => signing_in(back, *page),
     })
     .within(filling())
     .boxed()
 }
 
-/// The page the chief signs in from, as Welcome shows its sign-in:
-/// what to do, the code GitHub gave once it did and the way to
-/// GitHub, and how it goes.
-fn signing_in(
-    back: &'static str,
-    code: Option<(String, String)>,
-) -> AnyView {
-    let body = match code {
-        None => vec![
-            said("GitHub is asked for a code to sign in with."),
-            said("Asking GitHub..."),
-            row((command("CANCEL", sign_out),)).boxed(),
-        ],
-        Some((code, uri)) => vec![
-            said(format!(
-                "Enter this code at {uri} and choose Authorize. The \
-                 bazaar carries on once you have."
-            )),
-            title(code).boxed(),
-            buttons(vec![
-                action(Glyph::Globe, "OPEN GITHUB", move |world| {
-                    market::browse(world, &uri);
-                }),
-                command("CANCEL", sign_out).boxed(),
-            ])
-            .boxed(),
-            said("Waiting for GitHub..."),
-            note(
-                "Nothing opened? Go to the address above in your \
-                 browser.",
-            )
-            .boxed(),
-        ],
-    };
+/// A page of the chief's Hamlet account, under the way back to the
+/// stall `back`.
+fn signing_in(back: &'static str, page: Page) -> AnyView {
     column((
-        crumb(back, sign_out, "SIGN IN".into()),
-        scroll((column(body).gap(16.0),)).fills_height(),
+        crumb(back, account::shut, page.title().into()),
+        scroll((
+            column((account::body(page, Place::Bazaar),)).gap(16.0),
+        ))
+        .fills_height(),
     ))
     .gap(14.0)
     .fills_height()
     .boxed()
 }
 
-/// Words of a page that stand back, as Welcome says them.
-fn said(words: impl Into<String>) -> AnyView {
-    label(words.into())
-        .size(13.0)
-        .tone(bevy_fynix::tokens::Tone::Dim)
-        .boxed()
+/// Opens the bazaar's page to sign in to a Hamlet account.
+pub(super) fn sign_in(world: &mut World) {
+    account::open(world, Place::Bazaar, Page::SignIn);
 }
 
 /// Under the head of the samples: that they are made up.
@@ -215,19 +173,13 @@ pub(super) fn account(what_for: &'static str) -> AnyView {
         let (button, beside) = match account {
             Account::In(user) => (
                 action(Glyph::Power, "SIGN OUT", sign_out),
-                note(format!(
-                    "Signed in to the bazaar as @{}.",
-                    user.login
-                ))
-                .boxed(),
+                note(format!("Signed in as {}.", user.name()))
+                    .boxed(),
             ),
-            Account::Failed(why) => (
+            Account::Out => (
                 action(Glyph::Signpost, "SIGN IN", sign_in),
-                problem(why.clone()),
-            ),
-            _ => (
-                action(Glyph::Signpost, "SIGN IN", sign_in),
-                note(format!("With GitHub, {what_for}")).boxed(),
+                note(format!("With your Hamlet account, {what_for}"))
+                    .boxed(),
             ),
         };
         let mut parts = Vec::new();
@@ -371,7 +323,7 @@ pub(super) fn deal(
             notes.push(
                 note(format!(
                     "{seller} receives {SELLERS_SHARE}% of each \
-                     sale."
+                     sale, less Stripe's fee."
                 ))
                 .boxed(),
             );
@@ -555,8 +507,11 @@ fn get(
                         sign_in,
                     ));
                     notes.push(
-                        note("Sign in with GitHub to get it.")
-                            .boxed(),
+                        note(
+                            "Sign in to your Hamlet account to get \
+                             it.",
+                        )
+                        .boxed(),
                     );
                     None
                 }
@@ -578,11 +533,26 @@ fn get(
                             buy(world, &id);
                         },
                     ));
+                    if cents > 0 {
+                        notes.push(final_sale());
+                    }
                     choice
                 }
             }
         }
     }
+}
+
+/// The words a buyer agrees to at checkout, on Stripe's page.
+pub(super) const CONSENT: &str = "Get access right away. I \
+                                  understand I can't cancel, and \
+                                  all sales are final.";
+
+/// Under a button that buys: that the payment page asks the buyer to
+/// agree to [`CONSENT`].
+pub(super) fn final_sale() -> AnyView {
+    note(format!("On the payment page you agree: \"{CONSENT}\""))
+        .boxed()
 }
 
 fn nowhere(kind: Kind) -> &'static str {

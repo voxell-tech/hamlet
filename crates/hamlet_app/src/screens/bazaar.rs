@@ -11,7 +11,7 @@ mod covers;
 mod errand;
 mod hamlets;
 mod listings;
-mod market;
+pub(crate) mod market;
 mod models;
 mod samples;
 mod shelf;
@@ -56,6 +56,9 @@ pub fn plugin(app: &mut App) {
     )
     .init_resource::<StallShown>()
     .init_resource::<BazaarSettings>()
+    // Its stalls show the account's pages, which are added with the
+    // other screens.
+    .init_resource::<crate::account::Form>()
     .add_plugins((
         errand::plugin,
         models::plugin,

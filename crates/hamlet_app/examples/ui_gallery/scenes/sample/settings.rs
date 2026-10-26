@@ -18,6 +18,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             | Scene::Charter
             | Scene::Workspace
             | Scene::Sight
+            | Scene::AccountSettings
     ) {
         return;
     }
@@ -37,6 +38,16 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             own: true,
         });
         world.insert_resource(settings::Pane::Charter);
+    }
+    if scene == Scene::AccountSettings {
+        hamlet_app::bazaar::stage(
+            world,
+            hamlet_app::bazaar::Staged {
+                user: Some(crate::scenes::stalls::user()),
+                ..Default::default()
+            },
+        );
+        world.insert_resource(settings::Pane::Account);
     }
     if scene == Scene::Workspace {
         world.resource_mut::<Settings>().0.workspace =

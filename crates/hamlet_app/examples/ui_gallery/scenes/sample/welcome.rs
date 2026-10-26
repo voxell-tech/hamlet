@@ -1,5 +1,7 @@
 //! The first-run gallery scenes.
 
+use bevy::ecs::world::World;
+use hamlet_app::account::{Form, Page, Place};
 use hamlet_app::welcome;
 
 use crate::scenes::Scene;
@@ -7,8 +9,10 @@ use crate::scenes::Scene;
 /// The first-run screen as `scene` shows it: closed, or at a step
 /// with what a provider or the server might have answered.
 pub(crate) fn first_run(scene: Scene) -> welcome::Welcome {
-    let Scene::Welcome(step) = scene else {
-        return welcome::Welcome::default();
+    let step = match scene {
+        Scene::Welcome(step) => step,
+        Scene::Account(_) => welcome::Step::Account,
+        _ => return welcome::Welcome::default(),
     };
     let models = [
         "openrouter::maker/large",
@@ -32,4 +36,32 @@ pub(crate) fn first_run(scene: Scene) -> welcome::Welcome {
         _ => None,
     };
     shown
+}
+
+/// The page of a Hamlet account the scene shows, with what might have
+/// been typed in it.
+pub(crate) fn setup(world: &mut World, scene: Scene) {
+    let Scene::Account(page) = scene else {
+        return;
+    };
+    let said = (page == Page::Code)
+        .then(|| "We sent a code to mira@example.com.".to_string());
+    let problem = (page == Page::Username).then(|| {
+        "That username is taken. Choose another.".to_string()
+    });
+    world.insert_resource(Form {
+        page,
+        at: Place::Welcome,
+        email: "mira@example.com".into(),
+        password: "a long password".into(),
+        code: if page == Page::Reset {
+            "482913".into()
+        } else {
+            String::new()
+        },
+        username: "mira".into(),
+        said,
+        problem,
+        ..Form::default()
+    });
 }

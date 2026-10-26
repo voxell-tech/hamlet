@@ -1,7 +1,8 @@
 //! The bazaar's server, where chiefs buy and sell
-//! agents, hamlets and tools: who is signed in with GitHub, what is
-//! on its shelves, what the chief owns, sells and has settled into
-//! the home. Where it cannot be reached, the stalls show the samples.
+//! agents, hamlets and tools: who is signed in with their Hamlet
+//! account, what is on its shelves, what the chief owns, sells and
+//! has settled into the home. Where it cannot be reached, the stalls
+//! show the samples.
 
 mod account;
 pub(crate) mod client;
@@ -11,6 +12,7 @@ pub(crate) mod sell;
 mod session;
 #[cfg(test)]
 mod tests;
+mod vault;
 
 use std::collections::BTreeMap;
 
@@ -24,7 +26,10 @@ use hamlet_client::outbox::Outbox;
 use hamlet_protocol::client as protocol;
 
 pub(crate) use self::account::{
-    Account, ask_account, browse, set_up_payouts, sign_in, sign_out,
+    Account, agree, ask_account, browse, change_password,
+    check_payouts, choose_username, disagree, forgot, read_terms,
+    resend, reset, set_up_payouts, sign_in, sign_out, sign_up,
+    verify,
 };
 use self::client::{Request, Server, read};
 use self::deal::Dealing;
@@ -33,6 +38,7 @@ use self::lot::{Detail, Kind, Lot, Page};
 pub(crate) use self::sell::{
     Housed, Offer, Selling, ask_tools, sell, shelve,
 };
+pub(crate) use self::vault::{disconnect, home_has_key};
 use crate::bazaar::errand::{self, Errand, Fetched};
 use crate::bazaar::listings::{Agents, Hamlets, Sells, Tools, Wares};
 use crate::bazaar::shelf::{self, Stock, now};
@@ -46,9 +52,9 @@ pub(crate) fn plugin(app: &mut App) {
         shelf::plugin::<Wares<Agents>>,
         shelf::plugin::<Wares<Tools>>,
         shelf::plugin::<Wares<Hamlets>>,
-        account::plugin,
         deal::plugin,
         sell::plugin,
+        vault::plugin,
     ))
     .insert_resource(Market::new(client::server_of(
         std::env::var(client::SERVER_VARIABLE).ok(),
@@ -62,6 +68,13 @@ pub(crate) fn plugin(app: &mut App) {
 pub(crate) struct Market {
     pub server: Server,
     pub account: Account,
+    /// The data key of the vault of the one signed in, once it is
+    /// opened.
+    pub data_key: Option<hamlet_protocol::vault::DataKey>,
+    /// The seller terms, shown to be agreed to.
+    pub terms: Option<lot::Terms>,
+    /// Payouts are set up once the seller terms are agreed to.
+    pub paying: bool,
     /// How asking for the shelves went.
     pub reach: Reach,
     /// Every listing on the shelves, as they last came.
@@ -105,6 +118,9 @@ impl Market {
         Market {
             server: Server { base, token: None },
             account: Account::Out,
+            data_key: None,
+            terms: None,
+            paying: false,
             reach: Reach::Unasked,
             lots: Vec::new(),
             details: BTreeMap::new(),
@@ -163,6 +179,7 @@ pub(crate) enum Call {
     Shelves(u32),
     Detail(String),
     Account(account::Call),
+    Vault(vault::Call),
     Deal(deal::Call),
     Sell(sell::Call),
     /// A listing's cover, or an asset's picture, at its address on
@@ -199,6 +216,7 @@ pub(crate) fn answered(
         Call::Shelves(offset) => shelved(world, offset, answer),
         Call::Detail(id) => detailed(world, id, answer),
         Call::Account(call) => account::answered(world, call, answer),
+        Call::Vault(call) => vault::answered(world, call, answer),
         Call::Deal(call) => deal::answered(world, call, answer),
         Call::Sell(call) => sell::answered(world, call, answer),
         Call::Picture(url) => {
@@ -342,6 +360,7 @@ fn answered_by_home(response: On<Response>, mut commands: Commands) {
         }
         deal::heard(world, &response);
         sell::heard(world, &response);
+        vault::heard(world, &response);
         wardrobe::heard(world, &response);
     });
 }
@@ -398,8 +417,6 @@ pub struct Staged {
     /// Covers, by their address on the server, as the bytes of a
     /// picture.
     pub covers: Vec<(String, Vec<u8>)>,
-    /// A sign-in under way: the code and where it is entered.
-    pub code: Option<(String, String)>,
     /// A deal held at a step, of the listing of this id.
     pub deal: Option<(String, Dealt)>,
     /// The LOOKS stall's catalogue, as `GET /v1/assets` answers.
@@ -409,6 +426,9 @@ pub struct Staged {
     /// The files of official assets, by id, as they are viewed once
     /// unveiled.
     pub views: Vec<(String, Vec<u8>)>,
+    /// The seller terms shown to be agreed to, as
+    /// `GET /v1/seller-terms` answers.
+    pub terms: Option<serde_json::Value>,
 }
 
 /// Puts the bazaar's server in the state `staged` gives.
@@ -462,25 +482,14 @@ pub fn stage(world: &mut World, staged: Staged) {
             .map(|one| (one.listing.clone(), one))
             .collect();
         market.server.token =
-            user.as_ref().map(|_| "hms_still".into());
-        market.account = match (user, staged.code) {
-            (_, Some((code, uri))) => Account::Code {
-                device: lot::Device {
-                    device_code: "still".into(),
-                    user_code: code,
-                    verification_uri: uri,
-                    interval: u64::MAX / 4_000,
-                    expires_in: u64::MAX / 4_000,
-                },
-                asking: account::Asking::new(
-                    now(),
-                    u64::MAX / 4,
-                    u64::MAX / 4,
-                ),
-            },
-            (Some(user), None) => Account::In(user),
-            (None, None) => Account::Out,
+            user.as_ref().map(|_| "still-token".into());
+        market.account = match user {
+            Some(user) => Account::In(user),
+            None => Account::Out,
         };
+        market.terms = staged
+            .terms
+            .and_then(|terms| serde_json::from_value(terms).ok());
     }
     if let Some(deal) = deal {
         world.resource_mut::<Dealing>().deal = Some(deal);

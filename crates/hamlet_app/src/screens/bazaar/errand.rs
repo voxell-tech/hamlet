@@ -113,6 +113,22 @@ pub(crate) fn send_request(
     request: Request,
     errand: Errand,
 ) -> bool {
+    run(world, errand, |client| async move {
+        fetch(&client, request).await
+    })
+}
+
+/// Runs the work `make` makes with the window's client for
+/// `errand`, its outcome taken in as a fetch's answer; false where
+/// the window has no runtime to run it on.
+pub(crate) fn run<F>(
+    world: &mut World,
+    errand: Errand,
+    make: impl FnOnce(reqwest::Client) -> F,
+) -> bool
+where
+    F: Future<Output = Fetched> + Send + 'static,
+{
     let Some(tokio) = world.get_resource::<Tokio>().cloned() else {
         return false;
     };
@@ -122,33 +138,40 @@ pub(crate) fn send_request(
     };
     let tx = errands.tx.clone();
     errands.sent.push(errand.clone());
+    let work = make(client);
     tokio.0.spawn(async move {
-        let fetched = async {
-            let mut asked =
-                client.request(request.method, request.url);
-            if request.long {
-                asked = asked.timeout(LONG);
-            }
-            if let Some(token) = request.token {
-                asked = asked.bearer_auth(token);
-            }
-            if let Some((kind, body)) = request.body {
-                asked = asked
-                    .header(reqwest::header::CONTENT_TYPE, kind)
-                    .body(body);
-            }
-            let answer = asked.send().await?;
-            let status = answer.status().as_u16();
-            Ok::<_, reqwest::Error>((
-                status,
-                answer.bytes().await?.to_vec(),
-            ))
-        }
-        .await
-        .map_err(|why| why.without_url().to_string());
-        let _ = tx.send((errand, fetched));
+        let _ = tx.send((errand, work.await));
     });
     true
+}
+
+/// Sends `request` with `client`.
+pub(crate) async fn fetch(
+    client: &reqwest::Client,
+    request: Request,
+) -> Fetched {
+    async {
+        let mut asked = client.request(request.method, request.url);
+        if request.long {
+            asked = asked.timeout(LONG);
+        }
+        if let Some(token) = request.token {
+            asked = asked.bearer_auth(token);
+        }
+        if let Some((kind, body)) = request.body {
+            asked = asked
+                .header(reqwest::header::CONTENT_TYPE, kind)
+                .body(body);
+        }
+        let answer = asked.send().await?;
+        let status = answer.status().as_u16();
+        Ok::<_, reqwest::Error>((
+            status,
+            answer.bytes().await?.to_vec(),
+        ))
+    }
+    .await
+    .map_err(|why| why.without_url().to_string())
 }
 
 /// The body of an answer read as JSON, or why it cannot be, in words

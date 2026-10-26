@@ -378,7 +378,7 @@ fn order(
 /// Why `order` cannot be had now, if it cannot.
 fn refusal(world: &World, order: &Order) -> Option<String> {
     if !world.resource::<Market>().signed_in() {
-        Some("Sign in with GitHub to buy.".into())
+        Some("Sign in to your Hamlet account to buy.".into())
     } else if order.version.is_empty() {
         Some("It has no version to download yet.".into())
     } else if order.kind == Kind::Hamlet

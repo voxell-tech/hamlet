@@ -1,6 +1,7 @@
 //! The settings screen: a front page of its parts, each on a page
 //! of its own.
 
+mod account;
 mod sight;
 mod workspace;
 
@@ -80,6 +81,8 @@ pub enum Pane {
     /// The list of the others.
     #[default]
     Front,
+    /// The chief's Hamlet account.
+    Account,
     Endpoints,
     Models,
     Agents,
@@ -95,7 +98,8 @@ pub enum Pane {
 }
 
 impl Pane {
-    const PAGES: [Pane; 8] = [
+    const PAGES: [Pane; 9] = [
+        Pane::Account,
         Pane::Endpoints,
         Pane::Models,
         Pane::Agents,
@@ -109,6 +113,7 @@ impl Pane {
     fn title(self) -> &'static str {
         match self {
             Pane::Front => "SETTINGS",
+            Pane::Account => "ACCOUNT",
             Pane::Endpoints => "ENDPOINTS",
             Pane::Models => "MODELS",
             Pane::Agents => "AGENTS",
@@ -123,6 +128,7 @@ impl Pane {
     fn glyph(self) -> Glyph {
         match self {
             Pane::Front => Glyph::Sliders,
+            Pane::Account => Glyph::Power,
             Pane::Endpoints => Glyph::Globe,
             Pane::Models => Glyph::Chip,
             Pane::Agents => Glyph::Robot,
@@ -137,6 +143,10 @@ impl Pane {
     fn holds(self) -> &'static str {
         match self {
             Pane::Front => "",
+            Pane::Account => {
+                "Your Hamlet account, for the Agent Bazaar and your \
+                 OpenRouter key."
+            }
             Pane::Endpoints => {
                 "Where models come from, and their keys."
             }
@@ -645,6 +655,7 @@ pub fn screen() -> AnyView {
                 .boxed();
         }
         let body = match pane {
+            Pane::Account => account::page().boxed(),
             Pane::Endpoints => crate::models::endpoints().boxed(),
             Pane::Models => crate::models::shelf().boxed(),
             Pane::Agents => agents().boxed(),
@@ -694,6 +705,27 @@ mod tests {
     use crate::testing::{
         control, requests, settings_page, settle, words_and_spans,
     };
+
+    #[test]
+    fn the_account_page_offers_an_account_and_openrouter_signed_out()
+    {
+        let mut app = settings_page(Pane::Account);
+        let shown = crate::testing::all_words(&mut app);
+        for words in
+            ["SIGN IN", "CREATE AN ACCOUNT", "CONNECT OPENROUTER"]
+        {
+            assert!(shown.contains(words), "{shown}");
+        }
+        crate::testing::press_and_update(
+            &mut app,
+            "CREATE AN ACCOUNT",
+        );
+        let shown = crate::testing::all_words(&mut app);
+        for words in ["USERNAME", "PASSWORD AGAIN", "CREATE ACCOUNT"]
+        {
+            assert!(shown.contains(words), "{shown}");
+        }
+    }
 
     #[test]
     fn agent_controls_send_only_the_changed_setting_and_follow_received_changes()

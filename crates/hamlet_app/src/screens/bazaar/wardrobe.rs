@@ -441,7 +441,7 @@ fn signed(world: &mut World) {
     let login = world
         .resource::<Market>()
         .user()
-        .map(|user| user.login.clone());
+        .map(|user| user.id.clone());
     let signed_in = world.resource::<Market>().signed_in();
     if !signed_in {
         if world.resource::<Wardrobe>().asked_for.is_some()
@@ -488,7 +488,9 @@ pub(crate) fn buy(world: &mut World, id: &str) {
         return;
     }
     let deal = match world.resource::<Market>().signed_in() {
-        false => Deal::Failed("Sign in with GitHub to buy.".into()),
+        false => Deal::Failed(
+            "Sign in to your Hamlet account to buy.".into(),
+        ),
         true => {
             ask(world, Call::Purchase(id.to_string()));
             Deal::Buying
@@ -745,7 +747,7 @@ pub(crate) fn stage(
     let login = world
         .resource::<Market>()
         .user()
-        .map(|user| user.login.clone());
+        .map(|user| user.id.clone());
     let mut wardrobe = world.resource_mut::<Wardrobe>();
     wardrobe.asked_for = login;
     wardrobe.owned = items

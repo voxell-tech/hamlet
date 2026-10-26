@@ -122,9 +122,9 @@ pub(crate) fn sell(world: &mut World, offer: Offer) {
     let signed = world.resource::<Market>().signed_in();
     let mut package = None;
     let first = match (&offer.wares, signed) {
-        (_, false) => {
-            Step::Failed("Sign in with GitHub first.".into())
-        }
+        (_, false) => Step::Failed(
+            "Sign in to your Hamlet account first.".into(),
+        ),
         (Some(wares), true) => {
             let wares = wares.clone();
             let request = world.resource_mut::<Outbox>().send(|id| {

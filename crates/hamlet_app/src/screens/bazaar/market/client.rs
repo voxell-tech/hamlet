@@ -52,8 +52,8 @@ pub(crate) struct Request {
 pub(crate) struct Refusal {
     /// The status it answered, `None` when it was not reached.
     pub status: Option<u16>,
-    /// The server's code for it, such as `pending` or `conflict`;
-    /// `unreachable` when it was not reached.
+    /// The server's code for it, such as `conflict` or
+    /// `EMAIL_NOT_VERIFIED`; `unreachable` when it was not reached.
     pub code: String,
     pub message: String,
 }
@@ -70,15 +70,6 @@ impl Refusal {
     /// The token was refused: the one signed in is not.
     pub fn signed_out(&self) -> bool {
         self.status == Some(401)
-    }
-
-    /// It may go another way when asked again: the server was not
-    /// reached, or failed on its side, as it does while it restarts.
-    pub fn passing(&self) -> bool {
-        match self.status {
-            None => self.code == "unreachable",
-            Some(status) => status >= 500,
-        }
     }
 
     /// In words for the chief.
@@ -153,23 +144,126 @@ impl Server {
         self.get(&format!("/v1/listings/{}", escaped(id)))
     }
 
-    /// Begins a sign-in with GitHub.
-    pub fn device(&self) -> Request {
-        self.post("/v1/auth/device", None)
+    /// Makes a Hamlet account, which waits for the code emailed to
+    /// `email`.
+    pub fn sign_up(
+        &self,
+        email: &str,
+        password: &str,
+        username: &str,
+    ) -> Request {
+        // Better Auth needs a name; the server sets it to the
+        // username.
+        let body = json!({
+            "email": email,
+            "password": password,
+            "name": username,
+            "username": username,
+        });
+        self.post("/api/auth/sign-up/email", Some(body))
     }
 
-    /// Asks whether the sign-in of `code` was approved.
-    pub fn poll(&self, code: &str) -> Request {
-        let body = json!({ "deviceCode": code });
-        self.post("/v1/auth/device/poll", Some(body))
+    /// Verifies the email of an account with the code sent to it,
+    /// which signs it in.
+    pub fn verify(&self, email: &str, code: &str) -> Request {
+        let body = json!({ "email": email, "otp": code });
+        self.post("/api/auth/email-otp/verify-email", Some(body))
+    }
+
+    /// Sends another code to verify `email` with.
+    pub fn resend(&self, email: &str) -> Request {
+        let body =
+            json!({ "email": email, "type": "email-verification" });
+        self.post(
+            "/api/auth/email-otp/send-verification-otp",
+            Some(body),
+        )
+    }
+
+    pub fn sign_in(&self, email: &str, password: &str) -> Request {
+        let body = json!({ "email": email, "password": password });
+        self.post("/api/auth/sign-in/email", Some(body))
+    }
+
+    /// Sends a code to `email` to choose a new password with.
+    pub fn forgot(&self, email: &str) -> Request {
+        let body = json!({ "email": email });
+        self.post(
+            "/api/auth/email-otp/request-password-reset",
+            Some(body),
+        )
+    }
+
+    /// Chooses a new password with the code sent to `email`.
+    pub fn reset(
+        &self,
+        email: &str,
+        code: &str,
+        password: &str,
+    ) -> Request {
+        let body = json!({ "email": email, "otp": code, "password": password });
+        self.post("/api/auth/email-otp/reset-password", Some(body))
     }
 
     pub fn sign_out(&self) -> Request {
-        self.with(Method::DELETE, "/v1/auth/session", None)
+        self.post("/api/auth/sign-out", None)
+    }
+
+    pub fn rename(&self, username: &str) -> Request {
+        let body = json!({ "username": username });
+        self.post("/api/auth/update-user", Some(body))
+    }
+
+    /// Changes the password, which signs out every other session.
+    pub fn change_password(
+        &self,
+        current: &str,
+        fresh: &str,
+    ) -> Request {
+        let body = json!({
+            "currentPassword": current,
+            "newPassword": fresh,
+            "revokeOtherSessions": true,
+        });
+        self.post("/api/auth/change-password", Some(body))
     }
 
     pub fn me(&self) -> Request {
         self.get("/v1/me")
+    }
+
+    /// The vault of the one signed in: its salt, its locked data key
+    /// and its sealed OpenRouter key.
+    pub fn vault(&self) -> Request {
+        self.get("/v1/me/vault")
+    }
+
+    /// Keeps the vault's `salt` and its data key, `locked`.
+    pub fn keep_vault(&self, salt: &str, locked: &str) -> Request {
+        let body = json!({ "salt": salt, "dataKey": locked });
+        self.with(Method::PUT, "/v1/me/vault", Some(body))
+    }
+
+    /// Keeps the OpenRouter key, `sealed`, in the vault.
+    pub fn keep_sealed(&self, sealed: &str) -> Request {
+        let body = json!({ "sealed": sealed });
+        self.with(Method::PUT, "/v1/me/vault/openrouter", Some(body))
+    }
+
+    /// Forgets the OpenRouter key kept in the vault.
+    pub fn drop_sealed(&self) -> Request {
+        self.with(Method::DELETE, "/v1/me/vault/openrouter", None)
+    }
+
+    /// The seller terms as they stand.
+    pub fn seller_terms(&self) -> Request {
+        self.get("/v1/seller-terms")
+    }
+
+    /// Agrees to `version` of the seller terms.
+    pub fn agree(&self, version: &str) -> Request {
+        let body = json!({ "version": version });
+        self.post("/v1/me/seller-terms", Some(body))
     }
 
     /// Everything the one signed in owns.
@@ -186,6 +280,11 @@ impl Server {
     /// are paid.
     pub fn payouts(&self) -> Request {
         self.post("/v1/me/payouts", None)
+    }
+
+    /// Whether Stripe lets the one signed in be paid, as it says now.
+    pub fn payouts_state(&self) -> Request {
+        self.get("/v1/me/payouts")
     }
 
     /// Buys a listing: owned at once when it is free, or a page on
@@ -365,19 +464,28 @@ pub(crate) fn bytes(answer: Fetched) -> Result<Vec<u8>, Refusal> {
     if (200..300).contains(&status) {
         return Ok(body);
     }
+    // The bazaar's own routes wrap it in `error`; its accounts' do
+    // not.
     #[derive(serde::Deserialize)]
-    struct Fault {
-        error: FaultBody,
+    #[serde(untagged)]
+    enum Fault {
+        Wrapped { error: FaultBody },
+        Bare(FaultBody),
     }
     #[derive(serde::Deserialize)]
     struct FaultBody {
+        #[serde(default)]
         code: String,
         message: String,
     }
     Err(match serde_json::from_slice::<Fault>(&body) {
-        Ok(Fault {
-            error: FaultBody { code, message },
-        }) => Refusal::new(Some(status), &code, sentence(&message)),
+        Ok(Fault::Wrapped { error } | Fault::Bare(error)) => {
+            Refusal::new(
+                Some(status),
+                &error.code,
+                sentence(&error.message),
+            )
+        }
         Err(_) => Refusal::new(
             Some(status),
             "internal",

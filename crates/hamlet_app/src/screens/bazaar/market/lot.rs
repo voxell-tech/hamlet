@@ -116,22 +116,11 @@ impl Lot {
 )]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Maker {
-    pub login: String,
-    #[serde(default)]
-    pub name: Option<String>,
+    #[serde(alias = "login")]
+    pub username: String,
     /// Stripe takes payments for them.
     #[serde(default)]
     pub verified: bool,
-}
-
-impl Maker {
-    /// The name they are shown by.
-    pub fn shown(&self) -> &str {
-        self.name
-            .as_deref()
-            .filter(|name| !name.trim().is_empty())
-            .unwrap_or(&self.login)
-    }
 }
 
 /// One version of a listing.
@@ -227,24 +216,65 @@ pub(crate) struct Said {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Reviewer {
-    pub login: String,
+    #[serde(alias = "login")]
+    pub username: String,
 }
 
-/// The one signed in to the bazaar.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// The one signed in to their Hamlet account.
+#[derive(
+    Clone, Debug, PartialEq, Default, Serialize, Deserialize,
+)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct User {
-    pub login: String,
+    #[serde(default)]
+    pub id: String,
+    /// `None` until they choose one, after their email's code.
+    #[serde(default)]
+    pub username: Option<String>,
+    #[serde(default)]
+    pub email: String,
+    /// The version of the seller terms they agreed to, and when.
+    #[serde(default)]
+    pub seller_terms: Option<Agreed>,
     #[serde(default)]
     pub payouts: Option<Payouts>,
 }
 
+impl User {
+    /// The name they are shown by: their username, or their email
+    /// until they have one.
+    pub fn name(&self) -> &str {
+        self.username.as_deref().unwrap_or(&self.email)
+    }
+}
+
+/// The seller terms agreed to.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct Agreed {
+    pub version: String,
+}
+
+/// The seller terms as they stand.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct Terms {
+    pub version: String,
+    /// Markdown.
+    pub text: String,
+}
+
 /// How a seller is paid, through Stripe.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Default, Serialize, Deserialize,
+)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct Payouts {
     /// They have a Stripe account.
     pub connected: bool,
     /// Stripe lets it take payments.
-    pub enabled: bool,
+    #[serde(default)]
+    pub charges_enabled: bool,
+    #[serde(default)]
+    pub payouts_enabled: bool,
 }
 
 /// A listing the one signed in owns.
@@ -269,23 +299,9 @@ pub(crate) struct Draft {
     pub price_cents: u32,
 }
 
-/// The sign-in begun with GitHub.
+/// A sign-in, or a code, that went through.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct Device {
-    pub device_code: String,
-    /// The code the chief types at `verification_uri`.
-    pub user_code: String,
-    pub verification_uri: String,
-    /// Seconds between asks.
-    pub interval: u64,
-    /// Seconds the code lasts.
-    pub expires_in: u64,
-}
-
-/// A sign-in that went through.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub(crate) struct Approved {
+pub(crate) struct Signed {
     pub token: String,
     pub user: User,
 }

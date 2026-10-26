@@ -19,7 +19,9 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::{AnyView, Bevy, FynixPlugin, mount};
 use hamlet_app::bazaar::Stall;
 use hamlet_app::history::History;
-use hamlet_app::{Bar, Roll, asking, chrome, menu, select, welcome};
+use hamlet_app::{
+    Bar, Roll, account, asking, chrome, menu, select, welcome,
+};
 use hamlet_assets::Tuning;
 use hamlet_realm::sound::{Cue, SoundSettings};
 use hamlet_ui::theme::{self, HamletTheme};
@@ -162,6 +164,10 @@ pub enum Scene {
     ViewMenu,
     /// The first-run screen at one of its steps.
     Welcome(welcome::Step),
+    /// The first-run screen at a page of a Hamlet account.
+    Account(account::Page),
+    /// The Settings panel at its Account page, signed in.
+    AccountSettings,
     /// The Agent Bazaar at a stall's tab, with the buttons of these
     /// words pressed in turn.
     Stall(Stall, &'static [&'static str]),
@@ -174,12 +180,14 @@ pub enum Scene {
 pub enum Trade {
     SignedOut,
     SignedIn,
-    /// Signing in, with the code GitHub gave.
-    Code,
+    /// The page to sign in to a Hamlet account open.
+    SignIn,
     /// A listing waits to be paid for on Stripe's page.
     Paying,
     /// A listing bought is set up in the home.
     Installing,
+    /// The seller terms shown before payouts are set up.
+    Terms,
 }
 
 /// The picture that stands where the world is drawn, and the part of

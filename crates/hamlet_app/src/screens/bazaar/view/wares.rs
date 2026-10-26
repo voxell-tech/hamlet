@@ -35,7 +35,7 @@ const REVIEWS_SHOWN: usize = 5;
 pub(crate) trait Shows: Sells {
     /// The dim line of its row under what it is for.
     fn row_meta(lot: &Lot) -> String {
-        format!("{}, by {}", rating(lot), lot.seller.shown())
+        format!("{}, by {}", rating(lot), lot.seller.username)
     }
 
     /// Under the head of its page, in place of its cover.
@@ -123,7 +123,7 @@ impl<K: Shows> Shown for Wares<K> {
             lot.kind,
             lot.id.clone(),
             lot.price_cents,
-            lot.seller.shown().to_string(),
+            lot.seller.username.clone(),
         ));
         let mut parts = vec![top(first)];
         if !lot.description.trim().is_empty() {
@@ -311,8 +311,8 @@ fn rating(lot: &Lot) -> String {
 
 fn seller_words(seller: &Maker) -> String {
     match seller.verified {
-        true => format!("{}, verified seller", seller.shown()),
-        false => format!("{}, not verified", seller.shown()),
+        true => format!("{}, verified seller", seller.username),
+        false => format!("{}, not verified", seller.username),
     }
 }
 
@@ -355,7 +355,7 @@ fn reviews(id: String) -> AnyView {
                         .boxed(),
                     format!(
                         "{} of 5, from {}",
-                        said.stars, said.by.login
+                        said.stars, said.by.username
                     ),
                 )
             })

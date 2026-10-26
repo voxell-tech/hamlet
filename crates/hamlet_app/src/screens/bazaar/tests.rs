@@ -62,7 +62,7 @@ fn a_model_from_openrouter_is_listed_then_allowed_in_the_catalogue() {
         protocol::ProviderView {
             configured: true,
             id: "openrouter".into(),
-            label: "Sign in with OpenRouter".into(),
+            label: "Connect OpenRouter".into(),
             methods: Vec::new(),
             name: "OpenRouter".into(),
         },

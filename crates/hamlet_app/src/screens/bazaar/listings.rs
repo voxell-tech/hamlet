@@ -122,13 +122,12 @@ impl<K: Sells> Listing for Wares<K> {
     fn told(&self) -> String {
         let lot = &self.0;
         format!(
-            "{} {} {} {} {} {} {}",
+            "{} {} {} {} {} {}",
             lot.title,
             lot.summary,
             lot.category,
             lot.tags.join(" "),
-            lot.seller.login,
-            lot.seller.shown(),
+            lot.seller.username,
             lot.description,
         )
     }

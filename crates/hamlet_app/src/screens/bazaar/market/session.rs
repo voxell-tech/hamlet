@@ -1,13 +1,14 @@
-//! The sign-in kept for the next run: the server, the session token
-//! and who it signs in, as JSON in `bazaar-token` in the window's
-//! view folder, readable by its owner alone. A token is used only
-//! with the server it came from.
+//! The sign-in kept for the next run: the server, the session token,
+//! who it signs in and their vault's data key, as JSON in
+//! `bazaar-token` in the window's view folder, readable by its owner
+//! alone. A token is used only with the server it came from.
 
 use std::path::{Path, PathBuf};
 
 use bevy::ecs::world::World;
 use bevy::log::warn;
 use hamlet_client::ViewFolder;
+use hamlet_protocol::vault::DataKey;
 use serde::{Deserialize, Serialize};
 
 use crate::bazaar::market::lot::User;
@@ -28,6 +29,10 @@ pub(crate) struct Session {
     /// says, and while it cannot be reached.
     #[serde(default)]
     pub user: Option<User>,
+    /// Their vault's data key, as
+    /// [`DataKey::to_base64`] writes it.
+    #[serde(default, rename = "dataKey")]
+    pub data_key: Option<String>,
 }
 
 fn file(world: &World) -> Option<PathBuf> {
@@ -46,6 +51,9 @@ pub(super) fn restore(world: &mut World) {
     let token = token_for(&session, &market.server.base);
     if token.is_some() && market.server.token.is_none() {
         market.server.token = token;
+        market.data_key = session
+            .data_key
+            .and_then(|key| DataKey::from_base64(&key).ok());
         if let Some(user) = session.user {
             market.account = Account::In(user);
         }
@@ -53,17 +61,25 @@ pub(super) fn restore(world: &mut World) {
     }
 }
 
-/// Keeps `token` of the server signed in to, and who is signed in,
-/// for the next run, or forgets the one kept.
-pub(crate) fn keep(world: &mut World, token: Option<&str>) {
+/// Keeps the token of the server signed in to, who is signed in and
+/// their data key for the next run, or forgets the one kept once
+/// nobody is.
+pub(crate) fn keep(world: &mut World) {
     let Some(path) = file(world) else {
         return;
     };
     let market = world.resource::<Market>();
-    let session = Session {
-        server: market.server.base.clone(),
-        token: token.unwrap_or_default().to_string(),
-        user: token.and(market.user().cloned()),
+    let session = match &market.server.token {
+        Some(token) => Session {
+            server: market.server.base.clone(),
+            token: token.clone(),
+            user: market.user().cloned(),
+            data_key: market
+                .data_key
+                .as_ref()
+                .map(DataKey::to_base64),
+        },
+        None => Session::default(),
     };
     if let Err(why) = write(&path, &session) {
         warn!("the bazaar's sign-in could not be kept: {why}");
@@ -117,9 +133,12 @@ mod tests {
             server: "http://localhost:8787".into(),
             token: "hms_1".into(),
             user: Some(User {
-                login: "ada".into(),
-                payouts: None,
+                id: "u_1".into(),
+                username: Some("ada".into()),
+                email: "ada@example.com".into(),
+                ..User::default()
             }),
+            data_key: Some(DataKey::new().to_base64()),
         };
         write(&path, &kept).unwrap();
         let read = read(&path).unwrap();
@@ -132,7 +151,8 @@ mod tests {
         let older =
             br#"{"server":"http://localhost:8787","token":"hms_1"}"#;
         std::fs::write(&path, older).unwrap();
-        assert_eq!(super::read(&path).unwrap().user, None);
+        let older = super::read(&path).unwrap();
+        assert_eq!((older.user, older.data_key), (None, None));
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

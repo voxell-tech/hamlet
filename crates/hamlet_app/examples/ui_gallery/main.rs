@@ -19,6 +19,7 @@ use std::time::Duration;
 use bevy::image::{CompressedImageFormats, ImageSampler, ImageType};
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
+use hamlet_app::account::Page;
 use hamlet_app::bazaar::Stall;
 use hamlet_app::pictures::Pictures;
 use hamlet_app::welcome::Step;
@@ -51,6 +52,16 @@ const fn bazaar(name: &'static str, scene: Scene) -> Shot {
     }
 }
 
+/// A still of the first-run screen at a page of a Hamlet account.
+const fn account(name: &'static str, page: Page) -> Shot {
+    Shot {
+        name,
+        scene: Scene::Account(page),
+        size: UVec2::new(1180, 760),
+        scale: 1.0,
+    }
+}
+
 /// A still of the Agent Bazaar with its server answering as `trade`
 /// says.
 const fn market(
@@ -67,7 +78,7 @@ const fn market(
     }
 }
 
-const SHOTS: [Shot; 62] = [
+const SHOTS: [Shot; 71] = [
     bazaar("bazaar-models", Scene::Stall(Stall::Models, &[])),
     bazaar(
         "bazaar-model",
@@ -142,7 +153,13 @@ const SHOTS: [Shot; 62] = [
         Trade::SignedIn,
         &["Small Press"],
     ),
-    market("market-sign-in", Stall::Community, Trade::Code, &[]),
+    market("market-sign-in", Stall::Community, Trade::SignIn, &[]),
+    market(
+        "market-seller-terms",
+        Stall::Community,
+        Trade::Terms,
+        &[],
+    ),
     market("looks", Stall::Assets, Trade::SignedOut, &[]),
     market(
         "looks-asset",
@@ -370,6 +387,29 @@ const SHOTS: [Shot; 62] = [
         name: "welcome",
         scene: Scene::Welcome(Step::Choice),
         size: UVec2::new(1180, 680),
+        scale: 1.0,
+    },
+    Shot {
+        name: "welcome-spend-limit",
+        scene: Scene::Welcome(Step::Limit),
+        size: UVec2::new(1180, 680),
+        scale: 1.0,
+    },
+    Shot {
+        name: "welcome-account",
+        scene: Scene::Welcome(Step::Account),
+        size: UVec2::new(1180, 680),
+        scale: 1.0,
+    },
+    account("account-sign-up", Page::SignUp),
+    account("account-code", Page::Code),
+    account("account-username", Page::Username),
+    account("account-sign-in", Page::SignIn),
+    account("account-forgot", Page::Reset),
+    Shot {
+        name: "settings-account",
+        scene: Scene::AccountSettings,
+        size: UVec2::new(1440, 1100),
         scale: 1.0,
     },
     Shot {

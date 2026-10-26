@@ -152,6 +152,18 @@ _Avoid_: workspace, layout
 
 ### The Agent Bazaar
 
+**Hamlet account**:
+A chief's email, password and username at the Agent Bazaar's server,
+kept by the window rather than the home. Needed to buy and sell, and
+keeps the home's OpenRouter key, locked with the password, for the
+chief's other computers.
+_Avoid_: bazaar login, GitHub account
+
+**Vault**:
+What a Hamlet account keeps that its server cannot open: a data key
+locked with the password, and the OpenRouter key locked with that.
+_Avoid_: keychain, wallet
+
 **Looks**:
 What an agent's robot or a hamlet's houses wear: a skin, a mesh and an
 emote, each an official asset bought at the Agent Bazaar.

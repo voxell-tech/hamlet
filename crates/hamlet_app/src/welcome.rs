@@ -38,6 +38,7 @@ pub(crate) fn plugin(app: &mut App) {
         .init_resource::<Committing>()
         .init_resource::<Browser>()
         .init_resource::<providers::Login>()
+        .init_resource::<providers::SpendLimit>()
         .add_observer(answered)
         .add_observer(|_: On<Reconnected>, mut commands: Commands| {
             commands.queue(providers::reconnected);
@@ -62,8 +63,12 @@ pub(crate) fn plugin(app: &mut App) {
 /// A page of first-run setup.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum Step {
+    /// A Hamlet account, made, signed in to or skipped.
     #[default]
+    Account,
     Choice,
+    /// The spend limit of the OpenRouter key about to be made.
+    Limit,
     Key,
     SignIn,
     Local,
@@ -129,7 +134,15 @@ pub fn again(world: &mut World) {
 /// Setup for another provider, keeping the current model.
 pub fn add(world: &mut World) {
     again(world);
-    world.resource_mut::<Welcome>().adding = true;
+    let mut welcome = world.resource_mut::<Welcome>();
+    welcome.adding = true;
+    welcome.step = Step::Choice;
+}
+
+/// Setup open at connecting OpenRouter, keeping the current model.
+pub fn connect_openrouter(world: &mut World) {
+    add(world);
+    world.resource_mut::<Welcome>().step = Step::Limit;
 }
 
 fn close(world: &mut World) {
@@ -325,6 +338,8 @@ fn answered(response: On<Response>, mut commands: Commands) {
 fn follow(
     settings: Res<Settings>,
     connection: Res<Connection>,
+    market: Option<Res<crate::bazaar::market::Market>>,
+    form: Option<Res<crate::account::Form>>,
     mut welcome: ResMut<Welcome>,
 ) {
     use bevy::ecs::change_detection::DetectChanges;
@@ -332,6 +347,16 @@ fn follow(
         .then(|| connection.words.clone());
     if welcome.connection != words {
         welcome.connection = words;
+    }
+    // One signed in already has an account, unless they are choosing
+    // its username here.
+    let signed = market.is_some_and(|market| market.signed_in());
+    let naming = form.is_some_and(|form| {
+        form.at(crate::account::Place::Welcome)
+            != crate::account::Page::Shut
+    });
+    if welcome.step == Step::Account && signed && !naming {
+        welcome.step = Step::Choice;
     }
     if settings.is_changed() {
         if settings.0.unset {
@@ -418,7 +443,7 @@ mod server_tests {
         incoming(
             app,
             serde_json::json!({"type":"change", "epoch":1, "revision":1, "changes":[{"type":"providers", "providers":[
-                {"id":"openrouter", "name":"OpenRouter", "label":"Sign in with OpenRouter", "configured":false, "methods":["key","subscription"]},
+                {"id":"openrouter", "name":"OpenRouter", "label":"Connect OpenRouter", "configured":false, "methods":["key","subscription"]},
                 {"id":"chatgpt", "name":"ChatGPT", "label":"Continue with ChatGPT", "configured":false, "methods":["subscription"]}
             ]}]}),
         );
@@ -430,6 +455,7 @@ mod server_tests {
         connect(&mut app, true);
         providers(&mut app);
         mount::<HamletTheme>(app.world_mut(), view());
+        press_and_update(&mut app, "SKIP");
         press_and_update(&mut app, "I HAVE A KEY");
         press_and_update(&mut app, "OpenRouter");
         let requests = sent(&mut app);
@@ -494,6 +520,7 @@ mod server_tests {
         connect(&mut app, true);
         providers(&mut app);
         mount::<HamletTheme>(app.world_mut(), view());
+        press_and_update(&mut app, "SKIP");
         press_and_update(&mut app, "CONTINUE WITH CHATGPT");
         let start = sent(&mut app).remove(0);
         assert_eq!(
@@ -527,10 +554,22 @@ mod server_tests {
         );
         press_and_update(&mut app, "CANCEL SIGN-IN");
         assert_eq!(sent(&mut app)[0]["cancel"], "plan-login");
-        press_and_update(&mut app, "SIGN IN WITH OPENROUTER");
+        press_and_update(&mut app, "CONNECT OPENROUTER");
+        assert!(all_words(&mut app).contains("SPEND LIMIT"));
+        press_and_update(&mut app, "CONTINUE");
+        app.update();
+        let start = sent(&mut app).remove(0);
         assert_eq!(
-            sent(&mut app)[0]["start"],
+            start["start"],
             serde_json::json!({"provider":"openrouter", "method":"subscription"})
+        );
+        incoming(
+            &mut app,
+            serde_json::json!({"type":"login", "to":start["id"], "login":"key-login", "step":{"url":"https://openrouter.ai/auth?callback_url=http%3A%2F%2F127.0.0.1%3A1%2Fcb"}}),
+        );
+        assert_eq!(
+            app.world().resource::<Opened>().0[1],
+            "https://openrouter.ai/auth?callback_url=http%3A%2F%2F127.0.0.1%3A1%2Fcb&limit=10"
         );
     }
 
@@ -546,6 +585,7 @@ mod server_tests {
         connect(&mut app, true);
         providers(&mut app);
         mount::<HamletTheme>(app.world_mut(), view());
+        press_and_update(&mut app, "SKIP");
         press_and_update(&mut app, "CONTINUE WITH CHATGPT");
         let start = sent(&mut app).remove(0);
         for url in [
@@ -585,6 +625,7 @@ mod server_tests {
         let mut app = welcome_app();
         connect(&mut app, true);
         mount::<HamletTheme>(app.world_mut(), view());
+        press_and_update(&mut app, "SKIP");
         press_and_update(&mut app, "I RUN MY OWN MODEL");
         let requests = sent(&mut app);
         assert_eq!(requests[0]["what"], "connection");
@@ -647,6 +688,7 @@ mod server_tests {
         connect(&mut app, true);
         providers(&mut app);
         mount::<HamletTheme>(app.world_mut(), view());
+        press_and_update(&mut app, "SKIP");
         press_and_update(&mut app, "I HAVE A KEY");
         press_and_update(&mut app, "OpenRouter");
         let start = sent(&mut app).remove(0);
@@ -742,6 +784,7 @@ mod server_tests {
         connect(&mut app, true);
         providers(&mut app);
         mount::<HamletTheme>(app.world_mut(), view());
+        press_and_update(&mut app, "SKIP");
         press_and_update(&mut app, "CONTINUE WITH CHATGPT");
         let start = sent(&mut app).remove(0);
         press_and_update(&mut app, "CANCEL SIGN-IN");
@@ -750,7 +793,9 @@ mod server_tests {
             serde_json::json!({"type":"login", "to":start["id"], "login":"late-login", "step":{"url":"https://must-not-open.example"}}),
         );
         assert_eq!(sent(&mut app)[0]["cancel"], "late-login");
-        assert!(all_words(&mut app).contains("WELCOME TO HAMLET"));
+        assert!(
+            all_words(&mut app).contains("GIVE YOUR HAMLET A MODEL")
+        );
     }
 
     #[test]
@@ -759,11 +804,14 @@ mod server_tests {
         connect(&mut app, true);
         providers(&mut app);
         mount::<HamletTheme>(app.world_mut(), view());
+        press_and_update(&mut app, "SKIP");
         press_and_update(&mut app, "CONTINUE WITH CHATGPT");
         sent(&mut app);
         app.world_mut().trigger(Reconnected);
         app.update();
-        assert!(all_words(&mut app).contains("WELCOME TO HAMLET"));
+        assert!(
+            all_words(&mut app).contains("GIVE YOUR HAMLET A MODEL")
+        );
     }
 
     #[test]

@@ -77,6 +77,7 @@ pub(super) fn setup(world: &mut World) {
     world.insert_resource(ViewFolder(scratch().join("window")));
     menu::setup(world, scene);
     settings::setup(world, scene);
+    welcome::setup(world, scene);
     inspector::setup(world, scene);
     overview::setup(world, scene);
     needs::setup(world, scene);

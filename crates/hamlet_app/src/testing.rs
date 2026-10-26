@@ -64,6 +64,7 @@ pub(crate) fn welcome_app() -> App {
         ClientPlugin { server: None },
         FynixPlugin::<HamletTheme>::default(),
         crate::welcome::plugin,
+        crate::account::plugin,
         crate::secret::plugin,
         crate::panel_sets,
     ));
@@ -88,9 +89,16 @@ pub(crate) fn connect(app: &mut App, unset: bool) {
 /// The settings screen open on `pane`, over [`panel_app`].
 pub(crate) fn settings_page(pane: Pane) -> App {
     let mut app = panel_app();
-    app.add_plugins((settings::plugin, crate::secret::plugin))
-        .init_resource::<KeepAwake>()
-        .insert_resource(pane);
+    app.add_plugins((
+        settings::plugin,
+        crate::secret::plugin,
+        crate::account::plugin,
+    ))
+    .insert_resource(crate::bazaar::market::Market::new(
+        "http://bazaar.test".into(),
+    ))
+    .init_resource::<KeepAwake>()
+    .insert_resource(pane);
     bevy_fynix::mount::<HamletTheme>(
         app.world_mut(),
         settings::screen(),

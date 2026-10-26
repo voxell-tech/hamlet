@@ -18,6 +18,7 @@ use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
 use super::{Narrowing, Step, Welcome, close, go, look, pick};
+use crate::account::{self, Form, Page, Place};
 use crate::models::narrowed;
 
 fn title(which: Glyph, text: &'static str) -> impl View {
@@ -59,7 +60,7 @@ fn choice(adding: bool) -> AnyView {
         )
     } else {
         (
-            "WELCOME TO HAMLET",
+            "GIVE YOUR HAMLET A MODEL",
             "Your hamlet needs a model to think with. How would you \
              like to give it one?",
             "I'LL SET THIS UP LATER",
@@ -71,11 +72,11 @@ fn choice(adding: bool) -> AnyView {
         said(says),
         nav_card(
             Glyph::Signal,
-            "SIGN IN WITH OPENROUTER",
-            "The quickest way. You sign in with your browser and \
+            "CONNECT OPENROUTER",
+            "The quickest way. You connect with your browser and \
              pay OpenRouter for what you use.",
             |world| {
-                super::providers::start(world, "openrouter", false);
+                go(world, Step::Limit);
             },
         ),
         nav_card(
@@ -109,6 +110,69 @@ fn choice(adding: bool) -> AnyView {
         ))
         .tagged(hamlet_ui::widgets::platform::Wraps),
     ))
+    .boxed()
+}
+
+/// The first step: a Hamlet account made, signed in to or skipped,
+/// or the account's page open here.
+fn account() -> AnyView {
+    keyed(
+        resource::<Form, _>(|form| form.at(Place::Welcome)),
+        |page| match page {
+            Page::Shut => parts((
+                title(Glyph::Hearth, "WELCOME TO HAMLET"),
+                said(
+                    "A Hamlet account lets you buy and sell at the \
+                     Agent Bazaar, and keeps your OpenRouter key on \
+                     every computer you sign in on. Hamlet works \
+                     without one.",
+                ),
+                nav_card(
+                    Glyph::Plus,
+                    "CREATE A HAMLET ACCOUNT",
+                    "An email, a password and a username. It is \
+                     needed for the Agent Bazaar.",
+                    |world| {
+                        account::open(
+                            world,
+                            Place::Welcome,
+                            Page::SignUp,
+                        );
+                    },
+                ),
+                nav_card(
+                    Glyph::Signpost,
+                    "SIGN IN",
+                    "You have a Hamlet account already.",
+                    |world| {
+                        account::open(
+                            world,
+                            Place::Welcome,
+                            Page::SignIn,
+                        );
+                    },
+                ),
+                beside((
+                    marked(Glyph::Clock, "SKIP")
+                        .rules(back_link)
+                        .tagged(Variant::Default)
+                        .on_activate(|world| go(world, Step::Choice)),
+                    note("You can create one later from Settings."),
+                ))
+                .tagged(hamlet_ui::widgets::platform::Wraps),
+            ))
+            .boxed(),
+            page => parts((
+                beside((
+                    back("BACK", account::shut),
+                    title(Glyph::Hearth, page.title()),
+                )),
+                account::body(*page, Place::Welcome),
+            ))
+            .boxed(),
+        },
+    )
+    .within(bare())
     .boxed()
 }
 
@@ -227,8 +291,11 @@ fn local() -> AnyView {
 pub fn view() -> impl View {
     built(|cx| {
         cx.world.init_resource::<super::providers::Login>();
+        cx.world.init_resource::<super::providers::SpendLimit>();
         cx.world.init_resource::<super::Browser>();
         cx.world.init_resource::<super::Committing>();
+        cx.world.init_resource::<Form>();
+        cx.world.init_resource::<account::Committing>();
         cx.build(screen())
     })
 }
@@ -259,8 +326,10 @@ fn screen() -> AnyView {
                 return frame().boxed();
             } else {
                 match step {
+                    Step::Account => account(),
                     Step::Choice => choice(*adding),
                     Step::Key => super::providers::key_page(),
+                    Step::Limit => super::providers::limit_page(),
                     Step::SignIn => super::providers::sign_in_page(),
                     Step::Local => local(),
                     Step::Models => models(),
