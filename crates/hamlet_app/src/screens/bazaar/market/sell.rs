@@ -262,6 +262,14 @@ pub(super) fn answered(
 ) {
     if let Call::Shelve(_, on) = call {
         let said = match read::<Lot>(answer) {
+            Ok(lot) if lot.status == Status::Pending => (
+                format!(
+                    "{} is being checked. It goes on the shelves \
+                     once it passes.",
+                    lot.title
+                ),
+                false,
+            ),
             Ok(lot) if on => {
                 (format!("{} is on the shelves.", lot.title), false)
             }
