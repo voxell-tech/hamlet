@@ -9,12 +9,13 @@ mod modify;
 use crate::node::{NodeKind, PortSpec};
 use crate::value::ValueType;
 
-pub(crate) const KINDS: [&[NodeKind]; 5] = [
-    curves::KINDS,
-    make::KINDS,
-    modify::KINDS,
-    fields::KINDS,
-    leaves::KINDS,
+/// The built-in kinds, by the group each is listed under.
+pub(crate) const KINDS: [(&str, &[NodeKind]); 5] = [
+    ("Curves", curves::KINDS),
+    ("Placements", make::KINDS),
+    ("Modifiers", modify::KINDS),
+    ("Fields", fields::KINDS),
+    ("Output", leaves::KINDS),
 ];
 
 const PLACEMENTS_IN: PortSpec = PortSpec::new(

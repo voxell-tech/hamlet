@@ -29,7 +29,7 @@ use bevy::render::render_resource::{
 };
 use bevy::transform::components::Transform;
 use bevy::ui::widget::ViewportNode;
-use bevy::ui::{Overflow, percent, px};
+use bevy::ui::{Overflow, percent};
 use bevy::window::{PrimaryWindow, Window};
 use bevy_fynix::views::{BehaviorExt, frame};
 use hamlet_graph::Instance;
@@ -37,6 +37,7 @@ use hamlet_realm::meshes::Meshing;
 use hamlet_realm::palette::Palette as Colours;
 
 use super::Editor;
+use crate::looks::Fills;
 use crate::{AnyView, Cx, View};
 
 /// The asset name a placement is shown as when nothing is put there.
@@ -44,9 +45,6 @@ pub(super) const MARKER: &str = "marker";
 
 /// The render layer only the preview's camera and pieces are on.
 const LAYER: usize = 7;
-
-/// The height of the preview in the panel.
-const HEIGHT: f32 = 260.0;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Turn>()
@@ -98,8 +96,7 @@ pub(super) fn view() -> impl View {
         let theme = cx.theme();
         let panel = frame()
             .width(percent(100.0))
-            .height(px(HEIGHT))
-            .shrink(0.0)
+            .fills_height()
             .overflow(Overflow::clip())
             .radius(theme.space.round)
             .fill(theme.palette.well)

@@ -1,65 +1,83 @@
 //! The canvas: each node a card, each wire a curve of short segments,
-//! placed from the sheet's layout. Cards are dragged to move them, an
-//! output's dot is dragged onto an input's to wire them, and an
-//! input's dot is clicked to cut its wire.
+//! all on a sheet that pans and zooms. A card is dragged to move it,
+//! an output's dot onto an input's to wire them, and an input's dot
+//! is clicked to cut its wire. Values sit on the cards as chips: a
+//! number is dragged sideways to change it, and a switch or a choice
+//! is clicked.
 
 use bevy::app::{App, Update};
-use bevy::color::Color;
+use bevy::color::{Alpha, Color};
 use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::ChildOf;
 use bevy::ecs::observer::On;
-use bevy::ecs::query::With;
+use bevy::ecs::query::{Changed, Or, With, Without};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, If, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
+use bevy::input::ButtonInput;
+use bevy::input::keyboard::KeyCode;
+use bevy::input::mouse::MouseScrollUnit;
 use bevy::math::{Rot2, Vec2};
 use bevy::picking::Pickable;
 use bevy::picking::events::{
     PointerClick, PointerDrag, PointerDragDrop, PointerDragEnd,
-    PointerDragStart,
+    PointerDragStart, PointerPress, PointerScroll,
 };
+use bevy::picking::hover::Hovered;
 use bevy::picking::pointer::PointerButton;
 use bevy::text::{TextColor, TextFont};
 use bevy::ui::widget::Text;
 use bevy::ui::{
     AlignItems, BackgroundColor, BorderColor, BorderRadius,
     ComputedNode, FlexDirection, JustifyContent, Node, Overflow,
-    PositionType, UiRect, UiTransform, Val, ZIndex, px,
+    PositionType, UiGlobalTransform, UiRect, UiTransform, Val, Val2,
+    ZIndex, px,
 };
-use bevy_fynix::Theme;
+use bevy::window::SystemCursorIcon;
 use bevy_fynix::views::{BehaviorExt, frame};
+use bevy_fynix::{EntityCursor, OverrideCursor, Theme};
 use hamlet_graph::{
-    Constant, Does, Edit, NodeId, Port, Ruleset, Setting, Spread,
-    ValueType, Wire, ports,
+    Constant, Does, Edit, Initial, NodeId, Port, PortSpec, Roll,
+    Ruleset, Setting, Spread, ValueType, Wire, ports,
 };
 
 use super::Editor;
+use super::menu::Menu;
 use crate::looks::Fills;
 use crate::theme::{HamletTheme, Palette};
 use crate::{View, with_cx};
 
-const WIDTH: f32 = 176.0;
+const WIDTH: f32 = 196.0;
 const HEADER: f32 = 26.0;
-const ROW: f32 = 20.0;
+const ROW: f32 = 22.0;
 const PAD: f32 = 4.0;
 const BORDER: f32 = 1.0;
 const DOT: f32 = 10.0;
 const WIRE: f32 = 2.0;
 /// Straight pieces a wire is drawn with.
 const PIECES: usize = 18;
+const LEAST_ZOOM: f32 = 0.3;
+const MOST_ZOOM: f32 = 2.0;
+/// How far one pixel of dragging moves a number.
+const STEP: f32 = 0.05;
 
 pub(super) fn plugin(app: &mut App) {
-    app.init_resource::<Pan>()
-        .init_resource::<Linking>()
-        .add_systems(Update, (build, place).chain());
+    app.init_resource::<Sight>()
+        .init_resource::<Gesture>()
+        .add_systems(Update, (build, place, relabel, paint).chain());
 }
 
 /// Marks the frame the canvas is drawn in.
 #[derive(Component)]
 pub(super) struct Canvas;
+
+/// The node every card and wire hangs off, moved and scaled to pan
+/// and zoom them as one.
+#[derive(Component)]
+struct Sheet;
 
 /// A node's card.
 #[derive(Component)]
@@ -77,18 +95,63 @@ struct Dot {
     value_type: ValueType,
 }
 
-/// How far the canvas is panned.
-#[derive(Resource, Default)]
-struct Pan(Vec2);
+/// A value shown on a card that can be changed there.
+#[derive(Component, Clone)]
+struct Chip {
+    node: NodeId,
+    spec: PortSpec,
+    part: Part,
+}
 
-/// A wire being dragged out of an output: its port, where it starts
-/// and how far the pointer has gone.
-#[derive(Resource, Default)]
-struct Linking(Option<(Port, ValueType, Vec2, Vec2)>);
+/// The part of an input's setting a [`Chip`] shows.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Part {
+    Number,
+    Axis(usize),
+    Low,
+    High,
+    Chance,
+    Flag,
+    Choice,
+}
 
-/// Where a card was when its drag began.
-#[derive(Component)]
-struct Grabbed(Vec2);
+impl Part {
+    fn is_number(self) -> bool {
+        !matches!(self, Part::Flag | Part::Choice)
+    }
+}
+
+/// How far the sheet is panned, in canvas pixels, and how much it is
+/// zoomed.
+#[derive(Resource)]
+struct Sight {
+    pan: Vec2,
+    zoom: f32,
+}
+
+impl Default for Sight {
+    fn default() -> Self {
+        Self {
+            pan: Vec2::splat(16.0),
+            zoom: 1.0,
+        }
+    }
+}
+
+/// What a drag on the canvas is doing.
+#[derive(Resource, Default, Clone)]
+enum Gesture {
+    #[default]
+    None,
+    Pan,
+    /// A card, and where it was when the drag began.
+    Card(NodeId, Vec2),
+    /// A wire out of an output's port, from where on the sheet, and
+    /// how far the pointer has gone.
+    Link(Port, ValueType, Vec2, Vec2),
+    /// A number dragged sideways, from the value it had.
+    Scrub(Chip, f32),
+}
 
 pub(super) fn view() -> impl View {
     with_cx(|cx| {
@@ -103,17 +166,91 @@ pub(super) fn view() -> impl View {
     })
 }
 
-/// The middle of the canvas in the sheet's layout, for a new card.
+/// The middle of what is in sight, in the sheet's layout, for a new
+/// card.
 pub(super) fn middle(world: &mut World) -> Vec2 {
-    let pan = world.resource::<Pan>().0;
-    let size = world
+    let size = canvas_size(world);
+    let sight = world.resource::<Sight>();
+    (size * 0.5 - sight.pan) / sight.zoom
+        - Vec2::new(WIDTH * 0.5, HEADER)
+}
+
+/// Pans and zooms so that every card is in sight.
+pub(super) fn fit(world: &mut World) {
+    let size = canvas_size(world);
+    let editor = world.resource::<Editor>();
+    let (mut low, mut high) =
+        (Vec2::splat(f32::MAX), Vec2::splat(f32::MIN));
+    for node in &editor.sheet.graph.nodes {
+        let at = card_at(editor, node.id);
+        let (inputs, outputs) = rows(editor, node);
+        low = low.min(at);
+        high = high.max(
+            at + Vec2::new(
+                WIDTH,
+                height(inputs.len() + outputs.len()),
+            ),
+        );
+    }
+    if low.x > high.x {
+        return;
+    }
+    let margin = 40.0;
+    let span = (high - low).max(Vec2::ONE);
+    let zoom = ((size - margin * 2.0) / span)
+        .min_element()
+        .clamp(LEAST_ZOOM, 1.0);
+    let pan = size * 0.5 - (low + high) * 0.5 * zoom;
+    *world.resource_mut::<Sight>() = Sight { pan, zoom };
+}
+
+/// Where the window's point `at` is on the sheet, if it is over the
+/// canvas.
+pub(super) fn on_sheet(world: &mut World, at: Vec2) -> Option<Vec2> {
+    let corner = world
+        .query_filtered::<(&ComputedNode, &UiGlobalTransform), With<Canvas>>()
+        .iter(world)
+        .next()
+        .map(|(node, transform)| corner(node, transform))?;
+    let size = canvas_size(world);
+    let inside = at - corner;
+    if inside.cmplt(Vec2::ZERO).any() || inside.cmpgt(size).any() {
+        return None;
+    }
+    let sight = world.resource::<Sight>();
+    Some((inside - sight.pan) / sight.zoom)
+}
+
+/// Whether the pointer is on the canvas.
+pub(super) fn is_hovered(world: &mut World) -> bool {
+    world
+        .query_filtered::<&Hovered, With<Canvas>>()
+        .iter(world)
+        .any(Hovered::get)
+}
+
+/// The canvas's top left corner in the window, in logical pixels.
+fn corner(
+    node: &ComputedNode,
+    transform: &UiGlobalTransform,
+) -> Vec2 {
+    (transform.translation - node.size() * 0.5)
+        * node.inverse_scale_factor()
+}
+
+fn canvas_size(world: &mut World) -> Vec2 {
+    world
         .query_filtered::<&ComputedNode, With<Canvas>>()
         .iter(world)
         .next()
         .map_or(Vec2::splat(400.0), |node| {
             node.size() * node.inverse_scale_factor()
-        });
-    size * 0.5 - pan - Vec2::new(WIDTH * 0.5, HEADER)
+        })
+}
+
+/// The height of a card with `rows` rows.
+fn height(rows: usize) -> f32 {
+    BORDER * 2.0 + HEADER + PAD * 2.0 + rows as f32 * ROW
 }
 
 /// The inputs and outputs of each node, in the order drawn.
@@ -142,7 +279,17 @@ fn rows(
     )
 }
 
-/// Where a port's dot is, from its card's place and its row.
+/// The kind's description of each input of `node`.
+fn specs(editor: &Editor, node: NodeId) -> &'static [PortSpec] {
+    match editor.sheet.graph.node(node).map(|node| &node.does) {
+        Some(Does::Kind(kind)) => {
+            editor.registry.get(kind).map_or(&[], |kind| kind.inputs)
+        }
+        _ => &[],
+    }
+}
+
+/// Where a port's dot is on the sheet, from its card's place and row.
 fn dot_at(card: Vec2, row: usize, output: bool) -> Vec2 {
     Vec2::new(
         card.x + if output { WIDTH } else { 0.0 },
@@ -150,8 +297,8 @@ fn dot_at(card: Vec2, row: usize, output: bool) -> Vec2 {
     )
 }
 
-fn card_at(editor: &Editor, pan: Vec2, node: NodeId) -> Vec2 {
-    editor.sheet.layout.get(&node).copied().unwrap_or_default() + pan
+fn card_at(editor: &Editor, node: NodeId) -> Vec2 {
+    editor.sheet.layout.get(&node).copied().unwrap_or_default()
 }
 
 /// The colour of a wire or a dot of `value_type`.
@@ -167,63 +314,262 @@ fn tint(palette: &Palette, value_type: ValueType) -> Color {
     }
 }
 
-/// A few words for how an unwired input is set.
-fn summary(setting: Option<&Setting>) -> String {
-    let number = |n: f32| {
-        let text = format!("{n:.2}");
-        text.trim_end_matches('0').trim_end_matches('.').to_owned()
-    };
-    match setting {
-        None => String::new(),
-        Some(Setting::Fixed(Constant::Number(n))) => number(*n),
-        Some(Setting::Fixed(Constant::Bool(on))) => {
-            if *on { "on" } else { "off" }.to_owned()
-        }
-        Some(Setting::Fixed(Constant::Choice(choice))) => {
-            choice.replace('_', " ")
-        }
-        Some(Setting::Fixed(Constant::Point(p))) => {
-            format!(
-                "{}, {}, {}",
-                number(p.x),
-                number(p.y),
-                number(p.z)
-            )
-        }
-        Some(Setting::Random(roll)) => match &roll.spread {
-            Spread::Range(low, high) => {
-                format!("{} to {}", number(*low), number(*high))
-            }
-            Spread::Chance(chance) => {
-                format!("{}% chance", number(chance * 100.0))
-            }
-            Spread::Weights(_) => "any".to_owned(),
-        },
-        Some(Setting::FromParent(name)) => format!("from {name}"),
+fn number_text(n: f32) -> String {
+    let text = format!("{n:.2}");
+    let text = text.trim_end_matches('0').trim_end_matches('.');
+    if text == "-0" {
+        "0".to_owned()
+    } else {
+        text.to_owned()
     }
 }
 
+/// The chips that show how an unwired input is set, with any words
+/// between them.
+fn chips(
+    spec: &PortSpec,
+    setting: Option<&Setting>,
+) -> Vec<Result<Part, String>> {
+    let written = match spec.value_type {
+        ValueType::Number | ValueType::Field => {
+            Some(ValueType::Number)
+        }
+        other => Some(other),
+    };
+    match (setting, written) {
+        (Some(Setting::Random(roll)), _) => match roll.spread {
+            Spread::Range(..) => vec![
+                Ok(Part::Low),
+                Err("to".to_owned()),
+                Ok(Part::High),
+            ],
+            Spread::Chance(_) => vec![Ok(Part::Chance)],
+            Spread::Weights(_) => vec![Err("random".to_owned())],
+        },
+        (Some(Setting::FromParent(name)), _) => {
+            vec![Err(format!("from {name}"))]
+        }
+        (_, Some(ValueType::Number)) => vec![Ok(Part::Number)],
+        (_, Some(ValueType::Bool)) => vec![Ok(Part::Flag)],
+        (_, Some(ValueType::Point)) => {
+            (0..3).map(|axis| Ok(Part::Axis(axis))).collect()
+        }
+        (_, Some(ValueType::Choice)) if !spec.choices.is_empty() => {
+            vec![Ok(Part::Choice)]
+        }
+        (Some(Setting::Fixed(Constant::Choice(text))), _) => {
+            vec![Err(text.clone())]
+        }
+        (None, Some(ValueType::Choice)) => match spec.initial {
+            Some(Initial::Choice(text)) => vec![Err(text.to_owned())],
+            _ => Vec::new(),
+        },
+        _ => Vec::new(),
+    }
+}
+
+/// The value a chip shows: its setting's, or the kind's initial
+/// value.
+fn shown(
+    setting: Option<&Setting>,
+    spec: &PortSpec,
+    part: Part,
+) -> String {
+    let initial = || spec.initial.map(hamlet_graph::Value::from);
+    match (part, setting) {
+        (
+            Part::Low,
+            Some(Setting::Random(Roll {
+                spread: Spread::Range(low, _),
+                ..
+            })),
+        ) => number_text(*low),
+        (
+            Part::High,
+            Some(Setting::Random(Roll {
+                spread: Spread::Range(_, high),
+                ..
+            })),
+        ) => number_text(*high),
+        (
+            Part::Chance,
+            Some(Setting::Random(Roll {
+                spread: Spread::Chance(chance),
+                ..
+            })),
+        ) => {
+            format!("{}%", number_text(chance * 100.0))
+        }
+        (Part::Number | Part::Axis(_), _) => {
+            number(part, setting, spec)
+                .map(number_text)
+                .unwrap_or_default()
+        }
+        (Part::Flag, Some(Setting::Fixed(Constant::Bool(on)))) => {
+            on_off(*on)
+        }
+        (Part::Flag, _) => match initial() {
+            Some(hamlet_graph::Value::Bool(on)) => on_off(on),
+            _ => on_off(true),
+        },
+        (
+            Part::Choice,
+            Some(Setting::Fixed(Constant::Choice(choice))),
+        ) => choice.replace('_', " "),
+        (Part::Choice, _) => match initial() {
+            Some(hamlet_graph::Value::Choice(choice)) => {
+                choice.replace('_', " ")
+            }
+            _ => String::new(),
+        },
+        _ => String::new(),
+    }
+}
+
+fn on_off(on: bool) -> String {
+    if on { "on" } else { "off" }.to_owned()
+}
+
+/// The number a chip's part holds now.
+fn number(
+    part: Part,
+    setting: Option<&Setting>,
+    spec: &PortSpec,
+) -> Option<f32> {
+    match (part, setting) {
+        (Part::Number, Some(Setting::Fixed(Constant::Number(n)))) => {
+            Some(*n)
+        }
+        (Part::Number, None) => match spec.initial {
+            Some(Initial::Number(n)) => Some(n),
+            _ => Some(0.0),
+        },
+        (
+            Part::Axis(axis),
+            Some(Setting::Fixed(Constant::Point(p))),
+        ) => Some(p[axis]),
+        (Part::Axis(axis), None) => match spec.initial {
+            Some(Initial::Point(p)) => Some(p[axis]),
+            _ => Some(0.0),
+        },
+        (
+            Part::Low,
+            Some(Setting::Random(Roll {
+                spread: Spread::Range(low, _),
+                ..
+            })),
+        ) => Some(*low),
+        (
+            Part::High,
+            Some(Setting::Random(Roll {
+                spread: Spread::Range(_, high),
+                ..
+            })),
+        ) => Some(*high),
+        (
+            Part::Chance,
+            Some(Setting::Random(Roll {
+                spread: Spread::Chance(c),
+                ..
+            })),
+        ) => Some(*c),
+        _ => None,
+    }
+}
+
+/// The setting with a chip's part set to `value`.
+fn with_number(
+    part: Part,
+    setting: Option<&Setting>,
+    spec: &PortSpec,
+    value: f32,
+) -> Option<Setting> {
+    Some(match (part, setting.cloned()) {
+        (Part::Number, _) => Setting::Fixed(Constant::Number(value)),
+        (Part::Axis(axis), current) => {
+            let mut point = match (current, spec.initial) {
+                (Some(Setting::Fixed(Constant::Point(p))), _)
+                | (None, Some(Initial::Point(p))) => p,
+                _ => bevy::math::Vec3::ZERO,
+            };
+            point[axis] = value;
+            Setting::Fixed(Constant::Point(point))
+        }
+        (
+            Part::Low | Part::High | Part::Chance,
+            Some(Setting::Random(mut roll)),
+        ) => {
+            match (&mut roll.spread, part) {
+                (Spread::Range(low, _), Part::Low) => *low = value,
+                (Spread::Range(_, high), Part::High) => *high = value,
+                (Spread::Chance(chance), Part::Chance) => {
+                    *chance = value.clamp(0.0, 1.0);
+                }
+                _ => return None,
+            }
+            Setting::Random(roll)
+        }
+        _ => return None,
+    })
+}
+
 /// Builds every card again when the nodes, the wires or how an input
-/// is set change, and when the canvas is new.
+/// is set change, and when the canvas is new. Not while a number is
+/// being dragged, whose chip would go.
 fn build(
     mut commands: Commands,
     editor: Res<Editor>,
+    gesture: Res<Gesture>,
     // The theme loads after the first frames.
     If(theme): If<Res<Theme<HamletTheme>>>,
     canvas: Query<Entity, With<Canvas>>,
     cards: Query<Entity, With<Card>>,
-    mut built: Local<Option<(Entity, u64)>>,
+    mut built: Local<Option<(Entity, Entity, u64)>>,
 ) {
     let Some(canvas) = canvas.iter().next() else {
         return;
     };
-    if *built == Some((canvas, editor.shape)) {
+    if matches!(*gesture, Gesture::Scrub(..)) {
         return;
     }
-    if built.is_none_or(|(was, _)| was != canvas) {
-        commands.entity(canvas).observe(pan).observe(deselect);
-    }
-    *built = Some((canvas, editor.shape));
+    let sheet = match *built {
+        Some((was, sheet, shape)) if was == canvas => {
+            if shape == editor.shape {
+                return;
+            }
+            sheet
+        }
+        _ => {
+            commands
+                .entity(canvas)
+                .insert(Hovered::default())
+                .observe(ask)
+                .observe(pan_start)
+                .observe(pan)
+                .observe(gesture_end)
+                .observe(zoom)
+                .observe(deselect);
+            commands
+                .spawn((
+                    Sheet,
+                    // A point at the canvas's corner, so it scales
+                    // about the corner.
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: px(0.0),
+                        top: px(0.0),
+                        width: px(0.0),
+                        height: px(0.0),
+                        ..Node::default()
+                    },
+                    UiTransform::default(),
+                    Pickable::IGNORE,
+                    ChildOf(canvas),
+                ))
+                .id()
+        }
+    };
+    *built = Some((canvas, sheet, editor.shape));
     for card in &cards {
         commands.entity(card).despawn();
     }
@@ -233,14 +579,6 @@ fn build(
         let title = match &node.does {
             Does::Kind(kind) => kind.replace('_', " "),
             Does::Graph(graph) => graph.clone(),
-        };
-        let wired = |port: &Port| {
-            editor
-                .sheet
-                .graph
-                .wires
-                .iter()
-                .any(|wire| wire.to == *port)
         };
         let card = commands
             .spawn((
@@ -256,12 +594,14 @@ fn build(
                 },
                 BackgroundColor(palette.card),
                 BorderColor::all(palette.seam),
-                ChildOf(canvas),
+                Hovered::default(),
+                EntityCursor(SystemCursorIcon::Grab),
+                ChildOf(sheet),
             ))
             .observe(select)
             .observe(grab)
             .observe(drag_card)
-            .observe(drop_card)
+            .observe(gesture_end)
             .id();
         let header = commands
             .spawn((
@@ -284,22 +624,25 @@ fn build(
             Pickable::IGNORE,
             ChildOf(header),
         ));
+        let specs = specs(&editor, node.id);
         for dot in inputs.into_iter().chain(outputs) {
-            let note = if dot.output || wired(&dot.port) {
-                String::new()
-            } else {
-                summary(node.settings.get(&dot.port.name))
-            };
+            let wired = editor
+                .sheet
+                .graph
+                .wires
+                .iter()
+                .any(|wire| wire.to == dot.port);
             let row = commands
                 .spawn((
                     Node {
                         height: px(ROW),
                         padding: UiRect::horizontal(px(10.0)),
                         align_items: AlignItems::Center,
+                        column_gap: px(3.0),
                         justify_content: if dot.output {
                             JustifyContent::FlexEnd
                         } else {
-                            JustifyContent::SpaceBetween
+                            JustifyContent::FlexStart
                         },
                         ..Node::default()
                     },
@@ -310,17 +653,71 @@ fn build(
                 Text::new(dot.port.name.replace('_', " ")),
                 TextFont::from_font_size(11.0),
                 TextColor(palette.grey_1),
+                Node {
+                    flex_grow: if dot.output { 0.0 } else { 1.0 },
+                    ..Node::default()
+                },
                 Pickable::IGNORE,
                 ChildOf(row),
             ));
-            if !note.is_empty() {
-                commands.spawn((
-                    Text::new(note),
-                    TextFont::from_font_size(11.0),
-                    TextColor(palette.brass_4),
-                    Pickable::IGNORE,
-                    ChildOf(row),
-                ));
+            let spec =
+                specs.iter().find(|spec| spec.name == dot.port.name);
+            if let (false, false, Some(spec)) =
+                (dot.output, wired, spec)
+            {
+                let setting = node.settings.get(spec.name);
+                for piece in chips(spec, setting) {
+                    match piece {
+                        Ok(part) => {
+                            let chip = Chip {
+                                node: node.id,
+                                spec: *spec,
+                                part,
+                            };
+                            let mut spawned = commands.spawn((
+                                Text::new(shown(setting, spec, part)),
+                                TextFont::from_font_size(11.0),
+                                TextColor(palette.brass_2),
+                                Node {
+                                    padding: UiRect::axes(
+                                        px(5.0),
+                                        px(1.0),
+                                    ),
+                                    border_radius: BorderRadius::all(
+                                        px(3.0),
+                                    ),
+                                    ..Node::default()
+                                },
+                                BackgroundColor(palette.well),
+                                Hovered::default(),
+                                EntityCursor(if part.is_number() {
+                                    SystemCursorIcon::EwResize
+                                } else {
+                                    SystemCursorIcon::Pointer
+                                }),
+                                ChildOf(row),
+                            ));
+                            if part.is_number() {
+                                spawned
+                                    .observe(scrub_start)
+                                    .observe(scrub)
+                                    .observe(gesture_end);
+                            } else {
+                                spawned.observe(flip);
+                            }
+                            spawned.insert(chip);
+                        }
+                        Err(words) => {
+                            commands.spawn((
+                                Text::new(words.replace('_', " ")),
+                                TextFont::from_font_size(11.0),
+                                TextColor(palette.brass_5),
+                                Pickable::IGNORE,
+                                ChildOf(row),
+                            ));
+                        }
+                    }
+                }
             }
             // The dot sits on the card's edge, half outside it.
             let edge = px(-DOT * 0.5 - BORDER);
@@ -338,12 +735,14 @@ fn build(
                 },
                 BackgroundColor(tint(palette, dot.value_type)),
                 BorderColor::all(palette.well),
+                Hovered::default(),
+                EntityCursor(SystemCursorIcon::Crosshair),
                 ChildOf(row),
             ));
             if dot.output {
                 spot.observe(start_link)
                     .observe(drag_link)
-                    .observe(end_link);
+                    .observe(gesture_end);
             } else {
                 spot.observe(link).observe(cut);
             }
@@ -352,59 +751,56 @@ fn build(
     }
 }
 
-/// Places every card from the layout and draws every wire again.
+/// Moves the sheet and the cards, and draws every wire again.
 fn place(
     mut commands: Commands,
     editor: Res<Editor>,
-    pan: Res<Pan>,
-    linking: Res<Linking>,
+    sight: Res<Sight>,
+    gesture: Res<Gesture>,
     If(theme): If<Res<Theme<HamletTheme>>>,
-    canvas: Query<Entity, With<Canvas>>,
-    mut cards: Query<(&Card, &mut Node, &mut BorderColor)>,
+    mut sheets: Query<(Entity, &mut UiTransform), With<Sheet>>,
+    mut cards: Query<(&Card, &mut Node)>,
     pieces: Query<Entity, With<Piece>>,
     added: Query<(), bevy::ecs::query::Added<Card>>,
 ) {
-    let Some(canvas) = canvas.iter().next() else {
+    let Some((sheet, mut transform)) = sheets.iter_mut().next()
+    else {
         return;
     };
     if !editor.is_changed()
-        && !pan.is_changed()
-        && !linking.is_changed()
+        && !sight.is_changed()
+        && !gesture.is_changed()
         && added.is_empty()
     {
         return;
     }
-    let palette = &theme.0.palette;
-    for (card, mut node, mut border) in &mut cards {
-        let at = card_at(&editor, pan.0, card.0);
+    *transform = UiTransform {
+        translation: Val2::px(sight.pan.x, sight.pan.y),
+        scale: Vec2::splat(sight.zoom),
+        ..UiTransform::default()
+    };
+    for (card, mut node) in &mut cards {
+        let at = card_at(&editor, card.0);
         node.left = px(at.x);
         node.top = px(at.y);
-        let colour = if editor.selected == Some(card.0) {
-            palette.lamp
-        } else {
-            palette.seam
-        };
-        *border = BorderColor::all(colour);
     }
     for piece in &pieces {
         commands.entity(piece).despawn();
     }
+    let palette = &theme.0.palette;
     let graph = &editor.sheet.graph;
     let find = |port: &Port, output: bool| {
         let node = graph.node(port.node)?;
         let (inputs, outputs) = rows(&editor, node);
-        let row = if output {
-            inputs.len()
-                + outputs.iter().position(|dot| dot.port == *port)?
+        let (list, before) = if output {
+            (&outputs, inputs.len())
         } else {
-            inputs.iter().position(|dot| dot.port == *port)?
+            (&inputs, 0)
         };
-        let kind = if output { &outputs } else { &inputs };
-        let value_type =
-            kind.iter().find(|dot| dot.port == *port)?.value_type;
+        let row = list.iter().position(|dot| dot.port == *port)?;
         Some((
-            dot_at(card_at(&editor, pan.0, port.node), row, output),
-            value_type,
+            dot_at(card_at(&editor, port.node), before + row, output),
+            list[row].value_type,
         ))
     };
     for Wire { from, to } in &graph.wires {
@@ -413,17 +809,17 @@ fn place(
         {
             curve(
                 &mut commands,
-                canvas,
+                sheet,
                 a,
                 b,
                 tint(palette, value_type),
             );
         }
     }
-    if let Some((_, value_type, start, gone)) = &linking.0 {
+    if let Gesture::Link(_, value_type, start, gone) = &*gesture {
         curve(
             &mut commands,
-            canvas,
+            sheet,
             *start,
             *start + *gone,
             tint(palette, *value_type),
@@ -431,10 +827,107 @@ fn place(
     }
 }
 
+/// Shows the value each chip holds now.
+fn relabel(
+    editor: Res<Editor>,
+    mut chips: Query<(&Chip, &mut Text)>,
+) {
+    if !editor.is_changed() {
+        return;
+    }
+    for (chip, mut text) in &mut chips {
+        let setting = editor
+            .sheet
+            .graph
+            .node(chip.node)
+            .and_then(|node| node.settings.get(chip.spec.name));
+        let now = shown(setting, &chip.spec, chip.part);
+        if text.0 != now {
+            text.0 = now;
+        }
+    }
+}
+
+/// Lights what the pointer is on, the selected card, and while a wire
+/// is dragged, the inputs it can go to.
+fn paint(
+    editor: Res<Editor>,
+    gesture: Res<Gesture>,
+    If(theme): If<Res<Theme<HamletTheme>>>,
+    mut cards: Query<
+        (&Card, &Hovered, &mut BorderColor),
+        Without<Dot>,
+    >,
+    mut dots: Query<
+        (&Dot, &Hovered, &mut BorderColor, &mut BackgroundColor),
+        Without<Card>,
+    >,
+    mut chips: Query<
+        (&Hovered, &mut BackgroundColor, &mut TextColor),
+        (With<Chip>, Without<Dot>),
+    >,
+    changed: Query<
+        (),
+        Or<(Changed<Hovered>, bevy::ecs::query::Added<Hovered>)>,
+    >,
+) {
+    if !editor.is_changed()
+        && !gesture.is_changed()
+        && changed.is_empty()
+    {
+        return;
+    }
+    let palette = &theme.0.palette;
+    for (card, hovered, mut border) in &mut cards {
+        let colour = if editor.selected == Some(card.0) {
+            palette.lamp
+        } else if hovered.get() {
+            palette.brass_5
+        } else {
+            palette.seam
+        };
+        *border = BorderColor::all(colour);
+    }
+    let linking = match &*gesture {
+        Gesture::Link(from, value_type, ..) => {
+            Some((from, *value_type))
+        }
+        _ => None,
+    };
+    for (dot, hovered, mut border, mut fill) in &mut dots {
+        let open = match linking {
+            Some((from, value_type)) => {
+                (!dot.output && dot.value_type.accepts(value_type))
+                    || dot.port == *from
+            }
+            None => true,
+        };
+        let colour = tint(palette, dot.value_type);
+        fill.0 = if open { colour } else { colour.with_alpha(0.2) };
+        *border = BorderColor::all(if hovered.get() && open {
+            palette.flame
+        } else {
+            palette.well
+        });
+    }
+    for (hovered, mut fill, mut text) in &mut chips {
+        fill.0 = if hovered.get() {
+            palette.lamp_low
+        } else {
+            palette.well
+        };
+        text.0 = if hovered.get() {
+            palette.flame
+        } else {
+            palette.brass_2
+        };
+    }
+}
+
 /// A wire from `a` to `b`, leaving and arriving level.
 fn curve(
     commands: &mut Commands,
-    canvas: Entity,
+    sheet: Entity,
     a: Vec2,
     b: Vec2,
     colour: Color,
@@ -477,9 +970,27 @@ fn curve(
             BackgroundColor(colour),
             Pickable::IGNORE,
             ZIndex(-1),
-            ChildOf(canvas),
+            ChildOf(sheet),
         ));
     }
+}
+
+/// Ends any drag: the cursor goes back, and a moved card's move is
+/// kept for undo.
+fn gesture_end(
+    mut end: On<PointerDragEnd>,
+    mut gesture: ResMut<Gesture>,
+    mut editor: ResMut<Editor>,
+    mut cursor: ResMut<OverrideCursor>,
+) {
+    end.propagate(false);
+    if let Gesture::Card(node, from) = &*gesture
+        && editor.sheet.layout.get(node) != Some(from)
+    {
+        editor.dropped(*node, *from);
+    }
+    *gesture = Gesture::None;
+    cursor.0 = None;
 }
 
 fn select(
@@ -488,7 +999,9 @@ fn select(
     mut editor: ResMut<Editor>,
 ) {
     click.propagate(false);
-    if let Ok(card) = cards.get(click.entity) {
+    if let Ok(card) = cards.get(click.entity)
+        && editor.selected != Some(card.0)
+    {
         editor.selected = Some(card.0);
     }
 }
@@ -503,61 +1016,118 @@ fn deselect(click: On<PointerClick>, mut editor: ResMut<Editor>) {
 
 fn grab(
     mut start: On<PointerDragStart>,
-    mut commands: Commands,
     cards: Query<&Card>,
-    editor: Res<Editor>,
+    mut gesture: ResMut<Gesture>,
+    mut editor: ResMut<Editor>,
+    mut cursor: ResMut<OverrideCursor>,
 ) {
     start.propagate(false);
+    if start.button != PointerButton::Primary {
+        return;
+    }
     if let Ok(card) = cards.get(start.entity) {
-        let at = editor
-            .sheet
-            .layout
-            .get(&card.0)
-            .copied()
-            .unwrap_or_default();
-        commands.entity(start.entity).insert(Grabbed(at));
+        *gesture = Gesture::Card(card.0, card_at(&editor, card.0));
+        editor.selected = Some(card.0);
+        cursor.0 = Some(SystemCursorIcon::Grabbing);
     }
 }
 
 fn drag_card(
     mut drag: On<PointerDrag>,
-    cards: Query<(&Card, &Grabbed)>,
+    gesture: Res<Gesture>,
+    sight: Res<Sight>,
     mut editor: ResMut<Editor>,
 ) {
     drag.propagate(false);
-    if drag.button != PointerButton::Primary {
+    if let Gesture::Card(node, from) = &*gesture {
+        editor.drag(*node, *from + drag.distance / sight.zoom);
+    }
+}
+
+fn pan_start(
+    start: On<PointerDragStart>,
+    mut gesture: ResMut<Gesture>,
+    mut cursor: ResMut<OverrideCursor>,
+) {
+    if start.entity == start.original_event_target() {
+        *gesture = Gesture::Pan;
+        cursor.0 = Some(SystemCursorIcon::Move);
+    }
+}
+
+fn pan(
+    drag: On<PointerDrag>,
+    gesture: Res<Gesture>,
+    mut sight: ResMut<Sight>,
+) {
+    if matches!(*gesture, Gesture::Pan) {
+        sight.pan += drag.delta;
+    }
+}
+
+/// Zooms about the pointer.
+fn zoom(
+    scroll: On<PointerScroll>,
+    canvas: Query<(&ComputedNode, &UiGlobalTransform), With<Canvas>>,
+    mut sight: ResMut<Sight>,
+) {
+    let Ok((node, transform)) = canvas.get(scroll.entity) else {
+        return;
+    };
+    let notch = match scroll.unit {
+        MouseScrollUnit::Line => scroll.y * 0.12,
+        MouseScrollUnit::Pixel => scroll.y * 0.002,
+    };
+    let zoom =
+        (sight.zoom * notch.exp()).clamp(LEAST_ZOOM, MOST_ZOOM);
+    let at = scroll.pointer.position - corner(node, transform);
+    let on_sheet = (at - sight.pan) / sight.zoom;
+    sight.pan = at - on_sheet * zoom;
+    sight.zoom = zoom;
+}
+
+/// Opens the menu of the card a right click is on, or the list of
+/// kinds where it is on the bare canvas.
+fn ask(
+    press: On<PointerPress>,
+    cards: Query<&Card>,
+    parents: Query<&ChildOf>,
+    canvas: Query<(&ComputedNode, &UiGlobalTransform), With<Canvas>>,
+    sight: Res<Sight>,
+    mut editor: ResMut<Editor>,
+    mut menu: ResMut<Menu>,
+) {
+    if press.button != PointerButton::Secondary {
         return;
     }
-    if let Ok((card, grabbed)) = cards.get(drag.entity) {
-        editor.drag(card.0, grabbed.0 + drag.distance);
-    }
-}
-
-fn drop_card(
-    mut end: On<PointerDragEnd>,
-    mut commands: Commands,
-    cards: Query<(&Card, &Grabbed)>,
-    mut editor: ResMut<Editor>,
-) {
-    end.propagate(false);
-    if let Ok((card, grabbed)) = cards.get(end.entity) {
-        editor.dropped(card.0, grabbed.0);
-        commands.entity(end.entity).remove::<Grabbed>();
-    }
-}
-
-fn pan(drag: On<PointerDrag>, mut pan: ResMut<Pan>) {
-    if drag.entity == drag.original_event_target() {
-        pan.0 += drag.delta;
-    }
+    let at = press.pointer.position;
+    let hit = press.original_event_target();
+    let card = std::iter::once(hit)
+        .chain(parents.iter_ancestors(hit))
+        .find_map(|entity| cards.get(entity).ok());
+    *menu = match card {
+        Some(card) => {
+            editor.selected = Some(card.0);
+            Menu::Card { node: card.0, at }
+        }
+        None => {
+            let Ok((node, transform)) = canvas.get(press.entity)
+            else {
+                return;
+            };
+            let on_sheet = (at - corner(node, transform) - sight.pan)
+                / sight.zoom;
+            Menu::Create { at, on_sheet }
+        }
+    };
 }
 
 fn start_link(
     mut start: On<PointerDragStart>,
     dots: Query<&Dot>,
     editor: Res<Editor>,
-    pan: Res<Pan>,
-    mut linking: ResMut<Linking>,
+    mut gesture: ResMut<Gesture>,
+    mut cursor: ResMut<OverrideCursor>,
 ) {
     start.propagate(false);
     let Ok(dot) = dots.get(start.entity) else {
@@ -573,30 +1143,28 @@ fn start_link(
         return;
     };
     let at = dot_at(
-        card_at(&editor, pan.0, dot.port.node),
+        card_at(&editor, dot.port.node),
         inputs.len() + row,
         true,
     );
-    linking.0 =
-        Some((dot.port.clone(), dot.value_type, at, Vec2::ZERO));
+    *gesture = Gesture::Link(
+        dot.port.clone(),
+        dot.value_type,
+        at,
+        Vec2::ZERO,
+    );
+    cursor.0 = Some(SystemCursorIcon::Crosshair);
 }
 
 fn drag_link(
     mut drag: On<PointerDrag>,
-    mut linking: ResMut<Linking>,
+    sight: Res<Sight>,
+    mut gesture: ResMut<Gesture>,
 ) {
     drag.propagate(false);
-    if let Some((_, _, _, gone)) = &mut linking.0 {
-        *gone = drag.distance;
+    if let Gesture::Link(_, _, _, gone) = &mut *gesture {
+        *gone = drag.distance / sight.zoom;
     }
-}
-
-fn end_link(
-    mut end: On<PointerDragEnd>,
-    mut linking: ResMut<Linking>,
-) {
-    end.propagate(false);
-    linking.0 = None;
 }
 
 /// Wires the output dropped on an input's dot to it, in place of any
@@ -656,4 +1224,129 @@ fn cut(
     if !wires.is_empty() {
         editor.apply(Edit::Batch(wires));
     }
+}
+
+fn setting_of<'a>(
+    editor: &'a Editor,
+    chip: &Chip,
+) -> Option<&'a Setting> {
+    editor
+        .sheet
+        .graph
+        .node(chip.node)
+        .and_then(|node| node.settings.get(chip.spec.name))
+}
+
+fn put(editor: &mut Editor, chip: &Chip, setting: Setting) {
+    editor.apply(Edit::Set {
+        node: chip.node,
+        input: chip.spec.name.to_owned(),
+        setting: Some(setting),
+    });
+}
+
+fn scrub_start(
+    mut start: On<PointerDragStart>,
+    chips: Query<&Chip>,
+    editor: Res<Editor>,
+    mut gesture: ResMut<Gesture>,
+    mut cursor: ResMut<OverrideCursor>,
+) {
+    start.propagate(false);
+    let Ok(chip) = chips.get(start.entity) else {
+        return;
+    };
+    if let Some(value) =
+        number(chip.part, setting_of(&editor, chip), &chip.spec)
+    {
+        *gesture = Gesture::Scrub(chip.clone(), value);
+        cursor.0 = Some(SystemCursorIcon::EwResize);
+    }
+}
+
+/// Moves a number by how far the pointer went sideways: a tenth as
+/// far with Shift held, ten times with Alt.
+fn scrub(
+    mut drag: On<PointerDrag>,
+    keys: Res<ButtonInput<KeyCode>>,
+    gesture: Res<Gesture>,
+    mut editor: ResMut<Editor>,
+) {
+    drag.propagate(false);
+    let Gesture::Scrub(chip, from) = &*gesture else {
+        return;
+    };
+    let rate = if keys
+        .any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight])
+    {
+        0.1
+    } else if keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight])
+    {
+        10.0
+    } else {
+        1.0
+    };
+    let grain = if rate < 1.0 { 1000.0 } else { 100.0 };
+    let value = ((from + drag.distance.x * STEP * rate) * grain)
+        .round()
+        / grain;
+    if let Some(setting) = with_number(
+        chip.part,
+        setting_of(&editor, chip),
+        &chip.spec,
+        value,
+    ) && Some(&setting) != setting_of(&editor, chip)
+    {
+        put(&mut editor, chip, setting);
+    }
+}
+
+/// Turns a switch over, or moves a choice to the next: the one before
+/// with Shift held.
+fn flip(
+    mut click: On<PointerClick>,
+    keys: Res<ButtonInput<KeyCode>>,
+    chips: Query<&Chip>,
+    mut editor: ResMut<Editor>,
+) {
+    click.propagate(false);
+    let Ok(chip) = chips.get(click.entity) else {
+        return;
+    };
+    let current = setting_of(&editor, chip).cloned();
+    let setting = match chip.part {
+        Part::Flag => {
+            let on = match (&current, chip.spec.initial) {
+                (Some(Setting::Fixed(Constant::Bool(on))), _) => *on,
+                (None, Some(Initial::Bool(on))) => on,
+                _ => true,
+            };
+            Setting::Fixed(Constant::Bool(!on))
+        }
+        Part::Choice => {
+            let choices = chip.spec.choices;
+            let now = match (&current, chip.spec.initial) {
+                (
+                    Some(Setting::Fixed(Constant::Choice(choice))),
+                    _,
+                ) => choice.clone(),
+                (None, Some(Initial::Choice(choice))) => {
+                    choice.to_owned()
+                }
+                _ => String::new(),
+            };
+            let at =
+                choices.iter().position(|c| *c == now).unwrap_or(0);
+            let back = keys.any_pressed([
+                KeyCode::ShiftLeft,
+                KeyCode::ShiftRight,
+            ]);
+            let next =
+                if back { at + choices.len() - 1 } else { at + 1 }
+                    % choices.len();
+            Setting::Fixed(Constant::Choice(choices[next].to_owned()))
+        }
+        _ => return,
+    };
+    put(&mut editor, chip, setting);
 }

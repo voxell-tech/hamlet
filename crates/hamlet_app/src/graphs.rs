@@ -1,21 +1,27 @@
-//! The graph editor: a sheet of nodes and wires on a canvas, the
-//! selected node's inputs, and a preview of what the graph puts down,
-//! run again on every change.
+//! The graph editor: three panels on one sheet of nodes and wires.
+//! The Graph panel is the canvas with its tools, the Properties panel
+//! the selected node's inputs, and the Preview panel what the graph
+//! puts down, run again on every change.
 
 mod canvas;
 mod inspect;
+mod menu;
 mod preview;
 
 use std::collections::BTreeMap;
 use std::mem::discriminant;
 
-use bevy::app::App;
+use bevy::app::{App, Update};
+use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::resource::Resource;
+use bevy::ecs::system::{Local, ResMut};
 use bevy::ecs::world::World;
 use bevy::math::{Vec2, Vec3};
-use bevy::ui::{AlignItems, percent, px};
-use bevy_fynix::dock::DockWindowKind;
-use bevy_fynix::views::{FrameProps, column, dropdown, row};
+use bevy::ui::{AlignItems, UiRect, px};
+use bevy_fynix::dock::{DockTree, DockWindowKind, Edge};
+use bevy_fynix::views::{
+    BehaviorExt, FrameProps, TooltipExt, button, column, frame, row,
+};
 use bevy_fynix::{ScopedExt, resource};
 use hamlet_graph::{
     Does, Edit, Frame, GraphOutput, Instance, Node, NodeId, Port,
@@ -24,8 +30,11 @@ use hamlet_graph::{
 };
 
 use crate::dock::{PanelAppExt, panel};
-use crate::icons::Glyph;
-use crate::looks::{Fills, ICON, command, description, well};
+use crate::feel::Mood;
+use crate::icons::{Glyph, glyph};
+use crate::looks::{
+    CONTROL, Fills, ICON, brass, description, note, raised,
+};
 use crate::{View, with_cx};
 
 /// The name of the one graph the editor holds, in the ruleset it
@@ -35,17 +44,28 @@ const GRAPH: &str = "main";
 /// The sheet the editor opens with.
 const START: &str = include_str!("graphs/start.ron");
 
-/// The width of the column beside the canvas.
-const SIDE: f32 = 320.0;
+const PROPERTIES: &str = "graph_properties";
+const PREVIEW: &str = "graph_preview";
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_panel(
         "graphs",
-        DockWindowKind::new("GRAPHS", || panel(screen()))
+        DockWindowKind::new("GRAPH", || panel(screen()))
+            .icon(Glyph::Signpost.image(ICON)),
+    )
+    .add_panel(
+        PROPERTIES,
+        DockWindowKind::new("PROPERTIES", || panel(inspect::view()))
             .icon(Glyph::Sliders.image(ICON)),
     )
+    .add_panel(
+        PREVIEW,
+        DockWindowKind::new("PREVIEW", || panel(preview::view()))
+            .icon(Glyph::Hamlet.image(ICON)),
+    )
     .insert_resource(Editor::new())
-    .add_plugins((canvas::plugin, preview::plugin));
+    .add_plugins((canvas::plugin, menu::plugin, preview::plugin))
+    .add_systems(Update, arrange);
 }
 
 /// The sheet being edited, its history, and what it last gave.
@@ -211,8 +231,8 @@ impl Editor {
         self.run();
     }
 
-    /// Adds a node of `kind` near the middle of what is in sight.
-    fn add(&mut self, kind: &str, at: Vec2) {
+    /// Adds a node of `kind` with its card at `at`.
+    pub fn add(&mut self, kind: &str, at: Vec2) {
         let id = self.sheet.graph.next_id();
         self.apply(Edit::AddNode {
             node: Node {
@@ -225,9 +245,48 @@ impl Editor {
         self.selected = Some(id);
     }
 
+    /// Adds a copy of `node`, unwired, a little below and to the
+    /// right.
+    pub fn duplicate(&mut self, node: NodeId) {
+        let Some(original) = self.sheet.graph.node(node).cloned()
+        else {
+            return;
+        };
+        let id = self.sheet.graph.next_id();
+        let at =
+            self.sheet.layout.get(&node).copied().unwrap_or_default();
+        self.apply(Edit::AddNode {
+            node: Node { id, ..original },
+            at: Some(at + Vec2::splat(28.0)),
+        });
+        self.selected = Some(id);
+    }
+
+    pub fn remove(&mut self, node: NodeId) {
+        self.apply(Edit::RemoveNode(node));
+    }
+
+    /// Cuts every wire into or out of `node`.
+    pub fn unwire(&mut self, node: NodeId) {
+        let wires = self
+            .sheet
+            .graph
+            .wires
+            .iter()
+            .filter(|wire| {
+                wire.from.node == node || wire.to.node == node
+            })
+            .cloned()
+            .map(Edit::Disconnect)
+            .collect::<Vec<_>>();
+        if !wires.is_empty() {
+            self.apply(Edit::Batch(wires));
+        }
+    }
+
     fn remove_selected(&mut self) {
         if let Some(node) = self.selected.take() {
-            self.apply(Edit::RemoveNode(node));
+            self.remove(node);
         }
     }
 }
@@ -277,82 +336,113 @@ fn shown(value: Value) -> Vec<Instance> {
     }
 }
 
-/// The panel: the canvas, and beside it the tools, the selected node
-/// and the preview.
+/// Opens the Properties and Preview panels beside the Graph panel the
+/// first time it is opened, each in a pane of its own whose divider
+/// can be dragged. Closed again, they stay closed.
+fn arrange(mut tree: ResMut<DockTree>, mut was_open: Local<bool>) {
+    if !tree.is_changed() {
+        return;
+    }
+    let graph = tree.find_leaf_with_window("graphs");
+    let open = graph.is_some();
+    let first = open && !*was_open;
+    *was_open = open;
+    let Some(graph) = graph.filter(|_| first) else {
+        return;
+    };
+    if tree.find_leaf_with_window(PROPERTIES).is_some()
+        || tree.find_leaf_with_window(PREVIEW).is_some()
+    {
+        return;
+    }
+    let Some((side, _)) =
+        tree.split(graph, Edge::Right, PROPERTIES.into())
+    else {
+        return;
+    };
+    if let Some(parent) = tree.parent_of(side) {
+        tree.set_fraction(parent, 0.7);
+    }
+    if let Some((above, _)) =
+        tree.split(side, Edge::Top, PREVIEW.into())
+        && let Some(parent) = tree.parent_of(above)
+    {
+        tree.set_fraction(parent, 0.5);
+    }
+}
+
+/// The Graph panel: its tools over the canvas.
 fn screen() -> impl View {
     with_cx(|cx| {
         let gap = cx.theme().space.gap;
-        row((
-            canvas::view(),
-            column((
-                tools(),
-                status(),
-                inspect::view(),
-                preview::view(),
-            ))
-            .width(px(SIDE))
-            .shrink(0.0)
-            .min_height(px(0.0))
-            .gap(gap),
-        ))
-        .fills_width()
-        .fills_height()
-        .gap(gap)
+        column((tools(), canvas::view(), menu::view()))
+            .fills_width()
+            .fills_height()
+            .gap(gap)
     })
+}
+
+/// A button of one icon that runs `act`, named by `tip` under the
+/// pointer.
+fn tool(
+    which: Glyph,
+    tip: &'static str,
+    act: impl Fn(&mut World) + Send + Sync + 'static,
+) -> impl View {
+    button(raised(glyph(which, ICON)))
+        .padding(UiRect::axes(px(9.0), px(0.0)))
+        .min_height(px(CONTROL))
+        .tooltip(move || note(tip))
+        .rules(brass)
+        .tagged(Mood::Plain)
+        .on_activate(act)
 }
 
 fn tools() -> impl View {
     with_cx(|cx| {
-        let kinds = cx
-            .world
-            .resource::<Editor>()
-            .registry
-            .kinds()
-            .map(|kind| kind.name)
-            .collect::<Vec<_>>();
-        let names = kinds.clone();
-        column((
-            dropdown(
-                names,
-                usize::MAX,
-                Glyph::Chevron.image(ICON),
-                move |world: &mut World, at| {
-                    let middle = canvas::middle(world);
-                    world
-                        .resource_mut::<Editor>()
-                        .add(kinds[at], middle);
-                },
-            )
-            .placeholder("Add a node")
-            .width(percent(100.0))
-            .rules(well),
-            row((
-                command("Undo", |world| {
-                    world.resource_mut::<Editor>().undo();
-                }),
-                command("Redo", |world| {
-                    world.resource_mut::<Editor>().redo();
-                }),
-                command("Delete", |world| {
+        let gap = cx.theme().space.gap;
+        row((
+            tool(
+                Glyph::Plus,
+                "Add a node (Space)",
+                menu::create_at_pointer,
+            ),
+            tool(Glyph::Undo, "Undo (Cmd+Z)", |world| {
+                world.resource_mut::<Editor>().undo();
+            }),
+            tool(Glyph::Redo, "Redo (Shift+Cmd+Z)", |world| {
+                world.resource_mut::<Editor>().redo();
+            }),
+            tool(
+                Glyph::Delete,
+                "Delete the selected node (Delete)",
+                |world| {
                     world.resource_mut::<Editor>().remove_selected();
-                }),
-                command("Reroll", |world| {
+                },
+            ),
+            tool(
+                Glyph::Aim,
+                "Fit every node in sight (F)",
+                canvas::fit,
+            ),
+            tool(
+                Glyph::Dice,
+                "Roll the house's random values again",
+                |world| {
                     world.resource_mut::<Editor>().reroll();
-                }),
-            ))
-            .gap(cx.theme().space.gap / 2.0)
-            .align(AlignItems::Center),
+                },
+            ),
+            frame().grow(1.0),
+            description(resource::<Editor, _>(
+                |editor| match &editor.outcome {
+                    Ok(instances) => {
+                        format!("{} put down", instances.len())
+                    }
+                    Err(problem) => problem.clone(),
+                },
+            )),
         ))
-        .gap(cx.theme().space.gap)
+        .gap(gap / 2.0)
+        .align(AlignItems::Center)
     })
-}
-
-/// How many assets the graph put down, or what is wrong with it.
-fn status() -> impl View {
-    description(resource::<Editor, _>(|editor| {
-        match &editor.outcome {
-            Ok(instances) => format!("{} put down", instances.len()),
-            Err(problem) => problem.clone(),
-        }
-    }))
 }

@@ -83,33 +83,38 @@ impl From<Initial> for Value {
     }
 }
 
-/// The kinds of node a ruleset may use, by name.
+/// The kinds of node a ruleset may use, by name, each in a group it
+/// is listed under.
 #[derive(Clone, Debug, Default)]
 pub struct Registry {
-    kinds: BTreeMap<&'static str, NodeKind>,
+    kinds: BTreeMap<&'static str, (&'static str, NodeKind)>,
 }
 
 impl Registry {
     /// The built-in kinds.
     pub fn builtin() -> Self {
         let mut registry = Self::default();
-        for kind in nodes::KINDS.iter().flat_map(|kinds| kinds.iter())
-        {
-            registry.add(*kind);
+        for (group, kinds) in nodes::KINDS {
+            for kind in kinds {
+                registry.add(group, *kind);
+            }
         }
         registry
     }
 
-    /// Adds `kind`, in place of one of the same name.
-    pub fn add(&mut self, kind: NodeKind) {
-        self.kinds.insert(kind.name, kind);
+    /// Adds `kind` to `group`, in place of one of the same name.
+    pub fn add(&mut self, group: &'static str, kind: NodeKind) {
+        self.kinds.insert(kind.name, (group, kind));
     }
 
     pub fn get(&self, name: &str) -> Option<&NodeKind> {
-        self.kinds.get(name)
+        self.kinds.get(name).map(|(_, kind)| kind)
     }
 
-    pub fn kinds(&self) -> impl Iterator<Item = &NodeKind> {
-        self.kinds.values()
+    /// Every kind with its group, by name.
+    pub fn kinds(
+        &self,
+    ) -> impl Iterator<Item = (&'static str, &NodeKind)> {
+        self.kinds.values().map(|(group, kind)| (*group, kind))
     }
 }

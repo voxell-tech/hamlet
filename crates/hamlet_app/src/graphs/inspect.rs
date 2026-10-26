@@ -14,7 +14,9 @@ use hamlet_graph::{
 
 use super::Editor;
 use crate::icons::Glyph;
-use crate::looks::{ICON, description, note, section, well};
+use crate::looks::{
+    ICON, description, note, scroll_area, section, well,
+};
 use crate::switch::switch;
 use crate::{AnyView, View, with_cx};
 
@@ -33,6 +35,10 @@ const SCOPES: [(&str, Scope); 4] = [
 const CONTROL: f32 = 150.0;
 
 pub(super) fn view() -> impl View {
+    scroll_area((selected(),))
+}
+
+fn selected() -> impl View {
     keyed(
         resource::<Editor, _>(|editor| {
             (editor.selected, editor.shape)
