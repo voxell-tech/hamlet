@@ -11,6 +11,9 @@ description = "The messages of Hamlet's client protocol"
 workspace = true
 
 [dependencies]
+argon2.workspace = true
+base64.workspace = true
+chacha20poly1305.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
