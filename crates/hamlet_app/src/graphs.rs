@@ -42,17 +42,12 @@ use crate::looks::{
 };
 use crate::{View, with_cx};
 
-/// The sheet the editor opens with.
-const START: &str = include_str!("graphs/start.ron");
+/// The book the editor opens with.
+const START: &str =
+    include_str!("graphs/examples/medieval_house.ron");
 
 /// Books to start from, by name: a sheet alone, or a book of sheets.
-const EXAMPLES: [(&str, &str); 2] = [
-    ("Fence of pillars", START),
-    (
-        "Medieval house",
-        include_str!("graphs/examples/medieval_house.ron"),
-    ),
-];
+const EXAMPLES: [(&str, &str); 1] = [("Medieval house", START)];
 
 /// The book an example's text holds.
 fn example(text: &str) -> Option<Book> {

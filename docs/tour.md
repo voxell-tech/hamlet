@@ -221,7 +221,7 @@ ordinary tools.
 | Panels' colors, controls and icons | `assets/theme.toml`, `effects.toml`; `hamlet_ui/src/theme.rs`, `styles.rs`, `widgets/effects/`, `widgets/icons.rs` |
 | World colors, size or timing | `assets/palette.toml`, `world.toml`, `vfx.toml`, `ui.toml` |
 | Ground, houses and roads | `hamlet_realm/src/generator/`; `LandData::surface` is the drawn surface |
-| Procedural graph nodes, or the Graphs panel | `hamlet_graph/src/nodes/`; `hamlet_ui/src/graphs/`, whose `start.ron` is the sheet it opens with |
+| Procedural graph nodes, or the Graphs panel | `hamlet_graph/src/nodes/`; `hamlet_ui/src/graphs/`, whose `examples/` holds the books it offers, the first of which it opens with |
 | Robot motion | `hamlet_realm/src/keeper/acts/`; [`robots.md`](robots.md) |
 | Wizard, Hearth, camera or sound | `hamlet_realm/src/chief/`, `pick/camera.rs`, `sound/` |
 | Helpers several modules' tests share | `testing.rs` in `hamlet_server`, `hamlet_app` and `hamlet_realm`; fixtures crates share in `hamlet_testing` |
