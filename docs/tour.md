@@ -55,7 +55,7 @@ view layer; the workspace excludes it, and it is not edited here.
 | `hamlet_client` | Connection, outbox, realm, waits and watched chats as Bevy entities, the `Index` that finds them by their protocol ids, and gifts read in parts off the frame |
 | `hamlet_desktop` | File/link openers, editor files, dialogs, wake locks and window icon |
 | `hamlet_assets` | Embedded assets and Bevy asset loading |
-| `hamlet_proc` | Procedural graphs: sheets, rulesets, the node registry and built-in nodes, edits, and the evaluator that turns a ruleset and seeds into placed assets |
+| `hamlet_blueprint` | Procedural graphs: sheets, rulesets, the node registry and built-in nodes, edits, and the evaluator that turns a ruleset and seeds into placed assets |
 | `hamlet_realm` | Land, hamlets, houses, roads, robots, chief, sound and camera |
 | `hamlet_ui` | The widget kit: theme, styles, controls and their effects, with no client state |
 | `hamlet_vfx` | Visual effects |
@@ -221,7 +221,7 @@ ordinary tools.
 | Panels' colors, controls and icons | `assets/theme.toml`, `effects.toml`; `hamlet_ui/src/theme.rs`, `styles.rs`, `widgets/effects/`, `widgets/icons.rs` |
 | World colors, size or timing | `assets/palette.toml`, `world.toml`, `vfx.toml`, `ui.toml` |
 | Ground, houses and roads | `hamlet_realm/src/generator/`; `LandData::surface` is the drawn surface |
-| Procedural graph nodes, or the Graphs panel | `hamlet_proc/src/nodes/`; `hamlet_ui/src/graphs/`, whose `examples/` holds the books it offers, the first of which it opens with |
+| Procedural graph nodes, or the Graphs panel | `hamlet_blueprint/src/nodes/`; `hamlet_ui/src/graphs/`, whose `examples/` holds the books it offers, the first of which it opens with |
 | Robot motion | `hamlet_realm/src/keeper/acts/`; [`robots.md`](robots.md) |
 | Wizard, Hearth, camera or sound | `hamlet_realm/src/chief/`, `pick/camera.rs`, `sound/` |
 | Helpers several modules' tests share | `testing.rs` in `hamlet_server`, `hamlet_app` and `hamlet_realm`; fixtures crates share in `hamlet_testing` |

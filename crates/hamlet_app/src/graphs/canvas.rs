@@ -41,7 +41,7 @@ use bevy::ui_render::ui_material::MaterialNode;
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::views::{BehaviorExt, frame};
 use bevy_fynix::{EntityCursor, OverrideCursor, Theme};
-use hamlet_proc::{
+use hamlet_blueprint::{
     Constant, Does, Edit, Initial, NodeId, Port, PortSpec, Roll,
     Setting, Spread, ValueType, Wire, ports,
 };
@@ -284,7 +284,7 @@ fn height(rows: usize) -> f32 {
 /// The inputs and outputs of each node, in the order drawn.
 fn rows(
     editor: &Editor,
-    node: &hamlet_proc::Node,
+    node: &hamlet_blueprint::Node,
 ) -> (Vec<Dot>, Vec<Dot>) {
     let Ok((inputs, outputs)) =
         ports(&editor.registry, &editor.rules, node)
@@ -292,7 +292,7 @@ fn rows(
         return (Vec::new(), Vec::new());
     };
     let dot = |output: bool| {
-        move |info: hamlet_proc::PortInfo| Dot {
+        move |info: hamlet_blueprint::PortInfo| Dot {
             port: Port {
                 node: node.id,
                 name: info.name,
@@ -426,7 +426,7 @@ fn shown(
     part: Part,
 ) -> String {
     let initial =
-        || spec.initial.clone().map(hamlet_proc::Value::from);
+        || spec.initial.clone().map(hamlet_blueprint::Value::from);
     match (part, setting) {
         (
             Part::Low,
@@ -460,7 +460,7 @@ fn shown(
             on_off(*on)
         }
         (Part::Flag, _) => match initial() {
-            Some(hamlet_proc::Value::Bool(on)) => on_off(on),
+            Some(hamlet_blueprint::Value::Bool(on)) => on_off(on),
             _ => on_off(true),
         },
         (
@@ -468,7 +468,7 @@ fn shown(
             Some(Setting::Fixed(Constant::Choice(choice))),
         ) => choice.replace('_', " "),
         (Part::Choice, _) => match initial() {
-            Some(hamlet_proc::Value::Choice(choice)) => {
+            Some(hamlet_blueprint::Value::Choice(choice)) => {
                 choice.replace('_', " ")
             }
             _ => String::new(),

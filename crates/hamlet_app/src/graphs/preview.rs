@@ -35,7 +35,7 @@ use bevy::ui::widget::ViewportNode;
 use bevy::ui::{ComputedNode, Overflow, percent};
 use bevy::window::{PrimaryWindow, RequestRedraw, Window};
 use bevy_fynix::views::{BehaviorExt, frame};
-use hamlet_proc::Instance;
+use hamlet_blueprint::Instance;
 use hamlet_realm::meshes::Meshing;
 use hamlet_realm::palette::Palette as Colours;
 use hamlet_realm::pick::{Orbit, Steer, scrolled_lines};

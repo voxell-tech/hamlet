@@ -32,7 +32,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{
     Bevy, EntityCursor, ScopedExt, ViewExt, ViewSeq, keyed, resource,
 };
-use hamlet_proc::{
+use hamlet_blueprint::{
     Book, Constant, Does, Edit, Frame, GraphInput, GraphOutput,
     Instance, Node, NodeId, Port, Registry, Ruleset, Seed, Seeds,
     Setting, Sheet, Value, ValueType, evaluate,
@@ -68,7 +68,7 @@ fn example(text: &str) -> Option<Book> {
 pub(crate) fn plugin(app: &mut App) {
     app.add_panel(
         "graphs",
-        DockWindowKind::new("GRAPH", || flush_panel(screen()))
+        DockWindowKind::new("BLUEPRINT", || flush_panel(screen()))
             .icon(Glyph::Signpost.image(ICON)),
     )
     .insert_resource(Editor::new())
@@ -339,9 +339,11 @@ impl Editor {
     fn run(&mut self) {
         let mut graph = self.sheet.graph.clone();
         for node in &self.sheet.graph.nodes {
-            let Ok((_, outputs)) =
-                hamlet_proc::ports(&self.registry, &self.rules, node)
-            else {
+            let Ok((_, outputs)) = hamlet_blueprint::ports(
+                &self.registry,
+                &self.rules,
+                node,
+            ) else {
                 continue;
             };
             for output in outputs {
@@ -409,9 +411,11 @@ impl Editor {
         let Some(found) = self.sheet.graph.node(node) else {
             return;
         };
-        let Ok((_, outputs)) =
-            hamlet_proc::ports(&self.registry, &self.rules, found)
-        else {
+        let Ok((_, outputs)) = hamlet_blueprint::ports(
+            &self.registry,
+            &self.rules,
+            found,
+        ) else {
             return;
         };
         let Some(port) = outputs.into_iter().find(|port| {
@@ -491,7 +495,7 @@ impl Editor {
     fn free_name(
         &self,
         wanted: &str,
-        taken: impl Fn(&hamlet_proc::Graph) -> Vec<String>,
+        taken: impl Fn(&hamlet_blueprint::Graph) -> Vec<String>,
     ) -> String {
         let taken = taken(&self.sheet.graph);
         std::iter::once(wanted.to_owned())

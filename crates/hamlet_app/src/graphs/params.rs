@@ -11,7 +11,7 @@ use bevy_fynix::views::{
     icon_button, number_field, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, resource};
-use hamlet_proc::{
+use hamlet_blueprint::{
     Constant, Edit, GraphInput, Scope, ValueType, Vary,
 };
 

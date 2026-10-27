@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use bevy_math::{Vec2, Vec3};
-use hamlet_proc::{
+use hamlet_blueprint::{
     Does, Edit, Instance, Node, NodeId, Problem, Registry, Ruleset,
     Seed, Seeds, Setting, Sheet, Value, evaluate, validate,
 };

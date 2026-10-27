@@ -9,7 +9,7 @@ use bevy_fynix::views::{
     icon_button, number_field, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
-use hamlet_proc::{
+use hamlet_blueprint::{
     Constant, Does, Edit, Initial, NodeId, PortSpec, Roll, Scope,
     Setting, Spread, ValueType,
 };

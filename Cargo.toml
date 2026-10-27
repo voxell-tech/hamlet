@@ -22,7 +22,7 @@ hamlet_protocol = { version = "0.1.0", path = "crates/hamlet_protocol" }
 hamlet_desktop = { version = "0.1.0", path = "crates/hamlet_desktop" }
 hamlet_os = { version = "0.1.0", path = "crates/hamlet_os" }
 hamlet_assets = { version = "0.1.0", path = "crates/hamlet_assets" }
-hamlet_proc = { version = "0.1.0", path = "crates/hamlet_proc" }
+hamlet_blueprint = { version = "0.1.0", path = "crates/hamlet_blueprint" }
 hamlet_vfx = { version = "0.1.0", path = "crates/hamlet_vfx" }
 hamlet_realm = { version = "0.1.0", path = "crates/hamlet_realm" }
 hamlet_ui = { version = "0.1.0", path = "crates/hamlet_ui" }
