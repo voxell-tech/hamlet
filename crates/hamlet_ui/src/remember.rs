@@ -30,7 +30,7 @@ use hamlet_realm::sound::SoundSettings;
 use serde::{Deserialize, Serialize};
 
 use crate::PanelSystems;
-use crate::me::Me;
+use crate::convo::Convo;
 use crate::roll::Roll;
 use crate::theme::HamletTheme;
 use crate::world_view::TimeOfDay;
@@ -235,7 +235,7 @@ impl Chosen {
                 hamlet_client::realm::hamlet(world, name)?,
             ),
             Chosen::Chief | Chosen::Hearth => {
-                let name = world.resource::<Me>().name.clone();
+                let name = world.resource::<Convo>().name.clone();
                 let chief = chief::named(world, &name)?;
                 match self {
                     Chosen::Chief => Thing::Chief(chief),

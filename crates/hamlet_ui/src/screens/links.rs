@@ -25,7 +25,7 @@ use hamlet_client::realm::{Houses, LivesIn, Works};
 use hamlet_desktop::open;
 use hamlet_realm::sound::{Cue, Sound};
 
-use crate::me::Me;
+use crate::convo::Convo;
 use crate::roll::{self, Roll};
 use crate::{PanelSystems, sounds};
 
@@ -47,7 +47,7 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             PreUpdate,
             turn.run_if(
-                resource_changed::<Me>.or_eager(hamlets_turned),
+                resource_changed::<Convo>.or_eager(hamlets_turned),
             )
             .after(roll::turn_roll)
             .in_set(PanelSystems::Bind),
@@ -93,12 +93,12 @@ struct Found(HashMap<String, Option<PathBuf>>, Option<PathBuf>);
 
 /// The local work folder of the selected agent's hamlet.
 fn turn(world: &mut World) {
-    let Some(me) = world.get_resource::<Me>() else {
+    let Some(convo) = world.get_resource::<Convo>() else {
         return;
     };
-    let session = me.session;
+    let session = convo.session;
     let folder = world
-        .get::<LivesIn>(me.agent)
+        .get::<LivesIn>(convo.agent)
         .and_then(|lives| world.get::<Works>(lives.0))
         .and_then(|works| works.folder.clone());
     if world.get_resource::<Roots>().is_some_and(|roots| {

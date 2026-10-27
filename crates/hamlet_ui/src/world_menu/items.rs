@@ -18,8 +18,8 @@ use hamlet_realm::{moving, orders};
 
 use super::deed::Deed;
 use super::{Open, close, restore, stop};
+use crate::convo::{talk_to, talk_to_mayor};
 use crate::inspector::show_prompt;
-use crate::me::{talk_to, talk_to_mayor};
 use crate::{AnyView, chat};
 
 /// An agent of the hamlet that is not its mayor and has not left,

@@ -31,12 +31,12 @@ use hamlet_realm::moving;
 use hamlet_realm::palette::Palette;
 use hamlet_realm::pick::{Selected, Thing, focus_on, select};
 
+use crate::convo::Convo;
 use crate::icons::Glyph;
 use crate::looks::{
     Fills, action, back, buttons, choice, choices, description,
     filling, group, note, scroll_area, section, title,
 };
-use crate::me::Me;
 use crate::platform::Wraps;
 use crate::roll::{agents_moved, either, moved};
 use crate::{AnyView, PanelSystems, View, with_cx};
@@ -50,8 +50,8 @@ pub(crate) fn plugin(app: &mut App) {
         .add_systems(
             PreUpdate,
             enter
-                .run_if(resource_changed::<Me>)
-                .after(crate::me::chief_name)
+                .run_if(resource_changed::<Convo>)
+                .after(crate::convo::chief_name)
                 .before(accompany)
                 .in_set(PanelSystems::Follow),
         )
@@ -61,7 +61,7 @@ pub(crate) fn plugin(app: &mut App) {
 /// Brings the chief this window belongs to into the world, with the
 /// look that was kept for them.
 pub(crate) fn enter(world: &mut World) {
-    let name = world.resource::<Me>().name.clone();
+    let name = world.resource::<Convo>().name.clone();
     if name.is_empty() {
         return;
     }
@@ -92,7 +92,7 @@ pub(crate) fn carry_home(world: &mut World) {
 /// Selects the place of the chief this window belongs to, and
 /// brings it into view.
 pub(crate) fn go_home(world: &mut World) {
-    let name = world.resource::<Me>().name.clone();
+    let name = world.resource::<Convo>().name.clone();
     let Some(chief) = chief::named(world, &name) else {
         return;
     };
@@ -120,21 +120,21 @@ fn company(selected: Option<Thing>, agent: Entity) -> Option<Entity> {
 /// Sends the mascot to whoever the chat is pointed at, and home when
 /// nobody is selected.
 pub(crate) fn accompany(
-    me: Res<Me>,
+    convo: Res<Convo>,
     selected: Res<Selected>,
     libraries: Query<Entity, With<Library>>,
     mut chiefs: Query<(&Chief, &mut Beside)>,
 ) {
-    if !me.is_changed() && !selected.is_changed() {
+    if !convo.is_changed() && !selected.is_changed() {
         return;
     }
     // To the library when that is what was chosen.
     let with = match selected.0 {
         Some(Thing::Library) => libraries.iter().next(),
-        chosen => company(chosen, me.agent),
+        chosen => company(chosen, convo.agent),
     };
     for (chief, mut beside) in &mut chiefs {
-        if chief.name == me.name && beside.0 != with {
+        if chief.name == convo.name && beside.0 != with {
             beside.0 = with;
         }
     }
@@ -144,15 +144,15 @@ pub(crate) fn accompany(
 /// to whoever it was sent to.
 pub(crate) fn spoke(
     message: On<ChiefMessage>,
-    me: Res<Me>,
+    convo: Res<Convo>,
     mut chiefs: Query<(&Chief, &mut Beside)>,
 ) {
-    if message.to != me.to {
+    if message.to != convo.to {
         return;
     }
     for (chief, mut beside) in &mut chiefs {
-        if chief.name == me.name && beside.0.is_none() {
-            beside.0 = Some(me.agent);
+        if chief.name == convo.name && beside.0.is_none() {
+            beside.0 = Some(convo.agent);
         }
     }
 }
@@ -382,7 +382,7 @@ mod tests {
             .insert_resource(ViewFolder(view.to_path_buf()))
             .init_resource::<Kept>()
             .init_resource::<Stood>()
-            .add_plugins((crate::me::plugin, plugin));
+            .add_plugins((crate::convo::plugin, plugin));
         app.update();
         assert!(chief::named(app.world_mut(), "").is_none());
         let mut state = hamlet_testing::realm::state();
@@ -416,7 +416,7 @@ mod tests {
                 .insert_resource(
                     Kept::read(&dir.join("view")).unwrap(),
                 )
-                .insert_resource(Me::of(chat, agent, "wren", None))
+                .insert_resource(Convo::of(chat, agent, "wren", None))
                 .init_resource::<Stood>()
                 .add_plugins(plugin);
             app

@@ -19,9 +19,9 @@ use hamlet_client::realm::{
 use hamlet_realm::orders;
 
 use super::close;
+use crate::convo::Convo;
 use crate::feel::Mood;
 use crate::looks::{brass, description, grim, lettered};
-use crate::me::Me;
 use crate::platform::DisplayText;
 use crate::{View, built, chat};
 
@@ -201,7 +201,7 @@ impl Deed {
                  and the message goes back in the field. Changed \
                  files, commands that ran, letters and spending are \
                  not undone.",
-                name(&world.resource::<Me>().agent)
+                name(&world.resource::<Convo>().agent)
             ),
             Deed::DefaultCharter => "Your own charter is deleted \
                                      from disk. This cannot be \

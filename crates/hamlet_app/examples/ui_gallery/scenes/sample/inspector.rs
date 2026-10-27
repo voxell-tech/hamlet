@@ -3,7 +3,7 @@
 use bevy::ecs::world::World;
 use hamlet_client::outbox::Outbox;
 use hamlet_protocol::client as protocol;
-use hamlet_ui::{Me, inspector};
+use hamlet_ui::{Convo, inspector};
 
 use crate::scenes::Scene;
 
@@ -18,7 +18,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         world.insert_resource(inspector::Section::Character);
     }
     if scene == Scene::Prompt {
-        let agent = world.resource::<Me>().agent;
+        let agent = world.resource::<Convo>().agent;
         let text = "You are an agent of Hamlet.\n\nSandbox: \
                     seatbelt. Network for tools: off.\n\nKeep the \
                     orchard's notes in order."

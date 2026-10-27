@@ -10,12 +10,12 @@ use hamlet_realm::pick::{Selected, Thing, select};
 
 use super::agent::dim;
 use super::papers::Papers;
+use crate::convo::Convo;
 use crate::icons::Glyph;
 use crate::looks::{
     Fills, action, bad_action, bare, buttons, filling, good_action,
     group, note, scroll_area, section, stated_large, title,
 };
-use crate::me::Me;
 use crate::platform::Wraps;
 use crate::world_menu::{self, Deed};
 use crate::{AnyView, View, built, lists, overview, with_cx};
@@ -163,7 +163,7 @@ pub(crate) fn of_agent(
     body: fn() -> AnyView,
 ) -> impl View {
     keyed(
-        resource::<Me, _>(|m| (m.session, m.with.clone())),
+        resource::<Convo, _>(|m| (m.session, m.with.clone())),
         move |(_, with)| {
             let whose = match with {
                 Some(name) => {

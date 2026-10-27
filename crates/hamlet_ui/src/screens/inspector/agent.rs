@@ -20,13 +20,13 @@ use hamlet_client::realm::{
 use hamlet_realm::pick::{Thing, select};
 
 use super::papers::Papers;
+use crate::convo::Convo;
 use crate::feel::Mood;
 use crate::icons::Glyph;
 use crate::looks::{
     Fills, ICON, action, bad_action, bare, close, filling, hairline,
     headed, note, page_head, scroll_area, title,
 };
-use crate::me::Me;
 use crate::platform::{DisplayText, Wraps};
 use crate::roll::rolled;
 use crate::status::Bar;
@@ -285,8 +285,8 @@ fn character() -> impl View {
 /// Reads the prompt the agent the chat is with would be given now,
 /// and turns its page to it.
 pub(crate) fn show_prompt(world: &mut World) {
-    let me = world.resource::<Me>();
-    let agent = me.agent;
+    let convo = world.resource::<Convo>();
+    let agent = convo.agent;
     *world.resource_mut::<Briefing>() = Briefing {
         agent: Some(agent),
         text: String::new(),
@@ -297,11 +297,12 @@ pub(crate) fn show_prompt(world: &mut World) {
 
 /// Leaves the prompt of an agent the chat is no longer with.
 pub(super) fn leave_prompt(
-    me: Res<Me>,
+    convo: Res<Convo>,
     briefing: Res<Briefing>,
     mut section: ResMut<Section>,
 ) {
-    if *section == Section::Prompt && briefing.agent != Some(me.agent)
+    if *section == Section::Prompt
+        && briefing.agent != Some(convo.agent)
     {
         *section = Section::Conversation;
     }
@@ -345,7 +346,7 @@ fn tabs() -> AnyView {
 fn sections() -> impl View {
     keyed(resource::<Section, _>(|s| *s), |section| match section {
         Section::Conversation => {
-            keyed(resource::<Me, _>(|m| m.session), |_| {
+            keyed(resource::<Convo, _>(|m| m.session), |_| {
                 with_cx(|cx| {
                     let bar = if super::conversations::is_read_only(
                         cx.world,
@@ -382,7 +383,9 @@ fn sections() -> impl View {
 
 pub(super) fn living() -> impl View {
     keyed(
-        resource::<Me, _>(|m| (m.session, m.agent, m.with.clone())),
+        resource::<Convo, _>(|m| {
+            (m.session, m.agent, m.with.clone())
+        }),
         |(_, agent, with)| {
             let (header, tabs, sections) =
                 (header(*agent, with.clone()), tabs(), sections());
@@ -477,7 +480,7 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins((chat::plugin, crate::inspector::plugin));
         app.init_resource::<Bar>();
-        let agent = app.world().resource::<Me>().agent;
+        let agent = app.world().resource::<Convo>().agent;
         app.insert_resource(hamlet_realm::pick::Selected(Some(
             Thing::Agent(agent),
         )));
@@ -554,7 +557,7 @@ mod tests {
         assert!(
             app.world().resource::<Outbox>().iter().next().is_none()
         );
-        let chat = app.world().resource::<Me>().session;
+        let chat = app.world().resource::<Convo>().session;
         app.world_mut()
             .trigger(hamlet_client::messages::JobFinished { chat });
         app.update();
@@ -729,11 +732,11 @@ mod tests {
                 past: None,
             }))
             .id();
-        let mut me = app.world_mut().resource_mut::<Me>();
-        me.agent = agent;
-        me.session = session;
-        me.to = to;
-        me.with = Some("scout".into());
+        let mut convo = app.world_mut().resource_mut::<Convo>();
+        convo.agent = agent;
+        convo.session = session;
+        convo.to = to;
+        convo.with = Some("scout".into());
         app.update();
     }
 
@@ -806,7 +809,7 @@ mod tests {
         ] {
             press(&mut app, label);
             app.update();
-            let session = app.world().resource::<Me>().session;
+            let session = app.world().resource::<Convo>().session;
             let chat =
                 app.world().get::<Chat>(session).unwrap().0.clone();
             assert_eq!(
@@ -843,7 +846,7 @@ mod tests {
         }
         press(&mut app, "CHIEF CHAT");
         app.update();
-        let session = app.world().resource::<Me>().session;
+        let session = app.world().resource::<Convo>().session;
         assert!(
             app.world()
                 .get::<Chat>(session)

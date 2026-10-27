@@ -18,7 +18,7 @@ use hamlet_realm::keeper;
 use hamlet_realm::palette::Palette;
 
 use super::lines::{Row, rows};
-use crate::me::Me;
+use crate::convo::Convo;
 use crate::theme::Themed;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -159,7 +159,7 @@ impl People<'_, '_> {
         })
     }
 
-    fn chief(&self, name: &str, me: &Me) -> Who {
+    fn chief(&self, name: &str, convo: &Convo) -> Who {
         let cloak = self
             .chiefs
             .iter()
@@ -171,7 +171,7 @@ impl People<'_, '_> {
         Who {
             name: titled(name),
             tag: String::new(),
-            kind: if name == me.name {
+            kind: if name == convo.name {
                 Kind::Me
             } else {
                 Kind::Chief
@@ -192,7 +192,7 @@ enum Id {
 /// Everyone who speaks in a chat, the agent it is with first.
 struct Cast<'a, 'w, 's> {
     people: &'a People<'w, 's>,
-    me: &'a Me,
+    convo: &'a Convo,
     ids: Vec<Id>,
     all: Vec<Who>,
 }
@@ -208,9 +208,9 @@ impl Cast<'_, '_, '_> {
     }
 
     fn agent(&mut self, agent: Entity) -> usize {
-        let (people, me) = (self.people, self.me);
+        let (people, convo) = (self.people, self.convo);
         self.place(Id::Agent(agent), || {
-            people.agent(agent).unwrap_or_else(|| match &me.with {
+            people.agent(agent).unwrap_or_else(|| match &convo.with {
                 Some(name) => Who {
                     name: titled(name),
                     ..Who::default()
@@ -236,9 +236,9 @@ impl Cast<'_, '_, '_> {
     }
 
     fn chief(&mut self, name: &str) -> usize {
-        let (people, me) = (self.people, self.me);
+        let (people, convo) = (self.people, self.convo);
         self.place(Id::Chief(name.to_string()), || {
-            people.chief(name, me)
+            people.chief(name, convo)
         })
     }
 }
@@ -271,20 +271,20 @@ pub(super) struct Line {
 
 /// The received chat in display order with its speakers.
 pub(super) fn timeline(
-    me: &Me,
+    convo: &Convo,
     transcript: &Transcript,
     open: &[(Entity, String)],
     people: &People,
 ) -> (Vec<Line>, Vec<Who>) {
     let mut cast = Cast {
         people,
-        me,
+        convo,
         ids: Vec::new(),
         all: Vec::new(),
     };
-    let agent = cast.agent(me.agent);
-    let chief = cast.chief(&me.name);
-    let mut lines = rows(me.session, transcript, open)
+    let agent = cast.agent(convo.agent);
+    let chief = cast.chief(&convo.name);
+    let mut lines = rows(convo.session, transcript, open)
         .into_iter()
         .map(|row| {
             let first = match &row {
@@ -304,7 +304,7 @@ pub(super) fn timeline(
             };
             Line {
                 row,
-                agent: me.agent,
+                agent: convo.agent,
                 by,
                 to,
                 at: item.map_or(0, |item| item.at),

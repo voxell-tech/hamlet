@@ -66,8 +66,8 @@ pub use self::lines::{
     fold_lines, hide_unseen, read_back, transcript,
 };
 pub use self::rewind::{Rewinds, asked as rewind_asked};
+use crate::convo::{self, Convo};
 use crate::looks::{note, well};
-use crate::me::{self, Me};
 use crate::{PanelSystems, View, with_cx};
 
 /// The room at the sides of the field, as the theme gives a field.
@@ -260,14 +260,14 @@ pub fn send(world: &mut World, text: String) {
     ) {
         return;
     }
-    let me = world.resource::<Me>();
+    let convo = world.resource::<Convo>();
     if world
-        .get::<Chat>(me.session)
+        .get::<Chat>(convo.session)
         .is_some_and(|chat| chat.0.past.is_some())
     {
         return;
     }
-    let to = me.to.clone();
+    let to = convo.to.clone();
     // What is sent is at the end of the chat.
     to_end(world);
     world.trigger(ChiefMessage { to, text });
@@ -296,7 +296,7 @@ pub(crate) fn decreed(decree: On<Decree>, mut commands: Commands) {
 fn told(tell: On<Tell>, mut commands: Commands) {
     let Tell { agent, text } = tell.event().clone();
     commands.queue(move |world: &mut World| {
-        let Some((to, _)) = me::address(world, agent) else {
+        let Some((to, _)) = convo::address(world, agent) else {
             return;
         };
         world.trigger(ChiefMessage { to, text });
@@ -458,7 +458,7 @@ impl Default for AtEnd {
 /// chief scrolls up to read, and again once they are back at its end.
 /// Another conversation is shown from its end.
 pub fn stick_to_bottom(
-    me: Res<Me>,
+    convo: Res<Convo>,
     reach: Res<Reach>,
     lines: Res<Lines>,
     mut away: ResMut<AwayFromEnd>,
@@ -470,7 +470,7 @@ pub fn stick_to_bottom(
 ) {
     for (node, mut at, goal) in &mut scrolls {
         let most = furthest(node);
-        if me.is_changed() || reach.jump {
+        if convo.is_changed() || reach.jump {
             end.held = true;
             // The wheel's goal in the last chat means nothing in this
             // one.
@@ -612,7 +612,7 @@ mod tests {
             .world_mut()
             .spawn((Window::default(), PrimaryWindow))
             .id();
-        let session = app.world().resource::<Me>().session;
+        let session = app.world().resource::<Convo>().session;
         app.world_mut().entity_mut(session).insert(
             Transcript::from_items(vec![Item {
                 id: "message/é:7".into(),
@@ -727,7 +727,7 @@ mod tests {
         use hamlet_client::outbox::Outbox;
 
         let mut app = sounding_chat();
-        let chat = app.world().resource::<Me>().session;
+        let chat = app.world().resource::<Convo>().session;
         for (rewind, fault) in
             [(false, false), (true, false), (false, true)]
         {
@@ -1119,7 +1119,7 @@ mod tests {
         use crate::testing::{panel_app, press, words};
         let mut app = panel_app();
         app.add_plugins(plugin);
-        let session = app.world().resource::<Me>().session;
+        let session = app.world().resource::<Convo>().session;
         let tool = |id: &str, exit| Item {
             id: id.into(),
             at: 0,
@@ -1197,7 +1197,7 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins(plugin)
             .init_resource::<crate::world_menu::Open>();
-        let session = app.world().resource::<Me>().session;
+        let session = app.world().resource::<Convo>().session;
         app.world_mut().entity_mut(session).insert(
             Transcript::from_items(vec![Item {
                 id: "entry-abc:0".into(),

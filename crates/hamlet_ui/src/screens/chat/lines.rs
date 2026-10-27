@@ -34,8 +34,8 @@ use super::entry::entry_view;
 use super::timeline::{Line, People, Who, timeline};
 use super::{AwayFromEnd, ChatScroll, bubble};
 use crate::View;
+use crate::convo::Convo;
 use crate::looks::{Fills, note};
-use crate::me::Me;
 
 /// Messages are people talking, so they get the width of a readable
 /// line.
@@ -430,7 +430,7 @@ pub struct Whole {
 
 /// The visible rows of the received chat.
 pub fn fold_lines(
-    me: Res<Me>,
+    convo: Res<Convo>,
     unfolded: Res<Unfolded>,
     mut reach: ResMut<Reach>,
     transcripts: Query<Ref<Transcript>>,
@@ -441,20 +441,21 @@ pub fn fold_lines(
     if reach.jump {
         reach.jump = false;
     }
-    if me.is_changed() && (reach.rows != reach.page || reach.back > 0)
+    if convo.is_changed()
+        && (reach.rows != reach.page || reach.back > 0)
     {
         reach.rows = reach.page;
         reach.back = 0;
     }
-    let Ok(transcript) = transcripts.get(me.session) else {
+    let Ok(transcript) = transcripts.get(convo.session) else {
         return;
     };
     let from = Some((
-        me.session,
+        convo.session,
         transcript.items().len(),
         transcript.shape(),
     ));
-    let moved = me.is_changed()
+    let moved = convo.is_changed()
         || unfolded.is_changed()
         || people.has_moved()
         || whole.from != from;
@@ -463,7 +464,7 @@ pub fn fold_lines(
     }
     if moved {
         let (rows, cast) =
-            timeline(&me, &transcript, &unfolded.0, &people);
+            timeline(&convo, &transcript, &unfolded.0, &people);
         let anchor = whole.anchor.take();
         *whole = Whole {
             from,
@@ -527,7 +528,7 @@ const WAIT: u8 = 30;
 /// stays where it was.
 pub fn read_back(
     mut commands: Commands,
-    me: Res<Me>,
+    convo: Res<Convo>,
     lines: Res<Lines>,
     transcripts: Query<&Transcript>,
     mut reach: ResMut<Reach>,
@@ -544,7 +545,7 @@ pub fn read_back(
     mut reading: ResMut<Reading>,
     mut turning: Local<Option<Turn>>,
 ) {
-    if me.is_changed() {
+    if convo.is_changed() {
         *reading = Reading::default();
         *turning = None;
     }
@@ -647,11 +648,11 @@ pub fn read_back(
             }
         } else if !reading.at_top
             && transcripts
-                .get(me.session)
+                .get(convo.session)
                 .is_ok_and(|said| said.earlier().is_some())
         {
             reading.at_top = true;
-            let chat = me.session;
+            let chat = convo.session;
             commands.queue(
                 move |world: &mut bevy::ecs::world::World| {
                     let Some(reference) = world
@@ -692,7 +693,7 @@ pub fn read_back(
 /// from the one before it.
 const GAP: f32 = 3.0;
 
-/// The chat with whoever `Me` points at.
+/// The chat with whoever `Convo` points at.
 pub fn transcript() -> impl View {
     // One list for the whole chat, each row built once for as long
     // as it is the same row.

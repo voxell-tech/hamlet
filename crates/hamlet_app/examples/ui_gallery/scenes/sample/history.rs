@@ -55,7 +55,7 @@ pub(super) fn setup(world: &mut World, reading: bool) {
                         kind: None,
                         from: None,
                         with: world
-                            .resource::<hamlet_ui::Me>()
+                            .resource::<hamlet_ui::Convo>()
                             .to
                             .clone(),
                         past: Some(pasts[1].number),

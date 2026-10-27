@@ -18,7 +18,7 @@ use hamlet_client::waits::Waiting;
 
 use super::{FeelSettings, MagicColors, ease, pool, waver};
 use crate::View;
-use crate::me::Me;
+use crate::convo::Convo;
 use crate::theme::Themed;
 
 /// How far the lamp's light reaches down from the panel's top, and
@@ -88,7 +88,7 @@ pub(super) fn light(
     time: Res<Time>,
     set: Res<FeelSettings>,
     theme: Themed,
-    me: Res<Me>,
+    convo: Res<Convo>,
     waiting: Query<(), With<Waiting>>,
     mut panels: Query<(
         Entity,
@@ -100,7 +100,7 @@ pub(super) fn light(
     mut counted: Local<usize>,
 ) {
     let dt = time.delta_secs();
-    let changed = shown.replace(me.agent) != Some(me.agent);
+    let changed = shown.replace(convo.agent) != Some(convo.agent);
     let count = waiting.iter().count();
     let rung = count > *counted;
     *counted = count;

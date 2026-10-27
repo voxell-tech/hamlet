@@ -164,7 +164,7 @@ mod tests {
         let scout =
             hamlet_client::realm::named(app.world_mut(), "scout")
                 .unwrap();
-        crate::me::talk_to(app.world_mut(), scout);
+        crate::convo::talk_to(app.world_mut(), scout);
         app.insert_resource(Founding {
             name: "mill".into(),
             mayor: "miller".into(),

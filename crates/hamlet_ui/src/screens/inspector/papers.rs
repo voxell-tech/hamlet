@@ -14,7 +14,7 @@ use hamlet_desktop::editor::{Edit, Edited};
 use hamlet_protocol::client as protocol;
 
 use super::agent::Briefing;
-use crate::me::Me;
+use crate::convo::Convo;
 
 /// The notes, character and skills received for the selected agent.
 #[derive(Resource, Default, PartialEq)]
@@ -48,7 +48,7 @@ enum Request {
 }
 
 pub(super) fn selected(world: &World) -> Option<protocol::Address> {
-    address_of(world, world.resource::<Me>().agent)
+    address_of(world, world.resource::<Convo>().agent)
 }
 
 fn read(world: &mut World, agent: protocol::Address) {
@@ -266,11 +266,11 @@ pub(super) fn papers_on_job(
 ) {
     let chat = job.chat;
     commands.queue(move |world: &mut World| {
-        let me = world.resource::<Me>();
-        let ours = chat == me.session
+        let convo = world.resource::<Convo>();
+        let ours = chat == convo.session
             || world
                 .get::<TalksTo>(chat)
-                .is_some_and(|to| to.0 == me.agent);
+                .is_some_and(|to| to.0 == convo.agent);
         if ours && let Some(agent) = selected(world) {
             read(world, agent);
         }

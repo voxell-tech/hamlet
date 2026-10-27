@@ -22,10 +22,10 @@ use hamlet_client::realm::{
 };
 use hamlet_protocol::client as protocol;
 
+use crate::convo::Convo;
 use crate::icons::{Glyph, glyph};
 use crate::links::Aimed;
 use crate::looks::{hairline, note, small_rules};
-use crate::me::Me;
 use crate::petition::Queue;
 use crate::{AnyView, PanelSystems, View, built, with_cx};
 
@@ -55,19 +55,19 @@ pub struct Bar {
 }
 
 pub(crate) fn update_status(
-    me: Res<Me>,
+    convo: Res<Convo>,
     sessions: Query<(Ref<Status>, Ref<Usage>)>,
     settings: Res<Settings>,
     connection: Res<Connection>,
     treasury: Query<(&HamletId, Ref<Treasury>)>,
     mut bar: ResMut<Bar>,
 ) {
-    let session = sessions.get(me.session).ok();
+    let session = sessions.get(convo.session).ok();
     let home = treasury
         .iter()
         .find(|(id, _)| id.0 == HOME)
         .map(|(_, treasury)| treasury);
-    let moved = me.is_changed()
+    let moved = convo.is_changed()
         || settings.is_changed()
         || connection.is_changed()
         || session.as_ref().is_some_and(|(status, usage)| {

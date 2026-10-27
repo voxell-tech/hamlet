@@ -29,6 +29,7 @@ use hamlet_client::realm::address_of;
 use hamlet_protocol::client as protocol;
 use protocol::Past;
 
+use crate::convo::Convo;
 use crate::dock::show_tab;
 use crate::feel::Mood;
 use crate::icons::Glyph;
@@ -36,7 +37,6 @@ use crate::looks::{
     Fills, away, back, buttons, card_button, command, filling,
     good_action, hairline, note, scroll_area, well,
 };
-use crate::me::Me;
 use crate::{
     AnyView, PanelSystems, View, built, chat, inspector, with_cx,
 };
@@ -230,7 +230,8 @@ fn format_tokens(n: u64) -> String {
 /// The numbered conversation opened as a read-only watched chat.
 fn open(world: &mut World, number: i64) {
     close(world);
-    let Some(with) = address_of(world, world.resource::<Me>().agent)
+    let Some(with) =
+        address_of(world, world.resource::<Convo>().agent)
     else {
         return;
     };
@@ -262,7 +263,7 @@ fn resume(world: &mut World) {
     let Some(number) = number else {
         return;
     };
-    let Some(to) = address_of(world, world.resource::<Me>().agent)
+    let Some(to) = address_of(world, world.resource::<Convo>().agent)
     else {
         return;
     };
@@ -278,8 +279,8 @@ fn resume(world: &mut World) {
 
 /// The server's history requested while the page is open.
 pub(crate) fn refresh(world: &mut World) {
-    let me = world.resource::<Me>();
-    let agent = address_of(world, me.agent);
+    let convo = world.resource::<Convo>();
+    let agent = address_of(world, convo.agent);
     let moved = world.resource::<Requests>().agent != agent;
     if moved {
         close(world);
@@ -315,7 +316,7 @@ fn response(reply: On<Response>, mut commands: Commands) {
         let requests = world.resource::<Requests>();
         if requests.pending.as_ref() != Some(&reply.to)
             || requests.agent
-                != address_of(world, world.resource::<Me>().agent)
+                != address_of(world, world.resource::<Convo>().agent)
         {
             return;
         }
@@ -344,11 +345,11 @@ fn response(reply: On<Response>, mut commands: Commands) {
 fn stale_on_job(job: On<JobFinished>, mut commands: Commands) {
     let chat = job.chat;
     commands.queue(move |world: &mut World| {
-        let me = world.resource::<Me>();
-        if chat == me.session
+        let convo = world.resource::<Convo>();
+        if chat == convo.session
             || world
                 .get::<TalksTo>(chat)
-                .is_some_and(|to| to.0 == me.agent)
+                .is_some_and(|to| to.0 == convo.agent)
         {
             world.resource_mut::<History>().fresh = false;
         }
@@ -746,7 +747,7 @@ mod tests {
         });
         app.update();
         assert_eq!(reads(&app), 1);
-        let chat = app.world().resource::<Me>().session;
+        let chat = app.world().resource::<Convo>().session;
         app.world_mut().trigger(JobFinished { chat });
         app.update();
         assert_eq!(reads(&app), 2);

@@ -24,10 +24,10 @@ use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::chats::{Entry, Transcript};
 
 use super::{ChatSettings, Draft};
+use crate::convo::Convo;
 use crate::feel::Mood;
 use crate::icons::{Glyph, glyph};
 use crate::looks::{Fills, ICON, bare, note, retrace};
-use crate::me::Me;
 use crate::{AnyView, Cx, View, built, with_cx};
 
 /// The room of a mark about its picture.
@@ -136,7 +136,7 @@ fn take(world: &mut World, session: Entity, id: &str, by: &str) {
     let Some(answers) = answers else {
         return;
     };
-    let open = world.resource::<Me>().session;
+    let open = world.resource::<Convo>().session;
     world.resource_mut::<Replying>().0 = Some((open, answers));
     // The field is focused one step on.
     world.resource_mut::<Draft>().step = 1;
@@ -148,7 +148,7 @@ pub(super) fn attach(world: &mut World, text: String) -> String {
     if text.trim().is_empty() {
         return text;
     }
-    let open = world.resource::<Me>().session;
+    let open = world.resource::<Convo>().session;
     match world.resource_mut::<Replying>().0.take() {
         Some((session, answers)) if session == open => {
             replied(&answers, text.trim())
@@ -158,8 +158,12 @@ pub(super) fn attach(world: &mut World, text: String) -> String {
 }
 
 /// Drops a reply begun in a chat that is no longer open.
-fn forget(me: Res<Me>, mut replying: ResMut<Replying>) {
-    if replying.0.as_ref().is_some_and(|(at, _)| *at != me.session) {
+fn forget(convo: Res<Convo>, mut replying: ResMut<Replying>) {
+    if replying
+        .0
+        .as_ref()
+        .is_some_and(|(at, _)| *at != convo.session)
+    {
         replying.0 = None;
     }
 }
