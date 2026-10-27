@@ -21,7 +21,7 @@ room stays dark so that the world stays the bright thing on screen.
 | A coal | A refusing button glows red-brown under the pointer | This stops, refuses or throws away |
 | Candle under a word | A low pool of light under a menu title or a tab | Where you are in a menu or a set of tabs |
 | A lamp lit over a panel | Lamplight falls from the top of Needs You while something waits, and swells when something new arrives | Something waits for you |
-| A breath of magic | A faint teal light crosses the top of the Inspector when the selected agent changes | You are with another agent now. This and its tab's flash are the only teal in the panels |
+| A breath of magic | A faint teal light crosses the top of the Inspector when what it shows changes, another page or another agent | You are looking at something else now. This and its tab's flash are the only teal in the panels |
 | A lit tab | A panel behind another carries its light on its tab: lamplight rising from the tab's foot, or a teal flash | Something happened in a panel you are not looking at |
 | A badge | A small amber dot burns on the tab of a panel behind another while its lamp is lit | Something waits for you there |
 | Amber words | Status words are lamp amber | Live, or waiting |

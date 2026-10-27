@@ -1,9 +1,10 @@
 //! The light that falls into a panel: a lamp while something waits
-//! for the chief, and a flash when the agent it shows changes.
+//! for the chief, and a flash when what it shows has changed.
 
 use bevy::color::{Alpha, Color, Mix};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
+use bevy::ecs::message::{Message, MessageReader};
 use bevy::ecs::query::With;
 use bevy::ecs::system::{Commands, Local, Query, Res};
 use bevy::picking::Pickable;
@@ -18,7 +19,6 @@ use hamlet_client::waits::Waiting;
 
 use super::{FeelSettings, MagicColors, ease, pool, waver};
 use crate::View;
-use crate::convo::Convo;
 use crate::theme::Themed;
 
 /// How far the lamp's light reaches down from the panel's top, and
@@ -35,9 +35,14 @@ const FADE_OUT: f32 = 1.6;
 pub struct Lit {
     /// A lamp is lit over it while something waits for the chief.
     pub alarm: bool,
-    /// It flashes when the agent it shows changes.
+    /// It flashes when it is told that what it shows changed.
     pub flash: bool,
 }
+
+/// What a panel that flashes shows has changed, whether or not the
+/// panel is in front. Its tab flashes too while it is behind another.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct Updated;
 
 /// How far a panel's lamp is turned up and how much of its flash is
 /// left, kept on the node that draws them.
@@ -81,14 +86,14 @@ fn lamp_pool(deep: f32, paint: impl Fn(f32) -> Color) -> Gradient {
 }
 
 /// Lights a panel's lamp while something waits, turns it up for a
-/// moment as something new comes, and flashes a panel when the agent
-/// it shows changes.
+/// moment as something new comes, and flashes a panel when what it
+/// shows changes.
 pub(super) fn light(
     mut commands: Commands,
     time: Res<Time>,
     set: Res<FeelSettings>,
     theme: Themed,
-    convo: Res<Convo>,
+    mut updated: MessageReader<Updated>,
     waiting: Query<(), With<Waiting>>,
     mut panels: Query<(
         Entity,
@@ -96,11 +101,10 @@ pub(super) fn light(
         &mut Lamplight,
         Option<&BackgroundGradient>,
     )>,
-    mut shown: Local<Option<Entity>>,
     mut counted: Local<usize>,
 ) {
     let dt = time.delta_secs();
-    let changed = shown.replace(convo.agent) != Some(convo.agent);
+    let changed = updated.read().count() > 0;
     let count = waiting.iter().count();
     let rung = count > *counted;
     *counted = count;

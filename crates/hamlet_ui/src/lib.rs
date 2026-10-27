@@ -203,6 +203,7 @@ impl Plugin for UiPlugin {
                 convo::reseat.run_if(convo::roster_moved),
                 inspector::follow_selection
                     .run_if(resource_changed::<Selected>),
+                inspector::tell_page,
                 chief::accompany,
             )
                 .chain()

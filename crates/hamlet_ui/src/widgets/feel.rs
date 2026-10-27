@@ -17,8 +17,8 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ui::{ColorStop, percent};
 
-pub use self::backdrop::Lit;
 pub(crate) use self::backdrop::lamplight;
+pub use self::backdrop::{Lit, Updated};
 pub use self::foot::FootLight;
 pub(crate) use self::glow::{GlowPanel, glow_layer};
 use crate::theme::HamletTheme;
@@ -27,6 +27,7 @@ use crate::theme::HamletTheme;
 /// backdrops.
 pub fn plugin(app: &mut App) {
     app.init_resource::<FeelSettings>()
+        .add_message::<Updated>()
         .add_observer(control::answer)
         .add_systems(
             Update,
