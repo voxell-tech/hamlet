@@ -6,6 +6,7 @@
 //! is clicked.
 
 use bevy::app::{App, Update};
+use bevy::asset::Assets;
 use bevy::color::{Alpha, Color};
 use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::component::Component;
@@ -20,7 +21,7 @@ use bevy::ecs::world::World;
 use bevy::input::ButtonInput;
 use bevy::input::keyboard::KeyCode;
 use bevy::input::mouse::MouseScrollUnit;
-use bevy::math::{Rot2, Vec2};
+use bevy::math::Vec2;
 use bevy::picking::Pickable;
 use bevy::picking::events::{
     PointerClick, PointerDrag, PointerDragDrop, PointerDragEnd,
@@ -36,6 +37,7 @@ use bevy::ui::{
     PositionType, UiGlobalTransform, UiRect, UiTransform, Val, Val2,
     ZIndex, px,
 };
+use bevy::ui_render::ui_material::MaterialNode;
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::views::{BehaviorExt, frame};
 use bevy_fynix::{EntityCursor, OverrideCursor, Theme};
@@ -46,6 +48,7 @@ use hamlet_graph::{
 
 use super::Editor;
 use super::menu::Menu;
+use super::wire::{Shape, WireMaterial};
 use crate::looks::Fills;
 use crate::theme::{HamletTheme, Palette};
 use crate::{View, with_cx};
@@ -56,9 +59,6 @@ const ROW: f32 = 22.0;
 const PAD: f32 = 4.0;
 const BORDER: f32 = 1.0;
 const DOT: f32 = 10.0;
-const WIRE: f32 = 2.0;
-/// Straight pieces a wire is drawn with.
-const PIECES: usize = 18;
 const LEAST_ZOOM: f32 = 0.3;
 const MOST_ZOOM: f32 = 2.0;
 /// How far one pixel of dragging moves a number.
@@ -83,9 +83,10 @@ struct Sheet;
 #[derive(Component)]
 struct Card(NodeId);
 
-/// A piece of a drawn wire.
+/// The node a wire is drawn on: the wire's, or none for one being
+/// dragged out of a port.
 #[derive(Component)]
-struct Piece;
+struct Drawn(Option<Wire>);
 
 /// A port's dot on a card.
 #[derive(Component, Clone)]
@@ -809,7 +810,8 @@ fn build(
     }
 }
 
-/// Moves the sheet and the cards, and draws every wire again.
+/// Moves the sheet and the cards, and draws each wire where it now
+/// runs: a wire's node is kept, and only moved or given a new shape.
 fn place(
     mut commands: Commands,
     editor: Res<Editor>,
@@ -817,8 +819,12 @@ fn place(
     gesture: Res<Gesture>,
     If(theme): If<Res<Theme<HamletTheme>>>,
     mut sheets: Query<(Entity, &mut UiTransform), With<Sheet>>,
-    mut cards: Query<(&Card, &mut Node)>,
-    pieces: Query<Entity, With<Piece>>,
+    mut cards: Query<(&Card, &mut Node), Without<Drawn>>,
+    mut drawn: Query<
+        (Entity, &Drawn, &MaterialNode<WireMaterial>, &mut Node),
+        Without<Card>,
+    >,
+    mut materials: ResMut<Assets<WireMaterial>>,
     added: Query<(), bevy::ecs::query::Added<Card>>,
 ) {
     let Some((sheet, mut transform)) = sheets.iter_mut().next()
@@ -842,9 +848,6 @@ fn place(
         node.left = px(at.x);
         node.top = px(at.y);
     }
-    for piece in &pieces {
-        commands.entity(piece).despawn();
-    }
     let palette = &theme.0.palette;
     let graph = &editor.sheet.graph;
     let find = |port: &Port, output: bool| {
@@ -861,27 +864,54 @@ fn place(
             list[row].value_type,
         ))
     };
-    for Wire { from, to } in &graph.wires {
+    let mut wanted = Vec::new();
+    for wire in &graph.wires {
         if let (Some((a, value_type)), Some((b, _))) =
-            (find(from, true), find(to, false))
+            (find(&wire.from, true), find(&wire.to, false))
         {
-            curve(
-                &mut commands,
-                sheet,
-                a,
-                b,
-                tint(palette, value_type),
-            );
+            let shape = Shape::of(a, b, tint(palette, value_type));
+            wanted.push((Some(wire.clone()), shape));
         }
     }
     if let Gesture::Link(_, value_type, start, gone) = &*gesture {
-        curve(
-            &mut commands,
-            sheet,
+        let shape = Shape::of(
             *start,
             *start + *gone,
             tint(palette, *value_type),
         );
+        wanted.push((None, shape));
+    }
+    for (entity, Drawn(key), material, mut node) in &mut drawn {
+        let Some(at) =
+            wanted.iter().position(|(other, _)| other == key)
+        else {
+            commands.entity(entity).despawn();
+            continue;
+        };
+        let (_, shape) = wanted.swap_remove(at);
+        set_place(&mut node, &shape);
+        if materials
+            .get(&material.0)
+            .is_some_and(|now| !now.same_as(&shape.material))
+            && let Some(mut now) = materials.get_mut(&material.0)
+        {
+            *now = shape.material;
+        }
+    }
+    for (key, shape) in wanted {
+        let mut node = Node {
+            position_type: PositionType::Absolute,
+            ..Node::default()
+        };
+        set_place(&mut node, &shape);
+        commands.spawn((
+            Drawn(key),
+            node,
+            MaterialNode(materials.add(shape.material)),
+            Pickable::IGNORE,
+            ZIndex(-1),
+            ChildOf(sheet),
+        ));
     }
 }
 
@@ -982,55 +1012,12 @@ fn paint(
     }
 }
 
-/// A wire from `a` to `b`, leaving and arriving level.
-fn curve(
-    commands: &mut Commands,
-    sheet: Entity,
-    a: Vec2,
-    b: Vec2,
-    colour: Color,
-) {
-    let reach = ((b.x - a.x).abs() * 0.5).max(40.0);
-    let (p1, p2) =
-        (a + Vec2::new(reach, 0.0), b - Vec2::new(reach, 0.0));
-    let at = |t: f32| {
-        let u = 1.0 - t;
-        a * (u * u * u)
-            + p1 * (3.0 * u * u * t)
-            + p2 * (3.0 * u * t * t)
-            + b * (t * t * t)
-    };
-    for i in 0..PIECES {
-        let (from, to) = (
-            at(i as f32 / PIECES as f32),
-            at((i + 1) as f32 / PIECES as f32),
-        );
-        let span = to - from;
-        let length = span.length();
-        if length < 0.01 {
-            continue;
-        }
-        let middle = (from + to) * 0.5;
-        commands.spawn((
-            Piece,
-            Node {
-                position_type: PositionType::Absolute,
-                left: px(middle.x - length * 0.5),
-                top: px(middle.y - WIRE * 0.5),
-                // A little over, so the pieces meet at the bends.
-                width: px(length + 1.0),
-                height: px(WIRE),
-                ..Node::default()
-            },
-            UiTransform::from_rotation(Rot2::radians(
-                span.y.atan2(span.x),
-            )),
-            BackgroundColor(colour),
-            Pickable::IGNORE,
-            ZIndex(-1),
-            ChildOf(sheet),
-        ));
-    }
+/// Places a wire's node over the curve it draws.
+fn set_place(node: &mut Node, shape: &Shape) {
+    node.left = px(shape.corner.x);
+    node.top = px(shape.corner.y);
+    node.width = px(shape.size.x);
+    node.height = px(shape.size.y);
 }
 
 /// Ends any drag: the cursor goes back, and a moved card's move is

@@ -10,6 +10,7 @@ mod menu;
 mod params;
 mod preview;
 mod split;
+mod wire;
 
 use std::collections::BTreeMap;
 use std::mem::discriminant;
@@ -73,6 +74,7 @@ pub(crate) fn plugin(app: &mut App) {
         preview::plugin,
         split::plugin,
         files::plugin,
+        wire::plugin,
     ));
 }
 
