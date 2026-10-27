@@ -350,8 +350,8 @@ fn forget_press<E: EntityEvent>(
 }
 
 /// Hands over the text of the field being typed in when anything
-/// outside it is pressed, before the press does its work. A field
-/// hands its text over on losing focus, and a press moves no focus.
+/// outside it is pressed, before the press does its work, whether or
+/// not the press moves the focus.
 fn take_typed_on_press(
     press: On<PointerPress>,
     focus: Res<InputFocus>,
@@ -380,13 +380,18 @@ fn take_typed_on_press(
     commands.queue(move |world: &mut World| {
         // Told that it lost focus, the field hands its text over. It
         // has no focus for that moment, so that the chat's field
-        // keeps its line and does not send it.
+        // keeps its line and does not send it. Bevy may already have
+        // moved the focus to what was pressed, so that focus is put
+        // back, not the field's.
+        let after = world.resource::<InputFocus>().get();
         world.resource_mut::<InputFocus>().clear();
         world.trigger(FocusLost { entity: input });
         world.flush();
-        world
-            .resource_mut::<InputFocus>()
-            .set(input, FocusCause::Pressed);
+        if let Some(after) = after {
+            world
+                .resource_mut::<InputFocus>()
+                .set(after, FocusCause::Pressed);
+        }
     });
 }
 
@@ -469,5 +474,85 @@ mod tests {
             app.world().resource::<InputFocus>().get(),
             Some(input)
         );
+    }
+
+    fn press_on(app: &mut App, target: Entity) {
+        use bevy::camera::NormalizedRenderTarget;
+        use bevy::math::Vec2;
+        use bevy::picking::backend::HitData;
+        use bevy::picking::events::Pointer;
+        use bevy::picking::pointer::{
+            Location, PointerButton, PointerId,
+        };
+
+        let at = Location {
+            target: NormalizedRenderTarget::None {
+                width: 1,
+                height: 1,
+            },
+            position: Vec2::ZERO,
+        };
+        let world = app.world_mut();
+        world.trigger(PointerPress {
+            entity: target,
+            pointer: Pointer::new(PointerId::Mouse, at),
+            button: PointerButton::Primary,
+            hit: HitData::new(target, 0.0, None, None),
+            count: 1,
+        });
+        world.flush();
+    }
+
+    /// Bevy's own observer moves the focus to what is pressed, and
+    /// the field typed in hands its text over without taking it back.
+    fn pressing_app() -> App {
+        use bevy::input_focus::InputFocusPlugin;
+        use bevy::input_focus::pointer_focus::PointerFocusPlugin;
+        use bevy::window::{PrimaryWindow, Window};
+
+        let mut app = App::new();
+        app.add_plugins((InputFocusPlugin, PointerFocusPlugin))
+            .add_observer(take_typed_on_press);
+        app.world_mut().spawn((Window::default(), PrimaryWindow));
+        app
+    }
+
+    fn field(app: &mut App) -> Entity {
+        let world = app.world_mut();
+        let field = world.spawn_empty().id();
+        world
+            .spawn((
+                EditableText::default(),
+                TabIndex(0),
+                ChildOf(field),
+            ))
+            .id()
+    }
+
+    #[test]
+    fn a_press_on_another_field_moves_the_typing_to_it() {
+        let mut app = pressing_app();
+        let first = field(&mut app);
+        let second = field(&mut app);
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(first, FocusCause::Pressed);
+        press_on(&mut app, second);
+        assert_eq!(
+            app.world().resource::<InputFocus>().get(),
+            Some(second)
+        );
+    }
+
+    #[test]
+    fn a_press_on_nothing_focusable_ends_the_typing() {
+        let mut app = pressing_app();
+        let first = field(&mut app);
+        let button = app.world_mut().spawn_empty().id();
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(first, FocusCause::Pressed);
+        press_on(&mut app, button);
+        assert_eq!(app.world().resource::<InputFocus>().get(), None);
     }
 }
